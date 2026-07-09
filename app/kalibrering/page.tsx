@@ -85,6 +85,46 @@ const fmtAvvikelse = (n: number | null | undefined, unit: 'cm' | 'mm'): string =
   return `${sign}${Math.round(n)}`;
 };
 
+// === Delad avvikelse-klassificering (mall: Trend-fliken) =====================
+// EN källa för hur en diameter-/längd-avvikelse klassas i hela kalibreringsvyn.
+// Returnerar SEMANTISK status — inte en färg. Temat mappar status → ton-token,
+// och CSS mappar ton-token → hex (på ett ställe per element).
+//
+// Trösklarna är EXAKT Trends valCls (rör inte Trend-komponenten):
+//   diameter (mm): >6 röd · >4 orange · <−4 förLitet · annars ok   (tolerans ±4)
+//   längd    (cm): >3 röd · >2 orange · <−2 förLitet · annars ok   (tolerans ±2)
+//
+// "För få kontroller"-skydd: om `antalKontroller` anges OCH understiger Trends
+// tröskel (KONTROLL_TROSKEL = 10) → alltid 'ok', oavsett värde. Utelämnas
+// `antalKontroller` (enskild kontroll, inte ett trend-aggregat) sker ingen
+// dämpning — värdet klassas rent på tolerans.
+type AvvikelseStatus = 'ok' | 'förLitet' | 'orange' | 'röd';
+const KONTROLL_TROSKEL = 10; // = Trends TRADSLAG_TRESHOLD
+
+const avvikelseStatus = (opts: {
+  värde: number;
+  enhet: 'dia' | 'len';
+  antalKontroller?: number;
+}): AvvikelseStatus => {
+  const { värde, enhet, antalKontroller } = opts;
+  if (antalKontroller != null && antalKontroller < KONTROLL_TROSKEL) return 'ok';
+  if (enhet === 'dia') {
+    return värde > 6 ? 'röd' : värde > 4 ? 'orange' : värde < -4 ? 'förLitet' : 'ok';
+  }
+  return värde > 3 ? 'röd' : värde > 2 ? 'orange' : värde < -2 ? 'förLitet' : 'ok';
+};
+
+// Status → befintlig ton-token (det ENDA stället statusen blir en tema-token).
+// CSS-klasserna .tone-ok/.cold/.hi/.hot äger själva hex-värdet.
+type ToneToken = 'ok' | 'cold' | 'hi' | 'hot';
+const STATUS_TON: Record<AvvikelseStatus, ToneToken> = {
+  ok: 'ok', förLitet: 'cold', orange: 'hi', röd: 'hot',
+};
+// Bekvämlighet för className-bruk: värde → ton-token direkt.
+const avvikelseTon = (
+  värde: number, enhet: 'dia' | 'len', antalKontroller?: number,
+): ToneToken => STATUS_TON[avvikelseStatus({ värde, enhet, antalKontroller })];
+
 // iOS-mönster: dra ner på modalen för att stänga. Hela modalen är dragbar
 // från övre 200px (handle + header). Resten behåller scroll. Hooken returnerar
 // refs och touch-handlers att fästa på overlay + modal-element.
@@ -498,25 +538,9 @@ export default function KalibreringPage() {
         return { id: s.id, stam_nummer: s.stam_nummer, stock_nummer: s.stock_nummer, sLen, sDia };
       });
 
-      // Diverging-klassning — exakt samma språk som lollipop i nivå 3.
-      // Diameter ±4 mm = Skogforsks branschstandard, längd ±2 cm = standard.
-      type DivCls = 'cold' | 'ok' | 'hi' | 'hot';
-      const diaSwarmCls = (a: number): DivCls =>
-        a > 6 ? 'hot' : a > 4 ? 'hi' : a < -4 ? 'cold' : 'ok';
-      const lenSwarmCls = (a: number): DivCls =>
-        a > 3 ? 'hot' : a > 2 ? 'hi' : a < -2 ? 'cold' : 'ok';
-
-      // Storsiffrans ton = värsta stocken, inte snittet. "+2mm snitt med
-      // 7 röda stockar" får alltså röd rubrik, inte lugn vit.
-      const divRank: Record<DivCls, number> = { ok: 0, cold: 1, hi: 2, hot: 3 };
-      const worstClsLen: DivCls = stockDist.reduce<DivCls>((w, e) => {
-        const c = lenSwarmCls(e.sLen);
-        return divRank[c] > divRank[w] ? c : w;
-      }, 'ok');
-      const worstClsDia: DivCls = stockDist.reduce<DivCls>((w, e) => {
-        const c = diaSwarmCls(e.sDia);
-        return divRank[c] > divRank[w] ? c : w;
-      }, 'ok');
+      // Svärmens prickar + per-mått-talet färgas via delade avvikelseTon/
+      // avvikelseStatus (se modulnivå). Prickarna: per stock. Talet: på SNITTET
+      // (se nedan) — inte värsta stocken, så ett lugnt snitt förblir grått.
 
       // Status-raden räknar enskilda stockar utanför tolerans — snittet
       // kan se OK ut även när flera stockar är dåliga.
@@ -613,16 +637,8 @@ export default function KalibreringPage() {
           const raw = 50 - (clamped / 8) * 40;
           return Math.max(8, Math.min(92, raw));
         };
-        // Diverging-klassning per mätpunkt: visar riktning (för litet vs för stort),
-        // inte bara avvikelsens storlek. Asymmetrisk — orange/röd för "för stort"
-        // i två intensiteter, en blå nivå för "för litet". Tröskeln ±4 mm matchar
-        // Skogforsks branschstandard för kalibreringskontroll.
-        type MpDiv = 'cold' | 'ok' | 'hi' | 'hot';
-        const mpDivCls = (a: number): MpDiv =>
-          a > 6 ? 'hot'      // > +6 mm — klart för stort, röd
-          : a > 4 ? 'hi'     // +4 till +6 — över gräns, orange
-          : a < -4 ? 'cold'  // < -4 — för litet, blå
-          : 'ok';            // ±4 — inom tolerans, neutral grå
+        // Per mätpunkt-klassning via delade avvikelseTon (diameter, mm) — visar
+        // riktning (för litet/för stort) i den gemensamma skalan.
 
         // Diagnos baserad på riktnings-konsensus. En mening, mänskligt språk.
         // Outlier = |avvikelse| > 4 mm (Skogforsks branschstandard).
@@ -707,7 +723,7 @@ export default function KalibreringPage() {
                       {mpAvvik.flatMap((p, i) => {
                         const xP = xPctFor(p.position_cm);
                         const yP = yPctFor(p.avvikelse);
-                        const cls = mpDivCls(p.avvikelse);
+                        const cls = avvikelseTon(p.avvikelse, 'dia');
                         const above = p.avvikelse >= 0;
                         return [
                           <div
@@ -764,7 +780,7 @@ export default function KalibreringPage() {
                   </div>
                   <div className="kalib-mp-list">
                     {mpAvvik.map((p, i) => {
-                      const cls = mpDivCls(p.avvikelse);
+                      const cls = avvikelseTon(p.avvikelse, 'dia');
                       return (
                         <div key={i} className="kalib-mp-row">
                           <div className="kalib-mp-pos">{p.position_cm} cm</div>
@@ -811,16 +827,11 @@ export default function KalibreringPage() {
         const maxLangd = Math.max(...stamStockar.map((st) => st.maskin_langd_cm ?? 0), 1);
         const maxDia = Math.max(...stamStockar.map((st) => st.maskin_toppdia_mm ?? 0), 1);
 
-        // Per-stock diverging-klassning (samma trösklar som nivå 3 + null-fall)
+        // Per-stock klassning via delade avvikelseTon (diameter). 'null' =
+        // saknad mätning (streckad kontur), annars gemensamma ton-skalan.
         const stockDivCls = (
           avvik: number | null,
-        ): 'cold' | 'ok' | 'hi' | 'hot' | 'null' => {
-          if (avvik == null) return 'null';
-          return avvik > 6 ? 'hot'
-            : avvik > 4 ? 'hi'
-            : avvik < -4 ? 'cold'
-            : 'ok';
-        };
+        ): ToneToken | 'null' => (avvik == null ? 'null' : avvikelseTon(avvik, 'dia'));
 
         // === Stamhållning — planområden i den täta diameterprofilen ===
         // Profil finns bara för kontrollstammar (758 i prod). Hela sektionen
@@ -1060,7 +1071,7 @@ export default function KalibreringPage() {
             <div className="kalib-card">
               <div className="kalib-tol-header">
                 <div className="kalib-tol-label">Längd</div>
-                <div className={`kalib-tol-value tone-${worstClsLen}`}>
+                <div className={`kalib-tol-value tone-${avvikelseTon(lenSnitt, 'len')}`}>
                   {fmtAvvikelse(lenSnitt, 'cm')} cm
                 </div>
               </div>
@@ -1070,7 +1081,7 @@ export default function KalibreringPage() {
                 {stockDist.map((e) => (
                   <div
                     key={e.id}
-                    className={`kalib-swarm-dot tone-${lenSwarmCls(e.sLen)}`}
+                    className={`kalib-swarm-dot tone-${avvikelseTon(e.sLen, 'len')}`}
                     style={{ left: `${swarmX(e.sLen, 4)}%`, top: `${swarmY(e)}%` }}
                     title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sLen, 'cm')} cm`}
                   />
@@ -1093,7 +1104,7 @@ export default function KalibreringPage() {
             <div className="kalib-card">
               <div className="kalib-tol-header">
                 <div className="kalib-tol-label">Diameter</div>
-                <div className={`kalib-tol-value tone-${worstClsDia}`}>
+                <div className={`kalib-tol-value tone-${avvikelseTon(diaSnitt, 'dia')}`}>
                   {fmtAvvikelse(diaSnitt, 'mm')} mm
                 </div>
               </div>
@@ -1103,7 +1114,7 @@ export default function KalibreringPage() {
                 {stockDist.map((e) => (
                   <div
                     key={e.id}
-                    className={`kalib-swarm-dot tone-${diaSwarmCls(e.sDia)}`}
+                    className={`kalib-swarm-dot tone-${avvikelseTon(e.sDia, 'dia')}`}
                     style={{ left: `${swarmX(e.sDia, 8)}%`, top: `${swarmY(e)}%` }}
                     title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sDia, 'mm')} mm`}
                   />
@@ -1132,7 +1143,7 @@ export default function KalibreringPage() {
             <div className="kalib-stockar-list">
               {data.stockar.map((s) => {
                 const sLen = s.langd_avvikelse_cm ?? 0;
-                const sLenCls = stockLenCls(sLen);
+                const sLenTon = avvikelseTon(sLen, 'len');
 
                 // Max diameter-avvikelse över alla mätpunkter + toppen,
                 // med tecknet på det värdet som har störst absolut värde.
@@ -1145,16 +1156,12 @@ export default function KalibreringPage() {
                 const sDia = allaDiaAvvik.reduce(
                   (a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0
                 );
-                // Striktare klassning för max-avvik: warn 3-4 mm, bad >4 mm
-                const sDiaCls: 'good' | 'warn' | 'bad' =
-                  Math.abs(sDia) > 4 ? 'bad'
-                  : Math.abs(sDia) > 3 ? 'warn'
-                  : 'good';
+                const sDiaTon = avvikelseTon(sDia, 'dia');
 
-                const worst =
-                  sLenCls === 'bad' || sDiaCls === 'bad' ? 'bad'
-                  : sLenCls === 'warn' || sDiaCls === 'warn' ? 'warn'
-                  : 'good';
+                // Raden bär varningen: dess ton = värsta måttet (delad skala).
+                const tonRank: Record<ToneToken, number> = { ok: 0, cold: 1, hi: 2, hot: 3 };
+                const worstTon: ToneToken =
+                  tonRank[sDiaTon] >= tonRank[sLenTon] ? sDiaTon : sLenTon;
                 return (
                   <div
                     key={s.id}
@@ -1167,7 +1174,7 @@ export default function KalibreringPage() {
                         openStamVy(s.stam_nummer);
                       }
                     }}
-                    className={`kalib-stock-row ${worst === 'bad' ? 'bad' : worst === 'warn' ? 'warn' : ''}`}
+                    className={`kalib-stock-row tone-${worstTon}`}
                   >
                     <div className="kalib-stock-row-num">{s.stam_nummer}·{s.stock_nummer}</div>
                     <div className="kalib-stock-row-info">
@@ -1181,10 +1188,10 @@ export default function KalibreringPage() {
                       </div>
                     </div>
                     <div className="kalib-stock-row-diff">
-                      <span className={`kalib-stock-row-len ${sLenCls}`}>
+                      <span className={`kalib-stock-row-len tone-${sLenTon}`}>
                         {fmtAvvikelse(sLen, 'cm')} cm
                       </span>
-                      <span className={`kalib-stock-row-dia ${sDiaCls}`}>
+                      <span className={`kalib-stock-row-dia tone-${sDiaTon}`}>
                         {fmtAvvikelse(sDia, 'mm')} mm
                       </span>
                     </div>
@@ -1206,6 +1213,12 @@ export default function KalibreringPage() {
   const latestKalib = allKalib.length > 0 ? allKalib[0] : null;
   const latestStockar = latestKalib ? (stockMap[latestKalib.filnamn] || []).sort((a, b) => a.stock_nummer - b.stock_nummer) : [];
   const totalLatestLen = latestStockar.reduce((a, s) => a + s.maskin_langd_cm, 0);
+  // Antal stockar utanför tolerans (delad skala: dia ±4 mm, längd ±2 cm).
+  // Bär den lågmälda summeringen på Senaste — hero-talet färgas separat på snittet.
+  const latestUtanfor = latestStockar.filter(
+    (s) => avvikelseTon(s.dia_avvikelse_mm ?? 0, 'dia') !== 'ok'
+        || avvikelseTon(s.langd_avvikelse_cm ?? 0, 'len') !== 'ok'
+  ).length;
 
   // Filtrerade datakällor — Historik och Rapport räknar på dessa
   const filteredKalib = effectiveSelected === 'all' ? allKalib : allKalib.filter(k => k.maskin_id === effectiveSelected);
@@ -1556,7 +1569,13 @@ export default function KalibreringPage() {
         .kalib-hero-metrics{display:flex;gap:12px;margin-bottom:16px}
         .kalib-hero-metric{flex:1;text-align:center;padding:20px 12px;background:rgba(255,255,255,0.04);border-radius:12px}
         .kalib-hero-metric-value{font-size:36px;font-weight:700;line-height:1;margin-bottom:6px;letter-spacing:-0.02em;color:#fff}
-        .kalib-hero-metric-value.bad{color:#FF3B30}
+        /* Hero-talet färgas på SNITTET via delade skalan. ok = vitt (tyst). */
+        .kalib-hero-metric-value.tone-ok{color:#fff}
+        .kalib-hero-metric-value.tone-cold{color:#0A84FF}
+        .kalib-hero-metric-value.tone-hi{color:#FF9F0A}
+        .kalib-hero-metric-value.tone-hot{color:#FF453A}
+        /* Lågmäld summeringsrad på Senaste — ersätter gröna/röda info-rutan. */
+        .kalib-lugn-rad{display:flex;align-items:center;gap:8px;margin-top:16px;font-size:13px;color:#8E8E93;line-height:1.4}
         .kalib-hero-metric-label{font-size:14px;color:#8E8E93;font-weight:500}
         .kalib-hero-metric-hint{font-size:13px;color:#8E8E93;margin-top:4px}
 
@@ -1578,6 +1597,10 @@ export default function KalibreringPage() {
         .kalib-log-body{background:#2C2C2E;border-radius:6px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.06)}
         .kalib-log-body.warn-stock{border:1.5px solid #8E8E93}
         .kalib-log-body.bad-stock{border:1.5px solid #FF3B30}
+        /* Senaste stem-block via delade skalan (ok = ingen kant, tyst) */
+        .kalib-log-body.stock-ton-cold{border:1.5px solid #0A84FF}
+        .kalib-log-body.stock-ton-hi{border:1.5px solid #FF9F0A}
+        .kalib-log-body.stock-ton-hot{border:1.5px solid #FF453A}
         .kalib-log-num{color:#fff;font-size:14px;font-weight:600}
         .kalib-log-info{text-align:center}
         .kalib-log-length{font-size:12px;font-weight:500;color:#fff}
@@ -1917,17 +1940,22 @@ export default function KalibreringPage() {
         .kalib-stock-row{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:12px;cursor:pointer;transition:background 0.12s,border-color 0.12s,transform 0.12s}
         .kalib-stock-row:hover{background:rgba(255,255,255,0.07)}
         .kalib-stock-row:active{transform:scale(0.99)}
-        .kalib-stock-row.warn{border-color:rgba(255,149,0,0.35)}
-        .kalib-stock-row.bad{border-color:rgba(255,59,48,0.4);background:rgba(255,59,48,0.06)}
-        .kalib-stock-row.bad:hover{background:rgba(255,59,48,0.10)}
+        /* Raden bär varningen — kant/bakgrund via delade ton-skalan (ok = tyst) */
+        .kalib-stock-row.tone-cold{border-color:rgba(10,132,255,0.35)}
+        .kalib-stock-row.tone-hi{border-color:rgba(255,159,10,0.40)}
+        .kalib-stock-row.tone-hot{border-color:rgba(255,69,58,0.40);background:rgba(255,69,58,0.06)}
+        .kalib-stock-row.tone-hot:hover{background:rgba(255,69,58,0.10)}
         .kalib-stock-row-num{width:44px;height:36px;background:rgba(255,255,255,0.06);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;flex-shrink:0;font-variant-numeric:tabular-nums}
         .kalib-stock-row-info{flex:1;min-width:0}
         .kalib-stock-row-title{font-size:14px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .kalib-stock-row-meta{font-size:12px;color:#8E8E93;margin-top:2px}
         .kalib-stock-row-diff{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;min-width:70px;text-align:right}
         .kalib-stock-row-len,.kalib-stock-row-dia{font-size:12px;font-weight:600;color:#fff}
-        .kalib-stock-row-len.warn,.kalib-stock-row-dia.warn{color:#FF9500}
-        .kalib-stock-row-len.bad,.kalib-stock-row-dia.bad{color:#FF3B30}
+        /* Stockvärdena i delade skalan: ok = grått (tyst), annars ton-färg */
+        .kalib-stock-row-len.tone-ok,.kalib-stock-row-dia.tone-ok{color:#8E8E93}
+        .kalib-stock-row-len.tone-cold,.kalib-stock-row-dia.tone-cold{color:#0A84FF}
+        .kalib-stock-row-len.tone-hi,.kalib-stock-row-dia.tone-hi{color:#FF9F0A}
+        .kalib-stock-row-len.tone-hot,.kalib-stock-row-dia.tone-hot{color:#FF453A}
 
         /* === Detaljmodal: rotstock-tagg, lollipop-graf, mätpunkter-lista === */
         .kalib-stock-tag-row{display:flex;justify-content:flex-end;margin:0 0 12px}
@@ -2040,35 +2068,29 @@ export default function KalibreringPage() {
                 <div className="kalib-section-title" style={{ marginBottom: 18 }}>Avvikelse från operatör</div>
                 <div className="kalib-hero-metrics">
                   <div className="kalib-hero-metric">
-                    <div className={`kalib-hero-metric-value ${lenOut(latestKalib.langd_avvikelse_snitt_cm) ? 'bad' : ''}`}>
+                    <div className={`kalib-hero-metric-value tone-${avvikelseTon(latestKalib.langd_avvikelse_snitt_cm, 'len')}`}>
                       {fmtAvvikelse(latestKalib.langd_avvikelse_snitt_cm, 'cm')}
                     </div>
                     <div className="kalib-hero-metric-label">Längd (cm)</div>
                     <div className="kalib-hero-metric-hint">min {fmtAvvikelse(latestKalib.langd_avvikelse_min_cm, 'cm')} / max {fmtAvvikelse(latestKalib.langd_avvikelse_max_cm, 'cm')}</div>
                   </div>
                   <div className="kalib-hero-metric">
-                    <div className={`kalib-hero-metric-value ${diaOut(latestKalib.dia_avvikelse_snitt_mm) ? 'bad' : ''}`}>
+                    <div className={`kalib-hero-metric-value tone-${avvikelseTon(latestKalib.dia_avvikelse_snitt_mm, 'dia')}`}>
                       {fmtAvvikelse(latestKalib.dia_avvikelse_snitt_mm, 'mm')}
                     </div>
                     <div className="kalib-hero-metric-label">Diameter (mm)</div>
                     <div className="kalib-hero-metric-hint">min {fmtAvvikelse(latestKalib.dia_avvikelse_min_mm, 'mm')} / max {fmtAvvikelse(latestKalib.dia_avvikelse_max_mm, 'mm')}</div>
                   </div>
                 </div>
-                {latestKalib.status === 'VARNING' ? (
-                  <div className="kalib-info-box warn">
-                    <span className="kalib-info-icon"><MSym name="warning" size={22} color="#FF3B30" /></span>
-                    <div className="kalib-info-content">
-                      <div className="kalib-info-title">Utanför tolerans</div>
-                      <div className="kalib-info-text">Utanför tolerans. Kontrollera kalibreringen.</div>
-                    </div>
+                {latestUtanfor === 0 ? (
+                  <div className="kalib-lugn-rad">
+                    <MSym name="check" size={16} color="#8E8E93" />
+                    <span>Allt inom tolerans.</span>
                   </div>
                 ) : (
-                  <div className="kalib-info-box ok">
-                    <span className="kalib-info-icon"><MSym name="check_circle" size={22} color="#34C759" /></span>
-                    <div className="kalib-info-content">
-                      <div className="kalib-info-title">Inom tolerans</div>
-                      <div className="kalib-info-text">Allt inom tolerans.</div>
-                    </div>
+                  <div className="kalib-lugn-rad">
+                    <MSym name="info" size={16} color="#8E8E93" />
+                    <span>{latestUtanfor} av {latestStockar.length} stockar utanför — se stockarna nedan.</span>
                   </div>
                 )}
               </div>
@@ -2083,8 +2105,8 @@ export default function KalibreringPage() {
                       {latestStockar.map(stock => {
                         const baseW = Math.max(60, stock.maskin_langd_cm * 0.5);
                         const baseH = Math.max(18, stock.maskin_toppdia_mm * 0.18);
-                        const cls = stockDiaCls(stock.dia_avvikelse_mm);
-                        const borderCls = cls === 'good' ? '' : cls === 'warn' ? 'warn-stock' : 'bad-stock';
+                        const ton = avvikelseTon(stock.dia_avvikelse_mm ?? 0, 'dia');
+                        const borderCls = ton === 'ok' ? '' : `stock-ton-${ton}`;
                         return (
                           <div key={stock.id} className="kalib-log-block" onClick={() => openStockModal(stock)}>
                             <div className={`kalib-log-body ${borderCls}`} style={{ width: baseW, height: baseH }}>
