@@ -68,6 +68,26 @@ const FALLNINGSRADIE_M = 40;
 // tal (att gissa en tröskel var hela buggen). Äkta skräp fångas hellre av from-driver-synhållet.
 const KORVY_SIGHT_M = 400;
 
+// === Körvy-kamera-känsla (finjustering — vridbara värden, testas i maskinen) ===
+// Prick i NEDRE TREDJEDELEN (bilnav-känsla): centrera på föraren + padding.top som andel av
+// kartans höjd (0.34 → prick ~67 % ner → mest karta framåt, lite bakåt). Pixel-baserat →
+// pricken sitter kvar även när närhets-zoomen varierar.
+const KORVY_DOT_PAD_FRAC = 0.34;
+// Närhets-zoom (Martins idé — INTE fart-baserad; maskinen kör långsamt/stannar för att fälla).
+// Zooma IN när man närmar sig närmaste symbolen, UT när passerad. Full vid fällningsradien.
+const KORVY_BASE_ZOOM = 18.5;    // inget nära → lugn överblick (lite mer inzoomad än förr)
+const KORVY_FULL_ZOOM = 19.5;    // full inzoom vid fällningsradien
+const KORVY_ZOOM_START_M = 100;  // börja glida in här
+// dist (förar-avstånd till korvyNextItems[0]) → mål-zoom. Full vid FALLNINGSRADIE_M (40 m,
+// hänger ihop med ringen), bas bortom 100 m, mjuk ramp emellan. Lerpen i follow-effekten
+// dämpar sedan jitter → zoomen studsar aldrig nervöst runt en tröskel.
+function korvyProximityZoom(dist: number | null): number {
+  if (dist == null || dist > KORVY_ZOOM_START_M) return KORVY_BASE_ZOOM;
+  if (dist <= FALLNINGSRADIE_M) return KORVY_FULL_ZOOM;
+  const t = (KORVY_ZOOM_START_M - dist) / (KORVY_ZOOM_START_M - FALLNINGSRADIE_M);  // 0..1
+  return KORVY_BASE_ZOOM + (KORVY_FULL_ZOOM - KORVY_BASE_ZOOM) * t;
+}
+
 // === TYPES ===
 interface Point {
   x: number;
@@ -2082,6 +2102,7 @@ export default function PlannerPage() {
   const [korvyActive, setKorvyActive] = useState(false);
   const [korvyBlinkOn, setKorvyBlinkOn] = useState(true);
   const korvyPrevCameraRef = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
+  const korvyZoomRef = useRef<number>(KORVY_BASE_ZOOM);  // utjämnad närhets-zoom (lerp → ingen studs)
   // GPS-heading (pos.coords.heading) — sätts när användaren rör sig (speed >= ~1 m/s).
   // Föredras framför deviceHeading i Körvy eftersom det är faktisk färdriktning, inte enhetens orientering.
   const [gpsHeading, setGpsHeading] = useState<number | null>(null);
@@ -5294,24 +5315,29 @@ export default function PlannerPage() {
         };
       }
       const pos = currentPosition as any;
-      // Centrum = 50m bakom användaren längs heading (= heading + 180°), så användarens position
-      // hamnar framför kameran och vägen framåt syns
+      // Prick i NEDRE TREDJEDELEN: centrera på FÖRAREN och skjut ner den via padding.top (mest
+      // karta framåt, lite bakåt). Byter ut den gamla "50 m bakom"-offseten som satt pricken
+      // för högt. Pixel-baserat → sitter kvar när närhets-zoomen varierar.
       const targetCenter: [number, number] = pos && pos.lon != null && pos.lat != null
-        ? offsetLatLngByBearing(pos.lat, pos.lon, 50, (korvyHeading + 180) % 360)
+        ? [pos.lon, pos.lat]
         : [map.getCenter().lng, map.getCenter().lat];
+      const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+      korvyZoomRef.current = KORVY_BASE_ZOOM;  // starta närhets-zoomen från bas
       map.easeTo({
         center: targetCenter,
-        zoom: 18,
+        zoom: KORVY_BASE_ZOOM,
         // STEG 1: lätt lutning (~28°) ger "vägen framåt"-känsla utan brant 3D. Platt mark
         // (terräng-exaggeration 1.0, ej 1.8 — se effekten nedan) gör att stenmurar/markeringar
         // inte förvrängs. Heading-up + följande = "det känns som att köra", ej statisk norr-upp.
         pitch: 28,
         bearing: korvyHeading,
+        padding: { top: topPad, bottom: 0, left: 0, right: 0 },
         duration: 800,
       });
     } else if (korvyPrevCameraRef.current) {
       const prev = korvyPrevCameraRef.current;
-      map.easeTo({ center: prev.center, zoom: prev.zoom, bearing: prev.bearing, pitch: prev.pitch, duration: 800 });
+      // Nollställ padding (körvy satte top-padding för lågt sittande prick) → planeringsvyn opåverkad.
+      map.easeTo({ center: prev.center, zoom: prev.zoom, bearing: prev.bearing, pitch: prev.pitch, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 800 });
       korvyPrevCameraRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5324,14 +5350,20 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
     if (!pos || pos.lon == null || pos.lat == null) return;
-    const camCenter = offsetLatLngByBearing(pos.lat, pos.lon, 50, (korvyHeading + 180) % 360);
+    const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+    // Närhets-zoom: glid mot närmaste hindret (korvyNextItems[0], förar-avstånd). Lerp (0.35)
+    // mot mål-zoomen → mjuk glidning som dämpar GPS-jitter så zoomen aldrig studsar runt en tröskel.
+    const rawZoom = korvyProximityZoom(korvyNextItems[0]?.dist ?? null);
+    korvyZoomRef.current += (rawZoom - korvyZoomRef.current) * 0.35;
     map.easeTo({
-      center: camCenter,
+      center: [pos.lon, pos.lat],   // pricken centreras; padding.top skjuter ner den i nedre tredjedelen
       bearing: korvyHeading,
+      zoom: korvyZoomRef.current,
+      padding: { top: topPad, bottom: 0, left: 0, right: 0 },
       duration: 500,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, korvyActive]);
+  }, [currentPosition, korvyHeading, korvyActive, korvyNextItems]);
 
   // 3) Större ikoner i Körvy via icon-size paint expression
   useEffect(() => {
