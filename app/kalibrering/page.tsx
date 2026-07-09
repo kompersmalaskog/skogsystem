@@ -85,6 +85,12 @@ const fmtAvvikelse = (n: number | null | undefined, unit: 'cm' | 'mm'): string =
   return `${sign}${Math.round(n)}`;
 };
 
+// Pluralis: 1 = singular, 2+ = plural. "1 stock" / "2 stockar".
+const antalText = (n: number, singular: string, plural: string) =>
+  `${n} ${n === 1 ? singular : plural}`;
+const stockText = (n: number) => antalText(n, 'stock', 'stockar');
+const stamText = (n: number) => antalText(n, 'stam', 'stammar');
+
 // === Delad avvikelse-klassificering (mall: Trend-fliken) =====================
 // EN källa för hur en diameter-/längd-avvikelse klassas i hela kalibreringsvyn.
 // Returnerar SEMANTISK status — inte en färg. Temat mappar status → ton-token,
@@ -374,6 +380,16 @@ export default function KalibreringPage() {
     };
   }, [calData, effectiveSelected]);
 
+  // Öppna kalendern på månaden för senaste kontrollen (inte innevarande, som
+  // ofta är tom). Körs en gång när data laddats; överskrivs inte om användaren
+  // sen bläddrar bort.
+  const calInitRef = useRef(false);
+  useEffect(() => {
+    if (calInitRef.current || allKalib.length === 0) return;
+    calInitRef.current = true;
+    setCalManad(allKalib[0].datum.slice(0, 7)); // "YYYY-MM"
+  }, [allKalib]);
+
   useEffect(() => {
     if (activeTab !== 'calendar') return;
     if (calData?.manad === calManad && !calError) return; // har redan datan
@@ -439,9 +455,15 @@ export default function KalibreringPage() {
 
       setAllKalib(kalibRows);
 
+      // stockMap används BARA för Senaste-kortet (latestStockar). Hämta därför
+      // bara senaste kontrollens stockar via filnamn — komplett och billigt.
+      // (Tidigare hämtades ALLA rader utan pagination → PostgREST kapade vid
+      //  1000 av 4160 → senaste kontrollen undercountades.)
+      const latestFilnamn = kalibRows[0].filnamn;
       const { data: stockRows, error: stockErr } = await supabase
         .from('detalj_kontroll_stock')
         .select('*')
+        .eq('filnamn', latestFilnamn)
         .order('stock_nummer', { ascending: true });
 
       if (stockErr) {
@@ -904,7 +926,7 @@ export default function KalibreringPage() {
 
         pushModal({
           title: `Stam ${stamNummer}`,
-          subtitle: `${stamStockar.length} stockar · ${sortimentText} · ${totalM} m`,
+          subtitle: `${stockText(stamStockar.length)} · ${sortimentText} · ${totalM} m`,
           body: (
             <>
               {alleStammar.length > 1 && (
@@ -1002,6 +1024,11 @@ export default function KalibreringPage() {
               {planer.length > 0 && (
                 <div className="kalib-card kalib-stamhallning-detalj">
                   <div className="kalib-stamhallning-list">
+                    <div className="kalib-stamhallning-row kalib-stamhallning-head">
+                      <span className="kalib-stamhallning-pos">Läge på stammen</span>
+                      <span className="kalib-stamhallning-len">Längd</span>
+                      <span className="kalib-stamhallning-dia">Diameter</span>
+                    </div>
                     {planer.map((p, idx) => {
                       const startM = (p.startCm / 100).toFixed(1).replace('.', ',');
                       const endM = (p.endCm / 100).toFixed(1).replace('.', ',');
@@ -1023,7 +1050,7 @@ export default function KalibreringPage() {
 
       pushModal({
         title: 'Kontroll',
-        subtitle: `${datumStr} · ${cap(k.tradslag ?? '')} · ${k.antal_kontrollstockar ?? data.stockar.length} stockar`,
+        subtitle: `${datumStr} · ${cap(k.tradslag ?? '')} · ${stockText(k.antal_kontrollstockar ?? data.stockar.length)}`,
         body: (
           <>
             {(selText || measurer) && (
@@ -1275,13 +1302,13 @@ export default function KalibreringPage() {
             <div className="kalib-stock-compare-row">
               <div className="kalib-stock-compare-label">Maskin</div>
               <div className={`kalib-log-body ${stockBorderClass}`} style={{ width: maskinW, height: maskinH }}>
-                <span className="kalib-log-num">{stock.stock_nummer}</span>
+                <span className="kalib-log-num">{stock.maskin_langd_cm} cm</span>
               </div>
             </div>
             <div className="kalib-stock-compare-row">
               <div className="kalib-stock-compare-label">Operatör</div>
               <div className="kalib-log-body" style={{ width: operatorW, height: operatorH }}>
-                <span className="kalib-log-num">{stock.stock_nummer}</span>
+                <span className="kalib-log-num">{stock.operator_langd_cm} cm</span>
               </div>
             </div>
           </div>
@@ -1358,7 +1385,7 @@ export default function KalibreringPage() {
                   <div className="kalib-overview-num">{d.getDate()}</div>
                   <div className="kalib-overview-info">
                     <div className="kalib-overview-title">{d.toLocaleDateString('sv-SE')}</div>
-                    <div className="kalib-overview-meta">{k.antal_kontrollstockar} stockar • {k.status === 'VARNING' ? 'Varning' : 'Inom'}</div>
+                    <div className="kalib-overview-meta">{stockText(k.antal_kontrollstockar)} • {k.status === 'VARNING' ? 'Varning' : 'Inom'}</div>
                   </div>
                   <div className={`kalib-diff-badge tone-${cls}`}>{fmtAvvikelse(k.dia_avvikelse_snitt_mm, 'mm')} mm</div>
                 </div>
@@ -1396,7 +1423,7 @@ export default function KalibreringPage() {
                 <span className={`kalib-status-badge ${m.status}`}>{maskinStatusText(m.status)}</span>
               </div>
               <div className="kalib-day-maskin-meta">
-                {m.volym_m3sub.toFixed(2)} m³fub · {m.status === 'inaktiv' ? 'Inaktiv' : (m.huvudtyp ?? 'Okänd typ')}
+                {m.volym_m3sub.toFixed(2)} m³fub{m.status === 'inaktiv' ? ' · Inaktiv' : m.huvudtyp ? ` · ${m.huvudtyp}` : ''}
               </div>
               {m.huvudtyp_okand && (
                 <div className="kalib-day-maskin-info">
@@ -1697,6 +1724,7 @@ export default function KalibreringPage() {
         .kalib-cal-summary-big{font-size:24px;font-weight:600;color:#fff;letter-spacing:-0.01em;line-height:1.2}
         .kalib-cal-summary-sub{font-size:13px;color:#8E8E93;margin-top:4px}
         .kalib-cal-summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}
+        .kalib-cal-summary-grid.two{grid-template-columns:repeat(2,1fr)}
         .kalib-cal-summary-item{text-align:center;padding:12px 8px;background:rgba(255,255,255,0.04);border-radius:10px}
         .kalib-cal-summary-num{font-size:22px;font-weight:700;line-height:1;letter-spacing:-0.02em;color:#fff}
         .kalib-cal-summary-lbl{font-size:11px;color:#8E8E93;margin-top:6px}
@@ -1982,6 +2010,11 @@ export default function KalibreringPage() {
         .kalib-stamhallning-detalj{margin-top:14px;padding:14px 16px}
         .kalib-stamhallning-list{display:flex;flex-direction:column;gap:1px;border-radius:10px;overflow:hidden}
         .kalib-stamhallning-row{display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(255,255,255,0.04);font-size:13px;font-variant-numeric:tabular-nums}
+        /* Kolumnrubriker: liten grå versal-rad, ingen tabular-siffra */
+        .kalib-stamhallning-head{background:transparent;padding:2px 12px 4px;font-size:11px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase}
+        .kalib-stamhallning-head .kalib-stamhallning-pos,
+        .kalib-stamhallning-head .kalib-stamhallning-len,
+        .kalib-stamhallning-head .kalib-stamhallning-dia{color:#8E8E93}
         .kalib-stamhallning-pos{flex:1;color:#fff}
         .kalib-stamhallning-len{color:#8E8E93;min-width:54px;text-align:right}
         .kalib-stamhallning-dia{color:#8E8E93;min-width:60px;text-align:right}
@@ -2024,7 +2057,7 @@ export default function KalibreringPage() {
             <>
               <header className="kalib-page-header">
                 <h1 className="kalib-page-title">{cap(latestKalib.tradslag) || latestKalib.maskin_id}</h1>
-                <p className="kalib-page-subtitle">{latestKalib.antal_kontrollstockar} stockar • {new Date(latestKalib.datum).toLocaleDateString('sv-SE')} • {latestKalib.maskin_id}</p>
+                <p className="kalib-page-subtitle">{stockText(latestKalib.antal_kontrollstockar)} • {new Date(latestKalib.datum).toLocaleDateString('sv-SE')} • {latestKalib.maskin_id}</p>
               </header>
 
               {partialBanner}
@@ -2055,7 +2088,7 @@ export default function KalibreringPage() {
                 ) : (
                   <div className="kalib-lugn-rad">
                     <MSym name="info" size={16} color="#8E8E93" />
-                    <span>{latestUtanfor} av {latestStockar.length} stockar utanför — se stockarna nedan.</span>
+                    <span>{latestUtanfor} av {stockText(latestStockar.length)} utanför — se stockarna nedan.</span>
                   </div>
                 )}
               </div>
@@ -2063,7 +2096,7 @@ export default function KalibreringPage() {
               {latestStockar.length > 0 && (
                 <div className="kalib-card">
                   <div className="kalib-section-title">Stockar</div>
-                  <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {latestStockar.length} stockar • {(totalLatestLen / 100).toFixed(1)} meter</div>
+                  <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {stockText(latestStockar.length)} • {(totalLatestLen / 100).toFixed(1)} meter</div>
                   <div className="kalib-stem-viz">
                     <div className="kalib-stem-viz-inner">
                       <span className="kalib-stem-label">Rot</span>
@@ -2678,22 +2711,27 @@ export default function KalibreringPage() {
                 return (
                   <>
                     <div className="kalib-card kalib-cal-summary">
-                      <div className="kalib-cal-summary-big">{sf.kompletta} av {sf.produktionsdagar} dagar kompletta</div>
-                      <div className="kalib-cal-summary-sub">i {subManad}</div>
-                      <div className="kalib-cal-summary-grid">
-                        <div className="kalib-cal-summary-item">
-                          <div className="kalib-cal-summary-num" style={{ color: '#FF3B30' }}>{sf.saknas}</div>
-                          <div className="kalib-cal-summary-lbl">Saknas</div>
-                        </div>
-                        <div className="kalib-cal-summary-item">
-                          <div className="kalib-cal-summary-num" style={{ color: '#FF3B30' }}>{sf.varningar}</div>
-                          <div className="kalib-cal-summary-lbl">Varningar</div>
-                        </div>
-                        <div className="kalib-cal-summary-item">
-                          <div className="kalib-cal-summary-num" style={{ color: '#8E8E93' }}>{sf.okand_huvudtyp_dagar}</div>
-                          <div className="kalib-cal-summary-lbl">Okänd typ</div>
-                        </div>
-                      </div>
+                      {sf.produktionsdagar === 0 ? (
+                        <>
+                          <div className="kalib-cal-summary-big">Inga kontroller den här månaden</div>
+                          <div className="kalib-cal-summary-sub">Bläddra ‹ › till en månad med produktion.</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="kalib-cal-summary-big">{sf.kompletta} av {sf.produktionsdagar} dagar kompletta</div>
+                          <div className="kalib-cal-summary-sub">i {subManad}</div>
+                          <div className="kalib-cal-summary-grid two">
+                            <div className="kalib-cal-summary-item">
+                              <div className="kalib-cal-summary-num" style={{ color: sf.saknas > 0 ? '#FF3B30' : '#8E8E93' }}>{sf.saknas}</div>
+                              <div className="kalib-cal-summary-lbl">Saknas</div>
+                            </div>
+                            <div className="kalib-cal-summary-item">
+                              <div className="kalib-cal-summary-num" style={{ color: sf.varningar > 0 ? '#FF3B30' : '#8E8E93' }}>{sf.varningar}</div>
+                              <div className="kalib-cal-summary-lbl">Varningar</div>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="kalib-card">
