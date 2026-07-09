@@ -5786,12 +5786,20 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Körvy] markers-radie-highlight:', e); }
     }
 
-    // 5) Maskin-ikon: cirkel-chassi + stor pil framåt (mer synlig än pentagon)
+    // 5) Maskin-ikon: mjuk riktnings-KÄGLA (viskar körriktningen istället för en pil som skriker).
+    //    Radiell gradient — starkast (#0a84ff 0.45) vid pricken, tonar ut till 0 framåt, ~55° spann.
+    //    Roterar med heading via maskin-symbol (icon-rotate). Prick + vit ring + skugga ligger i
+    //    maskin-ring / maskin-halo (cirkel-lager) nedan.
     if (!map.hasImage('maskin-ikon')) {
-      const size = 64;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">
-        <circle cx="32" cy="32" r="22" fill="#ffffff" stroke="#0a84ff" stroke-width="3"/>
-        <path d="M32 8 L48 36 L32 28 L16 36 Z" fill="#0a84ff"/>
+      const size = 96;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 96 96">
+        <defs>
+          <radialGradient id="kon" cx="48" cy="48" r="42" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#0a84ff" stop-opacity="0.45"/>
+            <stop offset="1" stop-color="#0a84ff" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <path d="M48 48 L28.6 10.7 L67.4 10.7 Z" fill="url(#kon)"/>
       </svg>`;
       const img = new Image();
       img.onload = () => {
@@ -5824,10 +5832,12 @@ export default function PlannerPage() {
           type: 'circle',
           source: 'maskin-source',
           paint: {
-            'circle-radius': 35,
-            'circle-color': '#0a84ff',
-            'circle-opacity': 0.35,
-            'circle-blur': 0.6,
+            // Liten mjuk skugga → pricken "svävar" ovanför kartan. Statisk (pulsar EJ längre).
+            'circle-radius': 9,
+            'circle-color': '#000',
+            'circle-opacity': 0.22,
+            'circle-blur': 0.8,
+            'circle-translate': [0, 2],
             'circle-pitch-alignment': 'viewport',
           },
           layout: { 'visibility': 'none' },
@@ -5842,11 +5852,13 @@ export default function PlannerPage() {
           type: 'circle',
           source: 'maskin-source',
           paint: {
-            'circle-radius': 18,
-            'circle-color': '#fff',
-            'circle-opacity': 0.4,
-            'circle-stroke-color': '#0a84ff',
-            'circle-stroke-width': 2,
+            // Liten solid blå PUNKT = exakt position, med VIT RING så den syns mot alla
+            // bakgrunder (ljus mark, grön skog, gul väg). Ersätter den stora cirkeln.
+            'circle-radius': 6.5,
+            'circle-color': '#0a84ff',
+            'circle-opacity': 1,
+            'circle-stroke-color': '#fff',
+            'circle-stroke-width': 2.5,
             'circle-pitch-alignment': 'viewport',
           },
           layout: { 'visibility': 'none' },
@@ -5861,7 +5873,8 @@ export default function PlannerPage() {
           source: 'maskin-source',
           layout: {
             'icon-image': 'maskin-ikon',
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.8, 17, 1.4, 19, 1.8],
+            // Kägla-storlek (96px-bild) — modest "viskning", ej dominant. Vridbar känsla.
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 17, 0.75, 19, 0.9],
             'icon-rotate': ['get', 'heading'],
             'icon-rotation-alignment': 'map',
             'icon-pitch-alignment': 'viewport',
@@ -6031,7 +6044,8 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
 
-  // Pulse-animation för gps-halo (22→50px) + maskin-halo (25→50px, ur fas så de inte synkar)
+  // Pulse-animation för gps-halo (22→50px). Körvy-markören (maskin-halo) pulsar EJ — den är en
+  // lugn skugga så pricken inte drar uppmärksamhet från symbolerna/faran.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -6044,16 +6058,12 @@ export default function PlannerPage() {
       if (now - lastTickTs < 33) return;
       lastTickTs = now;
       const tg = ((now - start) % 2000) / 2000;          // gps-halo-fas
-      const tm = ((now - start + 800) % 2000) / 2000;    // maskin-halo offset 800ms
       try {
         if (map.getLayer('gps-halo')) {
           map.setPaintProperty('gps-halo', 'circle-radius', 22 + tg * 28);
           map.setPaintProperty('gps-halo', 'circle-opacity', 0.4 * (1 - tg));
         }
-        if (map.getLayer('maskin-halo')) {
-          map.setPaintProperty('maskin-halo', 'circle-radius', 25 + tm * 25);
-          map.setPaintProperty('maskin-halo', 'circle-opacity', 0.4 * (1 - tm));
-        }
+        // maskin-halo pulsar INTE längre (statisk skugga i paint-definitionen).
       } catch { /* layer not ready */ }
     };
     raf = requestAnimationFrame(tick);
