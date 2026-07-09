@@ -49,28 +49,18 @@ const LEGEND = {
   vit:           '#fff',     // vit       – stig/led
 };
 
-// === Outlier-filter: skydda 2D-rendering mot felaktiga markeringar med
-// koordinater >1000 SVG-units från objekt-centrum (typiskt ritade när
-// mapCenter stod på fel referens innan ett objekt valts → hamnar km bort).
-// Sammma logik som CesiumScene.tsx — verifierat-ID:n se kommentar där.
-// Tröskeln matchar dokumentationen ovan (>1000 units = felritad km bort). Tidigare 200
-// klippte LEGITIMA markeringar 200–1000 units från centrum (t.ex. avlägg vid traktkant)
-// → de syntes inte i kartan/briefingen. roadCheck-status påverkar INTE detta (renderingen
-// bär bara marker.type, inte roadCheck).
-const OUTLIER_LIMIT = 1000;
-function isOutlierPoint(p: { x: number; y: number }): boolean {
-  return Math.abs(p.x) > OUTLIER_LIMIT || Math.abs(p.y) > OUTLIER_LIMIT;
-}
-function filterMarkerOutliers<T extends { x: number; y: number; isMarker?: boolean; isLine?: boolean; isZone?: boolean; isArrow?: boolean; path?: { x: number; y: number }[] }>(m: T): T | null {
-  if ((m.isMarker || m.isArrow) && isOutlierPoint(m)) return null;
-  if (m.path && m.path.length > 0) {
-    const cleanPath = m.path.filter((p) => !isOutlierPoint(p));
-    const minPath = m.isLine ? 2 : m.isZone ? 3 : 1;
-    if (cleanPath.length < minPath) return null;
-    return { ...m, path: cleanPath };
-  }
-  return m;
-}
+// Körvy-synhåll: i körläge visas symboler/faror inom detta avstånd från FÖRAREN (GPS), inte
+// från trakt-centrum. Robust mot trakter med skevt/saknat centrum — svgToLatLon(symbol) och
+// GPS jämförs som två VERKLIGA positioner. Generöst tilltaget; vid zoom 18 syns ändå bara ett
+// par hundra meter.
+//
+// Det gamla from-center-outlierfiltret (isOutlierPoint / filterMarkerOutliers, >1000 SVG-units
+// från objekt-centrum) är BORTTAGET. Prod-datan visade att varje "outlier" var en LEGITIM
+// symbol på en trakt med felplacerat/saknat centrum (t.ex. Akelius; Stefan vars trakt-lat/lng
+// är NULL) — det fanns aldrig äkta skräp att fånga, bara legitimt att gömma. Ett filter som
+// bara gömmer legitimt och aldrig fångar skräp ska bort, inte tunas om till ett nytt magiskt
+// tal (att gissa en tröskel var hela buggen). Äkta skräp fångas hellre av from-driver-synhållet.
+const KORVY_SIGHT_M = 400;
 
 // === TYPES ===
 interface Point {
@@ -5050,8 +5040,7 @@ export default function PlannerPage() {
       const features: any[] = [];
       const korvyPos = korvyActive ? (currentPosition as any) : null;
       markers
-        .map((m: any) => filterMarkerOutliers(m))
-        .filter((m: any): m is any => m && m.isLine && m.path && m.path.length > 1)
+        .filter((m: any) => m.isLine && m.path && m.path.length > 1)
         .forEach((m: any) => {
         const coords = m.path.map((p: any) => {
           const ll = svgToLatLon(p.x, p.y);
@@ -5088,8 +5077,7 @@ export default function PlannerPage() {
       if (!src) return;
       const features: any[] = [];
       markers
-        .map((m: any) => filterMarkerOutliers(m))
-        .filter((m: any): m is any => m && m.isZone && m.path && m.path.length > 2)
+        .filter((m: any) => m.isZone && m.path && m.path.length > 2)
         .forEach((m: any) => {
         const coords = m.path.map((p: any) => {
           const ll = svgToLatLon(p.x, p.y);
@@ -5146,8 +5134,15 @@ export default function PlannerPage() {
         return;
       }
       const features: any[] = [];
-      // Filtrera bort outlier-markeringar (samma logik som linjer/zoner)
-      const symbolMarkers = markers.filter((m: any) => m.isMarker && !isOutlierPoint(m));
+      // KÖRVY: from-driver — visa symboler inom synhåll från MIG (GPS), inte från trakt-centrum.
+      // Jämför två VERKLIGA positioner (GPS + symbolens svgToLatLon) → robust mot skevt/saknat
+      // centrum. ÖVERSIKT (ej körvy): visa ALLA — from-center-filtret borttaget (se KORVY_SIGHT_M).
+      const symbolMarkers = markers.filter((m: any) => {
+        if (!m.isMarker) return false;
+        if (!korvyActive || !korvyEffectivePos) return true;   // översikt / ingen fix än → alla
+        const ll = svgToLatLon(m.x, m.y);
+        return haversineM(korvyEffectivePos.lat, korvyEffectivePos.lon, ll.lat, ll.lon) <= KORVY_SIGHT_M;
+      });
       const userPos = effectiveUserPos;
       if (drivingMode && proximityTick % 5 === 0) {
         console.log(`[Proximity] tick=${proximityTick}, symbols=${symbolMarkers.length}, userPos=${userPos ? `(${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)})` : 'NULL'}, showAll=${warningShowAll}, gps=${gpsPosition ? 'SET' : 'null'}, sim=${simulatedPos ? 'SET' : 'null'}`);
