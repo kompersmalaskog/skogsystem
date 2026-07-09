@@ -1836,32 +1836,6 @@ export default function Arbetsrapport() {
 
         {/* Pågående extra-aktiviteter visas nu via global banner ovanför — se timerBanner */}
 
-        {/* Logga tid — visas i alla lägen utom när en timer redan pågår
-            eller dagen är bekräftad. Täcker morgon före MOM, under pass och
-            kvällsarbete efter pass (t.ex. köra hem, hämta reservdelar). */}
-        {!dagData[idagKey]?.bekraftad && pagaendeAktiviteter.length===0 && (
-          <button onClick={async ()=>{
-            const startTid = nuKlock();
-            const { data } = await supabase.from("extra_tid").insert({
-              medarbetare_id: medarbetare.id,
-              datum: idagKey,
-              start_tid: startTid + ":00",
-              slut_tid: null,
-              minuter: 0,
-              kalla: 'morgon',
-            }).select().single();
-            if (data) {
-              setPagaendeAktiviteter(p => [...p, data]);
-              setExtraTidData(d => [data, ...d]);
-            }
-            if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
-          }}
-            style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",height:56,padding:"0 20px",background:"#0a84ff",border:"none",borderRadius:12,color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
-            <span className="material-symbols-outlined" style={{ fontSize:18 }}>add</span>
-            Extra arbete
-          </button>
-        )}
-
         {/* Hero */}
         <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
           <h1 style={{ ...TYPE.h2,color:"#fff",margin:"0 0 4px" }}>{hälsning()}, {förnamn}</h1>
@@ -1972,6 +1946,33 @@ export default function Arbetsrapport() {
         </section>
         )}
 
+        {/* Logga tid — lågmäld textlänk under dagens status, inte huvudhandlingen.
+            Visas i alla lägen utom när en timer redan pågår eller dagen är
+            bekräftad. Täcker morgon före MOM, under pass och kvällsarbete
+            efter pass (t.ex. köra hem, hämta reservdelar). */}
+        {!dagData[idagKey]?.bekraftad && pagaendeAktiviteter.length===0 && (
+          <button onClick={async ()=>{
+            const startTid = nuKlock();
+            const { data } = await supabase.from("extra_tid").insert({
+              medarbetare_id: medarbetare.id,
+              datum: idagKey,
+              start_tid: startTid + ":00",
+              slut_tid: null,
+              minuter: 0,
+              kalla: 'morgon',
+            }).select().single();
+            if (data) {
+              setPagaendeAktiviteter(p => [...p, data]);
+              setExtraTidData(d => [data, ...d]);
+            }
+            if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
+          }}
+            style={{ display:"flex",alignItems:"center",gap:6,margin:"-8px 0 28px",padding:0,background:"none",border:"none",color:"#0a84ff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
+            <span className="material-symbols-outlined" style={{ fontSize:18 }}>add</span>
+            Extra arbete
+          </button>
+        )}
+
         {/* "Samma som igår" — visas när dagen ännu inte startat och igår var bekräftad
             med data värd att kopiera (objekt, km eller traktamente). */}
         {!isWorking && !dagData[idagKey]?.bekraftad && (() => {
@@ -2046,12 +2047,12 @@ export default function Arbetsrapport() {
           const harErsKr = ersKr > 0;
           const harKmBlock = harKm && harMaskinPass;
           const harObjBlock = !!(dagObjNamn || maskinNamnLång) && harMaskinPass;
-          const sammanRad = (label: string, value: string, onClick?: () => void, hero?: boolean) => (
+          const sammanRad = (label: string, value: string, onClick?: () => void) => (
             <div key={label} onClick={onClick}
               style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
               <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>{label}</span>
               <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-                <span style={{ color:"#fff",...(hero?TYPE.body:TYPE.bodyList),...TNUM }}>{value}</span>
+                <span style={{ color:"#fff",...TYPE.bodyList,...TNUM }}>{value}</span>
                 {onClick && <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)" }}>chevron_right</span>}
               </div>
             </div>
@@ -2075,11 +2076,17 @@ export default function Arbetsrapport() {
                   </div>
                 )}
                 {!redanBekräftad && !ändradSedan && <div style={{ height:6 }} />}
+                {/* Hjälte: Total arbetstid — hela blocket klickbart, öppnar Ändra tider
+                    (start/slut/rast, samma sheet som Arbetstid/Rast-raderna öppnade). */}
                 {harMaskinPass && (
-                  <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
-                    {sammanRad("Arbetstid", `${start} → ${slut}`, öppnaTider)}
-                    {sammanRad("Rast", `${rast} min`, öppnaTider)}
-                    {sammanRad("Total", fmt(arbMin), undefined, true)}
+                  <div onClick={öppnaTider} style={{ textAlign:"center",padding:"14px 0 16px",cursor:"pointer",borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
+                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Total arbetstid</p>
+                    <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(arbMin)}</p>
+                    <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
+                      {start} → {slut} · rast {rast} min
+                      <span className="material-symbols-outlined" style={{ fontSize:14,color:"rgba(255,255,255,0.25)",verticalAlign:"-2px",marginLeft:2 }}>chevron_right</span>
+                    </p>
+                    <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Rast = tid markerad som Meal break i maskinen</p>
                   </div>
                 )}
                 {harObjBlock&&(
@@ -4640,26 +4647,17 @@ export default function Arbetsrapport() {
             </Card>
           ):!harData?null:(
             <Card style={{ padding:"4px 20px" }}>
-              {/* Arbetstid — visar tidsintervall (HH:MM → HH:MM), klickbar */}
-              <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:"#fff" }}>Arbetstid</span>
-                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ ...TYPE.bodyList,color:(redStart!==redStartOrig||redSlut!==redSlutOrig)?C.orange:"#fff" }}>{redStart} → {redSlut}</span>
-                  <ChevronRight/>
-                </div>
-              </div>
-              {/* Rast — klickbar */}
-              <div onClick={()=>setVisaRedRastPicker(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:"#fff" }}>Rast</span>
-                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ ...TYPE.bodyList,color:redRast!==redRastOrig?"#ff9f0a":"#fff" }}>{redRast} min</span>
-                  <ChevronRight/>
-                </div>
-              </div>
-              {/* Total — härledd, ej klickbar */}
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
-                <span style={{ fontSize:16,color:"#fff" }}>Total</span>
-                <span style={{ fontSize:16,fontWeight:600,color:"#fff" }}>{fmt(redArbMin)}</span>
+              {/* Hjälte: Total arbetstid — hela blocket klickbart, öppnar Ändra
+                  arbetstid (start/slut/rast-hjulen). Ersätter Arbetstid/Rast/Total-
+                  raderna; orange stödrad när tiderna ändrats men inte sparats. */}
+              <div onClick={()=>setRedVy("tid")} style={{ textAlign:"center",padding:"18px 0 16px",cursor:"pointer",borderBottom:`1px solid ${C.line}` }}>
+                <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Total arbetstid</p>
+                <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(redArbMin)}</p>
+                <p style={{ margin:"8px 0 0",...TYPE.meta,color:(redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig)?C.orange:"#8e8e93",...TNUM }}>
+                  {redStart.slice(0,5)} → {redSlut.slice(0,5)} · rast {redRast} min
+                  <span className="material-symbols-outlined" style={{ fontSize:14,color:"rgba(255,255,255,0.25)",verticalAlign:"-2px",marginLeft:2 }}>chevron_right</span>
+                </p>
+                <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Rast = tid markerad som Meal break i maskinen</p>
               </div>
               {/* Maskin — klickbar */}
               <div onClick={()=>setVisaRedMaskinVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
@@ -4771,7 +4769,7 @@ export default function Arbetsrapport() {
 
             return (
               <Card style={{ padding:"16px 20px" }}>
-                <p style={{ margin:"0 0 10px",fontSize:13,color:"#fff",fontWeight:500 }}>Körning</p>
+                <p style={{ ...secHead }}>Körning</p>
 
                 {harFlerObjekt ? (
                   // Multi-objekt: visa varje segment som egen rad
