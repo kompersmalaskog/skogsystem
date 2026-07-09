@@ -1,3 +1,8 @@
+// Kategori-kod för flytt mellan objekt (StanForD OtherMachineDownTime).
+// Skotarvyerna lyfter ut flytt ur avbrottstotalerna — översikt och
+// avbrottsvy MÅSTE lyfta ut samma kod för att visa samma siffror.
+export const FLYTT_KATEGORI = 'Trailer transportation'
+
 export const kategoriNamn: Record<string, string> = {
   // ── Underhåll ──────────────────────────────────────────────
   'Planning/follow up':         'Planering & uppföljning',
@@ -15,7 +20,14 @@ export const kategoriNamn: Record<string, string> = {
   'Miscellaneous / other':      'Övrigt',
   'Administration, telephone':  'Administration & telefon',
   'Weather':                    'Väder',
-  'Unproductive terrain work':  'Improduktiv körning',
+  // OBS: 'Unproductive terrain work' är INTE körning. Källverifierat (A030353,
+  // 116/118 segment i MOM): EngineTime=0 & DrivenDistance=0 — maskinen står STILL.
+  // StanForD 2010 = oproduktivt terrängarbete, EN AV FÖRARENS VALBARA KATEGORIER —
+  // kategorin ÄR förarens angivna orsak (A030353:s ≥15-min-tid är genomklassificerad:
+  // Trailer, Refilling, Unproductive, Machine stuck, ...). Fritext-detalj
+  // (CodeDescription) används inte, men orsak saknas alltså INTE. Mönstret hos oss:
+  // stillestånd vid skiftstart.
+  'Unproductive terrain work':  'Oproduktiv terrängtid',
   'Waiting for repair':         'Väntar på reparation',
 
   // ── Reparation (REPAIR_*) — verifierat mot DB 2026-05 ─────

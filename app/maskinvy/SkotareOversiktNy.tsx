@@ -7,14 +7,17 @@ import {
   fmtSv, DeltaBadge, Sparkline, OperatorList, initials,
   type Period, type Operator,
 } from './OversiktShared'
+import { FLYTT_KATEGORI } from '../../lib/avbrott-kategorier'
 
 // ─────────────────────────────────────────────────────────────
 // SkotareOversiktNy — Översikt för skotare bakom ?ny=1.
 //
 // Skotaren avverkar inte — den kör ut virke från fält till väg.
-// Datakälla: fakt_lass (volym, körsträcka) + fakt_tid (G15h).
-// Dessa två hämtas ALDRIG i samma query — de aggregeras var för
-// sig och kombineras sedan i JS.
+// Datakälla: fakt_lass (volym, körsträcka) + fakt_tid (G15h) +
+// fakt_avbrott (avbrott/flytt — SAMMA källa som avbrottsvyn,
+// SkotareAvbrottNy, så de två vyerna alltid visar samma siffror).
+// Tabellerna hämtas ALDRIG i samma query — de aggregeras var
+// för sig och kombineras sedan i JS.
 // ─────────────────────────────────────────────────────────────
 
 // ── Maskiner ─────────────────────────────────────────────────
@@ -46,7 +49,8 @@ type SkotareData = {
   distKlasser:  DistKlass[]
   proc:         number   // processing_sek summerat (G15h-tid)
   terr:         number   // terrain_sek summerat (G15h-tid)
-  avbr:         number   // avbrott_sek summerat
+  avbr:         number   // fakt_avbrott exkl. flytt (= avbrottsvyns "Stopp")
+  flytt:        number   // fakt_avbrott Trailer transportation (= avbrottsvyns flyttkort)
 }
 
 // Per-operatör i djupvyn
@@ -61,6 +65,7 @@ type SkotareOpData = {
   proc:         number
   terr:         number
   avbr:         number
+  flytt:        number
   distKlasser:  DistKlass[]
 }
 
@@ -80,10 +85,11 @@ async function fetchSkotareData(
 ): Promise<SkotareData> {
   const ids = [maskinId]
 
-  // Hämta fakt_lass och fakt_tid SEPARAT — aldrig i samma query
-  const [lassRows, tidRows] = await Promise.all([
+  // Hämta fakt_lass, fakt_tid och fakt_avbrott SEPARAT — aldrig i samma query
+  const [lassRows, tidRows, avbrottRows] = await Promise.all([
     fetchAll('fakt_lass', 'datum, volym_m3sub, korstracka_m', ids, start, end),
-    fetchAll('fakt_tid',  'processing_sek, terrain_sek, avbrott_sek', ids, start, end),
+    fetchAll('fakt_tid',  'processing_sek, terrain_sek', ids, start, end),
+    fetchAll('fakt_avbrott', 'kategori_kod, langd_sek', ids, start, end),
   ])
 
   // ── fakt_lass → volym, lass, sträcka, dagar, avståndklasser ──
@@ -104,14 +110,26 @@ async function fetchSkotareData(
 
   const lass = lassRows.length
 
-  // ── fakt_tid → G15h + tidsfördelning (summeras fristående, aldrig join mot lass) ──
-  let proc = 0, terr = 0, avbr = 0
+  // ── fakt_tid → G15h (summeras fristående, aldrig join mot lass) ──
+  let proc = 0, terr = 0
   for (const r of tidRows) {
     proc += r.processing_sek || 0
     terr += r.terrain_sek    || 0
-    avbr += r.avbrott_sek   || 0
   }
   const g15h = (proc + terr) / 3600
+
+  // ── fakt_avbrott → avbrott + flytt ──────────────────────────
+  // SAMMA källa som avbrottsvyn: alla DownTime-rader oavsett längd
+  // (skotare har ingen G15-split — se lib/g15.ts), flytt utlyft precis
+  // som avbrottsvyns flyttkort. OBS: INTE fakt_tid.avbrott_sek — den
+  // hinken är bara Övrigt+Reparation (Underhåll/Störning ligger i
+  // maintenance_sek/disturbance_sek) och gav en annan total än
+  // avbrottsvyn för samma period.
+  let avbr = 0, flytt = 0
+  for (const r of avbrottRows) {
+    if (r.kategori_kod === FLYTT_KATEGORI) flytt += r.langd_sek || 0
+    else                                   avbr  += r.langd_sek || 0
+  }
 
   return {
     volym,
@@ -130,6 +148,7 @@ async function fetchSkotareData(
     proc,
     terr,
     avbr,
+    flytt,
   }
 }
 
@@ -199,20 +218,22 @@ async function fetchSkotareOperatorer(
 }
 
 // ── Djupvydata per operatör ────────────────────────────────────
-// Hämtar fakt_lass + fakt_tid för hela maskinen och filtrerar
-// sedan på operator_id i JS. Aldrig join mot varandra.
+// Hämtar fakt_lass + fakt_tid + fakt_avbrott för hela maskinen och
+// filtrerar sedan på operator_id i JS. Aldrig join mot varandra.
 
 async function fetchSkotareOpDeep(
   maskinId: string, opId: string, start: string, end: string,
 ): Promise<SkotareOpData> {
   const ids = [maskinId]
-  const [lassRows, tidRows] = await Promise.all([
+  const [lassRows, tidRows, avbrottRows] = await Promise.all([
     fetchAll('fakt_lass', 'datum, volym_m3sub, korstracka_m, operator_id', ids, start, end),
-    fetchAll('fakt_tid',  'datum, operator_id, processing_sek, terrain_sek, avbrott_sek', ids, start, end),
+    fetchAll('fakt_tid',  'datum, operator_id, processing_sek, terrain_sek', ids, start, end),
+    fetchAll('fakt_avbrott', 'operator_id, kategori_kod, langd_sek', ids, start, end),
   ])
 
-  const lassOp = (lassRows as any[]).filter(r => r.operator_id === opId)
-  const tidOp  = (tidRows  as any[]).filter(r => r.operator_id === opId)
+  const lassOp    = (lassRows    as any[]).filter(r => r.operator_id === opId)
+  const tidOp     = (tidRows     as any[]).filter(r => r.operator_id === opId)
+  const avbrottOp = (avbrottRows as any[]).filter(r => r.operator_id === opId)
 
   let volym = 0, totalDist = 0
   const dagSet = new Set<string>()
@@ -228,13 +249,19 @@ async function fetchSkotareOpDeep(
   }
   const lass = lassOp.length
 
-  let proc = 0, terr = 0, avbr = 0
+  let proc = 0, terr = 0
   for (const r of tidOp) {
     proc += r.processing_sek || 0
     terr += r.terrain_sek    || 0
-    avbr += r.avbrott_sek   || 0
   }
   const g15h = (proc + terr) / 3600
+
+  // fakt_avbrott → avbrott + flytt, samma uppdelning som maskinnivån
+  let avbr = 0, flytt = 0
+  for (const r of avbrottOp) {
+    if (r.kategori_kod === FLYTT_KATEGORI) flytt += r.langd_sek || 0
+    else                                   avbr  += r.langd_sek || 0
+  }
 
   return {
     lass, volym,
@@ -243,7 +270,7 @@ async function fetchSkotareOpDeep(
     g15h,
     prod: g15h > 0 ? volym / g15h : null,
     dagar: dagSet.size,
-    proc, terr, avbr,
+    proc, terr, avbr, flytt,
     distKlasser: DIST_KLASSER.map((k, i) => ({
       label: k.label, farg: k.farg,
       antal: klassCounts[i],
@@ -425,21 +452,24 @@ function SkotareKpiList({
 }
 
 // ── Tidsfördelning ────────────────────────────────────────────
-// Tre segment: Processing (grön), Terrängkörning (blå), Avbrott (röd).
-// Skotare saknar "Korta pauser" / "Rast" som egna kategorier —
-// dessa är försumbara (<2%) och ingår i avbrott_sek.
+// Fyra segment: Processing (grön), Terrängkörning (blå), Avbrott (röd),
+// Flytt (lila). Avbrott + Flytt kommer från fakt_avbrott — SAMMA källa
+// och SAMMA uppdelning som avbrottsvyn (SkotareAvbrottNy: "Stopp" resp.
+// flyttkortet), så översikt och avbrottsvy visar alltid samma siffror.
+// Skotare har ingen korta pauser-split (se lib/g15.ts) — allt visas.
 function SkotareTidsfordelning({
   data, loading,
 }: {
-  data:    { proc: number; terr: number; avbr: number } | null
+  data:    { proc: number; terr: number; avbr: number; flytt: number } | null
   loading: boolean
 }) {
   const segments = [
-    { key: 'proc' as const, label: 'Processing',     color: C.green },
-    { key: 'terr' as const, label: 'Terrängkörning', color: C.blue  },
-    { key: 'avbr' as const, label: 'Avbrott',        color: C.red   },
+    { key: 'proc'  as const, label: 'Processing',     color: C.green  },
+    { key: 'terr'  as const, label: 'Terrängkörning', color: C.blue   },
+    { key: 'avbr'  as const, label: 'Avbrott',        color: C.red    },
+    { key: 'flytt' as const, label: 'Flytt',          color: C.purple },
   ]
-  const total = data ? data.proc + data.terr + data.avbr : 0
+  const total = data ? data.proc + data.terr + data.avbr + data.flytt : 0
 
   return (
     <div style={{ background: C.card, borderRadius: 14, padding: 18, marginBottom: 14 }}>

@@ -49,28 +49,24 @@ const LEGEND = {
   vit:           '#fff',     // vit       – stig/led
 };
 
-// === Outlier-filter: skydda 2D-rendering mot felaktiga markeringar med
-// koordinater >1000 SVG-units från objekt-centrum (typiskt ritade när
-// mapCenter stod på fel referens innan ett objekt valts → hamnar km bort).
-// Sammma logik som CesiumScene.tsx — verifierat-ID:n se kommentar där.
-// Tröskeln matchar dokumentationen ovan (>1000 units = felritad km bort). Tidigare 200
-// klippte LEGITIMA markeringar 200–1000 units från centrum (t.ex. avlägg vid traktkant)
-// → de syntes inte i kartan/briefingen. roadCheck-status påverkar INTE detta (renderingen
-// bär bara marker.type, inte roadCheck).
-const OUTLIER_LIMIT = 1000;
-function isOutlierPoint(p: { x: number; y: number }): boolean {
-  return Math.abs(p.x) > OUTLIER_LIMIT || Math.abs(p.y) > OUTLIER_LIMIT;
-}
-function filterMarkerOutliers<T extends { x: number; y: number; isMarker?: boolean; isLine?: boolean; isZone?: boolean; isArrow?: boolean; path?: { x: number; y: number }[] }>(m: T): T | null {
-  if ((m.isMarker || m.isArrow) && isOutlierPoint(m)) return null;
-  if (m.path && m.path.length > 0) {
-    const cleanPath = m.path.filter((p) => !isOutlierPoint(p));
-    const minPath = m.isLine ? 2 : m.isZone ? 3 : 1;
-    if (cleanPath.length < minPath) return null;
-    return { ...m, path: cleanPath };
-  }
-  return m;
-}
+// Fällningsradie: en skogsmaskin fäller träd ÅT SIDAN (~30 m trädlängd + marginal för
+// fallriktning/osäkerhet), så fara är allt inom räckhåll RUNT föraren — inte bara i
+// körriktningen. Styr körvyns symbol-tändning, nästa-hinder-panelen ("inom fällningsradie")
+// och den framtonande radie-ringen.
+const FALLNINGSRADIE_M = 40;
+
+// Körvy-synhåll: i körläge visas symboler/faror inom detta avstånd från FÖRAREN (GPS), inte
+// från trakt-centrum. Robust mot trakter med skevt/saknat centrum — svgToLatLon(symbol) och
+// GPS jämförs som två VERKLIGA positioner. Generöst tilltaget; vid zoom 18 syns ändå bara ett
+// par hundra meter.
+//
+// Det gamla from-center-outlierfiltret (isOutlierPoint / filterMarkerOutliers, >1000 SVG-units
+// från objekt-centrum) är BORTTAGET. Prod-datan visade att varje "outlier" var en LEGITIM
+// symbol på en trakt med felplacerat/saknat centrum (t.ex. Akelius; Stefan vars trakt-lat/lng
+// är NULL) — det fanns aldrig äkta skräp att fånga, bara legitimt att gömma. Ett filter som
+// bara gömmer legitimt och aldrig fångar skräp ska bort, inte tunas om till ett nytt magiskt
+// tal (att gissa en tröskel var hela buggen). Äkta skräp fångas hellre av from-driver-synhållet.
+const KORVY_SIGHT_M = 400;
 
 // === TYPES ===
 interface Point {
@@ -5050,8 +5046,7 @@ export default function PlannerPage() {
       const features: any[] = [];
       const korvyPos = korvyActive ? (currentPosition as any) : null;
       markers
-        .map((m: any) => filterMarkerOutliers(m))
-        .filter((m: any): m is any => m && m.isLine && m.path && m.path.length > 1)
+        .filter((m: any) => m.isLine && m.path && m.path.length > 1)
         .forEach((m: any) => {
         const coords = m.path.map((p: any) => {
           const ll = svgToLatLon(p.x, p.y);
@@ -5088,8 +5083,7 @@ export default function PlannerPage() {
       if (!src) return;
       const features: any[] = [];
       markers
-        .map((m: any) => filterMarkerOutliers(m))
-        .filter((m: any): m is any => m && m.isZone && m.path && m.path.length > 2)
+        .filter((m: any) => m.isZone && m.path && m.path.length > 2)
         .forEach((m: any) => {
         const coords = m.path.map((p: any) => {
           const ll = svgToLatLon(p.x, p.y);
@@ -5146,8 +5140,15 @@ export default function PlannerPage() {
         return;
       }
       const features: any[] = [];
-      // Filtrera bort outlier-markeringar (samma logik som linjer/zoner)
-      const symbolMarkers = markers.filter((m: any) => m.isMarker && !isOutlierPoint(m));
+      // KÖRVY: from-driver — visa symboler inom synhåll från MIG (GPS), inte från trakt-centrum.
+      // Jämför två VERKLIGA positioner (GPS + symbolens svgToLatLon) → robust mot skevt/saknat
+      // centrum. ÖVERSIKT (ej körvy): visa ALLA — from-center-filtret borttaget (se KORVY_SIGHT_M).
+      const symbolMarkers = markers.filter((m: any) => {
+        if (!m.isMarker) return false;
+        if (!korvyActive || !korvyEffectivePos) return true;   // översikt / ingen fix än → alla
+        const ll = svgToLatLon(m.x, m.y);
+        return haversineM(korvyEffectivePos.lat, korvyEffectivePos.lon, ll.lat, ll.lon) <= KORVY_SIGHT_M;
+      });
       const userPos = effectiveUserPos;
       if (drivingMode && proximityTick % 5 === 0) {
         console.log(`[Proximity] tick=${proximityTick}, symbols=${symbolMarkers.length}, userPos=${userPos ? `(${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)})` : 'NULL'}, showAll=${warningShowAll}, gps=${gpsPosition ? 'SET' : 'null'}, sim=${simulatedPos ? 'SET' : 'null'}`);
@@ -5165,26 +5166,29 @@ export default function PlannerPage() {
         if (checklistMapView && briefingHighlightId) {
           opacity = m.id === briefingHighlightId ? 1 : 0.3;
         }
-        // KÖRVY: beräkna avstånd, flagga nearby (≤200m) och pulse (≤50m blink)
+        // KÖRVY: symbolen TÄNDS UPP när den kommer nära — långt bort svagt/tyst, växer mot
+        // full styrka inom fällningsradien. Så 20 symboler gör aldrig kartan rörig; bara det
+        // nära syns starkt. withinRadius (≤40m) = akta-dig-nu (växer + ring + panel-badge).
         let dist: number | null = null;
         let nearby = false;
         let pulse = false;
+        let withinRadius = false;
         if (korvyPos && korvyPos.lat != null && korvyPos.lon != null) {
           dist = Math.round(haversineM(korvyPos.lat, korvyPos.lon, ll.lat, ll.lon));
-          if (dist <= 200) {
-            nearby = true;
-            opacity = 1; // Körvy: alltid full opacity inom 200m
-          }
-          if (dist <= 50) {
-            pulse = korvyBlinkOn; // alterneras 600ms — när false → ej pulse → fall till nearby
-            if (!korvyBlinkOn) opacity = 0.55; // blink-effekt via opacity
-          }
+          const SYMBOL_FADE_FAR = 150; // bortom detta = tyst grundnivå
+          if (dist <= FALLNINGSRADIE_M) opacity = 1;
+          else if (dist >= SYMBOL_FADE_FAR) opacity = 0.28;
+          else opacity = 0.28 + 0.72 * (SYMBOL_FADE_FAR - dist) / (SYMBOL_FADE_FAR - FALLNINGSRADIE_M);
+          nearby = dist <= 120;                     // "växer lite"-hook (icon-size)
+          withinRadius = dist <= FALLNINGSRADIE_M;  // inom fällningsradie
+          pulse = withinRadius && korvyBlinkOn;
+          if (withinRadius && !korvyBlinkOn) opacity = 0.6; // subtil blink inom radien
         }
         if (opacity < minOp) minOp = opacity;
         if (opacity > maxOp) maxOp = opacity;
         features.push({
           type: 'Feature',
-          properties: { type: m.type || 'default', id: m.id, opacity, dist, nearby, pulse },
+          properties: { type: m.type || 'default', id: m.id, opacity, dist, nearby, pulse, withinRadius },
           geometry: { type: 'Point', coordinates: [ll.lon, ll.lat] },
         });
       });
@@ -5298,7 +5302,10 @@ export default function PlannerPage() {
       map.easeTo({
         center: targetCenter,
         zoom: 18,
-        pitch: 78,
+        // STEG 1: lätt lutning (~28°) ger "vägen framåt"-känsla utan brant 3D. Platt mark
+        // (terräng-exaggeration 1.0, ej 1.8 — se effekten nedan) gör att stenmurar/markeringar
+        // inte förvrängs. Heading-up + följande = "det känns som att köra", ej statisk norr-upp.
+        pitch: 28,
         bearing: korvyHeading,
         duration: 800,
       });
@@ -5345,7 +5352,8 @@ export default function PlannerPage() {
     ];
     const sizeAt = (base: number): any => [
       'case',
-      ['==', ['get', 'nearby'], true], base * 1.0,
+      ['==', ['get', 'withinRadius'], true], base * 1.5,  // inom fällningsradie → växer tydligt
+      ['==', ['get', 'nearby'], true], base * 1.15,       // nära → växer lite
       base,
     ];
     const baseSize: any = ['interpolate', ['linear'], ['zoom'],
@@ -5701,6 +5709,48 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Körvy] gps-cone-fill:', e); }
     }
 
+    // 4b) Fällningsradie-ring (40 m runt maskinen). Läge 3: osynlig (line-opacity 0) tills en
+    //     fara är inom räckhåll → tonas fram via transition. Geometri + opacity styrs per tick.
+    if (!map.getSource('gps-radie-source')) {
+      try {
+        map.addSource('gps-radie-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      } catch (e) { console.error('[Körvy] gps-radie-source:', e); }
+    }
+    if (!map.getLayer('gps-radie-line')) {
+      try {
+        map.addLayer({
+          id: 'gps-radie-line',
+          type: 'line',
+          source: 'gps-radie-source',
+          paint: {
+            'line-color': '#ff9f0a',
+            'line-width': 2,
+            'line-opacity': 0,
+            'line-opacity-transition': { duration: 400 },
+            'line-dasharray': [2, 2],
+          },
+        });
+      } catch (e) { console.error('[Körvy] gps-radie-line:', e); }
+    }
+    // Markerad ring runt symboler INOM fällningsradien (data-driven filter på withinRadius).
+    if (!map.getLayer('markers-radie-highlight')) {
+      try {
+        map.addLayer({
+          id: 'markers-radie-highlight',
+          type: 'circle',
+          source: 'markers-source',
+          filter: ['==', ['get', 'withinRadius'], true],
+          paint: {
+            'circle-radius': 22,
+            'circle-color': 'rgba(0,0,0,0)',
+            'circle-stroke-color': '#ff9f0a',
+            'circle-stroke-width': 2.5,
+            'circle-stroke-opacity': 0.9,
+          },
+        });
+      } catch (e) { console.error('[Körvy] markers-radie-highlight:', e); }
+    }
+
     // 5) Maskin-ikon: cirkel-chassi + stor pil framåt (mer synlig än pentagon)
     if (!map.hasImage('maskin-ikon')) {
       const size = 64;
@@ -5861,19 +5911,22 @@ export default function PlannerPage() {
     };
   }, [korvyActive, mapLibreReady]);
 
-  // === KÖRVY: terrain exaggeration (1.0 → 1.8) + maxPitch (60° → 85°) toggle ===
+  // === KÖRVY: platt mark + låg maxPitch (STEG 1) ===
+  // Körvy 2D ska kännas som en platt, lätt lutad bilkarta. Tidigare bumpades terräng-
+  // exaggeration till 1.8 + maxPitch 85 för en brant 3D-lutning (78°) — men det var
+  // 3D-terrängen som förvrängde stenmurar/markeringar. Nu: exaggeration 1.0 (naturlig,
+  // oförvrängd mark) och maxPitch 60 (den lätta 28°-lutningen behöver ingen brant tilt).
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     try {
       if (map.getSource('terrain-dem')) {
-        map.setTerrain({ source: 'terrain-dem', exaggeration: korvyActive ? 1.8 : 1.0 } as any);
+        map.setTerrain({ source: 'terrain-dem', exaggeration: 1.0 } as any);
       }
     } catch (e) { console.error('[Körvy] setTerrain:', e); }
-    // Höj maxPitch i Körvy så 78° easeTo verkligen får 78° (annars kläms till 60)
     try {
       if (typeof (map as any).setMaxPitch === 'function') {
-        (map as any).setMaxPitch(korvyActive ? 85 : 60);
+        (map as any).setMaxPitch(60);
       }
     } catch (e) { console.error('[Körvy] setMaxPitch:', e); }
   }, [korvyActive, mapLibreReady]);
@@ -5898,6 +5951,29 @@ export default function PlannerPage() {
     } catch (e) { console.error('[Körvy] gps-cone update:', e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
+
+  // === KÖRVY: fällningsradie-ring — geometri per tick + tonas fram bara när fara inom räckhåll ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !korvyActive) return;
+    const pos = currentPosition as any;
+    if (!pos || pos.lat == null || pos.lon == null) return;
+    try {
+      const src = map.getSource('gps-radie-source') as any;
+      if (src) {
+        src.setData({
+          type: 'FeatureCollection',
+          features: [{ type: 'Feature' as const, properties: {}, geometry: { type: 'Polygon' as const, coordinates: circlePolygon(pos.lat, pos.lon, FALLNINGSRADIE_M, 48) } }],
+        });
+      }
+      // Läge 3: ringen syns bara när närmaste hindret ligger inom fällningsradien.
+      const faraInom = (korvyNextItems[0]?.dist ?? Infinity) <= FALLNINGSRADIE_M;
+      if (map.getLayer('gps-radie-line')) {
+        map.setPaintProperty('gps-radie-line', 'line-opacity', faraInom ? 0.75 : 0);
+      }
+    } catch (e) { console.error('[Körvy] gps-radie update:', e); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition, korvyActive, mapLibreReady, korvyNextItems]);
 
   // === KÖRVY: uppdatera maskin-source (Point + heading) vid varje tick ===
   useEffect(() => {
@@ -9026,73 +9102,63 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === KÖRVY: NÄSTA-KÖ (3 närmaste markeringar framåt) === */}
-      {korvyActive && korvyNextItems.length > 0 && (
-        <div style={{
-          position: 'fixed',
-          left: 12,
-          right: 12,
-          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-          maxHeight: 140,
-          background: 'rgba(28,28,30,0.92)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 16,
-          padding: '6px 12px',
-          overflow: 'hidden',
-          zIndex: 250,
-          color: '#fff',
-          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-        }}>
-          {korvyNextItems.map((item, i) => {
-            // Svensk översättning för item.type — matchar markers-korvy-label
-            const typeName = ({
-              landing:'Avlägg', eternitytree:'Evighetsträd', naturecorner:'Naturhörn',
-              culturemonument:'Kulturminne', culturestump:'Kulturstubbe', highstump:'Högstubbe',
-              brashpile:'Risrep', windfall:'Vindfälle', manualfelling:'Fäll manuellt',
-              powerline:'Kraftledning', road:'Väg', turningpoint:'Vändplats',
-              ditch:'Dike', bridge:'Bro', corduroy:'Kavlebro', wet:'Blött',
-              steep:'Brant', trail:'Stig', warning:'Varning',
-            } as Record<string, string>)[item.type] || 'Markering';
-            const arrow = bearingArrow(item.bearing, korvyHeading);
-            return (
-              <div key={item.id} style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '8px 4px',
-                borderBottom: i < korvyNextItems.length - 1 ? '1px solid rgba(255,255,255,0.08)' : 'none',
-                minHeight: 44,
-              }}>
-                <span style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  background: item.color,
-                  flexShrink: 0,
-                }} aria-hidden="true" />
-                <span style={{ fontSize: '17px', fontWeight: '700', color: '#fff', minWidth: 18, textAlign: 'center', flexShrink: 0 }} aria-hidden="true">
-                  {arrow}
-                </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '15px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {item.comment || typeName}
+      {/* === KÖRVY: NÄSTA HINDER — EN i taget, NÄRMASTE oavsett riktning (maskinen fäller åt sidan) === */}
+      {korvyActive && korvyNextItems.length > 0 && (() => {
+        const item = korvyNextItems[0];
+        const next = korvyNextItems[1];
+        const typeName = (t: string) => ({
+          landing:'Avlägg', eternitytree:'Evighetsträd', naturecorner:'Naturhörn',
+          culturemonument:'Kulturminne', culturestump:'Kulturstubbe', highstump:'Högstubbe',
+          brashpile:'Risrep', windfall:'Vindfälle', manualfelling:'Fäll manuellt',
+          powerline:'Kraftledning', road:'Väg', turningpoint:'Vändplats',
+          ditch:'Dike', bridge:'Bro', corduroy:'Kavlebro', wet:'Blött',
+          steep:'Brant', trail:'Stig', warning:'Varning',
+        } as Record<string, string>)[t] || 'Markering';
+        const inom = item.dist <= FALLNINGSRADIE_M;
+        return (
+          <div style={{
+            position: 'fixed', left: 12, right: 12,
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+            background: 'rgba(28,28,30,0.92)',
+            backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+            border: `1px solid ${inom ? item.color : 'rgba(255,255,255,0.08)'}`,
+            borderRadius: 18, padding: '14px 16px', zIndex: 250, color: '#fff',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              {/* Riktningspil: var faran är (framför/höger/bakom/vänster) relativt körriktningen */}
+              <span style={{ fontSize: 34, fontWeight: 700, color: item.color, width: 34, textAlign: 'center', flexShrink: 0, lineHeight: 1 }} aria-hidden="true">
+                {bearingArrow(item.bearing, korvyHeading)}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {inom && (
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, color: item.color, textTransform: 'uppercase' }}>
+                    Inom fällningsradie
                   </div>
-                  {item.comment && (
-                    <div style={{ fontSize: '13px', color: '#8e8e93', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {typeName}
-                    </div>
-                  )}
+                )}
+                <div style={{ fontSize: 20, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {item.comment || typeName(item.type)}
                 </div>
-                <div style={{ fontSize: '15px', fontWeight: '600', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                  {item.dist} m
-                </div>
+                {item.comment && (
+                  <div style={{ fontSize: 13, color: '#8e8e93', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {typeName(item.type)}
+                  </div>
+                )}
               </div>
-            );
-          })}
-        </div>
-      )}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexShrink: 0 }}>
+                <span style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{item.dist}</span>
+                <span style={{ fontSize: 15, fontWeight: 600, color: '#8e8e93' }}>m</span>
+              </div>
+            </div>
+            {next && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#8e8e93' }}>
+                <span style={{ color: next.color, fontWeight: 700 }} aria-hidden="true">{bearingArrow(next.bearing, korvyHeading)}</span>
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Nästa: {next.comment || typeName(next.type)} · {next.dist} m</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* === KÖRVY: AKUT VARNING (≤50m) === */}
       {korvyActive && korvyAcuteWarning && (() => {
