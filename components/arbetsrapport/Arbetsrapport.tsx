@@ -81,6 +81,21 @@ const T = { fontFamily:"'Inter',-apple-system,'SF Pro Display',sans-serif", colo
 // Fasta bredder på siffror — förhindrar sidhopp när min går 9→10, km 99→100,
 // timmar 09:59→10:00. Sprid som {...TNUM} på element som visar siffror.
 const TNUM: CSSProperties = { fontVariantNumeric: "tabular-nums" };
+// Typografi-skala från Uppföljning v6-designsystemet (design_handoff_uppfoljning_v6).
+// Sprid som {...TYPE.x} — kombinera med {...TNUM} där siffror visas.
+const TYPE = {
+  largeTitle: { fontSize:34, fontWeight:700, letterSpacing:"-0.8px" },
+  h1:         { fontSize:30, fontWeight:700, letterSpacing:"-0.8px", lineHeight:1.05 },
+  h2:         { fontSize:20, fontWeight:700, letterSpacing:"-0.3px" },
+  bigNum:     { fontSize:32, fontWeight:700, letterSpacing:"-0.8px", lineHeight:1 },
+  body:       { fontSize:17, fontWeight:600, letterSpacing:"-0.2px" },
+  bodyList:   { fontSize:16, fontWeight:600, letterSpacing:"-0.2px" },
+  meta:       { fontSize:13, fontWeight:500 },
+  caption:    { fontSize:12, fontWeight:400 },
+  micro:      { fontSize:11, fontWeight:600, letterSpacing:"0.06em", textTransform:"uppercase" as const },
+  // Utanför v6-skalan — medvetet undantag: timer-klockan på pågående pass.
+  display:    { fontSize:72, fontWeight:600, letterSpacing:"-3px" },
+} satisfies Record<string, CSSProperties>;
 const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:"0 20px", boxSizing:"border-box" as const, width:"100%" };
 const darkShell: CSSProperties = { ...shell };
 const topBar: CSSProperties = { paddingTop:24, paddingBottom:12 };
@@ -205,7 +220,7 @@ const BackBtn = ({ onClick }: { onClick: () => void; light?: boolean }) => (
   </button>
 );
 
-const secHead: CSSProperties = { margin:"0 0 10px",fontSize:13,fontWeight:600,color:"#8e8e93" };
+const secHead: CSSProperties = { margin:"0 0 10px",...TYPE.micro,color:"#8e8e93" };
 
 function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => void }) {
   return (
@@ -370,7 +385,7 @@ const KmPicker = ({ value, onChange, label }: { value: number; onChange: (v: num
       <Label style={{ textAlign:"center" }}>{label}</Label>
       <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8 }}>
         {D(h,100)}{D(t,10)}{D(e,1)}
-        <span style={{ fontSize:15,color:C.label,fontWeight:600,marginLeft:6 }}>km</span>
+        <span style={{ ...TYPE.meta,color:C.label,fontWeight:600,marginLeft:6 }}>km</span>
       </div>
     </div>
   );
@@ -397,7 +412,7 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <BackBtn onClick={()=>setVäljer(false)}/>
-          <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Välj objekt</h1>
+          <h1 style={{ margin:0,...TYPE.h1 }}>Välj objekt</h1>
         </div>
       </div>
       <div style={{ flex:1,paddingTop:16 }}>
@@ -433,7 +448,7 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
             {mode === "pågår" && (
               <span style={{ width:8,height:8,borderRadius:"50%",background:"#ff453a",display:"inline-block",animation:"pulseLive 1.5s infinite alternate" }} />
             )}
-            <h1 style={{ margin:0,fontSize:18,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>{titel}</h1>
+            <h1 style={{ margin:0,...TYPE.h1,color:"#fff" }}>{titel}</h1>
           </div>
         </div>
       </header>
@@ -445,7 +460,7 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
           <section style={{ background:"#1c1c1e",borderRadius:12,padding:"20px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
             <MinPicker value={min} onChange={setMin}/>
             <div style={{ marginTop:4,paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.04)",textAlign:"center" }}>
-              <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#30d158" }}>Total tid: {fmt(min)}</p>
+              <p style={{ margin:0,...TYPE.bodyList,color:"#30d158",...TNUM }}>Total tid: {fmt(min)}</p>
             </div>
           </section>
 
@@ -464,19 +479,19 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
           {/* Debiterbar */}
           <section style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
             <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-              <span style={{ fontSize:17,fontWeight:500,color:"#fff" }}>Debiterbar</span>
+              <span style={{ ...TYPE.bodyList,color:"#fff" }}>Debiterbar</span>
               <div onClick={()=>{setDeb(v=>!v); if(deb)setObj(null);}}
                 style={{ width:51,height:31,borderRadius:999,background:deb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
                 <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:deb?22:2,transition:"left 0.2s" }}/>
               </div>
             </div>
-            <p style={{ margin:"8px 0 0",fontSize:14,color:"#8e8e93" }}>Faktureras kunden</p>
+            <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93" }}>Faktureras kunden</p>
 
             {/* Objekt — visas om debiterbar */}
             {deb && (
               <div onClick={()=>setVäljer(true)} style={{ marginTop:16,paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer" }}>
                 <div>
-                  <p style={{ margin:0,fontSize:16,fontWeight:500 }}>Objekt</p>
+                  <p style={{ margin:0,...TYPE.bodyList }}>Objekt</p>
                   <p style={{ margin:"2px 0 0",fontSize:13,color:obj?"#0a84ff":"#8e8e93" }}>{obj?obj.namn:"Välj objekt"}</p>
                 </div>
                 <ChevronRight/>
@@ -1370,7 +1385,7 @@ export default function Arbetsrapport() {
       <span style={{ fontSize:13,fontWeight:600,color:"#fff",flexShrink:0 }}>
         Tidlogg pågår {(aktivTimer.start_tid||'').slice(0,5)}
       </span>
-      <span style={{ fontSize:14,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums",marginLeft:"auto",marginRight:8,flexShrink:0 }}>
+      <span style={{ ...TYPE.bodyList,color:"#fff",fontVariantNumeric:"tabular-nums",marginLeft:"auto",marginRight:8,flexShrink:0 }}>
         {fmtHMS(sekDiff(aktivTimer.start_tid))}
       </span>
       <button onClick={stoppaAktivTimer}
@@ -1445,7 +1460,7 @@ export default function Arbetsrapport() {
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <BackBtn onClick={()=>{setValjAktivitet(null);setSteg(valjAktivitet?.kalla==='kvall'?"kväll":"morgon");}}/>
           <div>
-            <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Vad gör du?</h1>
+            <h1 style={{ margin:0,...TYPE.h1 }}>Vad gör du?</h1>
             <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>Starttid sätts till nu ({nuKlock()})</p>
           </div>
         </div>
@@ -1470,7 +1485,7 @@ export default function Arbetsrapport() {
                 padding:16,
               }}>
               <span className="material-symbols-outlined" style={{ fontSize:40,color:"#0a84ff" }}>{a.icon}</span>
-              <span style={{ fontSize:15,fontWeight:600,color:"#fff",textAlign:"center",lineHeight:1.2 }}>{a.label}</span>
+              <span style={{ ...TYPE.bodyList,color:"#fff",textAlign:"center",lineHeight:1.2 }}>{a.label}</span>
               {a.debDefault&&<span style={{ fontSize:10,color:C.green,fontWeight:600 }}>DEBITERBAR</span>}
             </button>
           ))}
@@ -1483,7 +1498,7 @@ export default function Arbetsrapport() {
   if(steg==="bekraftaAktivitet" && valdAkt) {
     if(aktVisaObjekt) return (
       <div style={shell}><style>{css}</style>{timerBanner}
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setAktVisaObjekt(false)}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Välj objekt</h1></div></div>
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setAktVisaObjekt(false)}/><h1 style={{ margin:0,...TYPE.h1 }}>Välj objekt</h1></div></div>
         <div style={{ flex:1,paddingTop:16,overflowY:"auto" }}>
           {objektLista.map(o=>(
             <Card key={o.id} onClick={()=>{setAktObjekt(o);setAktVisaObjekt(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:aktObjekt?.id===o.id?"rgba(0,122,255,0.06)":"#1c1c1e" }}>
@@ -1502,7 +1517,7 @@ export default function Arbetsrapport() {
           <div style={{ display:"flex",alignItems:"center",gap:14 }}>
             <BackBtn onClick={()=>{setValdAkt(null);setSteg("valjAktivitet");}}/>
             <div>
-              <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>{valdAkt.label}</h1>
+              <h1 style={{ margin:0,...TYPE.h1 }}>{valdAkt.label}</h1>
               <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>Starttid: {nuKlock()}</p>
             </div>
           </div>
@@ -1611,7 +1626,7 @@ export default function Arbetsrapport() {
           <div style={{ display:"flex",alignItems:"center",gap:14 }}>
             <BackBtn onClick={avbryt}/>
             <div>
-              <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>
+              <h1 style={{ margin:0,...TYPE.h1 }}>
                 {aktivt.typ === 'dygnsvila' ? 'Dygnsvila bruten' : 'Veckovila bruten'}
               </h1>
               <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>
@@ -1623,7 +1638,7 @@ export default function Arbetsrapport() {
         <div style={{ flex:1,overflowY:"auto",paddingTop:8,paddingBottom:120 }}>
           {/* Beskrivning av brottet */}
           <Card style={{ background:"rgba(255,69,58,0.06)",border:"1px solid rgba(255,69,58,0.2)" }}>
-            <p style={{ margin:0,fontSize:14,color:"#fff",lineHeight:1.5 }}>{aktivt.beskrivning}</p>
+            <p style={{ margin:0,...TYPE.meta,color:"#fff",lineHeight:1.5 }}>{aktivt.beskrivning}</p>
           </Card>
 
           {/* Orsaksval */}
@@ -1714,7 +1729,7 @@ export default function Arbetsrapport() {
             <BackBtn onClick={()=>{setTidslinjeDatum(null);setSteg("kalender");}}/>
             <div>
               <p style={{ margin:0,fontSize:13,color:C.label,textTransform:"capitalize" }}>{datLabel}</p>
-              <h1 style={{ margin:"4px 0 0",fontSize:24,fontWeight:700 }}>Tidslinje</h1>
+              <h1 style={{ margin:"4px 0 0",...TYPE.h1 }}>Tidslinje</h1>
             </div>
           </div>
         </div>
@@ -1722,27 +1737,27 @@ export default function Arbetsrapport() {
           {/* Summering */}
           <Card style={{ padding:"16px 20px" }}>
             <div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}>
-              <span style={{ fontSize:14,color:C.label }}>Maskin</span>
-              <span style={{ fontSize:14,fontWeight:600 }}>{fmt(totMaskin)}</span>
+              <span style={{ ...TYPE.meta,color:C.label }}>Maskin</span>
+              <span style={{ ...TYPE.bodyList,...TNUM }}>{fmt(totMaskin)}</span>
             </div>
             {totExtra>0&&(
               <div style={{ display:"flex",justifyContent:"space-between" }}>
-                <span style={{ fontSize:14,color:C.label }}>Extra tid</span>
-                <span style={{ fontSize:14,fontWeight:600,color:C.orange }}>+ {fmt(totExtra)}</span>
+                <span style={{ ...TYPE.meta,color:C.label }}>Extra tid</span>
+                <span style={{ ...TYPE.bodyList,color:C.orange,...TNUM }}>+ {fmt(totExtra)}</span>
               </div>
             )}
           </Card>
           {/* Lista händelser */}
           <div style={{ marginTop:16 }}>
             {händelser.length===0?(
-              <Card><p style={{ margin:0,fontSize:14,color:C.label,textAlign:"center" }}>Inga händelser denna dag</p></Card>
+              <Card><p style={{ margin:0,...TYPE.meta,color:C.label,textAlign:"center" }}>Inga händelser denna dag</p></Card>
             ):händelser.map((h,i)=>(
               <Card key={i} style={{ display:"flex",alignItems:"flex-start",gap:14 }}>
-                <div style={{ minWidth:90,fontSize:14,color:C.label,fontWeight:500,fontVariantNumeric:"tabular-nums" }}>
+                <div style={{ minWidth:90,...TYPE.meta,color:C.label,fontWeight:500,fontVariantNumeric:"tabular-nums" }}>
                   {h.start}–{h.slut}
                 </div>
                 <div style={{ flex:1 }}>
-                  <p style={{ margin:0,fontSize:15,fontWeight:600,color:h.typ==='maskin'?'#fff':C.orange }}>{h.label}</p>
+                  <p style={{ margin:0,...TYPE.bodyList,color:h.typ==='maskin'?'#fff':C.orange }}>{h.label}</p>
                   {h.sub&&<p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{h.sub}</p>}
                   <p style={{ margin:"6px 0 0",fontSize:12,fontWeight:500,color:C.label }}>{fmt(h.minuter)}{h.debiterbar?' · debiterbar':''}</p>
                 </div>
@@ -1761,7 +1776,7 @@ export default function Arbetsrapport() {
 
       {/* Top bar */}
       <header style={{ position:"fixed",top:0,width:"100%",height:64,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",zIndex:50,display:"flex",justifyContent:"center",alignItems:"center",padding:"0 24px",boxSizing:"border-box" }}>
-        <span style={{ fontSize:17,fontWeight:600,color:"#fff" }}>Dag</span>
+        <span style={{ ...TYPE.body,color:"#fff" }}>Dag</span>
       </header>
 
       <main style={{ paddingTop:aktivTimer?140:96,paddingBottom:128,paddingLeft:24,paddingRight:24,flex:1,width:"100%",boxSizing:"border-box" }}>
@@ -1784,7 +1799,7 @@ export default function Arbetsrapport() {
           }} style={{ background:"rgba(255,159,10,0.06)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:"fadeUp 0.3s ease" }}>
             <div style={{ display:"flex",alignItems:"center",gap:10 }}>
               <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>warning</span>
-              <span style={{ fontSize:14,fontWeight:600,color:"#fff" }}>Du glömde bekräfta gårdagen</span>
+              <span style={{ ...TYPE.bodyList,color:"#fff" }}>Du glömde bekräfta gårdagen</span>
             </div>
             <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>chevron_right</span>
           </div>
@@ -1794,7 +1809,7 @@ export default function Arbetsrapport() {
         {vilaVarningar.map((v,i)=>(
           <div key={i} style={{ background:v.typ==='röd'?"rgba(255,69,58,0.08)":"rgba(255,159,10,0.08)",border:`1px solid ${v.typ==='röd'?"rgba(255,69,58,0.25)":"rgba(255,159,10,0.25)"}`,borderRadius:12,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:10 }}>
             <span className="material-symbols-outlined" style={{ color:v.typ==='röd'?"#ff453a":"#ff9f0a",fontSize:20 }}>warning</span>
-            <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>{v.text}</span>
+            <span style={{ ...TYPE.meta,color:"#fff" }}>{v.text}</span>
           </div>
         ))}
 
@@ -1805,7 +1820,7 @@ export default function Arbetsrapport() {
             <div key={`varn-${p.id}`} style={{ background:"rgba(255,69,58,0.1)",border:"1px solid rgba(255,69,58,0.35)",borderRadius:12,padding:"14px 16px",marginBottom:10,display:"flex",alignItems:"center",gap:10 }}>
               <span className="material-symbols-outlined" style={{ color:"#ff453a",fontSize:22 }}>warning</span>
               <div style={{ flex:1,minWidth:0 }}>
-                <p style={{ margin:0,fontSize:14,fontWeight:700,color:"#fff" }}>Timer igång sedan igår</p>
+                <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Timer igång sedan igår</p>
                 <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Startad {(p.start_tid||'').slice(0,5)} — glömd att stoppa?</p>
               </div>
             </div>
@@ -1841,7 +1856,7 @@ export default function Arbetsrapport() {
             }
             if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
           }}
-            style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",height:56,padding:"0 20px",background:"#0a84ff",border:"none",borderRadius:12,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+            style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",height:56,padding:"0 20px",background:"#0a84ff",border:"none",borderRadius:12,color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
             <span className="material-symbols-outlined" style={{ fontSize:18 }}>add</span>
             Extra arbete
           </button>
@@ -1849,8 +1864,8 @@ export default function Arbetsrapport() {
 
         {/* Hero */}
         <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
-          <h1 style={{ fontSize:28,fontWeight:700,letterSpacing:"-0.02em",color:"#fff",margin:"0 0 4px" }}>{hälsning()}, {förnamn}</h1>
-          <p style={{ margin:0,fontSize:15,color:"#8e8e93" }}>{datumStr}</p>
+          <h1 style={{ ...TYPE.h2,color:"#fff",margin:"0 0 4px" }}>{hälsning()}, {förnamn}</h1>
+          <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>{datumStr}</p>
         </section>
 
         {/* Shift Status Card — döljs efter bekräftning och när pass redan avslutats
@@ -1875,7 +1890,7 @@ export default function Arbetsrapport() {
                 : (typ && typ !== 'normal' && dagTypVisa[typ])
                   ? dagTypVisa[typ]
                   : `Pågående sedan ${startKort}`;
-              return <h2 style={{ margin:0,color:"#fff",fontWeight:600,fontSize:17,...TNUM }}>{rubrik}</h2>;
+              return <h2 style={{ margin:0,color:"#fff",...TYPE.body,...TNUM }}>{rubrik}</h2>;
             })()}
           </div>
           <p style={{ fontSize:13,color:"rgba(255,255,255,0.5)",margin:isWorking?"0 0 16px":"0 0 14px",lineHeight:1.5,...TNUM }}>
@@ -1891,13 +1906,13 @@ export default function Arbetsrapport() {
               {(maskinNamn || medarbetare?.maskin_id) && (
                 <div style={{ display:"flex",justifyContent:"space-between" }}>
                   <span style={{ fontSize:13,color:"rgba(255,255,255,0.5)" }}>Maskin</span>
-                  <span style={{ fontSize:14,color:"#fff",fontWeight:500 }}>{maskinNamn || medarbetare?.maskin_id}</span>
+                  <span style={{ ...TYPE.bodyList,color:"#fff" }}>{maskinNamn || medarbetare?.maskin_id}</span>
                 </div>
               )}
               {dagData[idagKey]?.objekt_id && (
                 <div style={{ display:"flex",justifyContent:"space-between" }}>
                   <span style={{ fontSize:13,color:"rgba(255,255,255,0.5)" }}>Objekt</span>
-                  <span style={{ fontSize:14,color:"#fff",fontWeight:500 }}>{objektLista.find(o => o.id === dagData[idagKey]?.objekt_id)?.namn || dagData[idagKey]?.objekt_id}</span>
+                  <span style={{ ...TYPE.bodyList,color:"#fff" }}>{objektLista.find(o => o.id === dagData[idagKey]?.objekt_id)?.namn || dagData[idagKey]?.objekt_id}</span>
                 </div>
               )}
             </div>
@@ -1911,7 +1926,7 @@ export default function Arbetsrapport() {
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                 synkaVilobrott(idagKey);
-              }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",background:"rgba(255,255,255,0.04)",color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
                 Avsluta pass
               </button>
             ) : pagaendeAktiviteter.length===0 ? (
@@ -1949,7 +1964,7 @@ export default function Arbetsrapport() {
                   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                   synkaVilobrott(idagKey);
                 }
-              }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.25)",background:"transparent",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.25)",background:"transparent",color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
                 Starta manuellt
               </button>
             ) : <span />}
@@ -1989,7 +2004,7 @@ export default function Arbetsrapport() {
                 cursor:"pointer", fontFamily:"inherit", textAlign:"left",
               }}>
                 <div style={{ minWidth:0, flex:1 }}>
-                  <p style={{ margin:0, fontSize:15, fontWeight:600, color:"#fff" }}>
+                  <p style={{ margin:0, ...TYPE.bodyList, color:"#fff" }}>
                     {igårKopierat ? "Använt — redo att bekräfta" : "Samma som igår"}
                   </p>
                   {!igårKopierat && (
@@ -2031,12 +2046,12 @@ export default function Arbetsrapport() {
           const harErsKr = ersKr > 0;
           const harKmBlock = harKm && harMaskinPass;
           const harObjBlock = !!(dagObjNamn || maskinNamnLång) && harMaskinPass;
-          const sammanRad = (label: string, value: string, onClick?: () => void) => (
+          const sammanRad = (label: string, value: string, onClick?: () => void, hero?: boolean) => (
             <div key={label} onClick={onClick}
               style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
-              <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{label}</span>
+              <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>{label}</span>
               <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-                <span style={{ color:"#fff",fontSize:15,fontWeight:600,...TNUM }}>{value}</span>
+                <span style={{ color:"#fff",...(hero?TYPE.body:TYPE.bodyList),...TNUM }}>{value}</span>
                 {onClick && <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)" }}>chevron_right</span>}
               </div>
             </div>
@@ -2046,17 +2061,17 @@ export default function Arbetsrapport() {
           return (
             <section style={{ marginBottom:32 }}>
               <div style={{ background:"#1c1c1e",borderRadius:12,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <p style={{ margin:"0 0 6px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
+                <p style={{ margin:"0 0 6px",...TYPE.body,color:"#fff" }}>{datumRubrik}</p>
                 {redanBekräftad && (
                   <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
                     <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check_circle</span>
-                    <span style={{ fontSize:13,color:"#30d158",fontWeight:500,...TNUM }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
+                    <span style={{ ...TYPE.meta,color:"#30d158",...TNUM }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
                   </div>
                 )}
                 {ändradSedan && (
                   <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
                     <span className="material-symbols-outlined" style={{ fontSize:18,color:"#ff9f0a" }}>edit</span>
-                    <span style={{ fontSize:13,color:"#ff9f0a",fontWeight:500 }}>Ändrad — ej bekräftad</span>
+                    <span style={{ ...TYPE.meta,color:"#ff9f0a" }}>Ändrad — ej bekräftad</span>
                   </div>
                 )}
                 {!redanBekräftad && !ändradSedan && <div style={{ height:6 }} />}
@@ -2064,7 +2079,7 @@ export default function Arbetsrapport() {
                   <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
                     {sammanRad("Arbetstid", `${start} → ${slut}`, öppnaTider)}
                     {sammanRad("Rast", `${rast} min`, öppnaTider)}
-                    {sammanRad("Total", fmt(arbMin))}
+                    {sammanRad("Total", fmt(arbMin), undefined, true)}
                   </div>
                 )}
                 {harObjBlock&&(
@@ -2081,8 +2096,8 @@ export default function Arbetsrapport() {
                             : o.arbetad_min ? ` (${fmt(o.arbetad_min)})` : '';
                           return (
                             <div key={o.id} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center" }}>
-                              <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{i === 0 ? "Objekt" : ""}</span>
-                              <span style={{ color:"#fff",fontSize:15,fontWeight:500,textAlign:"right" as const,...TNUM }}>
+                              <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>{i === 0 ? "Objekt" : ""}</span>
+                              <span style={{ color:"#fff",...TYPE.bodyList,textAlign:"right" as const,...TNUM }}>
                                 {o.objekt_namn || o.objekt_id}
                                 <span style={{ color:"rgba(255,255,255,0.5)",fontSize:13,...TNUM }}>{tidStr}</span>
                               </span>
@@ -2129,9 +2144,9 @@ export default function Arbetsrapport() {
                             setKvAvBesk(e.kommentar || "");
                             setEfterStoppSheet(e);
                           }} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:"pointer",gap:8 }}>
-                            <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15,flexShrink:0 }}>{prefixFör(e)}</span>
+                            <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta,flexShrink:0 }}>{prefixFör(e)}</span>
                             <div style={{ display:"flex",alignItems:"center",gap:4,minWidth:0 }}>
-                              <span style={{ color:"#fff",fontSize:15,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...TNUM }}>{värde}</span>
+                              <span style={{ color:"#fff",...TYPE.bodyList,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...TNUM }}>{värde}</span>
                               <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)",flexShrink:0 }}>chevron_right</span>
                             </div>
                           </div>
@@ -2142,9 +2157,9 @@ export default function Arbetsrapport() {
                 })()}
                 {harMaskinPass && (
                 <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
-                  <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Traktamente</span>
+                  <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>Traktamente</span>
                   <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-                    <span style={{ color:"#fff",fontSize:15,fontWeight:600,...TNUM }}>{trak?.summa ? `${trak.summa} kr` : "Inget"}</span>
+                    <span style={{ color:"#fff",...TYPE.bodyList,...TNUM }}>{trak?.summa ? `${trak.summa} kr` : "Inget"}</span>
                     <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:trakÖppen?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
                   </div>
                 </div>
@@ -2222,7 +2237,7 @@ export default function Arbetsrapport() {
                     // Inga obesvarade brott — bekräfta direkt
                     await bekraftaDagen();
                   }}
-                  style={{ width:"100%",marginTop:16,padding:"20px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                  style={{ width:"100%",marginTop:16,padding:"20px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                   {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
                 </button>
               ))}
@@ -2237,8 +2252,8 @@ export default function Arbetsrapport() {
         {månadsKlar&&!lönSkickat&&(
           <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:16,marginBottom:24,cursor:"pointer",animation:"fadeUp 0.4s ease" }}>
             <p style={{ margin:"0 0 6px",fontSize:13,fontWeight:500,color:C.orange }}>Månaden är slut</p>
-            <p style={{ margin:"0 0 8px",fontSize:15,fontWeight:600,color:"#fff" }}>Granska löneunderlaget för {månadsNamn()}</p>
-            <span style={{ fontSize:14,color:"#0a84ff",fontWeight:500 }}>Öppna →</span>
+            <p style={{ margin:"0 0 8px",...TYPE.bodyList,color:"#fff" }}>Granska löneunderlaget för {månadsNamn()}</p>
+            <span style={{ ...TYPE.meta,color:"#0a84ff" }}>Öppna →</span>
           </div>
         )}
 
@@ -2302,7 +2317,7 @@ export default function Arbetsrapport() {
                   }}
                     style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 12px",cursor:"pointer",fontFamily:"inherit" }}>
                     <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>{s.icon}</span>
-                    <span style={{ color:"#fff",fontWeight:500,fontSize:14 }}>{s.label}</span>
+                    <span style={{ color:"#fff",...TYPE.bodyList }}>{s.label}</span>
                   </button>
                 ))}
               </div>
@@ -2350,14 +2365,14 @@ export default function Arbetsrapport() {
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
             <div style={{ background:"#1c1c1e",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Välj objekt</h3>
-                <button onClick={()=>setVisaObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+                <h3 style={{ margin:0,...TYPE.h2 }}>Välj objekt</h3>
+                <button onClick={()=>setVisaObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
               </div>
               <div style={{ flex:1,overflowY:"auto",padding:"8px 0" }}>
                 {objektLista.map(o=>(
                   <button key={o.id} onClick={()=>{setValtObjektId(o.id);setVisaObjektVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 20px",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
                     <div>
-                      <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff" }}>{o.namn}</p>
+                      <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{o.namn}</p>
                       {o.ägare&&<p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.ägare}</p>}
                     </div>
                     {valtObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
@@ -2384,19 +2399,19 @@ export default function Arbetsrapport() {
               <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
             </div>
             <div style={{ padding:"0 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-              <p style={{ margin:0,fontSize:20,fontWeight:700,color:"#fff" }}>Välj objekt</p>
+              <p style={{ margin:0,...TYPE.h2,color:"#fff" }}>Välj objekt</p>
               <button onClick={()=>setKvAvVäljer(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Avbryt</button>
             </div>
             <div style={{ flex:1,overflowY:"auto",padding:"0 8px 0" }}>
               {objektLista.length === 0 ? (
-                <p style={{ margin:"32px 20px",textAlign:"center",fontSize:14,color:"rgba(255,255,255,0.5)" }}>Inga objekt tillgängliga</p>
+                <p style={{ margin:"32px 20px",textAlign:"center",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>Inga objekt tillgängliga</p>
               ) : objektLista.map(o=>{
                 const valt = kvAvObj?.id === o.id;
                 return (
                   <button key={o.id} onClick={()=>{ setKvAvObj(o); setKvAvVäljer(false); }}
                     style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 14px",background:valt?"rgba(10,132,255,0.1)":"none",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:2 }}>
                     <div style={{ minWidth:0,flex:1 }}>
-                      <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{o.namn}</p>
+                      <p style={{ margin:0,...TYPE.bodyList,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{o.namn}</p>
                       {o.ägare && <p style={{ margin:"2px 0 0",fontSize:12,color:"rgba(255,255,255,0.5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{o.ägare}</p>}
                     </div>
                     {valt && <span className="material-symbols-outlined" style={{ fontSize:22,color:"#0a84ff",flexShrink:0,marginLeft:8 }}>check</span>}
@@ -2436,14 +2451,14 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
                 <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
               </div>
-              <p style={{ margin:"0 0 4px",fontSize:22,fontWeight:700,color:"#fff" }}>Vad gjorde du?</p>
-              <p style={{ margin:"0 0 16px",fontSize:14,color:"rgba(255,255,255,0.5)" }}>{tidLabel}</p>
+              <p style={{ margin:"0 0 4px",...TYPE.h2,color:"#fff" }}>Vad gjorde du?</p>
+              <p style={{ margin:"0 0 16px",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>{tidLabel}</p>
 
               <p style={{ margin:"0 0 8px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Aktivitet</p>
               {typer.map(t=>(
                 <div key={t.typ} onClick={()=>setKvAvTyp(t.typ)}
                   style={{ background:kvAvTyp===t.typ?"rgba(10,132,255,0.15)":"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.typ?"1px solid rgba(10,132,255,0.35)":"1px solid rgba(255,255,255,0.06)" }}>
-                  <span style={{ fontSize:15,fontWeight:500,color:"#fff" }}>{t.label}</span>
+                  <span style={{ ...TYPE.bodyList,color:"#fff" }}>{t.label}</span>
                   {kvAvTyp===t.typ
                     ? <div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
                     : <div style={{ width:20,height:20,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.18)" }}/>
@@ -2453,7 +2468,7 @@ export default function Arbetsrapport() {
 
               <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:12,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:"1px solid rgba(255,255,255,0.06)" }}>
                 <div>
-                  <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#fff" }}>Objekt</p>
+                  <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Objekt</p>
                   <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?"#0a84ff":"rgba(255,255,255,0.5)" }}>{kvAvObj?kvAvObj.namn:"Välj objekt (valfritt)"}</p>
                 </div>
                 <ChevronRight/>
@@ -2461,7 +2476,7 @@ export default function Arbetsrapport() {
 
               <div style={{ marginTop:6,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
                 <div>
-                  <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#fff" }}>Debiterbar</p>
+                  <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Debiterbar</p>
                   <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Faktureras kunden</p>
                 </div>
                 <div onClick={()=>setKvAvDeb(v=>!v)}
@@ -2501,7 +2516,7 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
                 <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
               </div>
-              <p style={{ margin:"0 0 16px",fontSize:22,fontWeight:700,color:"#fff" }}>Ändra tider</p>
+              <p style={{ margin:"0 0 16px",...TYPE.h2,color:"#fff" }}>Ändra tider</p>
               <div style={{ background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"16px 12px",display:"flex",flexDirection:"column",gap:16 }}>
                 <div>
                   <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:6,color:tS!==start?C.orange:"rgba(255,255,255,0.5)" }}>Start</span>
@@ -2515,13 +2530,13 @@ export default function Arbetsrapport() {
                   <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:tR!==rast?C.orange:"rgba(255,255,255,0.5)" }}>Rast</span>
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8 }}>
                     <Wheel value={tR} onChange={setTR} min={0} max={120} step={5}/>
-                    <span style={{ fontSize:14,color:"rgba(255,255,255,0.5)",fontWeight:600 }}>min</span>
+                    <span style={{ ...TYPE.meta,color:"rgba(255,255,255,0.5)",fontWeight:600 }}>min</span>
                   </div>
                 </div>
               </div>
               <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(48,209,88,0.08)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15,fontWeight:500 }}>Total arbetstid</span>
-                <span style={{ color:"#30d158",fontSize:24,fontWeight:700 }}>{fmt(tAm)}</span>
+                <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta,fontWeight:500 }}>Total arbetstid</span>
+                <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{fmt(tAm)}</span>
               </div>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginTop:16 }}>
                 <button onClick={stäng}
@@ -2578,15 +2593,15 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
                 <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
               </div>
-              <p style={{ margin:"0 0 16px",fontSize:22,fontWeight:700,color:"#fff" }}>Ändra km</p>
+              <p style={{ margin:"0 0 16px",...TYPE.h2,color:"#fff" }}>Ändra km</p>
               <div style={{ display:"flex",gap:10 }}>
                 <KmInput label="Morgon" value={tMK} onChange={setTMK}/>
                 <KmInput label="Kväll"  value={tKK} onChange={setTKK}/>
               </div>
               <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(48,209,88,0.08)",borderRadius:12 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                  <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Totalt</span>
-                  <span style={{ color:"#30d158",fontSize:24,fontWeight:700 }}>{ny} km</span>
+                  <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>Totalt</span>
+                  <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{ny} km</span>
                 </div>
                 {över > 0
                   ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#30d158",fontWeight:500 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
@@ -2626,8 +2641,8 @@ export default function Arbetsrapport() {
           {heldagsMeddelande.icon && (
             <span className="material-symbols-outlined" style={{ fontSize:96,color:"#fff",marginBottom:24,animation:"checkPop 0.5s cubic-bezier(0.2,0.8,0.3,1.2)" }}>{heldagsMeddelande.icon}</span>
           )}
-          <p style={{ margin:"0 0 16px",fontSize:32,fontWeight:700,color:"#fff",textAlign:"center",letterSpacing:"-0.01em" }}>{heldagsMeddelande.text}</p>
-          <p style={{ margin:0,fontSize:15,color:"rgba(255,255,255,0.5)" }}>
+          <p style={{ margin:"0 0 16px",...TYPE.largeTitle,color:"#fff",textAlign:"center" }}>{heldagsMeddelande.text}</p>
+          <p style={{ margin:0,...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>
             {["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()]} {idag.getDate()} {["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()]}
           </p>
         </div>
@@ -2642,7 +2657,7 @@ export default function Arbetsrapport() {
               <path d="M14 27 L23 36 L38 18" stroke="#fff" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" strokeDasharray="60" style={{ animation:"checkDraw 0.4s 0.2s both ease-out" }}/>
             </svg>
           </div>
-          <p style={{ margin:"32px 0 0",fontSize:22,fontWeight:700,color:"#fff",letterSpacing:"-0.01em" }}>Dagen bekräftad</p>
+          <p style={{ margin:"32px 0 0",...TYPE.largeTitle,color:"#fff" }}>Dagen bekräftad</p>
         </div>
       )}
     </div>
@@ -2658,7 +2673,7 @@ export default function Arbetsrapport() {
 
     if(avVäljer) return (
       <div style={shell}><style>{css}</style>{timerBanner}
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setAvVäljer(false)}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Välj objekt</h1></div></div>
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setAvVäljer(false)}/><h1 style={{ margin:0,...TYPE.h1 }}>Välj objekt</h1></div></div>
         <div style={{ flex:1,paddingTop:16 }}>
           {objektLista.map(o=>(
             <Card key={o.id} onClick={()=>{setAvObj(o);setAvVäljer(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:avObj?.id===o.id?"rgba(0,122,255,0.06)":C.card }}>
@@ -2673,8 +2688,8 @@ export default function Arbetsrapport() {
     return (
       <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}>
-          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>{hälsning()}, {förnamn}</h1>
-          <p style={{ margin:0,fontSize:15,color:C.label }}>Du loggade in på maskinen</p>
+          <h1 style={{ margin:"0 0 6px",...TYPE.h2 }}>{hälsning()}, {förnamn}</h1>
+          <p style={{ margin:0,...TYPE.meta,color:C.label }}>Du loggade in på maskinen</p>
         </div>
 
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
@@ -2684,7 +2699,7 @@ export default function Arbetsrapport() {
           {typer.map(t=>(
             <Card key={t.id} onClick={()=>setAvTyp(t.id)}
               style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,background:avTyp===t.id?"rgba(0,122,255,0.06)":C.card,border:avTyp===t.id?`1px solid rgba(0,122,255,0.2)`:"none" }}>
-              <span style={{ fontSize:16,fontWeight:500 }}>{t.label}</span>
+              <span style={{ ...TYPE.bodyList }}>{t.label}</span>
               {avTyp===t.id
                 ?<div style={{ width:22,height:22,borderRadius:"50%",background:C.blue,display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
                 :<div style={{ width:22,height:22,borderRadius:"50%",border:`1.5px solid ${C.line}` }}/>
@@ -2860,7 +2875,7 @@ export default function Arbetsrapport() {
       <div style={{ minHeight:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",paddingBottom:120 }}>
         <style>{css}</style>{timerBanner}
         <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:"0 24px",paddingTop:16 }}>
-          <h1 style={{ margin:"0 0 12px",fontSize:20,fontWeight:700,color:"#fff" }}>Min tid</h1>
+          <h1 style={{ margin:"0 0 12px",...TYPE.h1,color:"#fff" }}>Min tid</h1>
           <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2,marginBottom:12,overflowX:"auto" }}>
             {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['monster','Mönster'],['lön','Löneunderlag']] as const).map(([k,l])=>(
               <button key={k} onClick={()=>{if(k==='lön'){setSteg('lön');return;}setMinTidFlik(k);}} style={{ flex:1,minWidth:60,padding:"7px 8px",borderRadius:6,border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:minTidFlik===k?"rgba(255,255,255,0.12)":"transparent",color:minTidFlik===k?"#fff":"#8e8e93",whiteSpace:"nowrap" }}>{l}</button>
@@ -2876,7 +2891,7 @@ export default function Arbetsrapport() {
               {varningar.map((v,i)=>(
                 <div key={i} style={{ background:v.typ==='röd'?"rgba(255,69,58,0.08)":"rgba(255,159,10,0.08)",border:`1px solid ${v.typ==='röd'?"rgba(255,69,58,0.25)":"rgba(255,159,10,0.25)"}`,borderRadius:12,padding:"14px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:10 }}>
                   <span className="material-symbols-outlined" style={{ color:v.typ==='röd'?"#ff453a":"#ff9f0a",fontSize:20 }}>warning</span>
-                  <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>{v.text}</span>
+                  <span style={{ ...TYPE.meta,color:"#fff" }}>{v.text}</span>
                 </div>
               ))}
             </section>
@@ -2918,9 +2933,9 @@ export default function Arbetsrapport() {
                 {label:"Året",val:`${Math.round(årsMin/60*10)/10}h`,sub:'totalt'},
               ].map((r,i,arr)=>(
                 <div key={r.label} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<arr.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
-                  <span style={{ fontSize:15,color:"#8e8e93" }}>{r.label}</span>
+                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{r.label}</span>
                   <div style={{ display:"flex",alignItems:"baseline",gap:8 }}>
-                    <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{r.val}</span>
+                    <span style={{ ...TYPE.bodyList,color:"#fff" }}>{r.val}</span>
                     {'sub' in r&&<span style={{ fontSize:12,fontWeight:500,color:"#8e8e93" }}>{(r as any).sub}</span>}
                   </div>
                 </div>
@@ -2949,12 +2964,12 @@ export default function Arbetsrapport() {
                 <h3 style={secHead}>Semester</h3>
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
                   {laddar?(
-                    <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Hämtar saldo…</p>
+                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Hämtar saldo…</p>
                   ):fel?(
-                    <p style={{ margin:0,fontSize:14,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
+                    <p style={{ margin:0,...TYPE.meta,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
                   ):(<>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
-                      <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{semKvar} <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>dagar kvar</span></span>
+                      <span style={{ ...TYPE.h2,color:"#fff",...TNUM }}>{semKvar} <span style={{ ...TYPE.meta,color:"#8e8e93" }}>dagar kvar</span></span>
                     </div>
                     <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:12,overflow:"hidden" }}>
                       <div style={{ height:"100%",width:`${semPct}%`,background:"#0a84ff",borderRadius:2 }} />
@@ -3002,12 +3017,12 @@ export default function Arbetsrapport() {
                 {/* Saldo */}
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)",marginBottom:12 }}>
                   {laddar?(
-                    <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Hämtar saldo…</p>
+                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Hämtar saldo…</p>
                   ):fel?(
-                    <p style={{ margin:0,fontSize:14,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
+                    <p style={{ margin:0,...TYPE.meta,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
                   ):(<>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:atkTimmar!=null?16:0 }}>
-                      <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{atkKr.toLocaleString('sv-SE')} <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>kr</span></span>
+                      <span style={{ ...TYPE.h2,color:"#fff",...TNUM }}>{atkKr.toLocaleString('sv-SE')} <span style={{ ...TYPE.meta,color:"#8e8e93" }}>kr</span></span>
                     </div>
                     {atkTimmar!=null&&(
                       <div style={{ display:"flex",justifyContent:"space-between" }}>
@@ -3021,7 +3036,7 @@ export default function Arbetsrapport() {
                 {/* ATK-val — beror på datum */}
                 {föreValperiod&&(
                   <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-                    <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>ATK-val öppnar 1 maj</p>
+                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>ATK-val öppnar 1 maj</p>
                   </div>
                 )}
 
@@ -3029,7 +3044,7 @@ export default function Arbetsrapport() {
                   <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(48,209,88,0.2)" }}>
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                       <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check_circle</span>
-                      <span style={{ fontSize:14,color:"#fff" }}>
+                      <span style={{ ...TYPE.meta,color:"#fff" }}>
                         Ditt val: {atkValSparat.val==='ledig'?'Ledig tid':atkValSparat.val==='kontant'?'Pengar':'Pension'}
                       </span>
                     </div>
@@ -3040,7 +3055,7 @@ export default function Arbetsrapport() {
                   <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,159,10,0.3)" }}>
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                       <span className="material-symbols-outlined" style={{ fontSize:18,color:"#ff9f0a" }}>warning</span>
-                      <span style={{ fontSize:14,color:"#fff" }}>Inget val gjort — kontakta chef</span>
+                      <span style={{ ...TYPE.meta,color:"#fff" }}>Inget val gjort — kontakta chef</span>
                     </div>
                   </div>
                 )}
@@ -3049,7 +3064,7 @@ export default function Arbetsrapport() {
                   <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(48,209,88,0.2)" }}>
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                       <span className="material-symbols-outlined" style={{ fontSize:16,color:"#30d158" }}>check</span>
-                      <span style={{ fontSize:14,color:"#fff" }}>
+                      <span style={{ ...TYPE.meta,color:"#fff" }}>
                         {atkValSparat.val==='ledig'?`Du valde ledig tid${atkDagar!=null?`: ${atkDagar} dagar`:''}`:atkValSparat.val==='kontant'?`Utbetalas juni ${årNu2}: ≈ ${atkKr.toLocaleString('sv-SE')} kr`:`Avsatt till pension: ≈ ${atkKr.toLocaleString('sv-SE')} kr`}
                       </span>
                     </div>
@@ -3058,7 +3073,7 @@ export default function Arbetsrapport() {
 
                 {iValperiod&&!harValt&&(
                   <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,159,10,0.25)" }}>
-                    <p style={{ margin:"0 0 16px",fontSize:14,fontWeight:600,color:"#ff9f0a" }}>Välj för ditt ATK {årNu2}</p>
+                    <p style={{ margin:"0 0 16px",...TYPE.meta,fontWeight:600,color:"#ff9f0a" }}>Välj för ditt ATK {årNu2}</p>
                     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16 }}>
                       {([
                         {k:'ledig' as const,label:'Ledig tid',sub:atkDagar!=null?`= ${atkDagar} dagar`:''},
@@ -3097,8 +3112,8 @@ export default function Arbetsrapport() {
             <h3 style={secHead}>Övertid {nu.getFullYear()}</h3>
             <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
-                <span style={{ fontSize:28,fontWeight:700,color:årsBarFärg }}>{årsÖvH}h</span>
-                <span style={{ fontSize:14,color:"#8e8e93" }}>av 250h</span>
+                <span style={{ ...TYPE.h2,color:årsBarFärg,...TNUM }}>{årsÖvH}h</span>
+                <span style={{ ...TYPE.meta,color:"#8e8e93" }}>av 250h</span>
               </div>
               <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:8,overflow:"hidden" }}>
                 <div style={{ height:"100%",width:`${Math.min(100,årsÖvH/250*100)}%`,background:årsBarFärg,borderRadius:2,transition:"width 0.5s" }} />
@@ -3253,12 +3268,12 @@ export default function Arbetsrapport() {
                 <div
                   onClick={b ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
                   style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:`1px solid ${ok?"rgba(255,255,255,0.06)":"rgba(255,69,58,0.2)"}`,cursor: b ? "pointer" : "default" }}>
-                  <p style={{ margin:"0 0 6px",fontSize:14,fontWeight:600,color:"#fff",textTransform:"capitalize" }}>{fD(d1)}</p>
+                  <p style={{ margin:"0 0 6px",...TYPE.bodyList,color:"#fff",textTransform:"capitalize" }}>{fD(d1)}</p>
                   <p style={{ margin:"0 0 2px",fontSize:13,color:"#8e8e93" }}>Slutade kl {r.slutTid}</p>
                   <p style={{ margin:"0 0 10px",fontSize:13,color:"#8e8e93" }}>Startade igen: <span style={{ textTransform:"capitalize" }}>{fD(d2)}</span> kl {r.startTid}</p>
                   <div style={{ display:"flex",alignItems:"center",gap:6 }}>
                     {!ok&&<span className="material-symbols-outlined" style={{ color:"#ff453a",fontSize:16 }}>warning</span>}
-                    <span style={{ fontSize:14,fontWeight:600,color:ok?"#30d158":"#ff453a" }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
+                    <span style={{ ...TYPE.meta,fontWeight:600,color:ok?"#30d158":"#ff453a",...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
                     {ok&&<span className="material-symbols-outlined" style={{ color:"#30d158",fontSize:16 }}>check</span>}
                     {!ok&&<span style={{ fontSize:12,color:"#ff453a" }}>(kräver {krav_h}h)</span>}
                   </div>
@@ -3291,7 +3306,7 @@ export default function Arbetsrapport() {
               {vilaPeriod==='månad'&&(
                 <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:16,marginBottom:16 }}>
                   <button onClick={()=>setVilaMånad(m=>(m-1+12)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span></button>
-                  <span style={{ fontSize:15,fontWeight:600,color:"#fff",minWidth:120,textAlign:"center",textTransform:"capitalize" }}>{periodLabel}</span>
+                  <span style={{ ...TYPE.bodyList,color:"#fff",minWidth:120,textAlign:"center",textTransform:"capitalize" }}>{periodLabel}</span>
                   <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_right</span></button>
                 </div>
               )}
@@ -3303,7 +3318,7 @@ export default function Arbetsrapport() {
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
                       <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                         <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check</span>
-                        <span style={{ fontSize:14,color:"#fff" }}>Dygnsviolan uppfylld</span>
+                        <span style={{ ...TYPE.meta,color:"#fff" }}>Dygnsviolan uppfylld</span>
                       </div>
                       <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>
                     </div>
@@ -3321,12 +3336,12 @@ export default function Arbetsrapport() {
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
                   {(()=>{
                     const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>r.vila<11).length};}).filter(x=>x.mv.length>0);
-                    return mån.length===0?<p style={{ padding:"14px 0",margin:0,fontSize:14,color:"#8e8e93" }}>Ingen data</p>:mån.map((x,i)=>{
+                    return mån.length===0?<p style={{ padding:"14px 0",margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen data</p>:mån.map((x,i)=>{
                       const nm=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'][x.m];
                       const exp=vilaÅrExpand===x.m;
                       return (<div key={x.m}>
                         <div onClick={()=>setVilaÅrExpand(exp?null:x.m)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:!exp&&i<mån.length-1?"1px solid rgba(255,255,255,0.04)":"none",cursor:"pointer" }}>
-                          <span style={{ fontSize:14,fontWeight:500 }}>{nm}</span>
+                          <span style={{ ...TYPE.bodyList }}>{nm}</span>
                           <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                             <span style={{ fontSize:13,color:x.brott>0?"#ff453a":"#8e8e93",display:"inline-flex",alignItems:"center",gap:4 }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:14 }}>{x.brott>0?'warning':'check'}</span></span>
                             <span className="material-symbols-outlined" style={{ fontSize:16,color:"#8e8e93",transform:exp?"rotate(180deg)":"",transition:"transform 0.2s" }}>expand_more</span>
@@ -3340,7 +3355,7 @@ export default function Arbetsrapport() {
               ):(
                 /* Expanderad lista med kort */
                 <div>
-                  {filtVila.length===0?<div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}><p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Ingen data för perioden</p></div>:
+                  {filtVila.length===0?<div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}><p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen data för perioden</p></div>:
                   filtVila.map((r,i)=><VilaKort key={i} r={r} />)}
                   <button onClick={()=>setVisaAllaDygnsvila(false)} style={{ width:"100%",marginTop:4,background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:"8px 0" }}>Dölj detaljer</button>
                 </div>
@@ -3352,14 +3367,14 @@ export default function Arbetsrapport() {
               <h3 style={secHead}>Veckovila</h3>
               {periodLaddar ? (
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                  <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Laddar viloperioder…</p>
+                  <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Laddar viloperioder…</p>
                 </div>
               ) : !visaAllaVeckovila?(
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                       <span className="material-symbols-outlined" style={{ fontSize:18,color:vvHarProblem?"#ff453a":"#30d158" }}>{vvHarProblem?"warning":"check"}</span>
-                      <span style={{ fontSize:14,color:"#fff" }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:"Veckovila uppfylld"}</span>
+                      <span style={{ ...TYPE.meta,color:"#fff" }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:"Veckovila uppfylld"}</span>
                     </div>
                     {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>}
                   </div>
@@ -3368,7 +3383,7 @@ export default function Arbetsrapport() {
                 <div>
                   {dbVeck.length===0 ? (
                     <div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                      <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Inga brott i perioden</p>
+                      <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inga brott i perioden</p>
                     </div>
                   ) : dbVeck.map(b => {
                     const dt = new Date(b.datum);
@@ -3381,7 +3396,7 @@ export default function Arbetsrapport() {
                         <p style={{ margin:"0 0 8px",fontSize:13,color:"#8e8e93" }}>{b.beskrivning}</p>
                         <div style={{ display:"flex",alignItems:"center",gap:6 }}>
                           <span className="material-symbols-outlined" style={{ color:"#ff453a",fontSize:16 }}>warning</span>
-                          <span style={{ fontSize:14,fontWeight:600,color:"#ff453a" }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
+                          <span style={{ ...TYPE.meta,fontWeight:600,color:"#ff453a",...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
                           <span style={{ fontSize:12,color:"#ff453a" }}>(kräver {Number(b.krav_h)}h)</span>
                         </div>
                         {expanderad && (
@@ -3446,13 +3461,13 @@ export default function Arbetsrapport() {
                 <section style={{ marginBottom:24 }}>
                   <h3 style={secHead}>Senaste 30 dagarna</h3>
                   <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-                    <p style={{ margin:0,fontSize:28,fontWeight:700,color:"#fff" }}>{Math.round(totMin/60*10)/10}h <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>extra tid totalt</span></p>
+                    <p style={{ margin:0,...TYPE.h2,color:"#fff",...TNUM }}>{Math.round(totMin/60*10)/10}h <span style={{ ...TYPE.meta,color:"#8e8e93" }}>extra tid totalt</span></p>
                     <p style={{ margin:"6px 0 0",fontSize:13,color:"#8e8e93" }}>{senaste30.length} aktiviteter över {arbDagar30} arbetsdagar</p>
                   </div>
                 </section>
                 {/* Per typ */}
                 {stats.length === 0 ? (
-                  <Card><p style={{ margin:0,fontSize:14,color:C.label,textAlign:"center" }}>Ingen extra tid registrerad senaste 30 dagarna</p></Card>
+                  <Card><p style={{ margin:0,...TYPE.meta,color:C.label,textAlign:"center" }}>Ingen extra tid registrerad senaste 30 dagarna</p></Card>
                 ) : (
                   <section>
                     <h3 style={secHead}>Per aktivitet</h3>
@@ -3468,10 +3483,10 @@ export default function Arbetsrapport() {
                           <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:8 }}>
                             <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:22 }}>{aktIcon(s.typ)}</span>
                             <div style={{ flex:1 }}>
-                              <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#fff" }}>{aktLabel(s.typ)}</p>
+                              <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{aktLabel(s.typ)}</p>
                               <p style={{ margin:"2px 0 0",fontSize:12,color:C.label }}>{pct}% av dagarna · snitt {fmt(s.medel)}</p>
                             </div>
-                            <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{Math.round(s.minTot/60*10)/10}h</span>
+                            <span style={{ ...TYPE.bodyList,color:"#fff" }}>{Math.round(s.minTot/60*10)/10}h</span>
                           </div>
                           {/* Bar */}
                           <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden",marginBottom:6 }}>
@@ -3668,7 +3683,7 @@ export default function Arbetsrapport() {
               <button onClick={stegLönBak} disabled={!kanLönBak} style={{ background:"none",border:"none",cursor:kanLönBak?"pointer":"default",padding:4,opacity:kanLönBak?1:0.3 }}>
                 <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span>
               </button>
-              <span style={{ fontSize:15,fontWeight:600,color:"#fff",textTransform:"capitalize" }}>{lönMånadsLabel}</span>
+              <span style={{ ...TYPE.bodyList,color:"#fff",textTransform:"capitalize" }}>{lönMånadsLabel}</span>
               <button onClick={stegLönFram} disabled={!kanLönFram} style={{ background:"none",border:"none",cursor:kanLönFram?"pointer":"default",padding:4,opacity:kanLönFram?1:0.3 }}>
                 <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_right</span>
               </button>
@@ -3690,9 +3705,9 @@ export default function Arbetsrapport() {
                   return (
                     <div key={weekNum} style={{ background:"#1c1c1e",borderRadius:12,padding:20 }}>
                       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16 }}>
-                        <h3 style={{ margin:0,fontSize:15,fontWeight:600,color:"#fff" }}>Vecka {weekNum} <span style={{ color:"#8e8e93",fontWeight:400,fontSize:14 }}>{rangeStr}</span></h3>
+                        <h3 style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Vecka {weekNum} <span style={{ color:"#8e8e93",...TYPE.meta,...TNUM }}>{rangeStr}</span></h3>
                         <div style={{ display:"flex",alignItems:"baseline",gap:4 }}>
-                          <span style={{ fontSize:24,fontWeight:700,color:"#0a84ff" }}>{Math.round(week.sumH*10)/10}{week.helglönH>0?` + ${week.helglönH}`:''}</span>
+                          <span style={{ ...TYPE.h2,color:"#0a84ff",...TNUM }}>{Math.round(week.sumH*10)/10}{week.helglönH>0?` + ${week.helglönH}`:''}</span>
                           <span style={{ fontSize:12,color:"#8e8e93" }}>tim{week.helglönH>0?' (inkl helglön)':''}</span>
                         </div>
                       </div>
@@ -3706,15 +3721,15 @@ export default function Arbetsrapport() {
                             const ärVardag=dow!==0&&dow!==6;
                             return (
                             <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
-                              <span style={{ fontSize:14,color:"#ff453a" }}>{dagLabel}</span>
+                              <span style={{ ...TYPE.meta,color:"#ff453a" }}>{dagLabel}</span>
                               <span style={{ fontSize:13,fontWeight:500,color:ärVardag?"#ff453a":"#636366" }}>{dag.rödDag}{ärVardag?' — Helglön 8h':''}</span>
                             </div>
                           );}
                           return (
                             <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
-                              <span style={{ fontSize:14 }}>{dagLabel}</span>
+                              <span style={{ ...TYPE.meta }}>{dagLabel}</span>
                               <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-                                <span style={{ fontSize:14,fontWeight:500 }}>{h} tim</span>
+                                <span style={{ ...TYPE.bodyList }}>{h} tim</span>
                                 <div style={{ width:6,height:6,borderRadius:"50%",background:"#fff" }} />
                               </div>
                             </div>
@@ -3724,7 +3739,7 @@ export default function Arbetsrapport() {
                     </div>
                   );
                 })}
-                {sortedWeeks.length===0&&<p style={{ color:"#8e8e93",fontSize:14,padding:20 }}>Ingen data för perioden</p>}
+                {sortedWeeks.length===0&&<p style={{ color:"#8e8e93",...TYPE.meta,padding:20 }}>Ingen data för perioden</p>}
               </div>
             </section>
 
@@ -3733,14 +3748,14 @@ export default function Arbetsrapport() {
               <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Körning</h2>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
                 <div style={{ gridColumn:"1/-1",background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div><p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Total körning</p><p style={{ fontSize:20,fontWeight:600,margin:0 }}>{totalKm} km</p></div>
-                  <div style={{ textAlign:"right" }}><p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Ersättning</p><p style={{ fontSize:20,fontWeight:700,color:"#0a84ff",margin:0 }}>{löneErsKr} kr</p></div>
+                  <div><p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Total körning</p><p style={{ ...TYPE.h2,margin:0,...TNUM }}>{totalKm} km</p></div>
+                  <div style={{ textAlign:"right" }}><p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Ersättning</p><p style={{ ...TYPE.h2,color:"#0a84ff",margin:0,...TNUM }}>{löneErsKr} kr</p></div>
                 </div>
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.03)" }}>
-                  <p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Ersättningsgrundande</p><p style={{ fontSize:18,fontWeight:500,margin:0 }}>{löneErsKm} km</p>
+                  <p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Ersättningsgrundande</p><p style={{ ...TYPE.bodyList,margin:0,...TNUM }}>{löneErsKm} km</p>
                 </div>
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.03)" }}>
-                  <p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Pris/km</p><p style={{ fontSize:18,fontWeight:500,margin:0 }}>{kmErs2} kr</p>
+                  <p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Pris/km</p><p style={{ ...TYPE.bodyList,margin:0,...TNUM }}>{kmErs2} kr</p>
                 </div>
               </div>
             </section>
@@ -3755,12 +3770,12 @@ export default function Arbetsrapport() {
                       <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>precision_manufacturing</span>
                     </div>
                     <div>
-                      <p style={{ margin:0,fontSize:14,fontWeight:500 }}>{o.namn ? `${o.namn} / ${o.maskin}` : o.maskin}</p>
+                      <p style={{ margin:0,...TYPE.bodyList }}>{o.namn ? `${o.namn} / ${o.maskin}` : o.maskin}</p>
                       <p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.dagar} {o.dagar===1?'dag':'dagar'}</p>
                     </div>
                   </div>
                 ))}
-                {objektEntries.length===0&&<p style={{ color:"#8e8e93",fontSize:14,padding:20 }}>Inga objekt denna period</p>}
+                {objektEntries.length===0&&<p style={{ color:"#8e8e93",...TYPE.meta,padding:20 }}>Inga objekt denna period</p>}
               </div>
             </section>
 
@@ -3788,10 +3803,10 @@ export default function Arbetsrapport() {
                         <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<grupperArr.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
                           <div style={{ display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0 }}>
                             <span className="material-symbols-outlined" style={{ color:g.deb?"#ff9f0a":"#8e8e93",fontSize:18 }}>{aktIcon(g.typ)}</span>
-                            <span style={{ fontSize:14,color:"#fff" }}>{aktLabel(g.typ)}{g.deb?'':''}</span>
+                            <span style={{ ...TYPE.meta,color:"#fff" }}>{aktLabel(g.typ)}{g.deb?'':''}</span>
                             {g.deb&&<span style={{ fontSize:11,fontWeight:700,color:"#ff9f0a" }}>DEB</span>}
                           </div>
-                          <span style={{ fontSize:14,fontWeight:600,color:"#fff" }}>{tidStr}</span>
+                          <span style={{ ...TYPE.bodyList,color:"#fff" }}>{tidStr}</span>
                         </div>
                       );
                     })}
@@ -3816,8 +3831,8 @@ export default function Arbetsrapport() {
                         </div>
                         <div style={{ flex:1,minWidth:0 }}>
                           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4 }}>
-                            <p style={{ margin:0,fontSize:14,fontWeight:600 }}>{aktLabel(e.aktivitet_typ)} · {objNamn}</p>
-                            <span style={{ fontSize:14,fontWeight:600,flexShrink:0,marginLeft:8 }}>{tidStr}</span>
+                            <p style={{ margin:0,...TYPE.bodyList }}>{aktLabel(e.aktivitet_typ)} · {objNamn}</p>
+                            <span style={{ ...TYPE.bodyList,flexShrink:0,marginLeft:8,...TNUM }}>{tidStr}</span>
                           </div>
                           <p style={{ margin:0,fontSize:12,color:"#8e8e93" }}>{e.datum}{e.aktivitet_text ? ` · ${e.aktivitet_text}` : (e.kommentar ? ` · ${e.kommentar}` : '')}</p>
                         </div>
@@ -3844,7 +3859,7 @@ export default function Arbetsrapport() {
             <button onClick={stegLönBak} disabled={!kanLönBak} style={{ background:"none",border:"none",cursor:kanLönBak?"pointer":"default",padding:8,borderRadius:"50%",opacity:kanLönBak?1:0.3 }}>
               <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_left</span>
             </button>
-            <h1 style={{ margin:0,fontSize:17,fontWeight:600,color:"#fff",letterSpacing:"-0.02em",textTransform:"capitalize",minWidth:120,textAlign:"center" }}>{lönMånadsLabel}</h1>
+            <h1 style={{ margin:0,...TYPE.body,color:"#fff",letterSpacing:"-0.02em",textTransform:"capitalize",minWidth:120,textAlign:"center" }}>{lönMånadsLabel}</h1>
             <button onClick={stegLönFram} disabled={!kanLönFram} style={{ background:"none",border:"none",cursor:kanLönFram?"pointer":"default",padding:8,borderRadius:"50%",opacity:kanLönFram?1:0.3 }}>
               <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_right</span>
             </button>
@@ -3865,7 +3880,7 @@ export default function Arbetsrapport() {
                 <span style={{ display:"inline-flex",alignItems:"center",padding:"4px 10px",borderRadius:12,background:"rgba(255,149,0,0.1)",color:C.orange,fontSize:13,fontWeight:600,border:"1px solid rgba(255,149,0,0.2)" }}>Ej skickat</span>
               )}
             </div>
-            <p style={{ margin:"0 0 4px",fontSize:36,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>≈ {totalLönKr.toLocaleString('sv-SE')} kr</p>
+            <p style={{ margin:"0 0 4px",...TYPE.bigNum,color:"#fff",...TNUM }}>≈ {totalLönKr.toLocaleString('sv-SE')} kr</p>
             <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>Riktvärde brutto · ej skatt eller avdrag</p>
           </section>
 
@@ -3880,8 +3895,8 @@ export default function Arbetsrapport() {
                 ...(trakKr > 0 ? [[`Traktamente (${trakDagar} dagar)`, `${trakKr.toLocaleString('sv-SE')} kr`]] : []),
               ].map(([l,v])=>(
                 <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                  <span style={{ fontSize:15,color:"#8e8e93" }}>{l}</span>
-                  <span style={{ fontSize:17,fontWeight:600,color:"#fff",fontVariantNumeric:"tabular-nums" }}>{v}</span>
+                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{l}</span>
+                  <span style={{ ...TYPE.body,color:"#fff",fontVariantNumeric:"tabular-nums" }}>{v}</span>
                 </div>
               ))}
             </div>
@@ -3898,8 +3913,8 @@ export default function Arbetsrapport() {
                 ["Total körning",`${totalKm} km`],
               ].map(([l,v])=>(
                 <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                  <span style={{ fontSize:15,color:"#8e8e93" }}>{l}</span>
-                  <span style={{ fontSize:17,fontWeight:600,color:"#fff" }}>{v}</span>
+                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{l}</span>
+                  <span style={{ ...TYPE.body,color:"#fff" }}>{v}</span>
                 </div>
               ))}
             </div>
@@ -3916,7 +3931,7 @@ export default function Arbetsrapport() {
           {/* Fel */}
           {lönFel&&(
             <div style={{ background:"rgba(255,59,48,0.08)",borderRadius:12,padding:"12px 16px",marginBottom:16,border:"1px solid rgba(255,59,48,0.2)" }}>
-              <p style={{ margin:0,fontSize:14,color:C.red }}>{lönFel}</p>
+              <p style={{ margin:0,...TYPE.meta,color:C.red }}>{lönFel}</p>
             </div>
           )}
 
@@ -3927,7 +3942,7 @@ export default function Arbetsrapport() {
                 {lönSparar?"Sparar...":"Skicka löneunderlag"}
               </button>
             ):(
-              <button disabled style={{ width:"100%",height:56,background:C.green,color:"#fff",border:"none",borderRadius:12,fontSize:18,fontWeight:700,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
+              <button disabled style={{ width:"100%",height:56,background:C.green,color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:600,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
                 <span className="material-symbols-outlined" style={{ fontSize:20 }}>check</span>
                 Skickat
               </button>
@@ -3941,7 +3956,7 @@ export default function Arbetsrapport() {
         {lönBekräfta && (
           <div onClick={()=>setLönBekräfta(false)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:24,animation:"dimIn 0.2s ease" }}>
             <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxWidth:360,background:"#1c1c1e",borderRadius:12,padding:"24px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:"0 0 8px",fontSize:17,fontWeight:600,color:"#fff",textAlign:"center" }}>Skicka löneunderlag?</p>
+              <p style={{ margin:"0 0 8px",...TYPE.h2,color:"#fff",textAlign:"center" }}>Skicka löneunderlag?</p>
               <p style={{ margin:"0 0 20px",fontSize:13,color:"#8e8e93",textAlign:"center",lineHeight:1.4 }}>
                 Underlaget för {månadsNamn()} skickas till din chef. Det går inte att ångra.
               </p>
@@ -3971,7 +3986,7 @@ export default function Arbetsrapport() {
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <BackBtn onClick={()=>setSteg("morgon")}/>
-          <h1 style={{ margin:0,fontSize:26,fontWeight:700 }}>Inställningar</h1>
+          <h1 style={{ margin:0,...TYPE.h1 }}>Inställningar</h1>
         </div>
       </div>
       <div style={{ flex:1,paddingTop:16,paddingBottom:SCROLL_BOTTOM,overflowY:"auto" }}>
@@ -4016,7 +4031,7 @@ export default function Arbetsrapport() {
 
         <Card onClick={()=>setSteg("avtal")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:24 }}>
           <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:500 }}>Mitt avtal</p>
+            <p style={{ margin:0,...TYPE.bodyList }}>Mitt avtal</p>
             <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'GS-avtalet'}</p>
           </div>
           <ChevronRight/>
@@ -4076,11 +4091,11 @@ export default function Arbetsrapport() {
           const Rad = ({ rubrik, undertext, value, onClick, right }: any) => (
             <div onClick={onClick} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:onClick?"pointer":"default" }}>
               <div>
-                <p style={{ margin:0,fontSize:16,fontWeight:500,color:"#fff" }}>{rubrik}</p>
+                <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{rubrik}</p>
                 {undertext && <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{undertext}</p>}
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                {value && <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{value}</span>}
+                {value && <span style={{ ...TYPE.bodyList,color:"#fff" }}>{value}</span>}
                 {right || (onClick && <ChevronRight/>)}
               </div>
             </div>
@@ -4127,7 +4142,7 @@ export default function Arbetsrapport() {
 
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
                 <div onClick={()=>dagligAkt && setPamOpen(pamOpen==='dagligTid'?null:'dagligTid')} style={{ flex:1,cursor:dagligAkt?"pointer":"default" }}>
-                  <p style={{ margin:0,fontSize:16,fontWeight:500,color:"#fff" }}>Daglig påminnelse</p>
+                  <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Daglig påminnelse</p>
                   <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{dagligAkt?`Kl ${dagligTid} · om dagen inte bekräftats`:'Avstängd'}</p>
                 </div>
                 <Toggle on={dagligAkt} onChange={v=>uppdatera("daglig_pamin_aktiv", v)}/>
@@ -4139,7 +4154,7 @@ export default function Arbetsrapport() {
 
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
                 <div>
-                  <p style={{ margin:0,fontSize:16,fontWeight:500,color:"#fff" }}>Push-notiser</p>
+                  <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Push-notiser</p>
                   <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{pushOn ? (pushEnhetsNamn ? `Aktiverad · ${pushEnhetsNamn.slice(0,40)}` : 'Aktiverad') : 'Avstängd'}</p>
                 </div>
                 <Toggle on={pushOn} onChange={togglePush}/>
@@ -4159,7 +4174,7 @@ export default function Arbetsrapport() {
       </div>
 
       {/* Sparat-toast */}
-      {sparatToast&&<div style={{ position:"fixed",bottom:100,left:"50%",transform:"translateX(-50%)",background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.1)",borderRadius:12,padding:"10px 20px",fontSize:14,fontWeight:500,color:"#fff",animation:"fadeUp 0.3s ease",zIndex:100 }}>Sparat</div>}
+      {sparatToast&&<div style={{ position:"fixed",bottom:100,left:"50%",transform:"translateX(-50%)",background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.1)",borderRadius:12,padding:"10px 20px",...TYPE.meta,color:"#fff",animation:"fadeUp 0.3s ease",zIndex:100 }}>Sparat</div>}
       <BottomNavBar aktiv="inst" onNav={s=>setSteg(s)} />
     </div>
   );}
@@ -4172,7 +4187,7 @@ export default function Arbetsrapport() {
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <BackBtn onClick={()=>setSteg("inst")}/>
           <div>
-            <h1 style={{ margin:0,fontSize:26,fontWeight:700 }}>Mitt avtal</h1>
+            <h1 style={{ margin:0,...TYPE.h1 }}>Mitt avtal</h1>
             <p style={{ margin:"4px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'Skogsavtalet 2025-2027'}</p>
           </div>
         </div>
@@ -4229,14 +4244,14 @@ export default function Arbetsrapport() {
             <Card style={{ padding:"4px 20px" }}>
               {rader.map(([l,v],i,arr)=>(
                 <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                  <span style={{ fontSize:14,color:C.label,flex:1 }}>{l}</span>
-                  <span style={{ fontSize:14,fontWeight:600,textAlign:"right",maxWidth:"55%",marginLeft:12 }}>{v}</span>
+                  <span style={{ ...TYPE.meta,color:C.label,flex:1 }}>{l}</span>
+                  <span style={{ ...TYPE.bodyList,textAlign:"right",maxWidth:"55%",marginLeft:12 }}>{v}</span>
                 </div>
               ))}
             </Card>
           </div>
         ))}
-        <button onClick={()=>window.open('/avtal/skogsavtalet-2025-2027.pdf','_blank')} style={{ width:"100%",height:48,background:"#2a2a2a",border:"none",borderRadius:12,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:16 }}>
+        <button onClick={()=>window.open('/avtal/skogsavtalet-2025-2027.pdf','_blank')} style={{ width:"100%",height:48,background:"#2a2a2a",border:"none",borderRadius:12,color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit",marginBottom:16 }}>
           Läs hela avtalet →
         </button>
         <div style={{ background:"rgba(10,132,255,0.08)",borderRadius:12,padding:"14px 16px",marginBottom:24,border:"1px solid rgba(10,132,255,0.15)" }}>
@@ -4268,15 +4283,15 @@ export default function Arbetsrapport() {
   /* ─── FRÅNVARO ─── */
   if(steg==="bekräftaFrånvaro") return (
     <div style={shell}><style>{css}</style>{timerBanner}
-      <div style={topBar}><p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p></div>
+      <div style={topBar}><p style={{ margin:0,...TYPE.meta,color:C.label }}>{datumStr}</p></div>
       <div style={mid}>
         <div style={{ width:80,height:80,borderRadius:12,background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:28,animation:"scalePop 0.4s ease" }}>
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
             <path d={dagTyp==="sjuk"?"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z":"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"} fill="#8e8e93"/>
           </svg>
         </div>
-        <h1 style={{ fontSize:28,fontWeight:700,margin:"0 0 10px" }}>{dagTyp==="sjuk"?"Krya på dig":dagTyp==="atk"?"ATK-dag":dagTyp==="semester"?"Semester":"Hoppas barnet mår bättre"}</h1>
-        <p style={{ fontSize:16,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":dagTyp==="atk"?"ATK":dagTyp==="semester"?"Semester":"VAB"} registreras för {datumStr}</p>
+        <h1 style={{ ...TYPE.h1,margin:"0 0 10px" }}>{dagTyp==="sjuk"?"Krya på dig":dagTyp==="atk"?"ATK-dag":dagTyp==="semester"?"Semester":"Hoppas barnet mår bättre"}</h1>
+        <p style={{ ...TYPE.meta,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":dagTyp==="atk"?"ATK":dagTyp==="semester"?"Semester":"VAB"} registreras för {datumStr}</p>
       </div>
       <div style={bottom}>
         <button style={btn.primary} onClick={async()=>{
@@ -4296,11 +4311,11 @@ export default function Arbetsrapport() {
 
   if(steg==="klarFrånvaro") return (
     <div style={shell}><style>{css}</style>{timerBanner}
-      <div style={topBar}><p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p></div>
+      <div style={topBar}><p style={{ margin:0,...TYPE.meta,color:C.label }}>{datumStr}</p></div>
       <div style={mid}>
         <div style={{ animation:"scalePop 0.4s ease",marginBottom:28 }}><CheckCircle/></div>
-        <h1 style={{ fontSize:28,fontWeight:700,margin:"0 0 10px" }}>Registrerat</h1>
-        <p style={{ fontSize:16,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":dagTyp==="atk"?"ATK":dagTyp==="semester"?"Semester":"VAB"} för {datumStr}</p>
+        <h1 style={{ ...TYPE.h1,margin:"0 0 10px" }}>Registrerat</h1>
+        <p style={{ ...TYPE.meta,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":dagTyp==="atk"?"ATK":dagTyp==="semester"?"Semester":"VAB"} för {datumStr}</p>
       </div>
       <div style={bottom}><button style={btn.secondary} onClick={()=>setSteg("morgon")}>Tillbaka</button></div>
     </div>
@@ -4326,7 +4341,7 @@ export default function Arbetsrapport() {
     const platshold = platsh[dagTyp] || "Vad gjorde du?";
     return (
       <div style={shell}><style>{css}</style>{timerBanner}
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("morgon")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>{titel}</h1></div></div>
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("morgon")}/><h1 style={{ margin:0,...TYPE.h1 }}>{titel}</h1></div></div>
         <div style={{ flex:1,paddingTop:20,overflowY:"auto" }}>
           <div style={{ marginBottom:24 }}>
             <Label>Vad gör du?</Label>
@@ -4340,7 +4355,7 @@ export default function Arbetsrapport() {
           </div>
           <TimePicker value={mStart} onChange={setMStart} label="Starttid"/>
           <div style={{ background:"rgba(48,209,88,0.07)",borderRadius:12,padding:"12px 16px" }}>
-            <p style={{ margin:0,fontSize:14,color:C.green,fontWeight:500 }}>Sluttid och rast fyller du i när dagen är slut</p>
+            <p style={{ margin:0,...TYPE.meta,color:C.green }}>Sluttid och rast fyller du i när dagen är slut</p>
           </div>
         </div>
         <div style={bottom}>
@@ -4361,15 +4376,15 @@ export default function Arbetsrapport() {
     return (
     <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}>
-        <p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p>
+        <p style={{ margin:0,...TYPE.meta,color:C.label }}>{datumStr}</p>
       </div>
       <div style={mid}>
         <div style={{ width:10,height:10,borderRadius:"50%",background:C.blue,marginBottom:28,animation:"pulseDot 2s infinite" }}/>
-        <p style={{ fontSize:72,fontWeight:600,margin:0,letterSpacing:"-3px",...TNUM }}>{start}</p>
-        <p style={{ fontSize:16,color:C.label,margin:"10px 0 24px" }}>{statusText}</p>
+        <p style={{ ...TYPE.display,margin:0,...TNUM }}>{start}</p>
+        <p style={{ ...TYPE.meta,color:C.label,margin:"10px 0 24px" }}>{statusText}</p>
         {mBesk && (
           <div style={{ background:"rgba(255,255,255,0.06)",borderRadius:12,padding:"12px 24px" }}>
-            <p style={{ margin:0,fontSize:15,fontWeight:600 }}>{mBesk}</p>
+            <p style={{ margin:0,...TYPE.bodyList }}>{mBesk}</p>
           </div>
         )}
       </div>
@@ -4383,14 +4398,14 @@ export default function Arbetsrapport() {
 
   if(steg==="manuellKväll") return (
     <div style={shell}><style>{css}</style>{timerBanner}
-      <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("manuellPågår")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Avsluta dagen</h1></div></div>
+      <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("manuellPågår")}/><h1 style={{ margin:0,...TYPE.h1 }}>Avsluta dagen</h1></div></div>
       <div style={{ flex:1,paddingTop:20,overflowY:"auto" }}>
-        <Card style={{ marginBottom:24 }}><p style={{ margin:0,fontSize:14,color:C.label }}>Startade</p><p style={{ margin:"4px 0 0",fontSize:20,fontWeight:600,...TNUM }}>{start}</p></Card>
+        <Card style={{ marginBottom:24 }}><p style={{ margin:0,...TYPE.meta,color:C.label }}>Startade</p><p style={{ margin:"4px 0 0",...TYPE.h2,...TNUM }}>{start}</p></Card>
         <TimePicker value={mSlut} onChange={setMSlut} label="Sluttid"/>
         <MinPicker  value={mRast} onChange={setMRast} label="Rast"/>
         <div style={{ textAlign:"center",padding:20,background:"rgba(48,209,88,0.07)",borderRadius:12,marginBottom:24 }}>
           <Label>Arbetstid</Label>
-          <p style={{ margin:0,fontSize:36,fontWeight:700,color:C.green,...TNUM }}>{fmt(Math.max(0,tim(start,mSlut)-mRast))}</p>
+          <p style={{ margin:0,...TYPE.bigNum,color:C.green,...TNUM }}>{fmt(Math.max(0,tim(start,mSlut)-mRast))}</p>
         </div>
       </div>
       <div style={bottom}>
@@ -4413,7 +4428,7 @@ export default function Arbetsrapport() {
 
     if(redVy==="tid") return (
       <div style={shell}><style>{css}</style>{timerBanner}
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Ändra arbetstid</h1></div></div>
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,...TYPE.h1 }}>Ändra arbetstid</h1></div></div>
         <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
 
           {/* Start, Slut, Rast — iOS-stil scroll-wheels */}
@@ -4430,15 +4445,15 @@ export default function Arbetsrapport() {
               <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:redRast!==(redDag.rast||0)?C.orange:"#8e8e93" }}>Rast</span>
               <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8,marginBottom:28 }}>
                 <Wheel value={redRast} onChange={setRedRast} min={0} max={120} step={5}/>
-                <span style={{ fontSize:14,color:C.label,fontWeight:600 }}>min</span>
+                <span style={{ ...TYPE.meta,color:C.label,fontWeight:600 }}>min</span>
               </div>
             </div>
           </div>
 
           {/* Resultat */}
           <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(48,209,88,0.07)",borderRadius:12 }}>
-            <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Arbetstid</p>
-            <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green,...TNUM }}>{fmt(redArbMin)}</p>
+            <p style={{ margin:"0 0 4px",fontSize:11,fontWeight:600,color:C.label }}>Arbetstid</p>
+            <p style={{ margin:0,...TYPE.bigNum,color:C.green,...TNUM }}>{fmt(redArbMin)}</p>
           </div>
         </div>
         <div style={bottom}><button style={btn.primary} onClick={()=>setRedVy("översikt")}>Klar</button></div>
@@ -4447,16 +4462,16 @@ export default function Arbetsrapport() {
 
     if(redVy==="km") return (
       <div style={shell}><style>{css}</style>{timerBanner}
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Ändra körning</h1></div></div>
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,...TYPE.h1 }}>Ändra körning</h1></div></div>
         <div style={{ flex:1,paddingTop:20 }}>
           <KmPicker value={redKm} onChange={setRedKm} label="Totalt"/>
           <div style={{ textAlign:"center",padding:20,background:"rgba(48,209,88,0.07)",borderRadius:12 }}>
             <Label>Körning</Label>
-            <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green,...TNUM }}>{redKm} km</p>
+            <p style={{ margin:0,...TYPE.bigNum,color:C.green,...TNUM }}>{redKm} km</p>
             {redKmBerakning!=null&&redKmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>Beräknat: {redKmBerakning} km (vägavstånd)</p>}
             {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
               return över>0
-                ? <p style={{ margin:"8px 0 0",fontSize:15,color:C.green,fontWeight:600,...TNUM }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                ? <p style={{ margin:"8px 0 0",...TYPE.meta,color:C.green,...TNUM }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
                 : <p style={{ margin:"8px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
             })()}
           </div>
@@ -4478,7 +4493,7 @@ export default function Arbetsrapport() {
             <BackBtn onClick={()=>setSteg("kalender")}/>
             <div>
               <p style={{ margin:0,fontSize:13,color:C.blue,fontWeight:600 }}>Redigerad</p>
-              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>{redDatumDisplay}</h1>
+              <h1 style={{ margin:"4px 0 0",...TYPE.h1 }}>{redDatumDisplay}</h1>
             </div>
           </div>
         </div>
@@ -4493,8 +4508,8 @@ export default function Arbetsrapport() {
               ["Körning", `${sparadRed.km} km`],
             ].map(([l,v],i,arr)=>(
               <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                <span style={{ fontSize:15,color:"#fff" }}>{l}</span>
-                <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{v}</span>
+                <span style={{ ...TYPE.meta,color:"#fff" }}>{l}</span>
+                <span style={{ ...TYPE.bodyList,color:"#fff" }}>{v}</span>
               </div>
             ))}
           </Card>
@@ -4506,8 +4521,8 @@ export default function Arbetsrapport() {
               ["Körning", `${redDag.km||0} km`],
             ].map(([l,v],i,arr)=>(
               <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                <span style={{ fontSize:15,color:"#fff" }}>{l}</span>
-                <span style={{ fontSize:15,fontWeight:500,color:"rgba(255,255,255,0.5)",textDecoration:"line-through" }}>{v}</span>
+                <span style={{ ...TYPE.meta,color:"#fff" }}>{l}</span>
+                <span style={{ ...TYPE.bodyList,fontWeight:500,color:"rgba(255,255,255,0.5)",textDecoration:"line-through",...TNUM }}>{v}</span>
               </div>
             ))}
           </Card>
@@ -4515,7 +4530,7 @@ export default function Arbetsrapport() {
           {sparadRed.anl&&(
             <div style={{ marginTop:20 }}>
               <Label>Anledning</Label>
-              <Card><p style={{ margin:0,fontSize:15 }}>{sparadRed.anl}</p></Card>
+              <Card><p style={{ margin:0,...TYPE.meta }}>{sparadRed.anl}</p></Card>
             </div>
           )}
         </div>
@@ -4533,7 +4548,7 @@ export default function Arbetsrapport() {
             <BackBtn onClick={()=>setSteg("kalender")}/>
             <div>
               <p style={{ margin:0,fontSize:13,color:C.label }}>{redMånadDisplay}</p>
-              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>
+              <h1 style={{ margin:"4px 0 0",...TYPE.h1 }}>
                 {redDag?.dagtyp === 'sjuk' ? `Sjukdag — ${redDatumDisplay}`
                   : redDag?.dagtyp === 'vab' ? `VAB — ${redDatumDisplay}`
                   : redDatumDisplay}
@@ -4557,13 +4572,13 @@ export default function Arbetsrapport() {
                 {meddelande.icon && (
                   <span className="material-symbols-outlined" style={{ fontSize:72,color:"#fff",marginBottom:20 }}>{meddelande.icon}</span>
                 )}
-                <p style={{ margin:0,fontSize:28,fontWeight:700,color:"#fff",textAlign:"center",letterSpacing:"-0.01em" }}>{meddelande.text}</p>
+                <p style={{ margin:0,...TYPE.largeTitle,color:"#fff",textAlign:"center" }}>{meddelande.text}</p>
               </div>
               <div style={bottom}>
                 {bekraftadRedan ? (<>
                   <div style={{ width:"100%",padding:"14px 16px",background:"rgba(48,209,88,0.10)",border:"1px solid rgba(48,209,88,0.25)",borderRadius:12,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
                     <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check_circle</span>
-                    <span style={{ fontSize:14,color:"#8e8e93",fontWeight:500 }}>Bekräftad{bekraftadTidFmt?` kl ${bekraftadTidFmt}`:''}</span>
+                    <span style={{ ...TYPE.meta,color:"#8e8e93",...TNUM }}>Bekräftad{bekraftadTidFmt?` kl ${bekraftadTidFmt}`:''}</span>
                   </div>
                   <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
                 </>) : (<>
@@ -4603,7 +4618,7 @@ export default function Arbetsrapport() {
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
           {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0&&!harExtra?(
             <Card style={{ padding:"24px 20px",textAlign:"center" as const }}>
-              <p style={{ margin:"0 0 4px",fontSize:15,color:"#fff" }}>Ingen data från MOM</p>
+              <p style={{ margin:"0 0 4px",...TYPE.meta,color:"#fff" }}>Ingen data från MOM</p>
               <p style={{ margin:0,fontSize:13,color:"#fff" }}>Lägg till arbetstid och körning manuellt</p>
             </Card>
           ):!harData&&!harExtra?(
@@ -4629,7 +4644,7 @@ export default function Arbetsrapport() {
               <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:"#fff" }}>Arbetstid</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:500,color:(redStart!==redStartOrig||redSlut!==redSlutOrig)?C.orange:"#fff" }}>{redStart} → {redSlut}</span>
+                  <span style={{ ...TYPE.bodyList,color:(redStart!==redStartOrig||redSlut!==redSlutOrig)?C.orange:"#fff" }}>{redStart} → {redSlut}</span>
                   <ChevronRight/>
                 </div>
               </div>
@@ -4637,7 +4652,7 @@ export default function Arbetsrapport() {
               <div onClick={()=>setVisaRedRastPicker(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:"#fff" }}>Rast</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:500,color:redRast!==redRastOrig?"#ff9f0a":"#fff" }}>{redRast} min</span>
+                  <span style={{ ...TYPE.bodyList,color:redRast!==redRastOrig?"#ff9f0a":"#fff" }}>{redRast} min</span>
                   <ChevronRight/>
                 </div>
               </div>
@@ -4650,7 +4665,7 @@ export default function Arbetsrapport() {
               <div onClick={()=>setVisaRedMaskinVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:"#fff" }}>Maskin</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const m=redMaskinId?maskinNamnMap[redMaskinId]:null; return m||redDag.maskin_namn||redDag.maskin_id||"—";})()}</span>
+                  <span style={{ ...TYPE.bodyList,color:"#fff" }}>{(()=>{const m=redMaskinId?maskinNamnMap[redMaskinId]:null; return m||redDag.maskin_namn||redDag.maskin_id||"—";})()}</span>
                   <ChevronRight/>
                 </div>
               </div>
@@ -4665,7 +4680,7 @@ export default function Arbetsrapport() {
                     return (
                       <div key={o.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
                         <span style={{ fontSize:16,color:"#fff" }}>{i === 0 ? "Objekt" : ""}</span>
-                        <span style={{ fontSize:16,fontWeight:500,color:"#fff",textAlign:"right" as const }}>
+                        <span style={{ ...TYPE.bodyList,color:"#fff",textAlign:"right" as const }}>
                           {o.objekt_namn || o.objekt_id}
                           <span style={{ color:"rgba(255,255,255,0.5)",fontSize:13 }}>{tidStr}</span>
                         </span>
@@ -4677,7 +4692,7 @@ export default function Arbetsrapport() {
                   <div onClick={()=>setVisaRedObjektVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
                     <span style={{ fontSize:16,color:"#fff" }}>Objekt</span>
                     <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                      <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(formatObjektNamn(redDag.objekt_namn)||redDag.objekt_id||"—");})()}</span>
+                      <span style={{ ...TYPE.bodyList,color:"#fff" }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(formatObjektNamn(redDag.objekt_namn)||redDag.objekt_id||"—");})()}</span>
                       <ChevronRight/>
                     </div>
                   </div>
@@ -4718,7 +4733,7 @@ export default function Arbetsrapport() {
                       style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<extraTidForDag.length-1?`1px solid ${C.line}`:"none",cursor:"pointer",gap:10 }}>
                       <span style={{ fontSize:16,color:"#fff",flexShrink:0 }}>{prefixFörExtra(e)}</span>
                       <div style={{ display:"flex",alignItems:"center",gap:10,minWidth:0 }}>
-                        <span style={{ fontSize:15,fontWeight:500,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{typLabel} {tidStr} ({varaktighet})</span>
+                        <span style={{ ...TYPE.bodyList,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{typLabel} {tidStr} ({varaktighet})</span>
                         <ChevronRight/>
                       </div>
                     </div>
@@ -4746,9 +4761,9 @@ export default function Arbetsrapport() {
             // Radformat gemensamt för både 1-objekt- och multi-objekt-vyerna
             const rad = (label: string, value: string, bold=false, onClick?: () => void) => (
               <div key={label} onClick={onClick} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
-                <span style={{ color:"#fff",fontSize:15,fontWeight:bold?600:400 }}>{label}</span>
+                <span style={{ color:"#fff",...TYPE.meta,fontWeight:bold?600:500 }}>{label}</span>
                 <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                  <span style={{ color:"#fff",fontSize:bold?17:15,fontWeight:bold?700:600 }}>{value}</span>
+                  <span style={{ color:"#fff",...(bold?TYPE.body:TYPE.bodyList),...TNUM }}>{value}</span>
                   {onClick && <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.35)" }}>chevron_right</span>}
                 </div>
               </div>
@@ -4788,8 +4803,8 @@ export default function Arbetsrapport() {
                 {över>0&&(
                   <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:10,paddingTop:10 }}>
                     <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
-                      <span style={{ color:"#fff",fontSize:15 }}>Färdtidsersättning</span>
-                      <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{kr.toFixed(2).replace('.',',')} kr</span>
+                      <span style={{ color:"#fff",...TYPE.meta }}>Färdtidsersättning</span>
+                      <span style={{ color:"#fff",...TYPE.bodyList }}>{kr.toFixed(2).replace('.',',')} kr</span>
                     </div>
                     <p style={{ margin:"2px 0 0",fontSize:12,color:"#fff" }}>
                       {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr
@@ -4903,7 +4918,7 @@ export default function Arbetsrapport() {
             if (passPågår) {
               return (<>
                 <div style={{ width:"100%",padding:"14px 16px",textAlign:"center" }}>
-                  <span style={{ fontSize:14,color:"#8e8e93",fontWeight:500 }}>Pass pågår — kan bekräftas efter avslut</span>
+                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>Pass pågår — kan bekräftas efter avslut</span>
                 </div>
                 <button style={btn.secondary} onClick={()=>setSteg("kalender")}>Tillbaka</button>
               </>);
@@ -4912,7 +4927,7 @@ export default function Arbetsrapport() {
               return (<>
                 <div style={{ width:"100%",padding:"14px 16px",background:"rgba(48,209,88,0.10)",border:"1px solid rgba(48,209,88,0.25)",borderRadius:12,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
                   <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check_circle</span>
-                  <span style={{ fontSize:14,color:"#8e8e93",fontWeight:500 }}>Bekräftad{bekraftadTidFmt?` kl ${bekraftadTidFmt}`:''}</span>
+                  <span style={{ ...TYPE.meta,color:"#8e8e93",...TNUM }}>Bekräftad{bekraftadTidFmt?` kl ${bekraftadTidFmt}`:''}</span>
                 </div>
                 <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
               </>);
@@ -4928,14 +4943,14 @@ export default function Arbetsrapport() {
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
             <div style={{ background:"#1c1c1e",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Välj objekt</h3>
-                <button onClick={()=>setVisaRedObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+                <h3 style={{ margin:0,...TYPE.h2 }}>Välj objekt</h3>
+                <button onClick={()=>setVisaRedObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
               </div>
               <div style={{ flex:1,overflowY:"auto",padding:"8px 0" }}>
                 {objektLista.map(o=>(
                   <button key={o.id} onClick={()=>{setRedObjektId(o.id);setVisaRedObjektVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 20px",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
                     <div>
-                      <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff" }}>{o.namn}</p>
+                      <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{o.namn}</p>
                       {o.ägare&&<p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.ägare}</p>}
                     </div>
                     {redObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
@@ -4951,14 +4966,14 @@ export default function Arbetsrapport() {
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
             <div style={{ background:"#1c1c1e",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Välj maskin</h3>
-                <button onClick={()=>setVisaRedMaskinVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+                <h3 style={{ margin:0,...TYPE.h2 }}>Välj maskin</h3>
+                <button onClick={()=>setVisaRedMaskinVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
               </div>
               <div style={{ flex:1,overflowY:"auto",padding:"8px 0" }}>
                 {Object.entries(maskinNamnMap).map(([mid,namn])=>(
                   <button key={mid} onClick={()=>{setRedMaskinId(mid);setVisaRedMaskinVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 20px",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
                     <div>
-                      <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff" }}>{namn}</p>
+                      <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{namn}</p>
                       <p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{mid}</p>
                     </div>
                     {redMaskinId===mid&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
@@ -4973,12 +4988,12 @@ export default function Arbetsrapport() {
         {visaRedRastPicker&&(
           <div onClick={()=>setVisaRedRastPicker(false)} style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center" }}>
             <div onClick={e=>e.stopPropagation()} style={{ background:"#1c1c1e",borderRadius:12,padding:24,width:240 }}>
-              <p style={{ margin:"0 0 16px",fontSize:13,fontWeight:600,color:"#8e8e93",textAlign:"center" }}>Rast</p>
+              <p style={{ margin:"0 0 16px",...TYPE.micro,color:"#8e8e93",textAlign:"center" }}>Rast</p>
               <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8 }}>
                 <Wheel value={redRast} onChange={setRedRast} min={0} max={120} step={5}/>
-                <span style={{ fontSize:14,color:"#8e8e93",fontWeight:600 }}>min</span>
+                <span style={{ ...TYPE.meta,color:"#8e8e93",fontWeight:600 }}>min</span>
               </div>
-              <button onClick={()=>setVisaRedRastPicker(false)} style={{ width:"100%",marginTop:16,height:44,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Klar</button>
+              <button onClick={()=>setVisaRedRastPicker(false)} style={{ width:"100%",marginTop:16,height:44,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>Klar</button>
             </div>
           </div>
         )}
@@ -5008,15 +5023,15 @@ export default function Arbetsrapport() {
                 <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
                   <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
                 </div>
-                <p style={{ margin:"0 0 16px",fontSize:22,fontWeight:700,color:"#fff" }}>Ändra km</p>
+                <p style={{ margin:"0 0 16px",...TYPE.h2,color:"#fff" }}>Ändra km</p>
                 <div style={{ display:"flex",gap:10 }}>
                   <KmInp label="Morgon" value={redTmpKmM} onChange={setRedTmpKmM}/>
                   <KmInp label="Kväll"  value={redTmpKmK} onChange={setRedTmpKmK}/>
                 </div>
                 <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(48,209,88,0.08)",borderRadius:12 }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                    <span style={{ color:"#fff",fontSize:15 }}>Totalt</span>
-                    <span style={{ color:"#30d158",fontSize:24,fontWeight:700 }}>{ny} km</span>
+                    <span style={{ color:"#fff",...TYPE.meta }}>Totalt</span>
+                    <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{ny} km</span>
                   </div>
                   {över > 0
                     ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#30d158",fontWeight:500 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
@@ -5185,7 +5200,7 @@ export default function Arbetsrapport() {
                 ].map(([label,val])=>(
                   <div key={label as string} style={{ display:"flex",flexDirection:"column" }}>
                     <span style={{ color:"#8e8e93",fontSize:13,fontWeight:500 }}>{label}</span>
-                    <span style={{ color:"#fff",fontSize:20,fontWeight:600 }}>{val}</span>
+                    <span style={{ color:"#fff",...TYPE.h2,...TNUM }}>{val}</span>
                   </div>
                 ))}
               </div>
@@ -5282,23 +5297,23 @@ export default function Arbetsrapport() {
             <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:12,height:12,borderRadius:"50%",background:"#30D158" }} />
-                <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>Bekräftad</span>
+                <span style={{ ...TYPE.meta,color:"#fff" }}>Bekräftad</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:12,height:12,borderRadius:"50%",background:"#ff9f0a" }} />
-                <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>Obekräftad</span>
+                <span style={{ ...TYPE.meta,color:"#fff" }}>Obekräftad</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:12,height:12,borderRadius:"50%",background:"#0A84FF" }} />
-                <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>Extra tid (klicka för tidslinje)</span>
+                <span style={{ ...TYPE.meta,color:"#fff" }}>Extra tid (klicka för tidslinje)</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:20,height:20,border:"2px solid #ffd60a",borderRadius:"50%" }} />
-                <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>Redigerad</span>
+                <span style={{ ...TYPE.meta,color:"#fff" }}>Redigerad</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:20,height:20,border:"2px solid #0a84ff",borderRadius:"50%" }} />
-                <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>Idag</span>
+                <span style={{ ...TYPE.meta,color:"#fff" }}>Idag</span>
               </div>
             </div>
           </section>
@@ -5313,11 +5328,11 @@ export default function Arbetsrapport() {
   /* ─── KLAR ─── */
   if(steg==="klar") return (
     <div style={shell}><style>{css}</style>{timerBanner}
-      <div style={topBar}><p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p></div>
+      <div style={topBar}><p style={{ margin:0,...TYPE.meta,color:C.label }}>{datumStr}</p></div>
       <div style={mid}>
         <div style={{ animation:"scalePop 0.5s ease",marginBottom:32 }}><CheckCircle size={88}/></div>
-        <h1 style={{ fontSize:34,fontWeight:700,margin:"0 0 10px",animation:"fadeUp 0.4s ease 0.15s both" }}>Tack, {förnamn}</h1>
-        <p style={{ fontSize:18,color:C.label,margin:0,animation:"fadeUp 0.4s ease 0.25s both" }}>Ha en bra kväll</p>
+        <h1 style={{ ...TYPE.largeTitle,margin:"0 0 10px",animation:"fadeUp 0.4s ease 0.15s both" }}>Tack, {förnamn}</h1>
+        <p style={{ ...TYPE.meta,color:C.label,margin:0,animation:"fadeUp 0.4s ease 0.25s both" }}>Ha en bra kväll</p>
       </div>
       <div style={bottom}></div>
     </div>
