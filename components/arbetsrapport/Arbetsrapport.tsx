@@ -78,6 +78,9 @@ const C = {
   dark:"#000", darkCard:"rgba(255,255,255,0.08)", darkLabel:"rgba(255,255,255,0.4)",
 };
 const T = { fontFamily:"'Inter',-apple-system,'SF Pro Display',sans-serif", color:C.text };
+// Fasta bredder på siffror — förhindrar sidhopp när min går 9→10, km 99→100,
+// timmar 09:59→10:00. Sprid som {...TNUM} på element som visar siffror.
+const TNUM: CSSProperties = { fontVariantNumeric: "tabular-nums" };
 const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:"0 20px", boxSizing:"border-box" as const, width:"100%" };
 const darkShell: CSSProperties = { ...shell };
 const topBar: CSSProperties = { paddingTop:24, paddingBottom:12 };
@@ -1872,10 +1875,10 @@ export default function Arbetsrapport() {
                 : (typ && typ !== 'normal' && dagTypVisa[typ])
                   ? dagTypVisa[typ]
                   : `Pågående sedan ${startKort}`;
-              return <h2 style={{ margin:0,color:"#fff",fontWeight:600,fontSize:17 }}>{rubrik}</h2>;
+              return <h2 style={{ margin:0,color:"#fff",fontWeight:600,fontSize:17,...TNUM }}>{rubrik}</h2>;
             })()}
           </div>
-          <p style={{ fontSize:13,color:"rgba(255,255,255,0.5)",margin:isWorking?"0 0 16px":"0 0 14px",lineHeight:1.5 }}>
+          <p style={{ fontSize:13,color:"rgba(255,255,255,0.5)",margin:isWorking?"0 0 16px":"0 0 14px",lineHeight:1.5,...TNUM }}>
             {!isWorking
               ? 'Startar automatiskt vid inloggning'
               : (dagData[idagKey]?.dagtyp && dagData[idagKey]?.dagtyp !== 'normal')
@@ -2033,7 +2036,7 @@ export default function Arbetsrapport() {
               style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
               <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{label}</span>
               <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{value}</span>
+                <span style={{ color:"#fff",fontSize:15,fontWeight:600,...TNUM }}>{value}</span>
                 {onClick && <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)" }}>chevron_right</span>}
               </div>
             </div>
@@ -2047,7 +2050,7 @@ export default function Arbetsrapport() {
                 {redanBekräftad && (
                   <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
                     <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check_circle</span>
-                    <span style={{ fontSize:13,color:"#30d158",fontWeight:500 }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
+                    <span style={{ fontSize:13,color:"#30d158",fontWeight:500,...TNUM }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
                   </div>
                 )}
                 {ändradSedan && (
@@ -2079,9 +2082,9 @@ export default function Arbetsrapport() {
                           return (
                             <div key={o.id} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center" }}>
                               <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{i === 0 ? "Objekt" : ""}</span>
-                              <span style={{ color:"#fff",fontSize:15,fontWeight:500,textAlign:"right" as const }}>
+                              <span style={{ color:"#fff",fontSize:15,fontWeight:500,textAlign:"right" as const,...TNUM }}>
                                 {o.objekt_namn || o.objekt_id}
-                                <span style={{ color:"rgba(255,255,255,0.5)",fontSize:13 }}>{tidStr}</span>
+                                <span style={{ color:"rgba(255,255,255,0.5)",fontSize:13,...TNUM }}>{tidStr}</span>
                               </span>
                             </div>
                           );
@@ -2128,7 +2131,7 @@ export default function Arbetsrapport() {
                           }} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:"pointer",gap:8 }}>
                             <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15,flexShrink:0 }}>{prefixFör(e)}</span>
                             <div style={{ display:"flex",alignItems:"center",gap:4,minWidth:0 }}>
-                              <span style={{ color:"#fff",fontSize:15,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{värde}</span>
+                              <span style={{ color:"#fff",fontSize:15,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...TNUM }}>{värde}</span>
                               <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)",flexShrink:0 }}>chevron_right</span>
                             </div>
                           </div>
@@ -2141,7 +2144,7 @@ export default function Arbetsrapport() {
                 <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
                   <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Traktamente</span>
                   <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-                    <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{trak?.summa ? `${trak.summa} kr` : "Inget"}</span>
+                    <span style={{ color:"#fff",fontSize:15,fontWeight:600,...TNUM }}>{trak?.summa ? `${trak.summa} kr` : "Inget"}</span>
                     <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:trakÖppen?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
                   </div>
                 </div>
@@ -4362,7 +4365,7 @@ export default function Arbetsrapport() {
       </div>
       <div style={mid}>
         <div style={{ width:10,height:10,borderRadius:"50%",background:C.blue,marginBottom:28,animation:"pulseDot 2s infinite" }}/>
-        <p style={{ fontSize:72,fontWeight:600,margin:0,letterSpacing:"-3px" }}>{start}</p>
+        <p style={{ fontSize:72,fontWeight:600,margin:0,letterSpacing:"-3px",...TNUM }}>{start}</p>
         <p style={{ fontSize:16,color:C.label,margin:"10px 0 24px" }}>{statusText}</p>
         {mBesk && (
           <div style={{ background:"rgba(255,255,255,0.06)",borderRadius:12,padding:"12px 24px" }}>
@@ -4382,12 +4385,12 @@ export default function Arbetsrapport() {
     <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("manuellPågår")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Avsluta dagen</h1></div></div>
       <div style={{ flex:1,paddingTop:20,overflowY:"auto" }}>
-        <Card style={{ marginBottom:24 }}><p style={{ margin:0,fontSize:14,color:C.label }}>Startade</p><p style={{ margin:"4px 0 0",fontSize:20,fontWeight:600 }}>{start}</p></Card>
+        <Card style={{ marginBottom:24 }}><p style={{ margin:0,fontSize:14,color:C.label }}>Startade</p><p style={{ margin:"4px 0 0",fontSize:20,fontWeight:600,...TNUM }}>{start}</p></Card>
         <TimePicker value={mSlut} onChange={setMSlut} label="Sluttid"/>
         <MinPicker  value={mRast} onChange={setMRast} label="Rast"/>
         <div style={{ textAlign:"center",padding:20,background:"rgba(48,209,88,0.07)",borderRadius:12,marginBottom:24 }}>
           <Label>Arbetstid</Label>
-          <p style={{ margin:0,fontSize:36,fontWeight:700,color:C.green }}>{fmt(Math.max(0,tim(start,mSlut)-mRast))}</p>
+          <p style={{ margin:0,fontSize:36,fontWeight:700,color:C.green,...TNUM }}>{fmt(Math.max(0,tim(start,mSlut)-mRast))}</p>
         </div>
       </div>
       <div style={bottom}>
@@ -4435,7 +4438,7 @@ export default function Arbetsrapport() {
           {/* Resultat */}
           <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(48,209,88,0.07)",borderRadius:12 }}>
             <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Arbetstid</p>
-            <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{fmt(redArbMin)}</p>
+            <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green,...TNUM }}>{fmt(redArbMin)}</p>
           </div>
         </div>
         <div style={bottom}><button style={btn.primary} onClick={()=>setRedVy("översikt")}>Klar</button></div>
@@ -4449,11 +4452,11 @@ export default function Arbetsrapport() {
           <KmPicker value={redKm} onChange={setRedKm} label="Totalt"/>
           <div style={{ textAlign:"center",padding:20,background:"rgba(48,209,88,0.07)",borderRadius:12 }}>
             <Label>Körning</Label>
-            <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{redKm} km</p>
-            {redKmBerakning!=null&&redKmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {redKmBerakning} km (vägavstånd)</p>}
+            <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green,...TNUM }}>{redKm} km</p>
+            {redKmBerakning!=null&&redKmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>Beräknat: {redKmBerakning} km (vägavstånd)</p>}
             {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
               return över>0
-                ? <p style={{ margin:"8px 0 0",fontSize:15,color:C.green,fontWeight:600 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                ? <p style={{ margin:"8px 0 0",fontSize:15,color:C.green,fontWeight:600,...TNUM }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
                 : <p style={{ margin:"8px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
             })()}
           </div>
