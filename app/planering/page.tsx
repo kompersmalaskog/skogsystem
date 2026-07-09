@@ -69,14 +69,17 @@ const FALLNINGSRADIE_M = 40;
 const KORVY_SIGHT_M = 400;
 
 // === Körvy-kamera-känsla (finjustering — vridbara värden, testas i maskinen) ===
-// Prick i NEDRE TREDJEDELEN (bilnav-känsla): centrera på föraren + padding.top som andel av
-// kartans höjd (0.34 → prick ~67 % ner → mest karta framåt, lite bakåt). Pixel-baserat →
-// pricken sitter kvar även när närhets-zoomen varierar.
-const KORVY_DOT_PAD_FRAC = 0.34;
+// Prick strax UNDER MITTEN (inte nedre tredjedelen): en skogsmaskin fäller åt SIDAN, så
+// faran är runt om — pricken måste sitta högt nog att symboler bakom/vid sidan RYMS i bild.
+// Lite framåt-vy kvar, men runt-om-synlighet väger tyngre (säkerhet). padding.top som andel
+// av kartans höjd (0.21 → prick ~60 % ner). Pixel-baserat → sitter kvar när zoomen varierar.
+const KORVY_DOT_PAD_FRAC = 0.21;
 // Närhets-zoom (Martins idé — INTE fart-baserad; maskinen kör långsamt/stannar för att fälla).
 // Zooma IN när man närmar sig närmaste symbolen, UT när passerad. Full vid fällningsradien.
-const KORVY_BASE_ZOOM = 18.5;    // inget nära → lugn överblick (lite mer inzoomad än förr)
-const KORVY_FULL_ZOOM = 19.5;    // full inzoom vid fällningsradien
+// VÄRDENA sänkta: 18.5/19.5 var för hårt (nära symboler föll utanför kant). Sikta på "utdragna
+// vyn där allt syns runt pricken utan att dra".
+const KORVY_BASE_ZOOM = 17.5;    // inget nära → lugn överblick, allt runt om ryms
+const KORVY_FULL_ZOOM = 18;      // full inzoom vid fällningsradien (mjukt, ej beskuret)
 const KORVY_ZOOM_START_M = 100;  // börja glida in här
 // dist (förar-avstånd till korvyNextItems[0]) → mål-zoom. Full vid FALLNINGSRADIE_M (40 m,
 // hänger ihop med ringen), bas bortom 100 m, mjuk ramp emellan. Lerpen i follow-effekten
@@ -9149,12 +9152,15 @@ export default function PlannerPage() {
         const inom = item.dist <= FALLNINGSRADIE_M;
         return (
           <div style={{
-            position: 'fixed', left: 12, right: 12,
+            // Slutar FÖRE höger-hörnet (right: 92) så +-knappen och meny-knappen är åtkomliga —
+            // panelen låg förut full bredd (right: 12) och skymde dem. Lägre padding = lägre panel.
+            position: 'fixed', left: 12, right: 92,
             bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+            maxWidth: 520,
             background: 'rgba(28,28,30,0.92)',
             backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
             border: `1px solid ${inom ? item.color : 'rgba(255,255,255,0.08)'}`,
-            borderRadius: 18, padding: '14px 16px', zIndex: 250, color: '#fff',
+            borderRadius: 18, padding: '11px 14px', zIndex: 250, color: '#fff',
             fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
