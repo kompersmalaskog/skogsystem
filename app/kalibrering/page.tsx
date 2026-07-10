@@ -970,7 +970,10 @@ export default function KalibreringPage() {
                   );
                   const formCls = hasAvvikData ? stockDivCls(sDia) : stockDivCls(null);
 
-                  const widthPct = 35 + ((st.maskin_langd_cm ?? maxLangd) / maxLangd) * 60;
+                  // Äkta proportioner: bredd = längd relativt längsta stocken
+                  // (längsta = 100 %, halva längden = 50 %). Hela raden är
+                  // tryckyta, så tunna staplar skadar inte träffbarheten.
+                  const widthPct = ((st.maskin_langd_cm ?? maxLangd) / maxLangd) * 100;
                   const heightPx = 16 + ((st.maskin_toppdia_mm ?? maxDia) / maxDia) * 18;
                   const lenM = st.maskin_langd_cm != null
                     ? (st.maskin_langd_cm / 100).toFixed(1).replace('.', ',')
@@ -1532,7 +1535,7 @@ export default function KalibreringPage() {
         .kalib-page *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 
         .kalib-nav{display:flex;justify-content:center;gap:8px;padding:12px 20px;background:rgba(0,0,0,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);position:sticky;top:calc(56px + env(safe-area-inset-top));z-index:100;border-bottom:0.5px solid #2C2C2E}
-        .kalib-pill{height:38px;padding:0 18px;border-radius:999px;font-size:14px;font-weight:500;color:#8E8E93;background:transparent;border:none;cursor:pointer;font-family:inherit;transition:background 0.15s,color 0.15s}
+        .kalib-pill{height:44px;padding:0 18px;border-radius:999px;font-size:14px;font-weight:500;color:#8E8E93;background:transparent;border:none;cursor:pointer;font-family:inherit;transition:background 0.15s,color 0.15s}
         .kalib-pill.active{background:#fff;color:#000;font-weight:600}
 
         .kalib-container{padding:24px 0 32px}
@@ -1568,12 +1571,14 @@ export default function KalibreringPage() {
         .kalib-info-box.warn .kalib-info-title{color:#FF3B30}
         .kalib-info-text{font-size:13px;color:#8E8E93;line-height:1.4}
 
-        .kalib-stem-viz{overflow-x:auto;padding:8px 0 16px;margin:0 -20px;padding-left:20px;padding-right:20px}
-        .kalib-stem-viz-inner{display:flex;align-items:flex-end;gap:8px;min-width:min-content}
-        .kalib-stem-label{font-size:11px;color:#8E8E93;padding:0 6px;align-self:center}
-        .kalib-log-block{display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;transition:transform 0.15s}
+        /* Stem-viz fyller kolumnen (ingen horisontell scroll) — blocken flex-
+           delar bredden proportionellt mot längd (inline flex-grow per stock). */
+        .kalib-stem-viz{padding:8px 0 16px}
+        .kalib-stem-viz-inner{display:flex;align-items:flex-end;gap:6px;width:100%}
+        .kalib-stem-label{font-size:11px;color:#8E8E93;padding:0 2px;align-self:center;flex:0 0 auto}
+        .kalib-log-block{display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;transition:transform 0.15s;min-width:0}
         .kalib-log-block:active{transform:scale(0.96)}
-        .kalib-log-body{background:#2C2C2E;border-radius:6px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.06)}
+        .kalib-log-body{width:100%;min-width:4px;background:#2C2C2E;border-radius:6px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.06);overflow:hidden}
         .kalib-log-body.warn-stock{border:1.5px solid #8E8E93}
         .kalib-log-body.bad-stock{border:1.5px solid #FF3B30}
         /* Senaste stem-block via delade skalan (ok = ingen kant, tyst) */
@@ -1581,9 +1586,9 @@ export default function KalibreringPage() {
         .kalib-log-body.stock-ton-hi{border:1.5px solid #FF9F0A}
         .kalib-log-body.stock-ton-hot{border:1.5px solid #FF453A}
         .kalib-log-num{color:#fff;font-size:14px;font-weight:600}
-        .kalib-log-info{text-align:center}
-        .kalib-log-length{font-size:12px;font-weight:500;color:#fff}
-        .kalib-log-product{font-size:10px;color:#8E8E93}
+        .kalib-log-info{text-align:center;min-width:0;max-width:100%}
+        .kalib-log-length{font-size:12px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .kalib-log-product{font-size:10px;color:#8E8E93;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
         .kalib-btn-stem{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:56px;padding:0 20px;margin-top:16px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:12px;font-size:15px;font-weight:500;color:#fff;cursor:pointer;font-family:inherit}
         .kalib-btn-stem-arrow{color:#8E8E93;display:flex;align-items:center}
@@ -1624,7 +1629,7 @@ export default function KalibreringPage() {
         /* === Kalender-fliken === */
         /* === Trend-fliken — kurva + tidsfilter + auto-mening === */
         .kalib-trend-pills{display:flex;gap:8px;margin:0 0 10px;flex-wrap:wrap}
-        .kalib-trend-pill{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:20px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);color:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:background 0.12s}
+        .kalib-trend-pill{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:22px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);color:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:background 0.12s}
         .kalib-trend-pill:hover{background:rgba(255,255,255,0.10)}
         .kalib-trend-pill.active{background:#fff;color:#000;border-color:#fff}
         .kalib-trend-pill-count{font-size:12px;opacity:0.7;font-variant-numeric:tabular-nums}
@@ -1632,7 +1637,7 @@ export default function KalibreringPage() {
 
         /* iOS-segmenterad kontroll: enhetväxling (Dia/Längd) och fönsterbredd */
         .kalib-trend-seg{display:flex;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.06);border-radius:9px;padding:2px;margin:0 0 10px;width:100%}
-        .kalib-trend-seg-btn{flex:1;padding:7px 4px;border-radius:7px;border:none;background:transparent;color:#8E8E93;font-size:13px;font-weight:500;cursor:pointer;transition:background 0.12s,color 0.12s}
+        .kalib-trend-seg-btn{flex:1;min-height:44px;padding:0 4px;border-radius:7px;border:none;background:transparent;color:#8E8E93;font-size:13px;font-weight:500;cursor:pointer;transition:background 0.12s,color 0.12s;display:flex;align-items:center;justify-content:center}
         .kalib-trend-seg-btn:hover{color:#fff}
         .kalib-trend-seg-btn.active{background:#3A3A3C;color:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.4)}
 
@@ -1702,7 +1707,10 @@ export default function KalibreringPage() {
         .kalib-trend-row-dot.tone-hot{background:#E24B4A}
 
         /* Mittenkolumn: objektnamn + meta staplade, ellipsis vid truncate. */
-        .kalib-trend-row-info{flex:1;min-width:0}
+        /* Namn tar bara sin naturliga bredd (växer inte) → värdet sitter intill
+           namnet i stället för ytterst höger; chevron skjuts ut med margin-auto. */
+        .kalib-trend-row-info{flex:0 1 auto;min-width:0}
+        .kalib-trend-row-chev{margin-left:auto;flex-shrink:0;display:flex;align-items:center}
         .kalib-trend-row-name{font-size:14px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .kalib-trend-row-meta{font-size:12px;color:#8E8E93;margin-top:2px}
 
@@ -1745,8 +1753,10 @@ export default function KalibreringPage() {
         .kalib-sheet-label{flex:1;font-size:15px;color:#fff;font-weight:500}
         .kalib-sheet-sold{color:#8E8E93;font-weight:400}
 
-        .kalib-cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;color:#8E8E93;margin-bottom:8px;font-weight:500}
-        .kalib-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+        /* Rutnätet cappas vid 7×64 + gap → cellerna blir max 64px och rutnätet
+           centreras. Telefon (smalare) fyller bredden; iPad slutar blåsa upp. */
+        .kalib-cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;max-width:484px;margin:0 auto 8px;text-align:center;font-size:11px;color:#8E8E93;font-weight:500}
+        .kalib-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;max-width:484px;margin-inline:auto}
         .kalib-cal-cell{aspect-ratio:1;min-height:44px;display:flex;align-items:center;justify-content:center;border-radius:12px;position:relative;padding:8px;font-family:inherit}
         .kalib-cal-cell.empty{visibility:hidden}
         .kalib-cal-cell.clickable{cursor:pointer;min-height:56px}
@@ -1805,7 +1815,8 @@ export default function KalibreringPage() {
         .kalib-report-result-value{width:72px;text-align:right;font-size:14px;font-weight:600;color:#fff}
         .kalib-report-result-value.bad{color:#FF3B30}
         /* Reglaget borttaget → talet är huvudsignalen, färgat via delade skalan */
-        .kalib-report-result-value.big{flex:1;width:auto;font-size:20px;letter-spacing:-0.01em}
+        /* Värdet sitter intill etiketten (inget flex:1 som slänger det längst ut) */
+        .kalib-report-result-value.big{width:auto;text-align:left;font-size:20px;letter-spacing:-0.01em}
         .kalib-report-result-value.tone-ok{color:#8E8E93}
         .kalib-report-result-value.tone-cold{color:#0A84FF}
         .kalib-report-result-value.tone-hi{color:#FF9F0A}
@@ -2101,13 +2112,16 @@ export default function KalibreringPage() {
                     <div className="kalib-stem-viz-inner">
                       <span className="kalib-stem-label">Rot</span>
                       {latestStockar.map(stock => {
-                        const baseW = Math.max(60, stock.maskin_langd_cm * 0.5);
+                        // Bredd = proportionell mot längd via flex-grow (basis 0), så
+                        // hela raden fyller kolumnen utan att spilla ut. Höjd =
+                        // proportionell mot toppdiameter (tjockare stock ser tjockare ut).
+                        const lenUnit = Math.max(1, stock.maskin_langd_cm || 1);
                         const baseH = Math.max(18, stock.maskin_toppdia_mm * 0.18);
                         const ton = avvikelseTon(stock.dia_avvikelse_mm ?? 0, 'dia');
                         const borderCls = ton === 'ok' ? '' : `stock-ton-${ton}`;
                         return (
-                          <div key={stock.id} className="kalib-log-block" onClick={() => openStockModal(stock)}>
-                            <div className={`kalib-log-body ${borderCls}`} style={{ width: baseW, height: baseH }}>
+                          <div key={stock.id} className="kalib-log-block" style={{ flex: `${lenUnit} 1 0` }} onClick={() => openStockModal(stock)}>
+                            <div className={`kalib-log-body ${borderCls}`} style={{ height: baseH }}>
                               <span className="kalib-log-num">{stock.stock_nummer}</span>
                             </div>
                             <div className="kalib-log-info">
@@ -2635,7 +2649,7 @@ export default function KalibreringPage() {
                                       <span className={`kalib-trend-row-val tone-${cls}`}>
                                         {fmtList(v)}
                                       </span>
-                                      <MSym name="chevron_right" size={16} color="#8E8E93" />
+                                      <span className="kalib-trend-row-chev"><MSym name="chevron_right" size={16} color="#8E8E93" /></span>
                                     </button>
                                   );
                                 })}
