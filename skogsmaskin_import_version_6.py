@@ -23,7 +23,7 @@ import time
 import json
 import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 from urllib.parse import quote
@@ -348,6 +348,63 @@ def get_file_hash(filepath: str) -> str:
         for chunk in iter(lambda: f.read(4096), b""):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
+
+
+# ============================================================
+# INNEHÅLLS-HASH för kalibreringskontroller
+# ------------------------------------------------------------
+# Samma HQC-mätning exporteras som flera filer med olika tidsstämpel i
+# namnet. Unikhet får därför avgöras på INNEHÅLL, inte filnamn. Hashen
+# beräknas över maskin- OCH operatörsvärden per stock (så en omklavning av
+# samma maskinmätta stam räknas som en ny kontroll).
+#
+# Måste bli IDENTISK oavsett om den räknas ur parserns dict (naiv datetime,
+# heltal) eller ur DB-rader (aware ISO-sträng, JSON-tal). Därför normaliseras:
+#   • datum → UTC-epoch-sekunder (parsern strippar tz → naiv = UTC).
+#   • tal   → kanonisk form ("442" == "442.0").
+def _hash_epoch(v):
+    """Datum/tidsvärde → UTC-epoch-sekunder som str (eller '' för tomt)."""
+    if v is None or v == '':
+        return ''
+    if isinstance(v, str):
+        try:
+            v = datetime.fromisoformat(v)
+        except Exception:
+            return v
+    if isinstance(v, datetime):
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)  # naiv (parsern) tolkas som UTC
+        return str(int(v.astimezone(timezone.utc).timestamp()))
+    return str(v)
+
+
+def _hash_num(v):
+    """Tal → kanonisk sträng (heltal utan decimal, '' för None)."""
+    if v is None:
+        return ''
+    try:
+        f = float(v)
+        return str(int(f)) if f == int(f) else repr(f)
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def kontroll_innehalls_hash(stockar):
+    """sha1 över sorterade per-stock-tuplar. None om inga stockar (tom kontroll)."""
+    rows = sorted(
+        '|'.join([
+            _hash_num(s.get('stam_nummer')), _hash_num(s.get('stock_nummer')),
+            _hash_epoch(s.get('machine_measurement_date')),
+            _hash_epoch(s.get('operator_measurement_date')),
+            _hash_num(s.get('maskin_langd_cm')), _hash_num(s.get('maskin_toppdia_mm')),
+            _hash_num(s.get('operator_langd_cm')), _hash_num(s.get('operator_toppdia_mm')),
+            _hash_num(s.get('stem_dbh_mm')),
+        ])
+        for s in stockar
+    )
+    if not rows:
+        return None
+    return hashlib.sha1('\n'.join(rows).encode()).hexdigest()
 
 # ============================================================
 # MOM-PARSER
@@ -1914,8 +1971,10 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
         'forest_certification': nullif_empty(forest_certification),
         'contract_number': nullif_empty(contract_number),
         'butt_log_length_adjustment_mm': butt_log_length_adjustment_mm,
+        # Innehålls-hash för dedup (samma mätning, olika exportfilnamn)
+        'innehalls_hash': kontroll_innehalls_hash(data['kontroll_stockar']),
     })
-    
+
     logger.info(f"  Kontrollstammar: {antal_stammar}, Stockar: {antal_stockar}")
     logger.info(f"  Längdavvikelse: {langd_snitt:.1f} cm, Diameteravvikelse: {dia_snitt:.1f} mm")
     logger.info(f"  Status: {status}")
@@ -3265,6 +3324,32 @@ def save_hqc_to_supabase(data: Dict) -> bool:
     """Spara HQC-data till Supabase"""
     try:
         fel = []
+
+        # === Innehålls-grind: hoppa över om samma mätning redan importerats
+        #     under ett ANNAT filnamn (samma innehalls_hash). Fil-checken på
+        #     filnamn (i process_file) fångar samma-filnamn-omkörning. ===
+        kal = (data.get('kalibrering') or [{}])[0]
+        h = kal.get('innehalls_hash')
+        maskin_id = kal.get('maskin_id')
+        filnamn = data.get('filnamn')
+        if h and maskin_id:
+            url = (
+                f"{SUPABASE_URL}/rest/v1/fakt_kalibrering"
+                f"?maskin_id=eq.{quote(str(maskin_id), safe='')}"
+                f"&innehalls_hash=eq.{h}&select=filnamn&limit=1"
+            )
+            try:
+                r = requests.get(url, headers=SUPABASE_HEADERS, timeout=30)
+                if r.status_code == 200 and r.json():
+                    befintlig = r.json()[0].get('filnamn')
+                    if befintlig != filnamn:
+                        logger.info(
+                            f"  ↷ Innehåll redan importerat som '{befintlig}' "
+                            f"— hoppar över dubblett"
+                        )
+                        return True  # filen hanteras (markeras/flyttas), inga nya rader
+            except Exception as e:
+                logger.warning(f"  ⚠ Kunde inte kontrollera innehålls-hash: {e}")
 
         if data.get('kalibrering'):
             if upsert_data(
