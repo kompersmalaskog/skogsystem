@@ -1538,7 +1538,13 @@ export default function KalibreringPage() {
         .kalib-pill{height:44px;padding:0 18px;border-radius:999px;font-size:14px;font-weight:500;color:#8E8E93;background:transparent;border:none;cursor:pointer;font-family:inherit;transition:background 0.15s,color 0.15s}
         .kalib-pill.active{background:#fff;color:#000;font-weight:600}
 
-        .kalib-container{padding:24px 0 32px}
+        /* Läsbredd 880 centrerad (som tidigare PageContainer bred). ≥1000px får
+           de breda vyerna (Trend/Rapport/Kalender, klass .wide) mer bredd —
+           Senaste stannar 880. Under 1000px är .wide oförändrad (880). */
+        .kalib-container{width:100%;max-width:880px;margin-inline:auto;padding:24px clamp(16px,4vw,24px) 32px;box-sizing:border-box}
+        @media(min-width:1000px){
+          .kalib-container.wide{max-width:1320px}
+        }
 
         .kalib-page-header{margin:0 0 24px}
         .kalib-page-title{font-size:28px;font-weight:600;letter-spacing:-0.02em;line-height:1.15;margin:0 0 6px;color:#fff}
@@ -2036,10 +2042,33 @@ export default function KalibreringPage() {
         .kalib-stock-diagnos.warn{background:rgba(255,159,10,0.10);color:#fff;border:1px solid rgba(255,159,10,0.28)}
         .kalib-stock-diagnos.bad{background:rgba(255,69,58,0.10);color:#fff;border:1px solid rgba(255,69,58,0.32)}
 
+        /* === DEL 2: selektiv bredd-layout ============================= */
+        /* Legend-dubbletten i kalendern är dold tills ≥1000px (inline visas). */
+        .kalib-cal-legend--side{display:none}
+
+        @media(min-width:1000px){
+          /* TREND — kontroller+kurva sticky vänster (~55%), lista höger (~45%).
+             top klarar de två sticky-barerna (nav + filter). */
+          .kalib-trend-layout{display:flex;gap:24px;align-items:flex-start}
+          .kalib-trend-left{flex:0 0 55%;position:sticky;top:calc(180px + env(safe-area-inset-top));align-self:flex-start}
+          .kalib-trend-right{flex:1 1 0;min-width:0}
+
+          /* RAPPORT — per-trädslag-tabellen fördelar kolumnerna jämnt så varje
+             värde sitter under sin rubrik (löser högerklumpen). */
+          .kalib-table-header,.kalib-table-row{grid-template-columns:2fr 1fr 1fr 1fr 40px}
+
+          /* KALENDER — rutnät vänster, sammanfattning+legend höger sidopanel. */
+          .kalib-cal-layout{display:flex;gap:24px;align-items:flex-start}
+          .kalib-cal-layout .kalib-cal-gridcard{order:1;flex:1 1 0;min-width:0}
+          .kalib-cal-layout .kalib-cal-summary{order:2;flex:0 0 300px;align-self:flex-start}
+          .kalib-cal-legend--inline{display:none}
+          .kalib-cal-legend--side{display:block;margin-top:16px;border-top:0.5px solid #2C2C2E;padding-top:14px}
+        }
+
         @media(max-width:480px){
           .kalib-page-title{font-size:28px}
           .kalib-hero-metric-value{font-size:32px}
-          .kalib-container{padding:20px 0 32px}
+          .kalib-container{padding-top:20px}
           .kalib-report-metrics{grid-template-columns:repeat(2,1fr)}
         }
       `}</style>
@@ -2062,8 +2091,8 @@ export default function KalibreringPage() {
           </div>
         )}
 
-        <PageContainer width="bred">
-        <div className="kalib-container">
+        <PageContainer width="full">
+        <div className={`kalib-container ${activeTab !== 'today' ? 'wide' : ''}`}>
           {activeTab === 'today' && latestKalib && (
             <>
               <header className="kalib-page-header">
@@ -2357,6 +2386,8 @@ export default function KalibreringPage() {
 
                 return (
                   <>
+                    <div className="kalib-trend-layout">
+                    <div className="kalib-trend-left">
                     {/* Trädslag-pillar */}
                     {tradslagAll.length > 0 && (
                       <div className="kalib-trend-pills">
@@ -2546,7 +2577,9 @@ export default function KalibreringPage() {
                         )}
                       </div>
                     )}
+                    </div>{/* /kalib-trend-left */}
 
+                    <div className="kalib-trend-right">
                     {/* === Kontroll-lista för det valda fönstret === */}
                     {trCurrent && (() => {
                       // Enskilda kontroller inom [startMs, endMs), nyast först.
@@ -2659,6 +2692,8 @@ export default function KalibreringPage() {
                         </>
                       );
                     })()}
+                    </div>{/* /kalib-trend-right */}
+                    </div>{/* /kalib-trend-layout */}
 
                     {trendData.totalt.antal_kontroller === 0 && (
                       <div className="kalib-info-box neutral">
@@ -2724,6 +2759,7 @@ export default function KalibreringPage() {
                 const trailingEmpty = (7 - (totalCells % 7)) % 7;
                 return (
                   <>
+                    <div className="kalib-cal-layout">
                     <div className="kalib-card kalib-cal-summary">
                       {sf.produktionsdagar === 0 ? (
                         <>
@@ -2746,9 +2782,15 @@ export default function KalibreringPage() {
                           </div>
                         </>
                       )}
+                      {/* Legend i sidopanelen — bara ≥1000px (togglas mot inline nedan) */}
+                      <div className="kalib-cal-legend kalib-cal-legend--side">
+                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot green" />Kontroll lämnad</div>
+                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red" />Saknas</div>
+                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red-ring" />Varning</div>
+                      </div>
                     </div>
 
-                    <div className="kalib-card">
+                    <div className="kalib-card kalib-cal-gridcard">
                       <div className="kalib-cal-weekdays"><span>M</span><span>T</span><span>O</span><span>T</span><span>F</span><span>L</span><span>S</span></div>
                       <div className="kalib-cal-grid">
                         {Array.from({ length: leadingEmpty }).map((_, i) => (
@@ -2774,12 +2816,13 @@ export default function KalibreringPage() {
                           <div key={`t${i}`} className="kalib-cal-cell empty" />
                         ))}
                       </div>
-                      <div className="kalib-cal-legend">
+                      <div className="kalib-cal-legend kalib-cal-legend--inline">
                         <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot green" />Kontroll lämnad</div>
                         <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red" />Saknas</div>
                         <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red-ring" />Varning</div>
                       </div>
                     </div>
+                    </div>{/* /kalib-cal-layout */}
                   </>
                 );
               })()}
