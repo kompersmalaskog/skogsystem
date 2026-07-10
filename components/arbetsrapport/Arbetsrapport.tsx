@@ -394,6 +394,121 @@ const KmPicker = ({ value, onChange, label }: { value: number; onChange: (v: num
   );
 };
 
+/* ─── DELAD OBJEKTVÄLJARE ──────────────────────────────
+   Kortlista med gruppering (pågående/planerade/avslutade), sök och
+   blå bock på valt. Ersätter de tre live-väljarna (A: Plats, D:
+   redigering, C: efter-stopp) — steg 1 kopplar in A.
+──────────────────────────────────────────────────────── */
+// Visnings-title-case: bara ord i HELVERSALER görs om ('ROGER' → 'Roger').
+// Rör aldrig datat — ren visning. Timestamp-namn passerar orörda (siffror).
+const visningsNamn = (s: string) => (s || '').trim().split(/\s+/).map(w =>
+  w.length > 1 && w === w.toUpperCase() && /[A-ZÅÄÖ]/.test(w)
+    ? w.charAt(0) + w.slice(1).toLowerCase()
+    : w
+).join(' ');
+
+const ObjektValjarLista = ({ objekt, valtId, onVälj, tillåtInget = false }: {
+  objekt: any[]; valtId: string | null; onVälj: (o: any | null) => void; tillåtInget?: boolean;
+}) => {
+  const [sök, setSök] = useState("");
+  const [visaAvslutade, setVisaAvslutade] = useState(false);
+
+  // Äldre statusvärden (skordning/skotning/klar) sorteras in i närmaste
+  // grupp; oplanerad/okänd hamnar bland planerade.
+  const grupp = (o: any): 'pagaende' | 'planerad' | 'avslutad' => {
+    const s = (o.status || '').toLowerCase();
+    if (s === 'pagaende' || s === 'skordning' || s === 'skotning') return 'pagaende';
+    if (s === 'avslutat' || s === 'klar') return 'avslutad';
+    return 'planerad';
+  };
+
+  const bock = (
+    <div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+      <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+    </div>
+  );
+
+  const kort = (o: any, prick = false) => {
+    // VO visas bara när det är ett riktigt VO-nummer (siffror) — inte
+    // maskingenererade nycklar ("_050624-132829"). Ägare hoppas över när
+    // den bara upprepar objektnamnet.
+    const voVisas = o.vo != null && /^\d+$/.test(String(o.vo)) ? `VO ${o.vo}` : null;
+    const ägareVisas = o.ägare && visningsNamn(o.ägare) !== visningsNamn(o.namn) ? visningsNamn(o.ägare) : null;
+    const meta = [voVisas, ägareVisas, o.atgard || null].filter(Boolean).join(' · ');
+    return (
+      <button key={o.id} onClick={() => onVälj(o)}
+        style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"13px 14px",marginBottom:8,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+        <div style={{ minWidth:0 }}>
+          <p style={{ margin:0,...TYPE.bodyList,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{visningsNamn(o.namn)}</p>
+          {meta && <p style={{ margin:"2px 0 0",...TYPE.meta,color:"#8e8e93",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...TNUM }}>{meta}</p>}
+        </div>
+        <div style={{ display:"flex",alignItems:"center",gap:8,flexShrink:0 }}>
+          {prick && <div style={{ width:9,height:9,borderRadius:"50%",background:"#30d158" }}/>}
+          {valtId === o.id && bock}
+        </div>
+      </button>
+    );
+  };
+
+  const q = sök.trim().toLowerCase();
+  const träffar = q
+    ? objekt.filter(o =>
+        (o.namn || '').toLowerCase().includes(q) ||
+        String(o.vo ?? '').toLowerCase().includes(q) ||
+        (o.ägare || '').toLowerCase().includes(q))
+    : null;
+
+  const pagaende = objekt.filter(o => grupp(o) === 'pagaende');
+  const planerade = objekt.filter(o => grupp(o) === 'planerad');
+  const avslutade = objekt.filter(o => grupp(o) === 'avslutad');
+
+  return (
+    <div style={{ padding:"12px 16px 24px" }}>
+      {/* Sök */}
+      <div style={{ display:"flex",alignItems:"center",gap:8,background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 12px",marginBottom:14 }}>
+        <span className="material-symbols-outlined" style={{ fontSize:18,color:"#8e8e93" }}>search</span>
+        <input value={sök} onChange={e => setSök(e.target.value)} placeholder="Sök objekt…"
+          style={{ flex:1,background:"none",border:"none",outline:"none",color:"#fff",fontSize:15,fontFamily:"inherit",padding:0 }}/>
+      </div>
+
+      {tillåtInget && !q && (
+        <button onClick={() => onVälj(null)}
+          style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"13px 14px",marginBottom:14,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+          <span style={{ ...TYPE.bodyList,color:"#8e8e93" }}>Inget objekt</span>
+          {valtId == null && bock}
+        </button>
+      )}
+
+      {träffar ? (
+        // Sökläge: platt träfflista utan gruppering
+        träffar.length > 0
+          ? träffar.map(o => kort(o, grupp(o) === 'pagaende'))
+          : <p style={{ margin:"24px 0",textAlign:"center",...TYPE.meta,color:"#8e8e93" }}>Inga objekt matchar &quot;{sök.trim()}&quot;</p>
+      ) : (<>
+        {pagaende.length > 0 && (<>
+          <h4 style={{ ...secHead,marginBottom:8 }}>Pågående</h4>
+          {pagaende.map(o => kort(o, true))}
+        </>)}
+        {planerade.length > 0 && (<>
+          <h4 style={{ ...secHead,marginTop:pagaende.length > 0 ? 16 : 0,marginBottom:8 }}>Planerade</h4>
+          {planerade.map(o => kort(o))}
+        </>)}
+        {avslutade.length > 0 && (
+          visaAvslutade ? (<>
+            <h4 style={{ ...secHead,marginTop:16,marginBottom:8 }}>Avslutade</h4>
+            {avslutade.map(o => kort(o))}
+          </>) : (
+            <button onClick={() => setVisaAvslutade(true)}
+              style={{ width:"100%",marginTop:12,padding:"12px 0",background:"none",border:"none",color:"#0a84ff",...TYPE.meta,cursor:"pointer",fontFamily:"inherit",...TNUM }}>
+              Visa avslutade ({avslutade.length})
+            </button>
+          )
+        )}
+      </>)}
+    </div>
+  );
+};
+
 /* ─── EXTRA TID – EN SKÄRM ─────────────────────────────
    Allt samlat: debiterbar toggle + objekt + tid + beskrivning
 ──────────────────────────────────────────────────────── */
@@ -678,8 +793,11 @@ export default function Arbetsrapport() {
           : supabase.from("medarbetare").select("*").limit(1).single()
       ),
       (()=>{ const idag=new Date().toISOString().slice(0,10); return supabase.from("gs_avtal").select("*").lte("giltigt_fran",idag).or(`giltigt_till.is.null,giltigt_till.gte.${idag}`).order("giltigt_fran",{ascending:false}).limit(1).maybeSingle(); })(),
-      supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare, huvudtyp, latitude, longitude").order("object_name"),
-    ]).then(([med, avt, obj]) => {
+      supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare, huvudtyp, atgard, latitude, longitude").order("object_name"),
+      // Status för objektväljarens gruppering (pågående/planerade/avslutade).
+      // objekt-tabellen matchas mot dim_objekt via vo_nummer — exakt likhet.
+      supabase.from("objekt").select("vo_nummer, status"),
+    ]).then(([med, avt, obj, objStatus]) => {
       if(med.data) {
         setMedarbetare(med.data);
         setHemadress(med.data.hemadress || "");
@@ -724,15 +842,25 @@ export default function Arbetsrapport() {
           console.error('Vila-trösklar saknas i gs_avtal:', err);
         }
       }
-      if(obj.data) setObjektLista(obj.data.map(o => {
-        // object_name är ibland en autogenererad timestamp-sträng (yymmddHHMMSS).
-        // Faller då tillbaka till "Skogsägare · Huvudtyp" så föraren ser ett vettigt namn.
-        const n = (o.object_name || '').trim();
-        const raw = n && !/^\d{10,}$/.test(n)
-          ? n
-          : ([o.skogsagare, o.huvudtyp].filter(Boolean).join(' · ') || o.objekt_id);
-        return { id:o.objekt_id, namn:formatObjektNamn(raw), ägare:o.skogsagare||'', lat:o.latitude, lng:o.longitude };
-      }));
+      if(obj.data) {
+        const statusPerVo = new Map<string, string>(
+          (objStatus.data || []).filter((r:any) => r.vo_nummer != null && r.status)
+            .map((r:any) => [String(r.vo_nummer), r.status])
+        );
+        setObjektLista(obj.data.map(o => {
+          // object_name är ibland en autogenererad timestamp-sträng (yymmddHHMMSS).
+          // Faller då tillbaka till "Skogsägare · Huvudtyp" så föraren ser ett vettigt namn.
+          const n = (o.object_name || '').trim();
+          const raw = n && !/^\d{10,}$/.test(n)
+            ? n
+            : ([o.skogsagare, o.huvudtyp].filter(Boolean).join(' · ') || o.objekt_id);
+          return {
+            id:o.objekt_id, namn:formatObjektNamn(raw), ägare:o.skogsagare||'', lat:o.latitude, lng:o.longitude,
+            vo:o.vo_nummer ?? null, atgard:o.atgard || o.huvudtyp || null,
+            status:o.vo_nummer != null ? statusPerVo.get(String(o.vo_nummer)) ?? null : null,
+          };
+        }));
+      }
     });
     // Hämta maskinnamn-lookup
     supabase.from("dim_maskin").select("maskin_id, tillverkare, modell").then(res => {
@@ -2373,21 +2501,17 @@ export default function Arbetsrapport() {
         {/* Objektväljare */}
         {visaObjektVäljare&&(
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:"#1c1c1e",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+            <div style={{ background:"#0d0d0f",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                 <h3 style={{ margin:0,...TYPE.h2 }}>Välj objekt</h3>
                 <button onClick={()=>setVisaObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
               </div>
-              <div style={{ flex:1,overflowY:"auto",padding:"8px 0" }}>
-                {objektLista.map(o=>(
-                  <button key={o.id} onClick={()=>{setValtObjektId(o.id);setVisaObjektVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 20px",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
-                    <div>
-                      <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{o.namn}</p>
-                      {o.ägare&&<p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.ägare}</p>}
-                    </div>
-                    {valtObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
-                  </button>
-                ))}
+              <div style={{ flex:1,overflowY:"auto" }}>
+                <ObjektValjarLista
+                  objekt={objektLista}
+                  valtId={valtObjektId}
+                  onVälj={o => { if (o) setValtObjektId(o.id); setVisaObjektVäljare(false); }}
+                />
               </div>
             </div>
           </div>
