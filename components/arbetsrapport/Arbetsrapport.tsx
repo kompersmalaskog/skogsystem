@@ -96,6 +96,9 @@ const TYPE = {
   // Utanför v6-skalan — medvetet undantag: timer-klockan på pågående pass.
   display:    { fontSize:72, fontWeight:600, letterSpacing:"-3px" },
 } satisfies Record<string, CSSProperties>;
+// Interna vy-headers (fixed/sticky) ska börja UNDER appens globala TopBar
+// (56px + safe-area, zIndex 1000) — inte på viewportens y=0 som TopBar äger.
+const HEADER_TOP = "calc(56px + env(safe-area-inset-top))";
 const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:"0 20px", boxSizing:"border-box" as const, width:"100%" };
 const darkShell: CSSProperties = { ...shell };
 const topBar: CSSProperties = { paddingTop:24, paddingBottom:12 };
@@ -2881,7 +2884,7 @@ export default function Arbetsrapport() {
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",paddingBottom:120 }}>
         <style>{css}</style>{timerBanner}
-        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:"0 24px",paddingTop:16 }}>
+        <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:"0 24px",paddingTop:16 }}>
           <h1 style={{ margin:"0 0 12px",...TYPE.h1,color:"#fff" }}>Min tid</h1>
           <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2,marginBottom:12,overflowX:"auto" }}>
             {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['monster','Mönster'],['lön','Löneunderlag']] as const).map(([k,l])=>(
@@ -2890,7 +2893,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ paddingTop:110,paddingLeft:20,paddingRight:20,paddingBottom:SCROLL_BOTTOM }}>
+        <main style={{ paddingTop:126,paddingLeft:20,paddingRight:20,paddingBottom:SCROLL_BOTTOM }}>
 
           {/* Varningar — bara på översikt */}
           {minTidFlik==='översikt'&&varningar.length>0&&(
@@ -3681,7 +3684,7 @@ export default function Arbetsrapport() {
       return (
         <div style={{ minHeight:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased" }}>
           <style>{css}</style>{timerBanner}
-          <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
+          <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
             <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:"8px 12px 8px 8px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4 }}>
               <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span>
               <span style={{ color:"#0a84ff",fontSize:15,fontWeight:500 }}>Löneunderlag</span>
@@ -3861,7 +3864,7 @@ export default function Arbetsrapport() {
         <style>{css}</style>{timerBanner}
 
         {/* Header */}
-        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",height:64 }}>
+        <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",height:64 }}>
           <div style={{ display:"flex",alignItems:"center",gap:8 }}>
             <button onClick={stegLönBak} disabled={!kanLönBak} style={{ background:"none",border:"none",cursor:kanLönBak?"pointer":"default",padding:8,borderRadius:"50%",opacity:kanLönBak?1:0.3 }}>
               <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_left</span>
@@ -5164,7 +5167,7 @@ export default function Arbetsrapport() {
         <style>{css}</style>{timerBanner}
 
         {/* Header — sticky nav with month + arrows */}
-        <header style={{ position:"sticky",top:0,background:"#000",zIndex:50,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 24px",height:64 }}>
+        <header style={{ position:"sticky",top:HEADER_TOP,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",zIndex:50,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 24px",height:64 }}>
           <button onClick={()=>kanBakåt&&navigera(-1)} style={{ background:"none",border:"none",cursor:"pointer",opacity:kanBakåt?1:0.3,padding:4 }}>
             <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_left</span>
           </button>
