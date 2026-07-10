@@ -2765,12 +2765,21 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 # OperatorKey 1 på dagens alla segment, alla senare versioner
                 # satte 2 → med attribution i identiteten fick BÅDA generationerna
                 # egna rader och hela dagar dubblades: 26,6 h motortid på en dag).
-                # Därför: SENASTE exportversionen äger attributionen (recency ur
-                # filnamnets _YYYYMMDD_HHMMSS-suffix, annars mtime); vid samma
-                # recency vinner mest kompletta (störst processing+terrain) —
-                # det bevarar #40-fixens skydd mot order-of-arrival-klubbning.
-                merged_entries = {}   # (start_time, maskin) -> vinnande entry
+                #
+                # TVÅ SEPARATA VINNARE per identitet (steg 4-sweepens läxa 2026-07-11):
+                #   BELOPP     = varianten med STÖRST vikt (segmentets totala duration
+                #                över alla tidshinkar; tie → högst recency). Ponsse
+                #                exporterar ibland samma starttid med OLIKA durationer
+                #                (segment skrivs om mellan/inom exportversioner —
+                #                bevisat PONS 2026-03-17 06:32:46: fem varianter
+                #                4987–13015 s). En senare version med KORTARE variant
+                #                får aldrig klubba den mest kompletta (#40-skyddet).
+                #   ATTRIBUTION = versionen med HÖGST recency (suffix/mtime; tie →
+                #                störst vikt) äger (objekt, operator) — senaste
+                #                exportversionens bokföring gäller (op-flip-fixen).
+                merged_entries = {}   # (start_time, maskin) -> värde-vinnande entry
                 merged_attr = {}      # (start_time, maskin) -> (recency, objekt, operator, vikt)
+                _varde_meta = {}      # (start_time, maskin) -> (vikt, recency) för värde-vinnaren
                 files_scanned = 0
 
                 def _fil_recency(namn_eller_path):
@@ -2796,17 +2805,23 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 def _keep(ek, entry, recency):
                     ident = (ek[0], ek[1])
                     objekt, operator = ek[2], ek[3]
-                    vikt = (entry.get('processing_sek') or 0) + (entry.get('terrain_sek') or 0)
-                    cur = merged_attr.get(ident)
-                    if cur is not None:
-                        cur_rec, cur_obj, cur_op, cur_vikt = cur
-                        if recency < cur_rec or (recency == cur_rec and vikt <= cur_vikt):
-                            return
-                        if (cur_obj, cur_op) != (objekt, operator):
+                    # vikt = segmentets hela duration oavsett klass (RUN/DOWN/UNUT) —
+                    # P+T räcker inte: DOWN-/rast-varianter har P+T = 0.
+                    vikt = sum((entry.get(f) or 0) for f in (
+                        'processing_sek', 'terrain_sek', 'other_work_sek',
+                        'maintenance_sek', 'disturbance_sek', 'rast_sek', 'avbrott_sek'))
+                    # 1) VÄRDE-vinnaren: störst vikt (tie → högst recency)
+                    v = _varde_meta.get(ident)
+                    if v is None or vikt > v[0] or (vikt == v[0] and recency > v[1]):
+                        merged_entries[ident] = entry
+                        _varde_meta[ident] = (vikt, recency)
+                    # 2) ATTRIBUTIONS-vinnaren: högst recency (tie → störst vikt)
+                    a = merged_attr.get(ident)
+                    if a is None or recency > a[0] or (recency == a[0] and vikt > a[3]):
+                        if a is not None and (a[1], a[2]) != (objekt, operator):
                             logger.info(f"  Attribution bytt för segment {ek[0]} ({ek[1]}): "
-                                        f"({cur_obj}, {cur_op}) -> ({objekt}, {operator}) — senaste exportversion vinner")
-                    merged_entries[ident] = entry
-                    merged_attr[ident] = (recency, objekt, operator, vikt)
+                                        f"({a[1]}, {a[2]}) -> ({objekt}, {operator}) — senaste exportversion vinner")
+                        merged_attr[ident] = (recency, objekt, operator, vikt)
                 affected_maskins = sorted({m for m, _ in affected})
                 affected_dates_all = sorted({d for _, d in affected})
                 logger.info(f"  Re-aggregerar tid för maskin={affected_maskins} datum={affected_dates_all[0]}->{affected_dates_all[-1]}")
