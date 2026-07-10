@@ -70,7 +70,11 @@ const KORVY_SIGHT_M = 400;
 
 // Kurerade skyddslager som LYSER alltid i körvyns tysta stil (tvingas synliga, oavsett förarens
 // overlay-toggle). Övriga WMS hålls AV → ren tyst vy. overlayId = wms-layer-<id> utan prefix.
-const KORVY_SKYDDSLAGER = new Set(['nyckelbiotoper', 'biotopskydd', 'vattenskydd', 'fornlamningar', 'naturreservat', 'natura2000', 'sumpskog', 'kraftledningar']);
+// OBS: 'fornlamningar' UTELÄMNAT med flit — RAÄ:s lämnings-WMS är ~1,7M punkter över hela
+// Sverige → röd blanket = brus (bytte OpenTopoMap-brus mot fornlämnings-brus). De fornlämningar
+// som spelar roll (nära) är redan utsatta som EGNA symboler (glöder nära + panelen varnar).
+// Framtida C-steg: ladda RAÄ-punkter för traktens bbox som VEKTOR, klippt till trakt + from-driver.
+const KORVY_SKYDDSLAGER = new Set(['nyckelbiotoper', 'biotopskydd', 'vattenskydd', 'naturreservat', 'natura2000', 'sumpskog', 'kraftledningar']);
 
 // === Körvy-kamera-känsla (finjustering — vridbara värden, testas i maskinen) ===
 // Prick strax UNDER MITTEN (inte nedre tredjedelen): en skogsmaskin fäller åt SIDAN, så
