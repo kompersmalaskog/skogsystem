@@ -1,35 +1,48 @@
 """gap_check.py — READ-ONLY veckovis övervakning.
 
-Hittar (maskin, dag) där fakt_tid-dagssumman (P+T) ligger UNDER MOM-sanningen
-("taket") mer än en tröskel — dvs samma under-count-bugg vi reparerat. Tänkt att
-köras schemalagt en gång i veckan över de senaste 14 dagarna.
+TVÅ SKYDD (lärdomar från A110148-dubbleringen juli 2026 — den syntes som
+snäll "obs" i juni-loggarna utan att någon larmade):
 
-MOM-tak per (maskin, dag) = EXAKT samma logik som reparationen (build_target):
-  - scanna Behandlade/<maskin>/mom/*.mom
-  - 4-tuple-dedup på (MonitoringStartTime, maskin, objekt, operator); max P+T vinner per session
-  - summera P+T per (maskin, dag) över alla sessioner
-  - fallback: P=0 & T=0 & engine>0  ->  P = int(0.88 * engine_time_sek)
+1) INVARIANTER över HELA fakt_tid-historiken (ren DB, billig):
+   - >24h motortid per (maskin, dag)  -> LARM  (fysiskt omöjligt = dubblering)
+   - dubblett-signatur: >=2 rader på samma (datum, maskin, objekt) med
+     identiska (proc, terr, engine, bränsle) > 0 över olika operatörer
+     -> LARM  (operator-omattributionens exakta fingeravtryck)
 
-DB per (maskin, dag) = SUM(processing_sek + terrain_sek) ur fakt_tid.
-  (fakt_tid läses separat; INGEN join mot fakt_produktion — enl. CLAUDE.md.)
+2) MOM-AVSTÄMNING senaste N dagar (fönster): fakt_tid-dagssumman (P+T)
+   mot MOM-taket ur Behandlade.
+   Taket byggs med SAMMA semantik som importern efter #115/#119
+   (HÅLL I SYNK med _keep i skogsmaskin_import_version_6.py):
+   - identitet (MonitoringStartTime, maskin) — objekt/operator är attribut
+   - BELOPP från varianten med störst vikt (total duration alla tidshinkar)
+   - ATTRIBUTION från versionen med högst recency (filnamnssuffix, annars mtime)
+   - fallback per dag-nyckel: P=0 & T=0 & engine>0 -> P = int(0.88 * engine)
 
-LARM  : (tak − DB) > ABS_THRESHOLD_H            (default 0.5 h)  — signifikant under-count
-info  : gap ≥ REL_THRESHOLD av taket            (default 10 %)   — men under abs-tröskeln
-obs   : DB > tak + ABS_THRESHOLD_H                                — saknade MOM-filer / över-count
+   LARM : (tak − DB) > ABS_THRESHOLD_H   (under-count, importen tappar)
+   LARM : (DB − tak) > ABS_THRESHOLD_H   (över-count/dubblering ELLER MOM-fil
+          försvunnen ur Behandlade — båda kräver åtgärd: nästa dag-rebuild
+          raderar data vars källa saknas)
+   info : gap >= REL_THRESHOLD av taket men under abs-tröskeln
 
 Synk-fördröjning kan inte ge falsklarm: taket byggs från Behandlade, dit importern
 flyttar filer FÖRST efter import. En osynkad fil finns alltså i varken tak eller DB.
 
-READ-ONLY mot Supabase (bara GET fakt_tid). Skriver BARA gap_logg.txt. Rör ingen DB-data.
-Exit-kod 1 om minst ett LARM (så en schemalagd task lätt kan notifiera), annars 0.
+READ-ONLY mot Supabase (bara GET fakt_tid). Skriver gap_logg.txt (append) och
+gap_LARM_senaste.txt (skrivs över varje körning — tom vid grönt).
+Exit-kod 1 om minst ett LARM, annars 0.
 
 Körning:
-  python gap_check.py            # utskrift + append till gap_logg.txt
+  python gap_check.py            # utskrift + logg
   python gap_check.py --quiet    # bara logg (för schemalagd körning)
   python gap_check.py --days 30  # annat fönster
 """
 import os, sys, glob, json, argparse, datetime, urllib.request
 from collections import defaultdict
+
+try:  # Windows-konsol är ofta cp1252 — loggen är utf-8, gör utskriften det med
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 REPO = os.path.dirname(os.path.abspath(__file__))   # skriptet bor i repo-roten
 os.chdir(REPO); sys.path.insert(0, REPO)
@@ -38,9 +51,11 @@ import skogsmaskin_import_version_6 as imp
 
 # ----------------- Konfiguration (justera fritt) -----------------
 DAYS_BACK = 14                 # fönster: senaste N dagar
-ABS_THRESHOLD_H = 0.5          # LARM om (tak − DB) > detta antal timmar
+ABS_THRESHOLD_H = 0.5          # LARM om |tak − DB| > detta antal timmar
 REL_THRESHOLD = 0.10           # info-flagga om gap ≥ 10 % av taket (även under abs-tröskeln)
+MAX_ENGINE_H = 24.0            # invariant: motortid per (maskin, dag) kan aldrig överstiga detta
 GAP_LOG = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_logg.txt')
+LARM_FIL = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_LARM_senaste.txt')
 
 # 13 tid-fält (samma som importern/reparationen)
 TID_FIELDS = ['processing_sek', 'terrain_sek', 'other_work_sek', 'maintenance_sek',
@@ -82,30 +97,56 @@ def discover_machines():
     return out
 
 
+def _fil_recency(path):
+    """Kopia av importerns recency (HÅLL I SYNK med skogsmaskin_import_version_6):
+    sista _YYYYMMDD_HHMMSS-suffixet i filnamnet, annars mtime, annars 0."""
+    import re
+    m = re.findall(r'_(\d{8})_(\d{6})', os.path.basename(path))
+    if m:
+        try:
+            return datetime.datetime.strptime(m[-1][0] + m[-1][1], '%Y%m%d%H%M%S').timestamp()
+        except ValueError:
+            pass
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+_VIKT_FALT = ('processing_sek', 'terrain_sek', 'other_work_sek',
+              'maintenance_sek', 'disturbance_sek', 'rast_sek', 'avbrott_sek')
+
+
 def mom_ceiling(maskin, dayset):
-    """MOM-tak per dag för en maskin (#40 + _keep, summerat till dagnivå). -> {datum: pt_sek}."""
+    """MOM-tak per dag — SAMMA två-vinnare-semantik som importern efter #115/#119
+    (HÅLL I SYNK med _keep): identitet (start, maskin); BELOPP från störst-vikt-
+    varianten; ATTRIBUTION (objekt, operator) från högst recency. -> {datum: pt_sek}."""
     files = sorted(glob.glob(os.path.join(imp.BEHANDLADE, maskin, 'mom', '*.mom')))
-    merged = {}
+    entries, attrs, vmeta = {}, {}, {}
     for f in files:
         try:
             d = imp.parse_mom_file(f)
         except Exception:
             continue
+        rec = _fil_recency(f)
         for ek, e in d.get('tid_entries', {}).items():
             if len(ek) != 4 or ek[1] != maskin:
                 continue
             if str(e.get('datum') or '') not in dayset:
                 continue
-            cur = merged.get(ek)
-            if cur is None or (
-                (e.get('processing_sek') or 0) + (e.get('terrain_sek') or 0)
-                > (cur.get('processing_sek') or 0) + (cur.get('terrain_sek') or 0)
-            ):
-                merged[ek] = e  # mest kompletta sessionen vinner
+            ident = (ek[0], ek[1])
+            vikt = sum((e.get(fn) or 0) for fn in _VIKT_FALT)
+            v = vmeta.get(ident)
+            if v is None or vikt > v[0] or (vikt == v[0] and rec > v[1]):
+                entries[ident] = e
+                vmeta[ident] = (vikt, rec)
+            a = attrs.get(ident)
+            if a is None or rec > a[0] or (rec == a[0] and vikt > a[3]):
+                attrs[ident] = (rec, ek[2], ek[3], vikt)
     # aggregera per (datum, objekt, operator), tillämpa fallback, summera P+T per datum
     agg = defaultdict(lambda: {f: 0 for f in TID_FIELDS})
-    for ek, e in merged.items():
-        _, _mk, objekt, operator = ek
+    for ident, e in entries.items():
+        _, objekt, operator, _ = attrs[ident]
         datum = str(e.get('datum') or '')
         for f in TID_FIELDS:
             agg[(datum, objekt, operator)][f] += (e.get(f) or 0)
@@ -116,6 +157,53 @@ def mom_ceiling(maskin, dayset):
             P = int(vals['engine_time_sek'] * 0.88)  # samma fallback som importern
         day_pt[datum] += P + T
     return dict(day_pt)
+
+
+def check_invarianter():
+    """Invarianter över HELA fakt_tid (ren DB, ordnad hämtning).
+    -> (larmrader, antal_rader). READ-ONLY."""
+    url_bas = (imp.SUPABASE_URL +
+               '/rest/v1/fakt_tid?select=datum,maskin_id,objekt_id,operator_id,'
+               'processing_sek,terrain_sek,engine_time_sek,bransle_liter'
+               '&order=id&limit=1000&offset=')
+    rows, offset = [], 0
+    while True:
+        chunk = json.load(urllib.request.urlopen(
+            urllib.request.Request(url_bas + str(offset), headers=_hdr()), timeout=120))
+        rows += chunk
+        if len(chunk) < 1000:
+            break
+        offset += 1000
+
+    larm = []
+    # (a) >24h motortid per (maskin, dag)
+    eng_dag = defaultdict(int)
+    for r in rows:
+        eng_dag[(r['maskin_id'], r['datum'])] += r.get('engine_time_sek') or 0
+    for (m, d), s in sorted(eng_dag.items()):
+        if s > MAX_ENGINE_H * 3600:
+            larm.append(f'  LARM  INVARIANT >24h motortid: {m} {d} = {s/3600:.1f} h — dubblering?')
+
+    # (b) dubblett-signaturen (operator-omattributionens fingeravtryck):
+    #     >=2 rader samma (datum, maskin, objekt) med identiska proc/terr/eng/fuel > 0
+    grupper = defaultdict(list)
+    for r in rows:
+        grupper[(r['datum'], r['maskin_id'], r['objekt_id'])].append(r)
+    for (d, m, o), g in sorted(grupper.items()):
+        if len(g) < 2:
+            continue
+        sedd = defaultdict(list)
+        for r in g:
+            fp = (r.get('processing_sek') or 0, r.get('terrain_sek') or 0,
+                  r.get('engine_time_sek') or 0, r.get('bransle_liter') or 0)
+            if sum(fp[:3]) > 0:
+                sedd[fp].append(r.get('operator_id'))
+        for fp, ops in sedd.items():
+            if len(ops) > 1:
+                larm.append(f'  LARM  INVARIANT dubblett-rad: {m} {d} objekt={o} — '
+                            f'{len(ops)} identiska rader ({", ".join(str(x) for x in ops)}), '
+                            f'eng={fp[2]/3600:.2f} h vardera')
+    return larm, len(rows)
 
 
 def db_day_pt(maskin, dayset):
@@ -152,9 +240,16 @@ def main():
 
     L = []
     L.append(f'=== gap_check {datetime.datetime.now():%Y-%m-%d %H:%M:%S} | fönster {lo}..{hi} ({args.days} d) ===')
-    L.append(f'    tröskel: LARM om (MOM-tak − DB) > {ABS_THRESHOLD_H:.2f} h ; info om gap ≥ {int(REL_THRESHOLD*100)} %')
+    L.append(f'    trösklar: |tak − DB| > {ABS_THRESHOLD_H:.2f} h ; motortid/dag > {MAX_ENGINE_H:.0f} h ; info ≥ {int(REL_THRESHOLD*100)} %')
 
-    alarms, infos, obs = [], [], []
+    # ── Del 1: invarianter över HELA historiken ──
+    inv_larm, n_rader = check_invarianter()
+    L.append(f'    invarianter: {n_rader} fakt_tid-rader kontrollerade — '
+             f'{len(inv_larm) if inv_larm else "inga"} larm')
+    L.extend(inv_larm)
+
+    # ── Del 2: MOM-avstämning i fönstret ──
+    alarms, infos = list(inv_larm), []
     for maskin in discover_machines():
         ceil = mom_ceiling(maskin, dayset)
         db = db_day_pt(maskin, dayset)
@@ -165,30 +260,31 @@ def main():
             pct = (gap / c) if c > 0 else 0.0
             if gap_h > ABS_THRESHOLD_H:
                 alarms.append((maskin, d))
-                L.append(f'  LARM  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap=+{gap_h:5.2f}h ({pct*100:4.1f}%)')
+                L.append(f'  LARM  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap=+{gap_h:5.2f}h ({pct*100:4.1f}%) — under-count, importen tappar')
+            elif gap_h < -ABS_THRESHOLD_H:
+                alarms.append((maskin, d))
+                L.append(f'  LARM  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap={gap_h:5.2f}h — DB > MOM: dubblering ELLER MOM-fil borta ur Behandlade (nästa dag-rebuild raderar då datat!)')
             elif c > 0 and pct >= REL_THRESHOLD and gap_h > 0.05:
                 infos.append((maskin, d))
                 L.append(f'  info  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap=+{gap_h:5.2f}h ({pct*100:4.1f}%)')
-            elif gap_h < -ABS_THRESHOLD_H:
-                obs.append((maskin, d))
-                L.append(f'  obs   {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  (DB > MOM {-gap_h:.2f}h — saknade MOM-filer?)')
 
     if alarms:
-        L.append(f'>>> {len(alarms)} LARM (under-count > {ABS_THRESHOLD_H}h). Kontrollera importen för dessa (maskin, dag).')
-        # TODO: koppla ev. extern notis (mail/Teams) här — just nu räcker logg + exit-kod 1.
+        L.append(f'>>> {len(alarms)} LARM — kontrollera per (maskin, dag) ovan.')
+        # TODO: koppla ev. extern notis (mail/Teams) här — logg + LARM-fil + exit-kod 1 tills vidare.
     else:
-        L.append('>>> Inga LARM — fakt_tid matchar MOM-taket inom tröskeln.')
+        L.append('>>> Inga LARM — invarianter gröna och fakt_tid matchar MOM-taket inom tröskeln.')
     if infos:
         L.append(f'    ({len(infos)} info-flaggor ≥ {int(REL_THRESHOLD*100)} % men under abs-tröskeln.)')
-    if obs:
-        L.append(f'    ({len(obs)} obs: DB > MOM — trolig saknad/arkiverad MOM-fil, ej import-bugg.)')
 
     text = '\n'.join(L)
     with open(GAP_LOG, 'a', encoding='utf-8') as fh:
         fh.write(text + '\n\n')
+    # LARM-fil skrivs över varje körning: tom betyder grönt, innehåll = senaste larmen
+    with open(LARM_FIL, 'w', encoding='utf-8') as fh:
+        fh.write(text + '\n' if alarms else f'INGA LARM {datetime.datetime.now():%Y-%m-%d %H:%M}\n')
     if not args.quiet:
         print(text)
-        print(f'\n(loggat till {GAP_LOG})')
+        print(f'\n(loggat till {GAP_LOG}; larmstatus i {LARM_FIL})')
     sys.exit(1 if alarms else 0)
 
 
