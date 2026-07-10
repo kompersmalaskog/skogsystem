@@ -481,7 +481,7 @@ const ObjektValjarLista = ({ objekt, valtId, onVälj, tillåtInget = false }: {
 
       {tillåtInget && !q && (
         <button onClick={() => onVälj(null)}
-          style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"13px 14px",marginBottom:14,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+          style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"13px 14px",minHeight:64,boxSizing:"border-box",marginBottom:14,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
           <span style={{ ...TYPE.bodyList,color:"#8e8e93" }}>Inget objekt</span>
           {valtId == null && bock}
         </button>
@@ -2536,7 +2536,7 @@ export default function Arbetsrapport() {
         <div onClick={()=>setKvAvVäljer(false)}
           style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1700,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
           <div onClick={e=>e.stopPropagation()}
-            style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"12px 12px 0 0",padding:"10px 0 20px",maxHeight:"85vh",display:"flex",flexDirection:"column",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
+            style={{ width:"100%",maxWidth:560,background:"#0d0d0f",borderRadius:"12px 12px 0 0",padding:"10px 0 20px",maxHeight:"85vh",display:"flex",flexDirection:"column",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
             <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
               <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
             </div>
@@ -2544,22 +2544,17 @@ export default function Arbetsrapport() {
               <p style={{ margin:0,...TYPE.h2,color:"#fff" }}>Välj objekt</p>
               <button onClick={()=>setKvAvVäljer(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Avbryt</button>
             </div>
-            <div style={{ flex:1,overflowY:"auto",padding:"0 8px 0" }}>
+            <div style={{ flex:1,overflowY:"auto" }}>
               {objektLista.length === 0 ? (
                 <p style={{ margin:"32px 20px",textAlign:"center",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>Inga objekt tillgängliga</p>
-              ) : objektLista.map(o=>{
-                const valt = kvAvObj?.id === o.id;
-                return (
-                  <button key={o.id} onClick={()=>{ setKvAvObj(o); setKvAvVäljer(false); }}
-                    style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 14px",background:valt?"rgba(10,132,255,0.1)":"none",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:2 }}>
-                    <div style={{ minWidth:0,flex:1 }}>
-                      <p style={{ margin:0,...TYPE.bodyList,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{o.namn}</p>
-                      {o.ägare && <p style={{ margin:"2px 0 0",fontSize:12,color:"rgba(255,255,255,0.5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{o.ägare}</p>}
-                    </div>
-                    {valt && <span className="material-symbols-outlined" style={{ fontSize:22,color:"#0a84ff",flexShrink:0,marginLeft:8 }}>check</span>}
-                  </button>
-                );
-              })}
+              ) : (
+                <ObjektValjarLista
+                  objekt={objektLista}
+                  valtId={kvAvObj?.id ?? null}
+                  onVälj={o => { setKvAvObj(o); setKvAvVäljer(false); }}
+                  tillåtInget
+                />
+              )}
             </div>
           </div>
         </div>
@@ -5074,21 +5069,17 @@ export default function Arbetsrapport() {
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:"#1c1c1e",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+            <div style={{ background:"#0d0d0f",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                 <h3 style={{ margin:0,...TYPE.h2 }}>Välj objekt</h3>
                 <button onClick={()=>setVisaRedObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
               </div>
-              <div style={{ flex:1,overflowY:"auto",padding:"8px 0" }}>
-                {objektLista.map(o=>(
-                  <button key={o.id} onClick={()=>{setRedObjektId(o.id);setVisaRedObjektVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 20px",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
-                    <div>
-                      <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{o.namn}</p>
-                      {o.ägare&&<p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.ägare}</p>}
-                    </div>
-                    {redObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
-                  </button>
-                ))}
+              <div style={{ flex:1,overflowY:"auto" }}>
+                <ObjektValjarLista
+                  objekt={objektLista}
+                  valtId={redObjektId || redDag?.objekt_id || null}
+                  onVälj={o => { if (o) setRedObjektId(o.id); setVisaRedObjektVäljare(false); }}
+                />
               </div>
             </div>
           </div>
