@@ -1417,15 +1417,15 @@ export default function PlannerPage() {
   const [selectedOversiktItem, setSelectedOversiktItem] = useState<Marker | null>(null); // Vald symbol/zon i översikt
   const longPressTimerRef = useRef<any>(null); // Timer för långtryck
   
-  // Prognos
-  const [prognosOpen, setPrognosOpen] = useState(false);
+  // Trakt-panel (Fakta | Prognos)
+  const [traktOpen, setTraktOpen] = useState(false);
+  const [traktTab, setTraktTab] = useState<'fakta' | 'prognos'>('fakta');
   const [traktData, setTraktData] = useState<TraktData>({
     volym: 649, // m³fub - från VIDA
     areal: 2.0, // ha - från VIDA
   });
   const [editingField, setEditingField] = useState<string | null>(null); // 'volym', 'areal', 'skordare', 'skotare'
   const [editValue, setEditValue] = useState('');
-  const [draggingSlider, setDraggingSlider] = useState<string | null>(null); // 'terrang' eller 'barighet'
   const [prognosSettings, setPrognosSettings] = useState<PrognosSettings>({
     terpipirangSvar: 0, // % svår terräng (från branta zoner)
     barighetDalig: 0, // % dålig bärighet (från blöta zoner)
@@ -1436,23 +1436,8 @@ export default function PlannerPage() {
   });
   
   // Beräkna terräng/bärighet från zoner automatiskt
-  const beraknaForhallanden = () => {
-    const zonerTotal = markers.filter(m => m.isZone);
-    const blotaZoner = zonerTotal.filter(m => m.zoneType === 'wet');
-    const brantaZoner = zonerTotal.filter(m => m.zoneType === 'steep');
-    
-    // Enkel beräkning - räkna antal zoner som proxy för areal
-    // I framtiden kan vi räkna faktisk area från path-punkter
-    const totalZoner = zonerTotal.length || 1;
-    const blottProcent = Math.round((blotaZoner.length / Math.max(totalZoner, 1)) * 100);
-    const brantProcent = Math.round((brantaZoner.length / Math.max(totalZoner, 1)) * 100);
-    
-    return {
-      brantProcent: brantProcent,
-      blottProcent: blottProcent,
-    };
-  };
-  
+  // beraknaForhallanden borttagen — Förhållanden-sektionen (sliders) slopad i Trakt-hopslagningen
+
   // Checklista
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([
@@ -1488,6 +1473,9 @@ export default function PlannerPage() {
   const [infoMarkagareVed, setInfoMarkagareVed] = useState(false);
   const [infoMarkagareVedText, setInfoMarkagareVedText] = useState('');
   const [infoAnteckningar, setInfoAnteckningar] = useState('');
+  const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
+  const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
+  const [infoVolym, setInfoVolym] = useState(''); // en sanning: objekt.volym
   const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
   const [infoLoaded, setInfoLoaded] = useState(false);
   const infoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1498,7 +1486,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand')
+        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -1520,6 +1508,9 @@ export default function PlannerPage() {
         setInfoMarkagareVed(data.markagare_ska_ha_ved || false);
         setInfoMarkagareVedText(data.markagare_ved_text || '');
         setInfoAnteckningar(data.info_anteckningar || '');
+        setInfoSkotareExtraVagn(data.skotare_extra_vagn || false);
+        setInfoAreal(data.areal != null ? String(data.areal) : '');
+        setInfoVolym(data.volym != null ? String(data.volym) : '');
         // Prognos, traktdata, körläge, stickväg
         if (data.prognos_settings) setPrognosSettings(data.prognos_settings);
         if (data.manuell_prognos) setManuellPrognos(data.manuell_prognos);
@@ -1545,6 +1536,13 @@ export default function PlannerPage() {
   // Spara info till Supabase (debounced)
   const saveInfoToDb = useCallback(async () => {
     if (!valtObjekt?.id || !infoLoaded) return;
+    // Svenskt decimalkomma -> punkt; blankt/ogiltigt -> null (aldrig smyg-0 i double-kolumnen)
+    const parseSvNum = (s: string): number | null => {
+      const t = (s ?? '').replace(',', '.').trim();
+      if (t === '') return null;
+      const n = Number(t);
+      return Number.isFinite(n) ? n : null;
+    };
     const { error } = await supabase
       .from('objekt')
       .update({
@@ -1560,6 +1558,7 @@ export default function PlannerPage() {
         skotare_band_par: infoSkotareBandPar,
         skotare_lastreder_breddat: infoSkotareLastreder,
         skotare_ris_direkt: infoSkotareRisDirekt,
+        skotare_extra_vagn: infoSkotareExtraVagn,
         skotare_konfiguration: infoSkotareKonfig,
         transport_trailer_in: infoTrailerIn,
         transport_kommentar: infoTransportKommentar || null,
@@ -1572,10 +1571,12 @@ export default function PlannerPage() {
         stickvag_settings: stickvagSettings,
         checklist_items: checklistItems,
         generellt_tillstand: generelltTillstand,
+        areal: parseSvNum(infoAreal),
+        volym: parseSvNum(infoVolym),
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
 
   useEffect(() => {
     if (!infoLoaded) return;
@@ -9719,9 +9720,8 @@ export default function PlannerPage() {
                 title: 'INFORMATION',
                 items: [
                   { label: 'Brandrisk', icon: 'local_fire_department', action: () => { setActiveCategory('brandrisk'); setMenuOpen(true); } },
-                  { label: 'Prognos', icon: 'cloud', action: () => { setPrognosOpen(true); } },
+                  { label: 'Trakt', icon: 'info', action: () => { setTraktOpen(true); } },
                   { label: 'Gallring', icon: 'nature', action: () => { setActiveCategory('gallring'); setMenuOpen(true); } },
-                  { label: 'Info', icon: 'info', action: () => { setActiveCategory('info'); setMenuOpen(true); } },
                 ],
               },
               {
@@ -14494,371 +14494,6 @@ export default function PlannerPage() {
             )}
 
             {/* === INFO === */}
-            {activeCategory === 'info' && (
-              <div style={{ padding: '12px' }}>
-
-                {/* MARKFÖRHÅLLANDEN */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markförhållanden</div>
-
-                  {/* Bärighet */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
-                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      {[{ id: 'bra', label: 'Bra' }, { id: 'medel', label: 'Medel' }, { id: 'dalig', label: 'Dålig' }].map(opt => (
-                        <div key={opt.id} onClick={() => setInfoBarighet(opt.id)}
-                          style={{
-                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                            background: infoBarighet === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
-                            color: infoBarighet === opt.id ? '#fff' : '#8e8e93',
-                            fontWeight: infoBarighet === opt.id ? '600' : '400',
-                            transition: 'all 0.2s ease',
-                          }}>{opt.label}</div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Terräng */}
-                  <div>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
-                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      {[{ id: 'flackt', label: 'Flackt' }, { id: 'kuperat', label: 'Kuperat' }, { id: 'brant', label: 'Brant' }].map(opt => (
-                        <div key={opt.id} onClick={() => setInfoTerrang(opt.id)}
-                          style={{
-                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                            background: infoTerrang === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
-                            color: infoTerrang === opt.id ? '#fff' : '#8e8e93',
-                            fontWeight: infoTerrang === opt.id ? '600' : '400',
-                            transition: 'all 0.2s ease',
-                          }}>{opt.label}</div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* HINDER & HÄNSYN */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Hinder & hänsyn</div>
-                  {(() => {
-                    const hinderSymboler = markers.filter(m => m.isMarker !== false && !m.isZone && !m.isLine && !m.isArrow && ['powerline', 'ditch', 'bridge', 'corduroy', 'wet', 'steep', 'warning', 'culturemonument', 'culturestump', 'eternitytree', 'naturecorner', 'trail'].includes(m.type || ''));
-                    const hinderZoner = markers.filter(m => m.isZone);
-                    const alla = [...hinderSymboler, ...hinderZoner];
-                    if (alla.length === 0) {
-                      return <div style={{ fontSize: '13px', opacity: 0.3, padding: '8px 0' }}>Inga hinder ritade på kartan</div>;
-                    }
-                    return alla.map(m => {
-                      const namn = m.isZone
-                        ? (zoneTypes.find(z => z.id === m.zoneType)?.name || m.zoneType || 'Zon')
-                        : (markerTypes.find(t => t.id === m.type)?.name || m.type || 'Markering');
-                      const farg = m.isZone
-                        ? (zoneTypes.find(z => z.id === m.zoneType)?.color || '#666')
-                        : '#888';
-                      return (
-                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: farg, flexShrink: 0 }} />
-                          <span style={{ fontSize: '13px', color: '#fff' }}>{namn}</span>
-                          {m.comment && <span style={{ fontSize: '13px', opacity: 0.4, marginLeft: 'auto' }}>{m.comment}</span>}
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-
-                {/* SKÖRDARE */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skördare</div>
-
-                  {/* Maskin dropdown */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
-                    <select
-                      value={infoSkordareMaskin}
-                      onChange={e => setInfoSkordareMaskin(e.target.value)}
-                      style={{
-                        width: '100%', padding: '12px 16px', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none',
-                        appearance: 'none', WebkitAppearance: 'none',
-                      }}
-                    >
-                      <option value="" style={{ background: '#111' }}>Välj maskin...</option>
-                      {maskinLista.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
-                    </select>
-                  </div>
-
-                  {/* Band toggle */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareBand ? '12px' : '16px' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
-                    <div onClick={() => setInfoSkordareBand(!infoSkordareBand)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkordareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {infoSkordareBand && (
-                    <div style={{ marginBottom: '16px' }}>
-                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                        {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
-                          <div key={opt.id} onClick={() => setInfoSkordareBandPar(opt.id)}
-                            style={{
-                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                              background: infoSkordareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
-                              color: infoSkordareBandPar === opt.id ? '#fff' : '#8e8e93',
-                              fontWeight: infoSkordareBandPar === opt.id ? '600' : '400',
-                              transition: 'all 0.2s ease',
-                            }}>{opt.label}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Manuell fällning toggle */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareManFall ? '12px' : '0' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Manuell fällning</span>
-                    <div onClick={() => setInfoSkordareManFall(!infoSkordareManFall)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkordareManFall ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareManFall ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {infoSkordareManFall && (
-                    <textarea
-                      value={infoSkordareManFallText}
-                      onChange={e => setInfoSkordareManFallText(e.target.value)}
-                      placeholder="Beskriv..."
-                      style={{
-                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px', marginTop: '4px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
-                        fontFamily: 'inherit',
-                      }}
-                    />
-                  )}
-                </div>
-
-                {/* SKOTARE */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skotare</div>
-
-                  {/* Maskin dropdown */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
-                    <select
-                      value={infoSkotareMaskin}
-                      onChange={e => setInfoSkotareMaskin(e.target.value)}
-                      style={{
-                        width: '100%', padding: '12px 16px', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none',
-                        appearance: 'none', WebkitAppearance: 'none',
-                      }}
-                    >
-                      <option value="" style={{ background: '#111' }}>Välj maskin...</option>
-                      {maskinLista.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
-                    </select>
-                  </div>
-
-                  {/* Konfiguration – bara Elephant King */}
-                  {infoSkotareMaskin === 'Elephant King AF' && (
-                    <div style={{ marginBottom: '16px' }}>
-                      <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Konfiguration</div>
-                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                        {[{ id: 'bred', label: 'Bred' }, { id: 'smal', label: 'Smal' }].map(opt => (
-                          <div key={opt.id} onClick={() => setInfoSkotareKonfig(opt.id)}
-                            style={{
-                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                              background: infoSkotareKonfig === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
-                              color: infoSkotareKonfig === opt.id ? '#fff' : '#8e8e93',
-                              fontWeight: infoSkotareKonfig === opt.id ? '600' : '400',
-                              transition: 'all 0.2s ease',
-                            }}>{opt.label}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Band toggle */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkotareBand ? '12px' : '16px' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
-                    <div onClick={() => setInfoSkotareBand(!infoSkotareBand)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {infoSkotareBand && (
-                    <div style={{ marginBottom: '16px' }}>
-                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                        {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
-                          <div key={opt.id} onClick={() => setInfoSkotareBandPar(opt.id)}
-                            style={{
-                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                              background: infoSkotareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
-                              color: infoSkotareBandPar === opt.id ? '#fff' : '#8e8e93',
-                              fontWeight: infoSkotareBandPar === opt.id ? '600' : '400',
-                              transition: 'all 0.2s ease',
-                            }}>{opt.label}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Lastreder breddat */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Lastreder breddat</span>
-                    <div onClick={() => setInfoSkotareLastreder(!infoSkotareLastreder)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareLastreder ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareLastreder ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-
-                  {/* Ris skotas direkt */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Ris skotas direkt</span>
-                    <div onClick={() => setInfoSkotareRisDirekt(!infoSkotareRisDirekt)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareRisDirekt ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareRisDirekt ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* TRANSPORT */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Transport</div>
-
-                  {/* Trailer kan köra in */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: !infoTrailerIn ? '12px' : '16px' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Trailer kan köra in</span>
-                    <div onClick={() => setInfoTrailerIn(!infoTrailerIn)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoTrailerIn ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoTrailerIn ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {!infoTrailerIn && (
-                    <div style={{
-                      padding: '10px 14px', borderRadius: '10px', marginBottom: '16px',
-                      background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)',
-                      color: '#eab308', fontSize: '13px', fontWeight: '500',
-                    }}>
-                      Lassa av vid väg
-                    </div>
-                  )}
-
-                  {/* Kommentar */}
-                  <div>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Kommentar</div>
-                    <textarea
-                      value={infoTransportKommentar}
-                      onChange={e => setInfoTransportKommentar(e.target.value)}
-                      placeholder="Kommentar om transport..."
-                      style={{
-                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
-                        fontFamily: 'inherit',
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* MARKÄGARE */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markägare</div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoMarkagareVed ? '12px' : '0' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Ska ha ved</span>
-                    <div onClick={() => setInfoMarkagareVed(!infoMarkagareVed)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoMarkagareVed ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoMarkagareVed ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {infoMarkagareVed && (
-                    <textarea
-                      value={infoMarkagareVedText}
-                      onChange={e => setInfoMarkagareVedText(e.target.value)}
-                      placeholder="Detaljer om ved..."
-                      style={{
-                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
-                        fontFamily: 'inherit',
-                      }}
-                    />
-                  )}
-                </div>
-
-                {/* DOKUMENT (plats B) — traktdirektiv + stämplingslängd, syns bara om url finns */}
-                {(valtObjekt?.traktdirektiv_url || valtObjekt?.stamplingslangd_url) && (() => {
-                  const docFarg = valtObjekt?.typ === 'slutavverkning' ? '#eab308' : '#22c55e';
-                  const dokKnapp = (url: string, etikett: string) => (
-                    <a href={url} target="_blank" rel="noopener noreferrer"
-                      onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
-                      style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none',
-                        fontSize: '13px', fontWeight: 600, background: `${docFarg}1a`, border: `1px solid ${docFarg}55`, color: docFarg }}>
-                      {etikett}
-                    </a>
-                  );
-                  return (
-                    <div style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '16px', marginBottom: '16px' }}>
-                      <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Dokument</div>
-                      <div style={{ display: 'flex', gap: '10px' }}>
-                        {valtObjekt?.traktdirektiv_url && dokKnapp(valtObjekt.traktdirektiv_url, 'Traktdirektiv')}
-                        {valtObjekt?.stamplingslangd_url && dokKnapp(valtObjekt.stamplingslangd_url, 'Stämplingslängd')}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* ANTECKNINGAR */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Anteckningar</div>
-                  <textarea
-                    value={infoAnteckningar}
-                    onChange={e => setInfoAnteckningar(e.target.value)}
-                    placeholder="Fritext..."
-                    style={{
-                      width: '100%', minHeight: '100px', padding: '12px', borderRadius: '10px',
-                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                      color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
-                      fontFamily: 'inherit',
-                    }}
-                  />
-                </div>
-
-              </div>
-            )}
 
             {/* === INSTÄLLNINGAR === */}
             {activeCategory === 'settings' && (
@@ -17016,8 +16651,8 @@ export default function PlannerPage() {
       })()}
 
       {/* === PROGNOS === */}
-      {prognosOpen && (
-        <div 
+      {traktOpen && (
+        <div
           style={{
             position: 'absolute',
             inset: 0,
@@ -17035,28 +16670,413 @@ export default function PlannerPage() {
             borderBottom: '1px solid rgba(255,255,255,0.08)',
           }}>
             <div style={{ fontSize: '17px', fontWeight: '500', color: '#fff' }}>
-              Prognos
+              Trakt
             </div>
             <button
-              onClick={() => setPrognosOpen(false)}
-              style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '18px',
-                border: 'none',
-                background: 'rgba(255,255,255,0.08)',
-                color: '#8e8e93',
-                fontSize: '17px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              onClick={() => setTraktOpen(false)}
+              style={{ width: '36px', height: '36px', borderRadius: '18px', border: 'none', background: 'rgba(255,255,255,0.08)', color: '#8e8e93', fontSize: '17px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               ×
             </button>
           </div>
-          
+
+          {/* Segment-kontroll: Fakta | Prognos */}
+          <div style={{ padding: '16px 24px 0' }}>
+            <div style={{ display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '10px', padding: '3px' }}>
+              {[{ id: 'fakta', label: 'Fakta' }, { id: 'prognos', label: 'Prognos' }].map(tab => (
+                <div key={tab.id} onClick={() => setTraktTab(tab.id as 'fakta' | 'prognos')}
+                  style={{
+                    flex: 1, textAlign: 'center', padding: '9px 0', borderRadius: '8px', fontSize: '14px', cursor: 'pointer',
+                    background: traktTab === tab.id ? '#fff' : 'transparent',
+                    color: traktTab === tab.id ? '#000' : '#8e8e93',
+                    fontWeight: traktTab === tab.id ? '600' : '400',
+                    transition: 'all 0.2s ease',
+                  }}>
+                  {tab.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* FAKTA-flik */}
+          {traktTab === 'fakta' && (
+              <div style={{ padding: '12px' }}>
+
+                {/* MARKFÖRHÅLLANDEN */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markförhållanden</div>
+
+                  {/* Bärighet */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
+                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      {[{ id: 'bra', label: 'Bra' }, { id: 'medel', label: 'Medel' }, { id: 'dalig', label: 'Dålig' }].map(opt => (
+                        <div key={opt.id} onClick={() => setInfoBarighet(opt.id)}
+                          style={{
+                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                            background: infoBarighet === opt.id ? '#0a84ff' : 'transparent',
+                            color: infoBarighet === opt.id ? '#fff' : '#8e8e93',
+                            fontWeight: infoBarighet === opt.id ? '600' : '400',
+                            transition: 'all 0.2s ease',
+                          }}>{opt.label}</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Terräng */}
+                  <div>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
+                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      {[{ id: 'flackt', label: 'Flackt' }, { id: 'kuperat', label: 'Kuperat' }, { id: 'brant', label: 'Brant' }].map(opt => (
+                        <div key={opt.id} onClick={() => setInfoTerrang(opt.id)}
+                          style={{
+                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                            background: infoTerrang === opt.id ? '#0a84ff' : 'transparent',
+                            color: infoTerrang === opt.id ? '#fff' : '#8e8e93',
+                            fontWeight: infoTerrang === opt.id ? '600' : '400',
+                            transition: 'all 0.2s ease',
+                          }}>{opt.label}</div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* HINDER & HÄNSYN */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Hinder & hänsyn</div>
+                  {(() => {
+                    const hinderSymboler = markers.filter(m => m.isMarker !== false && !m.isZone && !m.isLine && !m.isArrow && ['powerline', 'ditch', 'bridge', 'corduroy', 'wet', 'steep', 'warning', 'culturemonument', 'culturestump', 'eternitytree', 'naturecorner', 'trail'].includes(m.type || ''));
+                    const hinderZoner = markers.filter(m => m.isZone);
+                    const alla = [...hinderSymboler, ...hinderZoner];
+                    if (alla.length === 0) {
+                      return <div style={{ fontSize: '13px', opacity: 0.3, padding: '8px 0' }}>Inga hinder ritade på kartan</div>;
+                    }
+                    return alla.map(m => {
+                      const namn = m.isZone
+                        ? (zoneTypes.find(z => z.id === m.zoneType)?.name || m.zoneType || 'Zon')
+                        : (markerTypes.find(t => t.id === m.type)?.name || m.type || 'Markering');
+                      const farg = m.isZone
+                        ? (zoneTypes.find(z => z.id === m.zoneType)?.color || '#666')
+                        : '#888';
+                      return (
+                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: farg, flexShrink: 0 }} />
+                          <span style={{ fontSize: '13px', color: '#fff' }}>{namn}</span>
+                          {m.comment && <span style={{ fontSize: '13px', opacity: 0.4, marginLeft: 'auto' }}>{m.comment}</span>}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+
+                {/* SKÖRDARE */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skördare</div>
+
+                  {/* Maskin dropdown */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
+                    <select
+                      value={infoSkordareMaskin}
+                      onChange={e => setInfoSkordareMaskin(e.target.value)}
+                      style={{
+                        width: '100%', padding: '12px 16px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '13px', outline: 'none',
+                        appearance: 'none', WebkitAppearance: 'none',
+                      }}
+                    >
+                      <option value="" style={{ background: '#111' }}>Välj maskin...</option>
+                      {maskinLista.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Band toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareBand ? '12px' : '16px' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
+                    <div onClick={() => setInfoSkordareBand(!infoSkordareBand)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkordareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {infoSkordareBand && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
+                          <div key={opt.id} onClick={() => setInfoSkordareBandPar(opt.id)}
+                            style={{
+                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                              background: infoSkordareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
+                              color: infoSkordareBandPar === opt.id ? '#fff' : '#8e8e93',
+                              fontWeight: infoSkordareBandPar === opt.id ? '600' : '400',
+                              transition: 'all 0.2s ease',
+                            }}>{opt.label}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Manuell fällning toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareManFall ? '12px' : '0' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Manuell fällning</span>
+                    <div onClick={() => setInfoSkordareManFall(!infoSkordareManFall)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkordareManFall ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareManFall ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {infoSkordareManFall && (
+                    <textarea
+                      value={infoSkordareManFallText}
+                      onChange={e => setInfoSkordareManFallText(e.target.value)}
+                      placeholder="Beskriv..."
+                      style={{
+                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px', marginTop: '4px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* SKOTARE */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skotare</div>
+
+                  {/* Maskin dropdown */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
+                    <select
+                      value={infoSkotareMaskin}
+                      onChange={e => setInfoSkotareMaskin(e.target.value)}
+                      style={{
+                        width: '100%', padding: '12px 16px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '13px', outline: 'none',
+                        appearance: 'none', WebkitAppearance: 'none',
+                      }}
+                    >
+                      <option value="" style={{ background: '#111' }}>Välj maskin...</option>
+                      {maskinLista.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Konfiguration – bara Elephant King */}
+                  {infoSkotareMaskin === 'Elephant King AF' && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Konfiguration</div>
+                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        {[{ id: 'bred', label: 'Bred' }, { id: 'smal', label: 'Smal' }].map(opt => (
+                          <div key={opt.id} onClick={() => setInfoSkotareKonfig(opt.id)}
+                            style={{
+                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                              background: infoSkotareKonfig === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
+                              color: infoSkotareKonfig === opt.id ? '#fff' : '#8e8e93',
+                              fontWeight: infoSkotareKonfig === opt.id ? '600' : '400',
+                              transition: 'all 0.2s ease',
+                            }}>{opt.label}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Band toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkotareBand ? '12px' : '16px' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
+                    <div onClick={() => setInfoSkotareBand(!infoSkotareBand)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkotareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {infoSkotareBand && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
+                          <div key={opt.id} onClick={() => setInfoSkotareBandPar(opt.id)}
+                            style={{
+                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                              background: infoSkotareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
+                              color: infoSkotareBandPar === opt.id ? '#fff' : '#8e8e93',
+                              fontWeight: infoSkotareBandPar === opt.id ? '600' : '400',
+                              transition: 'all 0.2s ease',
+                            }}>{opt.label}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Extra vagn */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Extra vagn</span>
+                    <div onClick={() => setInfoSkotareExtraVagn(!infoSkotareExtraVagn)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkotareExtraVagn ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareExtraVagn ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+
+                  {/* Lastreder breddat */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Lastreder breddat</span>
+                    <div onClick={() => setInfoSkotareLastreder(!infoSkotareLastreder)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkotareLastreder ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareLastreder ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+
+                  {/* Ris skotas direkt */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Ris skotas direkt</span>
+                    <div onClick={() => setInfoSkotareRisDirekt(!infoSkotareRisDirekt)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkotareRisDirekt ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareRisDirekt ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* TRANSPORT */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Transport</div>
+
+                  {/* Trailer kan köra in */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: !infoTrailerIn ? '12px' : '16px' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Trailer kan köra in</span>
+                    <div onClick={() => setInfoTrailerIn(!infoTrailerIn)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoTrailerIn ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoTrailerIn ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {!infoTrailerIn && (
+                    <div style={{
+                      padding: '10px 14px', borderRadius: '10px', marginBottom: '16px',
+                      background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)',
+                      color: '#eab308', fontSize: '13px', fontWeight: '500',
+                    }}>
+                      Lassa av vid väg
+                    </div>
+                  )}
+
+                  {/* Kommentar */}
+                  <div>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Kommentar</div>
+                    <textarea
+                      value={infoTransportKommentar}
+                      onChange={e => setInfoTransportKommentar(e.target.value)}
+                      placeholder="Kommentar om transport..."
+                      style={{
+                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* MARKÄGARE */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markägare</div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoMarkagareVed ? '12px' : '0' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Ska ha ved</span>
+                    <div onClick={() => setInfoMarkagareVed(!infoMarkagareVed)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoMarkagareVed ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoMarkagareVed ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {infoMarkagareVed && (
+                    <textarea
+                      value={infoMarkagareVedText}
+                      onChange={e => setInfoMarkagareVedText(e.target.value)}
+                      placeholder="Detaljer om ved..."
+                      style={{
+                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* DOKUMENT (plats B) — traktdirektiv + stämplingslängd, syns bara om url finns */}
+                {(valtObjekt?.traktdirektiv_url || valtObjekt?.stamplingslangd_url) && (() => {
+                  const docFarg = valtObjekt?.typ === 'slutavverkning' ? '#eab308' : '#22c55e';
+                  const dokKnapp = (url: string, etikett: string) => (
+                    <a href={url} target="_blank" rel="noopener noreferrer"
+                      onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
+                      style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none',
+                        fontSize: '13px', fontWeight: 600, background: `${docFarg}1a`, border: `1px solid ${docFarg}55`, color: docFarg }}>
+                      {etikett}
+                    </a>
+                  );
+                  return (
+                    <div style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '16px', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Dokument</div>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        {valtObjekt?.traktdirektiv_url && dokKnapp(valtObjekt.traktdirektiv_url, 'Traktdirektiv')}
+                        {valtObjekt?.stamplingslangd_url && dokKnapp(valtObjekt.stamplingslangd_url, 'Stämplingslängd')}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ANTECKNINGAR */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Anteckningar</div>
+                  <textarea
+                    value={infoAnteckningar}
+                    onChange={e => setInfoAnteckningar(e.target.value)}
+                    placeholder="Fritext..."
+                    style={{
+                      width: '100%', minHeight: '100px', padding: '12px', borderRadius: '10px',
+                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                      color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+
+              </div>
+          )}
+
+          {traktTab === 'prognos' && (
           <div style={{ padding: '24px' }}>
             {/* Tid-sektion */}
             <div style={{
@@ -17070,7 +17090,7 @@ export default function PlannerPage() {
                 color: '#8e8e93', 
                 marginBottom: '20px',
               }}>
-                Uppskattad tid
+                <span style={{ color: '#8e8e93' }}>Uppskattad tid</span> <span style={{ fontSize: '11px', color: '#8e8e93', background: 'rgba(255,255,255,0.08)', borderRadius: '6px', padding: '2px 6px' }}>manuell</span>
               </div>
               
               {/* Skördare */}
@@ -17089,6 +17109,7 @@ export default function PlannerPage() {
                   <span style={{ fontSize: '20px' }}>🌲</span>
                   <span style={{ fontSize: '15px', color: 'rgba(255,255,255,0.8)' }}>Skördare</span>
                 </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ 
                   display: 'flex', 
                   alignItems: 'baseline', 
@@ -17101,6 +17122,8 @@ export default function PlannerPage() {
                     {manuellPrognos.skordare || '–'}
                   </span>
                   <span style={{ fontSize: '13px', color: '#8e8e93' }}>h</span>
+                </div>
+                  <span style={{ fontSize: '20px', color: '#48484a', lineHeight: 1 }}>›</span>
                 </div>
               </div>
               
@@ -17117,6 +17140,7 @@ export default function PlannerPage() {
                   <span style={{ fontSize: '20px' }}>🚛</span>
                   <span style={{ fontSize: '15px', color: 'rgba(255,255,255,0.8)' }}>Skotare</span>
                 </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ 
                   display: 'flex', 
                   alignItems: 'baseline', 
@@ -17130,9 +17154,10 @@ export default function PlannerPage() {
                   </span>
                   <span style={{ fontSize: '13px', color: '#8e8e93' }}>h</span>
                 </div>
+                  <span style={{ fontSize: '20px', color: '#48484a', lineHeight: 1 }}>›</span>
+                </div>
               </div>
             </div>
-            
             {/* Traktdata */}
             <div style={{
               background: 'rgba(255,255,255,0.06)',
@@ -17150,7 +17175,7 @@ export default function PlannerPage() {
               
               <div style={{ display: 'flex', gap: '12px' }}>
                 <div 
-                  onClick={() => { setEditingField('volym'); setEditValue(String(traktData.volym) || ''); }}
+                  onClick={() => { setEditingField('volym'); setEditValue(String(infoVolym) || ''); }}
                   style={{ flex: 1, textAlign: 'center', cursor: 'pointer' }}
                 >
                   <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '6px' }}>Volym</div>
@@ -17160,14 +17185,14 @@ export default function PlannerPage() {
                     padding: '12px 8px',
                   }}>
                     <span style={{ fontSize: '17px', fontWeight: '600', color: '#fff' }}>
-                      {traktData.volym || '–'}
+                      {infoVolym || '–'}
                     </span>
                   </div>
                   <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}>m³fub</div>
                 </div>
                 
                 <div 
-                  onClick={() => { setEditingField('areal'); setEditValue(String(traktData.areal) || ''); }}
+                  onClick={() => { setEditingField('areal'); setEditValue(String(infoAreal) || ''); }}
                   style={{ flex: 1, textAlign: 'center', cursor: 'pointer' }}
                 >
                   <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '6px' }}>Areal</div>
@@ -17177,376 +17202,16 @@ export default function PlannerPage() {
                     padding: '12px 8px',
                   }}>
                     <span style={{ fontSize: '17px', fontWeight: '600', color: '#fff' }}>
-                      {traktData.areal || '–'}
+                      {infoAreal || '–'}
                     </span>
                   </div>
                   <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}>ha</div>
                 </div>
               </div>
             </div>
-
-            {/* Vägsäkerhet – TMA-varning per boundary */}
-            {tmaWithRoads.map(([bmId, result]) => {
-              const mainRoad = result.roads[0];
-              const isRed = mainRoad.skyddsklassad && ((mainRoad.maxspeed || 0) >= 80 || ['trunk', 'trunk_link', 'primary', 'primary_link'].includes(mainRoad.type));
-              const roadLabel = mainRoad.ref ? `${mainRoad.ref} · ${mainRoad.name}` : mainRoad.name;
-              const speedLabel = mainRoad.maxspeed ? `${mainRoad.maxspeed} km/h` : '';
-              return (
-                <div
-                  key={`prognos-tma-${bmId}`}
-                  onClick={() => setTmaOpen(bmId)}
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    padding: '20px',
-                    marginBottom: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: isRed ? '#ff453a' : '#eab308', flexShrink: 0 }} />
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: '500', color: '#fff' }}>Avverkning nära väg</div>
-                        <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '2px' }}>
-                          {roadLabel}{speedLabel ? ` · ${speedLabel}` : ''} · {mainRoad.distance}m
-                        </div>
-                      </div>
-                    </div>
-                    <span style={{ fontSize: '15px', color: 'rgba(255,255,255,0.2)' }}>›</span>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* TMA loading */}
-            {Object.values(tmaResults).some(r => r.status === 'loading') && (
-              <div style={{
-                background: 'rgba(255,255,255,0.06)',
-                borderRadius: '16px',
-                padding: '20px',
-                marginBottom: '16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-              }}>
-                <div style={{
-                  width: '16px', height: '16px', borderRadius: '50%',
-                  border: '2px solid rgba(255,255,255,0.2)',
-                  borderTopColor: '#0a84ff',
-                  animation: 'spin 1s linear infinite',
-                }} />
-                <span style={{ fontSize: '13px', color: '#8e8e93' }}>Kontrollerar vägar nära traktgränsen...</span>
-              </div>
-            )}
-
-            {/* TMA error */}
-            {Object.entries(tmaResults).filter(([, r]) => r.status === 'error').map(([bmId, result]) => (
-              <div key={`prognos-tma-err-${bmId}`} style={{
-                background: 'rgba(255,255,255,0.06)',
-                borderRadius: '16px',
-                padding: '20px',
-                marginBottom: '16px',
-              }}>
-                <div style={{
-                  fontSize: '13px',
-                  color: '#8e8e93',
-                  marginBottom: '12px',
-                }}>
-                  Vägsäkerhet
-                </div>
-                <div style={{ fontSize: '13px', color: '#8e8e93' }}>
-                  {result.message || 'Kunde inte hämta vägdata'}
-                </div>
-                <button
-                  onClick={() => {
-                    delete tmaCheckedRef.current[bmId];
-                    setTmaResults(prev => { const next = { ...prev }; delete next[bmId]; return next; });
-                    setMarkers(prev => [...prev]);
-                  }}
-                  style={{
-                    marginTop: '10px',
-                    fontSize: '13px',
-                    color: '#0a84ff',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: 0,
-                  }}
-                >
-                  Försök igen
-                </button>
-              </div>
-            ))}
-
-            {/* Förhållanden */}
-            {(() => {
-              const forhallanden = beraknaForhallanden();
-              return (
-                <div style={{
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: '16px',
-                  padding: '20px',
-                  marginBottom: '24px',
-                }}>
-                  <div style={{
-                    fontSize: '13px',
-                    color: '#8e8e93',
-                    marginBottom: '20px',
-                  }}>
-                    Förhållanden
-                  </div>
-                  
-                  {/* Svår terräng */}
-                  <div style={{ marginBottom: '24px', position: 'relative' }}>
-                    {/* Stor siffra när man drar */}
-                    {draggingSlider === 'terrang' && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '-55px',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        background: 'rgba(0,0,0,0.95)',
-                        borderRadius: '14px',
-                        padding: '10px 20px',
-
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        zIndex: 10,
-                      }}>
-                        <span style={{ fontSize: '32px', fontWeight: '700', color: '#fff' }}>
-                          {prognosSettings.terpipirangSvar || forhallanden.brantProcent}%
-                        </span>
-                      </div>
-                    )}
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      marginBottom: '12px' 
-                    }}>
-                      <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>
-                        Svår terräng
-                      </span>
-                      <span style={{ 
-                        fontSize: '13px', 
-                        fontWeight: '600', 
-                        color: '#fff',
-                        background: 'rgba(255,255,255,0.06)',
-                        padding: '4px 10px',
-                        borderRadius: '6px',
-                      }}>
-                        {prognosSettings.terpipirangSvar || forhallanden.brantProcent}%
-                      </span>
-                    </div>
-                    {/* Custom expanderande slider */}
-                    <div 
-                      style={{
-                        position: 'relative',
-                        width: '100%',
-                        height: draggingSlider === 'terrang' ? '24px' : '6px',
-                        borderRadius: draggingSlider === 'terrang' ? '12px' : '3px',
-                        background: 'rgba(255,255,255,0.1)',
-                        cursor: 'pointer',
-                        transition: 'height 0.15s ease, border-radius 0.15s ease',
-                      }}
-                      onTouchStart={(e) => {
-                        setDraggingSlider('terrang');
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const x = e.touches[0].clientX - rect.left;
-                        const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
-                        setPrognosSettings(prev => ({ ...prev, terpipirangSvar: percent }));
-                      }}
-                      onTouchMove={(e) => {
-                        if (draggingSlider === 'terrang') {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const x = e.touches[0].clientX - rect.left;
-                          const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
-                          setPrognosSettings(prev => ({ ...prev, terpipirangSvar: percent }));
-                        }
-                      }}
-                      onTouchEnd={() => setDraggingSlider(null)}
-                      onMouseDown={(e) => {
-                        setDraggingSlider('terrang');
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const x = e.clientX - rect.left;
-                        const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
-                        setPrognosSettings(prev => ({ ...prev, terpipirangSvar: percent }));
-                      }}
-                      onMouseMove={(e) => {
-                        if (draggingSlider === 'terrang' && e.buttons === 1) {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const x = e.clientX - rect.left;
-                          const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
-                          setPrognosSettings(prev => ({ ...prev, terpipirangSvar: percent }));
-                        }
-                      }}
-                      onMouseUp={() => setDraggingSlider(null)}
-                      onMouseLeave={() => setDraggingSlider(null)}
-                    >
-                      {/* Fill */}
-                      <div style={{
-                        position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        height: '100%',
-                        width: `${prognosSettings.terpipirangSvar || forhallanden.brantProcent}%`,
-                        background: draggingSlider === 'terrang' 
-                          ? 'rgba(10,132,255,0.7)'
-                          : 'rgba(255,255,255,0.3)',
-                        borderRadius: 'inherit',
-                        transition: 'background 0.15s ease',
-                      }} />
-                      {/* Thumb */}
-                      <div style={{
-                        position: 'absolute',
-                        left: `${prognosSettings.terpipirangSvar || forhallanden.brantProcent}%`,
-                        top: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        width: draggingSlider === 'terrang' ? '36px' : '20px',
-                        height: draggingSlider === 'terrang' ? '36px' : '20px',
-                        borderRadius: '50%',
-                        background: '#fff',
-                        transition: 'width 0.15s ease, height 0.15s ease',
-                      }} />
-                    </div>
-                  </div>
-
-                  {/* Dålig bärighet */}
-                  <div style={{ position: 'relative' }}>
-                    {/* Stor siffra när man drar */}
-                    {draggingSlider === 'barighet' && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '-55px',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        background: 'rgba(0,0,0,0.95)',
-                        borderRadius: '14px',
-                        padding: '10px 20px',
-
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        zIndex: 10,
-                      }}>
-                        <span style={{ fontSize: '32px', fontWeight: '700', color: '#fff' }}>
-                          {prognosSettings.barighetDalig || forhallanden.blottProcent}%
-                        </span>
-                      </div>
-                    )}
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      marginBottom: '12px' 
-                    }}>
-                      <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>
-                        Dålig bärighet
-                      </span>
-                      <span style={{ 
-                        fontSize: '13px', 
-                        fontWeight: '600', 
-                        color: '#fff',
-                        background: 'rgba(255,255,255,0.06)',
-                        padding: '4px 10px',
-                        borderRadius: '6px',
-                      }}>
-                        {prognosSettings.barighetDalig || forhallanden.blottProcent}%
-                      </span>
-                    </div>
-                    {/* Custom expanderande slider */}
-                    <div 
-                      style={{
-                        position: 'relative',
-                        width: '100%',
-                        height: draggingSlider === 'barighet' ? '24px' : '6px',
-                        borderRadius: draggingSlider === 'barighet' ? '12px' : '3px',
-                        background: 'rgba(255,255,255,0.1)',
-                        cursor: 'pointer',
-                        transition: 'height 0.15s ease, border-radius 0.15s ease',
-                      }}
-                      onTouchStart={(e) => {
-                        setDraggingSlider('barighet');
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const x = e.touches[0].clientX - rect.left;
-                        const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
-                        setPrognosSettings(prev => ({ ...prev, barighetDalig: percent }));
-                      }}
-                      onTouchMove={(e) => {
-                        if (draggingSlider === 'barighet') {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const x = e.touches[0].clientX - rect.left;
-                          const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
-                          setPrognosSettings(prev => ({ ...prev, barighetDalig: percent }));
-                        }
-                      }}
-                      onTouchEnd={() => setDraggingSlider(null)}
-                      onMouseDown={(e) => {
-                        setDraggingSlider('barighet');
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const x = e.clientX - rect.left;
-                        const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
-                        setPrognosSettings(prev => ({ ...prev, barighetDalig: percent }));
-                      }}
-                      onMouseMove={(e) => {
-                        if (draggingSlider === 'barighet' && e.buttons === 1) {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const x = e.clientX - rect.left;
-                          const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
-                          setPrognosSettings(prev => ({ ...prev, barighetDalig: percent }));
-                        }
-                      }}
-                      onMouseUp={() => setDraggingSlider(null)}
-                      onMouseLeave={() => setDraggingSlider(null)}
-                    >
-                      {/* Fill */}
-                      <div style={{
-                        position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        height: '100%',
-                        width: `${prognosSettings.barighetDalig || forhallanden.blottProcent}%`,
-                        background: draggingSlider === 'barighet' 
-                          ? 'rgba(10,132,255,0.7)'
-                          : 'rgba(255,255,255,0.3)',
-                        borderRadius: 'inherit',
-                        transition: 'background 0.15s ease',
-                      }} />
-                      {/* Thumb */}
-                      <div style={{
-                        position: 'absolute',
-                        left: `${prognosSettings.barighetDalig || forhallanden.blottProcent}%`,
-                        top: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        width: draggingSlider === 'barighet' ? '36px' : '20px',
-                        height: draggingSlider === 'barighet' ? '36px' : '20px',
-                        borderRadius: '50%',
-                        background: '#fff',
-                        transition: 'width 0.15s ease, height 0.15s ease',
-                      }} />
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-            
-            {/* Spara-knapp */}
-            <button
-              onClick={() => setPrognosOpen(false)}
-              style={{
-                width: '100%',
-                padding: '16px',
-                borderRadius: '12px',
-                border: 'none',
-                background: (manuellPrognos.skordare && manuellPrognos.skotare) ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.08)',
-                color: (manuellPrognos.skordare && manuellPrognos.skotare) ? '#000' : '#8e8e93',
-                fontSize: '15px',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-            >
-              {(manuellPrognos.skordare && manuellPrognos.skotare) ? 'Spara' : 'Stäng'}
-            </button>
           </div>
-          
+          )}
+
           {/* Edit Modal */}
           {editingField && (
             <div 
@@ -17578,7 +17243,8 @@ export default function PlannerPage() {
                 </div>
                 
                 <input
-                  type="number"
+                  type={(editingField === 'areal' || editingField === 'volym') ? 'text' : 'number'}
+                  inputMode={(editingField === 'areal' || editingField === 'volym') ? 'decimal' : 'numeric'}
                   step={editingField === 'areal' ? '0.1' : '1'}
                   value={editValue}
                   onChange={(e) => setEditValue(e.target.value)}
@@ -17602,9 +17268,9 @@ export default function PlannerPage() {
                       } else if (editingField === 'skotare') {
                         setManuellPrognos(prev => ({ ...prev, skotare: editValue }));
                       } else if (editingField === 'volym') {
-                        setTraktData(prev => ({ ...prev, volym: parseInt(editValue) || 0 }));
+                        setInfoVolym(editValue);
                       } else if (editingField === 'areal') {
-                        setTraktData(prev => ({ ...prev, areal: parseFloat(editValue) || 0 }));
+                        setInfoAreal(editValue);
                       }
                       setEditingField(null);
                     }
@@ -17633,9 +17299,9 @@ export default function PlannerPage() {
                       } else if (editingField === 'skotare') {
                         setManuellPrognos(prev => ({ ...prev, skotare: editValue }));
                       } else if (editingField === 'volym') {
-                        setTraktData(prev => ({ ...prev, volym: parseInt(editValue) || 0 }));
+                        setInfoVolym(editValue);
                       } else if (editingField === 'areal') {
-                        setTraktData(prev => ({ ...prev, areal: parseFloat(editValue) || 0 }));
+                        setInfoAreal(editValue);
                       }
                       setEditingField(null);
                     }}
