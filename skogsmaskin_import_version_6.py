@@ -2717,8 +2717,9 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 logger.warning(f"  Skift-data kunde inte sparas (ej kritiskt)")
 
         # Tid — re-aggregera från ALLA filer i Behandlade/<maskin>/mom/ för
-        # berörda (datum, maskin). 4-tuple-dedup på (start_time, maskin, objekt,
-        # operator) skyddar mot order-of-arrival och dubbeläsning.
+        # berörda (datum, maskin). Segment-IDENTITET är (start_time, maskin);
+        # objekt/operator är ATTRIBUT som senaste exportversionen äger. Berörda
+        # dagar raderas och byggs om i sin helhet (delete + insert) — se _keep.
         #
         # Bakgrund: auto_import_watch.py kör skogsmaskin_import_version_6.py via
         # subprocess.run() per filevent → ny Python-process varje gång, så
@@ -2740,41 +2741,72 @@ def save_mom_to_supabase(data: Dict) -> bool:
             # där operator inte ingår direkt i entry_key.
             _GLOBAL_TID_OPERATORS.update(data.get('tid_operator', {}))
 
-            # Steg 1: identifiera vilka (maskin, datum) och vilka 4-tuple-keys
-            # som påverkas av NUVARANDE fil. Vi UPSERTar bara dessa rader.
+            # Steg 1: identifiera vilka (maskin, datum) som påverkas av NUVARANDE
+            # fil. Dessa dagar byggs om i sin HELHET (alla objekt/operatörer) från
+            # samtliga Behandlade-filer + nuvarande fil.
             affected = set()        # set of (maskin, datum_str)
-            affected_keys = set()   # set of (datum_str, maskin, objekt, operator)
             for entry_key, entry in data['tid_entries'].items():
                 if len(entry_key) == 4:
-                    _, maskin, objekt, operator = entry_key
+                    _, maskin, _, _ = entry_key
                 else:
-                    _, maskin, objekt = entry_key
-                    operator = entry.get('operator_id') or _GLOBAL_TID_OPERATORS.get((entry['datum'], maskin, objekt))
+                    _, maskin, _ = entry_key
                 datum_str = str(entry.get('datum') or '')
                 if not datum_str:
                     continue
                 affected.add((maskin, datum_str))
-                affected_keys.add((datum_str, maskin, objekt, operator))
 
             if affected:
                 # Steg 2: scanna ALLA MOM-filer i Behandlade/<maskin>/mom/ för
-                # de berörda datumen. Dedup på 4-tuple — MEST KOMPLETTA vinner
-                # (störst processing+terrain), oberoende av filordning.
-                merged_entries = {}
+                # de berörda datumen.
+                #
+                # IDENTITET = (start_time, maskin). Objekt och operatör är ATTRIBUT
+                # — kumulativa exportversioner kan OM-ATTRIBUERA samma segment
+                # (bevisat A110148 maj–juni 2026: första versionen satte
+                # OperatorKey 1 på dagens alla segment, alla senare versioner
+                # satte 2 → med attribution i identiteten fick BÅDA generationerna
+                # egna rader och hela dagar dubblades: 26,6 h motortid på en dag).
+                # Därför: SENASTE exportversionen äger attributionen (recency ur
+                # filnamnets _YYYYMMDD_HHMMSS-suffix, annars mtime); vid samma
+                # recency vinner mest kompletta (störst processing+terrain) —
+                # det bevarar #40-fixens skydd mot order-of-arrival-klubbning.
+                merged_entries = {}   # (start_time, maskin) -> vinnande entry
+                merged_attr = {}      # (start_time, maskin) -> (recency, objekt, operator, vikt)
                 files_scanned = 0
 
-                # MOM-export är kumulativ per session (4-tuple): en senare/större
-                # export är ett superset av en tidigare. Behåll därför alltid den
-                # entry som har störst (processing+terrain). Då blir summan SAMMA
-                # oavsett i vilken ordning filerna processas — det är detta som
-                # fixar Steg-3-klubbningen som sänkte 2026-05-27.
-                def _keep(ek, entry):
-                    cur = merged_entries.get(ek)
-                    if cur is None or (
-                        (entry.get('processing_sek') or 0) + (entry.get('terrain_sek') or 0)
-                        > (cur.get('processing_sek') or 0) + (cur.get('terrain_sek') or 0)
-                    ):
-                        merged_entries[ek] = entry
+                def _fil_recency(namn_eller_path):
+                    """Exportversionens ålder: sista _YYYYMMDD_HHMMSS-suffixet i
+                    filnamnet (sätts av vår Behandlade-flytt vid namnkrock, rad
+                    ~3450), annars filens mtime, annars 0. OBS: suffix och mtime
+                    är olika klockor — en suffixlös basfil vars mtime bumpas i
+                    efterhand (t.ex. OneDrive-omsynk) kan tillfälligt rankas
+                    före senare suffixade versioner; byten loggas alltid (INFO)
+                    och nästa nyare export rättar attributionen."""
+                    bas = os.path.basename(namn_eller_path)
+                    m = re.findall(r'_(\d{8})_(\d{6})', bas)
+                    if m:
+                        try:
+                            return datetime.strptime(m[-1][0] + m[-1][1], '%Y%m%d%H%M%S').timestamp()
+                        except ValueError:
+                            pass
+                    try:
+                        return os.path.getmtime(namn_eller_path)
+                    except OSError:
+                        return 0.0
+
+                def _keep(ek, entry, recency):
+                    ident = (ek[0], ek[1])
+                    objekt, operator = ek[2], ek[3]
+                    vikt = (entry.get('processing_sek') or 0) + (entry.get('terrain_sek') or 0)
+                    cur = merged_attr.get(ident)
+                    if cur is not None:
+                        cur_rec, cur_obj, cur_op, cur_vikt = cur
+                        if recency < cur_rec or (recency == cur_rec and vikt <= cur_vikt):
+                            return
+                        if (cur_obj, cur_op) != (objekt, operator):
+                            logger.info(f"  Attribution bytt för segment {ek[0]} ({ek[1]}): "
+                                        f"({cur_obj}, {cur_op}) -> ({objekt}, {operator}) — senaste exportversion vinner")
+                    merged_entries[ident] = entry
+                    merged_attr[ident] = (recency, objekt, operator, vikt)
                 affected_maskins = sorted({m for m, _ in affected})
                 affected_dates_all = sorted({d for _, d in affected})
                 logger.info(f"  Re-aggregerar tid för maskin={affected_maskins} datum={affected_dates_all[0]}->{affected_dates_all[-1]}")
@@ -2796,6 +2828,7 @@ def save_mom_to_supabase(data: Dict) -> bool:
                             logger.warning(f"  Kunde inte re-parsa {os.path.basename(f)}: {e}")
                             continue
                         files_scanned += 1
+                        f_recency = _fil_recency(f)
                         for ek, entry in file_data.get('tid_entries', {}).items():
                             if len(ek) != 4:
                                 continue
@@ -2803,15 +2836,23 @@ def save_mom_to_supabase(data: Dict) -> bool:
                             if ek_maskin != maskin_id:
                                 continue
                             if str(entry.get('datum') or '') in dates_for_maskin:
-                                _keep(ek, entry)  # 4-tuple dedup, mest kompletta vinner
+                                _keep(ek, entry, f_recency)
 
                 # Steg 3: lägg explicit in nuvarande filens entries — filen kan
                 # ännu inte ha flyttats till Behandlade av import-pipelinen.
-                # _keep() ser till att en mindre (äldre) trigger-fil ALDRIG
-                # klubbar ett större värde som redan hittats i scanningen.
+                # Recency ur inkommande filnamnets suffix om det finns; annars
+                # "nu" (nyss anländ = senaste kända export). OBS: en gammal
+                # export som återlevereras under basnamn kan därmed tillfälligt
+                # vinna attributionen — nästa import av en nyare version rättar,
+                # och attribution-byten loggas alltid (INFO) för spårbarhet.
+                bas_namn = data.get('filnamn', '') or ''
+                if re.search(r'_\d{8}_\d{6}', bas_namn):
+                    aktuell_recency = _fil_recency(bas_namn)
+                else:
+                    aktuell_recency = datetime.now().timestamp()
                 for ek, entry in data['tid_entries'].items():
                     if len(ek) == 4:
-                        _keep(ek, entry)
+                        _keep(ek, entry, aktuell_recency)
 
                 logger.info(f"  Scannade {files_scanned} filer, {len(merged_entries)} unika entries efter dedup")
 
@@ -2821,17 +2862,22 @@ def save_mom_to_supabase(data: Dict) -> bool:
                               'engine_time_sek', 'korstracka_m',
                               'terrain_korstracka_m', 'terrain_bransle_liter']
 
-                # Steg 4: aggregera per (datum, maskin, objekt, operator) — bara
-                # de keys som påverkas av aktuella filen.
+                # Steg 4: aggregera per (datum, maskin, objekt, operator) för ALLA
+                # segment på berörda (maskin, datum) — attributionen kommer från
+                # den vinnande (senaste) exportversionen. Dagen byggs om komplett;
+                # äkta fleroperatörs-/flerobjektsdagar behåller sin uppdelning
+                # eftersom olika segment (olika start_time) behåller var sin
+                # attribution.
+                dates_by_maskin = {m: {d for m2, d in affected if m2 == m}
+                                   for m in affected_maskins}
                 agg = defaultdict(lambda: {f: 0 for f in tid_fields})
-                for ek, entry in merged_entries.items():
-                    if len(ek) != 4:
-                        continue
-                    _, maskin, objekt, operator = ek
+                for ident, entry in merged_entries.items():
+                    _, maskin = ident
+                    _, objekt, operator, _ = merged_attr[ident]
                     datum = str(entry.get('datum') or '')
-                    dag_key = (datum, maskin, objekt, operator)
-                    if dag_key not in affected_keys:
+                    if not datum or datum not in dates_by_maskin.get(maskin, ()):
                         continue
+                    dag_key = (datum, maskin, objekt, operator)
                     for f in tid_fields:
                         agg[dag_key][f] += (entry.get(f) or 0)
 
@@ -2859,6 +2905,25 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     logger.warning(f"  VARNING: Fallback G15h från EngineTime för {row.get('maskin_id')} {row.get('datum')} — WorkCategory saknas i MOM-fil (engine={row['engine_time_sek']}s → processing={fallback_sek}s)")
 
             if rows:
+                # DAG-REBUILD: raderna är en KOMPLETT omaggregering av berörda
+                # (maskin, datum) från samtliga Behandlade-filer + nuvarande fil.
+                # Radera dagens gamla rader först — om-attribuerade objekt/
+                # operatörer lämnar annars kvar dubblettrader för evigt, eftersom
+                # upsert-nyckeln (datum, maskin, objekt, operator) aldrig träffar
+                # den gamla attributionens rad (A110148-dubbleringen maj–juni-26).
+                # Ej atomärt (delete + insert är två anrop): kraschar importen
+                # mittemellan är meta ej satt → filen omimporteras → självläker.
+                for del_maskin in affected_maskins:
+                    del_datum = sorted({d for m, d in affected if m == del_maskin})
+                    for i in range(0, len(del_datum), 50):
+                        chunk = ','.join(del_datum[i:i+50])
+                        try:
+                            requests.delete(
+                                f"{SUPABASE_URL}/rest/v1/fakt_tid"
+                                f"?maskin_id=eq.{del_maskin}&datum=in.({chunk})",
+                                headers=SUPABASE_HEADERS, timeout=60)
+                        except Exception as e:
+                            logger.warning(f"  Kunde inte städa fakt_tid före insert ({del_maskin}): {e}")
                 if upsert_data('fakt_tid', rows, ['datum', 'maskin_id', 'objekt_id', 'operator_id']) == 0:
                     fel.append('fakt_tid')
 
