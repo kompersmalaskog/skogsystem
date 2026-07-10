@@ -2789,10 +2789,12 @@ def save_mom_to_supabase(data: Dict) -> bool:
         # flera filer. Vi läser nu samtliga filer i Behandlade vid varje import
         # så summan är oberoende av filordning.
         #
-        # OBS: 'runtime = P + T + OW' längre ner inkluderar fortfarande OW i
-        # tomgang-härledningen. Det är en SEPARAT bugg (G15 i appen är redan
-        # rättad i transform.ts till P + T). Tomgang-fixen kräver också reimport
-        # av historisk data och tas i en följande commit.
+        # OBS: 'runtime = P + T + OW' i tomgang-härledningen är KORREKT och
+        # avsiktlig — motorn arbetar under other work, så OW ska dras av från
+        # motortiden precis som P+T (annars felklassas OW-tid som tomgång).
+        # Blanda inte ihop med G15h-VISNINGEN i appen, som är P + T utan OW
+        # (transform.ts) — det är två olika mått. (Tidigare kommentar här
+        # kallade OW-inkluderingen "en separat bugg" — det var fel.)
         rows = []
         if data.get('tid_entries'):
             global _GLOBAL_TID_ENTRIES, _GLOBAL_TID_OPERATORS
@@ -2976,7 +2978,16 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 if row.get('processing_sek', 0) == 0 and row.get('terrain_sek', 0) == 0 and row.get('engine_time_sek', 0) > 0:
                     fallback_sek = int(row['engine_time_sek'] * 0.88)
                     row['processing_sek'] = fallback_sek
-                    logger.warning(f"  VARNING: Fallback G15h från EngineTime för {row.get('maskin_id')} {row.get('datum')} — WorkCategory saknas i MOM-fil (engine={row['engine_time_sek']}s → processing={fallback_sek}s)")
+                    # Håll raden konsistent: tomgang_sek beräknades i Steg 4 med
+                    # proc = 0 (≈ hela motortiden blev tomgång) — räkna om med
+                    # fallback-procen. Fallbacken påstår 88 % arbete ⇒ tomgången
+                    # är resterande ~12 % + ev. kort_stopp. Utan detta bokförs
+                    # motortiden DUBBELT i raden (som proc OCH tomgång) — bevisat
+                    # 41 rader / +7,3 h fejk-tomgång 2026-07-10.
+                    g0_fb = (fallback_sek + row.get('terrain_sek', 0)
+                             + row.get('other_work_sek', 0) - row.get('kort_stopp_sek', 0))
+                    row['tomgang_sek'] = max(0, row['engine_time_sek'] - g0_fb)
+                    logger.warning(f"  VARNING: Fallback G15h från EngineTime för {row.get('maskin_id')} {row.get('datum')} — WorkCategory saknas i MOM-fil (engine={row['engine_time_sek']}s → processing={fallback_sek}s, tomgang={row['tomgang_sek']}s)")
 
             if rows:
                 # DAG-REBUILD: raderna är en KOMPLETT omaggregering av berörda
