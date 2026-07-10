@@ -3366,13 +3366,18 @@ def save_hqc_to_supabase(data: Dict) -> bool:
             except Exception as e:
                 logger.warning(f"  ⚠ Kunde inte kontrollera innehålls-hash: {e}")
 
-        if data.get('kalibrering'):
+        # Kontroll-raden skapas BARA om filen har kontrollstockar. Tom fil
+        # (0 stockar) → ingen kontroll-rad/hash — men historiken nedan körs ändå
+        # (36 av 67 kalibreringshändelser kommer från 0-stock-filer).
+        if data.get('kalibrering') and data.get('kontroll_stockar'):
             if upsert_data(
                 'fakt_kalibrering',
                 data['kalibrering'],
                 unique_columns=['filnamn']
             ) == 0:
                 fel.append('fakt_kalibrering')
+        elif not data.get('kontroll_stockar'):
+            logger.info("  ↷ Tom fil (0 kontrollstockar) — ingen kontroll-rad (behåller ev. kalibreringshistorik)")
 
         if data.get('kalibrering_historik'):
             if upsert_data(
