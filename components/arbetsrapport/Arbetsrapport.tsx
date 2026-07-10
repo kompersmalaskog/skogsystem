@@ -5090,6 +5090,7 @@ export default function Arbetsrapport() {
     const startDag=(bas.getDay()+6)%7;
     const rödaDagar=getRödaDagar(kalÅr);
     const kalMånadLabel=bas.toLocaleString('sv-SE',{month:'long',year:'numeric'});
+    const kalMånadNamn=bas.toLocaleString('sv-SE',{month:'long'});
 
     // Navigation limits: 12 months back, 1 month forward
     const nuDat=new Date();
@@ -5185,20 +5186,30 @@ export default function Arbetsrapport() {
             ) : null;
           })()}
 
-          {/* Summary card */}
+          {/* Summary card — hjälte: månadens berättelse (jobbat mot mål) överst,
+              resten som lugna stödrader. Målet ingår i hjälten ("av X tim"). */}
           <section style={{ marginTop:16,marginBottom:32 }}>
             <div style={{ background:"#1c1c1e",borderRadius:12,padding:24 }}>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"24px 0" }}>
+              <div style={{ textAlign:"center" }}>
+                <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Jobbat i {kalMånadNamn}</p>
+                <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>
+                  {String(jobbadH).replace('.',',')}
+                  <span style={{ ...TYPE.meta,color:"#8e8e93",marginLeft:6,...TNUM }}>av {målH} tim</span>
+                </p>
+                {/* Progress mot månadsmålet — grön oavsett andel (läge, inte larm), klampad till 100% */}
+                <div style={{ height:5,borderRadius:3,background:"rgba(255,255,255,0.08)",marginTop:14,overflow:"hidden" }}>
+                  <div style={{ height:"100%",borderRadius:3,background:"#30d158",width:`${Math.min(100, målH > 0 ? (jobbadH / målH) * 100 : 0)}%`,minWidth:jobbadH > 0 ? 6 : 0 }}/>
+                </div>
+              </div>
+              <div style={{ borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:18,paddingTop:8 }}>
                 {[
-                  ["Arbetsdagar",`${arbetsdagar} dagar`],
-                  ["Mål",`${målH} tim`],
-                  ["Jobbat",`${jobbadH} tim`],
+                  ["Arbetsdagar",`${arbetsdagar}`],
                   ["Körning",`${totalKm.toLocaleString('sv-SE')} km`],
                   ["Km med ersättning",`${ersKm.toLocaleString('sv-SE')} km`],
                 ].map(([label,val])=>(
-                  <div key={label as string} style={{ display:"flex",flexDirection:"column" }}>
-                    <span style={{ color:"#8e8e93",fontSize:13,fontWeight:500 }}>{label}</span>
-                    <span style={{ color:"#fff",...TYPE.h2,...TNUM }}>{val}</span>
+                  <div key={label as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0" }}>
+                    <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{label}</span>
+                    <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM }}>{val}</span>
                   </div>
                 ))}
               </div>
