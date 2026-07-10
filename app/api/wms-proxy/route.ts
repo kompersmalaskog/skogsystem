@@ -50,6 +50,15 @@ const WMS_LAYERS: Record<string, LayerConfig> = {
     layers: 'Ortofoto_0.5',
     srs: 'EPSG:3857',
   },
+  // Körvyns tvingade skyddslager — routas hit för 5-min-cache + AbortController-timeout
+  // (fail-fast om en gov-server hänger). Alla EPSG:3857, ingen auth (öppna tjänster).
+  nyckelbiotoper: { url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: 'Nyckelbiotop_Skogsstyrelsen', srs: 'EPSG:3857' },
+  biotopskydd:    { url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer', layers: 'Biotopskydd_Skogsstyrelsen', srs: 'EPSG:3857' },
+  sumpskog:       { url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: 'Sumpskog_Skogsstyrelsen', srs: 'EPSG:3857' },
+  naturreservat:  { url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Naturreservat', srs: 'EPSG:3857' },
+  natura2000:     { url: 'https://geodata.naturvardsverket.se/n2000/wms', layers: 'Habitatdirektivet,Fageldirektivet', srs: 'EPSG:3857' },
+  vattenskydd:    { url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Vattenskyddsomrade', srs: 'EPSG:3857' },
+  kraftledningar: { url: 'https://inspire-skn.metria.se/geoserver/skn/ows', layers: 'US.ElectricityNetwork.Lines', srs: 'EPSG:3857' },
 };
 
 // In-memory tile cache (5 minute TTL)
@@ -101,7 +110,7 @@ function lmAuthHeaders(): Record<string, string> {
   };
 }
 
-const ALLOWED_HOSTS = ['geodata.skogsstyrelsen.se', 'pub.raa.se', 'minkarta.lantmateriet.se'];
+const ALLOWED_HOSTS = ['geodata.skogsstyrelsen.se', 'pub.raa.se', 'minkarta.lantmateriet.se', 'geodpags.skogsstyrelsen.se', 'geodata.naturvardsverket.se', 'inspire-skn.metria.se'];
 
 function validateHost(url: string): URL {
   const parsed = new URL(url);
@@ -173,11 +182,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid or disallowed url' }, { status: 403 });
   }
 
+  // Fail-fast: en hängande gov-WMS (de går ner / blir överbelastade) får INTE hänga tile-
+  // requesten i fält. AbortController-timeout → lagret droppar snyggt i st f att tugga. (Samma
+  // lärdom som roadcheck-proxyn: "misslyckas snabbt" slår "häng för evigt".)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 11000);
   try {
     const headers: Record<string, string> = { 'User-Agent': UA };
     if (authType === 'sks') Object.assign(headers, sksAuthHeaders());
     else if (authType === 'lm') Object.assign(headers, lmAuthHeaders());
-    const resp = await fetch(url, { headers });
+    const resp = await fetch(url, { headers, signal: controller.signal });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       console.error(`[wms-proxy GET] Upstream ${resp.status}: ${url.substring(0, 200)}`);
@@ -198,6 +212,8 @@ export async function GET(req: NextRequest) {
     const msg = e instanceof Error ? e.message : 'Proxy failed';
     console.error(`[wms-proxy GET] ERROR: ${msg}`);
     return NextResponse.json({ error: msg }, { status: 502 });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
