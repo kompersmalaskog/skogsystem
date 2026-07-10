@@ -68,6 +68,10 @@ const FALLNINGSRADIE_M = 40;
 // tal (att gissa en tröskel var hela buggen). Äkta skräp fångas hellre av from-driver-synhållet.
 const KORVY_SIGHT_M = 400;
 
+// Kurerade skyddslager som LYSER alltid i körvyns tysta stil (tvingas synliga, oavsett förarens
+// overlay-toggle). Övriga WMS hålls AV → ren tyst vy. overlayId = wms-layer-<id> utan prefix.
+const KORVY_SKYDDSLAGER = new Set(['nyckelbiotoper', 'biotopskydd', 'vattenskydd', 'fornlamningar', 'naturreservat', 'natura2000', 'sumpskog', 'kraftledningar']);
+
 // === Körvy-kamera-känsla (finjustering — vridbara värden, testas i maskinen) ===
 // Prick strax UNDER MITTEN (inte nedre tredjedelen): en skogsmaskin fäller åt SIDAN, så
 // faran är runt om — pricken måste sitta högt nog att symboler bakom/vid sidan RYMS i bild.
@@ -646,6 +650,20 @@ export default function PlannerPage() {
         tileSize: 256,
         maxzoom: 17,
       },
+      // Positron (CARTO light_all) — dämpad bas för körvyns TYSTA stil: mjuka toner, svaga hus,
+      // ljusa vägar, viskande grå etiketter. Bara körvy; planeringsvyn använder terrain (topo).
+      positron: {
+        type: 'raster' as const,
+        tiles: [
+          'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+          'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+          'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+          'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+        ],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+      },
     },
     layers: [
       // Ljusgrå bakgrund (#e8e8e8) syns när tiles inte hunnit laddas eller vid
@@ -660,6 +678,7 @@ export default function PlannerPage() {
       // initial-värdena här är fallback om handleMapReady av nån anledning inte kör.
       { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: 'none' as const } },
       { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: 'visible' as const } },
+      { id: 'positron-layer', type: 'raster' as const, source: 'positron', layout: { visibility: 'none' as const } },
       { id: 'contours-layer', type: 'raster' as const, source: 'contours', paint: { 'raster-opacity': 0.4 }, layout: { visibility: 'none' as const } },
     ],
   });
@@ -2103,6 +2122,9 @@ export default function PlannerPage() {
 
   // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
   const [korvyActive, setKorvyActive] = useState(false);
+  // Körvyns bas-karta: 'positron' (tyst, dämpad) eller 'topo' (OpenTopoMap, terräng tydlig).
+  // Fält-test-växling — default tyst så föraren möter den nya stilen, togglar för att jämföra.
+  const [korvyBasKarta, setKorvyBasKarta] = useState<'positron' | 'topo'>('positron');
   const [korvyBlinkOn, setKorvyBlinkOn] = useState(true);
   const korvyPrevCameraRef = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
   const korvyZoomRef = useRef<number>(KORVY_BASE_ZOOM);  // utjämnad närhets-zoom (lerp → ingen studs)
@@ -5417,12 +5439,16 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     if (korvyActive) {
       const allLayers = (map.getStyle()?.layers || []) as any[];
-      // Spara nuvarande visibility för restore
-      const prev: Record<string, string> = {};
-      for (const l of allLayers) {
-        try { prev[l.id] = (map.getLayoutProperty(l.id, 'visibility') as string) || 'visible'; } catch {}
+      // Spara nuvarande visibility för restore — ENDAST vid inträde (guarden). Utan den skulle
+      // en bas-kart-växling (korvyBasKarta i deps) RE-spara det körvy-modifierade tillståndet →
+      // utträde skulle "återställa" till körvy-läge och lämna körvy-lager synliga i planeringsvyn.
+      if (!korvyPrevVisRef.current) {
+        const prev: Record<string, string> = {};
+        for (const l of allLayers) {
+          try { prev[l.id] = (map.getLayoutProperty(l.id, 'visibility') as string) || 'visible'; } catch {}
+        }
+        korvyPrevVisRef.current = prev;
       }
-      korvyPrevVisRef.current = prev;
       // WHITELIST: dessa renderas i Körvy. Allt annat döljs.
       // Apple-omdesign 2026-05: bytt från ['bg-korvy', 'hillshade-korvy',
       // 'lm-skuggning-layer', 'sks-markfuktighet-layer'] (mörk Tesla-bakgrund +
@@ -5431,18 +5457,17 @@ export default function PlannerPage() {
       // Cesium 3D Körvy som båda har OpenTopoMap som default-bas. Lm-skuggning
       // och sks-markfuktighet finns kvar i lager-menyn under 'Skogsstyrelsen
       // Raster' / 'Lantmäteriet' om föraren vill toggla på dem manuellt.
-      const SHOW = new Set<string>(['terrain-layer']);
+      // Bas-karta: tyst (Positron) eller terräng (OpenTopoMap) — växlas för fält-test.
+      const SHOW = new Set<string>([korvyBasKarta === 'positron' ? 'positron-layer' : 'terrain-layer']);
       // Våra ritade data + immersion-layers
       const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-'];
       for (const l of allLayers) {
-        // wms-layer-* respekterar overlays-state istället för att forceras
-        // visible/none. Föraren behåller sina lager-val över körvy-toggle och
-        // kan toggla på/av under körning (huvud-toggle-effekten på rad 1925
-        // hanterar runtime-ändringar). Special-case behövs eftersom
-        // KEEP_PREFIX-mönstret skulle FORCERA 'visible' — vi vill default AV.
+        // wms-layer-*: TYSTA stilen TVINGAR den kurerade skyddsmängden synlig (LYSER alltid,
+        // oavsett förarens overlay-toggle) och håller övriga WMS AV → ren tyst vy. Återställs på
+        // utträde via korvyPrevVisRef → planeringsvyns overlay-val rörs INTE.
         if (l.id.startsWith('wms-layer-')) {
           const overlayId = l.id.replace('wms-layer-', '');
-          try { map.setLayoutProperty(l.id, 'visibility', overlays[overlayId] ? 'visible' : 'none'); } catch {}
+          try { map.setLayoutProperty(l.id, 'visibility', KORVY_SKYDDSLAGER.has(overlayId) ? 'visible' : 'none'); } catch {}
           continue;
         }
         const keep = SHOW.has(l.id) || KEEP_PREFIX.some(pref => l.id.startsWith(pref));
@@ -5455,7 +5480,7 @@ export default function PlannerPage() {
       }
       korvyPrevVisRef.current = null;
     }
-  }, [korvyActive, mapLibreReady]);
+  }, [korvyActive, mapLibreReady, korvyBasKarta]);
 
   // === Körvy-WMS cleanup: lm-skuggning-layer + sks-markfuktighet-layer är
   // EXKLUSIVT till för körvy-läge. De skapas i immersion-setup med
@@ -9144,6 +9169,30 @@ export default function PlannerPage() {
               Försvinner när du lämnar zonen
             </div>
           </div>
+        </div>
+      )}
+
+      {/* === KÖRVY: FÄLT-TEST-VÄXLING bas-karta (Tyst/Positron ⇄ Terräng/OpenTopoMap) === */}
+      {korvyActive && (
+        <div style={{
+          position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', right: 12, zIndex: 260,
+          display: 'flex', gap: 3, padding: 3, borderRadius: 16,
+          background: 'rgba(28,28,30,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+        }}>
+          {(['positron', 'topo'] as const).map(mode => (
+            <button key={mode} type="button"
+              onClick={() => { if (navigator.vibrate) navigator.vibrate(8); setKorvyBasKarta(mode); }}
+              style={{
+                padding: '6px 13px', borderRadius: 13, border: 'none', cursor: 'pointer',
+                fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+                background: korvyBasKarta === mode ? '#0a84ff' : 'transparent',
+                color: korvyBasKarta === mode ? '#fff' : 'rgba(255,255,255,0.6)',
+              }}>
+              {mode === 'positron' ? 'Tyst' : 'Terräng'}
+            </button>
+          ))}
         </div>
       )}
 
