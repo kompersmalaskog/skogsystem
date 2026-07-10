@@ -429,15 +429,23 @@ const ObjektValjarLista = ({ objekt, valtId, onVälj, tillåtInget = false }: {
   );
 
   const kort = (o: any, prick = false) => {
-    // VO visas bara när det är ett riktigt VO-nummer (siffror) — inte
-    // maskingenererade nycklar ("_050624-132829"). Ägare hoppas över när
-    // den bara upprepar objektnamnet.
+    // Metaraden ska bara innehålla det som TILLFÖR något utöver huvudraden:
+    // - VO visas bara när det är ett riktigt VO-nummer (siffror) — inte
+    //   maskingenererade nycklar ("_050624-132829").
+    // - Markägare/åtgärd hoppas över om något av deras ord (≥3 tecken) redan
+    //   syns i objektnamnet ("Stefan Svensson · Gallring" upprepar inte
+    //   "Stefan Svensson" eller "Första gallring").
+    const namnOrd = new Set(visningsNamn(o.namn).toLowerCase().split(/[^a-zåäöé0-9]+/i).filter(w => w.length >= 3));
+    const upprepar = (s: string) => visningsNamn(s).toLowerCase().split(/[^a-zåäöé0-9]+/i).filter(w => w.length >= 3).some(w => namnOrd.has(w));
     const voVisas = o.vo != null && /^\d+$/.test(String(o.vo)) ? `VO ${o.vo}` : null;
-    const ägareVisas = o.ägare && visningsNamn(o.ägare) !== visningsNamn(o.namn) ? visningsNamn(o.ägare) : null;
-    const meta = [voVisas, ägareVisas, o.atgard || null].filter(Boolean).join(' · ');
+    const ägareVisas = o.ägare && !upprepar(o.ägare) ? visningsNamn(o.ägare) : null;
+    const atgardVisas = o.atgard && !upprepar(o.atgard) ? o.atgard : null;
+    const meta = [voVisas, ägareVisas, atgardVisas].filter(Boolean).join(' · ');
     return (
       <button key={o.id} onClick={() => onVälj(o)}
-        style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"13px 14px",marginBottom:8,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+        style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"13px 14px",minHeight:64,boxSizing:"border-box",marginBottom:8,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+        {/* Enradiga kort (utan metarad) centreras vertikalt via flex-raden +
+            minHeight — samma korthöjd som tvåradiga, medvetet enradigt. */}
         <div style={{ minWidth:0 }}>
           <p style={{ margin:0,...TYPE.bodyList,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{visningsNamn(o.namn)}</p>
           {meta && <p style={{ margin:"2px 0 0",...TYPE.meta,color:"#8e8e93",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...TNUM }}>{meta}</p>}
