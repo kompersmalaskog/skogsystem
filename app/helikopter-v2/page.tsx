@@ -34,6 +34,15 @@ interface Bestallning {
   volym: number
 }
 
+interface DimMaskin {
+  maskin_id: string
+  modell: string | null
+  maskin_typ: string | null   // 'Harvester' | 'Forwarder'
+  klarar_typ: string | null
+  extramaskin: boolean | null
+  aktiv_till: string | null    // satt = såld/utfasad
+}
+
 // ============================================================
 // Constants & Design tokens
 // ============================================================
@@ -54,6 +63,10 @@ const card: React.CSSProperties = {
 const MANAD = ['', 'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
   'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 
+// Grundkapacitet per maskin och månad (enkelskift). UPPSKATTNING — justera när
+// verkligt skift-/arbetstidsschema finns. Används bara för "ledig tid"-beräkningen.
+const TIMMAR_PER_MANAD = 168
+
 // ============================================================
 // Helpers
 // ============================================================
@@ -64,6 +77,19 @@ function normalizeBolag(b: string | null): string {
   if (lower === 'vida') return 'Vida'
   if (lower === 'ata') return 'ATA'
   return b.trim()
+}
+
+function maskinModell(m: DimMaskin | undefined | null): string {
+  return m?.modell || m?.maskin_id || 'Maskin'
+}
+
+// Timmar ur manuell_prognos: STRÄNGAR ('50', ofta ''). Tomt/ogiltigt -> null (= HÅL,
+// aldrig tyst 0). Bara ett tal > 0 räknas som ifylld tid.
+function parseTimmar(v: unknown): number | null {
+  const t = String(v ?? '').replace(',', '.').trim()
+  if (t === '') return null
+  const n = Number(t)
+  return Number.isFinite(n) && n > 0 ? n : null
 }
 
 // Dedikerade skördare: Rottne = gallring, Ponsse Scorpion = slutavverkning (CLAUDE.md).
@@ -122,7 +148,14 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
 export default function HelikopterV2Page() {
   const [data, setData] = useState<ObjektRow[]>([])
   const [bestallningar, setBestallningar] = useState<Bestallning[]>([])
-  const [objektAlla, setObjektAlla] = useState<{ ar: number | null; manad: number | null; status: string | null }[]>([])
+  const [objektAlla, setObjektAlla] = useState<{
+    id: string; namn: string | null; vo_nummer: string | null;
+    ar: number | null; manad: number | null; status: string | null; typ: string | null;
+    volym: number | null; manuell_prognos: { skordare?: string; skotare?: string } | null;
+    skordare_maskin_id: string | null; skotare_maskin_id: string | null;
+    skordare_utforare: string | null; skotare_utforare: string | null;
+  }[]>([])
+  const [dimMaskiner, setDimMaskiner] = useState<DimMaskin[]>([])
   const [loading, setLoading] = useState(true)
   const [ar, setAr] = useState(() => new Date().getFullYear())
   const [manad, setManad] = useState(() => new Date().getMonth() + 1)
@@ -136,11 +169,12 @@ export default function HelikopterV2Page() {
   const load = useCallback(async () => {
     try {
       // Läs via inloggad session-klient (inte hårdkodad anon-nyckel).
-      const [hv, best, dimo, obj] = await Promise.all([
+      const [hv, best, dimo, obj, dimm] = await Promise.all([
         supabase.from('helikopter_vy').select('*'),
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
         supabase.from('dim_objekt').select('objekt_id,maskin_id'),
-        supabase.from('objekt').select('vo_nummer,typ,ar,manad,status'),
+        supabase.from('objekt').select('id,namn,vo_nummer,typ,ar,manad,status,volym,manuell_prognos,skordare_maskin_id,skotare_maskin_id,skordare_utforare,skotare_utforare'),
+        supabase.from('dim_maskin').select('maskin_id,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'),
       ])
       // Härled huvudtyp där den saknas (maskin-regel + vo-match) — fas 1, ingen DB-ändring.
       const maskinById = new Map<string, string>((dimo.data || []).map((d: any) => [d.objekt_id, d.maskin_id]))
@@ -157,6 +191,7 @@ export default function HelikopterV2Page() {
       }
       if (best.data) setBestallningar(best.data)
       setObjektAlla(obj.data || [])
+      if (dimm.data) setDimMaskiner(dimm.data as DimMaskin[])
     } catch { /* use empty */ }
   }, [ar, manad])
 
@@ -342,6 +377,82 @@ export default function HelikopterV2Page() {
     }
     return { Slutavverkning: bygg('Slutavverkning'), Gallring: bygg('Gallring') }
   }, [bestallningar, manadData])
+
+  // === KAPACITET (framåt): hinner maskinerna med månadens planerade objekt, finns luft? ===
+  const kapacitet = useMemo(() => {
+    const idag = new Date().toISOString().slice(0, 10)
+    const monthObjekt = objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'planerad' || o.status === 'pagaende'))
+    const aktiv = (m: DimMaskin) => !m.aktiv_till || m.aktiv_till >= idag
+    const kapMaskiner = dimMaskiner.filter(m => (m.maskin_typ === 'Harvester' || m.maskin_typ === 'Forwarder') && aktiv(m) && !m.extramaskin)
+    const extraMaskiner = dimMaskiner.filter(m => m.extramaskin && aktiv(m))
+    const agg: Record<string, { timmar: number; antal: number; hal: number }> = {}
+    for (const m of kapMaskiner) agg[m.maskin_id] = { timmar: 0, antal: 0, hal: 0 }
+    const halIds = new Set<string>()
+    const halLista: { namn: string; volym: number }[] = []
+    for (const o of monthObjekt) {
+      const mp = o.manuell_prognos || {}
+      let objektHarHal = false
+      for (const roll of ['skordare', 'skotare'] as const) {
+        const utforare = roll === 'skordare' ? o.skordare_utforare : o.skotare_utforare
+        if (utforare === 'egen' || utforare === 'extern') continue // bestämt — inte våra maskiner
+        const maskinId = roll === 'skordare' ? o.skordare_maskin_id : o.skotare_maskin_id
+        const tim = parseTimmar(mp[roll])
+        if (tim != null && maskinId && agg[maskinId]) {
+          agg[maskinId].timmar += tim
+          agg[maskinId].antal += 1
+        } else {
+          // saknar tid ELLER saknar placerbar maskin -> HÅL (en kategori). Maskin satt: notera hål på den.
+          objektHarHal = true
+          if (maskinId && agg[maskinId]) agg[maskinId].hal += 1
+        }
+      }
+      if (objektHarHal && !halIds.has(o.id)) {
+        halIds.add(o.id)
+        halLista.push({ namn: o.namn || o.vo_nummer || 'Objekt', volym: o.volym || 0 })
+      }
+    }
+    const rader = kapMaskiner.map(m => {
+      const a = agg[m.maskin_id]
+      const luft = TIMMAR_PER_MANAD - a.timmar
+      let status: 'tom' | 'gul' | 'gron' | 'rod'
+      if (a.antal === 0 && a.hal === 0) status = 'tom'
+      else if (a.hal > 0) status = 'gul' // luften optimistisk — oräknat objekt ligger på maskinen
+      else if (luft < 0) status = 'rod'
+      else status = 'gron'
+      return { maskin: m, timmar: a.timmar, antal: a.antal, hal: a.hal, luft, status }
+    }).sort((x, y) => x.luft - y.luft)
+    const halVolym = halLista.reduce((s, h) => s + (h.volym || 0), 0)
+    const harHal = halLista.length > 0
+    // Tightaste PER ROLL — bara maskiner med ren (hål-fri) ifylld tid
+    const rollTightest = (typ: 'Harvester' | 'Forwarder') => {
+      const k = rader.filter(r => r.maskin.maskin_typ === typ && r.antal > 0 && r.hal === 0)
+      return k.length ? k.reduce((min, r) => (r.luft < min.luft ? r : min)) : null
+    }
+    let besked: { status: 'vetej' | 'ifas' | 'efter'; rad1: string; rad2?: string }
+    if (monthObjekt.length === 0) {
+      besked = { status: 'vetej', rad1: 'Inga objekt inlagda för månaden än' }
+    } else if (harHal) {
+      const tightestFilled = rader.filter(r => r.antal > 0).sort((a, b) => a.luft - b.luft)[0]
+      besked = {
+        status: 'vetej',
+        rad1: `${halLista.length} objekt saknar tid — ${Math.round(halVolym).toLocaleString('sv-SE')} m³fub oräknat`,
+        rad2: tightestFilled ? `Räknat på det ifyllda: ${maskinModell(tightestFilled.maskin)} har ${Math.round(tightestFilled.luft).toLocaleString('sv-SE')} h luft` : 'Inga timmar ifyllda än',
+      }
+    } else {
+      const over = rader.filter(r => r.luft < 0).sort((a, b) => a.luft - b.luft)[0]
+      if (over) {
+        besked = { status: 'efter', rad1: `${Math.round(-over.luft).toLocaleString('sv-SE')} h över på ${maskinModell(over.maskin)}` }
+      } else {
+        const tS = rollTightest('Harvester')
+        const tF = rollTightest('Forwarder')
+        const lufts = [tS?.luft, tF?.luft].filter((x): x is number => x != null)
+        const z = lufts.length ? Math.min(...lufts) : TIMMAR_PER_MANAD
+        const parts = [tS && `${maskinModell(tS.maskin)} ${Math.round(tS.luft)} h`, tF && `${maskinModell(tF.maskin)} ${Math.round(tF.luft)} h`].filter(Boolean)
+        besked = { status: 'ifas', rad1: `Ni hinner — ${Math.round(z).toLocaleString('sv-SE')} h ledigt`, rad2: parts.length ? `(${parts.join(', ')})` : undefined }
+      }
+    }
+    return { rader, extraMaskiner, halLista, halVolym, harHal, besked }
+  }, [objektAlla, dimMaskiner, ar, manad])
 
   const SPAR = [
     { typ: 'Slutavverkning' as const, Ikon: TreePine, farg: '#eab308', best: slutBest },
@@ -566,6 +677,63 @@ export default function HelikopterV2Page() {
                 ))}
               </div>
             </>
+          )}
+
+          {/* === KAPACITET (framåt): hinner vi + finns luft — lägg TILL, rör inget ovan === */}
+          {!manadAvslutad && (
+            <div style={{ ...card, marginTop: 20, padding: '4px 18px' }}>
+              <div style={{ padding: '16px 0 12px', fontSize: 13, color: muted }}>Kapacitet</div>
+              {/* Besked — färg = status (i fas / efter / vet ej). Aldrig grönt på halv data. */}
+              {(() => {
+                const b = kapacitet.besked
+                const farg = b.status === 'ifas' ? '#30d158' : b.status === 'efter' ? '#ff453a' : '#FF9F0A'
+                const bakg = b.status === 'ifas' ? 'rgba(48,209,88,0.1)' : b.status === 'efter' ? 'rgba(255,69,58,0.1)' : 'rgba(255,159,10,0.1)'
+                return (
+                  <div style={{ background: bakg, borderRadius: 10, padding: '14px 16px', marginBottom: 4 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: farg }}>{b.rad1}</div>
+                    {b.rad2 && <div style={{ fontSize: 13, color: muted, marginTop: 4 }}>{b.rad2}</div>}
+                  </div>
+                )
+              })()}
+              {/* Ledig tid per maskin — timmar, inte procent */}
+              {kapacitet.rader.map((r) => {
+                const farg = r.status === 'gron' ? '#30d158' : r.status === 'rod' ? '#ff453a' : r.status === 'gul' ? '#FF9F0A' : muted
+                const under = r.status === 'tom'
+                  ? 'inga objekt inlagda ännu'
+                  : `av ${TIMMAR_PER_MANAD}${r.antal > 0 ? ` · ${r.antal} objekt` : ''}${r.hal > 0 ? ` · ${r.hal} saknar tid` : ''}`
+                return (
+                  <div key={r.maskin.maskin_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 0', borderTop: `1px solid ${divider}` }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 500, color: text }}>{maskinModell(r.maskin)}</div>
+                      <div style={{ fontSize: 13, color: muted, marginTop: 2 }}>{under}</div>
+                    </div>
+                    {r.status !== 'tom' && (
+                      <span style={{ fontSize: 22, fontWeight: 700, color: farg, fontVariantNumeric: 'tabular-nums', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                        {r.luft < 0 ? `${Math.round(-r.luft)} h över` : `${Math.round(r.luft)} h`}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+              {/* Extramaskiner — utanför grundkapaciteten, ingen siffra */}
+              {kapacitet.extraMaskiner.map(m => (
+                <div key={m.maskin_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 0', borderTop: `1px solid ${divider}` }}>
+                  <div style={{ fontSize: 15, fontWeight: 500, color: text }}>{maskinModell(m)}</div>
+                  <span style={{ fontSize: 13, color: muted, flexShrink: 0, textAlign: 'right' }}>Extramaskin — sätts in vid behov</span>
+                </div>
+              ))}
+              {/* Objekt utan tid — lugn grå checklista, inget larm */}
+              {kapacitet.harHal && (
+                <div style={{ borderTop: `1px solid ${divider}`, padding: '14px 0 16px' }}>
+                  <div style={{ fontSize: 13, color: muted, marginBottom: 8 }}>
+                    {kapacitet.halLista.length} objekt saknar tid — {Math.round(kapacitet.halVolym).toLocaleString('sv-SE')} m³fub oräknat
+                  </div>
+                  {kapacitet.halLista.map((h, i) => (
+                    <div key={i} style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', padding: '3px 0' }}>· {h.namn}</div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
