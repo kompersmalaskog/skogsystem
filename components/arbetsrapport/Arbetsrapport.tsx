@@ -527,9 +527,21 @@ export default function Arbetsrapport() {
   const [kmK,   setKmK]    = useState<{km:number}|null>(null);
   const [kmBerakning, setKmBerakning] = useState<number|null>(null);
   const [extra, setExtra]  = useState([]);
-  const [start, setStart]  = useState("06:12");
-  const [slut,  setSlut]   = useState("16:45");
+  // Dagens tider — synkas från arbetsdag-tabellen via useEffect nedan.
+  // Tomma initialvärden (inte hårdkodade defaults) så vi inte råkar skriva
+  // pseudo-data till DB om bekraftaDagen körs innan synk landat.
+  const [start, setStart]  = useState("");
+  const [slut,  setSlut]   = useState("");
   const [rast,  setRast]   = useState(0);
+  // Per-fält dirty-tracking: säger om föraren har redigerat fältet lokalt
+  // sedan synk. Synk-useEffect skriver ALDRIG över ett ändrat fält — men
+  // andra fält uppdateras fritt från DB. Frys bara det föraren faktiskt rört.
+  const [startÄndrad, setStartÄndrad] = useState(false);
+  const [slutÄndrad,  setSlutÄndrad]  = useState(false);
+  const [rastÄndrad,  setRastÄndrad]  = useState(false);
+  const [trakÄndrad,  setTrakÄndrad]  = useState(false);
+  // Felmeddelande under Bekräfta-knappen när guarden blockerar (tomma tider).
+  const [bekraftaFel, setBekraftaFel] = useState<string | null>(null);
   const [ändring,setÄ]     = useState(null);
   const [betald,setBetald] = useState(0);
   const [trak,  setTrak]   = useState<{summa:number}|null>(null);
@@ -1163,6 +1175,50 @@ export default function Arbetsrapport() {
   const isWorking = !!dagData[idagKey];
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
+  // Synka dagens tider/rast/traktamente från arbetsdag-tabellen till lokala state.
+  // Per-fält dirty-tracking: skriv ALDRIG över ett fält som föraren redigerat
+  // lokalt. Andra fält uppdateras fritt från DB (om en MOM-eftermiddagsfil ger
+  // ny slut_tid medan föraren redigerar rast, ska hen få den nya slut-tiden
+  // MEN behålla sin rast). Ligger efter idagKey-deklarationen (TDZ).
+  //
+  // Sekund-normalisering: DB lagrar "HH:MM:SS", UI jobbar med "HH:MM" —
+  // .slice(0,5) så Ändra tider-sheetens jämförelser inte slår falskt dirty.
+  // rast-fallback är 0, inte 30 (DB-defaulten) — vår regel: rast = 0 om
+  // föraren inte markerat Meal break. Importen sätter värdet explicit.
+  useEffect(() => {
+    const idagArb = dagData[idagKey];
+    if (!idagArb) return;
+    if (!startÄndrad) {
+      setStart(idagArb.start_tid ? idagArb.start_tid.slice(0, 5) : "");
+    }
+    if (!slutÄndrad) {
+      setSlut(idagArb.slut_tid ? idagArb.slut_tid.slice(0, 5) : "");
+    }
+    if (!rastÄndrad) {
+      // Number()-cast eftersom Postgres NUMERIC kan komma som string via REST.
+      const r = idagArb.rast_min;
+      setRast(r == null ? 0 : Number(r));
+    }
+    if (!trakÄndrad) {
+      // arbetsdag.traktamente är boolean. Mappa till state-objektet eller null.
+      if (idagArb.traktamente) {
+        // Bevara befintligt belopp om state redan har det, annars hel-default
+        setTrak(prev => prev ?? { summa: gsAvtal?.traktamente_hel_kr ?? 300 });
+      } else {
+        setTrak(null);
+      }
+    }
+  }, [
+    idagKey,
+    dagData[idagKey]?.id,
+    dagData[idagKey]?.start_tid,
+    dagData[idagKey]?.slut_tid,
+    dagData[idagKey]?.rast_min,
+    dagData[idagKey]?.traktamente,
+    startÄndrad, slutÄndrad, rastÄndrad, trakÄndrad,
+    gsAvtal?.traktamente_hel_kr,
+  ]);
+
   // Vila-varningar för startsidan.
   // - Faktiska brott (obesvarade) hämtas från vilobrott-tabellen via
   //   aktuellaVilobrott (senaste 14 dagar). En sanning.
@@ -1267,27 +1323,63 @@ export default function Arbetsrapport() {
   // (när inga obesvarade brott finns) och från sparaOrsakOchFortsätt
   // (efter sista brottet besvarats). Pågående extra-tid-aktiviteter stoppas
   // INTE här — det görs i Bekräfta-onClick före för-checken så det alltid sker.
-  const bekraftaDagen = async () => {
-    if (!medarbetare?.id) return;
-    const effektivSlut = slut || nuKlock();
+  //
+  // Returnerar true om bekräftelsen lyckades, false om guarden blockerade.
+  // KRITISK ORDNING (mot race med synk-useEffect:en):
+  //   1. UPSERT till DB  2. setDagData lokalt  3. SEN nollställ dirty-flaggorna.
+  const bekraftaDagen = async (): Promise<boolean> => {
+    if (!medarbetare?.id) return false;
+
+    // Guard: tomma tider ska aldrig skrivas till DB. Föraren måste fylla
+    // i start- och sluttid (Avsluta pass eller Ändra tider) innan bekräftelse.
+    if (!start || !slut) {
+      setBekraftaFel('Tiderna saknas — fyll i start- och sluttid innan du bekräftar.');
+      return false;
+    }
+    setBekraftaFel(null);
+
     const idagArb = dagData[idagKey];
     const dagObjId = valtObjektId || idagArb?.objekt_id || null;
     const nuBekrIso = new Date().toISOString();
+
+    // 1. UPSERT — alla värden från lokala state (garanterat icke-tomma efter guard)
     await supabase.from("arbetsdag").upsert({
       medarbetare_id: medarbetare.id,
       datum: idagKey,
-      start_tid: start, slut_tid: effektivSlut, rast_min: rast,
+      start_tid: start, slut_tid: slut, rast_min: rast,
       km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
       maskin_id: medarbetare.maskin_id,
       objekt_id: dagObjId,
       traktamente: trak, bekraftad: true,
       bekraftad_tid: nuBekrIso,
     }, { onConflict: 'medarbetare_id,datum' });
-    setSlut(effektivSlut.slice(0, 5));
-    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true, bekraftad_tid: nuBekrIso, slut_tid: effektivSlut } }));
+
+    // 2. setDagData lokalt — samma värden som UPSERT skickade. Körs FÖRE
+    //    dirty-nollställningen så synk-useEffect:en (när den sen kör pga
+    //    dirty=false) ser dagData == state == DB. Ingen race där synken
+    //    skriver gamla värden tillbaka över bekräftelsen.
+    const startMedSek = start.length === 5 ? start + ':00' : start;
+    const slutMedSek  = slut.length === 5  ? slut  + ':00' : slut;
+    setDagData(d => ({ ...d, [idagKey]: {
+      ...d[idagKey],
+      start_tid: startMedSek,
+      slut_tid: slutMedSek,
+      rast_min: rast,
+      traktamente: !!trak,
+      bekraftad: true,
+      bekraftad_tid: nuBekrIso,
+    } }));
+
+    // 3. Nollställ dirty-flaggor — nu är state == dagData == DB.
+    setStartÄndrad(false);
+    setSlutÄndrad(false);
+    setRastÄndrad(false);
+    setTrakÄndrad(false);
+
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(200);
     setBekräftelseVisa(true);
     setTimeout(() => setBekräftelseVisa(false), 2000);
+    return true;
   };
 
   // Sparar förarens orsak-svar för det aktuella brottet i kön och avancerar.
@@ -1332,6 +1424,10 @@ export default function Arbetsrapport() {
       setVilobrottOrsakVal(null);
       setVilobrottOrsakFritext("");
     } else {
+      // Sista brottet — bekräfta dagen. Om guarden blockerar (tomma tider)
+      // går vi tillbaka till morgon-vyn där felmeddelandet syns under
+      // Bekräfta-knappen. Orsak-svaret är redan persistat i DB så det går
+      // inte förlorat — föraren fixar tiderna och bekräftar igen.
       await bekraftaDagen();
       setVilobrottKö([]);
       setVilobrottIdx(0);
@@ -1698,7 +1794,7 @@ export default function Arbetsrapport() {
             {isWorking ? (
               <button onClick={async ()=>{
                 const nuT = nuKlock();
-                setSlut(nuT);
+                setSlut(nuT); setSlutÄndrad(true);
                 await supabase.from("arbetsdag").update({ slut_tid: nuT + ":00" }).eq("id", dagData[idagKey]?.id);
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
@@ -1710,7 +1806,7 @@ export default function Arbetsrapport() {
               <button onClick={async ()=>{
                 const nuT = nuKlock();
                 if (!medarbetare?.id) { console.warn('[Starta manuellt] medarbetare saknas'); return; }
-                setStart(nuT);
+                setStart(nuT); setStartÄndrad(true);
                 const { data, error } = await supabase.from("arbetsdag").upsert({
                   medarbetare_id: medarbetare.id,
                   datum: idagKey,
@@ -1797,7 +1893,7 @@ export default function Arbetsrapport() {
                 if (igår.objekt_id) setValtObjektId(igår.objekt_id);
                 if (igår.km_morgon != null) setKmM({ km: igår.km_morgon });
                 if (igår.km_kvall != null) setKmK({ km: igår.km_kvall });
-                if (igår.traktamente) setTrak({ summa: gsAvtal?.traktamente_hel_kr ?? 300 });
+                if (igår.traktamente) { setTrak({ summa: gsAvtal?.traktamente_hel_kr ?? 300 }); setTrakÄndrad(true); }
                 setIgårKopierat(true);
                 setTimeout(() => setIgårKopierat(false), 2000);
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
@@ -1980,7 +2076,7 @@ export default function Arbetsrapport() {
                       const valt = opt.v === null ? !trak : (trak?.summa === (opt.v as any)?.summa);
                       return (
                         <button key={opt.k} onClick={async ()=>{
-                          setTrak(opt.v as any); setTrakÖppen(false);
+                          setTrak(opt.v as any); setTrakÄndrad(true); setTrakÖppen(false);
                           if (dagData[idagKey]?.id) {
                             const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
                             const payload: any = { traktamente: !!opt.v };
@@ -2051,6 +2147,10 @@ export default function Arbetsrapport() {
                   {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
                 </button>
               ))}
+              {/* Guard-felmeddelande — visas om bekraftaDagen blockerade pga tomma tider */}
+              {bekraftaFel && (
+                <p style={{ margin:"10px 0 0",...TYPE.meta,color:"#ff453a",textAlign:"center" }}>{bekraftaFel}</p>
+              )}
               {/* "+ Starta extra tid" lever nu högst upp i dag-vyn som enda ingång */}
             </section>
           );
@@ -2347,7 +2447,10 @@ export default function Arbetsrapport() {
                 <button
                   onClick={async ()=>{
                     if (ändrat) {
-                      setStart(tS); setSlut(tE); setRast(tR);
+                      // Per-fält dirty: frys bara det föraren faktiskt ändrade
+                      if (tS !== start) { setStart(tS); setStartÄndrad(true); }
+                      if (tE !== slut)  { setSlut(tE);  setSlutÄndrad(true); }
+                      if (tR !== rast)  { setRast(tR);  setRastÄndrad(true); }
                       if (dagData[idagKey]?.id) {
                         // Om dagen var bekräftad, rasera bekräftelsen så status visar "Ändrad"
                         const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
@@ -4060,7 +4163,7 @@ export default function Arbetsrapport() {
         </div>
         <div style={bottom}>
           <button style={{ ...btn.primary,opacity:mBesk?1:0.35 }} disabled={!mBesk}
-            onClick={()=>{setStart(mStart);setSlut("");setSteg("manuellPågår");}}>
+            onClick={()=>{setStart(mStart); setStartÄndrad(true); setSlut(""); setSlutÄndrad(true); setSteg("manuellPågår");}}>
             Starta arbetet
           </button>
         </div>
@@ -4109,7 +4212,7 @@ export default function Arbetsrapport() {
         </div>
       </div>
       <div style={bottom}>
-        <button style={btn.primary} onClick={()=>{setSlut(mSlut);setRast(mRast);setSteg("morgon");}}>Spara och fortsätt</button>
+        <button style={btn.primary} onClick={()=>{setSlut(mSlut); setSlutÄndrad(true); setRast(mRast); setRastÄndrad(true); setSteg("morgon");}}>Spara och fortsätt</button>
       </div>
     </div>
   );
