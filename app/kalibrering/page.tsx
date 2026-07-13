@@ -85,6 +85,12 @@ const fmtAvvikelse = (n: number | null | undefined, unit: 'cm' | 'mm'): string =
   return `${sign}${Math.round(n)}`;
 };
 
+// Osignerat mätvärde (std, toleransfönster): cm 1 decimal, mm heltal.
+const fmtTal = (n: number | null | undefined, unit: 'cm' | 'mm'): string => {
+  if (n == null || isNaN(n)) return '–';
+  return unit === 'cm' ? n.toFixed(1) : String(Math.round(n));
+};
+
 // Pluralis: 1 = singular, 2+ = plural. "1 stock" / "2 stockar".
 const antalText = (n: number, singular: string, plural: string) =>
   `${n} ${n === 1 ? singular : plural}`;
@@ -130,6 +136,75 @@ const STATUS_TON: Record<AvvikelseStatus, ToneToken> = {
 const avvikelseTon = (
   värde: number, enhet: 'dia' | 'len', antalKontroller?: number,
 ): ToneToken => STATUS_TON[avvikelseStatus({ värde, enhet, antalKontroller })];
+
+// === Profilbedömning (VIDA / BIOMETRIA) ===
+// Skild från avvikelseStatus ovan: den klassar ETT mått mot ±tolerans (per-
+// mått-prickarnas divergerande skala, med blått för "för litet"). bedomProfil
+// klassar ett AGGREGAT — träffprocent, systematik, std, grov andel — över
+// 90-dagarsfönstret mot maskinens kravprofil. Sämsta metriken styr, "OK är tyst":
+//   grå   = mål uppnått        (tone-ok)
+//   orange = godkänt men under mål (tone-hi)   — bara VIDA (mål≠golv)
+//   röd   = under golvet       (tone-hot)
+// Inget blått här — blått hör bara till enskilda mått.
+//
+// VIKTIGT: kolumnen `tolerans` i kravprofil betyder TVÅ saker beroende på metrik:
+//   metrik='traffprocent'   → toleransfönster (andel INOM ±tolerans)
+//   metrik='grov_avvikelse' → avvikelsegräns  (andel ÖVER tolerans)
+// Läs därför alltid `metrik` först. API:t (bedomning/route.ts) räknar redan
+// traffPct/grovPct utifrån detta; här läses bara färdiga värden.
+type ProfilStatus = 'ok' | 'orange' | 'röd';
+const PROFIL_TON: Record<ProfilStatus, ToneToken> = { ok: 'ok', orange: 'hi', röd: 'hot' };
+const PROFIL_RANK: Record<ProfilStatus, number> = { ok: 0, orange: 1, röd: 2 };
+
+type KravRow = {
+  variabel: string; metrik: string; riktning: string;
+  tolerans: number | null; mal: number; golv: number; enhet: string; larm_min_matt: number | null;
+};
+type VariabelStat = {
+  n: number; traffPct: number | null; systematisk: number | null;
+  standardavv: number | null; grovPct: number | null; tolerans: number | null; grovTolerans: number | null;
+};
+type BedomningResp = {
+  ok: true; maskin_id: string; profil: string | null;
+  fonster: { fran: string; till: string; dagar: number } | null;
+  diameter: VariabelStat | null; langd: VariabelStat | null; trosklar: KravRow[];
+};
+
+// Bedöm en variabel (diameter/längd) mot dess kravprofilrader.
+// larmTyst = under min-underlag i perioden → grå (larma inte på tunt underlag).
+const bedomProfil = (
+  stat: VariabelStat | null,
+  variabel: 'diameter' | 'langd',
+  trosklar: KravRow[],
+): { status: ProfilStatus; larmTyst: boolean; detaljer: { metrik: string; status: ProfilStatus }[] } => {
+  const rows = trosklar.filter((t) => t.variabel === variabel);
+  if (!stat || stat.n === 0 || rows.length === 0) return { status: 'ok', larmTyst: true, detaljer: [] };
+  const traffRow = rows.find((r) => r.metrik === 'traffprocent');
+  const larmMin = traffRow?.larm_min_matt ?? null;
+  if (larmMin != null && stat.n < larmMin) return { status: 'ok', larmTyst: true, detaljer: [] };
+  const värdeFor = (metrik: string): number | null => {
+    switch (metrik) {
+      case 'traffprocent': return stat.traffPct;
+      case 'systematisk': return stat.systematisk == null ? null : Math.abs(stat.systematisk);
+      case 'standardavv': return stat.standardavv;
+      case 'grov_avvikelse': return stat.grovPct;
+      default: return null;
+    }
+  };
+  const detaljer: { metrik: string; status: ProfilStatus }[] = [];
+  let värsta: ProfilStatus = 'ok';
+  for (const r of rows) {
+    const v = värdeFor(r.metrik);
+    if (v == null) continue;
+    const mal = Number(r.mal), golv = Number(r.golv);
+    const st: ProfilStatus = r.riktning === 'hog_bra'
+      ? (v >= mal ? 'ok' : v < golv ? 'röd' : 'orange')
+      : (v <= mal ? 'ok' : v > golv ? 'röd' : 'orange');
+    detaljer.push({ metrik: r.metrik, status: st });
+    if (PROFIL_RANK[st] > PROFIL_RANK[värsta]) värsta = st;
+  }
+  return { status: värsta, larmTyst: false, detaljer };
+};
 
 // iOS-mönster: dra ner på modalen för att stänga. Hela modalen är dragbar
 // från övre 200px (handle + header). Resten behåller scroll. Hooken returnerar
@@ -327,6 +402,9 @@ export default function KalibreringPage() {
   const [alleMaskiner, setAlleMaskiner] = useState<{ maskin_id: string; tillverkare: string | null; modell: string | null; aktiv_till: string | null }[]>([]);
   const [maskinSheetOpen, setMaskinSheetOpen] = useState(false);
   const [maskinSearchQ, setMaskinSearchQ] = useState('');
+
+  // Profilbedömning per maskin (90-dagarsfönster) — cachas per maskin_id.
+  const [bedomningMap, setBedomningMap] = useState<Record<string, BedomningResp>>({});
   const swipeSheet = useSwipeDownToClose(() => setMaskinSheetOpen(false));
 
   // Hämta alla skördare (även sålda) en gång vid mount — listan i sheet:n
@@ -354,6 +432,65 @@ export default function KalibreringPage() {
     const m = alleMaskiner.find(x => x.maskin_id === effectiveSelected);
     return m ? maskinNamn(m) : effectiveSelected;
   }, [effectiveSelected, alleMaskiner]);
+
+  // Aktiva maskiner: sålda (aktiv_till i det förflutna) döljs från väljare + 'alla'-aggregat.
+  // Historiken finns kvar i DB; den bara filtreras bort ur vyn.
+  const aktivaMaskinIds = useMemo(
+    () => alleMaskiner.filter(m => !(m.aktiv_till && m.aktiv_till < idagStr())).map(m => m.maskin_id),
+    [alleMaskiner],
+  );
+  const arAktiv = useCallback(
+    (mid: string) => aktivaMaskinIds.length === 0 || aktivaMaskinIds.includes(mid),
+    [aktivaMaskinIds],
+  );
+  // Senaste-fliken bedöms alltid per maskin. 'all' → senaste kontrollen från en
+  // AKTIV maskin; annars den valda maskinen. (allKalib är sorterad datum desc.)
+  const heroMaskin = useMemo<string | null>(
+    () => effectiveSelected !== 'all'
+      ? effectiveSelected
+      : (allKalib.find(k => arAktiv(k.maskin_id))?.maskin_id ?? null),
+    [effectiveSelected, allKalib, arAktiv],
+  );
+  const heroFilnamn = useMemo<string | null>(
+    () => heroMaskin ? (allKalib.find(k => k.maskin_id === heroMaskin)?.filnamn ?? null) : (allKalib[0]?.filnamn ?? null),
+    [heroMaskin, allKalib],
+  );
+  const bedomning = heroMaskin ? (bedomningMap[heroMaskin] ?? null) : null;
+
+  // Hjälte-block för en variabel: TRÄFFPROCENTEN som hjälte-tal, färgad via
+  // profilbedömningen (sämsta-styr). Period + systematik/std som stödtal.
+  // "OK är tyst" → grå. Under min-underlag → grå + "för få mått".
+  const renderHeroVar = (
+    label: string, enhet: 'cm' | 'mm', stat: VariabelStat | null, variabel: 'diameter' | 'langd',
+  ) => {
+    const bed = bedomning ? bedomProfil(stat, variabel, bedomning.trosklar) : null;
+    const ton: ToneToken = bed && !bed.larmTyst ? PROFIL_TON[bed.status] : 'ok';
+    if (!stat || stat.traffPct == null) {
+      return (
+        <div className="kalib-hero-metric">
+          <div className="kalib-hero-metric-value tone-ok">–</div>
+          <div className="kalib-hero-metric-label">{label}</div>
+          <div className="kalib-hero-metric-hint">inget underlag</div>
+        </div>
+      );
+    }
+    const tolText = stat.tolerans != null ? `inom ±${fmtTal(stat.tolerans, enhet)} ${enhet}` : '';
+    // Stödtalen visas alltid med 1 decimal — std/systematik ligger ofta precis
+    // vid tröskeln (t.ex. 4,6 mot taket 4,5); heltal skulle dölja marginalen.
+    const sig1 = (x: number | null) => (x == null ? '–' : `${x > 0 ? '+' : ''}${x.toFixed(1)}`);
+    const abs1 = (x: number | null) => (x == null ? '–' : x.toFixed(1));
+    return (
+      <div className="kalib-hero-metric">
+        <div className={`kalib-hero-metric-value tone-${ton}`}>{Math.round(stat.traffPct)}%</div>
+        <div className="kalib-hero-metric-label">{label} · {tolText}</div>
+        <div className="kalib-hero-metric-hint">
+          {bed?.larmTyst
+            ? `för få mått i perioden (${stat.n})`
+            : `syst. ${sig1(stat.systematisk)} ${enhet} · std ${abs1(stat.standardavv)} ${enhet} · n=${stat.n}`}
+        </div>
+      </div>
+    );
+  };
 
   const aggregeraDagFiltrerat = (dag: CalDag, valdMaskinId: string | 'all'): CalDagstatus => {
     if (valdMaskinId === 'all') return dag.status;
@@ -497,6 +634,37 @@ export default function KalibreringPage() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Hämta profilbedömning (90-dagarsfönster) för den maskin Senaste-fliken visar.
+  useEffect(() => {
+    if (!heroMaskin || bedomningMap[heroMaskin]) return;
+    let cancelled = false;
+    fetch(`/api/kalibrering/bedomning?key=skogsystem-debug&maskin_id=${encodeURIComponent(heroMaskin)}`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: BedomningResp & { ok?: boolean }) => {
+        if (cancelled || !data?.ok) return;
+        setBedomningMap(prev => (prev[heroMaskin] ? prev : { ...prev, [heroMaskin]: data }));
+      })
+      .catch(() => { /* tyst — hjälten faller tillbaka på "inget underlag" */ });
+    return () => { cancelled = true; };
+  }, [heroMaskin, bedomningMap]);
+
+  // Senaste kontrollens stockar för vald maskin (kan skilja sig från globalt
+  // senaste när man filtrerar per maskin — stockMap laddar annars bara den globala).
+  useEffect(() => {
+    if (!heroFilnamn || stockMap[heroFilnamn]) return;
+    let cancelled = false;
+    supabase
+      .from('detalj_kontroll_stock')
+      .select('*')
+      .eq('filnamn', heroFilnamn)
+      .order('stock_nummer', { ascending: true })
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        setStockMap(prev => (prev[heroFilnamn] ? prev : { ...prev, [heroFilnamn]: data as DetaljKontrollStock[] }));
+      });
+    return () => { cancelled = true; };
+  }, [heroFilnamn, stockMap]);
 
   // === Apple-kontrollmodal — datalager (fetch-then-push) ===
   const fetchKontroll = useCallback(
@@ -1240,7 +1408,7 @@ export default function KalibreringPage() {
 
   // === Derived data ===
   // Senaste-fliken använder ALLTID hela datasetet (oberoende av filter)
-  const latestKalib = allKalib.length > 0 ? allKalib[0] : null;
+  const latestKalib = heroFilnamn ? (allKalib.find(k => k.filnamn === heroFilnamn) ?? null) : (allKalib[0] ?? null);
   const latestStockar = latestKalib ? (stockMap[latestKalib.filnamn] || []).sort((a, b) => a.stock_nummer - b.stock_nummer) : [];
   const totalLatestLen = latestStockar.reduce((a, s) => a + s.maskin_langd_cm, 0);
   // Antal stockar utanför tolerans (delad skala: dia ±4 mm, längd ±2 cm).
@@ -1251,8 +1419,8 @@ export default function KalibreringPage() {
   ).length;
 
   // Filtrerade datakällor — Historik och Rapport räknar på dessa
-  const filteredKalib = effectiveSelected === 'all' ? allKalib : allKalib.filter(k => k.maskin_id === effectiveSelected);
-  const filteredHistorik = effectiveSelected === 'all' ? historik : historik.filter(h => h.maskin_id === effectiveSelected);
+  const filteredKalib = effectiveSelected === 'all' ? allKalib.filter(k => arAktiv(k.maskin_id)) : allKalib.filter(k => k.maskin_id === effectiveSelected);
+  const filteredHistorik = effectiveSelected === 'all' ? historik.filter(h => arAktiv(h.maskin_id)) : historik.filter(h => h.maskin_id === effectiveSelected);
 
   // Per-species stats (weighted by antal_kontrollstockar) — Historik bars + Rapport tabell
   const speciesData: Record<string, { count: number; totalStockar: number; lenDiff: number; diaDiff: number }> = {};
@@ -1515,9 +1683,15 @@ export default function KalibreringPage() {
   }
 
   const reportDate = new Date(allKalib[0].datum).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
-  const verdictWithinTolerance =
-    avvikelseStatus({ värde: avgLenReport, enhet: 'len' }) === 'ok'
-    && avvikelseStatus({ värde: avgDiaReport, enhet: 'dia' }) === 'ok';
+  // Rapport-headline bedöms mot profilen när EN maskin är vald. Aggregatet 'alla'
+  // har ingen enskild profil → faller tillbaka på snitt-toleransen som förr.
+  const reportBed = effectiveSelected !== 'all' && bedomning && bedomning.maskin_id === effectiveSelected ? bedomning : null;
+  const reportDiaBed = reportBed ? bedomProfil(reportBed.diameter, 'diameter', reportBed.trosklar) : null;
+  const reportLenBed = reportBed ? bedomProfil(reportBed.langd, 'langd', reportBed.trosklar) : null;
+  const verdictWithinTolerance = reportBed
+    ? [reportDiaBed, reportLenBed].filter((b): b is NonNullable<typeof b> => !!b && !b.larmTyst).every(b => b.status === 'ok')
+    : avvikelseStatus({ värde: avgLenReport, enhet: 'len' }) === 'ok'
+      && avvikelseStatus({ värde: avgDiaReport, enhet: 'dia' }) === 'ok';
 
   const partialBanner = partialError ? (
     <div className="kalib-info-box warn" style={{ marginBottom: 16 }}>
@@ -1556,9 +1730,10 @@ export default function KalibreringPage() {
 
         .kalib-hero-metrics{display:flex;gap:12px;margin-bottom:16px}
         .kalib-hero-metric{flex:1;text-align:center;padding:20px 12px;background:rgba(255,255,255,0.04);border-radius:12px}
-        .kalib-hero-metric-value{font-size:36px;font-weight:700;line-height:1;margin-bottom:6px;letter-spacing:-0.02em;color:#fff}
-        /* Hero-talet färgas på SNITTET via delade skalan. ok = vitt (tyst). */
-        .kalib-hero-metric-value.tone-ok{color:#fff}
+        .kalib-hero-metric-value{font-size:36px;font-weight:700;line-height:1;margin-bottom:6px;letter-spacing:-0.02em;color:#8E8E93}
+        /* Hero = TRÄFFPROCENT, färgad via profilbedömningen (sämsta-styr).
+           grå = mål uppnått (tyst) · orange = under mål · röd = under golv. */
+        .kalib-hero-metric-value.tone-ok{color:#8E8E93}
         .kalib-hero-metric-value.tone-cold{color:#0A84FF}
         .kalib-hero-metric-value.tone-hi{color:#FF9F0A}
         .kalib-hero-metric-value.tone-hot{color:#FF453A}
@@ -1566,6 +1741,11 @@ export default function KalibreringPage() {
         .kalib-lugn-rad{display:flex;align-items:center;gap:8px;margin-top:16px;font-size:13px;color:#8E8E93;line-height:1.4}
         .kalib-hero-metric-label{font-size:14px;color:#8E8E93;font-weight:500}
         .kalib-hero-metric-hint{font-size:13px;color:#8E8E93;margin-top:4px}
+        /* Profil-chip + periodrad på hjälte-kortet. */
+        .kalib-hero-topline{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+        .kalib-profil-chip{font-size:11px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;color:#0A84FF;background:rgba(10,132,255,0.12);padding:4px 9px;border-radius:999px;white-space:nowrap}
+        .kalib-profil-chip.muted{color:#8E8E93;background:rgba(255,255,255,0.06)}
+        .kalib-hero-period{font-size:12px;color:#8E8E93;margin-bottom:14px}
 
         .kalib-info-box{display:flex;gap:12px;padding:14px 16px;border-radius:12px;align-items:center}
         .kalib-info-box.ok{background:rgba(52,199,89,0.1);border:1px solid rgba(52,199,89,0.2)}
@@ -2081,15 +2261,14 @@ export default function KalibreringPage() {
           <button className={`kalib-pill ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>Rapport</button>
         </nav>
 
-        {activeTab !== 'today' && (
-          <div className="kalib-filter-row">
-            <button className="kalib-filter-btn" onClick={() => { closeModal(); setMaskinSearchQ(''); setMaskinSheetOpen(true); }}>
-              <MSym name="tune" size={16} color="#fff" />
-              <span className="kalib-filter-label">{filterLabel}</span>
-              <MSym name="expand_more" size={16} color="#8E8E93" />
-            </button>
-          </div>
-        )}
+        {/* Maskin-filtret visas på alla flikar — Senaste bedöms per maskin. */}
+        <div className="kalib-filter-row">
+          <button className="kalib-filter-btn" onClick={() => { closeModal(); setMaskinSearchQ(''); setMaskinSheetOpen(true); }}>
+            <MSym name="tune" size={16} color="#fff" />
+            <span className="kalib-filter-label">{filterLabel}</span>
+            <MSym name="expand_more" size={16} color="#8E8E93" />
+          </button>
+        </div>
 
         <PageContainer width="full">
         <div className={`kalib-container ${activeTab !== 'today' ? 'wide' : ''}`}>
@@ -2103,40 +2282,46 @@ export default function KalibreringPage() {
               {partialBanner}
 
               <div className="kalib-card">
-                <div className="kalib-section-title" style={{ marginBottom: 18 }}>Avvikelse från operatör</div>
-                <div className="kalib-hero-metrics">
-                  <div className="kalib-hero-metric">
-                    <div className={`kalib-hero-metric-value tone-${avvikelseTon(latestKalib.langd_avvikelse_snitt_cm, 'len')}`}>
-                      {fmtAvvikelse(latestKalib.langd_avvikelse_snitt_cm, 'cm')}
-                    </div>
-                    <div className="kalib-hero-metric-label">Längd (cm)</div>
-                    <div className="kalib-hero-metric-hint">min {fmtAvvikelse(latestKalib.langd_avvikelse_min_cm, 'cm')} / max {fmtAvvikelse(latestKalib.langd_avvikelse_max_cm, 'cm')}</div>
-                  </div>
-                  <div className="kalib-hero-metric">
-                    <div className={`kalib-hero-metric-value tone-${avvikelseTon(latestKalib.dia_avvikelse_snitt_mm, 'dia')}`}>
-                      {fmtAvvikelse(latestKalib.dia_avvikelse_snitt_mm, 'mm')}
-                    </div>
-                    <div className="kalib-hero-metric-label">Diameter (mm)</div>
-                    <div className="kalib-hero-metric-hint">min {fmtAvvikelse(latestKalib.dia_avvikelse_min_mm, 'mm')} / max {fmtAvvikelse(latestKalib.dia_avvikelse_max_mm, 'mm')}</div>
-                  </div>
+                <div className="kalib-hero-topline">
+                  <div className="kalib-section-title">Mätnoggrannhet</div>
+                  {bedomning?.profil
+                    ? <span className="kalib-profil-chip">Bedöms mot {bedomning.profil}</span>
+                    : <span className="kalib-profil-chip muted">Ingen kravprofil</span>}
                 </div>
-                {latestUtanfor === 0 ? (
-                  <div className="kalib-lugn-rad">
-                    <MSym name="check" size={16} color="#8E8E93" />
-                    <span>Allt inom tolerans.</span>
-                  </div>
-                ) : (
-                  <div className="kalib-lugn-rad">
-                    <MSym name="info" size={16} color="#8E8E93" />
-                    <span>{latestUtanfor} av {stockText(latestStockar.length)} utanför — se stockarna nedan.</span>
-                  </div>
+                {bedomning?.fonster && (
+                  <div className="kalib-hero-period">Rullande {bedomning.fonster.dagar} dagar · {bedomning.fonster.fran} → {bedomning.fonster.till}</div>
                 )}
+                <div className="kalib-hero-metrics">
+                  {renderHeroVar('Diameter', 'mm', bedomning?.diameter ?? null, 'diameter')}
+                  {renderHeroVar('Längd', 'cm', bedomning?.langd ?? null, 'langd')}
+                </div>
+                {(() => {
+                  if (!bedomning) return (
+                    <div className="kalib-lugn-rad"><MSym name="hourglass_empty" size={16} color="#8E8E93" /><span>Läser bedömning…</span></div>
+                  );
+                  const dia = bedomProfil(bedomning.diameter, 'diameter', bedomning.trosklar);
+                  const len = bedomProfil(bedomning.langd, 'langd', bedomning.trosklar);
+                  const aktiva = [dia, len].filter(b => !b.larmTyst);
+                  if (aktiva.length === 0) return (
+                    <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>För få mått i perioden för en bedömning.</span></div>
+                  );
+                  const värsta: ProfilStatus = aktiva.some(b => b.status === 'röd') ? 'röd' : aktiva.some(b => b.status === 'orange') ? 'orange' : 'ok';
+                  if (värsta === 'ok') return (
+                    <div className="kalib-lugn-rad"><MSym name="check" size={16} color="#8E8E93" /><span>Inom {bedomning.profil ? `${bedomning.profil}s` : 'profilens'} krav.</span></div>
+                  );
+                  return (
+                    <div className="kalib-lugn-rad">
+                      <MSym name="warning" size={16} color={värsta === 'röd' ? '#FF453A' : '#FF9F0A'} />
+                      <span>{värsta === 'röd' ? 'Under golvet — se måtten ovan.' : 'Godkänt men under mål — se måtten ovan.'}</span>
+                    </div>
+                  );
+                })()}
               </div>
 
               {latestStockar.length > 0 && (
                 <div className="kalib-card">
                   <div className="kalib-section-title">Stockar</div>
-                  <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {stockText(latestStockar.length)} • {(totalLatestLen / 100).toFixed(1)} meter</div>
+                  <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {stockText(latestStockar.length)} • {(totalLatestLen / 100).toFixed(1)} meter{latestUtanfor > 0 ? ` • ${latestUtanfor} utanför tolerans` : ''}</div>
                   <div className="kalib-stem-viz">
                     <div className="kalib-stem-viz-inner">
                       <span className="kalib-stem-label">Rot</span>
@@ -2863,26 +3048,33 @@ export default function KalibreringPage() {
               </div>
 
               <div className="kalib-report-section">
-                <div className="kalib-report-section-title">Avvikelse</div>
+                <div className="kalib-report-section-title">
+                  {reportBed ? `Träffprocent · rullande ${reportBed.fonster?.dagar ?? 90} dagar` : 'Avvikelse'}
+                  {reportBed?.profil && <span className="kalib-profil-chip" style={{ marginLeft: 8 }}>{reportBed.profil}</span>}
+                </div>
                 <div className="kalib-report-results">
                   <div className="kalib-report-result">
                     <div className="kalib-report-result-label">Längd</div>
-                    <div className={`kalib-report-result-value big tone-${avvikelseTon(avgLenReport, 'len')}`}>{fmtAvvikelse(avgLenReport, 'cm')} cm</div>
+                    {reportBed
+                      ? <div className={`kalib-report-result-value big tone-${reportLenBed && !reportLenBed.larmTyst ? PROFIL_TON[reportLenBed.status] : 'ok'}`}>{reportBed.langd?.traffPct != null ? `${Math.round(reportBed.langd.traffPct)} %` : '–'}</div>
+                      : <div className={`kalib-report-result-value big tone-${avvikelseTon(avgLenReport, 'len')}`}>{fmtAvvikelse(avgLenReport, 'cm')} cm</div>}
                   </div>
                   <div className="kalib-report-result">
                     <div className="kalib-report-result-label">Diameter</div>
-                    <div className={`kalib-report-result-value big tone-${avvikelseTon(avgDiaReport, 'dia')}`}>{fmtAvvikelse(avgDiaReport, 'mm')} mm</div>
+                    {reportBed
+                      ? <div className={`kalib-report-result-value big tone-${reportDiaBed && !reportDiaBed.larmTyst ? PROFIL_TON[reportDiaBed.status] : 'ok'}`}>{reportBed.diameter?.traffPct != null ? `${Math.round(reportBed.diameter.traffPct)} %` : '–'}</div>
+                      : <div className={`kalib-report-result-value big tone-${avvikelseTon(avgDiaReport, 'dia')}`}>{fmtAvvikelse(avgDiaReport, 'mm')} mm</div>}
                   </div>
                 </div>
                 {verdictWithinTolerance ? (
                   <div className="kalib-lugn-rad">
                     <MSym name="check" size={16} color="#8E8E93" />
-                    <span>Inom tolerans.</span>
+                    <span>{reportBed ? `Inom ${reportBed.profil ? `${reportBed.profil}s` : 'profilens'} krav.` : 'Inom tolerans.'}</span>
                   </div>
                 ) : (
                   <div className="kalib-lugn-rad">
                     <MSym name="info" size={16} color="#8E8E93" />
-                    <span>Utanför tolerans — se avvikelserna ovan.</span>
+                    <span>{reportBed ? 'Under profilens krav — se per trädslag nedan.' : 'Utanför tolerans — se avvikelserna ovan.'}</span>
                   </div>
                 )}
               </div>
@@ -2983,12 +3175,13 @@ export default function KalibreringPage() {
                 <span className="kalib-sheet-label">Alla maskiner</span>
               </button>
               {alleMaskiner
+                // Sålda maskiner döljs från väljaren (historiken finns kvar i DB).
+                .filter(m => arAktiv(m.maskin_id))
                 .filter(m => {
                   if (!maskinSearchQ.trim()) return true;
                   return maskinNamn(m).toLowerCase().includes(maskinSearchQ.trim().toLowerCase());
                 })
                 .map(m => {
-                  const isSold = m.aktiv_till !== null && m.aktiv_till < idagStr();
                   const namn = maskinNamn(m);
                   return (
                     <button
@@ -2997,10 +3190,7 @@ export default function KalibreringPage() {
                       onClick={() => { setSelectedMaskinId(m.maskin_id); setMaskinSheetOpen(false); }}
                     >
                       <span className="kalib-sheet-check">{effectiveSelected === m.maskin_id && <MSym name="check" size={20} color="#fff" />}</span>
-                      <span className="kalib-sheet-label">
-                        {namn}
-                        {isSold && <span className="kalib-sheet-sold"> (såld)</span>}
-                      </span>
+                      <span className="kalib-sheet-label">{namn}</span>
                     </button>
                   );
                 })}
