@@ -241,6 +241,37 @@ interface ManuellPrognos {
   skotare: string;
 }
 
+interface DimMaskin {
+  maskin_id: string;
+  modell: string | null;
+  tillverkare: string | null;
+  maskin_typ: string | null;   // 'Harvester' | 'Forwarder'
+  klarar_typ: string | null;   // 'slutavverkning' | 'gallring' | 'bada' | null (null = okänt)
+  extramaskin: boolean | null;
+  aktiv_till: string | null;   // ISO-datum; satt = såld/utfasad
+}
+
+// Roll -> vilken maskin_typ som gäller
+const ROLL_MASKINTYP: Record<'skordare' | 'skotare', string> = { skordare: 'Harvester', skotare: 'Forwarder' };
+
+// Aktiv (ej såld) idag? aktiv_till NULL eller >= idag.
+function maskinAktiv(m: DimMaskin, idagISO: string): boolean {
+  return !m.aktiv_till || m.aktiv_till >= idagISO;
+}
+
+// Klarar maskinen objektets typ? NULL klarar_typ = okänt -> göm ALDRIG tyst (true).
+// 'bada' klarar allt. Objektets typ okänd -> filtrera inte. Annars exakt match.
+function maskinKlararTyp(klararTyp: string | null, objektTyp: string | null | undefined): boolean {
+  if (!klararTyp) return true;
+  if (klararTyp === 'bada') return true;
+  if (!objektTyp) return true;
+  return klararTyp === objektTyp;
+}
+
+function maskinModell(m: DimMaskin | undefined | null): string {
+  return m?.modell || m?.maskin_id || '';
+}
+
 // Linjetyper som ritas som stängda polygoner.
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
 const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
@@ -1454,15 +1485,20 @@ export default function PlannerPage() {
   const [newChecklistItem, setNewChecklistItem] = useState('');
 
   // Info-fliken
-  const maskinLista = ['PONSSE Scorpion Giant 8W', 'Wisent 2015', 'Elephant King AF', 'Rottne'];
+  const [dimMaskiner, setDimMaskiner] = useState<DimMaskin[]>([]);
+  const [maskinSheet, setMaskinSheet] = useState<'skordare' | 'skotare' | null>(null);
   const [infoBarighet, setInfoBarighet] = useState<string | null>(null);
   const [infoTerrang, setInfoTerrang] = useState<string | null>(null);
-  const [infoSkordareMaskin, setInfoSkordareMaskin] = useState('');
+  const [infoSkordareMaskinId, setInfoSkordareMaskinId] = useState<string | null>(null);
+  const [infoSkordareUtforare, setInfoSkordareUtforare] = useState<string | null>(null); // 'egen' | 'extern' | null
+  const [infoSkordareUtforareNamn, setInfoSkordareUtforareNamn] = useState('');
   const [infoSkordareBand, setInfoSkordareBand] = useState(false);
   const [infoSkordareBandPar, setInfoSkordareBandPar] = useState('1');
   const [infoSkordareManFall, setInfoSkordareManFall] = useState(false);
   const [infoSkordareManFallText, setInfoSkordareManFallText] = useState('');
-  const [infoSkotareMaskin, setInfoSkotareMaskin] = useState('');
+  const [infoSkotareMaskinId, setInfoSkotareMaskinId] = useState<string | null>(null);
+  const [infoSkotareUtforare, setInfoSkotareUtforare] = useState<string | null>(null); // 'egen' | 'extern' | null
+  const [infoSkotareUtforareNamn, setInfoSkotareUtforareNamn] = useState('');
   const [infoSkotareBand, setInfoSkotareBand] = useState(false);
   const [infoSkotareBandPar, setInfoSkotareBandPar] = useState('1');
   const [infoSkotareLastreder, setInfoSkotareLastreder] = useState(false);
@@ -1486,18 +1522,22 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym')
+        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
         setInfoBarighet(data.barighet || null);
         setInfoTerrang(data.terrang || null);
-        setInfoSkordareMaskin(data.skordare_maskin || '');
+        setInfoSkordareMaskinId(data.skordare_maskin_id || null);
+        setInfoSkordareUtforare(data.skordare_utforare || null);
+        setInfoSkordareUtforareNamn(data.skordare_utforare_namn || '');
         setInfoSkordareBand(data.skordare_band || false);
         setInfoSkordareBandPar(data.skordare_band_par || '1');
         setInfoSkordareManFall(data.skordare_manuell_fallning || false);
         setInfoSkordareManFallText(data.skordare_manuell_fallning_text || '');
-        setInfoSkotareMaskin(data.skotare_maskin || '');
+        setInfoSkotareMaskinId(data.skotare_maskin_id || null);
+        setInfoSkotareUtforare(data.skotare_utforare || null);
+        setInfoSkotareUtforareNamn(data.skotare_utforare_namn || '');
         setInfoSkotareBand(data.skotare_band || false);
         setInfoSkotareBandPar(data.skotare_band_par || '1');
         setInfoSkotareLastreder(data.skotare_lastreder_breddat || false);
@@ -1533,6 +1573,16 @@ export default function PlannerPage() {
     loadInfo();
   }, [valtObjekt?.id]);
 
+  // Ladda maskinregister (dim_maskin) en gång — matar maskin-väljarna i Fakta-fliken
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('dim_maskin')
+        .select('maskin_id, modell, tillverkare, maskin_typ, klarar_typ, extramaskin, aktiv_till');
+      if (data) setDimMaskiner(data as DimMaskin[]);
+    })();
+  }, []);
+
   // Spara info till Supabase (debounced)
   const saveInfoToDb = useCallback(async () => {
     if (!valtObjekt?.id || !infoLoaded) return;
@@ -1548,12 +1598,19 @@ export default function PlannerPage() {
       .update({
         barighet: infoBarighet,
         terrang: infoTerrang,
-        skordare_maskin: infoSkordareMaskin || null,
+        // Maskin/utförare: skriv till id/utförare-kolumnerna. Invarianten (maskin_id XOR
+        // utförare) hålls av väljar-handlarna. Fritext-kolumnerna skordare_maskin/skotare_maskin
+        // skrivs INTE längre — de fryses som skyddsnät.
+        skordare_maskin_id: infoSkordareMaskinId,
+        skordare_utforare: infoSkordareUtforare,
+        skordare_utforare_namn: infoSkordareUtforare === 'extern' ? (infoSkordareUtforareNamn || null) : null,
         skordare_band: infoSkordareBand,
         skordare_band_par: infoSkordareBandPar,
         skordare_manuell_fallning: infoSkordareManFall,
         skordare_manuell_fallning_text: infoSkordareManFallText || null,
-        skotare_maskin: infoSkotareMaskin || null,
+        skotare_maskin_id: infoSkotareMaskinId,
+        skotare_utforare: infoSkotareUtforare,
+        skotare_utforare_namn: infoSkotareUtforare === 'extern' ? (infoSkotareUtforareNamn || null) : null,
         skotare_band: infoSkotareBand,
         skotare_band_par: infoSkotareBandPar,
         skotare_lastreder_breddat: infoSkotareLastreder,
@@ -1576,7 +1633,79 @@ export default function PlannerPage() {
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
+
+  // === Maskin-väljare (Fakta-fliken) — matas från dim_maskin ===
+  // Valbar lista för en roll: rätt maskin_typ, aktiv (ej såld), klarar objektets typ.
+  // NULL klarar_typ = okänt -> visas ändå (göms aldrig tyst).
+  const maskinerForRoll = (roll: 'skordare' | 'skotare') => {
+    const idag = new Date().toISOString().slice(0, 10);
+    const objTyp = valtObjekt?.typ as string | undefined;
+    return dimMaskiner
+      .filter(m => m.maskin_typ === ROLL_MASKINTYP[roll])
+      .filter(m => maskinAktiv(m, idag))
+      .filter(m => maskinKlararTyp(m.klarar_typ, objTyp))
+      .sort((a, b) => maskinModell(a).localeCompare(maskinModell(b), 'sv'));
+  };
+  // Välj maskin -> nollar utförare (invariant: maskin_id XOR utförare)
+  const valjMaskin = (roll: 'skordare' | 'skotare', maskinId: string) => {
+    if (roll === 'skordare') { setInfoSkordareMaskinId(maskinId); setInfoSkordareUtforare(null); setInfoSkordareUtforareNamn(''); }
+    else { setInfoSkotareMaskinId(maskinId); setInfoSkotareUtforare(null); setInfoSkotareUtforareNamn(''); }
+    setMaskinSheet(null);
+  };
+  // Välj utförar-läge (egen/extern/null) -> nollar maskin_id
+  const valjUtforare = (roll: 'skordare' | 'skotare', mode: 'egen' | 'extern' | null) => {
+    if (roll === 'skordare') { setInfoSkordareUtforare(mode); setInfoSkordareMaskinId(null); if (mode !== 'extern') setInfoSkordareUtforareNamn(''); }
+    else { setInfoSkotareUtforare(mode); setInfoSkotareMaskinId(null); if (mode !== 'extern') setInfoSkotareUtforareNamn(''); }
+    setMaskinSheet(null);
+  };
+  // Rad (tryckyta) + varning + extern-namnfält för en roll
+  const renderMaskinVal = (roll: 'skordare' | 'skotare') => {
+    const maskinId = roll === 'skordare' ? infoSkordareMaskinId : infoSkotareMaskinId;
+    const utforare = roll === 'skordare' ? infoSkordareUtforare : infoSkotareUtforare;
+    const namn = roll === 'skordare' ? infoSkordareUtforareNamn : infoSkotareUtforareNamn;
+    const setNamn = roll === 'skordare' ? setInfoSkordareUtforareNamn : setInfoSkotareUtforareNamn;
+    const vald = maskinId ? dimMaskiner.find(m => m.maskin_id === maskinId) : undefined;
+    const idag = new Date().toISOString().slice(0, 10);
+    let display = 'Välj…';
+    if (maskinId) {
+      display = maskinModell(vald) || maskinId;
+      if (vald && !maskinAktiv(vald, idag)) display += ' (såld)';
+      else if (vald?.extramaskin) display += ' (extra)';
+    } else if (utforare === 'egen') display = roll === 'skordare' ? 'Egen avverkning' : 'Egen skotning';
+    else if (utforare === 'extern') display = namn ? `Extern · ${namn}` : 'Extern';
+    const objTyp = valtObjekt?.typ as string | undefined;
+    const inkompatibel = vald && vald.klarar_typ && objTyp && !maskinKlararTyp(vald.klarar_typ, objTyp);
+    const varnText = inkompatibel
+      ? `${maskinModell(vald)} kan inte ${objTyp === 'gallring' ? 'gallra' : objTyp === 'slutavverkning' ? 'slutavverka' : objTyp}`
+      : null;
+    return (
+      <div style={{ marginBottom: '16px' }}>
+        <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
+        <div onClick={() => setMaskinSheet(roll)} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 16px', borderRadius: '10px', cursor: 'pointer',
+          background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+        }}>
+          <span style={{ fontSize: '13px', color: (maskinId || utforare) ? '#fff' : '#8e8e93' }}>{display}</span>
+          <span style={{ fontSize: '18px', color: '#48484a', lineHeight: 1 }}>›</span>
+        </div>
+        {utforare === 'extern' && (
+          <input value={namn} onChange={e => setNamn(e.target.value)} placeholder="Namn på extern utförare"
+            style={{ width: '100%', marginTop: '8px', padding: '12px 16px', borderRadius: '10px',
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+              color: '#fff', fontSize: '13px', outline: 'none' }} />
+        )}
+        {varnText && (
+          <div style={{ marginTop: '8px', padding: '10px 14px', borderRadius: '10px',
+            background: 'rgba(255,69,58,0.1)', border: '1px solid rgba(255,69,58,0.3)',
+            color: '#ff453a', fontSize: '13px', fontWeight: 500 }}>
+            ⚠️ {varnText}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   useEffect(() => {
     if (!infoLoaded) return;
@@ -16782,23 +16911,8 @@ export default function PlannerPage() {
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skördare</div>
 
-                  {/* Maskin dropdown */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
-                    <select
-                      value={infoSkordareMaskin}
-                      onChange={e => setInfoSkordareMaskin(e.target.value)}
-                      style={{
-                        width: '100%', padding: '12px 16px', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none',
-                        appearance: 'none', WebkitAppearance: 'none',
-                      }}
-                    >
-                      <option value="" style={{ background: '#111' }}>Välj maskin...</option>
-                      {maskinLista.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
-                    </select>
-                  </div>
+                  {/* Maskin — från dim_maskin (Harvester, aktiva, klarar objektets typ) */}
+                  {renderMaskinVal('skordare')}
 
                   {/* Band toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareBand ? '12px' : '16px' }}>
@@ -16859,26 +16973,11 @@ export default function PlannerPage() {
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skotare</div>
 
-                  {/* Maskin dropdown */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
-                    <select
-                      value={infoSkotareMaskin}
-                      onChange={e => setInfoSkotareMaskin(e.target.value)}
-                      style={{
-                        width: '100%', padding: '12px 16px', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none',
-                        appearance: 'none', WebkitAppearance: 'none',
-                      }}
-                    >
-                      <option value="" style={{ background: '#111' }}>Välj maskin...</option>
-                      {maskinLista.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
-                    </select>
-                  </div>
+                  {/* Maskin — från dim_maskin (Forwarder, aktiva, klarar objektets typ) */}
+                  {renderMaskinVal('skotare')}
 
-                  {/* Konfiguration – bara Elephant King */}
-                  {infoSkotareMaskin === 'Elephant King AF' && (
+                  {/* Konfiguration – bara Elephant King (maskin_id, inte modellnamn) */}
+                  {infoSkotareMaskinId === 'A110148' && (
                     <div style={{ marginBottom: '16px' }}>
                       <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Konfiguration</div>
                       <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
@@ -17211,6 +17310,56 @@ export default function PlannerPage() {
             </div>
           </div>
           )}
+
+          {/* Maskin-väljar-sheet (dim_maskin) */}
+          {maskinSheet && (() => {
+            const roll = maskinSheet;
+            const maskinId = roll === 'skordare' ? infoSkordareMaskinId : infoSkotareMaskinId;
+            const utforare = roll === 'skordare' ? infoSkordareUtforare : infoSkotareUtforare;
+            const lista = maskinerForRoll(roll);
+            const vald = maskinId ? dimMaskiner.find(m => m.maskin_id === maskinId) : undefined;
+            const valdEjValbar = !!vald && !lista.some(m => m.maskin_id === vald.maskin_id);
+            const idag = new Date().toISOString().slice(0, 10);
+            const Rad = (nyckel: string, label: string, arVald: boolean, onClick: (() => void) | undefined, muted: boolean) => (
+              <div key={nyckel} onClick={onClick} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '14px 16px', cursor: onClick ? 'pointer' : 'default',
+                borderBottom: '1px solid rgba(255,255,255,0.06)',
+              }}>
+                <span style={{ fontSize: '15px', color: muted ? '#8e8e93' : '#fff' }}>{label}</span>
+                {arVald && <span style={{ color: '#0a84ff', fontSize: '17px' }}>✓</span>}
+              </div>
+            );
+            return (
+              <div onClick={() => setMaskinSheet(null)} style={{
+                position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400,
+                display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+              }}>
+                <div onClick={e => e.stopPropagation()} style={{
+                  background: '#1c1c1e', borderTopLeftRadius: '16px', borderTopRightRadius: '16px',
+                  maxHeight: '75%', overflowY: 'auto', paddingBottom: 'env(safe-area-inset-bottom)',
+                }}>
+                  <div style={{ padding: '16px', fontSize: '13px', color: '#8e8e93', textAlign: 'center' }}>
+                    {roll === 'skordare' ? 'Skördare' : 'Skotare'}
+                  </div>
+                  {valdEjValbar && vald && Rad('nuvarande',
+                    `Nuvarande: ${maskinModell(vald)}${!maskinAktiv(vald, idag) ? ' (såld)' : ''} — ej valbar`,
+                    true, undefined, true)}
+                  {lista.map(m => Rad(m.maskin_id,
+                    `${maskinModell(m)}${m.extramaskin ? ' (extra)' : ''}${!m.klarar_typ ? ' (klarar-typ ej satt)' : ''}`,
+                    maskinId === m.maskin_id, () => valjMaskin(roll, m.maskin_id), false))}
+                  {lista.length === 0 && (
+                    <div style={{ padding: '14px 16px', fontSize: '13px', color: '#8e8e93' }}>
+                      Inga maskiner matchar rollen{valtObjekt?.typ ? ` + ${valtObjekt.typ}` : ''}.
+                    </div>
+                  )}
+                  {Rad('egen', roll === 'skordare' ? 'Egen avverkning' : 'Egen skotning', utforare === 'egen', () => valjUtforare(roll, 'egen'), false)}
+                  {Rad('extern', 'Extern', utforare === 'extern', () => valjUtforare(roll, 'extern'), false)}
+                  {(maskinId || utforare) && Rad('rensa', 'Rensa (ej bestämt)', false, () => valjUtforare(roll, null), true)}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Edit Modal */}
           {editingField && (
