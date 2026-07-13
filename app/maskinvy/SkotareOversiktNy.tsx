@@ -51,6 +51,10 @@ type SkotareData = {
   terr:         number   // terrain_sek summerat (G15h-tid)
   avbr:         number   // fakt_avbrott exkl. flytt (= avbrottsvyns "Stopp")
   flytt:        number   // fakt_avbrott Trailer transportation (= avbrottsvyns flyttkort)
+  // Tomgång: MOTOR-mätning som överlappar väggklocke-hinkarna — eget nyckeltal,
+  // ALDRIG segment i tidsfördelningen (dubbelräknas annars).
+  tomgangSek:   number
+  engineSek:    number
 }
 
 // Per-operatör i djupvyn
@@ -88,7 +92,7 @@ async function fetchSkotareData(
   // Hämta fakt_lass, fakt_tid och fakt_avbrott SEPARAT — aldrig i samma query
   const [lassRows, tidRows, avbrottRows] = await Promise.all([
     fetchAll('fakt_lass', 'datum, volym_m3sub, korstracka_m', ids, start, end),
-    fetchAll('fakt_tid',  'processing_sek, terrain_sek', ids, start, end),
+    fetchAll('fakt_tid',  'processing_sek, terrain_sek, tomgang_sek, engine_time_sek', ids, start, end),
     fetchAll('fakt_avbrott', 'kategori_kod, langd_sek', ids, start, end),
   ])
 
@@ -110,11 +114,13 @@ async function fetchSkotareData(
 
   const lass = lassRows.length
 
-  // ── fakt_tid → G15h (summeras fristående, aldrig join mot lass) ──
-  let proc = 0, terr = 0
+  // ── fakt_tid → G15h + tomgång (summeras fristående, aldrig join mot lass) ──
+  let proc = 0, terr = 0, tomgangSek = 0, engineSek = 0
   for (const r of tidRows) {
-    proc += r.processing_sek || 0
-    terr += r.terrain_sek    || 0
+    proc       += r.processing_sek  || 0
+    terr       += r.terrain_sek     || 0
+    tomgangSek += r.tomgang_sek     || 0
+    engineSek  += r.engine_time_sek || 0
   }
   const g15h = (proc + terr) / 3600
 
@@ -149,6 +155,8 @@ async function fetchSkotareData(
     terr,
     avbr,
     flytt,
+    tomgangSek,
+    engineSek,
   }
 }
 
@@ -410,11 +418,25 @@ function SkotareKpiList({
   prev:    SkotareData | null
   loading: boolean
 }) {
-  const rows = [
+  // Tomgång: eget nyckeltal (motoraxel, överlappar hinkarna — aldrig i tidsför-
+  // delningen). Delta jämför ANDELEN av motortid (lägre är bättre) — timmar
+  // skalar med periodlängd. Visas för ALLA maskiner; skotarens låga andel
+  // (~0,5–1 %) är kvittot, inte ett skäl att gömma måttet.
+  type Row = {
+    label: string; val: number | null; prevVal: number | null
+    unit: string; dec: number; lowerIsBetter?: boolean; display?: string
+  }
+  const tomgangAndel = (d: SkotareData | null) =>
+    d && d.engineSek > 0 ? (d.tomgangSek / d.engineSek) * 100 : null
+  const tomgangDisplay = data && data.engineSek > 0
+    ? `${fmtSv(data.tomgangSek / 3600, 0)}h · ${fmtSv((data.tomgangSek / data.engineSek) * 100, 1)}%`
+    : undefined
+  const rows: Row[] = [
     { label: 'Lass',         val: data?.lass          ?? null, prevVal: prev?.lass          ?? null, unit: 'st',      dec: 0 },
     { label: 'Snittlass',    val: data?.snittLass      ?? null, prevVal: prev?.snittLass      ?? null, unit: 'm³/lass', dec: 1 },
     { label: 'Snittsträcka', val: data?.snittSträcka   ?? null, prevVal: prev?.snittSträcka   ?? null, unit: 'm',       dec: 0 },
     { label: 'Lass/G15h',    val: data?.lassPerG15h    ?? null, prevVal: prev?.lassPerG15h    ?? null, unit: 'st/G15h', dec: 1 },
+    { label: 'Tomgång',      val: tomgangAndel(data),           prevVal: tomgangAndel(prev),           unit: '%',       dec: 1, lowerIsBetter: true, display: tomgangDisplay },
   ]
 
   return (
@@ -435,15 +457,17 @@ function SkotareKpiList({
             fontSize: 16, fontWeight: 500, color: C.text,
             fontVariantNumeric: 'tabular-nums', textAlign: 'right',
           }}>
-            {loading ? '—' : r.val !== null ? fmtSv(r.val, r.dec) : '—'}
-            <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>
-              {r.unit}
-            </span>
+            {loading ? '—' : r.display ?? (r.val !== null ? fmtSv(r.val, r.dec) : '—')}
+            {!(!loading && r.display) && (
+              <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>
+                {r.unit}
+              </span>
+            )}
           </div>
           <div style={{ textAlign: 'right' }}>
             {loading
               ? <span style={{ fontSize: 11, color: C.dim }}>—</span>
-              : <DeltaBadge current={r.val} previous={r.prevVal} size="sm" />}
+              : <DeltaBadge current={r.val} previous={r.prevVal} lowerIsBetter={r.lowerIsBetter ?? false} size="sm" />}
           </div>
         </div>
       ))}

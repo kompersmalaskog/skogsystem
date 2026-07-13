@@ -148,6 +148,11 @@ export type Data = {
   bransleTotalt: number
   branslePerM3: number | null
   stammarPerG15h: number | null
+  // Tomgång är en MOTOR-mätning (härledd: engine − (P+T+OW − kort_stopp) vid
+  // import) som ÖVERLAPPAR väggklocke-hinkarna — får ALDRIG läggas som segment
+  // i tidsfördelningen (dubbelräkning). Visas som eget nyckeltal: h + % av motortid.
+  tomgangSek: number
+  engineSek: number
   proc: number; terr: number; kort: number; avbr: number; rast: number
   dagar: number               // distinkta produktionsdagar
   operatorer: Operator[]      // filter: volym > 0 || stammar > 0
@@ -193,7 +198,7 @@ export async function fetchData(
 
   const [prodRows, tidRows, avbrRows, opRes] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar, operator_id', ids, start, end, operatorId),
-    fetchAll('fakt_tid', 'operator_id, processing_sek, terrain_sek, kort_stopp_sek, rast_sek, bransle_liter', ids, start, end, operatorId),
+    fetchAll('fakt_tid', 'operator_id, processing_sek, terrain_sek, kort_stopp_sek, rast_sek, bransle_liter, tomgang_sek, engine_time_sek', ids, start, end, operatorId),
     fetchAll('fakt_avbrott', 'kategori_kod, langd_sek', ids, start, end, operatorId),
     operatorId
       ? Promise.resolve({ data: [] as Array<{ operator_id: string; operator_namn: string }> })
@@ -222,6 +227,7 @@ export async function fetchData(
 
   // fakt_tid → total + per operator
   let proc = 0, terr = 0, kort = 0, rast = 0, bransle = 0
+  let tomgang = 0, engine = 0
   const tidByOp: Record<string, { proc: number; terr: number }> = {}
   for (const r of tidRows) {
     proc    += r.processing_sek || 0
@@ -229,6 +235,8 @@ export async function fetchData(
     kort    += r.kort_stopp_sek || 0
     rast    += r.rast_sek || 0
     bransle += parseFloat(r.bransle_liter) || 0
+    tomgang += r.tomgang_sek || 0
+    engine  += r.engine_time_sek || 0
     if (r.operator_id) {
       if (!tidByOp[r.operator_id]) tidByOp[r.operator_id] = { proc: 0, terr: 0 }
       tidByOp[r.operator_id].proc += r.processing_sek || 0
@@ -287,6 +295,7 @@ export async function fetchData(
   return {
     volym, stammar, g15h, produktivitet, medelstam,
     bransleTotalt: bransle, branslePerM3, stammarPerG15h,
+    tomgangSek: tomgang, engineSek: engine,
     proc, terr, kort: kort + kortaAvbrottSek, avbr, rast,
     dagar: prodDays.size,
     operatorer, avbrottPerKat,
@@ -305,6 +314,7 @@ export type PeriodKpi = {
   medelstam: number | null
   branslePerM3: number | null
   stammarPerG15h: number | null
+  tomgangAndel: number | null   // % av motortid
 }
 
 const MIN_DAYS_PER_PERIOD = 2
@@ -322,7 +332,7 @@ export async function fetchSeries(
 
   const [prodRows, tidRows] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar', ids, spanStart, spanEnd, operatorId),
-    fetchAll('fakt_tid', 'datum, processing_sek, terrain_sek, bransle_liter', ids, spanStart, spanEnd, operatorId),
+    fetchAll('fakt_tid', 'datum, processing_sek, terrain_sek, bransle_liter, tomgang_sek, engine_time_sek', ids, spanStart, spanEnd, operatorId),
   ])
 
   const bucketOf = (datum: string): number => {
@@ -334,6 +344,7 @@ export async function fetchSeries(
 
   const buckets = ranges.map(() => ({
     volym: 0, stammar: 0, proc: 0, terr: 0, bransle: 0,
+    tomgang: 0, engine: 0,
     prodDays: new Set<string>(),
   }))
 
@@ -348,6 +359,8 @@ export async function fetchSeries(
     buckets[b].proc    += r.processing_sek || 0
     buckets[b].terr    += r.terrain_sek || 0
     buckets[b].bransle += parseFloat(r.bransle_liter) || 0
+    buckets[b].tomgang += r.tomgang_sek || 0
+    buckets[b].engine  += r.engine_time_sek || 0
   }
 
   return buckets.map((b, i) => {
@@ -358,6 +371,7 @@ export async function fetchSeries(
         label: ranges[i].label, hasData: false,
         produktivitet: null, volym: null, stammar: null,
         medelstam: null, branslePerM3: null, stammarPerG15h: null,
+        tomgangAndel: null,
       }
     }
     return {
@@ -368,6 +382,7 @@ export async function fetchSeries(
       medelstam:       b.stammar > 0                  ? b.volym / b.stammar : null,
       branslePerM3:    (b.volym > 0 && b.bransle > 0) ? b.bransle / b.volym : null,
       stammarPerG15h:  (g15h > 0 && b.stammar > 0)    ? b.stammar / g15h    : null,
+      tomgangAndel:    b.engine > 0                   ? (b.tomgang / b.engine) * 100 : null,
     }
   })
 }
@@ -661,7 +676,7 @@ export function HeroCard({
 // jämförelse-kolumnen visar procentdelta ('previous'/'machine' för
 // hastighetsmått) eller andel ('machine' för totalmått Volym/Stammar).
 // ─────────────────────────────────────────────────────────────
-type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h'
+type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h' | 'tomgangAndel'
 
 export function KpiList({
   data, prev, series, loading,
@@ -682,13 +697,23 @@ export function KpiList({
     cur: number | null; prev: number | null
     unit: string; dec: number; lowerIsBetter: boolean
     kind: 'rate' | 'total'
+    display?: string   // ersätter fmtSv(cur)+unit i värdecellen (t.ex. "72h · 5,9%")
   }
+  // Tomgång: MOTOR-mätning som överlappar väggklocke-hinkarna — eget nyckeltal
+  // (aldrig segment i tidsfördelningen). Delta/trend jämför ANDELEN (% av
+  // motortid, lägre är bättre) — timmar skalar med periodlängd och vore missvisande.
+  const tomgangAndel = (d: Data | null) =>
+    d && d.engineSek > 0 ? (d.tomgangSek / d.engineSek) * 100 : null
+  const tomgangDisplay = data && data.engineSek > 0
+    ? `${fmtSv(data.tomgangSek / 3600, 0)}h · ${fmtSv((data.tomgangSek / data.engineSek) * 100, 1)}%`
+    : undefined
   const rows: Row[] = [
     { label: 'Volym',         metric: 'volym',          cur: data?.volym ?? null,           prev: prev?.volym ?? null,           unit: 'm³sub',   dec: 0, lowerIsBetter: false, kind: 'total' },
     { label: 'Stammar',       metric: 'stammar',        cur: data?.stammar ?? null,         prev: prev?.stammar ?? null,         unit: 'st',      dec: 0, lowerIsBetter: false, kind: 'total' },
     { label: 'Medelstam',     metric: 'medelstam',      cur: data?.medelstam ?? null,       prev: prev?.medelstam ?? null,       unit: 'm³/stam', dec: 2, lowerIsBetter: false, kind: 'rate'  },
     { label: 'Bränsle/m³',    metric: 'branslePerM3',   cur: data?.branslePerM3 ?? null,    prev: prev?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2, lowerIsBetter: true,  kind: 'rate'  },
     { label: 'Stammar/G15h',  metric: 'stammarPerG15h', cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false, kind: 'rate'  },
+    { label: 'Tomgång',       metric: 'tomgangAndel',   cur: tomgangAndel(data),            prev: tomgangAndel(prev),            unit: '%',       dec: 1, lowerIsBetter: true,  kind: 'rate',  display: tomgangDisplay },
   ]
 
   return (
@@ -735,8 +760,10 @@ export function KpiList({
           >
             <div style={{ fontSize: 15, color: C.text }}>{r.label}</div>
             <div style={{ fontSize: 16, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-              {loading ? '—' : (r.cur !== null ? fmtSv(r.cur, r.dec) : '—')}
-              <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>{r.unit}</span>
+              {loading ? '—' : r.display ?? (r.cur !== null ? fmtSv(r.cur, r.dec) : '—')}
+              {!(!loading && r.display) && (
+                <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>{r.unit}</span>
+              )}
             </div>
             <div style={{ textAlign: 'right' }}>
               {loading
