@@ -54,9 +54,9 @@ DAYS_BACK = 14                 # fönster: senaste N dagar
 ABS_THRESHOLD_H = 0.5          # LARM om |tak − DB| > detta antal timmar
 REL_THRESHOLD = 0.10           # info-flagga om gap ≥ 10 % av taket (även under abs-tröskeln)
 MAX_ENGINE_H = 24.0            # invariant: motortid per (maskin, dag) kan aldrig överstiga detta
-KANDA_TOMGANG_ARV = 41         # rader från före #124 där fallbacken inte uppdaterade tomgang_sek
-                               # (uppmätt 2026-07-10). De SJÄLVLÄKER vid omimport av sina dagar —
-                               # räknaren gör läkningen synlig; LARM bara om antalet VÄXER.
+KANDA_TOMGANG_ARV = 0          # Arvet (41 rader från före #124) STÄDADES 2026-07-13 via omimport
+                               # av 13 filer — baslinjen är nu NOLL. Varje inkonsistent rad efter
+                               # detta är ett äkta larm (#124-fixen ska hålla fältet konsistent).
 GAP_LOG = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_logg.txt')
 LARM_FIL = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_LARM_senaste.txt')
 
@@ -302,8 +302,35 @@ def main():
     # LARM-fil skrivs över varje körning: tom betyder grönt, innehåll = senaste larmen
     with open(LARM_FIL, 'w', encoding='utf-8') as fh:
         fh.write(text + '\n' if alarms else f'INGA LARM {datetime.datetime.now():%Y-%m-%d %H:%M}\n')
+
+    # Statusrad till appen (Datahälsa-vyn läser meta_datahalsa_status).
+    # Mjuk felhantering: saknas tabellen (migration ej körd) får körningen
+    # INTE krascha — loggen/larmfilen är fortfarande primärkanalen.
+    try:
+        larm_rader = [r.strip() for r in L if r.strip().startswith('LARM')]
+        payload = json.dumps({
+            'id': 'gap_check',
+            'kord_tid': datetime.datetime.now().astimezone().isoformat(),
+            'status': 'LARM' if alarms else 'OK',
+            'larm_antal': len(alarms),
+            'sammanfattning': ('\n'.join(larm_rader)[:1500] if alarms
+                               else f'Inga larm — {n_rader} rader kontrollerade, tomgång-arv {tomgang_arv}'),
+        }).encode('utf-8')
+        hdr = dict(_hdr())
+        hdr.update({'Content-Type': 'application/json',
+                    'Prefer': 'resolution=merge-duplicates,return=minimal'})
+        urllib.request.urlopen(urllib.request.Request(
+            imp.SUPABASE_URL + '/rest/v1/meta_datahalsa_status?on_conflict=id',
+            data=payload, headers=hdr, method='POST'), timeout=30)
+        L_status = 'statusrad skriven till meta_datahalsa_status'
+    except Exception as e:
+        L_status = f'kunde inte skriva statusrad (migration ej körd?): {e}'
+    with open(GAP_LOG, 'a', encoding='utf-8') as fh:
+        fh.write(f'    ({L_status})\n\n')
+
     if not args.quiet:
         print(text)
+        print(f'    ({L_status})')
         print(f'\n(loggat till {GAP_LOG}; larmstatus i {LARM_FIL})')
     sys.exit(1 if alarms else 0)
 
