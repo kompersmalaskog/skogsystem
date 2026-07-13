@@ -1788,7 +1788,11 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
                         machine_measurement_date = mdate
                     elif cat == 'Operator':
                         operator_langd = langd
-                        operator_dia = dia
+                        # Toppdia läses bara från LogDiameter-Top. Toppstockar där
+                        # operatören bara har ControlLogDiameter (ingen LogDiameter)
+                        # → dia=0 → NULL (inte falsk 0). Matpunkterna bär den
+                        # riktiga per-position-jämförelsen.
+                        operator_dia = dia if dia else None
                         operator_measurement_date = mdate
                 
                 # Beräkna avvikelser
