@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useDatahalsa } from './datahalsa/useDatahalsa'
 
 function getDatum() {
   const now = new Date()
@@ -41,6 +42,34 @@ const adminApps = [
 const markagarrapportEntry = { href: '/admin/markagarrapport', label: 'Markägarrapport', icon: 'summarize' }
 const ekonomiAppEntry = { href: '/ekonomi', label: 'Ekonomi', icon: 'payments' }
 const adminAppEntry = { href: '/admin', label: 'Admin', icon: 'shield' }
+
+// ── Datahälsa-bannern — morgonkollen: BESKEDET direkt på hemskärmen ──
+// Samma hook som /datahalsa-vyn ⇒ beskedet kan aldrig betyda olika saker
+// på olika ställen. Grön prick = allt lugnt, utan att behöva klicka.
+function DatahalsaBanner() {
+  const { besked } = useDatahalsa()
+  const farg = besked.niva === 'gron' ? '#30d158'
+    : besked.niva === 'gul' ? '#ffd60a'
+    : besked.niva === 'rod' ? '#ff453a' : '#8e8e93'
+  return (
+    <Link href="/datahalsa" style={{ textDecoration: 'none' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        background: '#141416', borderRadius: 14, padding: '13px 16px',
+        marginBottom: 28, border: '1px solid rgba(255,255,255,0.05)',
+      }}>
+        <span style={{
+          width: 10, height: 10, borderRadius: 5, background: farg, flexShrink: 0,
+          ...(besked.niva === 'laddar' ? { opacity: 0.4 } : {}),
+        }} />
+        <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', flex: 1 }}>
+          Datahälsa: {besked.rubrik}
+        </span>
+        <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#8e8e93' }}>chevron_right</span>
+      </div>
+    </Link>
+  )
+}
 
 function AppIcon({ href, label, icon, variant }: { href: string; label: string; icon: string; variant: 'production' | 'admin' }) {
   const bgColor = variant === 'production' ? '#30d158' : '#0a84ff'
@@ -114,6 +143,9 @@ export default function HomeClient() {
 
       {/* Main */}
       <main style={{ padding: '0 24px 140px', maxWidth: 500, margin: '0 auto' }}>
+
+        {/* Datahälsa — morgonkollen */}
+        <DatahalsaBanner />
 
         {/* Produktion */}
         <div style={{ marginBottom: 32 }}>

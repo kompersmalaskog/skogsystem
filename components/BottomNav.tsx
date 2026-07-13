@@ -14,6 +14,7 @@ const tabs = [
 ];
 
 const morItems = [
+  { href: '/datahalsa', label: 'Datahälsa', icon: 'monitor_heart' },
   { href: '/redigering', label: 'Objektdetaljer', icon: 'edit' },
   { href: '/forbattringsforslag', label: 'Feedback', icon: 'feedback' },
   { href: '/uppfoljning', label: 'Uppföljning', icon: 'monitoring' },
