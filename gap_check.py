@@ -54,6 +54,9 @@ DAYS_BACK = 14                 # fönster: senaste N dagar
 ABS_THRESHOLD_H = 0.5          # LARM om |tak − DB| > detta antal timmar
 REL_THRESHOLD = 0.10           # info-flagga om gap ≥ 10 % av taket (även under abs-tröskeln)
 MAX_ENGINE_H = 24.0            # invariant: motortid per (maskin, dag) kan aldrig överstiga detta
+KANDA_TOMGANG_ARV = 41         # rader från före #124 där fallbacken inte uppdaterade tomgang_sek
+                               # (uppmätt 2026-07-10). De SJÄLVLÄKER vid omimport av sina dagar —
+                               # räknaren gör läkningen synlig; LARM bara om antalet VÄXER.
 GAP_LOG = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_logg.txt')
 LARM_FIL = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_LARM_senaste.txt')
 
@@ -161,10 +164,11 @@ def mom_ceiling(maskin, dayset):
 
 def check_invarianter():
     """Invarianter över HELA fakt_tid (ren DB, ordnad hämtning).
-    -> (larmrader, antal_rader). READ-ONLY."""
+    -> (larmrader, antal_rader, tomgang_arv_kvar). READ-ONLY."""
     url_bas = (imp.SUPABASE_URL +
                '/rest/v1/fakt_tid?select=datum,maskin_id,objekt_id,operator_id,'
-               'processing_sek,terrain_sek,engine_time_sek,bransle_liter'
+               'processing_sek,terrain_sek,other_work_sek,kort_stopp_sek,'
+               'tomgang_sek,engine_time_sek,bransle_liter'
                '&order=id&limit=1000&offset=')
     rows, offset = [], 0
     while True:
@@ -203,7 +207,21 @@ def check_invarianter():
                 larm.append(f'  LARM  INVARIANT dubblett-rad: {m} {d} objekt={o} — '
                             f'{len(ops)} identiska rader ({", ".join(str(x) for x in ops)}), '
                             f'eng={fp[2]/3600:.2f} h vardera')
-    return larm, len(rows)
+
+    # (c) tomgångs-konsistens: lagrad tomgang_sek == max(0, eng − (P+T+OW − kort_stopp))?
+    #     De kända arv-raderna (före #124) självläker vid omimport — räknaren visar
+    #     läkningen. VÄXER antalet skapas nya inkonsistenta rader trots #124 => LARM.
+    tomgang_arv = 0
+    for r in rows:
+        g0 = ((r.get('processing_sek') or 0) + (r.get('terrain_sek') or 0)
+              + (r.get('other_work_sek') or 0) - (r.get('kort_stopp_sek') or 0))
+        forv = max(0, (r.get('engine_time_sek') or 0) - g0)
+        if abs((r.get('tomgang_sek') or 0) - forv) > 1:
+            tomgang_arv += 1
+    if tomgang_arv > KANDA_TOMGANG_ARV:
+        larm.append(f'  LARM  INVARIANT tomgång-inkonsistens VÄXER: {tomgang_arv} rader '
+                    f'(känt arv: {KANDA_TOMGANG_ARV}) — skapas NYA trots #124-fixen?')
+    return larm, len(rows), tomgang_arv
 
 
 def db_day_pt(maskin, dayset):
@@ -243,9 +261,11 @@ def main():
     L.append(f'    trösklar: |tak − DB| > {ABS_THRESHOLD_H:.2f} h ; motortid/dag > {MAX_ENGINE_H:.0f} h ; info ≥ {int(REL_THRESHOLD*100)} %')
 
     # ── Del 1: invarianter över HELA historiken ──
-    inv_larm, n_rader = check_invarianter()
+    inv_larm, n_rader, tomgang_arv = check_invarianter()
     L.append(f'    invarianter: {n_rader} fakt_tid-rader kontrollerade — '
              f'{len(inv_larm) if inv_larm else "inga"} larm')
+    L.append(f'    tomgång-arv (före #124, självläker vid omimport): {tomgang_arv} rader kvar'
+             + (' — LÄKT ✓' if tomgang_arv == 0 else f' (utgångsläge {KANDA_TOMGANG_ARV})'))
     L.extend(inv_larm)
 
     # ── Del 2: MOM-avstämning i fönstret ──
