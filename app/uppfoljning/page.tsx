@@ -32,6 +32,9 @@ function fmtH(minutes: number): string {
 }
 
 /* ── V6 status-härledning ── */
+// "Kör" kräver FAKTISK aktivitet (fakt_tid senaste 7 dagarna). Ett objekt med
+// tilldelad maskin men utan aktivitet är "Pågående" — aldrig "kör" (den gamla
+// fallbacken visade "Skördare kör" för objekt som stått stilla i veckor).
 type V6StatusKey = 'skordare' | 'skotare' | 'vantar' | 'pagaende' | 'done';
 function v6Status(obj: UppfoljningObjekt): { t: string; k: V6StatusKey } {
   if (obj.status === 'avslutat') return { t: 'Avslutat', k: 'done' };
@@ -40,9 +43,8 @@ function v6Status(obj: UppfoljningObjekt): { t: string; k: V6StatusKey } {
   const stAct = !!(obj.skotareLastDate && obj.skotareLastDate >= seven);
   const skDone = !!obj.skordareSlut;
   if (skAct) return { t: 'Skördare kör', k: 'skordare' };
-  if (skDone && stAct) return { t: 'Skotare kör', k: 'skotare' };
-  if (skDone && !stAct) return { t: 'Väntar på skotning', k: 'vantar' };
-  if (obj.skordareModell && !skAct && !skDone) return { t: 'Skördare kör', k: 'skordare' };
+  if (stAct) return { t: 'Skotare kör', k: 'skotare' };
+  if (skDone) return { t: 'Väntar på skotning', k: 'vantar' };
   return { t: 'Pågående', k: 'pagaende' };
 }
 
@@ -52,21 +54,21 @@ function V6OskotatKort({ data, onFilter }: { data: UppfoljningObjekt[]; onFilter
   const oskotat = {
     slut: { m3: 0, objekt: [] as UppfoljningObjekt[] },
     gall: { m3: 0, objekt: [] as UppfoljningObjekt[] },
-    grot: { m3: 0, objekt: [] as UppfoljningObjekt[] },
+    // Grot: vi HAR ingen grotvolym i datan (bara risskotning-flaggan). Tidigare
+    // visades en schablon (15 % av skördat) som såg exakt ut — påhittad siffra
+    // bredvid riktiga. Nu: antal objekt, volym uttalat okänd.
+    grot: { objekt: [] as UppfoljningObjekt[] },
   };
   data.forEach(o => {
     if (o.status === 'avslutat') return;
     const kvar = Math.max(0, o.volymSkordare - o.volymSkotare);
     if (kvar <= 0) return;
-    if (o.grotSkotning) {
-      const grotKvar = Math.round(o.volymSkordare * 0.15);
-      if (grotKvar > 0) { oskotat.grot.m3 += grotKvar; oskotat.grot.objekt.push(o); }
-    }
+    if (o.grotSkotning) oskotat.grot.objekt.push(o);
     if (o.typ === 'slutavverkning') { oskotat.slut.m3 += kvar; oskotat.slut.objekt.push(o); }
     else if (o.typ === 'gallring') { oskotat.gall.m3 += kvar; oskotat.gall.objekt.push(o); }
   });
-  const total = oskotat.slut.m3 + oskotat.gall.m3 + oskotat.grot.m3;
-  if (total === 0) return null;
+  const total = oskotat.slut.m3 + oskotat.gall.m3;
+  if (total === 0 && oskotat.grot.objekt.length === 0) return null;
 
   const rad = (label: string, key: 'slutavverkning' | 'gallring' | 'grot', kat: typeof oskotat.slut) => {
     if (kat.m3 === 0) return null;
@@ -89,8 +91,12 @@ function V6OskotatKort({ data, onFilter }: { data: UppfoljningObjekt[]; onFilter
         <span style={{ width: 6, height: 6, borderRadius: '50%', background: V6_WARN, flexShrink: 0 }} />
         <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.1px' }}>Oskotat i skogen</span>
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.3px' }}>{Math.round(total).toLocaleString('sv-SE')}</span>
-        <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 600, marginLeft: 3 }}>m³</span>
+        {total > 0 && (
+          <>
+            <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.3px' }}>{Math.round(total).toLocaleString('sv-SE')}</span>
+            <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 600, marginLeft: 3 }}>m³</span>
+          </>
+        )}
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ marginLeft: 6, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>
           <polyline points="4 2 8 6 4 10" />
         </svg>
@@ -99,7 +105,16 @@ function V6OskotatKort({ data, onFilter }: { data: UppfoljningObjekt[]; onFilter
         <>
           {rad('Slutavverkning', 'slutavverkning', oskotat.slut)}
           {rad('Gallring', 'gallring', oskotat.gall)}
-          {rad('Grot', 'grot', oskotat.grot)}
+          {oskotat.grot.objekt.length > 0 && (
+            <button key="grot" onClick={() => { onFilter('grot'); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '12px 18px', background: 'transparent', border: 'none', borderTop: `0.5px solid ${V6_SEP}`, color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>Grot</span>
+              <span style={{ fontSize: 11, color: V6_GREY, marginRight: 12, fontVariantNumeric: 'tabular-nums' }}>{oskotat.grot.objekt.length} obj</span>
+              <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 500 }}>volym okänd</span>
+              <svg width="7" height="12" viewBox="0 0 8 14" fill="none" stroke={V6_GREY2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 8 }}>
+                <polyline points="1 1 7 7 1 13" />
+              </svg>
+            </button>
+          )}
         </>
       )}
     </div>
@@ -124,6 +139,17 @@ function V6Row({ obj, onClick, divider: showDivider }: { obj: UppfoljningObjekt;
     const d = Math.round((Date.now() - new Date(obj.skordareSlut).getTime()) / 864e5);
     if (d > 0) liggerDagar = d;
   }
+  // Ärligt inaktiv-tillstånd: objekt i "Pågående" med registrerad aktivitet
+  // som legat stilla > 7 dagar får det utskrivet — inte maskerat som "kör".
+  let inaktivDagar: number | null = null;
+  let senastAktiv: string | null = null;
+  if (status.k === 'pagaende') {
+    const senaste = [obj.skordareLastDate, obj.skotareLastDate].filter(Boolean).sort().reverse()[0] || null;
+    if (senaste) {
+      const d = Math.round((Date.now() - new Date(senaste).getTime()) / 864e5);
+      if (d > 7) { inaktivDagar = d; senastAktiv = senaste; }
+    }
+  }
 
   return (
     <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 60, padding: '12px 16px', gap: 12, background: 'transparent', border: 'none', textAlign: 'left', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', borderTop: showDivider ? `0.5px solid ${V6_SEP}` : 'none' }}>
@@ -134,6 +160,9 @@ function V6Row({ obj, onClick, divider: showDivider }: { obj: UppfoljningObjekt;
           {obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}{obj.areal ? ` · ${obj.areal} ha` : ''}
           {liggerDagar != null && (
             <span> · <span style={{ color: V6_WARN, fontWeight: 600 }}>Oskotat {liggerDagar} {liggerDagar === 1 ? 'dag' : 'dagar'} · färdigskördat {fmtDate(obj.skordareSlut)}</span></span>
+          )}
+          {inaktivDagar != null && (
+            <span> · <span style={{ color: V6_WARN, fontWeight: 600 }}>Inaktiv {inaktivDagar} dagar · senast {fmtDate(senastAktiv)}</span></span>
           )}
         </div>
       </div>
@@ -212,7 +241,7 @@ function V6Segmented<T extends string>({ value, onChange, options }: { value: T;
 /* ── Main page ── */
 export default function UppfoljningPage() {
   const router = useRouter();
-  const { objekt, loading } = useUppfoljningList();
+  const { objekt, loading, error } = useUppfoljningList();
 
   // Filter-state med sessionStorage-persistens
   const [typ, setTyp] = useState<'alla' | 'slutavverkning' | 'gallring' | 'grot'>('alla');
@@ -315,6 +344,12 @@ export default function UppfoljningPage() {
         <div style={{ paddingBottom: 40 }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: 60, color: muted, fontSize: 14 }}>Laddar...</div>
+          ) : error ? (
+            /* Fel ≠ tomt: ett fetchfel får aldrig se ut som "inga objekt". */
+            <div style={{ textAlign: 'center', padding: 60 }}>
+              <div style={{ color: V6_WARN, fontSize: 14, fontWeight: 600 }}>Kunde inte läsa objekten</div>
+              <div style={{ color: muted, fontSize: 13, marginTop: 6 }}>Kontrollera anslutningen och försök igen.</div>
+            </div>
           ) : (
             <>
               {order.map(k => {
