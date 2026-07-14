@@ -652,7 +652,9 @@ export default function Arbetsrapport() {
     atk:{saldo_kr:number;timmar:number|null};
     lon:{timlon:number};
   } | null>(null);
-  const [fortnoxSaldoStatus, setFortnoxSaldoStatus] = useState<'idle'|'loading'|'ok'|'error'>('idle');
+  // 'tom' = anropet lyckades men medarbetaren saknar lönesystem-koppling (404)
+  // — inte samma sak som 'error' (nätverk/Fortnox nere/timeout).
+  const [fortnoxSaldoStatus, setFortnoxSaldoStatus] = useState<'idle'|'loading'|'ok'|'tom'|'error'>('idle');
   const [kmSummary, setKmSummary] = useState<{totalKm:number;ersattningsKm:number}|null>(null);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
@@ -694,7 +696,8 @@ export default function Arbetsrapport() {
         supabase.from("arbetsdag").select("*").eq("medarbetare_id", med.data.id).gte("datum", årStart).order("datum",{ascending:true})
           .then(res => { if(res.data) setÅrsData(res.data); });
         // Fetch ATK-val
-        supabase.from("atk_val").select("*").eq("medarbetare_id", med.data.id).eq("period", String(new Date().getFullYear())).single()
+        // maybeSingle: 0 rader är normalfallet innan valet gjorts — .single() gav 406-brus i konsolen
+        supabase.from("atk_val").select("*").eq("medarbetare_id", med.data.id).eq("period", String(new Date().getFullYear())).maybeSingle()
           .then(res => { if(res.data) setAtkValSparat(res.data); });
         // Fetch extra_tid for löneunderlag + pågående
         supabase.from("extra_tid").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(200)
@@ -945,15 +948,24 @@ export default function Arbetsrapport() {
     return () => { cancelled = true; };
   }, [steg, medarbetare?.id, kalÅr, kalMånad]);
 
-  // Lazy-hämta semester- och ATK-saldo från Fortnox när Saldon-fliken öppnas
+  // Lazy-hämta semester- och ATK-saldo från Fortnox när Saldon-fliken öppnas.
+  // Ärliga tillstånd: ingen väntan får vara oändlig — 10s timeout aborterar
+  // och landar i 'error' (med Försök igen-knapp i UI:t). 404 = medarbetaren
+  // saknar lönesystem-koppling = 'tom', vilket INTE är ett fel.
+  // Återförsök: knappen sätter status 'idle' → effekten (som har status i
+  // deps och bara agerar i idle) kör om hämtningen. Ingen retry-loop:
+  // 'error' stannar tills föraren aktivt trycker.
   useEffect(() => {
     if (minTidFlik !== 'saldon') return;
     if (!medarbetare?.id) return;
-    if (fortnoxSaldoStatus === 'loading' || fortnoxSaldoStatus === 'ok') return;
+    if (fortnoxSaldoStatus !== 'idle') return;
     setFortnoxSaldoStatus('loading');
-    fetch(`/api/fortnox/employee-details?medarbetare_id=${encodeURIComponent(medarbetare.id)}`)
-      .then(r => r.json())
-      .then(json => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    fetch(`/api/fortnox/employee-details?medarbetare_id=${encodeURIComponent(medarbetare.id)}`, { signal: ctrl.signal })
+      .then(async r => {
+        if (r.status === 404) { setFortnoxSaldoStatus('tom'); return; }
+        const json = await r.json();
         if (json?.ok) {
           setFortnoxSaldo({ semester: json.semester, atk: json.atk, lon: json.lon });
           setFortnoxSaldoStatus('ok');
@@ -961,8 +973,9 @@ export default function Arbetsrapport() {
           setFortnoxSaldoStatus('error');
         }
       })
-      .catch(() => setFortnoxSaldoStatus('error'));
-  }, [minTidFlik, medarbetare?.id]);
+      .catch(() => setFortnoxSaldoStatus('error'))
+      .finally(() => clearTimeout(timer));
+  }, [minTidFlik, medarbetare?.id, fortnoxSaldoStatus]);
 
   // === ARBETSDAG-NOTIS (start + avslut) ===
   const [arbetsdagToast, setArbetsdagToast] = useState<{
@@ -2765,6 +2778,7 @@ export default function Arbetsrapport() {
           {(()=>{
             const laddar = fortnoxSaldoStatus==='loading' || fortnoxSaldoStatus==='idle';
             const fel    = fortnoxSaldoStatus==='error';
+            const tom    = fortnoxSaldoStatus==='tom';
 
             const betalda = fortnoxSaldo?.semester.betalda ?? 0;
             const obetalda = fortnoxSaldo?.semester.obetalda ?? 0;
@@ -2780,25 +2794,36 @@ export default function Arbetsrapport() {
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
                   {laddar?(
                     <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Hämtar saldo…</p>
-                  ):fel?(
+                  ):fel?(<>
                     <p style={{ margin:0,...TYPE.meta,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
+                    <button onClick={()=>setFortnoxSaldoStatus('idle')}
+                      style={{ marginTop:12,padding:"10px 16px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#fff",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>
+                      Försök igen
+                    </button>
+                  </>):tom?(
+                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inget saldo registrerat</p>
                   ):(<>
-                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
-                      <span style={{ ...TYPE.h2,color:"#fff",...TNUM }}>{semKvar} <span style={{ ...TYPE.meta,color:"#8e8e93" }}>dagar kvar</span></span>
+                    {/* Hjälte: dagar kvar — flikens hela poäng, samma mönster
+                        som Dag-vyns Total och kalenderns månadskort. */}
+                    <div style={{ textAlign:"center",padding:"6px 0 4px" }}>
+                      <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>
+                        {semKvar}
+                        <span style={{ ...TYPE.meta,color:"#8e8e93",marginLeft:6 }}>dagar kvar</span>
+                      </p>
+                      <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginTop:14,overflow:"hidden" }}>
+                        <div style={{ height:"100%",width:`${semPct}%`,background:"#0a84ff",borderRadius:2 }} />
+                      </div>
                     </div>
-                    <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:12,overflow:"hidden" }}>
-                      <div style={{ height:"100%",width:`${semPct}%`,background:"#0a84ff",borderRadius:2 }} />
-                    </div>
-                    <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    <div style={{ borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:16,paddingTop:8 }}>
                       {[
                         ["Betalda",`${betalda} dagar`],
-                        ...(obetalda>0?[["Obetalda",`${obetalda} dagar`]]:[]),
-                        ...(sparade>0?[["Sparade",`${sparade} dagar`]]:[]),
+                        ["Sparade",`${sparade} dagar`],
+                        ["Obetalda",`${obetalda} dagar`],
                         ["Uttagna",`${uttagna} dagar`],
                       ].map(([l,v])=>(
-                        <div key={l as string} style={{ display:"flex",justifyContent:"space-between" }}>
-                          <span style={{ fontSize:13,color:"#8e8e93" }}>{l}</span>
-                          <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{v}</span>
+                        <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0" }}>
+                          <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{l}</span>
+                          <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM }}>{v}</span>
                         </div>
                       ))}
                     </div>
@@ -2812,6 +2837,7 @@ export default function Arbetsrapport() {
           {(()=>{
             const laddar = fortnoxSaldoStatus==='loading' || fortnoxSaldoStatus==='idle';
             const fel    = fortnoxSaldoStatus==='error';
+            const tom    = fortnoxSaldoStatus==='tom';
 
             const atkKr    = fortnoxSaldo?.atk.saldo_kr ?? 0;
             const atkTimmar = fortnoxSaldo?.atk.timmar ?? null;
@@ -2833,8 +2859,14 @@ export default function Arbetsrapport() {
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)",marginBottom:12 }}>
                   {laddar?(
                     <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Hämtar saldo…</p>
-                  ):fel?(
+                  ):fel?(<>
                     <p style={{ margin:0,...TYPE.meta,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
+                    <button onClick={()=>setFortnoxSaldoStatus('idle')}
+                      style={{ marginTop:12,padding:"10px 16px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#fff",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>
+                      Försök igen
+                    </button>
+                  </>):tom?(
+                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inget saldo registrerat</p>
                   ):(<>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:atkTimmar!=null?16:0 }}>
                       <span style={{ ...TYPE.h2,color:"#fff",...TNUM }}>{atkKr.toLocaleString('sv-SE')} <span style={{ ...TYPE.meta,color:"#8e8e93" }}>kr</span></span>
@@ -2866,12 +2898,12 @@ export default function Arbetsrapport() {
                   </div>
                 )}
 
+                {/* Valfönstret stängt utan val: säg det ärligt och lugnt —
+                    föraren kan inget göra förrän nästa fönster, ingen varning
+                    och inget "kontakta chef". */}
                 {efterValperiod&&!harValt&&(
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,159,10,0.3)" }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                      <span className="material-symbols-outlined" style={{ fontSize:18,color:"#ff9f0a" }}>warning</span>
-                      <span style={{ ...TYPE.meta,color:"#fff" }}>Inget val gjort — kontakta chef</span>
-                    </div>
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.06)" }}>
+                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inget val registrerat i år · nästa ATK-val öppnar 1 maj</p>
                   </div>
                 )}
 
@@ -2886,9 +2918,10 @@ export default function Arbetsrapport() {
                   </div>
                 )}
 
+                {/* Valfönstret öppet: en handling, inte en varning. */}
                 {iValperiod&&!harValt&&(
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,159,10,0.25)" }}>
-                    <p style={{ margin:"0 0 16px",...TYPE.meta,fontWeight:600,color:"#ff9f0a" }}>Välj för ditt ATK {årNu2}</p>
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+                    <p style={{ margin:"0 0 16px",...TYPE.body,color:"#fff" }}>Gör ditt ATK-val {årNu2}</p>
                     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16 }}>
                       {([
                         {k:'ledig' as const,label:'Ledig tid',sub:atkDagar!=null?`= ${atkDagar} dagar`:''},
@@ -2910,7 +2943,7 @@ export default function Arbetsrapport() {
                         await supabase.from("atk_val").upsert(row, { onConflict: 'medarbetare_id,period' });
                         setAtkValSparat(row);
                       }}
-                      style={{ width:"100%",height:48,background:atkVal?"#2a2a2a":"rgba(255,255,255,0.04)",border:"none",borderRadius:12,color:atkVal?"#fff":"#636366",fontSize:15,fontWeight:600,cursor:atkVal?"pointer":"default",fontFamily:"inherit",opacity:atkVal?1:0.5 }}>
+                      style={{ width:"100%",height:48,background:atkVal?"#0a84ff":"rgba(255,255,255,0.04)",border:"none",borderRadius:12,color:atkVal?"#fff":"#636366",fontSize:15,fontWeight:600,cursor:atkVal?"pointer":"default",fontFamily:"inherit",opacity:atkVal?1:0.5 }}>
                       Bekräfta val
                     </button>
                   </div>
