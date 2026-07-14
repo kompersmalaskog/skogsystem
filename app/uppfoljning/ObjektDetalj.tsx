@@ -1,6 +1,7 @@
 'use client';
 
 import UppfoljningVy from './UppfoljningVy';
+import EkonomiSektion from './EkonomiSektion';
 import { type UppfoljningObjekt } from './lib/transform';
 import { useObjektUppfoljning } from './hooks/useObjektUppfoljning';
 
@@ -34,7 +35,7 @@ export default function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; 
   return (
     <div style={{ height: 'calc(100dvh - 56px - env(safe-area-inset-top))', overflowY: 'auto', background: '#000' }}>
       <div className="max-w-app mx-auto" style={{ minHeight: '100%' }}>
-        <UppfoljningVy data={data} onBack={onBack} />
+        <UppfoljningVy data={data} onBack={onBack} ekonomi={<EkonomiSektion obj={obj} />} />
       </div>
     </div>
   );

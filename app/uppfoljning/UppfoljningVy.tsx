@@ -725,7 +725,7 @@ function Nav({ onBack }: { onBack?: () => void }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
-export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData; onBack?: () => void }) {
+export default function UppfoljningVy({ data, onBack, ekonomi }: { data: UppfoljningData; onBack?: () => void; ekonomi?: React.ReactNode }) {
   const hasAvbrott = (data.avbrottSkordare?.length || 0) > 0 || (data.avbrottSkotare?.length || 0) > 0;
   const hasProduktivitet = data.skordareM3G15h > 0 || data.skordareStammarG15h > 0 || data.skotareM3G15h > 0 || data.skotningsavstand > 0 || data.skotareSnittlass > 0 || data.skotareLassG15h > 0 || data.skordareMedelstam > 0;
   const hasProdPerDag = (data.prodSkordarePerDag?.length || 0) > 0 || (data.lassPerDag?.some(d => typeof d.m3 === 'number' && d.m3 > 0));
@@ -740,6 +740,7 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
       <Tidslinje data={data} />
 
       <div style={{ marginTop: 8 }}>
+        {ekonomi}
         {hasProduktivitet && <Collapse title="Produktivitet"><Produktivitet data={data} /></Collapse>}
         {hasProdPerDag && <Collapse title="Produktion per dag"><ProdPerDag data={data} /></Collapse>}
         {hasTradslagSort && (
