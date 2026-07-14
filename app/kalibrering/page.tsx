@@ -90,6 +90,17 @@ const fmtTal = (n: number | null | undefined, unit: 'cm' | 'mm'): string => {
   if (n == null || isNaN(n)) return '–';
   return unit === 'cm' ? n.toFixed(1) : String(Math.round(n));
 };
+// Kravtröskel: minimala decimaler (4→"4", 1.5→"1.5", 3.5→"3.5"). Heltalsavrundning
+// skulle dölja att VIDA:s systematik-golv är 1,5 (inte 2) och std-mål 3,5 (inte 4).
+const fmtKrav = (n: number | null | undefined): string => {
+  if (n == null || isNaN(n)) return '–';
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+};
+// Signerat mätvärde med 1 decimal (systematik på objekt/precisionskänsligt).
+const fmtSig1 = (n: number | null | undefined): string => {
+  if (n == null || isNaN(n)) return '–';
+  return `${n > 0 ? '+' : ''}${n.toFixed(1)}`;
+};
 
 // Pluralis: 1 = singular, 2+ = plural. "1 stock" / "2 stockar".
 const antalText = (n: number, singular: string, plural: string) =>
@@ -221,6 +232,9 @@ type DiagKlass = {
   traffPct: number | null;
   systMonthly: { manad: string; systematik: number; n: number }[];
   plateauShare: number | null; plateauN: number;
+  // Trend "Läget" — hela historiken per månad.
+  traffMonthly: { manad: string; traffPct: number; n: number }[];
+  plateauMonthly: { manad: string; share: number; n: number }[];
 };
 type DiagMarkor = { datum: string; kalla: 'reparation' | 'kalibrering' | 'atgard'; text: string };
 type DiagnosResp = {
@@ -236,7 +250,7 @@ type DiagnosVerdikt = {
   fel: DiagFel | null;
   klass: DiagKlass | null;
   bandZon: number | null; // 0 = rot/grov … 4 = topp/klen. null = inget band.
-  mening1: string; mening2: string;
+  mening1: string; mening2: string; mening3?: string; // mening3 = dämpad avvägning
 };
 
 const GRIND_MIN = 30;      // < 30 mätpunkter i en klass → ingen bedömning alls
@@ -279,12 +293,18 @@ const diagnos = (resp: DiagnosResp | null): DiagnosVerdikt => {
     }
   }
   const g = klassGrovlek(värsta.klass);
-  const copy: Record<DiagFel, { m1: string; m2: string }> = {
-    tryck: { m1: `Maskinen mäter ostadigt på ${g}.`, m2: 'Höj matartrycket.' },
+  // Tryck är en AVVÄGNING, inte en gratis fix — mening3 dämpar. Appen ger
+  // underlaget, föraren fattar beslutet.
+  const copy: Record<DiagFel, { m1: string; m2: string; m3?: string }> = {
+    tryck: {
+      m1: `Maskinen mäter ostadigt på ${g}.`,
+      m2: 'Greppet räcker inte — höj trycket på knivar eller matarhjul.',
+      m3: 'Men känn efter: går det för trögt kostar det bränsle och produktion.',
+    },
     kurva: { m1: `Maskinen mäter fel storlek på ${g}.`, m2: 'Diameterkurvan behöver ses över — kontakta tekniker.' },
     slitage: { m1: 'Greppet brister trots höjt tryck.', m2: 'Byt matarvalsar/slitdelar — verkstad.' },
   };
-  return { status: 'diagnos', fel, klass: värsta, bandZon, mening1: copy[fel].m1, mening2: copy[fel].m2 };
+  return { status: 'diagnos', fel, klass: värsta, bandZon, mening1: copy[fel].m1, mening2: copy[fel].m2, mening3: copy[fel].m3 };
 };
 
 // iOS-mönster: dra ner på modalen för att stänga. Hela modalen är dragbar
@@ -431,7 +451,7 @@ const kontrollStatusText = (s: string) => {
 };
 
 export default function KalibreringPage() {
-  const [activeTab, setActiveTab] = useState<'today' | 'trend' | 'calendar' | 'report'>('today');
+  const [activeTab, setActiveTab] = useState<'today' | 'trend' | 'objekt' | 'calendar' | 'report'>('today');
   type ModalEntry = { title: string; subtitle: string; body: React.ReactNode; parentLabel?: string };
   const [modalStack, setModalStack] = useState<ModalEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -489,6 +509,13 @@ export default function KalibreringPage() {
   // Diagnos-underlag per maskin (klasser, planområden, markörer).
   const [diagnosMap, setDiagnosMap] = useState<Record<string, DiagnosResp>>({});
   const [visaSiffror, setVisaSiffror] = useState(false); // Senaste-fliken: förarvy ↔ siffror
+  // Objekt-fliken (maskinoberoende)
+  type ObjektStat = { object_name: string; maskin_id: string | null; n: number; traffPct: number; systematisk: number; standardavv: number; fran: string; till: string };
+  type MaskinInfo = { profil: string | null; golvDia: number | null; traffPctTotal: number | null; n: number };
+  const [objektData, setObjektData] = useState<{ objekt: ObjektStat[]; maskiner: Record<string, MaskinInfo> } | null>(null);
+  const [objektQ, setObjektQ] = useState('');
+  const [valtObjekt, setValtObjekt] = useState<string | null>(null);
+  const [hjalpOpen, setHjalpOpen] = useState(false); // "?"-hjälptexten
   const [nyMarkorDatum, setNyMarkorDatum] = useState('');
   const [nyMarkorText, setNyMarkorText] = useState('');
   const [markorSparar, setMarkorSparar] = useState(false);
@@ -545,6 +572,23 @@ export default function KalibreringPage() {
   const bedomning = heroMaskin ? (bedomningMap[heroMaskin] ?? null) : null;
   const diagnosData = heroMaskin ? (diagnosMap[heroMaskin] ?? null) : null;
   const verdikt = diagnos(diagnosData);
+
+  // Objekt-dom: ett tydligt svar + attribution (maskinen vs trakten). Grind 100.
+  const objektDom = (o: ObjektStat, mask: MaskinInfo | undefined): { ton: ToneToken; rubrik: string; attribution: string | null; tunn: boolean } => {
+    if (o.n < 100) return { ton: 'ok', rubrik: `${o.object_name}: för tunt underlag`, attribution: `Bara ${o.n} mätpunkter — för få för en dom.`, tunn: true };
+    const golv = mask?.golvDia ?? 75;
+    let ton: ToneToken; let ord: string;
+    if (o.traffPct < golv) { ton = 'hot'; ord = 'höll inte måttet'; }
+    else if (o.traffPct >= 85 && o.standardavv <= 3.5) { ton = 'ok'; ord = 'var mycket bra'; }
+    else { ton = 'ok'; ord = 'var godkänd'; }
+    let attribution: string | null = null;
+    if (o.traffPct < golv && mask?.traffPctTotal != null) {
+      attribution = mask.traffPctTotal < golv
+        ? 'Maskinen låg under kravet totalt den perioden — det var maskinen, inte trakten.'
+        : 'Maskinen mätte bra i övrigt — avvikelsen är knuten till den här trakten.';
+    }
+    return { ton, rubrik: `Mätningen på ${o.object_name} ${ord}`, attribution, tunn: false };
+  };
   const heroMaskinObj = heroMaskin ? alleMaskiner.find(m => m.maskin_id === heroMaskin) : undefined;
   const heroNamn = heroMaskinObj ? maskinNamn(heroMaskinObj) : (heroMaskin ?? '');
 
@@ -574,6 +618,58 @@ export default function KalibreringPage() {
       laddaDiagnos(heroMaskin, true); // ladda om så markören syns direkt
     }
   }, [heroMaskin, nyMarkorDatum, nyMarkorText, laddaDiagnos]);
+
+  // Tidsserie-graf (Trend "Läget"): en linje per grovlek + valfri kravlinje + markörer.
+  const KLASS_FARG: Record<string, string> = {
+    '<150': '#0A84FF', '150-199': '#5AC8FA', '200-249': '#FFD60A', '250-299': '#FF9F0A', '300+': '#FF453A',
+  };
+  const renderTidsChart = (
+    manader: string[],
+    series: { klass: string; punkter: Map<string, number> }[],
+    opts: { yMax: number; kravLinje?: { v: number; label: string }; markorer: DiagMarkor[] },
+  ) => {
+    if (manader.length === 0) return <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>Inget underlag ännu.</span></div>;
+    const W = 320, H = 150, padL = 28, padR = 10, padT = 10, padB = 22;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const xFor = (mi: number) => padL + (manader.length === 1 ? plotW / 2 : (mi / (manader.length - 1)) * plotW);
+    const yFor = (v: number) => padT + (1 - Math.max(0, Math.min(opts.yMax, v)) / opts.yMax) * plotH;
+    const monIdx = new Map(manader.map((m, i) => [m, i]));
+    const step = Math.max(1, Math.ceil(manader.length / 6));
+    return (
+      <div className="kalib-grid-scroll">
+        <svg viewBox={`0 0 ${W} ${H}`} className="kalib-tidschart">
+          {[0, opts.yMax / 2, opts.yMax].map(v => (
+            <g key={v}>
+              <line x1={padL} y1={yFor(v)} x2={W - padR} y2={yFor(v)} className="kalib-tc-grid" />
+              <text x={padL - 4} y={yFor(v) + 3} className="kalib-tc-ylabel" textAnchor="end">{Math.round(v)}</text>
+            </g>
+          ))}
+          {opts.kravLinje && (
+            <>
+              <line x1={padL} y1={yFor(opts.kravLinje.v)} x2={W - padR} y2={yFor(opts.kravLinje.v)} className="kalib-tc-krav" />
+              <text x={W - padR} y={yFor(opts.kravLinje.v) - 3} className="kalib-tc-kravlabel" textAnchor="end">{opts.kravLinje.label}</text>
+            </>
+          )}
+          {opts.markorer.map((mk, i) => {
+            const mi = monIdx.get(mk.datum.slice(0, 7));
+            if (mi == null) return null;
+            return <line key={i} x1={xFor(mi)} y1={padT} x2={xFor(mi)} y2={padT + plotH} className={`kalib-tc-markor ${mk.kalla}`} />;
+          })}
+          {series.map(s => {
+            const pts = manader.map((m, i) => (s.punkter.has(m) ? `${xFor(i)},${yFor(s.punkter.get(m) as number)}` : null)).filter(Boolean).join(' ');
+            if (!pts) return null;
+            return <polyline key={s.klass} points={pts} fill="none" stroke={KLASS_FARG[s.klass]} strokeWidth={1.6} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />;
+          })}
+          {manader.map((m, i) => (i % step === 0 || i === manader.length - 1
+            ? <text key={m} x={xFor(i)} y={H - 6} className="kalib-tc-xlabel" textAnchor="middle">{m.slice(2).replace('-', '/')}</text>
+            : null))}
+        </svg>
+        <div className="kalib-tc-legend">
+          {series.map(s => <span key={s.klass} className="kalib-tc-leg"><i style={{ background: KLASS_FARG[s.klass] }} />{s.klass}</span>)}
+        </div>
+      </div>
+    );
+  };
 
   // Hjälte-block för en variabel: TRÄFFPROCENTEN som hjälte-tal, färgad via
   // profilbedömningen (sämsta-styr). Period + systematik/std som stödtal.
@@ -657,6 +753,20 @@ export default function KalibreringPage() {
       .catch(err => { if (!cancelled) { setCalError(err?.message || 'Kunde inte ladda kalendern'); setCalLoading(false); } });
     return () => { cancelled = true; };
   }, [activeTab, calManad, calData, calError]);
+
+  // === Objekt-fliken: lazy fetch (maskinoberoende, en gång)
+  useEffect(() => {
+    if (activeTab !== 'objekt' || objektData) return;
+    let cancelled = false;
+    fetch('/api/kalibrering/objekt?key=skogsystem-debug')
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: { ok?: boolean; objekt: ObjektStat[]; maskiner: Record<string, MaskinInfo> }) => {
+        if (cancelled || !data?.ok) return;
+        setObjektData({ objekt: data.objekt, maskiner: data.maskiner });
+      })
+      .catch(() => { /* tyst — objekt-fliken visar "kunde inte ladda" */ });
+    return () => { cancelled = true; };
+  }, [activeTab, objektData]);
 
   // === Trend-fliken: lazy fetch när användaren öppnar fliken eller byter maskinfilter
   useEffect(() => {
@@ -1879,6 +1989,7 @@ export default function KalibreringPage() {
         .kalib-diag-m1.laddar{color:#8E8E93;font-weight:500}
         .kalib-diag-m2{font-size:17px;color:#8E8E93;margin-top:8px}
         .kalib-forarvy-diagnos .kalib-diag-m2{color:#EBEBF5;font-weight:500}
+        .kalib-diag-m3{font-size:14px;color:#8E8E93;margin-top:10px;max-width:340px;line-height:1.4}
         .kalib-visa-siffror{margin-top:22px;background:none;border:none;color:#8E8E93;font-size:15px;display:inline-flex;align-items:center;gap:2px;cursor:pointer;padding:8px 12px;min-height:44px}
         .kalib-tillbaka{background:none;border:none;color:#0A84FF;font-size:16px;display:inline-flex;align-items:center;gap:2px;cursor:pointer;padding:8px 4px;min-height:44px;margin-bottom:4px}
         /* Stabilitetsrutnät */
@@ -1913,6 +2024,49 @@ export default function KalibreringPage() {
         .kalib-markor-input{flex:1;min-width:140px;background:rgba(255,255,255,0.06);border:none;border-radius:8px;color:#fff;padding:10px;font-size:14px;min-height:44px}
         .kalib-markor-save{background:#0A84FF;border:none;border-radius:8px;color:#fff;font-weight:600;padding:0 18px;min-height:44px;cursor:pointer}
         .kalib-markor-save:disabled{opacity:0.4}
+        /* === Objekt-fliken === */
+        .kalib-objdom{border-left:3px solid transparent}
+        .kalib-objdom.tone-border-hot{border-left-color:#FF453A}
+        .kalib-objdom.tone-border-ok{border-left-color:#8E8E93}
+        .kalib-objdom-rubrik{font-size:20px;font-weight:600;line-height:1.25}
+        .kalib-objdom-rubrik.tone-ok{color:#fff}
+        .kalib-objdom-rubrik.tone-hot{color:#FF453A}
+        .kalib-objdom-tal{display:flex;flex-wrap:wrap;gap:14px;margin-top:12px;font-size:14px;color:#EBEBF5}
+        .kalib-objdom-tal b{font-size:17px}
+        .kalib-objdom-meta{margin-top:10px;font-size:12px;color:#8E8E93;font-variant-numeric:tabular-nums}
+        .kalib-objdom-attr{margin-top:12px;font-size:14px;color:#EBEBF5;line-height:1.4}
+        .kalib-obj-list{display:flex;flex-direction:column;margin-top:8px}
+        .kalib-obj-row{display:flex;align-items:center;gap:12px;padding:12px 8px;min-height:44px;background:none;border:none;border-bottom:1px solid rgba(255,255,255,0.06);cursor:pointer;text-align:left;width:100%}
+        .kalib-obj-row.vald{background:rgba(255,255,255,0.05)}
+        .kalib-obj-namn{flex:1;color:#fff;font-size:15px}
+        .kalib-obj-traff{width:52px;text-align:right;font-size:15px;font-weight:600;color:#8E8E93;font-variant-numeric:tabular-nums}
+        .kalib-obj-traff.tone-hot{color:#FF453A}
+        .kalib-obj-traff.tunn{font-weight:400;font-size:12px}
+        .kalib-obj-maskin{width:64px;text-align:right;font-size:11px;color:#8E8E93;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        /* === Tidsserie-graf (Trend Läget) === */
+        .kalib-tidschart{width:100%;max-width:520px;height:auto;display:block}
+        .kalib-tc-grid{stroke:rgba(255,255,255,0.08);stroke-width:1;vector-effect:non-scaling-stroke}
+        .kalib-tc-ylabel{fill:#8E8E93;font-size:8px}
+        .kalib-tc-xlabel{fill:#8E8E93;font-size:8px}
+        .kalib-tc-krav{stroke:#8E8E93;stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
+        .kalib-tc-kravlabel{fill:#8E8E93;font-size:8px}
+        .kalib-tc-markor{stroke-width:1;vector-effect:non-scaling-stroke}
+        .kalib-tc-markor.reparation{stroke:#FF9F0A;stroke-dasharray:2 2}
+        .kalib-tc-markor.atgard{stroke:#0A84FF;stroke-dasharray:2 2}
+        .kalib-tc-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
+        .kalib-tc-leg{display:flex;align-items:center;gap:5px;font-size:12px;color:#8E8E93;font-variant-numeric:tabular-nums}
+        .kalib-tc-leg i{width:12px;height:3px;border-radius:2px;display:inline-block}
+        .kalib-tc-bandnote{font-size:12px;color:#8E8E93;margin-top:10px;line-height:1.4}
+        .kalib-curve-mal{position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,0.28);pointer-events:none}
+        /* === Hjälptext "?" === */
+        .kalib-hjalp-btn{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#8E8E93;font-size:15px;font-weight:600;cursor:pointer;flex-shrink:0}
+        .kalib-hjalp-body{padding:4px 4px 8px}
+        .kalib-hjalp-sekt{margin-bottom:20px}
+        .kalib-hjalp-fraga{font-size:18px;font-weight:600;color:#fff;margin-bottom:6px}
+        .kalib-hjalp-term{font-size:13px;font-weight:400;color:#8E8E93;margin-left:6px}
+        .kalib-hjalp-body p{font-size:15px;color:#EBEBF5;line-height:1.45;margin:0}
+        .kalib-hjalp-slutord{font-size:15px;color:#fff;font-weight:500;line-height:1.45;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08)}
+        .kalib-hjalp-note{margin-top:14px;font-size:13px;color:#8E8E93}
 
         .kalib-info-box{display:flex;gap:12px;padding:14px 16px;border-radius:12px;align-items:center}
         .kalib-info-box.ok{background:rgba(52,199,89,0.1);border:1px solid rgba(52,199,89,0.2)}
@@ -2424,18 +2578,21 @@ export default function KalibreringPage() {
         <nav className="kalib-nav">
           <button className={`kalib-pill ${activeTab === 'today' ? 'active' : ''}`} onClick={() => setActiveTab('today')}>Senaste</button>
           <button className={`kalib-pill ${activeTab === 'trend' ? 'active' : ''}`} onClick={() => setActiveTab('trend')}>Trend</button>
+          <button className={`kalib-pill ${activeTab === 'objekt' ? 'active' : ''}`} onClick={() => setActiveTab('objekt')}>Objekt</button>
           <button className={`kalib-pill ${activeTab === 'calendar' ? 'active' : ''}`} onClick={() => setActiveTab('calendar')}>Kalender</button>
           <button className={`kalib-pill ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>Rapport</button>
         </nav>
 
-        {/* Maskin-filtret visas på alla flikar — Senaste bedöms per maskin. */}
-        <div className="kalib-filter-row">
-          <button className="kalib-filter-btn" onClick={() => { closeModal(); setMaskinSearchQ(''); setMaskinSheetOpen(true); }}>
-            <MSym name="tune" size={16} color="#fff" />
-            <span className="kalib-filter-label">{filterLabel}</span>
-            <MSym name="expand_more" size={16} color="#8E8E93" />
-          </button>
-        </div>
+        {/* Maskin-filtret på alla flikar UTOM Objekt (som är maskinoberoende — filtret är objektet). */}
+        {activeTab !== 'objekt' && (
+          <div className="kalib-filter-row">
+            <button className="kalib-filter-btn" onClick={() => { closeModal(); setMaskinSearchQ(''); setMaskinSheetOpen(true); }}>
+              <MSym name="tune" size={16} color="#fff" />
+              <span className="kalib-filter-label">{filterLabel}</span>
+              <MSym name="expand_more" size={16} color="#8E8E93" />
+            </button>
+          </div>
+        )}
 
         <PageContainer width="full">
         <div className={`kalib-container ${activeTab !== 'today' ? 'wide' : ''}`}>
@@ -2471,6 +2628,7 @@ export default function KalibreringPage() {
                       <div className="kalib-diag-text">
                         <div className={`kalib-diag-m1 ${verdikt.status === 'diagnos' ? 'larm' : ''}`}>{verdikt.mening1}</div>
                         <div className="kalib-diag-m2">{verdikt.mening2}</div>
+                        {verdikt.mening3 && <div className="kalib-diag-m3">{verdikt.mening3}</div>}
                       </div>
                     )}
 
@@ -2660,6 +2818,48 @@ export default function KalibreringPage() {
           {activeTab === 'trend' && (
             <>
               {partialBanner}
+
+              {/* ===== AVSNITT 1: LÄGET — träff & planområden per grovlek över tid ===== */}
+              {(() => {
+                if (!diagnosData || !diagnosData.klasser.some(k => k.traffMonthly.length)) {
+                  return (
+                    <div className="kalib-card">
+                      <div className="kalib-section-title">Läget</div>
+                      <div className="kalib-lugn-rad"><MSym name="hourglass_empty" size={16} color="#8E8E93" /><span>Läser läget…</span></div>
+                    </div>
+                  );
+                }
+                const kl = diagnosData.klasser;
+                const traffMan = Array.from(new Set(kl.flatMap(k => k.traffMonthly.filter(m => m.n >= 20).map(m => m.manad)))).sort();
+                const traffSeries = kl.map(k => ({ klass: k.klass, punkter: new Map(k.traffMonthly.filter(m => m.n >= 20).map(m => [m.manad, m.traffPct])) }));
+                const platMan = Array.from(new Set(kl.flatMap(k => k.plateauMonthly.filter(m => m.n >= 20).map(m => m.manad)))).sort();
+                const platSeries = kl.map(k => ({ klass: k.klass, punkter: new Map(k.plateauMonthly.filter(m => m.n >= 20).map(m => [m.manad, m.share])) }));
+                return (
+                  <>
+                    <div className="kalib-card">
+                      <div className="kalib-hero-topline">
+                        <div className="kalib-section-title">Läget · {heroNamn}</div>
+                        <button className="kalib-hjalp-btn" onClick={() => setHjalpOpen(true)} aria-label="Vad betyder talen?">?</button>
+                      </div>
+                      <div className="kalib-section-subtitle">Träffprocent per grovlek över tid. Klena träffar bra; grova släpar — en enda kurva döljer det.{diagnosData.golvDia != null ? ` Kravlinjen är ${diagnosData.profil}s golv.` : ''}</div>
+                      {renderTidsChart(traffMan, traffSeries, { yMax: 100, kravLinje: diagnosData.golvDia != null ? { v: diagnosData.golvDia, label: `golv ${diagnosData.golvDia}%` } : undefined, markorer: diagnosData.markorer })}
+                    </div>
+                    <div className="kalib-card">
+                      <div className="kalib-section-title">Planområden per grovlek — tryckmätaren</div>
+                      <div className="kalib-section-subtitle">Andel där diametern inte sjunker. Ligger platt sedan januari — ska sjunka först när trycket höjs.</div>
+                      {renderTidsChart(platMan, platSeries, { yMax: 80, markorer: diagnosData.markorer })}
+                      <div className="kalib-markor-form">
+                        <input type="date" className="kalib-markor-date" value={nyMarkorDatum} onChange={e => setNyMarkorDatum(e.target.value)} />
+                        <input type="text" className="kalib-markor-input" placeholder="t.ex. höjde trycket på knivarna" value={nyMarkorText} onChange={e => setNyMarkorText(e.target.value)} />
+                        <button className="kalib-markor-save" onClick={sparaMarkor} disabled={markorSparar || !nyMarkorDatum || !nyMarkorText.trim()}>{markorSparar ? 'Sparar…' : 'Markera'}</button>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* ===== AVSNITT 2: AVVIKELSE — driver maskinen åt ett håll? ===== */}
+              <div className="kalib-section-title" style={{ margin: '18px 4px 8px' }}>Avvikelse — driver maskinen åt ett håll?</div>
               {trendLoading && (
                 <div className="kalib-card" style={{ textAlign: 'center', color: '#8E8E93' }}>
                   Laddar trenddata…
@@ -2692,6 +2892,15 @@ export default function KalibreringPage() {
                 };
                 const tol = trendUnit === 'dia' ? 4 : 2;
                 const unitTxt = trendUnit === 'dia' ? 'mm' : 'cm';
+                // Bandet ska vara kravprofilens SYSTEMATIK-krav (mål/golv), inte ±4 mm.
+                // ±4 är toleransen för en ENSKILD mätning — 4× för slappt för snittet.
+                const systKrav = (() => {
+                  if (effectiveSelected === 'all' || !bedomning?.trosklar) return null;
+                  const variabel = trendUnit === 'dia' ? 'diameter' : 'langd';
+                  const row = bedomning.trosklar.find(t => t.variabel === variabel && t.metrik === 'systematisk');
+                  return row ? { mal: Number(row.mal), golv: Number(row.golv), profil: bedomning.profil } : null;
+                })();
+                const bandVal = systKrav ? systKrav.golv : tol;
                 const Y_MAX = trendUnit === 'dia' ? 12 : 6;
                 const yPct = (v: number) => {
                   const c = Math.max(-Y_MAX, Math.min(Y_MAX, v));
@@ -2955,11 +3164,15 @@ export default function KalibreringPage() {
                                   ))}
                                 </div>
                                 <div className="kalib-curve-plot">
-                                  {/* Toleranszon */}
+                                  {/* Krav-zon = kravprofilens systematik-golv (inte ±4 mm). */}
                                   <div
                                     className="kalib-curve-tol"
-                                    style={{ top: `${yPct(tol)}%`, bottom: `${100 - yPct(-tol)}%` }}
+                                    style={{ top: `${yPct(bandVal)}%`, bottom: `${100 - yPct(-bandVal)}%` }}
                                   />
+                                  {/* Mål-linjer (VIDA: 1,0 mm inuti godkänt 1,5) */}
+                                  {systKrav && systKrav.mal !== systKrav.golv && [systKrav.mal, -systKrav.mal].map((v, i) => (
+                                    <div key={`mal-${i}`} className="kalib-curve-mal" style={{ top: `${yPct(v)}%` }} />
+                                  ))}
                                   {/* Nollinje */}
                                   <div className="kalib-curve-zero" style={{ top: `${yPct(0)}%` }} />
                                   {/* Kalibreringsmarkörer (lodräta streckade linjer) */}
@@ -3049,6 +3262,11 @@ export default function KalibreringPage() {
 
                             {/* Auto-mening (klartext-sammanfattning) */}
                             <div className="kalib-curve-mening">{autoMening()}</div>
+                            {systKrav ? (
+                              <div className="kalib-tc-bandnote">Bandet är {systKrav.profil}s krav på snittet (systematisk avvikelse golv {fmtKrav(systKrav.golv)}{systKrav.mal !== systKrav.golv ? `, mål ${fmtKrav(systKrav.mal)}` : ''} {unitTxt}) — inte toleransen för en enskild mätning.</div>
+                            ) : (
+                              <div className="kalib-tc-bandnote">Välj en maskin för att se dess krav på snittet i stället för det generella ±{tol} {unitTxt}-bandet.</div>
+                            )}
                           </>
                         )}
                       </div>
@@ -3183,6 +3401,60 @@ export default function KalibreringPage() {
                   </>
                 );
               })()}
+            </>
+          )}
+
+          {activeTab === 'objekt' && (
+            <>
+              <header className="kalib-page-header">
+                <h1 className="kalib-page-title">Objekt</h1>
+                <p className="kalib-page-subtitle">Slå upp en trakt när en kund undrar över mätningen.</p>
+              </header>
+              {!objektData ? (
+                <div className="kalib-lugn-rad"><MSym name="hourglass_empty" size={16} color="#8E8E93" /><span>Laddar objekt…</span></div>
+              ) : (
+                <>
+                  <input type="text" className="kalib-sheet-search" placeholder="Sök objekt" value={objektQ} onChange={e => setObjektQ(e.target.value)} />
+                  {valtObjekt && (() => {
+                    const o = objektData.objekt.find(x => x.object_name === valtObjekt);
+                    if (!o) return null;
+                    const mask = o.maskin_id ? objektData.maskiner[o.maskin_id] : undefined;
+                    const dom = objektDom(o, mask);
+                    return (
+                      <div className={`kalib-card kalib-objdom tone-border-${dom.ton}`}>
+                        <div className={`kalib-objdom-rubrik tone-${dom.ton}`}>{dom.rubrik}</div>
+                        {!dom.tunn && (
+                          <div className="kalib-objdom-tal">
+                            <span><b>{Math.round(o.traffPct)}%</b> träff ±4 mm</span>
+                            <span>syst {fmtSig1(o.systematisk)} mm</span>
+                            <span>std {o.standardavv.toFixed(1)} mm</span>
+                            <span>n {o.n}</span>
+                          </div>
+                        )}
+                        <div className="kalib-objdom-meta">{o.maskin_id ?? '—'}{mask?.profil ? ` · ${mask.profil}` : ''} · {o.fran} → {o.till}</div>
+                        {dom.attribution && <div className="kalib-objdom-attr">{dom.attribution}</div>}
+                      </div>
+                    );
+                  })()}
+                  <div className="kalib-obj-list">
+                    {objektData.objekt
+                      .filter(o => !objektQ.trim() || o.object_name.toLowerCase().includes(objektQ.trim().toLowerCase()))
+                      .map(o => {
+                        const mask = o.maskin_id ? objektData.maskiner[o.maskin_id] : undefined;
+                        const golv = mask?.golvDia ?? 75;
+                        const tunn = o.n < 100;
+                        const under = !tunn && o.traffPct < golv;
+                        return (
+                          <button key={o.object_name} className={`kalib-obj-row ${valtObjekt === o.object_name ? 'vald' : ''}`} onClick={() => setValtObjekt(o.object_name)}>
+                            <span className="kalib-obj-namn">{o.object_name}</span>
+                            <span className={`kalib-obj-traff ${tunn ? 'tunn' : under ? 'tone-hot' : ''}`}>{tunn ? `n ${o.n}` : `${Math.round(o.traffPct)}%`}</span>
+                            <span className="kalib-obj-maskin">{o.maskin_id ?? '—'}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </>
+              )}
             </>
           )}
 
@@ -3433,6 +3705,43 @@ export default function KalibreringPage() {
             </div>
           );
         })()}
+
+        {/* === Hjälptext bakom "?" — vardagsfråga stor, fackterm dämpad, tal per profil === */}
+        {hjalpOpen && (
+          <div className="kalib-modal-overlay open" onClick={() => setHjalpOpen(false)}>
+            <div className="kalib-modal" onClick={e => e.stopPropagation()}>
+              <div className="kalib-modal-handle" />
+              <div className="kalib-modal-header"><div className="kalib-modal-title">Vad betyder talen?</div></div>
+              <div className="kalib-hjalp-body">
+                {(() => {
+                  const tr = bedomning?.trosklar ?? [];
+                  const g = (metrik: string) => tr.find(t => t.variabel === 'diameter' && t.metrik === metrik);
+                  const traff = g('traffprocent'), syst = g('systematisk'), std = g('standardavv');
+                  const profil = bedomning?.profil ?? 'Profilen';
+                  const tol = traff?.tolerans != null ? Number(traff.tolerans) : 4;
+                  return (
+                    <>
+                      <div className="kalib-hjalp-sekt">
+                        <div className="kalib-hjalp-fraga">Träffar den rätt? <span className="kalib-hjalp-term">träffprocent</span></div>
+                        <p>Av alla mätningar — hur många hamnar inom {fmtKrav(tol)} mm från det du klavat? {profil} vill att minst {traff ? Math.round(Number(traff.golv)) : '–'} % ska träffa.</p>
+                      </div>
+                      <div className="kalib-hjalp-sekt">
+                        <div className="kalib-hjalp-fraga">Drar den åt ett håll? <span className="kalib-hjalp-term">systematisk avvikelse</span></div>
+                        <p>Mäter den för stort hela tiden? Då sitter kurvan snett — det går att justera. {profil} vill att den drar mindre än {syst ? fmtKrav(Number(syst.mal)) : '–'} mm.</p>
+                      </div>
+                      <div className="kalib-hjalp-sekt">
+                        <div className="kalib-hjalp-fraga">Mäter den jämnt? <span className="kalib-hjalp-term">standardavvikelse</span></div>
+                        <p>Ger den samma svar varje gång, eller hoppar den? Hoppar den är det greppet. {profil} vill att hoppen håller sig under {std ? fmtKrav(Number(std.mal)) : '–'} mm.</p>
+                      </div>
+                      <div className="kalib-hjalp-slutord">Alla tre måste stämma. Det räcker inte att träffa rätt om svaren hoppar.</div>
+                      {!bedomning?.profil && <div className="kalib-hjalp-note">Välj en maskin för att se dess exakta krav (Biometria har egna tal).</div>}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* === Maskin-filter sheet === */}
         <div ref={swipeSheet.overlayRef} className={`kalib-modal-overlay ${maskinSheetOpen ? 'open' : ''}`} onClick={() => setMaskinSheetOpen(false)}>
