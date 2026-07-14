@@ -511,7 +511,33 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             if email:
                 entry['email'] = email
             data['operatorer'].append(entry)
-    
+
+    # === PER-FIL OPERATORKEY-KARTA ===
+    # OperatorKey är FIL-LOKAL: maskinen skapar ny MOM-fil vid objektbyte och
+    # numrerar om — första föraren i den nya filen får key 1, oavsett vem det är.
+    # Identiteten ligger i ContactInformation (e-post) som resolve_operator_id
+    # normaliserar till kanoniskt operator_id. ALLA radtyper måste gå via denna
+    # karta — rå f"{maskin_id}_{op_key}" som identitet var rotorsaken till att
+    # ~92h attribuerades på fel förare (jun/jul 2026).
+    op_id_by_key = {o['operator_key']: o['operator_id'] for o in data['operatorer']}
+
+    def op_id_for_key(op_key: str, kontext: str):
+        """Kanoniskt operator_id för en fil-lokal OperatorKey.
+
+        INGEN tyst rå-fallback: saknas OperatorDefinition för nyckeln loggas
+        VARNING och raden lämnas oattribuerad (None) — hellre oattribuerad än
+        bokförd på fel förare. Tyst gissning var det som skapade felet.
+        """
+        if not op_key:
+            return None
+        oid = op_id_by_key.get(op_key)
+        if oid is None:
+            logger.warning(
+                f"  OPERATORKEY {op_key} SAKNAR OperatorDefinition i {filnamn} "
+                f"({kontext}) -- raden lamnas oattribuerad (operator_id=None)"
+            )
+        return oid
+
     # === OBJEKT ===
     for obj_def in find_all_elements(machine, 'ObjectDefinition', ns):
         obj_key = get_text(obj_def, 'ObjectKey', ns)
@@ -656,7 +682,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         data['skift'].append({
             'datum': start_dt.date() if start_dt else None,
             'maskin_id': maskin_id,
-            'operator_id': f"{maskin_id}_{op_key}" if op_key else None,
+            'operator_id': op_id_for_key(op_key, 'skift'),
             'inloggning_tid': start_dt,
             'utloggning_tid': end_dt,
             'langd_sek': langd_sek,
@@ -689,14 +715,15 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
 
         objekt_id_wt = obj_key_map.get(obj_key, f"{maskin_id}_{obj_key}")
         dag_key = (datum, maskin_id, objekt_id_wt)
-        tid_operator[dag_key] = f"{maskin_id}_{op_key}"
 
         # Nyckla per unik entry (MonitoringStartTime + operator) för dedup.
         # Om samma entry (t.ex. en pågående arbetsperiod) förekommer i
         # flera filer, SKRIVS den över med senaste filens värde.
         # Operator-ID i nyckeln krävs för att per-förare rast/tid ska
         # bevaras när samma maskin körs av två förare samma dag/objekt.
-        entry_operator = f"{maskin_id}_{op_key}"
+        entry_operator = op_id_for_key(op_key, 'arbetstid')
+        if entry_operator:
+            tid_operator[dag_key] = entry_operator
         entry_key = (start_time, maskin_id, objekt_id_wt, entry_operator)
         entry = {
             'datum': datum,
@@ -750,7 +777,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                             volym_sub = val
 
                 if stems > 0 or volym_sub > 0:
-                    prod_key = (start_dt, maskin_id, f"{maskin_id}_{op_key}",
+                    prod_key = (start_dt, maskin_id, entry_operator,
                                objekt_id_wt, f"{maskin_id}_{sp_key}", processtyp)
                     raw_produktion[prod_key]['stammar'] += stems
                     raw_produktion[prod_key]['volym_m3sob'] += volym_sob
@@ -789,7 +816,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                     'datum': datum,
                     'klockslag': start_dt.time() if start_dt else None,
                     'maskin_id': maskin_id,
-                    'operator_id': f"{maskin_id}_{op_key}",
+                    'operator_id': entry_operator,
                     'objekt_id': objekt_id_wt,
                     'typ': 'Underhåll',
                     'kategori_kod': maint_code,
@@ -803,7 +830,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                     'datum': datum,
                     'klockslag': start_dt.time() if start_dt else None,
                     'maskin_id': maskin_id,
-                    'operator_id': f"{maskin_id}_{op_key}",
+                    'operator_id': entry_operator,
                     'objekt_id': objekt_id_wt,
                     'typ': 'Störning',
                     'kategori_kod': dist_code,
@@ -823,7 +850,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                     'datum': datum,
                     'klockslag': start_dt.time() if start_dt else None,
                     'maskin_id': maskin_id,
-                    'operator_id': f"{maskin_id}_{op_key}",
+                    'operator_id': entry_operator,
                     'objekt_id': objekt_id_wt,
                     'typ': 'Övrigt',
                     'kategori_kod': other_code,
@@ -891,7 +918,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                             'datum': datum,
                             'klockslag': start_dt.time() if start_dt else None,
                             'maskin_id': maskin_id,
-                            'operator_id': f"{maskin_id}_{op_key}",
+                            'operator_id': entry_operator,
                             'objekt_id': objekt_id_wt,
                             'typ': 'Reparation',
                             'kategori_kod': kategori_kod,
@@ -943,9 +970,10 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         datum = start_dt.date() if start_dt else None
         short_objekt_id = obj_key_map.get(obj_key, f"{maskin_id}_{obj_key}")
         dag_key = (datum, maskin_id, short_objekt_id)
-        tid_operator[dag_key] = f"{maskin_id}_{op_key}"
 
-        short_operator = f"{maskin_id}_{op_key}"
+        short_operator = op_id_for_key(op_key, 'kort stopp')
+        if short_operator:
+            tid_operator[dag_key] = short_operator
         entry_key = (start_time, maskin_id, short_objekt_id, short_operator)
         entry = raw_tid_entries.get(entry_key, {
             'datum': datum,
@@ -2116,7 +2144,22 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
             if email:
                 entry['email'] = email
             data['operatorer'].append(entry)
-    
+
+    # Per-fil OperatorKey-karta — samma princip som MOM-parsen: OperatorKey är
+    # fil-lokal, identiteten normaliseras via e-post. Ingen tyst rå-fallback.
+    op_id_by_key = {o['operator_key']: o['operator_id'] for o in data['operatorer']}
+
+    def op_id_for_key(op_key: str, kontext: str):
+        if not op_key:
+            return None
+        oid = op_id_by_key.get(op_key)
+        if oid is None:
+            logger.warning(
+                f"  OPERATORKEY {op_key} SAKNAR OperatorDefinition i {filnamn} "
+                f"({kontext}) -- raden lamnas oattribuerad (operator_id=None)"
+            )
+        return oid
+
     # Bygg location_coords_map tidigt så det är tillgängligt för objekt-parsning
     location_coords_map = {}
     for loc_def_pre in find_all_elements(machine, 'LocationDefinition', ns):
@@ -2402,7 +2445,7 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
         lass_data = {
             'datum': datum,
             'maskin_id': maskin_id,
-            'operator_id': f"{maskin_id}_{op_key}" if op_key else None,
+            'operator_id': op_id_for_key(op_key, 'lass'),
             'objekt_id': objekt_id_lass,
             'lass_nummer': load_num,
             'volym_m3sob': total_volym,
