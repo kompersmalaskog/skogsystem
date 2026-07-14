@@ -83,6 +83,22 @@ def _git_commit_short():
         return 'unknown'
 
 
+def _git_dirty():
+    """Ändrade/otrackade (ej ignorerade) filer i skriptets katalog, enligt
+    git status --porcelain. None = kunde inte avgöra (ej git-repo m.m.).
+    Smutsigt tree i drift betyder att koden som kör inte är den commitade
+    (handpatchar) — det var så deploy-klonen gled isär från main juli 2026."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(['git', '-C', here, 'status', '--porcelain'],
+                             capture_output=True, text=True, timeout=5)
+        if out.returncode != 0:
+            return None
+        return [l.strip() for l in out.stdout.splitlines() if l.strip()]
+    except Exception:
+        return None
+
+
 # Single-instance-lås: bind en fast localhost-port. Bara EN process kan hålla porten
 # åt gången; OS:et släpper den automatiskt vid exit/krasch (inget stale-lås). Hindrar
 # att två watchdoggar kör samtidigt även om två tasks/launchers fyrar — rotorsaken till
@@ -301,6 +317,11 @@ def main():
     logger.info("AUTO IMPORT WATCH — Startar")
     logger.info(f"Version: git={_git_commit_short()} "
                 f"| script={os.path.abspath(__file__)} | py={PYTHON_EXE}")
+    dirty = _git_dirty()
+    if dirty:
+        logger.warning(f"VARNING: working tree i {SCRIPT_DIR} är SMUTSIGT ({len(dirty)} filer) — "
+                       f"koden som kör kan avvika från commitad version (handpatchar?): "
+                       + ', '.join(dirty[:10]))
     if not _acquire_single_instance():
         logger.warning("En annan auto_import_watch-instans håller redan single-instance-låset "
                        "— avslutar (ingen dubbel-bevakning).")

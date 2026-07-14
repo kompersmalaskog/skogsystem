@@ -60,6 +60,12 @@ KANDA_TOMGANG_ARV = 0          # Arvet (41 rader från före #124) STÄDADES 202
 GAP_LOG = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_logg.txt')
 LARM_FIL = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_LARM_senaste.txt')
 
+# Deploy-drift-kontroll: katalogen där importkoden KÖR (deploy-klonen) jämförs
+# mot origin/main. HÅLL I SYNK med $ImportFiler i deploy_import.ps1.
+DEPLOY_DIR = r'C:\skogsystem-import'
+DRIFT_FILER = ['skogsmaskin_import_version_6.py', 'import_hpr.py',
+               'auto_import_watch.py', 'gap_check.py']
+
 # 13 tid-fält (samma som importern/reparationen)
 TID_FIELDS = ['processing_sek', 'terrain_sek', 'other_work_sek', 'maintenance_sek',
               'disturbance_sek', 'rast_sek', 'avbrott_sek', 'kort_stopp_sek',
@@ -245,6 +251,55 @@ def db_day_pt(maskin, dayset):
     return dict(out)
 
 
+def check_deploy_drift():
+    """Deploy-drift: kör DRIFT (DEPLOY_DIR) den importkod som är beslutad
+    (origin/main)? Jämför FIL-HASHAR, inte HEAD-sha — main får UI-mergar hela
+    tiden som inte rör importen, och ett larm som tjatar vid varje sådan blir
+    ignorerat (värre än inget larm). Larmar bara när en importfil i drift
+    faktiskt avviker, eller när working tree är smutsigt (handpatchar —
+    juli 2026 stod deploy-klonen på #84 med lös diff utan att någon märkte).
+    -> (larmrader, status 'OK'|'DRIFT'|'OKÄND', detaljrad).
+    OKÄND (fetch-fel/offline, katalog saknas) är ett ärligt tredje tillstånd:
+    inte grönt, men inte heller larm-tjat vid varje nätverksglapp."""
+    import subprocess
+
+    def _git(*a, timeout=60):
+        return subprocess.run(['git', '-C', DEPLOY_DIR] + list(a),
+                              capture_output=True, text=True, timeout=timeout)
+
+    # OBS: .git kan vara en FIL (länkad worktree — det är vad C:\skogsystem-import
+    # faktiskt är), inte bara en katalog. exists, inte isdir.
+    if not os.path.exists(os.path.join(DEPLOY_DIR, '.git')):
+        return [], 'OKÄND', f'OKÄND — {DEPLOY_DIR} finns inte eller är inte ett git-repo'
+    try:
+        r = _git('fetch', 'origin', '--quiet', timeout=120)
+    except Exception as e:
+        return [], 'OKÄND', f'OKÄND — git fetch kunde inte köras: {e}'
+    if r.returncode != 0:
+        return [], 'OKÄND', ('OKÄND — git fetch misslyckades (offline?): '
+                             + (r.stderr or '').strip()[:200])
+
+    larm = []
+    for f in DRIFT_FILER:
+        lokal = _git('hash-object', os.path.join(DEPLOY_DIR, f))
+        beslutad = _git('rev-parse', f'origin/main:{f}')
+        if lokal.returncode != 0 or beslutad.returncode != 0:
+            larm.append(f'  LARM  DRIFT: kunde inte hasha {f} — saknas filen i drift eller i origin/main?')
+        elif lokal.stdout.strip() != beslutad.stdout.strip():
+            larm.append(f'  LARM  DRIFT: {f} i drift avviker från origin/main — koden som kör '
+                        f'är inte den beslutade. Deploya om (deploy_import.ps1).')
+    st = _git('status', '--porcelain')
+    if st.returncode == 0 and st.stdout.strip():
+        filer = ', '.join(l.strip() for l in st.stdout.strip().splitlines()[:10])
+        larm.append(f'  LARM  DRIFT: working tree i drift är smutsigt ({filer}) — '
+                    f'handpatchar? Deploya om (deploy_import.ps1).')
+
+    sha = (_git('rev-parse', '--short', 'origin/main').stdout or '?').strip()
+    if larm:
+        return larm, 'DRIFT', f'DRIFT — {len(larm)} avvikelse(r) mot origin/main ({sha})'
+    return [], 'OK', f'OK — {len(DRIFT_FILER)} importfiler byte-identiska med origin/main ({sha})'
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--quiet', action='store_true', help='Bara logg, ingen utskrift (schemalagd körning).')
@@ -288,6 +343,12 @@ def main():
                 infos.append((maskin, d))
                 L.append(f'  info  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap=+{gap_h:5.2f}h ({pct*100:4.1f}%)')
 
+    # ── Del 3: deploy-drift — kör drift den beslutade koden? ──
+    drift_larm, drift_status, drift_detalj = check_deploy_drift()
+    L.append(f'    deploy-drift: {drift_detalj}')
+    L.extend(drift_larm)
+    alarms.extend(drift_larm)   # drift-larm ska larma: LARM-fil + exit-kod 1
+
     if alarms:
         L.append(f'>>> {len(alarms)} LARM — kontrollera per (maskin, dag) ovan.')
         # TODO: koppla ev. extern notis (mail/Teams) här — logg + LARM-fil + exit-kod 1 tills vidare.
@@ -303,26 +364,37 @@ def main():
     with open(LARM_FIL, 'w', encoding='utf-8') as fh:
         fh.write(text + '\n' if alarms else f'INGA LARM {datetime.datetime.now():%Y-%m-%d %H:%M}\n')
 
-    # Statusrad till appen (Datahälsa-vyn läser meta_datahalsa_status).
+    # Statusrader till appen (Datahälsa-vyn läser meta_datahalsa_status).
+    # Två rader: 'gap_check' (hela körningen, inkl. drift-larm) och
+    # 'deploy_drift' (bara drift-tillståndet, med OKÄND som ärligt tredje läge).
     # Mjuk felhantering: saknas tabellen (migration ej körd) får körningen
     # INTE krascha — loggen/larmfilen är fortfarande primärkanalen.
     try:
         larm_rader = [r.strip() for r in L if r.strip().startswith('LARM')]
-        payload = json.dumps({
+        nu = datetime.datetime.now().astimezone().isoformat()
+        statusrader = [{
             'id': 'gap_check',
-            'kord_tid': datetime.datetime.now().astimezone().isoformat(),
+            'kord_tid': nu,
             'status': 'LARM' if alarms else 'OK',
             'larm_antal': len(alarms),
             'sammanfattning': ('\n'.join(larm_rader)[:1500] if alarms
                                else f'Inga larm — {n_rader} rader kontrollerade, tomgång-arv {tomgang_arv}'),
-        }).encode('utf-8')
+        }, {
+            'id': 'deploy_drift',
+            'kord_tid': nu,
+            'status': 'LARM' if drift_status == 'DRIFT' else drift_status,
+            'larm_antal': len(drift_larm),
+            'sammanfattning': ('\n'.join(r.strip() for r in drift_larm)[:1500]
+                               if drift_larm else drift_detalj[:1500]),
+        }]
         hdr = dict(_hdr())
         hdr.update({'Content-Type': 'application/json',
                     'Prefer': 'resolution=merge-duplicates,return=minimal'})
-        urllib.request.urlopen(urllib.request.Request(
-            imp.SUPABASE_URL + '/rest/v1/meta_datahalsa_status?on_conflict=id',
-            data=payload, headers=hdr, method='POST'), timeout=30)
-        L_status = 'statusrad skriven till meta_datahalsa_status'
+        for rad in statusrader:
+            urllib.request.urlopen(urllib.request.Request(
+                imp.SUPABASE_URL + '/rest/v1/meta_datahalsa_status?on_conflict=id',
+                data=json.dumps(rad).encode('utf-8'), headers=hdr, method='POST'), timeout=30)
+        L_status = f'{len(statusrader)} statusrader skrivna till meta_datahalsa_status'
     except Exception as e:
         L_status = f'kunde inte skriva statusrad (migration ej körd?): {e}'
     with open(GAP_LOG, 'a', encoding='utf-8') as fh:
