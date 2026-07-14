@@ -252,67 +252,16 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const activeDayData = sortedDaily[activeDay];
   const clockHourlyIdx = activeDayData?.hourlyIdx || data.todayHourlyIdx;
 
-  // Peak timing — longest contiguous block at peak level (handles non-contiguous peaks correctly)
-  const activePeakIdx = Math.max(...clockHourlyIdx.filter(i => i > 0));
-  const peakBlocks: { start: number; end: number; len: number }[] = [];
-  let _blockStart = -1;
-  for (let _h = 0; _h <= 24; _h++) {
-    const atPeak = _h < 24 && clockHourlyIdx[_h] === activePeakIdx;
-    if (atPeak && _blockStart === -1) _blockStart = _h;
-    if (!atPeak && _blockStart !== -1) { peakBlocks.push({ start: _blockStart, end: _h - 1, len: _h - _blockStart }); _blockStart = -1; }
-  }
-  const longestPeakBlock = peakBlocks.length > 0 ? peakBlocks.reduce((a, b) => b.len > a.len ? b : a) : { start: 12, end: 14 };
-  const activePeakStart = longestPeakBlock.start;
-  const activePeakEnd = longestPeakBlock.end;
-
-  const dagsdelsFras = activePeakStart >= 6 && activePeakStart <= 11 ? 'på förmiddagen'
-    : activePeakStart >= 12 && activePeakStart <= 13 ? 'runt lunch'
-    : activePeakStart >= 14 && activePeakStart <= 17 ? 'efter lunch'
-    : activePeakStart >= 18 && activePeakStart <= 21 ? 'på kvällen'
-    : '';
-  const peakKl = `kl ${activePeakStart.toString().padStart(2, '0')} till ${activePeakEnd.toString().padStart(2, '0')}`;
-  const peakEndKl = `kl ${activePeakEnd.toString().padStart(2, '0')}`;
-
-  // Klartext: koherent rad 1 (rubrik) + rad 2 (underrad). Fem lägen — "farligast senare"
-  // används BARA när toppen faktiskt ligger framåt (C/D/E). Är vi i toppen nu (A/A′)
-  // byter rad 1 till "just nu" och rad 2 säger när det lättar — kan aldrig motsäga varandra.
-  const curShort = MCF_TEXTS[currentIdx]?.short || '';
-  const peakShort = MCF_TEXTS[activePeakIdx]?.short || '';
-  const farligastRubrik = dagsdelsFras ? `Farligast ${dagsdelsFras} – ${peakKl}` : `Farligast ${peakKl}`;
-  const peakStillComing = activeDay === 0 && clockHourlyIdx.some((idx, h) => h >= nowHour && idx === activePeakIdx);
-
-  let klartextRubrik: string;
-  let lugnesmening: string;
-
-  if (activeDay !== 0) {
-    // Läge E — annan dag (ingen "just nu")
-    klartextRubrik = farligastRubrik;
-    lugnesmening = `Väntad topp: ${peakShort.toLowerCase()} brandrisk ${dagsdelsFras || peakKl}.`;
-  } else if (currentIdx >= activePeakIdx) {
-    // Läge A / A′ — vi är i toppen nu
-    if (activePeakEnd >= 21) {
-      klartextRubrik = 'Farligast just nu';
-      lugnesmening = `${curShort} brandrisk – håller i sig kvällen ut.`;
-    } else if (activePeakEnd > nowHour) {
-      klartextRubrik = `Farligast just nu – till ${peakEndKl}`;
-      lugnesmening = `${curShort} brandrisk. Lättar efter ${peakEndKl}.`;
-    } else {
-      klartextRubrik = `${curShort} brandrisk just nu`;
-      lugnesmening = `Som högst ${peakKl} idag.`;
-    }
-  } else if (!peakStillComing) {
-    // Läge B — toppen passerad, avtagande
-    klartextRubrik = dagsdelsFras ? `Lugnare nu – toppen var ${dagsdelsFras}` : `Lugnare nu – toppen var ${peakKl}`;
-    lugnesmening = `${curShort} brandrisk just nu, avtagande.`;
-  } else if (activePeakIdx - currentIdx >= 2) {
-    // Läge C — topp kvar, stor uppgång
-    klartextRubrik = farligastRubrik;
-    lugnesmening = `Lugnt nu (${curShort.toLowerCase()}). Stiger till ${peakShort.toLowerCase()} ${dagsdelsFras || peakKl}.`;
-  } else {
-    // Läge D — topp kvar, nära
-    klartextRubrik = farligastRubrik;
-    lugnesmening = `Just nu ${curShort.toLowerCase()} brandrisk – stiger snart till ${peakShort.toLowerCase()}.`;
-  }
+  // Morgondagens fönster (planering kvällen innan) — lägsta nivå + dess timfönster ur daglig prognos.
+  const imorgonLag = (() => {
+    const imorgon = sortedDaily[1];
+    const idx = imorgon?.hourlyIdx;
+    if (!idx || idx.length === 0) return null;
+    const lowIdx = Math.min(...idx.filter((i: number) => i > 0));
+    const hours = idx.map((v: number, h: number) => ({ v, h })).filter((e: { v: number; h: number }) => e.v === lowIdx).map((e: { v: number; h: number }) => e.h);
+    if (hours.length === 0) return null;
+    return { peakIdx: imorgon.fwiIndex, lowIdx, start: Math.min(...hours), end: Math.max(...hours) };
+  })();
 
   const updatedTime = new Date(data.updatedAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 
@@ -378,25 +327,88 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           </div>
         )}
 
-        {/* HERO — dominant current risk */}
-        <div style={{ textAlign: 'center', padding: '20px 24px 16px' }}>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 8 }}>
-            JUST NU · KL {nowHour.toString().padStart(2, '0')}
+        {/* HERO — idag: NU stort, LÄGST framlyft (dagens viktigaste), TOPPAR som kontext */}
+        <div style={{ padding: '20px 24px 16px' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 8 }}>
+              JUST NU · KL {nowHour.toString().padStart(2, '0')}
+            </div>
+            <div style={{ fontSize: 64, fontWeight: 700, letterSpacing: -3, lineHeight: 1, color: MCF_COLORS[currentIdx] }}>
+              {currentIdx}
+            </div>
+            <div style={{ fontSize: 17, marginTop: 8, fontWeight: 600, color: MCF_COLORS[currentIdx] }}>
+              {MCF_TEXTS[currentIdx]?.short || ''} brandrisk
+            </div>
+            <div style={{ fontSize: 13, marginTop: 6, color: 'rgba(255,255,255,0.3)' }}>FWI {currentFwi}</div>
           </div>
-          <div style={{ fontSize: 64, fontWeight: 700, letterSpacing: -3, lineHeight: 1, color: MCF_COLORS[currentIdx] }}>
-            {currentIdx}
+          {/* LÄGST — dagens viktigaste siffra: när risken är lägst. Framlyft. */}
+          <div style={{ marginTop: 18, padding: '14px 16px', borderRadius: 14, background: 'rgba(255,255,255,0.05)', border: `1px solid ${MCF_COLORS[data.lowestIdx]}55`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, color: '#8e8e93', fontWeight: 600, letterSpacing: 0.5 }}>LÄGST IDAG</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginTop: 2 }}>kl {data.lowestStartHour.toString().padStart(2, '0')}–{data.lowestEndHour.toString().padStart(2, '0')}</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 28, fontWeight: 700, color: MCF_COLORS[data.lowestIdx], lineHeight: 1 }}>{data.lowestIdx}</div>
+              <div style={{ fontSize: 11, color: '#8e8e93', marginTop: 3 }}>{MCF_TEXTS[data.lowestIdx]?.short || ''}</div>
+            </div>
           </div>
-          <div style={{ fontSize: 17, marginTop: 8, fontWeight: 600, color: MCF_COLORS[currentIdx] }}>
-            {MCF_TEXTS[currentIdx]?.short || ''} brandrisk
-          </div>
-          <div style={{ fontSize: 13, marginTop: 6, color: 'rgba(255,255,255,0.3)' }}>
-            FWI {currentFwi}
-            {currentIdx !== peakIdx && (
-              <> · Idag topp kl {peakHour.toString().padStart(2, '0')}: nivå {peakIdx} (FWI {peakFwi})</>
-            )}
+          {/* TOPPAR — mindre, kontext ("hur illa blir det") */}
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px', fontSize: 13, color: '#8e8e93' }}>
+            <span>Toppar kl {peakHour.toString().padStart(2, '0')}</span>
+            <span>nivå <span style={{ color: MCF_COLORS[peakIdx], fontWeight: 700 }}>{peakIdx}</span> · {MCF_TEXTS[peakIdx]?.short || ''}</span>
           </div>
         </div>
 
+
+        {/* LAGER 2: TIDSBAND */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 20, margin: '12px 16px 10px', padding: '20px 16px 16px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#8e8e93', marginBottom: 14 }}>Timme för timme</div>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginBottom: 16 }}>
+            {sortedDaily.slice(0, 7).map((d, i) => (
+              <button key={i} onClick={() => { setActiveDay(i); setSelectedHour(null); }}
+                style={{ padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500, color: activeDay === i ? '#fff' : 'rgba(255,255,255,0.3)', background: activeDay === i ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+                {d.dayName}
+              </button>
+            ))}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 2, borderRadius: 8, overflow: 'hidden' }}>
+              {clockHourlyIdx.map((idx, h) => {
+                const isNow = activeDay === 0 && h === nowHour;
+                return (
+                  <div key={h} onClick={() => setSelectedHour(selectedHour === h ? null : h)}
+                    style={{ flex: 1, height: 34, background: MCF_BAND_BG[idx] || MCF_BAND_BG[1], cursor: 'pointer', boxSizing: 'border-box', boxShadow: isNow ? 'inset 0 0 0 2px rgba(255,255,255,0.9)' : 'none' }}
+                  />
+                );
+              })}
+            </div>
+            {activeDay === 0 && (
+              <div style={{ position: 'absolute', top: '100%', marginTop: 2, left: `${(nowHour + 0.5) / 24 * 100}%`, transform: 'translateX(-50%)', fontSize: 8, color: '#8e8e93', lineHeight: 1, pointerEvents: 'none' }}>▲</div>
+            )}
+          </div>
+          <div style={{ position: 'relative', height: 16, marginTop: 2 }}>
+            {[0, 6, 12, 18, 23].map(h => (
+              <div key={h} style={{ position: 'absolute', ...(h === 23 ? { right: 0 } : { left: `${(h / 24) * 100}%`, transform: h === 0 ? 'none' : 'translateX(-50%)' }), fontSize: 11, color: 'rgba(255,255,255,0.2)', whiteSpace: 'nowrap' }}>
+                kl {h.toString().padStart(2, '0')}
+              </div>
+            ))}
+          </div>
+          {selectedHour !== null && (
+            <div style={{ marginTop: 10, textAlign: 'center', fontSize: 13, color: '#fff', background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '8px 12px' }}>
+              kl {selectedHour.toString().padStart(2, '0')}: {MCF_TEXTS[clockHourlyIdx[selectedHour]]?.short || ''} brandrisk (nivå {clockHourlyIdx[selectedHour]})
+            </div>
+          )}
+        </div>
+
+        {/* Morgondagens fönster — planering kvällen innan */}
+        {imorgonLag && (
+          <div style={{ margin: '0 16px 10px', padding: '12px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span style={{ fontSize: 13, color: '#8e8e93' }}>Imorgon</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
+              nivå <span style={{ color: MCF_COLORS[imorgonLag.peakIdx], fontWeight: 700 }}>{imorgonLag.peakIdx}</span> · lägst kl {imorgonLag.start.toString().padStart(2, '0')}–{imorgonLag.end.toString().padStart(2, '0')}
+            </span>
+          </div>
+        )}
         {/* VECKA - Week forecast with bars */}
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 14 }}>Vecka – högsta nivå per dag</div>
@@ -418,7 +430,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 </div>
                 <div style={{ display: 'flex', gap: 10, padding: '2px 0 0 44px', fontSize: 11, color: 'rgba(255,255,255,0.18)' }}>
                   <span style={{ color: wxColor[d.windLevel] || 'inherit' }}>{d.wind}</span>
-                  <span>{d.temp}</span>
                   <span style={{ color: wxColor[d.humLevel] || 'inherit' }}>{d.humidity}</span>
                   {d.rain && <span style={{ color: 'rgba(52,199,89,0.45)', background: 'rgba(52,199,89,0.06)', padding: '0 4px', borderRadius: 3 }}>Regn</span>}
                 </div>
@@ -478,62 +489,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           </Collapsible>
         </div>
 
-        {/* LAGER 2: TIDSBAND */}
-        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 20, margin: '12px 16px 10px', padding: '20px 16px 16px' }}>
-          <div style={{ fontSize: 15, fontWeight: 500, color: '#fff', marginBottom: 4 }}>🔥 {klartextRubrik}</div>
-          <div style={{ fontSize: 13, color: '#8e8e93', marginBottom: 16 }}>{lugnesmening}</div>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginBottom: 16 }}>
-            {sortedDaily.slice(0, 7).map((d, i) => (
-              <button key={i} onClick={() => { setActiveDay(i); setSelectedHour(null); }}
-                style={{ padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500, color: activeDay === i ? '#fff' : 'rgba(255,255,255,0.3)', background: activeDay === i ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-                {d.dayName}
-              </button>
-            ))}
-          </div>
-          <div style={{ position: 'relative' }}>
-            <div style={{ display: 'flex', gap: 2, borderRadius: 8, overflow: 'hidden' }}>
-              {clockHourlyIdx.map((idx, h) => {
-                const isNow = activeDay === 0 && h === nowHour;
-                return (
-                  <div key={h} onClick={() => setSelectedHour(selectedHour === h ? null : h)}
-                    style={{ flex: 1, height: 34, background: MCF_BAND_BG[idx] || MCF_BAND_BG[1], cursor: 'pointer', boxSizing: 'border-box', boxShadow: isNow ? 'inset 0 0 0 2px rgba(255,255,255,0.9)' : 'none' }}
-                  />
-                );
-              })}
-            </div>
-            {activeDay === 0 && (
-              <div style={{ position: 'absolute', top: '100%', marginTop: 2, left: `${(nowHour + 0.5) / 24 * 100}%`, transform: 'translateX(-50%)', fontSize: 8, color: '#8e8e93', lineHeight: 1, pointerEvents: 'none' }}>▲</div>
-            )}
-          </div>
-          <div style={{ display: 'flex', marginTop: 14 }}>
-            {[
-              { label: 'Natt', hours: 6, startH: 0 },
-              { label: 'Morgon', hours: 6, startH: 6 },
-              { label: 'Lunch', hours: 2, startH: 12 },
-              { label: 'Eftermiddag', hours: 4, startH: 14 },
-              { label: 'Kväll', hours: 6, startH: 18 },
-            ].map(({ label, hours, startH }) => {
-              const isCurrent = activeDay === 0 && nowHour >= startH && nowHour < startH + hours;
-              return (
-                <div key={label} style={{ flex: hours, textAlign: 'center', fontSize: 10, letterSpacing: -0.2, color: isCurrent ? '#8e8e93' : 'rgba(255,255,255,0.2)', fontWeight: isCurrent ? 500 : 400, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', padding: '0 2px', boxSizing: 'border-box' }}>
-                  {label}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ position: 'relative', height: 16, marginTop: 2 }}>
-            {[0, 6, 12, 18, 23].map(h => (
-              <div key={h} style={{ position: 'absolute', ...(h === 23 ? { right: 0 } : { left: `${(h / 24) * 100}%`, transform: h === 0 ? 'none' : 'translateX(-50%)' }), fontSize: 11, color: 'rgba(255,255,255,0.2)', whiteSpace: 'nowrap' }}>
-                kl {h.toString().padStart(2, '0')}
-              </div>
-            ))}
-          </div>
-          {selectedHour !== null && (
-            <div style={{ marginTop: 10, textAlign: 'center', fontSize: 13, color: '#fff', background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '8px 12px' }}>
-              kl {selectedHour.toString().padStart(2, '0')}: {MCF_TEXTS[clockHourlyIdx[selectedHour]]?.short || ''} brandrisk (nivå {clockHourlyIdx[selectedHour]})
-            </div>
-          )}
-        </div>
 
         {/* === BEREDSKAP-avdelare — skiljer daglig prognos (ovan) från admin (nedan) === */}
         <div style={{ margin: '28px 16px 14px' }}>
@@ -566,7 +521,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <details open>
               <summary style={summaryStyle}>
                 <span>Samråd brandrisk</span>
-                {brandSamrad.kvitterad ? <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'none' as const, color: '#30d158' }}>Kvitterat</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
+                {brandSamrad.kvitterad ? <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'none' as const, color: '#30d158' }}>Kvitterat</span> : <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'none' as const, color: '#8e8e93' }}>Ej kvitterat</span>}
               </summary>
               <div style={{ marginTop: 12 }}>
                 <div style={textStyle}>Enligt Skogforsks branschgemensamma riktlinjer (2022) krävs samråd mellan uppdragstagare och uppdragsgivare vid FWI &#x2265; 4.</div>
@@ -892,7 +847,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
         {/* Footer */}
         <div style={{ margin: '8px 16px 32px', fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6, textAlign: 'center' }}>
-          Beslutsstöd. Prognoser: SMHI. Brandbeteende: MCF. Riktlinjer: Skogforsk (2022). Bedöm alltid lokalt. Arbetsgivaren ansvarar (AML 1977:1160).
+          Prognos: SMHI, 2,8 × 2,8 km rutnät. Lokala förhållanden kan avvika. Bedöm alltid på plats.
         </div>
       </div>
     </div>
