@@ -39,15 +39,14 @@ const TYP_FARG: Record<Typ, string> = {
   'Reparation': C.red,     // #ff453a — haveri, lyfts visuellt
 }
 
-// Kategori-kod som flytt: lyfts UT ur avbrottens totaler
+// Kategori-kod som flytt: lyfts UT ur avbrottens totaler.
+// OBS designprincip (juli-26): ett framlyft kort betyder "utbruten ur
+// totalen och behöver därför förklaras" (som Flytt). Kategorier som ligger
+// KVAR i totalen får INGET eget kort — de syns redan i kategorilistan, och
+// ett kort till vore samma siffra två gånger (provades och togs bort för
+// 'Unproductive terrain work').
 const FLYTT_KATEGORI = 'Trailer transportation'
 const FLYTT_FARG     = C.purple // #5e5ce6
-
-// Framlyft kategori: visas som EGET KORT men STANNAR i avbrottstotalen —
-// till skillnad från flytt ÄR den ett avbrott (ingen dubbelräkning: kortet
-// är en avläsning av en delmängd, inte en exkludering).
-const OPRODUKTIV_KATEGORI = 'Unproductive terrain work'
-const OPRODUKTIV_FARG     = C.orange // #ff9f0a
 
 // ── Datatyper ─────────────────────────────────────────────────
 type TypAgg = {
@@ -64,8 +63,6 @@ type AvbrottData = {
   reparationAntal:  number
   flyttTimmar:      number
   flyttAntal:       number
-  oproduktivTimmar: number   // framlyft delmängd — INGÅR i totalTimmar/perTyp
-  oproduktivAntal:  number
   perTyp:           TypAgg[] // alltid alla 4 typer
 }
 
@@ -89,9 +86,15 @@ async function fetchAvbrott(
 
   // 2. Aggregera avbrotten (utan flytt) — INGEN G15-split här: skotare saknar
   //    korta pauser-begreppet (ingen ShortDownTime i MOM, kort_stopp_sek = 0).
-  //    Deras fåtaliga korta DownTime (t.ex. Unproductive terrain work = stillestånd
-  //    med motorn av, förarens valda kategori; tankning) visas ofiltrerat med sina
-  //    riktiga kategorier. G15-splitten gäller bara SKÖRDARE — se lib/g15.ts.
+  //    Deras fåtaliga korta DownTime visas ofiltrerat med sina riktiga
+  //    kategorier. G15-splitten gäller bara SKÖRDARE — se lib/g15.ts.
+  //
+  //    Om 'Unproductive terrain work' (störst kategori på A030353, syns under
+  //    Övrigt i listan) — KÄLLVERIFIERAT i MOM, gissa aldrig orsak i UI:t:
+  //    EngineTime=0 & DrivenDistance=0 på raderna = maskinen står STILL med
+  //    motorn av (inte körning); kategorin är förarens VALDA StanForD-kod
+  //    (en av 6 valbara); fritext (CodeDescription) är tom på samtliga rader
+  //    — kategorin ÄR förarens angivna orsak, inte oregistrerad tid.
   let totalSek = 0
   let repSek = 0, repAntal = 0
   const byTyp: Record<string, {
@@ -99,20 +102,10 @@ async function fetchAvbrott(
     kategorier: Record<string, { sek: number; antal: number }>
   }> = {}
 
-  // Framlyft delmängd: Oproduktiv terrängtid. Raderna LIGGER KVAR i
-  // totalSek/perTyp nedan — kortet dubbelräknar inget. ALLA längder
-  // (MOM sätter ingen längdgräns på kategorin; G15-splitten gäller den inte).
-  // Källverifierat i MOM: EngineTime=0 & DrivenDistance=0 = maskinen står
-  // STILL med motorn av; kategorin är förarens VALDA orsak (StanForD-kod,
-  // en av 6); fritext (CodeDescription) är tom på samtliga rader. Kortet
-  // visar VAD datan säger — det gissar aldrig varför.
-  let oprodSek = 0, oprodAntal = 0
-
   for (const r of avbrottRows) {
     const sek = r.langd_sek || 0
     totalSek += sek
     if (r.typ === 'Reparation') { repSek += sek; repAntal += 1 }
-    if (r.kategori_kod === OPRODUKTIV_KATEGORI) { oprodSek += sek; oprodAntal += 1 }
 
     const t = (TYPER as readonly string[]).includes(r.typ) ? r.typ : 'Övrigt'
     if (!byTyp[t]) byTyp[t] = { sek: 0, antal: 0, kategorier: {} }
@@ -144,8 +137,6 @@ async function fetchAvbrott(
     reparationTimmar: repSek / 3600,
     reparationAntal:  repAntal,
     flyttTimmar, flyttAntal,
-    oproduktivTimmar: oprodSek / 3600,
-    oproduktivAntal:  oprodAntal,
     perTyp,
   }
 }
@@ -367,50 +358,6 @@ function FlyttKort({ timmar, antal }: { timmar: number; antal: number }) {
   )
 }
 
-// ── OproduktivKort ────────────────────────────────────────────
-// Framlyft delmängd av avbrotten (INGÅR i Stopp-totalen — ingen dubbelräkning).
-// Undertexten är källverifierad mot MOM och får inte gissa orsak:
-// EngineTime=0 & DrivenDistance=0 = står still, motor av; kategorin är
-// förarens valda StanForD-kod; fritext saknas på samtliga rader.
-function OproduktivKort({ timmar, antal }: { timmar: number; antal: number }) {
-  return (
-    <div style={{
-      background: C.card, borderRadius: 14, padding: '14px 16px',
-      marginBottom: 14, display: 'grid',
-      gridTemplateColumns: '34px 1fr auto auto',
-      gap: 12, alignItems: 'center',
-    }}>
-      <div style={{
-        width: 34, height: 34, borderRadius: 17,
-        background: 'rgba(255,159,10,0.16)',
-        color: OPRODUKTIV_FARG, display: 'flex',
-        alignItems: 'center', justifyContent: 'center',
-        fontSize: 15, fontWeight: 600,
-      }}>■</div>
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>
-          Oproduktiv terrängtid
-        </div>
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-          Maskinen står still (motor av), klassad av föraren som oproduktivt terrängarbete
-        </div>
-      </div>
-      <div style={{
-        fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums',
-        textAlign: 'right',
-      }}>
-        {antal} {antal === 1 ? 'gång' : 'ggr'}
-      </div>
-      <div style={{
-        fontSize: 16, fontWeight: 600, color: OPRODUKTIV_FARG,
-        fontVariantNumeric: 'tabular-nums', minWidth: 60, textAlign: 'right',
-      }}>
-        {fmtTid(timmar * 3600)}
-      </div>
-    </div>
-  )
-}
-
 // ── Root-komponent ─────────────────────────────────────────────
 export default function SkotareAvbrottNy() {
   const [maskin, setMaskin] = useState(SKOTARE[0])
@@ -438,8 +385,7 @@ export default function SkotareAvbrottNy() {
     return () => { el.textContent = 'Maskinvy' }
   }, [maskin.namn, label])
 
-  const showFlytt      = !loading && (data?.flyttAntal ?? 0) > 0
-  const showOproduktiv = !loading && (data?.oproduktivAntal ?? 0) > 0
+  const showFlytt  = !loading && (data?.flyttAntal ?? 0) > 0
   const haveriColor = (data?.reparationTimmar ?? 0) > 0 ? C.red : undefined
 
   return (
@@ -576,11 +522,6 @@ export default function SkotareAvbrottNy() {
         {/* Flytt-kort (lila — lyfts ur avbrottotalerna, visas bara om > 0) */}
         {showFlytt && data && (
           <FlyttKort timmar={data.flyttTimmar} antal={data.flyttAntal} />
-        )}
-
-        {/* Oproduktiv terrängtid (orange — framlyft men INGÅR i totalen, visas bara om > 0) */}
-        {showOproduktiv && data && (
-          <OproduktivKort timmar={data.oproduktivTimmar} antal={data.oproduktivAntal} />
         )}
 
         {/* Avbrottskort */}
