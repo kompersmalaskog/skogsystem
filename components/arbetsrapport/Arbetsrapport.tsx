@@ -3166,7 +3166,7 @@ export default function Arbetsrapport() {
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
                       <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                         <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check</span>
-                        <span style={{ ...TYPE.meta,color:"#fff" }}>Dygnsviolan uppfylld</span>
+                        <span style={{ ...TYPE.meta,color:"#fff" }}>Dygnsvilan uppfylld</span>
                       </div>
                       <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>
                     </div>
@@ -3937,13 +3937,15 @@ export default function Arbetsrapport() {
           const pushOn     = medarbetare?.push_aktiv         ?? true;
 
           const Rad = ({ rubrik, undertext, value, onClick, right }: any) => (
-            <div onClick={onClick} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:onClick?"pointer":"default" }}>
-              <div>
+            <div onClick={onClick} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:onClick?"pointer":"default" }}>
+              {/* minWidth:0 låter den långa undertexten krympa/radbrytas — värdet
+                  till höger är flexShrink:0 + nowrap så "30 min" aldrig bryts. */}
+              <div style={{ minWidth:0 }}>
                 <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{rubrik}</p>
                 {undertext && <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{undertext}</p>}
               </div>
-              <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                {value && <span style={{ ...TYPE.bodyList,color:"#fff" }}>{value}</span>}
+              <div style={{ display:"flex",alignItems:"center",gap:8,flexShrink:0 }}>
+                {value && <span style={{ ...TYPE.bodyList,color:"#fff",whiteSpace:"nowrap",...TNUM }}>{value}</span>}
                 {right || (onClick && <ChevronRight/>)}
               </div>
             </div>
@@ -4454,7 +4456,8 @@ export default function Arbetsrapport() {
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
           {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0&&!harExtra?(
             <Card style={{ padding:"24px 20px",textAlign:"center" as const }}>
-              <p style={{ margin:"0 0 4px",...TYPE.meta,color:"#fff" }}>Ingen data från MOM</p>
+              {/* Ärligt tomt: varken maskinpass eller loggad extra-tid. */}
+              <p style={{ margin:"0 0 4px",...TYPE.meta,color:"#fff" }}>Ingen data för den här dagen</p>
               <p style={{ margin:0,fontSize:13,color:"#fff" }}>Lägg till arbetstid och körning manuellt</p>
             </Card>
           ):!harData&&!harExtra?(
@@ -4474,7 +4477,14 @@ export default function Arbetsrapport() {
                 </div>
               </div>
             </Card>
-          ):!harData?null:(
+          ):!harData?(
+            /* Extra-tid finns men inget maskinpass: konstatera det lugnt —
+               säg ALDRIG "ingen data" när den loggade tiden listas nedanför.
+               Samma ärlighetsprincip som Saldon-tillstånden. */
+            <Card style={{ padding:"16px 20px",textAlign:"center" as const }}>
+              <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen maskindata den här dagen</p>
+            </Card>
+          ):(
             <Card style={{ padding:"4px 20px" }}>
               {/* Hjälte: Total arbetstid — hela blocket klickbart, öppnar Ändra
                   arbetstid (start/slut/rast-hjulen). Ersätter Arbetstid/Rast/Total-
