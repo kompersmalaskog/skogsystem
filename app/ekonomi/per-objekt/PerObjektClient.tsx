@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { g15Sek } from '@/lib/g15';
 import EkonomiBottomNav from '../EkonomiBottomNav';
 
 type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
@@ -146,7 +147,7 @@ export default function PerObjektClient() {
       ] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_tid')
-            .select('datum, maskin_id, objekt_id, engine_time_sek')
+            .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek')
             .gte('datum', start).lte('datum', end)
             .range(from, to)
         ),
@@ -251,7 +252,7 @@ export default function PerObjektClient() {
         if (!r.objekt_id) continue;
         const key = `${r.objekt_id}|${r.maskin_id}`;
         if (!tidAgg[key]) tidAgg[key] = { timmar: 0, timpeng: 0 };
-        const t = (r.engine_time_sek || 0) / 3600;
+        const t = g15Sek(r.processing_sek, r.terrain_sek) / 3600;
         tidAgg[key].timmar += t;
         const tp = timprisList.find(p => p.maskin_id === r.maskin_id && isValidOn(r.datum, p.giltig_fran, p.giltig_till));
         tidAgg[key].timpeng += t * (tp?.timpris || 0);

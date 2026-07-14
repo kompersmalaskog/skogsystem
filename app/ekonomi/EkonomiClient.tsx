@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
+import { g15Sek } from '@/lib/g15';
 import EkonomiBottomNav from './EkonomiBottomNav';
 
 type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
@@ -172,7 +173,7 @@ export default function EkonomiClient() {
         ),
         fetchAllRows((from, to) =>
           supabase.from('fakt_tid')
-            .select('datum, maskin_id, engine_time_sek, processing_sek')
+            .select('datum, maskin_id, processing_sek, terrain_sek')
             .gte('datum', start).lte('datum', end)
             .range(from, to)
         ),
@@ -261,7 +262,7 @@ export default function EkonomiClient() {
       for (const r of tidRows) {
         const k = `${r.datum}|${r.maskin_id}`;
         if (!tidMap[k]) tidMap[k] = { timmar: 0 };
-        tidMap[k].timmar += (r.engine_time_sek || r.processing_sek || 0) / 3600;
+        tidMap[k].timmar += g15Sek(r.processing_sek, r.terrain_sek) / 3600;
       }
 
       const classifyObj = (oid: string): RowTyp => {
