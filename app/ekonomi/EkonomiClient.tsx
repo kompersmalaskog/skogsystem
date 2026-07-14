@@ -4,12 +4,12 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { g15Sek } from '@/lib/g15';
 import EkonomiBottomNav from './EkonomiBottomNav';
+import {
+  type AcordPris, type MaskinTimpris, type AvstandConfig,
+  isValidOn, lookupAcordPris, ANTAGEN_MEDELSTAM,
+} from '@/lib/ekonomi/acord';
 
 type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
-
-type AcordPris = { medelstam: number; pris_total: number; pris_skordare: number; pris_skotare: number; giltig_fran: string | null; giltig_till: string | null };
-type MaskinTimpris = { maskin_id: string; maskin_namn: string | null; timpris: number; giltig_fran: string | null; giltig_till: string | null };
-type AvstandConfig = { grundavstand_m: number; kr_per_100m: number; giltig_fran: string | null; giltig_till: string | null };
 type RowOverride = {
   id?: string;
   datum: string; maskin_id: string; objekt_id: string;
@@ -115,23 +115,6 @@ async function fetchAllRows(queryFn: (from: number, to: number) => Promise<{ dat
     offset += PAGE;
   }
   return all;
-}
-
-function lookupAcordPris(medelstam: number, acord: AcordPris[]): AcordPris | null {
-  if (!acord.length) return null;
-  let best = acord[0];
-  let bestDiff = Math.abs(acord[0].medelstam - medelstam);
-  for (const p of acord) {
-    const d = Math.abs(p.medelstam - medelstam);
-    if (d < bestDiff) { bestDiff = d; best = p; }
-  }
-  return best;
-}
-
-function isValidOn(d: string, giltig_fran: string | null, giltig_till: string | null) {
-  if (giltig_fran && d < giltig_fran) return false;
-  if (giltig_till && d > giltig_till) return false;
-  return true;
 }
 
 function formatKr(n: number) {
@@ -355,7 +338,7 @@ export default function EkonomiClient() {
       const fwdRader: DagRad[] = Object.values(lassMap)
         .filter(l => l.volym > 0)
         .map(l => {
-          const medelstam = objMedelstam[l.objekt_id] || 0.35; // fallback om ingen skördardata finns
+          const medelstam = objMedelstam[l.objekt_id] || ANTAGEN_MEDELSTAM; // fallback om ingen skördardata finns
           const dayTot = lassDayTot[`${l.datum}|${l.maskin_id}`] || 0;
           return buildRow(l.datum, l.maskin_id, l.objekt_id, l.volym, medelstam, 'Forwarder', dayTot, l.tillagg_skotningsavstand_kr);
         });

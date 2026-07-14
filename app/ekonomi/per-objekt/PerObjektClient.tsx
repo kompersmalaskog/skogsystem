@@ -2,16 +2,14 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { g15Sek } from '@/lib/g15';
 import EkonomiBottomNav from '../EkonomiBottomNav';
+import {
+  type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
+  isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
+  timpengForTidRows, ANTAGEN_MEDELSTAM,
+} from '@/lib/ekonomi/acord';
 
 type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
-
-type MaskinTimpris = { maskin_id: string; maskin_namn: string | null; timpris: number; giltig_fran: string | null; giltig_till: string | null };
-type AcordPris = { medelstam: number; pris_total: number; pris_skordare: number; pris_skotare: number; giltig_fran: string | null; giltig_till: string | null };
-type AvstandConfig = { grundavstand_m: number; kr_per_100m: number; giltig_fran: string | null; giltig_till: string | null };
-type TraktBracket = { fran_m3fub: number; till_m3fub: number | null; tillagg_kr_per_m3fub: number };
-type SortConfig = { grundantal: number; kr_per_extra_sortiment: number };
 
 type MaskinDel = {
   maskin_id: string;
@@ -91,23 +89,6 @@ function getPeriodLabel(p: PeriodType, offset: number) {
   if (p === 'M') return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
   if (p === 'K') return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
   return `${d.getFullYear()}`;
-}
-
-function isValidOn(d: string, giltig_fran: string | null, giltig_till: string | null) {
-  if (giltig_fran && d < giltig_fran) return false;
-  if (giltig_till && d > giltig_till) return false;
-  return true;
-}
-
-function lookupNearest(medelstam: number, acord: AcordPris[]): AcordPris | null {
-  if (!acord.length) return null;
-  let best = acord[0];
-  let bestDiff = Math.abs(acord[0].medelstam - medelstam);
-  for (const p of acord) {
-    const d = Math.abs(p.medelstam - medelstam);
-    if (d < bestDiff) { bestDiff = d; best = p; }
-  }
-  return best;
 }
 
 async function fetchAllRows(queryFn: (from: number, to: number) => Promise<{ data: any[] | null }>): Promise<any[]> {
@@ -219,24 +200,15 @@ export default function PerObjektClient() {
       // 3) Traktstorlek-tillägg per objekt
       const objTrakt: Record<string, { kr_per_m3: number; bracket: string }> = {};
       for (const objekt_id of Object.keys(objVol)) {
-        const v = objVol[objekt_id].vol;
-        const br = traktBrackets.find(b =>
-          Number(b.fran_m3fub) <= v && (b.till_m3fub == null || Number(b.till_m3fub) > v)
-        );
-        objTrakt[objekt_id] = {
-          kr_per_m3: br ? Number(br.tillagg_kr_per_m3fub) : 0,
-          bracket: br
-            ? `${br.fran_m3fub}–${br.till_m3fub ?? '∞'}`
-            : '—',
-        };
+        const t = traktTillagg(objVol[objekt_id].vol, traktBrackets);
+        objTrakt[objekt_id] = { kr_per_m3: t.krPerM3, bracket: t.bracket };
       }
 
       // 4) Sortiment-tillägg per objekt (baseras på grupp-count)
       const objSortTillagg: Record<string, { count: number; kr_per_m3: number }> = {};
       for (const objekt_id of new Set([...Object.keys(objGrupper), ...Object.keys(objVol)])) {
         const count = objGrupper[objekt_id]?.size || 0;
-        const extra = sortConf ? Math.max(0, count - sortConf.grundantal) * sortConf.kr_per_extra_sortiment : 0;
-        objSortTillagg[objekt_id] = { count, kr_per_m3: extra };
+        objSortTillagg[objekt_id] = { count, kr_per_m3: sortimentTillagg(count, sortConf) };
       }
 
       // 5) Objektets medelstam (från skördare) — används av skotare
@@ -245,17 +217,18 @@ export default function PerObjektClient() {
         if (v.stammar > 0) objMedelstam[objekt_id] = v.vol / v.stammar;
       }
 
-      // Tid per (objekt, maskin)
+      // Tid per (objekt, maskin) — G15 + timpeng via delade motorn
       type TidAgg = { timmar: number; timpeng: number };
-      const tidAgg: Record<string, TidAgg> = {};
+      const tidRowsPerKey: Record<string, any[]> = {};
       for (const r of tidRows) {
         if (!r.objekt_id) continue;
         const key = `${r.objekt_id}|${r.maskin_id}`;
-        if (!tidAgg[key]) tidAgg[key] = { timmar: 0, timpeng: 0 };
-        const t = g15Sek(r.processing_sek, r.terrain_sek) / 3600;
-        tidAgg[key].timmar += t;
-        const tp = timprisList.find(p => p.maskin_id === r.maskin_id && isValidOn(r.datum, p.giltig_fran, p.giltig_till));
-        tidAgg[key].timpeng += t * (tp?.timpris || 0);
+        (tidRowsPerKey[key] ||= []).push(r);
+      }
+      const tidAgg: Record<string, TidAgg> = {};
+      for (const [key, rows] of Object.entries(tidRowsPerKey)) {
+        const t = timpengForTidRows(rows, timprisList);
+        tidAgg[key] = { timmar: t.timmar, timpeng: t.timpeng || 0 };
       }
 
       // Skördare (harvester): aggregera vol + stammar per (objekt, maskin)
@@ -278,12 +251,7 @@ export default function PerObjektClient() {
         if (!fwdAgg[key]) fwdAgg[key] = { vol: 0, skotavstand_kr: 0 };
         const vol = Number(r.volym_m3sub) || 0;
         fwdAgg[key].vol += vol;
-        const cfg = avstandList.find(c => isValidOn(r.datum, c.giltig_fran, c.giltig_till));
-        if (cfg) {
-          const dist = r.korstracka_m || 0;
-          const step = Math.max(0, Math.ceil((dist - cfg.grundavstand_m) / 100));
-          fwdAgg[key].skotavstand_kr += step * cfg.kr_per_100m * vol;
-        }
+        fwdAgg[key].skotavstand_kr += skotAvstandKr(r.datum, r.korstracka_m || 0, vol, avstandList);
       }
 
       // Bygg maskinrader per objekt
@@ -307,7 +275,7 @@ export default function PerObjektClient() {
         const [objekt_id, maskin_id] = key.split('|');
         if (h.vol <= 0 || h.stammar <= 0) continue;
         const medelstam = h.vol / h.stammar;
-        const a = lookupNearest(medelstam, acordList);
+        const a = lookupAcordPris(medelstam, acordList);
         const grundpris = a?.pris_skordare || 0;
         const extraKr = (objSortTillagg[objekt_id]?.kr_per_m3 || 0) + (objTrakt[objekt_id]?.kr_per_m3 || 0);
         const acord = h.vol * (grundpris + extraKr);
@@ -327,8 +295,8 @@ export default function PerObjektClient() {
       for (const [key, f] of Object.entries(fwdAgg)) {
         const [objekt_id, maskin_id] = key.split('|');
         if (f.vol <= 0) continue;
-        const medelstam = objMedelstam[objekt_id] || 0.35;
-        const a = lookupNearest(medelstam, acordList);
+        const medelstam = objMedelstam[objekt_id] || ANTAGEN_MEDELSTAM;
+        const a = lookupAcordPris(medelstam, acordList);
         const grundpris = a?.pris_skotare || 0;
         const extraKr = (objSortTillagg[objekt_id]?.kr_per_m3 || 0) + (objTrakt[objekt_id]?.kr_per_m3 || 0);
         const acord = f.vol * (grundpris + extraKr) + f.skotavstand_kr;
