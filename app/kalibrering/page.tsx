@@ -206,6 +206,87 @@ const bedomProfil = (
   return { status: värsta, larmTyst: false, detaljer };
 };
 
+// === Diagnos-motorn: rådata (per diameterklass) → ETT av tre fel + åtgärdstext ===
+// Skild från bedomProfil (som ger profil-verdikt per variabel). diagnos() svarar
+// på "vad ska föraren göra", inte "hur bra mäter maskinen".
+//
+// PRINCIP: diagnos ställs BARA på klasser som underpresterar (träff% under
+// profilens golv). En klass över golvet är bra oavsett vad tecknen gör — appen
+// ska vara tyst när den inte har något att säga.
+//   Kurva:   underpresterande klass, systematik KONSEKVENT (samma tecken) → kontakta tekniker
+//   Tryck:   underpresterande klass, systematik VÄXLAR TECKEN → höj matartrycket
+//   Slitage: tryck-signatur MEN planområden sjönk inte efter en förar-markör → verkstad
+type DiagKlass = {
+  klass: string; min: number; max: number; n: number;
+  traffPct: number | null;
+  systMonthly: { manad: string; systematik: number; n: number }[];
+  plateauShare: number | null; plateauN: number;
+};
+type DiagMarkor = { datum: string; kalla: 'reparation' | 'kalibrering' | 'atgard'; text: string };
+type DiagnosResp = {
+  ok: true; maskin_id: string; profil: string | null; golvDia: number | null;
+  fonster: { fran: string; till: string; dagar: number } | null;
+  klasser: DiagKlass[];
+  plateauMonthly: { manad: string; share: number; n: number }[];
+  markorer: DiagMarkor[];
+};
+type DiagFel = 'kurva' | 'tryck' | 'slitage';
+type DiagnosVerdikt = {
+  status: 'bra' | 'tendens' | 'diagnos';
+  fel: DiagFel | null;
+  klass: DiagKlass | null;
+  bandZon: number | null; // 0 = rot/grov … 4 = topp/klen. null = inget band.
+  mening1: string; mening2: string;
+};
+
+const GRIND_MIN = 30;      // < 30 mätpunkter i en klass → ingen bedömning alls
+const GRIND_ATGARD = 100;  // ≥ 100 → åtgärd; 30–100 → tendens utan åtgärd
+const BAND_ORDNING = ['300+', '250-299', '200-249', '150-199', '<150']; // rot → topp
+
+const klassGrovlek = (klass: string): string =>
+  klass === '300+' ? 'grova bitar' : klass === '<150' ? 'klena bitar' : `${klass} mm-bitar`;
+
+const diagnos = (resp: DiagnosResp | null): DiagnosVerdikt => {
+  const bra: DiagnosVerdikt = { status: 'bra', fel: null, klass: null, bandZon: null, mening1: 'Maskinen mäter bra.', mening2: 'Inget att åtgärda.' };
+  if (!resp || resp.golvDia == null || resp.klasser.length === 0) return bra;
+  const golv = resp.golvDia;
+  // Underpresterande klasser med tillräckligt underlag (grind: <30 = tyst).
+  const under = resp.klasser.filter(k => k.traffPct != null && k.traffPct < golv && k.n >= GRIND_MIN);
+  if (under.length === 0) return bra;
+  const värsta = under.reduce((a, b) => ((b.traffPct as number) < (a.traffPct as number) ? b : a));
+  const zon = BAND_ORDNING.indexOf(värsta.klass);
+  const bandZon = zon >= 0 ? zon : null;
+  // 30–100 mätpunkter → tendens, ingen åtgärd (en felskruvning gör maskinen sämre).
+  if (värsta.n < GRIND_ATGARD) {
+    return { status: 'tendens', fel: null, klass: värsta, bandZon,
+      mening1: `Ser ut att brista på ${klassGrovlek(värsta.klass)}.`,
+      mening2: 'Ta fler kontrollstammar på grova träd innan du justerar.' };
+  }
+  // Teckenanalys — bara månader med n ≥ 20 (glesa månader är brus).
+  const mån = värsta.systMonthly.filter(m => m.n >= 20);
+  const tecken = new Set(mån.filter(m => Math.abs(m.systematik) >= 0.05).map(m => Math.sign(m.systematik)));
+  const konsekvent = tecken.size <= 1;
+  let fel: DiagFel = konsekvent ? 'kurva' : 'tryck';
+  // Slitage-eskalering: tryck + en förar-markör + planområden sjönk INTE efter den.
+  if (fel === 'tryck') {
+    const atg = resp.markorer.filter(m => m.kalla === 'atgard').sort((a, b) => a.datum.localeCompare(b.datum)).pop();
+    if (atg) {
+      const mn = atg.datum.slice(0, 7);
+      const snitt = (arr: { share: number }[]) => (arr.length ? arr.reduce((s, x) => s + x.share, 0) / arr.length : null);
+      const fore = snitt(resp.plateauMonthly.filter(p => p.manad < mn));
+      const efter = snitt(resp.plateauMonthly.filter(p => p.manad >= mn));
+      if (fore != null && efter != null && efter >= fore - 5) fel = 'slitage';
+    }
+  }
+  const g = klassGrovlek(värsta.klass);
+  const copy: Record<DiagFel, { m1: string; m2: string }> = {
+    tryck: { m1: `Maskinen mäter ostadigt på ${g}.`, m2: 'Höj matartrycket.' },
+    kurva: { m1: `Maskinen mäter fel storlek på ${g}.`, m2: 'Diameterkurvan behöver ses över — kontakta tekniker.' },
+    slitage: { m1: 'Greppet brister trots höjt tryck.', m2: 'Byt matarvalsar/slitdelar — verkstad.' },
+  };
+  return { status: 'diagnos', fel, klass: värsta, bandZon, mening1: copy[fel].m1, mening2: copy[fel].m2 };
+};
+
 // iOS-mönster: dra ner på modalen för att stänga. Hela modalen är dragbar
 // från övre 200px (handle + header). Resten behåller scroll. Hooken returnerar
 // refs och touch-handlers att fästa på overlay + modal-element.
@@ -405,6 +486,12 @@ export default function KalibreringPage() {
 
   // Profilbedömning per maskin (90-dagarsfönster) — cachas per maskin_id.
   const [bedomningMap, setBedomningMap] = useState<Record<string, BedomningResp>>({});
+  // Diagnos-underlag per maskin (klasser, planområden, markörer).
+  const [diagnosMap, setDiagnosMap] = useState<Record<string, DiagnosResp>>({});
+  const [visaSiffror, setVisaSiffror] = useState(false); // Senaste-fliken: förarvy ↔ siffror
+  const [nyMarkorDatum, setNyMarkorDatum] = useState('');
+  const [nyMarkorText, setNyMarkorText] = useState('');
+  const [markorSparar, setMarkorSparar] = useState(false);
   const swipeSheet = useSwipeDownToClose(() => setMaskinSheetOpen(false));
 
   // Hämta alla skördare (även sålda) en gång vid mount — listan i sheet:n
@@ -456,6 +543,37 @@ export default function KalibreringPage() {
     [heroMaskin, allKalib],
   );
   const bedomning = heroMaskin ? (bedomningMap[heroMaskin] ?? null) : null;
+  const diagnosData = heroMaskin ? (diagnosMap[heroMaskin] ?? null) : null;
+  const verdikt = diagnos(diagnosData);
+  const heroMaskinObj = heroMaskin ? alleMaskiner.find(m => m.maskin_id === heroMaskin) : undefined;
+  const heroNamn = heroMaskinObj ? maskinNamn(heroMaskinObj) : (heroMaskin ?? '');
+
+  // Hämta diagnos-underlag (klasser, planområden, markörer) för vald maskin.
+  const laddaDiagnos = useCallback((maskin: string, force = false) => {
+    if (!maskin) return;
+    if (!force && diagnosMap[maskin]) return;
+    fetch(`/api/kalibrering/diagnos?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: DiagnosResp & { ok?: boolean }) => {
+        if (!data?.ok) return;
+        setDiagnosMap(prev => ({ ...prev, [maskin]: data }));
+      })
+      .catch(() => { /* tyst — förarvyn faller tillbaka på "läser diagnos" */ });
+  }, [diagnosMap]);
+
+  // Spara en åtgärdsmarkör (förare: "höjde trycket till 400 mm").
+  const sparaMarkor = useCallback(async () => {
+    if (!heroMaskin || !nyMarkorDatum || !nyMarkorText.trim()) return;
+    setMarkorSparar(true);
+    const { error } = await supabase.from('kalibrering_atgard').insert({
+      maskin_id: heroMaskin, datum: nyMarkorDatum, text: nyMarkorText.trim(),
+    });
+    setMarkorSparar(false);
+    if (!error) {
+      setNyMarkorText(''); setNyMarkorDatum('');
+      laddaDiagnos(heroMaskin, true); // ladda om så markören syns direkt
+    }
+  }, [heroMaskin, nyMarkorDatum, nyMarkorText, laddaDiagnos]);
 
   // Hjälte-block för en variabel: TRÄFFPROCENTEN som hjälte-tal, färgad via
   // profilbedömningen (sämsta-styr). Period + systematik/std som stödtal.
@@ -648,6 +766,8 @@ export default function KalibreringPage() {
       .catch(() => { /* tyst — hjälten faller tillbaka på "inget underlag" */ });
     return () => { cancelled = true; };
   }, [heroMaskin, bedomningMap]);
+
+  useEffect(() => { if (heroMaskin) laddaDiagnos(heroMaskin); }, [heroMaskin, laddaDiagnos]);
 
   // Senaste kontrollens stockar för vald maskin (kan skilja sig från globalt
   // senaste när man filtrerar per maskin — stockMap laddar annars bara den globala).
@@ -1746,6 +1866,53 @@ export default function KalibreringPage() {
         .kalib-profil-chip{font-size:11px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;color:#0A84FF;background:rgba(10,132,255,0.12);padding:4px 9px;border-radius:999px;white-space:nowrap}
         .kalib-profil-chip.muted{color:#8E8E93;background:rgba(255,255,255,0.06)}
         .kalib-hero-period{font-size:12px;color:#8E8E93;margin-bottom:14px}
+        /* === Förarvyn (diagnos): en stam, ett band, två meningar === */
+        .kalib-forarvy{display:flex;flex-direction:column;align-items:center;text-align:center;padding:28px 20px 22px}
+        .kalib-diag-stem{width:100%;max-width:320px;height:auto}
+        .kalib-diag-stem-body{fill:#48484A}
+        .kalib-forarvy-bra .kalib-diag-stem-body{fill:#3A3A3C}
+        .kalib-diag-band.diag{fill:#FF453A;fill-opacity:0.85}
+        .kalib-diag-band.tendens{fill:#FF9F0A;fill-opacity:0.8}
+        .kalib-diag-stemlabels{display:flex;justify-content:space-between;width:100%;max-width:320px;font-size:12px;color:#8E8E93;margin:2px 6px 0}
+        .kalib-diag-text{margin:24px 0 4px}
+        .kalib-diag-m1{font-size:22px;font-weight:600;letter-spacing:-0.01em;color:#fff;line-height:1.25}
+        .kalib-diag-m1.laddar{color:#8E8E93;font-weight:500}
+        .kalib-diag-m2{font-size:17px;color:#8E8E93;margin-top:8px}
+        .kalib-forarvy-diagnos .kalib-diag-m2{color:#EBEBF5;font-weight:500}
+        .kalib-visa-siffror{margin-top:22px;background:none;border:none;color:#8E8E93;font-size:15px;display:inline-flex;align-items:center;gap:2px;cursor:pointer;padding:8px 12px;min-height:44px}
+        .kalib-tillbaka{background:none;border:none;color:#0A84FF;font-size:16px;display:inline-flex;align-items:center;gap:2px;cursor:pointer;padding:8px 4px;min-height:44px;margin-bottom:4px}
+        /* Stabilitetsrutnät */
+        .kalib-grid-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+        .kalib-stab-grid{border-collapse:collapse;font-size:13px;width:100%;margin-top:8px}
+        .kalib-stab-grid th{color:#8E8E93;font-weight:500;padding:4px 8px;text-align:center;font-variant-numeric:tabular-nums}
+        .kalib-stab-klass{color:#EBEBF5;font-weight:500;padding:6px 10px 6px 0;white-space:nowrap;text-align:left}
+        .kalib-stab-cell{padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;border-radius:6px;color:#8E8E93}
+        .kalib-stab-cell.hi{color:#FF9F0A;background:rgba(255,159,10,0.10)}
+        .kalib-stab-cell.hot{color:#FF453A;background:rgba(255,69,58,0.12)}
+        .kalib-stab-cell.tunn{color:#48484A}
+        .kalib-stab-cell.empty{color:#3A3A3C}
+        /* Planområden + träff-per-klass staplar */
+        .kalib-plat-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+        .kalib-plat-row{display:flex;align-items:center;gap:10px}
+        .kalib-plat-klass{width:62px;font-size:13px;color:#EBEBF5;flex-shrink:0;font-variant-numeric:tabular-nums}
+        .kalib-plat-bar{flex:1;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden}
+        .kalib-plat-fill{display:block;height:100%;background:#636366;border-radius:4px}
+        .kalib-plat-fill.under{background:#FF453A}
+        .kalib-plat-val{width:70px;text-align:right;font-size:13px;color:#8E8E93;font-variant-numeric:tabular-nums}
+        .kalib-plat-n{color:#48484A;font-size:11px}
+        /* Åtgärdsmarkörer */
+        .kalib-markor-list{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+        .kalib-markor-row{display:flex;align-items:center;gap:8px;font-size:14px}
+        .kalib-markor-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#636366}
+        .kalib-markor-dot.reparation{background:#FF9F0A}
+        .kalib-markor-dot.atgard{background:#0A84FF}
+        .kalib-markor-datum{color:#8E8E93;font-variant-numeric:tabular-nums;flex-shrink:0}
+        .kalib-markor-text{color:#EBEBF5}
+        .kalib-markor-form{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+        .kalib-markor-date{background:rgba(255,255,255,0.06);border:none;border-radius:8px;color:#fff;padding:10px;font-size:14px;min-height:44px}
+        .kalib-markor-input{flex:1;min-width:140px;background:rgba(255,255,255,0.06);border:none;border-radius:8px;color:#fff;padding:10px;font-size:14px;min-height:44px}
+        .kalib-markor-save{background:#0A84FF;border:none;border-radius:8px;color:#fff;font-weight:600;padding:0 18px;min-height:44px;cursor:pointer}
+        .kalib-markor-save:disabled{opacity:0.4}
 
         .kalib-info-box{display:flex;gap:12px;padding:14px 16px;border-radius:12px;align-items:center}
         .kalib-info-box.ok{background:rgba(52,199,89,0.1);border:1px solid rgba(52,199,89,0.2)}
@@ -2274,94 +2441,218 @@ export default function KalibreringPage() {
         <div className={`kalib-container ${activeTab !== 'today' ? 'wide' : ''}`}>
           {activeTab === 'today' && latestKalib && (
             <>
-              <header className="kalib-page-header">
-                <h1 className="kalib-page-title">{cap(latestKalib.tradslag) || latestKalib.maskin_id}</h1>
-                <p className="kalib-page-subtitle">{stockText(latestKalib.antal_kontrollstockar)} • {new Date(latestKalib.datum).toLocaleDateString('sv-SE')} • {latestKalib.maskin_id}</p>
-              </header>
+              {!visaSiffror ? (
+                /* ===== FÖRARVYN — tyst och tydlig: en stam, ett band, två meningar ===== */
+                <>
+                  <header className="kalib-page-header">
+                    <h1 className="kalib-page-title">{heroNamn}</h1>
+                    <p className="kalib-page-subtitle">
+                      Kalibrering{diagnosData?.fonster ? ` · senaste ${diagnosData.fonster.dagar} dagarna` : ''}{diagnosData?.profil ? ` · ${diagnosData.profil}` : ''}
+                    </p>
+                  </header>
 
-              {partialBanner}
+                  {partialBanner}
 
-              <div className="kalib-card">
-                <div className="kalib-hero-topline">
-                  <div className="kalib-section-title">Mätnoggrannhet</div>
-                  {bedomning?.profil
-                    ? <span className="kalib-profil-chip">Bedöms mot {bedomning.profil}</span>
-                    : <span className="kalib-profil-chip muted">Ingen kravprofil</span>}
-                </div>
-                {bedomning?.fonster && (
-                  <div className="kalib-hero-period">Rullande {bedomning.fonster.dagar} dagar · {bedomning.fonster.fran} → {bedomning.fonster.till}</div>
-                )}
-                <div className="kalib-hero-metrics">
-                  {renderHeroVar('Diameter', 'mm', bedomning?.diameter ?? null, 'diameter')}
-                  {renderHeroVar('Längd', 'cm', bedomning?.langd ?? null, 'langd')}
-                </div>
-                {(() => {
-                  if (!bedomning) return (
-                    <div className="kalib-lugn-rad"><MSym name="hourglass_empty" size={16} color="#8E8E93" /><span>Läser bedömning…</span></div>
-                  );
-                  const dia = bedomProfil(bedomning.diameter, 'diameter', bedomning.trosklar);
-                  const len = bedomProfil(bedomning.langd, 'langd', bedomning.trosklar);
-                  const aktiva = [dia, len].filter(b => !b.larmTyst);
-                  if (aktiva.length === 0) return (
-                    <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>För få mått i perioden för en bedömning.</span></div>
-                  );
-                  const värsta: ProfilStatus = aktiva.some(b => b.status === 'röd') ? 'röd' : aktiva.some(b => b.status === 'orange') ? 'orange' : 'ok';
-                  if (värsta === 'ok') return (
-                    <div className="kalib-lugn-rad"><MSym name="check" size={16} color="#8E8E93" /><span>Inom {bedomning.profil ? `${bedomning.profil}s` : 'profilens'} krav.</span></div>
-                  );
-                  return (
-                    <div className="kalib-lugn-rad">
-                      <MSym name="warning" size={16} color={värsta === 'röd' ? '#FF453A' : '#FF9F0A'} />
-                      <span>{värsta === 'röd' ? 'Under golvet — se måtten ovan.' : 'Godkänt men under mål — se måtten ovan.'}</span>
+                  <div className={`kalib-forarvy kalib-forarvy-${verdikt.status}`}>
+                    <svg viewBox="0 0 320 92" className="kalib-diag-stem" role="img" aria-label="Stamdiagram med felläge">
+                      <defs><clipPath id="kalibstemclip"><polygon points="12,14 308,40 308,52 12,78" /></clipPath></defs>
+                      <polygon points="12,14 308,40 308,52 12,78" className="kalib-diag-stem-body" />
+                      {verdikt.bandZon != null && (
+                        <rect x={12 + verdikt.bandZon * ((308 - 12) / 5)} y={0} width={(308 - 12) / 5} height={92}
+                          clipPath="url(#kalibstemclip)"
+                          className={`kalib-diag-band ${verdikt.status === 'diagnos' ? 'diag' : 'tendens'}`} />
+                      )}
+                    </svg>
+                    <div className="kalib-diag-stemlabels"><span>Rot</span><span>Topp</span></div>
+
+                    {!diagnosData ? (
+                      <div className="kalib-diag-text"><div className="kalib-diag-m1 laddar">Läser diagnos…</div></div>
+                    ) : (
+                      <div className="kalib-diag-text">
+                        <div className={`kalib-diag-m1 ${verdikt.status === 'diagnos' ? 'larm' : ''}`}>{verdikt.mening1}</div>
+                        <div className="kalib-diag-m2">{verdikt.mening2}</div>
+                      </div>
+                    )}
+
+                    <button className="kalib-visa-siffror" onClick={() => setVisaSiffror(true)}>
+                      Visa siffrorna <MSym name="chevron_right" size={16} color="#8E8E93" />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                /* ===== SIFFRORNA — för den som felsöker ===== */
+                <>
+                  <button className="kalib-tillbaka" onClick={() => setVisaSiffror(false)}>
+                    <MSym name="chevron_left" size={18} color="#0A84FF" /> Förarvy
+                  </button>
+
+                  {/* Profil-hjälten (träff%/std) — flyttad hit bakom "Visa siffrorna" */}
+                  <div className="kalib-card">
+                    <div className="kalib-hero-topline">
+                      <div className="kalib-section-title">Mätnoggrannhet</div>
+                      {bedomning?.profil
+                        ? <span className="kalib-profil-chip">Bedöms mot {bedomning.profil}</span>
+                        : <span className="kalib-profil-chip muted">Ingen kravprofil</span>}
                     </div>
-                  );
-                })()}
-              </div>
-
-              {latestStockar.length > 0 && (
-                <div className="kalib-card">
-                  <div className="kalib-section-title">Stockar</div>
-                  <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {stockText(latestStockar.length)} • {(totalLatestLen / 100).toFixed(1)} meter{latestUtanfor > 0 ? ` • ${latestUtanfor} utanför tolerans` : ''}</div>
-                  <div className="kalib-stem-viz">
-                    <div className="kalib-stem-viz-inner">
-                      <span className="kalib-stem-label">Rot</span>
-                      {latestStockar.map(stock => {
-                        // Bredd = proportionell mot längd via flex-grow (basis 0), så
-                        // hela raden fyller kolumnen utan att spilla ut. Höjd =
-                        // proportionell mot toppdiameter (tjockare stock ser tjockare ut).
-                        const lenUnit = Math.max(1, stock.maskin_langd_cm || 1);
-                        const baseH = Math.max(18, stock.maskin_toppdia_mm * 0.18);
-                        const ton = avvikelseTon(stock.dia_avvikelse_mm ?? 0, 'dia');
-                        const borderCls = ton === 'ok' ? '' : `stock-ton-${ton}`;
-                        return (
-                          <div key={stock.id} className="kalib-log-block" style={{ flex: `${lenUnit} 1 0` }} onClick={() => openStockModal(stock)}>
-                            <div className={`kalib-log-body ${borderCls}`} style={{ height: baseH }}>
-                              <span className="kalib-log-num">{stock.stock_nummer}</span>
-                            </div>
-                            <div className="kalib-log-info">
-                              <div className="kalib-log-length">{stock.maskin_langd_cm} cm</div>
-                              <div className="kalib-log-product">⌀{stock.maskin_toppdia_mm}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      <span className="kalib-stem-label">Topp</span>
+                    {bedomning?.fonster && (
+                      <div className="kalib-hero-period">Rullande {bedomning.fonster.dagar} dagar · {bedomning.fonster.fran} → {bedomning.fonster.till}</div>
+                    )}
+                    <div className="kalib-hero-metrics">
+                      {renderHeroVar('Diameter', 'mm', bedomning?.diameter ?? null, 'diameter')}
+                      {renderHeroVar('Längd', 'cm', bedomning?.langd ?? null, 'langd')}
                     </div>
                   </div>
-                  {latestStockar.length > 1 && (
-                    <button
-                      className="kalib-btn-stem"
-                      onClick={() => openKontrollFull(latestKalib.filnamn)}
-                      disabled={laddarKontroll === latestKalib.filnamn}
-                      style={laddarKontroll === latestKalib.filnamn ? { opacity: 0.6 } : undefined}
-                    >
-                      <span>
-                        {laddarKontroll === latestKalib.filnamn ? 'Laddar…' : 'Visa alla stockar'}
-                      </span>
-                      <span className="kalib-btn-stem-arrow"><MSym name="chevron_right" size={20} color="#8E8E93" /></span>
-                    </button>
+
+                  {/* a) Stabilitetsrutnät — kurva vs tryck */}
+                  {diagnosData && diagnosData.klasser.some(k => k.systMonthly.length > 0) && (
+                    <div className="kalib-card">
+                      <div className="kalib-section-title">Stabilitet</div>
+                      <div className="kalib-section-subtitle">Systematisk avvikelse (mm) per grovlek och månad. Svajar tecknet = tryck · ligger still = kurva.</div>
+                      {(() => {
+                        const man = Array.from(new Set(diagnosData.klasser.flatMap(k => k.systMonthly.map(m => m.manad)))).sort();
+                        return (
+                          <div className="kalib-grid-scroll">
+                            <table className="kalib-stab-grid">
+                              <thead><tr><th></th>{man.map(mo => <th key={mo}>{mo.slice(2).replace('-', '/')}</th>)}</tr></thead>
+                              <tbody>
+                                {diagnosData.klasser.map(k => {
+                                  const byMan = new Map(k.systMonthly.map(m => [m.manad, m]));
+                                  return (
+                                    <tr key={k.klass}>
+                                      <td className="kalib-stab-klass">{k.klass}</td>
+                                      {man.map(mo => {
+                                        const c = byMan.get(mo);
+                                        if (!c) return <td key={mo} className="kalib-stab-cell empty">·</td>;
+                                        const mag = Math.abs(c.systematik);
+                                        const cls = c.n < 20 ? 'tunn' : mag >= 4 ? 'hot' : mag >= 2 ? 'hi' : 'ok';
+                                        return <td key={mo} className={`kalib-stab-cell ${cls}`} title={`n=${c.n}`}>{c.systematik > 0 ? '+' : ''}{c.systematik.toFixed(1)}</td>;
+                                      })}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   )}
-                </div>
+
+                  {/* b) Planområden — tryckmätaren */}
+                  {diagnosData && (
+                    <div className="kalib-card">
+                      <div className="kalib-section-title">Planområden — tryckmätaren</div>
+                      <div className="kalib-section-subtitle">Andel mätpunkter där diametern inte sjunker (position &gt;130 cm). Stiger med greppfel; rör sig först vid en tryckhöjning.</div>
+                      <div className="kalib-plat-list">
+                        {diagnosData.klasser.map(k => (
+                          <div key={k.klass} className="kalib-plat-row">
+                            <span className="kalib-plat-klass">{k.klass}</span>
+                            <span className="kalib-plat-bar"><span className="kalib-plat-fill" style={{ width: `${k.plateauShare ?? 0}%` }} /></span>
+                            <span className="kalib-plat-val">{k.plateauShare != null ? `${Math.round(k.plateauShare)}%` : '–'}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="kalib-section-subtitle" style={{ marginTop: 14 }}>Över tid</div>
+                      <div className="kalib-plat-list">
+                        {diagnosData.plateauMonthly.map(p => (
+                          <div key={p.manad} className="kalib-plat-row">
+                            <span className="kalib-plat-klass">{p.manad.slice(2).replace('-', '/')}</span>
+                            <span className="kalib-plat-bar"><span className="kalib-plat-fill" style={{ width: `${p.share}%` }} /></span>
+                            <span className="kalib-plat-val">{Math.round(p.share)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* c) Träffprocent per grovlek */}
+                  {diagnosData && (
+                    <div className="kalib-card">
+                      <div className="kalib-section-title">Träffprocent per grovlek</div>
+                      <div className="kalib-section-subtitle">Inom ±4 mm · rullande {diagnosData.fonster?.dagar ?? 90} dagar{diagnosData.golvDia != null ? ` · golv ${diagnosData.golvDia}%` : ''}</div>
+                      <div className="kalib-plat-list">
+                        {diagnosData.klasser.map(k => {
+                          const under = k.traffPct != null && diagnosData.golvDia != null && k.traffPct < diagnosData.golvDia && k.n >= GRIND_MIN;
+                          return (
+                            <div key={k.klass} className="kalib-plat-row">
+                              <span className="kalib-plat-klass">{k.klass}</span>
+                              <span className="kalib-plat-bar"><span className={`kalib-plat-fill ${under ? 'under' : ''}`} style={{ width: `${k.traffPct ?? 0}%` }} /></span>
+                              <span className={`kalib-plat-val ${under ? 'tone-hot' : ''}`}>{k.traffPct != null ? `${Math.round(k.traffPct)}%` : '–'}<span className="kalib-plat-n"> n{k.n}</span></span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stockar — den enskilda kontrollen */}
+                  {latestStockar.length > 0 && (
+                    <div className="kalib-card">
+                      <div className="kalib-section-title">Stockar</div>
+                      <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {stockText(latestStockar.length)} • {(totalLatestLen / 100).toFixed(1)} meter{latestUtanfor > 0 ? ` • ${latestUtanfor} utanför tolerans` : ''}</div>
+                      <div className="kalib-stem-viz">
+                        <div className="kalib-stem-viz-inner">
+                          <span className="kalib-stem-label">Rot</span>
+                          {latestStockar.map(stock => {
+                            const lenUnit = Math.max(1, stock.maskin_langd_cm || 1);
+                            const baseH = Math.max(18, stock.maskin_toppdia_mm * 0.18);
+                            const ton = avvikelseTon(stock.dia_avvikelse_mm ?? 0, 'dia');
+                            const borderCls = ton === 'ok' ? '' : `stock-ton-${ton}`;
+                            return (
+                              <div key={stock.id} className="kalib-log-block" style={{ flex: `${lenUnit} 1 0` }} onClick={() => openStockModal(stock)}>
+                                <div className={`kalib-log-body ${borderCls}`} style={{ height: baseH }}>
+                                  <span className="kalib-log-num">{stock.stock_nummer}</span>
+                                </div>
+                                <div className="kalib-log-info">
+                                  <div className="kalib-log-length">{stock.maskin_langd_cm} cm</div>
+                                  <div className="kalib-log-product">⌀{stock.maskin_toppdia_mm}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <span className="kalib-stem-label">Topp</span>
+                        </div>
+                      </div>
+                      {latestStockar.length > 1 && (
+                        <button
+                          className="kalib-btn-stem"
+                          onClick={() => openKontrollFull(latestKalib.filnamn)}
+                          disabled={laddarKontroll === latestKalib.filnamn}
+                          style={laddarKontroll === latestKalib.filnamn ? { opacity: 0.6 } : undefined}
+                        >
+                          <span>{laddarKontroll === latestKalib.filnamn ? 'Laddar…' : 'Visa alla stockar'}</span>
+                          <span className="kalib-btn-stem-arrow"><MSym name="chevron_right" size={20} color="#8E8E93" /></span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Åtgärder & händelser — markörer */}
+                  {diagnosData && (
+                    <div className="kalib-card">
+                      <div className="kalib-section-title">Åtgärder &amp; händelser</div>
+                      <div className="kalib-section-subtitle">Markera vad du gjort — se vilken siffra som svarade.</div>
+                      {diagnosData.markorer.length > 0 ? (
+                        <div className="kalib-markor-list">
+                          {diagnosData.markorer.map((m, i) => (
+                            <div key={i} className="kalib-markor-row">
+                              <span className={`kalib-markor-dot ${m.kalla}`} />
+                              <span className="kalib-markor-datum">{m.datum}</span>
+                              <span className="kalib-markor-text">{m.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>Inga markörer ännu.</span></div>
+                      )}
+                      <div className="kalib-markor-form">
+                        <input type="date" className="kalib-markor-date" value={nyMarkorDatum} onChange={e => setNyMarkorDatum(e.target.value)} />
+                        <input type="text" className="kalib-markor-input" placeholder="t.ex. höjde trycket till 400 mm" value={nyMarkorText} onChange={e => setNyMarkorText(e.target.value)} />
+                        <button className="kalib-markor-save" onClick={sparaMarkor} disabled={markorSparar || !nyMarkorDatum || !nyMarkorText.trim()}>{markorSparar ? 'Sparar…' : 'Spara'}</button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
