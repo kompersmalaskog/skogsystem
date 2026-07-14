@@ -4227,8 +4227,6 @@ export default function PlannerPage() {
     namn: '', starttid: '', sluttid: '', noteringar: '',
   });
   const [brandUtrustning, setBrandUtrustning] = useState([false, false, false, false]);
-  const [brandNearbyWater, setBrandNearbyWater] = useState<{ name: string; dist: number; lat: number; lon: number }[]>([]);
-  const [brandNearbyFireStation, setBrandNearbyFireStation] = useState<{ name: string; dist: number; lat: number; lon: number }[]>([]);
   const [brandLarmTillfart, setBrandLarmTillfart] = useState('');
   const [brandLarmChecklista, setBrandLarmChecklista] = useState([false, false, false, false, false]);
   const brandLoadedRef = useRef(false);
@@ -4365,14 +4363,6 @@ export default function PlannerPage() {
       },
     }));
   }, [tractAnalysis]);
-
-  // === BRANDRISK: Hämta nearby vatten/brandstation när panelen öppnas ===
-  useEffect(() => {
-    if (activeCategory !== 'brandrisk') return;
-    if (brandTestMode !== null) return;
-    if (brandNearbyWater.length > 0 || brandNearbyFireStation.length > 0) return;
-    fetchBrandNearby(mapCenter.lat, mapCenter.lng);
-  }, [activeCategory, brandTestMode]);
 
   // === BRAND: Ladda sparad data från Supabase ===
   useEffect(() => {
@@ -7073,55 +7063,6 @@ export default function PlannerPage() {
 
   // Beräkna förenklat FWI från SMHI-parametrar
   // Hämta närmaste vatten och brandstationer
-  const fetchBrandNearby = async (lat: number, lon: number) => {
-    // Vatten
-    try {
-      const wQuery = `[out:json][timeout:10];(nwr(around:5000,${lat},${lon})["natural"="water"];nwr(around:5000,${lat},${lon})["waterway"~"stream|river"];);out center 10;`;
-      const wResp = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(wQuery) });
-      const wData = await wResp.json();
-      const waters = (wData.elements || [])
-        .map((e: any) => {
-          const eLat = e.lat ?? e.center?.lat;
-          const eLon = e.lon ?? e.center?.lon;
-          if (!eLat || !eLon) return null;
-          const name = e.tags?.name || (e.tags?.waterway === 'river' ? 'Å/älv' : e.tags?.waterway === 'stream' ? 'Bäck' : 'Vatten');
-          const R = 6371000;
-          const dLat = (eLat - lat) * Math.PI / 180;
-          const dLon = (eLon - lon) * Math.PI / 180;
-          const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * Math.PI / 180) * Math.cos(eLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-          const dist = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-          return { name, dist, lat: eLat, lon: eLon };
-        })
-        .filter(Boolean)
-        .sort((a: any, b: any) => a.dist - b.dist)
-        .slice(0, 3);
-      setBrandNearbyWater(waters);
-    } catch (e) { console.error('[Brand] Vatten-fel:', e); }
-
-    // Brandstationer
-    try {
-      const fQuery = `[out:json][timeout:10];nwr(around:30000,${lat},${lon})["amenity"="fire_station"];out center 10;`;
-      const fResp = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(fQuery) });
-      const fData = await fResp.json();
-      const stations = (fData.elements || [])
-        .map((e: any) => {
-          const eLat = e.lat ?? e.center?.lat;
-          const eLon = e.lon ?? e.center?.lon;
-          if (!eLat || !eLon) return null;
-          const name = e.tags?.name || 'Brandstation';
-          const R = 6371000;
-          const dLat = (eLat - lat) * Math.PI / 180;
-          const dLon = (eLon - lon) * Math.PI / 180;
-          const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * Math.PI / 180) * Math.cos(eLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-          const dist = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-          return { name, dist, lat: eLat, lon: eLon };
-        })
-        .filter(Boolean)
-        .sort((a: any, b: any) => a.dist - b.dist)
-        .slice(0, 3);
-      setBrandNearbyFireStation(stations);
-    } catch (e) { console.error('[Brand] Brandstation-fel:', e); }
-  };
 
   // Kontrollera traktgränsens närhet till vägar (TMA-analys)
   const checkBoundaryTma = async (boundaryPaths: Point[][]): Promise<TmaCheckResult> => {
@@ -14949,13 +14890,6 @@ export default function PlannerPage() {
                         <button
                           onClick={() => {
                             setBrandTestMode(5);
-                            setBrandNearbyWater([
-                              { name: 'Testsjön', dist: 800, lat: mapCenter.lat + 0.005, lon: mapCenter.lng + 0.003 },
-                              { name: 'Testbäcken', dist: 1200, lat: mapCenter.lat - 0.003, lon: mapCenter.lng + 0.008 },
-                            ]);
-                            setBrandNearbyFireStation([
-                              { name: 'Teststation Räddningstjänst', dist: 4500, lat: mapCenter.lat + 0.02, lon: mapCenter.lng - 0.01 },
-                            ]);
                             console.log('[BrandTest] Aktiverat FWI 5 testläge');
                             setTimeout(() => setActiveCategory('brandrisk'), 50);
                           }}
@@ -14966,12 +14900,6 @@ export default function PlannerPage() {
                         <button
                           onClick={() => {
                             setBrandTestMode(3);
-                            setBrandNearbyWater([
-                              { name: 'Testsjön', dist: 800, lat: mapCenter.lat + 0.005, lon: mapCenter.lng + 0.003 },
-                            ]);
-                            setBrandNearbyFireStation([
-                              { name: 'Teststation Räddningstjänst', dist: 4500, lat: mapCenter.lat + 0.02, lon: mapCenter.lng - 0.01 },
-                            ]);
                             console.log('[BrandTest] Aktiverat FWI 3 testläge');
                             setTimeout(() => setActiveCategory('brandrisk'), 50);
                           }}
@@ -14989,8 +14917,6 @@ export default function PlannerPage() {
                           onClick={() => {
                             setBrandTestMode(null);
                             setBrandRisk(null);
-                            setBrandNearbyWater([]);
-                            setBrandNearbyFireStation([]);
                           }}
                           style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: '13px', cursor: 'pointer' }}
                         >
@@ -15125,8 +15051,10 @@ export default function PlannerPage() {
             {/* === BRANDRISK === */}
             {activeCategory === 'brandrisk' && (
               <BrandriskPanel
-                lat={mapCenter.lat}
-                lon={mapCenter.lng}
+                lat={valtObjekt?.lat ?? mapCenter.lat}
+                lon={valtObjekt?.lng ?? mapCenter.lng}
+                objektNamn={valtObjekt?.namn}
+                koordFranObjekt={!!(valtObjekt?.lat && valtObjekt?.lng)}
                 eldningsforbud={brandEldningsforbud}
                 onEldningsforbudChange={setBrandEldningsforbud}
                 testMode={brandTestMode}
@@ -15144,7 +15072,7 @@ export default function PlannerPage() {
                     datum: brandNewTillbud.datum,
                     beskrivning: brandNewTillbud.beskrivning,
                     atgard: brandNewTillbud.atgard,
-                    lat: mapCenter.lat, lon: mapCenter.lng,
+                    lat: valtObjekt.lat ?? mapCenter.lat, lon: valtObjekt.lng ?? mapCenter.lng,
                     photo_data: brandNewTillbud.photoData || null,
                     rapporterad_till: brandNewTillbud.rapporteradTill || null,
                   };
@@ -15168,8 +15096,6 @@ export default function PlannerPage() {
                 }}
                 brandUtrustning={brandUtrustning}
                 onUtrustningChange={setBrandUtrustning}
-                brandNearbyWater={brandNearbyWater}
-                brandNearbyFireStation={brandNearbyFireStation}
                 brandLarmTillfart={brandLarmTillfart}
                 onLarmTillfartChange={setBrandLarmTillfart}
                 brandLarmChecklista={brandLarmChecklista}

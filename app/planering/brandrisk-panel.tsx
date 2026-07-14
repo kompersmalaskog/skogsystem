@@ -118,8 +118,8 @@ interface BrandriskPanelProps {
   onSaveBrandvakt: () => void;
   brandUtrustning: boolean[];
   onUtrustningChange: (u: boolean[]) => void;
-  brandNearbyWater: { name: string; dist: number; lat: number; lon: number }[];
-  brandNearbyFireStation: { name: string; dist: number; lat: number; lon: number }[];
+  objektNamn?: string;
+  koordFranObjekt: boolean; // true = prognosen gäller objektet, false = kartans mitt (fallback)
   brandLarmTillfart: string;
   onLarmTillfartChange: (v: string) => void;
   brandLarmChecklista: boolean[];
@@ -139,7 +139,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
     brandEfterkontroll, onEfterkontrollChange,
     brandBrandvakt, onBrandvaktChange, onSaveBrandvakt,
     brandUtrustning, onUtrustningChange,
-    brandNearbyWater, brandNearbyFireStation,
+    objektNamn, koordFranObjekt,
     brandLarmTillfart, onLarmTillfartChange,
     brandLarmChecklista, onLarmChecklistaChange,
     mapCenter,
@@ -166,7 +166,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const headStyle: React.CSSProperties = { fontSize: '17px', fontWeight: 600, color: '#fff', marginBottom: '12px' };
   const summaryStyle: React.CSSProperties = { ...headStyle, cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' };
   const textStyle: React.CSSProperties = { fontSize: '13px', color: '#8e8e93', lineHeight: '1.7' };
-  const linkStyle: React.CSSProperties = { fontSize: '13px', color: '#0a84ff', textDecoration: 'none' };
 
   const fetchData = useCallback(async () => {
     if (testMode !== null) {
@@ -360,11 +359,16 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           <div style={{ fontSize: 17, fontWeight: 600 }}>Brandrisk</div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 24px' }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: '#8e8e93' }}>
-            {data.location}
+        <div style={{ padding: '6px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {objektNamn ? `${objektNamn} – ` : ''}{data.location}
+            </div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', flexShrink: 0 }}>Uppdaterad {updatedTime}</div>
           </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>Uppdaterad {updatedTime}</div>
+          {!koordFranObjekt && (
+            <div style={{ fontSize: 11, color: '#FF9F0A', marginTop: 3 }}>Position: kartans mitt (objektet saknar koordinat)</div>
+          )}
         </div>
 
         {/* Eldningsförbud */}
@@ -660,50 +664,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                     </div>
                     <span style={{ fontSize: 13, color: brandUtrustning[i] ? 'rgba(255,255,255,0.3)' : '#8e8e93', textDecoration: brandUtrustning[i] ? 'line-through' : 'none', lineHeight: 1.4 }}>{label}</span>
                   </div>
-                ))}
-              </div>
-            </details>
-          </div>
-        )}
-
-        {/* Närmaste vatten */}
-        {showSystem && (
-          <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>
-            <details>
-              <summary style={summaryStyle}>
-                <span>Närmaste vatten</span>
-                <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
-              </summary>
-              <div style={{ marginTop: 12 }}>
-                {brandNearbyWater.length === 0 && <div style={textStyle}>Söker...</div>}
-                {brandNearbyWater.map((w, i) => (
-                  <a key={i} href={`https://www.google.com/maps/dir/?api=1&destination=${w.lat},${w.lon}`} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', textDecoration: 'none' }}>
-                    <span style={{ fontSize: 13, color: '#8e8e93' }}>{'\u{1F4A7}'} {w.name}</span>
-                    <span style={linkStyle}>{w.dist < 1000 ? `${w.dist}m` : `${(w.dist / 1000).toFixed(1)} km`} &rarr;</span>
-                  </a>
-                ))}
-              </div>
-            </details>
-          </div>
-        )}
-
-        {/* Närmaste brandstation */}
-        {showSystem && (
-          <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>
-            <details>
-              <summary style={summaryStyle}>
-                <span>Närmaste brandstation</span>
-                <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
-              </summary>
-              <div style={{ marginTop: 12 }}>
-                {brandNearbyFireStation.length === 0 && <div style={textStyle}>Söker...</div>}
-                {brandNearbyFireStation.map((s, i) => (
-                  <a key={i} href={`https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', textDecoration: 'none' }}>
-                    <span style={{ fontSize: 13, color: '#8e8e93' }}>{'\u{1F692}'} {s.name}</span>
-                    <span style={linkStyle}>{(s.dist / 1000).toFixed(1)} km (~{Math.round(s.dist / 1000 / 60 * 60)} min) &rarr;</span>
-                  </a>
                 ))}
               </div>
             </details>
