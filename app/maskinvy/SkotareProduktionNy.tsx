@@ -567,8 +567,10 @@ function BucketDetalj({ bucket, onClose }: {
 }
 
 // ── Root-komponent ─────────────────────────────────────────────
-export default function SkotareProduktionNy() {
-  const [maskin, setMaskin] = useState(SKOTARE[0])
+export default function SkotareProduktionNy({ maskin, onMaskinChange }: {
+  maskin: typeof SKOTARE[number]
+  onMaskinChange: (m: typeof SKOTARE[number]) => void
+}) {
   const [period, setPeriod] = useState<Period>('M')
   const [offset, setOffset] = useState(0)
   const [data, setData]     = useState<SkotareProduktionData | null>(null)
@@ -670,7 +672,7 @@ export default function SkotareProduktionNy() {
               {SKOTARE.map(m => (
                 <button
                   key={m.id}
-                  onClick={() => { setMaskin(m); setMaskinOpen(false) }}
+                  onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
                     background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',
