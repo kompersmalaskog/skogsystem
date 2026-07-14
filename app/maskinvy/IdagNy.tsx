@@ -793,8 +793,10 @@ function HintRad() {
 // ─────────────────────────────────────────────────────────────
 // IdagNy — huvud-komponent
 // ─────────────────────────────────────────────────────────────
-export default function IdagNy() {
-  const [maskin, setMaskin]         = useState<Maskin>(MASKINER[0])
+export default function IdagNy({ maskin, onMaskinChange }: {
+  maskin: Maskin
+  onMaskinChange: (m: Maskin) => void
+}) {
   const [maskinOpen, setMaskinOpen] = useState(false)
   const [data, setData]             = useState<IdagData | null>(null)
   const [loading, setLoading]       = useState(true)
@@ -862,7 +864,7 @@ export default function IdagNy() {
               {MASKINER.map(m => (
                 <button
                   key={m.id}
-                  onClick={() => { setMaskin(m); setMaskinOpen(false) }}
+                  onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
                     background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',
