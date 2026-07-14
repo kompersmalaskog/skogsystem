@@ -29,3 +29,10 @@ export const G15_GRANS_SEK = 900
 
 /** Under G15-gränsen → hör (för skördare) till "Korta pauser", inte avbrott. */
 export const arKortPaus = (langdSek: number) => langdSek < G15_GRANS_SEK
+
+// G15-tid = processing + terrain (verifierat mot PONSSE-rapport på två maskiner,
+// se app/uppfoljning/lib/transform.ts). ENDA definitionen — vyer som räknar
+// G15-timmar (uppföljning, maskinvy, ekonomi) ska summera via denna, aldrig
+// engine_time_sek (motortid, ±2–3 % fel åt båda håll) eller processing ensam.
+export const g15Sek = (processing_sek: number | null | undefined, terrain_sek: number | null | undefined) =>
+  (processing_sek || 0) + (terrain_sek || 0)
