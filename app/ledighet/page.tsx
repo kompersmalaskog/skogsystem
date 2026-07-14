@@ -15,6 +15,23 @@ interface Ansökan {
   skapad_at: string;
 }
 
+interface DimMaskin {
+  maskin_id: string;
+  modell: string | null;
+  maskin_typ: string | null;
+  aktiv_till: string | null; // satt = såld/utfasad
+}
+
+interface Maskinstopp {
+  id: string;
+  maskin_id: string;
+  fran_datum: string;
+  till_datum: string;
+  orsak: string;
+  kommentar: string | null;
+  skapad_av: string | null;
+}
+
 const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',system-ui,sans-serif";
 
 const C = {
@@ -519,9 +536,15 @@ export default function LedighetPage() {
   const [formKommentar, setFormKommentar] = useState('');
   const [sparar, setSparar] = useState(false);
   const [felmeddelande, setFelmeddelande] = useState<string | null>(null);
-  const [stoppTypForm, setStoppTypForm] = useState('skordarstopp');
   const [sparasStopp, setSparasStopp] = useState(false);
-  const [editingStoppId, setEditingStoppId] = useState<string | null>(null);
+  const [dimMaskinerLed, setDimMaskinerLed] = useState<DimMaskin[]>([]);
+  const [maskinstoppLista, setMaskinstoppLista] = useState<Maskinstopp[]>([]);
+  const [inloggadEmail, setInloggadEmail] = useState<string | null>(null);
+  const [valdMaskinId, setValdMaskinId] = useState<string | null>(null);
+  const [stoppFran, setStoppFran] = useState('');
+  const [stoppTill, setStoppTill] = useState('');
+  const [stoppOrsak, setStoppOrsak] = useState<'semester' | 'service' | 'reparation' | 'annat'>('service');
+  const [stoppKommentar, setStoppKommentar] = useState('');
   const [visaTeam, setVisaTeam] = useState(false);
 
   const hämtaAnsökningar = useCallback(async () => {
@@ -538,6 +561,24 @@ export default function LedighetPage() {
   }, []);
 
   useEffect(() => { hämtaAnsökningar(); }, [hämtaAnsökningar]);
+
+  const hämtaMaskinstopp = useCallback(async () => {
+    const { data } = await supabase
+      .from('maskinstopp')
+      .select('id,maskin_id,fran_datum,till_datum,orsak,kommentar,skapad_av')
+      .order('fran_datum', { ascending: false });
+    if (data) setMaskinstoppLista(data as Maskinstopp[]);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('dim_maskin').select('maskin_id,modell,maskin_typ,aktiv_till');
+      if (data) setDimMaskinerLed(data as DimMaskin[]);
+      const { data: u } = await supabase.auth.getUser();
+      setInloggadEmail(u?.user?.email ?? null);
+    })();
+    hämtaMaskinstopp();
+  }, [hämtaMaskinstopp]);
 
   useEffect(() => {
     if (felmeddelande) {
@@ -656,6 +697,44 @@ export default function LedighetPage() {
       return;
     }
     hämtaAnsökningar();
+  };
+
+  // Bara aktiva maskiner (ej sålda) för väljaren
+  const aktivaMaskiner = useMemo(() => {
+    const idag = toISO(new Date());
+    return dimMaskinerLed
+      .filter(m => !m.aktiv_till || m.aktiv_till >= idag)
+      .sort((a, b) => (a.modell || a.maskin_id).localeCompare(b.modell || b.maskin_id, 'sv'));
+  }, [dimMaskinerLed]);
+
+  const sparaMaskinstopp = async () => {
+    if (!valdMaskinId || !stoppFran || !stoppTill || stoppTill < stoppFran) {
+      setFelmeddelande('Välj maskin och giltiga datum (till ≥ från).');
+      return;
+    }
+    setSparasStopp(true);
+    const { error } = await supabase.from('maskinstopp').insert({
+      maskin_id: valdMaskinId,
+      fran_datum: stoppFran,
+      till_datum: stoppTill,
+      orsak: stoppOrsak,
+      kommentar: stoppKommentar || null,
+      skapad_av: inloggadEmail, // inloggad användare, inte 'Chef'
+    });
+    if (error) {
+      setFelmeddelande('Kunde inte spara stopp: ' + error.message);
+    } else {
+      setValdMaskinId(null); setStoppFran(''); setStoppTill(''); setStoppKommentar('');
+      await hämtaMaskinstopp(); // verifiering: raden ska nu synas i listan
+    }
+    setSparasStopp(false);
+  };
+
+  const taBortMaskinstopp = async (id: string) => {
+    if (!window.confirm('Ta bort detta maskinstopp?')) return;
+    const { error } = await supabase.from('maskinstopp').delete().eq('id', id);
+    if (error) setFelmeddelande('Kunde inte ta bort: ' + error.message);
+    else hämtaMaskinstopp();
   };
 
   const minaAnsökningar = ansökningar.filter(a => a.anvandare_id === valdAnvändare);
@@ -1123,168 +1202,103 @@ export default function LedighetPage() {
               </div>
             )}
 
-            {/* MASKINSTOPP — välj datum i kalendern */}
+            {/* MASKINSTOPP — maskin-väljare + från/till + orsak, sparas till public.maskinstopp */}
             <div style={{ ...labelStyle, marginBottom: 12 }}>MASKINSTOPP</div>
-            <div style={{
-              background: C.surface, border: `1px solid ${C.border}`,
-              borderRadius: 14, padding: 20, marginBottom: 24,
-            }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20, marginBottom: 24 }}>
+              {/* Maskin — knapp-lista, bara aktiva (dim_maskin) */}
               <div style={{ marginBottom: 16 }}>
-                <div style={labelStyle}>TYP AV STOPP</div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  {([['skordarstopp', 'Skördarstopp', '#B45309'], ['skotarstopp', 'Skotarstopp', '#7C3AED']] as const).map(([val, label, clr]) => {
-                    const active = stoppTypForm === val;
+                <div style={labelStyle}>MASKIN</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
+                  {aktivaMaskiner.length === 0 && (
+                    <div style={{ fontSize: 13, color: C.t3 }}>Inga aktiva maskiner</div>
+                  )}
+                  {aktivaMaskiner.map(m => {
+                    const active = valdMaskinId === m.maskin_id;
                     return (
-                      <button key={val} onClick={() => setStoppTypForm(val)} style={{
-                        flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
-                        background: active ? clr : 'rgba(255,255,255,0.06)',
-                        color: active ? '#fff' : C.t3,
-                        fontSize: 13, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-                        transition: 'all 0.15s',
+                      <button key={m.maskin_id} onClick={() => setValdMaskinId(m.maskin_id)} style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '11px 14px', borderRadius: 10,
+                        border: `1px solid ${active ? C.blue : C.border}`,
+                        background: active ? C.blueDim : 'rgba(255,255,255,0.03)',
+                        color: active ? C.t1 : C.t2, fontSize: 14, fontWeight: 500,
+                        fontFamily: ff, cursor: 'pointer', textAlign: 'left',
                       }}>
-                        {label}
+                        <span>{m.modell || m.maskin_id}</span>
+                        {active && <span style={{ color: C.blue, fontSize: 16 }}>✓</span>}
                       </button>
                     );
                   })}
                 </div>
               </div>
-
-              <div style={{ fontSize: 13, color: C.t2, marginBottom: 12, lineHeight: 1.5 }}>
-                {!valdStart
-                  ? 'Välj startdatum i kalendern ovan'
-                  : !valdSlut
-                  ? `Start: ${fmtDate(valdStart)} — välj slutdatum`
-                  : `${fmtDate(valdStart)} – ${fmtDate(valdSlut)}`
-                }
+              {/* Från + Till */}
+              <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={labelStyle}>FRÅN</div>
+                  <input type="date" value={stoppFran} onChange={e => setStoppFran(e.target.value)}
+                    style={{ width: '100%', marginTop: 6, padding: '10px 12px', borderRadius: 10, background: C.surface3, border: `1px solid ${C.border}`, color: C.t1, fontSize: 14, fontFamily: ff, colorScheme: 'dark', outline: 'none' }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={labelStyle}>TILL</div>
+                  <input type="date" value={stoppTill} min={stoppFran || undefined} onChange={e => setStoppTill(e.target.value)}
+                    style={{ width: '100%', marginTop: 6, padding: '10px 12px', borderRadius: 10, background: C.surface3, border: `1px solid ${C.border}`, color: C.t1, fontSize: 14, fontFamily: ff, colorScheme: 'dark', outline: 'none' }} />
+                </div>
               </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                {valdStart && (
-                  <button onClick={() => { setValdStart(null); setValdSlut(null); setKlickFas(0); }} style={{
-                    padding: '10px 16px', borderRadius: 10, border: 'none',
-                    background: 'transparent', color: C.t3,
-                    fontSize: 13, fontWeight: 500, fontFamily: ff, cursor: 'pointer',
-                  }}>
-                    Rensa
-                  </button>
-                )}
-                {editingStoppId && (
-                  <button onClick={() => { setEditingStoppId(null); setValdStart(null); setValdSlut(null); setKlickFas(0); }} style={{
-                    padding: '10px 16px', borderRadius: 10, border: 'none',
-                    background: 'transparent', color: C.t3,
-                    fontSize: 13, fontWeight: 500, fontFamily: ff, cursor: 'pointer',
-                  }}>
-                    Avbryt redigering
-                  </button>
-                )}
-                <button
-                  onClick={async () => {
-                    if (!valdStart) return;
-                    const slut = valdSlut || valdStart;
-                    setSparasStopp(true);
-                    let error;
-                    if (editingStoppId) {
-                      ({ error } = await supabase.from('ledighet_ansokningar').update({
-                        typ: stoppTypForm,
-                        startdatum: valdStart,
-                        slutdatum: slut,
-                      }).eq('id', editingStoppId));
-                    } else {
-                      ({ error } = await supabase.from('ledighet_ansokningar').insert({
-                        anvandare_id: 'alla',
-                        typ: stoppTypForm,
-                        startdatum: valdStart,
-                        slutdatum: slut,
-                        status: 'godkänd',
-                        kommentar: null,
-                        skapad_av: 'Chef',
-                      }));
-                    }
-                    if (error) setFelmeddelande('Kunde inte spara stopp: ' + error.message);
-                    else {
-                      setValdStart(null);
-                      setValdSlut(null);
-                      setKlickFas(0);
-                      setEditingStoppId(null);
-                      hämtaAnsökningar();
-                    }
-                    setSparasStopp(false);
-                  }}
-                  disabled={sparasStopp || !valdStart}
-                  style={{
-                    padding: '10px 24px', borderRadius: 10, border: 'none',
-                    background: stoppTypForm === 'skordarstopp' ? '#B45309' : '#7C3AED',
-                    color: '#fff',
+              {/* Orsak */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={labelStyle}>ORSAK</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                  {(['semester', 'service', 'reparation', 'annat'] as const).map(o => {
+                    const active = stoppOrsak === o;
+                    return (
+                      <button key={o} onClick={() => setStoppOrsak(o)} style={{
+                        flex: '1 1 0', minWidth: 72, padding: '9px 0', borderRadius: 10, border: 'none',
+                        background: active ? C.blue : 'rgba(255,255,255,0.06)', color: active ? '#fff' : C.t3,
+                        fontSize: 13, fontWeight: 600, fontFamily: ff, cursor: 'pointer', textTransform: 'capitalize',
+                      }}>{o}</button>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Kommentar */}
+              <input value={stoppKommentar} onChange={e => setStoppKommentar(e.target.value)} placeholder="Kommentar (valfritt)"
+                style={{ width: '100%', marginBottom: 16, padding: '10px 12px', borderRadius: 10, background: C.surface3, border: `1px solid ${C.border}`, color: C.t1, fontSize: 14, fontFamily: ff, outline: 'none' }} />
+              {/* Spara */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={sparaMaskinstopp}
+                  disabled={sparasStopp || !valdMaskinId || !stoppFran || !stoppTill}
+                  style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: C.blue, color: '#fff',
                     fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-                    opacity: (sparasStopp || !valdStart) ? 0.5 : 1,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {sparasStopp ? 'Sparar...' : editingStoppId ? 'Uppdatera stopp' : 'Spara stopp'}
+                    opacity: (sparasStopp || !valdMaskinId || !stoppFran || !stoppTill) ? 0.5 : 1 }}>
+                  {sparasStopp ? 'Sparar...' : 'Spara stopp'}
                 </button>
               </div>
             </div>
 
-            {/* Aktiva stopp */}
-            {(() => {
-              const aktivaStopp = ansökningar.filter(a =>
-                stoppTyper.includes(a.typ) && a.status === 'godkänd' && a.slutdatum >= toISO(new Date())
-              ).sort((a, b) => a.startdatum.localeCompare(b.startdatum));
-              if (aktivaStopp.length === 0) return null;
-              return (
-                <>
-                  <div style={{ ...labelStyle, marginBottom: 12 }}>AKTIVA STOPP</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-                    {aktivaStopp.map(a => {
-                      const ti = TYPINFO[a.typ] || TYPINFO.skordarstopp;
-                      const dagar = dagMellan(a.startdatum, a.slutdatum);
-                      const isEditing = editingStoppId === a.id;
-                      return (
-                        <div key={a.id} style={{
-                          background: C.surface2,
-                          border: `1px solid ${isEditing ? ti.color : C.border}`,
-                          borderRadius: 12, padding: '14px 16px',
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                            <div style={{ width: 18, height: 5, borderRadius: 2, background: ti.color, flexShrink: 0 }} />
-                            <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{ti.label}</span>
-                          </div>
-                          <div style={{ fontSize: 13, color: C.t2 }}>
-                            {fmtDate(a.startdatum)} – {fmtDate(a.slutdatum)} · {dagar} dag{dagar !== 1 ? 'ar' : ''}
-                          </div>
-                          <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
-                            <button onClick={() => {
-                              setEditingStoppId(a.id);
-                              setStoppTypForm(a.typ);
-                              setValdStart(a.startdatum);
-                              setValdSlut(a.slutdatum);
-                              setKlickFas(2);
-                            }} style={{
-                              background: 'none', border: 'none', padding: 0,
-                              color: C.accent, fontSize: 13, fontWeight: 500,
-                              cursor: 'pointer', fontFamily: ff,
-                            }}>
-                              Redigera
-                            </button>
-                            <button onClick={() => {
-                              if (window.confirm('Är du säker? Detta tar bort stoppet för alla.')) {
-                                taBortAnsökan(a.id);
-                              }
-                            }} style={{
-                              background: 'none', border: 'none', padding: 0,
-                              color: C.t3, fontSize: 13, fontWeight: 500,
-                              cursor: 'pointer', fontFamily: ff,
-                            }}>
-                              Ta bort
-                            </button>
-                          </div>
+            {/* Inlagda stopp — lista + ta bort */}
+            {maskinstoppLista.length > 0 && (
+              <>
+                <div style={{ ...labelStyle, marginBottom: 12 }}>INLAGDA STOPP</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+                  {maskinstoppLista.map(s => {
+                    const m = dimMaskinerLed.find(x => x.maskin_id === s.maskin_id);
+                    const dagar = dagMellan(s.fran_datum, s.till_datum);
+                    return (
+                      <div key={s.id} style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{m?.modell || s.maskin_id}</span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: C.t3, textTransform: 'capitalize' }}>{s.orsak}</span>
                         </div>
-                      );
-                    })}
-                  </div>
-                </>
-              );
-            })()}
+                        <div style={{ fontSize: 13, color: C.t2, marginTop: 4 }}>
+                          {fmtDate(s.fran_datum)} – {fmtDate(s.till_datum)} · {dagar} dag{dagar !== 1 ? 'ar' : ''}
+                        </div>
+                        {s.kommentar && <div style={{ fontSize: 12, color: C.t3, marginTop: 4 }}>{s.kommentar}</div>}
+                        <button onClick={() => taBortMaskinstopp(s.id)} style={{ marginTop: 10, background: 'none', border: 'none', padding: 0, color: C.t3, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: ff }}>Ta bort</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </>
         )}
 

@@ -63,9 +63,61 @@ const card: React.CSSProperties = {
 const MANAD = ['', 'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
   'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 
-// Grundkapacitet per maskin och månad (enkelskift). UPPSKATTNING — justera när
-// verkligt skift-/arbetstidsschema finns. Används bara för "ledig tid"-beräkningen.
-const TIMMAR_PER_MANAD = 168
+// Golv vi planerar på: 8 h dagtid per arbetsdag. Övertid och extramaskin (810E) är
+// deras BUFFERT — räknas ALDRIG in i kapaciteten.
+const TIMMAR_PER_DAG = 8
+
+// Påskdagen (Meeus/Anonymous Gregorian) — beräknas, aldrig hårdkodad.
+function paskdagen(year: number): Date {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100
+  const d = Math.floor(b / 4), e = b % 4
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3)
+  const h = (19 * a + b - d - g + 15) % 30
+  const i = Math.floor(c / 4), k = c % 4
+  const l = (32 + 2 * e + 2 * i - h - k) % 7
+  const m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const month = Math.floor((h + l - 7 * m + 114) / 31) // 3=mars, 4=april
+  const day = ((h + l - 7 * m + 114) % 31) + 1
+  return new Date(year, month - 1, day)
+}
+function isoDatum(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+// Svenska helgdagar (röda dagar) för ett år. Rörliga via påsk; midsommar/alla helgons via lördagsregel.
+function svenskaRodaDagar(year: number): Set<string> {
+  const s = new Set<string>()
+  const add = (d: Date) => s.add(isoDatum(d))
+  add(new Date(year, 0, 1))   // nyårsdagen
+  add(new Date(year, 0, 6))   // trettondedag jul
+  add(new Date(year, 4, 1))   // första maj
+  add(new Date(year, 5, 6))   // nationaldagen
+  add(new Date(year, 11, 25)) // juldagen
+  add(new Date(year, 11, 26)) // annandag jul
+  const p = paskdagen(year)
+  const off = (n: number) => new Date(year, p.getMonth(), p.getDate() + n)
+  add(off(-2)) // långfredag
+  add(off(1))  // annandag påsk
+  add(off(39)) // Kristi himmelsfärd
+  for (let day = 20; day <= 26; day++) { const d = new Date(year, 5, day); if (d.getDay() === 6) { add(d); break } } // midsommardagen (lör 20–26 juni)
+  for (let o = 0; o <= 6; o++) { const d = new Date(year, 9, 31 + o); if (d.getDay() === 6) { add(d); break } }        // alla helgons dag (lör 31 okt–6 nov)
+  return s
+}
+// Tillgängliga arbetsdagar i månaden: vardag (mån–fre), ej röd dag, och (pågående månad) från idag.
+function arbetsdagarIManad(ar: number, manad: number, idagISO: string): string[] {
+  const roda = svenskaRodaDagar(ar)
+  const dagar: string[] = []
+  const antalDagar = new Date(ar, manad, 0).getDate()
+  for (let day = 1; day <= antalDagar; day++) {
+    const d = new Date(ar, manad - 1, day)
+    const dow = d.getDay()
+    if (dow === 0 || dow === 6) continue // helg
+    const iso = isoDatum(d)
+    if (roda.has(iso)) continue          // röd dag
+    if (iso < idagISO) continue          // redan passerad
+    dagar.push(iso)
+  }
+  return dagar
+}
 
 // ============================================================
 // Helpers
@@ -156,6 +208,7 @@ export default function HelikopterV2Page() {
     skordare_utforare: string | null; skotare_utforare: string | null;
   }[]>([])
   const [dimMaskiner, setDimMaskiner] = useState<DimMaskin[]>([])
+  const [maskinstoppData, setMaskinstoppData] = useState<{ maskin_id: string; fran_datum: string; till_datum: string; orsak: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [ar, setAr] = useState(() => new Date().getFullYear())
   const [manad, setManad] = useState(() => new Date().getMonth() + 1)
@@ -169,12 +222,13 @@ export default function HelikopterV2Page() {
   const load = useCallback(async () => {
     try {
       // Läs via inloggad session-klient (inte hårdkodad anon-nyckel).
-      const [hv, best, dimo, obj, dimm] = await Promise.all([
+      const [hv, best, dimo, obj, dimm, mstopp] = await Promise.all([
         supabase.from('helikopter_vy').select('*'),
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
         supabase.from('dim_objekt').select('objekt_id,maskin_id'),
         supabase.from('objekt').select('id,namn,vo_nummer,typ,ar,manad,status,volym,manuell_prognos,skordare_maskin_id,skotare_maskin_id,skordare_utforare,skotare_utforare'),
         supabase.from('dim_maskin').select('maskin_id,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'),
+        supabase.from('maskinstopp').select('maskin_id,fran_datum,till_datum,orsak'),
       ])
       // Härled huvudtyp där den saknas (maskin-regel + vo-match) — fas 1, ingen DB-ändring.
       const maskinById = new Map<string, string>((dimo.data || []).map((d: any) => [d.objekt_id, d.maskin_id]))
@@ -192,6 +246,7 @@ export default function HelikopterV2Page() {
       if (best.data) setBestallningar(best.data)
       setObjektAlla(obj.data || [])
       if (dimm.data) setDimMaskiner(dimm.data as DimMaskin[])
+      setMaskinstoppData(mstopp.data || [])
     } catch { /* use empty */ }
   }, [ar, manad])
 
@@ -378,13 +433,29 @@ export default function HelikopterV2Page() {
     return { Slutavverkning: bygg('Slutavverkning'), Gallring: bygg('Gallring') }
   }, [bestallningar, manadData])
 
-  // === KAPACITET (framåt): hinner maskinerna med månadens planerade objekt, finns luft? ===
+  // === KAPACITET (framåt): hinner maskinerna med månadens objekt — RÄKNAD kapacitet (dagar × 8) ===
   const kapacitet = useMemo(() => {
     const idag = new Date().toISOString().slice(0, 10)
     const monthObjekt = objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'planerad' || o.status === 'pagaende'))
     const aktiv = (m: DimMaskin) => !m.aktiv_till || m.aktiv_till >= idag
     const kapMaskiner = dimMaskiner.filter(m => (m.maskin_typ === 'Harvester' || m.maskin_typ === 'Forwarder') && aktiv(m) && !m.extramaskin)
     const extraMaskiner = dimMaskiner.filter(m => m.extramaskin && aktiv(m))
+    // Arbetsdagar (vardag, ej röd, ej passerad) — golv 8 h/dag
+    const availableDays = arbetsdagarIManad(ar, manad, idag)
+    const tillgangligaDagar = availableDays.length
+    const totalKapacitet = tillgangligaDagar * TIMMAR_PER_DAG
+    // Stoppdagar per maskin = availableDays som täcks av maskinens maskinstopp
+    const stoppByMaskin: Record<string, { dagar: number; orsaker: string[] }> = {}
+    for (const m of kapMaskiner) stoppByMaskin[m.maskin_id] = { dagar: 0, orsaker: [] }
+    let antalStoppIManad = 0
+    for (const st of maskinstoppData) {
+      const traffar = availableDays.filter(d => d >= st.fran_datum && d <= st.till_datum).length
+      if (traffar === 0) continue
+      antalStoppIManad++
+      const s = stoppByMaskin[st.maskin_id]
+      if (s) { s.dagar += traffar; if (!s.orsaker.includes(st.orsak)) s.orsaker.push(st.orsak) }
+    }
+    // Timmar + hål per maskin (oförändrad logik från #137)
     const agg: Record<string, { timmar: number; antal: number; hal: number }> = {}
     for (const m of kapMaskiner) agg[m.maskin_id] = { timmar: 0, antal: 0, hal: 0 }
     const halIds = new Set<string>()
@@ -401,7 +472,6 @@ export default function HelikopterV2Page() {
           agg[maskinId].timmar += tim
           agg[maskinId].antal += 1
         } else {
-          // saknar tid ELLER saknar placerbar maskin -> HÅL (en kategori). Maskin satt: notera hål på den.
           objektHarHal = true
           if (maskinId && agg[maskinId]) agg[maskinId].hal += 1
         }
@@ -413,21 +483,25 @@ export default function HelikopterV2Page() {
     }
     const rader = kapMaskiner.map(m => {
       const a = agg[m.maskin_id]
-      const luft = TIMMAR_PER_MANAD - a.timmar
+      const stopp = stoppByMaskin[m.maskin_id]
+      const maskinDagar = Math.max(0, tillgangligaDagar - stopp.dagar)
+      const kapacitetH = maskinDagar * TIMMAR_PER_DAG
+      const luft = kapacitetH - a.timmar
+      const behovDagar = Math.ceil(a.timmar / TIMMAR_PER_DAG)
       let status: 'tom' | 'gul' | 'gron' | 'rod'
       if (a.antal === 0 && a.hal === 0) status = 'tom'
       else if (a.hal > 0) status = 'gul' // luften optimistisk — oräknat objekt ligger på maskinen
       else if (luft < 0) status = 'rod'
       else status = 'gron'
-      return { maskin: m, timmar: a.timmar, antal: a.antal, hal: a.hal, luft, status }
+      return { maskin: m, timmar: a.timmar, antal: a.antal, hal: a.hal, luft, status, maskinDagar, kapacitetH, behovDagar, stoppDagar: stopp.dagar, stoppOrsaker: stopp.orsaker }
     }).sort((x, y) => x.luft - y.luft)
     const halVolym = halLista.reduce((s, h) => s + (h.volym || 0), 0)
     const harHal = halLista.length > 0
-    // Tightaste PER ROLL — bara maskiner med ren (hål-fri) ifylld tid
     const rollTightest = (typ: 'Harvester' | 'Forwarder') => {
       const k = rader.filter(r => r.maskin.maskin_typ === typ && r.antal > 0 && r.hal === 0)
       return k.length ? k.reduce((min, r) => (r.luft < min.luft ? r : min)) : null
     }
+    const extraNamn = extraMaskiner.length ? maskinModell(extraMaskiner[0]) : null
     let besked: { status: 'vetej' | 'ifas' | 'efter'; rad1: string; rad2?: string }
     if (monthObjekt.length === 0) {
       besked = { status: 'vetej', rad1: 'Inga objekt inlagda för månaden än' }
@@ -441,18 +515,22 @@ export default function HelikopterV2Page() {
     } else {
       const over = rader.filter(r => r.luft < 0).sort((a, b) => a.luft - b.luft)[0]
       if (over) {
-        besked = { status: 'efter', rad1: `${Math.round(-over.luft).toLocaleString('sv-SE')} h över på ${maskinModell(over.maskin)}` }
+        besked = {
+          status: 'efter',
+          rad1: `${Math.round(-over.luft).toLocaleString('sv-SE')} h saknas på ${maskinModell(over.maskin)} — ${Math.round(over.timmar).toLocaleString('sv-SE')} h behövs, ${Math.round(over.kapacitetH).toLocaleString('sv-SE')} h finns`,
+          rad2: extraNamn ? `Sätt in ${extraNamn}, eller flytta ett objekt.` : 'Flytta ett objekt eller planera övertid.',
+        }
       } else {
         const tS = rollTightest('Harvester')
         const tF = rollTightest('Forwarder')
         const lufts = [tS?.luft, tF?.luft].filter((x): x is number => x != null)
-        const z = lufts.length ? Math.min(...lufts) : TIMMAR_PER_MANAD
+        const z = lufts.length ? Math.min(...lufts) : totalKapacitet
         const parts = [tS && `${maskinModell(tS.maskin)} ${Math.round(tS.luft)} h`, tF && `${maskinModell(tF.maskin)} ${Math.round(tF.luft)} h`].filter(Boolean)
         besked = { status: 'ifas', rad1: `Ni hinner — ${Math.round(z).toLocaleString('sv-SE')} h ledigt`, rad2: parts.length ? `(${parts.join(', ')})` : undefined }
       }
     }
-    return { rader, extraMaskiner, halLista, halVolym, harHal, besked }
-  }, [objektAlla, dimMaskiner, ar, manad])
+    return { rader, extraMaskiner, halLista, halVolym, harHal, besked, tillgangligaDagar, totalKapacitet, ingaStopp: antalStoppIManad === 0 }
+  }, [objektAlla, dimMaskiner, maskinstoppData, ar, manad])
 
   const SPAR = [
     { typ: 'Slutavverkning' as const, Ikon: TreePine, farg: '#eab308', best: slutBest },
@@ -682,7 +760,12 @@ export default function HelikopterV2Page() {
           {/* === KAPACITET (framåt): hinner vi + finns luft — lägg TILL, rör inget ovan === */}
           {!manadAvslutad && (
             <div style={{ ...card, marginTop: 20, padding: '4px 18px' }}>
-              <div style={{ padding: '16px 0 12px', fontSize: 13, color: muted }}>Kapacitet</div>
+              <div style={{ padding: '16px 0 10px', fontSize: 13, color: muted }}>Kapacitet</div>
+              {/* Arbetsdagar-rad — RÄKNAD kapacitet (vardagar − röda − passerade), inte hårdkodad */}
+              <div style={{ fontSize: 13, color: text, paddingBottom: 12 }}>
+                Arbetsdagar kvar i {MANAD[manad]}: <span style={{ fontWeight: 700 }}>{kapacitet.tillgangligaDagar}</span>
+                <span style={{ color: muted }}> · 8 h/dag = {kapacitet.totalKapacitet.toLocaleString('sv-SE')} h</span>
+              </div>
               {/* Besked — färg = status (i fas / efter / vet ej). Aldrig grönt på halv data. */}
               {(() => {
                 const b = kapacitet.besked
@@ -695,27 +778,39 @@ export default function HelikopterV2Page() {
                   </div>
                 )
               })()}
-              {/* Ledig tid per maskin — timmar, inte procent */}
+              {/* Noll stopp inlagda = vi räknar på FULL kapacitet. Visa det tyst — aldrig påstå mer än vi vet. */}
+              {kapacitet.ingaStopp && (
+                <div style={{ fontSize: 12, color: muted, padding: '10px 0 2px' }}>
+                  Inga stopp inlagda för {MANAD[manad]} — räknat på full kapacitet.
+                </div>
+              )}
+              {/* Per maskin — behövda timmar stort, luft/dagar under */}
               {kapacitet.rader.map((r) => {
                 const farg = r.status === 'gron' ? '#30d158' : r.status === 'rod' ? '#ff453a' : r.status === 'gul' ? '#FF9F0A' : muted
-                const under = r.status === 'tom'
-                  ? 'inga objekt inlagda ännu'
-                  : `av ${TIMMAR_PER_MANAD}${r.antal > 0 ? ` · ${r.antal} objekt` : ''}${r.hal > 0 ? ` · ${r.hal} saknar tid` : ''}`
+                const stoppTxt = r.stoppDagar > 0 ? ` · ${r.stoppDagar} d ${r.stoppOrsaker.join('/')}` : ''
+                const visaTal = r.status !== 'tom' && !(r.antal === 0 && r.hal > 0)
+                let under: string
+                if (r.status === 'tom') under = 'inga objekt inlagda ännu'
+                else if (r.antal === 0 && r.hal > 0) under = `${r.hal} objekt saknar tid${stoppTxt}`
+                else {
+                  const luftTxt = r.luft < 0 ? `${Math.round(-r.luft)} h över` : `${Math.round(r.luft)} h luft`
+                  under = `${luftTxt} · behöver ${r.behovDagar} d, har ${r.maskinDagar} d · ${r.antal} objekt${r.hal > 0 ? ` · ${r.hal} saknar tid` : ''}${stoppTxt}`
+                }
                 return (
                   <div key={r.maskin.maskin_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 0', borderTop: `1px solid ${divider}` }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 500, color: text }}>{maskinModell(r.maskin)}</div>
                       <div style={{ fontSize: 13, color: muted, marginTop: 2 }}>{under}</div>
                     </div>
-                    {r.status !== 'tom' && (
+                    {visaTal && (
                       <span style={{ fontSize: 22, fontWeight: 700, color: farg, fontVariantNumeric: 'tabular-nums', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                        {r.luft < 0 ? `${Math.round(-r.luft)} h över` : `${Math.round(r.luft)} h`}
+                        {Math.round(r.timmar).toLocaleString('sv-SE')} h
                       </span>
                     )}
                   </div>
                 )
               })}
-              {/* Extramaskiner — utanför grundkapaciteten, ingen siffra */}
+              {/* Extramaskiner — buffert, ingen siffra */}
               {kapacitet.extraMaskiner.map(m => (
                 <div key={m.maskin_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 0', borderTop: `1px solid ${divider}` }}>
                   <div style={{ fontSize: 15, fontWeight: 500, color: text }}>{maskinModell(m)}</div>
@@ -724,7 +819,7 @@ export default function HelikopterV2Page() {
               ))}
               {/* Objekt utan tid — lugn grå checklista, inget larm */}
               {kapacitet.harHal && (
-                <div style={{ borderTop: `1px solid ${divider}`, padding: '14px 0 16px' }}>
+                <div style={{ borderTop: `1px solid ${divider}`, padding: '14px 0 4px' }}>
                   <div style={{ fontSize: 13, color: muted, marginBottom: 8 }}>
                     {kapacitet.halLista.length} objekt saknar tid — {Math.round(kapacitet.halVolym).toLocaleString('sv-SE')} m³fub oräknat
                   </div>
@@ -733,6 +828,10 @@ export default function HelikopterV2Page() {
                   ))}
                 </div>
               )}
+              {/* Fotnot — buffert-principen */}
+              <div style={{ borderTop: `1px solid ${divider}`, padding: '12px 0 16px', fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
+                Räknat på 8 h dagtid. Övertid och extramaskin är er buffert — inte inräknade.
+              </div>
             </div>
           )}
         </div>
