@@ -3,22 +3,10 @@
 import { useState, useEffect, useRef, Fragment, Children } from 'react'
 import { supabase } from '@/lib/supabase'
 
-// Demo-data
-const DEMO_OBJEKT = [
-  { objekt_id: '1', object_name: 'Kompersmåla lövgallring 2025', vo_nummer: 'JD1270G-12345', huvudtyp: 'Gallring', bolag: 'Vida', skogsagare: 'Erik Lindqvist', atgard: 'Första gallring', inkopare: 'Johan Eriksson' },
-  { objekt_id: '2', object_name: 'Björsamåla AU 2025', vo_nummer: 'KOM930-54321', huvudtyp: null, bolag: null, skogsagare: null, atgard: null },
-  { objekt_id: '3', object_name: 'Midingstorpgallring 2025', vo_nummer: 'JD1170E-11111', huvudtyp: 'Gallring', bolag: 'Vida', skogsagare: null, atgard: null },
-  { objekt_id: '4', object_name: 'Lars Norberg Dunshultt', vo_nummer: 'KOM855-22222', huvudtyp: null, bolag: 'Privat', skogsagare: 'Lars Norberg', atgard: null },
-  { objekt_id: '5', object_name: 'Kompermåla Ga', vo_nummer: 'JD1070G-33333', huvudtyp: 'Gallring', bolag: 'Privat', skogsagare: 'Per Andersson', atgard: 'Andra gallring' },
-  { objekt_id: '6', object_name: 'Flytt/Service', vo_nummer: 'JD1470G-44444', huvudtyp: 'Slutavverkning', bolag: 'Vida', skogsagare: 'Vida Skog AB', atgard: 'Special', exkludera: true },
-  { objekt_id: '7', object_name: 'Karsemåla AU 2025', vo_nummer: 'KOM951-55555', huvudtyp: 'Slutavverkning', bolag: 'Södra', atgard: 'Au', egenskap: 'grot_anpassad', skogsagare: 'Sven Karlsson', inkopare: 'Maria Lindgren' },
-  { objekt_id: '8', object_name: 'Hällevik 3:2', vo_nummer: 'JD1510G-66666', huvudtyp: 'Slutavverkning', bolag: 'Privat', skogsagare: 'Anna Svensson', atgard: null },
-  { objekt_id: '9', object_name: 'Rockneby 1:4', vo_nummer: 'KOM865-77777', huvudtyp: 'Slutavverkning', bolag: 'ATA', atgard: 'Rp', skogsagare: 'Bengt Holm', inkopare: 'Johan Eriksson', egenskap: 'extra_vagn' },
-  { objekt_id: '10', object_name: 'Gässemåla 3:2', vo_nummer: 'JD1070E-88888', huvudtyp: null, bolag: null, skogsagare: null, atgard: null },
-]
-
-const DEMO_BOLAG = ['Vida', 'ATA', 'Privat', 'JGA', 'Rönås', 'Södra']
-const DEMO_INKOPARE = ['Johan Eriksson', 'Maria Lindgren']
+// Standardval som alltid ska finnas som chips (riktiga bolag) —
+// kompletteras med unika värden ur datan vid inläsning.
+// Inköpare seedas ENBART ur datan (inga hårdkodade namn).
+const STANDARD_BOLAG = ['Vida', 'ATA', 'Privat', 'JGA', 'Rönås', 'Södra']
 const HUVUDTYPER = ['Slutavverkning', 'Gallring']
 
 const EGENSKAPER_SKOGSBRUK = [
@@ -92,7 +80,10 @@ async function sparaObjektTillSupabase(obj) {
     } catch { ovrigtInfo = obj.ovrigt_info; }
   }
 
-  const { error } = await supabase
+  // .select() gör att vi FÅR TILLBAKA de uppdaterade raderna. En UPDATE som
+  // träffar 0 rader (RLS-blockerad eller borttaget objekt) ger INGET error —
+  // utan denna kontroll visade vyn "Sparat!" när ingenting sparades.
+  const { data, error } = await supabase
     .from('dim_objekt')
     .update({
       object_name: obj.object_name, vo_nummer: obj.vo_nummer, skogsagare: obj.skogsagare,
@@ -111,7 +102,12 @@ async function sparaObjektTillSupabase(obj) {
       ovrigt_info: ovrigtInfo,
     })
     .eq('objekt_id', obj.objekt_id)
-  return !error
+    .select('objekt_id')
+  if (error) return { ok: false, message: 'Kunde inte spara: ' + error.message }
+  if (!data || data.length === 0) {
+    return { ok: false, message: 'Inget sparades — uppdateringen träffade inga rader (saknad behörighet eller borttaget objekt)' }
+  }
+  return { ok: true, message: '' }
 }
 // === SLUT SUPABASE ===
 
@@ -1412,8 +1408,8 @@ export default function ObjektRedigering() {
   const [maskiner, setMaskiner] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [bolag, setBolag] = useState(DEMO_BOLAG)
-  const [inkopare, setInkopare] = useState(DEMO_INKOPARE)
+  const [bolag, setBolag] = useState(STANDARD_BOLAG)
+  const [inkopare, setInkopare] = useState<string[]>([])
   const [atgarderSlut, setAtgarderSlut] = useState(['LRK', 'Rp', 'Au', 'Special', 'VF/Bark'])
   const [atgarderGallring, setAtgarderGallring] = useState(['Första gallring', 'Andra gallring'])
   const [valtObjekt, setValtObjekt] = useState(null)
@@ -1472,9 +1468,12 @@ export default function ObjektRedigering() {
         setObjekt(berikade)
         setMaskiner(maskinLookup)
         setScenarier(scenarioData)
-        // Extrahera unika bolag från datan
+        // Extrahera unika bolag + inköpare från datan (inköpare seedas
+        // enbart härifrån — inga hårdkodade demo-namn)
         const unikaBolag = [...new Set(objektData.map(o => o.bolag).filter(Boolean))]
-        setBolag([...new Set([...DEMO_BOLAG, ...unikaBolag])].sort())
+        setBolag([...new Set([...STANDARD_BOLAG, ...unikaBolag])].sort())
+        const unikaInkopare = Array.from(new Set(objektData.map(o => o.inkopare).filter(Boolean)))
+        setInkopare(unikaInkopare.sort())
         setLoading(false)
       })
       .catch(err => {
@@ -1499,13 +1498,13 @@ export default function ObjektRedigering() {
     if (!valtObjekt) return
     setSaving(true)
     setSaveError('')
-    let ok = false
+    let res = { ok: false, message: '' }
     try {
-      ok = await sparaObjektTillSupabase(valtObjekt)
+      res = await sparaObjektTillSupabase(valtObjekt)
     } catch (err) {
-      ok = false
+      res = { ok: false, message: 'Kunde inte spara — försök igen' }
     }
-    if (ok) {
+    if (res.ok) {
       setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
       setSaved(true)
       setTimeout(() => {
@@ -1514,8 +1513,8 @@ export default function ObjektRedigering() {
         setSaved(false)
       }, 600)
     } else {
-      setSaveError('Kunde inte spara — försök igen')
-      setTimeout(() => setSaveError(''), 4500)
+      setSaveError(res.message || 'Kunde inte spara — försök igen')
+      setTimeout(() => setSaveError(''), 6000)
     }
     setSaving(false)
   }
@@ -1774,13 +1773,13 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
     if (!valtObjekt) return
     setSaving(true)
     setSaveError('')
-    let ok = false
+    let res = { ok: false, message: '' }
     try {
-      ok = await sparaObjektTillSupabase(valtObjekt)
+      res = await sparaObjektTillSupabase(valtObjekt)
     } catch (err) {
-      ok = false
+      res = { ok: false, message: 'Kunde inte spara — försök igen' }
     }
-    if (ok) {
+    if (res.ok) {
       setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
       setSaved(true)
       setTimeout(() => {
@@ -1789,8 +1788,8 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         setSaved(false)
       }, 600)
     } else {
-      setSaveError('Kunde inte spara — försök igen')
-      setTimeout(() => setSaveError(''), 4500)
+      setSaveError(res.message || 'Kunde inte spara — försök igen')
+      setTimeout(() => setSaveError(''), 6000)
     }
     setSaving(false)
   }
