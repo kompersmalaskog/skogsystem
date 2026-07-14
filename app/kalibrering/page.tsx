@@ -623,9 +623,12 @@ export default function KalibreringPage() {
   const KLASS_FARG: Record<string, string> = {
     '<150': '#0A84FF', '150-199': '#5AC8FA', '200-249': '#FFD60A', '250-299': '#FF9F0A', '300+': '#FF453A',
   };
+  // Underlagsgrind i kurvan: n<30 ritas inte (slumpen får inte se ut som trend),
+  // 30–100 streckad+nedtonad (tunt underlag), ≥100 solid. Per SEGMENT — 300+ har
+  // aldrig ≥100/månad, så hela dess linje blir streckad; ingen falsk april-spik.
   const renderTidsChart = (
     manader: string[],
-    series: { klass: string; punkter: Map<string, number> }[],
+    series: { klass: string; punkter: Map<string, { v: number; n: number }> }[],
     opts: { yMax: number; kravLinje?: { v: number; label: string }; markorer: DiagMarkor[] },
   ) => {
     if (manader.length === 0) return <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>Inget underlag ännu.</span></div>;
@@ -635,6 +638,7 @@ export default function KalibreringPage() {
     const yFor = (v: number) => padT + (1 - Math.max(0, Math.min(opts.yMax, v)) / opts.yMax) * plotH;
     const monIdx = new Map(manader.map((m, i) => [m, i]));
     const step = Math.max(1, Math.ceil(manader.length / 6));
+    let nagotTunt = false;
     return (
       <div className="kalib-grid-scroll">
         <svg viewBox={`0 0 ${W} ${H}`} className="kalib-tidschart">
@@ -653,12 +657,27 @@ export default function KalibreringPage() {
           {opts.markorer.map((mk, i) => {
             const mi = monIdx.get(mk.datum.slice(0, 7));
             if (mi == null) return null;
-            return <line key={i} x1={xFor(mi)} y1={padT} x2={xFor(mi)} y2={padT + plotH} className={`kalib-tc-markor ${mk.kalla}`} />;
+            return <line key={`mk${i}`} x1={xFor(mi)} y1={padT} x2={xFor(mi)} y2={padT + plotH} className={`kalib-tc-markor ${mk.kalla}`} />;
           })}
           {series.map(s => {
-            const pts = manader.map((m, i) => (s.punkter.has(m) ? `${xFor(i)},${yFor(s.punkter.get(m) as number)}` : null)).filter(Boolean).join(' ');
-            if (!pts) return null;
-            return <polyline key={s.klass} points={pts} fill="none" stroke={KLASS_FARG[s.klass]} strokeWidth={1.6} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />;
+            const el: JSX.Element[] = [];
+            for (let i = 0; i + 1 < manader.length; i++) {
+              const a = s.punkter.get(manader[i]), b = s.punkter.get(manader[i + 1]);
+              if (!a || !b || a.n < GRIND_MIN || b.n < GRIND_MIN) continue; // n<30 → ingen linje
+              const solid = a.n >= GRIND_ATGARD && b.n >= GRIND_ATGARD;
+              if (!solid) nagotTunt = true;
+              el.push(<line key={`seg${i}`} x1={xFor(i)} y1={yFor(a.v)} x2={xFor(i + 1)} y2={yFor(b.v)}
+                stroke={KLASS_FARG[s.klass]} strokeWidth={1.6} vectorEffect="non-scaling-stroke" strokeLinecap="round"
+                strokeOpacity={solid ? 1 : 0.4} strokeDasharray={solid ? undefined : '3 3'} />);
+            }
+            manader.forEach((m, i) => {
+              const p = s.punkter.get(m);
+              if (!p || p.n < GRIND_MIN) return; // n<30 → ingen punkt
+              const solid = p.n >= GRIND_ATGARD;
+              if (!solid) nagotTunt = true;
+              el.push(<circle key={`dot${i}`} cx={xFor(i)} cy={yFor(p.v)} r={solid ? 2 : 1.6} fill={KLASS_FARG[s.klass]} fillOpacity={solid ? 1 : 0.5} />);
+            });
+            return <g key={s.klass}>{el}</g>;
           })}
           {manader.map((m, i) => (i % step === 0 || i === manader.length - 1
             ? <text key={m} x={xFor(i)} y={H - 6} className="kalib-tc-xlabel" textAnchor="middle">{m.slice(2).replace('-', '/')}</text>
@@ -667,6 +686,7 @@ export default function KalibreringPage() {
         <div className="kalib-tc-legend">
           {series.map(s => <span key={s.klass} className="kalib-tc-leg"><i style={{ background: KLASS_FARG[s.klass] }} />{s.klass}</span>)}
         </div>
+        {nagotTunt && <div className="kalib-tc-tunt">Streckad/nedtonad = tunt underlag (30–100 mått/månad). Under 30 ritas inte — slumpen ska inte se ut som en trend.</div>}
       </div>
     );
   };
@@ -2057,6 +2077,7 @@ export default function KalibreringPage() {
         .kalib-tc-leg{display:flex;align-items:center;gap:5px;font-size:12px;color:#8E8E93;font-variant-numeric:tabular-nums}
         .kalib-tc-leg i{width:12px;height:3px;border-radius:2px;display:inline-block}
         .kalib-tc-bandnote{font-size:12px;color:#8E8E93;margin-top:10px;line-height:1.4}
+        .kalib-tc-tunt{font-size:11px;color:#8E8E93;margin-top:6px;line-height:1.4;opacity:0.85}
         .kalib-curve-mal{position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,0.28);pointer-events:none}
         /* === Hjälptext "?" === */
         .kalib-hjalp-btn{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#8E8E93;font-size:15px;font-weight:600;cursor:pointer;flex-shrink:0}
@@ -2830,10 +2851,12 @@ export default function KalibreringPage() {
                   );
                 }
                 const kl = diagnosData.klasser;
-                const traffMan = Array.from(new Set(kl.flatMap(k => k.traffMonthly.filter(m => m.n >= 20).map(m => m.manad)))).sort();
-                const traffSeries = kl.map(k => ({ klass: k.klass, punkter: new Map(k.traffMonthly.filter(m => m.n >= 20).map(m => [m.manad, m.traffPct])) }));
-                const platMan = Array.from(new Set(kl.flatMap(k => k.plateauMonthly.filter(m => m.n >= 20).map(m => m.manad)))).sort();
-                const platSeries = kl.map(k => ({ klass: k.klass, punkter: new Map(k.plateauMonthly.filter(m => m.n >= 20).map(m => [m.manad, m.share])) }));
+                // Månadsaxeln = månader där NÅGON klass når grinden (n≥30). Grind + tonning
+                // sköts i renderTidsChart per punkt/segment; här skickas hela {v,n}.
+                const traffMan = Array.from(new Set(kl.flatMap(k => k.traffMonthly.filter(m => m.n >= GRIND_MIN).map(m => m.manad)))).sort();
+                const traffSeries = kl.map(k => ({ klass: k.klass, punkter: new Map(k.traffMonthly.map(m => [m.manad, { v: m.traffPct, n: m.n }])) }));
+                const platMan = Array.from(new Set(kl.flatMap(k => k.plateauMonthly.filter(m => m.n >= GRIND_MIN).map(m => m.manad)))).sort();
+                const platSeries = kl.map(k => ({ klass: k.klass, punkter: new Map(k.plateauMonthly.map(m => [m.manad, { v: m.share, n: m.n }])) }));
                 return (
                   <>
                     <div className="kalib-card">
@@ -3026,6 +3049,12 @@ export default function KalibreringPage() {
                   ? curvePoints.map((p) => `${xPctFor(p.ts).toFixed(2)},${yPct(p.avg).toFixed(2)}`).join(' ')
                   : '';
 
+                // Underlagsgrind: rita ingen kurva på för få kontroller i fönstret.
+                // "1 kontroll · 1 dag" är slump, inte trend — tyst när vi inte vet.
+                const MIN_KURVA = 3;
+                const windowKontroller = curvePoints.reduce((a, p) => a + p.n, 0);
+                const ritaKurva = windowKontroller >= MIN_KURVA;
+
                 // Auto-mening: ärlig sammanfattning av FÖNSTRET
                 const autoMening = (): string => {
                   if (curvePoints.length === 0) return '';
@@ -3140,7 +3169,7 @@ export default function KalibreringPage() {
                         <div className="kalib-section-subtitle">
                           {curvePoints.length === 0
                             ? 'Inga kontroller i fönstret'
-                            : `${curvePoints.reduce((a, p) => a + p.n, 0)} kontroller · ${curvePoints.length} dag${curvePoints.length === 1 ? '' : 'ar'}`}
+                            : `${windowKontroller} kontroll${windowKontroller === 1 ? '' : 'er'} · ${curvePoints.length} dag${curvePoints.length === 1 ? '' : 'ar'}`}
                         </div>
 
                         {!enough && (
@@ -3153,6 +3182,10 @@ export default function KalibreringPage() {
                         {curvePoints.length === 0 ? (
                           <div className="kalib-trend-empty">
                             Inga kontroller i {winLabel.toLowerCase()}. Bläddra ‹ › för att se andra perioder.
+                          </div>
+                        ) : !ritaKurva ? (
+                          <div className="kalib-trend-empty">
+                            För tunt underlag i {winLabel.toLowerCase()} — {windowKontroller} kontroll{windowKontroller === 1 ? '' : 'er'}. En kurva på så få kontroller vore slump, inte trend. Bläddra ‹ › till en period med mer data.
                           </div>
                         ) : (
                           <>
@@ -3346,7 +3379,7 @@ export default function KalibreringPage() {
                           <div className="kalib-trend-list-top">
                             <span className="kalib-trend-list-top-primary">{winLabel}</span>
                             <span className="kalib-trend-list-top-tertiary">
-                              · {inWindow.length} kontroller · {trakterN} {trakterN === 1 ? 'trakt' : 'trakter'}
+                              · {inWindow.length} kontroll{inWindow.length === 1 ? '' : 'er'} · {trakterN} {trakterN === 1 ? 'trakt' : 'trakter'}
                             </span>
                           </div>
 
