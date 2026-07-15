@@ -546,6 +546,9 @@ export default function KalibreringPage() {
   const [valtObjekt, setValtObjekt] = useState<string | null>(null);
   const [hjalpOpen, setHjalpOpen] = useState(false); // "?"-hjälptexten
   const [lagetSteg, setLagetSteg] = useState<LagetSteg>('kvartal'); // Läget: tidssteg (default kvartal → grova solida)
+  // Rapport per-trädslag (per maskin, all-time) — träff%/syst/std mot maskinens profil.
+  type TradslagStat = { tradslag: string; diameter: VariabelStat; langd: VariabelStat };
+  const [tradslagMap, setTradslagMap] = useState<Record<string, { profil: string | null; trosklar: KravRow[]; tradslag: TradslagStat[] }>>({});
   const [nyMarkorDatum, setNyMarkorDatum] = useState('');
   const [nyMarkorText, setNyMarkorText] = useState('');
   const [markorSparar, setMarkorSparar] = useState(false);
@@ -619,6 +622,30 @@ export default function KalibreringPage() {
     }
     return { ton, rubrik: `Mätningen på ${o.object_name} ${ord}`, attribution, tunn: false };
   };
+
+  // Rapport per-trädslag-cell: träff% (huvudtal) färgad via kravprofilen (sämsta-styr,
+  // som bedomProfil men grind 30 här — inte larm-grindens 150). syst/std som stödtal.
+  const renderTrCell = (stat: VariabelStat, variabel: 'diameter' | 'langd', enhet: 'mm' | 'cm', trosklar: KravRow[]) => {
+    if (stat.n < 30) return <div className="kalib-tr-cellinner"><div className="kalib-tr-tunt">för tunt underlag</div><div className="kalib-tr-stod">n {stat.n}</div></div>;
+    let worst: ProfilStatus = 'ok';
+    for (const r of trosklar.filter(t => t.variabel === variabel)) {
+      const v = r.metrik === 'traffprocent' ? stat.traffPct
+        : r.metrik === 'systematisk' ? (stat.systematisk != null ? Math.abs(stat.systematisk) : null)
+          : r.metrik === 'standardavv' ? stat.standardavv
+            : r.metrik === 'grov_avvikelse' ? stat.grovPct : null;
+      if (v == null) continue;
+      const mal = Number(r.mal), golv = Number(r.golv);
+      const st: ProfilStatus = r.riktning === 'hog_bra' ? (v >= mal ? 'ok' : v < golv ? 'röd' : 'orange') : (v <= mal ? 'ok' : v > golv ? 'röd' : 'orange');
+      if (PROFIL_RANK[st] > PROFIL_RANK[worst]) worst = st;
+    }
+    return (
+      <div className="kalib-tr-cellinner">
+        <div className={`kalib-tr-traff tone-${PROFIL_TON[worst]}`}>{stat.traffPct != null ? `${Math.round(stat.traffPct)}%` : '–'}</div>
+        <div className="kalib-tr-stod">syst {fmtSig1(stat.systematisk)} · std {(stat.standardavv ?? 0).toFixed(1)} {enhet} · n {stat.n}</div>
+      </div>
+    );
+  };
+
   const heroMaskinObj = heroMaskin ? alleMaskiner.find(m => m.maskin_id === heroMaskin) : undefined;
   const heroNamn = heroMaskinObj ? maskinNamn(heroMaskinObj) : (heroMaskin ?? '');
 
@@ -819,6 +846,21 @@ export default function KalibreringPage() {
       .catch(() => { /* tyst — objekt-fliken visar "kunde inte ladda" */ });
     return () => { cancelled = true; };
   }, [activeTab, objektData]);
+
+  // === Rapport per-trädslag: lazy fetch per maskin (bara när EN maskin är vald)
+  useEffect(() => {
+    if (activeTab !== 'report' || effectiveSelected === 'all' || tradslagMap[effectiveSelected]) return;
+    const maskin = effectiveSelected;
+    let cancelled = false;
+    fetch(`/api/kalibrering/tradslag?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: { ok?: boolean; profil: string | null; trosklar: KravRow[]; tradslag: TradslagStat[] }) => {
+        if (cancelled || !data?.ok) return;
+        setTradslagMap(prev => ({ ...prev, [maskin]: { profil: data.profil, trosklar: data.trosklar, tradslag: data.tradslag } }));
+      })
+      .catch(() => { /* tyst — tabellen faller tillbaka på snitt */ });
+    return () => { cancelled = true; };
+  }, [activeTab, effectiveSelected, tradslagMap]);
 
   // === Trend-fliken: lazy fetch när användaren öppnar fliken eller byter maskinfilter
   useEffect(() => {
@@ -1968,6 +2010,7 @@ export default function KalibreringPage() {
   // Rapport-headline bedöms mot profilen när EN maskin är vald. Aggregatet 'alla'
   // har ingen enskild profil → faller tillbaka på snitt-toleransen som förr.
   const reportBed = effectiveSelected !== 'all' && bedomning && bedomning.maskin_id === effectiveSelected ? bedomning : null;
+  const trData = effectiveSelected !== 'all' ? (tradslagMap[effectiveSelected] ?? null) : null;
   const reportDiaBed = reportBed ? bedomProfil(reportBed.diameter, 'diameter', reportBed.trosklar) : null;
   const reportLenBed = reportBed ? bedomProfil(reportBed.langd, 'langd', reportBed.trosklar) : null;
   const verdictWithinTolerance = reportBed
@@ -2361,6 +2404,18 @@ export default function KalibreringPage() {
         .kalib-report-date{font-size:12px;color:#8E8E93;text-align:right}
         .kalib-report-section{margin-bottom:22px}
         .kalib-report-section-title{font-size:13px;font-weight:600;color:#fff;margin:0 0 4px}
+        /* Rapport per-trädslag: träff% (huvudtal) + syst/std stödtal, per maskins profil */
+        .kalib-tr-table{border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.06);margin-top:8px}
+        .kalib-tr-head{display:grid;grid-template-columns:1.1fr 1fr 1fr;padding:9px 14px;font-size:12px;color:#8E8E93;background:rgba(255,255,255,0.03)}
+        .kalib-tr-row{display:grid;grid-template-columns:1.1fr 1fr 1fr;padding:12px 14px;border-top:0.5px solid #2C2C2E;cursor:pointer;align-items:start;gap:8px}
+        .kalib-tr-namn{color:#fff;font-size:15px;font-weight:500;display:flex;align-items:center;gap:2px}
+        .kalib-tr-cellinner{min-width:0}
+        .kalib-tr-traff{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+        .kalib-tr-traff.tone-ok{color:#8E8E93}
+        .kalib-tr-traff.tone-hi{color:#FF9F0A}
+        .kalib-tr-traff.tone-hot{color:#FF453A}
+        .kalib-tr-stod{font-size:11px;color:#8E8E93;margin-top:4px;line-height:1.35}
+        .kalib-tr-tunt{font-size:13px;color:#8E8E93}
         .kalib-report-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
         .kalib-report-metric{text-align:center;padding:14px 8px;background:rgba(255,255,255,0.04);border-radius:10px}
         .kalib-report-metric-value{font-size:24px;font-weight:700;line-height:1;color:#fff;letter-spacing:-0.02em}
@@ -3718,22 +3773,25 @@ export default function KalibreringPage() {
               </div>
 
               <div className="kalib-report-section">
-                <div className="kalib-report-section-title">Per trädslag</div>
-                <div className="kalib-species-table">
-                  <div className="kalib-table-header"><span></span><span>Kontroller</span><span>Längd</span><span>Diameter</span><span></span></div>
-                  {Object.entries(speciesData).map(([key, data]) => {
-                    const name = key === 'gran' ? 'Gran' : key === 'tall' ? 'Tall' : key.charAt(0).toUpperCase() + key.slice(1);
-                    return (
-                      <div key={key} className="kalib-table-row" onClick={() => openSpeciesDetail(key)}>
-                        <span>{name}</span>
-                        <span>{data.count}</span>
-                        <span className={`tone-${avvikelseTon(data.lenDiff, 'len', data.count)}`}>{fmtAvvikelse(data.lenDiff, 'cm')} cm</span>
-                        <span className={`tone-${avvikelseTon(data.diaDiff, 'dia', data.count)}`}>{fmtAvvikelse(data.diaDiff, 'mm')} mm</span>
-                        <span className="kalib-table-chev"><MSym name="chevron_right" size={18} color="#8E8E93" /></span>
+                <div className="kalib-report-section-title">Träffprocent per trädslag{trData?.profil ? ` · ${trData.profil}` : ''}</div>
+                {effectiveSelected === 'all' ? (
+                  <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>Välj en maskin — Gran bedöms mot olika krav på olika maskiner och kan inte slås ihop.</span></div>
+                ) : !trData ? (
+                  <div className="kalib-lugn-rad"><MSym name="hourglass_empty" size={16} color="#8E8E93" /><span>Laddar per-trädslag…</span></div>
+                ) : trData.tradslag.length === 0 ? (
+                  <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>Inga trädslag med underlag.</span></div>
+                ) : (
+                  <div className="kalib-tr-table">
+                    <div className="kalib-tr-head"><span>Trädslag</span><span>Diameter</span><span>Längd</span></div>
+                    {trData.tradslag.map(t => (
+                      <div key={t.tradslag} className="kalib-tr-row" onClick={() => openSpeciesDetail(t.tradslag.toLowerCase())}>
+                        <div className="kalib-tr-namn">{cap(t.tradslag)}<MSym name="chevron_right" size={16} color="#8E8E93" /></div>
+                        {renderTrCell(t.diameter, 'diameter', 'mm', trData.trosklar)}
+                        {renderTrCell(t.langd, 'langd', 'cm', trData.trosklar)}
                       </div>
-                    );
-                  })}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {filteredKalib.length > 0 && (
