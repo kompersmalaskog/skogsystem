@@ -566,7 +566,9 @@ export default function Arbetsrapport() {
   const [redAnl,   setRedAnl]   = useState("");
   const [redVy,    setRedVy]    = useState("översikt");
   const [redDagar, setRedDagar] = useState<Record<string, {start:string;slut:string;rast:number;km:number;anl:string}>>({});
-  const [lönSkickat, setLönSkickat] = useState(false);
+  // Godkänd-status per period (YYYY-MM -> status) — hämtas från loneunderlag
+  // så "Godkänd" överlever omladdning; inte en sessionsflagga.
+  const [lönStatusPerPeriod, setLönStatusPerPeriod] = useState<Record<string,string>>({});
   const [lönBekräfta, setLönBekräfta] = useState(false);
   const [lönOffset, setLönOffset] = useState(0);
   const [lönVy, setLönVy] = useState<'översikt'|'detaljer'>('översikt');
@@ -700,6 +702,11 @@ export default function Arbetsrapport() {
         // maybeSingle: 0 rader är normalfallet innan valet gjorts — .single() gav 406-brus i konsolen
         supabase.from("atk_val").select("*").eq("medarbetare_id", med.data.id).eq("period", String(new Date().getFullYear())).maybeSingle()
           .then(res => { if(res.data) setAtkValSparat(res.data); });
+        // Fetch godkänd-status per period för månadssammanställningen
+        supabase.from("loneunderlag").select("period,status").eq("medarbetare_id", med.data.id)
+          .then(res => {
+            if(res.data) setLönStatusPerPeriod(Object.fromEntries(res.data.map((r:any) => [r.period, r.status])));
+          });
         // Fetch extra_tid for löneunderlag + pågående
         supabase.from("extra_tid").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(200)
           .then(res => {
@@ -2188,11 +2195,11 @@ export default function Arbetsrapport() {
 
         {/* Bottom sheet för Starta extra arbete renderas utanför main (nedan) */}
 
-        {/* Löneunderlag-notis */}
-        {månadsKlar&&!lönSkickat&&(
+        {/* Månadssammanställnings-notis (OBS: månadsKlar sätts aldrig — död sedan tidigare, flaggad) */}
+        {månadsKlar&&!lönStatusPerPeriod[new Date().toISOString().slice(0,7)]&&(
           <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:16,marginBottom:24,cursor:"pointer",animation:"fadeUp 0.4s ease" }}>
             <p style={{ margin:"0 0 6px",fontSize:13,fontWeight:500,color:C.orange }}>Månaden är slut</p>
-            <p style={{ margin:"0 0 8px",...TYPE.bodyList,color:"#fff" }}>Granska löneunderlaget för {månadsNamn()}</p>
+            <p style={{ margin:"0 0 8px",...TYPE.bodyList,color:"#fff" }}>Granska månadssammanställningen för {månadsNamn()}</p>
             <span style={{ ...TYPE.meta,color:"#0a84ff" }}>Öppna →</span>
           </div>
         )}
@@ -3405,14 +3412,11 @@ export default function Arbetsrapport() {
     );
   }
 
-  /* ─── LÖNEUNDERLAG ─── */
+  /* ─── MÅNADSSAMMANSTÄLLNING ───
+     Kontrollsteg: föraren granskar månadens RÅDATA (tid, dagar, km,
+     traktamente, frånvaro) och godkänner den innan den lämnas vidare.
+     Appen räknar INGA kronor — Fortnox äger löneberäkningen. */
   if(steg==="lön"){
-    const timlon = gsAvtal?.timlon_kr ?? 185;
-    const overtidKrPerTim = gsAvtal?.overtid_vardag_kr ?? 54.94;
-    const frikm2 = gsAvtal?.km_grans_per_dag ?? 60;
-    const kmErs2 = gsAvtal?.km_ersattning_kr ?? 27.50;
-    const trakHel = gsAvtal?.traktamente_hel_kr ?? 300;
-
     // Filtrera historik på vald månad (lönOffset 0 = innevarande, -1 = förra)
     const _nuRef = new Date();
     const nu = new Date(_nuRef.getFullYear(), _nuRef.getMonth() + lönOffset, 1);
@@ -3429,58 +3433,60 @@ export default function Arbetsrapport() {
     const extraTidMin = månadsExtraTid.reduce((a,e) => a + (e.minuter || 0), 0);
     const debiterbarExtraTid = månadsExtraTid.filter(e => e.debiterbar);
 
-    // Beräkna från faktiska dagar i filtrerad historik + extra tid
-    const arbetsdagar = månadsHistorik.length || 21;
+    // Rådata från faktiska dagar i filtrerad historik + extra tid — inga kronor
+    const arbetsdagar = månadsHistorik.length;
     const jobbadMin2 = månadsHistorik.reduce((a,d) => a + (d.arbetad_min || 0), 0) + extraTidMin;
     const extraTidH = Math.round(extraTidMin/60*10)/10;
-    const jobbadH = månadsHistorik.length > 0 || extraTidMin > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
-    const målH = arbetsdagar * 8;
-    const övH = Math.max(0, jobbadH - målH);
-    const övKr = Math.round(övH * overtidKrPerTim);
+    const jobbadH = arbetsdagar > 0 || extraTidMin > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
     const totalKm = månadsHistorik.reduce((a,d) => a + (d.km_totalt || d.km_morgon || 0) + (d.km_kvall || 0), 0);
-    const löneErsKm = Math.max(0, totalKm - frikm2*arbetsdagar);
-    const löneErsKr = Math.round(löneErsKm * kmErs2 / 10); // kmErs2 är kr/mil, dela med 10 för kr/km
     const trakDagar = månadsHistorik.filter(d => d.traktamente).length;
-    const trakKr = trakDagar * trakHel;
     const redigeringar = Object.entries(redDagar);
 
-    // Lönedelar i kr (totalt beräknas efter helglön nedan). Riktvärde, ej netto.
-    const normalH = Math.min(jobbadH, målH);
-    const grundLönKr = Math.round(normalH * timlon);
+    // Frånvaro per dagtyp (rad visas bara om typen förekommer)
+    const FRANVARO_TYPER: [string,string][] = [['sjuk','Sjukfrånvaro'],['vab','VAB'],['semester','Semester'],['atk','ATK']];
+    const frånvaroRader = FRANVARO_TYPER
+      .map(([typ,label]) => [label, månadsHistorik.filter(d => d.dagtyp === typ).length] as [string,number])
+      .filter(([,n]) => n > 0);
+    const frånvaroAntal = frånvaroRader.reduce((a,[,n]) => a + n, 0);
+    const arbetadeDagar = arbetsdagar - frånvaroAntal;
 
-    const skickaLön = async () => {
+    // Bekräftelse-gaten — själva poängen med kontrollsteget: ALLA dagar måste
+    // vara bekräftade innan månaden kan godkännas. Ingen "skicka ändå" — lön
+    // är för viktigt för halvgranskad rådata.
+    const bekräftadeDagar = månadsHistorik.filter(d => d.bekraftad).length;
+    const obekräftadeDagar = arbetsdagar - bekräftadeDagar;
+
+    const periodStatus = lönStatusPerPeriod[lönePeriod] || null;
+    const ärGodkänd = !!periodStatus;
+    const kanGodkänna = arbetsdagar > 0 && obekräftadeDagar === 0 && !ärGodkänd;
+
+    // Godkänn månaden: föraren har granskat rådatan och står för den.
+    // TODO(Fortnox): här kopplas den faktiska Fortnox-sändningen in när
+    // integrationen byggs — appen skickar då RÅDATAN nedan (inga kronor),
+    // Fortnox räknar lönen. Tills dess: godkännandet = status på
+    // loneunderlag-raden, som admin/lönekörningen läser.
+    const godkännMånad = async () => {
       setLönSparar(true);
       setLönFel("");
-      try {
-        const underlag = {
-          medarbetare_id: medarbetare.id,
-          namn: medarbetare.namn,
-          maskin_id: medarbetare.maskin_id,
-          maskin: maskinNamn || '',
-          period: lönePeriod,
-          arbetsdagar,
-          mal_timmar: målH,
-          jobbade_timmar: jobbadH,
-          overtid_timmar: övH,
-          overtid_kr: övKr,
-          total_km: totalKm,
-          ersattnings_km: löneErsKm,
-          korkostnad_kr: löneErsKr,
-          traktamente_dagar: trakDagar,
-          traktamente_kr: trakKr,
-          redigeringar: redigeringar.map(([datum,v])=>({datum,anledning:v.anl})),
-          skickat_av: medarbetare.namn,
-          skickat_tidpunkt: new Date().toISOString(),
-          status: "inskickat",
-        };
-        const res = await upsertVerifierat(supabase, "loneunderlag", underlag);
-        if (!res.ok) throw new Error(res.fel);
-        setLönSkickat(true);
-        setLönSparar(false);
-      } catch(e) {
-        setLönFel("Kunde inte spara — kontrollera anslutningen.");
-        setLönSparar(false);
-      }
+      const res = await upsertVerifierat(supabase, "loneunderlag", {
+        medarbetare_id: medarbetare.id,
+        namn: medarbetare.namn,
+        maskin_id: medarbetare.maskin_id,
+        maskin: maskinNamn || '',
+        period: lönePeriod,
+        arbetsdagar,
+        jobbade_timmar: jobbadH,
+        total_km: totalKm,
+        traktamente_dagar: trakDagar,
+        franvaro: frånvaroRader.length ? Object.fromEntries(frånvaroRader) : null,
+        redigeringar: redigeringar.map(([datum,v])=>({datum,anledning:v.anl})),
+        skickat_av: medarbetare.namn,
+        skickat_tidpunkt: new Date().toISOString(),
+        status: "godkand_av_forare",
+      }, { onConflict: 'medarbetare_id,period' });
+      if (!res.ok) { setLönFel(res.fel); setLönSparar(false); return; }
+      setLönStatusPerPeriod(m => ({ ...m, [lönePeriod]: "godkand_av_forare" }));
+      setLönSparar(false);
     };
 
     // Build weekly breakdown from historik — filtered to current month
@@ -3519,10 +3525,6 @@ export default function Arbetsrapport() {
     // Sort dagar within each week
     Object.values(veckoData).forEach(w=>w.dagar.sort((a,b)=>a.datum.localeCompare(b.datum)));
     const sortedWeeks = Object.entries(veckoData).sort(([a],[b]) => Number(a)-Number(b));
-    const totalHelglönH = Object.values(veckoData).reduce((a,w)=>a+w.helglönH,0);
-    const totalHelglönDagar = Math.round(totalHelglönH/8);
-    const helglönKr = Math.round(totalHelglönH * timlon);
-    const totalLönKr = grundLönKr + övKr + helglönKr + löneErsKr + trakKr;
 
     // Build objekt/maskin aggregation — filtered to current month
     const maskinAgg: Record<string,{namn:string;maskin:string;dagar:number}> = {};
@@ -3550,7 +3552,7 @@ export default function Arbetsrapport() {
           <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
             <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:"8px 12px 8px 8px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4 }}>
               <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span>
-              <span style={{ color:"#0a84ff",fontSize:15,fontWeight:500 }}>Löneunderlag</span>
+              <span style={{ color:"#0a84ff",fontSize:15,fontWeight:500 }}>Sammanställning</span>
             </button>
             <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8 }}>
               <button onClick={stegLönBak} disabled={!kanLönBak} style={{ background:"none",border:"none",cursor:kanLönBak?"pointer":"default",padding:4,opacity:kanLönBak?1:0.3 }}>
@@ -3616,20 +3618,12 @@ export default function Arbetsrapport() {
               </div>
             </section>
 
-            {/* Körning */}
+            {/* Körning — rådata; ersättningen räknas i Fortnox */}
             <section style={{ marginBottom:32 }}>
               <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Körning</h2>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
-                <div style={{ gridColumn:"1/-1",background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div><p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Total körning</p><p style={{ ...TYPE.h2,margin:0,...TNUM }}>{totalKm} km</p></div>
-                  <div style={{ textAlign:"right" }}><p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Ersättning</p><p style={{ ...TYPE.h2,color:"#0a84ff",margin:0,...TNUM }}>{löneErsKr} kr</p></div>
-                </div>
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.03)" }}>
-                  <p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Ersättningsgrundande</p><p style={{ ...TYPE.bodyList,margin:0,...TNUM }}>{löneErsKm} km</p>
-                </div>
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.03)" }}>
-                  <p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Pris/km</p><p style={{ ...TYPE.bodyList,margin:0,...TNUM }}>{kmErs2} kr</p>
-                </div>
+              <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <p style={{ fontSize:12,color:"#8e8e93",margin:0 }}>Total körning</p>
+                <p style={{ ...TYPE.h2,margin:0,...TNUM }}>{totalKm} km</p>
               </div>
             </section>
 
@@ -3742,56 +3736,54 @@ export default function Arbetsrapport() {
 
         <main style={{ paddingTop:96,paddingBottom:192,padding:"96px 16px 192px",maxWidth:448,margin:"0 auto",width:"100%" }}>
 
-          {/* Summary Card */}
-          {/* Total kronor — föraren ser ungefärlig brutto direkt */}
-          <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:16 }}>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8 }}>
-              <p style={{ margin:0,fontSize:13,fontWeight:500,color:"#8e8e93" }}>Beräknad lön</p>
-              {lönSkickat ? (
-                <span style={{ display:"inline-flex",alignItems:"center",padding:"4px 10px",borderRadius:12,background:"rgba(48,209,88,0.1)",color:C.green,fontSize:13,fontWeight:600,border:"1px solid rgba(48,209,88,0.2)" }}>Skickat</span>
-              ) : (
-                <span style={{ display:"inline-flex",alignItems:"center",padding:"4px 10px",borderRadius:12,background:"rgba(255,149,0,0.1)",color:C.orange,fontSize:13,fontWeight:600,border:"1px solid rgba(255,149,0,0.2)" }}>Ej skickat</span>
-              )}
+          {/* Hjälte: Arbetad tid — samma mönster som Dag-vyns Total. Rådata,
+              inga kronor: Fortnox räknar lönen på det föraren godkänner här. */}
+          <section style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",marginBottom:16 }}>
+            {ärGodkänd && (
+              <div style={{ display:"flex",justifyContent:"center",paddingTop:14 }}>
+                <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:12,background:"rgba(48,209,88,0.1)",color:C.green,fontSize:13,fontWeight:600,border:"1px solid rgba(48,209,88,0.2)" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:14 }}>check</span>
+                  Godkänd
+                </span>
+              </div>
+            )}
+            <div style={{ textAlign:"center",padding:"18px 0 16px",borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
+              <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Arbetad tid</p>
+              <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>
+                {jobbadH.toLocaleString('sv-SE')} <span style={{ ...TYPE.h2,color:"#8e8e93",fontWeight:600 }}>tim</span>
+              </p>
+              <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
+                {arbetadeDagar} arbetsdagar{extraTidH > 0 ? ` · varav extra tid ${extraTidH.toLocaleString('sv-SE')} tim` : ''}
+              </p>
             </div>
-            <p style={{ margin:"0 0 4px",...TYPE.bigNum,color:"#fff",...TNUM }}>≈ {totalLönKr.toLocaleString('sv-SE')} kr</p>
-            <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>Riktvärde brutto · ej skatt eller avdrag</p>
+            {/* Stödrader — rådata som label ↔ värde */}
+            {([
+              ["Bekräftade dagar", `${bekräftadeDagar} av ${arbetsdagar}`, obekräftadeDagar > 0 ? C.orange : C.green],
+              ["Körning", `${totalKm.toLocaleString('sv-SE')} km`, "#fff"],
+              ["Traktamente", `${trakDagar} ${trakDagar === 1 ? 'dag' : 'dagar'}`, "#fff"],
+              ...frånvaroRader.map(([label, n]) => [label, `${n} ${n === 1 ? 'dag' : 'dagar'}`, "#fff"] as [string,string,string]),
+            ] as [string,string,string][]).map(([l,v,färg],i,arr)=>(
+              <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i < arr.length-1 ? "1px solid rgba(255,255,255,0.08)" : "none" }}>
+                <span style={{ fontSize:16,color:"#fff" }}>{l}</span>
+                <span style={{ ...TYPE.bodyList,color:färg,...TNUM }}>{v}</span>
+              </div>
+            ))}
           </section>
 
-          {/* Breakdown i kr */}
-          <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:16 }}>
-            <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-              {[
-                [`Lön (${normalH} tim × ${timlon} kr)`, `${grundLönKr.toLocaleString('sv-SE')} kr`],
-                ...(övH > 0 ? [[`Övertid (${övH} tim)`, `${övKr.toLocaleString('sv-SE')} kr`]] : []),
-                ...(totalHelglönH > 0 ? [[`Helglön (${totalHelglönDagar} dagar)`, `${helglönKr.toLocaleString('sv-SE')} kr`]] : []),
-                ...(löneErsKr > 0 ? [[`Körersättning (${löneErsKm} km)`, `${löneErsKr.toLocaleString('sv-SE')} kr`]] : []),
-                ...(trakKr > 0 ? [[`Traktamente (${trakDagar} dagar)`, `${trakKr.toLocaleString('sv-SE')} kr`]] : []),
-              ].map(([l,v])=>(
-                <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{l}</span>
-                  <span style={{ ...TYPE.body,color:"#fff",fontVariantNumeric:"tabular-nums" }}>{v}</span>
-                </div>
-              ))}
+          {/* Bekräftelse-gaten: obekräftade dagar blockerar godkännandet helt */}
+          {arbetsdagar > 0 && obekräftadeDagar > 0 && !ärGodkänd && (
+            <div style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,display:"flex",gap:10,alignItems:"flex-start" }}>
+              <span className="material-symbols-outlined" style={{ fontSize:20,color:C.orange,flexShrink:0 }}>warning</span>
+              <p style={{ margin:0,...TYPE.meta,color:C.orange,lineHeight:1.45 }}>
+                {obekräftadeDagar} {obekräftadeDagar === 1 ? 'dag är inte bekräftad' : 'dagar är inte bekräftade'} — alla dagar måste bekräftas innan du kan skicka. Gå till Kalender och bekräfta.
+              </p>
             </div>
-          </section>
-
-          {/* Statistik (timmar/dagar) */}
-          <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:32 }}>
-            <p style={{ margin:"0 0 14px",fontSize:13,fontWeight:500,color:"#8e8e93" }}>Statistik</p>
-            <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-              {[
-                ["Jobbat",`${jobbadH} tim`],
-                ["Mål",`${målH} tim`],
-                ...(extraTidH > 0 ? [["Extra tid",`${extraTidH} tim`]] : []),
-                ["Total körning",`${totalKm} km`],
-              ].map(([l,v])=>(
-                <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{l}</span>
-                  <span style={{ ...TYPE.body,color:"#fff" }}>{v}</span>
-                </div>
-              ))}
+          )}
+          {arbetsdagar === 0 && (
+            <div style={{ background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"14px 16px",marginBottom:16 }}>
+              <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inga arbetsdagar den här månaden — inget att skicka.</p>
             </div>
-          </section>
+          )}
 
           {/* Se detaljer-länk */}
           <div style={{ padding:"0 4px",marginBottom:32 }}>
@@ -3808,19 +3800,20 @@ export default function Arbetsrapport() {
             </div>
           )}
 
-          {/* Action */}
-          <div style={{ paddingTop:32 }}>
-            {!lönSkickat?(
-              <button onClick={()=>setLönBekräfta(true)} disabled={lönSparar} style={{ width:"100%",height:56,background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:600,cursor:"pointer",fontFamily:"inherit",opacity:lönSparar?0.6:1 }}>
-                {lönSparar?"Sparar...":"Skicka löneunderlag"}
-              </button>
-            ):(
+          {/* Action — gaten styr: obekräftade dagar (eller tom månad) = inaktiv knapp */}
+          <div style={{ paddingTop:24 }}>
+            {ärGodkänd ? (
               <button disabled style={{ width:"100%",height:56,background:C.green,color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:600,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
                 <span className="material-symbols-outlined" style={{ fontSize:20 }}>check</span>
-                Skickat
+                Godkänd
+              </button>
+            ) : (
+              <button onClick={()=>{ if(kanGodkänna && !lönSparar) setLönBekräfta(true); }} disabled={!kanGodkänna || lönSparar}
+                style={{ width:"100%",height:56,background:kanGodkänna?"#0a84ff":"#2c2c2e",color:kanGodkänna?"#fff":"#636366",border:"none",borderRadius:12,fontSize:17,fontWeight:600,cursor:kanGodkänna?"pointer":"default",fontFamily:"inherit",opacity:lönSparar?0.6:1 }}>
+                {lönSparar?"Sparar...":"Godkänn och skicka"}
               </button>
             )}
-            <p style={{ textAlign:"center",fontSize:13,color:"#8e8e93",margin:"12px 0 0" }}>Skickas till din chef</p>
+            <p style={{ textAlign:"center",fontSize:13,color:"#8e8e93",margin:"12px 0 0" }}>Fortnox räknar lönen — appen skickar bara rådatan</p>
           </div>
         </main>
         {bottomNav}
@@ -3829,16 +3822,16 @@ export default function Arbetsrapport() {
         {lönBekräfta && (
           <div onClick={()=>setLönBekräfta(false)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:24,animation:"dimIn 0.2s ease" }}>
             <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxWidth:360,background:"#1c1c1e",borderRadius:12,padding:"24px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:"0 0 8px",...TYPE.h2,color:"#fff",textAlign:"center" }}>Skicka löneunderlag?</p>
+              <p style={{ margin:"0 0 8px",...TYPE.h2,color:"#fff",textAlign:"center" }}>Godkänn {lönMånadsLabel}?</p>
               <p style={{ margin:"0 0 20px",fontSize:13,color:"#8e8e93",textAlign:"center",lineHeight:1.4 }}>
-                Underlaget för {månadsNamn()} skickas till din chef. Det går inte att ångra.
+                Du intygar att månadens tider och dagar stämmer. Sammanställningen låses och lämnas till lönehanteringen. Det går inte att ångra.
               </p>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
                 <button onClick={()=>setLönBekräfta(false)} style={{ height:48,background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                   Avbryt
                 </button>
-                <button onClick={async ()=>{ setLönBekräfta(false); await skickaLön(); }} disabled={lönSparar} style={{ height:48,background:C.green,color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
-                  Skicka
+                <button onClick={async ()=>{ setLönBekräfta(false); await godkännMånad(); }} disabled={lönSparar} style={{ height:48,background:C.green,color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                  Godkänn
                 </button>
               </div>
             </div>
