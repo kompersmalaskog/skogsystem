@@ -80,6 +80,7 @@ type SkotareIdagData = {
   volym:       number
   lass:        number
   snittSträcka: number | null    // null om lass = 0
+  g15h:        number            // SUM(processing_sek + terrain_sek) / 3600 från fakt_tid
   hourBuckets: Record<number, HourBucket>  // timme (0–23) → bucket
 }
 
@@ -145,11 +146,25 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
 
   const totalLass = allRows.length
 
+  // 4. G15h från fakt_tid — separat hämtning, aldrig joinad med fakt_lass
+  //    Summera alla operatörsrader för samma datum + maskin.
+  const { data: tidRows } = await supabase
+    .from('fakt_tid')
+    .select('processing_sek, terrain_sek')
+    .eq('maskin_id', maskinId)
+    .eq('datum', senasteDatum)
+
+  const g15sek = (tidRows || []).reduce(
+    (sum, r) => sum + (r.processing_sek || 0) + (r.terrain_sek || 0), 0,
+  )
+  const g15h = g15sek / 3600
+
   return {
     freshness: { senasteDatum, senasteLossningsTid, daysDiff },
     volym:       totalVolym,
     lass:        totalLass,
     snittSträcka: totalLass > 0 ? totalDist / totalLass : null,
+    g15h,
     hourBuckets,
   }
 }
@@ -223,9 +238,11 @@ function FreshnessRow({
 }
 
 // ── SiffraCard ────────────────────────────────────────────────
-// Tre siffror: Utkört (m³sub) · Lass (st) · Snittsträcka (m).
+// Fyra siffror: Utkört (m³sub) · Lass (st) · Snittsträcka (m) · m³/G15h.
 function SiffraCard({ data, loading }: { data: SkotareIdagData | null; loading: boolean }) {
   const datumLabel = loading || !data ? '—' : fmtDatumSv(data.freshness.senasteDatum)
+
+  const m3g15h = data && data.g15h > 0 ? fmtSv(data.volym / data.g15h, 1) : '—'
 
   const items = [
     {
@@ -243,6 +260,11 @@ function SiffraCard({ data, loading }: { data: SkotareIdagData | null; loading: 
       display: data && data.snittSträcka !== null ? fmtSv(data.snittSträcka, 0) : '—',
       unit: 'm/lass',
     },
+    {
+      label: 'm³/G15h',
+      display: loading ? '—' : m3g15h,
+      unit: 'm³/G15h',
+    },
   ]
 
   return (
@@ -250,19 +272,19 @@ function SiffraCard({ data, loading }: { data: SkotareIdagData | null; loading: 
       <div style={{ fontSize: 12, color: C.muted, marginBottom: 14, letterSpacing: -0.1, fontWeight: 500 }}>
         {datumLabel}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
         {items.map((item, i) => (
           <div
             key={item.label}
             style={{
-              paddingRight: i < 2 ? 12 : 0,
-              paddingLeft:  i > 0 ? 12 : 0,
-              borderRight: i < 2 ? `0.5px solid ${C.divider}` : 'none',
+              paddingRight: i < 3 ? 8 : 0,
+              paddingLeft:  i > 0 ? 8 : 0,
+              borderRight: i < 3 ? `0.5px solid ${C.divider}` : 'none',
             }}
           >
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 5 }}>{item.label}</div>
             <div style={{
-              fontSize: 26, fontWeight: 600, letterSpacing: -0.7,
+              fontSize: 22, fontWeight: 600, letterSpacing: -0.5,
               color: C.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
             }}>
               {loading ? '—' : item.display}
