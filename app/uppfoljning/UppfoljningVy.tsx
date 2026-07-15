@@ -53,6 +53,7 @@ export interface UppfoljningData {
   skordareStart?: string | null;
   skordareSlut?: string | null;
   skordareLastDate?: string | null;
+  skotatArManuell?: boolean;
   skotareModell?: string | null;
   skotareStart?: string | null;
   skotareSlut?: string | null;
@@ -272,7 +273,7 @@ function Maskinkort({ data }: { data: UppfoljningData }) {
             statusKort={data.skotareSlut ? 'Klar' : stAct ? 'Aktiv idag' : data.skotareStart ? `Start ${fmtISO(data.skotareStart)}` : 'Ej startad'}
             primary={Math.round(data.skotat)}
             primaryUnit="m³"
-            primaryLabel={kvar > 0 ? `utkört · ${Math.round(kvar)} kvar` : 'utkört'}
+            primaryLabel={`${data.skotatArManuell ? 'utkört (manuellt angivet)' : 'utkört'}${kvar > 0 ? ` · ${Math.round(kvar)} kvar` : ''}`}
             snitt={stSnitt}
             senaste={daysAgo(data.skotareLastDate)}
           />

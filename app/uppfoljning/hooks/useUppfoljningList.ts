@@ -250,6 +250,12 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             const l = lassAgg.get(e.objekt_id);
             if (l) { stVol += l.vol; stCount += l.count; }
           }
+          // Manuellt angiven skotad volym (dim_objekt.skotad_volym_manuell)
+          // gäller FÖRE lass-summan — skotaren registrerar inte alltid lass.
+          // Källan följer med till UI:t så det alltid syns att den är manuell.
+          const manuellVolym = Math.max(0, ...entries.map((e: any) => Number(e.skotad_volym_manuell) || 0));
+          const skotatArManuell = manuellVolym > 0;
+
           if (stCount === 0 && skotareEntry) {
             const seenFb = new Set<string>();
             for (const e of skordareEntries) {
@@ -317,7 +323,8 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             skotareSlut: stSlut,
             skotareObjektId: skotareEntry?.objekt_id || null,
             skotareModellMaskinId: stMaskinId || null,
-            volymSkotare: stVol,
+            volymSkotare: skotatArManuell ? manuellVolym : stVol,
+            skotatArManuell,
             antalLass: stCount,
             dieselTotal: skDiesel + stDiesel,
             dagar,

@@ -10,16 +10,20 @@ import { useMatchning } from './hooks/useMatchning'
 const STANDARD_BOLAG = ['Vida', 'ATA', 'Privat', 'JGA', 'Rönås', 'Södra']
 const HUVUDTYPER = ['Slutavverkning', 'Gallring']
 
-const EGENSKAPER_SKOGSBRUK = [
+// Egenskaper per maskinslag — sheeten visar bara det som är relevant för
+// objektet (styrt av FAKTISK data via useMatchning, aldrig dim_objekt.maskin_id
+// som är opålitlig på delade objekt).
+// OBS Klippning hör till SKOTAREN — energiaggregatet sitter på skotaren.
+const EGENSKAPER_SKORDARE = [
   { key: 'grot_anpassad', label: 'GROT-anpassad' },
-  { key: 'klippning', label: 'Klippning' },
-  { key: 'risskotning', label: 'Risskotning' },
-  { key: 'stubbbehandling', label: 'Stubbbehandling' }
+  { key: 'stubbbehandling', label: 'Stubbbehandling' },
 ]
 
-const EGENSKAPER_LOGISTIK = [
+const EGENSKAPER_SKOTARE = [
+  { key: 'risskotning', label: 'Risskotning' },
   { key: 'egen_skotning', label: 'Egen skotning' },
-  { key: 'extra_vagn', label: 'Extra vagn' }
+  { key: 'extra_vagn', label: 'Extra vagn' },
+  { key: 'klippning', label: 'Klippning' },
 ]
 
 // === SUPABASE-KOPPLING ===
@@ -100,6 +104,12 @@ async function sparaObjektTillSupabase(obj) {
       prisscenario_id: obj.prisscenario_id ?? null,
       skordning_avslutad: obj.skordning_avslutad || null,
       skotning_avslutad: obj.skotning_avslutad || null,
+      skotad_volym_manuell: obj.skotad_volym_manuell ?? null,
+      timpeng_undantag_timmar_skordare: obj.timpeng_undantag_timmar_skordare ?? null,
+      timpeng_undantag_timmar_skotare: obj.timpeng_undantag_timmar_skotare ?? null,
+      timpeng_undantag_volym: obj.timpeng_undantag_volym ?? null,
+      timpeng_undantag_dra_skordare: obj.timpeng_undantag_dra_skordare !== false,
+      timpeng_undantag_dra_skotare: obj.timpeng_undantag_dra_skotare !== false,
       ovrigt_info: ovrigtInfo,
     })
     .eq('objekt_id', obj.objekt_id)
@@ -201,13 +211,15 @@ function getWarnings(obj) {
   if (!obj.skogsagare) w.push({ key: 'skogsagare', text: 'Saknar markägare', target: 'skogsagare-section' })
   if (!obj.bolag) w.push({ key: 'bolag', text: 'Saknar bolag', target: 'bolag-section' })
 
-  // Steg J: Maskinen har EndDate i fil men användaren har inte markerat avslutad
+  // Steg J: Maskinen har EndDate i fil men användaren har inte markerat avslutad.
+  // Avslutsfälten bor numera i respektive maskinsektion — hoppa till rätt.
   const av = avslutadFieldFor(obj.maskin_typ)
+  const avslutTarget = av?.field === 'skordning_avslutad' ? 'avslut-skordare-section' : 'avslut-skotare-section'
   if (av && obj.end_date && !obj[av.field]) {
     w.push({
       key: 'reported_end',
       text: `Maskinen rapporterar ${av.label} avslutad — ej markerad`,
-      target: 'avslut-section'
+      target: avslutTarget
     })
   }
 
@@ -218,7 +230,7 @@ function getWarnings(obj) {
       w.push({
         key: 'maybe_done',
         text: `${capFirst(av.label)} verkar klar (startade för ${days} dagar sedan)`,
-        target: 'avslut-section'
+        target: avslutTarget
       })
     }
   }
@@ -1120,8 +1132,43 @@ function IosGroup({ title, children }) {
   )
 }
 
+// Talfält med svensk decimalkomma. Rå text lokalt (så "5," går att skriva),
+// parsat värde (eller null) propageras vid varje ändring.
+function NumField({ label, value, onChange, placeholder, suffix }: any) {
+  const [raw, setRaw] = useState(value == null ? '' : String(value).replace('.', ','))
+  const [focused, setFocused] = useState(false)
+  useEffect(() => {
+    // Synka utifrån bara när fältet inte är fokuserat (annars förstörs pågående skrivning)
+    if (!focused) setRaw(value == null ? '' : String(value).replace('.', ','))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+  const handle = (t: string) => {
+    setRaw(t)
+    const parsed = parseFloat(t.replace(',', '.'))
+    onChange(Number.isFinite(parsed) ? parsed : null)
+  }
+  return (
+    <div style={{ ...styles.directRowEmbedded, background: focused ? 'rgba(173,198,255,0.06)' : 'transparent' }}>
+      <span style={styles.directRowLabel}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flex: 1, justifyContent: 'flex-end' }}>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={raw}
+          onChange={(e) => handle(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder || ''}
+          style={{ ...styles.directRowInput, flex: 'none', width: 110 } as any}
+        />
+        {suffix && <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{suffix}</span>}
+      </div>
+    </div>
+  )
+}
+
 // Redigerings-modal
-function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, scenarier, onOpenScenarioPicker }) {
+function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, scenarier, onOpenScenarioPicker, info }: any) {
   const isGallring = valtObjekt.huvudtyp === 'Gallring'
   const atgarder = isGallring ? atgarderGallring : atgarderSlut
   const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
@@ -1164,6 +1211,44 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
     return null
   })()
 
+  // Vilka sektioner som visas styrs av FAKTISK data (useMatchning) — aldrig
+  // dim_objekt.maskin_id, som på delade objekt bara pekar på senast skrivande
+  // fil. Noll data -> visa båda sektionerna (gissa inte).
+  const harSkordarData = (info?.skordatM3 ?? 0) > 0
+  const harSkotarData = (info?.skotatM3 ?? 0) > 0 || (Number(valtObjekt.skotad_volym_manuell) || 0) > 0
+  const ingenData = !harSkordarData && !harSkotarData
+  const visaSkordare = harSkordarData || ingenData
+  const visaSkotare = harSkotarData || ingenData
+
+  // end_date och maskin_id skrivs av SAMMA fil vid varje import — end_date
+  // tillhör alltså maskinen i maskin_id. Rutan renderas bara i den sektion
+  // vars maskinslag matchar, aldrig i fel sektion.
+  const radMaskinTyp = (valtObjekt.maskin_typ || '').toLowerCase()
+  const maskinAvslutRuta = (field: string, label: string) => {
+    if (!valtObjekt.end_date) return null
+    const display = formatEndDateDisplay(valtObjekt.end_date)
+    const ymd = formatYMD(valtObjekt.end_date)
+    const alreadySet = valtObjekt[field]
+    return (
+      <div style={styles.machineEndInfo}>
+        <div style={styles.machineEndLabel}>Maskinen rapporterar avslut</div>
+        <div style={styles.machineEndValue}>{display}</div>
+        {!alreadySet && ymd && (
+          <button
+            onClick={() => setValtObjekt({ ...valtObjekt, [field]: ymd })}
+            className="tap-press"
+            style={styles.machineEndFixBtn}
+          >
+            Sätt {label} avslutad till {ymd}
+          </button>
+        )}
+        {alreadySet && (
+          <div style={styles.machineEndDone}>{capFirst(label)} redan markerad avslutad ({valtObjekt[field]})</div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <>
       <div style={styles.progressHeader}>
@@ -1174,6 +1259,25 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
       </div>
 
       <WarningsList warnings={warnings} onJump={scrollAndFlash} />
+
+      {/* Vilka maskinslag objektet har — samma datakälla som styr sektionerna */}
+      <div style={{ display: 'flex', gap: 8, padding: '0 4px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {harSkordarData && (
+          <span style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 999, background: 'rgba(168,213,130,0.12)', color: '#a8d582' }}>
+            🌲 Skördare · {Math.round(info.skordatM3).toLocaleString('sv-SE')} m³
+          </span>
+        )}
+        {harSkotarData && (
+          <span style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 999, background: 'rgba(240,178,76,0.12)', color: '#f0b24c' }}>
+            🚜 Skotare · {Math.round(Number(valtObjekt.skotad_volym_manuell) || info?.skotatM3 || 0).toLocaleString('sv-SE')} m³
+          </span>
+        )}
+        {ingenData && (
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+            Ingen maskindata ännu — båda sektionerna visas
+          </span>
+        )}
+      </div>
 
       <IosGroup title="Identitet">
         <div id="vo_nummer-section">
@@ -1231,104 +1335,170 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
         )}
       </IosGroup>
 
-      <IosGroup title="Egenskaper">
-        <div style={{ padding: '14px 16px' }}>
-          <div style={{ ...styles.subsectionLabel, marginTop: 0 }}>Skogsbruk</div>
-          <div style={styles.switchList}>
-            {EGENSKAPER_SKOGSBRUK.map(e => (
-              <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
-            ))}
-          </div>
-          <div style={styles.subsectionLabel}>Logistik</div>
-          <div style={styles.switchList}>
-            {EGENSKAPER_LOGISTIK.map(e => (
-              <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
-            ))}
+      <IosGroup title="Pris & ersättning">
+        {/* Ackord/Timpeng överst — objektets faktureringsläge ska synas
+            direkt. dim_objekt.timpeng är ENDA källan för flaggan. */}
+        <div id="timpeng-section" style={{ padding: '14px 16px 4px' }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { varde: false, label: 'Ackord' },
+              { varde: true, label: 'Timpeng' },
+            ].map(alt => {
+              const vald = (valtObjekt.timpeng === true) === alt.varde
+              return (
+                <button
+                  key={alt.label}
+                  onClick={() => setValtObjekt({ ...valtObjekt, timpeng: alt.varde })}
+                  className="tap-press"
+                  style={{
+                    flex: 1, minHeight: 48, borderRadius: 12, fontSize: 15, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                    border: `1px solid ${vald ? 'rgba(173,198,255,0.45)' : 'rgba(255,255,255,0.1)'}`,
+                    background: vald ? 'rgba(173,198,255,0.14)' : 'transparent',
+                    color: vald ? '#adc6ff' : 'rgba(255,255,255,0.55)',
+                  }}
+                >
+                  {vald ? '●' : '○'} {alt.label}
+                </button>
+              )
+            })}
           </div>
         </div>
-      </IosGroup>
-
-      <IosGroup title="Pris & ersättning">
-        <div style={{ padding: '14px 16px 4px' }}>
+        {valtObjekt.timpeng !== true && (
+          <div style={{ padding: '4px 16px 10px' }}>
+            <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Timpeng-undantag</div>
+            <NumField
+              label="Skördare"
+              value={valtObjekt.timpeng_undantag_timmar_skordare}
+              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_timmar_skordare: v })}
+              placeholder="t.ex. 5,5"
+              suffix="h timpeng"
+            />
+            <NumField
+              label="Skotare"
+              value={valtObjekt.timpeng_undantag_timmar_skotare}
+              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_timmar_skotare: v })}
+              placeholder="t.ex. 3"
+              suffix="h timpeng"
+            />
+            <NumField
+              label="Volym"
+              value={valtObjekt.timpeng_undantag_volym}
+              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_volym: v })}
+              placeholder="0"
+              suffix="m³"
+            />
+            {(Number(valtObjekt.timpeng_undantag_volym) || 0) > 0 && (
+              <div style={styles.switchList as any}>
+                <EgenskapSwitch
+                  label="Dra volymen från skördarackordet"
+                  active={valtObjekt.timpeng_undantag_dra_skordare !== false}
+                  onClick={() => setValtObjekt({ ...valtObjekt, timpeng_undantag_dra_skordare: !(valtObjekt.timpeng_undantag_dra_skordare !== false) })}
+                  orange={false}
+                />
+                <EgenskapSwitch
+                  label="Dra volymen från skotarackordet"
+                  active={valtObjekt.timpeng_undantag_dra_skotare !== false}
+                  onClick={() => setValtObjekt({ ...valtObjekt, timpeng_undantag_dra_skotare: !(valtObjekt.timpeng_undantag_dra_skotare !== false) })}
+                  orange={false}
+                />
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, padding: '6px 2px 0' }}>
+              Del av objektet körd på timpeng. Tomt fält = ingen timpeng-del för den
+              maskinen (rent ackord). Timmarna faktureras respektive maskins timpris;
+              volymen dras från ackordet enligt valen — annars dubbelbetald. Uträkningen
+              syns i Ekonomi → Per objekt → &quot;Så räknades priset&quot;.
+            </div>
+          </div>
+        )}
+        <div style={{ padding: '4px 16px 14px' }}>
           <PrisscenarioBox
-            valtScenario={scenarier.find(s => s.id === valtObjekt.prisscenario_id) || null}
+            valtScenario={scenarier.find((s: any) => s.id === valtObjekt.prisscenario_id) || null}
             onOpen={onOpenScenarioPicker}
           />
         </div>
-        <div style={{ padding: '4px 16px 14px' }}>
-          <div style={styles.switchList}>
-            <EgenskapSwitch
-              label="Räkna i timpeng-statistik"
-              active={valtObjekt.timpeng === true}
-              onClick={() => setValtObjekt({...valtObjekt, timpeng: !valtObjekt.timpeng})}
-            />
-          </div>
-        </div>
-        <div style={{ padding: '4px 16px 14px' }}>
-          <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Extern skotning</div>
-          <div style={styles.switchList}>
-            <EgenskapSwitch label="Extern skotare (inlejd)" active={valtObjekt._extern_skotning === true} onClick={() => setValtObjekt({...valtObjekt, _extern_skotning: !valtObjekt._extern_skotning})} />
-          </div>
-          {valtObjekt._extern_skotning && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-              <LockedInput label="Företag / person" value={valtObjekt._extern_foretag || ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_foretag: v})} placeholder="Namn på extern skotare …" />
-              <SimpleChipSelect label="Pristyp" value={valtObjekt._extern_pris_typ || 'm3'} options={['m3', 'timme']} onChange={(v) => setValtObjekt({...valtObjekt, _extern_pris_typ: v})} />
-              <LockedInput label={`Pris per ${valtObjekt._extern_pris_typ === 'timme' ? 'timme' : 'm³'} (kr)`} value={valtObjekt._extern_pris ? String(valtObjekt._extern_pris) : ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_pris: parseFloat(v) || 0})} placeholder="0" />
-              <LockedInput label={`Antal ${valtObjekt._extern_pris_typ === 'timme' ? 'timmar' : 'm³'}`} value={valtObjekt._extern_antal ? String(valtObjekt._extern_antal) : ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_antal: parseFloat(v) || 0})} placeholder="0" />
+      </IosGroup>
+
+      {visaSkordare && (
+        <IosGroup title="🌲 Skördare">
+          <div style={{ padding: '14px 16px' }}>
+            <div style={styles.switchList}>
+              {EGENSKAPER_SKORDARE.map(e => (
+                <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
+              ))}
             </div>
-          )}
-        </div>
-      </IosGroup>
-
-      <IosGroup title="Avslut">
-        <div id="avslut-section" style={{ padding: '12px 16px 14px' }}>
-          <div style={styles.switchList}>
-            <DateToggle
-              label="Skördning avslutad"
-              date={valtObjekt.skordning_avslutad || null}
-              onToggle={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
-              onDateChange={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
-            />
-            <DateToggle
-              label="Skotning avslutad"
-              date={valtObjekt.skotning_avslutad || null}
-              onToggle={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
-              onDateChange={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
-            />
-            {skotningWarning && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{skotningWarning}</div>}
           </div>
+          <div id="avslut-skordare-section" style={{ padding: '4px 16px 14px' }}>
+            <div style={styles.switchList}>
+              <DateToggle
+                label="Skördning avslutad"
+                date={valtObjekt.skordning_avslutad || null}
+                onToggle={(val: any) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
+                onDateChange={(val: any) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
+              />
+            </div>
+            {radMaskinTyp === 'harvester' && maskinAvslutRuta('skordning_avslutad', 'skördning')}
+          </div>
+        </IosGroup>
+      )}
 
-          {/* Steg H: Info-rad om maskinen har rapporterat EndDate i filen */}
-          {valtObjekt.end_date && (() => {
-            const av = avslutadFieldFor(valtObjekt.maskin_typ)
-            const display = formatEndDateDisplay(valtObjekt.end_date)
-            const ymd = formatYMD(valtObjekt.end_date)
-            const alreadySet = av && valtObjekt[av.field]
-            return (
-              <div style={styles.machineEndInfo}>
-                <div style={styles.machineEndLabel}>Maskinen rapporterar avslut</div>
-                <div style={styles.machineEndValue}>{display}</div>
-                {/* Steg I: Snabbfix — bara om vi vet maskintyp och fältet inte redan satt */}
-                {av && !alreadySet && ymd && (
-                  <button
-                    onClick={() => setValtObjekt({ ...valtObjekt, [av.field]: ymd })}
-                    className="tap-press"
-                    style={styles.machineEndFixBtn}
-                  >
-                    Sätt {av.label} avslutad till {ymd}
-                  </button>
-                )}
-                {av && alreadySet && (
-                  <div style={styles.machineEndDone}>{capFirst(av.label)} redan markerad avslutad ({valtObjekt[av.field]})</div>
-                )}
-                {!av && (
-                  <div style={styles.machineEndHint}>Maskintyp okänd — sätt avslutad-datum manuellt ovan om det stämmer.</div>
-                )}
+      {visaSkotare && (
+        <IosGroup title="🚜 Skotare">
+          {/* Skotad volym — lass från maskinen, eller manuellt angiven verklig
+              volym. Källan märks ALLTID ut; falska lass skrivs aldrig. */}
+          <div style={{ padding: '14px 16px 4px' }}>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 8 }}>
+              {(Number(valtObjekt.skotad_volym_manuell) || 0) > 0 ? (
+                <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{Number(valtObjekt.skotad_volym_manuell).toLocaleString('sv-SE')} m³</span>{' '}
+                  <span style={{ color: '#FF9F0A', fontWeight: 600 }}>(manuellt angivet)</span>
+                  <span style={{ color: 'rgba(255,255,255,0.35)' }}> · lass: {(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span></>
+              ) : (
+                <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span> <span style={{ color: 'rgba(255,255,255,0.35)' }}>(lass)</span></>
+              )}
+            </div>
+            <NumField
+              label="Verklig skotad volym"
+              value={valtObjekt.skotad_volym_manuell}
+              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, skotad_volym_manuell: v })}
+              placeholder="tomt = lass gäller"
+              suffix="m³"
+            />
+          </div>
+          <div style={{ padding: '4px 16px' }}>
+            <div style={styles.switchList}>
+              {EGENSKAPER_SKOTARE.map(e => (
+                <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
+              ))}
+            </div>
+          </div>
+          <div style={{ padding: '4px 16px 4px' }}>
+            <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Extern skotning</div>
+            <div style={styles.switchList}>
+              <EgenskapSwitch label="Extern skotare (inlejd)" active={valtObjekt._extern_skotning === true} onClick={() => setValtObjekt({...valtObjekt, _extern_skotning: !valtObjekt._extern_skotning})} />
+            </div>
+            {valtObjekt._extern_skotning && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                <LockedInput label="Företag / person" value={valtObjekt._extern_foretag || ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_foretag: v})} placeholder="Namn på extern skotare …" />
+                <SimpleChipSelect label="Pristyp" value={valtObjekt._extern_pris_typ || 'm3'} options={['m3', 'timme']} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_pris_typ: v})} />
+                <LockedInput label={`Pris per ${valtObjekt._extern_pris_typ === 'timme' ? 'timme' : 'm³'} (kr)`} value={valtObjekt._extern_pris ? String(valtObjekt._extern_pris) : ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_pris: parseFloat(v) || 0})} placeholder="0" />
+                <LockedInput label={`Antal ${valtObjekt._extern_pris_typ === 'timme' ? 'timmar' : 'm³'}`} value={valtObjekt._extern_antal ? String(valtObjekt._extern_antal) : ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_antal: parseFloat(v) || 0})} placeholder="0" />
               </div>
-            )
-          })()}
-        </div>
-      </IosGroup>
+            )}
+          </div>
+          <div id="avslut-skotare-section" style={{ padding: '4px 16px 14px' }}>
+            <div style={styles.switchList}>
+              <DateToggle
+                label="Skotning avslutad"
+                date={valtObjekt.skotning_avslutad || null}
+                onToggle={(val: any) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
+                onDateChange={(val: any) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
+              />
+              {skotningWarning && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{skotningWarning}</div>}
+            </div>
+            {radMaskinTyp === 'forwarder' && maskinAvslutRuta('skotning_avslutad', 'skotning')}
+          </div>
+        </IosGroup>
+      )}
 
       <IosGroup title="Statistik">
         <div style={{ padding: '12px 16px' }}>
@@ -1408,7 +1578,7 @@ export default function ObjektRedigering() {
   const [inkopare, setInkopare] = useState<string[]>([])
   const [atgarderSlut, setAtgarderSlut] = useState(['LRK', 'Rp', 'Au', 'Special', 'VF/Bark'])
   const [atgarderGallring, setAtgarderGallring] = useState(['Första gallring', 'Andra gallring'])
-  const [valtObjekt, setValtObjekt] = useState(null)
+  const [valtObjekt, setValtObjekt] = useState<any>(null)
   const [originalObjekt, setOriginalObjekt] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -1565,7 +1735,7 @@ export default function ObjektRedigering() {
   }
 
   if (visaAllaObjekt) {
-    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} scenarier={scenarier} onBack={() => setVisaAllaObjekt(false)} />
+    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} scenarier={scenarier} kortInfo={kortInfo} onBack={() => setVisaAllaObjekt(false)} />
   }
 
   return (
@@ -1671,7 +1841,7 @@ export default function ObjektRedigering() {
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
         {valtObjekt && (
-          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} />
+          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} info={kortInfo[valtObjekt.objekt_id]} />
         )}
       </EditSheet>
       {valtObjekt && (
@@ -1702,13 +1872,13 @@ export default function ObjektRedigering() {
 }
 
 // VY 2 - ALLA OBJEKT
-function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, scenarier, onBack }) {
+function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, scenarier, kortInfo, onBack }: any) {
   const [search, setSearch] = useState('')
   const [filterBolag, setFilterBolag] = useState(null)
   const [filterHuvudtyp, setFilterHuvudtyp] = useState(null)
   const [filterInkopare, setFilterInkopare] = useState(null)
   const [showSearch, setShowSearch] = useState(false)
-  const [valtObjekt, setValtObjekt] = useState(null)
+  const [valtObjekt, setValtObjekt] = useState<any>(null)
   const [originalObjekt, setOriginalObjekt] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -1934,7 +2104,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
         {valtObjekt && (
-          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} />
+          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} info={kortInfo[valtObjekt.objekt_id]} />
         )}
       </EditSheet>
       {valtObjekt && (
