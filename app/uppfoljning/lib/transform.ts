@@ -24,6 +24,7 @@ export interface UppfoljningObjekt {
   skotareObjektId: string | null;
   skotareModellMaskinId: string | null;
   volymSkotare: number;
+  skotatArManuell: boolean;
   antalLass: number;
   dieselTotal: number;
   dagar: number | null;
@@ -413,6 +414,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     skordareStart: obj.skordareStart,
     skordareSlut: obj.skordareSlut,
     skordareLastDate: obj.skordareLastDate,
+    skotatArManuell: obj.skotatArManuell,
     skotareModell: obj.skotareModell,
     skotareStart: obj.skotareStart,
     skotareSlut: obj.skotareSlut,
@@ -485,6 +487,7 @@ export function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
     maskiner: [],
     typ: obj.typ, areal: obj.areal, agare: obj.agare, status: obj.status,
     skordareModell: obj.skordareModell, skordareStart: obj.skordareStart, skordareSlut: obj.skordareSlut, skordareLastDate: obj.skordareLastDate,
+    skotatArManuell: obj.skotatArManuell,
     skotareModell: obj.skotareModell, skotareStart: obj.skotareStart, skotareSlut: obj.skotareSlut, skotareLastDate: obj.skotareLastDate,
     operatorSkordare: null, operatorSkotare: null, prodSkordarePerDag: [],
     skordareG15h: 0, skordareG0: 0, skordareTomgang: 0, skordareKortaStopp: 0, skordareRast: 0, skordareAvbrott: 0,

@@ -116,3 +116,28 @@ export function brytpunktM3PerG15h(timpris: number, effektivtPrisPerM3: number):
   if (effektivtPrisPerM3 <= 0) return null;
   return timpris / effektivtPrisPerM3;
 }
+
+// Timpeng-undantag på ackordobjekt (dim_objekt.timpeng_undantag_*):
+// en del av objektet körs på timpeng (t.ex. 5,5 h specialarbete).
+// Båda värdena anges — exakt, ingen gissning:
+//   timmar × timpris  -> faktureras timpeng
+//   volym             -> dras bort från ackordsvolymen (annars dubbelbetald)
+// Appliceras på SKÖRDARDELEN (specialarbetet är skördararbete; timpriset
+// är skördarens). Volymen klampas till [0, ackordVolym].
+export function tillampaTimpengUndantag(
+  ackordVolym: number,
+  undantagTimmar: number | null | undefined,
+  undantagVolym: number | null | undefined,
+  timpris: number | null | undefined,
+): { volymEfterUndantag: number; undantagKr: number; aktivt: boolean } {
+  const timmar = Number(undantagTimmar) || 0;
+  const volym = Number(undantagVolym) || 0;
+  if (timmar <= 0 && volym <= 0) {
+    return { volymEfterUndantag: ackordVolym, undantagKr: 0, aktivt: false };
+  }
+  return {
+    volymEfterUndantag: Math.max(0, ackordVolym - Math.min(volym, ackordVolym)),
+    undantagKr: timmar * (Number(timpris) || 0),
+    aktivt: true,
+  };
+}

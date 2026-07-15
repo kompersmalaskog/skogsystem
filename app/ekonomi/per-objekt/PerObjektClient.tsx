@@ -7,7 +7,7 @@ import EkonomiBottomNav from '../EkonomiBottomNav';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
-  timpengForTidRows, ANTAGEN_MEDELSTAM,
+  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag,
 } from '@/lib/ekonomi/acord';
 
 type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
@@ -38,6 +38,8 @@ type ObjektRad = {
   sortiment_kr_per_m3: number;
   trakt_kr_per_m3: number;
   trakt_bracket: string;
+  und_timmar: number;
+  und_volym: number;
   timmar: number;
   timpeng: number;
   acord: number;
@@ -125,7 +127,7 @@ export default function PerObjektClient() {
       const [
         tidRowsRaa, prodRowsRaa, lassRowsRaa, sortRowsRaa,
         sortGruppRes, objRes, maskinRes, timprisRes,
-        acordRes, avstandRes, sortTillaggRes, traktRes, flaggaRes,
+        acordRes, avstandRes, sortTillaggRes, traktRes,
         exkluderade,
       ] = await Promise.all([
         fetchAllRows((from, to) =>
@@ -153,14 +155,13 @@ export default function PerObjektClient() {
             .range(from, to)
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
-        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, atgard'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, atgard, timpeng, timpeng_undantag_timmar, timpeng_undantag_volym'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
         supabase.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till').not('grundavstand_m', 'is', null),
         supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
         supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
-        supabase.from('objekt_ekonomi').select('objekt_id, rakna_som_timpeng'),
         hamtaExkluderadeObjektId(),
       ]);
 
@@ -182,8 +183,6 @@ export default function PerObjektClient() {
       const sortConf: SortConfig | null = (sortTillaggRes.data && sortTillaggRes.data[0])
         ? { grundantal: Number(sortTillaggRes.data[0].grundantal), kr_per_extra_sortiment: Number(sortTillaggRes.data[0].kr_per_extra_sortiment) }
         : null;
-      const flaggaMap: Record<string, boolean> = {};
-      for (const f of (flaggaRes.data || [])) flaggaMap[f.objekt_id] = !!f.rakna_som_timpeng;
       const sortGruppMap: Record<string, string | null> = {};
       for (const g of (sortGruppRes.data || [])) sortGruppMap[g.sortiment_id] = g.grupp;
 
@@ -288,7 +287,13 @@ export default function PerObjektClient() {
         const a = lookupAcordPris(medelstam, acordList);
         const grundpris = a?.pris_skordare || 0;
         const extraKr = (objSortTillagg[objekt_id]?.kr_per_m3 || 0) + (objTrakt[objekt_id]?.kr_per_m3 || 0);
-        const acord = h.vol * (grundpris + extraKr);
+        // Timpeng-undantag (dim_objekt): del av objektet körd på timpeng.
+        // Appliceras på skördardelen — volymen dras från ackordet, timmarna
+        // faktureras skördarens timpris. Syns i "Beräkningsunderlag".
+        const meta = objMap[objekt_id];
+        const undTimpris = timprisList.find(p => p.maskin_id === maskin_id)?.timpris || 0;
+        const und = tillampaTimpengUndantag(h.vol, meta?.timpeng_undantag_timmar, meta?.timpeng_undantag_volym, undTimpris);
+        const acord = und.volymEfterUndantag * (grundpris + extraKr) + und.undantagKr;
         const tidK = tidAgg[key] || { timmar: 0, timpeng: 0 };
         addMaskinDel(objekt_id, maskin_id, {
           volym: h.vol,
@@ -333,8 +338,11 @@ export default function PerObjektClient() {
         const sortInfo = objSortTillagg[objekt_id] || { count: 0, kr_per_m3: 0 };
         const traktInfo = objTrakt[objekt_id] || { kr_per_m3: 0, bracket: '—' };
         const ar_gallring = (o?.huvudtyp || '') === 'Gallring';
-        const ar_timpeng_override = !!flaggaMap[objekt_id];
+        // dim_objekt.timpeng är enda källan (objekt_ekonomi pensionerad)
+        const ar_timpeng_override = o?.timpeng === true;
         const behandla_som_timpeng = ar_gallring || ar_timpeng_override;
+        const und_timmar = Number(o?.timpeng_undantag_timmar) || 0;
+        const und_volym = Number(o?.timpeng_undantag_volym) || 0;
         objektRader.push({
           objekt_id,
           objekt_namn: o?.object_name || o?.vo_nummer || objekt_id,
@@ -349,6 +357,8 @@ export default function PerObjektClient() {
           sortiment_kr_per_m3: sortInfo.kr_per_m3,
           trakt_kr_per_m3: traktInfo.kr_per_m3,
           trakt_bracket: traktInfo.bracket,
+          und_timmar,
+          und_volym,
           timmar: totalTimmar,
           timpeng: totalTimpeng,
           acord: totalAcord,
@@ -369,14 +379,16 @@ export default function PerObjektClient() {
   const toggleTimpengOverride = async (objekt_id: string, ny_flagga: boolean, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setTogglingObjektId(objekt_id);
-    if (ny_flagga) {
-      await supabase.from('objekt_ekonomi').upsert({
-        objekt_id,
-        rakna_som_timpeng: true,
-        uppdaterad_tid: new Date().toISOString(),
-      }, { onConflict: 'objekt_id' });
-    } else {
-      await supabase.from('objekt_ekonomi').delete().eq('objekt_id', objekt_id);
+    // dim_objekt.timpeng är enda källan. Ärlig sparning: 0 träffade rader
+    // får aldrig se ut som succé (RLS-tomt = 200 utan error).
+    const { data, error } = await supabase
+      .from('dim_objekt')
+      .update({ timpeng: ny_flagga })
+      .eq('objekt_id', objekt_id)
+      .select('objekt_id');
+    if (error || !data || data.length === 0) {
+      console.error('Kunde inte spara timpeng-flaggan', error);
+      alert('Inget sparades — timpeng-flaggan uppdaterades inte (behörighet?)');
     }
     setTogglingObjektId(null);
     await fetchData();
@@ -497,7 +509,7 @@ export default function PerObjektClient() {
           {timpengRader.map(r => renderObjektKort(r))}
 
           <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 12, padding: '0 4px', lineHeight: 1.5 }}>
-            Acord = volym × (grundpris + sortiment-tillägg + trakt-tillägg) + skotavstånd-tillägg (skotare). Grundpris slås upp per närmaste medelstam i acord_priser. Gallring räknas alltid som timpeng. Slutavverkning kan flaggas som timpeng manuellt.
+            Acord = (volym − ev. timpeng-undantag) × (grundpris + sortiment-tillägg + trakt-tillägg) + undantagstimmar × timpris + skotavstånd-tillägg (skotare). Grundpris slås upp per närmaste medelstam i acord_priser. Gallring räknas alltid som timpeng. Slutavverkning kan flaggas som timpeng i redigeringsvyn (dim_objekt.timpeng).
           </div>
         </div>
       )}
@@ -592,6 +604,11 @@ export default function PerObjektClient() {
                   <div><span style={{ color: '#7a7a72' }}>Sortiment-tillägg: </span><strong>{r.sortiment_kr_per_m3} kr/m³</strong></div>
                   <div><span style={{ color: '#7a7a72' }}>Traktstorlek-bracket: </span><strong>{r.trakt_bracket}</strong></div>
                   <div><span style={{ color: '#7a7a72' }}>Trakt-tillägg: </span><strong>{r.trakt_kr_per_m3} kr/m³</strong></div>
+                  {(r.und_timmar > 0 || r.und_volym > 0) && (
+                    <div style={{ gridColumn: '1 / -1', color: 'rgba(255,179,64,0.95)' }}>
+                      Timpeng-undantag: {String(r.und_timmar).replace('.', ',')} h faktureras timpris · {r.und_volym} m³ borträknad ur ackordet
+                    </div>
+                  )}
                 </div>
               </div>
             )}
