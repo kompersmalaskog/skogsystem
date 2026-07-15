@@ -2632,14 +2632,19 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
 # dem, om och om igen. Aldrig mer.
 #
 # Skyddade fält (import får bara fylla tomma):
-#   bolag, skogsagare, saljare
+#   bolag, skogsagare, saljare, vo_nummer
+# vo_nummer: Martin sätter egna VO (t.ex. "P-1013") som limmar ihop
+# skördare+skotare på privata objekt — de får aldrig skrivas över av
+# maskinens ContractNumber/ObjectUserID. OBS: vo ingår i objekt_id-BYGGET
+# för NYA rader, men en befintlig rads objekt_id muteras aldrig — skyddet
+# bryter inga kopplingar (fakta pekar på objekt_id, inte vo).
 # object_name har en extra regel: ett befintligt TIDSSTÄMPEL-namn får
 # ersättas av ett riktigt namn (uppgradering), men ett riktigt namn rörs
 # aldrig. (huvudtyp/inkopare/atgard/exkludera skickas aldrig av importen —
 # de är redan helt manuella.)
 # Fält importen äger fritt: start_date, end_date, areal_ha, avverkningsform,
-# certifiering, cutting_method, koordinater, objektnr, vo_nummer m.fl.
-SKYDDADE_OBJEKTFALT = ('bolag', 'skogsagare', 'saljare')
+# certifiering, cutting_method, koordinater, objektnr m.fl.
+SKYDDADE_OBJEKTFALT = ('bolag', 'skogsagare', 'saljare', 'vo_nummer')
 
 def upsert_dim_objekt(objekt_rows: List[Dict]) -> int:
     """ALL skrivning till dim_objekt går genom denna (MOM/HPR/FPR).
