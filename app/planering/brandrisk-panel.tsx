@@ -21,7 +21,7 @@ const MCF_TEXTS: Record<number, McfText> = {
   1: { name: "Mycket liten skogsbrandsrisk", short: "Mycket liten", desc: "I de flesta skogstyper kan inte brand starta eller sprida sig med öppna lågor", fwi: "FWI < 5" },
   2: { name: "Liten skogsbrandsrisk", short: "Liten", desc: "I vissa skogstyper kan det vara svårt för en brand att sprida sig", fwi: "FWI 5–11" },
   3: { name: "Måttlig skogsbrandsrisk", short: "Måttlig", desc: "Vegetationen brinner med olika spridningshastighet beroende på typ och torka", fwi: "FWI 12–16" },
-  4: { name: "Stor skogsbrandsrisk", short: "Stor", desc: "Påtaglig risk för brandspridning, brand sprider sig normalt i de flesta vegetationstyper", fwi: "FWI 17–21 · Samråd krävs" },
+  4: { name: "Stor skogsbrandsrisk", short: "Stor", desc: "Påtaglig risk för brandspridning, brand sprider sig normalt i de flesta vegetationstyper", fwi: "FWI 17–21" },
   5: { name: "Mycket stor skogsbrandsrisk", short: "Mycket stor", desc: "En brand kommer att utveckla sig mycket snabbt och häftigt. Toppbränder kan förekomma", fwi: "FWI 22–27" },
   6: { name: "Extremt stor skogsbrandsrisk", short: "Extrem", desc: "Markens ytskikt extremt torrt. Antändningsrisken mycket stor, brand utvecklas explosivt. Stor risk för toppbrand", fwi: "FWI 28+ · Ofta eldningsförbud" },
 };
@@ -35,14 +35,6 @@ const MCF_BAND_BG: Record<number, string> = {
   5: 'rgba(255,69,58,0.85)',
   6: 'rgba(175,82,222,0.95)',
 };
-
-const SAMRAD_STEPS: { title: string; desc: string }[] = [
-  { title: "Kontakta arbetsledare/uppdragsgivare", desc: "Innan arbete påbörjas eller fortsätter. Gäller markberedning, avverkning och annan verksamhet som kan orsaka gnistbildning" },
-  { title: "Gemensam riskbedömning", desc: "Bedöm lokal terräng, vindförhållanden, markfuktighet och bränsletyp. Prognosen visar generellt läge – lokala förhållanden kan avvika" },
-  { title: "Beslut", desc: "Genomföra arbetet, anpassa (t.ex. byta trakt, ändra tider, begränsa verksamhet) eller stoppa helt" },
-  { title: "Dokumentera", desc: "Anteckna bedömning och beslut. Arbetsgivaren ansvarar enligt AML 1977:1160" },
-  { title: "Säkerställ beredskap", desc: "Släckutrustning ska finnas tillgänglig. Förare ska ha kommunikation och veta utrymningsväg" },
-];
 
 interface DocItem { title: string; sub: string; url: string; }
 interface DocGroup { group: string; items: DocItem[]; }
@@ -89,18 +81,7 @@ interface BrandriskPanelProps {
   eldningsforbud: boolean;
   onEldningsforbudChange: (val: boolean) => void;
   testMode: number | null;
-  // Samråd + persistence props (passed through from page.tsx)
-  brandSamrad: {
-    beredskapsniva: 'normal' | 'hojd';
-    atgarder: string[];
-    blotMarkUndantag: boolean;
-    uppdragsgivareNamn: string;
-    uppdragsgivareTel: string;
-    kortider: string;
-    datum: string;
-    kvitterad: boolean;
-  };
-  onSamradChange: (samrad: any) => void;
+  // Persistence props (passed through from page.tsx)
   brandKontakter: {
     uppdragsgivareNamn: string; uppdragsgivareTel: string;
     forsakringsbolag: string; forsakringsnummer: string;
@@ -113,9 +94,6 @@ interface BrandriskPanelProps {
   onSaveTillbud: () => void;
   brandEfterkontroll: { datum: string; noteringar: string; kvitterad: boolean; };
   onEfterkontrollChange: (ek: any) => void;
-  brandBrandvakt: { namn: string; starttid: string; sluttid: string; noteringar: string; };
-  onBrandvaktChange: (bv: any) => void;
-  onSaveBrandvakt: () => void;
   brandUtrustning: boolean[];
   onUtrustningChange: (u: boolean[]) => void;
   objektNamn?: string;
@@ -135,11 +113,9 @@ const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 min
 export default function BrandriskPanel(props: BrandriskPanelProps) {
   const {
     lat, lon, eldningsforbud, onEldningsforbudChange, testMode,
-    brandSamrad, onSamradChange,
     brandKontakter, onKontakterChange,
     brandTillbud, brandNewTillbud, onNewTillbudChange, onSaveTillbud,
     brandEfterkontroll, onEfterkontrollChange,
-    brandBrandvakt, onBrandvaktChange, onSaveBrandvakt,
     brandUtrustning, onUtrustningChange,
     objektNamn, koordFranObjekt,
     larmLat, larmLng, larmBeskrivning, larmKalla, larmBekraftad,
@@ -316,11 +292,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
   const updatedTime = new Date(data.updatedAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 
-  const atgardsAlternativ = [
-    'Anpassat körsätt', 'Avgränsat arbetsområde', 'Brandvakt utsedd',
-    'Byte av trakt', 'Demonterade slirskydd', 'Efterkontroll planerad',
-    'Förstärkt släckutrustning', 'Tidsanpassad körning', 'Avstå arbete',
-  ];
   const utrustLabels = [
     'Avverkningsmaskiner: 2 st 9L skum/vätskesläckare',
     'Markberedning: 6 st 9L skum/vätskesläckare',
@@ -448,21 +419,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.12)', paddingTop: 10, textAlign: 'center' }}>Källa: MCF (Brandrisk Ute) · SMHI · Skogforsk</div>
           </Collapsible>
 
-          <Collapsible title="Samrådsrutin vid nivå 4 eller högre">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '10px 0' }}>
-              {SAMRAD_STEPS.map((s, i) => (
-                <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(255,159,10,0.12)', color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
-                  <div style={{ flex: 1, fontSize: 12, lineHeight: 1.5 }}>
-                    <strong style={{ color: '#8e8e93', display: 'block', fontWeight: 600, marginBottom: 1 }}>{s.title}</strong>
-                    <span style={{ color: 'rgba(255,255,255,0.25)' }}>{s.desc}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.12)', paddingTop: 10, textAlign: 'center' }}>Källa: Skogforsk – Branschgemensamma riktlinjer för riskhantering avseende brand (2022)</div>
-          </Collapsible>
-
           <Collapsible title="Källor och dokument">
             <div style={{ padding: '8px 0' }}>
               {DOCS.map((group, gi) => (
@@ -565,85 +521,11 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
         {/* === OPERATIONAL SECTIONS (from old panel) === */}
 
-        {/* Samråd brandrisk (vid nivå 4 eller testläge) */}
+        {/* Samråd sker i Forest Link (vid nivå 4 eller testläge) */}
         {(currentIdx >= 4 || testMode !== null) && (
-          <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>
-            <details open>
-              <summary style={summaryStyle}>
-                <span>Samråd brandrisk</span>
-                {brandSamrad.kvitterad ? <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'none' as const, color: '#30d158' }}>Kvitterat</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
-              </summary>
-              <div style={{ marginTop: 12 }}>
-                <div style={textStyle}>Enligt Skogforsks branschgemensamma riktlinjer (2022) krävs samråd mellan uppdragstagare och uppdragsgivare vid FWI &#x2265; 4.</div>
-                {/* Beredskapsnivå */}
-                <div style={{ marginTop: 16, fontSize: 12, color: '#8e8e93', marginBottom: 8 }}>Beredskapsnivå</div>
-                <div style={{ display: 'flex', gap: 6, padding: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 12, marginBottom: 16 }}>
-                  {(['normal', 'hojd'] as const).map(niva => (
-                    <button key={niva} onClick={() => onSamradChange({ ...brandSamrad, beredskapsniva: niva })}
-                      style={{ flex: 1, padding: '10px 0', borderRadius: 8, border: 'none', background: brandSamrad.beredskapsniva === niva ? (niva === 'hojd' ? '#FFD60A' : '#30d158') : 'transparent', color: brandSamrad.beredskapsniva === niva ? '#000' : '#8e8e93', fontSize: 12, fontWeight: brandSamrad.beredskapsniva === niva ? 700 : 500, cursor: 'pointer' }}>
-                      {niva === 'normal' ? 'Normal' : 'Höjd'}
-                    </button>
-                  ))}
-                </div>
-                {/* Åtgärder */}
-                <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 8 }}>Beslutade åtgärder</div>
-                <div style={{ marginBottom: 16 }}>
-                  {atgardsAlternativ.map((atg, i) => (
-                    <div key={i} onClick={() => onSamradChange({ ...brandSamrad, atgarder: brandSamrad.atgarder.includes(atg) ? brandSamrad.atgarder.filter((a: string) => a !== atg) : [...brandSamrad.atgarder, atg] })}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                      <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${brandSamrad.atgarder.includes(atg) ? '#30d158' : 'rgba(255,255,255,0.15)'}`, background: brandSamrad.atgarder.includes(atg) ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        {brandSamrad.atgarder.includes(atg) && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
-                      </div>
-                      <span style={{ fontSize: 13, color: brandSamrad.atgarder.includes(atg) ? 'rgba(255,255,255,0.3)' : '#8e8e93', textDecoration: brandSamrad.atgarder.includes(atg) ? 'line-through' : 'none', lineHeight: 1.4 }}>{atg}</span>
-                    </div>
-                  ))}
-                  {brandSamrad.atgarder.includes('Tidsanpassad körning') && (
-                    <input type="text" placeholder="Vilka timmar?" value={brandSamrad.kortider} onChange={e => onSamradChange({ ...brandSamrad, kortider: e.target.value })} style={{ ...inputStyle, marginTop: 8 }} />
-                  )}
-                </div>
-                {/* Blöt mark undantag */}
-                <div style={{ background: 'rgba(10,132,255,0.08)', border: '1px solid rgba(10,132,255,0.2)', borderRadius: 12, padding: 14, marginBottom: 16 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, color: '#0a84ff', fontWeight: 500 }}>Arbete sker enbart på blöt mark (myr/sumpskog)</span>
-                    <div style={{ display: 'flex', gap: 6, padding: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 10, width: 100 }}>
-                      {[true, false].map(val => (
-                        <button key={String(val)} onClick={() => onSamradChange({ ...brandSamrad, blotMarkUndantag: val })}
-                          style={{ flex: 1, padding: '6px 0', borderRadius: 7, border: 'none', background: brandSamrad.blotMarkUndantag === val ? '#0a84ff' : 'transparent', color: brandSamrad.blotMarkUndantag === val ? '#000' : '#8e8e93', fontSize: 11, fontWeight: brandSamrad.blotMarkUndantag === val ? 700 : 500, cursor: 'pointer' }}>
-                          {val ? 'Ja' : 'Nej'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {brandSamrad.blotMarkUndantag && (
-                    <div style={{ fontSize: 12, color: '#8e8e93', lineHeight: 1.6 }}>
-                      Dokumentera att maskinen håller sig inom markerat blött område. Band/slirskydd behålls – krävs för bärighet. GPS-spår verifieras mot blöta zoner.
-                    </div>
-                  )}
-                </div>
-                {/* Uppdragsgivare */}
-                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Uppdragsgivare kontaktad</div>
-                    <input type="text" placeholder="Namn" value={brandSamrad.uppdragsgivareNamn} onChange={e => onSamradChange({ ...brandSamrad, uppdragsgivareNamn: e.target.value })} style={inputStyle} />
-                  </div>
-                  <div style={{ width: 140, flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Telefon</div>
-                    <input type="tel" placeholder="07X-XXX XX XX" value={brandSamrad.uppdragsgivareTel} onChange={e => onSamradChange({ ...brandSamrad, uppdragsgivareTel: e.target.value })} style={inputStyle} />
-                  </div>
-                </div>
-                {/* Datum + kvittera */}
-                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-                  <div style={{ width: 200, flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Datum & tid</div>
-                    <input type="datetime-local" value={brandSamrad.datum} onChange={e => onSamradChange({ ...brandSamrad, datum: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
-                  </div>
-                  <button className="btn-press" onClick={() => onSamradChange({ ...brandSamrad, kvitterad: !brandSamrad.kvitterad })}
-                    style={{ flex: 1, padding: 14, borderRadius: 14, border: 'none', background: brandSamrad.kvitterad ? 'rgba(34,197,94,0.15)' : '#30d158', color: brandSamrad.kvitterad ? '#30d158' : '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
-                    {brandSamrad.kvitterad ? 'Kvitterat \u2713' : 'Kvittera samråd'}
-                  </button>
-                </div>
-              </div>
-            </details>
+          <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '16px 20px' }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>Samråd sker i Forest Link</div>
+            <div style={{ fontSize: 12, color: '#8e8e93', lineHeight: 1.5 }}>Vid FWI &#x2265; 4 krävs samråd mellan uppdragstagare och uppdragsgivare (Skogforsk 2022). Det görs och dokumenteras i Forest Link.</div>
           </div>
         )}
 
@@ -782,36 +664,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             </div>
           </details>
         </div>
-
-        {/* Brandvaktslogg */}
-        {brandSamrad.atgarder.includes('Brandvakt utsedd') && (
-          <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>
-            <details>
-              <summary style={summaryStyle}>
-                <span>Brandvaktslogg</span>
-                <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
-              </summary>
-              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <input type="text" placeholder="Brandvaktens namn" value={brandBrandvakt.namn} onChange={e => onBrandvaktChange({ ...brandBrandvakt, namn: e.target.value })} style={inputStyle} />
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 4 }}>Start</div>
-                    <input type="datetime-local" value={brandBrandvakt.starttid} onChange={e => onBrandvaktChange({ ...brandBrandvakt, starttid: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 4 }}>Slut</div>
-                    <input type="datetime-local" value={brandBrandvakt.sluttid} onChange={e => onBrandvaktChange({ ...brandBrandvakt, sluttid: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
-                  </div>
-                </div>
-                <textarea placeholder="Noteringar" value={brandBrandvakt.noteringar} onChange={e => onBrandvaktChange({ ...brandBrandvakt, noteringar: e.target.value })} style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
-                <button className="btn-press" onClick={onSaveBrandvakt}
-                  style={{ padding: 14, borderRadius: 14, border: 'none', background: '#0a84ff', color: '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
-                  Spara brandvaktslogg
-                </button>
-              </div>
-            </details>
-          </div>
-        )}
 
         {/* Efterkontroll */}
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>

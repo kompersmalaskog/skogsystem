@@ -4212,16 +4212,6 @@ export default function PlannerPage() {
   } | null>(null);
   const [brandOpen, setBrandOpen] = useState(false);
   const [brandEldningsforbud, setBrandEldningsforbud] = useState(false);
-  const [brandSamrad, setBrandSamrad] = useState({
-    beredskapsniva: 'normal' as 'normal' | 'hojd',
-    atgarder: [] as string[],
-    blotMarkUndantag: false,
-    uppdragsgivareNamn: '',
-    uppdragsgivareTel: '',
-    kortider: '',
-    datum: new Date().toISOString().slice(0, 16),
-    kvitterad: false,
-  });
   const [brandKontakter, setBrandKontakter] = useState({
     uppdragsgivareNamn: '', uppdragsgivareTel: '',
     forsakringsbolag: '', forsakringsnummer: '',
@@ -4238,9 +4228,6 @@ export default function PlannerPage() {
   const [brandEfterkontroll, setBrandEfterkontroll] = useState({
     datum: new Date().toISOString().slice(0, 16),
     noteringar: '', kvitterad: false,
-  });
-  const [brandBrandvakt, setBrandBrandvakt] = useState({
-    namn: '', starttid: '', sluttid: '', noteringar: '',
   });
   const [brandUtrustning, setBrandUtrustning] = useState([false, false, false, false]);
   const [brandLarmChecklista, setBrandLarmChecklista] = useState([false, false, false, false, false]);
@@ -4385,18 +4372,6 @@ export default function PlannerPage() {
     if (!valtObjekt?.id) return;
     const loadBrand = async () => {
       const { data: samData } = await supabase.from('brand_samrad').select('*').eq('objekt_id', valtObjekt.id).maybeSingle();
-      if (samData) {
-        setBrandSamrad({
-          beredskapsniva: samData.beredskapsniva || 'normal',
-          atgarder: (samData.atgarder as string[]) || [],
-          blotMarkUndantag: samData.blot_mark_undantag || false,
-          uppdragsgivareNamn: samData.uppdragsgivare_namn || '',
-          uppdragsgivareTel: samData.uppdragsgivare_tel || '',
-          kortider: samData.kortider || '',
-          datum: samData.datum ? new Date(samData.datum).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16),
-          kvitterad: samData.kvitterad || false,
-        });
-      }
       const { data: kontData } = await supabase.from('brand_kontakter').select('*').eq('objekt_id', valtObjekt.id).maybeSingle();
       if (kontData) {
         setBrandKontakter({
@@ -4422,12 +4397,6 @@ export default function PlannerPage() {
           noteringar: ekData.noteringar || '', kvitterad: ekData.kvitterad || false,
         });
       }
-      const { data: bvData } = await supabase.from('brand_brandvakt').select('*').eq('objekt_id', valtObjekt.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
-      if (bvData) {
-        setBrandBrandvakt({
-          namn: bvData.namn || '', starttid: bvData.starttid || '', sluttid: bvData.sluttid || '', noteringar: bvData.noteringar || '',
-        });
-      }
       // Ladda utrustning + larm-checklista från brand_samrad
       if (samData) {
         if (Array.isArray(samData.utrustning)) setBrandUtrustning(samData.utrustning);
@@ -4448,14 +4417,6 @@ export default function PlannerPage() {
       await supabase.from('brand_samrad').upsert({
         objekt_id: valtObjekt.id,
         fwi_value: brandRisk?.currentFwi || null,
-        beredskapsniva: brandSamrad.beredskapsniva,
-        atgarder: brandSamrad.atgarder,
-        blot_mark_undantag: brandSamrad.blotMarkUndantag,
-        uppdragsgivare_namn: brandSamrad.uppdragsgivareNamn || null,
-        uppdragsgivare_tel: brandSamrad.uppdragsgivareTel || null,
-        kortider: brandSamrad.kortider || null,
-        datum: brandSamrad.datum,
-        kvitterad: brandSamrad.kvitterad,
         utrustning: brandUtrustning,
         larm_checklista: brandLarmChecklista,
         updated_at: new Date().toISOString(),
@@ -4479,7 +4440,7 @@ export default function PlannerPage() {
       console.log('[Brand] Sparade till Supabase');
     }, 2000);
     return () => { if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current); };
-  }, [brandSamrad, brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, valtObjekt?.id, brandTestMode]);
+  }, [brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, valtObjekt?.id, brandTestMode]);
 
   // === TMA: Ladda sparad data från Supabase ===
   const tmaLoadedRef = useRef(false);
@@ -15071,8 +15032,6 @@ export default function PlannerPage() {
                 eldningsforbud={brandEldningsforbud}
                 onEldningsforbudChange={setBrandEldningsforbud}
                 testMode={brandTestMode}
-                brandSamrad={brandSamrad}
-                onSamradChange={setBrandSamrad}
                 brandKontakter={brandKontakter}
                 onKontakterChange={setBrandKontakter}
                 brandTillbud={brandTillbud}
@@ -15097,16 +15056,6 @@ export default function PlannerPage() {
                 }}
                 brandEfterkontroll={brandEfterkontroll}
                 onEfterkontrollChange={setBrandEfterkontroll}
-                brandBrandvakt={brandBrandvakt}
-                onBrandvaktChange={setBrandBrandvakt}
-                onSaveBrandvakt={async () => {
-                  if (!valtObjekt?.id || !brandBrandvakt.namn) return;
-                  await supabase.from('brand_brandvakt').insert({
-                    objekt_id: valtObjekt.id,
-                    namn: brandBrandvakt.namn, starttid: brandBrandvakt.starttid || null,
-                    sluttid: brandBrandvakt.sluttid || null, noteringar: brandBrandvakt.noteringar || null,
-                  });
-                }}
                 brandUtrustning={brandUtrustning}
                 onUtrustningChange={setBrandUtrustning}
                 larmLat={infoLarmLat}
