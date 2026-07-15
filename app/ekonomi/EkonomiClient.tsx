@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { g15Sek } from '@/lib/g15';
+import { hamtaExkluderadeObjektId, utanExkluderade } from '@/lib/objekt/exkludera';
 import EkonomiBottomNav from './EkonomiBottomNav';
 import {
   type AcordPris, type MaskinTimpris, type AvstandConfig,
@@ -141,7 +142,7 @@ export default function EkonomiClient() {
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
 
-      const [prodRows, lassRows, tidRows, objRes, maskinRes, acordRes, timprisRes, avstandRes, overrideRes] = await Promise.all([
+      const [prodRowsRaa, lassRowsRaa, tidRows, objRes, maskinRes, acordRes, timprisRes, avstandRes, overrideRes, exkluderade] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_produktion')
             .select('datum, maskin_id, objekt_id, stammar, volym_m3sub')
@@ -170,7 +171,12 @@ export default function EkonomiClient() {
         supabase.from('ekonomi_rad_override')
           .select('id, datum, maskin_id, objekt_id, volym, medelstam, pris_enhet, tillagg_kr, kommentar')
           .gte('datum', start).lte('datum', end),
+        hamtaExkluderadeObjektId(),
       ]);
+
+      // Central exkludera-regel — dagvyn ska inte visa Flyttobjekt/Service
+      const prodRows = utanExkluderade(prodRowsRaa, exkluderade);
+      const lassRows = utanExkluderade(lassRowsRaa, exkluderade);
 
       const overrideMap: Record<string, RowOverride> = {};
       for (const o of (overrideRes.data || [])) {

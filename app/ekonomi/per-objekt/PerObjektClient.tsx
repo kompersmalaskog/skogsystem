@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { hamtaExkluderadeObjektId, utanExkluderade } from '@/lib/objekt/exkludera';
 import EkonomiBottomNav from '../EkonomiBottomNav';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
@@ -122,9 +123,10 @@ export default function PerObjektClient() {
       const { start, end } = getPeriodDates(period, periodOffset);
 
       const [
-        tidRows, prodRows, lassRows, sortRows,
+        tidRowsRaa, prodRowsRaa, lassRowsRaa, sortRowsRaa,
         sortGruppRes, objRes, maskinRes, timprisRes,
         acordRes, avstandRes, sortTillaggRes, traktRes, flaggaRes,
+        exkluderade,
       ] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_tid')
@@ -159,7 +161,15 @@ export default function PerObjektClient() {
         supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
         supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
         supabase.from('objekt_ekonomi').select('objekt_id, rakna_som_timpeng'),
+        hamtaExkluderadeObjektId(),
       ]);
+
+      // Exkluderade objekt (Flyttobjekt, Service m.fl.) ska inte synas i
+      // ekonomin — central regel, inte per-vy-minne
+      const tidRows = utanExkluderade(tidRowsRaa, exkluderade);
+      const prodRows = utanExkluderade(prodRowsRaa, exkluderade);
+      const lassRows = utanExkluderade(lassRowsRaa, exkluderade);
+      const sortRows = utanExkluderade(sortRowsRaa, exkluderade);
 
       const objMap: Record<string, any> = {};
       for (const o of (objRes.data || [])) objMap[o.objekt_id] = o;
