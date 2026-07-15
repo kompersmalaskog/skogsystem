@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
+import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
@@ -15024,7 +15025,8 @@ export default function PlannerPage() {
 
             {/* === BRANDRISK === */}
             {activeCategory === 'brandrisk' && (
-              <BrandriskPanel
+              <PanelErrorBoundary label="Brandrisk">
+                <BrandriskPanel
                 lat={valtObjekt?.lat ?? mapCenter.lat}
                 lon={valtObjekt?.lng ?? mapCenter.lng}
                 objektNamn={valtObjekt?.namn}
@@ -15066,7 +15068,8 @@ export default function PlannerPage() {
                 brandLarmChecklista={brandLarmChecklista}
                 onLarmChecklistaChange={setBrandLarmChecklista}
                 onStatusChange={(s) => setBrandRisk({ status: s.status, currentFwi: s.currentFwi, currentIdx: s.currentIdx })}
-              />
+                />
+              </PanelErrorBoundary>
             )}
 
           </div>

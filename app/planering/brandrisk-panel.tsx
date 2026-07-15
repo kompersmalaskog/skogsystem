@@ -154,6 +154,11 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
       return;
     }
 
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      // Ogiltig position (objektet saknar koordinat / kartan inte klar) — hämta aldrig,
+      // krascha aldrig på toFixed. Panelen visar tomt tills en giltig position finns.
+      return;
+    }
     const fetchKey = `${lat.toFixed(2)}_${lon.toFixed(2)}`;
     if (fetchKey === lastFetchRef.current && data && status === 'done') return;
 
