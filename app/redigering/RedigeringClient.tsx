@@ -883,7 +883,7 @@ function WarningsList({ warnings, onJump }) {
 // som intent-callback — föräldern bestämmer om setValtObjekt(null) ska
 // köras (t.ex. visa dirty-dialog först). Exit-animation körs när open
 // går från true → false.
-function EditSheet({ open, onClose, title, footer, children }) {
+function EditSheet({ open, onClose, title, subtitel, footer, children }: any) {
   const [closing, setClosing] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [dragOffset, setDragOffset] = useState(0)
@@ -1011,6 +1011,7 @@ function EditSheet({ open, onClose, title, footer, children }) {
           borderBottom: scrolled ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent',
         }}>
           <div style={styles.sheetTitel}>{title}</div>
+          {subtitel}
         </div>
         <div style={{ ...styles.scrollFade, opacity: scrolled ? 1 : 0 }} />
         <div style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
@@ -1072,6 +1073,28 @@ function NumField({ label, value, onChange, placeholder, suffix }: any) {
         />
         {suffix && <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{suffix}</span>}
       </div>
+    </div>
+  )
+}
+
+// Maskin-badges för sheetens header — vilka maskiner objektet har och hur
+// mycket, summerat över VO-gruppens rader. Samma datakälla (useMatchning)
+// som styr sektionerna. Ligger i fasta headern — syns alltid, utan scroll.
+function MaskinBadges({ syskon, kortInfo }: any) {
+  const skordat = (syskon || []).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)
+  const lass = (syskon || []).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0)
+  const manuell = Math.max(0, ...(syskon || []).map((o: any) => Number(o.skotad_volym_manuell) || 0))
+  const skotat = manuell > 0 ? manuell : lass
+  const badge = (bg: string, farg: string, text: string) => (
+    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, background: bg, color: farg, whiteSpace: 'nowrap' }}>{text}</span>
+  )
+  return (
+    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+      {skordat > 0 && badge('rgba(168,213,130,0.12)', '#a8d582', `🌲 Skördare · ${Math.round(skordat).toLocaleString('sv-SE')} m³`)}
+      {skotat > 0 && badge('rgba(240,178,76,0.12)', '#f0b24c', `🚜 Skotare · ${Math.round(skotat).toLocaleString('sv-SE')} m³${manuell > 0 ? ' (manuell)' : ''}`)}
+      {skordat <= 0 && skotat <= 0 && (
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Ingen maskindata ännu</span>
+      )}
     </div>
   )
 }
@@ -1169,25 +1192,6 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
       </div>
 
       <WarningsList warnings={warnings} onJump={scrollAndFlash} />
-
-      {/* Vilka maskinslag objektet har — samma datakälla som styr sektionerna */}
-      <div style={{ display: 'flex', gap: 8, padding: '0 4px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
-        {harSkordarData && (
-          <span style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 999, background: 'rgba(168,213,130,0.12)', color: '#a8d582' }}>
-            🌲 Skördare · {Math.round(info.skordatM3).toLocaleString('sv-SE')} m³
-          </span>
-        )}
-        {harSkotarData && (
-          <span style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 999, background: 'rgba(240,178,76,0.12)', color: '#f0b24c' }}>
-            🚜 Skotare · {Math.round(Number(valtObjekt.skotad_volym_manuell) || info?.skotatM3 || 0).toLocaleString('sv-SE')} m³
-          </span>
-        )}
-        {ingenData && (
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
-            Ingen maskindata ännu — båda sektionerna visas
-          </span>
-        )}
-      </div>
 
       <IosGroup title="Identitet">
         <div id="vo_nummer-section">
@@ -1857,6 +1861,7 @@ export default function ObjektRedigering() {
         open={!!valtObjekt}
         onClose={attemptCloseModal}
         title={valtObjekt ? (valtObjekt.object_name || 'Namnlöst objekt') : ''}
+        subtitel={valtObjekt && <MaskinBadges syskon={syskonRader(objekt, valtObjekt)} kortInfo={kortInfo} />}
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
         {valtObjekt && (
@@ -2126,6 +2131,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         open={!!valtObjekt}
         onClose={attemptCloseModal}
         title={valtObjekt ? (valtObjekt.object_name || 'Namnlöst objekt') : ''}
+        subtitel={valtObjekt && <MaskinBadges syskon={syskonRader(objekt, valtObjekt)} kortInfo={kortInfo} />}
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
         {valtObjekt && (
