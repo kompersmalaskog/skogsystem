@@ -516,7 +516,10 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 }
 
 // ── TiderDelSection ───────────────────────────────────────────
-// Visar processing/körning/annat arbete/kortstopp/störning per timme från mom_tider.
+// Visar maskintid per timme från mom_tider.
+// RUNTIME (proc+terräng+annat) summerar till ~60 min — visas som stapel+rader.
+// KORTSTOPP är inbäddat i runtime (StanForD-design) — visas som "varav X min".
+// STÖRNING är downtime utöver runtime — visas separat som "Stillestånd".
 function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined }) {
   const sectionLabel: React.CSSProperties = {
     fontSize: 11, color: C.muted, fontWeight: 600,
@@ -524,42 +527,71 @@ function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined
     marginBottom: 10,
   }
 
-  const entries: { label: string; min: number; color: string }[] = momHour ? [
-    { label: 'Processing',      min: momHour.processing,  color: '#30d158' },
-    { label: 'Körning/terräng', min: momHour.terrain,     color: '#0a84ff' },
-    { label: 'Annat arbete',    min: momHour.other,       color: '#8e8e93' },
-    { label: 'Kortstopp',       min: momHour.kort_stopp,  color: '#636366' },
-    { label: 'Störning',        min: momHour.disturbance, color: '#ff9f0a' },
+  const runtime = momHour ? [
+    { label: 'Processing',      min: momHour.processing, color: '#30d158' },
+    { label: 'Körning/terräng', min: momHour.terrain,    color: '#0a84ff' },
+    { label: 'Annat arbete',    min: momHour.other,      color: '#8e8e93' },
   ].filter(e => e.min > 0) : []
 
-  const total = entries.reduce((s, e) => s + e.min, 0)
+  const runtimeTotal   = runtime.reduce((s, e) => s + e.min, 0)
+  const kortStoppMin   = momHour?.kort_stopp  ?? 0
+  const disturbanceMin = momHour?.disturbance ?? 0
+  const hasAnything    = runtimeTotal > 0 || kortStoppMin > 0 || disturbanceMin > 0
 
   return (
     <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 14, marginBottom: 16 }}>
       <div style={sectionLabel}>Maskinen den timmen</div>
-      {total === 0 ? (
+      {!hasAnything ? (
         <div style={{ fontSize: 13, color: C.dim }}>Tid ej tillgänglig</div>
       ) : (
         <>
-          <div style={{ display: 'flex', height: 5, borderRadius: 3, overflow: 'hidden', marginBottom: 10 }}>
-            {entries.map(e => (
-              <div key={e.label} style={{ flex: e.min, background: e.color }} />
-            ))}
-          </div>
-          {entries.map(e => (
-            <div key={e.label} style={{
-              display: 'flex', justifyContent: 'space-between',
-              alignItems: 'center', marginBottom: 5,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+          {runtimeTotal > 0 && (
+            <>
+              <div style={{ display: 'flex', height: 5, borderRadius: 3, overflow: 'hidden', marginBottom: 10 }}>
+                {runtime.map(e => (
+                  <div key={e.label} style={{ flex: e.min, background: e.color }} />
+                ))}
               </div>
-              <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
-                {e.min} min
-              </span>
+              {runtime.map(e => (
+                <div key={e.label} style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'center', marginBottom: 5,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                    {e.min} min
+                  </span>
+                </div>
+              ))}
+              {kortStoppMin > 0 && (
+                <div style={{ paddingLeft: 14, marginTop: 1, marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, color: C.dim }}>
+                    varav {kortStoppMin} min korta stopp (ingår i ovan)
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+          {disturbanceMin > 0 && (
+            <div style={{
+              marginTop: runtimeTotal > 0 ? 6 : 0,
+              paddingTop: runtimeTotal > 0 ? 8 : 0,
+              borderTop: runtimeTotal > 0 ? `0.5px solid ${C.divider}` : 'none',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: '#ff9f0a', flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: C.text }}>Stillestånd</span>
+                </div>
+                <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                  {disturbanceMin} min
+                </span>
+              </div>
             </div>
-          ))}
+          )}
         </>
       )}
     </div>
@@ -567,8 +599,10 @@ function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined
 }
 
 // ── TidPerTimmeKort ───────────────────────────────────────────
-// Alltid synlig om mom_tider har data för dagen — oberoende av
-// lassdata. Visar processing/körning/kortstopp/övrigt per timme.
+// Alltid synlig om mom_tider har data för dagen — oberoende av lassdata.
+// RUNTIME (proc+terräng+annat) är stapeln och summerar till ~60 min.
+// KORTSTOPP är inbäddat i runtime — visas som "varav X min".
+// STÖRNING är downtime — visas som "Stillestånd" under en tunn linje.
 function TidPerTimmeKort({
   momTider, loading,
 }: {
@@ -583,43 +617,71 @@ function TidPerTimmeKort({
     <div style={{ background: C.card, borderRadius: 14, padding: '18px 18px 6px', marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 1 }}>Körtid per timme</div>
       <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>
-        Ur maskindatorn · Processing · Körning · Annat arbete · Kortstopp · Störning
+        Ur maskindatorn · stapeln = runtime (processing + körning + annat arbete)
       </div>
       {hours.map(h => {
         const m = momTider[h]
-        const entries: { label: string; min: number; color: string }[] = [
-          { label: 'Processing',      min: m.processing,  color: '#30d158' },
-          { label: 'Körning/terräng', min: m.terrain,     color: '#0a84ff' },
-          { label: 'Annat arbete',    min: m.other,       color: '#8e8e93' },
-          { label: 'Kortstopp',       min: m.kort_stopp,  color: '#636366' },
-          { label: 'Störning',        min: m.disturbance, color: '#ff9f0a' },
+        const runtime = [
+          { label: 'Processing',      min: m.processing, color: '#30d158' },
+          { label: 'Körning/terräng', min: m.terrain,    color: '#0a84ff' },
+          { label: 'Annat arbete',    min: m.other,      color: '#8e8e93' },
         ].filter(e => e.min > 0)
-        const total = entries.reduce((s, e) => s + e.min, 0)
-        if (total === 0) return null
+        const runtimeTotal   = runtime.reduce((s, e) => s + e.min, 0)
+        const kortStoppMin   = m.kort_stopp
+        const disturbanceMin = m.disturbance
+        if (runtimeTotal === 0 && kortStoppMin === 0 && disturbanceMin === 0) return null
         return (
           <div key={h} style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 12, marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 7 }}>
               kl {String(h).padStart(2, '0')}
             </div>
-            <div style={{ display: 'flex', height: 4, borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
-              {entries.map(e => (
-                <div key={e.label} style={{ flex: e.min, background: e.color }} />
-              ))}
-            </div>
-            {entries.map(e => (
-              <div key={e.label} style={{
-                display: 'flex', justifyContent: 'space-between',
-                alignItems: 'center', marginBottom: 4,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+            {runtimeTotal > 0 && (
+              <>
+                <div style={{ display: 'flex', height: 4, borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+                  {runtime.map(e => (
+                    <div key={e.label} style={{ flex: e.min, background: e.color }} />
+                  ))}
                 </div>
-                <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
-                  {e.min} min
-                </span>
+                {runtime.map(e => (
+                  <div key={e.label} style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    alignItems: 'center', marginBottom: 4,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+                    </div>
+                    <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                      {e.min} min
+                    </span>
+                  </div>
+                ))}
+                {kortStoppMin > 0 && (
+                  <div style={{ paddingLeft: 14, marginTop: 1, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: C.dim }}>
+                      varav {kortStoppMin} min korta stopp (ingår i ovan)
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+            {disturbanceMin > 0 && (
+              <div style={{
+                marginTop: runtimeTotal > 0 ? 6 : 0,
+                paddingTop: runtimeTotal > 0 ? 6 : 0,
+                borderTop: runtimeTotal > 0 ? `0.5px solid ${C.divider}` : 'none',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: '#ff9f0a', flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: C.text }}>Stillestånd</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                    {disturbanceMin} min
+                  </span>
+                </div>
               </div>
-            ))}
+            )}
           </div>
         )
       })}
