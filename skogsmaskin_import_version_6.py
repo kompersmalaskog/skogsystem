@@ -3198,6 +3198,91 @@ def save_mom_to_supabase(data: Dict) -> bool:
                            on_conflict='ignore') == 0:
                 fel.append('fakt_avbrott')
 
+        # mom_tider — timvisa tidssegment per maskin/operator (Alternativ A: 5 typer).
+        # Källa: raw_tid_entries (individuella MOM-segment, ej dagsaggregat).
+        # DAG-REBUILD: radera gamla rader per (maskin_id, timme) innan insert —
+        # samma mönster som fakt_tid, hanterar reimporten av uppdaterade MOM-filer.
+        tid_entries = data.get('tid_entries', {})
+        if tid_entries:
+            TYP_FIELDS = [
+                ('processing_sek',  'processing'),
+                ('terrain_sek',     'terrain'),
+                ('kort_stopp_sek',  'kort_stopp'),
+                ('other_work_sek',  'other'),
+                ('disturbance_sek', 'disturbance'),
+            ]
+
+            # Ackumulera sekunder per (maskin_id, operator_id, timme_utc, typ).
+            # Segment delas proportionellt per timme (timdelning) — ett segment som
+            # startar 06:52 och pågår 99 min genererar kl 6: 7 min, kl 7: 60 min, kl 8: 31 min.
+            # UTC-offset bevaras via datetime.fromisoformat() (parse_datetime() i importkoden
+            # strippar den — använd INTE den här).
+            tider_agg: dict = {}
+            for entry_key, entry in tid_entries.items():
+                if len(entry_key) == 4:
+                    start_str, e_maskin, _, e_op = entry_key
+                else:
+                    start_str, e_maskin, _ = entry_key
+                    e_op = entry.get('operator_id')
+
+                try:
+                    dt_start = datetime.fromisoformat(start_str)
+                except Exception:
+                    continue
+
+                for field, typ in TYP_FIELDS:
+                    sek = entry.get(field) or 0
+                    if sek <= 0:
+                        continue
+                    # Dela upp segmentet per lokal heltimme
+                    dt_end = dt_start + timedelta(seconds=sek)
+                    current = dt_start
+                    while current < dt_end:
+                        next_hour = (current.replace(minute=0, second=0, microsecond=0)
+                                     + timedelta(hours=1))
+                        chunk_end = min(next_hour, dt_end)
+                        chunk_sek = (chunk_end - current).total_seconds()
+                        if chunk_sek > 0:
+                            hour_utc = (current.replace(minute=0, second=0, microsecond=0)
+                                        .astimezone(timezone.utc))
+                            timme_utc = hour_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+                            agg_key = (e_maskin, e_op, timme_utc, typ)
+                            tider_agg[agg_key] = tider_agg.get(agg_key, 0) + chunk_sek
+                        current = next_hour
+
+            if tider_agg:
+                # Radera gamla rader för berörda (maskin_id, timme) innan insert
+                to_delete: dict = {}
+                for e_maskin, _, timme_utc, _ in tider_agg:
+                    to_delete.setdefault(e_maskin, set()).add(timme_utc)
+                for del_maskin, timme_set in to_delete.items():
+                    timme_list = sorted(timme_set)
+                    for i in range(0, len(timme_list), 20):
+                        chunk = ','.join(timme_list[i:i+20])
+                        try:
+                            requests.delete(
+                                f"{SUPABASE_URL}/rest/v1/mom_tider"
+                                f"?maskin_id=eq.{del_maskin}&timme=in.({chunk})",
+                                headers=SUPABASE_HEADERS, timeout=60)
+                        except Exception as e_del:
+                            logger.warning(f"  Kunde inte städa mom_tider för {del_maskin}: {e_del}")
+
+                mom_rows = [
+                    {
+                        'maskin_id': k[0],
+                        'operator_id': k[1],
+                        'timme': k[2],
+                        'typ': k[3],
+                        'minuter': round(v / 60),
+                    }
+                    for k, v in tider_agg.items()
+                ]
+                if upsert_data('mom_tider', mom_rows,
+                               ['maskin_id', 'operator_id', 'timme', 'typ']) == 0:
+                    fel.append('mom_tider')
+                else:
+                    logger.info(f"  mom_tider: {len(mom_rows)} timrader sparade")
+
         # MOM-genererade maskin_service-rader (en per Repair-event, dedup på mom_event_id).
         # Stanford-id (text) konverteras till maskiner.id (uuid) här. Saknas mappningen
         # skipp:as raden — fakt_avbrott-raden är redan källa-of-truth med text-id.
