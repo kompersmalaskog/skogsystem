@@ -63,10 +63,11 @@ function fmtDatumSv(datum: string): string {
 }
 
 type MomTiderHour = {
-  processing: number   // minuter
-  terrain:    number
-  kort_stopp: number
-  ovrigt:     number   // other + disturbance
+  processing:  number   // minuter
+  terrain:     number
+  kort_stopp:  number
+  other:       number   // RUN "Other work" — maskinen kör/arbetar
+  disturbance: number   // DOWN "Disturbance" — maskinen står; = fakt_avbrott typ='Störning'
 }
 
 function stockholmDayBoundsUtc(datum: string): { gte: string; lt: string } {
@@ -93,14 +94,14 @@ async function fetchMomTider(
   const result: Record<number, MomTiderHour> = {}
   for (const row of (data || [])) {
     const h = toStockholmHour(row.timme as string)
-    if (!result[h]) result[h] = { processing: 0, terrain: 0, kort_stopp: 0, ovrigt: 0 }
+    if (!result[h]) result[h] = { processing: 0, terrain: 0, kort_stopp: 0, other: 0, disturbance: 0 }
     const min = (row.minuter as number) || 0
     switch (row.typ as string) {
-      case 'processing':  result[h].processing += min; break
-      case 'terrain':     result[h].terrain    += min; break
-      case 'kort_stopp':  result[h].kort_stopp += min; break
-      case 'other':
-      case 'disturbance': result[h].ovrigt     += min; break
+      case 'processing':  result[h].processing  += min; break
+      case 'terrain':     result[h].terrain      += min; break
+      case 'kort_stopp':  result[h].kort_stopp   += min; break
+      case 'other':       result[h].other        += min; break
+      case 'disturbance': result[h].disturbance  += min; break
     }
   }
   return result
@@ -515,7 +516,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 }
 
 // ── TiderDelSection ───────────────────────────────────────────
-// Visar processing/körning/kortstopp/övrigt per timme från mom_tider.
+// Visar processing/körning/annat arbete/kortstopp/störning per timme från mom_tider.
 function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined }) {
   const sectionLabel: React.CSSProperties = {
     fontSize: 11, color: C.muted, fontWeight: 600,
@@ -524,10 +525,11 @@ function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined
   }
 
   const entries: { label: string; min: number; color: string }[] = momHour ? [
-    { label: 'Processing',      min: momHour.processing, color: '#30d158' },
-    { label: 'Körning/terräng', min: momHour.terrain,   color: '#0a84ff' },
-    { label: 'Kortstopp',       min: momHour.kort_stopp, color: '#8e8e93' },
-    { label: 'Övrigt/störning', min: momHour.ovrigt,    color: '#ff9f0a' },
+    { label: 'Processing',      min: momHour.processing,  color: '#30d158' },
+    { label: 'Körning/terräng', min: momHour.terrain,     color: '#0a84ff' },
+    { label: 'Annat arbete',    min: momHour.other,       color: '#8e8e93' },
+    { label: 'Kortstopp',       min: momHour.kort_stopp,  color: '#636366' },
+    { label: 'Störning',        min: momHour.disturbance, color: '#ff9f0a' },
   ].filter(e => e.min > 0) : []
 
   const total = entries.reduce((s, e) => s + e.min, 0)
@@ -581,15 +583,16 @@ function TidPerTimmeKort({
     <div style={{ background: C.card, borderRadius: 14, padding: '18px 18px 6px', marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 1 }}>Körtid per timme</div>
       <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>
-        Ur maskindatorn · Processing · Körning · Kortstopp · Övrigt
+        Ur maskindatorn · Processing · Körning · Annat arbete · Kortstopp · Störning
       </div>
       {hours.map(h => {
         const m = momTider[h]
         const entries: { label: string; min: number; color: string }[] = [
-          { label: 'Processing',      min: m.processing, color: '#30d158' },
-          { label: 'Körning/terräng', min: m.terrain,    color: '#0a84ff' },
-          { label: 'Kortstopp',       min: m.kort_stopp, color: '#8e8e93' },
-          { label: 'Övrigt/störning', min: m.ovrigt,     color: '#ff9f0a' },
+          { label: 'Processing',      min: m.processing,  color: '#30d158' },
+          { label: 'Körning/terräng', min: m.terrain,     color: '#0a84ff' },
+          { label: 'Annat arbete',    min: m.other,       color: '#8e8e93' },
+          { label: 'Kortstopp',       min: m.kort_stopp,  color: '#636366' },
+          { label: 'Störning',        min: m.disturbance, color: '#ff9f0a' },
         ].filter(e => e.min > 0)
         const total = entries.reduce((s, e) => s + e.min, 0)
         if (total === 0) return null
