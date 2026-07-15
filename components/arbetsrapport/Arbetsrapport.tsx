@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import { uppdateraVerifierat, upsertVerifierat, SPARA_FEL } from "@/lib/supabase-save";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
@@ -1029,7 +1030,9 @@ export default function Arbetsrapport() {
               const startSec = startTid + ':00';
               for (const o of opna) {
                 const min = minutDiff(o.start_tid, startSec);
-                await supabase.from('extra_tid').update({ slut_tid: startSec, minuter: min }).eq('id', o.id);
+                // Bakgrundspoll — ingen alert; re-fetchen nedan visar sanningen om stängningen inte gick igenom
+                const res = await uppdateraVerifierat(supabase, 'extra_tid', { slut_tid: startSec, minuter: min }, { id: o.id });
+                if (!res.ok) console.error('[auto-stopp] extra_tid', o.id, 'kunde inte stängas');
               }
               setPagaendeAktiviteter([]);
               // Refresh extra_tid lista
@@ -1355,8 +1358,10 @@ export default function Arbetsrapport() {
     const dagObjId = valtObjektId || idagArb?.objekt_id || null;
     const nuBekrIso = new Date().toISOString();
 
-    // 1. UPSERT — alla värden från lokala state (garanterat icke-tomma efter guard)
-    await supabase.from("arbetsdag").upsert({
+    // 1. UPSERT — alla värden från lokala state (garanterat icke-tomma efter guard).
+    //    VERIFIERAT: träffar skrivningen inte databasen (RLS, borttagen rad,
+    //    nätfel) får dagen ALDRIG visas som bekräftad — det är lönedata.
+    const uppRes = await upsertVerifierat(supabase, "arbetsdag", {
       medarbetare_id: medarbetare.id,
       datum: idagKey,
       start_tid: start, slut_tid: slut, rast_min: rast,
@@ -1366,6 +1371,10 @@ export default function Arbetsrapport() {
       traktamente: trak, bekraftad: true,
       bekraftad_tid: nuBekrIso,
     }, { onConflict: 'medarbetare_id,datum' });
+    if (!uppRes.ok) {
+      setBekraftaFel(uppRes.fel);
+      return false;
+    }
 
     // 2. setDagData lokalt — samma värden som UPSERT skickade. Körs FÖRE
     //    dirty-nollställningen så synk-useEffect:en (när den sen kör pga
@@ -1411,15 +1420,15 @@ export default function Arbetsrapport() {
     const deadlineIso = deadline.toISOString().slice(0, 10);
 
     try {
-      const { error } = await supabase.from("vilobrott").update({
+      const res = await uppdateraVerifierat(supabase, "vilobrott", {
         besvarat_av_forare: true,
         orsak: vilobrottOrsakVal,
         orsak_fritext: vilobrottOrsakVal === 'annat' ? vilobrottOrsakFritext.trim() : null,
         besvarat_tid: nuIso,
         kompensation_h: kompH,
         kompensation_deadline: deadlineIso,
-      }).eq("id", aktivt.id);
-      if (error) throw error;
+      }, { id: aktivt.id });
+      if (!res.ok) throw new Error(res.fel);
       // Re-fetcha aktuellaVilobrott så Dag-vyns gula varningar uppdateras.
       // RÖR INTE vilobrottKö — den är fryst genom hela flödet.
       if (medarbetare?.id) {
@@ -1467,8 +1476,9 @@ export default function Arbetsrapport() {
     if (!aktivTimer) return;
     const nuT = nuKlock() + ":00";
     const min = minutDiff(aktivTimer.start_tid, nuT);
-    const { data } = await supabase.from("extra_tid").update({ slut_tid: nuT, minuter: min }).eq("id", aktivTimer.id).select().single();
-    const uppdaterad = data || { ...aktivTimer, slut_tid: nuT, minuter: min };
+    const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuT, minuter: min }, { id: aktivTimer.id }, "*");
+    if (!res.ok) { alert(res.fel); return; } // timern står kvar — inget låtsas-stopp
+    const uppdaterad = res.rows[0];
     setPagaendeAktiviteter(arr => arr.filter(x => x.id !== aktivTimer.id));
     setExtraTidData(arr => arr.map(x => x.id === aktivTimer.id ? uppdaterad : x));
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
@@ -1807,8 +1817,10 @@ export default function Arbetsrapport() {
             {isWorking ? (
               <button onClick={async ()=>{
                 const nuT = nuKlock();
+                // Verifiera FÖRE lokal state — ett pass som inte avslutades i DB får inte se avslutat ut
+                const res = await uppdateraVerifierat(supabase, "arbetsdag", { slut_tid: nuT + ":00" }, { id: dagData[idagKey]?.id });
+                if (!res.ok) { alert(res.fel); return; }
                 setSlut(nuT); setSlutÄndrad(true);
-                await supabase.from("arbetsdag").update({ slut_tid: nuT + ":00" }).eq("id", dagData[idagKey]?.id);
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                 synkaVilobrott(idagKey);
@@ -1819,15 +1831,16 @@ export default function Arbetsrapport() {
               <button onClick={async ()=>{
                 const nuT = nuKlock();
                 if (!medarbetare?.id) { console.warn('[Starta manuellt] medarbetare saknas'); return; }
-                setStart(nuT); setStartÄndrad(true);
-                const { data, error } = await supabase.from("arbetsdag").upsert({
+                const res = await upsertVerifierat(supabase, "arbetsdag", {
                   medarbetare_id: medarbetare.id,
                   datum: idagKey,
                   start_tid: nuT + ":00",
                   maskin_id: medarbetare.maskin_id || null,
                   // arbetad_min är generated (slut_tid - start_tid - rast_min) — sätts ej manuellt
-                }, { onConflict: 'medarbetare_id,datum' }).select().single();
-                if (error) { console.error('[Starta manuellt] supabase-fel', error); return; }
+                }, { onConflict: 'medarbetare_id,datum', select: "*" });
+                if (!res.ok) { alert(res.fel); return; }
+                setStart(nuT); setStartÄndrad(true);
+                const data = res.rows[0];
                 if (data) {
                   setDagData(d => ({ ...d, [idagKey]: {
                     ...(d[idagKey] || {}),
@@ -1865,7 +1878,7 @@ export default function Arbetsrapport() {
         {!dagData[idagKey]?.bekraftad && pagaendeAktiviteter.length===0 && (
           <button onClick={async ()=>{
             const startTid = nuKlock();
-            const { data } = await supabase.from("extra_tid").insert({
+            const { data, error } = await supabase.from("extra_tid").insert({
               medarbetare_id: medarbetare.id,
               datum: idagKey,
               start_tid: startTid + ":00",
@@ -1873,10 +1886,9 @@ export default function Arbetsrapport() {
               minuter: 0,
               kalla: 'morgon',
             }).select().single();
-            if (data) {
-              setPagaendeAktiviteter(p => [...p, data]);
-              setExtraTidData(d => [data, ...d]);
-            }
+            if (error || !data) { alert(SPARA_FEL); return; }
+            setPagaendeAktiviteter(p => [...p, data]);
+            setExtraTidData(d => [data, ...d]);
             if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
           }}
             style={{ display:"flex",alignItems:"center",gap:6,margin:"-8px 0 28px",padding:0,background:"none",border:"none",color:"#0a84ff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
@@ -2089,15 +2101,17 @@ export default function Arbetsrapport() {
                       const valt = opt.v === null ? !trak : (trak?.summa === (opt.v as any)?.summa);
                       return (
                         <button key={opt.k} onClick={async ()=>{
-                          setTrak(opt.v as any); setTrakÄndrad(true); setTrakÖppen(false);
+                          setTrakÖppen(false);
                           if (dagData[idagKey]?.id) {
                             const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
                             const payload: any = { traktamente: !!opt.v };
                             if (bryterBekräftelse) payload.bekraftad = false;
-                            await supabase.from("arbetsdag").update(payload).eq("id", dagData[idagKey].id);
+                            const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: dagData[idagKey].id });
+                            if (!res.ok) { alert(res.fel); return; } // trak-valet rörs inte — DB och UI ska aldrig glida isär
                             if (bryterBekräftelse) setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: false, traktamente: !!opt.v } }));
                             else setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], traktamente: !!opt.v } }));
                           }
+                          setTrak(opt.v as any); setTrakÄndrad(true);
                         }}
                           style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 6px",color:valt?"#0a84ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>{opt.l}</button>
                       );
@@ -2116,10 +2130,13 @@ export default function Arbetsrapport() {
                   onClick={async ()=>{
                     const nuT = nuKlock();
                     const nuTS = nuT + ":00";
-                    // Stoppa eventuella pågående extra-tid-aktiviteter
+                    // Stoppa eventuella pågående extra-tid-aktiviteter.
+                    // Går stängningen inte igenom avbryts bekräftelsen — annars
+                    // bekräftas dagen med en timer som fortfarande är öppen i DB.
                     for (const p of pagaendeAktiviteter) {
                       const min = minutDiff(p.start_tid, nuTS);
-                      await supabase.from("extra_tid").update({ slut_tid: nuTS, minuter: min }).eq("id", p.id);
+                      const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
+                      if (!res.ok) { alert(res.fel); return; }
                     }
                     if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
 
@@ -2213,7 +2230,9 @@ export default function Arbetsrapport() {
                     } else {
                       payload.start_tid = nuT + ":00";
                     }
-                    const { data } = await supabase.from("arbetsdag").upsert(payload, { onConflict: 'medarbetare_id,datum' }).select().single();
+                    const res = await upsertVerifierat(supabase, "arbetsdag", payload, { onConflict: 'medarbetare_id,datum', select: "*" });
+                    if (!res.ok) { alert(res.fel); return; }
+                    const data = res.rows[0];
                     if (data) {
                       setDagTyp(s.id);
                       setDagData(d => ({ ...d, [idagKey]: {
@@ -2346,12 +2365,13 @@ export default function Arbetsrapport() {
           setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); setKvAvBesk("");
         };
         const sparaDetaljer = async () => {
-          await supabase.from("extra_tid").update({
+          const res = await uppdateraVerifierat(supabase, "extra_tid", {
             aktivitet_typ: kvAvTyp || null,
             objekt_id: kvAvObj?.id || null,
             debiterbar: kvAvDeb,
             kommentar: kvAvBesk || null,
-          }).eq("id", efterStoppSheet.id);
+          }, { id: efterStoppSheet.id });
+          if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar så föraren kan försöka igen
           setExtraTidData(d => d.map(x => x.id === efterStoppSheet.id
             ? { ...x, aktivitet_typ: kvAvTyp || null, objekt_id: kvAvObj?.id || null, debiterbar: kvAvDeb, kommentar: kvAvBesk || null }
             : x
@@ -2460,19 +2480,22 @@ export default function Arbetsrapport() {
                 <button
                   onClick={async ()=>{
                     if (ändrat) {
+                      if (dagData[idagKey]?.id) {
+                        // Om dagen var bekräftad, rasera bekräftelsen så status visar "Ändrad".
+                        // Verifiera skrivningen FÖRE lokal state — tider är lönedata,
+                        // ett "Spara" som inte nådde DB får inte se sparat ut.
+                        const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
+                        const payload: any = { start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR };
+                        if (bryterBekräftelse) payload.bekraftad = false;
+                        const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: dagData[idagKey].id });
+                        if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar
+                        setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR, start: tS, slut: tE, rast: tR, ...(bryterBekräftelse ? { bekraftad: false } : {}) } }));
+                        synkaVilobrott(idagKey);
+                      }
                       // Per-fält dirty: frys bara det föraren faktiskt ändrade
                       if (tS !== start) { setStart(tS); setStartÄndrad(true); }
                       if (tE !== slut)  { setSlut(tE);  setSlutÄndrad(true); }
                       if (tR !== rast)  { setRast(tR);  setRastÄndrad(true); }
-                      if (dagData[idagKey]?.id) {
-                        // Om dagen var bekräftad, rasera bekräftelsen så status visar "Ändrad"
-                        const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
-                        const payload: any = { start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR };
-                        if (bryterBekräftelse) payload.bekraftad = false;
-                        await supabase.from("arbetsdag").update(payload).eq("id", dagData[idagKey].id);
-                        setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR, start: tS, slut: tE, rast: tR, ...(bryterBekräftelse ? { bekraftad: false } : {}) } }));
-                        synkaVilobrott(idagKey);
-                      }
                     }
                     stäng();
                   }}
@@ -2532,14 +2555,15 @@ export default function Arbetsrapport() {
                 </button>
                 <button
                   onClick={async ()=>{
-                    setKmM({km:tMK}); setKmK({km:tKK});
                     if (dagData[idagKey]?.id) {
                       const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
                       const payload: any = { km_morgon: tMK, km_kvall: tKK };
                       if (bryterBekräftelse) payload.bekraftad = false;
-                      await supabase.from("arbetsdag").update(payload).eq("id", dagData[idagKey].id);
+                      const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: dagData[idagKey].id });
+                      if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar
                       setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], km_morgon: tMK, km_kvall: tKK, km: tMK+tKK, km_totalt: tMK+tKK, ...(bryterBekräftelse ? { bekraftad: false } : {}) } }));
                     }
+                    setKmM({km:tMK}); setKmK({km:tKK});
                     stäng();
                   }}
                   style={{ padding:"16px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
@@ -2940,7 +2964,8 @@ export default function Arbetsrapport() {
                       onClick={async()=>{
                         if(!atkVal) return;
                         const row={medarbetare_id:medarbetare.id,period:String(årNu2),val:atkVal,timmar:atkTimmar ?? 0,belopp:atkVal!=='ledig'?atkKr:null,datum_valt:new Date().toISOString(),status:'bekräftad'};
-                        await supabase.from("atk_val").upsert(row, { onConflict: 'medarbetare_id,period' });
+                        const res = await upsertVerifierat(supabase, "atk_val", row, { onConflict: 'medarbetare_id,period' });
+                        if (!res.ok) { alert(res.fel); return; } // ATK-valet får aldrig se bekräftat ut utan att vara sparat
                         setAtkValSparat(row);
                       }}
                       style={{ width:"100%",height:48,background:atkVal?"#0a84ff":"rgba(255,255,255,0.04)",border:"none",borderRadius:12,color:atkVal?"#fff":"#636366",fontSize:15,fontWeight:600,cursor:atkVal?"pointer":"default",fontFamily:"inherit",opacity:atkVal?1:0.5 }}>
@@ -3448,8 +3473,8 @@ export default function Arbetsrapport() {
           skickat_tidpunkt: new Date().toISOString(),
           status: "inskickat",
         };
-        const { error } = await supabase.from("loneunderlag").upsert(underlag);
-        if(error) throw error;
+        const res = await upsertVerifierat(supabase, "loneunderlag", underlag);
+        if (!res.ok) throw new Error(res.fel);
         setLönSkickat(true);
         setLönSparar(false);
       } catch(e) {
@@ -3888,14 +3913,16 @@ export default function Arbetsrapport() {
         {/* Påminnelser */}
         <div style={{ marginTop:32 }}><Label>Påminnelser</Label></div>
         {(() => {
-          const uppdatera = async (field: string, value: any) => {
-            await supabase.from("medarbetare").update({ [field]: value }).eq("id", medarbetare.id);
+          const uppdatera = async (field: string, value: any): Promise<boolean> => {
+            const res = await uppdateraVerifierat(supabase, "medarbetare", { [field]: value }, { id: medarbetare.id });
+            if (!res.ok) { alert(res.fel); return false; } // ingen "Sparat"-toast på en skrivning som inte hände
             setMedarbetare((m: any) => ({ ...m, [field]: value }));
             setSparatToast(true); setTimeout(() => setSparatToast(false), 1800);
+            return true;
           };
 
           const togglePush = async (on: boolean) => {
-            await uppdatera("push_aktiv", on);
+            if (!await uppdatera("push_aktiv", on)) return;
             if (typeof navigator === "undefined" || !('serviceWorker' in navigator)) return;
             try {
               if (on) {
@@ -4133,13 +4160,16 @@ export default function Arbetsrapport() {
       </div>
       <div style={bottom}>
         <button style={btn.primary} onClick={async()=>{
-          await supabase.from("arbetsdag").upsert({
+          // onConflict saknades här — fanns dagen redan (t.ex. MOM-skapad rad)
+          // krockade upserten tyst och "Registrerat" visades ändå.
+          const res = await upsertVerifierat(supabase, "arbetsdag", {
             medarbetare_id:medarbetare.id,
             datum:new Date().toISOString().split("T")[0],
             dagtyp:dagTyp,
             bekraftad:true,
             bekraftad_tid:new Date().toISOString(),
-          });
+          }, { onConflict: 'medarbetare_id,datum' });
+          if (!res.ok) { alert(res.fel); return; }
           setSteg("klarFrånvaro");
         }}>Bekräfta</button>
         <button style={{ ...btn.textBack, marginTop:2 }} onClick={()=>setSteg("morgon")}>Ångra och gå tillbaka</button>
@@ -4424,11 +4454,10 @@ export default function Arbetsrapport() {
                     style={{ width:"100%",padding:"18px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}
                     onClick={async ()=>{
                       const nuIso = new Date().toISOString();
-                      const { error } = await supabase.from("arbetsdag")
-                        .update({ bekraftad: true, bekraftad_tid: nuIso })
-                        .eq("medarbetare_id", medarbetare.id)
-                        .eq("datum", redDag.datum);
-                      if (error) { alert("Kunde inte bekräfta — " + error.message); return; }
+                      const res = await uppdateraVerifierat(supabase, "arbetsdag",
+                        { bekraftad: true, bekraftad_tid: nuIso },
+                        { medarbetare_id: medarbetare.id, datum: redDag.datum });
+                      if (!res.ok) { alert(res.fel); return; }
                       setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
                       setDagData(dd => ({ ...dd, [redDag.datum]: { ...(dd[redDag.datum]||{}), bekraftad: true, bekraftad_tid: nuIso } }));
                       if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
@@ -4709,7 +4738,7 @@ export default function Arbetsrapport() {
                         kmMorg = halv;
                         kmKvall = redKm - halv;
                       }
-                      const { error } = await supabase.from("arbetsdag").upsert({
+                      const res = await upsertVerifierat(supabase, "arbetsdag", {
                         medarbetare_id: medarbetare.id,
                         datum: redDag.datum,
                         start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
@@ -4719,7 +4748,7 @@ export default function Arbetsrapport() {
                         redigerad: true,
                         redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
                       }, { onConflict: 'medarbetare_id,datum' });
-                      if(error) throw error;
+                      if (!res.ok) throw new Error(res.fel);
                       setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
                       setSteg("kalender");
                     } catch(e) {
@@ -4738,11 +4767,10 @@ export default function Arbetsrapport() {
                   style={{ width:"100%",padding:"18px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}
                   onClick={async ()=>{
                     const nuIso = new Date().toISOString();
-                    const { error } = await supabase.from("arbetsdag")
-                      .update({ bekraftad: true, bekraftad_tid: nuIso })
-                      .eq("medarbetare_id", medarbetare.id)
-                      .eq("datum", redDag.datum);
-                    if (error) { alert("Kunde inte bekräfta — " + error.message); return; }
+                    const res = await uppdateraVerifierat(supabase, "arbetsdag",
+                      { bekraftad: true, bekraftad_tid: nuIso },
+                      { medarbetare_id: medarbetare.id, datum: redDag.datum });
+                    if (!res.ok) { alert(res.fel); return; }
                     setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
                     setDagData(dd => ({ ...dd, [redDag.datum]: { ...(dd[redDag.datum]||{}), bekraftad: true, bekraftad_tid: nuIso, status: 'ok' } }));
                     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
@@ -4878,18 +4906,16 @@ export default function Arbetsrapport() {
                   </button>
                   <button
                     onClick={async () => {
-                      // Uppdatera lokal state omedelbart
-                      setRedKm(ny);
-                      setRedDag((d:any) => ({ ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny }));
-                      // Skriv direkt till DB om raden finns (samma beteende som
-                      // dag-vyns km-sheet). Bryter bekräftelse vid ändring.
+                      // Skriv till DB först om raden finns (samma beteende som
+                      // dag-vyns km-sheet), lokal state efter verifierad skrivning.
+                      // Bryter bekräftelse vid ändring.
                       if (redDag?.id) {
                         const bryterBekräftelse = !!redDag?.bekraftad;
                         const payload: any = { km_morgon: redTmpKmM, km_kvall: redTmpKmK, redigerad: true, redigerad_tid: new Date().toISOString() };
                         if (bryterBekräftelse) { payload.bekraftad = false; payload.bekraftad_tid = null; }
-                        const { error } = await supabase.from("arbetsdag").update(payload).eq("id", redDag.id);
-                        if (error) {
-                          alert("Kunde inte spara km — " + error.message);
+                        const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: redDag.id });
+                        if (!res.ok) {
+                          alert(res.fel);
                           return;
                         }
                         setDagData(dd => ({
@@ -4903,7 +4929,11 @@ export default function Arbetsrapport() {
                           },
                         }));
                         setRedDag((d:any) => ({ ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny, ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}) }));
+                      } else {
+                        // Ingen DB-rad än — bara lokal state (skrivs vid Spara/upsert)
+                        setRedDag((d:any) => ({ ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny }));
                       }
+                      setRedKm(ny);
                       stäng();
                     }}
                     style={{ padding:"16px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
