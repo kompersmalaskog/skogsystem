@@ -188,7 +188,10 @@ const bedomProfil = (
   variabel: 'diameter' | 'langd',
   trosklar: KravRow[],
 ): { status: ProfilStatus; larmTyst: boolean; detaljer: { metrik: string; status: ProfilStatus }[] } => {
-  const rows = trosklar.filter((t) => t.variabel === variabel);
+  // LÄNGD bedöms ENBART på träffprocent (stocken kapas — givaren driver inte
+  // gradvis som diametern). Ev. systematisk/standardavv-rader för längd (Biometria
+  // har dem) ignoreras. Diameter behåller alla tre måtten.
+  const rows = trosklar.filter((t) => t.variabel === variabel && (variabel === 'diameter' || t.metrik === 'traffprocent'));
   if (!stat || stat.n === 0 || rows.length === 0) return { status: 'ok', larmTyst: true, detaljer: [] };
   const traffRow = rows.find((r) => r.metrik === 'traffprocent');
   const larmMin = traffRow?.larm_min_matt ?? null;
@@ -520,7 +523,7 @@ export default function KalibreringPage() {
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState<string | null>(null);
   const [selectedTrendTradslag, setSelectedTrendTradslag] = useState<string | null>(null);
-  const [trendUnit, setTrendUnit] = useState<'dia' | 'len'>('dia');
+  const [trendUnit] = useState<'dia' | 'len'>('dia'); // Avvikelse-kurvan är alltid diameter (ingen längd-drift)
   const [trendPeriod, setTrendPeriod] = useState<'vecka' | 'manad' | 'kvartal' | 'ar'>('manad');
   // Anchor = en datum-sträng (ISO) inuti det fönster användaren tittar på.
   // null = "auto, använd senaste kontroll för aktuellt trädslag".
@@ -624,11 +627,12 @@ export default function KalibreringPage() {
   };
 
   // Rapport per-trädslag-cell: träff% (huvudtal) färgad via kravprofilen (sämsta-styr,
-  // som bedomProfil men grind 30 här — inte larm-grindens 150). syst/std som stödtal.
+  // grind 30 här — inte larm-grindens 150). Diameter: syst/std stödtal. LÄNGD: bara
+  // träffprocent styr domen; stödtalet visar tolerans + n (inget snitt/systematisk).
   const renderTrCell = (stat: VariabelStat, variabel: 'diameter' | 'langd', enhet: 'mm' | 'cm', trosklar: KravRow[]) => {
     if (stat.n < 30) return <div className="kalib-tr-cellinner"><div className="kalib-tr-tunt">för tunt underlag</div><div className="kalib-tr-stod">n {stat.n}</div></div>;
     let worst: ProfilStatus = 'ok';
-    for (const r of trosklar.filter(t => t.variabel === variabel)) {
+    for (const r of trosklar.filter(t => t.variabel === variabel && (variabel === 'diameter' || t.metrik === 'traffprocent'))) {
       const v = r.metrik === 'traffprocent' ? stat.traffPct
         : r.metrik === 'systematisk' ? (stat.systematisk != null ? Math.abs(stat.systematisk) : null)
           : r.metrik === 'standardavv' ? stat.standardavv
@@ -641,7 +645,11 @@ export default function KalibreringPage() {
     return (
       <div className="kalib-tr-cellinner">
         <div className={`kalib-tr-traff tone-${PROFIL_TON[worst]}`}>{stat.traffPct != null ? `${Math.round(stat.traffPct)}%` : '–'}</div>
-        <div className="kalib-tr-stod">syst {fmtSig1(stat.systematisk)} · std {(stat.standardavv ?? 0).toFixed(1)} {enhet} · n {stat.n}</div>
+        <div className="kalib-tr-stod">
+          {variabel === 'langd'
+            ? `inom ±${fmtKrav(stat.tolerans)} cm · n ${stat.n}`
+            : `syst ${fmtSig1(stat.systematisk)} · std ${(stat.standardavv ?? 0).toFixed(1)} ${enhet} · n ${stat.n}`}
+        </div>
       </div>
     );
   };
@@ -779,7 +787,9 @@ export default function KalibreringPage() {
         <div className="kalib-hero-metric-hint">
           {bed?.larmTyst
             ? `för få mått i perioden (${stat.n})`
-            : `syst. ${sig1(stat.systematisk)} ${enhet} · std ${abs1(stat.standardavv)} ${enhet} · n=${stat.n}`}
+            : variabel === 'langd'
+              ? `n=${stat.n} · klaven mäter hela cm`
+              : `syst. ${sig1(stat.systematisk)} ${enhet} · std ${abs1(stat.standardavv)} ${enhet} · n=${stat.n}`}
         </div>
       </div>
     );
@@ -1033,8 +1043,16 @@ export default function KalibreringPage() {
       const datumStr = new Date(k.datum).toLocaleDateString('sv-SE', {
         day: 'numeric', month: 'short', year: 'numeric',
       });
-      const lenSnitt = k.langd_avvikelse_snitt_cm ?? 0;
       const diaSnitt = k.dia_avvikelse_snitt_mm ?? 0;
+
+      // Toleransband HÄMTAS ur maskinens kravprofil (inte hårdkodat 2/4) — annars
+      // driver band, skala och "utanför"-räkning isär nästa gång en tröskel ändras.
+      const tolProfil = (variabel: string, fallback: number) => {
+        const r = bedomning?.trosklar.find(t => t.variabel === variabel && t.metrik === 'traffprocent');
+        return r?.tolerans != null ? Number(r.tolerans) : fallback;
+      };
+      const tolDia = tolProfil('diameter', 4);
+      const tolLen = tolProfil('langd', 2);
 
       // Per-stock distribution — delas av svärmen (visuellt) och big-tonen.
       // sDia tar max-absolut över mätpunkter + toppen (samma logik som
@@ -1058,10 +1076,12 @@ export default function KalibreringPage() {
 
       // Status-raden räknar enskilda stockar utanför tolerans — snittet
       // kan se OK ut även när flera stockar är dåliga.
-      const utanforLen = stockDist.filter((e) => Math.abs(e.sLen) > 2).length;
-      const utanforDia = stockDist.filter((e) => Math.abs(e.sDia) > 4).length;
+      const utanforLen = stockDist.filter((e) => Math.abs(e.sLen) > tolLen).length;
+      const utanforDia = stockDist.filter((e) => Math.abs(e.sDia) > tolDia).length;
       const lenStatusTone: 'ok' | 'bad' = utanforLen === 0 ? 'ok' : 'bad';
       const diaStatusTone: 'ok' | 'bad' = utanforDia === 0 ? 'ok' : 'bad';
+      // Längd visar TRÄFFPROCENT (andel inom ±tol), inte snitt — stocken kapas.
+      const lenTraff = data.stockar.length > 0 ? Math.round((100 * (data.stockar.length - utanforLen)) / data.stockar.length) : null;
       const lenLabel = utanforLen === 0
         ? `Alla ${data.stockar.length} inom tolerans`
         : `${utanforLen} av ${data.stockar.length} stockar utanför`;
@@ -1097,7 +1117,7 @@ export default function KalibreringPage() {
       // === Detaljmodal för enskild stock — pushas ovanpå översikten ===
       const openStockDetalj = (s: StockRow, _stammar: StamRow[]) => {
         const sLen = s.langd_avvikelse_cm ?? 0;
-        const sLenCls2: 'good' | 'bad' = Math.abs(sLen) > 2 ? 'bad' : 'good';
+        const sLenCls2: 'good' | 'bad' = Math.abs(sLen) > tolLen ? 'bad' : 'good';
 
         // Mätpunkter med båda värdena, sorterade på position
         const mpAvvik = s.matpunkter
@@ -1592,9 +1612,9 @@ export default function KalibreringPage() {
 
             <div className="kalib-card">
               <div className="kalib-tol-header">
-                <div className="kalib-tol-label">Längd</div>
-                <div className={`kalib-tol-value tone-${avvikelseTon(lenSnitt, 'len')}`}>
-                  {fmtAvvikelse(lenSnitt, 'cm')} cm
+                <div className="kalib-tol-label">Längd · träffprocent</div>
+                <div className={`kalib-tol-value tone-${lenStatusTone === 'bad' ? 'hot' : 'ok'}`}>
+                  {lenTraff != null ? `${lenTraff}%` : '–'}
                 </div>
               </div>
               <div className="kalib-swarm" aria-label="Stockfördelning längd">
@@ -1604,18 +1624,14 @@ export default function KalibreringPage() {
                   <div
                     key={e.id}
                     className={`kalib-swarm-dot tone-${avvikelseTon(e.sLen, 'len')}`}
-                    style={{ left: `${swarmX(e.sLen, 4)}%`, top: `${swarmY(e)}%` }}
+                    style={{ left: `${swarmX(e.sLen, 2 * tolLen)}%`, top: `${swarmY(e)}%` }}
                     title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sLen, 'cm')} cm`}
                   />
                 ))}
-                <div
-                  className="kalib-swarm-snitt"
-                  style={{ left: `${swarmX(lenSnitt, 4)}%` }}
-                  title={`Snitt: ${fmtAvvikelse(lenSnitt, 'cm')} cm`}
-                />
+                {/* Ingen snitt-markör för längd — längd bedöms på träffprocent, inte snitt. */}
               </div>
               <div className="kalib-swarm-scale">
-                <span>−4</span><span>±2 tolerans</span><span>+4 cm</span>
+                <span>−{fmtKrav(2 * tolLen)}</span><span>±{fmtKrav(tolLen)} tolerans</span><span>+{fmtKrav(2 * tolLen)} cm</span>
               </div>
               <div className={`kalib-tol-status tone-${lenStatusTone}`}>
                 <span className="kalib-tol-status-dot" />
@@ -1637,18 +1653,18 @@ export default function KalibreringPage() {
                   <div
                     key={e.id}
                     className={`kalib-swarm-dot tone-${avvikelseTon(e.sDia, 'dia')}`}
-                    style={{ left: `${swarmX(e.sDia, 8)}%`, top: `${swarmY(e)}%` }}
+                    style={{ left: `${swarmX(e.sDia, 2 * tolDia)}%`, top: `${swarmY(e)}%` }}
                     title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sDia, 'mm')} mm`}
                   />
                 ))}
                 <div
                   className="kalib-swarm-snitt"
-                  style={{ left: `${swarmX(diaSnitt, 8)}%` }}
+                  style={{ left: `${swarmX(diaSnitt, 2 * tolDia)}%` }}
                   title={`Snitt: ${fmtAvvikelse(diaSnitt, 'mm')} mm`}
                 />
               </div>
               <div className="kalib-swarm-scale">
-                <span>−8</span><span>±4 tolerans</span><span>+8 mm</span>
+                <span>−{fmtKrav(2 * tolDia)}</span><span>±{fmtKrav(tolDia)} tolerans</span><span>+{fmtKrav(2 * tolDia)} mm</span>
               </div>
               <div className={`kalib-tol-status tone-${diaStatusTone}`}>
                 <span className="kalib-tol-status-dot" />
@@ -1727,7 +1743,7 @@ export default function KalibreringPage() {
     },
     // pushModal är inte useCallback-stabil men det är OK — vi tar omräkning
     // av denna callback varje render hellre än att svälja exhaustive-deps.
-    [laddarKontroll, fetchKontroll, pushModal]
+    [laddarKontroll, fetchKontroll, pushModal, bedomning]
   );
 
   // === Derived data ===
@@ -2416,6 +2432,7 @@ export default function KalibreringPage() {
         .kalib-tr-traff.tone-hot{color:#FF453A}
         .kalib-tr-stod{font-size:11px;color:#8E8E93;margin-top:4px;line-height:1.35}
         .kalib-tr-tunt{font-size:13px;color:#8E8E93}
+        .kalib-tr-not{font-size:12px;color:#8E8E93;margin-top:8px;line-height:1.4}
         .kalib-report-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
         .kalib-report-metric{text-align:center;padding:14px 8px;background:rgba(255,255,255,0.04);border-radius:10px}
         .kalib-report-metric-value{font-size:24px;font-weight:700;line-height:1;color:#fff;letter-spacing:-0.02em}
@@ -2979,7 +2996,7 @@ export default function KalibreringPage() {
               })()}
 
               {/* ===== AVSNITT 2: AVVIKELSE — driver maskinen åt ett håll? ===== */}
-              <div className="kalib-section-title" style={{ margin: '18px 4px 8px' }}>Avvikelse — driver maskinen åt ett håll?</div>
+              <div className="kalib-section-title" style={{ margin: '18px 4px 8px' }}>Diameteravvikelse — driver givaren åt ett håll?</div>
               {trendLoading && (
                 <div className="kalib-card" style={{ textAlign: 'center', color: '#8E8E93' }}>
                   Laddar trenddata…
@@ -3215,17 +3232,9 @@ export default function KalibreringPage() {
                       </div>
                     )}
 
-                    {/* Enhetväxling (Diameter / Längd) */}
-                    <div className="kalib-trend-seg">
-                      <button
-                        className={`kalib-trend-seg-btn ${trendUnit === 'dia' ? 'active' : ''}`}
-                        onClick={() => setTrendUnit('dia')}
-                      >Diameter</button>
-                      <button
-                        className={`kalib-trend-seg-btn ${trendUnit === 'len' ? 'active' : ''}`}
-                        onClick={() => setTrendUnit('len')}
-                      >Längd</button>
-                    </div>
+                    {/* Ingen enhetväxling: Avvikelse-kurvan är BARA diameter — längd
+                        kapas och driver inte gradvis, så en längd-driftkurva vore
+                        vilseledande. trendUnit förblir 'dia'. */}
 
                     {/* Tidsupplösning */}
                     <div className="kalib-trend-seg">
@@ -3791,6 +3800,9 @@ export default function KalibreringPage() {
                       </div>
                     ))}
                   </div>
+                )}
+                {trData && trData.tradslag.length > 0 && (
+                  <div className="kalib-tr-not">Längd bedöms bara på träffprocent — stocken kapas, den driver inte gradvis. ±2 cm: klaven mäter hela cm.</div>
                 )}
               </div>
 
