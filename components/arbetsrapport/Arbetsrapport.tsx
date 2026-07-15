@@ -3139,6 +3139,65 @@ export default function Arbetsrapport() {
             // klickbart för inline-expansion av orsak/kompensation.
             const fmtVilaH = (h:number) => { const hh=Math.floor(h); const mm=Math.round((h-hh)*60); return mm>0?`${hh}h ${mm}min`:`${hh}h`; };
             const fD=(d:Date)=>`${dagNamn[d.getDay()].slice(0,3)} ${d.getDate()} ${månNamn2[d.getMonth()]}`;
+
+            // ── Sammanfattnings-kort: faktiska siffror, inte binär status. ──
+            // Föraren ska se SIN vila ("i natt: 12h 40min"), inte bara "uppfylld".
+            // Samma viloperioder som brott-detekteringen redan räknar — vi VISAR dem bara.
+            const senasteVilaRad = vilaRev[0] || null; // senaste beräknade viloperioden, oavsett periodfilter
+            const veckoFonsterDagar = trosklar?.veckovila_fonster_dagar ?? 7;
+            const veckoKravH = trosklar?.veckovila_krav_h ?? 36;
+            // Längsta sammanhängande vila i rullande fönster [nu-7d, nu]:
+            // viloperioderna klippta mot fönstret + pågående vila sedan sista
+            // passets slut (fram till nu, eller till ett pågående pass start).
+            const fonsterStartMs = nu5.getTime() - veckoFonsterDagar*864e5;
+            let veckoLangstaH = 0; let harVeckoData = false;
+            for (const r of allVila) {
+              const s = new Date(`${r.slutDatum}T${r.slutTid}`).getTime();
+              const e = new Date(`${r.startDatum}T${r.startTid}`).getTime();
+              const cs = Math.max(s, fonsterStartMs), ce = Math.min(e, nu5.getTime());
+              if (ce > cs) { harVeckoData = true; veckoLangstaH = Math.max(veckoLangstaH, (ce-cs)/36e5); }
+            }
+            const sistaPasset = sortAsc[sortAsc.length-1];
+            if (sistaPasset) {
+              const passSlutStr = `${sistaPasset.datum}T${sistaPasset.slut_tid.slice(0,5)}`;
+              // Pågående pass (start utan slut) efter sista avslutade passet
+              // avslutar den pågående vilan — annars räknas vilan fram till nu.
+              const pagaendePass = årsData
+                .filter(r => r.start_tid && !r.slut_tid && `${r.datum}T${r.start_tid.slice(0,5)}` > passSlutStr)
+                .sort((a,b) => a.datum.localeCompare(b.datum))[0];
+              const vilaSlutMs = pagaendePass
+                ? new Date(`${pagaendePass.datum}T${pagaendePass.start_tid.slice(0,5)}`).getTime()
+                : nu5.getTime();
+              const s = new Date(passSlutStr).getTime();
+              const cs = Math.max(s, fonsterStartMs), ce = Math.min(vilaSlutMs, nu5.getTime());
+              if (ce > cs) { harVeckoData = true; veckoLangstaH = Math.max(veckoLangstaH, (ce-cs)/36e5); }
+            }
+            veckoLangstaH = Math.round(veckoLangstaH*10)/10;
+            // Statusnivå: rött under kravet, gult inom 1h över golvet ("det var
+            // tight" — mild markering, inget larm), grönt med god marginal.
+            const vilaNiva = (vilaH:number, kravH:number) =>
+              vilaH < kravH ? 'brott' : vilaH < kravH + 1 ? 'nara' : 'ok';
+            // Långa ledigheter (>=24h) visas som hela timmar — "161h 12min" är
+            // brus på den nivån och spränger kortbredden.
+            const fmtStor = (h:number) => h >= 24 ? `${Math.round(h)}h` : fmtVilaH(h);
+            const SammanfattningsKort = ({label, vilaH, kravH, saknas}:{label:string;vilaH:number;kravH:number;saknas?:boolean}) => {
+              const st = vilaNiva(vilaH, kravH);
+              const farg = st==='brott' ? '#ff453a' : st==='nara' ? '#ff9f0a' : '#30d158';
+              return (
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                  <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>{label}</p>
+                  {saknas ? (
+                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen vila registrerad än</p>
+                  ) : (<>
+                    <p style={{ margin:0,fontSize:22,fontWeight:700,color:"#fff",...TNUM }}>{fmtStor(vilaH)}</p>
+                    <p style={{ margin:"6px 0 0",fontSize:12,fontWeight:600,color:farg,display:"flex",alignItems:"center",gap:4 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize:14 }}>{st==='brott'?'warning':'check'}</span>
+                      {st==='brott' ? `under krav ${kravH}h` : st==='nara' ? `nära gränsen · krav ${kravH}h` : `krav ${kravH}h`}
+                    </p>
+                  </>)}
+                </div>
+              );
+            };
             const VilaKort = ({r}:{r:typeof allVila[0]}) => {
               const b = brottForRad(r);
               const ok = !b;
@@ -3175,6 +3234,14 @@ export default function Arbetsrapport() {
             };
 
             return (<>
+            {/* Sammanfattning: faktiska siffror — föraren ser SIN vila, inte bara "uppfylld" */}
+            <section style={{ marginBottom:24 }}>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+                <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} />
+                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} />
+              </div>
+            </section>
+
             {/* Dygnsvila */}
             <section style={{ marginBottom:24 }}>
               <h3 style={secHead}>Dygnsvila</h3>
@@ -3196,17 +3263,15 @@ export default function Arbetsrapport() {
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
                   {!harProblem?(
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
-                      <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check</span>
-                        <span style={{ ...TYPE.meta,color:"#fff" }}>Dygnsvilan uppfylld</span>
-                      </div>
-                      <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>
+                      {/* Siffrorna bor i sammanfattnings-korten ovanför — här bara vägen till detaljerna */}
+                      <span style={{ ...TYPE.meta,color:"#8e8e93",...TNUM }}>{filtVila.length} {filtVila.length===1?'viloperiod':'viloperioder'} {periodLabel}</span>
+                      <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Se alla nätter →</button>
                     </div>
                   ):(
                     <>
                       {brott.map((r,i)=><VilaKort key={i} r={r} />)}
                       <div style={{ padding:"10px 0 14px",borderTop:"1px solid rgba(255,255,255,0.04)" }}>
-                        <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla {filtVila.length} perioder →</button>
+                        <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Se alla {filtVila.length} nätter →</button>
                       </div>
                     </>
                   )}
@@ -3252,9 +3317,11 @@ export default function Arbetsrapport() {
               ) : !visaAllaVeckovila?(
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
+                    {/* Aktuell veckovila-siffra bor i sammanfattnings-kortet ovanför —
+                        den här sektionen redovisar BROTT i vald period */}
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                      <span className="material-symbols-outlined" style={{ fontSize:18,color:vvHarProblem?"#ff453a":"#30d158" }}>{vvHarProblem?"warning":"check"}</span>
-                      <span style={{ ...TYPE.meta,color:"#fff" }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:"Veckovila uppfylld"}</span>
+                      {vvHarProblem&&<span className="material-symbols-outlined" style={{ fontSize:18,color:"#ff453a" }}>warning</span>}
+                      <span style={{ ...TYPE.meta,color:vvHarProblem?"#fff":"#8e8e93" }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:`Inga brott ${periodLabel}`}</span>
                     </div>
                     {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>}
                   </div>
