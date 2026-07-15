@@ -120,11 +120,13 @@ interface BrandriskPanelProps {
   onUtrustningChange: (u: boolean[]) => void;
   objektNamn?: string;
   koordFranObjekt: boolean; // true = prognosen gäller objektet, false = kartans mitt (fallback)
-  brandLarmTillfart: string;
-  onLarmTillfartChange: (v: string) => void;
+  larmLat: string;
+  larmLng: string;
+  larmBeskrivning: string;
+  larmKalla: 'td' | 'egen' | null;
+  larmBekraftad: boolean;
   brandLarmChecklista: boolean[];
   onLarmChecklistaChange: (v: boolean[]) => void;
-  mapCenter: { lat: number; lng: number };
   onStatusChange?: (status: { status: 'idle' | 'loading' | 'done' | 'error'; currentFwi: number; currentIdx: number }) => void;
 }
 
@@ -140,9 +142,8 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
     brandBrandvakt, onBrandvaktChange, onSaveBrandvakt,
     brandUtrustning, onUtrustningChange,
     objektNamn, koordFranObjekt,
-    brandLarmTillfart, onLarmTillfartChange,
+    larmLat, larmLng, larmBeskrivning, larmKalla, larmBekraftad,
     brandLarmChecklista, onLarmChecklistaChange,
-    mapCenter,
     onStatusChange,
   } = props;
 
@@ -678,17 +679,33 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
               <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
             </summary>
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', fontFamily: 'monospace', marginBottom: 4 }}>
-                {mapCenter.lat.toFixed(4)}°N, {mapCenter.lng.toFixed(4)}°E
-              </div>
-              <button className="btn-press" onClick={() => navigator.clipboard?.writeText(`${mapCenter.lat.toFixed(6)}, ${mapCenter.lng.toFixed(6)}`)}
-                style={{ fontSize: 12, color: '#0a84ff', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 12 }}>
-                Kopiera koordinater
-              </button>
-              <div style={{ ...textStyle, marginBottom: 12 }}>Ge denna position vid larm till 112</div>
-              <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Tillfartsväg</div>
-              <textarea value={brandLarmTillfart} onChange={e => onLarmTillfartChange(e.target.value)} placeholder="Beskriv bästa tillfartsväg..."
-                style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+              {larmLat && larmLng ? (
+                <>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', fontFamily: 'monospace', marginBottom: 4 }}>
+                    {larmLat}°N, {larmLng}°E
+                  </div>
+                  <button className="btn-press" onClick={() => navigator.clipboard?.writeText(`${larmLat}, ${larmLng}`)}
+                    style={{ fontSize: 12, color: '#0a84ff', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginRight: 16, marginBottom: 8 }}>
+                    Kopiera koordinater
+                  </button>
+                  <a href={`https://www.google.com/maps/dir/?api=1&destination=${larmLat},${larmLng}`} target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: 12, color: '#0a84ff', textDecoration: 'none' }}>Navigera dit &rarr;</a>
+                  {/* Källa + om den är verifierad på plats — Vida ritar från kontoret, bommen kan vara låst */}
+                  <div style={{ fontSize: 12, marginTop: 10, marginBottom: 12, color: larmBekraftad ? '#30d158' : '#FF9F0A' }}>
+                    {larmKalla === 'td' ? 'Från traktdirektivet' : larmKalla === 'egen' ? 'Egen' : 'Källa ej angiven'}
+                    {' · '}
+                    {larmBekraftad ? 'verifierad på plats ✓' : 'ej bekräftad på plats'}
+                  </div>
+                  {larmBeskrivning && (
+                    <>
+                      <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 4 }}>Tillfartsväg</div>
+                      <div style={{ ...textStyle, marginBottom: 12, whiteSpace: 'pre-wrap' }}>{larmBeskrivning}</div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <div style={{ ...textStyle, marginBottom: 12, color: '#FF9F0A' }}>Larmkoordinat ej satt — sätts vid rekning (Trakt-panelen).</div>
+              )}
               <div style={{ fontSize: 12, color: '#8e8e93', marginTop: 16, marginBottom: 8 }}>Vid larm – förmedla</div>
               {larmLabels.map((label, i) => (
                 <div key={i} onClick={() => { const n = [...brandLarmChecklista]; n[i] = !n[i]; onLarmChecklistaChange(n); }}

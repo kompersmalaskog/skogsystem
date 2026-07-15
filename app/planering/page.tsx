@@ -1509,6 +1509,12 @@ export default function PlannerPage() {
   const [infoMarkagareVed, setInfoMarkagareVed] = useState(false);
   const [infoMarkagareVedText, setInfoMarkagareVedText] = useState('');
   const [infoAnteckningar, setInfoAnteckningar] = useState('');
+  // Larmkoordinat / mötesplats (trakt-data, ej samrådsdata) — sätts manuellt, aldrig auto-härledd
+  const [infoLarmLat, setInfoLarmLat] = useState('');
+  const [infoLarmLng, setInfoLarmLng] = useState('');
+  const [infoLarmBeskrivning, setInfoLarmBeskrivning] = useState('');
+  const [infoLarmKalla, setInfoLarmKalla] = useState<'td' | 'egen' | null>(null);
+  const [infoLarmBekraftad, setInfoLarmBekraftad] = useState(false);
   const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
   const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
   const [infoVolym, setInfoVolym] = useState(''); // en sanning: objekt.volym
@@ -1522,7 +1528,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn')
+        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, larmkoordinat_kalla, larmkoordinat_bekraftad')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -1551,6 +1557,11 @@ export default function PlannerPage() {
         setInfoSkotareExtraVagn(data.skotare_extra_vagn || false);
         setInfoAreal(data.areal != null ? String(data.areal) : '');
         setInfoVolym(data.volym != null ? String(data.volym) : '');
+        setInfoLarmLat(data.larmkoordinat_lat != null ? String(data.larmkoordinat_lat) : '');
+        setInfoLarmLng(data.larmkoordinat_lng != null ? String(data.larmkoordinat_lng) : '');
+        setInfoLarmBeskrivning(data.larmkoordinat_beskrivning || '');
+        setInfoLarmKalla(data.larmkoordinat_kalla || null);
+        setInfoLarmBekraftad(data.larmkoordinat_bekraftad || false);
         // Prognos, traktdata, körläge, stickväg
         if (data.prognos_settings) setPrognosSettings(data.prognos_settings);
         if (data.manuell_prognos) setManuellPrognos(data.manuell_prognos);
@@ -1630,10 +1641,15 @@ export default function PlannerPage() {
         generellt_tillstand: generelltTillstand,
         areal: parseSvNum(infoAreal),
         volym: parseSvNum(infoVolym),
+        larmkoordinat_lat: parseSvNum(infoLarmLat),
+        larmkoordinat_lng: parseSvNum(infoLarmLng),
+        larmkoordinat_beskrivning: infoLarmBeskrivning || null,
+        larmkoordinat_kalla: infoLarmKalla,
+        larmkoordinat_bekraftad: infoLarmBekraftad,
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, infoLarmLat, infoLarmLng, infoLarmBeskrivning, infoLarmKalla, infoLarmBekraftad, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
 
   // === Maskin-väljare (Fakta-fliken) — matas från dim_maskin ===
   // Valbar lista för en roll: rätt maskin_typ, aktiv (ej såld), klarar objektets typ.
@@ -4227,7 +4243,6 @@ export default function PlannerPage() {
     namn: '', starttid: '', sluttid: '', noteringar: '',
   });
   const [brandUtrustning, setBrandUtrustning] = useState([false, false, false, false]);
-  const [brandLarmTillfart, setBrandLarmTillfart] = useState('');
   const [brandLarmChecklista, setBrandLarmChecklista] = useState([false, false, false, false, false]);
   const brandLoadedRef = useRef(false);
   const [brandTestMode, setBrandTestMode] = useState<number | null>(null);
@@ -4417,7 +4432,6 @@ export default function PlannerPage() {
       if (samData) {
         if (Array.isArray(samData.utrustning)) setBrandUtrustning(samData.utrustning);
         if (Array.isArray(samData.larm_checklista)) setBrandLarmChecklista(samData.larm_checklista);
-        if (samData.larm_tillfart) setBrandLarmTillfart(samData.larm_tillfart);
       }
       brandLoadedRef.current = true;
       console.log('[Brand] Laddade data från Supabase');
@@ -4444,7 +4458,6 @@ export default function PlannerPage() {
         kvitterad: brandSamrad.kvitterad,
         utrustning: brandUtrustning,
         larm_checklista: brandLarmChecklista,
-        larm_tillfart: brandLarmTillfart || null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'objekt_id' });
       await supabase.from('brand_kontakter').upsert({
@@ -4466,7 +4479,7 @@ export default function PlannerPage() {
       console.log('[Brand] Sparade till Supabase');
     }, 2000);
     return () => { if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current); };
-  }, [brandSamrad, brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, brandLarmTillfart, valtObjekt?.id, brandTestMode]);
+  }, [brandSamrad, brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, valtObjekt?.id, brandTestMode]);
 
   // === TMA: Ladda sparad data från Supabase ===
   const tmaLoadedRef = useRef(false);
@@ -15096,11 +15109,13 @@ export default function PlannerPage() {
                 }}
                 brandUtrustning={brandUtrustning}
                 onUtrustningChange={setBrandUtrustning}
-                brandLarmTillfart={brandLarmTillfart}
-                onLarmTillfartChange={setBrandLarmTillfart}
+                larmLat={infoLarmLat}
+                larmLng={infoLarmLng}
+                larmBeskrivning={infoLarmBeskrivning}
+                larmKalla={infoLarmKalla}
+                larmBekraftad={infoLarmBekraftad}
                 brandLarmChecklista={brandLarmChecklista}
                 onLarmChecklistaChange={setBrandLarmChecklista}
-                mapCenter={mapCenter}
                 onStatusChange={(s) => setBrandRisk({ status: s.status, currentFwi: s.currentFwi, currentIdx: s.currentIdx })}
               />
             )}
@@ -17096,6 +17111,64 @@ export default function PlannerPage() {
                       fontFamily: 'inherit',
                     }}
                   />
+                </div>
+
+                {/* LARMKOORDINAT / MÖTESPLATS — manuell (TD normalfall), aldrig auto-härledd */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '4px' }}>Larmkoordinat / mötesplats</div>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginBottom: '14px', lineHeight: 1.4 }}>Punkt vid väg där räddningstjänsten kan möta. Sätts vid rekning.</div>
+                  <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Källa</div>
+                  <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '16px' }}>
+                    {[{ id: 'td', label: 'Från traktdirektivet' }, { id: 'egen', label: 'Egen' }].map(opt => (
+                      <div key={opt.id} onClick={() => setInfoLarmKalla(opt.id as 'td' | 'egen')}
+                        style={{
+                          flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                          background: infoLarmKalla === opt.id ? '#0a84ff' : 'transparent',
+                          color: infoLarmKalla === opt.id ? '#fff' : '#8e8e93',
+                          fontWeight: infoLarmKalla === opt.id ? '600' : '400', transition: 'all 0.2s ease',
+                        }}>{opt.label}</div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                    <input value={infoLarmLat} onChange={e => setInfoLarmLat(e.target.value)} placeholder="Lat (56.5712)" inputMode="decimal"
+                      style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none' }} />
+                    <input value={infoLarmLng} onChange={e => setInfoLarmLng(e.target.value)} placeholder="Lng (14.7433)" inputMode="decimal"
+                      style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none' }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    <button onClick={() => {
+                      if (!navigator.geolocation) return;
+                      navigator.geolocation.getCurrentPosition(pos => {
+                        setInfoLarmLat(pos.coords.latitude.toFixed(6));
+                        setInfoLarmLng(pos.coords.longitude.toFixed(6));
+                        if (!infoLarmKalla) setInfoLarmKalla('egen');
+                      });
+                    }} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Använd GPS
+                    </button>
+                    <button onClick={() => {
+                      setInfoLarmLat(mapCenter.lat.toFixed(6));
+                      setInfoLarmLng(mapCenter.lng.toFixed(6));
+                      if (!infoLarmKalla) setInfoLarmKalla('egen');
+                    }} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Kartans mitt
+                    </button>
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Tillfartsväg / beskrivning</div>
+                  <textarea value={infoLarmBeskrivning} onChange={e => setInfoLarmBeskrivning(e.target.value)} placeholder="Beskriv bästa tillfartsväg, mötesplats..."
+                    style={{ width: '100%', minHeight: '60px', padding: '12px', borderRadius: '10px', marginBottom: '16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Mötesplats verifierad på plats</span>
+                    <div onClick={() => setInfoLarmBekraftad(!infoLarmBekraftad)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoLarmBekraftad ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoLarmBekraftad ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
                 </div>
 
               </div>
