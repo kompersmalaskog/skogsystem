@@ -149,14 +149,14 @@ def parse_file_to_segs(filepath: Path, maskin_filter):
     if maskin_filter and maskin_id != maskin_filter:
         return {}
 
-    segs = {}  # (maskin_id, op_id, start_time_str, typ) -> sekunder
+    segs = {}  # (maskin_id, start_time_str, typ) -> (op_id, sekunder)
 
     def _add(start_str, op_key, field, sek):
         if sek <= 0 or not start_str:
             return
         op_id = f"{maskin_id}_{op_key}" if op_key else None
-        k = (maskin_id, op_id, start_str, TYP_MAP[field])
-        segs[k] = sek  # Overwrite - sista fil vinner (kumulativ-dedup)
+        k = (maskin_id, start_str, TYP_MAP[field])  # op_id EJ i nyckeln — eliminerar op-dubbletter
+        segs[k] = (op_id, sek)                       # (attribution_winner, sek); sista fil vinner
 
     # IndividualMachineWorkTime
     for wt in _all(machine, 'IndividualMachineWorkTime', ns):
@@ -202,7 +202,7 @@ def bucket_segs(all_segs: dict, fran, till) -> dict:
     STRIPPAR den, anvand INTE den.
     """
     agg = {}
-    for (maskin_id, op_id, start_str, typ), sek in all_segs.items():
+    for (maskin_id, start_str, typ), (op_id, sek) in all_segs.items():
         try:
             dt_start = datetime.fromisoformat(start_str)
         except Exception:
@@ -397,7 +397,7 @@ def main():
         if i % 100 == 0:
             log.info(f"  Parsade {i}/{len(files)} filer ({len(all_segs)} unika segment hittills)...")
 
-    log.info(f"Deduplicerade segment: {len(all_segs)} unika (maskin, op, start_time, typ)")
+    log.info(f"Deduplicerade segment: {len(all_segs)} unika (maskin, start_time, typ) — op_id deduplikerat")
 
     # Bucket efter datumfilter
     global_agg = bucket_segs(all_segs, fran, till)
