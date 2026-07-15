@@ -38,8 +38,11 @@ type ObjektRad = {
   sortiment_kr_per_m3: number;
   trakt_kr_per_m3: number;
   trakt_bracket: string;
-  und_timmar: number;
+  und_timmar_sk: number;
+  und_timmar_st: number;
   und_volym: number;
+  und_dra_sk: boolean;
+  und_dra_st: boolean;
   timmar: number;
   timpeng: number;
   acord: number;
@@ -155,7 +158,7 @@ export default function PerObjektClient() {
             .range(from, to)
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
-        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, atgard, timpeng, timpeng_undantag_timmar, timpeng_undantag_volym'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, atgard, timpeng, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -287,12 +290,11 @@ export default function PerObjektClient() {
         const a = lookupAcordPris(medelstam, acordList);
         const grundpris = a?.pris_skordare || 0;
         const extraKr = (objSortTillagg[objekt_id]?.kr_per_m3 || 0) + (objTrakt[objekt_id]?.kr_per_m3 || 0);
-        // Timpeng-undantag (dim_objekt): del av objektet körd på timpeng.
-        // Appliceras på skördardelen — volymen dras från ackordet, timmarna
-        // faktureras skördarens timpris. Syns i "Beräkningsunderlag".
+        // Timpeng-undantag per maskin: skördarens timmar × skördarens timpris,
+        // volymen dras om dra_skordare. Syns i "Beräkningsunderlag".
         const meta = objMap[objekt_id];
         const undTimpris = timprisList.find(p => p.maskin_id === maskin_id)?.timpris || 0;
-        const und = tillampaTimpengUndantag(h.vol, meta?.timpeng_undantag_timmar, meta?.timpeng_undantag_volym, undTimpris);
+        const und = tillampaTimpengUndantag(h.vol, meta?.timpeng_undantag_timmar_skordare, meta?.timpeng_undantag_dra_skordare !== false, meta?.timpeng_undantag_volym, undTimpris);
         const acord = und.volymEfterUndantag * (grundpris + extraKr) + und.undantagKr;
         const tidK = tidAgg[key] || { timmar: 0, timpeng: 0 };
         addMaskinDel(objekt_id, maskin_id, {
@@ -314,7 +316,13 @@ export default function PerObjektClient() {
         const a = lookupAcordPris(medelstam, acordList);
         const grundpris = a?.pris_skotare || 0;
         const extraKr = (objSortTillagg[objekt_id]?.kr_per_m3 || 0) + (objTrakt[objekt_id]?.kr_per_m3 || 0);
-        const acord = f.vol * (grundpris + extraKr) + f.skotavstand_kr;
+        // Timpeng-undantag per maskin: skotarens timmar × skotarens timpris,
+        // volymen dras om dra_skotare. Skotavstånds-tillägget beräknas som
+        // vanligt ur faktiska lass.
+        const metaF = objMap[objekt_id];
+        const undTimprisF = timprisList.find(p => p.maskin_id === maskin_id)?.timpris || 0;
+        const undF = tillampaTimpengUndantag(f.vol, metaF?.timpeng_undantag_timmar_skotare, metaF?.timpeng_undantag_dra_skotare !== false, metaF?.timpeng_undantag_volym, undTimprisF);
+        const acord = undF.volymEfterUndantag * (grundpris + extraKr) + f.skotavstand_kr + undF.undantagKr;
         const tidK = tidAgg[key] || { timmar: 0, timpeng: 0 };
         addMaskinDel(objekt_id, maskin_id, {
           volym: f.vol,
@@ -341,8 +349,11 @@ export default function PerObjektClient() {
         // dim_objekt.timpeng är enda källan (objekt_ekonomi pensionerad)
         const ar_timpeng_override = o?.timpeng === true;
         const behandla_som_timpeng = ar_gallring || ar_timpeng_override;
-        const und_timmar = Number(o?.timpeng_undantag_timmar) || 0;
+        const und_timmar_sk = Number(o?.timpeng_undantag_timmar_skordare) || 0;
+        const und_timmar_st = Number(o?.timpeng_undantag_timmar_skotare) || 0;
         const und_volym = Number(o?.timpeng_undantag_volym) || 0;
+        const und_dra_sk = o?.timpeng_undantag_dra_skordare !== false;
+        const und_dra_st = o?.timpeng_undantag_dra_skotare !== false;
         objektRader.push({
           objekt_id,
           objekt_namn: o?.object_name || o?.vo_nummer || objekt_id,
@@ -357,8 +368,11 @@ export default function PerObjektClient() {
           sortiment_kr_per_m3: sortInfo.kr_per_m3,
           trakt_kr_per_m3: traktInfo.kr_per_m3,
           trakt_bracket: traktInfo.bracket,
-          und_timmar,
+          und_timmar_sk,
+          und_timmar_st,
           und_volym,
+          und_dra_sk,
+          und_dra_st,
           timmar: totalTimmar,
           timpeng: totalTimpeng,
           acord: totalAcord,
@@ -509,7 +523,7 @@ export default function PerObjektClient() {
           {timpengRader.map(r => renderObjektKort(r))}
 
           <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 12, padding: '0 4px', lineHeight: 1.5 }}>
-            Acord = (volym − ev. timpeng-undantag) × (grundpris + sortiment-tillägg + trakt-tillägg) + undantagstimmar × timpris + skotavstånd-tillägg (skotare). Grundpris slås upp per närmaste medelstam i acord_priser. Gallring räknas alltid som timpeng. Slutavverkning kan flaggas som timpeng i redigeringsvyn (dim_objekt.timpeng).
+            Acord per maskin = (volym − ev. undantagsvolym enligt dra-flagga) × (grundpris + sortiment-tillägg + trakt-tillägg) + maskinens undantagstimmar × maskinens timpris + skotavstånd-tillägg (skotare). Grundpris slås upp per närmaste medelstam i acord_priser. Gallring räknas alltid som timpeng. Slutavverkning kan flaggas som timpeng i redigeringsvyn (dim_objekt.timpeng).
           </div>
         </div>
       )}
@@ -604,9 +618,10 @@ export default function PerObjektClient() {
                   <div><span style={{ color: '#7a7a72' }}>Sortiment-tillägg: </span><strong>{r.sortiment_kr_per_m3} kr/m³</strong></div>
                   <div><span style={{ color: '#7a7a72' }}>Traktstorlek-bracket: </span><strong>{r.trakt_bracket}</strong></div>
                   <div><span style={{ color: '#7a7a72' }}>Trakt-tillägg: </span><strong>{r.trakt_kr_per_m3} kr/m³</strong></div>
-                  {(r.und_timmar > 0 || r.und_volym > 0) && (
+                  {(r.und_timmar_sk > 0 || r.und_timmar_st > 0 || r.und_volym > 0) && (
                     <div style={{ gridColumn: '1 / -1', color: 'rgba(255,179,64,0.95)' }}>
-                      Timpeng-undantag: {String(r.und_timmar).replace('.', ',')} h faktureras timpris · {r.und_volym} m³ borträknad ur ackordet
+                      Timpeng-undantag — Skördare: {String(r.und_timmar_sk).replace('.', ',')} h{r.und_volym > 0 && r.und_dra_sk ? ` + ${r.und_volym} m³ borträknad` : ''}
+                      {' · '}Skotare: {String(r.und_timmar_st).replace('.', ',')} h{r.und_volym > 0 && r.und_dra_st ? ` + ${r.und_volym} m³ borträknad` : ''}
                     </div>
                   )}
                 </div>

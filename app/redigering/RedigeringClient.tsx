@@ -105,8 +105,11 @@ async function sparaObjektTillSupabase(obj) {
       skordning_avslutad: obj.skordning_avslutad || null,
       skotning_avslutad: obj.skotning_avslutad || null,
       skotad_volym_manuell: obj.skotad_volym_manuell ?? null,
-      timpeng_undantag_timmar: obj.timpeng_undantag_timmar ?? null,
+      timpeng_undantag_timmar_skordare: obj.timpeng_undantag_timmar_skordare ?? null,
+      timpeng_undantag_timmar_skotare: obj.timpeng_undantag_timmar_skotare ?? null,
       timpeng_undantag_volym: obj.timpeng_undantag_volym ?? null,
+      timpeng_undantag_dra_skordare: obj.timpeng_undantag_dra_skordare !== false,
+      timpeng_undantag_dra_skotare: obj.timpeng_undantag_dra_skotare !== false,
       ovrigt_info: ovrigtInfo,
     })
     .eq('objekt_id', obj.objekt_id)
@@ -1364,22 +1367,46 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
           <div style={{ padding: '4px 16px 10px' }}>
             <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Timpeng-undantag</div>
             <NumField
-              label="Timmar"
-              value={valtObjekt.timpeng_undantag_timmar}
-              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_timmar: v })}
+              label="Skördare"
+              value={valtObjekt.timpeng_undantag_timmar_skordare}
+              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_timmar_skordare: v })}
               placeholder="t.ex. 5,5"
-              suffix="h"
+              suffix="h timpeng"
             />
             <NumField
-              label="Volym som ingår"
+              label="Skotare"
+              value={valtObjekt.timpeng_undantag_timmar_skotare}
+              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_timmar_skotare: v })}
+              placeholder="t.ex. 3"
+              suffix="h timpeng"
+            />
+            <NumField
+              label="Volym"
               value={valtObjekt.timpeng_undantag_volym}
               onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_volym: v })}
               placeholder="0"
               suffix="m³"
             />
+            {(Number(valtObjekt.timpeng_undantag_volym) || 0) > 0 && (
+              <div style={styles.switchList as any}>
+                <EgenskapSwitch
+                  label="Dra volymen från skördarackordet"
+                  active={valtObjekt.timpeng_undantag_dra_skordare !== false}
+                  onClick={() => setValtObjekt({ ...valtObjekt, timpeng_undantag_dra_skordare: !(valtObjekt.timpeng_undantag_dra_skordare !== false) })}
+                  orange={false}
+                />
+                <EgenskapSwitch
+                  label="Dra volymen från skotarackordet"
+                  active={valtObjekt.timpeng_undantag_dra_skotare !== false}
+                  onClick={() => setValtObjekt({ ...valtObjekt, timpeng_undantag_dra_skotare: !(valtObjekt.timpeng_undantag_dra_skotare !== false) })}
+                  orange={false}
+                />
+              </div>
+            )}
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, padding: '6px 2px 0' }}>
-              Del av objektet körd på timpeng (t.ex. specialarbete). Timmarna faktureras
-              timpris, volymen dras bort från ackordet — annars dubbelbetald. Uträkningen
+              Del av objektet körd på timpeng. Tomt fält = ingen timpeng-del för den
+              maskinen (rent ackord). Timmarna faktureras respektive maskins timpris;
+              volymen dras från ackordet enligt valen — annars dubbelbetald. Uträkningen
               syns i Ekonomi → Per objekt → &quot;Så räknades priset&quot;.
             </div>
           </div>
