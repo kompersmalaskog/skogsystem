@@ -201,25 +201,6 @@ function ObjektPageInner() {
     e.target.value = '';
   };
 
-  const openFormWithType = (typ: string) => {
-    setShowForm(true);
-    setEditingId(null);
-    setImportStatus('');
-    setExpandedSection('grund');
-    setEditMode(null);
-    setShowAdd(null);
-    setForm({ 
-      voNummer: '', traktNr: '', namn: '', bolag: '', 
-      inkopare: '', inkoparetel: '', markagare: '', markagaretel: '', markagareepost: '',
-      cert: '', typ, atgard: '', volym: '', areal: '', grot: false,
-      maskiner: [], koordinatX: '', koordinatY: '',
-      sortiment: [], anteckningar: '',
-      ar: year, manad: month + 1, ordning: planerade.length + 1, status: 'planerad'
-    });
-    setDokUrls({ td: null, sl: null });
-    setRattaSektion(null);
-  };
-
   const saveObj = async () => {
     if (!form.namn || !form.bolag || !form.volym) {
       alert('Fyll i namn, bolag och volym');
@@ -601,7 +582,8 @@ function ObjektPageInner() {
         <button onClick={() => bytManad(1)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>›</button>
       </div>
 
-      {/* Sammanfattning — planerat (objekt) vs beställt per typ. Klick = nytt objekt av typen. */}
+      {/* Sammanfattning — planerat (objekt) vs beställt per typ. Klick = skapa
+          nytt objekt via Starta jobb (EN födelseväg — /objekt planerar bara). */}
       <div style={{ background: '#1c1c1e', borderRadius: '14px', padding: '2px 16px', marginBottom: '20px' }}>
         {[
           { typ: 'slut', namn: 'Slutavverkning', Ikon: TreePine, farg: '#eab308', plan: slutTotal, best: slutBest },
@@ -610,7 +592,7 @@ function ObjektPageInner() {
           const Ikon = rad.Ikon;
           const pct = rad.best > 0 ? Math.min(100, (rad.plan / rad.best) * 100) : 0;
           return (
-            <div key={rad.typ} onClick={() => openFormWithType(rad.typ)}
+            <div key={rad.typ} onClick={() => { window.location.href = '/starta-jobb'; }}
               style={{ padding: '14px 0', cursor: 'pointer', borderTop: i === 1 ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
