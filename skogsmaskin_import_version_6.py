@@ -3217,43 +3217,49 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 ('disturbance_sek', 'disturbance'),
             ]
 
-            # Ackumulera sekunder per (maskin_id, operator_id, timme_utc, typ).
-            # Segment delas proportionellt per timme (timdelning) — ett segment som
-            # startar 06:52 och pågår 99 min genererar kl 6: 7 min, kl 7: 60 min, kl 8: 31 min.
-            # UTC-offset bevaras via datetime.fromisoformat() (parse_datetime() i importkoden
-            # strippar den — använd INTE den här).
-            tider_agg: dict = {}
+            # Dedup segment-nivå: samma (maskin, start_str, fält) från flera operatörer
+            # = re-attribution, ej extra tid (se A110148-buggen). Sista entry vinner —
+            # identisk logik som backfill_mom_tider.py.
+            TYP_MAP = {f: t for f, t in TYP_FIELDS}
+            dedup_segs: dict = {}  # (e_maskin, start_str, field) -> (e_op, sek)
             for entry_key, entry in tid_entries.items():
                 if len(entry_key) == 4:
                     start_str, e_maskin, _, e_op = entry_key
                 else:
                     start_str, e_maskin, _ = entry_key
                     e_op = entry.get('operator_id')
+                for field in TYP_MAP:
+                    sek = entry.get(field) or 0
+                    if sek > 0 and start_str:
+                        dedup_segs[(e_maskin, start_str, field)] = (e_op, sek)
 
+            # Ackumulera sekunder per (maskin_id, operator_id, timme_utc, typ).
+            # Segment delas proportionellt per timme (timdelning) — ett segment som
+            # startar 06:52 och pågår 99 min genererar kl 6: 7 min, kl 7: 60 min, kl 8: 31 min.
+            # UTC-offset bevaras via datetime.fromisoformat() (parse_datetime() i importkoden
+            # strippar den — använd INTE den här).
+            tider_agg: dict = {}
+            for (e_maskin, start_str, field), (e_op, sek) in dedup_segs.items():
+                typ = TYP_MAP[field]
                 try:
                     dt_start = datetime.fromisoformat(start_str)
                 except Exception:
                     continue
-
-                for field, typ in TYP_FIELDS:
-                    sek = entry.get(field) or 0
-                    if sek <= 0:
-                        continue
-                    # Dela upp segmentet per lokal heltimme
-                    dt_end = dt_start + timedelta(seconds=sek)
-                    current = dt_start
-                    while current < dt_end:
-                        next_hour = (current.replace(minute=0, second=0, microsecond=0)
-                                     + timedelta(hours=1))
-                        chunk_end = min(next_hour, dt_end)
-                        chunk_sek = (chunk_end - current).total_seconds()
-                        if chunk_sek > 0:
-                            hour_utc = (current.replace(minute=0, second=0, microsecond=0)
-                                        .astimezone(timezone.utc))
-                            timme_utc = hour_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
-                            agg_key = (e_maskin, e_op, timme_utc, typ)
-                            tider_agg[agg_key] = tider_agg.get(agg_key, 0) + chunk_sek
-                        current = next_hour
+                # Dela upp segmentet per lokal heltimme
+                dt_end = dt_start + timedelta(seconds=sek)
+                current = dt_start
+                while current < dt_end:
+                    next_hour = (current.replace(minute=0, second=0, microsecond=0)
+                                 + timedelta(hours=1))
+                    chunk_end = min(next_hour, dt_end)
+                    chunk_sek = (chunk_end - current).total_seconds()
+                    if chunk_sek > 0:
+                        hour_utc = (current.replace(minute=0, second=0, microsecond=0)
+                                    .astimezone(timezone.utc))
+                        timme_utc = hour_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+                        agg_key = (e_maskin, e_op, timme_utc, typ)
+                        tider_agg[agg_key] = tider_agg.get(agg_key, 0) + chunk_sek
+                    current = next_hour
 
             if tider_agg:
                 # Radera gamla rader för berörda (maskin_id, timme) innan insert
