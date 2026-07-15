@@ -564,6 +564,66 @@ function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined
   )
 }
 
+// ── TidPerTimmeKort ───────────────────────────────────────────
+// Alltid synlig om mom_tider har data för dagen — oberoende av
+// lassdata. Visar processing/körning/kortstopp/övrigt per timme.
+function TidPerTimmeKort({
+  momTider, loading,
+}: {
+  momTider: Record<number, MomTiderHour> | null
+  loading: boolean
+}) {
+  if (loading || !momTider) return null
+  const hours = Object.keys(momTider).map(Number).sort((a, b) => a - b)
+  if (hours.length === 0) return null
+
+  return (
+    <div style={{ background: C.card, borderRadius: 14, padding: '18px 18px 6px', marginBottom: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 1 }}>Körtid per timme</div>
+      <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>
+        Ur maskindatorn · Processing · Körning · Kortstopp · Övrigt
+      </div>
+      {hours.map(h => {
+        const m = momTider[h]
+        const entries: { label: string; min: number; color: string }[] = [
+          { label: 'Processing',      min: m.processing, color: '#30d158' },
+          { label: 'Körning/terräng', min: m.terrain,    color: '#0a84ff' },
+          { label: 'Kortstopp',       min: m.kort_stopp, color: '#8e8e93' },
+          { label: 'Övrigt/störning', min: m.ovrigt,     color: '#ff9f0a' },
+        ].filter(e => e.min > 0)
+        const total = entries.reduce((s, e) => s + e.min, 0)
+        if (total === 0) return null
+        return (
+          <div key={h} style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 7 }}>
+              kl {String(h).padStart(2, '0')}
+            </div>
+            <div style={{ display: 'flex', height: 4, borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+              {entries.map(e => (
+                <div key={e.label} style={{ flex: e.min, background: e.color }} />
+              ))}
+            </div>
+            {entries.map(e => (
+              <div key={e.label} style={{
+                display: 'flex', justifyContent: 'space-between',
+                alignItems: 'center', marginBottom: 4,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+                </div>
+                <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                  {e.min} min
+                </span>
+              </div>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── HourPanel ─────────────────────────────────────────────────
 // Inline-kort som öppnas vid stapeltryck. Visar lass/volym/sträcka
 // + maskintid (mom_tider) för den timmen.
@@ -756,6 +816,9 @@ export default function SkotareIdagNy({ maskin, onMaskinChange }: {
           selectedHour={selectedHour}
           onBarClick={setSelectedHour}
         />
+
+        {/* 3b. Körtid per timme — alltid synlig om mom_tider har data */}
+        <TidPerTimmeKort momTider={data?.momTider ?? null} loading={loading} />
 
         {/* 4. Timdetalj — visas när en stapel är vald */}
         {selectedHour !== null && data?.hourBuckets[selectedHour] && (
