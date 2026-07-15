@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Fragment, Children } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useMatchning } from './hooks/useMatchning'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
 // kompletteras med unika värden ur datan vid inläsning.
@@ -308,53 +309,6 @@ function MiniRing({ progress, size = 32, stroke = 3 }) {
       <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke={color} strokeWidth={stroke} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.4s ease, stroke 0.3s ease' }} />
     </svg>
   )
-}
-
-// Main Ring
-function Ring({ procent, size = 140, stroke = 10, color = '#FF9F0A', onClick, active }) {
-  const [anim, setAnim] = useState(0)
-  const radius = (size - stroke) / 2
-  const circ = radius * 2 * Math.PI
-  const offset = circ - (anim / 100) * circ
-
-  useEffect(() => {
-    const start = Date.now()
-    const tick = () => {
-      const elapsed = Date.now() - start
-      const progress = Math.min(elapsed / 1000, 1)
-      setAnim(Math.round((1 - Math.pow(1 - progress, 3)) * Math.min(procent, 100)))
-      if (progress < 1) requestAnimationFrame(tick)
-    }
-    tick()
-  }, [procent])
-
-  return (
-    <div onClick={onClick} style={{ position: 'relative', width: size, height: size, cursor: 'pointer', transform: active ? 'scale(1.05)' : 'scale(1)', transition: 'transform 0.3s ease' }}>
-      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', filter: `drop-shadow(0 0 ${active ? 20 : 12}px ${color}${active ? '90' : '50'})` }}>
-        <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={stroke} />
-        <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke={color} strokeWidth={stroke} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.1s ease' }} />
-      </svg>
-      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-        <div style={{ fontSize: 36, fontWeight: 700 }}>{anim}</div>
-        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', marginTop: -2 }}>%</div>
-      </div>
-    </div>
-  )
-}
-
-function CountUp({ value }) {
-  const [count, setCount] = useState(0)
-  useEffect(() => {
-    const start = Date.now()
-    const tick = () => {
-      const elapsed = Date.now() - start
-      const progress = Math.min(elapsed / 800, 1)
-      setCount(Math.round((1 - Math.pow(1 - progress, 3)) * value))
-      if (progress < 1) requestAnimationFrame(tick)
-    }
-    tick()
-  }, [value])
-  return <>{count}</>
 }
 
 // Animated Card
@@ -1403,9 +1357,51 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
   )
 }
 
+// Kort i arbetslistan — visar VAD objektet ÄR (volym, senaste aktivitet,
+// maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
+// eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
+// med två åtgärder: Namnge (öppnar sheeten) eller Ignorera (exkludera).
+function ArbetsKort({ obj, info, modell, onOppna, onIgnorera, delay }: any) {
+  const namnlos = !obj.object_name
+  const meta = []
+  if (modell) meta.push(modell)
+  if (info?.senasteAktivitet) meta.push(`senast ${info.senasteAktivitet}`)
+  if (info?.skordatM3 > 0) meta.push(`${info.skordatM3.toLocaleString('sv-SE')} m³ skördat`)
+  if (info?.skotatM3 > 0) meta.push(`${info.skotatM3.toLocaleString('sv-SE')} m³ skotat`)
+  const knapp = {
+    flex: 1, minHeight: 44, borderRadius: 10, fontSize: 13, fontWeight: 600,
+    fontFamily: 'inherit', cursor: 'pointer',
+  }
+  return (
+    <AnimatedCard delay={delay} onClick={onOppna}>
+      <div style={styles.kortInner}>
+        <div style={styles.kortTop}>
+          <div style={{ flex: 1 }}>
+            {namnlos ? (
+              <div style={{ ...styles.kortNamn, color: '#FF9F0A' }}>Namnlöst objekt</div>
+            ) : (
+              <div style={styles.kortNamn}>{obj.object_name}</div>
+            )}
+            <div style={styles.kortVo}>{obj.vo_nummer}</div>
+          </div>
+          <div style={styles.kortPil}>›</div>
+        </div>
+        {meta.length > 0 && <div style={styles.kortInfo}>{meta.join(' · ')}</div>}
+        <KortBadges obj={obj} />
+        {namnlos && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
+            <button onClick={onOppna} className="tap-press" style={{ ...knapp, border: 'none', background: '#adc6ff', color: '#000' }}>Namnge</button>
+            <button onClick={onIgnorera} className="tap-press" style={{ ...knapp, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.75)' }}>Ignorera</button>
+          </div>
+        )}
+      </div>
+    </AnimatedCard>
+  )
+}
+
 export default function ObjektRedigering() {
-  const [objekt, setObjekt] = useState([])
-  const [maskiner, setMaskiner] = useState({})
+  const [objekt, setObjekt] = useState<any[]>([])
+  const [maskiner, setMaskiner] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [bolag, setBolag] = useState(STANDARD_BOLAG)
@@ -1420,11 +1416,11 @@ export default function ObjektRedigering() {
   const [showDirtyDialog, setShowDirtyDialog] = useState(false)
   const [closing, setClosing] = useState(false)
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
-  const [ringHover, setRingHover] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [scenarier, setScenarier] = useState([])
   const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false)
-  const [barFel, setBarFel] = useState(false)
+  // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
+  const matchning = useMatchning()
 
   // Öppna objekt — snapshotar original så vi kan jämföra för dirty-check
   const openObjekt = (obj) => {
@@ -1485,14 +1481,37 @@ export default function ObjektRedigering() {
 
   const exkluderade = objekt.filter(o => o.exkludera === true)
   const aktiva = objekt.filter(o => o.exkludera !== true)
-  const kompletta = aktiva.filter(isKomplett).length
-  const totalt = aktiva.length
-  const procent = totalt > 0 ? Math.round((kompletta / totalt) * 100) : 0
-  const medFel = aktiva.filter(o => getWarnings(o).length > 0)
-  const ofullstandiga = aktiva.filter(o => !isKomplett(o))
-  const synliga = barFel ? medFel : ofullstandiga
-  const sectionTitel = barFel ? 'Bara fel' : 'Att göra'
-  const color = procent === 100 ? '#adc6ff' : '#FF9F0A'
+
+  // Berikningsinfo per objekt_id (från useMatchning — kan saknas medan den laddar)
+  const kortInfo: Record<string, any> = {}
+  ;[...matchning.omatchadeMaskin, ...matchning.matchade.map(p => p.maskin)]
+    .forEach(k => { kortInfo[k.objektId] = k })
+
+  // ARBETSLISTAN — det som behöver en människa. Namnlösa först (importen
+  // hittar inte på namn längre), sedan ofullständiga efter senaste aktivitet.
+  // Listans längd ÄR statusen — ingen procentring.
+  const namnlosa = aktiva.filter(o => !o.object_name)
+  const ofullstandiga = aktiva
+    .filter(o => o.object_name && getWarnings(o).length > 0)
+    .sort((a, b) => (kortInfo[b.objekt_id]?.senasteAktivitet || '').localeCompare(kortInfo[a.objekt_id]?.senasteAktivitet || ''))
+  const attAtgarda = [...namnlosa, ...ofullstandiga]
+
+  // Ignorera = exkludera (central regel gäller alla vyer). Ärlig sparning:
+  // 0 träffade rader får aldrig se ut som succé.
+  async function ignoreraObjekt(obj: any) {
+    setSaveError('')
+    const { data, error: err } = await supabase
+      .from('dim_objekt')
+      .update({ exkludera: true })
+      .eq('objekt_id', obj.objekt_id)
+      .select('objekt_id')
+    if (err || !data || data.length === 0) {
+      setSaveError('Kunde inte ignorera — inget sparades')
+      setTimeout(() => setSaveError(''), 6000)
+      return
+    }
+    setObjekt(objekt.map(o => o.objekt_id === obj.objekt_id ? { ...o, exkludera: true } : o))
+  }
 
   async function sparaObjekt() {
     if (!valtObjekt) return
@@ -1578,62 +1597,45 @@ export default function ObjektRedigering() {
       <div style={styles.header}>
         <div style={styles.headerCenter}>
           <div style={styles.titel}>Objekt</div>
-          <div style={styles.subtitel}>{ofullstandiga.length} behöver kompletteras</div>
+          <div style={styles.subtitel}>{attAtgarda.length === 0 ? 'Allt åtgärdat' : `${attAtgarda.length} att åtgärda`}</div>
         </div>
-      </div>
-
-      <div style={styles.ringWrapper} onMouseEnter={() => setRingHover(true)} onMouseLeave={() => setRingHover(false)}>
-        <Ring procent={procent} color={color} onClick={() => setVisaAllaObjekt(true)} active={ringHover} />
-        <div style={styles.ringStats}><CountUp value={kompletta} /> av {totalt}</div>
-        <div style={{...styles.ringHint, opacity: ringHover ? 1 : 0.5, transform: ringHover ? 'translateY(-2px)' : 'translateY(0)'}}>Tryck för alla objekt</div>
-      </div>
-
-      <div style={styles.filterToggleBar}>
-        <button
-          onClick={() => setBarFel(false)}
-          style={{...styles.filterToggleBtn, ...(!barFel ? styles.filterToggleBtnActive : {})}}
-        >
-          Att göra <span style={{ marginLeft: 6, opacity: 0.7 }}>{ofullstandiga.length}</span>
-        </button>
-        <button
-          onClick={() => setBarFel(true)}
-          style={{...styles.filterToggleBtn, ...(barFel ? styles.filterToggleBtnActive : {})}}
-        >
-          Bara fel <span style={{ marginLeft: 6, opacity: 0.7 }}>{medFel.length}</span>
-        </button>
       </div>
 
       <div style={styles.sectionHeader}>
-        <span style={styles.sectionTitel}>{sectionTitel}</span>
-        <span style={styles.sectionCount}>{synliga.length}</span>
+        <span style={styles.sectionTitel}>Att åtgärda</span>
+        <span style={styles.sectionCount}>{attAtgarda.length}</span>
       </div>
 
-      {synliga.length === 0 ? (
+      {attAtgarda.length === 0 ? (
         <div style={styles.allaDone}>
           <div style={styles.allaDoneCheck}>✓</div>
-          <div>{barFel ? 'Inga objekt med fel' : 'Alla objekt kompletta'}</div>
+          <div>Inget att åtgärda</div>
         </div>
       ) : (
         <div style={styles.lista}>
-          {synliga.map((obj, i) => (
-            <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => openObjekt(obj)}>
-              <div style={styles.kortInner}>
-                <div style={styles.kortTop}>
-                  <div style={{flex: 1}}>
-                    <div style={styles.kortNamn}>{obj.object_name}</div>
-                    <div style={styles.kortVo}>{obj.vo_nummer}</div>
-                  </div>
-                  <div style={styles.kortPil}>›</div>
-                </div>
-                <div style={styles.kortInfo}>
-                  {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]}</span>}
-                </div>
-                <KortBadges obj={obj} />
-              </div>
-            </AnimatedCard>
+          {attAtgarda.map((obj, i) => (
+            <ArbetsKort
+              key={obj.objekt_id}
+              obj={obj}
+              info={kortInfo[obj.objekt_id]}
+              modell={maskiner[obj.maskin_id]}
+              delay={i * 60}
+              onOppna={() => openObjekt(obj)}
+              onIgnorera={() => ignoreraObjekt(obj)}
+            />
           ))}
         </div>
       )}
+
+      <div style={{ padding: '24px 20px 0' }}>
+        <button
+          onClick={() => setVisaAllaObjekt(true)}
+          className="tap-press"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', minHeight: 52, background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'rgba(255,255,255,0.65)', fontSize: 14, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' }}
+        >
+          Alla objekt <span style={{ opacity: 0.6 }}>({aktiva.length})</span> ›
+        </button>
+      </div>
 
       {exkluderade.length > 0 && (
         <>
@@ -1647,7 +1649,7 @@ export default function ObjektRedigering() {
                 <div style={{...styles.kortInner, opacity: 0.5}}>
                   <div style={styles.kortTop}>
                     <div style={{flex: 1}}>
-                      <div style={styles.kortNamn}>{obj.object_name}</div>
+                      <div style={styles.kortNamn}>{obj.object_name || 'Namnlöst objekt'}</div>
                       <div style={styles.kortVo}>{obj.vo_nummer}</div>
                     </div>
                     <div style={styles.kortPil}>›</div>
@@ -1665,7 +1667,7 @@ export default function ObjektRedigering() {
       <EditSheet
         open={!!valtObjekt}
         onClose={attemptCloseModal}
-        title={valtObjekt?.object_name || ''}
+        title={valtObjekt ? (valtObjekt.object_name || 'Namnlöst objekt') : ''}
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
         {valtObjekt && (
@@ -1739,11 +1741,13 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
     sparaObjekt()
   }
 
-  const komplettaObjekt = objekt.filter(o => isKomplett(o))
-  const unikaBolag = [...new Set(komplettaObjekt.map(o => o.bolag).filter(Boolean))].sort()
-  const unikaInkopare = [...new Set(komplettaObjekt.map(o => o.inkopare).filter(Boolean))].sort()
+  // "Alla objekt" ska betyda alla AKTIVA — tidigare visades bara kompletta,
+  // och exkluderade slank med (isKomplett hoppar över exkluderade i getSaknas)
+  const allaAktiva = objekt.filter(o => o.exkludera !== true)
+  const unikaBolag = [...new Set(allaAktiva.map(o => o.bolag).filter(Boolean))].sort()
+  const unikaInkopare = [...new Set(allaAktiva.map(o => o.inkopare).filter(Boolean))].sort()
 
-  let filtered = komplettaObjekt
+  let filtered = allaAktiva
 
   if (search.trim()) {
     const s = search.toLowerCase()
@@ -1904,7 +1908,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
             <div style={styles.kortInner}>
               <div style={styles.kortTop}>
                 <div style={{flex: 1}}>
-                  <div style={styles.kortNamn}>{obj.object_name}</div>
+                  <div style={obj.object_name ? styles.kortNamn : { ...styles.kortNamn, color: '#FF9F0A' }}>{obj.object_name || 'Namnlöst objekt'}</div>
                   <div style={styles.kortVo}>{obj.vo_nummer}</div>
                 </div>
                 <div style={styles.kortPil}>›</div>
@@ -1926,7 +1930,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
       <EditSheet
         open={!!valtObjekt}
         onClose={attemptCloseModal}
-        title={valtObjekt?.object_name || ''}
+        title={valtObjekt ? (valtObjekt.object_name || 'Namnlöst objekt') : ''}
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
         {valtObjekt && (
