@@ -47,18 +47,64 @@ async function hamtaMaskinerFranSupabase() {
   return data || []
 }
 
-async function hamtaPrisscenarier() {
-  const { data, error } = await supabase
-    .from('objekt_prisscenario')
-    .select('*')
-    .eq('aktiv', true)
-    .order('namn', { ascending: true })
-  if (error) return []
-  return data || []
+// Fältklasser för multi-rad-saven. Ett objekt är ibland FLERA dim_objekt-
+// rader (skördare + skotare med samma VO, P-VO-flödet) — gemensamma fält
+// fylls i EN gång och skrivs till ALLA rader i gruppen; maskinspecifika
+// skrivs till respektive maskinslags rader.
+const GEMENSAMMA_FALT = ['vo_nummer', 'object_name', 'skogsagare', 'bolag', 'inkopare',
+  'huvudtyp', 'atgard', 'grot_anpassad', 'timpeng', 'exkludera',
+  'timpeng_undantag_timmar_skordare', 'timpeng_undantag_timmar_skotare',
+  'timpeng_undantag_volym', 'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']
+const SKORDARFALT = ['stubbbehandling', 'skordning_avslutad']
+const SKOTARFALT = ['risskotning', 'egen_skotning', 'extra_vagn', 'klippning',
+  'skotad_volym_manuell', 'skotning_avslutad', 'ovrigt_info']
+
+// Rader som hör till samma objekt: samma icke-tomma vo_nummer, annars bara
+// raden själv. maskin_typ är berikad vid inläsning.
+function syskonRader(allaObjekt: any[], obj: any): any[] {
+  if (!obj?.vo_nummer) return [obj]
+  const grupp = allaObjekt.filter(o => o.vo_nummer === obj.vo_nummer)
+  return grupp.length > 0 ? grupp : [obj]
 }
 
-async function sparaObjektTillSupabase(obj) {
-  // Build ovrigt_info JSON from extern skotning fields
+// Direktuppdatering med ÄRLIG sparning: .select() och räkna träffade rader.
+async function direktPatchDimObjekt(ids: string[], patch: any): Promise<{ ok: boolean; message: string }> {
+  if (ids.length === 0) return { ok: true, message: '' }
+  const { data, error } = await supabase
+    .from('dim_objekt')
+    .update(patch)
+    .in('objekt_id', ids)
+    .select('objekt_id')
+  if (error) return { ok: false, message: 'Kunde inte spara: ' + error.message }
+  const traffade = (data || []).length
+  if (traffade !== ids.length) {
+    return { ok: false, message: `Bara ${traffade} av ${ids.length} rader uppdaterades — objektet är INTE komplett sparat` }
+  }
+  return { ok: true, message: '' }
+}
+
+function plocka(obj: any, falt: string[]): any {
+  const ut: any = {}
+  for (const f of falt) ut[f] = obj[f] ?? null
+  // Booleans ska aldrig sparas som null
+  for (const f of ['grot_anpassad', 'timpeng', 'exkludera', 'stubbbehandling', 'risskotning', 'egen_skotning', 'extra_vagn', 'klippning']) {
+    if (f in ut) ut[f] = ut[f] === true
+  }
+  for (const f of ['timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']) {
+    if (f in ut) ut[f] = ut[f] !== false
+  }
+  return ut
+}
+
+// Maskinslags-rader i gruppen — fallback till den öppnade raden om gruppen
+// saknar typade rader (delad rad med numeriskt VO är det vanliga fallet).
+function raderForMaskinslag(syskon: any[], typ: string, oppnadId: string): string[] {
+  const traff = syskon.filter(o => (o.maskin_typ || '').toLowerCase() === typ).map(o => o.objekt_id)
+  return traff.length > 0 ? traff : [oppnadId]
+}
+
+async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: boolean; message: string }> {
+  // Bygg ovrigt_info-JSON från extern skotning-fälten
   let ovrigtInfo = null;
   if (obj._extern_skotning) {
     ovrigtInfo = JSON.stringify({
@@ -69,7 +115,6 @@ async function sparaObjektTillSupabase(obj) {
       extern_antal: obj._extern_antal || 0,
     });
   } else if (obj.ovrigt_info) {
-    // If extern was turned off but there was old ovrigt_info, clear extern fields
     try {
       const parsed = JSON.parse(obj.ovrigt_info);
       if (parsed.extern_skotning) {
@@ -85,39 +130,21 @@ async function sparaObjektTillSupabase(obj) {
     } catch { ovrigtInfo = obj.ovrigt_info; }
   }
 
-  // .select() gör att vi FÅR TILLBAKA de uppdaterade raderna. En UPDATE som
-  // träffar 0 rader (RLS-blockerad eller borttaget objekt) ger INGET error —
-  // utan denna kontroll visade vyn "Sparat!" när ingenting sparades.
-  const { data, error } = await supabase
-    .from('dim_objekt')
-    .update({
-      object_name: obj.object_name, vo_nummer: obj.vo_nummer, skogsagare: obj.skogsagare,
-      bolag: obj.bolag, huvudtyp: obj.huvudtyp, atgard: obj.atgard, inkopare: obj.inkopare,
-      exkludera: obj.exkludera,
-      grot_anpassad: obj.grot_anpassad || false,
-      egen_skotning: obj.egen_skotning || false,
-      klippning: obj.klippning || false,
-      risskotning: obj.risskotning || false,
-      stubbbehandling: obj.stubbbehandling || false,
-      extra_vagn: obj.extra_vagn || false,
-      timpeng: obj.timpeng || false,
-      prisscenario_id: obj.prisscenario_id ?? null,
-      skordning_avslutad: obj.skordning_avslutad || null,
-      skotning_avslutad: obj.skotning_avslutad || null,
-      skotad_volym_manuell: obj.skotad_volym_manuell ?? null,
-      timpeng_undantag_timmar_skordare: obj.timpeng_undantag_timmar_skordare ?? null,
-      timpeng_undantag_timmar_skotare: obj.timpeng_undantag_timmar_skotare ?? null,
-      timpeng_undantag_volym: obj.timpeng_undantag_volym ?? null,
-      timpeng_undantag_dra_skordare: obj.timpeng_undantag_dra_skordare !== false,
-      timpeng_undantag_dra_skotare: obj.timpeng_undantag_dra_skotare !== false,
-      ovrigt_info: ovrigtInfo,
-    })
-    .eq('objekt_id', obj.objekt_id)
-    .select('objekt_id')
-  if (error) return { ok: false, message: 'Kunde inte spara: ' + error.message }
-  if (!data || data.length === 0) {
-    return { ok: false, message: 'Inget sparades — uppdateringen träffade inga rader (saknad behörighet eller borttaget objekt)' }
-  }
+  const gruppIds = syskon.map(o => o.objekt_id)
+  const skordarIds = raderForMaskinslag(syskon, 'harvester', obj.objekt_id)
+  const skotarIds = raderForMaskinslag(syskon, 'forwarder', obj.objekt_id)
+
+  // Gemensamt -> ALLA rader i gruppen; maskinspecifikt -> respektive rader.
+  const gemensamt = plocka(obj, GEMENSAMMA_FALT)
+  const skordarPatch = plocka(obj, SKORDARFALT)
+  const skotarPatch = { ...plocka(obj, SKOTARFALT), ovrigt_info: ovrigtInfo }
+
+  const r1 = await direktPatchDimObjekt(gruppIds, gemensamt)
+  if (!r1.ok) return r1
+  const r2 = await direktPatchDimObjekt(skordarIds, skordarPatch)
+  if (!r2.ok) return { ok: false, message: 'Skördarfälten: ' + r2.message }
+  const r3 = await direktPatchDimObjekt(skotarIds, skotarPatch)
+  if (!r3.ok) return { ok: false, message: 'Skotarfälten: ' + r3.message }
   return { ok: true, message: '' }
 }
 // === SLUT SUPABASE ===
@@ -415,23 +442,39 @@ function FilterChip({ label, active, onClick }) {
 }
 
 // Chip Input
-function ChipInput({ label, value, options, setOptions, onChange, embedded = false }) {
+function ChipInput({ label, value, options, setOptions, onChange, embedded = false, onAddOption, onRemoveOption }: any) {
   const [input, setInput] = useState('')
+  const [hantera, setHantera] = useState(false)
   const filtered = input.trim() ? options.filter(o => o.toLowerCase().includes(input.toLowerCase())) : options
 
   const handleSelect = (val) => { onChange(val); setInput('') }
   const handleCreate = () => {
     if (!input.trim()) return
     const newVal = input.trim()
-    if (!options.includes(newVal)) setOptions([...options, newVal].sort())
+    if (!options.includes(newVal)) {
+      setOptions([...options, newVal].sort())
+      if (onAddOption) onAddOption(newVal) // persistera i val-listan (ärlig sparning i föräldern)
+    }
     onChange(newVal)
     setInput('')
+  }
+  const handleRemove = (val: any) => {
+    if (onRemoveOption) onRemoveOption(val) // föräldern tar bort ur tabellen + listan
   }
 
   return (
     <div style={embedded ? styles.chipInputBoxEmbedded : styles.chipInputBox}>
       <div style={styles.chipInputHeader}>
         <span style={styles.chipInputLabel}>{label}</span>
+        {onRemoveOption && (
+          <button
+            onClick={() => setHantera(!hantera)}
+            className="tap-press"
+            style={{ background: 'none', border: 'none', color: hantera ? '#adc6ff' : 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '2px 4px' }}
+          >
+            {hantera ? 'Klar' : 'Hantera'}
+          </button>
+        )}
       </div>
       {value && (
         <div style={styles.chipSelected}>
@@ -454,9 +497,9 @@ function ChipInput({ label, value, options, setOptions, onChange, embedded = fal
             key={opt}
             label={opt}
             selected={value === opt}
-            onClick={() => handleSelect(opt)}
-            editMode={false}
-            onDelete={() => {}}
+            onClick={() => hantera ? null : handleSelect(opt)}
+            editMode={hantera}
+            onDelete={() => handleRemove(opt)}
           />
         ))}
         {input.trim() && !options.some(o => o.toLowerCase() === input.toLowerCase()) && (
@@ -787,140 +830,6 @@ function ConfirmDialog({
   )
 }
 
-// Prisscenario — helper + sub-komponenter
-function formatScenarioGiltighet(s) {
-  if (!s) return null
-  const fran = s.giltig_fran ? new Date(s.giltig_fran).toLocaleDateString('sv-SE') : null
-  const till = s.giltig_till ? new Date(s.giltig_till).toLocaleDateString('sv-SE') : null
-  if (fran && till) return `Giltig ${fran} → ${till}`
-  if (fran) return `Giltig från ${fran}`
-  if (till) return `Giltig till ${till}`
-  return null
-}
-
-function formatScenarioDelta(s) {
-  if (!s) return null
-  return `+${s.extra_skordare_kr || 0} kr/h skördare · +${s.extra_skotare_kr || 0} kr/h skotare`
-}
-
-function PrisscenarioBox({ valtScenario, onOpen }) {
-  const [hover, setHover] = useState(false)
-  const harScenario = !!valtScenario
-  const giltighet = formatScenarioGiltighet(valtScenario)
-  const delta = formatScenarioDelta(valtScenario)
-
-  return (
-    <div
-      style={{
-        ...styles.scenarioBox,
-        borderColor: hover ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)'
-      }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
-      <div style={styles.scenarioContent}>
-        <span style={styles.scenarioLabel}>Prisscenario</span>
-        {harScenario ? (
-          <>
-            <div style={styles.scenarioName}>{valtScenario.namn}</div>
-            <div style={styles.scenarioDelta}>{delta}</div>
-            {giltighet && <div style={styles.scenarioGiltighet}>{giltighet}</div>}
-          </>
-        ) : (
-          <>
-            <div style={styles.scenarioName}>Inget valt</div>
-            <div style={styles.scenarioDelta}>Standard maskin_timpris används</div>
-          </>
-        )}
-      </div>
-      <button
-        onClick={onOpen}
-        className="tap-press"
-        style={{
-          ...styles.voLockBtn,
-          background: hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
-        }}
-      >
-        <span style={styles.voLockText}>{harScenario ? 'Ändra' : 'Välj'}</span>
-      </button>
-    </div>
-  )
-}
-
-function ScenarioRow({ valt, namn, beskrivning, giltighet, onClick }) {
-  const [hover, setHover] = useState(false)
-  return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        ...styles.scenarioRow,
-        background: valt ? 'rgba(173,198,255,0.10)' : hover ? 'rgba(255,255,255,0.04)' : 'transparent',
-        borderColor: valt ? 'rgba(173,198,255,0.30)' : hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)'
-      }}
-    >
-      <div style={{
-        ...styles.scenarioRowRadio,
-        borderColor: valt ? '#adc6ff' : 'rgba(255,255,255,0.25)',
-        background: valt ? '#adc6ff' : 'transparent'
-      }}>
-        {valt && <div style={{ ...styles.scenarioRowDot, background: '#000' }} />}
-      </div>
-      <div style={styles.scenarioRowText}>
-        <div style={styles.scenarioRowName}>{namn}</div>
-        <div style={styles.scenarioRowBeskrivning}>{beskrivning}</div>
-        {giltighet && <div style={styles.scenarioRowGiltighet}>{giltighet}</div>}
-      </div>
-    </div>
-  )
-}
-
-function PrisscenarioPicker({ open, scenarier, valtId, onVal, onClose }) {
-  const [scrolled, setScrolled] = useState(false)
-  if (!open) return null
-
-  return (
-    <>
-      <div style={{ ...styles.overlay, zIndex: 102, animation: 'fadeIn 0.2s ease' }} onClick={onClose} />
-      <div style={{
-        ...styles.sheet, zIndex: 103,
-        animation: 'slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1)'
-      }}>
-        <div style={styles.sheetHandle} onClick={onClose}><div style={styles.sheetBar} /></div>
-        <div style={{
-          ...styles.sheetHeader,
-          borderBottom: scrolled ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent'
-        }}>
-          <div style={styles.sheetTitel}>Välj prisscenario</div>
-        </div>
-        <div style={{ ...styles.scrollFade, opacity: scrolled ? 1 : 0 }} />
-        <div style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
-          <ScenarioRow
-            valt={valtId === null}
-            namn="Inget scenario"
-            beskrivning="Standard maskin_timpris används"
-            onClick={() => onVal(null)}
-          />
-          {scenarier.map(s => (
-            <ScenarioRow
-              key={s.id}
-              valt={valtId === s.id}
-              namn={s.namn}
-              beskrivning={formatScenarioDelta(s)}
-              giltighet={formatScenarioGiltighet(s)}
-              onClick={() => onVal(s.id)}
-            />
-          ))}
-          {scenarier.length === 0 && (
-            <div style={styles.emptyState}>Inga aktiva scenarier finns</div>
-          )}
-        </div>
-      </div>
-    </>
-  )
-}
-
 // Subtila text-badges på listkort med vad som saknas (max 3, +N fler)
 function KortBadges({ obj }) {
   const warnings = getWarnings(obj)
@@ -1168,7 +1077,7 @@ function NumField({ label, value, onChange, placeholder, suffix }: any) {
 }
 
 // Redigerings-modal
-function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, scenarier, onOpenScenarioPicker, info }: any) {
+function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, syskon, skordatTotal, onRaderUppdaterade, listAtgarder }: any) {
   const isGallring = valtObjekt.huvudtyp === 'Gallring'
   const atgarder = isGallring ? atgarderGallring : atgarderSlut
   const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
@@ -1176,6 +1085,7 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
   const warnings = getWarnings(valtObjekt)
   const [pendingHuvudtyp, setPendingHuvudtyp] = useState(null)
   const [quickFixState, setQuickFixState] = useState({ status: 'idle', message: '' })
+  const [fardigskotat, setFardigskotat] = useState({ sparar: false, fel: '' })
 
   const showQuickFixName = looksLikeAutoDate(valtObjekt.object_name)
   const runQuickFix = async () => {
@@ -1317,10 +1227,10 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
 
       <IosGroup title="Affär">
         <div id="bolag-section">
-          <ChipInput embedded label="Bolag" value={valtObjekt.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v) => setValtObjekt({...valtObjekt, bolag: v})} />
+          <ChipInput embedded label="Bolag" value={valtObjekt.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v: any) => setValtObjekt({...valtObjekt, bolag: v})} onAddOption={listAtgarder?.onAddBolag} onRemoveOption={listAtgarder?.onRemoveBolag} />
         </div>
         <div id="inkopare-section">
-          <ChipInput embedded label="Inköpare" value={valtObjekt.inkopare || ''} options={inkopare} setOptions={setInkopare} onChange={(v) => setValtObjekt({...valtObjekt, inkopare: v})} />
+          <ChipInput embedded label="Inköpare" value={valtObjekt.inkopare || ''} options={inkopare} setOptions={setInkopare} onChange={(v: any) => setValtObjekt({...valtObjekt, inkopare: v})} onAddOption={listAtgarder?.onAddInkopare} onRemoveOption={listAtgarder?.onRemoveInkopare} />
         </div>
       </IosGroup>
 
@@ -1411,12 +1321,6 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
             </div>
           </div>
         )}
-        <div style={{ padding: '4px 16px 14px' }}>
-          <PrisscenarioBox
-            valtScenario={scenarier.find((s: any) => s.id === valtObjekt.prisscenario_id) || null}
-            onOpen={onOpenScenarioPicker}
-          />
-        </div>
       </IosGroup>
 
       {visaSkordare && (
@@ -1456,13 +1360,62 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
                 <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span> <span style={{ color: 'rgba(255,255,255,0.35)' }}>(lass)</span></>
               )}
             </div>
-            <NumField
-              label="Verklig skotad volym"
-              value={valtObjekt.skotad_volym_manuell}
-              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, skotad_volym_manuell: v })}
-              placeholder="tomt = lass gäller"
-              suffix="m³"
-            />
+            {(() => {
+              const manuell = (Number(valtObjekt.skotad_volym_manuell) || 0) > 0
+              const volymAttSatta = Math.round(Number(skordatTotal) || 0)
+              const skotarIds = raderForMaskinslag(syskon || [valtObjekt], 'forwarder', valtObjekt.objekt_id)
+              const satt = async (varde: number | null) => {
+                setFardigskotat({ sparar: true, fel: '' })
+                const r = await direktPatchDimObjekt(skotarIds, { skotad_volym_manuell: varde })
+                if (r.ok) {
+                  setValtObjekt({ ...valtObjekt, skotad_volym_manuell: varde })
+                  if (onRaderUppdaterade) onRaderUppdaterade(skotarIds, { skotad_volym_manuell: varde })
+                  setFardigskotat({ sparar: false, fel: '' })
+                } else {
+                  setFardigskotat({ sparar: false, fel: r.message })
+                }
+              }
+              return (
+                <div>
+                  {!manuell ? (
+                    <button
+                      onClick={() => satt(volymAttSatta)}
+                      disabled={fardigskotat.sparar || volymAttSatta <= 0}
+                      className="tap-press"
+                      style={{
+                        width: '100%', minHeight: 48, borderRadius: 12, border: 'none',
+                        background: volymAttSatta > 0 ? '#adc6ff' : 'rgba(255,255,255,0.08)',
+                        color: volymAttSatta > 0 ? '#000' : 'rgba(255,255,255,0.35)',
+                        fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
+                        cursor: volymAttSatta > 0 ? 'pointer' : 'not-allowed',
+                        opacity: fardigskotat.sparar ? 0.6 : 1,
+                      }}
+                    >
+                      {fardigskotat.sparar ? 'Sparar …' : volymAttSatta > 0
+                        ? `Markera som färdigskotat (${volymAttSatta.toLocaleString('sv-SE')} m³)`
+                        : 'Färdigskotat — ingen skördad volym att utgå från'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => satt(null)}
+                      disabled={fardigskotat.sparar}
+                      className="tap-press"
+                      style={{
+                        width: '100%', minHeight: 44, borderRadius: 12,
+                        border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+                        color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                        opacity: fardigskotat.sparar ? 0.6 : 1,
+                      }}
+                    >
+                      {fardigskotat.sparar ? 'Sparar …' : 'Ta bort färdigskotat-markeringen'}
+                    </button>
+                  )}
+                  {fardigskotat.fel && (
+                    <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{fardigskotat.fel}</div>
+                  )}
+                </div>
+              )
+            })()}
           </div>
           <div style={{ padding: '4px 16px' }}>
             <div style={styles.switchList}>
@@ -1587,10 +1540,34 @@ export default function ObjektRedigering() {
   const [closing, setClosing] = useState(false)
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
   const [scrolled, setScrolled] = useState(false)
-  const [scenarier, setScenarier] = useState([])
-  const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false)
   // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
   const matchning = useMatchning()
+
+  // Val-listorna (bolag/inköpare) förvaltas i sina tabeller — lägg till/
+  // ta bort påverkar BARA listan, aldrig objekt som redan har värdet satt.
+  // Ärlig sparning: 0 träffade rader visas som fel.
+  const laggTillIVallista = async (tabell: string, namn: string) => {
+    const { data, error: err } = await supabase.from(tabell).insert({ namn }).select('id')
+    if (err || !data || data.length === 0) {
+      setSaveError(`Kunde inte spara "${namn}" i listan — den försvinner vid omladdning`)
+      setTimeout(() => setSaveError(''), 6000)
+    }
+  }
+  const taBortUrVallista = async (tabell: string, namn: string, setLista: any) => {
+    const { data, error: err } = await supabase.from(tabell).delete().eq('namn', namn).select('id')
+    if (err || !data || data.length === 0) {
+      setSaveError(`Kunde inte ta bort "${namn}" ur listan`)
+      setTimeout(() => setSaveError(''), 6000)
+      return
+    }
+    setLista((prev: string[]) => prev.filter(v => v !== namn))
+  }
+  const listAtgarder = {
+    onAddBolag: (n: string) => laggTillIVallista('bolag', n),
+    onRemoveBolag: (n: string) => taBortUrVallista('bolag', n, setBolag),
+    onAddInkopare: (n: string) => laggTillIVallista('inkopare', n),
+    onRemoveInkopare: (n: string) => taBortUrVallista('inkopare', n, setInkopare),
+  }
 
   // Öppna objekt — snapshotar original så vi kan jämföra för dirty-check
   const openObjekt = (obj) => {
@@ -1620,8 +1597,8 @@ export default function ObjektRedigering() {
 
   // Hämta från Supabase vid start
   useEffect(() => {
-    Promise.all([hamtaObjektFranSupabase(), hamtaMaskinerFranSupabase(), hamtaPrisscenarier()])
-      .then(([objektData, maskinData, scenarioData]) => {
+    Promise.all([hamtaObjektFranSupabase(), hamtaMaskinerFranSupabase()])
+      .then(async ([objektData, maskinData]) => {
         // Skapa lookup-objekt för maskiner: { maskin_id: modell }
         const maskinLookup = {}
         const maskinTypMap = {}
@@ -1633,13 +1610,39 @@ export default function ObjektRedigering() {
         const berikade = (objektData || []).map(o => ({ ...o, maskin_typ: maskinTypMap[o.maskin_id] || null }))
         setObjekt(berikade)
         setMaskiner(maskinLookup)
-        setScenarier(scenarioData)
-        // Extrahera unika bolag + inköpare från datan (inköpare seedas
-        // enbart härifrån — inga hårdkodade demo-namn)
-        const unikaBolag = [...new Set(objektData.map(o => o.bolag).filter(Boolean))]
-        setBolag([...new Set([...STANDARD_BOLAG, ...unikaBolag])].sort())
-        const unikaInkopare = Array.from(new Set(objektData.map(o => o.inkopare).filter(Boolean)))
-        setInkopare(unikaInkopare.sort())
+        // Val-listorna bor i bolag/inkopare-tabellerna (persistent förvaltning:
+        // Hantera-läget kan ta bort, nya chips läggs till). Tomma tabeller
+        // seedas EN gång från standard + unika värden i datan. Kan tabellen
+        // inte läsas faller vi tillbaka på härledd lista (utan Hantera-persistens).
+        const [bolagRes, inkRes] = await Promise.all([
+          supabase.from('bolag').select('namn'),
+          supabase.from('inkopare').select('namn'),
+        ])
+        const unikaBolag = [...new Set(objektData.map((o: any) => o.bolag).filter(Boolean))] as string[]
+        const unikaInkopare = Array.from(new Set(objektData.map((o: any) => o.inkopare).filter(Boolean))) as string[]
+        let bolagLista: string[]
+        if (!bolagRes.error) {
+          bolagLista = (bolagRes.data || []).map((r: any) => r.namn).filter(Boolean)
+          if (bolagLista.length === 0) {
+            const seed = Array.from(new Set(STANDARD_BOLAG.concat(unikaBolag)))
+            await supabase.from('bolag').insert(seed.map(namn => ({ namn })))
+            bolagLista = seed
+          }
+        } else {
+          bolagLista = Array.from(new Set(STANDARD_BOLAG.concat(unikaBolag)))
+        }
+        setBolag(bolagLista.sort())
+        let inkopareLista: string[]
+        if (!inkRes.error) {
+          inkopareLista = (inkRes.data || []).map((r: any) => r.namn).filter(Boolean)
+          if (inkopareLista.length === 0 && unikaInkopare.length > 0) {
+            await supabase.from('inkopare').insert(unikaInkopare.map(namn => ({ namn })))
+            inkopareLista = unikaInkopare
+          }
+        } else {
+          inkopareLista = unikaInkopare
+        }
+        setInkopare(inkopareLista.sort())
         setLoading(false)
       })
       .catch(err => {
@@ -1687,14 +1690,30 @@ export default function ObjektRedigering() {
     if (!valtObjekt) return
     setSaving(true)
     setSaveError('')
+    const syskon = syskonRader(objekt, valtObjekt)
     let res = { ok: false, message: '' }
     try {
-      res = await sparaObjektTillSupabase(valtObjekt)
+      res = await sparaObjektTillSupabase(valtObjekt, syskon)
     } catch (err) {
       res = { ok: false, message: 'Kunde inte spara — försök igen' }
     }
     if (res.ok) {
-      setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
+      // Spegla multi-rad-saven i lokal state: gemensamt till hela VO-gruppen,
+      // maskinspecifikt till respektive maskinslags rader
+      const gruppIds = syskon.map((o: any) => o.objekt_id)
+      const skordarIds = raderForMaskinslag(syskon, 'harvester', valtObjekt.objekt_id)
+      const skotarIds = raderForMaskinslag(syskon, 'forwarder', valtObjekt.objekt_id)
+      const gemensamt = plocka(valtObjekt, GEMENSAMMA_FALT)
+      const skordarPatch = plocka(valtObjekt, SKORDARFALT)
+      const skotarPatch = plocka(valtObjekt, SKOTARFALT)
+      setObjekt(objekt.map((o: any) => {
+        if (o.objekt_id === valtObjekt.objekt_id) return valtObjekt
+        let uppdaterad = o
+        if (gruppIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...gemensamt }
+        if (skordarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skordarPatch }
+        if (skotarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skotarPatch }
+        return uppdaterad
+      }))
       setSaved(true)
       setTimeout(() => {
         setValtObjekt(null)
@@ -1735,7 +1754,7 @@ export default function ObjektRedigering() {
   }
 
   if (visaAllaObjekt) {
-    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} scenarier={scenarier} kortInfo={kortInfo} onBack={() => setVisaAllaObjekt(false)} />
+    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} kortInfo={kortInfo} listAtgarder={listAtgarder} onBack={() => setVisaAllaObjekt(false)} />
   }
 
   return (
@@ -1841,18 +1860,9 @@ export default function ObjektRedigering() {
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
         {valtObjekt && (
-          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} info={kortInfo[valtObjekt.objekt_id]} />
+          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} info={kortInfo[valtObjekt.objekt_id]} syskon={syskonRader(objekt, valtObjekt)} skordatTotal={syskonRader(objekt, valtObjekt).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)} onRaderUppdaterade={(ids: string[], patch: any) => { setObjekt((prev: any[]) => prev.map((o: any) => ids.includes(o.objekt_id) ? { ...o, ...patch } : o)); setOriginalObjekt((prev: any) => prev && ids.includes(prev.objekt_id) ? { ...prev, ...patch } : prev) }} listAtgarder={listAtgarder} />
         )}
       </EditSheet>
-      {valtObjekt && (
-        <PrisscenarioPicker
-          open={scenarioPickerOpen}
-          scenarier={scenarier}
-          valtId={valtObjekt.prisscenario_id ?? null}
-          onVal={(id) => { setValtObjekt({...valtObjekt, prisscenario_id: id}); setScenarioPickerOpen(false) }}
-          onClose={() => setScenarioPickerOpen(false)}
-        />
-      )}
       <ConfirmDialog
         open={showDirtyDialog}
         title="Du har osparade ändringar"
@@ -1872,7 +1882,7 @@ export default function ObjektRedigering() {
 }
 
 // VY 2 - ALLA OBJEKT
-function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, scenarier, kortInfo, onBack }: any) {
+function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, kortInfo, listAtgarder, onBack }: any) {
   const [search, setSearch] = useState('')
   const [filterBolag, setFilterBolag] = useState(null)
   const [filterHuvudtyp, setFilterHuvudtyp] = useState(null)
@@ -1888,7 +1898,6 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   const [scrolled, setScrolled] = useState(false)
   const [backHover, setBackHover] = useState(false)
   const [titleHover, setTitleHover] = useState(false)
-  const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false)
 
   const openObjekt = (obj) => {
     const parsed = parseExternSkotning(obj)
@@ -1947,14 +1956,30 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
     if (!valtObjekt) return
     setSaving(true)
     setSaveError('')
+    const syskon = syskonRader(objekt, valtObjekt)
     let res = { ok: false, message: '' }
     try {
-      res = await sparaObjektTillSupabase(valtObjekt)
+      res = await sparaObjektTillSupabase(valtObjekt, syskon)
     } catch (err) {
       res = { ok: false, message: 'Kunde inte spara — försök igen' }
     }
     if (res.ok) {
-      setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
+      // Spegla multi-rad-saven i lokal state: gemensamt till hela VO-gruppen,
+      // maskinspecifikt till respektive maskinslags rader
+      const gruppIds = syskon.map((o: any) => o.objekt_id)
+      const skordarIds = raderForMaskinslag(syskon, 'harvester', valtObjekt.objekt_id)
+      const skotarIds = raderForMaskinslag(syskon, 'forwarder', valtObjekt.objekt_id)
+      const gemensamt = plocka(valtObjekt, GEMENSAMMA_FALT)
+      const skordarPatch = plocka(valtObjekt, SKORDARFALT)
+      const skotarPatch = plocka(valtObjekt, SKOTARFALT)
+      setObjekt(objekt.map((o: any) => {
+        if (o.objekt_id === valtObjekt.objekt_id) return valtObjekt
+        let uppdaterad = o
+        if (gruppIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...gemensamt }
+        if (skordarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skordarPatch }
+        if (skotarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skotarPatch }
+        return uppdaterad
+      }))
       setSaved(true)
       setTimeout(() => {
         setValtObjekt(null)
@@ -2104,18 +2129,9 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
         {valtObjekt && (
-          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} info={kortInfo[valtObjekt.objekt_id]} />
+          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} info={kortInfo[valtObjekt.objekt_id]} syskon={syskonRader(objekt, valtObjekt)} skordatTotal={syskonRader(objekt, valtObjekt).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)} onRaderUppdaterade={(ids: string[], patch: any) => { setObjekt((prev: any[]) => prev.map((o: any) => ids.includes(o.objekt_id) ? { ...o, ...patch } : o)); setOriginalObjekt((prev: any) => prev && ids.includes(prev.objekt_id) ? { ...prev, ...patch } : prev) }} listAtgarder={listAtgarder} />
         )}
       </EditSheet>
-      {valtObjekt && (
-        <PrisscenarioPicker
-          open={scenarioPickerOpen}
-          scenarier={scenarier}
-          valtId={valtObjekt.prisscenario_id ?? null}
-          onVal={(id) => { setValtObjekt({...valtObjekt, prisscenario_id: id}); setScenarioPickerOpen(false) }}
-          onClose={() => setScenarioPickerOpen(false)}
-        />
-      )}
       <ConfirmDialog
         open={showDirtyDialog}
         title="Du har osparade ändringar"
