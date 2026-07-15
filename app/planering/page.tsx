@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
+import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
@@ -1509,6 +1510,12 @@ export default function PlannerPage() {
   const [infoMarkagareVed, setInfoMarkagareVed] = useState(false);
   const [infoMarkagareVedText, setInfoMarkagareVedText] = useState('');
   const [infoAnteckningar, setInfoAnteckningar] = useState('');
+  // Larmkoordinat / mötesplats (trakt-data, ej samrådsdata) — sätts manuellt, aldrig auto-härledd
+  const [infoLarmLat, setInfoLarmLat] = useState('');
+  const [infoLarmLng, setInfoLarmLng] = useState('');
+  const [infoLarmBeskrivning, setInfoLarmBeskrivning] = useState('');
+  const [infoLarmKalla, setInfoLarmKalla] = useState<'td' | 'egen' | null>(null);
+  const [infoLarmBekraftad, setInfoLarmBekraftad] = useState(false);
   const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
   const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
   const [infoVolym, setInfoVolym] = useState(''); // en sanning: objekt.volym
@@ -1522,7 +1529,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn')
+        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, larmkoordinat_kalla, larmkoordinat_bekraftad')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -1551,6 +1558,11 @@ export default function PlannerPage() {
         setInfoSkotareExtraVagn(data.skotare_extra_vagn || false);
         setInfoAreal(data.areal != null ? String(data.areal) : '');
         setInfoVolym(data.volym != null ? String(data.volym) : '');
+        setInfoLarmLat(data.larmkoordinat_lat != null ? String(data.larmkoordinat_lat) : '');
+        setInfoLarmLng(data.larmkoordinat_lng != null ? String(data.larmkoordinat_lng) : '');
+        setInfoLarmBeskrivning(data.larmkoordinat_beskrivning || '');
+        setInfoLarmKalla(data.larmkoordinat_kalla || null);
+        setInfoLarmBekraftad(data.larmkoordinat_bekraftad || false);
         // Prognos, traktdata, körläge, stickväg
         if (data.prognos_settings) setPrognosSettings(data.prognos_settings);
         if (data.manuell_prognos) setManuellPrognos(data.manuell_prognos);
@@ -1630,10 +1642,15 @@ export default function PlannerPage() {
         generellt_tillstand: generelltTillstand,
         areal: parseSvNum(infoAreal),
         volym: parseSvNum(infoVolym),
+        larmkoordinat_lat: parseSvNum(infoLarmLat),
+        larmkoordinat_lng: parseSvNum(infoLarmLng),
+        larmkoordinat_beskrivning: infoLarmBeskrivning || null,
+        larmkoordinat_kalla: infoLarmKalla,
+        larmkoordinat_bekraftad: infoLarmBekraftad,
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, infoLarmLat, infoLarmLng, infoLarmBeskrivning, infoLarmKalla, infoLarmBekraftad, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
 
   // === Maskin-väljare (Fakta-fliken) — matas från dim_maskin ===
   // Valbar lista för en roll: rätt maskin_typ, aktiv (ej såld), klarar objektets typ.
@@ -4196,16 +4213,6 @@ export default function PlannerPage() {
   } | null>(null);
   const [brandOpen, setBrandOpen] = useState(false);
   const [brandEldningsforbud, setBrandEldningsforbud] = useState(false);
-  const [brandSamrad, setBrandSamrad] = useState({
-    beredskapsniva: 'normal' as 'normal' | 'hojd',
-    atgarder: [] as string[],
-    blotMarkUndantag: false,
-    uppdragsgivareNamn: '',
-    uppdragsgivareTel: '',
-    kortider: '',
-    datum: new Date().toISOString().slice(0, 16),
-    kvitterad: false,
-  });
   const [brandKontakter, setBrandKontakter] = useState({
     uppdragsgivareNamn: '', uppdragsgivareTel: '',
     forsakringsbolag: '', forsakringsnummer: '',
@@ -4223,13 +4230,7 @@ export default function PlannerPage() {
     datum: new Date().toISOString().slice(0, 16),
     noteringar: '', kvitterad: false,
   });
-  const [brandBrandvakt, setBrandBrandvakt] = useState({
-    namn: '', starttid: '', sluttid: '', noteringar: '',
-  });
   const [brandUtrustning, setBrandUtrustning] = useState([false, false, false, false]);
-  const [brandNearbyWater, setBrandNearbyWater] = useState<{ name: string; dist: number; lat: number; lon: number }[]>([]);
-  const [brandNearbyFireStation, setBrandNearbyFireStation] = useState<{ name: string; dist: number; lat: number; lon: number }[]>([]);
-  const [brandLarmTillfart, setBrandLarmTillfart] = useState('');
   const [brandLarmChecklista, setBrandLarmChecklista] = useState([false, false, false, false, false]);
   const brandLoadedRef = useRef(false);
   const [brandTestMode, setBrandTestMode] = useState<number | null>(null);
@@ -4366,32 +4367,12 @@ export default function PlannerPage() {
     }));
   }, [tractAnalysis]);
 
-  // === BRANDRISK: Hämta nearby vatten/brandstation när panelen öppnas ===
-  useEffect(() => {
-    if (activeCategory !== 'brandrisk') return;
-    if (brandTestMode !== null) return;
-    if (brandNearbyWater.length > 0 || brandNearbyFireStation.length > 0) return;
-    fetchBrandNearby(mapCenter.lat, mapCenter.lng);
-  }, [activeCategory, brandTestMode]);
-
   // === BRAND: Ladda sparad data från Supabase ===
   useEffect(() => {
     brandLoadedRef.current = false;
     if (!valtObjekt?.id) return;
     const loadBrand = async () => {
       const { data: samData } = await supabase.from('brand_samrad').select('*').eq('objekt_id', valtObjekt.id).maybeSingle();
-      if (samData) {
-        setBrandSamrad({
-          beredskapsniva: samData.beredskapsniva || 'normal',
-          atgarder: (samData.atgarder as string[]) || [],
-          blotMarkUndantag: samData.blot_mark_undantag || false,
-          uppdragsgivareNamn: samData.uppdragsgivare_namn || '',
-          uppdragsgivareTel: samData.uppdragsgivare_tel || '',
-          kortider: samData.kortider || '',
-          datum: samData.datum ? new Date(samData.datum).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16),
-          kvitterad: samData.kvitterad || false,
-        });
-      }
       const { data: kontData } = await supabase.from('brand_kontakter').select('*').eq('objekt_id', valtObjekt.id).maybeSingle();
       if (kontData) {
         setBrandKontakter({
@@ -4417,17 +4398,10 @@ export default function PlannerPage() {
           noteringar: ekData.noteringar || '', kvitterad: ekData.kvitterad || false,
         });
       }
-      const { data: bvData } = await supabase.from('brand_brandvakt').select('*').eq('objekt_id', valtObjekt.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
-      if (bvData) {
-        setBrandBrandvakt({
-          namn: bvData.namn || '', starttid: bvData.starttid || '', sluttid: bvData.sluttid || '', noteringar: bvData.noteringar || '',
-        });
-      }
       // Ladda utrustning + larm-checklista från brand_samrad
       if (samData) {
         if (Array.isArray(samData.utrustning)) setBrandUtrustning(samData.utrustning);
         if (Array.isArray(samData.larm_checklista)) setBrandLarmChecklista(samData.larm_checklista);
-        if (samData.larm_tillfart) setBrandLarmTillfart(samData.larm_tillfart);
       }
       brandLoadedRef.current = true;
       console.log('[Brand] Laddade data från Supabase');
@@ -4444,17 +4418,8 @@ export default function PlannerPage() {
       await supabase.from('brand_samrad').upsert({
         objekt_id: valtObjekt.id,
         fwi_value: brandRisk?.currentFwi || null,
-        beredskapsniva: brandSamrad.beredskapsniva,
-        atgarder: brandSamrad.atgarder,
-        blot_mark_undantag: brandSamrad.blotMarkUndantag,
-        uppdragsgivare_namn: brandSamrad.uppdragsgivareNamn || null,
-        uppdragsgivare_tel: brandSamrad.uppdragsgivareTel || null,
-        kortider: brandSamrad.kortider || null,
-        datum: brandSamrad.datum,
-        kvitterad: brandSamrad.kvitterad,
         utrustning: brandUtrustning,
         larm_checklista: brandLarmChecklista,
-        larm_tillfart: brandLarmTillfart || null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'objekt_id' });
       await supabase.from('brand_kontakter').upsert({
@@ -4476,7 +4441,7 @@ export default function PlannerPage() {
       console.log('[Brand] Sparade till Supabase');
     }, 2000);
     return () => { if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current); };
-  }, [brandSamrad, brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, brandLarmTillfart, valtObjekt?.id, brandTestMode]);
+  }, [brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, valtObjekt?.id, brandTestMode]);
 
   // === TMA: Ladda sparad data från Supabase ===
   const tmaLoadedRef = useRef(false);
@@ -7073,55 +7038,6 @@ export default function PlannerPage() {
 
   // Beräkna förenklat FWI från SMHI-parametrar
   // Hämta närmaste vatten och brandstationer
-  const fetchBrandNearby = async (lat: number, lon: number) => {
-    // Vatten
-    try {
-      const wQuery = `[out:json][timeout:10];(nwr(around:5000,${lat},${lon})["natural"="water"];nwr(around:5000,${lat},${lon})["waterway"~"stream|river"];);out center 10;`;
-      const wResp = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(wQuery) });
-      const wData = await wResp.json();
-      const waters = (wData.elements || [])
-        .map((e: any) => {
-          const eLat = e.lat ?? e.center?.lat;
-          const eLon = e.lon ?? e.center?.lon;
-          if (!eLat || !eLon) return null;
-          const name = e.tags?.name || (e.tags?.waterway === 'river' ? 'Å/älv' : e.tags?.waterway === 'stream' ? 'Bäck' : 'Vatten');
-          const R = 6371000;
-          const dLat = (eLat - lat) * Math.PI / 180;
-          const dLon = (eLon - lon) * Math.PI / 180;
-          const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * Math.PI / 180) * Math.cos(eLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-          const dist = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-          return { name, dist, lat: eLat, lon: eLon };
-        })
-        .filter(Boolean)
-        .sort((a: any, b: any) => a.dist - b.dist)
-        .slice(0, 3);
-      setBrandNearbyWater(waters);
-    } catch (e) { console.error('[Brand] Vatten-fel:', e); }
-
-    // Brandstationer
-    try {
-      const fQuery = `[out:json][timeout:10];nwr(around:30000,${lat},${lon})["amenity"="fire_station"];out center 10;`;
-      const fResp = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(fQuery) });
-      const fData = await fResp.json();
-      const stations = (fData.elements || [])
-        .map((e: any) => {
-          const eLat = e.lat ?? e.center?.lat;
-          const eLon = e.lon ?? e.center?.lon;
-          if (!eLat || !eLon) return null;
-          const name = e.tags?.name || 'Brandstation';
-          const R = 6371000;
-          const dLat = (eLat - lat) * Math.PI / 180;
-          const dLon = (eLon - lon) * Math.PI / 180;
-          const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * Math.PI / 180) * Math.cos(eLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-          const dist = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-          return { name, dist, lat: eLat, lon: eLon };
-        })
-        .filter(Boolean)
-        .sort((a: any, b: any) => a.dist - b.dist)
-        .slice(0, 3);
-      setBrandNearbyFireStation(stations);
-    } catch (e) { console.error('[Brand] Brandstation-fel:', e); }
-  };
 
   // Kontrollera traktgränsens närhet till vägar (TMA-analys)
   const checkBoundaryTma = async (boundaryPaths: Point[][]): Promise<TmaCheckResult> => {
@@ -14949,13 +14865,6 @@ export default function PlannerPage() {
                         <button
                           onClick={() => {
                             setBrandTestMode(5);
-                            setBrandNearbyWater([
-                              { name: 'Testsjön', dist: 800, lat: mapCenter.lat + 0.005, lon: mapCenter.lng + 0.003 },
-                              { name: 'Testbäcken', dist: 1200, lat: mapCenter.lat - 0.003, lon: mapCenter.lng + 0.008 },
-                            ]);
-                            setBrandNearbyFireStation([
-                              { name: 'Teststation Räddningstjänst', dist: 4500, lat: mapCenter.lat + 0.02, lon: mapCenter.lng - 0.01 },
-                            ]);
                             console.log('[BrandTest] Aktiverat FWI 5 testläge');
                             setTimeout(() => setActiveCategory('brandrisk'), 50);
                           }}
@@ -14966,12 +14875,6 @@ export default function PlannerPage() {
                         <button
                           onClick={() => {
                             setBrandTestMode(3);
-                            setBrandNearbyWater([
-                              { name: 'Testsjön', dist: 800, lat: mapCenter.lat + 0.005, lon: mapCenter.lng + 0.003 },
-                            ]);
-                            setBrandNearbyFireStation([
-                              { name: 'Teststation Räddningstjänst', dist: 4500, lat: mapCenter.lat + 0.02, lon: mapCenter.lng - 0.01 },
-                            ]);
                             console.log('[BrandTest] Aktiverat FWI 3 testläge');
                             setTimeout(() => setActiveCategory('brandrisk'), 50);
                           }}
@@ -14989,8 +14892,6 @@ export default function PlannerPage() {
                           onClick={() => {
                             setBrandTestMode(null);
                             setBrandRisk(null);
-                            setBrandNearbyWater([]);
-                            setBrandNearbyFireStation([]);
                           }}
                           style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: '13px', cursor: 'pointer' }}
                         >
@@ -15124,14 +15025,15 @@ export default function PlannerPage() {
 
             {/* === BRANDRISK === */}
             {activeCategory === 'brandrisk' && (
-              <BrandriskPanel
-                lat={mapCenter.lat}
-                lon={mapCenter.lng}
+              <PanelErrorBoundary label="Brandrisk">
+                <BrandriskPanel
+                lat={valtObjekt?.lat ?? mapCenter.lat}
+                lon={valtObjekt?.lng ?? mapCenter.lng}
+                objektNamn={valtObjekt?.namn}
+                koordFranObjekt={!!(valtObjekt?.lat && valtObjekt?.lng)}
                 eldningsforbud={brandEldningsforbud}
                 onEldningsforbudChange={setBrandEldningsforbud}
                 testMode={brandTestMode}
-                brandSamrad={brandSamrad}
-                onSamradChange={setBrandSamrad}
                 brandKontakter={brandKontakter}
                 onKontakterChange={setBrandKontakter}
                 brandTillbud={brandTillbud}
@@ -15144,7 +15046,7 @@ export default function PlannerPage() {
                     datum: brandNewTillbud.datum,
                     beskrivning: brandNewTillbud.beskrivning,
                     atgard: brandNewTillbud.atgard,
-                    lat: mapCenter.lat, lon: mapCenter.lng,
+                    lat: valtObjekt.lat ?? mapCenter.lat, lon: valtObjekt.lng ?? mapCenter.lng,
                     photo_data: brandNewTillbud.photoData || null,
                     rapporterad_till: brandNewTillbud.rapporteradTill || null,
                   };
@@ -15156,27 +15058,18 @@ export default function PlannerPage() {
                 }}
                 brandEfterkontroll={brandEfterkontroll}
                 onEfterkontrollChange={setBrandEfterkontroll}
-                brandBrandvakt={brandBrandvakt}
-                onBrandvaktChange={setBrandBrandvakt}
-                onSaveBrandvakt={async () => {
-                  if (!valtObjekt?.id || !brandBrandvakt.namn) return;
-                  await supabase.from('brand_brandvakt').insert({
-                    objekt_id: valtObjekt.id,
-                    namn: brandBrandvakt.namn, starttid: brandBrandvakt.starttid || null,
-                    sluttid: brandBrandvakt.sluttid || null, noteringar: brandBrandvakt.noteringar || null,
-                  });
-                }}
                 brandUtrustning={brandUtrustning}
                 onUtrustningChange={setBrandUtrustning}
-                brandNearbyWater={brandNearbyWater}
-                brandNearbyFireStation={brandNearbyFireStation}
-                brandLarmTillfart={brandLarmTillfart}
-                onLarmTillfartChange={setBrandLarmTillfart}
+                larmLat={infoLarmLat}
+                larmLng={infoLarmLng}
+                larmBeskrivning={infoLarmBeskrivning}
+                larmKalla={infoLarmKalla}
+                larmBekraftad={infoLarmBekraftad}
                 brandLarmChecklista={brandLarmChecklista}
                 onLarmChecklistaChange={setBrandLarmChecklista}
-                mapCenter={mapCenter}
                 onStatusChange={(s) => setBrandRisk({ status: s.status, currentFwi: s.currentFwi, currentIdx: s.currentIdx })}
-              />
+                />
+              </PanelErrorBoundary>
             )}
 
           </div>
@@ -17170,6 +17063,64 @@ export default function PlannerPage() {
                       fontFamily: 'inherit',
                     }}
                   />
+                </div>
+
+                {/* LARMKOORDINAT / MÖTESPLATS — manuell (TD normalfall), aldrig auto-härledd */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '4px' }}>Larmkoordinat / mötesplats</div>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginBottom: '14px', lineHeight: 1.4 }}>Punkt vid väg där räddningstjänsten kan möta. Sätts vid rekning.</div>
+                  <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Källa</div>
+                  <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '16px' }}>
+                    {[{ id: 'td', label: 'Från traktdirektivet' }, { id: 'egen', label: 'Egen' }].map(opt => (
+                      <div key={opt.id} onClick={() => setInfoLarmKalla(opt.id as 'td' | 'egen')}
+                        style={{
+                          flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                          background: infoLarmKalla === opt.id ? '#0a84ff' : 'transparent',
+                          color: infoLarmKalla === opt.id ? '#fff' : '#8e8e93',
+                          fontWeight: infoLarmKalla === opt.id ? '600' : '400', transition: 'all 0.2s ease',
+                        }}>{opt.label}</div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                    <input value={infoLarmLat} onChange={e => setInfoLarmLat(e.target.value)} placeholder="Lat (56.5712)" inputMode="decimal"
+                      style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none' }} />
+                    <input value={infoLarmLng} onChange={e => setInfoLarmLng(e.target.value)} placeholder="Lng (14.7433)" inputMode="decimal"
+                      style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none' }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    <button onClick={() => {
+                      if (!navigator.geolocation) return;
+                      navigator.geolocation.getCurrentPosition(pos => {
+                        setInfoLarmLat(pos.coords.latitude.toFixed(6));
+                        setInfoLarmLng(pos.coords.longitude.toFixed(6));
+                        if (!infoLarmKalla) setInfoLarmKalla('egen');
+                      });
+                    }} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Använd GPS
+                    </button>
+                    <button onClick={() => {
+                      setInfoLarmLat(mapCenter.lat.toFixed(6));
+                      setInfoLarmLng(mapCenter.lng.toFixed(6));
+                      if (!infoLarmKalla) setInfoLarmKalla('egen');
+                    }} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Kartans mitt
+                    </button>
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Tillfartsväg / beskrivning</div>
+                  <textarea value={infoLarmBeskrivning} onChange={e => setInfoLarmBeskrivning(e.target.value)} placeholder="Beskriv bästa tillfartsväg, mötesplats..."
+                    style={{ width: '100%', minHeight: '60px', padding: '12px', borderRadius: '10px', marginBottom: '16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Mötesplats verifierad på plats</span>
+                    <div onClick={() => setInfoLarmBekraftad(!infoLarmBekraftad)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoLarmBekraftad ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoLarmBekraftad ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
                 </div>
 
               </div>
