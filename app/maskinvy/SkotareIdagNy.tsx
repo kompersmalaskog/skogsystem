@@ -62,6 +62,50 @@ function fmtDatumSv(datum: string): string {
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
 }
 
+type MomTiderHour = {
+  processing: number   // minuter
+  terrain:    number
+  kort_stopp: number
+  ovrigt:     number   // other + disturbance
+}
+
+function stockholmDayBoundsUtc(datum: string): { gte: string; lt: string } {
+  const m = parseInt(datum.slice(5, 7), 10)
+  const off = m >= 4 && m <= 10 ? '+02:00' : '+01:00'
+  const gte = new Date(`${datum}T00:00:00${off}`).toISOString()
+  const [y, mo, d] = datum.split('-').map(Number)
+  const nextDay = new Date(Date.UTC(y, mo - 1, d + 1)).toISOString().slice(0, 10)
+  const lt  = new Date(`${nextDay}T00:00:00${off}`).toISOString()
+  return { gte, lt }
+}
+
+async function fetchMomTider(
+  maskinId: string, datum: string,
+): Promise<Record<number, MomTiderHour> | null> {
+  const { gte, lt } = stockholmDayBoundsUtc(datum)
+  const { data, error } = await supabase
+    .from('mom_tider')
+    .select('timme, typ, minuter')
+    .eq('maskin_id', maskinId)
+    .gte('timme', gte)
+    .lt('timme', lt)
+  if (error) return null
+  const result: Record<number, MomTiderHour> = {}
+  for (const row of (data || [])) {
+    const h = toStockholmHour(row.timme as string)
+    if (!result[h]) result[h] = { processing: 0, terrain: 0, kort_stopp: 0, ovrigt: 0 }
+    const min = (row.minuter as number) || 0
+    switch (row.typ as string) {
+      case 'processing':  result[h].processing += min; break
+      case 'terrain':     result[h].terrain    += min; break
+      case 'kort_stopp':  result[h].kort_stopp += min; break
+      case 'other':
+      case 'disturbance': result[h].ovrigt     += min; break
+    }
+  }
+  return result
+}
+
 // ── Typer ─────────────────────────────────────────────────────
 type FreshnessInfo = {
   senasteDatum:       string        // 'YYYY-MM-DD' (datum-kolumn från fakt_lass)
@@ -82,6 +126,7 @@ type SkotareIdagData = {
   snittSträcka: number | null    // null om lass = 0
   g15h:        number            // SUM(processing_sek + terrain_sek) / 3600 från fakt_tid
   hourBuckets: Record<number, HourBucket>  // timme (0–23) → bucket
+  momTider:    Record<number, MomTiderHour> | null  // null = fetch misslyckades
 }
 
 // ── Datahämtning ──────────────────────────────────────────────
@@ -146,18 +191,22 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
 
   const totalLass = allRows.length
 
-  // 4. G15h från fakt_tid — separat hämtning, aldrig joinad med fakt_lass
-  //    Summera alla operatörsrader för samma datum + maskin.
-  const { data: tidRows } = await supabase
-    .from('fakt_tid')
-    .select('processing_sek, terrain_sek')
-    .eq('maskin_id', maskinId)
-    .eq('datum', senasteDatum)
+  // 4. G15h från fakt_tid + mom_tider — separata hämtningar, parallellt.
+  const [tidResult, momTiderResult] = await Promise.allSettled([
+    supabase
+      .from('fakt_tid')
+      .select('processing_sek, terrain_sek')
+      .eq('maskin_id', maskinId)
+      .eq('datum', senasteDatum),
+    fetchMomTider(maskinId, senasteDatum),
+  ])
 
-  const g15sek = (tidRows || []).reduce(
+  const tidRows = tidResult.status === 'fulfilled' ? (tidResult.value.data || []) : []
+  const g15sek  = tidRows.reduce(
     (sum, r) => sum + (r.processing_sek || 0) + (r.terrain_sek || 0), 0,
   )
-  const g15h = g15sek / 3600
+  const g15h    = g15sek / 3600
+  const momTider = momTiderResult.status === 'fulfilled' ? momTiderResult.value : null
 
   return {
     freshness: { senasteDatum, senasteLossningsTid, daysDiff },
@@ -166,6 +215,7 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
     snittSträcka: totalLass > 0 ? totalDist / totalLass : null,
     g15h,
     hourBuckets,
+    momTider,
   }
 }
 
@@ -464,15 +514,66 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   )
 }
 
+// ── TiderDelSection ───────────────────────────────────────────
+// Visar processing/körning/kortstopp/övrigt per timme från mom_tider.
+function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined }) {
+  const sectionLabel: React.CSSProperties = {
+    fontSize: 11, color: C.muted, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    marginBottom: 10,
+  }
+
+  const entries: { label: string; min: number; color: string }[] = momHour ? [
+    { label: 'Processing',      min: momHour.processing, color: '#30d158' },
+    { label: 'Körning/terräng', min: momHour.terrain,   color: '#0a84ff' },
+    { label: 'Kortstopp',       min: momHour.kort_stopp, color: '#8e8e93' },
+    { label: 'Övrigt/störning', min: momHour.ovrigt,    color: '#ff9f0a' },
+  ].filter(e => e.min > 0) : []
+
+  const total = entries.reduce((s, e) => s + e.min, 0)
+
+  return (
+    <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 14, marginBottom: 16 }}>
+      <div style={sectionLabel}>Maskinen den timmen</div>
+      {total === 0 ? (
+        <div style={{ fontSize: 13, color: C.dim }}>Tid ej tillgänglig</div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', height: 5, borderRadius: 3, overflow: 'hidden', marginBottom: 10 }}>
+            {entries.map(e => (
+              <div key={e.label} style={{ flex: e.min, background: e.color }} />
+            ))}
+          </div>
+          {entries.map(e => (
+            <div key={e.label} style={{
+              display: 'flex', justifyContent: 'space-between',
+              alignItems: 'center', marginBottom: 5,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+              </div>
+              <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                {e.min} min
+              </span>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── HourPanel ─────────────────────────────────────────────────
-// Inline-kort som öppnas vid staypeltryck. Visar lass/volym/sträcka
-// för den timmen. Enkelt — skotarens timdata är enkelt.
+// Inline-kort som öppnas vid stapeltryck. Visar lass/volym/sträcka
+// + maskintid (mom_tider) för den timmen.
 function HourPanel({
-  hour, bucket, onClose,
+  hour, bucket, momTider, onClose,
 }: {
-  hour:   number
-  bucket: HourBucket
-  onClose: () => void
+  hour:     number
+  bucket:   HourBucket
+  momTider: Record<number, MomTiderHour> | null
+  onClose:  () => void
 }) {
   const endHour    = hour + 1
   const snittLass  = bucket.lass > 0 ? bucket.volym / bucket.lass : null
@@ -537,6 +638,9 @@ function HourPanel({
           {fmtSv(snittLass, 1)} m³/lass snitt denna timme
         </div>
       )}
+
+      {/* Maskintid (mom_tider) */}
+      <TiderDelSection momHour={momTider === null ? null : momTider?.[hour]} />
     </div>
   )
 }
@@ -658,6 +762,7 @@ export default function SkotareIdagNy({ maskin, onMaskinChange }: {
           <HourPanel
             hour={selectedHour}
             bucket={data.hourBuckets[selectedHour]}
+            momTider={data.momTider}
             onClose={() => setSelectedHour(null)}
           />
         )}
