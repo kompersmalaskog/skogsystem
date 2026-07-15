@@ -257,6 +257,35 @@ const GRIND_MIN = 30;      // < 30 mätpunkter i en klass → ingen bedömning a
 const GRIND_ATGARD = 100;  // ≥ 100 → åtgärd; 30–100 → tendens utan åtgärd
 const BAND_ORDNING = ['300+', '250-299', '200-249', '150-199', '<150']; // rot → topp
 
+// Tidssteg för Trend "Läget" — grova klasser (25-55 mått/månad) blir brus per
+// månad men signal per kvartal (300+ Q1 = 386 mått). Default kvartal så grova
+// kan visas solida. Aggregeringen är VIKTAD på n (= sann period-träffprocent).
+type LagetSteg = 'manad' | 'kvartal' | 'ar';
+const periodKey = (manad: string, steg: LagetSteg): string => {
+  const y = manad.slice(0, 4);
+  const m = Number(manad.slice(5, 7));
+  if (steg === 'ar') return y;
+  if (steg === 'kvartal') return `${y}-Q${Math.floor((m - 1) / 3) + 1}`;
+  return manad;
+};
+const fmtPeriod = (key: string, steg: LagetSteg): string => {
+  if (steg === 'ar') return key;
+  if (steg === 'kvartal') { const [y, q] = key.split('-'); return `${q} ’${y.slice(2)}`; }
+  return `${key.slice(5, 7)}/${key.slice(2, 4)}`;
+};
+const aggregeraSteg = (
+  monthly: { manad: string; v: number; n: number }[],
+  steg: LagetSteg,
+): Map<string, { v: number; n: number }> => {
+  const b = new Map<string, { vs: number; n: number }>();
+  for (const m of monthly) {
+    const k = periodKey(m.manad, steg);
+    const cur = b.get(k) ?? { vs: 0, n: 0 };
+    cur.vs += m.v * m.n; cur.n += m.n; b.set(k, cur);
+  }
+  return new Map(Array.from(b, ([k, c]) => [k, { v: c.n > 0 ? c.vs / c.n : 0, n: c.n }]));
+};
+
 const klassGrovlek = (klass: string): string =>
   klass === '300+' ? 'grova bitar' : klass === '<150' ? 'klena bitar' : `${klass} mm-bitar`;
 
@@ -516,6 +545,7 @@ export default function KalibreringPage() {
   const [objektQ, setObjektQ] = useState('');
   const [valtObjekt, setValtObjekt] = useState<string | null>(null);
   const [hjalpOpen, setHjalpOpen] = useState(false); // "?"-hjälptexten
+  const [lagetSteg, setLagetSteg] = useState<LagetSteg>('kvartal'); // Läget: tidssteg (default kvartal → grova solida)
   const [nyMarkorDatum, setNyMarkorDatum] = useState('');
   const [nyMarkorText, setNyMarkorText] = useState('');
   const [markorSparar, setMarkorSparar] = useState(false);
@@ -629,9 +659,11 @@ export default function KalibreringPage() {
   const renderTidsChart = (
     manader: string[],
     series: { klass: string; punkter: Map<string, { v: number; n: number }> }[],
-    opts: { yMax: number; kravLinje?: { v: number; label: string }; markorer: DiagMarkor[] },
+    opts: { yMax: number; kravLinje?: { v: number; label: string }; markorer: DiagMarkor[]; fmtX?: (m: string) => string; markorKey?: (datum: string) => string },
   ) => {
     if (manader.length === 0) return <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>Inget underlag ännu.</span></div>;
+    const fmtX = opts.fmtX ?? ((m: string) => m.slice(2).replace('-', '/'));
+    const markorKey = opts.markorKey ?? ((d: string) => d.slice(0, 7));
     const W = 320, H = 150, padL = 28, padR = 10, padT = 10, padB = 22;
     const plotW = W - padL - padR, plotH = H - padT - padB;
     const xFor = (mi: number) => padL + (manader.length === 1 ? plotW / 2 : (mi / (manader.length - 1)) * plotW);
@@ -655,7 +687,7 @@ export default function KalibreringPage() {
             </>
           )}
           {opts.markorer.map((mk, i) => {
-            const mi = monIdx.get(mk.datum.slice(0, 7));
+            const mi = monIdx.get(markorKey(mk.datum));
             if (mi == null) return null;
             return <line key={`mk${i}`} x1={xFor(mi)} y1={padT} x2={xFor(mi)} y2={padT + plotH} className={`kalib-tc-markor ${mk.kalla}`} />;
           })}
@@ -680,13 +712,13 @@ export default function KalibreringPage() {
             return <g key={s.klass}>{el}</g>;
           })}
           {manader.map((m, i) => (i % step === 0 || i === manader.length - 1
-            ? <text key={m} x={xFor(i)} y={H - 6} className="kalib-tc-xlabel" textAnchor="middle">{m.slice(2).replace('-', '/')}</text>
+            ? <text key={m} x={xFor(i)} y={H - 6} className="kalib-tc-xlabel" textAnchor="middle">{fmtX(m)}</text>
             : null))}
         </svg>
         <div className="kalib-tc-legend">
           {series.map(s => <span key={s.klass} className="kalib-tc-leg"><i style={{ background: KLASS_FARG[s.klass] }} />{s.klass}</span>)}
         </div>
-        {nagotTunt && <div className="kalib-tc-tunt">Streckad/nedtonad = tunt underlag (30–100 mått/månad). Under 30 ritas inte — slumpen ska inte se ut som en trend.</div>}
+        {nagotTunt && <div className="kalib-tc-tunt">Streckad/nedtonad = tunt underlag (30–100 mått i perioden). Under 30 ritas inte — slumpen ska inte se ut som en trend.</div>}
       </div>
     );
   };
@@ -2851,12 +2883,15 @@ export default function KalibreringPage() {
                   );
                 }
                 const kl = diagnosData.klasser;
-                // Månadsaxeln = månader där NÅGON klass når grinden (n≥30). Grind + tonning
-                // sköts i renderTidsChart per punkt/segment; här skickas hela {v,n}.
-                const traffMan = Array.from(new Set(kl.flatMap(k => k.traffMonthly.filter(m => m.n >= GRIND_MIN).map(m => m.manad)))).sort();
-                const traffSeries = kl.map(k => ({ klass: k.klass, punkter: new Map(k.traffMonthly.map(m => [m.manad, { v: m.traffPct, n: m.n }])) }));
-                const platMan = Array.from(new Set(kl.flatMap(k => k.plateauMonthly.filter(m => m.n >= GRIND_MIN).map(m => m.manad)))).sort();
-                const platSeries = kl.map(k => ({ klass: k.klass, punkter: new Map(k.plateauMonthly.map(m => [m.manad, { v: m.share, n: m.n }])) }));
+                // Aggregera per valt tidssteg (default kvartal → grova når underlag och
+                // kan visas solida). Grind + tonning sköts i renderTidsChart per punkt.
+                const traffSeries = kl.map(k => ({ klass: k.klass, punkter: aggregeraSteg(k.traffMonthly.map(m => ({ manad: m.manad, v: m.traffPct, n: m.n })), lagetSteg) }));
+                const platSeries = kl.map(k => ({ klass: k.klass, punkter: aggregeraSteg(k.plateauMonthly.map(m => ({ manad: m.manad, v: m.share, n: m.n })), lagetSteg) }));
+                const perioderAv = (series: { punkter: Map<string, { v: number; n: number }> }[]) =>
+                  Array.from(new Set(series.flatMap(s => Array.from(s.punkter).filter(([, p]) => p.n >= GRIND_MIN).map(([kk]) => kk)))).sort();
+                const traffMan = perioderAv(traffSeries);
+                const platMan = perioderAv(platSeries);
+                const chartOpts = { fmtX: (m: string) => fmtPeriod(m, lagetSteg), markorKey: (d: string) => periodKey(d.slice(0, 7), lagetSteg) };
                 return (
                   <>
                     <div className="kalib-card">
@@ -2865,12 +2900,19 @@ export default function KalibreringPage() {
                         <button className="kalib-hjalp-btn" onClick={() => setHjalpOpen(true)} aria-label="Vad betyder talen?">?</button>
                       </div>
                       <div className="kalib-section-subtitle">Träffprocent per grovlek över tid. Klena träffar bra; grova släpar — en enda kurva döljer det.{diagnosData.golvDia != null ? ` Kravlinjen är ${diagnosData.profil}s golv.` : ''}</div>
-                      {renderTidsChart(traffMan, traffSeries, { yMax: 100, kravLinje: diagnosData.golvDia != null ? { v: diagnosData.golvDia, label: `golv ${diagnosData.golvDia}%` } : undefined, markorer: diagnosData.markorer })}
+                      <div className="kalib-trend-seg" style={{ margin: '10px 0' }}>
+                        {(['manad', 'kvartal', 'ar'] as LagetSteg[]).map(s => (
+                          <button key={s} className={`kalib-trend-seg-btn ${lagetSteg === s ? 'active' : ''}`} onClick={() => setLagetSteg(s)}>
+                            {s === 'manad' ? 'Månad' : s === 'kvartal' ? 'Kvartal' : 'År'}
+                          </button>
+                        ))}
+                      </div>
+                      {renderTidsChart(traffMan, traffSeries, { yMax: 100, kravLinje: diagnosData.golvDia != null ? { v: diagnosData.golvDia, label: `golv ${diagnosData.golvDia}%` } : undefined, markorer: diagnosData.markorer, ...chartOpts })}
                     </div>
                     <div className="kalib-card">
                       <div className="kalib-section-title">Planområden per grovlek — tryckmätaren</div>
-                      <div className="kalib-section-subtitle">Andel där diametern inte sjunker. Ligger platt sedan januari — ska sjunka först när trycket höjs.</div>
-                      {renderTidsChart(platMan, platSeries, { yMax: 80, markorer: diagnosData.markorer })}
+                      <div className="kalib-section-subtitle">Andel där diametern inte sjunker. Ska sjunka först när trycket höjs.</div>
+                      {renderTidsChart(platMan, platSeries, { yMax: 80, markorer: diagnosData.markorer, ...chartOpts })}
                       <div className="kalib-markor-form">
                         <input type="date" className="kalib-markor-date" value={nyMarkorDatum} onChange={e => setNyMarkorDatum(e.target.value)} />
                         <input type="text" className="kalib-markor-input" placeholder="t.ex. höjde trycket på knivarna" value={nyMarkorText} onChange={e => setNyMarkorText(e.target.value)} />
