@@ -62,6 +62,51 @@ function fmtDatumSv(datum: string): string {
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
 }
 
+type MomTiderHour = {
+  processing:  number   // minuter
+  terrain:     number
+  kort_stopp:  number
+  other:       number   // RUN "Other work" — maskinen kör/arbetar
+  disturbance: number   // DOWN "Disturbance" — maskinen står; = fakt_avbrott typ='Störning'
+}
+
+function stockholmDayBoundsUtc(datum: string): { gte: string; lt: string } {
+  const m = parseInt(datum.slice(5, 7), 10)
+  const off = m >= 4 && m <= 10 ? '+02:00' : '+01:00'
+  const gte = new Date(`${datum}T00:00:00${off}`).toISOString()
+  const [y, mo, d] = datum.split('-').map(Number)
+  const nextDay = new Date(Date.UTC(y, mo - 1, d + 1)).toISOString().slice(0, 10)
+  const lt  = new Date(`${nextDay}T00:00:00${off}`).toISOString()
+  return { gte, lt }
+}
+
+async function fetchMomTider(
+  maskinId: string, datum: string,
+): Promise<Record<number, MomTiderHour> | null> {
+  const { gte, lt } = stockholmDayBoundsUtc(datum)
+  const { data, error } = await supabase
+    .from('mom_tider')
+    .select('timme, typ, minuter')
+    .eq('maskin_id', maskinId)
+    .gte('timme', gte)
+    .lt('timme', lt)
+  if (error) return null
+  const result: Record<number, MomTiderHour> = {}
+  for (const row of (data || [])) {
+    const h = toStockholmHour(row.timme as string)
+    if (!result[h]) result[h] = { processing: 0, terrain: 0, kort_stopp: 0, other: 0, disturbance: 0 }
+    const min = (row.minuter as number) || 0
+    switch (row.typ as string) {
+      case 'processing':  result[h].processing  += min; break
+      case 'terrain':     result[h].terrain      += min; break
+      case 'kort_stopp':  result[h].kort_stopp   += min; break
+      case 'other':       result[h].other        += min; break
+      case 'disturbance': result[h].disturbance  += min; break
+    }
+  }
+  return result
+}
+
 // ── Typer ─────────────────────────────────────────────────────
 type FreshnessInfo = {
   senasteDatum:       string        // 'YYYY-MM-DD' (datum-kolumn från fakt_lass)
@@ -82,6 +127,7 @@ type SkotareIdagData = {
   snittSträcka: number | null    // null om lass = 0
   g15h:        number            // SUM(processing_sek + terrain_sek) / 3600 från fakt_tid
   hourBuckets: Record<number, HourBucket>  // timme (0–23) → bucket
+  momTider:    Record<number, MomTiderHour> | null  // null = fetch misslyckades
 }
 
 // ── Datahämtning ──────────────────────────────────────────────
@@ -146,18 +192,22 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
 
   const totalLass = allRows.length
 
-  // 4. G15h från fakt_tid — separat hämtning, aldrig joinad med fakt_lass
-  //    Summera alla operatörsrader för samma datum + maskin.
-  const { data: tidRows } = await supabase
-    .from('fakt_tid')
-    .select('processing_sek, terrain_sek')
-    .eq('maskin_id', maskinId)
-    .eq('datum', senasteDatum)
+  // 4. G15h från fakt_tid + mom_tider — separata hämtningar, parallellt.
+  const [tidResult, momTiderResult] = await Promise.allSettled([
+    supabase
+      .from('fakt_tid')
+      .select('processing_sek, terrain_sek')
+      .eq('maskin_id', maskinId)
+      .eq('datum', senasteDatum),
+    fetchMomTider(maskinId, senasteDatum),
+  ])
 
-  const g15sek = (tidRows || []).reduce(
+  const tidRows = tidResult.status === 'fulfilled' ? (tidResult.value.data || []) : []
+  const g15sek  = tidRows.reduce(
     (sum, r) => sum + (r.processing_sek || 0) + (r.terrain_sek || 0), 0,
   )
-  const g15h = g15sek / 3600
+  const g15h    = g15sek / 3600
+  const momTider = momTiderResult.status === 'fulfilled' ? momTiderResult.value : null
 
   return {
     freshness: { senasteDatum, senasteLossningsTid, daysDiff },
@@ -166,6 +216,7 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
     snittSträcka: totalLass > 0 ? totalDist / totalLass : null,
     g15h,
     hourBuckets,
+    momTider,
   }
 }
 
@@ -464,15 +515,190 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   )
 }
 
-// ── HourPanel ─────────────────────────────────────────────────
-// Inline-kort som öppnas vid staypeltryck. Visar lass/volym/sträcka
-// för den timmen. Enkelt — skotarens timdata är enkelt.
-function HourPanel({
-  hour, bucket, onClose,
+// ── TiderDelSection ───────────────────────────────────────────
+// Visar maskintid per timme från mom_tider.
+// RUNTIME (proc+terräng+annat) summerar till ~60 min — visas som stapel+rader.
+// KORTSTOPP är inbäddat i runtime (StanForD-design) — visas som "varav X min".
+// STÖRNING är downtime utöver runtime — visas separat som "Stillestånd".
+function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined }) {
+  const sectionLabel: React.CSSProperties = {
+    fontSize: 11, color: C.muted, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    marginBottom: 10,
+  }
+
+  const runtime = momHour ? [
+    { label: 'Processing',      min: momHour.processing, color: '#30d158' },
+    { label: 'Körning/terräng', min: momHour.terrain,    color: '#0a84ff' },
+    { label: 'Annat arbete',    min: momHour.other,      color: '#8e8e93' },
+  ].filter(e => e.min > 0) : []
+
+  const runtimeTotal   = runtime.reduce((s, e) => s + e.min, 0)
+  const kortStoppMin   = momHour?.kort_stopp  ?? 0
+  const disturbanceMin = momHour?.disturbance ?? 0
+  const hasAnything    = runtimeTotal > 0 || kortStoppMin > 0 || disturbanceMin > 0
+
+  return (
+    <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 14, marginBottom: 16 }}>
+      <div style={sectionLabel}>Maskinen den timmen</div>
+      {!hasAnything ? (
+        <div style={{ fontSize: 13, color: C.dim }}>Tid ej tillgänglig</div>
+      ) : (
+        <>
+          {runtimeTotal > 0 && (
+            <>
+              <div style={{ display: 'flex', height: 5, borderRadius: 3, overflow: 'hidden', marginBottom: 10 }}>
+                {runtime.map(e => (
+                  <div key={e.label} style={{ flex: e.min, background: e.color }} />
+                ))}
+              </div>
+              {runtime.map(e => (
+                <div key={e.label} style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'center', marginBottom: 5,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                    {e.min} min
+                  </span>
+                </div>
+              ))}
+              {kortStoppMin > 0 && (
+                <div style={{ paddingLeft: 14, marginTop: 1, marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, color: C.dim }}>
+                    varav {kortStoppMin} min korta stopp (ingår i ovan)
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+          {disturbanceMin > 0 && (
+            <div style={{
+              marginTop: runtimeTotal > 0 ? 6 : 0,
+              paddingTop: runtimeTotal > 0 ? 8 : 0,
+              borderTop: runtimeTotal > 0 ? `0.5px solid ${C.divider}` : 'none',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: '#ff9f0a', flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: C.text }}>Stillestånd</span>
+                </div>
+                <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                  {disturbanceMin} min
+                </span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── TidPerTimmeKort ───────────────────────────────────────────
+// Alltid synlig om mom_tider har data för dagen — oberoende av lassdata.
+// RUNTIME (proc+terräng+annat) är stapeln och summerar till ~60 min.
+// KORTSTOPP är inbäddat i runtime — visas som "varav X min".
+// STÖRNING är downtime — visas som "Stillestånd" under en tunn linje.
+function TidPerTimmeKort({
+  momTider, loading,
 }: {
-  hour:   number
-  bucket: HourBucket
-  onClose: () => void
+  momTider: Record<number, MomTiderHour> | null
+  loading: boolean
+}) {
+  if (loading || !momTider) return null
+  const hours = Object.keys(momTider).map(Number).sort((a, b) => a - b)
+  if (hours.length === 0) return null
+
+  return (
+    <div style={{ background: C.card, borderRadius: 14, padding: '18px 18px 6px', marginBottom: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 1 }}>Körtid per timme</div>
+      <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>
+        Ur maskindatorn · stapeln = runtime (processing + körning + annat arbete)
+      </div>
+      {hours.map(h => {
+        const m = momTider[h]
+        const runtime = [
+          { label: 'Processing',      min: m.processing, color: '#30d158' },
+          { label: 'Körning/terräng', min: m.terrain,    color: '#0a84ff' },
+          { label: 'Annat arbete',    min: m.other,      color: '#8e8e93' },
+        ].filter(e => e.min > 0)
+        const runtimeTotal   = runtime.reduce((s, e) => s + e.min, 0)
+        const kortStoppMin   = m.kort_stopp
+        const disturbanceMin = m.disturbance
+        if (runtimeTotal === 0 && kortStoppMin === 0 && disturbanceMin === 0) return null
+        return (
+          <div key={h} style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 7 }}>
+              kl {String(h).padStart(2, '0')}
+            </div>
+            {runtimeTotal > 0 && (
+              <>
+                <div style={{ display: 'flex', height: 4, borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+                  {runtime.map(e => (
+                    <div key={e.label} style={{ flex: e.min, background: e.color }} />
+                  ))}
+                </div>
+                {runtime.map(e => (
+                  <div key={e.label} style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    alignItems: 'center', marginBottom: 4,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+                    </div>
+                    <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                      {e.min} min
+                    </span>
+                  </div>
+                ))}
+                {kortStoppMin > 0 && (
+                  <div style={{ paddingLeft: 14, marginTop: 1, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: C.dim }}>
+                      varav {kortStoppMin} min korta stopp (ingår i ovan)
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+            {disturbanceMin > 0 && (
+              <div style={{
+                marginTop: runtimeTotal > 0 ? 6 : 0,
+                paddingTop: runtimeTotal > 0 ? 6 : 0,
+                borderTop: runtimeTotal > 0 ? `0.5px solid ${C.divider}` : 'none',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: '#ff9f0a', flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: C.text }}>Stillestånd</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                    {disturbanceMin} min
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── HourPanel ─────────────────────────────────────────────────
+// Inline-kort som öppnas vid stapeltryck. Visar lass/volym/sträcka
+// + maskintid (mom_tider) för den timmen.
+function HourPanel({
+  hour, bucket, momTider, onClose,
+}: {
+  hour:     number
+  bucket:   HourBucket
+  momTider: Record<number, MomTiderHour> | null
+  onClose:  () => void
 }) {
   const endHour    = hour + 1
   const snittLass  = bucket.lass > 0 ? bucket.volym / bucket.lass : null
@@ -537,6 +763,9 @@ function HourPanel({
           {fmtSv(snittLass, 1)} m³/lass snitt denna timme
         </div>
       )}
+
+      {/* Maskintid (mom_tider) */}
+      <TiderDelSection momHour={momTider === null ? null : momTider?.[hour]} />
     </div>
   )
 }
@@ -653,11 +882,15 @@ export default function SkotareIdagNy({ maskin, onMaskinChange }: {
           onBarClick={setSelectedHour}
         />
 
+        {/* 3b. Körtid per timme — alltid synlig om mom_tider har data */}
+        <TidPerTimmeKort momTider={data?.momTider ?? null} loading={loading} />
+
         {/* 4. Timdetalj — visas när en stapel är vald */}
         {selectedHour !== null && data?.hourBuckets[selectedHour] && (
           <HourPanel
             hour={selectedHour}
             bucket={data.hourBuckets[selectedHour]}
+            momTider={data.momTider}
             onClose={() => setSelectedHour(null)}
           />
         )}
