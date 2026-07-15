@@ -315,6 +315,57 @@ def make_objekt_id(vo_nummer: str, maskin_id: str, obj_key: str) -> str:
         return vo_nummer.strip()
     return f"{maskin_id}_{obj_key}"
 
+def ar_tidsstampelnamn(namn) -> bool:
+    """True om 'namnet' bara är siffror/datumskiljetecken — ett autogenererat
+    klockslag ('260325091142', '20250731', '2026-04-30 0753') eller tomt.
+    Sådana värden är ALDRIG riktiga objektnamn."""
+    if namn is None:
+        return True
+    s = str(namn).strip()
+    if not s:
+        return True
+    return re.fullmatch(r'[\d\s\-_:.]+', s) is not None
+
+# Suffixmönster i maskinernas filnamn, strippas iterativt bakifrån:
+#   _YYYYMMDD_HHMMSS        ominläst kopia (kan vara staplade)
+#   _MASKINID_YYYYMMDDHHMMSS  Ponsse skördare (HPR/MOM)
+#   -DDMMYY-HHMMSS          Ponsse skotare (FPR/MOM), även _DDMMYY-HHMMSS
+#   " YYYY-MM-DD[ HHMM]"    Rottne (MOM/HPR)
+_FILNAMN_SUFFIX = [
+    re.compile(r'_20\d{6}_\d{6}$'),
+    re.compile(r'_[A-Za-z0-9]+_20\d{12}$'),
+    re.compile(r'[-_]\d{6}-\d{6}$'),
+    re.compile(r'\s+\d{4}-\d{2}-\d{2}(\s+\d{4})?$'),
+]
+
+def harled_objektnamn(filnamn: str, object_name_xml: str = '') -> Optional[str]:
+    """ENDA namnhärledningen för dim_objekt — används av alla parsrar.
+
+    Maskinen stoppar förarens objektnamn i FILNAMNET vid export, medan
+    XML:ens <ObjectName> för självstartade objekt bara är en tidsstämpel
+    (verifierat: 'Rödby_2_6_S_P_RP__25-250326-091255.fpr' har
+    ObjectName=260325091142). Därför:
+      1) filnamnet utan ändelse och suffixmönster
+      2) tidsstämpel/tomt -> ObjectName om det inte också är tidsstämpel
+      3) annars None — hellre ärligt namnlöst än ett datum som låtsas
+         vara ett namn (vyer får visa 'namnlöst', aldrig ett klockslag).
+    """
+    base = os.path.basename(filnamn or '').rsplit('.', 1)[0]
+    andrat = True
+    while andrat:
+        andrat = False
+        for pat in _FILNAMN_SUFFIX:
+            nytt = pat.sub('', base)
+            if nytt != base:
+                base = nytt
+                andrat = True
+    namn = ' '.join(base.replace('_', ' ').split())
+    if not ar_tidsstampelnamn(namn):
+        return namn
+    if not ar_tidsstampelnamn(object_name_xml):
+        return str(object_name_xml).strip()
+    return None
+
 def normalize_maskin_id(maskin_id: str, tillverkare: str = '') -> str:
     """Normalisera maskin-ID för konsekvent format"""
     if not maskin_id:
@@ -543,16 +594,16 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         obj_key = get_text(obj_def, 'ObjectKey', ns)
         contract_number = get_text(obj_def, 'ContractNumber', ns)
         vo_nummer = contract_number if contract_number else get_text(obj_def, 'ObjectUserID', ns)
-        obj_name = get_text(obj_def, 'ObjectName', ns)
-        
-        # Skogsägare + fix for skotarens MOM dar ObjectName ar en tidsstampel (bara siffror)
+        # Namn: gemensam härledning (filnamn primärt — XML:ens ObjectName är
+        # en tidsstämpel för självstartade objekt). Kan bli None = namnlöst.
+        obj_name = harled_objektnamn(filnamn, get_text(obj_def, 'ObjectName', ns))
+
+        # Skogsägare
         forest_owner = find_element(obj_def, 'ForestOwner', ns)
         skogsagare = ''
         if forest_owner is not None:
             skogsagare = get_text(forest_owner, 'LastName', ns)
-            if obj_name.isdigit():
-                obj_name = get_text(forest_owner, 'LastName', ns) or get_text(forest_owner, 'BusinessName', ns) or obj_name
-        
+
         # Bolag fran LoggingOrganisation
         logging_org = find_element(obj_def, 'LoggingOrganisation', ns)
         bolag = ''
@@ -1211,7 +1262,9 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         data['objekt'].append({
             'objekt_id': objekt_id,
             'object_key': obj_key,
-            'object_name': get_text(obj_def, 'ObjectName', ns),
+            # Gemensam härledning — HPR-filnamn bär namnet ("Göljahult RP
+            # 2025_PONS..._20260310150612.hpr"), rå ObjectName gjorde det inte.
+            'object_name': harled_objektnamn(filnamn, get_text(obj_def, 'ObjectName', ns)),
             'vo_nummer': vo_nummer,
             'maskin_id': maskin_id,
             'skogsagare': skogsagare,
@@ -2177,18 +2230,10 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
         contract_number = get_text(obj_def, 'ContractNumber', ns)
         vo_nummer = contract_number if contract_number else get_text(obj_def, 'ObjectUserID', ns)
         
-        # Objektnamn: ForestOwner/LastName är det riktiga namnet (ObjectName är en tidsstämpel i Ponsse)
         forest_owner = find_element(obj_def, 'ForestOwner', ns)
-        # object_name: använd filnamnet (utan datum-suffix) som primär källa
-        import re as _re
-        base = filnamn.rsplit('.', 1)[0]
-        base = _re.sub(r'[-_]\d{6}-\d{6}$', '', base)
-        object_name = base.replace('_', ' ').strip()
-        # Fallback: ObjectName om det inte är en tidsstämpel
-        if not object_name:
-            raw_obj_name = get_text(obj_def, 'ObjectName', ns)
-            if raw_obj_name and not raw_obj_name.isdigit():
-                object_name = raw_obj_name
+        # Namn: gemensam härledning (filnamn primärt, hanterar även ominlästa
+        # kopiors _YYYYMMDD_HHMMSS-suffix som gamla regexen missade)
+        object_name = harled_objektnamn(filnamn, get_text(obj_def, 'ObjectName', ns))
         
         # Bolag från LoggingOrganisation
         logging_org = find_element(obj_def, 'LoggingOrganisation', ns)
@@ -2581,6 +2626,78 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
         logger.error(f"  Fel vid sparande till {table}: {e}")
         return 0
 
+# ── dim_objekt-skrivpolicy ────────────────────────────────────────────────
+# GRUNDREGEL: maskindata FYLLER LUCKOR — den skriver aldrig över mänsklig
+# kunskap. Martin rättade namn manuellt och nästa kumulativa fil skrev över
+# dem, om och om igen. Aldrig mer.
+#
+# Skyddade fält (import får bara fylla tomma):
+#   bolag, skogsagare, saljare
+# object_name har en extra regel: ett befintligt TIDSSTÄMPEL-namn får
+# ersättas av ett riktigt namn (uppgradering), men ett riktigt namn rörs
+# aldrig. (huvudtyp/inkopare/atgard/exkludera skickas aldrig av importen —
+# de är redan helt manuella.)
+# Fält importen äger fritt: start_date, end_date, areal_ha, avverkningsform,
+# certifiering, cutting_method, koordinater, objektnr, vo_nummer m.fl.
+SKYDDADE_OBJEKTFALT = ('bolag', 'skogsagare', 'saljare')
+
+def upsert_dim_objekt(objekt_rows: List[Dict]) -> int:
+    """ALL skrivning till dim_objekt går genom denna (MOM/HPR/FPR).
+    Upsertar per rad (aldrig batch — batch-normalisering fyller None som
+    skulle nolla kolumner). Returnerar antal sparade rader."""
+    if not objekt_rows:
+        return 0
+
+    # Hämta befintliga rader för skydds-jämförelsen
+    ids = sorted({o['objekt_id'] for o in objekt_rows if o.get('objekt_id')})
+    befintliga = {}
+    hamtning_ok = True
+    try:
+        id_list = ','.join(f'"{i}"' for i in ids)
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/dim_objekt",
+            params={'objekt_id': f'in.({id_list})',
+                    'select': 'objekt_id,object_name,bolag,skogsagare,saljare'},
+            headers=SUPABASE_HEADERS, timeout=30)
+        if resp.status_code == 200:
+            for rad in resp.json():
+                befintliga[rad['objekt_id']] = rad
+        else:
+            hamtning_ok = False
+    except Exception:
+        hamtning_ok = False
+    if not hamtning_ok:
+        # Kan vi inte läsa befintligt kan vi inte veta vad som är mänskligt
+        # underhållet -> skicka INGA skyddade fält alls (fail-safe: hellre
+        # missad uppdatering än överskriven rättning). Larm i loggen.
+        logger.warning("  dim_objekt: kunde inte läsa befintliga rader — "
+                       "skyddade fält (namn/bolag/skogsägare) hoppas över denna körning")
+
+    sparade = 0
+    for obj in objekt_rows:
+        # Nulla aldrig: skicka bara fält med värde
+        clean = {k: v for k, v in obj.items() if v not in (None, '')}
+        clean['objekt_id'] = obj['objekt_id']
+        clean['maskin_id'] = obj.get('maskin_id', '')
+
+        ex = befintliga.get(obj.get('objekt_id'))
+        if ex is not None:
+            for falt in SKYDDADE_OBJEKTFALT:
+                if falt in clean and ex.get(falt) not in (None, ''):
+                    clean.pop(falt)  # fyll bara luckor
+            if 'object_name' in clean:
+                if not ar_tidsstampelnamn(ex.get('object_name')):
+                    clean.pop('object_name')  # riktigt namn — rörs aldrig
+                elif ar_tidsstampelnamn(clean['object_name']):
+                    clean.pop('object_name')  # nytt är inte bättre
+        elif not hamtning_ok:
+            for falt in SKYDDADE_OBJEKTFALT + ('object_name',):
+                clean.pop(falt, None)
+
+        if upsert_data('dim_objekt', [clean], ['objekt_id']) > 0:
+            sparade += 1
+    return sparade
+
 def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
     """Skapa arbetsdag-rader från fakt_skift (start/slut) + fakt_tid (rast).
 
@@ -2796,14 +2913,10 @@ def save_mom_to_supabase(data: Dict) -> bool:
             if upsert_data('dim_operator', data['operatorer'], ['operator_id']) == 0:
                 fel.append('dim_operator')
 
-        # Objekt - skicka bara fält med värden så befintliga ej skrivs över
+        # Objekt — gemensam skrivpolicy (fyller luckor, skriver aldrig över
+        # mänskligt underhållna fält)
         if data.get('objekt'):
-            for obj in data['objekt']:
-                obj_clean = {k: v for k, v in obj.items() if v not in (None, '')}
-                obj_clean['objekt_id'] = obj['objekt_id']
-                obj_clean['maskin_id'] = obj['maskin_id']
-                obj_clean['vo_nummer'] = obj.get('vo_nummer', '')
-                upsert_data('dim_objekt', [obj_clean], ['objekt_id'])
+            upsert_dim_objekt(data['objekt'])
 
         # Trädslag
         if data.get('tradslag'):
@@ -3308,7 +3421,9 @@ def save_hpr_to_supabase(data: Dict) -> bool:
                 fel.append('dim_maskin')
 
         if data.get('objekt'):
-            if upsert_data('dim_objekt', data['objekt'], ['objekt_id']) == 0:
+            # Gemensam skrivpolicy — tidigare skrevs ALLA kolumner över vid
+            # varje kumulativ fil (inkl. None), vilket raderade manuella namn
+            if upsert_dim_objekt(data['objekt']) == 0:
                 fel.append('dim_objekt')
 
         if data.get('sortiment'):
@@ -3540,7 +3655,9 @@ def save_fpr_to_supabase(data: Dict) -> bool:
                 fel.append('dim_operator')
 
         if data.get('objekt'):
-            if upsert_data('dim_objekt', data['objekt'], ['objekt_id']) == 0:
+            # Gemensam skrivpolicy — fyller luckor, skriver aldrig över
+            # mänskligt underhållna fält
+            if upsert_dim_objekt(data['objekt']) == 0:
                 fel.append('dim_objekt')
 
         if data.get('destinationer'):
