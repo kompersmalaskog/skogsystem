@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
 import { type UppfoljningObjekt } from '../lib/transform';
 
 // ── URL-identifierare för ett objekt ─────────────────────────────────────
@@ -58,10 +59,11 @@ export function useUppfoljningList(): UseUppfoljningListResult {
       setError(null);
 
       try {
-        const [dimObjektRes, dimMaskinRes, objektTblRes] = await Promise.all([
+        const [dimObjektRes, dimMaskinRes, objektTblRes, exkluderade] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
           supabase.from('objekt').select('vo_nummer, markagare, areal, typ'),
+          hamtaExkluderadeObjektId(),
         ]);
 
         const dimObjekt: any[] = dimObjektRes.data || [];
@@ -168,7 +170,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         const voGroups = new Map<string, any[]>();
         dimObjekt.forEach(d => {
           if (!d.objekt_id) return;
-          if (d.exkludera === true) return;
+          if (exkluderade.has(d.objekt_id)) return; // central exkludera-regel
           const key = d.vo_nummer || d.objekt_id;
           const arr = voGroups.get(key) || [];
           arr.push(d);
