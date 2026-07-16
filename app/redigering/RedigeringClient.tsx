@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, Fragment, Children } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useMatchning } from './hooks/useMatchning'
+import MatchningsVy from './MatchningsVy'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
 // kompletteras med unika värden ur datan vid inläsning.
@@ -1576,6 +1577,7 @@ export default function ObjektRedigering() {
   const [showDirtyDialog, setShowDirtyDialog] = useState(false)
   const [closing, setClosing] = useState(false)
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
+  const [visaMatchning, setVisaMatchning] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
   const matchning = useMatchning()
@@ -1790,6 +1792,10 @@ export default function ObjektRedigering() {
     )
   }
 
+  if (visaMatchning) {
+    return <MatchningsVy matchning={matchning} onBack={() => setVisaMatchning(false)} />
+  }
+
   if (visaAllaObjekt) {
     return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} kortInfo={kortInfo} listAtgarder={listAtgarder} onBack={() => setVisaAllaObjekt(false)} />
   }
@@ -1852,6 +1858,37 @@ export default function ObjektRedigering() {
           ))}
         </div>
       )}
+
+      {/* MATCHNING — summering + en knapp; listorna bor i egen vy så bara
+          arbetslistan konkurrerar om uppmärksamheten på förstasidan */}
+      <div style={{ ...styles.sectionHeader, marginTop: 28 }}>
+        <span style={styles.sectionTitel}>Matchning</span>
+      </div>
+      <div style={{ margin: '0 20px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, overflow: 'hidden' }}>
+        {matchning.status === 'ok' ? (
+          <>
+            {[
+              { text: 'maskinobjekt utan planering', antal: matchning.omatchadeMaskin.length, varning: true },
+              { text: 'planerade utan maskindata', antal: matchning.utanMaskindata.length, varning: true },
+              { text: 'kopplade', antal: matchning.matchade.length, varning: false },
+            ].map((rad, i) => (
+              <div key={rad.text} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none', fontSize: 13 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: rad.varning && rad.antal > 0 ? '#FF9F0A' : '#30d158', flexShrink: 0 }} />
+                <span style={{ color: 'rgba(255,255,255,0.75)' }}>
+                  <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{rad.antal}</span> {rad.text}
+                </span>
+              </div>
+            ))}
+            <button onClick={() => setVisaMatchning(true)} className="tap-press" style={{ display: 'block', width: '100%', padding: '12px 16px', border: 'none', borderTop: '1px solid rgba(255,255,255,0.05)', background: 'transparent', color: '#adc6ff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
+              Öppna matchning ›
+            </button>
+          </>
+        ) : (
+          <div style={{ padding: '12px 16px', fontSize: 12, color: matchning.status === 'fel' ? 'rgba(255,160,160,0.9)' : 'rgba(255,255,255,0.4)' }}>
+            {matchning.status === 'fel' ? 'Kunde inte läsa matchningsdata' : 'Läser matchningsdata …'}
+          </div>
+        )}
+      </div>
 
       <div style={{ padding: '24px 20px 0' }}>
         <button

@@ -52,6 +52,10 @@ export type MatchningData = {
   omatchadeMaskin: MaskinObjektKort[]; // maskinobjekt utan planering
   utanMaskindata: PlaneratKort[]; // planerade utan maskindata
   matchade: { maskin: MaskinObjektKort; planerat: PlaneratKort }[];
+  // Ignorerade (exkludera=true) — ÅNGERBART: visas med volymer så riktiga
+  // jobb (Lövhuggning 542 m³) går att skilja från skräp (Flytt) och plockas
+  // tillbaka. Ignorera = "stör mig inte nu", inte "radera för alltid".
+  ignorerade: MaskinObjektKort[];
   uppdatera: () => void;
 };
 
@@ -82,6 +86,7 @@ export function useMatchning(): MatchningData {
   const [omatchadeMaskin, setOmatchadeMaskin] = useState<MaskinObjektKort[]>([]);
   const [utanMaskindata, setUtanMaskindata] = useState<PlaneratKort[]>([]);
   const [matchade, setMatchade] = useState<{ maskin: MaskinObjektKort; planerat: PlaneratKort }[]>([]);
+  const [ignorerade, setIgnorerade] = useState<MaskinObjektKort[]>([]);
   const [version, setVersion] = useState(0);
 
   const uppdatera = useCallback(() => setVersion(v => v + 1), []);
@@ -144,8 +149,9 @@ export function useMatchning(): MatchningData {
         const omatchade: MaskinObjektKort[] = [];
         const par: { maskin: MaskinObjektKort; planerat: PlaneratKort }[] = [];
 
+        const ignoreradeKort: MaskinObjektKort[] = [];
         (dimRes.data || []).forEach((d: any) => {
-          if (exkluderade.has(d.objekt_id)) return; // Ignorerade syns inte
+          const arIgnorerad = exkluderade.has(d.objekt_id);
           const maskinId = d.maskin_id || tidMaskin.get(d.objekt_id) || null;
           const maskin = maskinId ? maskinMap.get(maskinId) : undefined;
           const saknade: string[] = [];
@@ -182,7 +188,9 @@ export function useMatchning(): MatchningData {
             saknadeFalt: saknade,
             kopplatTillId: planerat?.id || null,
           };
-          if (planerat) {
+          if (arIgnorerad) {
+            ignoreradeKort.push(kort); // egen hink — aldrig i matchningen
+          } else if (planerat) {
             planerat.harMaskindata = true;
             par.push({ maskin: kort, planerat });
           } else {
@@ -196,6 +204,8 @@ export function useMatchning(): MatchningData {
         setOmatchadeMaskin(omatchade);
         setUtanMaskindata(planerade.filter(p => !p.harMaskindata));
         setMatchade(par);
+        // Störst volym först — riktiga jobb syns direkt, skräpet sist
+        setIgnorerade(ignoreradeKort.sort((a, b) => (b.skordatM3 + b.skotatM3) - (a.skordatM3 + a.skotatM3)));
         setStatus('ok');
       } catch {
         if (!cancelled) setStatus('fel');
@@ -205,5 +215,5 @@ export function useMatchning(): MatchningData {
     return () => { cancelled = true; };
   }, [version]);
 
-  return { status, omatchadeMaskin, utanMaskindata, matchade, uppdatera };
+  return { status, omatchadeMaskin, utanMaskindata, matchade, ignorerade, uppdatera };
 }
