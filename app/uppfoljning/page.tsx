@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { type UppfoljningObjekt } from './lib/transform';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
+import { uppfoljningStatus, STATUS_FARG, type UppfoljningStatusKey as V6StatusKey } from '@/lib/uppfoljning/status';
 
 /* ── Design tokens (V6) ── */
 const V6_GREY = '#8e8e93';
@@ -31,25 +32,11 @@ function fmtH(minutes: number): string {
   return `${h.toFixed(1)}h`;
 }
 
-/* ── V6 status-härledning ── */
-// "Kör" kräver FAKTISK aktivitet (fakt_tid senaste 7 dagarna). Ett objekt med
-// tilldelad maskin men utan aktivitet är "Pågående" — aldrig "kör" (den gamla
-// fallbacken visade "Skördare kör" för objekt som stått stilla i veckor).
-type V6StatusKey = 'skordare' | 'skotare' | 'vantar' | 'pagaende' | 'done';
-function v6Status(obj: UppfoljningObjekt): { t: string; k: V6StatusKey } {
-  if (obj.status === 'avslutat') return { t: 'Avslutat', k: 'done' };
-  const seven = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
-  const skAct = !!(obj.skordareLastDate && obj.skordareLastDate >= seven);
-  const stAct = !!(obj.skotareLastDate && obj.skotareLastDate >= seven);
-  const skDone = !!obj.skordareSlut;
-  if (skAct) return { t: 'Skördare kör', k: 'skordare' };
-  if (stAct) return { t: 'Skotare kör', k: 'skotare' };
-  // Extern skotning: någon annan skotar — objektet ska inte fastna i
-  // 'Väntar på skotning' (det kommer aldrig en skotarfil från oss)
-  if (skDone && obj.externSkotning) return { t: 'Skotas externt', k: 'pagaende' };
-  if (skDone) return { t: 'Väntar på skotning', k: 'vantar' };
-  return { t: 'Pågående', k: 'pagaende' };
-}
+/* ── V6 status-härledning — delad logik i lib/uppfoljning/status.ts ── */
+// Listan och detaljvyns statusrad delar EN statusfunktion. Adaptern mappar
+// listans volymfältnamn till lib-funktionens (volymSkordare→skordat).
+const v6Status = (obj: UppfoljningObjekt) =>
+  uppfoljningStatus({ ...obj, skordat: obj.volymSkordare, skotat: obj.volymSkotare });
 
 /* ── V6 Oskotat-kort (kompakt, expanderbar) ── */
 function V6OskotatKort({ data, onFilter }: { data: UppfoljningObjekt[]; onFilter: (k: 'slutavverkning' | 'gallring' | 'grot') => void }) {
@@ -131,12 +118,7 @@ function V6OskotatKort({ data, onFilter }: { data: UppfoljningObjekt[]; onFilter
 function V6Row({ obj, onClick, divider: showDivider }: { obj: UppfoljningObjekt; onClick: () => void; divider: boolean }) {
   const kvar = Math.max(0, obj.volymSkordare - obj.volymSkotare);
   const status = v6Status(obj);
-  const statusColor =
-    status.k === 'skordare' ? V6_SK :
-    status.k === 'skotare' ? V6_ST :
-    status.k === 'vantar' ? V6_WARN :
-    status.k === 'done' ? V6_DONE :
-    V6_GREY;
+  const statusColor = STATUS_FARG[status.k];
   const showKvar = kvar > 0 && obj.status !== 'avslutat';
   const rightNum = showKvar ? Math.round(kvar) : Math.round(obj.volymSkordare);
   const rightLabel = showKvar ? 'kvar' : 'm³';
