@@ -1451,7 +1451,7 @@ export default function PlannerPage() {
   
   // Trakt-panel (Fakta | Prognos)
   const [traktOpen, setTraktOpen] = useState(false);
-  const [traktTab, setTraktTab] = useState<'fakta' | 'prognos'>('fakta');
+  const [traktTab, setTraktTab] = useState<'fakta' | 'prognos' | 'larm'>('fakta');
   const [traktData, setTraktData] = useState<TraktData>({
     volym: 649, // m³fub - från VIDA
     areal: 2.0, // ha - från VIDA
@@ -3498,7 +3498,7 @@ export default function PlannerPage() {
     };
   }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen, currentDrawCoords, larmPlacering]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // === Larmkoordinat-pin: ikon (blå droppe + vitt kors) + lager — distinkt från alla andra kartsymboler ===
+  // === Larmkoordinat-märke: dödcentrerad blå prick + vitt kors — mitten på koordinaten ===
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -3509,25 +3509,21 @@ export default function PlannerPage() {
         cnv.width = S; cnv.height = S;
         const ctx = cnv.getContext('2d');
         if (ctx) {
-          const cx = S / 2, cy = S * 0.40, r = S * 0.26, tipY = S * 0.94;
-          const drawPin = (color: string, rr: number, ty: number) => {
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.moveTo(cx, ty);
-            ctx.lineTo(cx - rr * 0.82, cy + rr * 0.30);
-            ctx.lineTo(cx + rr * 0.82, cy + rr * 0.30);
-            ctx.closePath();
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(cx, cy, rr, 0, Math.PI * 2);
-            ctx.fill();
-          };
-          drawPin('#ffffff', r + 3, tipY + 3); // vit silhuett = kontur
-          drawPin('#0a84ff', r, tipY);         // blå droppe
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = S * 0.055;
+          // Dödcentrerad: mitten sitter på koordinaten oavsett pitch/zoom/vinkel.
+          // (En droppe med spets-ankare funkar bara i platt läge — kartan lutas 28–50°.)
+          const cx = S / 2, cy = S / 2, r = S * 0.30;
+          ctx.fillStyle = '#ffffff';   // vit ytterring = kontur mot all bakgrund
+          ctx.beginPath();
+          ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#0a84ff';   // blå prick
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff'; // vitt kors
+          ctx.lineWidth = S * 0.075;
           ctx.lineCap = 'round';
-          const k = r * 0.5;
+          const k = r * 0.52;
           ctx.beginPath();
           ctx.moveTo(cx - k, cy); ctx.lineTo(cx + k, cy);
           ctx.moveTo(cx, cy - k); ctx.lineTo(cx, cy + k);
@@ -3545,7 +3541,7 @@ export default function PlannerPage() {
           layout: {
             'icon-image': 'larm-pin-icon',
             'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 14, 0.8, 17, 1.0],
-            'icon-anchor': 'bottom',
+            'icon-anchor': 'center',
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
           },
@@ -16794,8 +16790,8 @@ export default function PlannerPage() {
           {/* Segment-kontroll: Fakta | Prognos */}
           <div style={{ padding: '16px 24px 0' }}>
             <div style={{ display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '10px', padding: '3px' }}>
-              {[{ id: 'fakta', label: 'Fakta' }, { id: 'prognos', label: 'Prognos' }].map(tab => (
-                <div key={tab.id} onClick={() => setTraktTab(tab.id as 'fakta' | 'prognos')}
+              {[{ id: 'fakta', label: 'Fakta' }, { id: 'prognos', label: 'Prognos' }, { id: 'larm', label: 'Larm' }].map(tab => (
+                <div key={tab.id} onClick={() => setTraktTab(tab.id as 'fakta' | 'prognos' | 'larm')}
                   style={{
                     flex: 1, textAlign: 'center', padding: '9px 0', borderRadius: '8px', fontSize: '14px', cursor: 'pointer',
                     background: traktTab === tab.id ? '#fff' : 'transparent',
@@ -16851,59 +16847,6 @@ export default function PlannerPage() {
                             transition: 'all 0.2s ease',
                           }}>{opt.label}</div>
                       ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* LARMKOORDINAT / MÖTESPLATS — manuellt, sätts vid rekning (aldrig auto) */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '4px' }}>Larmkoordinat / mötesplats</div>
-                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginBottom: '14px', lineHeight: 1.4 }}>Där räddningstjänsten möts vid larm</div>
-                  {(() => {
-                    const _lat = parseFloat((infoLarmLat || '').replace(',', '.'));
-                    const _lng = parseFloat((infoLarmLng || '').replace(',', '.'));
-                    const _satt = Number.isFinite(_lat) && Number.isFinite(_lng);
-                    return _satt ? (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(10,132,255,0.1)', border: '1px solid rgba(10,132,255,0.25)', marginBottom: '14px' }}>
-                        <div>
-                          <div style={{ fontSize: '13px', color: '#fff', fontFamily: 'monospace' }}>{_lat.toFixed(5)}, {_lng.toFixed(5)}</div>
-                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen (satt vid rekning)' : 'Källa ej angiven'}</div>
-                        </div>
-                        <button onClick={() => { setInfoLarmLat(''); setInfoLarmLng(''); setInfoLarmKalla(null); setInfoLarmBekraftad(false); }} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#8e8e93', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>Rensa</button>
-                      </div>
-                    ) : (
-                      <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,159,10,0.1)', border: '1px solid rgba(255,159,10,0.25)', color: '#FF9F0A', fontSize: '13px', marginBottom: '14px' }}>Larmkoordinat ej satt</div>
-                    );
-                  })()}
-                  <button onClick={() => {
-                    if (!navigator.geolocation) return;
-                    navigator.geolocation.getCurrentPosition(pos => {
-                      setInfoLarmLat(pos.coords.latitude.toFixed(6));
-                      setInfoLarmLng(pos.coords.longitude.toFixed(6));
-                      setInfoLarmKalla('egen');
-                    });
-                  }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#0a84ff', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
-                    Använd min GPS-position
-                  </button>
-                  <button onClick={() => { setTraktOpen(false); setLarmPlacering(true); }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '14px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
-                    Peka på karta
-                  </button>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                    <input value={infoLarmLat} onChange={e => { setInfoLarmLat(e.target.value); if (!infoLarmKalla) setInfoLarmKalla('egen'); }} placeholder="Lat (56.5712)" inputMode="decimal"
-                      style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none' }} />
-                    <input value={infoLarmLng} onChange={e => { setInfoLarmLng(e.target.value); if (!infoLarmKalla) setInfoLarmKalla('egen'); }} placeholder="Lng (14.7433)" inputMode="decimal"
-                      style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none' }} />
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Beskriv tillfartsväg och mötesplats</div>
-                  <textarea value={infoLarmBeskrivning} onChange={e => setInfoLarmBeskrivning(e.target.value)} placeholder="Frivilligt — t.ex. möt vid bommen på skogsbilvägen"
-                    style={{ width: '100%', minHeight: '60px', padding: '12px', borderRadius: '10px', marginBottom: '16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Mötesplats verifierad på plats</span>
-                    <div onClick={() => setInfoLarmBekraftad(!infoLarmBekraftad)} style={{ width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer', background: infoLarmBekraftad ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease' }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoLarmBekraftad ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
                     </div>
                   </div>
                 </div>
@@ -17505,6 +17448,64 @@ export default function PlannerPage() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* LARM-flik */}
+          {traktTab === 'larm' && (
+              <div style={{ padding: '12px' }}>
+                {/* LARMKOORDINAT / MÖTESPLATS — manuellt, sätts vid rekning (aldrig auto) */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '4px' }}>Larmkoordinat / mötesplats</div>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginBottom: '14px', lineHeight: 1.4 }}>Där räddningstjänsten möts vid larm</div>
+                  {(() => {
+                    const _lat = parseFloat((infoLarmLat || '').replace(',', '.'));
+                    const _lng = parseFloat((infoLarmLng || '').replace(',', '.'));
+                    const _satt = Number.isFinite(_lat) && Number.isFinite(_lng);
+                    return _satt ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(10,132,255,0.1)', border: '1px solid rgba(10,132,255,0.25)', marginBottom: '14px' }}>
+                        <div>
+                          <div style={{ fontSize: '13px', color: '#fff', fontFamily: 'monospace' }}>{_lat.toFixed(5)}, {_lng.toFixed(5)}</div>
+                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen (satt vid rekning)' : 'Källa ej angiven'}</div>
+                        </div>
+                        <button onClick={() => { setInfoLarmLat(''); setInfoLarmLng(''); setInfoLarmKalla(null); setInfoLarmBekraftad(false); }} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#8e8e93', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>Rensa</button>
+                      </div>
+                    ) : (
+                      <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,159,10,0.1)', border: '1px solid rgba(255,159,10,0.25)', color: '#FF9F0A', fontSize: '13px', marginBottom: '14px' }}>Larmkoordinat ej satt</div>
+                    );
+                  })()}
+                  <button onClick={() => {
+                    if (!navigator.geolocation) return;
+                    navigator.geolocation.getCurrentPosition(pos => {
+                      setInfoLarmLat(pos.coords.latitude.toFixed(6));
+                      setInfoLarmLng(pos.coords.longitude.toFixed(6));
+                      setInfoLarmKalla('egen');
+                    });
+                  }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#0a84ff', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
+                    Använd min GPS-position
+                  </button>
+                  <button onClick={() => { setTraktOpen(false); setLarmPlacering(true); }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '14px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
+                    Peka på karta
+                  </button>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    <input value={infoLarmLat} onChange={e => { setInfoLarmLat(e.target.value); if (!infoLarmKalla) setInfoLarmKalla('egen'); }} placeholder="Lat (56.5712)" inputMode="decimal"
+                      style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none' }} />
+                    <input value={infoLarmLng} onChange={e => { setInfoLarmLng(e.target.value); if (!infoLarmKalla) setInfoLarmKalla('egen'); }} placeholder="Lng (14.7433)" inputMode="decimal"
+                      style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none' }} />
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Beskriv tillfartsväg och mötesplats</div>
+                  <textarea value={infoLarmBeskrivning} onChange={e => setInfoLarmBeskrivning(e.target.value)} placeholder="Frivilligt — t.ex. möt vid bommen på skogsbilvägen"
+                    style={{ width: '100%', minHeight: '60px', padding: '12px', borderRadius: '10px', marginBottom: '16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Mötesplats verifierad på plats</span>
+                    <div onClick={() => setInfoLarmBekraftad(!infoLarmBekraftad)} style={{ width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer', background: infoLarmBekraftad ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease' }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoLarmBekraftad ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
           )}
         </div>
       )}
