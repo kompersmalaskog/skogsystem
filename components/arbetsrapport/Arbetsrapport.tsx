@@ -3498,7 +3498,6 @@ export default function Arbetsrapport() {
     // Extra tid filtrerad på månad
     const månadsExtraTid = extraTidData.filter(e => e.datum && e.datum.startsWith(lönePeriod));
     const extraTidMin = månadsExtraTid.reduce((a,e) => a + (e.minuter || 0), 0);
-    const debiterbarExtraTid = månadsExtraTid.filter(e => e.debiterbar);
 
     // Rådata från faktiska dagar i filtrerad historik + extra tid — inga kronor
     const arbetsdagar = månadsHistorik.length;
@@ -3593,15 +3592,16 @@ export default function Arbetsrapport() {
     Object.values(veckoData).forEach(w=>w.dagar.sort((a,b)=>a.datum.localeCompare(b.datum)));
     const sortedWeeks = Object.entries(veckoData).sort(([a],[b]) => Number(a)-Number(b));
 
-    // Build objekt/maskin aggregation — filtered to current month
-    const maskinAgg: Record<string,{namn:string;maskin:string;dagar:number}> = {};
+    // Build objekt/maskin aggregation — filtered to current month.
+    // Rå maskin_id sparas (inte modellnamn) — förarna känner igen numret,
+    // och underraden ska vara lugn, inte upprepa "Rottne H8E" överallt.
+    const maskinAgg: Record<string,{namn:string;maskinId:string;dagar:number}> = {};
     månadsHistorik.forEach(d => {
       if(!d.maskin_id) return;
       const key = d.maskin_id + (d.objekt_id||'');
       if(!maskinAgg[key]) {
         const objNamn = d.objekt_id ? (objektLista.find(o=>o.id===d.objekt_id)?.namn || '') : '';
-        const mNamn = maskinNamnMap[d.maskin_id] || d.maskin_id;
-        maskinAgg[key] = { namn:objNamn, maskin:mNamn, dagar:0 };
+        maskinAgg[key] = { namn:objNamn, maskinId:d.maskin_id, dagar:0 };
       }
       maskinAgg[key].dagar++;
     });
@@ -3709,88 +3709,78 @@ export default function Arbetsrapport() {
               </div>
             </section>
 
-            {/* Objekt och maskin */}
+            {/* Objekt denna månad — objektnamnet störst (det man känner igen),
+                dagarna som tal, stapel visar fördelningen, maskinen lugn underrad */}
             <section>
-              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Objekt och maskin</h2>
+              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Objekt denna månad</h2>
               <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-                {objektEntries.map((o,i) => (
-                  <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",alignItems:"center",gap:16 }}>
-                    <div style={{ width:40,height:40,borderRadius:"50%",background:"rgba(75,142,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                      <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>precision_manufacturing</span>
+                {(()=>{
+                  const maxDagar = Math.max(...objektEntries.map(o=>o.dagar), 1);
+                  return objektEntries.map((o,i) => (
+                    <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px" }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:12,marginBottom:8 }}>
+                        <p style={{ margin:0,...TYPE.body,color:"#fff",minWidth:0 }}>{o.namn || (maskinNamnMap[o.maskinId] || o.maskinId)}</p>
+                        <p style={{ margin:0,flexShrink:0 }}>
+                          <span style={{ fontSize:17,fontWeight:700,color:"#fff",...TNUM }}>{o.dagar}</span>
+                          <span style={{ fontSize:12,color:"#8e8e93",marginLeft:4 }}>{o.dagar===1?'dag':'dagar'}</span>
+                        </p>
+                      </div>
+                      {/* Stapel: objektets dagar relativt objektet med flest */}
+                      <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.06)",overflow:"hidden" }}>
+                        <div style={{ height:"100%",borderRadius:2,background:"#30d158",width:`${Math.round(o.dagar/maxDagar*100)}%` }} />
+                      </div>
+                      {o.namn && <p style={{ margin:"8px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>{o.maskinId}</p>}
                     </div>
-                    <div>
-                      <p style={{ margin:0,...TYPE.bodyList }}>{o.namn ? `${o.namn} / ${o.maskin}` : o.maskin}</p>
-                      <p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.dagar} {o.dagar===1?'dag':'dagar'}</p>
-                    </div>
-                  </div>
-                ))}
-                {objektEntries.length===0&&<p style={{ color:"#8e8e93",...TYPE.meta,padding:20 }}>Inga objekt denna period</p>}
+                  ));
+                })()}
+                {objektEntries.length===0&&<p style={{ color:"#8e8e93",...TYPE.meta,padding:20 }}>Inga objekt denna månad</p>}
               </div>
             </section>
 
-            {/* Extra tid per aktivitet */}
-            {månadsExtraTid.length>0&&(()=>{
-              type AggExtra = { typ:string; minTot:number; deb:boolean; antal:number; poster:any[] };
-              const grupper = new Map<string, AggExtra>();
-              for(const e of månadsExtraTid) {
-                const key = (e.aktivitet_typ || 'annat') + '|' + (e.debiterbar ? '1' : '0');
-                if(!grupper.has(key)) grupper.set(key, { typ: e.aktivitet_typ || 'annat', minTot:0, deb: !!e.debiterbar, antal:0, poster:[] });
-                const g = grupper.get(key)!;
-                g.minTot += e.minuter||0;
-                g.antal++;
-                g.poster.push(e);
-              }
-              const grupperArr = Array.from(grupper.values()).sort((a,b)=>b.minTot-a.minTot);
-              return (
-                <section style={{ marginBottom:32 }}>
-                  <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Extra tid per aktivitet</h2>
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",marginBottom:12 }}>
-                    {grupperArr.map((g,i) => {
-                      const h = Math.floor(g.minTot/60), m = g.minTot%60;
-                      const tidStr = h > 0 ? `${h} tim${m > 0 ? ' ' + m + ' min' : ''}` : `${m} min`;
-                      return (
-                        <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<grupperArr.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
-                          <div style={{ display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0 }}>
-                            <span className="material-symbols-outlined" style={{ color:g.deb?"#ff9f0a":"#8e8e93",fontSize:18 }}>{aktIcon(g.typ)}</span>
-                            <span style={{ ...TYPE.meta,color:"#fff" }}>{aktLabel(g.typ)}{g.deb?'':''}</span>
-                            {g.deb&&<span style={{ fontSize:11,fontWeight:700,color:"#ff9f0a" }}>DEB</span>}
-                          </div>
-                          <span style={{ ...TYPE.bodyList,color:"#fff" }}>{tidStr}</span>
-                        </div>
-                      );
-                    })}
+            {/* Extra tid — arbetstid UTANFÖR maskinen: när maskindatorn är av
+                registrerar MOM inget, så tiden läggs in manuellt för att ge lön.
+                En del kan dessutom faktureras. INGA kronor — Fortnox räknar belopp. */}
+            <section style={{ margin:"32px 0" }}>
+              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Extra tid</h2>
+              {månadsExtraTid.length===0 ? (
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px" }}>
+                  <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen extra tid registrerad denna månad</p>
+                </div>
+              ) : (()=>{
+                const fmtTid = (min:number) => { const h=Math.floor(min/60), m=min%60; return h>0?`${h} tim${m>0?` ${m} min`:''}`:`${m} min`; };
+                const fmtDecKomma = (min:number) => (Math.round(min/60*10)/10).toString().replace('.',',');
+                const fakturerbarMin = månadsExtraTid.filter(e=>e.debiterbar).reduce((a,e)=>a+(e.minuter||0),0);
+                const poster = [...månadsExtraTid].sort((a,b)=>(b.datum||'').localeCompare(a.datum||''));
+                const aktNamn = (e:any) => e.aktivitet_text || (e.aktivitet_typ ? aktLabel(e.aktivitet_typ) : null) || e.kommentar || 'Extra arbete';
+                return (
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px" }}>
+                  {/* Hjälte: får jag lön för all min tid? */}
+                  <div style={{ textAlign:"center",padding:"18px 0 16px",borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
+                    <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmtDecKomma(extraTidMin)} <span style={{ ...TYPE.h2,color:"#8e8e93",fontWeight:600 }}>tim</span></p>
+                    <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93" }}>arbete när maskinen var avstängd</p>
                   </div>
-                </section>
-              );
-            })()}
-
-            {/* Debiterbar tid — detaljerad lista */}
-            {debiterbarExtraTid.length>0&&(
-              <section style={{ marginBottom:32 }}>
-                <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Debiterbar tid (detaljer)</h2>
-                <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-                  {debiterbarExtraTid.map((e,i) => {
-                    const objNamn = e.objekt_id ? (objektLista.find(o=>o.id===e.objekt_id)?.namn || e.objekt_id) : '–';
-                    const h = Math.floor((e.minuter||0)/60), m = (e.minuter||0)%60;
-                    const tidStr = h > 0 ? `${h} tim ${m > 0 ? m + ' min' : ''}` : `${m} min`;
-                    return (
-                      <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",alignItems:"flex-start",gap:16 }}>
-                        <div style={{ width:40,height:40,borderRadius:"50%",background:"rgba(255,149,0,0.15)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-                          <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>{aktIcon(e.aktivitet_typ)}</span>
-                        </div>
-                        <div style={{ flex:1,minWidth:0 }}>
-                          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4 }}>
-                            <p style={{ margin:0,...TYPE.bodyList }}>{aktLabel(e.aktivitet_typ)} · {objNamn}</p>
-                            <span style={{ ...TYPE.bodyList,flexShrink:0,marginLeft:8,...TNUM }}>{tidStr}</span>
-                          </div>
-                          <p style={{ margin:0,fontSize:12,color:"#8e8e93" }}>{e.datum}{e.aktivitet_text ? ` · ${e.aktivitet_text}` : (e.kommentar ? ` · ${e.kommentar}` : '')}</p>
+                  {/* Stödrad: arbetsgivarfrågan — vad kan faktureras? */}
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
+                    <span style={{ fontSize:16,color:"#fff" }}>Varav fakturerbart</span>
+                    <span style={{ ...TYPE.bodyList,color:fakturerbarMin>0?"#30d158":"#8e8e93",...TNUM }}>{fmtDecKomma(fakturerbarMin)} tim</span>
+                  </div>
+                  {/* Poster — grön prick = fakturerbar */}
+                  {poster.map((e,i)=>(
+                    <div key={e.id||i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 0",borderBottom:i<poster.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
+                      <div style={{ display:"flex",alignItems:"center",gap:8,minWidth:0,flex:1 }}>
+                        {e.debiterbar&&<span style={{ width:7,height:7,borderRadius:"50%",background:"#30d158",flexShrink:0 }} />}
+                        <div style={{ minWidth:0 }}>
+                          <p style={{ margin:0,...TYPE.meta,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{aktNamn(e)}</p>
+                          <p style={{ margin:"1px 0 0",fontSize:11,color:"#636366",...TNUM }}>{e.datum}</p>
                         </div>
                       </div>
-                    );
-                  })}
+                      <span style={{ ...TYPE.bodyList,color:"#fff",flexShrink:0,...TNUM }}>{fmtTid(e.minuter||0)}</span>
+                    </div>
+                  ))}
                 </div>
-              </section>
-            )}
+                );
+              })()}
+            </section>
           </main>
           {bottomNav}
         </div>
