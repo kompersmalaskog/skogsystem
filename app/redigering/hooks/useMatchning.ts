@@ -18,6 +18,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
 
+export type MaskinKallInfo = { id: string; modell: string | null; typ: 'skordare' | 'skotare' | null };
+
 export type MaskinObjektKort = {
   objektId: string;
   namn: string | null; // null = namnlöst
@@ -25,6 +27,9 @@ export type MaskinObjektKort = {
   maskinId: string | null;
   maskinModell: string | null;
   maskinTyp: 'skordare' | 'skotare' | null;
+  // ALLA maskiner som skickat filer för objektet (fakt_tid + dim-raden) —
+  // det är maskinen man vill identifiera i sheeten, inte bara volymen
+  maskiner: MaskinKallInfo[];
   skordatM3: number;
   skotatM3: number;
   senasteAktivitet: string | null; // max datum i fakt_tid
@@ -110,11 +115,17 @@ export function useMatchning(): MatchningData {
         lassRows.forEach((r: any) => { if (r.objekt_id) skotat.set(r.objekt_id, (skotat.get(r.objekt_id) || 0) + (r.volym_m3sub || 0)); });
         const senaste = new Map<string, string>();
         const tidMaskin = new Map<string, string>();
+        const maskinerPerObjekt = new Map<string, Set<string>>();
         tidRows.forEach((r: any) => {
           if (!r.objekt_id || !r.datum) return;
           const prev = senaste.get(r.objekt_id);
           if (!prev || r.datum > prev) senaste.set(r.objekt_id, r.datum);
-          if (r.maskin_id && !tidMaskin.has(r.objekt_id)) tidMaskin.set(r.objekt_id, r.maskin_id);
+          if (r.maskin_id) {
+            if (!tidMaskin.has(r.objekt_id)) tidMaskin.set(r.objekt_id, r.maskin_id);
+            const set = maskinerPerObjekt.get(r.objekt_id) || new Set<string>();
+            set.add(r.maskin_id);
+            maskinerPerObjekt.set(r.objekt_id, set);
+          }
         });
 
         // Planerade objekt, indexerade för koppling
@@ -148,6 +159,14 @@ export function useMatchning(): MatchningData {
             || (d.vo_nummer ? planPerVo.get(d.vo_nummer) : undefined)
             || null;
 
+          const maskinIdSet = new Set<string>(maskinerPerObjekt.get(d.objekt_id) || []);
+          if (d.maskin_id) maskinIdSet.add(d.maskin_id);
+          const maskinLista: MaskinKallInfo[] = Array.from(maskinIdSet).map(id => ({
+            id,
+            modell: maskinMap.get(id)?.modell || null,
+            typ: maskinMap.get(id)?.typ || null,
+          }));
+
           const kort: MaskinObjektKort = {
             objektId: d.objekt_id,
             namn: d.object_name || null,
@@ -155,6 +174,7 @@ export function useMatchning(): MatchningData {
             maskinId,
             maskinModell: maskin?.modell || null,
             maskinTyp: maskin?.typ || null,
+            maskiner: maskinLista,
             skordatM3: Math.round(skordat.get(d.objekt_id) || 0),
             skotatM3: Math.round(skotat.get(d.objekt_id) || 0),
             senasteAktivitet: senaste.get(d.objekt_id) || null,
