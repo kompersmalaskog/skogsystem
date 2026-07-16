@@ -29,6 +29,19 @@ async function sattKoppling(planeratId: string, dimObjektId: string): Promise<{ 
   return { ok: true, message: '' };
 }
 
+// Ångra ignorering — objektet räknas i statistiken igen (centrala
+// exkludera-regeln från #159 filtrerar på flaggan, inget mer behövs)
+async function taMedIStatistik(dimObjektId: string): Promise<{ ok: boolean; message: string }> {
+  const { data, error } = await supabase
+    .from('dim_objekt')
+    .update({ exkludera: false })
+    .eq('objekt_id', dimObjektId)
+    .select('objekt_id');
+  if (error) return { ok: false, message: 'Kunde inte återta: ' + error.message };
+  if (!data || data.length === 0) return { ok: false, message: 'Inget sparades — objektet togs inte med igen' };
+  return { ok: true, message: '' };
+}
+
 async function ignoreraMaskinObjekt(dimObjektId: string): Promise<{ ok: boolean; message: string }> {
   const { data, error } = await supabase
     .from('dim_objekt')
@@ -99,6 +112,7 @@ export default function MatchningsVy({ matchning, onBack }: { matchning: Matchni
   // Väljarläge: koppla maskinobjekt -> välj planerat, eller tvärtom
   const [valjPlaneratFor, setValjPlaneratFor] = useState<MaskinObjektKort | null>(null);
   const [valjMaskinFor, setValjMaskinFor] = useState<PlaneratKort | null>(null);
+  const [visaIgnorerade, setVisaIgnorerade] = useState(false);
 
   const kor = async (aktion: Promise<{ ok: boolean; message: string }>) => {
     setArbetar(true);
@@ -186,6 +200,47 @@ export default function MatchningsVy({ matchning, onBack }: { matchning: Matchni
               </div>
             );
           })}
+
+          {/* IGNORERADE — ångerbart, ihopfällt. Volymerna visas så riktiga
+              jobb går att skilja från skräp och plockas tillbaka. */}
+          {matchning.ignorerade.length > 0 && (
+            <>
+              <button
+                onClick={() => setVisaIgnorerade(!visaIgnorerade)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: 'calc(100% - 32px)', margin: '20px 16px 10px', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FF }}
+              >
+                <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72' }}>
+                  Ignorerade · {matchning.ignorerade.length}
+                </span>
+                <span style={{ fontSize: 10, color: '#7a7a72', transform: visaIgnorerade ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>›</span>
+              </button>
+              {visaIgnorerade && matchning.ignorerade.map(kort => {
+                const harVolym = kort.skordatM3 > 0 || kort.skotatM3 > 0;
+                return (
+                  <div key={kort.objektId} style={{ ...s.kort, opacity: 0.85, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: kort.namn ? '#fff' : '#FF9F0A' }}>
+                        {kort.namn || 'Namnlöst objekt'}
+                      </div>
+                      <div style={{ fontSize: 11, color: harVolym ? 'rgba(255,179,64,0.9)' : '#7a7a72' }}>
+                        {harVolym
+                          ? [kort.skordatM3 > 0 && `${kort.skordatM3.toLocaleString('sv-SE')} m³ skördat`, kort.skotatM3 > 0 && `${kort.skotatM3.toLocaleString('sv-SE')} m³ skotat`].filter(Boolean).join(' · ')
+                          : 'Ingen volym'}
+                        {kort.senasteAktivitet ? ` · senast ${kort.senasteAktivitet}` : ''}
+                      </div>
+                    </div>
+                    <button
+                      disabled={arbetar}
+                      onClick={() => kor(taMedIStatistik(kort.objektId))}
+                      style={{ ...s.knapp, border: '1px solid rgba(90,255,140,0.35)', background: 'rgba(90,255,140,0.08)', color: 'rgba(90,255,140,0.9)', whiteSpace: 'nowrap' }}
+                    >
+                      Ta med i statistik
+                    </button>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </>
       )}
 
