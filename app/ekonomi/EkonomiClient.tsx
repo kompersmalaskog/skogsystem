@@ -36,6 +36,9 @@ type MaskinAgg = {
 function formatKr(n: number) { return `${Math.round(n).toLocaleString('sv-SE')} kr`; }
 function formatVol(n: number) { return `${Math.round(n).toLocaleString('sv-SE')} m³fub`; }
 
+// Bärnsten — dämpad märkning för preliminärt (design-tokens: V6_ST #f0b24c)
+const BARNSTEN = '240,178,76';
+
 export default function EkonomiClient() {
   const [period, setPeriod] = useState<PeriodType>('M');
   const [periodOffset, setPeriodOffset] = useState(0);
@@ -47,6 +50,7 @@ export default function EkonomiClient() {
   const [prelObjektAntal, setPrelObjektAntal] = useState(0);
   const [antagenVol, setAntagenVol] = useState(0);       // skotad volym prissatt på antagen medelstam
   const [ackordUtanPrislista, setAckordUtanPrislista] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);        // (i)-sheeten med beräkningsförklaringen
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -305,23 +309,20 @@ export default function EkonomiClient() {
     page: { background: '#111110', minHeight: '100vh', paddingTop: 24, paddingBottom: 120, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
     filterBar: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', gap: 8 } as const,
     periodBtn: { border: 'none', background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '5px 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: '#7a7a72', cursor: 'pointer' } as const,
-    periodBtnActive: { background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' } as const,
+    periodBtnActive: { background: 'rgba(255,255,255,0.12)', color: '#e8e8e4' } as const,
     arrow: { border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 8px' } as const,
     label: { fontSize: 12, fontWeight: 600, color: '#e8e8e4', minWidth: 120, textAlign: 'center' as const },
     card: { background: '#1a1a18', borderRadius: 14, padding: 16 } as const,
-    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 20, padding: '0 4px' } as const,
-    prel: { fontSize: 11, color: '#7a7a72' } as const,
+    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 32, padding: '0 4px' } as const,
   };
 
   return (
     <div style={s.page}>
-      <div style={{ padding: '16px 16px 0' }}>
-        <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em' }}>Ekonomi</div>
-        <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Hur mycket vi körde in — per maskin, över tid.</div>
-      </div>
+      {/* Fraunces för hero-talet — refereras i hela ekonomisektionen men laddades aldrig */}
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..600&display=swap" />
 
-      {/* Periodväxlare */}
-      <div style={{ ...s.filterBar, marginTop: 16 }}>
+      {/* Periodväxlare — vyns översta rad; titeln bor i TopBar. (i) öppnar förklaringen. */}
+      <div style={s.filterBar}>
         {(['D', 'V', 'M', 'K', 'A'] as PeriodType[]).map(p => (
           <button key={p} style={{ ...s.periodBtn, ...(period === p ? s.periodBtnActive : {}) }}
             onClick={() => { setPeriod(p); setPeriodOffset(0); }}>
@@ -332,6 +333,15 @@ export default function EkonomiClient() {
         <button style={s.arrow} aria-label="Föregående period" onClick={() => setPeriodOffset(o => o - 1)}>&#8249;</button>
         <span style={s.label}>{getPeriodLabel(period, periodOffset)}</span>
         <button style={s.arrow} aria-label="Nästa period" onClick={() => setPeriodOffset(o => o + 1)}>&#8250;</button>
+        <button
+          aria-label="Om beräkningen"
+          onClick={() => setInfoOpen(true)}
+          style={{
+            width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+            background: 'rgba(255,255,255,0.08)', border: 'none', color: '#7a7a72',
+            fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            fontStyle: 'italic', lineHeight: 1,
+          }}>i</button>
       </div>
 
       {loading && <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72' }}>Laddar...</div>}
@@ -352,30 +362,33 @@ export default function EkonomiClient() {
 
       {!loading && !error && maskiner.length > 0 && (
         <div style={{ padding: '0 16px' }}>
-          {/* Total */}
-          <div style={{ ...s.card, margin: '16px 0 0' }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72' }}>Vi körde in</div>
-            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 36, lineHeight: 1.15, fontWeight: 500, color: 'rgba(90,255,140,0.95)', marginTop: 4 }}>
+          {/* Hero — appens hjärta: talet ensamt, centrerat, luftigt */}
+          <div style={{ textAlign: 'center', padding: '56px 8px 24px' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.2, color: '#7a7a72' }}>Vi körde in</div>
+            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 44, lineHeight: 1.1, fontWeight: 500, color: '#e8e8e4', marginTop: 10, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
               {formatKr(sumIntakt)}
             </div>
-            <div style={{ fontSize: 12, color: '#bfcab9', marginTop: 6 }}>
-              Skördat {formatVol(skordatVol)} · Skotat {formatVol(skotatVol)}
+            <div style={{ fontSize: 13, color: '#bfcab9', marginTop: 10 }}>
+              {formatVol(skordatVol + skotatVol)}
             </div>
             {sumPrel > 0 && (
-              <div style={{ ...s.prel, marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 16,
+                padding: '5px 12px', borderRadius: 999,
+                background: `rgba(${BARNSTEN},0.10)`, color: `rgba(${BARNSTEN},0.85)`,
+                fontSize: 11, fontWeight: 500,
+              }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', background: `rgba(${BARNSTEN},0.8)`, flexShrink: 0 }} />
                 {formatKr(sumPrel)} preliminärt · {prelObjektAntal} objekt ej slutavräknade
               </div>
             )}
           </div>
 
-          {/* Ärlighetsrader — bara när de gäller */}
-          {(ackordUtanPrislista || antagenVol > 0 || sumTimmarUtanPris > 0) && (
-            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 10, padding: '0 4px', lineHeight: 1.6 }}>
+          {/* Larmrader — bara vid trasig konfiguration (förklaringar bor i (i)-sheeten) */}
+          {(ackordUtanPrislista || sumTimmarUtanPris > 0) && (
+            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 16, padding: '0 8px', lineHeight: 1.6, textAlign: 'center' }}>
               {ackordUtanPrislista && (
                 <div>Ackordprislista saknas — ackordintäkten kan inte beräknas och visas som 0 kr. Lägg upp priser i Inställningar.</div>
-              )}
-              {antagenVol > 0 && (
-                <div>{formatVol(antagenVol)} skotat utan skördardata i perioden — prissatt med antagen medelstam {ANTAGEN_MEDELSTAM.toString().replace('.', ',')}.</div>
               )}
               {sumTimmarUtanPris > 0 && (
                 <div>{sumTimmarUtanPris.toFixed(1).replace('.', ',')} h timpeng saknar timpris och ingår inte i intäkten. Sätt timpris i Inställningar.</div>
@@ -383,43 +396,108 @@ export default function EkonomiClient() {
             </div>
           )}
 
-          {/* Per maskin */}
+          {/* Per maskin — neutralt: rollen i text, rangordningen som proportionsstapel */}
           <div style={s.sectionTitle}>Per maskin</div>
-          {maskiner.map(m => {
-            const isHarv = m.maskin_typ !== 'Forwarder';
-            const badgeColor = isHarv ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)';
-            const badgeBg = isHarv ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)';
+          {(() => {
+            // Rollparentesen ur prisnamnet ersätts av metaradens roll-text
+            const rensaNamn = (namn: string) => namn.replace(/\s*\((skördare|skotare)\)\s*$/i, '');
+            const namnAntal: Record<string, number> = {};
+            for (const m of maskiner) {
+              const n = rensaNamn(m.maskin_namn);
+              namnAntal[n] = (namnAntal[n] || 0) + 1;
+            }
+            const maxIntakt = maskiner.reduce((mx, m) => Math.max(mx, m.intakt), 0);
+            // EN lista, inte fem kort — rader med hårfin avdelare, ingen efter sista
             return (
-              <div key={m.maskin_id} style={{ ...s.card, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      display: 'inline-block', fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
-                      padding: '2px 6px', borderRadius: 4, color: badgeColor, background: badgeBg, flexShrink: 0,
+              <div style={{ ...s.card, padding: '0 16px' }}>
+                {maskiner.map((m, i) => {
+                  const namn = rensaNamn(m.maskin_namn);
+                  const roll = m.maskin_typ === 'Forwarder' ? 'skotare' : 'skördare';
+                  const andel = maxIntakt > 0 ? Math.max(0, Math.min(1, m.intakt / maxIntakt)) : 0;
+                  return (
+                    <div key={m.maskin_id} style={{
+                      padding: '16px 0',
+                      borderBottom: i < maskiner.length - 1 ? '0.5px solid rgba(255,255,255,0.07)' : 'none',
                     }}>
-                      {isHarv ? 'SKÖRD' : 'SKOT'}
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.maskin_namn}</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>{formatVol(m.volym)}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
-                    {formatKr(m.intakt)}
-                  </div>
-                  {m.prel > 0 && <div style={{ ...s.prel, marginTop: 2 }}>{formatKr(m.prel)} prel.</div>}
-                </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {namn}
+                            {/* Två maskiner kan dela prisnamn (två H8E) — maskin_id är det som faktiskt skiljer dem */}
+                            {namnAntal[namn] > 1 && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {m.maskin_id}</span>}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>{roll} · {formatVol(m.volym)}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
+                            {formatKr(m.intakt)}
+                          </div>
+                          {m.prel > 0 && <div style={{ fontSize: 11, color: `rgba(${BARNSTEN},0.75)`, marginTop: 2 }}>{formatKr(m.prel)} prel.</div>}
+                        </div>
+                      </div>
+                      {/* Andel av periodens största maskin — bara den fyllda biten, längden bär
+                          informationen. På RADENS bredd (inte vänsterkolumnens, som varierar med
+                          beloppets textlängd) så längderna är jämförbara mellan rader. */}
+                      <div style={{ marginTop: 8, height: 3, borderRadius: 2, width: `${andel * 100}%`, background: 'rgba(122,122,114,0.5)' }} />
+                    </div>
+                  );
+                })}
               </div>
             );
-          })}
+          })()}
 
-          <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 12, padding: '0 4px', lineHeight: 1.5 }}>
-            Ackord löpande per maskin via acordmotorn: skördad volym × pris_skordare resp. skotad volym × pris_skotare
-            (närmaste medelstam) + trakt-, sortiment- och skotningsavståndstillägg. Gallring och timpeng-flaggade objekt
-            räknas som timpeng (G15-timmar × timpris). Preliminärt = ackordobjekt där skördning och skotning inte båda är
-            avslutade — ingår i summan. Terräng- och flyttersättning ingår inte ännu.
-          </div>
         </div>
+      )}
+
+      {/* (i)-sheet — förklaringen bor här, inte som textvägg i vyn */}
+      {infoOpen && (
+        <>
+          <div onClick={() => setInfoOpen(false)} style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 100,
+            backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
+          }} />
+          <div style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 101,
+            background: '#1a1a18', borderRadius: '20px 20px 0 0',
+            padding: '12px 20px calc(28px + env(safe-area-inset-bottom))', maxHeight: '80vh', overflowY: 'auto',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+            boxShadow: '0 -10px 40px rgba(0,0,0,0.6)',
+            fontFamily: "'Geist', system-ui, sans-serif", color: '#e8e8e4',
+          }}>
+            <div style={{ width: 40, height: 4, background: 'rgba(255,255,255,0.15)', borderRadius: 2, margin: '4px auto 18px' }} />
+            <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', marginBottom: 4 }}>Hur mycket körde vi in?</div>
+            <div style={{ fontSize: 12, color: '#7a7a72', marginBottom: 18 }}>Intäkt per maskin för perioden — ackord löpande, timpeng där det gäller.</div>
+
+            <div style={{ fontSize: 13, lineHeight: 1.6, color: '#bfcab9', display: 'grid', gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 }}>Volym i perioden</div>
+                Skördat {formatVol(skordatVol)} · Skotat {formatVol(skotatVol)}. Samma virke passerar båda maskinerna — därför visas volymerna var för sig här, inte hopsummerade per stock.
+                {antagenVol > 0 && (
+                  <> {formatVol(antagenVol)} av det skotade saknar skördardata i perioden och prissätts med antagen medelstam {ANTAGEN_MEDELSTAM.toString().replace('.', ',')}.</>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 }}>Ackord</div>
+                Skördad volym × skördarpris och skotad volym × skotarpris, uppslaget per närmaste medelstam i prislistan, plus trakt-, sortiment- och skotningsavståndstillägg. Terräng- och flyttersättning ingår inte ännu.
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 }}>Timpeng</div>
+                Gallring och timpeng-flaggade objekt räknas som G15-timmar × maskinens timpris i stället för ackord.
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: `rgba(${BARNSTEN},0.85)`, marginBottom: 4 }}>Preliminärt</div>
+                Ackordobjekt där skördning och skotning inte båda är avslutade. Beloppet ingår i summan men kan ändras tills objektet är slutavräknat. Timpeng är aldrig preliminärt.
+              </div>
+            </div>
+
+            <button onClick={() => setInfoOpen(false)} style={{
+              marginTop: 22, width: '100%', background: '#000', color: '#fff',
+              border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10,
+              padding: '12px 14px', fontSize: 13, fontWeight: 600,
+              fontFamily: 'inherit', cursor: 'pointer',
+            }}>Stäng</button>
+          </div>
+        </>
       )}
 
       <EkonomiBottomNav />
