@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
+import { type AvvikelseRad } from './lib/avvikelser';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -33,6 +34,8 @@ export interface DieselDag {
 
 export interface UppfoljningData {
   objektNamn: string;
+  // Våning 2 — beräknas i useObjektUppfoljning (kräver 90-dagarsreferensen)
+  avvikelser?: AvvikelseRad[];
   senastUppdaterad?: string;
   skordat: number;
   skotat: number;
@@ -218,6 +221,27 @@ function StatusRad({ data }: { data: UppfoljningData }) {
       {s.kvarOkant && (
         <span style={{ fontSize: 15, color: V6_WARN, fontWeight: 500 }}>· skördardata saknas</span>
       )}
+    </section>
+  );
+}
+
+// ── Våning 2: avvikelser — bara när något FAKTISKT avviker ────────────────
+// Trösklarna härleds ur maskinens egen 90-dagarsspridning (Tukey-staket,
+// se lib/avvikelser.ts). Allt normalt → zonen försvinner helt.
+function AvvikelseZon({ avvikelser }: { avvikelser?: AvvikelseRad[] }) {
+  if (!avvikelser || avvikelser.length === 0) return null;
+  return (
+    <section style={{ padding: '0 24px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {avvikelser.map(a => (
+        <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: 'rgba(255,159,10,0.09)', border: '0.5px solid rgba(255,159,10,0.28)', borderRadius: 10, padding: '10px 13px' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={V6_WARN} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <span style={{ fontSize: 13, color: V6_WARN, fontWeight: 500, lineHeight: 1.45 }}>{a.text}</span>
+        </div>
+      ))}
     </section>
   );
 }
@@ -813,6 +837,7 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
       <Nav onBack={onBack} />
       <Headline data={data} />
       <StatusRad data={data} />
+      <AvvikelseZon avvikelser={data.avvikelser} />
       <Maskinkort data={data} />
       <Tidslinje data={data} />
 
