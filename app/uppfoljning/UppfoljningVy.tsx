@@ -368,15 +368,22 @@ function Tidslinje({ data }: { data: UppfoljningData }) {
 }
 
 // ── Kollapsbar sektion ────────────────────────────────────────────────────
-function Collapse({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+// Stängd sektion ger ändå sin siffra (varde) — man öppnar för att förstå
+// VARFÖR, inte för att få talet. Värdet radbryter på smal skärm.
+function Collapse({ title, varde, children, defaultOpen = false }: { title: string; varde?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ borderTop: `0.5px solid ${V6_SEP}` }}>
-      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '16px 24px', background: 'transparent', border: 'none', color: '#fff', fontFamily: V6_FF, cursor: 'pointer' }}>
-        <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px' }}>{title}</span>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>
-          <polyline points="4 2 8 6 4 10" />
-        </svg>
+      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '16px 24px', background: 'transparent', border: 'none', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+        <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px', flexShrink: 0 }}>{title}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          {varde != null && (
+            <span style={{ fontSize: 12, color: V6_GREY, fontWeight: 500, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.35 }}>{varde}</span>
+          )}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}>
+            <polyline points="4 2 8 6 4 10" />
+          </svg>
+        </span>
       </button>
       {open && <div style={{ paddingBottom: 8 }}>{children}</div>}
     </div>
@@ -752,6 +759,55 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   const hasTradslagSort = data.tradslag.length > 0 || data.sortiment.length > 0;
   const hasTidDiesel = data.skordareG15h > 0 || data.skotareG15h > 0 || data.dieselTotalt > 0;
 
+  // ── Rubriktal — samma tal som sektionerna visar, inget nytt beräknas.
+  // ÄRLIGHET: en maskin utan data får inget påhittat värde — den utelämnas.
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+
+  const prodVarde = (() => {
+    const sk = data.skordareM3G15h > 0 ? data.skordareM3G15h : null;
+    const st = data.skotareM3G15h > 0 ? data.skotareM3G15h : null;
+    if (sk != null && st != null) return `Skördare ${sv(sk)} · Skotare ${sv(st)}`;
+    if (sk != null) return `${sv(sk)} m³/G15h`;
+    if (st != null) return `${sv(st)} m³/G15h`;
+    return null;
+  })();
+
+  const perDagVarde = (() => {
+    const skDagar = data.prodSkordarePerDag || [];
+    const skSnitt = skDagar.length > 0 ? Math.round(skDagar.reduce((a, b) => a + b.m3, 0) / skDagar.length) : null;
+    const stDagar = (data.lassPerDag || []).filter(d => typeof d.m3 === 'number' && d.m3 > 0);
+    const stSnitt = stDagar.length > 0 ? Math.round(stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length) : null;
+    if (skSnitt != null && stSnitt != null) return `Skördare ${sv(skSnitt)} · Skotare ${sv(stSnitt)}`;
+    if (skSnitt != null) return `snitt ${sv(skSnitt)} m³/dag`;
+    if (stSnitt != null) return `snitt ${sv(stSnitt)} m³/dag`;
+    return null;
+  })();
+
+  const tradslagVarde = (() => {
+    const total = data.skordat > 0 ? data.skordat : data.sortiment.reduce((a, b) => a + b.m3, 0);
+    return total > 0 ? `${sv(Math.round(total))} m³` : null;
+  })();
+
+  const tidDieselVarde = (() => {
+    const skG15 = data.skordareG15h > 0 ? data.skordareG15h : null;
+    const stG15 = data.skotareG15h > 0 ? data.skotareG15h : null;
+    let g15Del: string | null = null;
+    if (skG15 != null && stG15 != null) g15Del = `Skördare ${sv(skG15)} · Skotare ${sv(stG15)} G15h`;
+    else if (skG15 != null) g15Del = `${sv(skG15)} G15h`;
+    else if (stG15 != null) g15Del = `${sv(stG15)} G15h`;
+    const lm3Del = data.dieselPerM3 > 0 ? `${sv(data.dieselPerM3)} L/m³` : null;
+    const delar = [g15Del, lm3Del].filter(Boolean);
+    return delar.length > 0 ? delar.join(' · ') : null;
+  })();
+
+  const avbrottVarde = (() => {
+    // Totalsträngarna ("4.2h") är samma tal som sektionens kort visar.
+    const skH = (data.avbrottSkordare?.length || 0) > 0 ? parseFloat(data.avbrottSkordare_totalt) || 0 : 0;
+    const stH = (data.avbrottSkotare?.length || 0) > 0 ? parseFloat(data.avbrottSkotareTotalt) || 0 : 0;
+    const sum = skH + stH;
+    return sum > 0 ? `${sum.toFixed(1).replace('.', ',')} h` : null;
+  })();
+
   return (
     <div style={{ minHeight: '100%', background: V6_BG, color: '#fff', fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
       <Nav onBack={onBack} />
@@ -761,21 +817,21 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
       <Tidslinje data={data} />
 
       <div style={{ marginTop: 8 }}>
-        {hasProduktivitet && <Collapse title="Produktivitet"><Produktivitet data={data} /></Collapse>}
-        {hasProdPerDag && <Collapse title="Produktion per dag"><ProdPerDag data={data} /></Collapse>}
+        {hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={data} /></Collapse>}
+        {hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={data} /></Collapse>}
         {hasTradslagSort && (
-          <Collapse title="Trädslag & sortiment">
+          <Collapse title="Trädslag & sortiment" varde={tradslagVarde}>
             <Tradslag tradslag={data.tradslag} />
             <Sortiment sortiment={data.sortiment} />
           </Collapse>
         )}
         {hasTidDiesel && (
-          <Collapse title="Tid & diesel">
+          <Collapse title="Tid & diesel" varde={tidDieselVarde}>
             <Tid data={data} />
             <Diesel data={data} />
           </Collapse>
         )}
-        {hasAvbrott && <Collapse title="Avbrott"><Avbrott data={data} /></Collapse>}
+        {hasAvbrott && <Collapse title="Avbrott" varde={avbrottVarde}><Avbrott data={data} /></Collapse>}
         {data.externSkotning && <Collapse title="Extern skotning"><Extern data={data} /></Collapse>}
       </div>
       <div style={{ height: 60 }} />
