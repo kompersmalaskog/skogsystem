@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { MASKINER, type Maskin } from './OversiktShared'
 import Maskinvy from '../../maskinvy'
@@ -74,13 +75,83 @@ export default function MaskinvyPage() {
     history.replaceState({}, '', url.toString())
   }
 
+  // Dölj TopBar-hemknappen i ny-vyn — vi visar egen bakåtpil + kryss istället.
+  useEffect(() => {
+    if (!ny) return
+    document.body.setAttribute('data-hide-home', '')
+    return () => document.body.removeAttribute('data-hide-home')
+  }, [ny])
+
   return (
     <>
+      {/* Bakåtknapp (vänster) + Stäng-kryss (höger) — bara i ny-vyn.
+          Placeras i TopBar-zonen ovanför .mv-toggle-bar.
+          z-index: 1001 — ovanför TopBar:ns 1000. */}
+      {ny && (
+        <>
+          <button
+            onClick={() => {
+              if (typeof window !== 'undefined' && window.history.length > 1) {
+                window.history.back()
+              } else {
+                window.location.href = '/'
+              }
+            }}
+            style={{
+              position: 'fixed',
+              left: 12,
+              top: 'calc(env(safe-area-inset-top) + 10px)',
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: 'rgba(255,255,255,0.08)',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: 'rgba(255,255,255,0.75)',
+              fontSize: 22,
+              lineHeight: 1,
+              zIndex: 1001,
+              WebkitTapHighlightColor: 'transparent',
+            }}
+            aria-label="Gå tillbaka"
+          >
+            ‹
+          </button>
+          <Link
+            href="/"
+            style={{
+              position: 'fixed',
+              right: 12,
+              top: 'calc(env(safe-area-inset-top) + 10px)',
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: 'rgba(255,255,255,0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textDecoration: 'none',
+              color: 'rgba(255,255,255,0.75)',
+              fontSize: 16,
+              lineHeight: 1,
+              zIndex: 1001,
+              WebkitTapHighlightColor: 'transparent',
+            }}
+            aria-label="Stäng"
+          >
+            ✕
+          </Link>
+        </>
+      )}
+
       {/* iOS-style segmented controls under TopBar */}
       <style>{`
         .mv-toggle-bar {
           position: fixed;
-          top: 56px;
+          top: calc(56px + env(safe-area-inset-top));
           left: 0;
           right: 0;
           height: 52px;
@@ -137,7 +208,7 @@ export default function MaskinvyPage() {
         /* ── Vy-nav (Översikt | Produktion | ...) ─────────────────── */
         .mv-vy-bar {
           position: fixed;
-          top: 108px;
+          top: calc(108px + env(safe-area-inset-top));
           left: 0;
           right: 0;
           height: 44px;
@@ -181,8 +252,8 @@ export default function MaskinvyPage() {
         .mv-vy-btn:active { transform: scale(0.97); }
 
         /* Push wrapped content below the toggle bar(s) */
-        .mv-wrapper > div { top: 108px !important; }
-        .mv-wrapper.with-vy-nav > div { top: 152px !important; }
+        .mv-wrapper > div { top: calc(108px + env(safe-area-inset-top)) !important; }
+        .mv-wrapper.with-vy-nav > div { top: calc(152px + env(safe-area-inset-top)) !important; }
       `}</style>
 
       <div className="mv-toggle-bar">
