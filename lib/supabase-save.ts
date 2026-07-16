@@ -61,6 +61,41 @@ export async function uppdateraVerifierat<T = any>(
 }
 
 /**
+ * DELETE som kräver att minst en rad träffades. Samma tysta fälla som update:
+ * RLS-blockerad delete ger HTTP 200 och tom lista — aldrig "Borttaget!" då.
+ */
+export async function raderaVerifierat<T = any>(
+  klient: SupabaseClient,
+  tabell: string,
+  match: Record<string, unknown>,
+  select: string = "id",
+): Promise<SparaResultat<T>> {
+  try {
+    let q: any = klient.from(tabell).delete();
+    for (const [kol, v] of Object.entries(match)) {
+      if (v === undefined || v === null) {
+        console.error(`[spara] ${tabell}: match-värde för '${kol}' saknas — avbryter`, match);
+        return { ok: false, fel: SPARA_INGA_RADER };
+      }
+      q = q.eq(kol, v);
+    }
+    const { data, error } = await q.select(select);
+    if (error) {
+      console.error(`[spara] ${tabell} delete-fel:`, error);
+      return { ok: false, fel: SPARA_FEL };
+    }
+    if (!data || data.length === 0) {
+      console.error(`[spara] ${tabell} delete träffade 0 rader — inget borttaget.`, match);
+      return { ok: false, fel: SPARA_INGA_RADER };
+    }
+    return { ok: true, rows: data as T[] };
+  } catch (e) {
+    console.error(`[spara] ${tabell} delete kastade:`, e);
+    return { ok: false, fel: SPARA_FEL };
+  }
+}
+
+/**
  * UPSERT som kräver att raden kom tillbaka. RLS-block ger error (verifierat),
  * men .select()-kontrollen fångar också det tysta hörnfallet och ger enhetlig
  * hantering med uppdateraVerifierat.
