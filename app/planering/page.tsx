@@ -1517,6 +1517,9 @@ export default function PlannerPage() {
   const [infoLarmKalla, setInfoLarmKalla] = useState<'td' | 'egen' | null>(null);
   const [infoLarmBekraftad, setInfoLarmBekraftad] = useState(false);
   const [larmPlacering, setLarmPlacering] = useState(false); // "Peka på karta"-läge (larmkoordinat)
+  const larmPlaceringFromRef = useRef<'trakt' | 'karta'>('trakt'); // varifrån flytten startades
+  const [larmPopupOpen, setLarmPopupOpen] = useState(false); // popup vid tryck på märket
+  const [larmConfirmDelete, setLarmConfirmDelete] = useState(false);
   const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
   const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
   const [infoVolym, setInfoVolym] = useState(''); // en sanning: objekt.volym
@@ -3233,7 +3236,8 @@ export default function PlannerPage() {
         setInfoLarmLng(lng.toFixed(6));
         setInfoLarmKalla('egen');
         setLarmPlacering(false);
-        setTraktOpen(true);
+        // Startades flytten från kartan? Stanna kvar där så man ser märket flytta.
+        if (larmPlaceringFromRef.current === 'trakt') setTraktOpen(true);
         if (navigator.vibrate) navigator.vibrate(30);
         return;
       }
@@ -3547,8 +3551,37 @@ export default function PlannerPage() {
           },
         });
       }
+      // Osynlig hitbox — generöst tap-target på telefon (som hogar-hit)
+      if (!map.getLayer('larm-pin-hit')) {
+        map.addLayer({
+          id: 'larm-pin-hit', type: 'circle', source: 'larm-pin-source',
+          paint: { 'circle-radius': 22, 'circle-color': 'rgba(0,0,0,0)' },
+        });
+      }
     } catch (e) { console.error('[Larm-pin] setup-fel:', e); }
   }, [mapLibreReady]);
+
+  // === Larmkoordinat-märket: tryck på det → popup (flytta / ta bort / tillfartsväg) ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const onLarmClick = () => {
+      if (larmPlacering) return; // mitt i en flytt — öppna inte popupen
+      featureClickedRef.current = true;
+      setLarmConfirmDelete(false);
+      setLarmPopupOpen(true);
+    };
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const onLeave = () => { map.getCanvas().style.cursor = ''; };
+    map.on('click', 'larm-pin-hit', onLarmClick);
+    map.on('mouseenter', 'larm-pin-hit', onEnter);
+    map.on('mouseleave', 'larm-pin-hit', onLeave);
+    return () => {
+      map.off('click', 'larm-pin-hit', onLarmClick);
+      map.off('mouseenter', 'larm-pin-hit', onEnter);
+      map.off('mouseleave', 'larm-pin-hit', onLeave);
+    };
+  }, [mapLibreReady, larmPlacering]);
 
   // === Larmkoordinat-pin: uppdatera position när koordinaten ändras (tom = ingen pin) ===
   useEffect(() => {
@@ -10881,11 +10914,71 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* Larmkoordinat: popup vid tryck på märket — tillfartsväg (SAMMA fält som Larm-fliken), flytta, ta bort */}
+      {larmPopupOpen && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
+          onClick={() => { setLarmPopupOpen(false); setLarmConfirmDelete(false); }}
+        >
+          <div
+            style={{ background: '#000', borderRadius: '24px', padding: '28px', width: '90%', maxWidth: '500px', border: '1px solid rgba(255,255,255,0.15)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0a84ff', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+              </div>
+              <div style={{ fontSize: '17px', fontWeight: 600, color: '#fff' }}>Larmkoordinat / mötesplats</div>
+            </div>
+            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', marginBottom: '18px', paddingLeft: '44px' }}>
+              {(() => {
+                const _la = parseFloat((infoLarmLat || '').replace(',', '.'));
+                const _ln = parseFloat((infoLarmLng || '').replace(',', '.'));
+                return (Number.isFinite(_la) && Number.isFinite(_ln)) ? _la.toFixed(5) + ', ' + _ln.toFixed(5) : '';
+              })()}
+            </div>
+            <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Tillfartsväg</div>
+            <textarea value={infoLarmBeskrivning} onChange={e => setInfoLarmBeskrivning(e.target.value)} placeholder="Beskriv tillfartsväg och mötesplats"
+              style={{ width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px', marginBottom: '18px', boxSizing: 'border-box', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
+            {!larmConfirmDelete ? (
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button onClick={() => { larmPlaceringFromRef.current = 'karta'; setLarmPopupOpen(false); setLarmPlacering(true); }}
+                  style={{ flex: 1, padding: '13px', borderRadius: '12px', border: 'none', background: '#0a84ff', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Flytta
+                </button>
+                <button onClick={() => setLarmConfirmDelete(true)}
+                  style={{ flex: 1, padding: '13px', borderRadius: '12px', border: '1px solid rgba(239,68,68,0.4)', background: 'transparent', color: '#ff453a', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Ta bort
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontSize: '14px', color: '#fff', marginBottom: '4px', textAlign: 'center' }}>Ta bort mötesplatsen?</div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', marginBottom: '12px', textAlign: 'center' }}>Koordinat och tillfartsväg tas bort.</div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={() => setLarmConfirmDelete(false)}
+                    style={{ flex: 1, padding: '13px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#8e8e93', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Avbryt
+                  </button>
+                  <button onClick={() => {
+                    setInfoLarmLat(''); setInfoLarmLng(''); setInfoLarmKalla(null); setInfoLarmBekraftad(false); setInfoLarmBeskrivning('');
+                    setLarmConfirmDelete(false); setLarmPopupOpen(false);
+                  }}
+                    style={{ flex: 1, padding: '13px', borderRadius: '12px', border: 'none', background: '#ff453a', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Ta bort
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Larmkoordinat: "peka på karta"-läge — kartan syns, nästa tap sätter punkten */}
       {larmPlacering && (
         <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: '50%', transform: 'translateX(-50%)', zIndex: 400, display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(10,132,255,0.96)', color: '#fff', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderRadius: '14px', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', maxWidth: '92vw' }}>
           <span>Tryck på kartan där räddningstjänsten kan mötas</span>
-          <button onClick={() => { setLarmPlacering(false); setTraktOpen(true); }} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: '9px', border: 'none', background: 'rgba(255,255,255,0.22)', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
+          <button onClick={() => { setLarmPlacering(false); if (larmPlaceringFromRef.current === 'trakt') setTraktOpen(true); }} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: '9px', border: 'none', background: 'rgba(255,255,255,0.22)', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
         </div>
       )}
 
@@ -17486,7 +17579,7 @@ export default function PlannerPage() {
                   }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#0a84ff', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
                     Använd min GPS-position
                   </button>
-                  <button onClick={() => { setTraktOpen(false); setLarmPlacering(true); }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '14px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
+                  <button onClick={() => { larmPlaceringFromRef.current = 'trakt'; setTraktOpen(false); setLarmPlacering(true); }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '14px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
                     Peka på karta
                   </button>
                   <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
