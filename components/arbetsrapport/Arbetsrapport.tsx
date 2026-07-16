@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { uppdateraVerifierat, upsertVerifierat, SPARA_FEL } from "@/lib/supabase-save";
+import { extraMinPerDag } from "@/lib/arbetstid";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
@@ -1055,8 +1056,14 @@ export default function Arbetsrapport() {
         if (!prevSlut && row.slut_tid && !localStorage.getItem(slutKey)) {
           knownSlut[row.id] = row.slut_tid;
           const slutTid = row.slut_tid.slice(0, 5);
-          const h = Math.floor((row.arbetad_min || 0) / 60);
-          const m = (row.arbetad_min || 0) % 60;
+          // Dagstotal = maskintid + dagens extra tid. Hämtas färskt här (inte
+          // ur extraTidData-state) — effekten har stale closure på state.
+          const { data: dagensExtra } = await supabase.from('extra_tid')
+            .select('minuter').eq('medarbetare_id', medarbetare.id).eq('datum', today);
+          const extraMinIdag = (dagensExtra || []).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
+          const totMin = (row.arbetad_min || 0) + extraMinIdag;
+          const h = Math.floor(totMin / 60);
+          const m = totMin % 60;
           const tid = `${h}h ${m}min`;
           setArbetsdagToast({ typ: 'slut', maskin, objekt: objNamn, start: startTid, slut: slutTid, tid });
           localStorage.setItem(slutKey, '1');
@@ -2011,13 +2018,22 @@ export default function Arbetsrapport() {
                     (start/slut/rast, samma sheet som Arbetstid/Rast-raderna öppnade). */}
                 {harMaskinPass && (
                   <div onClick={öppnaTider} style={{ textAlign:"center",padding:"14px 0 16px",cursor:"pointer",borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
-                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Total arbetstid</p>
+                    {/* "Maskinpass", inte "Total arbetstid" — siffran är passets tid
+                        (start→slut−rast, redigerbar här). Extra tid är egna poster;
+                        dagens TOTAL visas som dämpad rad nedan när extra finns. */}
+                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Maskinpass</p>
                     <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(arbMin)}</p>
                     <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
                       {start} → {slut} · rast {rast} min
                       <span className="material-symbols-outlined" style={{ fontSize:14,color:"rgba(255,255,255,0.25)",verticalAlign:"-2px",marginLeft:2 }}>chevron_right</span>
                     </p>
                     <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Rast = tid markerad som Meal break i maskinen</p>
+                    {(()=>{
+                      const exMinIdag = extraTidData.filter(e => e.datum === idagKey).reduce((a,e) => a + (e.minuter||0), 0);
+                      return exMinIdag > 0 ? (
+                        <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#8e8e93",...TNUM }}>+ {fmt(exMinIdag)} extra arbete · totalt {fmt(arbMin + exMinIdag)} idag</p>
+                      ) : null;
+                    })()}
                   </div>
                 )}
                 {harObjBlock&&(
@@ -2476,7 +2492,7 @@ export default function Arbetsrapport() {
                 </div>
               </div>
               <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(48,209,88,0.08)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta,fontWeight:500 }}>Total arbetstid</span>
+                <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta,fontWeight:500 }}>Maskinpass</span>
                 <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{fmt(tAm)}</span>
               </div>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginTop:16 }}>
@@ -2619,6 +2635,18 @@ export default function Arbetsrapport() {
     const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
     const månNamn2 = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 
+    // Extra tid (arbete när maskinen var av) är arbetstid rakt av — räknas
+    // in i ALLA summor och övertidsberäkningar här, samma definition som
+    // löneexporten (lib/arbetstid.ts). En dag kan ha extra utan maskinpass.
+    const extraPerDag = extraMinPerDag(extraTidData);
+    const extraMinMellan = (from: string, tom?: string) => {
+      let s = 0;
+      for (const [datum, min] of extraPerDag) {
+        if (datum >= from && (!tom || datum <= tom)) s += min;
+      }
+      return s;
+    };
+
     // Vecka: hitta mån-sön för aktuell vecka
     const dagIdx = (nu.getDay()+6)%7; // 0=mån
     const veckStart = new Date(nu); veckStart.setDate(nu.getDate()-dagIdx);
@@ -2632,7 +2660,8 @@ export default function Arbetsrapport() {
       const d=new Date(veckStart); d.setDate(veckStart.getDate()+i);
       const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const ad=årsData.find(r=>r.datum===k);
-      const h=ad ? Math.round((ad.arbetad_min||0)/60*10)/10 : 0;
+      // Extra tid räknas även på dagar UTAN maskinpass (ad saknas då)
+      const h=Math.round(((ad?.arbetad_min||0)+(extraPerDag.get(k)||0))/60*10)/10;
       veckoTot+=h;
       const dow=d.getDay();
       if(dow!==0&&dow!==6&&!rödaDagarVecka[k]) veckoArbDagar++;
@@ -2642,14 +2671,15 @@ export default function Arbetsrapport() {
     const maxH = Math.max(...veckoDagar.map(d=>d.h),1);
 
     // Idag
-    const idagAd = årsData.find(r=>r.datum===nu.toISOString().split('T')[0]);
-    const idagH = idagAd ? Math.round((idagAd.arbetad_min||0)/60*10)/10 : 0;
+    const idagKey2 = nu.toISOString().split('T')[0];
+    const idagAd = årsData.find(r=>r.datum===idagKey2);
+    const idagH = Math.round(((idagAd?.arbetad_min||0)+(extraPerDag.get(idagKey2)||0))/60*10)/10;
     const idagDiff = idagH - 8;
 
     // Månad
     const månStart = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,'0')}-01`;
     const månData = årsData.filter(r=>r.datum>=månStart);
-    const månJobbatMin = månData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const månJobbatMin = månData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(månStart);
     const månJobbatH = Math.round(månJobbatMin/60*10)/10;
     // Räkna arbetsdagar i månaden
     const dIM = new Date(nu.getFullYear(),nu.getMonth()+1,0).getDate();
@@ -2668,7 +2698,7 @@ export default function Arbetsrapport() {
     const kvartal = Math.floor(nu.getMonth()/3);
     const kvStart = `${nu.getFullYear()}-${String(kvartal*3+1).padStart(2,'0')}-01`;
     const kvData = årsData.filter(r=>r.datum>=kvStart);
-    const kvMin = kvData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const kvMin = kvData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(kvStart);
     // Räkna kvartalets arbetsdagar
     let kvArbDagar=0;
     for(let m=kvartal*3;m<kvartal*3+3;m++){
@@ -2683,11 +2713,12 @@ export default function Arbetsrapport() {
     const kvÖvH = Math.max(0,Math.round(kvMin/60*10)/10-kvArbDagar*8);
 
     // År — övertid beräknad per månad
-    const årsMin = årsData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const årsMin = årsData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(`${nu.getFullYear()}-01-01`);
     let årsÖvH = 0;
     for(let m=0;m<=nu.getMonth();m++){
       const mp=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}`;
-      const mMin=årsData.filter(d=>d.datum&&d.datum.startsWith(mp)).reduce((a,d)=>a+(d.arbetad_min||0),0);
+      const mMin=årsData.filter(d=>d.datum&&d.datum.startsWith(mp)).reduce((a,d)=>a+(d.arbetad_min||0),0)
+        + extraMinMellan(`${mp}-01`, `${mp}-31`);
       // Räkna vardagar i månaden
       const dIM2=m===nu.getMonth()?nu.getDate():new Date(nu.getFullYear(),m+1,0).getDate();
       let mArbD=0;
@@ -3555,19 +3586,35 @@ export default function Arbetsrapport() {
       setLönSparar(false);
     };
 
-    // Build weekly breakdown from historik — filtered to current month
+    // Build weekly breakdown from historik — filtered to current month.
+    // Total per dag/vecka = maskintid + extra tid (lib/arbetstid.ts-definitionen);
+    // delarna hålls separata så staplarna kan visa fördelningen.
     const månadsPrefix = lönePeriod; // "YYYY-MM"
     const löneRödaDagar = getRödaDagar(nu.getFullYear());
-    const veckoData: Record<number, { dagar: {datum:string;min:number;rödDag?:string}[]; sumH:number; helglönH:number }> = {};
-    historik.filter(d => d.datum && d.datum.startsWith(månadsPrefix)).forEach(d => {
-      const date = new Date(d.datum);
+    const veckoNrFör = (datum: string) => {
+      const date = new Date(datum);
       const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(),0,1).getTime()) / 86400000);
-      const weekNum = Math.ceil((dayOfYear + new Date(date.getFullYear(),0,1).getDay()) / 7);
+      return Math.ceil((dayOfYear + new Date(date.getFullYear(),0,1).getDay()) / 7);
+    };
+    const veckoData: Record<number, { dagar: {datum:string;min:number;extraMin:number;rödDag?:string}[]; sumH:number; helglönH:number }> = {};
+    const extraPerDagMånad = extraMinPerDag(månadsExtraTid);
+    historik.filter(d => d.datum && d.datum.startsWith(månadsPrefix)).forEach(d => {
+      const weekNum = veckoNrFör(d.datum);
       if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0, helglönH:0 };
       const m = d.arbetad_min || 0;
-      veckoData[weekNum].dagar.push({ datum:d.datum, min:m });
-      veckoData[weekNum].sumH += m/60;
+      const ex = extraPerDagMånad.get(d.datum) || 0;
+      veckoData[weekNum].dagar.push({ datum:d.datum, min:m, extraMin:ex });
+      veckoData[weekNum].sumH += (m + ex)/60;
     });
+    // Extra tid på dagar UTAN maskinpass — egen dagrad (bara ljusgrön stapel)
+    for (const [datum, ex] of extraPerDagMånad) {
+      if (!datum.startsWith(månadsPrefix) || ex <= 0) continue;
+      const weekNum = veckoNrFör(datum);
+      if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0, helglönH:0 };
+      if (veckoData[weekNum].dagar.find(x => x.datum === datum)) continue; // redan medräknad ovan
+      veckoData[weekNum].dagar.push({ datum, min:0, extraMin:ex });
+      veckoData[weekNum].sumH += ex/60;
+    }
     // Add röda dagar to weeks
     const lönÅr=nu.getFullYear(), lönMån=nu.getMonth();
     const dIMlön=new Date(lönÅr,lönMån+1,0).getDate();
@@ -3580,9 +3627,9 @@ export default function Arbetsrapport() {
       const dayOfYear=Math.floor((dt.getTime()-new Date(lönÅr,0,1).getTime())/86400000);
       const weekNum=Math.ceil((dayOfYear+new Date(lönÅr,0,1).getDay())/7);
       if(!veckoData[weekNum]) veckoData[weekNum]={dagar:[],sumH:0,helglönH:0};
-      // Lägg till röd dag om den inte redan finns som arbetsdag
+      // Lägg till röd dag om den inte redan finns som arbetsdag/extra-dag
       if(!veckoData[weekNum].dagar.find(x=>x.datum===k)){
-        veckoData[weekNum].dagar.push({datum:k,min:0,rödDag:rödNamn});
+        veckoData[weekNum].dagar.push({datum:k,min:0,extraMin:0,rödDag:rödNamn});
       }
       // Helglön: röd dag på vardag
       const dow=dt.getDay();
@@ -3647,8 +3694,8 @@ export default function Arbetsrapport() {
                   const fd = firstDay ? new Date(firstDay.datum) : null;
                   const ld = lastDay ? new Date(lastDay.datum) : null;
                   const rangeStr = fd && ld ? `${fd.getDate()}–${ld.getDate()} ${månNamn[fd.getMonth()]}` : '';
-                  // Veckans längsta dag styr stapelskalan — rytmen syns utan att jämföra tal
-                  const maxMin = Math.max(...week.dagar.map(d => d.min), 1);
+                  // Veckans längsta dag (maskin + extra) styr stapelskalan
+                  const maxMin = Math.max(...week.dagar.map(d => d.min + d.extraMin), 1);
                   return (
                     <div key={weekNum} style={{ background:"#1c1c1e",borderRadius:12,padding:20 }}>
                       {/* Veckan som hjälte: micro-label + stor totalsiffra, dagarna lugna under */}
@@ -3665,7 +3712,7 @@ export default function Arbetsrapport() {
                       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
                         {week.dagar.map(dag => {
                           const dt = new Date(dag.datum);
-                          const h = Math.round(dag.min/60*10)/10;
+                          const h = Math.round((dag.min + dag.extraMin)/60*10)/10;
                           const dagLabel = dagNamn[dt.getDay()].charAt(0).toUpperCase()+dagNamn[dt.getDay()].slice(1)+' '+dt.getDate()+' '+månNamn[dt.getMonth()];
                           // Röd dag flaggas BARA visuellt (datum + namn i rött) — ingen
                           // lönelogik, ingen omräkning; det är ett separat löneprojekt.
@@ -3684,9 +3731,11 @@ export default function Arbetsrapport() {
                                 <span style={{ ...TYPE.meta,color:rödNamn?"#ff453a":undefined }}>{dagLabel}{rödNamn?` · ${rödNamn}`:''}</span>
                                 <span style={{ ...TYPE.bodyList,...TNUM }}>{fmtTim(h)} tim</span>
                               </div>
-                              {/* Stapel: dagens längd relativt veckans längsta dag */}
-                              <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.06)",overflow:"hidden" }}>
-                                <div style={{ height:"100%",borderRadius:2,background:"#30d158",width:`${Math.round(dag.min/maxMin*100)}%` }} />
+                              {/* Delad stapel: mörk grön = maskinarbete, ljus grön = extra tid.
+                                  Dag utan extra = bara mörk. Skalad mot veckans längsta dag (totalt). */}
+                              <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.06)",overflow:"hidden",display:"flex" }}>
+                                {dag.min>0&&<div style={{ height:"100%",background:"#30d158",width:`${Math.round(dag.min/maxMin*100)}%` }} />}
+                                {dag.extraMin>0&&<div style={{ height:"100%",background:"#7dd88f",width:`${Math.round(dag.extraMin/maxMin*100)}%` }} />}
                               </div>
                             </div>
                           );
@@ -3697,6 +3746,17 @@ export default function Arbetsrapport() {
                   });
                 })()}
                 {sortedWeeks.length===0&&<p style={{ color:"#8e8e93",...TYPE.meta,padding:20 }}>Ingen data för perioden</p>}
+                {/* Förklaringsrad för delade staplar */}
+                {sortedWeeks.length>0&&(
+                  <div style={{ display:"flex",gap:16,padding:"2px 4px 0" }}>
+                    <span style={{ display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:"#8e8e93" }}>
+                      <span style={{ width:10,height:4,borderRadius:2,background:"#30d158" }} />Maskinarbete
+                    </span>
+                    <span style={{ display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:"#8e8e93" }}>
+                      <span style={{ width:10,height:4,borderRadius:2,background:"#7dd88f" }} />Extra tid
+                    </span>
+                  </div>
+                )}
               </div>
             </section>
 
@@ -4584,13 +4644,21 @@ export default function Arbetsrapport() {
                   arbetstid (start/slut/rast-hjulen). Ersätter Arbetstid/Rast/Total-
                   raderna; orange stödrad när tiderna ändrats men inte sparats. */}
               <div onClick={()=>setRedVy("tid")} style={{ textAlign:"center",padding:"18px 0 16px",cursor:"pointer",borderBottom:`1px solid ${C.line}` }}>
-                <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Total arbetstid</p>
+                {/* "Maskinpass" — siffran är passets tid; extra tid listas nedan
+                    och dagens total visas som dämpad rad när extra finns */}
+                <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Maskinpass</p>
                 <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(redArbMin)}</p>
                 <p style={{ margin:"8px 0 0",...TYPE.meta,color:(redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig)?C.orange:"#8e8e93",...TNUM }}>
                   {redStart.slice(0,5)} → {redSlut.slice(0,5)} · rast {redRast} min
                   <span className="material-symbols-outlined" style={{ fontSize:14,color:"rgba(255,255,255,0.25)",verticalAlign:"-2px",marginLeft:2 }}>chevron_right</span>
                 </p>
                 <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Rast = tid markerad som Meal break i maskinen</p>
+                {(()=>{
+                  const exMinDag = extraTidForDag.reduce((a:number,e:any) => a + (e.minuter||0), 0);
+                  return exMinDag > 0 ? (
+                    <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#8e8e93",...TNUM }}>+ {fmt(exMinDag)} extra arbete · totalt {fmt(redArbMin + exMinDag)}</p>
+                  ) : null;
+                })()}
               </div>
               {/* Maskin — klickbar */}
               <div onClick={()=>setVisaRedMaskinVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
