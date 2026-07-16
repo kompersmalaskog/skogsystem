@@ -567,8 +567,9 @@ function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined
                 </div>
               ))}
               {kortStoppMin > 0 && (
-                <div style={{ paddingLeft: 14, marginTop: 1, marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, color: C.dim }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 8, marginTop: 2, marginBottom: 8 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: 2, background: C.purple, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: C.muted }}>
                     varav {kortStoppMin} min korta stopp (ingår i ovan)
                   </span>
                 </div>
@@ -657,8 +658,9 @@ function TidPerTimmeKort({
                   </div>
                 ))}
                 {kortStoppMin > 0 && (
-                  <div style={{ paddingLeft: 14, marginTop: 1, marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, color: C.dim }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 8, marginTop: 2, marginBottom: 6 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: 2, background: C.purple, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: C.muted }}>
                       varav {kortStoppMin} min korta stopp (ingår i ovan)
                     </span>
                   </div>
