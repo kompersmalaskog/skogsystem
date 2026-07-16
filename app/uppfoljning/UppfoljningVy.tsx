@@ -327,6 +327,17 @@ function Maskinkort({ data }: { data: UppfoljningData }) {
 }
 
 // ── Tidslinje ─────────────────────────────────────────────────────────────
+// Spannet ("34 dagar") visas i collapse-rubriken — samma beräkning som
+// komponenten gör internt för procent-skalan.
+function tidslinjeDagar(data: UppfoljningData): number | null {
+  const allDates = [data.skordareStart, data.skordareSlut, data.skotareStart, data.skotareSlut].filter(Boolean) as string[];
+  if (allDates.length === 0) return null;
+  const withNow = [...allDates, new Date().toISOString().slice(0, 10)];
+  const min = withNow.reduce((a, b) => a < b ? a : b);
+  const max = withNow.reduce((a, b) => a > b ? a : b);
+  return daysBetween(min, max);
+}
+
 function Tidslinje({ data }: { data: UppfoljningData }) {
   const allDates = [data.skordareStart, data.skordareSlut, data.skotareStart, data.skotareSlut].filter(Boolean) as string[];
   if (allDates.length === 0) return null;
@@ -349,11 +360,7 @@ function Tidslinje({ data }: { data: UppfoljningData }) {
   if (tracks.length === 0) return null;
 
   return (
-    <section style={{ padding: '0 24px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '0 0 12px' }}>
-        <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: '-0.3px' }}>Tidslinje</h2>
-        <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{totalDays} dagar</span>
-      </div>
+    <section style={{ padding: '0 24px 16px' }}>
       <div style={{ background: V6_CARD, borderRadius: 16, padding: '18px 18px 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: V6_GREY2, fontWeight: 600, marginBottom: 16, fontVariantNumeric: 'tabular-nums' }}>
           <span>{fmtISO(min)}</span>
@@ -733,28 +740,21 @@ function Avbrott({ data }: { data: UppfoljningData }) {
 // ── Extern skotning ───────────────────────────────────────────────────────
 function Extern({ data }: { data: UppfoljningData }) {
   if (!data.externSkotning) return null;
-  const total = (data.externPris || 0) * (data.externAntal || 0);
+  // Pris och totalsumma bor i EKONOMIVYN — uppföljningen är en ren operativ
+  // vy som kan visas medarbetare. Här: vem som skotar och hur mycket.
   return (
     <div style={{ padding: '0 24px 16px' }}>
       <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 18px 14px' }}>
         <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Extern skotning</div>
         <div style={{ fontSize: 18, fontWeight: 600 }}>{data.externForetag || '—'}</div>
-        <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Pris</div>
-            <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{data.externPris}</div>
+        {(data.externAntal || 0) > 0 && (
+          <div style={{ marginTop: 12, fontSize: 13, color: V6_GREY }}>
+            Omfattning{' '}
+            <span style={{ color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              {data.externAntal} {data.externPrisTyp === 'timme' ? 'h' : 'm³'}
+            </span>
           </div>
-          <div>
-            <div style={{ fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Antal</div>
-            <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{data.externAntal}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Totalt</div>
-            <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
-              {total.toLocaleString('sv-SE')} <span style={{ fontSize: 10, color: V6_GREY }}>kr</span>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -824,6 +824,12 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
     return delar.length > 0 ? delar.join(' · ') : null;
   })();
 
+  // Tidslinjen är "hur gick det", inte "vad är läget" — degraderad till
+  // detaljerna (våning 3). Gate:as på att minst ett spår kan ritas.
+  const tidslinjeVarde = (!!data.skordareModell || !!data.skordareStart || !!data.skotareModell || !!data.skotareStart)
+    ? tidslinjeDagar(data)
+    : null;
+
   const avbrottVarde = (() => {
     // Totalsträngarna ("4.2h") är samma tal som sektionens kort visar.
     const skH = (data.avbrottSkordare?.length || 0) > 0 ? parseFloat(data.avbrottSkordare_totalt) || 0 : 0;
@@ -839,7 +845,6 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
       <StatusRad data={data} />
       <AvvikelseZon avvikelser={data.avvikelser} />
       <Maskinkort data={data} />
-      <Tidslinje data={data} />
 
       <div style={{ marginTop: 8 }}>
         {hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={data} /></Collapse>}
@@ -857,7 +862,8 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
           </Collapse>
         )}
         {hasAvbrott && <Collapse title="Avbrott" varde={avbrottVarde}><Avbrott data={data} /></Collapse>}
-        {data.externSkotning && <Collapse title="Extern skotning"><Extern data={data} /></Collapse>}
+        {tidslinjeVarde != null && <Collapse title="Tidslinje" varde={`${tidslinjeVarde} dagar`}><Tidslinje data={data} /></Collapse>}
+        {data.externSkotning && <Collapse title="Extern skotning" varde={data.externForetag || null}><Extern data={data} /></Collapse>}
       </div>
       <div style={{ height: 60 }} />
     </div>
