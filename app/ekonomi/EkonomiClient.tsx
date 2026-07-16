@@ -309,7 +309,7 @@ export default function EkonomiClient() {
     page: { background: '#111110', minHeight: '100vh', paddingTop: 24, paddingBottom: 120, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
     filterBar: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', gap: 8 } as const,
     periodBtn: { border: 'none', background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '5px 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: '#7a7a72', cursor: 'pointer' } as const,
-    periodBtnActive: { background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' } as const,
+    periodBtnActive: { background: 'rgba(255,255,255,0.12)', color: '#e8e8e4' } as const,
     arrow: { border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 8px' } as const,
     label: { fontSize: 12, fontWeight: 600, color: '#e8e8e4', minWidth: 120, textAlign: 'center' as const },
     card: { background: '#1a1a18', borderRadius: 14, padding: 16 } as const,
@@ -365,7 +365,7 @@ export default function EkonomiClient() {
           {/* Hero — appens hjärta: talet ensamt, centrerat, luftigt */}
           <div style={{ textAlign: 'center', padding: '40px 8px 8px' }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.2, color: '#7a7a72' }}>Vi körde in</div>
-            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 44, lineHeight: 1.1, fontWeight: 500, color: 'rgba(90,255,140,0.95)', marginTop: 10, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
+            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 44, lineHeight: 1.1, fontWeight: 500, color: '#e8e8e4', marginTop: 10, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
               {formatKr(sumIntakt)}
             </div>
             <div style={{ fontSize: 13, color: '#bfcab9', marginTop: 10 }}>
@@ -384,14 +384,11 @@ export default function EkonomiClient() {
             )}
           </div>
 
-          {/* Ärlighetsrader — bara när de gäller */}
-          {(ackordUtanPrislista || antagenVol > 0 || sumTimmarUtanPris > 0) && (
+          {/* Larmrader — bara vid trasig konfiguration (förklaringar bor i (i)-sheeten) */}
+          {(ackordUtanPrislista || sumTimmarUtanPris > 0) && (
             <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 16, padding: '0 8px', lineHeight: 1.6, textAlign: 'center' }}>
               {ackordUtanPrislista && (
                 <div>Ackordprislista saknas — ackordintäkten kan inte beräknas och visas som 0 kr. Lägg upp priser i Inställningar.</div>
-              )}
-              {antagenVol > 0 && (
-                <div>{formatVol(antagenVol)} skotat utan skördardata i perioden — prissatt med antagen medelstam {ANTAGEN_MEDELSTAM.toString().replace('.', ',')}.</div>
               )}
               {sumTimmarUtanPris > 0 && (
                 <div>{sumTimmarUtanPris.toFixed(1).replace('.', ',')} h timpeng saknar timpris och ingår inte i intäkten. Sätt timpris i Inställningar.</div>
@@ -399,35 +396,47 @@ export default function EkonomiClient() {
             </div>
           )}
 
-          {/* Per maskin */}
+          {/* Per maskin — neutralt: rollen i text, rangordningen som proportionsstapel */}
           <div style={s.sectionTitle}>Per maskin</div>
-          {maskiner.map(m => {
-            const isHarv = m.maskin_typ !== 'Forwarder';
-            const badgeColor = isHarv ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)';
-            const badgeBg = isHarv ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)';
-            return (
-              <div key={m.maskin_id} style={{ ...s.card, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      display: 'inline-block', fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
-                      padding: '2px 6px', borderRadius: 4, color: badgeColor, background: badgeBg, flexShrink: 0,
-                    }}>
-                      {isHarv ? 'SKÖRD' : 'SKOT'}
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.maskin_namn}</span>
+          {(() => {
+            // Rollparentesen ur prisnamnet ersätts av metaradens roll-text
+            const rensaNamn = (namn: string) => namn.replace(/\s*\((skördare|skotare)\)\s*$/i, '');
+            const namnAntal: Record<string, number> = {};
+            for (const m of maskiner) {
+              const n = rensaNamn(m.maskin_namn);
+              namnAntal[n] = (namnAntal[n] || 0) + 1;
+            }
+            const maxIntakt = maskiner.reduce((mx, m) => Math.max(mx, m.intakt), 0);
+            return maskiner.map(m => {
+              const namn = rensaNamn(m.maskin_namn);
+              const roll = m.maskin_typ === 'Forwarder' ? 'skotare' : 'skördare';
+              const andel = maxIntakt > 0 ? Math.max(0, Math.min(1, m.intakt / maxIntakt)) : 0;
+              return (
+                <div key={m.maskin_id} style={{ ...s.card, marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {namn}
+                        {/* Två maskiner kan dela prisnamn (två H8E) — maskin_id är det som faktiskt skiljer dem */}
+                        {namnAntal[namn] > 1 && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {m.maskin_id}</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>{roll} · {formatVol(m.volym)}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
+                        {formatKr(m.intakt)}
+                      </div>
+                      {m.prel > 0 && <div style={{ fontSize: 11, color: `rgba(${BARNSTEN},0.75)`, marginTop: 2 }}>{formatKr(m.prel)} prel.</div>}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>{formatVol(m.volym)}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
-                    {formatKr(m.intakt)}
+                  {/* Andel av periodens största maskin — rangordningen syns utan att jämföra tal */}
+                  <div style={{ marginTop: 12, height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                    <div style={{ width: `${andel * 100}%`, height: '100%', borderRadius: 2, background: '#7a7a72' }} />
                   </div>
-                  {m.prel > 0 && <div style={{ fontSize: 11, color: `rgba(${BARNSTEN},0.75)`, marginTop: 2 }}>{formatKr(m.prel)} prel.</div>}
                 </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
 
         </div>
       )}
@@ -455,6 +464,9 @@ export default function EkonomiClient() {
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 }}>Volym i perioden</div>
                 Skördat {formatVol(skordatVol)} · Skotat {formatVol(skotatVol)}. Samma virke passerar båda maskinerna — därför visas volymerna var för sig här, inte hopsummerade per stock.
+                {antagenVol > 0 && (
+                  <> {formatVol(antagenVol)} av det skotade saknar skördardata i perioden och prissätts med antagen medelstam {ANTAGEN_MEDELSTAM.toString().replace('.', ',')}.</>
+                )}
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 }}>Ackord</div>
