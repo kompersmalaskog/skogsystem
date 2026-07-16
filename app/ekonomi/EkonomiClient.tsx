@@ -313,7 +313,7 @@ export default function EkonomiClient() {
     arrow: { border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 8px' } as const,
     label: { fontSize: 12, fontWeight: 600, color: '#e8e8e4', minWidth: 120, textAlign: 'center' as const },
     card: { background: '#1a1a18', borderRadius: 14, padding: 16 } as const,
-    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 24, padding: '0 4px' } as const,
+    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 32, padding: '0 4px' } as const,
   };
 
   return (
@@ -363,7 +363,7 @@ export default function EkonomiClient() {
       {!loading && !error && maskiner.length > 0 && (
         <div style={{ padding: '0 16px' }}>
           {/* Hero — appens hjärta: talet ensamt, centrerat, luftigt */}
-          <div style={{ textAlign: 'center', padding: '40px 8px 8px' }}>
+          <div style={{ textAlign: 'center', padding: '56px 8px 24px' }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.2, color: '#7a7a72' }}>Vi körde in</div>
             <div style={{ fontFamily: "'Fraunces', serif", fontSize: 44, lineHeight: 1.1, fontWeight: 500, color: '#e8e8e4', marginTop: 10, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
               {formatKr(sumIntakt)}
@@ -407,35 +407,43 @@ export default function EkonomiClient() {
               namnAntal[n] = (namnAntal[n] || 0) + 1;
             }
             const maxIntakt = maskiner.reduce((mx, m) => Math.max(mx, m.intakt), 0);
-            return maskiner.map(m => {
-              const namn = rensaNamn(m.maskin_namn);
-              const roll = m.maskin_typ === 'Forwarder' ? 'skotare' : 'skördare';
-              const andel = maxIntakt > 0 ? Math.max(0, Math.min(1, m.intakt / maxIntakt)) : 0;
-              return (
-                <div key={m.maskin_id} style={{ ...s.card, marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {namn}
-                        {/* Två maskiner kan dela prisnamn (två H8E) — maskin_id är det som faktiskt skiljer dem */}
-                        {namnAntal[namn] > 1 && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {m.maskin_id}</span>}
+            // EN lista, inte fem kort — rader med hårfin avdelare, ingen efter sista
+            return (
+              <div style={{ ...s.card, padding: '0 16px' }}>
+                {maskiner.map((m, i) => {
+                  const namn = rensaNamn(m.maskin_namn);
+                  const roll = m.maskin_typ === 'Forwarder' ? 'skotare' : 'skördare';
+                  const andel = maxIntakt > 0 ? Math.max(0, Math.min(1, m.intakt / maxIntakt)) : 0;
+                  return (
+                    <div key={m.maskin_id} style={{
+                      padding: '16px 0',
+                      borderBottom: i < maskiner.length - 1 ? '0.5px solid rgba(255,255,255,0.07)' : 'none',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {namn}
+                            {/* Två maskiner kan dela prisnamn (två H8E) — maskin_id är det som faktiskt skiljer dem */}
+                            {namnAntal[namn] > 1 && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {m.maskin_id}</span>}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>{roll} · {formatVol(m.volym)}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
+                            {formatKr(m.intakt)}
+                          </div>
+                          {m.prel > 0 && <div style={{ fontSize: 11, color: `rgba(${BARNSTEN},0.75)`, marginTop: 2 }}>{formatKr(m.prel)} prel.</div>}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>{roll} · {formatVol(m.volym)}</div>
+                      {/* Andel av periodens största maskin — bara den fyllda biten, längden bär
+                          informationen. På RADENS bredd (inte vänsterkolumnens, som varierar med
+                          beloppets textlängd) så längderna är jämförbara mellan rader. */}
+                      <div style={{ marginTop: 8, height: 3, borderRadius: 2, width: `${andel * 100}%`, background: 'rgba(122,122,114,0.5)' }} />
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
-                        {formatKr(m.intakt)}
-                      </div>
-                      {m.prel > 0 && <div style={{ fontSize: 11, color: `rgba(${BARNSTEN},0.75)`, marginTop: 2 }}>{formatKr(m.prel)} prel.</div>}
-                    </div>
-                  </div>
-                  {/* Andel av periodens största maskin — rangordningen syns utan att jämföra tal */}
-                  <div style={{ marginTop: 12, height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-                    <div style={{ width: `${andel * 100}%`, height: '100%', borderRadius: 2, background: '#7a7a72' }} />
-                  </div>
-                </div>
-              );
-            });
+                  );
+                })}
+              </div>
+            );
           })()}
 
         </div>
