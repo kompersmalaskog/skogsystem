@@ -75,8 +75,6 @@ const FIL_KARTA: Record<string, string> = {
   PlaneringVolymPanel:    'app/planering/volym-panel.tsx',
   PlaneringBrandriskPanel:'app/planering/brandrisk-panel.tsx',
   PlaneringKorbarhetPanel:'app/planering/korbarhet-panel.tsx',
-  KorvyPage:              'app/korvy/page.tsx',
-  CesiumScene:            'app/korvy/CesiumScene.tsx',
   SkogligBerakning:       'lib/skoglig-berakning.ts',
   KorbarhetLib:           'lib/korbarhet.ts',
   UseMapLayers:           'lib/hooks/useMapLayers.ts',
