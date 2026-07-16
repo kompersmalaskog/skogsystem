@@ -134,9 +134,9 @@ export function beräknaExport(
   }
 
   // Extra tid (utanför maskinen) — in i totalH så timlön OCH övertid
-  // räknas på förarens hela arbetstid. Klassas inte per maskintyp
-  // (samma befintliga semantik som pass utan maskin_id: full timlön/
-  // övertid, men ingen premie-klassning).
+  // räknas på förarens hela arbetstid.
+  // maskinH (totalH FÖRE extra) sparas separat: premien räknas på den.
+  const maskinH = Math.round(totalH * 100) / 100;
   const extraH = extraTid.reduce((a, e) => a + (e?.minuter || 0), 0) / 60;
   totalH += extraH;
 
@@ -162,11 +162,17 @@ export function beräknaExport(
   // Övertid = totalt - ordinarie
   const overtidH = Math.round(Math.max(0, totalH - ordinarie) * 100) / 100;
 
-  // Timlön = ordinarie (inte totalt!)
-  // Premielön = ordinarie fördelat per maskintyp proportionellt
+  // Timlön = ordinarie (inte totalt!) — räknas på HELA arbetstiden inkl extra
   const timlonH = Math.round(Math.min(totalH, ordinarie) * 100) / 100;
-  const premieSkordare = totalH > 0 ? Math.round(timlonH * (skordareH / totalH) * 100) / 100 : 0;
-  const premieSkotare = totalH > 0 ? Math.round(timlonH * (skotareH / totalH) * 100) / 100 : 0;
+
+  // Premie FRYST till maskintid tills premie-vs-extra-tid-avtalet är utrett.
+  // TODO: premie på alla jobbade timmar, olika sats skördare/skotare,
+  // extra tid-sats oklar. Frysningen = exakt beteendet före extra-tid-fixen:
+  // bas min(maskinH, ordinarie), fördelad på maskintypernas andel av
+  // MASKINTIDEN — extra tid påverkar timlön+övertid men ALDRIG premien.
+  const premieBas = Math.round(Math.min(maskinH, ordinarie) * 100) / 100;
+  const premieSkordare = maskinH > 0 ? Math.round(premieBas * (skordareH / maskinH) * 100) / 100 : 0;
+  const premieSkotare = maskinH > 0 ? Math.round(premieBas * (skotareH / maskinH) * 100) / 100 : 0;
 
   // ── 1. TIMLÖN (kod 11) ──
   if (timlonH > 0) {
