@@ -1162,7 +1162,13 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
 
   const skotningWarning = (() => {
     if (!valtObjekt.skotning_avslutad) return null
-    if (!valtObjekt.skordning_avslutad) return 'Skördning är inte avslutad än.'
+    if (!valtObjekt.skordning_avslutad) {
+      // Grot-/rena skotarobjekt skördas aldrig — att skördning saknar
+      // avslut är normalläget där, ingen varning. (skordatTotal räknar
+      // över alla syskonrader, så P-VO-objektens skördarrad missas inte.)
+      if ((Number(skordatTotal) || 0) === 0) return null
+      return 'Skördning är inte avslutad än.'
+    }
     if (valtObjekt.skotning_avslutad < valtObjekt.skordning_avslutad) return 'Skotning är satt före skördningens avslutsdatum.'
     return null
   })()
