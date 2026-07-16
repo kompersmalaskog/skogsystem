@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -182,7 +183,7 @@ function Headline({ data }: { data: UppfoljningData }) {
   const typLabel = data.typ === 'slutavverkning' ? 'Slutavverkning' : data.typ === 'gallring' ? 'Gallring' : '';
   const parts = [typLabel, data.areal ? `${data.areal} ha` : null, data.agare || null].filter(Boolean);
   return (
-    <section style={{ padding: '22px 24px 20px' }}>
+    <section style={{ padding: '22px 24px 12px' }}>
       {parts.length > 0 && (
         <div style={{ fontSize: 13, color: V6_GREY, fontWeight: 500 }}>{parts.join(' · ')}</div>
       )}
@@ -193,13 +194,41 @@ function Headline({ data }: { data: UppfoljningData }) {
   );
 }
 
+// ── Våning 1: läget i klartext ────────────────────────────────────────────
+// "Skotare kör · dag 34 · 412 m³ kvar". Statusen kommer ur den DELADE
+// funktionen (lib/uppfoljning/status.ts) — samma sanning som listan.
+// Kvar visas ALDRIG som "0 m³ kvar" när skördardatan saknas (skotat > 0
+// utan skördat, t.ex. OneDrive-synk-lucka) — då är kvar okänt, inte noll.
+function StatusRad({ data }: { data: UppfoljningData }) {
+  const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
+  return (
+    <section style={{ padding: '0 24px 20px', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_FARG[s.k], flexShrink: 0 }} />
+      <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.2px' }}>{s.t}</span>
+      {s.dagar != null && (
+        <span style={{ fontSize: 15, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
+          · {s.k === 'done' ? `${s.dagar} dagar` : `dag ${s.dagar}`}
+        </span>
+      )}
+      {s.visaKvar && s.kvar != null && (
+        <span style={{ fontSize: 15, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
+          · {s.kvar > 0 ? `${Math.round(s.kvar).toLocaleString('sv-SE')} m³ kvar` : 'allt utkört'}
+        </span>
+      )}
+      {s.kvarOkant && (
+        <span style={{ fontSize: 15, color: V6_WARN, fontWeight: 500 }}>· skördardata saknas</span>
+      )}
+    </section>
+  );
+}
+
 // ── Maskinkort ────────────────────────────────────────────────────────────
 function MaskinCell({
-  label, color, modell, forare, statusKort, primary, primaryUnit, primaryLabel, snitt, senaste,
+  label, color, modell, forare, statusOrd, primary, primaryUnit, primaryLabel, snitt,
 }: {
   label: string; color: string; modell?: string | null; forare?: string | null;
-  statusKort: string; primary: number; primaryUnit: string; primaryLabel: string;
-  snitt: number | null; senaste: string | null;
+  statusOrd: string | null; primary: number; primaryUnit: string; primaryLabel: string;
+  snitt: number | null;
 }) {
   return (
     <div style={{ background: V6_CARD, borderRadius: 16, padding: '16px 16px 14px', minWidth: 0 }}>
@@ -213,23 +242,14 @@ function MaskinCell({
       </div>
       <div style={{ fontSize: 11, color: V6_GREY, marginTop: 4, fontWeight: 500, minHeight: 14 }}>{primaryLabel}</div>
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-          <span>Status</span>
-          <span style={{ color: '#fff', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{statusKort}</span>
-        </div>
         {snitt != null && (
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Snitt/dag</span><span style={{ color: '#fff', fontWeight: 500 }}>{snitt} m³</span>
           </div>
         )}
-        {senaste && (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Senast</span><span style={{ color: '#fff', fontWeight: 500 }}>{senaste}</span>
-          </div>
-        )}
-        {modell && (
-          <div style={{ marginTop: 4, fontSize: 11, color: V6_GREY2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {modell}{forare ? ` · ${forare}` : ''}
+        {(modell || statusOrd) && (
+          <div style={{ marginTop: snitt != null ? 4 : 0, fontSize: 11, color: V6_GREY2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {[modell, forare, statusOrd].filter(Boolean).join(' · ')}
           </div>
         )}
       </div>
@@ -238,10 +258,11 @@ function MaskinCell({
 }
 
 function Maskinkort({ data }: { data: UppfoljningData }) {
-  const kvar = Math.max(0, data.skordat - data.skotat);
-  const seven = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
-  const skAct = !!(data.skordareLastDate && data.skordareLastDate >= seven);
-  const stAct = !!(data.skotareLastDate && data.skotareLastDate >= seven);
+  const idag = new Date().toISOString().slice(0, 10);
+  // "kör idag" bara när senaste aktiviteten faktiskt är IDAG — läget i
+  // övrigt bor i våning 1 (statusraden), korten upprepar det inte.
+  const statusOrd = (slut?: string | null, lastDate?: string | null) =>
+    slut ? `klar ${fmtISO(slut)}` : lastDate === idag ? 'kör idag' : null;
 
   const skProd = data.prodSkordarePerDag || [];
   const skSnitt = skProd.length > 0 ? Math.round(skProd.reduce((a, b) => a + b.m3, 0) / skProd.length) : null;
@@ -259,23 +280,21 @@ function Maskinkort({ data }: { data: UppfoljningData }) {
           <MaskinCell
             label="Skördare" color={V6_SK}
             modell={data.skordareModell} forare={data.operatorSkordare}
-            statusKort={data.skordareSlut ? 'Klar' : skAct ? 'Aktiv idag' : data.skordareStart ? `Start ${fmtISO(data.skordareStart)}` : '—'}
+            statusOrd={statusOrd(data.skordareSlut, data.skordareLastDate)}
             primary={Math.round(data.skordat)}
             primaryUnit="m³" primaryLabel="skördat"
             snitt={skSnitt}
-            senaste={daysAgo(data.skordareLastDate)}
           />
         )}
         {showSt && (
           <MaskinCell
             label="Skotare" color={V6_ST}
             modell={data.skotareModell} forare={data.operatorSkotare}
-            statusKort={data.skotareSlut ? 'Klar' : stAct ? 'Aktiv idag' : data.skotareStart ? `Start ${fmtISO(data.skotareStart)}` : 'Ej startad'}
+            statusOrd={statusOrd(data.skotareSlut, data.skotareLastDate)}
             primary={Math.round(data.skotat)}
             primaryUnit="m³"
-            primaryLabel={`${data.skotatArManuell ? 'utkört (manuellt angivet)' : 'utkört'}${kvar > 0 ? ` · ${Math.round(kvar)} kvar` : ''}`}
+            primaryLabel={data.skotatArManuell ? 'utkört (manuellt angivet)' : 'utkört'}
             snitt={stSnitt}
-            senaste={daysAgo(data.skotareLastDate)}
           />
         )}
       </div>
@@ -737,6 +756,7 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
     <div style={{ minHeight: '100%', background: V6_BG, color: '#fff', fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
       <Nav onBack={onBack} />
       <Headline data={data} />
+      <StatusRad data={data} />
       <Maskinkort data={data} />
       <Tidslinje data={data} />
 
