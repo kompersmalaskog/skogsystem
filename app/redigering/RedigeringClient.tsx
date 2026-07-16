@@ -21,7 +21,6 @@ const EGENSKAPER_SKORDARE = [
 
 const EGENSKAPER_SKOTARE = [
   { key: 'risskotning', label: 'Risskotning' },
-  { key: 'egen_skotning', label: 'Egen skotning' },
   { key: 'extra_vagn', label: 'Extra vagn' },
   { key: 'klippning', label: 'Klippning' },
 ]
@@ -1077,22 +1076,45 @@ function NumField({ label, value, onChange, placeholder, suffix }: any) {
   )
 }
 
-// Maskin-badges för sheetens header — vilka maskiner objektet har och hur
-// mycket, summerat över VO-gruppens rader. Samma datakälla (useMatchning)
-// som styr sektionerna. Ligger i fasta headern — syns alltid, utan scroll.
+// Maskin-badges för sheetens header — VILKA MASKINER som skickat filer för
+// objektet (namn/modell primärt, volym sekundärt), unionerat över VO-gruppens
+// rader. Ligger i fasta headern — syns alltid, utan scroll.
 function MaskinBadges({ syskon, kortInfo }: any) {
   const skordat = (syskon || []).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)
   const lass = (syskon || []).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0)
   const manuell = Math.max(0, ...(syskon || []).map((o: any) => Number(o.skotad_volym_manuell) || 0))
   const skotat = manuell > 0 ? manuell : lass
-  const badge = (bg: string, farg: string, text: string) => (
-    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, background: bg, color: farg, whiteSpace: 'nowrap' }}>{text}</span>
+
+  // Union av gruppens maskiner, dedupe på maskin_id, skördare först
+  const perId = new Map<string, any>()
+  ;(syskon || []).forEach((o: any) => {
+    (kortInfo[o.objekt_id]?.maskiner || []).forEach((m: any) => { if (!perId.has(m.id)) perId.set(m.id, m) })
+  })
+  const maskiner = Array.from(perId.values())
+    .sort((a: any, b: any) => (a.typ === b.typ ? 0 : a.typ === 'skordare' ? -1 : 1))
+
+  const badge = (nyckel: string, bg: string, farg: string, text: string) => (
+    <span key={nyckel} style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, background: bg, color: farg, whiteSpace: 'nowrap' }}>{text}</span>
   )
+  const antalPerTyp = (typ: string) => maskiner.filter((m: any) => m.typ === typ).length
+
   return (
     <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
-      {skordat > 0 && badge('rgba(168,213,130,0.12)', '#a8d582', `🌲 Skördare · ${Math.round(skordat).toLocaleString('sv-SE')} m³`)}
-      {skotat > 0 && badge('rgba(240,178,76,0.12)', '#f0b24c', `🚜 Skotare · ${Math.round(skotat).toLocaleString('sv-SE')} m³${manuell > 0 ? ' (manuell)' : ''}`)}
-      {skordat <= 0 && skotat <= 0 && (
+      {maskiner.map((m: any) => {
+        const arSk = m.typ === 'skordare'
+        const ikon = arSk ? '🌲' : m.typ === 'skotare' ? '🚜' : '⚙'
+        const namn = m.modell || m.id
+        // Volymen visas bara när typen har EN maskin — annars vore samma
+        // total upprepad per maskin och se ut som per-maskin-siffror
+        const volym = arSk
+          ? (antalPerTyp('skordare') === 1 && skordat > 0 ? ` · ${Math.round(skordat).toLocaleString('sv-SE')} m³` : '')
+          : (m.typ === 'skotare' && antalPerTyp('skotare') === 1 && skotat > 0 ? ` · ${Math.round(skotat).toLocaleString('sv-SE')} m³${manuell > 0 ? ' (manuell)' : ''}` : '')
+        return badge(m.id,
+          arSk ? 'rgba(168,213,130,0.12)' : 'rgba(240,178,76,0.12)',
+          arSk ? '#a8d582' : '#f0b24c',
+          `${ikon} ${namn}${volym}`)
+      })}
+      {maskiner.length === 0 && (
         <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Ingen maskindata ännu</span>
       )}
     </div>
@@ -1327,6 +1349,31 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
         )}
       </IosGroup>
 
+      {/* SKOTNING — alltid åtkomlig, oavsett maskindata. Extern skotning =
+          någon annan skotar = det kommer ALDRIG en skotarfil från oss, så
+          fältet måste gå att sätta på rena skördarobjekt (skotarsektionen
+          visas ju bara när skotardata finns). Uppföljningen räknar externt
+          skotade objekt som INTE oskotade. */}
+      <IosGroup title="Skotning">
+        <div style={{ padding: '14px 16px' }}>
+          <div style={styles.switchList}>
+            <EgenskapSwitch label="Egen skotning" active={valtObjekt.egen_skotning === true} onClick={() => toggleEgenskap('egen_skotning')} orange={false} />
+            <EgenskapSwitch label="Extern skotare (inlejd)" active={valtObjekt._extern_skotning === true} onClick={() => setValtObjekt({...valtObjekt, _extern_skotning: !valtObjekt._extern_skotning})} orange={false} />
+          </div>
+          {valtObjekt._extern_skotning && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+              <LockedInput label="Företag / person" value={valtObjekt._extern_foretag || ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_foretag: v})} placeholder="Namn på extern skotare …" />
+              <SimpleChipSelect label="Pristyp" value={valtObjekt._extern_pris_typ || 'm3'} options={['m3', 'timme']} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_pris_typ: v})} />
+              <LockedInput label={`Pris per ${valtObjekt._extern_pris_typ === 'timme' ? 'timme' : 'm³'} (kr)`} value={valtObjekt._extern_pris ? String(valtObjekt._extern_pris) : ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_pris: parseFloat(v) || 0})} placeholder="0" />
+              <LockedInput label={`Antal ${valtObjekt._extern_pris_typ === 'timme' ? 'timmar' : 'm³'}`} value={valtObjekt._extern_antal ? String(valtObjekt._extern_antal) : ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_antal: parseFloat(v) || 0})} placeholder="0" />
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
+                Externt skotade objekt räknas inte som oskotade i uppföljningen — någon annan tar volymen.
+              </div>
+            </div>
+          )}
+        </div>
+      </IosGroup>
+
       {visaSkordare && (
         <IosGroup title="🌲 Skördare">
           <div style={{ padding: '14px 16px' }}>
@@ -1427,20 +1474,6 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
                 <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
               ))}
             </div>
-          </div>
-          <div style={{ padding: '4px 16px 4px' }}>
-            <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Extern skotning</div>
-            <div style={styles.switchList}>
-              <EgenskapSwitch label="Extern skotare (inlejd)" active={valtObjekt._extern_skotning === true} onClick={() => setValtObjekt({...valtObjekt, _extern_skotning: !valtObjekt._extern_skotning})} />
-            </div>
-            {valtObjekt._extern_skotning && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                <LockedInput label="Företag / person" value={valtObjekt._extern_foretag || ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_foretag: v})} placeholder="Namn på extern skotare …" />
-                <SimpleChipSelect label="Pristyp" value={valtObjekt._extern_pris_typ || 'm3'} options={['m3', 'timme']} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_pris_typ: v})} />
-                <LockedInput label={`Pris per ${valtObjekt._extern_pris_typ === 'timme' ? 'timme' : 'm³'} (kr)`} value={valtObjekt._extern_pris ? String(valtObjekt._extern_pris) : ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_pris: parseFloat(v) || 0})} placeholder="0" />
-                <LockedInput label={`Antal ${valtObjekt._extern_pris_typ === 'timme' ? 'timmar' : 'm³'}`} value={valtObjekt._extern_antal ? String(valtObjekt._extern_antal) : ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_antal: parseFloat(v) || 0})} placeholder="0" />
-              </div>
-            )}
           </div>
           <div id="avslut-skotare-section" style={{ padding: '4px 16px 14px' }}>
             <div style={styles.switchList}>

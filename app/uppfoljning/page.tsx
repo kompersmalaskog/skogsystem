@@ -44,6 +44,9 @@ function v6Status(obj: UppfoljningObjekt): { t: string; k: V6StatusKey } {
   const skDone = !!obj.skordareSlut;
   if (skAct) return { t: 'Skördare kör', k: 'skordare' };
   if (stAct) return { t: 'Skotare kör', k: 'skotare' };
+  // Extern skotning: någon annan skotar — objektet ska inte fastna i
+  // 'Väntar på skotning' (det kommer aldrig en skotarfil från oss)
+  if (skDone && obj.externSkotning) return { t: 'Skotas externt', k: 'pagaende' };
   if (skDone) return { t: 'Väntar på skotning', k: 'vantar' };
   return { t: 'Pågående', k: 'pagaende' };
 }
@@ -61,6 +64,9 @@ function V6OskotatKort({ data, onFilter }: { data: UppfoljningObjekt[]; onFilter
   };
   data.forEach(o => {
     if (o.status === 'avslutat') return;
+    // Extern skotning = någon annan tar volymen (det kommer aldrig en
+    // skotarfil från oss) — objektet är inte VÅRT oskotade
+    if (o.externSkotning) return;
     const kvar = Math.max(0, o.volymSkordare - o.volymSkotare);
     if (kvar <= 0) return;
     if (o.grotSkotning) oskotat.grot.objekt.push(o);
@@ -139,11 +145,15 @@ function V6Row({ obj, onClick, divider: showDivider }: { obj: UppfoljningObjekt;
     const d = Math.round((Date.now() - new Date(obj.skordareSlut).getTime()) / 864e5);
     if (d > 0) liggerDagar = d;
   }
+  // Externt skotade färdigskördade objekt: lugn info istället för varningar —
+  // ingen mer aktivitet väntas från oss
+  const skotasExternt = !!(obj.externSkotning && obj.skordareSlut);
+
   // Ärligt inaktiv-tillstånd: objekt i "Pågående" med registrerad aktivitet
   // som legat stilla > 7 dagar får det utskrivet — inte maskerat som "kör".
   let inaktivDagar: number | null = null;
   let senastAktiv: string | null = null;
-  if (status.k === 'pagaende') {
+  if (status.k === 'pagaende' && !skotasExternt) {
     const senaste = [obj.skordareLastDate, obj.skotareLastDate].filter(Boolean).sort().reverse()[0] || null;
     if (senaste) {
       const d = Math.round((Date.now() - new Date(senaste).getTime()) / 864e5);
@@ -163,6 +173,9 @@ function V6Row({ obj, onClick, divider: showDivider }: { obj: UppfoljningObjekt;
           )}
           {inaktivDagar != null && (
             <span> · <span style={{ color: V6_WARN, fontWeight: 600 }}>Inaktiv {inaktivDagar} dagar · senast {fmtDate(senastAktiv)}</span></span>
+          )}
+          {skotasExternt && (
+            <span> · <span style={{ color: V6_GREY }}>Skotas externt · färdigskördat {fmtDate(obj.skordareSlut)}</span></span>
           )}
         </div>
       </div>
