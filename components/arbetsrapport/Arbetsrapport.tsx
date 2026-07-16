@@ -3634,45 +3634,59 @@ export default function Arbetsrapport() {
 
           <main style={{ paddingTop:80,paddingBottom:128,padding:"80px 16px 128px",maxWidth:640,margin:"0 auto" }}>
 
-            {/* Timmar per vecka */}
+            {/* Timmar per vecka — veckan som hjälte, staplar visar dagsrytmen */}
             <section style={{ marginBottom:32 }}>
               <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Timmar per vecka</h2>
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
-                {sortedWeeks.map(([weekNum, week]) => {
+                {(()=>{
+                  // Svenskt decimalkomma genomgående ("58,5" — inte "58.5")
+                  const fmtTim = (h:number) => (Math.round(h*10)/10).toString().replace('.', ',');
+                  return sortedWeeks.map(([weekNum, week]) => {
                   const firstDay = week.dagar.sort((a,b)=>a.datum.localeCompare(b.datum))[0];
                   const lastDay = week.dagar[week.dagar.length-1];
                   const fd = firstDay ? new Date(firstDay.datum) : null;
                   const ld = lastDay ? new Date(lastDay.datum) : null;
-                  const rangeStr = fd && ld ? `(${fd.getDate()}-${ld.getDate()} ${månNamn[fd.getMonth()]})` : '';
+                  const rangeStr = fd && ld ? `${fd.getDate()}–${ld.getDate()} ${månNamn[fd.getMonth()]}` : '';
+                  // Veckans längsta dag styr stapelskalan — rytmen syns utan att jämföra tal
+                  const maxMin = Math.max(...week.dagar.map(d => d.min), 1);
                   return (
                     <div key={weekNum} style={{ background:"#1c1c1e",borderRadius:12,padding:20 }}>
-                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16 }}>
-                        <h3 style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Vecka {weekNum} <span style={{ color:"#8e8e93",...TYPE.meta,...TNUM }}>{rangeStr}</span></h3>
-                        <div style={{ display:"flex",alignItems:"baseline",gap:4 }}>
-                          <span style={{ ...TYPE.h2,color:"#0a84ff",...TNUM }}>{Math.round(week.sumH*10)/10}{week.helglönH>0?` + ${week.helglönH}`:''}</span>
-                          <span style={{ fontSize:12,color:"#8e8e93" }}>tim{week.helglönH>0?' (inkl helglön)':''}</span>
+                      {/* Veckan som hjälte: micro-label + stor totalsiffra, dagarna lugna under */}
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:16 }}>
+                        <div>
+                          <p style={{ margin:"0 0 3px",...TYPE.micro,color:"#8e8e93" }}>Vecka {weekNum}</p>
+                          <p style={{ margin:0,...TYPE.meta,color:"#636366",...TNUM }}>{rangeStr}</p>
+                        </div>
+                        <div style={{ display:"flex",alignItems:"baseline",gap:5 }}>
+                          <span style={{ fontSize:24,fontWeight:700,color:"#fff",...TNUM }}>{fmtTim(week.sumH)}</span>
+                          <span style={{ fontSize:13,color:"#8e8e93" }}>tim</span>
                         </div>
                       </div>
-                      <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                      <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
                         {week.dagar.map(dag => {
                           const dt = new Date(dag.datum);
                           const h = Math.round(dag.min/60*10)/10;
                           const dagLabel = dagNamn[dt.getDay()].charAt(0).toUpperCase()+dagNamn[dt.getDay()].slice(1)+' '+dt.getDate()+' '+månNamn[dt.getMonth()];
+                          // Röd dag flaggas BARA visuellt (datum + namn i rött) — ingen
+                          // lönelogik, ingen omräkning; det är ett separat löneprojekt.
+                          const rödNamn = dag.rödDag || löneRödaDagar[dag.datum] || null;
                           if(dag.rödDag) {
-                            const dow=dt.getDay();
-                            const ärVardag=dow!==0&&dow!==6;
+                            // Röd dag utan arbete — bara flaggan
                             return (
                             <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
-                              <span style={{ ...TYPE.meta,color:"#ff453a" }}>{dagLabel}</span>
-                              <span style={{ fontSize:13,fontWeight:500,color:ärVardag?"#ff453a":"#636366" }}>{dag.rödDag}{ärVardag?' — Helglön 8h':''}</span>
+                              <span style={{ ...TYPE.meta,color:"#ff453a" }}>{dagLabel} · {dag.rödDag}</span>
+                              <span style={{ fontSize:13,color:"#636366" }}>—</span>
                             </div>
                           );}
                           return (
-                            <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
-                              <span style={{ ...TYPE.meta }}>{dagLabel}</span>
-                              <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-                                <span style={{ ...TYPE.bodyList }}>{h} tim</span>
-                                <div style={{ width:6,height:6,borderRadius:"50%",background:"#fff" }} />
+                            <div key={dag.datum} style={{ padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
+                              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
+                                <span style={{ ...TYPE.meta,color:rödNamn?"#ff453a":undefined }}>{dagLabel}{rödNamn?` · ${rödNamn}`:''}</span>
+                                <span style={{ ...TYPE.bodyList,...TNUM }}>{fmtTim(h)} tim</span>
+                              </div>
+                              {/* Stapel: dagens längd relativt veckans längsta dag */}
+                              <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.06)",overflow:"hidden" }}>
+                                <div style={{ height:"100%",borderRadius:2,background:"#30d158",width:`${Math.round(dag.min/maxMin*100)}%` }} />
                               </div>
                             </div>
                           );
@@ -3680,7 +3694,8 @@ export default function Arbetsrapport() {
                       </div>
                     </div>
                   );
-                })}
+                  });
+                })()}
                 {sortedWeeks.length===0&&<p style={{ color:"#8e8e93",...TYPE.meta,padding:20 }}>Ingen data för perioden</p>}
               </div>
             </section>
