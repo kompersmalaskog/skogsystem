@@ -496,7 +496,9 @@ function DetaljVy({
       <p style={{ ...secHead, marginTop: 22 }}>Dagar ({dagar.length})</p>
       <Card style={{ padding: 0 }}>
         {dagar.map((d, i) => {
-          const ex = extraTid.filter(e => e.datum === d.datum).reduce((s, e) => s + (e.minuter || 0), 0);
+          // medarbetare_id-filtret är bärande — utan det räknas ANDRA förares
+          // extra tid samma datum in i den här förarens dagrad (bugg, fixad)
+          const ex = extraTid.filter(e => e.medarbetare_id === rad.medarbetare_id && e.datum === d.datum).reduce((s, e) => s + (e.minuter || 0), 0);
           const tim = ((d.arbetad_min || 0) + ex) / 60;
           const km = (d.km_totalt ?? d.km_morgon ?? 0) + (d.km_kvall ?? 0);
           return (

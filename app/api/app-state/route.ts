@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
     return `${sista.getFullYear()}-${String(sista.getMonth() + 1).padStart(2, '0')}-${String(sista.getDate()).padStart(2, '0')}`;
   })();
 
-  const [arbRes, extraRes, månadRes, avtalRes, lonesystemRes] = await Promise.all([
+  const [arbRes, extraRes, månadRes, månadExtraRes, avtalRes, lonesystemRes] = await Promise.all([
     supabase
       .from('arbetsdag')
       .select('*')
@@ -132,6 +132,14 @@ export async function GET(req: NextRequest) {
     supabase
       .from('arbetsdag')
       .select('datum, arbetad_min, km_totalt, dagtyp, bekraftad')
+      .eq('medarbetare_id', med.id)
+      .gte('datum', månadStart)
+      .lte('datum', månadSlut),
+    // Extra tid för HELA månaden — jobbat_h ska vara total arbetstid
+    // (maskintid + extra), samma definition som löneexporten
+    supabase
+      .from('extra_tid')
+      .select('datum, minuter')
       .eq('medarbetare_id', med.id)
       .gte('datum', månadStart)
       .lte('datum', månadSlut),
@@ -193,8 +201,10 @@ export async function GET(req: NextRequest) {
     timmar: d.arbetad_min != null ? Math.round((d.arbetad_min / 60) * 10) / 10 : 0,
   }));
 
-  // Löneunderlag: aktuell månad — jobbat, mål, körning, ersättning
-  const jobbatMin = månadDagar.reduce((s, d) => s + (d.arbetad_min || 0), 0);
+  // Löneunderlag: aktuell månad — jobbat, mål, körning, ersättning.
+  // jobbat = maskintid + extra tid (arbete när maskinen var av räknas fullt ut)
+  const månadExtraMin = (månadExtraRes.data || []).reduce((s: number, e: any) => s + (e.minuter || 0), 0);
+  const jobbatMin = månadDagar.reduce((s, d) => s + (d.arbetad_min || 0), 0) + månadExtraMin;
   const korningKm = månadDagar.reduce((s, d) => s + (d.km_totalt || 0), 0);
   // Arbetsdagar (mån-fre) hittills denna månad
   let arbetsdagarTillsIdag = 0;

@@ -162,10 +162,12 @@ function OversiktFlik() {
         veckStartDt.setDate(nu.getDate() - ((nu.getDay() + 6) % 7));
         const veckStart = veckStartDt.toISOString().slice(0, 10);
 
-        const [med, dagensRes, månadRes, momRes, vilobrottRes] = await Promise.all([
+        const [med, dagensRes, månadRes, månadExtraRes, momRes, vilobrottRes] = await Promise.all([
           supabase.from("medarbetare").select("id, namn", { count: "exact" }),
           supabase.from("arbetsdag").select("medarbetare_id, bekraftad").eq("datum", idag),
           supabase.from("arbetsdag").select("medarbetare_id, arbetad_min").gte("datum", månStart),
+          // Extra tid räknas in i månadens jobbade tid (samma som löneexporten)
+          supabase.from("extra_tid").select("medarbetare_id, minuter").gte("datum", månStart),
           supabase.from("meta_importerade_filer")
             .select("filnamn, importerad_tid, maskin_id, status")
             .order("importerad_tid", { ascending: false })
@@ -191,6 +193,11 @@ function OversiktFlik() {
         for (const d of (månadRes.data || [])) {
           if (!d.medarbetare_id) continue;
           minMap[d.medarbetare_id] = (minMap[d.medarbetare_id] || 0) + (d.arbetad_min || 0);
+        }
+        // Extra tid per medarbetare — total arbetstid, inte bara maskintid
+        for (const e of ((månadExtraRes.data || []) as any[])) {
+          if (!e.medarbetare_id) continue;
+          minMap[e.medarbetare_id] = (minMap[e.medarbetare_id] || 0) + (e.minuter || 0);
         }
         const månadensÖvertid = Object.entries(minMap)
           .map(([id, jobbade]) => ({
