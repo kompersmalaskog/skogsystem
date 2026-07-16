@@ -403,10 +403,32 @@ const flaxSlutsats = (klasser: DiagKlass[], stdGolv: number | null, systMal: num
   }
   const ordn = ['<150', '150-199', '200-249', '250-299', '300+'];
   const sorted = med.slice().sort((a, b) => ordn.indexOf(a.klass) - ordn.indexOf(b.klass));
-  const klenast = sorted[0].standardavv as number;
-  const grovast = sorted[sorted.length - 1].standardavv as number;
   const varsta = over.reduce((a, b) => ((b.standardavv as number) > (a.standardavv as number) ? b : a));
 
+  // Rak men taggig → kalibrering är inte svaret (oberoende av grovlek).
+  let tillagg: string | null = null;
+  const sw = systWin(varsta);
+  if (sw != null && systMal != null && Math.abs(sw) < systMal) {
+    tillagg = 'Linjen är rak men taggig — det är inte kalibrering. Kalibrering rätar inte en taggig linje.';
+  }
+
+  // Finns GROVA klasser med underlag? En gallringsmaskin saknar dem helt. Utan
+  // grova går grovt-mot-klent-jämförelsen inte att göra — då får vi INTE gissa
+  // "lika överallt → givare" på två klena klasser. Säg bara vad som finns.
+  const harGrova = med.some(k => k.min >= 250);
+  if (!harGrova) {
+    const n = over.map(k => klassGrovlek(k.klass));
+    const namn = n.length <= 1 ? n[0] : `${n.slice(0, -1).join(', ')} och ${n[n.length - 1]}`;
+    return {
+      status: 'flaxar',
+      rubrik: `Spridningen ligger över kravet på ${namn}.`,
+      atgard: 'Underlaget saknar grova stammar — utan dem går tryck inte att skilja från givarfel.',
+      tillagg,
+    };
+  }
+
+  const klenast = sorted[0].standardavv as number;
+  const grovast = sorted[sorted.length - 1].standardavv as number;
   let rubrik: string, atgard: string;
   if (grovast - klenast >= FLAX_GRADIENT) {
     rubrik = `Flaxar värst på ${klassGrovlek(sorted[sorted.length - 1].klass)} — spridningen växer med grovleken.`;
@@ -415,12 +437,6 @@ const flaxSlutsats = (klasser: DiagKlass[], stdGolv: number | null, systMal: num
     const stiger = spridStiger(varsta);
     rubrik = stiger ? 'Flaxar ungefär lika överallt, och spridningen ökar över tid.' : 'Flaxar ungefär lika överallt.';
     atgard = 'Kontrollera givare och bussningar.';
-  }
-  // Rak men taggig → kalibrering är inte svaret.
-  let tillagg: string | null = null;
-  const sw = systWin(varsta);
-  if (sw != null && systMal != null && Math.abs(sw) < systMal) {
-    tillagg = 'Linjen är rak men taggig — det är inte kalibrering. Kalibrering rätar inte en taggig linje.';
   }
   return { status: 'flaxar', rubrik, atgard, tillagg };
 };
