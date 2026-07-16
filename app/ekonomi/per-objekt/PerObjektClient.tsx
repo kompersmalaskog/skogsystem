@@ -9,8 +9,7 @@ import {
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
   timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag,
 } from '@/lib/ekonomi/acord';
-
-type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
+import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
 
 type MaskinDel = {
   maskin_id: string;
@@ -49,67 +48,6 @@ type ObjektRad = {
   skillnad: number;
   maskiner: MaskinDel[];
 };
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Maj', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
-
-function pad(n: number) { return String(n).padStart(2, '0'); }
-function fmtDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
-
-function getPeriodDates(p: PeriodType, offset: number) {
-  const now = new Date();
-  if (p === 'D') {
-    const d = new Date(now); d.setDate(now.getDate() + offset);
-    return { start: fmtDate(d), end: fmtDate(d) };
-  }
-  if (p === 'V') {
-    const day = now.getDay() || 7;
-    const mon = new Date(now); mon.setDate(now.getDate() - day + 1 + offset * 7);
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-    return { start: fmtDate(mon), end: fmtDate(sun) };
-  }
-  if (p === 'K') {
-    const cq = Math.floor(now.getMonth() / 3);
-    const tq = now.getFullYear() * 4 + cq + offset;
-    const y = Math.floor(tq / 4);
-    const qi = ((tq % 4) + 4) % 4;
-    return { start: fmtDate(new Date(y, qi * 3, 1)), end: fmtDate(new Date(y, qi * 3 + 3, 0)) };
-  }
-  if (p === 'A') {
-    const y = now.getFullYear() + offset;
-    return { start: `${y}-01-01`, end: `${y}-12-31` };
-  }
-  const ms = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-  const me = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
-  return { start: fmtDate(ms), end: fmtDate(me) };
-}
-
-function getPeriodLabel(p: PeriodType, offset: number) {
-  const { start } = getPeriodDates(p, offset);
-  const d = new Date(start);
-  if (p === 'D') return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
-  if (p === 'V') {
-    const oj = new Date(d.getFullYear(), 0, 1);
-    const wn = Math.ceil(((d.getTime() - oj.getTime()) / 86400000 + oj.getDay() + 1) / 7);
-    return `V${wn} ${d.getFullYear()}`;
-  }
-  if (p === 'M') return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
-  if (p === 'K') return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
-  return `${d.getFullYear()}`;
-}
-
-async function fetchAllRows(queryFn: (from: number, to: number) => Promise<{ data: any[] | null }>): Promise<any[]> {
-  const PAGE = 1000;
-  let all: any[] = [];
-  let offset = 0;
-  while (true) {
-    const { data } = await queryFn(offset, offset + PAGE - 1);
-    const batch = data || [];
-    all = all.concat(batch);
-    if (batch.length < PAGE) break;
-    offset += PAGE;
-  }
-  return all;
-}
 
 function formatKr(n: number) { return `${Math.round(n).toLocaleString('sv-SE')} kr`; }
 function formatTim(n: number) { return `${n.toFixed(1)} h`; }
