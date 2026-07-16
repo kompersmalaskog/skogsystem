@@ -43,6 +43,10 @@ const klassAv = (d: number): string =>
 export type SystManad = { manad: string; systematik: number; n: number };
 export type TraffManad = { manad: string; traffPct: number; n: number };
 export type PlatManad = { manad: string; share: number; n: number };
+// Spridning per månad: RÅA summor, inte färdig std. std är INTE viktbart som
+// träffprocent — för att aggregera månad→kvartal korrekt behövs Σn/Σsum/Σsumsq:
+//   std = √(Σsumsq/Σn − (Σsum/Σn)²).  Att medelvärda månads-std vore fel.
+export type SpridManad = { manad: string; n: number; sum: number; sumsq: number };
 export type KlassStat = {
   klass: string;
   min: number;
@@ -50,12 +54,14 @@ export type KlassStat = {
   // Verdikt-fält: 90-dagarsfönstret (används av förarvyn/diagnos()).
   n: number;
   traffPct: number | null;
+  standardavv: number | null; // spridning i fönstret — "Flaxar den?"-slutsatsen
   systMonthly: SystManad[];
   plateauShare: number | null;
   plateauN: number;
-  // Trend-fält: HELA historiken, per månad (Trend "Läget"-kurvorna).
+  // Trend-fält: HELA historiken, per månad (Trend "Läget"/"Flaxar den?"-kurvorna).
   traffMonthly: TraffManad[];
   plateauMonthly: PlatManad[];
+  spridMonthly: SpridManad[];
 };
 export type Markor = { datum: string; kalla: "reparation" | "kalibrering" | "atgard"; text: string };
 export type DiagnosResponse = {
@@ -86,6 +92,12 @@ async function fetchAllRows<T>(
   return { data: all, error: null };
 }
 const r1 = (x: number) => Math.round(x * 10) / 10;
+const r2 = (x: number) => Math.round(x * 100) / 100;
+// Populationens std (÷N — vi har hela populationen, inte ett urval).
+function popStd(vals: number[], mean: number): number {
+  if (vals.length < 2) return 0;
+  return Math.sqrt(vals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vals.length);
+}
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -225,15 +237,28 @@ export async function GET(req: NextRequest) {
     const plateauMonthlyKlass: PlatManad[] = Array.from(platAllMonth.get(def.klass)!.entries())
       .map(([manad, v]) => ({ manad, share: v.tot > 0 ? r1((100 * v.plan) / v.tot) : 0, n: v.tot }))
       .sort((a, b2) => a.manad.localeCompare(b2.manad));
+    // Spridning per månad: råa summor så klienten kan aggregera std exakt per period.
+    const spridMonthly: SpridManad[] = Array.from(b.allManad.entries())
+      .map(([manad, cell]) => ({
+        manad,
+        n: cell.avvik.length,
+        sum: cell.avvik.reduce((a, c) => a + c, 0),
+        sumsq: cell.avvik.reduce((a, c) => a + c * c, 0),
+      }))
+      .sort((a, b2) => a.manad.localeCompare(b2.manad));
+    // Spridning i 90-dagarsfönstret — bär "Flaxar den?"-slutsatsen.
+    const winMean = n > 0 ? b.winAvvik.reduce((a, c) => a + c, 0) / n : 0;
     const pw = platWin.get(def.klass)!;
     return {
       klass: def.klass, min: def.min, max: def.max, n,
       traffPct: n > 0 ? r1((100 * b.winTraff) / n) : null,
+      standardavv: n > 0 ? r2(popStd(b.winAvvik, winMean)) : null,
       systMonthly,
       plateauShare: pw.tot > 0 ? r1((100 * pw.plan) / pw.tot) : null,
       plateauN: pw.tot,
       traffMonthly,
       plateauMonthly: plateauMonthlyKlass,
+      spridMonthly,
     };
   });
 

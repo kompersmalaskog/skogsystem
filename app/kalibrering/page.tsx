@@ -233,11 +233,15 @@ const bedomProfil = (
 type DiagKlass = {
   klass: string; min: number; max: number; n: number;
   traffPct: number | null;
+  standardavv: number | null; // spridning i 90-dagarsfönstret ("Flaxar den?")
   systMonthly: { manad: string; systematik: number; n: number }[];
   plateauShare: number | null; plateauN: number;
   // Trend "Läget" — hela historiken per månad.
   traffMonthly: { manad: string; traffPct: number; n: number }[];
   plateauMonthly: { manad: string; share: number; n: number }[];
+  // "Flaxar den?" — RÅA summor per månad; std aggregeras exakt per period
+  // (std är inte viktbart som träff%: √(Σsumsq/Σn − (Σsum/Σn)²)).
+  spridMonthly: { manad: string; n: number; sum: number; sumsq: number }[];
 };
 type DiagMarkor = { datum: string; kalla: 'reparation' | 'kalibrering' | 'atgard'; text: string };
 type DiagnosResp = {
@@ -289,6 +293,26 @@ const aggregeraSteg = (
   return new Map(Array.from(b, ([k, c]) => [k, { v: c.n > 0 ? c.vs / c.n : 0, n: c.n }]));
 };
 
+// Spridning (std) per period — aggregeras EXAKT ur råa summor. std är INTE
+// viktbart som träffprocent; att medelvärda månads-std vore fel.
+//   std = √(Σsumsq/Σn − (Σsum/Σn)²)
+const aggregeraSprid = (
+  monthly: { manad: string; n: number; sum: number; sumsq: number }[],
+  steg: LagetSteg,
+): Map<string, { v: number; n: number }> => {
+  const b = new Map<string, { n: number; sum: number; sumsq: number }>();
+  for (const m of monthly) {
+    const k = periodKey(m.manad, steg);
+    const cur = b.get(k) ?? { n: 0, sum: 0, sumsq: 0 };
+    cur.n += m.n; cur.sum += m.sum; cur.sumsq += m.sumsq; b.set(k, cur);
+  }
+  return new Map(Array.from(b, ([k, c]) => {
+    const mean = c.n > 0 ? c.sum / c.n : 0;
+    const varians = c.n > 0 ? Math.max(0, c.sumsq / c.n - mean * mean) : 0;
+    return [k, { v: Math.sqrt(varians), n: c.n }];
+  }));
+};
+
 const klassGrovlek = (klass: string): string =>
   klass === '300+' ? 'grova bitar' : klass === '<150' ? 'klena bitar' : `${klass} mm-bitar`;
 
@@ -337,6 +361,84 @@ const diagnos = (resp: DiagnosResp | null): DiagnosVerdikt => {
     slitage: { m1: 'Greppet brister trots höjt tryck.', m2: 'Byt matarvalsar/slitdelar — verkstad.' },
   };
   return { status: 'diagnos', fel, klass: värsta, bandZon, mening1: copy[fel].m1, mening2: copy[fel].m2, mening3: copy[fel].m3 };
+};
+
+// === "Flaxar den?" — slutsatsen RÄKNAS UT, gissas inte (håller efter fälttest) ===
+//   std ökar med grovleken            → höj trycket
+//   ungefär lika överallt / ökar över tid → kontrollera givare/bussningar
+//   rak linje (lågt syst) men taggig  → tillägg: det är inte kalibrering
+const FLAX_GRADIENT = 1.0; // mm skillnad klenaste→grövsta klass = "värst på grova"
+const FLAX_TREND = 0.5;    // mm ökning första→sista halvan = "ökar över tid"
+type FlaxSlutsats = { status: 'tyst' | 'jamn' | 'flaxar'; rubrik: string; atgard: string | null; tillagg: string | null };
+
+// Systematik i fönstret per klass — n-viktat medel av systMonthly (systematik ÄR viktbart).
+const systWin = (k: DiagKlass): number | null => {
+  const tot = k.systMonthly.reduce((a, m) => a + m.n, 0);
+  if (!tot) return null;
+  return k.systMonthly.reduce((a, m) => a + m.systematik * m.n, 0) / tot;
+};
+// Stiger spridningen över tid? Jämför std första halvan mot sista halvan av månaderna.
+const spridStiger = (k: DiagKlass): boolean => {
+  const mm = k.spridMonthly.filter(m => m.n >= GRIND_MIN);
+  if (mm.length < 2) return false;
+  const halv = Math.floor(mm.length / 2);
+  const std = (arr: typeof mm) => {
+    const n = arr.reduce((a, m) => a + m.n, 0);
+    if (!n) return null;
+    const mean = arr.reduce((a, m) => a + m.sum, 0) / n;
+    return Math.sqrt(Math.max(0, arr.reduce((a, m) => a + m.sumsq, 0) / n - mean * mean));
+  };
+  const f = std(mm.slice(0, halv)), s = std(mm.slice(halv));
+  return f != null && s != null && s - f >= FLAX_TREND;
+};
+
+const flaxSlutsats = (klasser: DiagKlass[], stdGolv: number | null, systMal: number | null): FlaxSlutsats => {
+  const med = klasser.filter(k => k.n >= GRIND_MIN && k.standardavv != null);
+  if (med.length === 0 || stdGolv == null) {
+    return { status: 'tyst', rubrik: 'För tunt underlag för en bedömning.', atgard: null, tillagg: null };
+  }
+  const over = med.filter(k => (k.standardavv as number) > stdGolv);
+  if (over.length === 0) {
+    return { status: 'jamn', rubrik: 'Maskinen mäter jämnt.', atgard: 'Inget att åtgärda.', tillagg: null };
+  }
+  const ordn = ['<150', '150-199', '200-249', '250-299', '300+'];
+  const sorted = med.slice().sort((a, b) => ordn.indexOf(a.klass) - ordn.indexOf(b.klass));
+  const varsta = over.reduce((a, b) => ((b.standardavv as number) > (a.standardavv as number) ? b : a));
+
+  // Rak men taggig → kalibrering är inte svaret (oberoende av grovlek).
+  let tillagg: string | null = null;
+  const sw = systWin(varsta);
+  if (sw != null && systMal != null && Math.abs(sw) < systMal) {
+    tillagg = 'Linjen är rak men taggig — det är inte kalibrering. Kalibrering rätar inte en taggig linje.';
+  }
+
+  // Finns GROVA klasser med underlag? En gallringsmaskin saknar dem helt. Utan
+  // grova går grovt-mot-klent-jämförelsen inte att göra — då får vi INTE gissa
+  // "lika överallt → givare" på två klena klasser. Säg bara vad som finns.
+  const harGrova = med.some(k => k.min >= 250);
+  if (!harGrova) {
+    const n = over.map(k => klassGrovlek(k.klass));
+    const namn = n.length <= 1 ? n[0] : `${n.slice(0, -1).join(', ')} och ${n[n.length - 1]}`;
+    return {
+      status: 'flaxar',
+      rubrik: `Spridningen ligger över kravet på ${namn}.`,
+      atgard: 'Underlaget saknar grova stammar — utan dem går tryck inte att skilja från givarfel.',
+      tillagg,
+    };
+  }
+
+  const klenast = sorted[0].standardavv as number;
+  const grovast = sorted[sorted.length - 1].standardavv as number;
+  let rubrik: string, atgard: string;
+  if (grovast - klenast >= FLAX_GRADIENT) {
+    rubrik = `Flaxar värst på ${klassGrovlek(sorted[sorted.length - 1].klass)} — spridningen växer med grovleken.`;
+    atgard = 'Greppet räcker inte — höj trycket på knivar eller matarhjul. Men känn efter: går det för trögt kostar det bränsle och produktion.';
+  } else {
+    const stiger = spridStiger(varsta);
+    rubrik = stiger ? 'Flaxar ungefär lika överallt, och spridningen ökar över tid.' : 'Flaxar ungefär lika överallt.';
+    atgard = 'Kontrollera givare och bussningar.';
+  }
+  return { status: 'flaxar', rubrik, atgard, tillagg };
 };
 
 // iOS-mönster: dra ner på modalen för att stänga. Hela modalen är dragbar
@@ -694,7 +796,7 @@ export default function KalibreringPage() {
   const renderTidsChart = (
     manader: string[],
     series: { klass: string; punkter: Map<string, { v: number; n: number }> }[],
-    opts: { yMax: number; kravLinje?: { v: number; label: string }; markorer: DiagMarkor[]; fmtX?: (m: string) => string; markorKey?: (datum: string) => string },
+    opts: { yMax: number; kravLinje?: { v: number; label: string }; kravBand?: { till: number; label: string }; riktning?: string; markorer: DiagMarkor[]; fmtX?: (m: string) => string; markorKey?: (datum: string) => string },
   ) => {
     if (manader.length === 0) return <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>Inget underlag ännu.</span></div>;
     const fmtX = opts.fmtX ?? ((m: string) => m.slice(2).replace('-', '/'));
@@ -709,6 +811,14 @@ export default function KalibreringPage() {
     return (
       <div className="kalib-grid-scroll">
         <svg viewBox={`0 0 ${W} ${H}`} className="kalib-tidschart">
+          {/* Kravband: ljus zon 0→golv = det tillåtna. Linje ovanför = flaxar för mycket. */}
+          {opts.kravBand && (
+            <>
+              <rect x={padL} y={yFor(opts.kravBand.till)} width={W - padL - padR} height={Math.max(0, yFor(0) - yFor(opts.kravBand.till))} className="kalib-tc-band" />
+              <line x1={padL} y1={yFor(opts.kravBand.till)} x2={W - padR} y2={yFor(opts.kravBand.till)} className="kalib-tc-krav" />
+              <text x={W - padR} y={yFor(opts.kravBand.till) - 3} className="kalib-tc-kravlabel" textAnchor="end">{opts.kravBand.label}</text>
+            </>
+          )}
           {[0, opts.yMax / 2, opts.yMax].map(v => (
             <g key={v}>
               <line x1={padL} y1={yFor(v)} x2={W - padR} y2={yFor(v)} className="kalib-tc-grid" />
@@ -751,6 +861,7 @@ export default function KalibreringPage() {
             : null))}
         </svg>
         <div className="kalib-tc-legend">
+          {opts.riktning && <span className="kalib-tc-riktning">{opts.riktning}</span>}
           {series.map(s => <span key={s.klass} className="kalib-tc-leg"><i style={{ background: KLASS_FARG[s.klass] }} />{s.klass}</span>)}
         </div>
         {nagotTunt && <div className="kalib-tc-tunt">Streckad/nedtonad = tunt underlag (30–100 mått i perioden). Under 30 ritas inte — slumpen ska inte se ut som en trend.</div>}
@@ -2169,6 +2280,19 @@ export default function KalibreringPage() {
         .kalib-tc-leg i{width:12px;height:3px;border-radius:2px;display:inline-block}
         .kalib-tc-bandnote{font-size:12px;color:#8E8E93;margin-top:10px;line-height:1.4}
         .kalib-tc-tunt{font-size:11px;color:#8E8E93;margin-top:6px;line-height:1.4;opacity:0.85}
+        /* === "Flaxar den?" — spridningen === */
+        .kalib-tc-band{fill:rgba(255,255,255,0.05)}
+        .kalib-tc-riktning{font-size:11px;color:#8E8E93;margin-right:4px;white-space:nowrap}
+        .kalib-fackterm{font-size:12px;font-weight:400;color:#8E8E93;margin-left:8px}
+        .kalib-flax-larn{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06)}
+        .kalib-flax-ex{display:flex;align-items:center;gap:8px;font-size:12px;color:#8E8E93}
+        .kalib-flax-spark{width:64px;height:18px;flex-shrink:0}
+        .kalib-flax-slutsats{margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06)}
+        .kalib-flax-rubrik{font-size:17px;font-weight:600;line-height:1.3;color:#8E8E93}
+        .kalib-flax-slutsats.flaxar .kalib-flax-rubrik{color:#fff}
+        .kalib-flax-atgard{font-size:15px;color:#8E8E93;margin-top:6px;line-height:1.4}
+        .kalib-flax-slutsats.flaxar .kalib-flax-atgard{color:#EBEBF5}
+        .kalib-flax-tillagg{font-size:13px;color:#8E8E93;margin-top:8px;line-height:1.4;font-style:italic}
         .kalib-curve-mal{position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,0.28);pointer-events:none}
         /* === Hjälptext "?" === */
         .kalib-hjalp-btn{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#8E8E93;font-size:15px;font-weight:600;cursor:pointer;flex-shrink:0}
@@ -3537,6 +3661,61 @@ export default function KalibreringPage() {
                         </div>
                       </div>
                     )}
+                  </>
+                );
+              })()}
+
+              {/* ===== AVSNITT 3: FLAXAR DEN? — spridningen får en egen plats ===== */}
+              {(() => {
+                if (!diagnosData || !diagnosData.klasser.some(k => k.spridMonthly.length)) return null;
+                const stdRow = bedomning?.trosklar.find(t => t.variabel === 'diameter' && t.metrik === 'standardavv');
+                const systRow = bedomning?.trosklar.find(t => t.variabel === 'diameter' && t.metrik === 'systematisk');
+                const stdGolv = stdRow ? Number(stdRow.golv) : null;
+                const systMal = systRow ? Number(systRow.mal) : null;
+                const kl = diagnosData.klasser;
+                const spridSeries = kl.map(k => ({ klass: k.klass, punkter: aggregeraSprid(k.spridMonthly, lagetSteg) }));
+                const spridMan = Array.from(new Set(spridSeries.flatMap(s => Array.from(s.punkter).filter(([, p]) => p.n >= GRIND_MIN).map(([kk]) => kk)))).sort();
+                const slutsats = flaxSlutsats(kl, stdGolv, systMal);
+                const yMax = Math.max(8, Math.ceil(((stdGolv ?? 5) * 1.6) / 2) * 2);
+                return (
+                  <>
+                    <div className="kalib-section-title" style={{ margin: '18px 4px 8px' }}>
+                      Flaxar den? <span className="kalib-fackterm">standardavvikelse</span>
+                    </div>
+                    <div className="kalib-card">
+                      <div className="kalib-section-subtitle">Hoppar maskinen fram och tillbaka, eller mäter den jämnt?{stdGolv != null ? ` ${diagnosData.profil} vill att spridningen håller sig under ${fmtKrav(stdGolv)} mm.` : ''}</div>
+                      {renderTidsChart(spridMan, spridSeries, {
+                        yMax,
+                        kravBand: stdGolv != null ? { till: stdGolv, label: `krav ≤${fmtKrav(stdGolv)} mm` } : undefined,
+                        riktning: '↓ lägre = bättre',
+                        markorer: diagnosData.markorer,
+                        fmtX: (m: string) => fmtPeriod(m, lagetSteg),
+                        markorKey: (d: string) => periodKey(d.slice(0, 7), lagetSteg),
+                      })}
+
+                      {/* Lär dig läsa kurvan — syntetisk jämförelse, inte data */}
+                      <div className="kalib-flax-larn">
+                        <div className="kalib-flax-ex">
+                          <svg viewBox="0 0 90 26" className="kalib-flax-spark" aria-hidden="true">
+                            <polyline points="2,13 12,12 22,14 32,13 42,12 52,14 62,13 72,12 82,13" fill="none" stroke="#8E8E93" strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+                          </svg>
+                          <span>jämn — mäter lika varje gång</span>
+                        </div>
+                        <div className="kalib-flax-ex">
+                          <svg viewBox="0 0 90 26" className="kalib-flax-spark" aria-hidden="true">
+                            <polyline points="2,4 12,22 22,6 32,20 42,3 52,23 62,7 72,21 82,5" fill="none" stroke="#FF453A" strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+                          </svg>
+                          <span>flaxar — hoppar fram och tillbaka</span>
+                        </div>
+                      </div>
+
+                      {/* Slutsats — uträknad ur datan, inte gissad */}
+                      <div className={`kalib-flax-slutsats ${slutsats.status}`}>
+                        <div className="kalib-flax-rubrik">{slutsats.rubrik}</div>
+                        {slutsats.atgard && <div className="kalib-flax-atgard">{slutsats.atgard}</div>}
+                        {slutsats.tillagg && <div className="kalib-flax-tillagg">{slutsats.tillagg}</div>}
+                      </div>
+                    </div>
                   </>
                 );
               })()}
