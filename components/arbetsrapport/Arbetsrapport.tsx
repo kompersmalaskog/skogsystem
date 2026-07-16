@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { uppdateraVerifierat, upsertVerifierat, SPARA_FEL } from "@/lib/supabase-save";
+import { extraMinPerDag } from "@/lib/arbetstid";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
@@ -2619,6 +2620,18 @@ export default function Arbetsrapport() {
     const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
     const månNamn2 = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 
+    // Extra tid (arbete när maskinen var av) är arbetstid rakt av — räknas
+    // in i ALLA summor och övertidsberäkningar här, samma definition som
+    // löneexporten (lib/arbetstid.ts). En dag kan ha extra utan maskinpass.
+    const extraPerDag = extraMinPerDag(extraTidData);
+    const extraMinMellan = (from: string, tom?: string) => {
+      let s = 0;
+      for (const [datum, min] of extraPerDag) {
+        if (datum >= from && (!tom || datum <= tom)) s += min;
+      }
+      return s;
+    };
+
     // Vecka: hitta mån-sön för aktuell vecka
     const dagIdx = (nu.getDay()+6)%7; // 0=mån
     const veckStart = new Date(nu); veckStart.setDate(nu.getDate()-dagIdx);
@@ -2632,7 +2645,8 @@ export default function Arbetsrapport() {
       const d=new Date(veckStart); d.setDate(veckStart.getDate()+i);
       const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const ad=årsData.find(r=>r.datum===k);
-      const h=ad ? Math.round((ad.arbetad_min||0)/60*10)/10 : 0;
+      // Extra tid räknas även på dagar UTAN maskinpass (ad saknas då)
+      const h=Math.round(((ad?.arbetad_min||0)+(extraPerDag.get(k)||0))/60*10)/10;
       veckoTot+=h;
       const dow=d.getDay();
       if(dow!==0&&dow!==6&&!rödaDagarVecka[k]) veckoArbDagar++;
@@ -2642,14 +2656,15 @@ export default function Arbetsrapport() {
     const maxH = Math.max(...veckoDagar.map(d=>d.h),1);
 
     // Idag
-    const idagAd = årsData.find(r=>r.datum===nu.toISOString().split('T')[0]);
-    const idagH = idagAd ? Math.round((idagAd.arbetad_min||0)/60*10)/10 : 0;
+    const idagKey2 = nu.toISOString().split('T')[0];
+    const idagAd = årsData.find(r=>r.datum===idagKey2);
+    const idagH = Math.round(((idagAd?.arbetad_min||0)+(extraPerDag.get(idagKey2)||0))/60*10)/10;
     const idagDiff = idagH - 8;
 
     // Månad
     const månStart = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,'0')}-01`;
     const månData = årsData.filter(r=>r.datum>=månStart);
-    const månJobbatMin = månData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const månJobbatMin = månData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(månStart);
     const månJobbatH = Math.round(månJobbatMin/60*10)/10;
     // Räkna arbetsdagar i månaden
     const dIM = new Date(nu.getFullYear(),nu.getMonth()+1,0).getDate();
@@ -2668,7 +2683,7 @@ export default function Arbetsrapport() {
     const kvartal = Math.floor(nu.getMonth()/3);
     const kvStart = `${nu.getFullYear()}-${String(kvartal*3+1).padStart(2,'0')}-01`;
     const kvData = årsData.filter(r=>r.datum>=kvStart);
-    const kvMin = kvData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const kvMin = kvData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(kvStart);
     // Räkna kvartalets arbetsdagar
     let kvArbDagar=0;
     for(let m=kvartal*3;m<kvartal*3+3;m++){
@@ -2683,11 +2698,12 @@ export default function Arbetsrapport() {
     const kvÖvH = Math.max(0,Math.round(kvMin/60*10)/10-kvArbDagar*8);
 
     // År — övertid beräknad per månad
-    const årsMin = årsData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const årsMin = årsData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(`${nu.getFullYear()}-01-01`);
     let årsÖvH = 0;
     for(let m=0;m<=nu.getMonth();m++){
       const mp=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}`;
-      const mMin=årsData.filter(d=>d.datum&&d.datum.startsWith(mp)).reduce((a,d)=>a+(d.arbetad_min||0),0);
+      const mMin=årsData.filter(d=>d.datum&&d.datum.startsWith(mp)).reduce((a,d)=>a+(d.arbetad_min||0),0)
+        + extraMinMellan(`${mp}-01`, `${mp}-31`);
       // Räkna vardagar i månaden
       const dIM2=m===nu.getMonth()?nu.getDate():new Date(nu.getFullYear(),m+1,0).getDate();
       let mArbD=0;
