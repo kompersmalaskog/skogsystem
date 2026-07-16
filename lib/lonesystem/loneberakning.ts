@@ -30,6 +30,14 @@ type ArbetsdagInput = {
   dagtyp: string | null;
 };
 
+// Extra tid = arbete när maskindatorn var av (arbetad_min ser den inte).
+// Arbetstid rakt av per M+L-beslut 2026-07-16 — räknas in i totalH och
+// påverkar därmed BÅDE timlön och övertidströskeln.
+type ExtraTidInput = {
+  datum: string | null;
+  minuter: number | null;
+};
+
 type MaskinTypMap = Record<string, "skordare" | "skotare">;
 
 export type FortnoxRad = {
@@ -48,6 +56,7 @@ export type ExportSammanfattning = {
   varningar: string[];
   arbetsdagar: number;
   ordinarie_h: number;
+  extra_h: number;      // varav extra tid (utanför maskinen) — ingår i timlön/övertid
   timlon_h: number;
   premielon_skordare_h: number;
   premielon_skotare_h: number;
@@ -86,6 +95,7 @@ export function beräknaExport(
   dagar: ArbetsdagInput[],
   maskinTypMap: MaskinTypMap,
   loneperiod: string,  // YYYY-MM — löneperioden (en månad efter arbetstiden)
+  extraTid: ExtraTidInput[] = [],  // extra tid i ARBETSPERIODEN för medarbetaren
 ): ExportSammanfattning {
   const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
@@ -123,9 +133,31 @@ export function beräknaExport(
     if (!d.bekraftad) obekraftade++;
   }
 
+  // Extra tid (utanför maskinen) — in i totalH så timlön OCH övertid
+  // räknas på förarens hela arbetstid. Klassas inte per maskintyp
+  // (samma befintliga semantik som pass utan maskin_id: full timlön/
+  // övertid, men ingen premie-klassning).
+  const extraH = extraTid.reduce((a, e) => a + (e?.minuter || 0), 0) / 60;
+  totalH += extraH;
+
   totalH = Math.round(totalH * 100) / 100;
   skordareH = Math.round(skordareH * 100) / 100;
   skotareH = Math.round(skotareH * 100) / 100;
+  const extraHRund = Math.round(extraH * 100) / 100;
+
+  // OBS (flaggat, ej beslutat): extra tid på en dag UTAN maskinpass ökar
+  // totalH men inte antalArbetsdagar/ordinarie — sådan tid lutar mot
+  // övertid. Varnas nedan så det syns i exporten i stället för att gissas.
+  const passDatum = new Set(produktionsDagar.map(d => d.datum));
+  const extraUtanPassMin = extraTid
+    .filter(e => e?.datum && !passDatum.has(e.datum))
+    .reduce((a, e) => a + (e?.minuter || 0), 0);
+  if (extraUtanPassMin > 0) {
+    varningar.push(
+      `${Math.round(extraUtanPassMin / 60 * 100) / 100}h extra tid ligger på dagar utan maskinpass — ` +
+      `räknas som arbetstid men höjer inte ordinarie-timmarna (kan ge övertid). Granska.`,
+    );
+  }
 
   // Övertid = totalt - ordinarie
   const overtidH = Math.round(Math.max(0, totalH - ordinarie) * 100) / 100;
@@ -158,7 +190,7 @@ export function beräknaExport(
       SalaryCode: overtidKod,
       Number: overtidH.toFixed(2),
       Date: loneperiodStart,
-      beskrivning: `Övertid: ${overtidH}h (${totalH}h totalt - ${ordinarie}h ordinarie)`,
+      beskrivning: `Övertid: ${overtidH}h (${totalH}h totalt${extraHRund > 0 ? `, varav ${extraHRund}h extra tid` : ''} - ${ordinarie}h ordinarie)`,
     });
   }
 
@@ -200,6 +232,7 @@ export function beräknaExport(
     varningar,
     arbetsdagar: antalArbetsdagar,
     ordinarie_h: ordinarie,
+    extra_h: extraHRund,
     timlon_h: timlonH,
     premielon_skordare_h: premieSkordare,
     premielon_skotare_h: premieSkotare,

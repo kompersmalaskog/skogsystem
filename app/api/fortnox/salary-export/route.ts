@@ -31,10 +31,15 @@ export async function POST(req: NextRequest) {
     const arbSlut = new Date(aÅ, aM, 0).toISOString().slice(0, 10);
 
     // Ladda data
-    const [medRes, arbRes, maskinRes, mappRes, loggRes] = await Promise.all([
+    const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes] = await Promise.all([
       supabase.from("medarbetare").select("id, namn").order("namn"),
       supabase.from("arbetsdag")
         .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp")
+        .gte("datum", arbStart).lte("datum", arbSlut),
+      // Extra tid = arbete när maskinen var av — arbetstid rakt av,
+      // ska in i timlön/övertid (arbetad_min ser den inte)
+      supabase.from("extra_tid")
+        .select("medarbetare_id, datum, minuter")
         .gte("datum", arbStart).lte("datum", arbSlut),
       supabase.from("maskiner").select("maskin_id, typ"),
       supabase.from("medarbetare_lonesystem")
@@ -46,6 +51,7 @@ export async function POST(req: NextRequest) {
 
     if (medRes.error) throw medRes.error;
     if (arbRes.error) throw arbRes.error;
+    if (extraRes.error) throw extraRes.error;
 
     // Maskintyp-map
     const maskinTypMap: Record<string, "skordare" | "skotare"> = {};
@@ -77,6 +83,15 @@ export async function POST(req: NextRequest) {
       dagPerMed.get(d.medarbetare_id)!.push(d);
     }
 
+    // Gruppera extra tid per medarbetare (OBS: filtret på medarbetare_id är
+    // bärande — en förares extra tid får aldrig hamna på någon annan)
+    const extraPerMed = new Map<string, { datum: string | null; minuter: number | null }[]>();
+    for (const e of (extraRes.data || [])) {
+      if (!e.medarbetare_id) continue;
+      if (!extraPerMed.has(e.medarbetare_id)) extraPerMed.set(e.medarbetare_id, []);
+      extraPerMed.get(e.medarbetare_id)!.push({ datum: e.datum, minuter: e.minuter });
+    }
+
     // Beräkna per medarbetare
     const medarbetare = (medRes.data || []) as { id: string; namn: string }[];
     const resultat: (ExportSammanfattning & { status: string })[] = [];
@@ -84,10 +99,13 @@ export async function POST(req: NextRequest) {
     for (const med of medarbetare) {
       if (filterIds && !filterIds.includes(med.id)) continue;
       const dagar = dagPerMed.get(med.id) || [];
-      if (dagar.length === 0) continue;
+      const extra = extraPerMed.get(med.id) || [];
+      // Extra-only-månad (arbete utan ett enda maskinpass) ska också med —
+      // det är arbetstid; beräkningen varnar då om ordinarie-effekten
+      if (dagar.length === 0 && extra.length === 0) continue;
 
       const anstNr = anstMap[med.id] || "";
-      const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period); // period = löneperiod
+      const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra); // period = löneperiod
 
       let status = "utkast";
       if (redanSkickad.has(med.id)) status = "skickat";
