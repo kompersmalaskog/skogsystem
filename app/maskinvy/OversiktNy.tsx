@@ -73,6 +73,9 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
       position: 'fixed', top: 56, left: 0, right: 0, bottom: 0,
       overflow: 'auto', background: C.bg, color: C.text,
       fontFamily: FONT, fontFeatureSettings: '"tnum"',
+      // Lyft z-index när djupvy är öppen — annars hamnar djupvyns z-index:200
+      // INUTI denna stacking context och kan inte täcka bars (z-index:60 i root).
+      zIndex: (deepOperator || volymOpen) ? 200 : undefined,
     }}>
       {/* ── Sticky header: topbar + period-nav + V/M/K/Å ── */}
       <div style={{
