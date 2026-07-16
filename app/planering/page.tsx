@@ -1520,6 +1520,8 @@ export default function PlannerPage() {
   const larmPlaceringFromRef = useRef<'trakt' | 'karta'>('trakt'); // varifrån flytten startades
   const [larmPopupOpen, setLarmPopupOpen] = useState(false); // popup vid tryck på märket
   const [larmConfirmDelete, setLarmConfirmDelete] = useState(false);
+  const [larmTdFel, setLarmTdFel] = useState<string | null>(null); // reservläge: TD finns men koordinaten kunde inte läsas
+  const larmTdForsoktRef = useRef<string | null>(null); // ett importförsök per objekt
   const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
   const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
   const [infoVolym, setInfoVolym] = useState(''); // en sanning: objekt.volym
@@ -1655,6 +1657,43 @@ export default function PlannerPage() {
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
   }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, infoLarmLat, infoLarmLng, infoLarmBeskrivning, infoLarmKalla, infoLarmBekraftad, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
+
+  // === Larmkoordinat: automatisk import från Vidas traktdirektiv (en gång per objekt) ===
+  // Körs bara när objektet har TD, saknar koordinat och inte har en EGEN satt.
+  // Egen vinner alltid — Vidas är bara startvärde. Misslyckas importen sätts INGEN
+  // punkt; i stället visas en synlig status i Larm-fliken. Aldrig en gissad punkt,
+  // aldrig tyst tomt.
+  useEffect(() => {
+    const oid = valtObjekt?.id;
+    if (!oid || !infoLoaded) return;
+    if (larmTdForsoktRef.current === oid) return;
+    larmTdForsoktRef.current = oid;
+    setLarmTdFel(null);
+    if (!valtObjekt?.traktdirektiv_url) return; // inget traktdirektiv → inget att importera
+    if (infoLarmKalla === 'egen') return;       // egen larmkoordinat vinner alltid
+    if (infoLarmLat || infoLarmLng) return;     // redan satt
+    (async () => {
+      try {
+        const r = await fetch('/api/larmkoordinat-td', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ objektId: oid }),
+        });
+        const j = await r.json();
+        if (j?.ok) {
+          setInfoLarmLat(String(j.lat));
+          setInfoLarmLng(String(j.lng));
+          setInfoLarmKalla('td');
+          setInfoLarmBekraftad(false); // Vida ritar från kontoret — aldrig bekräftad
+          setLarmTdFel(null);
+        } else {
+          setLarmTdFel(j?.skal || 'Larmkoordinat kunde inte läsas');
+        }
+      } catch {
+        setLarmTdFel('Larmkoordinat kunde inte läsas');
+      }
+    })();
+  }, [valtObjekt?.id, valtObjekt?.traktdirektiv_url, infoLoaded, infoLarmKalla, infoLarmLat, infoLarmLng]);
 
   // === Maskin-väljare (Fakta-fliken) — matas från dim_maskin ===
   // Valbar lista för en roll: rätt maskin_typ, aktiv (ej såld), klarar objektets typ.
@@ -17566,7 +17605,7 @@ export default function PlannerPage() {
                         <button onClick={() => { setInfoLarmLat(''); setInfoLarmLng(''); setInfoLarmKalla(null); setInfoLarmBekraftad(false); }} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#8e8e93', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>Rensa</button>
                       </div>
                     ) : (
-                      <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,159,10,0.1)', border: '1px solid rgba(255,159,10,0.25)', color: '#FF9F0A', fontSize: '13px', marginBottom: '14px' }}>Larmkoordinat ej satt</div>
+                      <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,159,10,0.1)', border: '1px solid rgba(255,159,10,0.25)', color: '#FF9F0A', fontSize: '13px', marginBottom: '14px' }}>{larmTdFel && valtObjekt?.traktdirektiv_url ? 'TD finns men larmkoordinat kunde inte läsas — sätt manuellt' : 'Larmkoordinat ej satt'}</div>
                     );
                   })()}
                   <button onClick={() => {
