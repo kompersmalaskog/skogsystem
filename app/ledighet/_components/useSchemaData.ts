@@ -18,6 +18,7 @@ export interface SchemaLedighet {
 export interface SchemaMaskin {
   maskin_id: string;
   namn: string; // visningsnamn, fallback modell
+  typ: string | null; // Harvester/Forwarder — för Skördare/Skotare-gruppering
 }
 
 export interface SchemaStopp {
@@ -25,6 +26,7 @@ export interface SchemaStopp {
   fran_datum: string;
   till_datum: string;
   orsak: string;
+  kommentar: string | null;
   maskin_ids: string[];
 }
 
@@ -51,8 +53,8 @@ export function useSchemaData() {
       supabase.from('ledighet_ansokningar')
         .select('medarbetare_id, typ, startdatum, slutdatum')
         .eq('status', 'godkänd'),
-      supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, aktiv_till'),
-      supabase.from('stopp').select('id, fran_datum, till_datum, orsak'),
+      supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, aktiv_till'),
+      supabase.from('stopp').select('id, fran_datum, till_datum, orsak, kommentar'),
       supabase.from('stopp_maskin').select('stopp_id, maskin_id'),
     ]);
 
@@ -68,9 +70,9 @@ export function useSchemaData() {
     setPersoner((pers.data as SchemaPerson[]) ?? []);
     setLedigheter((led.data as SchemaLedighet[]) ?? []);
 
-    const aktivaMaskiner = ((mask.data ?? []) as { maskin_id: string; visningsnamn: string | null; modell: string | null; aktiv_till: string | null }[])
+    const aktivaMaskiner = ((mask.data ?? []) as { maskin_id: string; visningsnamn: string | null; modell: string | null; maskin_typ: string | null; aktiv_till: string | null }[])
       .filter(m => !m.aktiv_till || m.aktiv_till >= idagIso)
-      .map(m => ({ maskin_id: m.maskin_id, namn: m.visningsnamn || m.modell || m.maskin_id }))
+      .map(m => ({ maskin_id: m.maskin_id, namn: m.visningsnamn || m.modell || m.maskin_id, typ: m.maskin_typ }))
       .sort((a, b) => a.namn.localeCompare(b.namn, 'sv'));
     setMaskiner(aktivaMaskiner);
 
@@ -90,5 +92,5 @@ export function useSchemaData() {
 
   useEffect(() => { hamta(); }, [hamta]);
 
-  return { personer, ledigheter, maskiner, stopp, laddar, lasfel };
+  return { personer, ledigheter, maskiner, stopp, laddar, lasfel, hamtaOm: hamta };
 }

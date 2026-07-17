@@ -1,9 +1,13 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { raderaVerifierat } from '@/lib/supabase-save';
 import { C, ff } from './tema';
-import { MANADSNAMN, arHelg, arRodDag, toISO } from './datum';
-import { useSchemaData } from './useSchemaData';
+import { MANADSNAMN, arHelg, arRodDag, fmtPeriod, toISO } from './datum';
+import { useSchemaData, type SchemaStopp } from './useSchemaData';
+import StoppFormular from './StoppFormular';
+import Toast from './Toast';
 
 const NAMN_W = 110;   // fast namnkolumn — scrollar inte horisontellt
 const COL_W = 34;     // dagkolumn
@@ -40,9 +44,27 @@ function block(dagar: string[], tacker: (iso: string) => boolean): { start: numb
  * en rad per aktiv maskin. Grönt block = godkänd ledighet, rött = maskinstopp,
  * tomt = på jobbet. Dag-upplösning, horisontell scroll med fast namnkolumn.
  */
-export default function SchemaVy() {
-  const { personer, ledigheter, maskiner, stopp, laddar, lasfel } = useSchemaData();
+export default function SchemaVy({
+  arGodkannare = false, egenMedarbetareId,
+}: {
+  arGodkannare?: boolean;
+  egenMedarbetareId?: string;
+}) {
+  const { personer, ledigheter, maskiner, stopp, laddar, lasfel, hamtaOm } = useSchemaData();
   const [offset, setOffset] = useState(0); // dagar, i 7-dagars-steg
+  const [stoppFormOppen, setStoppFormOppen] = useState(false);
+  const [fel, setFel] = useState<string | null>(null);
+
+  const taBortStopp = async (s: SchemaStopp) => {
+    const antal = s.maskin_ids.length;
+    if (!window.confirm(`Ta bort stoppet ${fmtPeriod(s.fran_datum, s.till_datum)}? Det gäller ${antal} maskin${antal === 1 ? '' : 'er'}.`)) return;
+    const res = await raderaVerifierat(supabase, 'stopp', { id: s.id });
+    if (!res.ok) {
+      setFel(res.fel);
+      return;
+    }
+    hamtaOm(); // stopp_maskin kaskadar bort i databasen
+  };
 
   const idagIso = toISO(new Date());
   const dagar = useMemo(() => {
@@ -115,6 +137,8 @@ export default function SchemaVy() {
 
   return (
     <div style={{ fontFamily: ff }}>
+      <Toast text={fel} onDold={() => setFel(null)} />
+
       {/* Navigering */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{periodText}</span>
@@ -126,6 +150,18 @@ export default function SchemaVy() {
           <button type="button" onClick={() => setOffset(o => o + 7)} style={navKnapp}>›</button>
         </div>
       </div>
+
+      {/* Lägg till stopp — bara godkännare (RLS spärrar ändå skrivningen) */}
+      {arGodkannare && (
+        <button type="button" onClick={() => setStoppFormOppen(true)} style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px',
+          borderRadius: 10, border: 'none', marginBottom: 12,
+          background: C.redDim, color: '#fca5a5', fontSize: 13, fontWeight: 600,
+          fontFamily: ff, cursor: 'pointer',
+        }}>
+          + Lägg till stopp
+        </button>
+      )}
 
       {/* Tidslinjen — horisontell scroll, fast namnkolumn */}
       <div style={{
@@ -194,7 +230,6 @@ export default function SchemaVy() {
 
           {maskiner.map(m => {
             const minaStopp = stopp.filter(s => s.maskin_ids.includes(m.maskin_id));
-            const segs = block(dagar, iso => minaStopp.some(s => iso >= s.fran_datum && iso <= s.till_datum));
             return (
               <div key={m.maskin_id} style={{ display: 'flex' }}>
                 <div style={stickyCell(MASKIN_H)}>
@@ -202,7 +237,38 @@ export default function SchemaVy() {
                     {m.namn}
                   </span>
                 </div>
-                {bakgrundOchBlock(MASKIN_H, segs, ROD)}
+                {/* Ett block per stopp (inte ihopslagen täckning) — så att
+                    godkännare kan trycka på ett block och ta bort just det stoppet */}
+                <div style={{ position: 'relative', width: FONSTER * COL_W, height: MASKIN_H, flexShrink: 0 }}>
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex' }}>
+                    {dagar.map(iso => (
+                      <div key={iso} style={{
+                        width: COL_W, boxSizing: 'border-box',
+                        borderRight: '1px solid rgba(255,255,255,0.04)',
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        background: dagBakgrund(iso),
+                      }} />
+                    ))}
+                  </div>
+                  {minaStopp.map(s => {
+                    const sIdx = dagar.findIndex(d => d >= s.fran_datum);
+                    const eIdx = dagar.filter(d => d <= s.till_datum).length - 1;
+                    if (sIdx === -1 || eIdx < sIdx) return null;
+                    const stil: React.CSSProperties = {
+                      position: 'absolute', top: 6, bottom: 6,
+                      left: sIdx * COL_W + 2, width: (eIdx - sIdx + 1) * COL_W - 4,
+                      background: ROD, borderRadius: 5,
+                    };
+                    return arGodkannare ? (
+                      <button key={s.id} type="button"
+                        title={`Ta bort: ${s.orsak}${s.kommentar ? ` — ${s.kommentar}` : ''}`}
+                        onClick={() => taBortStopp(s)}
+                        style={{ ...stil, border: 'none', cursor: 'pointer', padding: 0 }} />
+                    ) : (
+                      <div key={s.id} style={stil} />
+                    );
+                  })}
+                </div>
               </div>
             );
           })}
@@ -220,7 +286,19 @@ export default function SchemaVy() {
           <span style={{ fontSize: 11, color: C.t3 }}>Maskinstopp</span>
         </span>
         <span style={{ fontSize: 11, color: C.t3 }}>Tomt = på jobbet</span>
+        {arGodkannare && (
+          <span style={{ fontSize: 11, color: C.t4 }}>Tryck på ett rött block för att ta bort stoppet</span>
+        )}
       </div>
+
+      {stoppFormOppen && egenMedarbetareId && (
+        <StoppFormular
+          maskiner={maskiner}
+          egenMedarbetareId={egenMedarbetareId}
+          onStang={() => setStoppFormOppen(false)}
+          onSparad={() => { setStoppFormOppen(false); hamtaOm(); }}
+        />
+      )}
     </div>
   );
 }

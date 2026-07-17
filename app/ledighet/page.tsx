@@ -53,7 +53,10 @@ export default function LedighetPage() {
         ) : vy === 'mig' ? (
           <MigVy medarbetare={medarbetare} />
         ) : (
-          <SchemaVy />
+          <SchemaVy
+            arGodkannare={medarbetare.roll === 'admin' || medarbetare.roll === 'chef'}
+            egenMedarbetareId={medarbetare.id}
+          />
         )}
       </div>
     </div>
