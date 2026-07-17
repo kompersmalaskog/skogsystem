@@ -118,9 +118,11 @@ separat:
   in av ekonomi-vyer.
 - Stavfel "stubbbehandling" → "stubbehandling".
   Kräver migration på dim_objekt-kolumn.
-- Lyfta ut EditSheet-komponent. Modal-wrappern
-  dupliceras på två ställen (ObjektRedigering +
-  AllaObjektVy). Refaktor.
+- ~~Lyfta ut EditSheet-komponent~~ KLAR i PR #203
+  (2026-07-17): en delad ObjektEditor äger sheet/
+  spara/dirty-logik för båda listvyerna; sheeten
+  omstrukturerad (obligatoriskt först, undersidor,
+  dirty-Spara med ändringsräknare).
 - TypeScript-typer på app/redigering/page.tsx.
   Filen är .tsx men skriven som JS, inga typer
   på Objekt/Scenario/state.
