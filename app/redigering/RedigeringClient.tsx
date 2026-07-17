@@ -11,6 +11,32 @@ import MatchningsVy from './MatchningsVy'
 const STANDARD_BOLAG = ['Vida', 'ATA', 'Privat', 'JGA', 'Rönås', 'Södra']
 const HUVUDTYPER = ['Slutavverkning', 'Gallring']
 
+// Delade keyframes/klasser — renderas av båda listvyerna (tidigare två
+// identiska inline-kopior)
+const GLOBAL_CSS = `
+  @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  @keyframes slideDown { from { transform: translateY(0); opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes flashHighlight {
+    0%   { background: rgba(255,159,10,0.20); box-shadow: 0 0 0 6px rgba(255,159,10,0.15); }
+    100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+  }
+  .flash-highlight {
+    animation: flashHighlight 0.7s ease;
+    border-radius: 14px;
+  }
+  .tap-press {
+    transition: transform 0.12s ease, background 0.18s ease, opacity 0.18s ease;
+  }
+  .tap-press:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .tap-press:disabled {
+    cursor: not-allowed;
+  }
+`
+
 // Egenskaper per maskinslag — sheeten visar bara det som är relevant för
 // objektet (styrt av FAKTISK data via useMatchning, aldrig dim_objekt.maskin_id
 // som är opålitlig på delade objekt).
@@ -166,29 +192,6 @@ function parseExternSkotning(obj) {
   return copy;
 }
 
-function getSaknas(obj) {
-  if (obj.exkludera) return []
-  const saknas = []
-  if (!obj.huvudtyp) saknas.push('Huvudtyp')
-  if (!obj.bolag) saknas.push('Bolag')
-  if (!obj.skogsagare) saknas.push('Markägare')
-  if (!obj.atgard) saknas.push('Åtgärd')
-  return saknas
-}
-
-function isKomplett(obj) {
-  return getSaknas(obj).length === 0
-}
-
-function getProgress(obj) {
-  let filled = 0
-  if (obj.huvudtyp) filled++
-  if (obj.bolag) filled++
-  if (obj.skogsagare) filled++
-  if (obj.atgard) filled++
-  return filled / 4
-}
-
 // "Ser ut som autogenererat datum" — heltalssträng, t.ex. 20260408 eller 80426
 function looksLikeAutoDate(name) {
   if (!name) return false
@@ -263,6 +266,31 @@ function getWarnings(obj) {
   }
 
   return w
+}
+
+// Obligatoriska fält — översiktssidans "Måste fyllas i"-rader + progressrad.
+// target = rad-id på översiktssidan (scroll + flash).
+const KRAV_FALT = [
+  { key: 'huvudtyp', label: 'Huvudtyp', target: 'huvudtyp-section' },
+  { key: 'bolag', label: 'Bolag', target: 'bolag-section' },
+  { key: 'skogsagare', label: 'Markägare', target: 'skogsagare-section' },
+  { key: 'atgard', label: 'Åtgärd', target: 'atgard-section' },
+]
+
+// "12 maj" ur "YYYY-MM-DD" — fasta namn, ingen locale-överraskning
+const MANADER_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
+function fmtKortDatum(ymd: any) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return ymd || ''
+  return `${parseInt(m[3], 10)} ${MANADER_KORT[parseInt(m[2], 10) - 1] || m[2]}`
+}
+
+// "2 av 4 klart — Bolag och åtgärd saknas" (första ordet versalt, resten gemena)
+function progressText(saknas: any[]) {
+  if (saknas.length === 0) return 'Alla obligatoriska fält ifyllda'
+  const namn = saknas.map((f: any, i: number) => i === 0 ? f.label : f.label.toLowerCase())
+  const lista = namn.length === 1 ? namn[0] : `${namn.slice(0, -1).join(', ')} och ${namn[namn.length - 1]}`
+  return `${KRAV_FALT.length - saknas.length} av ${KRAV_FALT.length} klart — ${lista} saknas`
 }
 
 // Smooth scroll + flash highlight i 0.6s
@@ -464,6 +492,7 @@ function ChipInput({ label, value, options, setOptions, onChange, embedded = fal
 
   return (
     <div style={embedded ? styles.chipInputBoxEmbedded : styles.chipInputBox}>
+      {(label || onRemoveOption) && (
       <div style={styles.chipInputHeader}>
         <span style={styles.chipInputLabel}>{label}</span>
         {onRemoveOption && (
@@ -476,6 +505,7 @@ function ChipInput({ label, value, options, setOptions, onChange, embedded = fal
           </button>
         )}
       </div>
+      )}
       {value && (
         <div style={styles.chipSelected}>
           <span>{value}</span>
@@ -505,26 +535,6 @@ function ChipInput({ label, value, options, setOptions, onChange, embedded = fal
         {input.trim() && !options.some(o => o.toLowerCase() === input.toLowerCase()) && (
           <div onClick={handleCreate} style={styles.chipNew}>+ {input}</div>
         )}
-      </div>
-    </div>
-  )
-}
-
-// Simple Chip Select
-function SimpleChipSelect({ label, value, options, onChange, embedded = false }) {
-  return (
-    <div style={embedded ? styles.chipInputBoxEmbedded : styles.chipInputBox}>
-      <div style={styles.chipInputLabel}>{label}</div>
-      <div style={{...styles.chipGrid, marginTop: 10}}>
-        {options.map(opt => (
-          <Chip
-            key={opt}
-            label={opt}
-            selected={value === opt}
-            onClick={() => onChange(value === opt ? '' : opt)}
-            editMode={false}
-          />
-        ))}
       </div>
     </div>
   )
@@ -710,53 +720,37 @@ function LockedInput({ label, value, onChange, placeholder, embedded = false }) 
   )
 }
 
-// VO-nummer — samma direkt-redigerbara mönster
-function VOBox({ value, onChange, embedded = false }) {
-  const [focused, setFocused] = useState(false)
-  const baseStyle = embedded ? styles.directRowEmbedded : styles.directRowStandalone
-  return (
-    <div
-      style={embedded
-        ? { ...baseStyle, background: focused ? 'rgba(173,198,255,0.06)' : 'transparent' }
-        : { ...baseStyle, borderColor: focused ? 'rgba(173,198,255,0.35)' : 'rgba(255,255,255,0.08)' }
-      }
-    >
-      <span style={styles.directRowLabel}>VO-nummer</span>
-      <input
-        type="text"
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        placeholder="Ange VO-nummer …"
-        style={styles.directRowInput}
-      />
-    </div>
-  )
-}
-
-// Save button
-function SaveButton({ onClick, saving, saved }) {
+// Save button — dimmad när inget är ändrat, tänd blå med ändringsräknare vid dirty.
+// Sparandet triggas bara härifrån (undersidor har bara "Klar" som går tillbaka).
+function SaveButton({ onClick, saving, saved, dirty, antal }: any) {
   const [pulse, setPulse] = useState(false)
-  
+  const inaktiv = !dirty && !saving && !saved
+
   const handleClick = () => {
-    if (saving) return
+    if (saving || inaktiv) return
     setPulse(true)
     onClick()
   }
 
+  const label = saved ? 'Sparat!'
+    : saving ? 'Sparar...'
+    : dirty ? `Spara · ${antal} ${antal === 1 ? 'ändring' : 'ändringar'}`
+    : 'Spara'
+
   return (
-    <button 
-      onClick={handleClick} 
-      disabled={saving}
+    <button
+      onClick={handleClick}
+      disabled={saving || inaktiv}
       style={{
         ...styles.saveBtn,
-        background: saved ? '#adc6ff' : saving ? 'rgba(173,198,255,0.5)' : '#adc6ff',
-        boxShadow: pulse ? '0 0 30px rgba(173,198,255,0.8)' : '0 4px 20px rgba(173,198,255,0.3)',
+        background: inaktiv ? 'rgba(255,255,255,0.08)' : saving ? 'rgba(173,198,255,0.5)' : '#adc6ff',
+        color: inaktiv ? 'rgba(255,255,255,0.35)' : '#000',
+        cursor: inaktiv ? 'default' : 'pointer',
+        boxShadow: inaktiv ? 'none' : pulse ? '0 0 30px rgba(173,198,255,0.8)' : '0 4px 20px rgba(173,198,255,0.3)',
         transform: pulse ? 'scale(0.98)' : 'scale(1)'
       }}
     >
-      {saved ? 'Sparat!' : saving ? 'Sparar...' : 'Spara'}
+      {label}
     </button>
   )
 }
@@ -849,47 +843,28 @@ function KortBadges({ obj }) {
   )
 }
 
-// Varningslista — listar fält som behöver fixas, klickbar scroll-till-fält
-function WarningsList({ warnings, onJump }) {
-  if (warnings.length === 0) {
-    return (
-      <div style={styles.warningsAllOk}>
-        Alla fält ifyllda
-      </div>
-    )
-  }
-  return (
-    <div style={styles.warningsBox}>
-      <div style={styles.warningsHeader}>
-        {warnings.length} {warnings.length === 1 ? 'fält behöver åtgärdas' : 'fält behöver åtgärdas'}
-      </div>
-      {warnings.map(w => (
-        <button
-          key={w.key}
-          onClick={() => onJump(w.target)}
-          style={styles.warningRow}
-        >
-          <span style={styles.warningDot} />
-          <span style={styles.warningText}>{w.text}</span>
-          <span style={styles.warningArrow}>›</span>
-        </button>
-      ))}
-    </div>
-  )
-}
-
 // Bottom sheet med drag-to-close, esc, spring-animation, smooth backdrop-blur.
 // Föräldern äger {open, onClose}. Esc/drag/klick-utanför kallar onClose
 // som intent-callback — föräldern bestämmer om setValtObjekt(null) ska
 // köras (t.ex. visa dirty-dialog först). Exit-animation körs när open
 // går från true → false.
-function EditSheet({ open, onClose, title, subtitel, footer, children }: any) {
+// onBack (valfri) visar ‹-knapp för undersidor; ✕ uppe till höger går alltid
+// via onClose (samma intent-väg som Esc/backdrop/drag — dirty-guarden i
+// föräldern gäller alla). contentKey nollställer scrollen vid sidbyte.
+function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey, children }: any) {
   const [closing, setClosing] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [dragOffset, setDragOffset] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const dragStartY = useRef(null)
+  const contentRef = useRef<any>(null)
   const wasOpenRef = useRef(open)
+
+  // Ny undersida/översikt -> börja överst, utan kvarhängande scroll-skugga
+  useEffect(() => {
+    setScrolled(false)
+    if (contentRef.current) contentRef.current.scrollTop = 0
+  }, [contentKey])
 
   // Trigga exit-animation när open går true → false
   useEffect(() => {
@@ -1010,11 +985,17 @@ function EditSheet({ open, onClose, title, subtitel, footer, children }: any) {
           ...styles.sheetHeader,
           borderBottom: scrolled ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent',
         }}>
-          <div style={styles.sheetTitel}>{title}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {onBack && (
+              <button onClick={onBack} className="tap-press" aria-label="Tillbaka" style={{ ...styles.sheetNavBtn, fontSize: 22 }}>‹</button>
+            )}
+            <div style={{ ...styles.sheetTitel, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+            <button onClick={handleClose} className="tap-press" aria-label="Stäng" style={styles.sheetNavBtn}>✕</button>
+          </div>
           {subtitel}
         </div>
         <div style={{ ...styles.scrollFade, opacity: scrolled ? 1 : 0 }} />
-        <div style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
+        <div ref={contentRef} style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
           {children}
         </div>
         {footer && <div style={styles.sheetFooter}>{footer}</div>}
@@ -1043,7 +1024,8 @@ function IosGroup({ title, children }) {
 }
 
 // Talfält med svensk decimalkomma. Rå text lokalt (så "5," går att skriva),
-// parsat värde (eller null) propageras vid varje ändring.
+// parsat värde (eller null) propageras vid varje ändring. Ogiltig text får
+// röd kant och propagerar null — aldrig ett tyst 0.
 function NumField({ label, value, onChange, placeholder, suffix }: any) {
   const [raw, setRaw] = useState(value == null ? '' : String(value).replace('.', ','))
   const [focused, setFocused] = useState(false)
@@ -1052,6 +1034,7 @@ function NumField({ label, value, onChange, placeholder, suffix }: any) {
     if (!focused) setRaw(value == null ? '' : String(value).replace('.', ','))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
+  const invalid = raw.trim() !== '' && !Number.isFinite(parseFloat(raw.replace(',', '.')))
   const handle = (t: string) => {
     setRaw(t)
     const parsed = parseFloat(t.replace(',', '.'))
@@ -1069,10 +1052,81 @@ function NumField({ label, value, onChange, placeholder, suffix }: any) {
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder={placeholder || ''}
-          style={{ ...styles.directRowInput, flex: 'none', width: 110 } as any}
+          style={{
+            ...styles.directRowInput, flex: 'none', width: 110,
+            padding: '4px 8px', borderRadius: 8,
+            border: `1px solid ${invalid ? 'rgba(255,69,58,0.6)' : 'transparent'}`,
+            color: invalid ? '#FF453A' : '#fff',
+          } as any}
         />
         {suffix && <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{suffix}</span>}
       </div>
+    </div>
+  )
+}
+
+// Segmented control (två-tre val i rad) — samma visuella språk som
+// Ackord/Timpeng-väljaren
+function Segment({ value, options, onChange }: any) {
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      {options.map((o: any) => {
+        const vald = value === o.varde
+        return (
+          <button
+            key={o.label}
+            onClick={() => onChange(o.varde)}
+            className="tap-press"
+            style={{
+              flex: 1, minHeight: 44, borderRadius: 12, fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+              border: `1px solid ${vald ? 'rgba(173,198,255,0.45)' : 'rgba(255,255,255,0.1)'}`,
+              background: vald ? 'rgba(173,198,255,0.14)' : 'transparent',
+              color: vald ? '#adc6ff' : 'rgba(255,255,255,0.55)',
+            }}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// Rad i "Måste fyllas i" — kollapsad visar värdet (grått) eller "Välj ›"
+// (orange), tryck expanderar redigeraren under raden
+function KravRad({ label, value, expanded, onToggle, children }: any) {
+  const [hover, setHover] = useState(false)
+  return (
+    <div>
+      <div
+        onClick={onToggle}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{ ...styles.kravRad, background: hover || expanded ? 'rgba(255,255,255,0.03)' : 'transparent' }}
+      >
+        <span style={styles.directRowLabel}>{label}</span>
+        {value
+          ? <span style={styles.kravVarde as any}>{value}</span>
+          : <span style={styles.kravValj}>Välj ›</span>}
+      </div>
+      {expanded && <div style={{ animation: 'fadeIn 0.15s ease' }}>{children}</div>}
+    </div>
+  )
+}
+
+// Rad i "Mer om objektet" — navigerar till en undersida i sheeten
+function NavRad({ label, summary, warn, onClick }: any) {
+  const [hover, setHover] = useState(false)
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ ...styles.kravRad, background: hover ? 'rgba(255,255,255,0.03)' : 'transparent' }}
+    >
+      <span style={styles.directRowLabel}>{label}</span>
+      <span style={{ ...styles.navSummary, ...(warn ? styles.navSummaryWarn : {}) } as any}>{summary}</span>
+      <span style={styles.navPil}>›</span>
     </div>
   )
 }
@@ -1122,23 +1176,45 @@ function MaskinBadges({ syskon, kortInfo }: any) {
   )
 }
 
-// Redigerings-modal
-function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, syskon, skordatTotal, onRaderUppdaterade, listAtgarder }: any) {
-  const isGallring = valtObjekt.huvudtyp === 'Gallring'
-  const atgarder = isGallring ? atgarderGallring : atgarderSlut
-  const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
-  const progress = getProgress(valtObjekt)
-  const warnings = getWarnings(valtObjekt)
-  const [pendingHuvudtyp, setPendingHuvudtyp] = useState(null)
-  const [quickFixState, setQuickFixState] = useState({ status: 'idle', message: '' })
-  const [fardigskotat, setFardigskotat] = useState({ sparar: false, fel: '' })
+// "Maskinen rapporterar avslut"-ruta + snabbfix. end_date och maskin_id
+// skrivs av SAMMA fil vid varje import — end_date tillhör alltså maskinen i
+// maskin_id. Anroparen renderar rutan bara i rätt maskinslags undersida.
+function MaskinAvslutRuta({ obj, set, field, label }: any) {
+  if (!obj.end_date) return null
+  const display = formatEndDateDisplay(obj.end_date)
+  const ymd = formatYMD(obj.end_date)
+  const alreadySet = obj[field]
+  return (
+    <div style={styles.machineEndInfo}>
+      <div style={styles.machineEndLabel}>Maskinen rapporterar avslut</div>
+      <div style={styles.machineEndValue}>{display}</div>
+      {!alreadySet && ymd && (
+        <button
+          onClick={() => set({ ...obj, [field]: ymd })}
+          className="tap-press"
+          style={styles.machineEndFixBtn}
+        >
+          Sätt {label} avslutad till {ymd}
+        </button>
+      )}
+      {alreadySet && (
+        <div style={styles.machineEndDone}>{capFirst(label)} redan markerad avslutad ({obj[field]})</div>
+      )}
+    </div>
+  )
+}
 
-  const showQuickFixName = looksLikeAutoDate(valtObjekt.object_name)
+// UNDERSIDA: Identitet — VO-nummer, objektnamn (+ hämta-från-filnamn), inköpare.
+// Inköpare bor här (inte i "Måste fyllas i") — den ingår inte i de
+// obligatoriska fälten i datamodellen (getSaknas/KRAV_FALT).
+function SubIdentitet({ obj, set, inkopare, setInkopare, listAtgarder }: any) {
+  const [quickFixState, setQuickFixState] = useState({ status: 'idle', message: '' })
+  const showQuickFixName = looksLikeAutoDate(obj.object_name)
   const runQuickFix = async () => {
     setQuickFixState({ status: 'loading', message: '' })
-    const r = await hamtaNamnFranFilnamn(valtObjekt)
+    const r = await hamtaNamnFranFilnamn(obj)
     if (r.ok) {
-      setValtObjekt({ ...valtObjekt, object_name: r.name })
+      set({ ...obj, object_name: r.name })
       setQuickFixState({ status: 'done', message: `Hämtat: ${r.name}` })
       setTimeout(() => setQuickFixState({ status: 'idle', message: '' }), 2200)
     } else {
@@ -1146,233 +1222,183 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
       setTimeout(() => setQuickFixState({ status: 'idle', message: '' }), 3500)
     }
   }
-
-  const toggleEgenskap = (key) => {
-    setValtObjekt({...valtObjekt, [key]: !valtObjekt[key]})
-  }
-
-  const requestHuvudtyp = (v) => {
-    if (v === valtObjekt.huvudtyp) return
-    if (valtObjekt.atgard) {
-      setPendingHuvudtyp(v)
-    } else {
-      setValtObjekt({...valtObjekt, huvudtyp: v, atgard: ''})
-    }
-  }
-
-  const skotningWarning = (() => {
-    if (!valtObjekt.skotning_avslutad) return null
-    if (!valtObjekt.skordning_avslutad) {
-      // Grot-/rena skotarobjekt skördas aldrig — att skördning saknar
-      // avslut är normalläget där, ingen varning. (skordatTotal räknar
-      // över alla syskonrader, så P-VO-objektens skördarrad missas inte.)
-      if ((Number(skordatTotal) || 0) === 0) return null
-      return 'Skördning är inte avslutad än.'
-    }
-    if (valtObjekt.skotning_avslutad < valtObjekt.skordning_avslutad) return 'Skotning är satt före skördningens avslutsdatum.'
-    return null
-  })()
-
-  // Vilka sektioner som visas styrs av FAKTISK data (useMatchning) — aldrig
-  // dim_objekt.maskin_id, som på delade objekt bara pekar på senast skrivande
-  // fil. Noll data -> visa båda sektionerna (gissa inte).
-  const harSkordarData = (info?.skordatM3 ?? 0) > 0
-  const harSkotarData = (info?.skotatM3 ?? 0) > 0 || (Number(valtObjekt.skotad_volym_manuell) || 0) > 0
-  const ingenData = !harSkordarData && !harSkotarData
-  const visaSkordare = harSkordarData || ingenData
-  const visaSkotare = harSkotarData || ingenData
-
-  // end_date och maskin_id skrivs av SAMMA fil vid varje import — end_date
-  // tillhör alltså maskinen i maskin_id. Rutan renderas bara i den sektion
-  // vars maskinslag matchar, aldrig i fel sektion.
-  const radMaskinTyp = (valtObjekt.maskin_typ || '').toLowerCase()
-  const maskinAvslutRuta = (field: string, label: string) => {
-    if (!valtObjekt.end_date) return null
-    const display = formatEndDateDisplay(valtObjekt.end_date)
-    const ymd = formatYMD(valtObjekt.end_date)
-    const alreadySet = valtObjekt[field]
-    return (
-      <div style={styles.machineEndInfo}>
-        <div style={styles.machineEndLabel}>Maskinen rapporterar avslut</div>
-        <div style={styles.machineEndValue}>{display}</div>
-        {!alreadySet && ymd && (
-          <button
-            onClick={() => setValtObjekt({ ...valtObjekt, [field]: ymd })}
-            className="tap-press"
-            style={styles.machineEndFixBtn}
-          >
-            Sätt {label} avslutad till {ymd}
-          </button>
-        )}
-        {alreadySet && (
-          <div style={styles.machineEndDone}>{capFirst(label)} redan markerad avslutad ({valtObjekt[field]})</div>
-        )}
-      </div>
-    )
-  }
-
   return (
-    <>
-      <div style={styles.progressHeader}>
-        <MiniRing progress={progress} />
-        <span style={styles.progressText}>
-          {progress === 1 ? 'Komplett' : `${Math.round(progress * 4)}/4 obligatoriska fält`}
-        </span>
-      </div>
-
-      <WarningsList warnings={warnings} onJump={scrollAndFlash} />
-
-      <IosGroup title="Identitet">
-        <div id="vo_nummer-section">
-          <VOBox embedded value={valtObjekt.vo_nummer} onChange={(v) => setValtObjekt({...valtObjekt, vo_nummer: v})} />
-        </div>
-        <div id="object_name-section">
-          <LockedInput embedded label="Objektnamn" value={valtObjekt.object_name || ''} onChange={(v) => setValtObjekt({...valtObjekt, object_name: v})} placeholder="T.ex. Lindön AU 2025" />
-          {showQuickFixName && (
-            <div style={{ padding: '0 16px 14px' }}>
-              <button
-                onClick={runQuickFix}
-                disabled={quickFixState.status === 'loading'}
-                className="tap-press"
-                style={{
-                  ...styles.quickFixBtn,
-                  opacity: quickFixState.status === 'loading' ? 0.6 : 1,
-                  cursor: quickFixState.status === 'loading' ? 'wait' : 'pointer',
-                }}
-              >
-                {quickFixState.status === 'loading' ? 'Hämtar …' : 'Hämta från filnamn'}
-              </button>
-              {quickFixState.message && (
-                <div style={{
-                  ...styles.quickFixMessage,
-                  ...(quickFixState.status === 'error' ? styles.quickFixMessageError : styles.quickFixMessageOk),
-                }}>
-                  {quickFixState.message}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        <div id="skogsagare-section">
-          <LockedInput embedded label="Markägare" value={valtObjekt.skogsagare || ''} onChange={(v) => setValtObjekt({...valtObjekt, skogsagare: v})} placeholder="Skriv markägarens namn …" />
-        </div>
-      </IosGroup>
-
-      <IosGroup title="Affär">
-        <div id="bolag-section">
-          <ChipInput embedded label="Bolag" value={valtObjekt.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v: any) => setValtObjekt({...valtObjekt, bolag: v})} onAddOption={listAtgarder?.onAddBolag} onRemoveOption={listAtgarder?.onRemoveBolag} />
-        </div>
-        <div id="inkopare-section">
-          <ChipInput embedded label="Inköpare" value={valtObjekt.inkopare || ''} options={inkopare} setOptions={setInkopare} onChange={(v: any) => setValtObjekt({...valtObjekt, inkopare: v})} onAddOption={listAtgarder?.onAddInkopare} onRemoveOption={listAtgarder?.onRemoveInkopare} />
-        </div>
-      </IosGroup>
-
-      <IosGroup title="Klassificering">
-        <div id="huvudtyp-section">
-          <SimpleChipSelect embedded label="Huvudtyp" value={valtObjekt.huvudtyp || ''} options={HUVUDTYPER} onChange={requestHuvudtyp} />
-        </div>
-        {valtObjekt.huvudtyp && (
-          <div id="atgard-section">
-            <ChipInput embedded label="Åtgärd" value={valtObjekt.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v) => setValtObjekt({...valtObjekt, atgard: v})} />
-          </div>
-        )}
-      </IosGroup>
-
-      <IosGroup title="Pris & ersättning">
-        {/* Ackord/Timpeng överst — objektets faktureringsläge ska synas
-            direkt. dim_objekt.timpeng är ENDA källan för flaggan. */}
-        <div id="timpeng-section" style={{ padding: '14px 16px 4px' }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[
-              { varde: false, label: 'Ackord' },
-              { varde: true, label: 'Timpeng' },
-            ].map(alt => {
-              const vald = (valtObjekt.timpeng === true) === alt.varde
-              return (
-                <button
-                  key={alt.label}
-                  onClick={() => setValtObjekt({ ...valtObjekt, timpeng: alt.varde })}
-                  className="tap-press"
-                  style={{
-                    flex: 1, minHeight: 48, borderRadius: 12, fontSize: 15, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                    border: `1px solid ${vald ? 'rgba(173,198,255,0.45)' : 'rgba(255,255,255,0.1)'}`,
-                    background: vald ? 'rgba(173,198,255,0.14)' : 'transparent',
-                    color: vald ? '#adc6ff' : 'rgba(255,255,255,0.55)',
-                  }}
-                >
-                  {vald ? '●' : '○'} {alt.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-        {valtObjekt.timpeng !== true && (
-          <div style={{ padding: '4px 16px 10px' }}>
-            <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Timpeng-undantag</div>
-            <NumField
-              label="Skördare"
-              value={valtObjekt.timpeng_undantag_timmar_skordare}
-              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_timmar_skordare: v })}
-              placeholder="t.ex. 5,5"
-              suffix="h timpeng"
-            />
-            <NumField
-              label="Skotare"
-              value={valtObjekt.timpeng_undantag_timmar_skotare}
-              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_timmar_skotare: v })}
-              placeholder="t.ex. 3"
-              suffix="h timpeng"
-            />
-            <NumField
-              label="Volym"
-              value={valtObjekt.timpeng_undantag_volym}
-              onChange={(v: number | null) => setValtObjekt({ ...valtObjekt, timpeng_undantag_volym: v })}
-              placeholder="0"
-              suffix="m³"
-            />
-            {(Number(valtObjekt.timpeng_undantag_volym) || 0) > 0 && (
-              <div style={styles.switchList as any}>
-                <EgenskapSwitch
-                  label="Dra volymen från skördarackordet"
-                  active={valtObjekt.timpeng_undantag_dra_skordare !== false}
-                  onClick={() => setValtObjekt({ ...valtObjekt, timpeng_undantag_dra_skordare: !(valtObjekt.timpeng_undantag_dra_skordare !== false) })}
-                  orange={false}
-                />
-                <EgenskapSwitch
-                  label="Dra volymen från skotarackordet"
-                  active={valtObjekt.timpeng_undantag_dra_skotare !== false}
-                  onClick={() => setValtObjekt({ ...valtObjekt, timpeng_undantag_dra_skotare: !(valtObjekt.timpeng_undantag_dra_skotare !== false) })}
-                  orange={false}
-                />
+    <IosGroup title="Identitet">
+      <LockedInput embedded label="VO-nummer" value={obj.vo_nummer} onChange={(v: any) => set({ ...obj, vo_nummer: v })} placeholder="Ange VO-nummer …" />
+      <div>
+        <LockedInput embedded label="Objektnamn" value={obj.object_name || ''} onChange={(v: any) => set({ ...obj, object_name: v })} placeholder="T.ex. Lindön AU 2025" />
+        {showQuickFixName && (
+          <div style={{ padding: '0 16px 14px' }}>
+            <button
+              onClick={runQuickFix}
+              disabled={quickFixState.status === 'loading'}
+              className="tap-press"
+              style={{
+                ...styles.quickFixBtn,
+                opacity: quickFixState.status === 'loading' ? 0.6 : 1,
+                cursor: quickFixState.status === 'loading' ? 'wait' : 'pointer',
+              }}
+            >
+              {quickFixState.status === 'loading' ? 'Hämtar …' : 'Hämta från filnamn'}
+            </button>
+            {quickFixState.message && (
+              <div style={{
+                ...styles.quickFixMessage,
+                ...(quickFixState.status === 'error' ? styles.quickFixMessageError : styles.quickFixMessageOk),
+              }}>
+                {quickFixState.message}
               </div>
             )}
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, padding: '6px 2px 0' }}>
-              Del av objektet körd på timpeng. Tomt fält = ingen timpeng-del för den
-              maskinen (rent ackord). Timmarna faktureras respektive maskins timpris;
-              volymen dras från ackordet enligt valen — annars dubbelbetald. Uträkningen
-              syns i Ekonomi → Per objekt → &quot;Så räknades priset&quot;.
-            </div>
           </div>
         )}
-      </IosGroup>
+      </div>
+      <ChipInput embedded label="Inköpare" value={obj.inkopare || ''} options={inkopare} setOptions={setInkopare} onChange={(v: any) => set({ ...obj, inkopare: v })} onAddOption={listAtgarder?.onAddInkopare} onRemoveOption={listAtgarder?.onRemoveInkopare} />
+    </IosGroup>
+  )
+}
 
-      {/* SKOTNING — alltid åtkomlig, oavsett maskindata. Extern skotning =
-          någon annan skotar = det kommer ALDRIG en skotarfil från oss, så
-          fältet måste gå att sätta på rena skördarobjekt (skotarsektionen
-          visas ju bara när skotardata finns). Uppföljningen räknar externt
-          skotade objekt som INTE oskotade. */}
+// UNDERSIDA: Skördare — egenskaper + avslut (synlighet styrs av faktisk data
+// i översikten, #167: rätt fält för rätt maskin)
+function SubSkordare({ obj, set }: any) {
+  const radMaskinTyp = (obj.maskin_typ || '').toLowerCase()
+  return (
+    <IosGroup title="🌲 Skördare">
+      <div style={{ padding: '14px 16px' }}>
+        <div style={styles.switchList}>
+          {EGENSKAPER_SKORDARE.map(e => (
+            <EgenskapSwitch key={e.key} label={e.label} active={obj[e.key] === true} onClick={() => set({ ...obj, [e.key]: !obj[e.key] })} orange={false} />
+          ))}
+        </div>
+      </div>
+      <div id="avslut-skordare-section" style={{ padding: '4px 16px 14px' }}>
+        <div style={styles.switchList}>
+          <DateToggle
+            label="Skördning avslutad"
+            date={obj.skordning_avslutad || null}
+            onToggle={(val: any) => set({ ...obj, skordning_avslutad: val })}
+            onDateChange={(val: any) => set({ ...obj, skordning_avslutad: val })}
+          />
+        </div>
+        {radMaskinTyp === 'harvester' && <MaskinAvslutRuta obj={obj} set={set} field="skordning_avslutad" label="skördning" />}
+      </div>
+    </IosGroup>
+  )
+}
+
+// UNDERSIDA: Pris & ersättning — Ackord/Timpeng + timpeng-undantag.
+// dim_objekt.timpeng är ENDA källan för flaggan.
+function SubPris({ obj, set }: any) {
+  return (
+    <IosGroup title="Pris & ersättning">
+      <div id="timpeng-section" style={{ padding: '14px 16px 4px' }}>
+        <Segment
+          value={obj.timpeng === true}
+          options={[
+            { varde: false, label: 'Ackord' },
+            { varde: true, label: 'Timpeng' },
+          ]}
+          onChange={(v: boolean) => set({ ...obj, timpeng: v })}
+        />
+      </div>
+      {obj.timpeng !== true && (
+        <div style={{ padding: '4px 16px 10px' }}>
+          <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Timpeng-undantag</div>
+          <NumField
+            label="Skördare"
+            value={obj.timpeng_undantag_timmar_skordare}
+            onChange={(v: number | null) => set({ ...obj, timpeng_undantag_timmar_skordare: v })}
+            placeholder="t.ex. 5,5"
+            suffix="h timpeng"
+          />
+          <NumField
+            label="Skotare"
+            value={obj.timpeng_undantag_timmar_skotare}
+            onChange={(v: number | null) => set({ ...obj, timpeng_undantag_timmar_skotare: v })}
+            placeholder="t.ex. 3"
+            suffix="h timpeng"
+          />
+          <NumField
+            label="Volym"
+            value={obj.timpeng_undantag_volym}
+            onChange={(v: number | null) => set({ ...obj, timpeng_undantag_volym: v })}
+            placeholder="0"
+            suffix="m³"
+          />
+          {(Number(obj.timpeng_undantag_volym) || 0) > 0 && (
+            <div style={styles.switchList as any}>
+              <EgenskapSwitch
+                label="Dra volymen från skördarackordet"
+                active={obj.timpeng_undantag_dra_skordare !== false}
+                onClick={() => set({ ...obj, timpeng_undantag_dra_skordare: !(obj.timpeng_undantag_dra_skordare !== false) })}
+                orange={false}
+              />
+              <EgenskapSwitch
+                label="Dra volymen från skotarackordet"
+                active={obj.timpeng_undantag_dra_skotare !== false}
+                onClick={() => set({ ...obj, timpeng_undantag_dra_skotare: !(obj.timpeng_undantag_dra_skotare !== false) })}
+                orange={false}
+              />
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, padding: '6px 2px 0' }}>
+            Del av objektet körd på timpeng. Tomt fält = ingen timpeng-del för den
+            maskinen (rent ackord). Timmarna faktureras respektive maskins timpris;
+            volymen dras från ackordet enligt valen — annars dubbelbetald. Uträkningen
+            syns i Ekonomi → Per objekt → &quot;Så räknades priset&quot;.
+          </div>
+        </div>
+      )}
+    </IosGroup>
+  )
+}
+
+// UNDERSIDA: Skotning — egen/extern skotning. Alltid åtkomlig, oavsett
+// maskindata: extern skotning = någon annan skotar = det kommer ALDRIG en
+// skotarfil från oss, så fältet måste gå att sätta på rena skördarobjekt
+// (skotar-undersidan visas ju bara när skotardata finns). Uppföljningen
+// räknar externt skotade objekt som INTE oskotade.
+function SubSkotning({ obj, set }: any) {
+  const typTimme = obj._extern_pris_typ === 'timme'
+  const pris = Number(obj._extern_pris) || 0
+  const antal = Number(obj._extern_antal) || 0
+  const radRam = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14 }
+  return (
+    <>
       <IosGroup title="Skotning">
         <div style={{ padding: '14px 16px' }}>
           <div style={styles.switchList}>
-            <EgenskapSwitch label="Egen skotning" active={valtObjekt.egen_skotning === true} onClick={() => toggleEgenskap('egen_skotning')} orange={false} />
-            <EgenskapSwitch label="Extern skotare (inlejd)" active={valtObjekt._extern_skotning === true} onClick={() => setValtObjekt({...valtObjekt, _extern_skotning: !valtObjekt._extern_skotning})} orange={false} />
+            <EgenskapSwitch label="Egen skotning" active={obj.egen_skotning === true} onClick={() => set({ ...obj, egen_skotning: !obj.egen_skotning })} orange={false} />
+            <EgenskapSwitch label="Extern skotare (inlejd)" active={obj._extern_skotning === true} onClick={() => set({ ...obj, _extern_skotning: !obj._extern_skotning })} orange={false} />
           </div>
-          {valtObjekt._extern_skotning && (
+          {obj._extern_skotning && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-              <LockedInput label="Företag / person" value={valtObjekt._extern_foretag || ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_foretag: v})} placeholder="Namn på extern skotare …" />
-              <SimpleChipSelect label="Pristyp" value={valtObjekt._extern_pris_typ || 'm3'} options={['m3', 'timme']} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_pris_typ: v})} />
-              <LockedInput label={`Pris per ${valtObjekt._extern_pris_typ === 'timme' ? 'timme' : 'm³'} (kr)`} value={valtObjekt._extern_pris ? String(valtObjekt._extern_pris) : ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_pris: parseFloat(v) || 0})} placeholder="0" />
-              <LockedInput label={`Antal ${valtObjekt._extern_pris_typ === 'timme' ? 'timmar' : 'm³'}`} value={valtObjekt._extern_antal ? String(valtObjekt._extern_antal) : ''} onChange={(v: any) => setValtObjekt({...valtObjekt, _extern_antal: parseFloat(v) || 0})} placeholder="0" />
+              <LockedInput label="Företag / person" value={obj._extern_foretag || ''} onChange={(v: any) => set({ ...obj, _extern_foretag: v })} placeholder="Namn på extern skotare …" />
+              <Segment
+                value={typTimme ? 'timme' : 'm3'}
+                options={[
+                  { varde: 'm3', label: 'per m³' },
+                  { varde: 'timme', label: 'per timme' },
+                ]}
+                onChange={(v: string) => set({ ...obj, _extern_pris_typ: v })}
+              />
+              <div style={radRam}>
+                <NumField
+                  label={`Pris per ${typTimme ? 'timme' : 'm³'}`}
+                  value={obj._extern_pris ?? null}
+                  onChange={(v: number | null) => set({ ...obj, _extern_pris: v })}
+                  placeholder="0"
+                  suffix="kr"
+                />
+              </div>
+              <div style={radRam}>
+                <NumField
+                  label={`Antal ${typTimme ? 'timmar' : 'm³'}`}
+                  value={obj._extern_antal ?? null}
+                  onChange={(v: number | null) => set({ ...obj, _extern_antal: v })}
+                  placeholder="0"
+                  suffix={typTimme ? 'h' : 'm³'}
+                />
+              </div>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
                 Externt skotade objekt räknas inte som oskotade i uppföljningen — någon annan tar volymen.
               </div>
@@ -1380,129 +1406,268 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
           )}
         </div>
       </IosGroup>
-
-      {visaSkordare && (
-        <IosGroup title="🌲 Skördare">
-          <div style={{ padding: '14px 16px' }}>
-            <div style={styles.switchList}>
-              {EGENSKAPER_SKORDARE.map(e => (
-                <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
-              ))}
-            </div>
-          </div>
-          <div id="avslut-skordare-section" style={{ padding: '4px 16px 14px' }}>
-            <div style={styles.switchList}>
-              <DateToggle
-                label="Skördning avslutad"
-                date={valtObjekt.skordning_avslutad || null}
-                onToggle={(val: any) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
-                onDateChange={(val: any) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
-              />
-            </div>
-            {radMaskinTyp === 'harvester' && maskinAvslutRuta('skordning_avslutad', 'skördning')}
-          </div>
-        </IosGroup>
+      {obj._extern_skotning === true && pris > 0 && antal > 0 && (
+        <div style={styles.kostnadRad}>
+          Beräknad kostnad: {Math.round(pris * antal).toLocaleString('sv-SE')} kr
+        </div>
       )}
+    </>
+  )
+}
 
-      {visaSkotare && (
-        <IosGroup title="🚜 Skotare">
-          {/* Skotad volym — lass från maskinen, eller manuellt angiven verklig
-              volym. Källan märks ALLTID ut; falska lass skrivs aldrig. */}
-          <div style={{ padding: '14px 16px 4px' }}>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 8 }}>
-              {(Number(valtObjekt.skotad_volym_manuell) || 0) > 0 ? (
-                <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{Number(valtObjekt.skotad_volym_manuell).toLocaleString('sv-SE')} m³</span>{' '}
-                  <span style={{ color: '#FF9F0A', fontWeight: 600 }}>(manuellt angivet)</span>
-                  <span style={{ color: 'rgba(255,255,255,0.35)' }}> · lass: {(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span></>
+// UNDERSIDA: Skotare — skotad volym/färdigskotat (direktsparas), egenskaper,
+// avslut. Färdigskotat-knappen skriver direkt till DB (ärlig sparning med
+// radräkning) och speglas i snapshotet via onRaderUppdaterade så den inte
+// räknas som osparad ändring.
+function SubSkotare({ obj, set, info, skordatTotal, syskon, onRaderUppdaterade }: any) {
+  const [fardigskotat, setFardigskotat] = useState({ sparar: false, fel: '' })
+  const radMaskinTyp = (obj.maskin_typ || '').toLowerCase()
+
+  const skotningWarning = (() => {
+    if (!obj.skotning_avslutad) return null
+    if (!obj.skordning_avslutad) {
+      // Grot-/rena skotarobjekt skördas aldrig — att skördning saknar
+      // avslut är normalläget där, ingen varning. (skordatTotal räknar
+      // över alla syskonrader, så P-VO-objektens skördarrad missas inte.)
+      if ((Number(skordatTotal) || 0) === 0) return null
+      return 'Skördning är inte avslutad än.'
+    }
+    if (obj.skotning_avslutad < obj.skordning_avslutad) return 'Skotning är satt före skördningens avslutsdatum.'
+    return null
+  })()
+
+  return (
+    <IosGroup title="🚜 Skotare">
+      {/* Skotad volym — lass från maskinen, eller manuellt angiven verklig
+          volym. Källan märks ALLTID ut; falska lass skrivs aldrig. */}
+      <div style={{ padding: '14px 16px 4px' }}>
+        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 8 }}>
+          {(Number(obj.skotad_volym_manuell) || 0) > 0 ? (
+            <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{Number(obj.skotad_volym_manuell).toLocaleString('sv-SE')} m³</span>{' '}
+              <span style={{ color: '#FF9F0A', fontWeight: 600 }}>(manuellt angivet)</span>
+              <span style={{ color: 'rgba(255,255,255,0.35)' }}> · lass: {(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span></>
+          ) : (
+            <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span> <span style={{ color: 'rgba(255,255,255,0.35)' }}>(lass)</span></>
+          )}
+        </div>
+        {(() => {
+          const manuell = (Number(obj.skotad_volym_manuell) || 0) > 0
+          const volymAttSatta = Math.round(Number(skordatTotal) || 0)
+          const skotarIds = raderForMaskinslag(syskon || [obj], 'forwarder', obj.objekt_id)
+          const satt = async (varde: number | null) => {
+            setFardigskotat({ sparar: true, fel: '' })
+            const r = await direktPatchDimObjekt(skotarIds, { skotad_volym_manuell: varde })
+            if (r.ok) {
+              set({ ...obj, skotad_volym_manuell: varde })
+              if (onRaderUppdaterade) onRaderUppdaterade(skotarIds, { skotad_volym_manuell: varde })
+              setFardigskotat({ sparar: false, fel: '' })
+            } else {
+              setFardigskotat({ sparar: false, fel: r.message })
+            }
+          }
+          return (
+            <div>
+              {!manuell ? (
+                <button
+                  onClick={() => satt(volymAttSatta)}
+                  disabled={fardigskotat.sparar || volymAttSatta <= 0}
+                  className="tap-press"
+                  style={{
+                    width: '100%', minHeight: 48, borderRadius: 12, border: 'none',
+                    background: volymAttSatta > 0 ? '#adc6ff' : 'rgba(255,255,255,0.08)',
+                    color: volymAttSatta > 0 ? '#000' : 'rgba(255,255,255,0.35)',
+                    fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
+                    cursor: volymAttSatta > 0 ? 'pointer' : 'not-allowed',
+                    opacity: fardigskotat.sparar ? 0.6 : 1,
+                  }}
+                >
+                  {fardigskotat.sparar ? 'Sparar …' : volymAttSatta > 0
+                    ? `Markera som färdigskotat (${volymAttSatta.toLocaleString('sv-SE')} m³)`
+                    : 'Färdigskotat — ingen skördad volym att utgå från'}
+                </button>
               ) : (
-                <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span> <span style={{ color: 'rgba(255,255,255,0.35)' }}>(lass)</span></>
+                <button
+                  onClick={() => satt(null)}
+                  disabled={fardigskotat.sparar}
+                  className="tap-press"
+                  style={{
+                    width: '100%', minHeight: 44, borderRadius: 12,
+                    border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+                    color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                    opacity: fardigskotat.sparar ? 0.6 : 1,
+                  }}
+                >
+                  {fardigskotat.sparar ? 'Sparar …' : 'Ta bort färdigskotat-markeringen'}
+                </button>
+              )}
+              {fardigskotat.fel && (
+                <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{fardigskotat.fel}</div>
               )}
             </div>
-            {(() => {
-              const manuell = (Number(valtObjekt.skotad_volym_manuell) || 0) > 0
-              const volymAttSatta = Math.round(Number(skordatTotal) || 0)
-              const skotarIds = raderForMaskinslag(syskon || [valtObjekt], 'forwarder', valtObjekt.objekt_id)
-              const satt = async (varde: number | null) => {
-                setFardigskotat({ sparar: true, fel: '' })
-                const r = await direktPatchDimObjekt(skotarIds, { skotad_volym_manuell: varde })
-                if (r.ok) {
-                  setValtObjekt({ ...valtObjekt, skotad_volym_manuell: varde })
-                  if (onRaderUppdaterade) onRaderUppdaterade(skotarIds, { skotad_volym_manuell: varde })
-                  setFardigskotat({ sparar: false, fel: '' })
-                } else {
-                  setFardigskotat({ sparar: false, fel: r.message })
-                }
-              }
-              return (
-                <div>
-                  {!manuell ? (
-                    <button
-                      onClick={() => satt(volymAttSatta)}
-                      disabled={fardigskotat.sparar || volymAttSatta <= 0}
-                      className="tap-press"
-                      style={{
-                        width: '100%', minHeight: 48, borderRadius: 12, border: 'none',
-                        background: volymAttSatta > 0 ? '#adc6ff' : 'rgba(255,255,255,0.08)',
-                        color: volymAttSatta > 0 ? '#000' : 'rgba(255,255,255,0.35)',
-                        fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
-                        cursor: volymAttSatta > 0 ? 'pointer' : 'not-allowed',
-                        opacity: fardigskotat.sparar ? 0.6 : 1,
-                      }}
-                    >
-                      {fardigskotat.sparar ? 'Sparar …' : volymAttSatta > 0
-                        ? `Markera som färdigskotat (${volymAttSatta.toLocaleString('sv-SE')} m³)`
-                        : 'Färdigskotat — ingen skördad volym att utgå från'}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => satt(null)}
-                      disabled={fardigskotat.sparar}
-                      className="tap-press"
-                      style={{
-                        width: '100%', minHeight: 44, borderRadius: 12,
-                        border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
-                        color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                        opacity: fardigskotat.sparar ? 0.6 : 1,
-                      }}
-                    >
-                      {fardigskotat.sparar ? 'Sparar …' : 'Ta bort färdigskotat-markeringen'}
-                    </button>
-                  )}
-                  {fardigskotat.fel && (
-                    <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{fardigskotat.fel}</div>
-                  )}
-                </div>
-              )
-            })()}
-          </div>
-          <div style={{ padding: '4px 16px' }}>
-            <div style={styles.switchList}>
-              {EGENSKAPER_SKOTARE.map(e => (
-                <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
-              ))}
-            </div>
-          </div>
-          <div id="avslut-skotare-section" style={{ padding: '4px 16px 14px' }}>
-            <div style={styles.switchList}>
-              <DateToggle
-                label="Skotning avslutad"
-                date={valtObjekt.skotning_avslutad || null}
-                onToggle={(val: any) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
-                onDateChange={(val: any) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
-              />
-              {skotningWarning && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{skotningWarning}</div>}
-            </div>
-            {radMaskinTyp === 'forwarder' && maskinAvslutRuta('skotning_avslutad', 'skotning')}
-          </div>
-        </IosGroup>
-      )}
+          )
+        })()}
+      </div>
+      <div style={{ padding: '4px 16px' }}>
+        <div style={styles.switchList}>
+          {EGENSKAPER_SKOTARE.map(e => (
+            <EgenskapSwitch key={e.key} label={e.label} active={obj[e.key] === true} onClick={() => set({ ...obj, [e.key]: !obj[e.key] })} orange={false} />
+          ))}
+        </div>
+      </div>
+      <div id="avslut-skotare-section" style={{ padding: '4px 16px 14px' }}>
+        <div style={styles.switchList}>
+          <DateToggle
+            label="Skotning avslutad"
+            date={obj.skotning_avslutad || null}
+            onToggle={(val: any) => set({ ...obj, skotning_avslutad: val })}
+            onDateChange={(val: any) => set({ ...obj, skotning_avslutad: val })}
+          />
+          {skotningWarning && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{skotningWarning}</div>}
+        </div>
+        {radMaskinTyp === 'forwarder' && <MaskinAvslutRuta obj={obj} set={set} field="skotning_avslutad" label="skotning" />}
+      </div>
+    </IosGroup>
+  )
+}
 
+// ÖVERSIKTSSIDAN i sheeten: progressrad -> "Måste fyllas i" (öppna rader) ->
+// "Mer om objektet" (undersidor) -> Exkludera. De obligatoriska fälten
+// redigeras direkt här; allt annat nås via NavRad + oppnaSub.
+function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info }: any) {
+  const isGallring = obj.huvudtyp === 'Gallring'
+  const atgarder = isGallring ? atgarderGallring : atgarderSlut
+  const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
+  const [oppetFalt, setOppetFalt] = useState<any>(null)
+  const [pendingHuvudtyp, setPendingHuvudtyp] = useState<any>(null)
+
+  const saknas = KRAV_FALT.filter(f => !obj[f.key])
+  const warnings = getWarnings(obj)
+  const avslutWarn = warnings.find(w => w.key === 'reported_end' || w.key === 'maybe_done')
+  const radTyp = (obj.maskin_typ || '').toLowerCase()
+
+  // Vilka maskinrader som visas styrs av FAKTISK data (useMatchning) — aldrig
+  // dim_objekt.maskin_id, som på delade objekt bara pekar på senast skrivande
+  // fil. Noll data -> visa båda raderna (gissa inte).
+  const harSkordarData = (info?.skordatM3 ?? 0) > 0
+  const harSkotarData = (info?.skotatM3 ?? 0) > 0 || (Number(obj.skotad_volym_manuell) || 0) > 0
+  const ingenData = !harSkordarData && !harSkotarData
+  const visaSkordare = harSkordarData || ingenData
+  const visaSkotare = harSkotarData || ingenData
+
+  const requestHuvudtyp = (v: any) => {
+    if (v === obj.huvudtyp) { setOppetFalt(null); return }
+    if (obj.atgard) {
+      setPendingHuvudtyp(v)
+    } else {
+      // Rör inte atgard här — den är redan tom, och null -> '' skulle
+      // räknas som en fantomändring i Spara-räknaren
+      set({ ...obj, huvudtyp: v })
+      setOppetFalt(null)
+    }
+  }
+
+  // Radsammanfattningar — det viktigaste utan att öppna undersidan
+  const identitetSum = looksLikeAutoDate(obj.object_name)
+    ? { text: 'Autogenererat namn', warn: true }
+    : { text: obj.vo_nummer ? `VO ${obj.vo_nummer}` : 'VO saknas', warn: false }
+
+  const maskinSum = (avslutadDatum: any, egenskaper: any[], arRadensTyp: boolean) => {
+    const aktiva = egenskaper.filter(e => obj[e.key] === true).length
+    const suffix = aktiva > 0 ? ` · ${aktiva} ${aktiva === 1 ? 'aktiv' : 'aktiva'}` : ''
+    if (avslutWarn && arRadensTyp) {
+      return { text: avslutWarn.key === 'reported_end' ? 'Avslut ej markerat' : 'Verkar klar — ej markerad', warn: true }
+    }
+    if (avslutadDatum) return { text: `Klar ${fmtKortDatum(avslutadDatum)}${suffix}`, warn: false }
+    return { text: `Pågår${suffix}`, warn: false }
+  }
+  const skordareSum = maskinSum(obj.skordning_avslutad, EGENSKAPER_SKORDARE, radTyp === 'harvester')
+  const skotareSum = maskinSum(obj.skotning_avslutad, EGENSKAPER_SKOTARE, radTyp === 'forwarder')
+
+  const skotningSum = {
+    text: obj._extern_skotning ? 'Extern skotare' : obj.egen_skotning ? 'Egen skotning' : '—',
+    warn: false,
+  }
+  const harUndantag = obj.timpeng !== true && (
+    (Number(obj.timpeng_undantag_timmar_skordare) || 0) > 0 ||
+    (Number(obj.timpeng_undantag_timmar_skotare) || 0) > 0 ||
+    (Number(obj.timpeng_undantag_volym) || 0) > 0)
+  const prisSum = {
+    text: `${obj.timpeng === true ? 'Timpeng' : 'Ackord'}${harUndantag ? ' · undantag' : ''}`,
+    warn: false,
+  }
+
+  return (
+    <>
+      <div
+        style={{ ...styles.progressHeader, cursor: saknas.length > 0 ? 'pointer' : 'default' }}
+        onClick={() => {
+          if (saknas.length === 0) return
+          setOppetFalt(saknas[0].key)
+          scrollAndFlash(saknas[0].target)
+        }}
+      >
+        <MiniRing progress={(KRAV_FALT.length - saknas.length) / KRAV_FALT.length} />
+        <span style={styles.progressText}>{progressText(saknas)}</span>
+      </div>
+
+      <IosGroup title="Måste fyllas i">
+        <div id="huvudtyp-section">
+          <KravRad label="Huvudtyp" value={obj.huvudtyp} expanded={oppetFalt === 'huvudtyp'} onToggle={() => setOppetFalt(oppetFalt === 'huvudtyp' ? null : 'huvudtyp')}>
+            <div style={{ padding: '0 16px 16px' }}>
+              <div style={styles.chipGrid as any}>
+                {HUVUDTYPER.map(h => (
+                  <Chip key={h} label={h} selected={obj.huvudtyp === h} onClick={() => requestHuvudtyp(h)} editMode={false} onDelete={() => {}} />
+                ))}
+              </div>
+            </div>
+          </KravRad>
+        </div>
+        <div id="bolag-section">
+          <KravRad label="Bolag" value={obj.bolag} expanded={oppetFalt === 'bolag'} onToggle={() => setOppetFalt(oppetFalt === 'bolag' ? null : 'bolag')}>
+            <ChipInput embedded label={null} value={obj.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v: any) => { set({ ...obj, bolag: v }); if (v) setOppetFalt(null) }} onAddOption={listAtgarder?.onAddBolag} onRemoveOption={listAtgarder?.onRemoveBolag} />
+          </KravRad>
+        </div>
+        <div id="skogsagare-section">
+          <KravRad label="Markägare" value={obj.skogsagare} expanded={oppetFalt === 'skogsagare'} onToggle={() => setOppetFalt(oppetFalt === 'skogsagare' ? null : 'skogsagare')}>
+            <div style={{ padding: '0 16px 16px' }}>
+              <input
+                autoFocus
+                type="text"
+                value={obj.skogsagare || ''}
+                onChange={(e) => set({ ...obj, skogsagare: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') setOppetFalt(null) }}
+                placeholder="Skriv markägarens namn …"
+                style={{ ...styles.chipInput, marginBottom: 0 } as any}
+              />
+            </div>
+          </KravRad>
+        </div>
+        <div id="atgard-section">
+          <KravRad label="Åtgärd" value={obj.atgard} expanded={oppetFalt === 'atgard'} onToggle={() => setOppetFalt(oppetFalt === 'atgard' ? null : 'atgard')}>
+            {obj.huvudtyp ? (
+              <ChipInput embedded label={null} value={obj.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v: any) => { set({ ...obj, atgard: v }); if (v) setOppetFalt(null) }} />
+            ) : (
+              <div style={{ padding: '0 16px 16px', fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>Välj huvudtyp först.</div>
+            )}
+          </KravRad>
+        </div>
+      </IosGroup>
+
+      <IosGroup title="Mer om objektet">
+        <NavRad label="Identitet" summary={identitetSum.text} warn={identitetSum.warn} onClick={() => oppnaSub('identitet')} />
+        {visaSkordare && <NavRad label="🌲 Skördare" summary={skordareSum.text} warn={skordareSum.warn} onClick={() => oppnaSub('skordare')} />}
+        {visaSkotare && <NavRad label="🚜 Skotare" summary={skotareSum.text} warn={skotareSum.warn} onClick={() => oppnaSub('skotare')} />}
+        <NavRad label="Skotning" summary={skotningSum.text} warn={skotningSum.warn} onClick={() => oppnaSub('skotning')} />
+        <NavRad label="Pris & ersättning" summary={prisSum.text} warn={prisSum.warn} onClick={() => oppnaSub('pris')} />
+      </IosGroup>
+
+      {/* Exkludera — medvetet ÖPPEN rad längst ned, aldrig gömd i undersida */}
       <IosGroup title="Statistik">
         <div style={{ padding: '12px 16px' }}>
           <EgenskapSwitch
             label="Exkludera från statistik"
-            active={valtObjekt.exkludera}
-            onClick={() => setValtObjekt({...valtObjekt, exkludera: !valtObjekt.exkludera})}
+            active={obj.exkludera}
+            onClick={() => set({ ...obj, exkludera: !obj.exkludera })}
             orange
           />
         </div>
@@ -1511,15 +1676,158 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
       <ConfirmDialog
         open={!!pendingHuvudtyp}
         title="Byt huvudtyp?"
-        message={`Detta tar bort vald åtgärd ("${valtObjekt.atgard}"). Du måste välja åtgärd på nytt.`}
+        message={`Detta tar bort vald åtgärd ("${obj.atgard}"). Du måste välja åtgärd på nytt.`}
         confirmLabel="Byt huvudtyp"
         cancelLabel="Avbryt"
         onConfirm={() => {
-          setValtObjekt({...valtObjekt, huvudtyp: pendingHuvudtyp, atgard: ''})
+          set({ ...obj, huvudtyp: pendingHuvudtyp, atgard: '' })
           setPendingHuvudtyp(null)
+          setOppetFalt(null)
         }}
         onCancel={() => setPendingHuvudtyp(null)}
       />
+    </>
+  )
+}
+
+// EDITORN — hela redigeringssheeten (översikt + undersidor + dirty-guard +
+// spara). EN delad instans används av både arbetslistan och Alla objekt —
+// tidigare bar varje vy sin egen kopia av all denna logik.
+function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, kortInfo, listAtgarder, onClose }: any) {
+  const [valtObjekt, setValtObjekt] = useState<any>(null)
+  const [originalObjekt, setOriginalObjekt] = useState<any>(null)
+  const [subpage, setSubpage] = useState<any>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [showDirtyDialog, setShowDirtyDialog] = useState(false)
+
+  // Nytt objekt in -> snapshot för dirty-jämförelsen, börja på översikten
+  useEffect(() => {
+    if (obj) {
+      const parsed = parseExternSkotning(obj)
+      setValtObjekt(parsed)
+      setOriginalObjekt(parsed)
+      setSubpage(null)
+      setSaved(false)
+      setSaveError('')
+    } else {
+      setValtObjekt(null)
+      setOriginalObjekt(null)
+    }
+  }, [obj])
+
+  // Ändrade toppnivå-nycklar mot snapshotet — driver både dirty-guarden
+  // och räknaren i Spara-knappen
+  const andradeNycklar = (valtObjekt && originalObjekt)
+    ? Object.keys({ ...originalObjekt, ...valtObjekt }).filter(k => JSON.stringify(valtObjekt[k]) !== JSON.stringify(originalObjekt[k]))
+    : []
+  const isDirty = andradeNycklar.length > 0
+
+  const syskon = valtObjekt ? syskonRader(objekt, valtObjekt) : []
+  const info = valtObjekt ? kortInfo[valtObjekt.objekt_id] : null
+  const skordatTotal = syskon.reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)
+
+  // Gäller ALLA stängningsvägar (✕, Esc, drag, backdrop) — även från undersida
+  const attemptCloseModal = () => {
+    if (isDirty) setShowDirtyDialog(true)
+    else onClose()
+  }
+  const closeAndDiscard = () => { setShowDirtyDialog(false); onClose() }
+  const saveThenClose = () => { setShowDirtyDialog(false); sparaObjekt() }
+
+  // Direktsparade rader (färdigskotat-knappen) speglas i lista + snapshot
+  // så de inte räknas som osparade ändringar
+  const raderUppdaterade = (ids: string[], patch: any) => {
+    setObjekt((prev: any[]) => prev.map((o: any) => ids.includes(o.objekt_id) ? { ...o, ...patch } : o))
+    setOriginalObjekt((prev: any) => prev && ids.includes(prev.objekt_id) ? { ...prev, ...patch } : prev)
+  }
+
+  async function sparaObjekt() {
+    if (!valtObjekt) return
+    setSaving(true)
+    setSaveError('')
+    const sysk = syskonRader(objekt, valtObjekt)
+    let res = { ok: false, message: '' }
+    try {
+      res = await sparaObjektTillSupabase(valtObjekt, sysk)
+    } catch (err) {
+      res = { ok: false, message: 'Kunde inte spara — försök igen' }
+    }
+    if (res.ok) {
+      // Spegla multi-rad-saven i lokal state: gemensamt till hela VO-gruppen,
+      // maskinspecifikt till respektive maskinslags rader
+      const gruppIds = sysk.map((o: any) => o.objekt_id)
+      const skordarIds = raderForMaskinslag(sysk, 'harvester', valtObjekt.objekt_id)
+      const skotarIds = raderForMaskinslag(sysk, 'forwarder', valtObjekt.objekt_id)
+      const gemensamt = plocka(valtObjekt, GEMENSAMMA_FALT)
+      const skordarPatch = plocka(valtObjekt, SKORDARFALT)
+      const skotarPatch = plocka(valtObjekt, SKOTARFALT)
+      setObjekt((prev: any[]) => prev.map((o: any) => {
+        if (o.objekt_id === valtObjekt.objekt_id) return valtObjekt
+        let uppdaterad = o
+        if (gruppIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...gemensamt }
+        if (skordarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skordarPatch }
+        if (skotarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skotarPatch }
+        return uppdaterad
+      }))
+      setSaved(true)
+      setTimeout(() => { setSaved(false); onClose() }, 600)
+    } else {
+      setSaveError(res.message || 'Kunde inte spara — försök igen')
+      setTimeout(() => setSaveError(''), 6000)
+    }
+    setSaving(false)
+  }
+
+  const titlar: any = { identitet: 'Identitet', skordare: '🌲 Skördare', skotare: '🚜 Skotare', skotning: 'Skotning', pris: 'Pris & ersättning' }
+
+  return (
+    <>
+      <EditSheet
+        open={!!valtObjekt}
+        onClose={attemptCloseModal}
+        onBack={subpage ? () => setSubpage(null) : undefined}
+        title={valtObjekt ? (subpage ? titlar[subpage] : (valtObjekt.object_name || 'Namnlöst objekt')) : ''}
+        subtitel={valtObjekt && !subpage ? <MaskinBadges syskon={syskon} kortInfo={kortInfo} /> : null}
+        contentKey={subpage || 'oversikt'}
+        footer={valtObjekt && (subpage
+          ? <button onClick={() => setSubpage(null)} className="tap-press" style={styles.klarBtn}>Klar</button>
+          : <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} dirty={isDirty} antal={andradeNycklar.length} />)}
+      >
+        {valtObjekt && !subpage && (
+          <SheetOversikt
+            obj={valtObjekt} set={setValtObjekt} oppnaSub={setSubpage}
+            bolag={bolag} setBolag={setBolag} listAtgarder={listAtgarder}
+            atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut}
+            atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring}
+            info={info}
+          />
+        )}
+        {valtObjekt && subpage === 'identitet' && (
+          <SubIdentitet obj={valtObjekt} set={setValtObjekt} inkopare={inkopare} setInkopare={setInkopare} listAtgarder={listAtgarder} />
+        )}
+        {valtObjekt && subpage === 'skordare' && <SubSkordare obj={valtObjekt} set={setValtObjekt} />}
+        {valtObjekt && subpage === 'skotare' && (
+          <SubSkotare obj={valtObjekt} set={setValtObjekt} info={info} skordatTotal={skordatTotal} syskon={syskon} onRaderUppdaterade={raderUppdaterade} />
+        )}
+        {valtObjekt && subpage === 'skotning' && <SubSkotning obj={valtObjekt} set={setValtObjekt} />}
+        {valtObjekt && subpage === 'pris' && <SubPris obj={valtObjekt} set={setValtObjekt} />}
+      </EditSheet>
+      <ConfirmDialog
+        open={showDirtyDialog}
+        title="Du har osparade ändringar"
+        message="Vill du spara innan du stänger?"
+        confirmLabel={saving ? 'Sparar …' : 'Spara'}
+        discardLabel="Stäng utan att spara"
+        cancelLabel="Avbryt"
+        onConfirm={saveThenClose}
+        onDiscard={closeAndDiscard}
+        onCancel={() => setShowDirtyDialog(false)}
+      />
+      {saveError && (
+        <div style={styles.saveErrorToast} role="alert">{saveError}</div>
+      )}
     </>
   )
 }
@@ -1575,16 +1883,11 @@ export default function ObjektRedigering() {
   const [inkopare, setInkopare] = useState<string[]>([])
   const [atgarderSlut, setAtgarderSlut] = useState(['LRK', 'Rp', 'Au', 'Special', 'VF/Bark'])
   const [atgarderGallring, setAtgarderGallring] = useState(['Första gallring', 'Andra gallring'])
-  const [valtObjekt, setValtObjekt] = useState<any>(null)
-  const [originalObjekt, setOriginalObjekt] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  // Objektet som redigeras — all sheet-logik bor i ObjektEditor
+  const [redigerObj, setRedigerObj] = useState<any>(null)
   const [saveError, setSaveError] = useState('')
-  const [showDirtyDialog, setShowDirtyDialog] = useState(false)
-  const [closing, setClosing] = useState(false)
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
   const [visaMatchning, setVisaMatchning] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
   // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
   const matchning = useMatchning()
 
@@ -1614,31 +1917,7 @@ export default function ObjektRedigering() {
     onRemoveInkopare: (n: string) => taBortUrVallista('inkopare', n, setInkopare),
   }
 
-  // Öppna objekt — snapshotar original så vi kan jämföra för dirty-check
-  const openObjekt = (obj) => {
-    const parsed = parseExternSkotning(obj)
-    setOriginalObjekt(parsed)
-    setValtObjekt(parsed)
-  }
-
-  const isDirty = !!(valtObjekt && originalObjekt &&
-    JSON.stringify(valtObjekt) !== JSON.stringify(originalObjekt))
-
-  const attemptCloseModal = () => {
-    if (isDirty) setShowDirtyDialog(true)
-    else { setValtObjekt(null); setOriginalObjekt(null) }
-  }
-
-  const closeAndDiscard = () => {
-    setShowDirtyDialog(false)
-    setValtObjekt(null)
-    setOriginalObjekt(null)
-  }
-
-  const saveThenClose = () => {
-    setShowDirtyDialog(false)
-    sparaObjekt()
-  }
+  const openObjekt = (obj: any) => setRedigerObj(obj)
 
   // Hämta från Supabase vid start
   useEffect(() => {
@@ -1731,47 +2010,6 @@ export default function ObjektRedigering() {
     setObjekt(objekt.map(o => o.objekt_id === obj.objekt_id ? { ...o, exkludera: true } : o))
   }
 
-  async function sparaObjekt() {
-    if (!valtObjekt) return
-    setSaving(true)
-    setSaveError('')
-    const syskon = syskonRader(objekt, valtObjekt)
-    let res = { ok: false, message: '' }
-    try {
-      res = await sparaObjektTillSupabase(valtObjekt, syskon)
-    } catch (err) {
-      res = { ok: false, message: 'Kunde inte spara — försök igen' }
-    }
-    if (res.ok) {
-      // Spegla multi-rad-saven i lokal state: gemensamt till hela VO-gruppen,
-      // maskinspecifikt till respektive maskinslags rader
-      const gruppIds = syskon.map((o: any) => o.objekt_id)
-      const skordarIds = raderForMaskinslag(syskon, 'harvester', valtObjekt.objekt_id)
-      const skotarIds = raderForMaskinslag(syskon, 'forwarder', valtObjekt.objekt_id)
-      const gemensamt = plocka(valtObjekt, GEMENSAMMA_FALT)
-      const skordarPatch = plocka(valtObjekt, SKORDARFALT)
-      const skotarPatch = plocka(valtObjekt, SKOTARFALT)
-      setObjekt(objekt.map((o: any) => {
-        if (o.objekt_id === valtObjekt.objekt_id) return valtObjekt
-        let uppdaterad = o
-        if (gruppIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...gemensamt }
-        if (skordarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skordarPatch }
-        if (skotarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skotarPatch }
-        return uppdaterad
-      }))
-      setSaved(true)
-      setTimeout(() => {
-        setValtObjekt(null)
-        setOriginalObjekt(null)
-        setSaved(false)
-      }, 600)
-    } else {
-      setSaveError(res.message || 'Kunde inte spara — försök igen')
-      setTimeout(() => setSaveError(''), 6000)
-    }
-    setSaving(false)
-  }
-
   // Loading-vy
   if (loading) {
     return (
@@ -1808,29 +2046,7 @@ export default function ObjektRedigering() {
 
   return (
     <div style={styles.container}>
-      <style>{`
-        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        @keyframes slideDown { from { transform: translateY(0); opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-        @keyframes flashHighlight {
-          0%   { background: rgba(255,159,10,0.20); box-shadow: 0 0 0 6px rgba(255,159,10,0.15); }
-          100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
-        }
-        .flash-highlight {
-          animation: flashHighlight 0.7s ease;
-          border-radius: 14px;
-        }
-        .tap-press {
-          transition: transform 0.12s ease, background 0.18s ease, opacity 0.18s ease;
-        }
-        .tap-press:active:not(:disabled) {
-          transform: scale(0.97);
-        }
-        .tap-press:disabled {
-          cursor: not-allowed;
-        }
-      `}</style>
+      <style>{GLOBAL_CSS}</style>
 
       <div style={styles.header}>
         <div style={styles.headerCenter}>
@@ -1933,27 +2149,17 @@ export default function ObjektRedigering() {
         </>
       )}
 
-      <EditSheet
-        open={!!valtObjekt}
-        onClose={attemptCloseModal}
-        title={valtObjekt ? (valtObjekt.object_name || 'Namnlöst objekt') : ''}
-        subtitel={valtObjekt && <MaskinBadges syskon={syskonRader(objekt, valtObjekt)} kortInfo={kortInfo} />}
-        footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
-      >
-        {valtObjekt && (
-          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} info={kortInfo[valtObjekt.objekt_id]} syskon={syskonRader(objekt, valtObjekt)} skordatTotal={syskonRader(objekt, valtObjekt).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)} onRaderUppdaterade={(ids: string[], patch: any) => { setObjekt((prev: any[]) => prev.map((o: any) => ids.includes(o.objekt_id) ? { ...o, ...patch } : o)); setOriginalObjekt((prev: any) => prev && ids.includes(prev.objekt_id) ? { ...prev, ...patch } : prev) }} listAtgarder={listAtgarder} />
-        )}
-      </EditSheet>
-      <ConfirmDialog
-        open={showDirtyDialog}
-        title="Du har osparade ändringar"
-        message="Vill du spara innan du stänger?"
-        confirmLabel={saving ? 'Sparar …' : 'Spara'}
-        discardLabel="Stäng utan att spara"
-        cancelLabel="Avbryt"
-        onConfirm={saveThenClose}
-        onDiscard={closeAndDiscard}
-        onCancel={() => setShowDirtyDialog(false)}
+      <ObjektEditor
+        obj={redigerObj}
+        objekt={objekt}
+        setObjekt={setObjekt}
+        bolag={bolag} setBolag={setBolag}
+        inkopare={inkopare} setInkopare={setInkopare}
+        atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut}
+        atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring}
+        kortInfo={kortInfo}
+        listAtgarder={listAtgarder}
+        onClose={() => setRedigerObj(null)}
       />
       {saveError && (
         <div style={styles.saveErrorToast} role="alert">{saveError}</div>
@@ -1969,37 +2175,11 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   const [filterHuvudtyp, setFilterHuvudtyp] = useState(null)
   const [filterInkopare, setFilterInkopare] = useState(null)
   const [showSearch, setShowSearch] = useState(false)
-  const [valtObjekt, setValtObjekt] = useState<any>(null)
-  const [originalObjekt, setOriginalObjekt] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [saveError, setSaveError] = useState('')
-  const [showDirtyDialog, setShowDirtyDialog] = useState(false)
-  const [closing, setClosing] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
+  const [redigerObj, setRedigerObj] = useState<any>(null)
   const [backHover, setBackHover] = useState(false)
   const [titleHover, setTitleHover] = useState(false)
 
-  const openObjekt = (obj) => {
-    const parsed = parseExternSkotning(obj)
-    setOriginalObjekt(parsed)
-    setValtObjekt(parsed)
-  }
-  const isDirty = !!(valtObjekt && originalObjekt &&
-    JSON.stringify(valtObjekt) !== JSON.stringify(originalObjekt))
-  const attemptCloseModal = () => {
-    if (isDirty) setShowDirtyDialog(true)
-    else { setValtObjekt(null); setOriginalObjekt(null) }
-  }
-  const closeAndDiscard = () => {
-    setShowDirtyDialog(false)
-    setValtObjekt(null)
-    setOriginalObjekt(null)
-  }
-  const saveThenClose = () => {
-    setShowDirtyDialog(false)
-    sparaObjekt()
-  }
+  const openObjekt = (obj: any) => setRedigerObj(obj)
 
   // "Alla objekt" ska betyda alla AKTIVA — tidigare visades bara kompletta,
   // och exkluderade slank med (isKomplett hoppar över exkluderade i getSaknas)
@@ -2033,72 +2213,9 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
     setSearch('')
   }
 
-  async function sparaObjekt() {
-    if (!valtObjekt) return
-    setSaving(true)
-    setSaveError('')
-    const syskon = syskonRader(objekt, valtObjekt)
-    let res = { ok: false, message: '' }
-    try {
-      res = await sparaObjektTillSupabase(valtObjekt, syskon)
-    } catch (err) {
-      res = { ok: false, message: 'Kunde inte spara — försök igen' }
-    }
-    if (res.ok) {
-      // Spegla multi-rad-saven i lokal state: gemensamt till hela VO-gruppen,
-      // maskinspecifikt till respektive maskinslags rader
-      const gruppIds = syskon.map((o: any) => o.objekt_id)
-      const skordarIds = raderForMaskinslag(syskon, 'harvester', valtObjekt.objekt_id)
-      const skotarIds = raderForMaskinslag(syskon, 'forwarder', valtObjekt.objekt_id)
-      const gemensamt = plocka(valtObjekt, GEMENSAMMA_FALT)
-      const skordarPatch = plocka(valtObjekt, SKORDARFALT)
-      const skotarPatch = plocka(valtObjekt, SKOTARFALT)
-      setObjekt(objekt.map((o: any) => {
-        if (o.objekt_id === valtObjekt.objekt_id) return valtObjekt
-        let uppdaterad = o
-        if (gruppIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...gemensamt }
-        if (skordarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skordarPatch }
-        if (skotarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skotarPatch }
-        return uppdaterad
-      }))
-      setSaved(true)
-      setTimeout(() => {
-        setValtObjekt(null)
-        setOriginalObjekt(null)
-        setSaved(false)
-      }, 600)
-    } else {
-      setSaveError(res.message || 'Kunde inte spara — försök igen')
-      setTimeout(() => setSaveError(''), 6000)
-    }
-    setSaving(false)
-  }
-
   return (
     <div style={styles.container}>
-      <style>{`
-        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        @keyframes slideDown { from { transform: translateY(0); opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-        @keyframes flashHighlight {
-          0%   { background: rgba(255,159,10,0.20); box-shadow: 0 0 0 6px rgba(255,159,10,0.15); }
-          100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
-        }
-        .flash-highlight {
-          animation: flashHighlight 0.7s ease;
-          border-radius: 14px;
-        }
-        .tap-press {
-          transition: transform 0.12s ease, background 0.18s ease, opacity 0.18s ease;
-        }
-        .tap-press:active:not(:disabled) {
-          transform: scale(0.97);
-        }
-        .tap-press:disabled {
-          cursor: not-allowed;
-        }
-      `}</style>
+      <style>{GLOBAL_CSS}</style>
 
       <div style={styles.header}>
         <button 
@@ -2203,31 +2320,18 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         )}
       </div>
 
-      <EditSheet
-        open={!!valtObjekt}
-        onClose={attemptCloseModal}
-        title={valtObjekt ? (valtObjekt.object_name || 'Namnlöst objekt') : ''}
-        subtitel={valtObjekt && <MaskinBadges syskon={syskonRader(objekt, valtObjekt)} kortInfo={kortInfo} />}
-        footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
-      >
-        {valtObjekt && (
-          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} info={kortInfo[valtObjekt.objekt_id]} syskon={syskonRader(objekt, valtObjekt)} skordatTotal={syskonRader(objekt, valtObjekt).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)} onRaderUppdaterade={(ids: string[], patch: any) => { setObjekt((prev: any[]) => prev.map((o: any) => ids.includes(o.objekt_id) ? { ...o, ...patch } : o)); setOriginalObjekt((prev: any) => prev && ids.includes(prev.objekt_id) ? { ...prev, ...patch } : prev) }} listAtgarder={listAtgarder} />
-        )}
-      </EditSheet>
-      <ConfirmDialog
-        open={showDirtyDialog}
-        title="Du har osparade ändringar"
-        message="Vill du spara innan du stänger?"
-        confirmLabel={saving ? 'Sparar …' : 'Spara'}
-        discardLabel="Stäng utan att spara"
-        cancelLabel="Avbryt"
-        onConfirm={saveThenClose}
-        onDiscard={closeAndDiscard}
-        onCancel={() => setShowDirtyDialog(false)}
+      <ObjektEditor
+        obj={redigerObj}
+        objekt={objekt}
+        setObjekt={setObjekt}
+        bolag={bolag} setBolag={setBolag}
+        inkopare={inkopare} setInkopare={setInkopare}
+        atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut}
+        atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring}
+        kortInfo={kortInfo}
+        listAtgarder={listAtgarder}
+        onClose={() => setRedigerObj(null)}
       />
-      {saveError && (
-        <div style={styles.saveErrorToast} role="alert">{saveError}</div>
-      )}
     </div>
   )
 }
@@ -2239,36 +2343,29 @@ const styles = {
   backBtn: { width: 48, height: 48, borderRadius: 24, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 24, cursor: 'pointer', transition: 'all 0.2s ease' },
   titel: { fontSize: 32, fontWeight: 700 },
   subtitel: { fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
-  ringWrapper: { display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 48 },
-  ringStats: { fontSize: 15, color: 'rgba(255,255,255,0.5)', marginTop: 16 },
-  ringHint: { fontSize: 13, color: 'rgba(255,255,255,0.3)', marginTop: 8, transition: 'all 0.3s ease' },
   sectionHeader: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 },
   sectionTitel: { fontSize: 18, fontWeight: 600, flex: 1 },
   sectionCount: { fontSize: 14, fontWeight: 600, color: '#FF9F0A', background: 'rgba(255,159,10,0.15)', padding: '4px 12px', borderRadius: 12 },
-  sectionLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px', marginTop: 28, marginBottom: 12 },
   subsectionLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.2px', marginTop: 20, marginBottom: 10 },
-  scenarioBox: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '16px', borderRadius: 14, marginBottom: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', transition: 'all 0.2s ease', gap: 12 },
-  scenarioContent: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 },
-  scenarioLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px', marginBottom: 6 },
-  scenarioName: { fontSize: 16, fontWeight: 500, color: '#fff' },
-  scenarioDelta: { fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 2 },
-  scenarioGiltighet: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
-  scenarioRow: { display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 14, marginBottom: 8, border: '1px solid', cursor: 'pointer', transition: 'all 0.2s ease' },
-  scenarioRowRadio: { width: 22, height: 22, borderRadius: 11, border: '2px solid', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  scenarioRowDot: { width: 8, height: 8, borderRadius: 4 },
-  scenarioRowText: { flex: 1, minWidth: 0 },
-  scenarioRowName: { fontSize: 16, fontWeight: 500, color: '#fff' },
-  scenarioRowBeskrivning: { fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
-  scenarioRowGiltighet: { fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2 },
   validationWarning: { margin: '12px 16px 4px', padding: '10px 14px', borderRadius: 12, background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', color: 'rgba(255,200,120,0.95)', fontSize: 13, lineHeight: 1.4 },
   saveErrorToast: { position: 'fixed', bottom: 120, left: '50%', transform: 'translateX(-50%)', background: 'rgba(60,18,18,0.95)', color: 'rgba(255,160,160,0.98)', padding: '12px 18px', borderRadius: 12, fontSize: 14, fontWeight: 500, fontFamily: 'inherit', border: '1px solid rgba(255,69,58,0.35)', boxShadow: '0 8px 30px rgba(0,0,0,0.5)', zIndex: 250, animation: 'fadeIn 0.2s ease', maxWidth: '90%', textAlign: 'center' },
   iosGroupWrap: { marginBottom: 24 },
   iosGroupTitle: { fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.2px', padding: '0 4px', marginBottom: 8 },
   iosGroupCard: { background: '#1c1c1e', borderRadius: 14, overflow: 'hidden' },
-  iosDivider: { height: 1, background: 'rgba(255,255,255,0.06)', marginLeft: 16 },
+  iosDivider: { height: 0.5, background: 'rgba(255,255,255,0.08)', marginLeft: 16 },
   chipInputBoxEmbedded: { padding: '14px 16px 16px' },
-  voBoxEmbedded: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'transparent', border: 'none', transition: 'background 0.2s ease', minHeight: 56, boxSizing: 'border-box' },
-  voEditBoxEmbedded: { padding: '14px 16px', background: 'rgba(173,198,255,0.06)', borderTop: '1px solid rgba(173,198,255,0.2)', borderBottom: '1px solid rgba(173,198,255,0.2)' },
+  // Rad i "Måste fyllas i"/"Mer om objektet" — iOS Settings-stil
+  kravRad: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', minHeight: 56, cursor: 'pointer', transition: 'background 0.15s ease' },
+  kravVarde: { fontSize: 15, color: 'rgba(255,255,255,0.55)', textAlign: 'right', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  kravValj: { fontSize: 15, fontWeight: 600, color: '#FF9F0A', flexShrink: 0 },
+  navSummary: { fontSize: 14, color: 'rgba(255,255,255,0.5)', textAlign: 'right', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  navSummaryWarn: { color: '#FF9F0A', fontWeight: 600 },
+  navPil: { fontSize: 20, color: 'rgba(255,255,255,0.25)', flexShrink: 0, lineHeight: 1 },
+  // ✕/‹ i sheetens header
+  sheetNavBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, borderRadius: 18, border: 'none', background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', fontSize: 16, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0, padding: 0 },
+  // "Klar" på undersidor — går bara tillbaka, sparar inget (Spara bor på översikten)
+  klarBtn: { width: '100%', padding: '18px', borderRadius: 16, border: '1px solid rgba(173,198,255,0.4)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 17, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' },
+  kostnadRad: { margin: '-14px 4px 24px', fontSize: 13, color: 'rgba(255,255,255,0.65)', fontVariantNumeric: 'tabular-nums' },
   // Direkt-redigerbart fält i iOS Settings-stil: label vänster, input höger
   directRowStandalone: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', minHeight: 56, gap: 14, marginBottom: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, transition: 'border-color 0.18s ease' },
   directRowEmbedded: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', minHeight: 56, gap: 14, transition: 'background 0.18s ease' },
@@ -2279,15 +2376,6 @@ const styles = {
   machineEndValue: { fontSize: 15, fontWeight: 500, color: '#fff', fontVariantNumeric: 'tabular-nums', marginBottom: 12 },
   machineEndFixBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 56, padding: '0 18px', borderRadius: 12, border: '1px solid rgba(173,198,255,0.35)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', width: '100%', boxSizing: 'border-box' },
   machineEndDone: { fontSize: 13, color: 'rgba(255,255,255,0.55)', fontStyle: 'italic' },
-  machineEndHint: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
-  fieldWrap: { scrollMarginTop: 24 },
-  warningsBox: { marginBottom: 20, padding: '14px 16px 6px', borderRadius: 14, background: 'rgba(255,159,10,0.07)', border: '1px solid rgba(255,159,10,0.22)' },
-  warningsHeader: { fontSize: 13, fontWeight: 600, color: 'rgba(255,200,120,0.95)', marginBottom: 8, letterSpacing: '0.1px' },
-  warningsAllOk: { marginBottom: 20, padding: '12px 16px', borderRadius: 14, background: 'rgba(173,198,255,0.06)', border: '1px solid rgba(173,198,255,0.18)', color: 'rgba(173,198,255,0.85)', fontSize: 13, fontWeight: 500 },
-  warningRow: { display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 44, padding: '0 4px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'rgba(255,255,255,0.85)', fontFamily: 'inherit', fontSize: 14, transition: 'background 0.15s ease', borderRadius: 8 },
-  warningDot: { width: 6, height: 6, borderRadius: 3, background: '#FF9F0A', flexShrink: 0 },
-  warningText: { flex: 1 },
-  warningArrow: { color: 'rgba(255,255,255,0.35)', fontSize: 18, lineHeight: 1 },
   quickFixBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 56, marginTop: 8, padding: '0 18px', borderRadius: 12, background: 'rgba(255,159,10,0.10)', border: '1px solid rgba(255,159,10,0.30)', color: 'rgba(255,200,120,0.95)', fontSize: 14, fontWeight: 600, fontFamily: 'inherit' },
   quickFixMessage: { marginTop: 8, padding: '10px 14px', borderRadius: 12, fontSize: 13, lineHeight: 1.4 },
   quickFixMessageOk: { background: 'rgba(173,198,255,0.08)', border: '1px solid rgba(173,198,255,0.25)', color: 'rgba(173,198,255,0.95)' },
@@ -2295,9 +2383,6 @@ const styles = {
   kortBadges: { display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: 12, color: 'rgba(255,200,120,0.95)' },
   kortBadge: { display: 'inline-flex', alignItems: 'center', gap: 6 },
   kortBadgeMore: { color: 'rgba(255,255,255,0.45)' },
-  filterToggleBar: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 },
-  filterToggleBtn: { minHeight: 40, padding: '0 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', transition: 'all 0.15s ease' },
-  filterToggleBtnActive: { background: 'rgba(173,198,255,0.12)', borderColor: 'rgba(173,198,255,0.35)', color: '#adc6ff' },
   allaDone: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 60, color: '#adc6ff', fontSize: 17, fontWeight: 600 },
   allaDoneCheck: { fontSize: 48, marginBottom: 16, filter: 'drop-shadow(0 0 20px rgba(173,198,255,0.5))' },
   lista: { display: 'flex', flexDirection: 'column', gap: 12 },
@@ -2332,23 +2417,9 @@ const styles = {
   saveBtn: { width: '100%', padding: '18px', borderRadius: 16, border: 'none', background: '#adc6ff', color: '#000', fontSize: 17, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s ease' },
   progressHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' },
   progressText: { fontSize: 14, color: 'rgba(255,255,255,0.6)' },
-  voBox: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', borderRadius: 14, marginBottom: 20, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', transition: 'all 0.2s ease' },
-  voLeft: { display: 'flex', flexDirection: 'column', gap: 6 },
-  voLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px' },
-  voValue: { fontSize: 16, fontWeight: 500, color: '#fff' },
-  voLockBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 56, minWidth: 88, padding: '0 18px', borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', transition: 'all 0.2s ease' },
-  voLockText: { fontSize: 13, color: 'rgba(255,255,255,0.5)' },
-  voEditBox: { padding: '16px', borderRadius: 14, marginBottom: 20, background: 'rgba(173,198,255,0.08)', border: '1px solid rgba(173,198,255,0.3)' },
-  voEditHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  voEditingText: { fontSize: 12, color: '#adc6ff' },
-  voInput: { width: '100%', padding: '14px', borderRadius: 12, border: '1px solid rgba(173,198,255,0.3)', background: 'rgba(0,0,0,0.3)', color: '#fff', fontSize: 16, outline: 'none', boxSizing: 'border-box', marginBottom: 12 },
-  voBtns: { display: 'flex', gap: 10 },
-  voBtnSave: { flex: 1, minHeight: 56, padding: '0 16px', borderRadius: 12, border: 'none', background: '#adc6ff', color: '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
-  voBtnCancel: { flex: 1, minHeight: 56, padding: '0 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.6)', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
   chipInputBox: { marginBottom: 20 },
   chipInputHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   chipInputLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px' },
-  chipEditBtn: { background: 'none', border: 'none', fontSize: 13, cursor: 'pointer', padding: '4px 8px', transition: 'color 0.2s ease' },
   chipSelected: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 14, background: 'rgba(173,198,255,0.15)', border: '1px solid rgba(173,198,255,0.3)', marginBottom: 10, fontSize: 16, fontWeight: 500, color: '#fff' },
   chipClear: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 16, cursor: 'pointer', padding: 4 },
   chipInput: { width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 10, transition: 'border-color 0.2s ease' },
