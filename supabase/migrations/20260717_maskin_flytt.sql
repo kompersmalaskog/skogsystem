@@ -31,12 +31,17 @@ CREATE INDEX IF NOT EXISTS maskin_flytt_pagaende_idx ON maskin_flytt (maskin_id)
 -- OBS: öppna policies (USING true) för alla inloggade — medvetet val 2026-07-17,
 -- flyttar registreras av lastbilsföraren och läses av alla. Delete är admin-only.
 ALTER TABLE maskin_flytt ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS maskin_flytt_select ON maskin_flytt;
 CREATE POLICY maskin_flytt_select ON maskin_flytt FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS maskin_flytt_insert ON maskin_flytt;
 CREATE POLICY maskin_flytt_insert ON maskin_flytt FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS maskin_flytt_update ON maskin_flytt;
 CREATE POLICY maskin_flytt_update ON maskin_flytt FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS maskin_flytt_admin_delete ON maskin_flytt;
 CREATE POLICY maskin_flytt_admin_delete ON maskin_flytt FOR DELETE TO authenticated USING (ar_admin());
 
 -- maskin_position har idag bara admin-write (20260524153632) → förarens
 -- positionsskrivning vid "Ja, lämnad här" skulle bli ett tyst 0-raders-sparande.
+DROP POLICY IF EXISTS maskin_position_insert_authenticated ON maskin_position;
 CREATE POLICY maskin_position_insert_authenticated ON maskin_position
   FOR INSERT TO authenticated WITH CHECK (true);
