@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
-import { uppdateraVerifierat, upsertVerifierat, SPARA_FEL } from "@/lib/supabase-save";
+import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag } from "@/lib/arbetstid";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
@@ -1038,9 +1038,12 @@ export default function Arbetsrapport() {
               const startSec = startTid + ':00';
               for (const o of opna) {
                 const min = minutDiff(o.start_tid, startSec);
-                // Bakgrundspoll — ingen alert; re-fetchen nedan visar sanningen om stängningen inte gick igenom
-                const res = await uppdateraVerifierat(supabase, 'extra_tid', { slut_tid: startSec, minuter: min }, { id: o.id });
-                if (!res.ok) console.error('[auto-stopp] extra_tid', o.id, 'kunde inte stängas');
+                // Bakgrundspoll — ingen alert; re-fetchen nedan visar sanningen om stängningen inte gick igenom.
+                // < 1 min = feltryck: radera i stället för att spara en 0-min-post.
+                const res = min < 1
+                  ? await raderaVerifierat(supabase, 'extra_tid', { id: o.id })
+                  : await uppdateraVerifierat(supabase, 'extra_tid', { slut_tid: startSec, minuter: min }, { id: o.id });
+                if (!res.ok) console.error('[auto-stopp] extra_tid', o.id, 'kunde inte stängas/raderas');
               }
               setPagaendeAktiviteter([]);
               // Refresh extra_tid lista
@@ -1490,6 +1493,21 @@ export default function Arbetsrapport() {
     if (!aktivTimer) return;
     const nuT = nuKlock() + ":00";
     const min = minutDiff(aktivTimer.start_tid, nuT);
+    // Stopp under 1 minut = feltryck, inte arbete. Radera posten i stället
+    // för att spara en 0-min-post — skräpet ska aldrig uppstå vid källan.
+    // (Martins olåsta 0-min-post kom från exakt detta: start+stopp direkt.)
+    if (min < 1) {
+      const bort = await raderaVerifierat(supabase, "extra_tid", { id: aktivTimer.id });
+      if (!bort.ok) { alert(bort.fel); return; } // timern står kvar
+      setPagaendeAktiviteter(arr => arr.filter(x => x.id !== aktivTimer.id));
+      setExtraTidData(arr => arr.filter(x => x.id !== aktivTimer.id));
+      setExtraDagData(m => {
+        const datum = aktivTimer.datum;
+        if (!datum || !m[datum]) return m;
+        return { ...m, [datum]: m[datum].filter((x: any) => x.id !== aktivTimer.id) };
+      });
+      return; // ingen sheet — det fanns inget arbete att beskriva
+    }
     const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuT, minuter: min }, { id: aktivTimer.id }, "*");
     if (!res.ok) { alert(res.fel); return; } // timern står kvar — inget låtsas-stopp
     const uppdaterad = res.rows[0];
@@ -1589,6 +1607,21 @@ export default function Arbetsrapport() {
         });
         stäng();
       };
+      // Radera posten — VERIFIERAT (0 träffade rader = ärligt fel, aldrig
+      // tyst "borttaget"; RLS kan blockera lika tyst som update-buggen #162)
+      const taBortPost = async () => {
+        if (!window.confirm("Ta bort den här posten?")) return;
+        const res = await raderaVerifierat(supabase, "extra_tid", { id: efterStoppSheet.id });
+        if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar
+        setExtraTidData(d => d.filter(x => x.id !== efterStoppSheet.id));
+        setExtraDagData(m => {
+          const datum = efterStoppSheet.datum;
+          if (!datum || !m[datum]) return m;
+          return { ...m, [datum]: m[datum].filter((x: any) => x.id !== efterStoppSheet.id) };
+        });
+        setPagaendeAktiviteter(arr => arr.filter(x => x.id !== efterStoppSheet.id));
+        stäng();
+      };
       return (
         <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1600,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
           <div onClick={e=>e.stopPropagation()}
@@ -1639,6 +1672,10 @@ export default function Arbetsrapport() {
             <button onClick={sparaDetaljer}
               style={{ width:"100%",marginTop:20,padding:"18px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
               Spara
+            </button>
+            <button onClick={taBortPost}
+              style={{ width:"100%",marginTop:8,padding:"14px",background:"rgba(255,69,58,0.12)",color:"#ff453a",border:"1px solid rgba(255,69,58,0.3)",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              Ta bort
             </button>
             <button onClick={stäng}
               style={{ width:"100%",marginTop:8,padding:"12px",background:"none",color:"rgba(255,255,255,0.6)",border:"none",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
@@ -2293,7 +2330,10 @@ export default function Arbetsrapport() {
                     // bekräftas dagen med en timer som fortfarande är öppen i DB.
                     for (const p of pagaendeAktiviteter) {
                       const min = minutDiff(p.start_tid, nuTS);
-                      const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
+                      // < 1 min = feltryck: radera i stället för att spara 0-min-post
+                      const res = min < 1
+                        ? await raderaVerifierat(supabase, "extra_tid", { id: p.id })
+                        : await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
                       if (!res.ok) { alert(res.fel); return; }
                     }
                     if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
