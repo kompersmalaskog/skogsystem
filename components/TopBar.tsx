@@ -22,6 +22,7 @@ const pageNames: Record<string, string> = {
   '/datahalsa': 'Datahälsa',
   '/utbildning': 'Utbildning',
   '/fordonsoversikt': 'Fordonsöversikt',
+  '/maskinflytt': 'Maskinflytt',
   '/avtal': 'Avtal & Abonnemang',
   '/personal': 'Personal',
 }

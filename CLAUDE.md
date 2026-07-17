@@ -57,6 +57,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 | `/maskinvy` | Maskinvy | Maskinöversikt med flikar för Skördare, Skotare och jämförelse |
 | `/maskinvy2` | Skördare Analytics | Detaljerad produktionsanalys per vecka/månad/kvartal/år |
 | `/maskinvy-ny` | Maskinvy Ny | Ny maskinvy med daglig produktion, KPI:er, tidsfördelning |
+| `/maskinflytt` | Maskinflytt | Lastbilsflytt av maskin mellan trakter — GPS-hämtplats, destination, fakturerbar ≥ 3 mil, skriver maskin_flytt + maskin_position |
 | `/arbetsrapport` | Arbetsrapport | Generering av arbetsrapporter |
 | `/bestallningar` | Beställningar | Orderspårning med progressringar och månadsstatistik |
 | `/forbattringsforslag` | Förbättringsförslag | Feedbacksystem med ljudinspelning och textinmatning |
