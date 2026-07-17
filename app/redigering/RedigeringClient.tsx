@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, Fragment, Children } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useMatchning } from './hooks/useMatchning'
+import { useFildata, filStatus } from './hooks/useFildata'
 import MatchningsVy from './MatchningsVy'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
@@ -1285,6 +1286,120 @@ function SubSkordare({ obj, set }: any) {
   )
 }
 
+// Kortindikator: två prickar (skördare, skotare). Grön = data finns,
+// gul = förväntas men saknas, grå = förväntas ej. Ingen text på kortet —
+// detaljerna bor i Filer-undersidan.
+function MaskinPrickar({ obj, rader }: any) {
+  const s = filStatus(obj, rader)
+  const farg = (st: any) => st === 'data' ? '#30d158' : st === 'saknas' ? '#FF9F0A' : 'rgba(255,255,255,0.18)'
+  return (
+    <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center', flexShrink: 0 }} aria-label="Fildata skördare/skotare">
+      <span style={{ width: 7, height: 7, borderRadius: 4, background: farg(s.skordare) }} />
+      <span style={{ width: 7, height: 7, borderRadius: 4, background: farg(s.skotare) }} />
+    </span>
+  )
+}
+
+// UNDERSIDA: Filer — vilka maskinfiler som bär objektets data, per maskinslag.
+// Datumet är primärsignalen; antal/typer är dämpad sekundärrad. Statusraden
+// överst knyter ihop förväntan (egenskaperna) med vad som faktiskt kommit in.
+function SubFiler({ obj, rader, hamtStatus }: any) {
+  if (hamtStatus === 'fel') {
+    return (
+      <IosGroup title="Filer">
+        <div style={{ padding: '14px 16px', fontSize: 14, color: 'rgba(255,160,160,0.9)' }}>Kunde inte hämta fildata</div>
+      </IosGroup>
+    )
+  }
+  if (hamtStatus === 'laddar') {
+    return (
+      <IosGroup title="Filer">
+        <div style={{ padding: '14px 16px', fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Läser fildata …</div>
+      </IosGroup>
+    )
+  }
+
+  const s = filStatus(obj, rader)
+  const alla = rader || []
+  const skordare = alla.filter((r: any) => r.typ === 'skordare')
+  const skotare = alla.filter((r: any) => r.typ === 'skotare')
+  const okanda = alla.filter((r: any) => r.typ === null)
+
+  let statusText: string
+  let statusTon: 'gron' | 'gul'
+  if (s.ovantadSkotardata) {
+    statusTon = 'gul'
+    statusText = `Skotardata finns trots ${s.skotareEjOrsak} — kontrollera egenskapen`
+  } else if (s.skordare === 'saknas' && s.skotare === 'saknas') {
+    statusTon = 'gul'
+    statusText = 'Inget fildata ännu'
+  } else if (s.skotare === 'saknas') {
+    statusTon = 'gul'
+    statusText = obj.skordning_avslutad
+      ? `Inget skotardata ännu — skördning klar ${fmtKortDatum(obj.skordning_avslutad)}`
+      : 'Inget skotardata ännu'
+  } else if (s.skordare === 'saknas') {
+    statusTon = 'gul'
+    statusText = 'Inget skördardata ännu'
+  } else {
+    statusTon = 'gron'
+    statusText = s.skordare === 'data' && s.skotare === 'data' ? 'Data från båda maskinslagen'
+      : s.skordare === 'data' ? 'Data från skördaren'
+      : 'Data från skotaren'
+  }
+
+  const maskinRad = (r: any) => (
+    <div key={r.maskinId} style={{ padding: '12px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+        <span style={{ fontSize: 15, fontWeight: 500, color: 'rgba(255,255,255,0.85)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.modell || r.maskinId}</span>
+        <span style={{ fontSize: 15, color: '#fff', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+          {r.senasteData ? `data t.o.m. ${fmtKortDatum(r.senasteData)}` : 'inget datum'}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 3 }}>
+        {r.antalFiler} {r.antalFiler === 1 ? 'fil' : 'filer'} · {r.filtyper.join(', ')}
+        {r.senasteImport ? ` · importerad ${fmtKortDatum(r.senasteImport)}` : ''}
+      </div>
+    </div>
+  )
+
+  const tomRad = (text: string, ton: 'gul' | 'gra') => (
+    <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: ton === 'gul' ? '#FF9F0A' : 'rgba(255,255,255,0.18)' }} />
+      <span style={{ fontSize: 14, color: ton === 'gul' ? 'rgba(255,200,120,0.95)' : 'rgba(255,255,255,0.4)' }}>{text}</span>
+    </div>
+  )
+
+  return (
+    <>
+      <div style={{
+        ...styles.progressHeader,
+        border: `1px solid ${statusTon === 'gul' ? 'rgba(255,159,10,0.25)' : 'rgba(48,209,88,0.25)'}`,
+        background: statusTon === 'gul' ? 'rgba(255,159,10,0.07)' : 'rgba(48,209,88,0.06)',
+      }}>
+        <span style={{ width: 10, height: 10, borderRadius: 5, flexShrink: 0, background: statusTon === 'gul' ? '#FF9F0A' : '#30d158' }} />
+        <span style={{ ...styles.progressText, color: statusTon === 'gul' ? 'rgba(255,200,120,0.95)' : 'rgba(180,235,190,0.95)' }}>{statusText}</span>
+      </div>
+
+      <IosGroup title="Skördare">
+        {skordare.length > 0 ? skordare.map(maskinRad)
+          : s.skordare === 'forvantas_ej' ? tomRad(`Förväntas ej (${s.skordareEjOrsak})`, 'gra')
+          : tomRad('Inget data ännu', 'gul')}
+      </IosGroup>
+
+      <IosGroup title="Skotare">
+        {skotare.length > 0 ? skotare.map(maskinRad)
+          : s.skotare === 'forvantas_ej' ? tomRad(`Förväntas ej (${s.skotareEjOrsak})`, 'gra')
+          : tomRad(obj.skordning_avslutad ? `Inget data ännu — skördning klar ${fmtKortDatum(obj.skordning_avslutad)}` : 'Inget data ännu', 'gul')}
+      </IosGroup>
+
+      {okanda.length > 0 && (
+        <IosGroup title="Okänd maskintyp">{okanda.map(maskinRad)}</IosGroup>
+      )}
+    </>
+  )
+}
+
 // UNDERSIDA: Pris & ersättning — Ackord/Timpeng + timpeng-undantag.
 // dim_objekt.timpeng är ENDA källan för flaggan.
 function SubPris({ obj, set }: any) {
@@ -1533,7 +1648,7 @@ function SubSkotare({ obj, set, info, skordatTotal, syskon, onRaderUppdaterade }
 // ÖVERSIKTSSIDAN i sheeten: progressrad -> "Måste fyllas i" (öppna rader) ->
 // "Mer om objektet" (undersidor) -> Exkludera. De obligatoriska fälten
 // redigeras direkt här; allt annat nås via NavRad + oppnaSub.
-function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info }: any) {
+function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, filRader, filHamtStatus }: any) {
   const isGallring = obj.huvudtyp === 'Gallring'
   const atgarder = isGallring ? atgarderGallring : atgarderSlut
   const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
@@ -1596,6 +1711,16 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
     warn: false,
   }
 
+  const fil = filStatus(obj, filRader)
+  const antalFiler = (filRader || []).reduce((sum: number, r: any) => sum + (r.antalFiler || 0), 0)
+  const filerSum = filHamtStatus === 'fel' ? { text: 'Kunde inte läsas', warn: true }
+    : filHamtStatus === 'laddar' ? { text: 'Läser …', warn: false }
+    : fil.ovantadSkotardata ? { text: 'Oväntad skotardata', warn: true }
+    : fil.skordare === 'saknas' && fil.skotare === 'saknas' ? { text: 'Inget data ännu', warn: true }
+    : fil.skotare === 'saknas' ? { text: 'Skotardata saknas', warn: true }
+    : fil.skordare === 'saknas' ? { text: 'Skördardata saknas', warn: true }
+    : { text: `${antalFiler} ${antalFiler === 1 ? 'fil' : 'filer'}`, warn: false }
+
   return (
     <>
       <div
@@ -1655,6 +1780,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
 
       <IosGroup title="Mer om objektet">
         <NavRad label="Identitet" summary={identitetSum.text} warn={identitetSum.warn} onClick={() => oppnaSub('identitet')} />
+        <NavRad label="Filer" summary={filerSum.text} warn={filerSum.warn} onClick={() => oppnaSub('filer')} />
         {visaSkordare && <NavRad label="🌲 Skördare" summary={skordareSum.text} warn={skordareSum.warn} onClick={() => oppnaSub('skordare')} />}
         {visaSkotare && <NavRad label="🚜 Skotare" summary={skotareSum.text} warn={skotareSum.warn} onClick={() => oppnaSub('skotare')} />}
         <NavRad label="Skotning" summary={skotningSum.text} warn={skotningSum.warn} onClick={() => oppnaSub('skotning')} />
@@ -1693,7 +1819,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
 // EDITORN — hela redigeringssheeten (översikt + undersidor + dirty-guard +
 // spara). EN delad instans används av både arbetslistan och Alla objekt —
 // tidigare bar varje vy sin egen kopia av all denna logik.
-function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, kortInfo, listAtgarder, onClose }: any) {
+function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, kortInfo, fildata, listAtgarder, onClose }: any) {
   const [valtObjekt, setValtObjekt] = useState<any>(null)
   const [originalObjekt, setOriginalObjekt] = useState<any>(null)
   const [subpage, setSubpage] = useState<any>(null)
@@ -1780,7 +1906,8 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
     setSaving(false)
   }
 
-  const titlar: any = { identitet: 'Identitet', skordare: '🌲 Skördare', skotare: '🚜 Skotare', skotning: 'Skotning', pris: 'Pris & ersättning' }
+  const titlar: any = { identitet: 'Identitet', filer: 'Filer', skordare: '🌲 Skördare', skotare: '🚜 Skotare', skotning: 'Skotning', pris: 'Pris & ersättning' }
+  const filRader = valtObjekt ? fildata?.perObjekt?.get(valtObjekt.objekt_id) : undefined
 
   return (
     <>
@@ -1801,8 +1928,11 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
             bolag={bolag} setBolag={setBolag} listAtgarder={listAtgarder}
             atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut}
             atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring}
-            info={info}
+            info={info} filRader={filRader} filHamtStatus={fildata?.status || 'laddar'}
           />
+        )}
+        {valtObjekt && subpage === 'filer' && (
+          <SubFiler obj={valtObjekt} rader={filRader} hamtStatus={fildata?.status || 'laddar'} />
         )}
         {valtObjekt && subpage === 'identitet' && (
           <SubIdentitet obj={valtObjekt} set={setValtObjekt} inkopare={inkopare} setInkopare={setInkopare} listAtgarder={listAtgarder} />
@@ -1836,7 +1966,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
 // maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
 // eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
 // med två åtgärder: Namnge (öppnar sheeten) eller Ignorera (exkludera).
-function ArbetsKort({ obj, info, modell, onOppna, onIgnorera, delay }: any) {
+function ArbetsKort({ obj, info, modell, fildata, onOppna, onIgnorera, delay }: any) {
   const namnlos = !obj.object_name
   const meta = []
   if (modell) meta.push(modell)
@@ -1859,6 +1989,7 @@ function ArbetsKort({ obj, info, modell, onOppna, onIgnorera, delay }: any) {
             )}
             <div style={styles.kortVo}>{obj.vo_nummer}</div>
           </div>
+          {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={fildata.perObjekt.get(obj.objekt_id)} />}
           <div style={styles.kortPil}>›</div>
         </div>
         {meta.length > 0 && <div style={styles.kortInfo}>{meta.join(' · ')}</div>}
@@ -1890,6 +2021,8 @@ export default function ObjektRedigering() {
   const [visaMatchning, setVisaMatchning] = useState(false)
   // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
   const matchning = useMatchning()
+  // Fildata per objekt (kortprickar + Filer-undersidan)
+  const fildata = useFildata()
 
   // Val-listorna (bolag/inköpare) förvaltas i sina tabeller — lägg till/
   // ta bort påverkar BARA listan, aldrig objekt som redan har värdet satt.
@@ -2041,7 +2174,7 @@ export default function ObjektRedigering() {
   }
 
   if (visaAllaObjekt) {
-    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} kortInfo={kortInfo} listAtgarder={listAtgarder} onBack={() => setVisaAllaObjekt(false)} />
+    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} kortInfo={kortInfo} fildata={fildata} listAtgarder={listAtgarder} onBack={() => setVisaAllaObjekt(false)} />
   }
 
   return (
@@ -2073,6 +2206,7 @@ export default function ObjektRedigering() {
               obj={obj}
               info={kortInfo[obj.objekt_id]}
               modell={maskiner[obj.maskin_id]}
+              fildata={fildata}
               delay={i * 60}
               onOppna={() => openObjekt(obj)}
               onIgnorera={() => ignoreraObjekt(obj)}
@@ -2158,6 +2292,7 @@ export default function ObjektRedigering() {
         atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut}
         atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring}
         kortInfo={kortInfo}
+        fildata={fildata}
         listAtgarder={listAtgarder}
         onClose={() => setRedigerObj(null)}
       />
@@ -2169,7 +2304,7 @@ export default function ObjektRedigering() {
 }
 
 // VY 2 - ALLA OBJEKT
-function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, kortInfo, listAtgarder, onBack }: any) {
+function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, kortInfo, fildata, listAtgarder, onBack }: any) {
   const [search, setSearch] = useState('')
   const [filterBolag, setFilterBolag] = useState(null)
   const [filterHuvudtyp, setFilterHuvudtyp] = useState(null)
@@ -2304,6 +2439,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
                   <div style={obj.object_name ? styles.kortNamn : { ...styles.kortNamn, color: '#FF9F0A' }}>{obj.object_name || 'Namnlöst objekt'}</div>
                   <div style={styles.kortVo}>{obj.vo_nummer}</div>
                 </div>
+                {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={fildata.perObjekt.get(obj.objekt_id)} />}
                 <div style={styles.kortPil}>›</div>
               </div>
               <div style={styles.kortInfo}>
@@ -2329,6 +2465,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut}
         atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring}
         kortInfo={kortInfo}
+        fildata={fildata}
         listAtgarder={listAtgarder}
         onClose={() => setRedigerObj(null)}
       />
