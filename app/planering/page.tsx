@@ -2053,14 +2053,28 @@ export default function PlannerPage() {
     } catch (_) {}
   }, []);
 
-  // STEG 1: hämta medarbetare-lista för tilldelning av skördare/skotare i plus-menyn
+  // STEG 1: hämta medarbetare-lista för tilldelning av skördare/skotare i plus-menyn.
+  // Namnen ur medarbetare_namn (alla inloggade får läsa id + förnamn);
+  // partner/roll berikas ur medarbetare — under RLS ger det full data för
+  // admin och bara egen rad för förare, vilket räcker: tilldelning och
+  // "Visa som" är admin-funktioner.
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from('medarbetare')
-        .select('id, namn, partner_user_id, roll')
-        .order('namn');
-      if (data) setMedarbetareLista(data);
+      const [namnRes, detaljRes] = await Promise.all([
+        supabase.from('medarbetare_namn').select('id, fornamn').order('fornamn'),
+        supabase.from('medarbetare').select('id, namn, partner_user_id, roll'),
+      ]);
+      if (!namnRes.data) return;
+      const detalj = new Map((detaljRes.data ?? []).map(m => [m.id as string, m]));
+      setMedarbetareLista(namnRes.data.map((p: { id: string; fornamn: string }) => {
+        const d = detalj.get(p.id);
+        return {
+          id: p.id,
+          namn: d?.namn ?? p.fornamn,
+          partner_user_id: d?.partner_user_id ?? null,
+          roll: d?.roll ?? null,
+        };
+      }));
     })();
   }, []);
 
