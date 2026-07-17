@@ -118,6 +118,15 @@ export function arbetsdagar(startIso: string, slutIso: string): number {
   return antal;
 }
 
+/** "3 – 6 juli", "29 juni – 2 juli", eller "3 juli" för en enskild dag. */
+export function fmtPeriod(startIso: string, slutIso: string): string {
+  const [, sm, sd] = startIso.split('-').map(n => parseInt(n, 10));
+  const [, em, ed] = slutIso.split('-').map(n => parseInt(n, 10));
+  if (startIso === slutIso) return `${sd} ${MANADSNAMN[sm - 1]}`;
+  if (sm === em) return `${sd} – ${ed} ${MANADSNAMN[sm - 1]}`;
+  return `${sd} ${MANADSNAMN[sm - 1]} – ${ed} ${MANADSNAMN[em - 1]}`;
+}
+
 /** "3 arbetsdagar" / "1 arbetsdag" (+ kalenderdagar i parentes när de skiljer). */
 export function fmtLangd(startIso: string, slutIso: string): string {
   const ad = arbetsdagar(startIso, slutIso);

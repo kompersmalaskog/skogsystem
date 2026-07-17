@@ -4,8 +4,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { upsertVerifierat, uppdateraVerifierat } from '@/lib/supabase-save';
 import { C, ff, inputStyle, labelStyle, TYPINFO, type LedighetTyp } from './tema';
-import { fmtDatum, fmtLangd } from './datum';
+import { arbetsdagar, fmtDatum, fmtPeriod } from './datum';
 import type { Ansokan } from './typer';
+import ValjKalender from './ValjKalender';
 
 /**
  * Ansökningsformulär som bottom sheet. Skapar (status='väntar',
@@ -23,16 +24,16 @@ export default function AnsokFormular({
   onSparad: () => void;
 }) {
   const [typ, setTyp] = useState<LedighetTyp | ''>(redigerar?.typ ?? '');
-  const [start, setStart] = useState(redigerar?.startdatum ?? '');
-  const [slut, setSlut] = useState(redigerar?.slutdatum ?? '');
+  // Periodval via tryck-kalendern: start utan slut = endagsperiod tills vidare
+  const [start, setStart] = useState<string | null>(redigerar?.startdatum ?? null);
+  const [slut, setSlut] = useState<string | null>(redigerar?.slutdatum ?? null);
   const [kommentar, setKommentar] = useState(redigerar?.kommentar ?? '');
   const [sparar, setSparar] = useState(false);
   const [sparfel, setSparfel] = useState<string | null>(null);
 
   useEffect(() => { setSparfel(null); }, [typ, start, slut]);
 
-  const datumFel = !!start && !!slut && slut < start;
-  const effektivtSlut = slut || start;
+  const effektivtSlut = slut ?? start ?? '';
 
   // Blockerande: egen godkänd ledighet i intervallet (dubbelbokning)
   const dubbelbokning = useMemo(() => {
@@ -62,10 +63,10 @@ export default function AnsokFormular({
     return namn;
   }, [start, effektivtSlut, ansokningar, egenId]);
 
-  const kanSkicka = !!typ && !!start && !datumFel && !dubbelbokning && !sparar;
+  const kanSkicka = !!typ && !!start && !dubbelbokning && !sparar;
 
   const spara = async () => {
-    if (!kanSkicka) return;
+    if (!kanSkicka || !start) return;
     setSparar(true);
     setSparfel(null);
 
@@ -98,6 +99,7 @@ export default function AnsokFormular({
       <div style={{
         position: 'relative', width: '100%', maxWidth: 480,
         background: C.surface, borderRadius: '20px 20px 0 0', padding: '24px 20px 32px',
+        maxHeight: '88vh', overflowY: 'auto',
       }}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: C.t4, margin: '0 auto 16px' }} />
         <div style={{ fontSize: 16, fontWeight: 700, color: C.t1, marginBottom: 16 }}>
@@ -122,28 +124,49 @@ export default function AnsokFormular({
           })}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 6 }}>
-          <div>
-            <div style={labelStyle}>STARTDATUM</div>
-            <input type="date" value={start} onChange={e => setStart(e.target.value)} style={inputStyle} />
-          </div>
-          <div>
-            <div style={labelStyle}>SLUTDATUM</div>
-            <input type="date" value={slut} min={start || undefined} onChange={e => setSlut(e.target.value)} style={inputStyle} />
-          </div>
+        {/* Tryck-kalender: tryck startdag, tryck slutdag — spannet fylls i */}
+        <div style={{
+          background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`,
+          borderRadius: 12, padding: '12px 10px 8px', marginBottom: 10,
+        }}>
+          <ValjKalender
+            valdStart={start}
+            valdSlut={slut}
+            onValj={(s, e) => { setStart(s); setSlut(e); }}
+          />
         </div>
 
-        {datumFel ? (
-          <div style={{ fontSize: 13, color: C.red, marginBottom: 12, fontWeight: 500 }}>
-            Slutdatum kan inte vara före startdatum
-          </div>
-        ) : start ? (
-          <div style={{ fontSize: 12, color: C.t3, marginBottom: 12 }}>
-            {fmtLangd(start, effektivtSlut)}
-          </div>
-        ) : (
-          <div style={{ marginBottom: 12 }} />
-        )}
+        {/* Vald period + arbetsdagar, räknas om medan man trycker */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 34, marginBottom: 12 }}>
+          {start ? (
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>
+                {fmtPeriod(start, effektivtSlut)}
+              </div>
+              <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>
+                {(() => {
+                  const ad = arbetsdagar(start, effektivtSlut);
+                  return `${ad} arbetsdag${ad === 1 ? '' : 'ar'} · helg och röda dagar räknas inte`;
+                })()}
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: C.t3 }}>Tryck på en dag i kalendern för att välja period</div>
+          )}
+          {start && (
+            <button
+              type="button"
+              onClick={() => { setStart(null); setSlut(null); }}
+              style={{
+                background: 'none', border: `1px solid ${C.border}`, borderRadius: 8,
+                color: C.t2, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                fontFamily: ff, padding: '6px 12px', flexShrink: 0,
+              }}
+            >
+              Rensa
+            </button>
+          )}
+        </div>
 
         <div style={{ marginBottom: 14 }}>
           <div style={labelStyle}>KOMMENTAR</div>
