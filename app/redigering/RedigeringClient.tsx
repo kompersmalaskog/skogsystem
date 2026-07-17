@@ -762,7 +762,7 @@ function SaveButton({ onClick, saving, saved, dirty, antal }: any) {
 function ConfirmDialog({
   open, title, message,
   confirmLabel = 'Fortsätt', cancelLabel = 'Avbryt',
-  discardLabel, onDiscard,
+  discardLabel = null as any, onDiscard = null as any,
   onConfirm, onCancel, destructive = false,
 }) {
   if (!open) return null
@@ -1962,6 +1962,52 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   )
 }
 
+// Objektnamn ur HPR-filnamnet — två kända mönster, null när filen är namnlös
+// (Ponsse skriver ibland bara maskinid+tidsstämpel):
+//   Ponsse: "Namn_MASKINID_ÅÅÅÅMMDDHHMMSS.hpr"
+//   Rottne: "Namn ÅÅÅÅ-MM-DD[ HHMM].hpr"
+function namnUrHprFilnamn(filnamn: string, maskinId: string): string | null {
+  const f = String(filnamn || '')
+  const ponsse = f.match(/^(.+)_[A-Za-z0-9]+_\d{14}\.hpr$/i)
+  if (ponsse && ponsse[1].toLowerCase() !== maskinId.toLowerCase()) return ponsse[1]
+  const rottne = f.match(/^(.+?)\s+\d{4}-\d{2}-\d{2}(\s+\d{4})?\.hpr$/i)
+  if (rottne) return rottne[1]
+  if (f.toLowerCase().startsWith(maskinId.toLowerCase())) return null
+  return f.replace(/\.hpr$/i, '') || null
+}
+
+// Jobb med maskindata men utan objekt: hpr_filer vars VO (ur objekt_nyckel
+// "maskin:vo", #78) inte matchar något dim_objekt.vo_nummer. Två hinkar:
+// - larm: riktiga VO:n -> objektet saknas, ska kunna skapas
+// - smajobb: Ponsses interna k-nummer (k63, k76 …) -> småjobb utan riktigt
+//   VO, ingen åtgärd krävs, bara synliga bakom en nedtonad rad
+function analyseraOkopplade(hprFiler: any[], objekt: any[]) {
+  const voSet = new Set(objekt.map((o: any) => o.vo_nummer).filter(Boolean))
+  const perNyckel = new Map<string, any>()
+  hprFiler.forEach((f: any) => {
+    const nyckel = f.objekt_nyckel || ''
+    const i = nyckel.indexOf(':')
+    if (i <= 0) return
+    const maskinId = nyckel.slice(0, i)
+    const vo = nyckel.slice(i + 1)
+    if (!vo || voSet.has(vo)) return
+    const prev = perNyckel.get(nyckel)
+    if (!prev || (f.stammar_count || 0) > prev.stammar) {
+      perNyckel.set(nyckel, { nyckel, maskinId, vo, stammar: f.stammar_count || 0, filnamn: f.filnamn || '' })
+    }
+  })
+  const larm: any[] = []
+  const smajobb: any[] = []
+  perNyckel.forEach(j => {
+    const jobb = { ...j, namn: namnUrHprFilnamn(j.filnamn, j.maskinId) }
+    if (/^k\d+$/i.test(j.vo)) smajobb.push(jobb)
+    else larm.push(jobb)
+  })
+  larm.sort((a, b) => b.stammar - a.stammar)
+  smajobb.sort((a, b) => b.stammar - a.stammar)
+  return { larm, smajobb }
+}
+
 // Kort i arbetslistan — visar VAD objektet ÄR (volym, senaste aktivitet,
 // maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
 // eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
@@ -2019,6 +2065,13 @@ export default function ObjektRedigering() {
   const [saveError, setSaveError] = useState('')
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
   const [visaMatchning, setVisaMatchning] = useState(false)
+  // DEL 2: jobb med maskindata men utan objekt (hpr_filer-VO utan dim_objekt)
+  const [hprFiler, setHprFiler] = useState<any[]>([])
+  const [hprStatus, setHprStatus] = useState<'laddar' | 'fel' | 'ok'>('laddar')
+  const [maskinTyper, setMaskinTyper] = useState<Record<string, string | null>>({})
+  const [skapaJobb, setSkapaJobb] = useState<any>(null)
+  const [skapar, setSkapar] = useState(false)
+  const [visaSmajobb, setVisaSmajobb] = useState(false)
   // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
   const matchning = useMatchning()
   // Fildata per objekt (kortprickar + Filer-undersidan)
@@ -2054,8 +2107,12 @@ export default function ObjektRedigering() {
 
   // Hämta från Supabase vid start
   useEffect(() => {
-    Promise.all([hamtaObjektFranSupabase(), hamtaMaskinerFranSupabase()])
-      .then(async ([objektData, maskinData]) => {
+    Promise.all([
+      hamtaObjektFranSupabase(),
+      hamtaMaskinerFranSupabase(),
+      supabase.from('hpr_filer').select('objekt_nyckel, filnamn, stammar_count'),
+    ])
+      .then(async ([objektData, maskinData, hprRes]) => {
         // Skapa lookup-objekt för maskiner: { maskin_id: modell }
         const maskinLookup = {}
         const maskinTypMap = {}
@@ -2067,6 +2124,11 @@ export default function ObjektRedigering() {
         const berikade = (objektData || []).map(o => ({ ...o, maskin_typ: maskinTypMap[o.maskin_id] || null }))
         setObjekt(berikade)
         setMaskiner(maskinLookup)
+        setMaskinTyper(maskinTypMap)
+        // Ärligt läge: kan hpr_filer inte läsas ska larmsektionen säga det,
+        // inte se ut som "inga okopplade jobb"
+        if (hprRes.error) { setHprStatus('fel'); setHprFiler([]) }
+        else { setHprStatus('ok'); setHprFiler(hprRes.data || []) }
         // Val-listorna bor i bolag/inkopare-tabellerna (persistent förvaltning:
         // Hantera-läget kan ta bort, nya chips läggs till). Tomma tabeller
         // seedas EN gång från standard + unika värden i datan. Kan tabellen
@@ -2143,6 +2205,39 @@ export default function ObjektRedigering() {
     setObjekt(objekt.map(o => o.objekt_id === obj.objekt_id ? { ...o, exkludera: true } : o))
   }
 
+  // Okopplade jobb räknas mot AKTUELL objektlista — när ett objekt skapas
+  // med jobbets VO försvinner larmet av sig självt (samma vo-koppling som
+  // resten av systemet använder)
+  const okopplade = analyseraOkopplade(hprFiler, objekt)
+
+  // Skapa objekt från ett okopplat maskinjobb: namn + VO förifyllda, sedan
+  // rakt in i sheetens "Måste fyllas i". objekt_id = VO (maskinens
+  // objektnummer) — samma id som importen använder när MOM-flödet så
+  // småningom skriver raden, så de mergar istället för att dubblera.
+  // Ärlig sparning: insert utan returnerad rad = fel, aldrig tyst succé.
+  async function skapaObjektFranJobb() {
+    if (!skapaJobb || skapar) return
+    setSkapar(true)
+    setSaveError('')
+    const rad = {
+      objekt_id: skapaJobb.vo,
+      vo_nummer: skapaJobb.vo,
+      object_name: skapaJobb.namn || null,
+      maskin_id: skapaJobb.maskinId,
+    }
+    const { data, error: err } = await supabase.from('dim_objekt').insert(rad).select('*')
+    if (err || !data || data.length === 0) {
+      setSaveError('Kunde inte skapa objektet — inget sparades')
+      setTimeout(() => setSaveError(''), 6000)
+    } else {
+      const ny = { ...data[0], maskin_typ: maskinTyper[skapaJobb.maskinId] || null }
+      setObjekt((prev: any[]) => [...prev, ny])
+      setSkapaJobb(null)
+      setRedigerObj(ny)
+    }
+    setSkapar(false)
+  }
+
   // Loading-vy
   if (loading) {
     return (
@@ -2187,6 +2282,52 @@ export default function ObjektRedigering() {
           <div style={styles.subtitel}>{attAtgarda.length === 0 ? 'Allt åtgärdat' : `${attAtgarda.length} att åtgärda`}</div>
         </div>
       </div>
+
+      {/* DEL 2: LARM — maskindata som inte hör till något objekt. Överst,
+          orange vänsterkant: det här är riktiga jobb som är osynliga i
+          resten av systemet tills objektet skapas. */}
+      {hprStatus === 'fel' && (
+        <div style={{ ...styles.smajobbWrap, color: 'rgba(255,160,160,0.9)' }}>
+          Kunde inte läsa maskinjobben (hpr_filer) — okopplade jobb kan inte visas
+        </div>
+      )}
+      {okopplade.larm.length > 0 && (
+        <div style={styles.larmBox}>
+          <div style={styles.larmHeader}>
+            <span style={styles.larmIkon}>!</span>
+            <span>{okopplade.larm.length} {okopplade.larm.length === 1 ? 'jobb har data men inget objekt' : 'jobb har data men inget objekt'}</span>
+          </div>
+          {okopplade.larm.map((j: any, i: number) => (
+            <div key={j.nyckel} style={{ ...styles.larmRad, borderTop: '1px solid rgba(255,159,10,0.12)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {j.namn || 'Namnlöst jobb'}
+                </div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
+                  VO {j.vo} · {j.stammar.toLocaleString('sv-SE')} stammar · {maskiner[j.maskinId] || j.maskinId}
+                </div>
+              </div>
+              <button onClick={() => setSkapaJobb(j)} className="tap-press" style={styles.skapaBtn}>Skapa ›</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {okopplade.smajobb.length > 0 && (
+        <div style={styles.smajobbWrap}>
+          <button onClick={() => setVisaSmajobb(!visaSmajobb)} className="tap-press" style={styles.smajobbToggle as any}>
+            <span style={{ flex: 1, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {okopplade.smajobb.length} småjobb utan VO · t.ex. {okopplade.smajobb.slice(0, 2).map((j: any) => j.namn || j.vo).join(', ')}
+            </span>
+            <span style={{ color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>{visaSmajobb ? '▴' : '▾'}</span>
+          </button>
+          {visaSmajobb && okopplade.smajobb.map((j: any) => (
+            <div key={j.nyckel} style={styles.smajobbRad}>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.namn || 'Namnlöst'}</span>
+              <span style={{ flexShrink: 0 }}>{j.vo} · {j.stammar.toLocaleString('sv-SE')} stammar · {maskiner[j.maskinId] || j.maskinId}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={styles.sectionHeader}>
         <span style={styles.sectionTitel}>Att åtgärda</span>
@@ -2295,6 +2436,15 @@ export default function ObjektRedigering() {
         fildata={fildata}
         listAtgarder={listAtgarder}
         onClose={() => setRedigerObj(null)}
+      />
+      <ConfirmDialog
+        open={!!skapaJobb}
+        title="Skapa objekt från maskindata?"
+        message={skapaJobb ? `${skapaJobb.namn || 'Namnlöst jobb'} · VO ${skapaJobb.vo} — objektet skapas med namn och VO förifyllt, resten fyller du i direkt.` : ''}
+        confirmLabel={skapar ? 'Skapar …' : 'Skapa objekt'}
+        cancelLabel="Avbryt"
+        onConfirm={skapaObjektFranJobb}
+        onCancel={() => setSkapaJobb(null)}
       />
       {saveError && (
         <div style={styles.saveErrorToast} role="alert">{saveError}</div>
@@ -2503,6 +2653,16 @@ const styles = {
   // "Klar" på undersidor — går bara tillbaka, sparar inget (Spara bor på översikten)
   klarBtn: { width: '100%', padding: '18px', borderRadius: 16, border: '1px solid rgba(173,198,255,0.4)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 17, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' },
   kostnadRad: { margin: '-14px 4px 24px', fontSize: 13, color: 'rgba(255,255,255,0.65)', fontVariantNumeric: 'tabular-nums' },
+  // Larm: maskindata utan objekt — orange vänsterkant, överst i listan
+  larmBox: { borderLeft: '3px solid #FF9F0A', border: '1px solid rgba(255,159,10,0.2)', background: 'rgba(255,159,10,0.05)', borderRadius: 14, marginBottom: 16, overflow: 'hidden' },
+  larmHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', fontSize: 14, fontWeight: 600, color: 'rgba(255,200,120,0.95)' },
+  larmIkon: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 10, background: 'rgba(255,159,10,0.2)', color: '#FF9F0A', fontSize: 13, fontWeight: 700, flexShrink: 0 },
+  larmRad: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' },
+  skapaBtn: { flexShrink: 0, minHeight: 44, padding: '0 16px', borderRadius: 12, border: '1px solid rgba(173,198,255,0.4)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' },
+  // Småjobb utan VO (k-nummer) — nedtonat, inget larm, ingen åtgärd
+  smajobbWrap: { marginBottom: 20, fontSize: 13, color: 'rgba(255,255,255,0.45)' },
+  smajobbToggle: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', minHeight: 40, padding: '8px 4px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' },
+  smajobbRad: { display: 'flex', alignItems: 'baseline', gap: 10, padding: '6px 4px 6px 12px', fontSize: 12, color: 'rgba(255,255,255,0.4)' },
   // Direkt-redigerbart fält i iOS Settings-stil: label vänster, input höger
   directRowStandalone: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', minHeight: 56, gap: 14, marginBottom: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, transition: 'border-color 0.18s ease' },
   directRowEmbedded: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', minHeight: 56, gap: 14, transition: 'background 0.18s ease' },
