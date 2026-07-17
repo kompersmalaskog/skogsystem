@@ -55,7 +55,12 @@ export default function StoppFormular({
 
   const effektivtSlut = slut ?? start ?? '';
   const valdaIds = alla ? maskiner.map(m => m.maskin_id) : Array.from(valda);
-  const kanSpara = valdaIds.length > 0 && !!orsak && !!start && !sparar;
+  // Död knapp utan förklaring förvirrar — visa vad som saknas, live
+  const saknas: string[] = [];
+  if (valdaIds.length === 0) saknas.push('maskin');
+  if (!orsak) saknas.push('orsak');
+  if (!start) saknas.push('datum');
+  const kanSpara = saknas.length === 0 && !sparar;
 
   const spara = async () => {
     if (!kanSpara || !start) return;
@@ -199,7 +204,12 @@ export default function StoppFormular({
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+          {saknas.length > 0 && (
+            <span style={{ fontSize: 12, color: C.t3, marginRight: 'auto' }}>
+              Välj {saknas.join(' + ')} för att spara
+            </span>
+          )}
           <button onClick={onStang} style={{ background: 'none', border: 'none', color: C.t2, fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: ff, padding: '10px 16px' }}>
             Avbryt
           </button>
