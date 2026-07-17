@@ -138,6 +138,7 @@ interface Marker {
   rotation?: number;
   path?: Point[];
   comment?: string;
+  antal?: number; // miljöhänsyn: bara eternitytree/highstump — hur många träd/stubbar punkten representerar
   photoData?: string;
   audioData?: string;  // base64-kodat ljud (audio/webm eller audio/mp4)
   notes?: { id: string; date: string; text?: string; audioData?: string }[];
@@ -1771,6 +1772,7 @@ export default function PlannerPage() {
   
   // Meny
   const [menuOpen, setMenuOpen] = useState(false);
+  const [miljoRaknareExpanderad, setMiljoRaknareExpanderad] = useState(false);
   // Plus-meny (bottom-sheet) — öppnas från plus-knappen nere höger
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [menuTab, setMenuTab] = useState('symbols'); // symbols, lines, zones, arrows, settings
@@ -3254,6 +3256,7 @@ export default function PlannerPage() {
             isMarker: true,
             comment: '',
           };
+          if (selectedSymbol === 'eternitytree' || selectedSymbol === 'highstump') newMarker.antal = 1;
 
           if (selectedSymbol === 'landing') {
             newMarker.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
@@ -10841,6 +10844,63 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* === MILJÖHÄNSYN-RÄKNARE — evighetsträd + högstubbar mot certifieringsmål. Hopfällbar, nere t.v. */}
+      {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && !korvyActive && !menuOpen && (() => {
+        const arealHa = parseFloat(String(infoAreal).replace(",", "."));
+        const harAreal = Number.isFinite(arealHa) && arealHa > 0;
+        const summa = (typ: string) => markers.reduce((s, m) => s + (m.type === typ ? (m.antal ?? 1) : 0), 0);
+        const evSum = summa('eternitytree');
+        const hsSum = summa('highstump');
+        const evMal = harAreal ? Math.ceil(arealHa * 10) : null;
+        const hsMal = harAreal ? Math.ceil(arealHa * 3) : null;
+        const NEUTRAL = '#FF9F0A';
+        const KLAR = '#30d158';
+        const rad = (ikon: string, sum: number, mal: number | null) => {
+          const natt = mal !== null && sum >= mal;
+          const farg = mal === null ? 'rgba(255,255,255,0.6)' : natt ? KLAR : NEUTRAL;
+          return (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', padding: '2px 0' }}>
+              <span style={{ fontSize: '17px' }}>{ikon}</span>
+              {mal === null ? (
+                <span style={{ fontSize: '15px', color: '#fff', fontWeight: 600 }}>{sum}</span>
+              ) : (
+                <>
+                  <span style={{ fontSize: '15px', color: farg, fontWeight: 700 }}>{sum}</span>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>/ {mal}</span>
+                  <span style={{ fontSize: '13px', color: farg, marginLeft: 'auto', fontWeight: 600 }}>
+                    {natt ? 'målet nått' : (mal - sum) + ' kvar'}
+                  </span>
+                </>
+              )}
+            </div>
+          );
+        };
+        return (
+          <div style={{ position: 'fixed', left: '12px', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', zIndex: 90, pointerEvents: 'auto' }}>
+            <div style={{ background: 'rgba(20,20,22,0.82)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', overflow: 'hidden' }}>
+              {/* Kollapsad rad — alltid synlig, klick fäller ut */}
+              <button type="button" onClick={() => setMiljoRaknareExpanderad(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <span style={{ fontSize: '14px', color: '#fff', fontWeight: 600 }}>🌳 {evSum}{evMal !== null ? '/' + evMal : ''}</span>
+                <span style={{ fontSize: '14px', color: '#fff', fontWeight: 600 }}>🪵 {hsSum}{hsMal !== null ? '/' + hsMal : ''}</span>
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', transform: miljoRaknareExpanderad ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>&#x203A;</span>
+              </button>
+              {/* Utfälld detalj */}
+              {miljoRaknareExpanderad && (
+                <div style={{ padding: '4px 14px 12px', borderTop: '1px solid rgba(255,255,255,0.08)', minWidth: '220px' }}>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', margin: '8px 0 6px' }}>Miljöhänsyn — mål per hektar</div>
+                  {rad('🌳', evSum, evMal)}
+                  {rad('🪵', hsSum, hsMal)}
+                  {!harAreal && (
+                    <div style={{ fontSize: '12px', color: NEUTRAL, marginTop: '8px', lineHeight: 1.4 }}>Areal saknas — kan inte räkna mål</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* === CENTRERA-KNAPP — kort tryck: GPS, långt tryck (500ms): objekt. Döljs i Körvy/volym/briefing. */}
       {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && !korvyActive && (
         <button
@@ -11082,6 +11142,13 @@ export default function PlannerPage() {
                 </div>
               )}
             
+            {/* Antal (miljöhänsyn) */}
+            {(marker.type === 'eternitytree' || marker.type === 'highstump') && (
+              <div style={{ fontSize: '15px', color: '#8e8e93', textAlign: 'center', marginBottom: '12px' }}>
+                Antal: <span style={{ color: '#fff', fontWeight: 600 }}>{marker.antal ?? 1}</span> {marker.type === 'eternitytree' ? 'träd' : 'stubbar'}
+              </div>
+            )}
+
             {/* Kommentar */}
             {marker.comment ? (
               <div style={{ 
@@ -14988,6 +15055,25 @@ export default function PlannerPage() {
               />
             )}
             
+            {/* Antal (miljöhänsyn — bara evighetsträd/högstubbe) */}
+            {(editingMarker.type === 'eternitytree' || editingMarker.type === 'highstump') && (
+              <div style={{ marginBottom: '16px', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '12px', textAlign: 'center' }}>Antal {editingMarker.type === 'eternitytree' ? 'träd' : 'stubbar'} den här punkten representerar</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px' }}>
+                  <button type="button" className="btn-press"
+                    onClick={() => setEditingMarker(prev => prev ? { ...prev, antal: Math.max(1, (prev.antal ?? 1) - 1) } : null)}
+                    style={{ width: '48px', height: '48px', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '26px', lineHeight: 1, cursor: 'pointer' }}>−</button>
+                  <input type="number" inputMode="numeric" min={1}
+                    value={editingMarker.antal ?? 1}
+                    onChange={(e) => { const n = parseInt(e.target.value, 10); setEditingMarker(prev => prev ? { ...prev, antal: Number.isFinite(n) && n >= 1 ? n : 1 } : null); }}
+                    style={{ width: '90px', textAlign: 'center', padding: '12px 0', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '24px', fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+                  <button type="button" className="btn-press"
+                    onClick={() => setEditingMarker(prev => prev ? { ...prev, antal: (prev.antal ?? 1) + 1 } : null)}
+                    style={{ width: '48px', height: '48px', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '26px', lineHeight: 1, cursor: 'pointer' }}>+</button>
+                </div>
+              </div>
+            )}
+
             {/* Kommentar */}
             <textarea
               value={editingMarker.comment || ''}
