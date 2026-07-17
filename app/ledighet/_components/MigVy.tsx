@@ -24,6 +24,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
   const [formOppen, setFormOppen] = useState(false);
   const [redigerar, setRedigerar] = useState<Ansokan | null>(null);
   const [fel, setFel] = useState<string | null>(null);
+  const [historikOppen, setHistorikOppen] = useState(false);
 
   const arGodkannare = medarbetare.roll === 'admin' || medarbetare.roll === 'chef';
   const idag = toISO(new Date());
@@ -32,12 +33,20 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
     () => ansokningar.filter(a => a.medarbetare_id === medarbetare.id),
     [ansokningar, medarbetare.id],
   );
-  const kommande = useMemo(
-    () => mina.filter(a => a.slutdatum >= idag && a.status !== 'nekad')
+  // Tre grupper efter TID, inte bara status: en beviljad ledighet flyttar
+  // till Historik när den PASSERAT (slutdatum < idag), inte när den godkänns.
+  const vantarPaBesked = useMemo(
+    () => mina.filter(a => a.status === 'väntar' && a.slutdatum >= idag)
       .sort((a, b) => a.startdatum.localeCompare(b.startdatum)),
     [mina, idag],
   );
-  const tidigare = useMemo(
+  const kommandeLedighet = useMemo(
+    () => mina.filter(a => a.status === 'godkänd' && a.slutdatum >= idag)
+      .sort((a, b) => a.startdatum.localeCompare(b.startdatum)),
+    [mina, idag],
+  );
+  // Passerat (oavsett status) + avslag (beskedet är avklarat oavsett datum)
+  const historik = useMemo(
     () => mina.filter(a => a.slutdatum < idag || a.status === 'nekad'),
     [mina, idag],
   );
@@ -93,9 +102,11 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
         <div style={{ color: C.t3, padding: 40, textAlign: 'center', fontSize: 13 }}>Laddar...</div>
       ) : (
         <>
-          {kommande.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-              {kommande.map(a => (
+          {/* 1. Väntar på besked — kan ändras/tas bort */}
+          {vantarPaBesked.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 22 }}>
+              <div style={labelStyle}>VÄNTAR PÅ BESKED</div>
+              {vantarPaBesked.map(a => (
                 <AnsokanKort key={a.id} a={a} arEgen
                   onRedigera={x => { setRedigerar(x); setFormOppen(true); }}
                   onTaBort={taBort} />
@@ -103,16 +114,40 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
             </div>
           )}
 
-          {tidigare.length > 0 && (
+          {/* 2. Kommande ledighet — beviljad, ej passerad; låst men synlig */}
+          {kommandeLedighet.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 22 }}>
+              <div style={labelStyle}>KOMMANDE LEDIGHET</div>
+              {kommandeLedighet.map(a => (
+                <AnsokanKort key={a.id} a={a} arEgen />
+              ))}
+            </div>
+          )}
+
+          {/* 3. Historik — passerat (och avslag); hopfällt så det inte tar plats */}
+          {historik.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ ...labelStyle, marginTop: 4 }}>TIDIGARE</div>
-              {tidigare.map(a => (
+              <button
+                onClick={() => setHistorikOppen(!historikOppen)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  background: 'none', border: 'none', padding: '4px 0',
+                  cursor: 'pointer', fontFamily: ff, width: '100%',
+                }}
+              >
+                <span style={labelStyle}>HISTORIK ({historik.length})</span>
+                <span style={{
+                  fontSize: 13, color: C.t3,
+                  transform: historikOppen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s',
+                }}>›</span>
+              </button>
+              {historikOppen && historik.map(a => (
                 <AnsokanKort key={a.id} a={a} arEgen tidigare onTaBort={taBort} />
               ))}
             </div>
           )}
 
-          {kommande.length === 0 && tidigare.length === 0 && (
+          {vantarPaBesked.length === 0 && kommandeLedighet.length === 0 && historik.length === 0 && (
             <div style={{
               color: C.t3, padding: 30, textAlign: 'center', fontSize: 13,
               background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
