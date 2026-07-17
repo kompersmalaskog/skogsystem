@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { fetchSmhiFwi, generateTestData, type SmhiBrandriskData } from "../../lib/smhi-brandrisk";
+import { fetchSmhiFwi, type SmhiBrandriskData } from "../../lib/smhi-brandrisk";
 
 // === MCF Color System ===
 const MCF_COLORS: Record<number, string> = {
@@ -80,7 +80,6 @@ interface BrandriskPanelProps {
   lon: number;
   eldningsforbud: boolean;
   onEldningsforbudChange: (val: boolean) => void;
-  testMode: number | null;
   // Persistence props (passed through from page.tsx)
   brandKontakter: {
     uppdragsgivareNamn: string; uppdragsgivareTel: string;
@@ -112,7 +111,7 @@ const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 min
 
 export default function BrandriskPanel(props: BrandriskPanelProps) {
   const {
-    lat, lon, eldningsforbud, onEldningsforbudChange, testMode,
+    lat, lon, eldningsforbud, onEldningsforbudChange,
     brandKontakter, onKontakterChange,
     brandTillbud, brandNewTillbud, onNewTillbudChange, onSaveTillbud,
     brandEfterkontroll, onEfterkontrollChange,
@@ -125,9 +124,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
   const [data, setData] = useState<SmhiBrandriskData | null>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
-  const [isTestFallback, setIsTestFallback] = useState(false);
-  const [devSimulating, setDevSimulating] = useState(false);
-  const realDataRef = useRef<SmhiBrandriskData | null>(null);
   const [activeDay, setActiveDay] = useState(0);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
@@ -145,15 +141,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const textStyle: React.CSSProperties = { fontSize: '13px', color: '#8e8e93', lineHeight: '1.7' };
 
   const fetchData = useCallback(async () => {
-    if (testMode !== null) {
-      const testData = generateTestData(testMode);
-      setData(testData);
-      setStatus('done');
-      setIsTestFallback(false);
-      onStatusChange?.({ status: 'done', currentFwi: testData.currentFwi, currentIdx: testData.currentIdx });
-      return;
-    }
-
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       // Ogiltig position (objektet saknar koordinat / kartan inte klar) — hämta aldrig,
       // krascha aldrig på toFixed. Panelen visar tomt tills en giltig position finns.
@@ -168,35 +155,33 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
       const result = await fetchSmhiFwi(lat, lon);
       setData(result);
       setStatus('done');
-      setIsTestFallback(false);
       lastFetchRef.current = fetchKey;
       onStatusChange?.({ status: 'done', currentFwi: result.currentFwi, currentIdx: result.currentIdx });
       console.log('[Brandrisk] Data hämtad:', result.currentIdx, 'FWI:', result.currentFwi);
     } catch (err) {
       console.error('[Brandrisk] API-fel:', err);
-      // Fallback to test data
-      const fallback = generateTestData(3);
-      setData(fallback);
-      setStatus('done');
-      setIsTestFallback(true);
-      onStatusChange?.({ status: 'done', currentFwi: fallback.currentFwi, currentIdx: fallback.currentIdx });
+      // ÄRLIGT FELLÄGE. Gissa aldrig en brandrisk: ett påhittat värde kan ligga LÄGRE än
+      // verkligheten och få en förare att tro att det går bra att köra. Hellre ingen
+      // siffra alls än en falsk. Tomt betyder tomt.
+      setData(null);
+      setStatus('error');
+      onStatusChange?.({ status: 'error', currentFwi: 0, currentIdx: 0 });
     }
-  }, [lat, lon, testMode, data, status]);
+  }, [lat, lon, data, status]);
 
   // Initial fetch
   useEffect(() => {
     fetchData();
-  }, [lat, lon, testMode]);
+  }, [lat, lon]);
 
   // Auto-refresh every 30 min
   useEffect(() => {
-    if (testMode !== null) return;
     refreshRef.current = setInterval(() => {
       lastFetchRef.current = ''; // Force refetch
       fetchData();
     }, REFRESH_INTERVAL);
     return () => { if (refreshRef.current) clearInterval(refreshRef.current); };
-  }, [testMode]);
+  }, []);
 
   // Loading state
   if (status === 'loading' && !data) {
@@ -211,6 +196,22 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
     );
   }
 
+  // Felläge — SMHI svarade inte. Visa ALDRIG en gissad siffra.
+  if (status === 'error') {
+    return (
+      <div style={{ padding: '12px' }}>
+        <div style={{ background: '#000', borderRadius: '20px', padding: '48px 24px', textAlign: 'center' }}>
+          <div style={{ fontSize: 15, color: '#fff', fontWeight: 600, marginBottom: 8 }}>Kunde inte hämta brandrisk</div>
+          <div style={{ fontSize: 13, color: '#8e8e93', marginBottom: 20, lineHeight: 1.6 }}>Ingen siffra visas — appen gissar aldrig en brandrisk. Kontrollera täckningen och försök igen.</div>
+          <button className="btn-press" type="button" onClick={() => { lastFetchRef.current = ''; fetchData(); }}
+            style={{ padding: '11px 22px', borderRadius: 10, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer', minHeight: 44 }}>
+            Försök igen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!data) return null;
 
   const currentIdx = data.currentIdx;
@@ -218,7 +219,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const peakIdx = data.peakIdx;
   const peakFwi = data.peakFwi;
   const peakHour = data.peakHour;
-  const showSystem = currentIdx >= 3 || eldningsforbud || testMode !== null;
+  const showSystem = currentIdx >= 3 || eldningsforbud;
 
   // Sort daily so today is always first
   const sortedDaily = (() => {
@@ -315,49 +316,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
     <div style={{ padding: '12px' }}>
       <style>{`.btn-press{transition:transform 0.1s ease}.btn-press:active{transform:scale(0.96)}`}</style>
       <div style={{ background: '#000', color: '#fff', fontFamily: "-apple-system, 'SF Pro Display', 'Helvetica Neue', sans-serif", maxWidth: 430, margin: '0 auto', WebkitFontSmoothing: 'antialiased' }}>
-
-        {/* TESTLÄGE banner */}
-        {(testMode !== null || isTestFallback) && (
-          <div style={{ background: 'rgba(255,214,10,0.2)', border: '2px solid #FFD60A', borderRadius: 12, padding: '12px 16px', marginBottom: 16, textAlign: 'center' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#FFD60A' }}>
-              {testMode !== null ? `TESTLÄGE – simulerad brandrisk (FWI ${testMode})` : 'TESTLÄGE – kunde inte hämta data'}
-            </div>
-            <div style={{ fontSize: 13, color: 'rgba(255,214,10,0.85)', marginTop: 4 }}>
-              {testMode !== null ? 'Data nedan är simulerad. Avsluta via Inställningar.' : 'Visar simulerad data.'}
-            </div>
-            {isTestFallback && testMode === null && (
-              <button className="btn-press" type="button" onClick={() => { lastFetchRef.current = ''; fetchData(); }} style={{ marginTop: 10, padding: '8px 18px', borderRadius: 10, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer', minHeight: 40 }}>Försök igen</button>
-            )}
-          </div>
-        )}
-
-        {/* LAGER 1: GLANCE */}
-        <div style={{ padding: '8px 24px 0', textAlign: 'center' }}>
-          <div style={{ fontSize: 17, fontWeight: 600 }}>Brandrisk</div>
-        </div>
-
-        <div style={{ padding: '6px 24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {objektNamn ? `${objektNamn} – ` : ''}{data.location}
-            </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', flexShrink: 0 }}>Uppdaterad {updatedTime}</div>
-          </div>
-          {!koordFranObjekt && (
-            <div style={{ fontSize: 11, color: '#FF9F0A', marginTop: 3 }}>Position: kartans mitt (objektet saknar koordinat)</div>
-          )}
-        </div>
-
-        {/* Eldningsförbud */}
-        {eldningsforbud && (
-          <div style={{ margin: '8px 16px 0', padding: '12px 16px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,69,58,0.08)', border: '1px solid rgba(255,69,58,0.2)' }}>
-            <div style={{ fontSize: 18, flexShrink: 0 }}>&#x1F525;</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: MCF_COLORS[5] }}>Eldningsförbud råder</div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>Beslut av räddningstjänsten</div>
-            </div>
-          </div>
-        )}
 
         {/* HERO — dominant current risk */}
         <div style={{ textAlign: 'center', padding: '20px 24px 16px' }}>
@@ -527,7 +485,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
         {/* === OPERATIONAL SECTIONS (from old panel) === */}
 
         {/* Samråd sker i Forest Link (vid nivå 4 eller testläge) */}
-        {(currentIdx >= 4 || testMode !== null) && (
+        {currentIdx >= 4 && (
           <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '16px 20px' }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>Samråd sker i Forest Link</div>
             <div style={{ fontSize: 12, color: '#8e8e93', lineHeight: 1.5 }}>Vid FWI &#x2265; 4 krävs samråd mellan uppdragstagare och uppdragsgivare (Skogforsk 2022). Det görs och dokumenteras i Forest Link.</div>
@@ -693,36 +651,6 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             </div>
           </details>
         </div>
-
-        {/* Dev test toggle */}
-        {process.env.NODE_ENV === 'development' && testMode === null && (
-          <div style={{ margin: '0 16px 8px', textAlign: 'center' }}>
-            <button className="btn-press"
-              onClick={() => {
-                if (devSimulating) {
-                  // Restore real data
-                  if (realDataRef.current) {
-                    setData(realDataRef.current);
-                    onStatusChange?.({ status: 'done', currentFwi: realDataRef.current.currentFwi, currentIdx: realDataRef.current.currentIdx });
-                  }
-                  setIsTestFallback(false);
-                  setDevSimulating(false);
-                } else {
-                  // Save real data and switch to simulated
-                  realDataRef.current = data;
-                  const simulated = generateTestData(5);
-                  setData(simulated);
-                  setIsTestFallback(true);
-                  setDevSimulating(true);
-                  onStatusChange?.({ status: 'done', currentFwi: simulated.currentFwi, currentIdx: simulated.currentIdx });
-                }
-              }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: devSimulating ? '#FFD60A' : 'rgba(255,255,255,0.15)', padding: '6px 12px' }}
-            >
-              {devSimulating ? 'Avsluta simulering' : 'Simulera hög risk'}
-            </button>
-          </div>
-        )}
 
         {/* Footer */}
         <div style={{ margin: '8px 16px 32px', fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6, textAlign: 'center' }}>
