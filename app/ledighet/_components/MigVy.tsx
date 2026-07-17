@@ -107,7 +107,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ ...labelStyle, marginTop: 4 }}>TIDIGARE</div>
               {tidigare.map(a => (
-                <AnsokanKort key={a.id} a={a} arEgen onTaBort={taBort} />
+                <AnsokanKort key={a.id} a={a} arEgen tidigare onTaBort={taBort} />
               ))}
             </div>
           )}
