@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
-import { uppdateraVerifierat, upsertVerifierat, SPARA_FEL } from "@/lib/supabase-save";
+import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag } from "@/lib/arbetstid";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
@@ -1038,9 +1038,12 @@ export default function Arbetsrapport() {
               const startSec = startTid + ':00';
               for (const o of opna) {
                 const min = minutDiff(o.start_tid, startSec);
-                // Bakgrundspoll — ingen alert; re-fetchen nedan visar sanningen om stängningen inte gick igenom
-                const res = await uppdateraVerifierat(supabase, 'extra_tid', { slut_tid: startSec, minuter: min }, { id: o.id });
-                if (!res.ok) console.error('[auto-stopp] extra_tid', o.id, 'kunde inte stängas');
+                // Bakgrundspoll — ingen alert; re-fetchen nedan visar sanningen om stängningen inte gick igenom.
+                // < 1 min = feltryck: radera i stället för att spara en 0-min-post.
+                const res = min < 1
+                  ? await raderaVerifierat(supabase, 'extra_tid', { id: o.id })
+                  : await uppdateraVerifierat(supabase, 'extra_tid', { slut_tid: startSec, minuter: min }, { id: o.id });
+                if (!res.ok) console.error('[auto-stopp] extra_tid', o.id, 'kunde inte stängas/raderas');
               }
               setPagaendeAktiviteter([]);
               // Refresh extra_tid lista
@@ -1490,6 +1493,21 @@ export default function Arbetsrapport() {
     if (!aktivTimer) return;
     const nuT = nuKlock() + ":00";
     const min = minutDiff(aktivTimer.start_tid, nuT);
+    // Stopp under 1 minut = feltryck, inte arbete. Radera posten i stället
+    // för att spara en 0-min-post — skräpet ska aldrig uppstå vid källan.
+    // (Martins olåsta 0-min-post kom från exakt detta: start+stopp direkt.)
+    if (min < 1) {
+      const bort = await raderaVerifierat(supabase, "extra_tid", { id: aktivTimer.id });
+      if (!bort.ok) { alert(bort.fel); return; } // timern står kvar
+      setPagaendeAktiviteter(arr => arr.filter(x => x.id !== aktivTimer.id));
+      setExtraTidData(arr => arr.filter(x => x.id !== aktivTimer.id));
+      setExtraDagData(m => {
+        const datum = aktivTimer.datum;
+        if (!datum || !m[datum]) return m;
+        return { ...m, [datum]: m[datum].filter((x: any) => x.id !== aktivTimer.id) };
+      });
+      return; // ingen sheet — det fanns inget arbete att beskriva
+    }
     const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuT, minuter: min }, { id: aktivTimer.id }, "*");
     if (!res.ok) { alert(res.fel); return; } // timern står kvar — inget låtsas-stopp
     const uppdaterad = res.rows[0];
@@ -1526,7 +1544,148 @@ export default function Arbetsrapport() {
     </div>
   ) : null;
 
+  // "Vad gjorde du?"-sheeten + dess objektväljare — DELAD UI (som timerBanner)
+  // som renderas i BÅDE Dag-vyn (morgon) och kalender-dagvyn (redigera).
+  // Låg tidigare bara i morgon-returnen: kalender-dagvyns rader satte state
+  // men ingen sheet fanns i det trädet => redigering i efterhand var död.
+  const efterStoppUI = (<>
+    {/* Objekt-väljare för efter-stopp-sheet (stackat ovanpå) */}
+    {efterStoppSheet && kvAvVäljer && (
+      <div onClick={()=>setKvAvVäljer(false)}
+        style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1700,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+        <div onClick={e=>e.stopPropagation()}
+          style={{ width:"100%",maxWidth:560,background:"#0d0d0f",borderRadius:"12px 12px 0 0",padding:"10px 0 20px",maxHeight:"85vh",display:"flex",flexDirection:"column",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
+          <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
+            <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+          </div>
+          <div style={{ padding:"0 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+            <p style={{ margin:0,...TYPE.h2,color:"#fff" }}>Välj objekt</p>
+            <button onClick={()=>setKvAvVäljer(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Avbryt</button>
+          </div>
+          <div style={{ flex:1,overflowY:"auto" }}>
+            {objektLista.length === 0 ? (
+              <p style={{ margin:"32px 20px",textAlign:"center",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>Inga objekt tillgängliga</p>
+            ) : (
+              <ObjektValjarLista
+                objekt={objektLista}
+                valtId={kvAvObj?.id ?? null}
+                onVälj={o => { setKvAvObj(o); setKvAvVäljer(false); }}
+                tillåtInget
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    )}
 
+    {/* Bottom sheet: Vad gjorde du? (efter timerstopp ELLER klick på befintlig post) */}
+    {efterStoppSheet && (()=>{
+      const typer = EXTRA_ARBETE_TYPER.map(t => AKTIVITETER.find(x => x.typ === t)!);
+      const tidLabel = `${(efterStoppSheet.start_tid||'').slice(0,5)} – ${(efterStoppSheet.slut_tid||'').slice(0,5)} · ${fmt(efterStoppSheet.minuter || 0)}`;
+      const stäng = () => {
+        setEfterStoppSheet(null);
+        setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); setKvAvBesk("");
+      };
+      const sparaDetaljer = async () => {
+        const res = await uppdateraVerifierat(supabase, "extra_tid", {
+          aktivitet_typ: kvAvTyp || null,
+          objekt_id: kvAvObj?.id || null,
+          debiterbar: kvAvDeb,
+          kommentar: kvAvBesk || null,
+        }, { id: efterStoppSheet.id });
+        if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar så föraren kan försöka igen
+        const uppdaterad = (x: any) => x.id === efterStoppSheet.id
+          ? { ...x, aktivitet_typ: kvAvTyp || null, objekt_id: kvAvObj?.id || null, debiterbar: kvAvDeb, kommentar: kvAvBesk || null }
+          : x;
+        setExtraTidData(d => d.map(uppdaterad));
+        // Kalenderns/tidslinjens per-dag-cache måste också med — annars visar
+        // tidslinjen gamla värden tills månaden hämtas om
+        setExtraDagData(m => {
+          const datum = efterStoppSheet.datum;
+          if (!datum || !m[datum]) return m;
+          return { ...m, [datum]: m[datum].map(uppdaterad) };
+        });
+        stäng();
+      };
+      // Radera posten — VERIFIERAT (0 träffade rader = ärligt fel, aldrig
+      // tyst "borttaget"; RLS kan blockera lika tyst som update-buggen #162)
+      const taBortPost = async () => {
+        if (!window.confirm("Ta bort den här posten?")) return;
+        const res = await raderaVerifierat(supabase, "extra_tid", { id: efterStoppSheet.id });
+        if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar
+        setExtraTidData(d => d.filter(x => x.id !== efterStoppSheet.id));
+        setExtraDagData(m => {
+          const datum = efterStoppSheet.datum;
+          if (!datum || !m[datum]) return m;
+          return { ...m, [datum]: m[datum].filter((x: any) => x.id !== efterStoppSheet.id) };
+        });
+        setPagaendeAktiviteter(arr => arr.filter(x => x.id !== efterStoppSheet.id));
+        stäng();
+      };
+      return (
+        <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1600,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"12px 12px 0 0",padding:"10px 20px 28px",maxHeight:"90vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
+            <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
+              <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+            </div>
+            <p style={{ margin:"0 0 4px",...TYPE.h2,color:"#fff" }}>Vad gjorde du?</p>
+            <p style={{ margin:"0 0 16px",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>{tidLabel}</p>
+
+            <p style={{ margin:"0 0 8px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Aktivitet</p>
+            {typer.map(t=>(
+              <div key={t.typ} onClick={()=>setKvAvTyp(t.typ)}
+                style={{ background:kvAvTyp===t.typ?"rgba(10,132,255,0.15)":"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.typ?"1px solid rgba(10,132,255,0.35)":"1px solid rgba(255,255,255,0.06)" }}>
+                <span style={{ ...TYPE.bodyList,color:"#fff" }}>{t.label}</span>
+                {kvAvTyp===t.typ
+                  ? <div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+                  : <div style={{ width:20,height:20,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.18)" }}/>
+                }
+              </div>
+            ))}
+
+            <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:12,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:"1px solid rgba(255,255,255,0.06)" }}>
+              <div>
+                <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Objekt</p>
+                <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?"#0a84ff":"rgba(255,255,255,0.5)" }}>{kvAvObj?kvAvObj.namn:"Välj objekt (valfritt)"}</p>
+              </div>
+              <ChevronRight/>
+            </div>
+
+            <div style={{ marginTop:6,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
+              <div>
+                <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Debiterbar</p>
+                <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Faktureras kunden</p>
+              </div>
+              <div onClick={()=>setKvAvDeb(v=>!v)}
+                style={{ width:51,height:31,borderRadius:999,background:kvAvDeb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
+                <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s" }}/>
+              </div>
+            </div>
+
+            <div style={{ marginTop:12 }}>
+              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Kommentar (valfritt)</p>
+              <input value={kvAvBesk} onChange={e=>setKvAvBesk(e.target.value)} placeholder="Eller hoppa över"
+                style={{ width:"100%",padding:"13px 14px",fontSize:15,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.04)",color:"#fff",fontFamily:"inherit",boxSizing:"border-box" }}/>
+            </div>
+
+            <button onClick={sparaDetaljer}
+              style={{ width:"100%",marginTop:20,padding:"18px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+              Spara
+            </button>
+            <button onClick={taBortPost}
+              style={{ width:"100%",marginTop:8,padding:"14px",background:"rgba(255,69,58,0.12)",color:"#ff453a",border:"1px solid rgba(255,69,58,0.3)",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              Ta bort
+            </button>
+            <button onClick={stäng}
+              style={{ width:"100%",marginTop:8,padding:"12px",background:"none",color:"rgba(255,255,255,0.6)",border:"none",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
+              Hoppa över
+            </button>
+          </div>
+        </div>
+      );
+    })()}
+  </>);
 
   /* ─── ORSAK TILL VILOBROTT ─── */
   if(steg==="vilobrottOrsak") {
@@ -1628,7 +1787,7 @@ export default function Arbetsrapport() {
   if(steg==="tidslinje" && tidslinjeDatum) {
     const dag = dagData[tidslinjeDatum];
     const extra = (extraDagData[tidslinjeDatum] || []).slice().sort((a,b)=>(a.start_tid||'').localeCompare(b.start_tid||''));
-    type Hand = { typ:'maskin'|'extra'; start:string; slut:string; label:string; sub?:string; minuter:number; debiterbar?:boolean };
+    type Hand = { typ:'maskin'|'extra'; start:string; slut:string; label:string; sub?:string; minuter:number; debiterbar?:boolean; post?:any };
     const händelser: Hand[] = [];
     if(dag?.start_tid && dag?.slut_tid) {
       const objNamn = objektLista.find(o=>o.id===dag.objekt_id)?.namn || dag.objekt_namn || dag.maskin_id || 'Maskin';
@@ -1650,6 +1809,7 @@ export default function Arbetsrapport() {
         sub: e.aktivitet_text || (e.objekt_id ? (objektLista.find(o=>o.id===e.objekt_id)?.namn || '') : ''),
         minuter: e.minuter||0,
         debiterbar: e.debiterbar,
+        post: e, // originalposten — behövs för att öppna redigeringssheeten
       });
     }
     händelser.sort((a,b)=>a.start.localeCompare(b.start));
@@ -1688,7 +1848,16 @@ export default function Arbetsrapport() {
             {händelser.length===0?(
               <Card><p style={{ margin:0,...TYPE.meta,color:C.label,textAlign:"center" }}>Inga händelser denna dag</p></Card>
             ):händelser.map((h,i)=>(
-              <Card key={i} style={{ display:"flex",alignItems:"flex-start",gap:14 }}>
+              /* Extra-händelser är klickbara — öppnar samma "Vad gjorde du?"-sheet
+                 som Dag-vyn, så poster kan redigeras i efterhand härifrån */
+              <Card key={i} onClick={h.typ==='extra'&&h.post ? ()=>{
+                  setKvAvTyp(h.post.aktivitet_typ || null);
+                  setKvAvObj(h.post.objekt_id ? objektLista.find(o => o.id === h.post.objekt_id) || null : null);
+                  setKvAvDeb(!!h.post.debiterbar);
+                  setKvAvBesk(h.post.kommentar || "");
+                  setEfterStoppSheet(h.post);
+                } : undefined}
+                style={{ display:"flex",alignItems:"flex-start",gap:14,cursor:h.typ==='extra'?'pointer':'default' }}>
                 <div style={{ minWidth:90,...TYPE.meta,color:C.label,fontWeight:500,fontVariantNumeric:"tabular-nums" }}>
                   {h.start}–{h.slut}
                 </div>
@@ -1697,10 +1866,13 @@ export default function Arbetsrapport() {
                   {h.sub&&<p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{h.sub}</p>}
                   <p style={{ margin:"6px 0 0",fontSize:12,fontWeight:500,color:C.label }}>{fmt(h.minuter)}{h.debiterbar?' · debiterbar':''}</p>
                 </div>
+                {h.typ==='extra'&&<span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.25)",alignSelf:"center" }}>chevron_right</span>}
               </Card>
             ))}
           </div>
         </div>
+        {/* "Vad gjorde du?"-sheeten — delad UI, öppnas av extra-korten ovan */}
+        {efterStoppUI}
       </div>
     );
   }
@@ -2158,7 +2330,10 @@ export default function Arbetsrapport() {
                     // bekräftas dagen med en timer som fortfarande är öppen i DB.
                     for (const p of pagaendeAktiviteter) {
                       const min = minutDiff(p.start_tid, nuTS);
-                      const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
+                      // < 1 min = feltryck: radera i stället för att spara 0-min-post
+                      const res = min < 1
+                        ? await raderaVerifierat(supabase, "extra_tid", { id: p.id })
+                        : await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
                       if (!res.ok) { alert(res.fel); return; }
                     }
                     if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
@@ -2350,116 +2525,8 @@ export default function Arbetsrapport() {
       {/* Bottom sheet: Starta extra arbete */}
       {/* Objekt-väljare (stackad ovanpå Starta extra-sheet:en) */}
 
-      {/* Objekt-väljare för efter-stopp-sheet (stackat ovanpå) */}
-      {efterStoppSheet && kvAvVäljer && (
-        <div onClick={()=>setKvAvVäljer(false)}
-          style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1700,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-          <div onClick={e=>e.stopPropagation()}
-            style={{ width:"100%",maxWidth:560,background:"#0d0d0f",borderRadius:"12px 12px 0 0",padding:"10px 0 20px",maxHeight:"85vh",display:"flex",flexDirection:"column",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
-            <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
-              <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
-            </div>
-            <div style={{ padding:"0 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-              <p style={{ margin:0,...TYPE.h2,color:"#fff" }}>Välj objekt</p>
-              <button onClick={()=>setKvAvVäljer(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Avbryt</button>
-            </div>
-            <div style={{ flex:1,overflowY:"auto" }}>
-              {objektLista.length === 0 ? (
-                <p style={{ margin:"32px 20px",textAlign:"center",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>Inga objekt tillgängliga</p>
-              ) : (
-                <ObjektValjarLista
-                  objekt={objektLista}
-                  valtId={kvAvObj?.id ?? null}
-                  onVälj={o => { setKvAvObj(o); setKvAvVäljer(false); }}
-                  tillåtInget
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bottom sheet: Vad gjorde du? (öppnas efter Stoppa på pågående timer) */}
-      {efterStoppSheet && (()=>{
-        const typer = EXTRA_ARBETE_TYPER.map(t => AKTIVITETER.find(x => x.typ === t)!);
-        const tidLabel = `${(efterStoppSheet.start_tid||'').slice(0,5)} – ${(efterStoppSheet.slut_tid||'').slice(0,5)} · ${fmt(efterStoppSheet.minuter || 0)}`;
-        const stäng = () => {
-          setEfterStoppSheet(null);
-          setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); setKvAvBesk("");
-        };
-        const sparaDetaljer = async () => {
-          const res = await uppdateraVerifierat(supabase, "extra_tid", {
-            aktivitet_typ: kvAvTyp || null,
-            objekt_id: kvAvObj?.id || null,
-            debiterbar: kvAvDeb,
-            kommentar: kvAvBesk || null,
-          }, { id: efterStoppSheet.id });
-          if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar så föraren kan försöka igen
-          setExtraTidData(d => d.map(x => x.id === efterStoppSheet.id
-            ? { ...x, aktivitet_typ: kvAvTyp || null, objekt_id: kvAvObj?.id || null, debiterbar: kvAvDeb, kommentar: kvAvBesk || null }
-            : x
-          ));
-          stäng();
-        };
-        return (
-          <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1600,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-            <div onClick={e=>e.stopPropagation()}
-              style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"12px 12px 0 0",padding:"10px 20px 28px",maxHeight:"90vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
-              <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
-                <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
-              </div>
-              <p style={{ margin:"0 0 4px",...TYPE.h2,color:"#fff" }}>Vad gjorde du?</p>
-              <p style={{ margin:"0 0 16px",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>{tidLabel}</p>
-
-              <p style={{ margin:"0 0 8px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Aktivitet</p>
-              {typer.map(t=>(
-                <div key={t.typ} onClick={()=>setKvAvTyp(t.typ)}
-                  style={{ background:kvAvTyp===t.typ?"rgba(10,132,255,0.15)":"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.typ?"1px solid rgba(10,132,255,0.35)":"1px solid rgba(255,255,255,0.06)" }}>
-                  <span style={{ ...TYPE.bodyList,color:"#fff" }}>{t.label}</span>
-                  {kvAvTyp===t.typ
-                    ? <div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-                    : <div style={{ width:20,height:20,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.18)" }}/>
-                  }
-                </div>
-              ))}
-
-              <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:12,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <div>
-                  <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Objekt</p>
-                  <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?"#0a84ff":"rgba(255,255,255,0.5)" }}>{kvAvObj?kvAvObj.namn:"Välj objekt (valfritt)"}</p>
-                </div>
-                <ChevronRight/>
-              </div>
-
-              <div style={{ marginTop:6,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <div>
-                  <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Debiterbar</p>
-                  <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Faktureras kunden</p>
-                </div>
-                <div onClick={()=>setKvAvDeb(v=>!v)}
-                  style={{ width:51,height:31,borderRadius:999,background:kvAvDeb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
-                  <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s" }}/>
-                </div>
-              </div>
-
-              <div style={{ marginTop:12 }}>
-                <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Kommentar (valfritt)</p>
-                <input value={kvAvBesk} onChange={e=>setKvAvBesk(e.target.value)} placeholder="Eller hoppa över"
-                  style={{ width:"100%",padding:"13px 14px",fontSize:15,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.04)",color:"#fff",fontFamily:"inherit",boxSizing:"border-box" }}/>
-              </div>
-
-              <button onClick={sparaDetaljer}
-                style={{ width:"100%",marginTop:20,padding:"18px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
-                Spara
-              </button>
-              <button onClick={stäng}
-                style={{ width:"100%",marginTop:8,padding:"12px",background:"none",color:"rgba(255,255,255,0.6)",border:"none",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
-                Hoppa över
-              </button>
-            </div>
-          </div>
-        );
-      })()}
+      {/* "Vad gjorde du?"-sheeten + objektväljare — delad UI, se efterStoppUI */}
+      {efterStoppUI}
 
       {/* Bottom sheet: Ändra tider */}
       {visaTiderSheet && (()=>{
@@ -4935,6 +5002,10 @@ export default function Arbetsrapport() {
         </div>
           </>);
         })()}
+
+        {/* "Vad gjorde du?"-sheeten — delad UI så Loggad tid-raderna ovan
+            faktiskt öppnar redigering även för historiska dagar */}
+        {efterStoppUI}
 
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(
