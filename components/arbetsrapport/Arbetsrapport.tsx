@@ -1,7 +1,8 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
-import { uppdateraVerifierat, upsertVerifierat, SPARA_FEL } from "@/lib/supabase-save";
+import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
+import { extraMinPerDag } from "@/lib/arbetstid";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
@@ -1037,9 +1038,12 @@ export default function Arbetsrapport() {
               const startSec = startTid + ':00';
               for (const o of opna) {
                 const min = minutDiff(o.start_tid, startSec);
-                // Bakgrundspoll — ingen alert; re-fetchen nedan visar sanningen om stängningen inte gick igenom
-                const res = await uppdateraVerifierat(supabase, 'extra_tid', { slut_tid: startSec, minuter: min }, { id: o.id });
-                if (!res.ok) console.error('[auto-stopp] extra_tid', o.id, 'kunde inte stängas');
+                // Bakgrundspoll — ingen alert; re-fetchen nedan visar sanningen om stängningen inte gick igenom.
+                // < 1 min = feltryck: radera i stället för att spara en 0-min-post.
+                const res = min < 1
+                  ? await raderaVerifierat(supabase, 'extra_tid', { id: o.id })
+                  : await uppdateraVerifierat(supabase, 'extra_tid', { slut_tid: startSec, minuter: min }, { id: o.id });
+                if (!res.ok) console.error('[auto-stopp] extra_tid', o.id, 'kunde inte stängas/raderas');
               }
               setPagaendeAktiviteter([]);
               // Refresh extra_tid lista
@@ -1055,8 +1059,14 @@ export default function Arbetsrapport() {
         if (!prevSlut && row.slut_tid && !localStorage.getItem(slutKey)) {
           knownSlut[row.id] = row.slut_tid;
           const slutTid = row.slut_tid.slice(0, 5);
-          const h = Math.floor((row.arbetad_min || 0) / 60);
-          const m = (row.arbetad_min || 0) % 60;
+          // Dagstotal = maskintid + dagens extra tid. Hämtas färskt här (inte
+          // ur extraTidData-state) — effekten har stale closure på state.
+          const { data: dagensExtra } = await supabase.from('extra_tid')
+            .select('minuter').eq('medarbetare_id', medarbetare.id).eq('datum', today);
+          const extraMinIdag = (dagensExtra || []).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
+          const totMin = (row.arbetad_min || 0) + extraMinIdag;
+          const h = Math.floor(totMin / 60);
+          const m = totMin % 60;
           const tid = `${h}h ${m}min`;
           setArbetsdagToast({ typ: 'slut', maskin, objekt: objNamn, start: startTid, slut: slutTid, tid });
           localStorage.setItem(slutKey, '1');
@@ -1483,6 +1493,21 @@ export default function Arbetsrapport() {
     if (!aktivTimer) return;
     const nuT = nuKlock() + ":00";
     const min = minutDiff(aktivTimer.start_tid, nuT);
+    // Stopp under 1 minut = feltryck, inte arbete. Radera posten i stället
+    // för att spara en 0-min-post — skräpet ska aldrig uppstå vid källan.
+    // (Martins olåsta 0-min-post kom från exakt detta: start+stopp direkt.)
+    if (min < 1) {
+      const bort = await raderaVerifierat(supabase, "extra_tid", { id: aktivTimer.id });
+      if (!bort.ok) { alert(bort.fel); return; } // timern står kvar
+      setPagaendeAktiviteter(arr => arr.filter(x => x.id !== aktivTimer.id));
+      setExtraTidData(arr => arr.filter(x => x.id !== aktivTimer.id));
+      setExtraDagData(m => {
+        const datum = aktivTimer.datum;
+        if (!datum || !m[datum]) return m;
+        return { ...m, [datum]: m[datum].filter((x: any) => x.id !== aktivTimer.id) };
+      });
+      return; // ingen sheet — det fanns inget arbete att beskriva
+    }
     const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuT, minuter: min }, { id: aktivTimer.id }, "*");
     if (!res.ok) { alert(res.fel); return; } // timern står kvar — inget låtsas-stopp
     const uppdaterad = res.rows[0];
@@ -1519,7 +1544,148 @@ export default function Arbetsrapport() {
     </div>
   ) : null;
 
+  // "Vad gjorde du?"-sheeten + dess objektväljare — DELAD UI (som timerBanner)
+  // som renderas i BÅDE Dag-vyn (morgon) och kalender-dagvyn (redigera).
+  // Låg tidigare bara i morgon-returnen: kalender-dagvyns rader satte state
+  // men ingen sheet fanns i det trädet => redigering i efterhand var död.
+  const efterStoppUI = (<>
+    {/* Objekt-väljare för efter-stopp-sheet (stackat ovanpå) */}
+    {efterStoppSheet && kvAvVäljer && (
+      <div onClick={()=>setKvAvVäljer(false)}
+        style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1700,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+        <div onClick={e=>e.stopPropagation()}
+          style={{ width:"100%",maxWidth:560,background:"#0d0d0f",borderRadius:"12px 12px 0 0",padding:"10px 0 20px",maxHeight:"85vh",display:"flex",flexDirection:"column",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
+          <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
+            <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+          </div>
+          <div style={{ padding:"0 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+            <p style={{ margin:0,...TYPE.h2,color:"#fff" }}>Välj objekt</p>
+            <button onClick={()=>setKvAvVäljer(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Avbryt</button>
+          </div>
+          <div style={{ flex:1,overflowY:"auto" }}>
+            {objektLista.length === 0 ? (
+              <p style={{ margin:"32px 20px",textAlign:"center",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>Inga objekt tillgängliga</p>
+            ) : (
+              <ObjektValjarLista
+                objekt={objektLista}
+                valtId={kvAvObj?.id ?? null}
+                onVälj={o => { setKvAvObj(o); setKvAvVäljer(false); }}
+                tillåtInget
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    )}
 
+    {/* Bottom sheet: Vad gjorde du? (efter timerstopp ELLER klick på befintlig post) */}
+    {efterStoppSheet && (()=>{
+      const typer = EXTRA_ARBETE_TYPER.map(t => AKTIVITETER.find(x => x.typ === t)!);
+      const tidLabel = `${(efterStoppSheet.start_tid||'').slice(0,5)} – ${(efterStoppSheet.slut_tid||'').slice(0,5)} · ${fmt(efterStoppSheet.minuter || 0)}`;
+      const stäng = () => {
+        setEfterStoppSheet(null);
+        setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); setKvAvBesk("");
+      };
+      const sparaDetaljer = async () => {
+        const res = await uppdateraVerifierat(supabase, "extra_tid", {
+          aktivitet_typ: kvAvTyp || null,
+          objekt_id: kvAvObj?.id || null,
+          debiterbar: kvAvDeb,
+          kommentar: kvAvBesk || null,
+        }, { id: efterStoppSheet.id });
+        if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar så föraren kan försöka igen
+        const uppdaterad = (x: any) => x.id === efterStoppSheet.id
+          ? { ...x, aktivitet_typ: kvAvTyp || null, objekt_id: kvAvObj?.id || null, debiterbar: kvAvDeb, kommentar: kvAvBesk || null }
+          : x;
+        setExtraTidData(d => d.map(uppdaterad));
+        // Kalenderns/tidslinjens per-dag-cache måste också med — annars visar
+        // tidslinjen gamla värden tills månaden hämtas om
+        setExtraDagData(m => {
+          const datum = efterStoppSheet.datum;
+          if (!datum || !m[datum]) return m;
+          return { ...m, [datum]: m[datum].map(uppdaterad) };
+        });
+        stäng();
+      };
+      // Radera posten — VERIFIERAT (0 träffade rader = ärligt fel, aldrig
+      // tyst "borttaget"; RLS kan blockera lika tyst som update-buggen #162)
+      const taBortPost = async () => {
+        if (!window.confirm("Ta bort den här posten?")) return;
+        const res = await raderaVerifierat(supabase, "extra_tid", { id: efterStoppSheet.id });
+        if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar
+        setExtraTidData(d => d.filter(x => x.id !== efterStoppSheet.id));
+        setExtraDagData(m => {
+          const datum = efterStoppSheet.datum;
+          if (!datum || !m[datum]) return m;
+          return { ...m, [datum]: m[datum].filter((x: any) => x.id !== efterStoppSheet.id) };
+        });
+        setPagaendeAktiviteter(arr => arr.filter(x => x.id !== efterStoppSheet.id));
+        stäng();
+      };
+      return (
+        <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1600,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"12px 12px 0 0",padding:"10px 20px 28px",maxHeight:"90vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
+            <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
+              <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+            </div>
+            <p style={{ margin:"0 0 4px",...TYPE.h2,color:"#fff" }}>Vad gjorde du?</p>
+            <p style={{ margin:"0 0 16px",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>{tidLabel}</p>
+
+            <p style={{ margin:"0 0 8px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Aktivitet</p>
+            {typer.map(t=>(
+              <div key={t.typ} onClick={()=>setKvAvTyp(t.typ)}
+                style={{ background:kvAvTyp===t.typ?"rgba(10,132,255,0.15)":"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.typ?"1px solid rgba(10,132,255,0.35)":"1px solid rgba(255,255,255,0.06)" }}>
+                <span style={{ ...TYPE.bodyList,color:"#fff" }}>{t.label}</span>
+                {kvAvTyp===t.typ
+                  ? <div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+                  : <div style={{ width:20,height:20,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.18)" }}/>
+                }
+              </div>
+            ))}
+
+            <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:12,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:"1px solid rgba(255,255,255,0.06)" }}>
+              <div>
+                <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Objekt</p>
+                <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?"#0a84ff":"rgba(255,255,255,0.5)" }}>{kvAvObj?kvAvObj.namn:"Välj objekt (valfritt)"}</p>
+              </div>
+              <ChevronRight/>
+            </div>
+
+            <div style={{ marginTop:6,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
+              <div>
+                <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Debiterbar</p>
+                <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Faktureras kunden</p>
+              </div>
+              <div onClick={()=>setKvAvDeb(v=>!v)}
+                style={{ width:51,height:31,borderRadius:999,background:kvAvDeb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
+                <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s" }}/>
+              </div>
+            </div>
+
+            <div style={{ marginTop:12 }}>
+              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Kommentar (valfritt)</p>
+              <input value={kvAvBesk} onChange={e=>setKvAvBesk(e.target.value)} placeholder="Eller hoppa över"
+                style={{ width:"100%",padding:"13px 14px",fontSize:15,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.04)",color:"#fff",fontFamily:"inherit",boxSizing:"border-box" }}/>
+            </div>
+
+            <button onClick={sparaDetaljer}
+              style={{ width:"100%",marginTop:20,padding:"18px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+              Spara
+            </button>
+            <button onClick={taBortPost}
+              style={{ width:"100%",marginTop:8,padding:"14px",background:"rgba(255,69,58,0.12)",color:"#ff453a",border:"1px solid rgba(255,69,58,0.3)",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              Ta bort
+            </button>
+            <button onClick={stäng}
+              style={{ width:"100%",marginTop:8,padding:"12px",background:"none",color:"rgba(255,255,255,0.6)",border:"none",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
+              Hoppa över
+            </button>
+          </div>
+        </div>
+      );
+    })()}
+  </>);
 
   /* ─── ORSAK TILL VILOBROTT ─── */
   if(steg==="vilobrottOrsak") {
@@ -1621,7 +1787,7 @@ export default function Arbetsrapport() {
   if(steg==="tidslinje" && tidslinjeDatum) {
     const dag = dagData[tidslinjeDatum];
     const extra = (extraDagData[tidslinjeDatum] || []).slice().sort((a,b)=>(a.start_tid||'').localeCompare(b.start_tid||''));
-    type Hand = { typ:'maskin'|'extra'; start:string; slut:string; label:string; sub?:string; minuter:number; debiterbar?:boolean };
+    type Hand = { typ:'maskin'|'extra'; start:string; slut:string; label:string; sub?:string; minuter:number; debiterbar?:boolean; post?:any };
     const händelser: Hand[] = [];
     if(dag?.start_tid && dag?.slut_tid) {
       const objNamn = objektLista.find(o=>o.id===dag.objekt_id)?.namn || dag.objekt_namn || dag.maskin_id || 'Maskin';
@@ -1643,6 +1809,7 @@ export default function Arbetsrapport() {
         sub: e.aktivitet_text || (e.objekt_id ? (objektLista.find(o=>o.id===e.objekt_id)?.namn || '') : ''),
         minuter: e.minuter||0,
         debiterbar: e.debiterbar,
+        post: e, // originalposten — behövs för att öppna redigeringssheeten
       });
     }
     händelser.sort((a,b)=>a.start.localeCompare(b.start));
@@ -1681,7 +1848,16 @@ export default function Arbetsrapport() {
             {händelser.length===0?(
               <Card><p style={{ margin:0,...TYPE.meta,color:C.label,textAlign:"center" }}>Inga händelser denna dag</p></Card>
             ):händelser.map((h,i)=>(
-              <Card key={i} style={{ display:"flex",alignItems:"flex-start",gap:14 }}>
+              /* Extra-händelser är klickbara — öppnar samma "Vad gjorde du?"-sheet
+                 som Dag-vyn, så poster kan redigeras i efterhand härifrån */
+              <Card key={i} onClick={h.typ==='extra'&&h.post ? ()=>{
+                  setKvAvTyp(h.post.aktivitet_typ || null);
+                  setKvAvObj(h.post.objekt_id ? objektLista.find(o => o.id === h.post.objekt_id) || null : null);
+                  setKvAvDeb(!!h.post.debiterbar);
+                  setKvAvBesk(h.post.kommentar || "");
+                  setEfterStoppSheet(h.post);
+                } : undefined}
+                style={{ display:"flex",alignItems:"flex-start",gap:14,cursor:h.typ==='extra'?'pointer':'default' }}>
                 <div style={{ minWidth:90,...TYPE.meta,color:C.label,fontWeight:500,fontVariantNumeric:"tabular-nums" }}>
                   {h.start}–{h.slut}
                 </div>
@@ -1690,10 +1866,13 @@ export default function Arbetsrapport() {
                   {h.sub&&<p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{h.sub}</p>}
                   <p style={{ margin:"6px 0 0",fontSize:12,fontWeight:500,color:C.label }}>{fmt(h.minuter)}{h.debiterbar?' · debiterbar':''}</p>
                 </div>
+                {h.typ==='extra'&&<span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.25)",alignSelf:"center" }}>chevron_right</span>}
               </Card>
             ))}
           </div>
         </div>
+        {/* "Vad gjorde du?"-sheeten — delad UI, öppnas av extra-korten ovan */}
+        {efterStoppUI}
       </div>
     );
   }
@@ -2011,13 +2190,22 @@ export default function Arbetsrapport() {
                     (start/slut/rast, samma sheet som Arbetstid/Rast-raderna öppnade). */}
                 {harMaskinPass && (
                   <div onClick={öppnaTider} style={{ textAlign:"center",padding:"14px 0 16px",cursor:"pointer",borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
-                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Total arbetstid</p>
+                    {/* "Maskinpass", inte "Total arbetstid" — siffran är passets tid
+                        (start→slut−rast, redigerbar här). Extra tid är egna poster;
+                        dagens TOTAL visas som dämpad rad nedan när extra finns. */}
+                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Maskinpass</p>
                     <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(arbMin)}</p>
                     <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
                       {start} → {slut} · rast {rast} min
                       <span className="material-symbols-outlined" style={{ fontSize:14,color:"rgba(255,255,255,0.25)",verticalAlign:"-2px",marginLeft:2 }}>chevron_right</span>
                     </p>
                     <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Rast = tid markerad som Meal break i maskinen</p>
+                    {(()=>{
+                      const exMinIdag = extraTidData.filter(e => e.datum === idagKey).reduce((a,e) => a + (e.minuter||0), 0);
+                      return exMinIdag > 0 ? (
+                        <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#8e8e93",...TNUM }}>+ {fmt(exMinIdag)} extra arbete · totalt {fmt(arbMin + exMinIdag)} idag</p>
+                      ) : null;
+                    })()}
                   </div>
                 )}
                 {harObjBlock&&(
@@ -2142,7 +2330,10 @@ export default function Arbetsrapport() {
                     // bekräftas dagen med en timer som fortfarande är öppen i DB.
                     for (const p of pagaendeAktiviteter) {
                       const min = minutDiff(p.start_tid, nuTS);
-                      const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
+                      // < 1 min = feltryck: radera i stället för att spara 0-min-post
+                      const res = min < 1
+                        ? await raderaVerifierat(supabase, "extra_tid", { id: p.id })
+                        : await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
                       if (!res.ok) { alert(res.fel); return; }
                     }
                     if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
@@ -2334,116 +2525,8 @@ export default function Arbetsrapport() {
       {/* Bottom sheet: Starta extra arbete */}
       {/* Objekt-väljare (stackad ovanpå Starta extra-sheet:en) */}
 
-      {/* Objekt-väljare för efter-stopp-sheet (stackat ovanpå) */}
-      {efterStoppSheet && kvAvVäljer && (
-        <div onClick={()=>setKvAvVäljer(false)}
-          style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1700,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-          <div onClick={e=>e.stopPropagation()}
-            style={{ width:"100%",maxWidth:560,background:"#0d0d0f",borderRadius:"12px 12px 0 0",padding:"10px 0 20px",maxHeight:"85vh",display:"flex",flexDirection:"column",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
-            <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
-              <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
-            </div>
-            <div style={{ padding:"0 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-              <p style={{ margin:0,...TYPE.h2,color:"#fff" }}>Välj objekt</p>
-              <button onClick={()=>setKvAvVäljer(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Avbryt</button>
-            </div>
-            <div style={{ flex:1,overflowY:"auto" }}>
-              {objektLista.length === 0 ? (
-                <p style={{ margin:"32px 20px",textAlign:"center",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>Inga objekt tillgängliga</p>
-              ) : (
-                <ObjektValjarLista
-                  objekt={objektLista}
-                  valtId={kvAvObj?.id ?? null}
-                  onVälj={o => { setKvAvObj(o); setKvAvVäljer(false); }}
-                  tillåtInget
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bottom sheet: Vad gjorde du? (öppnas efter Stoppa på pågående timer) */}
-      {efterStoppSheet && (()=>{
-        const typer = EXTRA_ARBETE_TYPER.map(t => AKTIVITETER.find(x => x.typ === t)!);
-        const tidLabel = `${(efterStoppSheet.start_tid||'').slice(0,5)} – ${(efterStoppSheet.slut_tid||'').slice(0,5)} · ${fmt(efterStoppSheet.minuter || 0)}`;
-        const stäng = () => {
-          setEfterStoppSheet(null);
-          setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); setKvAvBesk("");
-        };
-        const sparaDetaljer = async () => {
-          const res = await uppdateraVerifierat(supabase, "extra_tid", {
-            aktivitet_typ: kvAvTyp || null,
-            objekt_id: kvAvObj?.id || null,
-            debiterbar: kvAvDeb,
-            kommentar: kvAvBesk || null,
-          }, { id: efterStoppSheet.id });
-          if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar så föraren kan försöka igen
-          setExtraTidData(d => d.map(x => x.id === efterStoppSheet.id
-            ? { ...x, aktivitet_typ: kvAvTyp || null, objekt_id: kvAvObj?.id || null, debiterbar: kvAvDeb, kommentar: kvAvBesk || null }
-            : x
-          ));
-          stäng();
-        };
-        return (
-          <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1600,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-            <div onClick={e=>e.stopPropagation()}
-              style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"12px 12px 0 0",padding:"10px 20px 28px",maxHeight:"90vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
-              <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
-                <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
-              </div>
-              <p style={{ margin:"0 0 4px",...TYPE.h2,color:"#fff" }}>Vad gjorde du?</p>
-              <p style={{ margin:"0 0 16px",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>{tidLabel}</p>
-
-              <p style={{ margin:"0 0 8px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Aktivitet</p>
-              {typer.map(t=>(
-                <div key={t.typ} onClick={()=>setKvAvTyp(t.typ)}
-                  style={{ background:kvAvTyp===t.typ?"rgba(10,132,255,0.15)":"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.typ?"1px solid rgba(10,132,255,0.35)":"1px solid rgba(255,255,255,0.06)" }}>
-                  <span style={{ ...TYPE.bodyList,color:"#fff" }}>{t.label}</span>
-                  {kvAvTyp===t.typ
-                    ? <div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-                    : <div style={{ width:20,height:20,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.18)" }}/>
-                  }
-                </div>
-              ))}
-
-              <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:12,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <div>
-                  <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Objekt</p>
-                  <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?"#0a84ff":"rgba(255,255,255,0.5)" }}>{kvAvObj?kvAvObj.namn:"Välj objekt (valfritt)"}</p>
-                </div>
-                <ChevronRight/>
-              </div>
-
-              <div style={{ marginTop:6,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <div>
-                  <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Debiterbar</p>
-                  <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Faktureras kunden</p>
-                </div>
-                <div onClick={()=>setKvAvDeb(v=>!v)}
-                  style={{ width:51,height:31,borderRadius:999,background:kvAvDeb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
-                  <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s" }}/>
-                </div>
-              </div>
-
-              <div style={{ marginTop:12 }}>
-                <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Kommentar (valfritt)</p>
-                <input value={kvAvBesk} onChange={e=>setKvAvBesk(e.target.value)} placeholder="Eller hoppa över"
-                  style={{ width:"100%",padding:"13px 14px",fontSize:15,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.04)",color:"#fff",fontFamily:"inherit",boxSizing:"border-box" }}/>
-              </div>
-
-              <button onClick={sparaDetaljer}
-                style={{ width:"100%",marginTop:20,padding:"18px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
-                Spara
-              </button>
-              <button onClick={stäng}
-                style={{ width:"100%",marginTop:8,padding:"12px",background:"none",color:"rgba(255,255,255,0.6)",border:"none",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
-                Hoppa över
-              </button>
-            </div>
-          </div>
-        );
-      })()}
+      {/* "Vad gjorde du?"-sheeten + objektväljare — delad UI, se efterStoppUI */}
+      {efterStoppUI}
 
       {/* Bottom sheet: Ändra tider */}
       {visaTiderSheet && (()=>{
@@ -2476,7 +2559,7 @@ export default function Arbetsrapport() {
                 </div>
               </div>
               <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(48,209,88,0.08)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta,fontWeight:500 }}>Total arbetstid</span>
+                <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta,fontWeight:500 }}>Maskinpass</span>
                 <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{fmt(tAm)}</span>
               </div>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginTop:16 }}>
@@ -2619,6 +2702,18 @@ export default function Arbetsrapport() {
     const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
     const månNamn2 = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 
+    // Extra tid (arbete när maskinen var av) är arbetstid rakt av — räknas
+    // in i ALLA summor och övertidsberäkningar här, samma definition som
+    // löneexporten (lib/arbetstid.ts). En dag kan ha extra utan maskinpass.
+    const extraPerDag = extraMinPerDag(extraTidData);
+    const extraMinMellan = (from: string, tom?: string) => {
+      let s = 0;
+      for (const [datum, min] of extraPerDag) {
+        if (datum >= from && (!tom || datum <= tom)) s += min;
+      }
+      return s;
+    };
+
     // Vecka: hitta mån-sön för aktuell vecka
     const dagIdx = (nu.getDay()+6)%7; // 0=mån
     const veckStart = new Date(nu); veckStart.setDate(nu.getDate()-dagIdx);
@@ -2632,7 +2727,8 @@ export default function Arbetsrapport() {
       const d=new Date(veckStart); d.setDate(veckStart.getDate()+i);
       const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const ad=årsData.find(r=>r.datum===k);
-      const h=ad ? Math.round((ad.arbetad_min||0)/60*10)/10 : 0;
+      // Extra tid räknas även på dagar UTAN maskinpass (ad saknas då)
+      const h=Math.round(((ad?.arbetad_min||0)+(extraPerDag.get(k)||0))/60*10)/10;
       veckoTot+=h;
       const dow=d.getDay();
       if(dow!==0&&dow!==6&&!rödaDagarVecka[k]) veckoArbDagar++;
@@ -2642,14 +2738,15 @@ export default function Arbetsrapport() {
     const maxH = Math.max(...veckoDagar.map(d=>d.h),1);
 
     // Idag
-    const idagAd = årsData.find(r=>r.datum===nu.toISOString().split('T')[0]);
-    const idagH = idagAd ? Math.round((idagAd.arbetad_min||0)/60*10)/10 : 0;
+    const idagKey2 = nu.toISOString().split('T')[0];
+    const idagAd = årsData.find(r=>r.datum===idagKey2);
+    const idagH = Math.round(((idagAd?.arbetad_min||0)+(extraPerDag.get(idagKey2)||0))/60*10)/10;
     const idagDiff = idagH - 8;
 
     // Månad
     const månStart = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,'0')}-01`;
     const månData = årsData.filter(r=>r.datum>=månStart);
-    const månJobbatMin = månData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const månJobbatMin = månData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(månStart);
     const månJobbatH = Math.round(månJobbatMin/60*10)/10;
     // Räkna arbetsdagar i månaden
     const dIM = new Date(nu.getFullYear(),nu.getMonth()+1,0).getDate();
@@ -2668,7 +2765,7 @@ export default function Arbetsrapport() {
     const kvartal = Math.floor(nu.getMonth()/3);
     const kvStart = `${nu.getFullYear()}-${String(kvartal*3+1).padStart(2,'0')}-01`;
     const kvData = årsData.filter(r=>r.datum>=kvStart);
-    const kvMin = kvData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const kvMin = kvData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(kvStart);
     // Räkna kvartalets arbetsdagar
     let kvArbDagar=0;
     for(let m=kvartal*3;m<kvartal*3+3;m++){
@@ -2683,11 +2780,12 @@ export default function Arbetsrapport() {
     const kvÖvH = Math.max(0,Math.round(kvMin/60*10)/10-kvArbDagar*8);
 
     // År — övertid beräknad per månad
-    const årsMin = årsData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const årsMin = årsData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(`${nu.getFullYear()}-01-01`);
     let årsÖvH = 0;
     for(let m=0;m<=nu.getMonth();m++){
       const mp=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}`;
-      const mMin=årsData.filter(d=>d.datum&&d.datum.startsWith(mp)).reduce((a,d)=>a+(d.arbetad_min||0),0);
+      const mMin=årsData.filter(d=>d.datum&&d.datum.startsWith(mp)).reduce((a,d)=>a+(d.arbetad_min||0),0)
+        + extraMinMellan(`${mp}-01`, `${mp}-31`);
       // Räkna vardagar i månaden
       const dIM2=m===nu.getMonth()?nu.getDate():new Date(nu.getFullYear(),m+1,0).getDate();
       let mArbD=0;
@@ -3555,19 +3653,35 @@ export default function Arbetsrapport() {
       setLönSparar(false);
     };
 
-    // Build weekly breakdown from historik — filtered to current month
+    // Build weekly breakdown from historik — filtered to current month.
+    // Total per dag/vecka = maskintid + extra tid (lib/arbetstid.ts-definitionen);
+    // delarna hålls separata så staplarna kan visa fördelningen.
     const månadsPrefix = lönePeriod; // "YYYY-MM"
     const löneRödaDagar = getRödaDagar(nu.getFullYear());
-    const veckoData: Record<number, { dagar: {datum:string;min:number;rödDag?:string}[]; sumH:number; helglönH:number }> = {};
-    historik.filter(d => d.datum && d.datum.startsWith(månadsPrefix)).forEach(d => {
-      const date = new Date(d.datum);
+    const veckoNrFör = (datum: string) => {
+      const date = new Date(datum);
       const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(),0,1).getTime()) / 86400000);
-      const weekNum = Math.ceil((dayOfYear + new Date(date.getFullYear(),0,1).getDay()) / 7);
+      return Math.ceil((dayOfYear + new Date(date.getFullYear(),0,1).getDay()) / 7);
+    };
+    const veckoData: Record<number, { dagar: {datum:string;min:number;extraMin:number;rödDag?:string}[]; sumH:number; helglönH:number }> = {};
+    const extraPerDagMånad = extraMinPerDag(månadsExtraTid);
+    historik.filter(d => d.datum && d.datum.startsWith(månadsPrefix)).forEach(d => {
+      const weekNum = veckoNrFör(d.datum);
       if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0, helglönH:0 };
       const m = d.arbetad_min || 0;
-      veckoData[weekNum].dagar.push({ datum:d.datum, min:m });
-      veckoData[weekNum].sumH += m/60;
+      const ex = extraPerDagMånad.get(d.datum) || 0;
+      veckoData[weekNum].dagar.push({ datum:d.datum, min:m, extraMin:ex });
+      veckoData[weekNum].sumH += (m + ex)/60;
     });
+    // Extra tid på dagar UTAN maskinpass — egen dagrad (bara ljusgrön stapel)
+    for (const [datum, ex] of extraPerDagMånad) {
+      if (!datum.startsWith(månadsPrefix) || ex <= 0) continue;
+      const weekNum = veckoNrFör(datum);
+      if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0, helglönH:0 };
+      if (veckoData[weekNum].dagar.find(x => x.datum === datum)) continue; // redan medräknad ovan
+      veckoData[weekNum].dagar.push({ datum, min:0, extraMin:ex });
+      veckoData[weekNum].sumH += ex/60;
+    }
     // Add röda dagar to weeks
     const lönÅr=nu.getFullYear(), lönMån=nu.getMonth();
     const dIMlön=new Date(lönÅr,lönMån+1,0).getDate();
@@ -3580,9 +3694,9 @@ export default function Arbetsrapport() {
       const dayOfYear=Math.floor((dt.getTime()-new Date(lönÅr,0,1).getTime())/86400000);
       const weekNum=Math.ceil((dayOfYear+new Date(lönÅr,0,1).getDay())/7);
       if(!veckoData[weekNum]) veckoData[weekNum]={dagar:[],sumH:0,helglönH:0};
-      // Lägg till röd dag om den inte redan finns som arbetsdag
+      // Lägg till röd dag om den inte redan finns som arbetsdag/extra-dag
       if(!veckoData[weekNum].dagar.find(x=>x.datum===k)){
-        veckoData[weekNum].dagar.push({datum:k,min:0,rödDag:rödNamn});
+        veckoData[weekNum].dagar.push({datum:k,min:0,extraMin:0,rödDag:rödNamn});
       }
       // Helglön: röd dag på vardag
       const dow=dt.getDay();
@@ -3647,8 +3761,8 @@ export default function Arbetsrapport() {
                   const fd = firstDay ? new Date(firstDay.datum) : null;
                   const ld = lastDay ? new Date(lastDay.datum) : null;
                   const rangeStr = fd && ld ? `${fd.getDate()}–${ld.getDate()} ${månNamn[fd.getMonth()]}` : '';
-                  // Veckans längsta dag styr stapelskalan — rytmen syns utan att jämföra tal
-                  const maxMin = Math.max(...week.dagar.map(d => d.min), 1);
+                  // Veckans längsta dag (maskin + extra) styr stapelskalan
+                  const maxMin = Math.max(...week.dagar.map(d => d.min + d.extraMin), 1);
                   return (
                     <div key={weekNum} style={{ background:"#1c1c1e",borderRadius:12,padding:20 }}>
                       {/* Veckan som hjälte: micro-label + stor totalsiffra, dagarna lugna under */}
@@ -3665,7 +3779,7 @@ export default function Arbetsrapport() {
                       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
                         {week.dagar.map(dag => {
                           const dt = new Date(dag.datum);
-                          const h = Math.round(dag.min/60*10)/10;
+                          const h = Math.round((dag.min + dag.extraMin)/60*10)/10;
                           const dagLabel = dagNamn[dt.getDay()].charAt(0).toUpperCase()+dagNamn[dt.getDay()].slice(1)+' '+dt.getDate()+' '+månNamn[dt.getMonth()];
                           // Röd dag flaggas BARA visuellt (datum + namn i rött) — ingen
                           // lönelogik, ingen omräkning; det är ett separat löneprojekt.
@@ -3684,9 +3798,11 @@ export default function Arbetsrapport() {
                                 <span style={{ ...TYPE.meta,color:rödNamn?"#ff453a":undefined }}>{dagLabel}{rödNamn?` · ${rödNamn}`:''}</span>
                                 <span style={{ ...TYPE.bodyList,...TNUM }}>{fmtTim(h)} tim</span>
                               </div>
-                              {/* Stapel: dagens längd relativt veckans längsta dag */}
-                              <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.06)",overflow:"hidden" }}>
-                                <div style={{ height:"100%",borderRadius:2,background:"#30d158",width:`${Math.round(dag.min/maxMin*100)}%` }} />
+                              {/* Delad stapel: mörk grön = maskinarbete, ljus grön = extra tid.
+                                  Dag utan extra = bara mörk. Skalad mot veckans längsta dag (totalt). */}
+                              <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.06)",overflow:"hidden",display:"flex" }}>
+                                {dag.min>0&&<div style={{ height:"100%",background:"#30d158",width:`${Math.round(dag.min/maxMin*100)}%` }} />}
+                                {dag.extraMin>0&&<div style={{ height:"100%",background:"#7dd88f",width:`${Math.round(dag.extraMin/maxMin*100)}%` }} />}
                               </div>
                             </div>
                           );
@@ -3697,6 +3813,17 @@ export default function Arbetsrapport() {
                   });
                 })()}
                 {sortedWeeks.length===0&&<p style={{ color:"#8e8e93",...TYPE.meta,padding:20 }}>Ingen data för perioden</p>}
+                {/* Förklaringsrad för delade staplar */}
+                {sortedWeeks.length>0&&(
+                  <div style={{ display:"flex",gap:16,padding:"2px 4px 0" }}>
+                    <span style={{ display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:"#8e8e93" }}>
+                      <span style={{ width:10,height:4,borderRadius:2,background:"#30d158" }} />Maskinarbete
+                    </span>
+                    <span style={{ display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:"#8e8e93" }}>
+                      <span style={{ width:10,height:4,borderRadius:2,background:"#7dd88f" }} />Extra tid
+                    </span>
+                  </div>
+                )}
               </div>
             </section>
 
@@ -4584,13 +4711,21 @@ export default function Arbetsrapport() {
                   arbetstid (start/slut/rast-hjulen). Ersätter Arbetstid/Rast/Total-
                   raderna; orange stödrad när tiderna ändrats men inte sparats. */}
               <div onClick={()=>setRedVy("tid")} style={{ textAlign:"center",padding:"18px 0 16px",cursor:"pointer",borderBottom:`1px solid ${C.line}` }}>
-                <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Total arbetstid</p>
+                {/* "Maskinpass" — siffran är passets tid; extra tid listas nedan
+                    och dagens total visas som dämpad rad när extra finns */}
+                <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Maskinpass</p>
                 <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(redArbMin)}</p>
                 <p style={{ margin:"8px 0 0",...TYPE.meta,color:(redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig)?C.orange:"#8e8e93",...TNUM }}>
                   {redStart.slice(0,5)} → {redSlut.slice(0,5)} · rast {redRast} min
                   <span className="material-symbols-outlined" style={{ fontSize:14,color:"rgba(255,255,255,0.25)",verticalAlign:"-2px",marginLeft:2 }}>chevron_right</span>
                 </p>
                 <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Rast = tid markerad som Meal break i maskinen</p>
+                {(()=>{
+                  const exMinDag = extraTidForDag.reduce((a:number,e:any) => a + (e.minuter||0), 0);
+                  return exMinDag > 0 ? (
+                    <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#8e8e93",...TNUM }}>+ {fmt(exMinDag)} extra arbete · totalt {fmt(redArbMin + exMinDag)}</p>
+                  ) : null;
+                })()}
               </div>
               {/* Maskin — klickbar */}
               <div onClick={()=>setVisaRedMaskinVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
@@ -4867,6 +5002,10 @@ export default function Arbetsrapport() {
         </div>
           </>);
         })()}
+
+        {/* "Vad gjorde du?"-sheeten — delad UI så Loggad tid-raderna ovan
+            faktiskt öppnar redigering även för historiska dagar */}
+        {efterStoppUI}
 
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(

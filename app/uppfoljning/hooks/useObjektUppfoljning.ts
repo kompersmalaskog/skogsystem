@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { buildUppfoljningData, buildEmptyData, type UppfoljningObjekt } from '../lib/transform';
+import { byggAvvikelser } from '../lib/avvikelser';
 import type { UppfoljningData } from '../UppfoljningVy';
 
 export interface UseObjektUppfoljningResult {
@@ -67,9 +68,40 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           }
         }
 
+        // ── Våning 2-referens: maskinens eget 90-dagarsfönster ──
+        // Per-objekt-kvoter ur fakt_tid; volymgrunden hämtas SEPARAT ur
+        // fakt_produktion (skördare) resp. fakt_lass (skotare) och möts
+        // per objekt_id i JS — fakt_tid joinas ALDRIG med produktionen.
+        const refFran = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+        const refMaskiner = [skMidFb, stMidFb].filter(Boolean) as string[];
+        const hamtaAllt = async (bygg: (a: number, b: number) => any): Promise<any[]> => {
+          let alla: any[] = [];
+          let from = 0;
+          const sida = 1000;
+          while (true) {
+            const { data: rows } = await bygg(from, from + sida - 1);
+            if (!rows || rows.length === 0) break;
+            alla = alla.concat(rows);
+            if (rows.length < sida) break;
+            from += sida;
+          }
+          return alla;
+        };
+        const [refTid, refProdVolym, refLassVolym] = await Promise.all([
+          refMaskiner.length > 0
+            ? hamtaAllt((a, b) => supabase.from('fakt_tid').select('objekt_id, maskin_id, processing_sek, terrain_sek, maintenance_sek, disturbance_sek, avbrott_sek, bransle_liter').in('maskin_id', refMaskiner).gte('datum', refFran).range(a, b))
+            : Promise.resolve([] as any[]),
+          skMidFb
+            ? hamtaAllt((a, b) => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub').eq('maskin_id', skMidFb).gte('datum', refFran).range(a, b))
+            : Promise.resolve([] as any[]),
+          stMidFb
+            ? hamtaAllt((a, b) => supabase.from('fakt_lass').select('objekt_id, volym_m3sub').eq('maskin_id', stMidFb).gte('datum', refFran).range(a, b))
+            : Promise.resolve([] as any[]),
+        ]);
+
         if (cancelled) return;
 
-        setData(buildUppfoljningData({
+        const bas = buildUppfoljningData({
           obj,
           tidRows: tidRes.data || [],
           prodRows: prodRes.data || [],
@@ -81,7 +113,19 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           dimTradslag: dimTradslagRes.data || [],
           dimOperators: dimOperatorRes.data || [],
           dimMaskin: dimMaskinRes.data || [],
-        }));
+        });
+        setData({
+          ...bas,
+          avvikelser: byggAvvikelser({
+            ...bas,
+            refTid,
+            refProdVolym,
+            refLassVolym,
+            skMaskinId: skMidFb || null,
+            stMaskinId: stMidFb || null,
+            egnaObjektId: ids,
+          }),
+        });
         setLoading(false);
       } catch (e) {
         if (cancelled) return;

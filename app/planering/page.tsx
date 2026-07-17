@@ -9856,7 +9856,6 @@ export default function PlannerPage() {
                   korvyActive
                     ? { label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); }, danger: true }
                     : { label: 'Körvy 2D', icon: 'navigation', action: () => { setKorvyActive(true); } },
-                  { label: 'Körvy 3D', icon: 'view_in_ar', action: () => { window.location.href = `/korvy${valtObjekt?.id ? `?objekt=${valtObjekt.id}` : ''}`; } },
                 ],
               },
               {

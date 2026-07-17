@@ -17,6 +17,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const SPARA_FEL = "Kunde inte spara — försök igen.";
 export const SPARA_INGA_RADER =
   "Inget sparades — ändringen nådde inte databasen. Ladda om appen och försök igen.";
+export const RADERA_FEL = "Kunde inte ta bort — försök igen.";
+export const RADERA_INGA_RADER =
+  "Kunde inte ta bort — posten hittades inte eller saknar behörighet.";
 
 export type SparaResultat<T = any> =
   | { ok: true; rows: T[] }
@@ -61,8 +64,10 @@ export async function uppdateraVerifierat<T = any>(
 }
 
 /**
- * DELETE som kräver att minst en rad träffades. Samma tysta fälla som update:
- * RLS-blockerad delete ger HTTP 200 och tom lista — aldrig "Borttaget!" då.
+ * DELETE som kräver att minst en rad faktiskt raderades.
+ * En delete som RLS blockerar är lika tyst som 0-raders-updaten
+ * (HTTP 200 + tom lista) — därför samma .select()-kontroll: 0 träffade
+ * rader = inget raderat = fel, aldrig tyst "borttaget".
  */
 export async function raderaVerifierat<T = any>(
   klient: SupabaseClient,
@@ -74,24 +79,24 @@ export async function raderaVerifierat<T = any>(
     let q: any = klient.from(tabell).delete();
     for (const [kol, v] of Object.entries(match)) {
       if (v === undefined || v === null) {
-        console.error(`[spara] ${tabell}: match-värde för '${kol}' saknas — avbryter`, match);
-        return { ok: false, fel: SPARA_INGA_RADER };
+        console.error(`[radera] ${tabell}: match-värde för '${kol}' saknas — avbryter`, match);
+        return { ok: false, fel: RADERA_INGA_RADER };
       }
       q = q.eq(kol, v);
     }
     const { data, error } = await q.select(select);
     if (error) {
-      console.error(`[spara] ${tabell} delete-fel:`, error);
-      return { ok: false, fel: SPARA_FEL };
+      console.error(`[radera] ${tabell} delete-fel:`, error);
+      return { ok: false, fel: RADERA_FEL };
     }
     if (!data || data.length === 0) {
-      console.error(`[spara] ${tabell} delete träffade 0 rader — inget borttaget.`, match);
-      return { ok: false, fel: SPARA_INGA_RADER };
+      console.error(`[radera] ${tabell} delete träffade 0 rader — inget raderat.`, match);
+      return { ok: false, fel: RADERA_INGA_RADER };
     }
     return { ok: true, rows: data as T[] };
   } catch (e) {
-    console.error(`[spara] ${tabell} delete kastade:`, e);
-    return { ok: false, fel: SPARA_FEL };
+    console.error(`[radera] ${tabell} delete kastade:`, e);
+    return { ok: false, fel: RADERA_FEL };
   }
 }
 

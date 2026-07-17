@@ -10,7 +10,6 @@ const nextConfig = {
     '*': [
       'maplibre-gl/**',
       'sharp/**',
-      'cesium/**',
     ],
   },
   // Debug-endpoint /api/source läser in källkodsfiler från disken. På Vercel
@@ -23,16 +22,6 @@ const nextConfig = {
       './STATUS.md',
       './CLAUDE.md',
     ],
-  },
-  webpack: (config, { isServer }) => {
-    if (!isServer) {
-      // Cesium laddas från CDN runtime (window.Cesium) — webpack ska EJ bundla den.
-      // Typer kvar via npm-paketet 'cesium' (devDep).
-      config.externals = config.externals || []
-      config.externals.push({ cesium: 'Cesium' })
-      config.module.unknownContextCritical = false
-    }
-    return config
   },
 }
 

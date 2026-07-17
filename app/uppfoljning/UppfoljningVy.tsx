@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
+import { type AvvikelseRad } from './lib/avvikelser';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -33,6 +34,8 @@ export interface DieselDag {
 
 export interface UppfoljningData {
   objektNamn: string;
+  // Våning 2 — beräknas i useObjektUppfoljning (kräver 90-dagarsreferensen)
+  avvikelser?: AvvikelseRad[];
   senastUppdaterad?: string;
   skordat: number;
   skotat: number;
@@ -222,6 +225,27 @@ function StatusRad({ data }: { data: UppfoljningData }) {
   );
 }
 
+// ── Våning 2: avvikelser — bara när något FAKTISKT avviker ────────────────
+// Trösklarna härleds ur maskinens egen 90-dagarsspridning (Tukey-staket,
+// se lib/avvikelser.ts). Allt normalt → zonen försvinner helt.
+function AvvikelseZon({ avvikelser }: { avvikelser?: AvvikelseRad[] }) {
+  if (!avvikelser || avvikelser.length === 0) return null;
+  return (
+    <section style={{ padding: '0 24px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {avvikelser.map(a => (
+        <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: 'rgba(255,159,10,0.09)', border: '0.5px solid rgba(255,159,10,0.28)', borderRadius: 10, padding: '10px 13px' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={V6_WARN} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <span style={{ fontSize: 13, color: V6_WARN, fontWeight: 500, lineHeight: 1.45 }}>{a.text}</span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 // ── Maskinkort ────────────────────────────────────────────────────────────
 function MaskinCell({
   label, color, modell, forare, statusOrd, primary, primaryUnit, primaryLabel, snitt,
@@ -303,6 +327,17 @@ function Maskinkort({ data }: { data: UppfoljningData }) {
 }
 
 // ── Tidslinje ─────────────────────────────────────────────────────────────
+// Spannet ("34 dagar") visas i collapse-rubriken — samma beräkning som
+// komponenten gör internt för procent-skalan.
+function tidslinjeDagar(data: UppfoljningData): number | null {
+  const allDates = [data.skordareStart, data.skordareSlut, data.skotareStart, data.skotareSlut].filter(Boolean) as string[];
+  if (allDates.length === 0) return null;
+  const withNow = [...allDates, new Date().toISOString().slice(0, 10)];
+  const min = withNow.reduce((a, b) => a < b ? a : b);
+  const max = withNow.reduce((a, b) => a > b ? a : b);
+  return daysBetween(min, max);
+}
+
 function Tidslinje({ data }: { data: UppfoljningData }) {
   const allDates = [data.skordareStart, data.skordareSlut, data.skotareStart, data.skotareSlut].filter(Boolean) as string[];
   if (allDates.length === 0) return null;
@@ -325,11 +360,7 @@ function Tidslinje({ data }: { data: UppfoljningData }) {
   if (tracks.length === 0) return null;
 
   return (
-    <section style={{ padding: '0 24px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '0 0 12px' }}>
-        <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: '-0.3px' }}>Tidslinje</h2>
-        <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{totalDays} dagar</span>
-      </div>
+    <section style={{ padding: '0 24px 16px' }}>
       <div style={{ background: V6_CARD, borderRadius: 16, padding: '18px 18px 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: V6_GREY2, fontWeight: 600, marginBottom: 16, fontVariantNumeric: 'tabular-nums' }}>
           <span>{fmtISO(min)}</span>
@@ -368,15 +399,22 @@ function Tidslinje({ data }: { data: UppfoljningData }) {
 }
 
 // ── Kollapsbar sektion ────────────────────────────────────────────────────
-function Collapse({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+// Stängd sektion ger ändå sin siffra (varde) — man öppnar för att förstå
+// VARFÖR, inte för att få talet. Värdet radbryter på smal skärm.
+function Collapse({ title, varde, children, defaultOpen = false }: { title: string; varde?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ borderTop: `0.5px solid ${V6_SEP}` }}>
-      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '16px 24px', background: 'transparent', border: 'none', color: '#fff', fontFamily: V6_FF, cursor: 'pointer' }}>
-        <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px' }}>{title}</span>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>
-          <polyline points="4 2 8 6 4 10" />
-        </svg>
+      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '16px 24px', background: 'transparent', border: 'none', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+        <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px', flexShrink: 0 }}>{title}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          {varde != null && (
+            <span style={{ fontSize: 12, color: V6_GREY, fontWeight: 500, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.35 }}>{varde}</span>
+          )}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}>
+            <polyline points="4 2 8 6 4 10" />
+          </svg>
+        </span>
       </button>
       {open && <div style={{ paddingBottom: 8 }}>{children}</div>}
     </div>
@@ -702,28 +740,21 @@ function Avbrott({ data }: { data: UppfoljningData }) {
 // ── Extern skotning ───────────────────────────────────────────────────────
 function Extern({ data }: { data: UppfoljningData }) {
   if (!data.externSkotning) return null;
-  const total = (data.externPris || 0) * (data.externAntal || 0);
+  // Pris och totalsumma bor i EKONOMIVYN — uppföljningen är en ren operativ
+  // vy som kan visas medarbetare. Här: vem som skotar och hur mycket.
   return (
     <div style={{ padding: '0 24px 16px' }}>
       <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 18px 14px' }}>
         <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Extern skotning</div>
         <div style={{ fontSize: 18, fontWeight: 600 }}>{data.externForetag || '—'}</div>
-        <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Pris</div>
-            <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{data.externPris}</div>
+        {(data.externAntal || 0) > 0 && (
+          <div style={{ marginTop: 12, fontSize: 13, color: V6_GREY }}>
+            Omfattning{' '}
+            <span style={{ color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              {data.externAntal} {data.externPrisTyp === 'timme' ? 'h' : 'm³'}
+            </span>
           </div>
-          <div>
-            <div style={{ fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Antal</div>
-            <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{data.externAntal}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Totalt</div>
-            <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
-              {total.toLocaleString('sv-SE')} <span style={{ fontSize: 10, color: V6_GREY }}>kr</span>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -752,31 +783,87 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   const hasTradslagSort = data.tradslag.length > 0 || data.sortiment.length > 0;
   const hasTidDiesel = data.skordareG15h > 0 || data.skotareG15h > 0 || data.dieselTotalt > 0;
 
+  // ── Rubriktal — samma tal som sektionerna visar, inget nytt beräknas.
+  // ÄRLIGHET: en maskin utan data får inget påhittat värde — den utelämnas.
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+
+  const prodVarde = (() => {
+    const sk = data.skordareM3G15h > 0 ? data.skordareM3G15h : null;
+    const st = data.skotareM3G15h > 0 ? data.skotareM3G15h : null;
+    if (sk != null && st != null) return `Skördare ${sv(sk)} · Skotare ${sv(st)}`;
+    if (sk != null) return `${sv(sk)} m³/G15h`;
+    if (st != null) return `${sv(st)} m³/G15h`;
+    return null;
+  })();
+
+  const perDagVarde = (() => {
+    const skDagar = data.prodSkordarePerDag || [];
+    const skSnitt = skDagar.length > 0 ? Math.round(skDagar.reduce((a, b) => a + b.m3, 0) / skDagar.length) : null;
+    const stDagar = (data.lassPerDag || []).filter(d => typeof d.m3 === 'number' && d.m3 > 0);
+    const stSnitt = stDagar.length > 0 ? Math.round(stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length) : null;
+    if (skSnitt != null && stSnitt != null) return `Skördare ${sv(skSnitt)} · Skotare ${sv(stSnitt)}`;
+    if (skSnitt != null) return `snitt ${sv(skSnitt)} m³/dag`;
+    if (stSnitt != null) return `snitt ${sv(stSnitt)} m³/dag`;
+    return null;
+  })();
+
+  const tradslagVarde = (() => {
+    const total = data.skordat > 0 ? data.skordat : data.sortiment.reduce((a, b) => a + b.m3, 0);
+    return total > 0 ? `${sv(Math.round(total))} m³` : null;
+  })();
+
+  const tidDieselVarde = (() => {
+    const skG15 = data.skordareG15h > 0 ? data.skordareG15h : null;
+    const stG15 = data.skotareG15h > 0 ? data.skotareG15h : null;
+    let g15Del: string | null = null;
+    if (skG15 != null && stG15 != null) g15Del = `Skördare ${sv(skG15)} · Skotare ${sv(stG15)} G15h`;
+    else if (skG15 != null) g15Del = `${sv(skG15)} G15h`;
+    else if (stG15 != null) g15Del = `${sv(stG15)} G15h`;
+    const lm3Del = data.dieselPerM3 > 0 ? `${sv(data.dieselPerM3)} L/m³` : null;
+    const delar = [g15Del, lm3Del].filter(Boolean);
+    return delar.length > 0 ? delar.join(' · ') : null;
+  })();
+
+  // Tidslinjen är "hur gick det", inte "vad är läget" — degraderad till
+  // detaljerna (våning 3). Gate:as på att minst ett spår kan ritas.
+  const tidslinjeVarde = (!!data.skordareModell || !!data.skordareStart || !!data.skotareModell || !!data.skotareStart)
+    ? tidslinjeDagar(data)
+    : null;
+
+  const avbrottVarde = (() => {
+    // Totalsträngarna ("4.2h") är samma tal som sektionens kort visar.
+    const skH = (data.avbrottSkordare?.length || 0) > 0 ? parseFloat(data.avbrottSkordare_totalt) || 0 : 0;
+    const stH = (data.avbrottSkotare?.length || 0) > 0 ? parseFloat(data.avbrottSkotareTotalt) || 0 : 0;
+    const sum = skH + stH;
+    return sum > 0 ? `${sum.toFixed(1).replace('.', ',')} h` : null;
+  })();
+
   return (
     <div style={{ minHeight: '100%', background: V6_BG, color: '#fff', fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
       <Nav onBack={onBack} />
       <Headline data={data} />
       <StatusRad data={data} />
+      <AvvikelseZon avvikelser={data.avvikelser} />
       <Maskinkort data={data} />
-      <Tidslinje data={data} />
 
       <div style={{ marginTop: 8 }}>
-        {hasProduktivitet && <Collapse title="Produktivitet"><Produktivitet data={data} /></Collapse>}
-        {hasProdPerDag && <Collapse title="Produktion per dag"><ProdPerDag data={data} /></Collapse>}
+        {hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={data} /></Collapse>}
+        {hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={data} /></Collapse>}
         {hasTradslagSort && (
-          <Collapse title="Trädslag & sortiment">
+          <Collapse title="Trädslag & sortiment" varde={tradslagVarde}>
             <Tradslag tradslag={data.tradslag} />
             <Sortiment sortiment={data.sortiment} />
           </Collapse>
         )}
         {hasTidDiesel && (
-          <Collapse title="Tid & diesel">
+          <Collapse title="Tid & diesel" varde={tidDieselVarde}>
             <Tid data={data} />
             <Diesel data={data} />
           </Collapse>
         )}
-        {hasAvbrott && <Collapse title="Avbrott"><Avbrott data={data} /></Collapse>}
-        {data.externSkotning && <Collapse title="Extern skotning"><Extern data={data} /></Collapse>}
+        {hasAvbrott && <Collapse title="Avbrott" varde={avbrottVarde}><Avbrott data={data} /></Collapse>}
+        {tidslinjeVarde != null && <Collapse title="Tidslinje" varde={`${tidslinjeVarde} dagar`}><Tidslinje data={data} /></Collapse>}
+        {data.externSkotning && <Collapse title="Extern skotning" varde={data.externForetag || null}><Extern data={data} /></Collapse>}
       </div>
       <div style={{ height: 60 }} />
     </div>

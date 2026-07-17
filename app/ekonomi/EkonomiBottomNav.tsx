@@ -24,7 +24,7 @@ export default function EkonomiBottomNav() {
       backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
       borderRadius: '16px 16px 0 0',
       boxShadow: '0 -4px 20px rgba(0,0,0,0.5)',
-      fontFamily: "'Inter', sans-serif",
+      fontFamily: "'Geist', system-ui, sans-serif",
     }}>
       {TABS.map(t => {
         const active = t.match(pathname);
