@@ -25,6 +25,11 @@ export interface UppfoljningObjekt {
   skotareModellMaskinId: string | null;
   volymSkotare: number;
   skotatArManuell: boolean;
+  // Sista avverkningsdag = MAX(fakt_produktion.datum) — liggetidens ankare
+  sistaAvverkning: string | null;
+  // Tilldelad skotare (BARA maskinnamn, aldrig förare): planeringens
+  // objekt.skotare_maskin_id primärt, dim-världens skotarrad som fallback
+  tilldeladSkotare: string | null;
   antalLass: number;
   dieselTotal: number;
   dagar: number | null;

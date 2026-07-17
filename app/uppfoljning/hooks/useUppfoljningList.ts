@@ -62,7 +62,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         const [dimObjektRes, dimMaskinRes, objektTblRes, exkluderade] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
-          supabase.from('objekt').select('vo_nummer, markagare, areal, typ'),
+          supabase.from('objekt').select('vo_nummer, markagare, areal, typ, skotare_maskin_id'),
           hamtaExkluderadeObjektId(),
         ]);
 
@@ -88,7 +88,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
 
         const [produktion, lass, tid] = await Promise.all([
           allObjektIds.length > 0
-            ? fetchPaginated<any>(() => supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar').in('objekt_id', allObjektIds))
+            ? fetchPaginated<any>(() => supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, datum').in('objekt_id', allObjektIds))
             : Promise.resolve([] as any[]),
           allObjektIds.length > 0
             ? fetchPaginated<any>(() => supabase.from('fakt_lass').select('objekt_id, volym_m3sub').in('objekt_id', allObjektIds))
@@ -101,10 +101,10 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         const maskinMap = new Map<string, any>();
         dimMaskin.forEach(m => maskinMap.set(m.maskin_id, m));
 
-        const objektInfo = new Map<string, { agare: string; areal: number; typ: string }>();
+        const objektInfo = new Map<string, { agare: string; areal: number; typ: string; skotareMaskinId: string | null }>();
         objektTbl.forEach(o => {
           if (o.vo_nummer) {
-            objektInfo.set(o.vo_nummer, { agare: o.markagare || '', areal: o.areal || 0, typ: o.typ || '' });
+            objektInfo.set(o.vo_nummer, { agare: o.markagare || '', areal: o.areal || 0, typ: o.typ || '', skotareMaskinId: o.skotare_maskin_id || null });
           }
         });
 
@@ -115,6 +115,15 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           prev.vol += (p.volym_m3sub || 0);
           prev.stammar += (p.stammar || 0);
           prodAgg.set(key, prev);
+        });
+
+        // Sista avverkningsdag per objekt — liggetidens ankare i oskotade-listan
+        const prodMaxDatum = new Map<string, string>();
+        produktion.forEach(p => {
+          if (p.objekt_id && p.datum) {
+            const prev = prodMaxDatum.get(p.objekt_id);
+            if (!prev || p.datum > prev) prodMaxDatum.set(p.objekt_id, p.datum);
+          }
         });
 
         const prodMaskinMap = new Map<string, string>();
@@ -293,6 +302,17 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           const skMaskinId = skordareEntry?.maskin_id || prodMaskinMap.get(skordareEntry?.objekt_id);
           const stMaskinId = skotareEntry?.maskin_id || tidMaskinMap.get(skotareEntry?.objekt_id);
 
+          let sistaAvverkning: string | null = null;
+          for (const e of skordareEntries) {
+            const d = prodMaxDatum.get(e.objekt_id);
+            if (d && (!sistaAvverkning || d > sistaAvverkning)) sistaAvverkning = d;
+          }
+
+          // Tilldelad skotare — BARA maskinnamn, aldrig förarnamn.
+          // Planeringens objekt.skotare_maskin_id är primärkällan (satt innan
+          // skotaren börjat); dim-världens skotarrad (filer finns) fallback.
+          const planeradSkotare = info?.skotareMaskinId ? getMachineLabel(maskinMap.get(info.skotareMaskinId)) : '';
+
           // Find last activity dates
           let skLastDate: string | null = null;
           for (const e of skordareEntries) {
@@ -325,6 +345,8 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             skotareModellMaskinId: stMaskinId || null,
             volymSkotare: skotatArManuell ? manuellVolym : stVol,
             skotatArManuell,
+            sistaAvverkning,
+            tilldeladSkotare: planeradSkotare || (skotareEntry ? getMachineLabel(maskinMap.get(stMaskinId)) : '') || null,
             antalLass: stCount,
             dieselTotal: skDiesel + stDiesel,
             dagar,
