@@ -4,15 +4,16 @@ import React, { useState } from 'react';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import { C, ff } from './_components/tema';
 import MigVy from './_components/MigVy';
+import SchemaVy from './_components/SchemaVy';
 
 /**
  * Ledighet — självbetjäning. Inloggad person = "jag" (ingen personväljare).
  * Två vyer: "Mig" (saldon, ansök, mina ansökningar, godkänn-sektion för
- * chef/admin) och "Kalender" (delad — byggs i steg 5).
+ * chef/admin) och "Schema" (delad lagöversikt — alla ser alla).
  */
 export default function LedighetPage() {
   const { medarbetare, loading } = useCurrentMedarbetare();
-  const [vy, setVy] = useState<'mig' | 'kalender'>('mig');
+  const [vy, setVy] = useState<'mig' | 'schema'>('mig');
 
   return (
     <div style={{
@@ -24,7 +25,7 @@ export default function LedighetPage() {
         display: 'flex', background: C.surface,
         borderBottom: `1px solid ${C.border}`, padding: '0 16px',
       }}>
-        {([['mig', 'Mig'], ['kalender', 'Kalender']] as const).map(([tab, label]) => {
+        {([['mig', 'Mig'], ['schema', 'Schema']] as const).map(([tab, label]) => {
           const aktiv = vy === tab;
           return (
             <button key={tab} onClick={() => setVy(tab)} style={{
@@ -52,14 +53,7 @@ export default function LedighetPage() {
         ) : vy === 'mig' ? (
           <MigVy medarbetare={medarbetare} />
         ) : (
-          <div style={{
-            color: C.t3, padding: 40, textAlign: 'center', fontSize: 13,
-            background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-            lineHeight: 1.6,
-          }}>
-            Den delade kalendern byggs om — allas ledigheter och maskinstopp
-            i samma vy. Kommer i nästa steg.
-          </div>
+          <SchemaVy />
         )}
       </div>
     </div>
