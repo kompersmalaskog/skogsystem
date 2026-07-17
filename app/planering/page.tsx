@@ -4343,7 +4343,6 @@ export default function PlannerPage() {
   const [brandUtrustning, setBrandUtrustning] = useState([false, false, false, false]);
   const [brandLarmChecklista, setBrandLarmChecklista] = useState([false, false, false, false, false]);
   const brandLoadedRef = useRef(false);
-  const [brandTestMode, setBrandTestMode] = useState<number | null>(null);
 
   // === TRAKTANALYS ===
   const [tractAnalysis, setTractAnalysis] = useState<Record<string, TraktAnalysisResult>>({}); // per boundary id
@@ -4522,7 +4521,7 @@ export default function PlannerPage() {
   // === BRAND: Spara samråd + kontakter (debounced) ===
   const brandSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
-    if (!valtObjekt?.id || !brandLoadedRef.current || brandTestMode !== null) return;
+    if (!valtObjekt?.id || !brandLoadedRef.current) return;
     if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current);
     brandSaveTimeoutRef.current = setTimeout(async () => {
       await supabase.from('brand_samrad').upsert({
@@ -4551,7 +4550,7 @@ export default function PlannerPage() {
       console.log('[Brand] Sparade till Supabase');
     }, 2000);
     return () => { if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current); };
-  }, [brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, valtObjekt?.id, brandTestMode]);
+  }, [brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, valtObjekt?.id]);
 
   // === TMA: Ladda sparad data från Supabase ===
   const tmaLoadedRef = useRef(false);
@@ -15034,49 +15033,6 @@ export default function PlannerPage() {
                     </div>
                   </div>
 
-                  {/* Brandrisk testläge */}
-                  <div style={{ marginTop: '24px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '20px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: 'rgba(255,255,255,0.3)', marginBottom: '12px' }}>Testläge</div>
-                    {brandTestMode === null ? (
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          onClick={() => {
-                            setBrandTestMode(5);
-                            console.log('[BrandTest] Aktiverat FWI 5 testläge');
-                            setTimeout(() => setActiveCategory('brandrisk'), 50);
-                          }}
-                          style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: 'rgba(239,68,68,0.2)', color: '#ff453a', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
-                        >
-                          Testa FWI 5
-                        </button>
-                        <button
-                          onClick={() => {
-                            setBrandTestMode(3);
-                            console.log('[BrandTest] Aktiverat FWI 3 testläge');
-                            setTimeout(() => setActiveCategory('brandrisk'), 50);
-                          }}
-                          style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: 'rgba(234,179,8,0.2)', color: '#eab308', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
-                        >
-                          Testa FWI 3
-                        </button>
-                      </div>
-                    ) : (
-                      <div>
-                        <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '10px' }}>
-                          <span style={{ fontSize: '13px', color: '#eab308', fontWeight: '600' }}>TESTLÄGE AKTIVT – FWI {brandTestMode}</span>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setBrandTestMode(null);
-                            setBrandRisk(null);
-                          }}
-                          style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: '13px', cursor: 'pointer' }}
-                        >
-                          Avsluta testläge
-                        </button>
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
             )}
@@ -15210,7 +15166,6 @@ export default function PlannerPage() {
                 koordFranObjekt={!!(valtObjekt?.lat && valtObjekt?.lng)}
                 eldningsforbud={brandEldningsforbud}
                 onEldningsforbudChange={setBrandEldningsforbud}
-                testMode={brandTestMode}
                 brandKontakter={brandKontakter}
                 onKontakterChange={setBrandKontakter}
                 brandTillbud={brandTillbud}
@@ -16421,7 +16376,7 @@ export default function PlannerPage() {
       )}
 
       {/* Brandrisk: eld-ikon som HTML-overlay (alltid synlig vid FWI >= 3) */}
-      {((brandRisk?.status === 'done' && ((brandRisk.currentIdx ?? 0) >= 3 || brandEldningsforbud)) || brandTestMode !== null) && activeCategory !== 'brandrisk' && (
+      {(brandRisk?.status === 'done' && ((brandRisk.currentIdx ?? 0) >= 3 || brandEldningsforbud)) && activeCategory !== 'brandrisk' && (
         <div
           onClick={() => { setActiveCategory('brandrisk'); setMenuOpen(true); }}
           style={{
