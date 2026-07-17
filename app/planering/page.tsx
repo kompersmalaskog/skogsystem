@@ -1777,7 +1777,6 @@ export default function PlannerPage() {
   const [subMenu, setSubMenu] = useState<string | null>(null); // För meny-i-meny
   const [menuHeight, setMenuHeight] = useState(0); // 0 = stängd, 300 = öppen, 600 = full
   const [activeCategory, setActiveCategory] = useState<string | null>(null); // Ny fullskärmsmeny
-  const [emergencyHealthcare, setEmergencyHealthcare] = useState<{ name: string; type: string; lat: number; lon: number; dist: number }[] | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [detectedColor, setDetectedColor] = useState<any>(null);
@@ -4696,102 +4695,6 @@ export default function PlannerPage() {
   const dragStartY = useRef(0);
   const dragStartHeight = useRef(0);
 
-  // Hämta sjukvård när nödläge-panelen öppnas
-  useEffect(() => {
-    if (activeCategory !== 'emergency') return;
-    if (emergencyHealthcare !== null) return; // Redan hämtat/hämtar
-
-    console.log('[Emergency] Panelen öppnad, hämtar sjukvård. mapCenter:', mapCenter);
-    setEmergencyHealthcare([]); // [] = loading
-
-    const lat = mapCenter.lat;
-    const lon = mapCenter.lng;
-
-    (async () => {
-      try {
-        // Sök node + way + relation, 80km för sjukhus, 30km för vårdcentraler
-        const query = `[out:json][timeout:20];(
-          nwr(around:80000,${lat},${lon})["amenity"="hospital"];
-          nwr(around:80000,${lat},${lon})["healthcare"="hospital"];
-          nwr(around:30000,${lat},${lon})["amenity"="clinic"];
-          nwr(around:30000,${lat},${lon})["amenity"="doctors"];
-          nwr(around:30000,${lat},${lon})["healthcare"="clinic"];
-        );out center;`;
-        const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-        console.log('[Emergency] Overpass URL:', url);
-        const resp = await fetch(url);
-        console.log('[Emergency] Overpass status:', resp.status);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        const elements = data.elements || [];
-        console.log('[Emergency] Overpass returnerade', elements.length, 'element (rå)');
-        elements.forEach((e: any) => {
-          console.log('[Emergency]  -', e.type, e.tags?.name || '(inget namn)', 'amenity=' + (e.tags?.amenity || '–'), 'healthcare=' + (e.tags?.healthcare || '–'));
-        });
-
-        const toRad = (d: number) => d * Math.PI / 180;
-        const haversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-          const dLat = toRad(lat2 - lat1);
-          const dLon = toRad(lon2 - lon1);
-          const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-          return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        };
-
-        // Deduplicera på namn
-        const seen = new Set<string>();
-        const items = elements
-          .filter((e: any) => e.tags?.name)
-          .map((e: any) => {
-            // way/relation har center-koordinater via "out center"
-            const eLat = e.lat ?? e.center?.lat;
-            const eLon = e.lon ?? e.center?.lon;
-            const isHospital = e.tags.amenity === 'hospital' || e.tags.healthcare === 'hospital';
-            return {
-              name: e.tags.name as string,
-              type: isHospital ? 'hospital' : 'clinic',
-              lat: eLat as number,
-              lon: eLon as number,
-              dist: (eLat && eLon) ? Math.round(haversine(lat, lon, eLat, eLon)) : 9999,
-            };
-          })
-          .filter((item: any) => {
-            if (!item.lat || !item.lon) return false;
-            if (seen.has(item.name)) return false;
-            seen.add(item.name);
-            return true;
-          })
-          .sort((a: any, b: any) => a.dist - b.dist);
-
-        const hospitals = items.filter((i: any) => i.type === 'hospital').slice(0, 2);
-        const clinics = items.filter((i: any) => i.type === 'clinic').slice(0, 2);
-        console.log('[Emergency] Sjukhus:', hospitals);
-        console.log('[Emergency] Vårdcentraler:', clinics);
-
-        const result = [...hospitals, ...clinics];
-        if (hospitals.length === 0) {
-          console.warn('[Emergency] Inga sjukhus hittades! Lägger till fallback.');
-          result.push({ name: 'Växjö centralsjukhus', type: 'hospital', lat: 56.8790, lon: 14.8059, dist: Math.round(haversine(lat, lon, 56.8790, 14.8059)) });
-        }
-        setEmergencyHealthcare(result);
-      } catch (err) {
-        console.error('[Emergency] Overpass fel:', err);
-        setEmergencyHealthcare([
-          { name: 'Ljungby lasarett', type: 'hospital', lat: 56.8333, lon: 13.9333, dist: 34 },
-          { name: 'Växjö centralsjukhus', type: 'hospital', lat: 56.8790, lon: 14.8059, dist: 45 },
-          { name: 'Alvesta vårdcentral', type: 'clinic', lat: 56.8990, lon: 14.5560, dist: 12 },
-        ]);
-      }
-    })();
-  }, [activeCategory]);
-
-  // === DATA ===
-  const tractInfo = {
-    name: 'Stenshult 1:4',
-    id: '880178',
-    area: '12.4 ha',
-    volume: '2,840 m³fub',
-  };
-
   // Symboler grupperade för skogsbruk
   // === SVG IKONER (Tesla-stil) ===
   const renderIcon = (iconId: string, size: number = 24, color: string = '#fff') => {
@@ -5043,13 +4946,6 @@ export default function PlannerPage() {
           <path d="M16.95 7.05 L19.07 4.93" />
         </svg>
       ),
-      'menu-emergency': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" stroke="#ff453a" />
-          <line x1="12" y1="7" x2="12" y2="17" stroke="#ff453a" strokeWidth="2.5" />
-          <line x1="7" y1="12" x2="17" y2="12" stroke="#ff453a" strokeWidth="2.5" />
-        </svg>
-      ),
       'menu-brandrisk': (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
           <path d="M12 2C12 2 4 12 4 16C4 20 8 22 12 22C16 22 20 20 20 16C20 12 12 2 12 2Z" stroke="#ff453a" strokeWidth="1.5" fill="rgba(239,68,68,0.15)" />
@@ -5231,9 +5127,6 @@ export default function PlannerPage() {
     { id: 'info', name: 'Info', desc: 'Objektinformation', icon: 'menu-info' },
     { id: 'settings', name: 'Inställningar', desc: 'Anpassa appen', icon: 'menu-settings' },
     { id: 'brandrisk', name: 'Brandrisk', desc: 'FWI, samråd, utrustning', icon: 'menu-brandrisk' },
-    // 'emergency' finns kvar här för helskärmsmenyns titel-lookup.
-    // Triggas BARA från nödlägeskorset i headern, inte från plus-menyn.
-    { id: 'emergency', name: 'Nödläge', desc: 'SOS, position, sjukvård', icon: 'menu-emergency' },
     { id: 'briefing', name: 'Briefing', desc: 'Guidad traktgenomgång', icon: 'menu-briefing' },
     { id: 'briefing-checklist', name: 'Kvittering', desc: 'Kvittera markeringar', icon: 'menu-briefing-checklist' },
     { id: 'skotning', name: 'Skotning', desc: 'Utskotad volym', icon: 'menu-skotning' },
@@ -9229,47 +9122,8 @@ export default function PlannerPage() {
             ) : 'Inget objekt'}
           </div>
 
-          {/* Nödläge — vit sjukhuskors på röd cirkel, öppnar emergency-panelen */}
-          <button
-            type="button"
-            onClick={() => {
-              if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
-              setActiveCategory('emergency');
-              setMenuOpen(true);
-            }}
-            aria-label="Nödläge — hitta närmaste sjukhus och vårdcentral"
-            className="press-scale"
-            style={{
-              pointerEvents: 'auto',
-              width: '44px',
-              height: '44px',
-              background: 'transparent',
-              border: 'none',
-              padding: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              flexShrink: 0,
-            }}
-          >
-            <span style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '50%',
-              background: '#ff453a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-
-              border: '1px solid rgba(255,255,255,0.15)',
-            }} aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
-                <path d="M12 5 L12 19" />
-                <path d="M5 12 L19 12" />
-              </svg>
-            </span>
-          </button>
+          {/* Platshållare där nödlägesknappen satt — håller objekt-pillen centrerad */}
+          <span style={{ width: '44px', flexShrink: 0 }} aria-hidden="true" />
         </div>
       )}
 
@@ -15033,125 +14887,6 @@ export default function PlannerPage() {
                     </div>
                   </div>
 
-                </div>
-              </div>
-            )}
-
-            {/* === NÖDLÄGE === */}
-            {activeCategory === 'emergency' && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '24px',
-                }}>
-                  {/* === SOS === */}
-                  <div style={{ marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '16px' }}>SOS</div>
-                    <a href="tel:112" className="btn-press" style={{ textDecoration: 'none', display: 'block', marginBottom: '12px' }}>
-                      <div style={{ fontSize: '48px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>112</div>
-                      <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '4px' }}>SOS Alarm – Nödsamtal</div>
-                    </a>
-                    <a href="tel:1177" className="btn-press" style={{ textDecoration: 'none', display: 'block' }}>
-                      <div style={{ fontSize: '32px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>1177</div>
-                      <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '4px' }}>Sjukvårdsrådgivningen</div>
-                    </a>
-                  </div>
-
-                  {/* === DIN POSITION === */}
-                  <div style={{ marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '12px' }}>Din position</div>
-                    {(() => {
-                      const centerLat = mapCenter.lat.toFixed(4);
-                      const centerLon = mapCenter.lng.toFixed(4);
-                      const posText = `${centerLat}°N, ${centerLon}°E`;
-                      return (
-                        <>
-                          <div style={{ fontSize: '17px', fontWeight: '600', color: '#fff', marginBottom: '8px', fontFamily: 'monospace' }}>
-                            {posText}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => { navigator.clipboard.writeText(posText); }}
-                            className="btn-press"
-                            style={{
-                              padding: '8px 16px', borderRadius: '8px',
-                              border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
-                              color: '#fff', fontSize: '13px', cursor: 'pointer', marginBottom: '8px',
-                            }}
-                          >
-                            Kopiera koordinater
-                          </button>
-                          <div style={{ fontSize: '13px', color: '#8e8e93' }}>
-                            Ge denna position till larmoperatören
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-
-                  {/* === NÄRMASTE SJUKVÅRD === */}
-                  {emergencyHealthcare !== null && emergencyHealthcare.length === 0 && (
-                    <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '16px' }}>Söker sjukvård i närheten...</div>
-                  )}
-
-                  {/* Sjukhus */}
-                  {emergencyHealthcare && emergencyHealthcare.filter(h => h.type === 'hospital').length > 0 && (
-                    <div style={{ marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '12px' }}>Närmaste sjukhus</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {emergencyHealthcare.filter(h => h.type === 'hospital').map((h, i) => (
-                          <a
-                            key={i}
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
-                            className="btn-press"
-                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)' }}
-                          >
-                            <span style={{ fontSize: '20px' }}>🏥</span>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: '13px', color: '#fff' }}>{h.name}</div>
-                              <div style={{ fontSize: '13px', color: '#8e8e93' }}>
-                                {h.dist} km · ~{Math.max(5, Math.round(h.dist * 0.9))} min
-                              </div>
-                            </div>
-                            <span style={{ fontSize: '13px', color: '#0a84ff' }}>Navigera →</span>
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Vårdcentraler */}
-                  {emergencyHealthcare && emergencyHealthcare.filter(h => h.type === 'clinic').length > 0 && (
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '12px' }}>Närmaste vårdcentral</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {emergencyHealthcare.filter(h => h.type === 'clinic').map((h, i) => (
-                          <a
-                            key={i}
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
-                            className="btn-press"
-                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)' }}
-                          >
-                            <span style={{ fontSize: '20px' }}>🏥</span>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: '13px', color: '#fff' }}>{h.name}</div>
-                              <div style={{ fontSize: '13px', color: '#8e8e93' }}>
-                                {h.dist} km · ~{Math.max(5, Math.round(h.dist * 0.9))} min
-                              </div>
-                            </div>
-                            <span style={{ fontSize: '13px', color: '#0a84ff' }}>Navigera →</span>
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
