@@ -77,9 +77,12 @@ export default function StoppFormular({
     }
     const stoppId = stoppRes.rows[0].id;
 
-    // 2) Maskinraderna — "Alla" är redan expanderad till explicita id:n
+    // 2) Maskinraderna — "Alla" är redan expanderad till explicita id:n.
+    // OBS: stopp_maskin har ingen id-kolumn (PK = stopp_id+maskin_id) —
+    // default-select 'id' ger 400 från PostgREST.
     const maskinRes = await upsertVerifierat(supabase, 'stopp_maskin',
-      valdaIds.map(mid => ({ stopp_id: stoppId, maskin_id: mid })));
+      valdaIds.map(mid => ({ stopp_id: stoppId, maskin_id: mid })),
+      { select: 'stopp_id,maskin_id' });
     if (!maskinRes.ok) {
       // Lämna inget maskinlöst stopp efter oss — rulla tillbaka steg 1
       await raderaVerifierat(supabase, 'stopp', { id: stoppId });
