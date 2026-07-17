@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { type UppfoljningObjekt } from './lib/transform';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
 import { uppfoljningStatus, STATUS_FARG, type UppfoljningStatusKey as V6StatusKey } from '@/lib/uppfoljning/status';
+import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
 
 /* ── Design tokens (V6) ── */
 const V6_GREY = '#8e8e93';
@@ -38,33 +39,45 @@ function fmtH(minutes: number): string {
 const v6Status = (obj: UppfoljningObjekt) =>
   uppfoljningStatus({ ...obj, skordat: obj.volymSkordare, skotat: obj.volymSkotare });
 
-/* ── Oskotat: VIRKE (mätt) vs RIS (beräknad — ej byggd än) ── */
-// Virke räknas ur MÄTTA volymer (skördat − skotat, ej-klara objekt utan
-// risskotning). Ris kan inte mätas ur skotardata som inte finns — beräkning
-// ur skördardata (Skogforsk biomassafunktion, Arbetsrapport 944-2017) byggs
-// som eget steg; tills dess står det ärligt "kan ej mätas än". Aldrig en
-// schablon bredvid riktiga tal.
-function OskotatKorten({ data }: { data: UppfoljningObjekt[] }) {
+/* ── Oskotat: VIRKE (mätt) vs RIS (uppskattad Skogforsk-schablon) ── */
+// Virke = MÄTT kvar-volym (skördat − skotat). Ris kan inte mätas förrän
+// skotaren registrerat lass — men grotmängden kan UPPSKATTAS ur avverkad
+// stamvolym med Skogforsks uttagsfaktor (lib/grot.ts). Uppskattning och
+// mätning blandas ALDRIG: virke bär grön "mätt", ris bär gul "uppskattat".
+//
+// Datamodell (kartlagd): grot_anpassad=true sitter på AVVERKNINGSobjektet
+// (har stamvolym → uppskattningsgrund). risskotning=true är det SEPARATA
+// skotarjobbet för groten (stamvolym=0, egen VO, ofta redan mätt skotat).
+// De delar ingen objekt-koppling, så uppskattningen kan inte nettas mot
+// redan skotad grot — den är en POTENTIAL ur avverkningen, tydligt märkt.
+function OskotatKorten({ data, faktor, setFaktor }: { data: UppfoljningObjekt[]; faktor: number; setFaktor: (v: number) => void }) {
   const ejKlara = data.filter(o => o.status !== 'avslutat' && !o.skotareSlut && !o.externSkotning);
   const virke = ejKlara
-    .filter(o => !o.grotSkotning && o.volymSkordare > 0)
+    .filter(o => !o.grotSkotning && !o.grotAnpassad && o.volymSkordare > 0)
     .map(o => ({ o, kvar: Math.max(0, o.volymSkordare - o.volymSkotare) }))
     .filter(x => x.kvar > 0);
   const virkeM3 = virke.reduce((a, b) => a + b.kvar, 0);
-  const ris = ejKlara.filter(o => o.grotSkotning);
+
+  // Grot-objekt = grot-anpassat avverkningsobjekt ELLER separat risskotning.
+  // Uppskattning bara där avverkad volym finns (grot_anpassad-objekten);
+  // objekt utan stamvolym bidrar 0 och redovisas ärligt i listan nedan.
+  const grotObjekt = ejKlara.filter(o => o.grotAnpassad || o.grotSkotning);
+  const grotMedVolym = grotObjekt.filter(o => o.volymSkordare > 0);
+  const grotUtanVolym = grotObjekt.length - grotMedVolym.length;
+  const uppskattadGrot = grotMedVolym.reduce((a, o) => a + (uppskattaGrotM3fub(o.volymSkordare, faktor) || 0), 0);
 
   // Per skotare — BARA maskinnamn, aldrig förare
   const perSkotare = new Map<string, { m3: number; antal: number }>();
   virke.forEach(({ o, kvar }) => {
     const nyckel = o.tilldeladSkotare || '';
     const p = perSkotare.get(nyckel) || { m3: 0, antal: 0 };
-    p.m3 += kvar;
-    p.antal += 1;
+    p.m3 += kvar; p.antal += 1;
     perSkotare.set(nyckel, p);
   });
   const skotarRader = Array.from(perSkotare.entries()).sort((a, b) => b[1].m3 - a[1].m3);
 
   const kortEtikett: React.CSSProperties = { fontSize: 10, color: V6_GREY, letterSpacing: '0.07em', textTransform: 'uppercase', fontWeight: 700 };
+  const stega = (steg: number) => setFaktor(klampaGrotFaktor(Math.round((faktor + steg) * 100) / 100));
 
   return (
     <div style={{ margin: '0 16px 14px' }}>
@@ -80,10 +93,38 @@ function OskotatKorten({ data }: { data: UppfoljningObjekt[] }) {
         </div>
         <div style={{ background: V6_CARD, borderRadius: 12, padding: '13px 14px 12px' }}>
           <div style={kortEtikett}>Oskotat ris</div>
-          <div style={{ fontSize: 15, color: V6_GREY, fontWeight: 600, marginTop: 9, lineHeight: 1.2 }}>kan ej mätas än</div>
-          <div style={{ fontSize: 11, color: V6_GREY, marginTop: 6 }}>{ris.length} objekt</div>
+          {grotMedVolym.length > 0 ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginTop: 7 }}>
+                <span style={{ fontSize: 15, color: V6_GREY, fontWeight: 600 }}>~</span>
+                <span style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums', lineHeight: 1, color: V6_WARN }}>{Math.round(uppskattadGrot).toLocaleString('sv-SE')}</span>
+                <span style={{ fontSize: 12, color: V6_GREY, fontWeight: 600 }}>m³fub</span>
+              </div>
+              <div style={{ display: 'inline-flex', marginTop: 5 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: V6_WARN, border: `1px solid rgba(255,159,10,0.4)`, borderRadius: 5, padding: '1px 5px' }}>uppskattat</span>
+              </div>
+              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 6 }}>{grotMedVolym.length} objekt{grotUtanVolym > 0 ? ` · ${grotUtanVolym} utan avverkningsdata` : ''}</div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 15, color: V6_GREY, fontWeight: 600, marginTop: 9, lineHeight: 1.2 }}>avverkningsdata saknas</div>
+              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 6 }}>{grotObjekt.length} objekt</div>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Justerbar uttagsfaktor — källmärkt, klampad till Skogforsk-intervallet */}
+      <div style={{ marginTop: 8, background: V6_CARD, borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, color: '#fff', fontWeight: 500 }}>Grot-uttagsfaktor</div>
+          <div style={{ fontSize: 10, color: V6_GREY2 }}>Skogforsk {GROT_UTTAGSFAKTOR_MIN.toLocaleString('sv-SE')}–{GROT_UTTAGSFAKTOR_MAX.toLocaleString('sv-SE')} av stamvolym</div>
+        </div>
+        <button onClick={() => stega(-0.01)} disabled={faktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9} style={{ width: 30, height: 30, borderRadius: 8, border: `0.5px solid ${V6_SEP}`, background: 'transparent', color: faktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9 ? V6_GREY2 : '#fff', fontSize: 18, cursor: 'pointer', fontFamily: V6_FF, lineHeight: 1 }} aria-label="Minska">−</button>
+        <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', minWidth: 38, textAlign: 'center' }}>{faktor.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        <button onClick={() => stega(0.01)} disabled={faktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9} style={{ width: 30, height: 30, borderRadius: 8, border: `0.5px solid ${V6_SEP}`, background: 'transparent', color: faktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9 ? V6_GREY2 : '#fff', fontSize: 18, cursor: 'pointer', fontFamily: V6_FF, lineHeight: 1 }} aria-label="Öka">+</button>
+      </div>
+
       {skotarRader.length > 0 && (
         <div style={{ marginTop: 8, background: V6_CARD, borderRadius: 12, overflow: 'hidden' }}>
           {skotarRader.map(([namn, v], i) => (
@@ -97,7 +138,7 @@ function OskotatKorten({ data }: { data: UppfoljningObjekt[] }) {
         </div>
       )}
       <div style={{ padding: '8px 4px 0', fontSize: 11, color: V6_GREY2, lineHeight: 1.45 }}>
-        Ris kan inte mätas än — beräkning ur skördardata (Skogforsk biomassafunktion) byggs som nästa steg. Faktisk volym vägs vid skotning.
+        Grot är en uppskattning (Skogforsk-schablon: stamvolym × faktor), inte en mätning — faktisk volym registreras vid skotning. Skotad grot visas som mätt bland objekten.
       </div>
     </div>
   );
@@ -110,7 +151,7 @@ function OskotatKorten({ data }: { data: UppfoljningObjekt[] }) {
 // och vid ~en säsong en diskret notering. Ingen larmfärg, ingen uppmaning.
 const SASONG_DAGAR = 120;
 
-function OskotadeLista({ data, onSelect }: { data: UppfoljningObjekt[]; onSelect: (o: UppfoljningObjekt) => void }) {
+function OskotadeLista({ data, onSelect, faktor }: { data: UppfoljningObjekt[]; onSelect: (o: UppfoljningObjekt) => void; faktor: number }) {
   const rader = data
     .filter(o => o.status !== 'avslutat' && !o.skotareSlut && !o.externSkotning && o.volymSkordare > 0)
     .map(o => ({ o, kvar: Math.max(0, o.volymSkordare - o.volymSkotare) }))
@@ -145,6 +186,16 @@ function OskotadeLista({ data, onSelect }: { data: UppfoljningObjekt[]; onSelect
                   {o.namn}{o.grotSkotning && <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 500 }}> · ris</span>}
                 </div>
                 <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{liggetid}</div>
+                {o.grotAnpassad && (() => {
+                  const g = uppskattaGrotM3fub(o.volymSkordare, faktor);
+                  return (
+                    <div style={{ fontSize: 12, color: V6_WARN, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                      {g != null
+                        ? <>≈ {Math.round(g).toLocaleString('sv-SE')} m³fub grot <span style={{ color: V6_GREY2 }}>(uppskattat)</span></>
+                        : <span style={{ color: V6_GREY2 }}>grot: avverkningsdata saknas</span>}
+                    </div>
+                  );
+                })()}
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, flexShrink: 0 }}>
                 <span style={{ fontSize: 16, fontWeight: 600, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.3px' }}>{Math.round(kvar).toLocaleString('sv-SE')}</span>
@@ -289,6 +340,7 @@ export default function UppfoljningPage() {
   const [typ, setTyp] = useState<'alla' | 'slutavverkning' | 'gallring' | 'grot'>('alla');
   const [visaAvslutade, setVisaAvslutade] = useState(false);
   const [sok, setSok] = useState('');
+  const [grotFaktor, setGrotFaktor] = useState(GROT_UTTAGSFAKTOR_DEFAULT);
 
   // Läs sparat state från sessionStorage på mount (efter hydration för att undvika SSR-mismatch)
   useEffect(() => {
@@ -299,6 +351,8 @@ export default function UppfoljningPage() {
       if (v !== null) setVisaAvslutade(JSON.parse(v));
       const s = sessionStorage.getItem('uppfoljning:sok');
       if (s !== null) setSok(JSON.parse(s));
+      const gf = sessionStorage.getItem('uppfoljning:grotFaktor');
+      if (gf !== null) setGrotFaktor(klampaGrotFaktor(JSON.parse(gf)));
     } catch {}
   }, []);
 
@@ -306,6 +360,7 @@ export default function UppfoljningPage() {
   useEffect(() => { try { sessionStorage.setItem('uppfoljning:typ', JSON.stringify(typ)); } catch {} }, [typ]);
   useEffect(() => { try { sessionStorage.setItem('uppfoljning:visaAvslutade', JSON.stringify(visaAvslutade)); } catch {} }, [visaAvslutade]);
   useEffect(() => { try { sessionStorage.setItem('uppfoljning:sok', JSON.stringify(sok)); } catch {} }, [sok]);
+  useEffect(() => { try { sessionStorage.setItem('uppfoljning:grotFaktor', JSON.stringify(grotFaktor)); } catch {} }, [grotFaktor]);
 
   const filtered = useMemo(() => {
     return objekt.filter(o => {
@@ -350,8 +405,8 @@ export default function UppfoljningPage() {
           <V6Search value={sok} onChange={setSok} />
         </div>
 
-        <OskotatKorten data={objekt} />
-        <OskotadeLista data={objekt} onSelect={handleSelect} />
+        <OskotatKorten data={objekt} faktor={grotFaktor} setFaktor={setGrotFaktor} />
+        <OskotadeLista data={objekt} onSelect={handleSelect} faktor={grotFaktor} />
 
         <div style={{ padding: '14px 16px 12px' }}>
           <V6Segmented<'alla' | 'slutavverkning' | 'gallring' | 'grot'>

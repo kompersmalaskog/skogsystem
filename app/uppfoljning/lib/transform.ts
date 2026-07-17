@@ -36,6 +36,9 @@ export interface UppfoljningObjekt {
   status: 'pagaende' | 'avslutat';
   egenSkotning: boolean;
   grotSkotning: boolean;
+  // GROT-anpassat avverkningsobjekt (dim_objekt.grot_anpassad). Skild från
+  // grotSkotning (=risskotning, det separata skotarjobbet) — se hooken.
+  grotAnpassad: boolean;
   externSkotning: boolean;
   externForetag: string;
   externPrisTyp: 'm3' | 'timme';
