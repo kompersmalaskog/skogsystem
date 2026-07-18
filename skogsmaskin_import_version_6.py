@@ -3017,6 +3017,14 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     före senare suffixade versioner; byten loggas alltid (INFO)
                     och nästa nyare export rättar attributionen."""
                     bas = os.path.basename(namn_eller_path)
+                    # Maskin-genererade filnamn: 14 sammanhängande siffror (_YYYYMMDDHHMMSS)
+                    m14 = re.search(r'_(\d{14})(?=\.|_|$)', bas)
+                    if m14:
+                        try:
+                            return datetime.strptime(m14.group(1), '%Y%m%d%H%M%S').timestamp()
+                        except ValueError:
+                            pass
+                    # Behandlade-suffix: _YYYYMMDD_HHMMSS (sätts vid namnkrock)
                     m = re.findall(r'_(\d{8})_(\d{6})', bas)
                     if m:
                         try:
@@ -3057,10 +3065,21 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     mom_dir = os.path.join(BEHANDLADE, maskin_id, 'mom')
                     if not os.path.isdir(mom_dir):
                         continue
+                    # Pre-filter: MOM-filnamn innehåller maskintidsstämpeln (_YYYYMMDDHHMMSS).
+                    # Hoppa filer vars datum-prefix (8 siffror) INTE finns bland berörda datum
+                    # — minskar parse-anrop drastiskt vid timrapportering med 10+ filer/dag.
+                    dates_ren_set = {d.replace('-', '') for d in dates_for_maskin}
+
+                    def _datum_i_filnamn(fname):
+                        m = re.search(r'_(\d{8})\d{6}(?=\.|_|$)', fname)
+                        if m:
+                            return m.group(1) in dates_ren_set
+                        return True  # inget datummönster → inkludera för säkerhets skull
+
                     mom_files = sorted(
                         os.path.join(mom_dir, f)
                         for f in os.listdir(mom_dir)
-                        if f.lower().endswith('.mom')
+                        if f.lower().endswith('.mom') and _datum_i_filnamn(f)
                     )
                     for f in mom_files:
                         try:
@@ -3087,7 +3106,7 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 # vinna attributionen — nästa import av en nyare version rättar,
                 # och attribution-byten loggas alltid (INFO) för spårbarhet.
                 bas_namn = data.get('filnamn', '') or ''
-                if re.search(r'_\d{8}_\d{6}', bas_namn):
+                if re.search(r'_\d{14}(?=\.|_|$)|_\d{8}_\d{6}', bas_namn):
                     aktuell_recency = _fil_recency(bas_namn)
                 else:
                     aktuell_recency = datetime.now().timestamp()
@@ -3260,6 +3279,34 @@ def save_mom_to_supabase(data: Dict) -> bool:
                         agg_key = (e_maskin, e_op, timme_utc, typ)
                         tider_agg[agg_key] = tider_agg.get(agg_key, 0) + chunk_sek
                     current = next_hour
+
+            # mom_tider-skydd: om Behandlade redan har en nyare MOM-fil för
+            # maskinen+datumet hoppar vi mom_tider-skrivningen för den maskinen —
+            # annars skriver en sent importerad gammal fil över en nyare fils
+            # tim-data och G15h-kurvan sjunker (samma grundbugg som recency-fixen
+            # i _fil_recency / aktuell_recency ovan).
+            skip_maskiner: set = set()
+            maskin_datum_sett: set = set()
+            for (e_maskin, _, timme_utc, _) in list(tider_agg.keys()):
+                maskin_datum_sett.add((e_maskin, timme_utc[:10].replace('-', '')))
+            for (e_maskin, datum_prefix) in maskin_datum_sett:
+                behandlad_mapp = os.path.join(BEHANDLADE, e_maskin, 'mom')
+                if not os.path.isdir(behandlad_mapp):
+                    continue
+                for bfil in os.listdir(behandlad_mapp):
+                    if not bfil.lower().endswith('.mom'):
+                        continue
+                    if datum_prefix not in bfil:
+                        continue
+                    if _fil_recency(os.path.join(behandlad_mapp, bfil)) > aktuell_recency:
+                        skip_maskiner.add(e_maskin)
+                        logger.info(
+                            f"  mom_tider: hoppar {e_maskin} ({datum_prefix})"
+                            f" – nyare fil finns i Behandlade ({bfil})")
+                        break
+            if skip_maskiner:
+                tider_agg = {k: v for k, v in tider_agg.items()
+                             if k[0] not in skip_maskiner}
 
             if tider_agg:
                 # Radera gamla rader för berörda (maskin_id, timme) innan insert
@@ -3814,29 +3861,37 @@ def save_fpr_to_supabase(data: Dict) -> bool:
 # FILHANTERING
 # ============================================================
 
-def move_to_behandlade(filepath: str, maskin_id: str, filtyp: str):
-    """Flytta fil till Behandlade/MaskinID/Filtyp/"""
+def move_to_behandlade(filepath: str, maskin_id: str, filtyp: str) -> bool:
+    """Flytta fil till Behandlade/MaskinID/Filtyp/. Returnerar True om lyckad.
+    3 försök med exponentiell backoff (3s, 9s) för OneDrive-lås."""
     try:
-        # Skapa mappstruktur
         maskin_mapp = os.path.join(BEHANDLADE, maskin_id)
         filtyp_mapp = os.path.join(maskin_mapp, filtyp)
         os.makedirs(filtyp_mapp, exist_ok=True)
-        
-        # Flytta fil
+
         filnamn = os.path.basename(filepath)
         dest_path = os.path.join(filtyp_mapp, filnamn)
-        
-        # Om filen redan finns, lägg till tidsstämpel
+
         if os.path.exists(dest_path):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             base, ext = os.path.splitext(filnamn)
             dest_path = os.path.join(filtyp_mapp, f"{base}_{timestamp}{ext}")
-        
-        shutil.move(filepath, dest_path)
-        logger.info(f"  ✓ Flyttad till {os.path.relpath(dest_path, ONEDRIVE_BASE)}")
-        
+
+        for attempt in range(1, 4):
+            try:
+                shutil.move(filepath, dest_path)
+                logger.info(f"  ✓ Flyttad till {os.path.relpath(dest_path, ONEDRIVE_BASE)}")
+                return True
+            except (PermissionError, OSError) as e:
+                if attempt < 3:
+                    vantetid = 3 ** attempt  # 3s, 9s
+                    logger.warning(f"  ⚠ Flytt misslyckades (försök {attempt}/3), väntar {vantetid}s: {e}")
+                    time.sleep(vantetid)
+                else:
+                    logger.error(f"  ✗ Flytt misslyckades slutgiltigt efter 3 försök: {e}")
     except Exception as e:
         logger.error(f"  Fel vid flytt av fil: {e}")
+    return False
 
 def log_if_new_maskin(maskin_id: str, maskin_typ: str):
     """Loggar om maskinen är ny i dim_maskin."""
@@ -3934,6 +3989,24 @@ def process_file(filepath: str) -> bool:
     logger.info(f"Processar: {filnamn}")
     logger.info(f"{'='*50}")
     
+    # Startup-scan: om filen är markerad OK i meta men saknas i Behandlade har
+    # flytten misslyckats (t.ex. OneDrive-lås). Rensa meta så att importen körs om.
+    if is_file_already_imported(filnamn):
+        maskin_id_i_namn = None
+        m_maskin = re.search(r'_((?:PONS|R|A)\d+)_', filnamn)
+        if m_maskin:
+            maskin_id_i_namn = m_maskin.group(1)
+        if maskin_id_i_namn:
+            for sub in ('MOM', 'mom', 'HPR', 'hpr', 'HQC', 'hqc', 'FPR', 'fpr'):
+                dest_kand = os.path.join(BEHANDLADE, maskin_id_i_namn, sub, filnamn)
+                if os.path.exists(dest_kand):
+                    break
+            else:
+                logger.warning(
+                    f"  ⚠ {filnamn}: meta=OK men saknas i Behandlade"
+                    f" — trolig flytt-miss. Rensar meta och re-importerar.")
+                delete_meta_entry(filnamn)
+
     # Kolla om redan importerad
     if is_file_already_imported(filnamn):
         # Kumulativa filer (MOM/FPR) kan ha uppdaterats sedan import.
@@ -3978,12 +4051,16 @@ def process_file(filepath: str) -> bool:
         if success:
             maskin_id = data.get('maskin', {}).get('maskin_id', 'Okand')
             filtyp = data.get('filtyp', ext[1:].upper())
-            
-            mark_file_imported(filnamn, filtyp, maskin_id)
-            move_to_behandlade(filepath, maskin_id, filtyp)
-            
-            logger.info(f"  ✓ KLAR!")
-            return True
+
+            moved = move_to_behandlade(filepath, maskin_id, filtyp)
+            if moved:
+                mark_file_imported(filnamn, filtyp, maskin_id)
+                logger.info(f"  ✓ KLAR!")
+            else:
+                mark_file_imported(filnamn, filtyp, maskin_id, 'FEL',
+                                   'Fil sparad till DB men flytt till Behandlade misslyckades')
+                logger.error(f"  ✗ Sparad till DB men kunde ej flytta — markerad FEL för omimport")
+            return moved
         else:
             mark_file_imported(filnamn, ext[1:].upper(), '', 'FEL', 'Kunde inte spara till databas')
             return False
