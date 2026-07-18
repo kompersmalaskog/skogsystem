@@ -36,6 +36,7 @@ const adminApps = [
   { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
   { href: '/fordonsoversikt', label: 'Fordon', icon: 'local_shipping' },
   { href: '/maskinflytt', label: 'Maskinflytt', icon: 'delivery_truck_speed' },
+  { href: '/maskinflytt/sammanstallning', label: 'Flyttlogg', icon: 'list_alt' },
   { href: '/avtal', label: 'Avtal', icon: 'receipt_long' },
   { href: '/personal', label: 'Personal', icon: 'badge' },
 ]
