@@ -413,12 +413,17 @@ export async function POST(req: NextRequest) {
     // kolumn/index (migration ej körd) loggas det bara — synken stannar inte.
     if (inserted && inserted.length > 0) {
       const kl17 = (datum: string): string => {
-        // 17:00 Europe/Stockholm oavsett serverns tidszon (sommar-/vintertid)
+        // 17:00 Europe/Stockholm för datumet, OBEROENDE av serverns tidszon.
+        // OBS: toLocaleString+new Date-tricket duger inte — strängen parsas i
+        // serverns lokala tz och gav fel offset på icke-UTC-servrar. Intl:s
+        // longOffset ger tidszonens faktiska offset (sommar-/vintertid).
         const ref = new Date(`${datum}T12:00:00Z`);
-        const sv = new Date(ref.toLocaleString('en-US', { timeZone: 'Europe/Stockholm' }));
-        const offsetMin = Math.round((sv.getTime() - ref.getTime()) / 60000);
+        const offsetStr = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', timeZoneName: 'longOffset' })
+          .formatToParts(ref).find(p => p.type === 'timeZoneName')?.value || 'GMT+02:00';
+        const m = offsetStr.match(/([+-])(\d{2}):(\d{2})/);
+        const offMin = m ? (m[1] === '-' ? -1 : 1) * (parseInt(m[2]) * 60 + parseInt(m[3])) : 120;
         const d = new Date(`${datum}T17:00:00Z`);
-        d.setMinutes(d.getMinutes() - offsetMin);
+        d.setMinutes(d.getMinutes() - offMin);
         return d.toISOString();
       };
       const notisRader = inserted
@@ -430,11 +435,16 @@ export async function POST(req: NextRequest) {
           skickas_at: new Date(Math.max(Date.now(), new Date(kl17(ad.datum)).getTime())).toISOString(),
           payload: {},
         }));
-      if (notisRader.length > 0) {
-        const { error: notisErr } = await supabase
-          .from('notis_kö')
-          .upsert(notisRader, { onConflict: 'typ,mottagare_id,datum', ignoreDuplicates: true });
-        if (notisErr) console.warn('notis_kö kunde inte fyllas (migration ej körd?):', notisErr.message);
+      // Insert EN rad i taget med 23505 (unik-krock) tolererad som dedup-träff.
+      // OBS: upsert med onConflict fungerar INTE här — indexet är PARTIELLT
+      // (WHERE datum IS NOT NULL) och PostgREST:s ON CONFLICT-spec kan inte
+      // matcha det ("no unique or exclusion constraint..."). En batch-insert
+      // duger inte heller: en dup i batchen hade fällt ALLA rader.
+      for (const notis of notisRader) {
+        const { error: notisErr } = await supabase.from('notis_kö').insert(notis);
+        if (notisErr && notisErr.code !== '23505') {
+          console.warn('notis_kö kunde inte fyllas (migration ej körd?):', notisErr.message);
+        }
       }
     }
 
