@@ -17870,6 +17870,20 @@ export default function PlannerPage() {
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {(() => {
+                      const unika = Array.from(new Set(analysis.hits.map(h => h.type)));
+                      if (unika.length < 2) return null;
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '2px' }}>
+                          {unika.map(t => {
+                            const c = typeConfig[t] || { icon: '❓', color: '#888', label: t };
+                            return (
+                              <span key={t} style={{ fontSize: '10px', fontWeight: '700', letterSpacing: '0.4px', textTransform: 'uppercase', color: c.color, border: `1px solid ${c.color}`, borderRadius: '6px', padding: '3px 7px' }}>{c.label}</span>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                     {analysis.hits.map((hit, i) => {
                       const cfg = typeConfig[hit.type] || { icon: '❓', color: '#888', label: hit.type };
                       return (
@@ -17883,7 +17897,8 @@ export default function PlannerPage() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontSize: '20px' }}>{cfg.icon}</span>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff' }}>{hit.name}</div>
+                              <div style={{ fontSize: '11px', fontWeight: '700', color: cfg.color, letterSpacing: '0.6px', textTransform: 'uppercase', marginBottom: '3px' }}>{cfg.label}</div>
+                              <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>{hit.name}</div>
                               {hit.details && (
                                 <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '2px' }}>{hit.details}</div>
                               )}
