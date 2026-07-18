@@ -402,6 +402,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 7c. Köa dagsslut-notiser ("Din arbetsdag — Stämmer?"). Kön har haft en
+    // konsument (flush-cronen var 5:e minut) men ALDRIG en producent — detta
+    // är den. Dedupen är bärande: MOM-filerna är kumulativa så synken kör
+    // många gånger per dag för samma datum — unikt index (typ, mottagare,
+    // datum) + ignoreDuplicates (= ON CONFLICT DO NOTHING) ger EN notis per
+    // dag, aldrig spam. skickas_at = tidigast 17:00 svensk tid — en lunch-
+    // utloggning ska inte notifiera halva dagen; meddelandet byggs FÄRSKT
+    // vid flush (då har ev. eftermiddagsfiler hunnit in). Fail-soft: saknas
+    // kolumn/index (migration ej körd) loggas det bara — synken stannar inte.
+    if (inserted && inserted.length > 0) {
+      const kl17 = (datum: string): string => {
+        // 17:00 Europe/Stockholm oavsett serverns tidszon (sommar-/vintertid)
+        const ref = new Date(`${datum}T12:00:00Z`);
+        const sv = new Date(ref.toLocaleString('en-US', { timeZone: 'Europe/Stockholm' }));
+        const offsetMin = Math.round((sv.getTime() - ref.getTime()) / 60000);
+        const d = new Date(`${datum}T17:00:00Z`);
+        d.setMinutes(d.getMinutes() - offsetMin);
+        return d.toISOString();
+      };
+      const notisRader = inserted
+        .filter((ad: any) => ad.slut_tid)
+        .map((ad: any) => ({
+          typ: 'dagsslut',
+          mottagare_id: ad.medarbetare_id,
+          datum: ad.datum,
+          skickas_at: new Date(Math.max(Date.now(), new Date(kl17(ad.datum)).getTime())).toISOString(),
+          payload: {},
+        }));
+      if (notisRader.length > 0) {
+        const { error: notisErr } = await supabase
+          .from('notis_kö')
+          .upsert(notisRader, { onConflict: 'typ,mottagare_id,datum', ignoreDuplicates: true });
+        if (notisErr) console.warn('notis_kö kunde inte fyllas (migration ej körd?):', notisErr.message);
+      }
+    }
+
     // 8. Fallback: skapa arbetsdag från fakt_tid för datum som saknar rad
     //    (täcker fall där fakt_skift saknas men fakt_tid finns)
     const { data: tidData } = await supabase
