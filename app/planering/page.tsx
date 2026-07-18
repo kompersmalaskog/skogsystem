@@ -1869,6 +1869,9 @@ export default function PlannerPage() {
   const lastKnownPositionRef = useRef<{ lat: number; lon: number } | null>(null);
   // "Hämtar position…" när centrera-knappen trycks utan fix (istället för att ljuga = objektet).
   const [gpsSokerPosition, setGpsSokerPosition] = useState(false);
+  // GPS-status som SURFAS till UI (aldrig sväljs) + tidsstämpel på senaste fix.
+  const [gpsStatus, setGpsStatus] = useState<{ kind: 'searching' | 'ok' | 'error'; code?: number; at: number } | null>(null);
+  const [gpsFixAt, setGpsFixAt] = useState<number | null>(null);
 
   // === PASSIV GPS-WATCHER (sätter currentPosition automatiskt vid mount) ===
   // Befintliga toggleTracking/startGpsTracking startar SINA EGNA watchers för
@@ -1901,6 +1904,53 @@ export default function PlannerPage() {
     );
     return () => { try { navigator.geolocation.clearWatch(id); } catch {} };
   }, []);
+
+  // === ROBUST GPS-HÄMTNING (Körvy + "Försök igen") ===
+  // Hög noggrannhet först; MISSLYCKAS den (tät skog) → falla tillbaka på lägre noggrannhet
+  // som accepterar senast kända fix. Hellre en sämre position än "hämtar…" i evighet. Felen
+  // SURFAS till gpsStatus, sväljs aldrig.
+  const acquireGpsWithFallback = useCallback(() => {
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      setGpsStatus({ kind: 'error', code: 2, at: Date.now() });
+      return;
+    }
+    setGpsStatus({ kind: 'searching', at: Date.now() });
+    const onOk = (pos: GeolocationPosition) => {
+      setCurrentPosition({ lat: pos.coords.latitude, lon: pos.coords.longitude } as any);
+      setGpsPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      setGpsAccuracy(pos.coords.accuracy);
+      setGpsFixAt(Date.now());
+      setGpsStatus({ kind: 'ok', at: Date.now() });
+      console.log('[GPS] fix, noggrannhet', Math.round(pos.coords.accuracy), 'm');
+    };
+    // 1) Hög noggrannhet, tålmodig timeout
+    navigator.geolocation.getCurrentPosition(
+      onOk,
+      (err1) => {
+        console.warn('[GPS] hög noggrannhet misslyckades', err1.code, err1.message, '→ fallback lägre noggrannhet');
+        // 2) FALLBACK — lägre noggrannhet, återanvänd senast kända fix (maximumAge > 0)
+        navigator.geolocation.getCurrentPosition(
+          onOk,
+          (err2) => {
+            console.error('[GPS] fallback misslyckades också', err2.code, err2.message);
+            setGpsStatus({ kind: 'error', code: err2.code, at: Date.now() });
+          },
+          { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 }
+        );
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+    );
+  }, []);
+
+  // Varje gång en position kommer in (även från passiva watchern) → uppdatera ålder + status.
+  useEffect(() => {
+    if (currentPosition) {
+      setGpsFixAt(Date.now());
+      setGpsStatus(prev => (prev && prev.kind === 'ok') ? prev : { kind: 'ok', at: Date.now() });
+    }
+  }, [currentPosition]);
+
+
   const [trackingPath, setTrackingPath] = useState<Point[]>([]);
   const [gpsLineType, setGpsLineType] = useState<string | null>(null); // Vilken linjetyp som spåras
   const gpsLineTypeRef = useRef<string | null>(null); // Ref för callback
@@ -2293,6 +2343,10 @@ export default function PlannerPage() {
 
   // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
   const [korvyActive, setKorvyActive] = useState(false);
+  // När Körvy öppnas: tvinga fram ett färskt GPS-försök (med fallback) och surfa ev. fel.
+  useEffect(() => {
+    if (korvyActive) acquireGpsWithFallback();
+  }, [korvyActive]); // eslint-disable-line react-hooks/exhaustive-deps
   // Körvyns bas-karta: 'positron' (tyst, dämpad) eller 'topo' (OpenTopoMap, terräng tydlig).
   // Fält-test-växling — default tyst så föraren möter den nya stilen, togglar för att jämföra.
   const [korvyBasKarta, setKorvyBasKarta] = useState<'positron' | 'topo'>('positron');
@@ -9221,6 +9275,58 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* === KÖRVY: GPS-STATUS — surfar fel (aldrig tyst), senast uppdaterad, Försök igen === */}
+      {korvyActive && (() => {
+        const pos = korvyEffectivePos;
+        const sokande = gpsStatus?.kind === 'searching';
+        const fel = gpsStatus?.kind === 'error' ? gpsStatus.code : null;
+        const felText = fel === 1 ? 'Platsbehörighet nekad — tillåt plats för appen i telefonens inställningar'
+          : fel === 3 ? 'Ingen GPS-fix — dålig sikt mot himlen? Försök igen eller flytta dig till öppnare mark'
+          : fel === 2 ? 'Position otillgänglig just nu'
+          : fel != null ? ('GPS-fel (kod ' + fel + ')') : null;
+        const fixTid = gpsFixAt ? new Date(gpsFixAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
+        const ageMin = gpsFixAt ? Math.floor((Date.now() - gpsFixAt) / 60000) : null;
+        const gammal = ageMin != null && ageMin >= 3;
+        // Har position (även gammal) OCH inget aktivt fel → diskret status uppe t.v.
+        if (pos && !fel) {
+          return (
+            <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', left: 12, zIndex: 260,
+              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 14,
+              background: 'rgba(28,28,30,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: 4, background: gammal ? '#FF9F0A' : '#34C759', flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: gammal ? '#FF9F0A' : 'rgba(255,255,255,0.75)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                {sokande ? 'Uppdaterar…' : ('GPS ' + (fixTid || '') + (ageMin != null && ageMin > 0 ? ' · ' + ageMin + ' min sedan' : ''))}
+              </span>
+              <button type="button" onClick={acquireGpsWithFallback}
+                style={{ marginLeft: 2, padding: '3px 9px', borderRadius: 9, border: 'none', background: 'rgba(255,255,255,0.12)', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Uppdatera</button>
+            </div>
+          );
+        }
+        // Ingen position, eller aktivt fel → tydlig ruta med Försök igen
+        return (
+          <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 118px)', left: 12, right: 12, zIndex: 260,
+            padding: '12px 16px', borderRadius: 14, background: 'rgba(28,28,30,0.96)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid ' + (sokande ? 'rgba(255,255,255,0.15)' : 'rgba(255,159,10,0.45)') }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, color: '#fff', fontWeight: 600, marginBottom: 2 }}>
+                  {sokande ? 'Söker GPS…' : (felText || 'Ingen GPS-position än')}
+                </div>
+                {!sokande && (
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.4 }}>
+                    {pos ? ('Visar senast kända position' + (fixTid ? ' (' + fixTid + ')' : '')) : 'Kartan kan inte visa var du är förrän en position hämtats'}
+                  </div>
+                )}
+              </div>
+              {!sokande && (
+                <button type="button" onClick={acquireGpsWithFallback}
+                  style={{ flexShrink: 0, padding: '9px 16px', borderRadius: 11, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Försök igen</button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* === KÖRVY: FÄLT-TEST-VÄXLING bas-karta (Tyst/Positron ⇄ Terräng/OpenTopoMap) === */}
       {korvyActive && (
         <div style={{
@@ -10955,8 +11061,8 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === CENTRERA-KNAPP — kort tryck: GPS, långt tryck (500ms): objekt. Döljs i Körvy/volym/briefing. */}
-      {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && !korvyActive && (
+      {/* === CENTRERA-KNAPP — kort tryck: GPS, långt tryck (500ms): objekt. Synlig ÄVEN i Körvy (förarens enda manuella GPS-retry). Döljs i volym/briefing. */}
+      {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && (
         <button
           type="button"
           onPointerDown={() => {
