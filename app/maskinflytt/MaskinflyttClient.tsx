@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { haversine } from '@/utils/geo'
+import { vaderIkon } from './vader'
 
 // ── Tema — samma palett som starta-jobb/förarvyerna ──
 const C = {
@@ -35,6 +36,9 @@ interface ObjektRad {
   larmkoordinat_lat: number | null
   larmkoordinat_lng: number | null
   larmkoordinat_bekraftad: boolean
+  barighet: string | null
+  transport_trailer_in: boolean | null
+  transport_kommentar: string | null
 }
 
 interface Medarb { id: string; namn: string; hem_lat: number | null; hem_lng: number | null }
@@ -53,6 +57,7 @@ interface PagaendeFlytt {
   till_lng: number | null
   koord_kalla: string | null
   starttid: string
+  hamtad_tid: string | null
 }
 
 function typLabel(t: string | null): string {
@@ -88,17 +93,68 @@ function getGps(): Promise<Pos> {
   })
 }
 
-/** Körsträcka i km via /api/routing (cache→ORS→haversine×1.4 serverside).
- *  Faller tillbaka på haversine×1.4 lokalt om själva anropet fallerar. */
-async function korKm(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<number> {
+/** Körsträcka (och ev. ORS-restid) via /api/routing (cache→ORS→haversine×1.4).
+ *  Faller tillbaka på haversine×1.4 lokalt om själva anropet fallerar.
+ *  minutes är alltid null när restiden inte kunde fås — aldrig en gissning. */
+async function korRutt(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+  withDuration = false,
+): Promise<{ km: number; minutes: number | null }> {
   try {
-    const r = await fetch(`/api/routing?fromLat=${from.lat}&fromLng=${from.lng}&toLat=${to.lat}&toLng=${to.lng}`)
+    const r = await fetch(`/api/routing?fromLat=${from.lat}&fromLng=${from.lng}&toLat=${to.lat}&toLng=${to.lng}${withDuration ? '&withDuration=1' : ''}`)
     if (r.ok) {
       const body = await r.json()
-      if (Number.isFinite(body?.km)) return body.km
+      if (Number.isFinite(body?.km)) {
+        return { km: body.km, minutes: Number.isFinite(body?.minutes) ? body.minutes : null }
+      }
     }
   } catch { /* fallthrough till lokal fallback */ }
-  return Math.round(haversine(from.lat, from.lng, to.lat, to.lng) * 1.4)
+  return { km: Math.round(haversine(from.lat, from.lng, to.lat, to.lng) * 1.4), minutes: null }
+}
+
+// ── Skräptidsskydd: orimliga mätben sparas som NULL, aldrig som äkta siffror ──
+// Till maskinen: bas→A är normalt < 2 tim; 3 tim = föraren gjorde annat emellan.
+// Flytten: A→B med maskin på trailer tar normalt < 3 tim; 6 tim = appen låg öppen.
+const MAX_TID_TILL_MASKIN_MIN = 180
+const MAX_TID_FLYTT_MIN = 360
+
+function fmtMin(min: number | null): string {
+  if (min == null) return '—'
+  const m = Math.round(min)
+  if (m < 60) return `${m} min`
+  return `${Math.floor(m / 60)} tim ${m % 60} min`
+}
+
+/** Extern navigering — telefonens kartapp, ingen egen navigation. */
+function navUrl(lat: number, lng: number, namn: string): string {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  if (/iPad|iPhone|iPod/.test(ua)) return `maps://?daddr=${lat},${lng}`
+  if (/Android/.test(ua)) return `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(namn)})`
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+}
+
+/** Väder vid avslut via Open-Meteo. Fel/timeout → null överallt — flytten
+ *  sparas alltid, vädret får aldrig blockera. */
+async function hamtaVader(lat: number, lng: number): Promise<{ temp: number | null; kod: number | null; nederbord: number | null }> {
+  try {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => ctrl.abort(), 5000)
+    const r = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&current=temperature_2m,precipitation,weather_code`,
+      { signal: ctrl.signal },
+    )
+    clearTimeout(t)
+    if (r.ok) {
+      const c = (await r.json())?.current
+      return {
+        temp: Number.isFinite(c?.temperature_2m) ? c.temperature_2m : null,
+        kod: Number.isFinite(c?.weather_code) ? c.weather_code : null,
+        nederbord: Number.isFinite(c?.precipitation) ? c.precipitation : null,
+      }
+    }
+  } catch { /* väder är bonus — aldrig blockerande */ }
+  return { temp: null, kod: null, nederbord: null }
 }
 
 const STEG_NR: Record<Steg, number> = { maskin: 1, hamta: 2, transport: 3, bekrafta: 4, klart: 4 }
@@ -121,6 +177,8 @@ export default function MaskinflyttClient() {
   const [aPos, setAPos] = useState<Pos | null>(null)           // A: hämtplatsen
   const [valtObjekt, setValtObjekt] = useState<ObjektRad | null>(null)
   const [dest, setDest] = useState<Destination | null>(null)   // B (preliminär tills lämnad)
+  const [flodesStart, setFlodesStart] = useState<string | null>(null) // klockan startar vid maskinvalet
+  const [hamtadTid, setHamtadTid] = useState<string | null>(null)     // när "Hämta här" trycktes
 
   // GPS-läge för Hämta-steget
   const [gpsPos, setGpsPos] = useState<Pos | null>(null)
@@ -142,7 +200,13 @@ export default function MaskinflyttClient() {
   const [resultat, setResultat] = useState<{
     tillkorningKm: number | null; flyttKm: number; hemKm: number | null
     totalKm: number; fakturerbar: boolean; positionSparad: boolean
+    tidTillMaskinMin: number | null; tillMaskinOgiltig: boolean
+    tidFlyttMin: number | null; flyttOgiltig: boolean
+    tidHemMin: number | null
+    vaderTemp: number | null; vaderKod: number | null
   } | null>(null)
+  const [hembasSparar, setHembasSparar] = useState(false)
+  const [hembasFel, setHembasFel] = useState<string | null>(null)
 
   // ── Grunddata: maskiner, inloggad medarbetare, pågående flytter ──
   useEffect(() => {
@@ -155,7 +219,7 @@ export default function MaskinflyttClient() {
             .or(`aktiv_till.is.null,aktiv_till.gte.${idag}`)
             .order('extramaskin').order('maskin_typ'),
           supabase.from('maskin_flytt')
-            .select('id, maskin_id, start_lat, start_lng, fran_lat, fran_lng, till_objekt_id, till_lat, till_lng, koord_kalla, starttid')
+            .select('id, maskin_id, start_lat, start_lng, fran_lat, fran_lng, till_objekt_id, till_lat, till_lng, koord_kalla, starttid, hamtad_tid')
             .is('sluttid', null)
             .order('starttid', { ascending: false }),
           supabase.auth.getUser(),
@@ -188,7 +252,7 @@ export default function MaskinflyttClient() {
   const laddaObjekt = useCallback(async () => {
     setObjektFel(null)
     const { data, error } = await supabase.from('objekt')
-      .select('id, namn, vo_nummer, dim_objekt_id, status, lat, lng, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_bekraftad')
+      .select('id, namn, vo_nummer, dim_objekt_id, status, lat, lng, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_bekraftad, barighet, transport_trailer_in, transport_kommentar')
       .in('status', ['planerad', 'pagaende'])
       .order('namn')
     if (error) { setObjektFel(`Kunde inte läsa objekt: ${error.message}`); return }
@@ -212,10 +276,11 @@ export default function MaskinflyttClient() {
     if (steg === 'hamta') hamtaGps()
   }, [steg, hamtaGps])
 
-  // ── Steg 1: välj maskin (tar samtidigt lastbilens startposition, tyst) ──
+  // ── Steg 1: välj maskin — klockan startar HÄR (hela kedjan bas→A→B mäts) ──
   function valjMaskin(m: Maskin) {
     setMaskin(m)
     setSparFel(null)
+    setFlodesStart(new Date().toISOString())
     getGps().then(setStartPos).catch(() => { /* startpos är valfri — ingen gissning */ })
     setSteg('hamta')
   }
@@ -224,12 +289,15 @@ export default function MaskinflyttClient() {
   async function hamtaHar() {
     if (!maskin || !gpsPos || sparar) return
     setSparar(true); setSparFel(null)
+    const nu = new Date().toISOString()
     const { data, error } = await supabase.from('maskin_flytt').insert({
       maskin_id: maskin.maskin_id,
       start_lat: startPos?.lat ?? null,
       start_lng: startPos?.lng ?? null,
       fran_lat: gpsPos.lat,
       fran_lng: gpsPos.lng,
+      starttid: flodesStart ?? nu, // flödesstart, inte hämtögonblicket
+      hamtad_tid: nu,
       forare: medarb?.namn ?? null,
       medarbetare_id: medarb?.id ?? null,
     }).select('id')
@@ -240,6 +308,7 @@ export default function MaskinflyttClient() {
     }
     setFlyttId(data[0].id)
     setAPos(gpsPos)
+    setHamtadTid(nu)
     setSteg('transport')
   }
 
@@ -302,17 +371,34 @@ export default function MaskinflyttClient() {
       if (p.accuracy <= 150) b = { lat: p.lat, lng: p.lng, kalla: 'gps' }
     } catch { /* behåll vald koordinat */ }
 
-    const [tillkorningKm, flyttKm, hemKm] = await Promise.all([
-      startPos ? korKm(startPos, aPos) : Promise.resolve(null),
-      korKm(aPos, b),
+    const [tillkorning, flytt, hem, vader] = await Promise.all([
+      startPos ? korRutt(startPos, aPos) : Promise.resolve(null),
+      korRutt(aPos, b),
       medarb?.hem_lat != null && medarb?.hem_lng != null
-        ? korKm(b, { lat: medarb.hem_lat, lng: medarb.hem_lng })
+        ? korRutt(b, { lat: medarb.hem_lat, lng: medarb.hem_lng }, true) // restid = ORS-uppskattning
         : Promise.resolve(null), // hembas saknas → ärligt tomt, ingen gissning
+      hamtaVader(b.lat, b.lng),
     ])
+    const tillkorningKm = tillkorning?.km ?? null
+    const flyttKm = flytt.km
+    const hemKm = hem?.km ?? null
 
     const totalKm = (tillkorningKm ?? 0) + flyttKm + (hemKm ?? 0)
+    // fakturerbar styrs av ENBART flytt_km — ingen tid, inget annat ben
     const fakturerbar = flyttKm >= 30
     const nu = new Date().toISOString()
+
+    // Mätta tidsben ur tidsstämplarna, med skräptidsskydd: en siffra över
+    // gränsen sparas som NULL — hellre ärligt omätt än falskt precist.
+    const minMellan = (fran: string | null, till: string) =>
+      fran ? Math.round((new Date(till).getTime() - new Date(fran).getTime()) / 60000) : null
+    const raTillMaskin = minMellan(flodesStart, hamtadTid ?? nu)
+    const raFlytt = minMellan(hamtadTid, nu)
+    const tillMaskinOgiltig = raTillMaskin != null && (raTillMaskin < 0 || raTillMaskin > MAX_TID_TILL_MASKIN_MIN)
+    const flyttOgiltig = raFlytt != null && (raFlytt < 0 || raFlytt > MAX_TID_FLYTT_MIN)
+    const tidTillMaskinMin = tillMaskinOgiltig ? null : raTillMaskin
+    const tidFlyttMin = flyttOgiltig ? null : raFlytt
+    const tidHemMin = hem?.minutes ?? null // BERÄKNAD (ORS) — summeras aldrig med mätta ben
 
     const { data, error } = await supabase.from('maskin_flytt').update({
       till_lat: b.lat,
@@ -323,6 +409,12 @@ export default function MaskinflyttClient() {
       hem_km: hemKm,
       total_km: totalKm,
       fakturerbar,
+      tid_till_maskin_min: tidTillMaskinMin,
+      tid_flytt_min: tidFlyttMin,
+      tid_hem_min: tidHemMin,
+      vader_temp_c: vader.temp,
+      vader_kod: vader.kod,
+      vader_nederbord_mm: vader.nederbord,
       sluttid: nu,
     }).eq('id', flyttId).select('id')
 
@@ -340,8 +432,40 @@ export default function MaskinflyttClient() {
 
     setSparar(false)
     setPagaende(prev => prev.filter(f => f.id !== flyttId))
-    setResultat({ tillkorningKm, flyttKm, hemKm, totalKm, fakturerbar, positionSparad })
+    setResultat({
+      tillkorningKm, flyttKm, hemKm, totalKm, fakturerbar, positionSparad,
+      tidTillMaskinMin, tillMaskinOgiltig, tidFlyttMin, flyttOgiltig, tidHemMin,
+      vaderTemp: vader.temp, vaderKod: vader.kod,
+    })
     setSteg('klart')
+  }
+
+  // ── Hembas saknas → spara nuvarande plats på egen medarbetare-rad ──
+  async function sattHembas() {
+    if (!medarb || hembasSparar) return
+    setHembasSparar(true); setHembasFel(null)
+    try {
+      const p = await getGps()
+      const { data, error } = await supabase.from('medarbetare')
+        .update({ hem_lat: p.lat, hem_lng: p.lng })
+        .eq('id', medarb.id).select('id')
+      if (error || !data?.length) throw new Error(error?.message || 'inga rader sparades')
+      setMedarb({ ...medarb, hem_lat: p.lat, hem_lng: p.lng })
+      // Räkna hem-benet för flytten som just avslutats, nu när hembasen finns
+      if (flyttId && resultat && dest) {
+        const hem = await korRutt({ lat: dest.lat, lng: dest.lng }, { lat: p.lat, lng: p.lng }, true)
+        const totalKm = (resultat.tillkorningKm ?? 0) + resultat.flyttKm + hem.km
+        const { data: d2, error: e2 } = await supabase.from('maskin_flytt')
+          .update({ hem_km: hem.km, tid_hem_min: hem.minutes, total_km: totalKm })
+          .eq('id', flyttId).select('id')
+        if (!e2 && d2?.length) {
+          setResultat({ ...resultat, hemKm: hem.km, tidHemMin: hem.minutes, totalKm })
+        }
+      }
+    } catch (e: any) {
+      setHembasFel(`Kunde inte spara hembas: ${e?.message || String(e)}`)
+    }
+    setHembasSparar(false)
   }
 
   // ── Banner: fortsätt/avbryt pågående flytt ──
@@ -352,12 +476,14 @@ export default function MaskinflyttClient() {
     setFlyttId(f.id)
     setStartPos(f.start_lat != null && f.start_lng != null ? { lat: f.start_lat, lng: f.start_lng, accuracy: 0 } : null)
     setAPos({ lat: f.fran_lat, lng: f.fran_lng, accuracy: 0 })
+    setFlodesStart(f.starttid)
+    setHamtadTid(f.hamtad_tid)
     setSparFel(null)
     if (f.till_objekt_id && f.till_lat != null && f.till_lng != null) {
       setDest({ lat: f.till_lat, lng: f.till_lng, kalla: (f.koord_kalla as KoordKalla) || 'objekt' })
       // Objektnamnet hämtas för sammanfattningen
       supabase.from('objekt')
-        .select('id, namn, vo_nummer, dim_objekt_id, status, lat, lng, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_bekraftad')
+        .select('id, namn, vo_nummer, dim_objekt_id, status, lat, lng, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_bekraftad, barighet, transport_trailer_in, transport_kommentar')
         .eq('id', f.till_objekt_id).single()
         .then(({ data }) => { if (data) setValtObjekt(data) })
       setSteg('bekrafta')
@@ -382,10 +508,11 @@ export default function MaskinflyttClient() {
     setMaskin(null); setFlyttId(null); setStartPos(null); setAPos(null)
     setValtObjekt(null); setDest(null); setGpsPos(null); setGpsFel(null)
     setResultat(null); setSparFel(null); setSok('')
+    setFlodesStart(null); setHamtadTid(null); setHembasFel(null)
     setSteg('maskin')
     // Läs om pågående så bannern stämmer
     supabase.from('maskin_flytt')
-      .select('id, maskin_id, start_lat, start_lng, fran_lat, fran_lng, till_objekt_id, till_lat, till_lng, koord_kalla, starttid')
+      .select('id, maskin_id, start_lat, start_lng, fran_lat, fran_lng, till_objekt_id, till_lat, till_lng, koord_kalla, starttid, hamtad_tid')
       .is('sluttid', null).order('starttid', { ascending: false })
       .then(({ data }) => { if (data) setPagaende(data) })
   }
@@ -527,6 +654,16 @@ export default function MaskinflyttClient() {
                     <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Inga aktiva maskiner i registret.</div>
                   )}
                 </div>
+
+                {/* Sammanställningen — huvudvägen är startsidans ruta, detta är genvägen */}
+                <Link href="/maskinflytt/sammanstallning" style={{
+                  display: 'flex', alignItems: 'center', gap: 8, marginTop: 20,
+                  color: C.t3, fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: ff,
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 20 }}>list_alt</span>
+                  Flyttlogg och sammanställning
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, marginLeft: 'auto' }}>chevron_right</span>
+                </Link>
               </>
             )}
           </>
@@ -660,6 +797,44 @@ export default function MaskinflyttClient() {
                     }}>Justera på karta</button>
                   </div>
                 </div>
+
+                {/* Före avfärd: det föraren behöver veta om trakten — visas
+                    bara när datan finns, ingen tom ruta */}
+                {(valtObjekt.barighet || valtObjekt.transport_kommentar || valtObjekt.transport_trailer_in != null) && (
+                  <div style={{
+                    background: 'rgba(255,159,10,0.10)', border: '1px solid rgba(255,159,10,0.35)',
+                    borderRadius: 12, padding: '12px 14px', marginBottom: 16,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.orange }}>warning</span>
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>Före avfärd</span>
+                    </div>
+                    {valtObjekt.transport_kommentar && (
+                      <div style={{ fontSize: 14, marginBottom: 6 }}>{valtObjekt.transport_kommentar}</div>
+                    )}
+                    <div style={{ display: 'flex', gap: 14, fontSize: 13, color: C.t2, flexWrap: 'wrap' }}>
+                      {valtObjekt.barighet && <span>Bärighet: <b style={{ color: C.t1 }}>{valtObjekt.barighet}</b></span>}
+                      {valtObjekt.transport_trailer_in != null && (
+                        <span>Trailer ända in: <b style={{ color: valtObjekt.transport_trailer_in ? C.t1 : C.orange }}>
+                          {valtObjekt.transport_trailer_in ? 'Ja' : 'Nej'}</b></span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <a
+                  href={navUrl(dest.lat, dest.lng, valtObjekt.namn)}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    width: '100%', boxSizing: 'border-box', background: C.card, color: C.t1,
+                    border: `1px solid ${C.border}`, borderRadius: 16, padding: '16px 0',
+                    fontSize: 16, fontWeight: 700, fontFamily: ff, textDecoration: 'none', marginBottom: 10,
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 22, color: C.blue }}>near_me</span>
+                  Navigera dit
+                </a>
                 <button onClick={startaTransport} disabled={sparar} style={{
                   width: '100%', background: C.blue, color: '#fff', border: 'none', borderRadius: 16,
                   padding: '20px 0', fontSize: 18, fontWeight: 800, cursor: 'pointer', fontFamily: ff,
@@ -701,6 +876,17 @@ export default function MaskinflyttClient() {
                   borderRadius: 6, padding: '1px 6px',
                 }}>{KALLA_LABEL[dest.kalla]}</span>
               </div>
+              <a
+                href={navUrl(dest.lat, dest.lng, valtObjekt?.namn || 'Destination')}
+                target="_blank" rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12,
+                  color: C.blue, fontSize: 13, fontWeight: 600, textDecoration: 'none', fontFamily: ff,
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>near_me</span>
+                Navigera dit
+              </a>
             </div>
 
             <button onClick={lamnadHar} disabled={sparar} style={{
@@ -728,10 +914,25 @@ export default function MaskinflyttClient() {
               {[
                 ['Maskin', maskinNamn(maskin)],
                 ['Till objekt', valtObjekt?.namn || '—'],
-                ['Tillkörning (till hämtplats)', resultat.tillkorningKm != null ? `${resultat.tillkorningKm} km` : '—'],
-                ['Flyttsträcka (A → B)', `${resultat.flyttKm} km`],
-                ['Hemresa', resultat.hemKm != null ? `${resultat.hemKm} km` : 'hembas saknas'],
+                ['Tillkörning (till hämtplats)',
+                  `${resultat.tillkorningKm != null ? `${resultat.tillkorningKm} km` : '—'}${
+                    resultat.tillMaskinOgiltig ? ' · tid ej sparad (över 3 tim)' :
+                    resultat.tidTillMaskinMin != null ? ` · ${fmtMin(resultat.tidTillMaskinMin)}` : ''}`],
+                ['Flyttsträcka (A → B)',
+                  `${resultat.flyttKm} km${
+                    resultat.flyttOgiltig ? ' · tid ej sparad (över 6 tim)' :
+                    resultat.tidFlyttMin != null ? ` · ${fmtMin(resultat.tidFlyttMin)}` : ''}`],
+                ['Hemresa (beräknad)', resultat.hemKm != null
+                  ? `${resultat.hemKm} km${resultat.tidHemMin != null ? ` · ~${fmtMin(resultat.tidHemMin)}` : ''}`
+                  : 'hembas saknas'],
                 ['Total körsträcka', `${resultat.totalKm} km`],
+                ['Total tid (mätt)', fmtMin(
+                  resultat.tidTillMaskinMin != null || resultat.tidFlyttMin != null
+                    ? (resultat.tidTillMaskinMin ?? 0) + (resultat.tidFlyttMin ?? 0)
+                    : null)],
+                ...(resultat.vaderTemp != null
+                  ? [['Väder vid lämning', `${vaderIkon(resultat.vaderKod)} ${Math.round(resultat.vaderTemp)}°C`]]
+                  : []),
               ].map(([label, varde]) => (
                 <div key={label as string} style={{
                   display: 'flex', justifyContent: 'space-between', gap: 12, padding: '7px 0',
@@ -752,6 +953,24 @@ export default function MaskinflyttClient() {
                 </span>
               </div>
             </div>
+
+            {resultat.hemKm == null && (
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 16, fontSize: 13 }}>
+                {medarb ? (
+                  <>
+                    Hemresan kan inte räknas utan hembas.
+                    <button onClick={sattHembas} disabled={hembasSparar} style={{
+                      display: 'block', marginTop: 8, background: 'transparent', color: C.blue, border: 'none',
+                      fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff, padding: 0,
+                      opacity: hembasSparar ? 0.5 : 1,
+                    }}>{hembasSparar ? 'Sparar …' : 'Sätt hembas till min nuvarande plats'}</button>
+                    {hembasFel && <div style={{ color: C.red, marginTop: 6 }}>{hembasFel}</div>}
+                  </>
+                ) : (
+                  <>Hemresan kan inte räknas — inloggningen saknar medarbetarkoppling.</>
+                )}
+              </div>
+            )}
 
             {!resultat.positionSparad && (
               <div style={{ background: 'rgba(255,159,10,0.12)', border: '1px solid rgba(255,159,10,0.4)', borderRadius: 12, padding: 12, marginBottom: 16, fontSize: 13 }}>

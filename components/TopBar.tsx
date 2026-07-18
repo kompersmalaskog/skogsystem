@@ -23,6 +23,7 @@ const pageNames: Record<string, string> = {
   '/utbildning': 'Utbildning',
   '/fordonsoversikt': 'Fordonsöversikt',
   '/maskinflytt': 'Maskinflytt',
+  '/maskinflytt/sammanstallning': 'Flyttlogg',
   '/avtal': 'Avtal & Abonnemang',
   '/personal': 'Personal',
 }
