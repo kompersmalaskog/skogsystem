@@ -9537,8 +9537,8 @@ export default function PlannerPage() {
             position: 'fixed',
             bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
             right: '16px',
-            width: '56px',
-            height: '56px',
+            width: '44px',
+            height: '44px',
             borderRadius: '50%',
             background: 'rgba(20,20,22,0.72)',
             backdropFilter: 'blur(20px)',
@@ -11037,8 +11037,8 @@ export default function PlannerPage() {
           </span>
         );
         return (
-          <div style={{ position: 'fixed', left: '12px', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', zIndex: 90, pointerEvents: 'auto' }}>
-            <div style={{ background: 'rgba(20,20,22,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', overflow: 'hidden' }}>
+          <div style={{ position: 'fixed', right: '16px', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 120px)', zIndex: 90, pointerEvents: 'auto' }}>
+            <div style={{ background: 'rgba(20,20,22,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '11px', overflow: 'hidden' }}>
               {/* Utfälld detalj — ovanför (räknaren fälls uppåt) */}
               {miljoRaknareExpanderad && (
                 <div style={{ padding: '12px 14px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)', minWidth: '244px' }}>
@@ -11132,10 +11132,10 @@ export default function PlannerPage() {
           className="press-scale"
           style={{
             position: 'fixed',
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 72px)',
             right: '16px',
-            width: '48px',
-            height: '48px',
+            width: '40px',
+            height: '40px',
             borderRadius: '50%',
             background: 'rgba(20,20,22,0.72)',
             backdropFilter: 'blur(20px)',
