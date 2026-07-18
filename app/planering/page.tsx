@@ -11037,7 +11037,7 @@ export default function PlannerPage() {
           </span>
         );
         return (
-          <div style={{ position: 'fixed', left: '12px', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', zIndex: 90, pointerEvents: 'auto' }}>
+          <div style={{ position: 'fixed', left: '12px', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)', zIndex: 90, pointerEvents: 'auto' }}>
             <div style={{ background: 'rgba(20,20,22,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '11px', overflow: 'hidden' }}>
               {/* Utfälld detalj — ovanför (räknaren fälls uppåt) */}
               {miljoRaknareExpanderad && (
