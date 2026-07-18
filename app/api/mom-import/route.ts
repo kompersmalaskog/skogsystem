@@ -402,6 +402,52 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 7c. Köa dagsslut-notiser ("Din arbetsdag — Stämmer?"). Kön har haft en
+    // konsument (flush-cronen var 5:e minut) men ALDRIG en producent — detta
+    // är den. Dedupen är bärande: MOM-filerna är kumulativa så synken kör
+    // många gånger per dag för samma datum — unikt index (typ, mottagare,
+    // datum) + ignoreDuplicates (= ON CONFLICT DO NOTHING) ger EN notis per
+    // dag, aldrig spam. skickas_at = tidigast 17:00 svensk tid — en lunch-
+    // utloggning ska inte notifiera halva dagen; meddelandet byggs FÄRSKT
+    // vid flush (då har ev. eftermiddagsfiler hunnit in). Fail-soft: saknas
+    // kolumn/index (migration ej körd) loggas det bara — synken stannar inte.
+    if (inserted && inserted.length > 0) {
+      const kl17 = (datum: string): string => {
+        // 17:00 Europe/Stockholm för datumet, OBEROENDE av serverns tidszon.
+        // OBS: toLocaleString+new Date-tricket duger inte — strängen parsas i
+        // serverns lokala tz och gav fel offset på icke-UTC-servrar. Intl:s
+        // longOffset ger tidszonens faktiska offset (sommar-/vintertid).
+        const ref = new Date(`${datum}T12:00:00Z`);
+        const offsetStr = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', timeZoneName: 'longOffset' })
+          .formatToParts(ref).find(p => p.type === 'timeZoneName')?.value || 'GMT+02:00';
+        const m = offsetStr.match(/([+-])(\d{2}):(\d{2})/);
+        const offMin = m ? (m[1] === '-' ? -1 : 1) * (parseInt(m[2]) * 60 + parseInt(m[3])) : 120;
+        const d = new Date(`${datum}T17:00:00Z`);
+        d.setMinutes(d.getMinutes() - offMin);
+        return d.toISOString();
+      };
+      const notisRader = inserted
+        .filter((ad: any) => ad.slut_tid)
+        .map((ad: any) => ({
+          typ: 'dagsslut',
+          mottagare_id: ad.medarbetare_id,
+          datum: ad.datum,
+          skickas_at: new Date(Math.max(Date.now(), new Date(kl17(ad.datum)).getTime())).toISOString(),
+          payload: {},
+        }));
+      // Insert EN rad i taget med 23505 (unik-krock) tolererad som dedup-träff.
+      // OBS: upsert med onConflict fungerar INTE här — indexet är PARTIELLT
+      // (WHERE datum IS NOT NULL) och PostgREST:s ON CONFLICT-spec kan inte
+      // matcha det ("no unique or exclusion constraint..."). En batch-insert
+      // duger inte heller: en dup i batchen hade fällt ALLA rader.
+      for (const notis of notisRader) {
+        const { error: notisErr } = await supabase.from('notis_kö').insert(notis);
+        if (notisErr && notisErr.code !== '23505') {
+          console.warn('notis_kö kunde inte fyllas (migration ej körd?):', notisErr.message);
+        }
+      }
+    }
+
     // 8. Fallback: skapa arbetsdag från fakt_tid för datum som saknar rad
     //    (täcker fall där fakt_skift saknas men fakt_tid finns)
     const { data: tidData } = await supabase
