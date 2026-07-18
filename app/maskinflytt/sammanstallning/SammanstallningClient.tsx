@@ -145,12 +145,17 @@ export default function SammanstallningClient() {
 
   // Summering: BARA slutförda flyttar — avbrutna och pågående räknas aldrig in
   const slutforda = useMemo(() => filtrerade.filter(f => !f.avbruten && f.sluttid != null), [filtrerade])
-  const summa = useMemo(() => ({
-    antal: slutforda.length,
-    km: slutforda.reduce((s, f) => s + (f.total_km ?? 0), 0),
-    tidMatt: slutforda.reduce((s, f) => s + (mattTid(f) ?? 0), 0),
-    fakturerbara: slutforda.filter(f => f.fakturerbar).length,
-  }), [slutforda])
+  const summa = useMemo(() => {
+    // Tid (mätt): null — inte 0 — när ingen rad har något mätt ben alls;
+    // "0 min" ska aldrig kunna betyda "omätt"
+    const medTid = slutforda.filter(f => mattTid(f) != null)
+    return {
+      antal: slutforda.length,
+      km: slutforda.reduce((s, f) => s + (f.total_km ?? 0), 0),
+      tidMatt: medTid.length ? medTid.reduce((s, f) => s + mattTid(f)!, 0) : null,
+      fakturerbara: slutforda.filter(f => f.fakturerbar).length,
+    }
+  }, [slutforda])
 
   function exportCsv() {
     const rubrik = ['Datum', 'Maskin', 'Förare', 'Till objekt', 'Flytt km', 'Flyttid min (mätt)', 'Total km', 'Total tid min (mätt)', 'Hemresa min (beräknad)', 'Fakturerbar', 'Status']
