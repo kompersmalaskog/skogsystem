@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+// SERVICE-ROLLEN, inte anon: routen är server-side och läser/skriver RLS-låsta
+// tabeller (operator_medarbetare, fakt_skift, arbetsdag). Med anon-nyckeln såg
+// den 0 rader (tyst RLS-tomhet) och svarade 500 på VARJE anrop — synken var
+// död i prod sedan RLS-migrationen 20260524.
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 /**
@@ -15,10 +19,27 @@ const supabase = createClient(
  *
  * Body (optional): { datum?: string }
  */
+// Nedre datumgräns för synken. fakt_skift-rader FÖRE 2026-07-14 bär den
+// fil-lokala OperatorKey-felattributionen som #145 fixade FRAMÅT (fixen
+// deployades till live-importern 14 juli 2026). De historiska dagarna
+// (10–12 jun A110148, 7–12 jul A030353 — 91,7h) är redan manuellt rättade
+// i arbetsdag; en synk bakåt skulle återskapa dem FELATTRIBUERADE på fel
+// förare. Rådatan rättas inte (vi ändrar inte vad maskinen rapporterade).
+// Vill man synka före gränsen måste fakt_skift-attributionen rättas FÖRST —
+// flytta då gränsen medvetet via env MOM_SYNK_FRAN (YYYY-MM-DD).
+const SYNK_FRAN = process.env.MOM_SYNK_FRAN || '2026-07-14';
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const filterDatum: string | undefined = body.datum;
+
+    if (filterDatum && filterDatum < SYNK_FRAN) {
+      return NextResponse.json({
+        created: 0,
+        message: `Datum ${filterDatum} ligger före synk-gränsen ${SYNK_FRAN} — gamla fakt_skift-rader har pre-#145-felattribution och historiska arbetsdagar är redan manuellt rättade. Rätta fakt_skift först om synk bakåt verkligen behövs (se MOM_SYNK_FRAN).`,
+      }, { status: 400 });
+    }
 
     // 1. Hämta operator → medarbetare mappning
     const { data: mappningar, error: mapErr } = await supabase
@@ -48,7 +69,9 @@ export async function POST(req: NextRequest) {
     } else {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      query = query.gte('datum', thirtyDaysAgo.toISOString().split('T')[0]);
+      const fran = thirtyDaysAgo.toISOString().split('T')[0];
+      // 30-dagarsfönstret klipps mot synk-gränsen — aldrig bakåt förbi den
+      query = query.gte('datum', fran > SYNK_FRAN ? fran : SYNK_FRAN);
     }
 
     const { data: skift, error: skiftErr } = await query;
@@ -63,21 +86,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ created: 0, message: 'Inga skift att bearbeta' });
     }
 
-    // 3. Hämta manuellt redigerade rader (dessa ska inte röras)
+    // 3. Hämta skyddade rader: manuellt REDIGERADE och BEKRÄFTADE.
+    // En bekräftelse är förarens underskrift — synken skriver ALDRIG över den
+    // (samma skydd som redigerad). Avviker MOM-datan från det som bekräftades
+    // registreras avvikelsen i stället (synk_avvikelse) — appen ändrar inte
+    // tyst, den berättar.
     const datumSet = [...new Set(skift.map(s => s.datum))];
     const medarbetareIds = [...new Set(
       skift.map(s => opMap[s.operator_id]).filter(Boolean)
     )];
 
-    const { data: redigerade } = await supabase
+    const { data: skyddadeRader } = await supabase
       .from('arbetsdag')
-      .select('medarbetare_id, datum')
+      .select('id, medarbetare_id, datum, start_tid, slut_tid, rast_min, redigerad, bekraftad')
       .in('datum', datumSet)
       .in('medarbetare_id', medarbetareIds)
-      .eq('redigerad', true);
+      .or('redigerad.eq.true,bekraftad.eq.true');
 
     const skyddade = new Set(
-      (redigerade || []).map(r => `${r.medarbetare_id}_${r.datum}`)
+      (skyddadeRader || []).map(r => `${r.medarbetare_id}_${r.datum}`)
     );
 
     // 4. Hämta rast_sek och objekt_id från fakt_tid per operator+datum
@@ -137,7 +164,9 @@ export async function POST(req: NextRequest) {
       if (!medId) continue;
 
       const key = `${medId}_${s.datum}`;
-      if (skyddade.has(key)) continue;
+      // OBS: skyddade byggs MED i dagMap (behövs för 5b-heuristiken och för
+      // avvikelse-jämförelsen mot bekräftade dagar) — de filtreras bort
+      // först vid insert-listan i steg 5d.
 
       if (!dagMap[key]) {
         dagMap[key] = {
@@ -221,7 +250,48 @@ export async function POST(req: NextRequest) {
       return m ? `${m[1]}:${m[2]}` : '00:00';
     };
 
-    const rows = Object.values(dagMap).map(agg => {
+    // 5d. Avvikelse-registrering för BEKRÄFTADE dagar: synken rör dem inte,
+    // men om MOM-datan skiljer sig från det föraren skrev under på (> 1 min
+    // på start/slut/rast) sparas avvikelsen i arbetsdag.synk_avvikelse så
+    // UI:t senare kan fråga "din maskindata har ändrats — vill du uppdatera?".
+    // Matchar MOM igen nollas fältet. Fail-soft: saknas kolumnen (migration
+    // ej körd) loggas det bara — synken får inte stanna på metadatat.
+    const tidMin = (t: string | null) => {
+      const m = (t || '').match(/(\d{2}):(\d{2})/);
+      return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : null;
+    };
+    for (const skyddad of (skyddadeRader || [])) {
+      if (!skyddad.bekraftad || skyddad.redigerad) continue; // bara bekräftade, oredigerade
+      const key = `${skyddad.medarbetare_id}_${skyddad.datum}`;
+      const agg = dagMap[key];
+      if (!agg) continue; // ingen MOM-data för dagen — inget att jämföra
+      const momStart = hhmm(agg.earliestStart);
+      const momSlut = hhmm(agg.latestEnd);
+      const momRast = Math.round((rastMap[key] || 0) / 60);
+      const dStart = Math.abs((tidMin(momStart) ?? 0) - (tidMin(skyddad.start_tid) ?? 0));
+      const dSlut = Math.abs((tidMin(momSlut) ?? 0) - (tidMin(skyddad.slut_tid) ?? 0));
+      const dRast = Math.abs(momRast - (skyddad.rast_min || 0));
+      const avviker = dStart > 1 || dSlut > 1 || dRast > 1;
+      const { error: avvErr } = await supabase
+        .from('arbetsdag')
+        .update({
+          synk_avvikelse: avviker
+            ? {
+                mom_start: momStart, mom_slut: momSlut, mom_rast_min: momRast,
+                bekraftad_start: (skyddad.start_tid || '').slice(0, 5),
+                bekraftad_slut: (skyddad.slut_tid || '').slice(0, 5),
+                bekraftad_rast_min: skyddad.rast_min || 0,
+                upptackt: new Date().toISOString(),
+              }
+            : null,
+        })
+        .eq('id', skyddad.id);
+      if (avvErr) console.warn('synk_avvikelse kunde inte skrivas (migration ej körd?):', avvErr.message);
+    }
+
+    const rows = Object.values(dagMap)
+      .filter(agg => !skyddade.has(`${agg.medarbetare_id}_${agg.datum}`))
+      .map(agg => {
       const rastKey = `${agg.medarbetare_id}_${agg.datum}`;
       const rastSek = rastMap[rastKey] || 0;
       const rastMin = Math.round(rastSek / 60);
@@ -242,16 +312,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ created: 0, message: 'Inga dagar att uppdatera' });
     }
 
-    // 6. Radera befintliga icke-redigerade rader för dessa datum
+    // 6. Radera befintliga rader för dessa datum — men ALDRIG redigerade
+    // eller bekräftade (dubbelt skydd: skyddade är redan bortfiltrerade ur
+    // rows, filtren här är bältet OCH hängslena). Delete-fel kontrolleras —
+    // en tyst misslyckad delete ger insert-krock som följdfel (#162-klassen).
     for (const datum of datumSet) {
       const medIds = rows.filter(r => r.datum === datum).map(r => r.medarbetare_id);
       if (medIds.length) {
-        await supabase
+        const { error: delErr } = await supabase
           .from('arbetsdag')
           .delete()
           .eq('datum', datum)
           .in('medarbetare_id', medIds)
-          .or('redigerad.is.null,redigerad.eq.false');
+          .or('redigerad.is.null,redigerad.eq.false')
+          .or('bekraftad.is.null,bekraftad.eq.false');
+        if (delErr) {
+          return NextResponse.json(
+            { error: `Kunde inte radera gamla rader för ${datum}`, details: delErr.message },
+            { status: 500 }
+          );
+        }
       }
     }
 
@@ -368,15 +448,18 @@ export async function POST(req: NextRequest) {
       const fallbackRows = Object.entries(tidAgg)
         .filter(([key]) => !finnsRedanSet.has(key) && !skyddade.has(key))
         .map(([, agg]) => {
-          const arbetadMin = Math.round(agg.g15sek / 60);
           const rastMin = Math.round(agg.rastSek / 60);
+          // OBS: arbetad_min är en GENERATED column (slut−start−rast) och får
+          // inte sättas i insert — den gamla koden gjorde det, vilket fick
+          // VARJE fallback-insert att faila (tyst, loggades bara). Utan
+          // start/slut-tider blir arbetad_min null — ärligt: vi vet G15-tid
+          // ur fakt_tid men inte klockslagen.
           return {
             medarbetare_id: agg.medarbetare_id,
             datum: agg.datum,
             dagtyp: 'normal',
             maskin_id: agg.maskin_id,
             objekt_id: agg.objekt_id,
-            arbetad_min: arbetadMin,
             rast_min: rastMin,
             bekraftad: false,
           };
