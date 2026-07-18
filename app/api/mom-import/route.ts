@@ -19,10 +19,27 @@ const supabase = createClient(
  *
  * Body (optional): { datum?: string }
  */
+// Nedre datumgräns för synken. fakt_skift-rader FÖRE 2026-07-14 bär den
+// fil-lokala OperatorKey-felattributionen som #145 fixade FRAMÅT (fixen
+// deployades till live-importern 14 juli 2026). De historiska dagarna
+// (10–12 jun A110148, 7–12 jul A030353 — 91,7h) är redan manuellt rättade
+// i arbetsdag; en synk bakåt skulle återskapa dem FELATTRIBUERADE på fel
+// förare. Rådatan rättas inte (vi ändrar inte vad maskinen rapporterade).
+// Vill man synka före gränsen måste fakt_skift-attributionen rättas FÖRST —
+// flytta då gränsen medvetet via env MOM_SYNK_FRAN (YYYY-MM-DD).
+const SYNK_FRAN = process.env.MOM_SYNK_FRAN || '2026-07-14';
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const filterDatum: string | undefined = body.datum;
+
+    if (filterDatum && filterDatum < SYNK_FRAN) {
+      return NextResponse.json({
+        created: 0,
+        message: `Datum ${filterDatum} ligger före synk-gränsen ${SYNK_FRAN} — gamla fakt_skift-rader har pre-#145-felattribution och historiska arbetsdagar är redan manuellt rättade. Rätta fakt_skift först om synk bakåt verkligen behövs (se MOM_SYNK_FRAN).`,
+      }, { status: 400 });
+    }
 
     // 1. Hämta operator → medarbetare mappning
     const { data: mappningar, error: mapErr } = await supabase
@@ -52,7 +69,9 @@ export async function POST(req: NextRequest) {
     } else {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      query = query.gte('datum', thirtyDaysAgo.toISOString().split('T')[0]);
+      const fran = thirtyDaysAgo.toISOString().split('T')[0];
+      // 30-dagarsfönstret klipps mot synk-gränsen — aldrig bakåt förbi den
+      query = query.gte('datum', fran > SYNK_FRAN ? fran : SYNK_FRAN);
     }
 
     const { data: skift, error: skiftErr } = await query;
