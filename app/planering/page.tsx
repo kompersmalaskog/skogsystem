@@ -17872,6 +17872,13 @@ export default function PlannerPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {analysis.hits.map((hit, i) => {
                       const cfg = typeConfig[hit.type] || { icon: '❓', color: '#888', label: hit.type };
+                      // Länktexten följer det FAKTISKA målet: djuplänk → "Föreskrifter"/"Visa området",
+                      // topp-nivå (t.ex. Natura 2000 utan id) → "Sök i ..." så föraren vet att den får leta själv.
+                      const linkTarget = hit.url || cfg.link || '';
+                      const linkToppniva = linkTarget === '' || linkTarget === 'https://skyddadnatur.naturvardsverket.se/' || linkTarget === 'https://www.skogsstyrelsen.se/skogensparlor';
+                      const linkText = linkToppniva
+                        ? (linkTarget.includes('skogsstyrelsen') ? 'Sök hos Skogsstyrelsen' : 'Sök i Skyddad natur')
+                        : ((hit.type === 'vattenskydd' || hit.type === 'naturreservat') ? 'Föreskrifter' : 'Visa området');
                       return (
                         <div key={i} style={{
                           background: '#0a0a0a',
@@ -17916,7 +17923,7 @@ export default function PlannerPage() {
                                   textDecoration: 'none',
                                   whiteSpace: 'nowrap',
                                 }}>
-                                Info ↗
+                                {linkText} ↗
                               </a>
                             )}
                           </div>

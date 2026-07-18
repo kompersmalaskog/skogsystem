@@ -228,7 +228,7 @@ async function checkVattenskydd(bbox: ReturnType<typeof computeBbox>, tractPoly:
         name: p.namn || 'Vattenskyddsområde',
         details: detailParts.join(' | '),
         warning: 'Särskilda restriktioner gäller för bränslehantering. Invallning krävs vid tankning. Kontrollera föreskrifterna hos Länsstyrelsen.',
-        url: 'https://skyddadnatur.naturvardsverket.se/',
+        url: p.nvrid ? `https://skyddadnatur.naturvardsverket.se/?nvrid=${p.nvrid}` : 'https://skyddadnatur.naturvardsverket.se/',
         id: p.nvrid || '',
       };
     });
@@ -249,7 +249,7 @@ async function checkNaturreservat(bbox: ReturnType<typeof computeBbox>, tractPol
       type: 'naturreservat',
       name: f.properties?.namn || 'Naturreservat',
       details: `${f.properties?.skyddstyp || 'Naturreservat'}, ${f.properties?.area_ha ? Math.round(f.properties.area_ha) + ' ha' : ''}`,
-      url: 'https://skyddadnatur.naturvardsverket.se/',
+      url: f.properties?.nvrid ? `https://skyddadnatur.naturvardsverket.se/?nvrid=${f.properties.nvrid}` : 'https://skyddadnatur.naturvardsverket.se/',
       id: f.properties?.nvrid || '',
     })));
 }
