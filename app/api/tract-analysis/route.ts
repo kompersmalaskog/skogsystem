@@ -272,22 +272,95 @@ async function checkNatura2000(bbox: ReturnType<typeof computeBbox>, tractPoly: 
     })));
 }
 
-// Riksantikvarieämbetet: Fornlämningar
+// === Riksantikvarieämbetet: Fornlämningar via WMS GetFeatureInfo ===
+// RAÄ:s WFS är avstängt ("Service WFS is disabled" → XML → gamla koden kraschade på
+// response.json()). WMS-tjänsten lever och GetFeatureInfo kan svara application/json.
+// KRITISKT: RAÄ:s lämningslager är SKALBEROENDE (renderas bara vid scaleDenominator
+// <= 300000; ingen min-gräns). Vid fel skala returneras 0 features UTAN att lagret
+// egentligen frågades — det får ALDRIG tolkas som "inga fornlämningar". Vi väljer
+// därför pixelstorlek så skalan alltid hålls långt under gränsen, och en skala-vakt
+// kastar ett tydligt fel om den ändå inte kan garanteras synlig. 0 får bara betyda 0.
+const RAA_LAMNING_MAX_SCALE = 300000;
+
+async function queryRaaLamningWms(
+  layer: string,
+  bbox: ReturnType<typeof computeBbox>,
+): Promise<any[]> {
+  const midLat = (bbox.minLat + bbox.maxLat) / 2;
+  const widthM = Math.abs(bbox.maxLon - bbox.minLon) * 111320 * Math.cos(midLat * Math.PI / 180);
+  const heightM = Math.abs(bbox.maxLat - bbox.minLat) * 111320;
+  const spanM = Math.max(widthM, heightM, 1);
+
+  // Välj pixelstorlek så scaleDenom ~ 50000 (mål), golv 256, tak 512 (BUFFER-säkert
+  // mot RAÄ:s GeoServer). scaleDenom = markmeter / (px * 0.00028).
+  const MAL_SCALE = 50000;
+  const px = Math.min(Math.max(Math.ceil(spanM / (MAL_SCALE * 0.00028)), 256), 512);
+  const scaleDenom = spanM / (px * 0.00028);
+
+  // SKALA-VAKT: kan lagret inte garanteras synligt → kasta. Aldrig ett falskt 0.
+  if (scaleDenom > RAA_LAMNING_MAX_SCALE) {
+    throw new Error('Trakten är för stor för att verifiera fornlämningar i ett anrop — kontrollera manuellt i Fornsök');
+  }
+
+  const buffer = Math.floor(px / 2);
+  const center = Math.floor(px / 2);
+  // WMS 1.3.0 + EPSG:4326 → axelordning lat,lon
+  const wmsUrl = 'https://pub.raa.se/visning/lamningar_v1/wms' +
+    '?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo' +
+    `&LAYERS=${layer}&QUERY_LAYERS=${layer}` +
+    '&CRS=EPSG:4326' +
+    `&BBOX=${bbox.minLat},${bbox.minLon},${bbox.maxLat},${bbox.maxLon}` +
+    `&WIDTH=${px}&HEIGHT=${px}&I=${center}&J=${center}&BUFFER=${buffer}` +
+    '&INFO_FORMAT=application/json&FEATURE_COUNT=100';
+
+  const resp = await fetch(wmsUrl, {
+    headers: { 'User-Agent': UA },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!resp.ok) {
+    throw new Error(`RAÄ WMS ${resp.status}: ${layer}`);
+  }
+  const text = await resp.text();
+  // Ärlig kontroll: XML = fel. Tolka aldrig ett fel-svar som "inga hittade".
+  if (text.trimStart().startsWith('<')) {
+    throw new Error('Kunde inte kontrollera fornlämningar — RAÄ svarade med fel (ej JSON)');
+  }
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error('Kunde inte kontrollera fornlämningar — svaret gick inte att tolka');
+  }
+  return data.features || [];
+}
+
+// Riksantikvarieämbetet: Fornlämningar + möjliga fornlämningar.
+// En MÖJLIG fornlämning behandlas juridiskt som fornlämning tills antikvarisk bedömning
+// gjorts — därför räknas båda lagren. Misslyckas endera → hela kollen kastar (frontend
+// visar "kunde inte kontrollera"), aldrig ett halvt/falskt rent besked.
 async function checkFornlamningar(bbox: ReturnType<typeof computeBbox>, tractPoly: ReturnType<typeof buildTractPolygon>): Promise<AnalysisHit[]> {
-  const features = await queryWFS(
-    'https://pub.raa.se/visning/lamningar_v1/wfs',
-    'fornlamning',
-    bbox,
-  );
-  return deduplicateHits(features
-    .filter(f => featureIntersectsPolygon(f.geometry, tractPoly))
-    .map(f => ({
-      type: 'fornlamning',
-      name: `${f.properties?.lamningstyp || 'Fornlämning'} (${f.properties?.lamningsnummer || ''})`,
-      details: f.properties?.egenskap || '',
-      id: f.properties?.id || '',
-      url: f.properties?.url || '',
-    })));
+  const lager: { layer: string; mojlig: boolean }[] = [
+    { layer: 'fornlamning', mojlig: false },
+    { layer: 'mojligfornlamning', mojlig: true },
+  ];
+  const alla: AnalysisHit[] = [];
+  for (const { layer, mojlig } of lager) {
+    const features = await queryRaaLamningWms(layer, bbox);
+    for (const f of features) {
+      if (!featureIntersectsPolygon(f.geometry, tractPoly)) continue;
+      const typ = f.properties?.lamningstyp || 'Fornlämning';
+      const nr = f.properties?.raa_nummer || f.properties?.lamningsnummer || '';
+      alla.push({
+        type: 'fornlamning',
+        name: `${mojlig ? 'Möjlig fornlämning: ' : ''}${typ}${nr ? ` (${nr})` : ''}`,
+        details: f.properties?.egenskap || '',
+        warning: mojlig ? 'Möjlig fornlämning — behandlas juridiskt som fornlämning tills antikvarisk bedömning gjorts' : undefined,
+        id: String(f.properties?.id || ''),
+        url: f.properties?.url || '',
+      });
+    }
+  }
+  return deduplicateHits(alla);
 }
 
 // Skogsstyrelsen: Nyckelbiotoper
