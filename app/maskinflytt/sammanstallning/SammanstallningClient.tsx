@@ -27,6 +27,11 @@ interface FlyttRad {
   fran_lng: number
   fran_objekt_id: string | null
   till_objekt_id: string | null
+  fran_plats_id: string | null
+  till_plats_id: string | null
+  extern_maskin: string | null
+  flytt_typ: string | null
+  kund: string | null
   till_lat: number | null
   till_lng: number | null
   flytt_km: number | null
@@ -54,6 +59,10 @@ interface DagRad {
   total_km: number | null
   total_tid_min: number | null
   status: string
+}
+
+const TYP_ETIKETT: Record<string, string> = {
+  produktion: 'Produktion', service: 'Service', kunduppdrag: 'Kunduppdrag', annat: 'Annat',
 }
 
 function fmtMin(min: number | null): string {
@@ -133,6 +142,8 @@ export default function SammanstallningClient() {
   const [fel, setFel] = useState<string | null>(null)
   const [maskinNamn, setMaskinNamn] = useState<Map<string, string>>(new Map())
   const [objektNamn, setObjektNamn] = useState<Map<string, string>>(new Map())
+  const [platsNamn, setPlatsNamn] = useState<Map<string, string>>(new Map())
+  const [typFilter, setTypFilter] = useState('alla')
   const [maskinFilter, setMaskinFilter] = useState('alla')
   const [forareFilter, setForareFilter] = useState('alla')
 
@@ -144,7 +155,7 @@ export default function SammanstallningClient() {
       setFlyttar(null); setDagar(null); setFel(null)
       const [fRes, dRes] = await Promise.all([
         supabase.from('maskin_flytt')
-          .select('id, maskin_id, flyttdag_id, fran_lat, fran_lng, fran_objekt_id, till_objekt_id, till_lat, till_lng, flytt_km, mellankorning_km, total_km, fakturerbar, tid_till_maskin_min, tid_flytt_min, vader_temp_c, vader_kod, starttid, sluttid, avbruten, forare')
+          .select('id, maskin_id, extern_maskin, flytt_typ, kund, flyttdag_id, fran_lat, fran_lng, fran_objekt_id, till_objekt_id, fran_plats_id, till_plats_id, till_lat, till_lng, flytt_km, mellankorning_km, total_km, fakturerbar, tid_till_maskin_min, tid_flytt_min, vader_temp_c, vader_kod, starttid, sluttid, avbruten, forare')
           .gte('starttid', period.start.toISOString())
           .lt('starttid', period.slut.toISOString())
           .order('starttid', { ascending: false }),
@@ -172,6 +183,12 @@ export default function SammanstallningClient() {
         const { data: obj } = await supabase.from('objekt').select('id, namn').in('id', objektIds)
         if (!avbruten && obj) setObjektNamn(new Map(obj.map(o => [o.id, o.namn])))
       }
+      const platsIds = Array.from(new Set(
+        (fRes.data || []).flatMap(f => [f.till_plats_id, f.fran_plats_id]).filter(Boolean))) as string[]
+      if (platsIds.length) {
+        const { data: pl } = await supabase.from('flyttplats').select('id, namn').in('id', platsIds)
+        if (!avbruten && pl) setPlatsNamn(new Map(pl.map(x => [x.id, x.namn])))
+      }
     })()
     return () => { avbruten = true }
   }, [period.start.getTime(), period.slut.getTime()])
@@ -193,8 +210,9 @@ export default function SammanstallningClient() {
   // ── Flyttar-nivån ──
   const filtreradeFlyttar = useMemo(() => (flyttar || []).filter(f =>
     (maskinFilter === 'alla' || f.maskin_id === maskinFilter) &&
-    (forareFilter === 'alla' || f.forare === forareFilter)
-  ), [flyttar, maskinFilter, forareFilter])
+    (forareFilter === 'alla' || f.forare === forareFilter) &&
+    (typFilter === 'alla' || (f.flytt_typ || 'produktion') === typFilter)
+  ), [flyttar, maskinFilter, forareFilter, typFilter])
   const slutforda = useMemo(() => filtreradeFlyttar.filter(f => !f.avbruten && f.sluttid != null), [filtreradeFlyttar])
   const flyttSumma = useMemo(() => {
     const medTid = slutforda.filter(f => mattTid(f) != null)
@@ -204,6 +222,11 @@ export default function SammanstallningClient() {
       mellanKm: slutforda.reduce((s, f) => s + (f.mellankorning_km ?? 0), 0),
       tidMatt: medTid.length ? medTid.reduce((s, f) => s + mattTid(f)!, 0) : null,
       fakturerbara: slutforda.filter(f => f.fakturerbar).length,
+      perTyp: (['produktion', 'service', 'kunduppdrag', 'annat'] as const).map(t => ({
+        typ: t,
+        antal: slutforda.filter(f => (f.flytt_typ || 'produktion') === t).length,
+        km: slutforda.filter(f => (f.flytt_typ || 'produktion') === t).reduce((s, f) => s + (f.flytt_km ?? 0), 0),
+      })).filter(r => r.antal > 0),
     }
   }, [slutforda])
 
@@ -223,13 +246,15 @@ export default function SammanstallningClient() {
   }, [raknadeDagar, dagFlyttAntal])
 
   function exportFlyttCsv() {
-    const rubrik = ['Datum', 'Maskin', 'Förare', 'Från objekt', 'Till objekt', 'Mellankörning km', 'Flytt km', 'Flyttid min (mätt)', 'Fakturerbar']
+    const rubrik = ['Datum', 'Maskin', 'Typ', 'Kund', 'Förare', 'Från', 'Till', 'Mellankörning km', 'Flytt km', 'Flyttid min (mätt)', 'Fakturerbar']
     const rader = slutforda.map(f => [
       new Date(f.starttid).toLocaleDateString('sv-SE'),
-      maskinNamn.get(f.maskin_id) || f.maskin_id,
+      f.maskin_id ? (maskinNamn.get(f.maskin_id) || f.maskin_id) : ((f.extern_maskin || '') + ' (extern)'),
+      TYP_ETIKETT[f.flytt_typ || 'produktion'],
+      f.kund || '',
       f.forare || '',
-      f.fran_objekt_id ? (objektNamn.get(f.fran_objekt_id) || '') : '',
-      f.till_objekt_id ? (objektNamn.get(f.till_objekt_id) || '') : '',
+      f.fran_objekt_id ? (objektNamn.get(f.fran_objekt_id) || '') : f.fran_plats_id ? (platsNamn.get(f.fran_plats_id) || '') : '',
+      f.till_objekt_id ? (objektNamn.get(f.till_objekt_id) || '') : f.till_plats_id ? (platsNamn.get(f.till_plats_id) || '') : '',
       f.mellankorning_km ?? '',
       f.flytt_km ?? '',
       f.tid_flytt_min != null ? Math.round(f.tid_flytt_min) : '',
@@ -314,6 +339,12 @@ export default function SammanstallningClient() {
             <option value="alla">Alla förare</option>
             {forare.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
+          {flik === 'flyttar' && (
+            <select className="flytt-select" style={{ flex: 1 }} value={typFilter} onChange={e => setTypFilter(e.target.value)}>
+              <option value="alla">Alla typer</option>
+              {Object.entries(TYP_ETIKETT).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          )}
         </div>
 
         {fel && (
@@ -410,6 +441,13 @@ export default function SammanstallningClient() {
                   </div>
                 ))}
               </div>
+              {flyttSumma.perTyp.length > 0 && (
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 10, fontSize: 12, color: C.t3, justifyContent: 'center' }}>
+                  {flyttSumma.perTyp.map(r => (
+                    <span key={r.typ}>{TYP_ETIKETT[r.typ]}: <b style={{ color: C.t1 }}>{r.antal} st · {r.km} km</b></span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {filtreradeFlyttar.length === 0 && (
@@ -419,7 +457,8 @@ export default function SammanstallningClient() {
               {filtreradeFlyttar.map(f => {
                 const pagaende = !f.avbruten && f.sluttid == null
                 const dampat = f.avbruten || pagaende
-                const franNamn = f.fran_objekt_id ? objektNamn.get(f.fran_objekt_id) : null
+                const franNamn = f.fran_objekt_id ? objektNamn.get(f.fran_objekt_id)
+                  : f.fran_plats_id ? platsNamn.get(f.fran_plats_id) : null
                 return (
                   <div key={f.id} style={{
                     background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px',
@@ -427,7 +466,13 @@ export default function SammanstallningClient() {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 14, fontWeight: 700, flex: 1 }}>
-                        {maskinNamn.get(f.maskin_id) || f.maskin_id}
+                        {f.maskin_id ? (maskinNamn.get(f.maskin_id) || f.maskin_id) : (f.extern_maskin || '—')}
+                        {!f.maskin_id && <span style={{ color: C.t3, fontWeight: 400 }}> (extern)</span>}
+                        {(f.flytt_typ || 'produktion') !== 'produktion' && (
+                          <span style={{ color: f.flytt_typ === 'kunduppdrag' ? C.green : C.t3, fontWeight: 600 }}>
+                            {' · '}{TYP_ETIKETT[f.flytt_typ || 'produktion']}{f.kund ? ` · ${f.kund}` : ''}
+                          </span>
+                        )}
                         {f.avbruten && <span style={{ color: C.orange, fontWeight: 600 }}> · Avbruten</span>}
                         {pagaende && <span style={{ color: C.blue, fontWeight: 600 }}> · Pågår</span>}
                       </span>
@@ -446,7 +491,9 @@ export default function SammanstallningClient() {
                         </a>
                       )}
                       {' → '}
-                      <b style={{ color: C.t1 }}>{f.till_objekt_id ? (objektNamn.get(f.till_objekt_id) || '—') : (f.till_lat != null ? 'Vald plats' : '—')}</b>
+                      <b style={{ color: C.t1 }}>{f.till_objekt_id ? (objektNamn.get(f.till_objekt_id) || '—')
+                        : f.till_plats_id ? (platsNamn.get(f.till_plats_id) || '—')
+                        : (f.till_lat != null ? 'Vald plats' : '—')}</b>
                     </div>
                     {!f.avbruten && (
                       <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 12, color: C.t3, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -460,7 +507,7 @@ export default function SammanstallningClient() {
                           <span style={{
                             fontSize: 11, fontWeight: 800, color: C.green, background: 'rgba(34,197,94,0.15)',
                             borderRadius: 6, padding: '1px 7px',
-                          }}>Fakturerbar</span>
+                          }}>{f.flytt_typ === 'kunduppdrag' ? 'Fakturerbar · kunduppdrag' : 'Fakturerbar'}</span>
                         )}
                       </div>
                     )}
@@ -483,8 +530,16 @@ export default function SammanstallningClient() {
           </>
         )}
 
-        <Link href="/maskinflytt" style={{
+        <Link href="/maskinflytt/platser" style={{
           display: 'flex', alignItems: 'center', gap: 8, marginTop: 20,
+          color: C.t3, fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: ff,
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>add_location_alt</span>
+          Flyttplatser — hantera
+          <span className="material-symbols-outlined" style={{ fontSize: 18, marginLeft: 'auto' }}>chevron_right</span>
+        </Link>
+        <Link href="/maskinflytt" style={{
+          display: 'flex', alignItems: 'center', gap: 8, marginTop: 12,
           color: C.t3, fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: ff,
         }}>
           <span className="material-symbols-outlined" style={{ fontSize: 20 }}>delivery_truck_speed</span>
