@@ -1280,8 +1280,28 @@ function SubIdentitet({ obj, set, inkopare, setInkopare, listAtgarder }: any) {
 
 // UNDERSIDA: Skördare — egenskaper + avslut (synlighet styrs av faktisk data
 // i översikten, #167: rätt fält för rätt maskin)
-function SubSkordare({ obj, set }: any) {
+function SubSkordare({ obj, set, syskon, onRaderUppdaterade }: any) {
   const radMaskinTyp = (obj.maskin_typ || '').toLowerCase()
+  const [grotSpar, setGrotSpar] = useState({ sparar: false, fel: '' })
+
+  // grot_hamtad är ett GEMENSAMT objekt-faktum → skrivs till HELA VO-gruppen.
+  // Verifierad sparning enligt #222-mönstret: läs tillbaka VÄRDET (satt/null),
+  // inte bara radantalet — en markering som ser sparad ut men inte är det ska
+  // aldrig kunna passera.
+  const gruppIds = (syskon && syskon.length ? syskon : [obj]).map((o: any) => o.objekt_id)
+  const sattGrotHamtad = async (varde: string | null) => {
+    setGrotSpar({ sparar: true, fel: '' })
+    const { data, error } = await supabase
+      .from('dim_objekt').update({ grot_hamtad: varde }).in('objekt_id', gruppIds).select('objekt_id, grot_hamtad')
+    if (error) { setGrotSpar({ sparar: false, fel: 'Kunde inte spara: ' + error.message }); return }
+    if ((data || []).length !== gruppIds.length) { setGrotSpar({ sparar: false, fel: `Bara ${(data || []).length} av ${gruppIds.length} rader uppdaterades — inte komplett sparat` }); return }
+    const missad = (data as any[]).find(r => (r.grot_hamtad != null) !== (varde != null))
+    if (missad) { setGrotSpar({ sparar: false, fel: 'Markeringen landade inte — ladda om och försök igen' }); return }
+    set({ ...obj, grot_hamtad: varde })
+    if (onRaderUppdaterade) onRaderUppdaterade(gruppIds, { grot_hamtad: varde })
+    setGrotSpar({ sparar: false, fel: '' })
+  }
+
   return (
     <IosGroup title="🌲 Skördare">
       <div style={{ padding: '14px 16px' }}>
@@ -1290,6 +1310,33 @@ function SubSkordare({ obj, set }: any) {
             <EgenskapSwitch key={e.key} label={e.label} active={obj[e.key] === true} onClick={() => set({ ...obj, [e.key]: !obj[e.key] })} orange={false} />
           ))}
         </div>
+        {/* Grot hämtad — bara på grot-anpassade objekt. Frikopplar riset från
+            virket: så länge grot_hamtad är NULL räknas riset som kvar på hygget,
+            oavsett om virket är skotat. Ångerbar. */}
+        {obj.grot_anpassad === true && (
+          <div style={{ marginTop: 12 }}>
+            {!obj.grot_hamtad ? (
+              <button
+                onClick={() => sattGrotHamtad(new Date().toISOString().slice(0, 10))}
+                disabled={grotSpar.sparar}
+                className="tap-press"
+                style={{ width: '100%', minHeight: 48, borderRadius: 12, border: 'none', background: '#f0b24c', color: '#000', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', opacity: grotSpar.sparar ? 0.6 : 1 }}
+              >
+                {grotSpar.sparar ? 'Sparar …' : 'Markera grot hämtad'}
+              </button>
+            ) : (
+              <button
+                onClick={() => sattGrotHamtad(null)}
+                disabled={grotSpar.sparar}
+                className="tap-press"
+                style={{ width: '100%', minHeight: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', opacity: grotSpar.sparar ? 0.6 : 1 }}
+              >
+                {grotSpar.sparar ? 'Sparar …' : `Grot hämtad ${fmtKortDatum(obj.grot_hamtad)} · ångra`}
+              </button>
+            )}
+            {grotSpar.fel && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{grotSpar.fel}</div>}
+          </div>
+        )}
       </div>
       <div id="avslut-skordare-section" style={{ padding: '4px 16px 14px' }}>
         <div style={styles.switchList}>
@@ -1961,7 +2008,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
         {valtObjekt && subpage === 'identitet' && (
           <SubIdentitet obj={valtObjekt} set={setValtObjekt} inkopare={inkopare} setInkopare={setInkopare} listAtgarder={listAtgarder} />
         )}
-        {valtObjekt && subpage === 'skordare' && <SubSkordare obj={valtObjekt} set={setValtObjekt} />}
+        {valtObjekt && subpage === 'skordare' && <SubSkordare obj={valtObjekt} set={setValtObjekt} syskon={syskon} onRaderUppdaterade={raderUppdaterade} />}
         {valtObjekt && subpage === 'skotare' && (
           <SubSkotare obj={valtObjekt} set={setValtObjekt} info={info} skordatTotal={skordatTotal} syskon={syskon} onRaderUppdaterade={raderUppdaterade} />
         )}

@@ -58,13 +58,13 @@ function OskotatKorten({ data, faktor, setFaktor }: { data: UppfoljningObjekt[];
     .filter(x => x.kvar > 0);
   const virkeM3 = virke.reduce((a, b) => a + b.kvar, 0);
 
-  // Grot-objekt = grot-anpassat avverkningsobjekt ELLER separat risskotning.
-  // Uppskattning bara där avverkad volym finns (grot_anpassad-objekten);
-  // objekt utan stamvolym bidrar 0 och redovisas ärligt i listan nedan.
-  const grotObjekt = ejKlara.filter(o => o.grotAnpassad || o.grotSkotning);
-  const grotMedVolym = grotObjekt.filter(o => o.volymSkordare > 0);
-  const grotUtanVolym = grotObjekt.length - grotMedVolym.length;
-  const uppskattadGrot = grotMedVolym.reduce((a, o) => a + (uppskattaGrotM3fub(o.volymSkordare, faktor) || 0), 0);
+  // RIS FRIKOPPLAT FRÅN VIRKET: räknas på grot-anpassade avverkningsobjekt
+  // vars grot inte hämtats (grot_hamtad IS NULL) — OBEROENDE av virkets
+  // skotningsstatus. Riset ligger kvar på hygget tills det skotas; att virket
+  // är utkört säger ingenting om riset. (exkluderade objekt når aldrig listan.)
+  // Uppskattat ris = TOTAL avverkad stamvolym × faktor, aldrig på kvar.
+  const risObjekt = data.filter(o => o.grotAnpassad && o.volymSkordare > 0 && !o.grotHamtad);
+  const uppskattadGrot = risObjekt.reduce((a, o) => a + (uppskattaGrotM3fub(o.volymSkordare, faktor) || 0), 0);
 
   // Per skotare — BARA maskinnamn, aldrig förare
   const perSkotare = new Map<string, { m3: number; antal: number }>();
@@ -93,7 +93,7 @@ function OskotatKorten({ data, faktor, setFaktor }: { data: UppfoljningObjekt[];
         </div>
         <div style={{ background: V6_CARD, borderRadius: 12, padding: '13px 14px 12px' }}>
           <div style={kortEtikett}>Oskotat ris</div>
-          {grotMedVolym.length > 0 ? (
+          {risObjekt.length > 0 ? (
             <>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginTop: 7 }}>
                 <span style={{ fontSize: 15, color: V6_GREY, fontWeight: 600 }}>~</span>
@@ -103,12 +103,12 @@ function OskotatKorten({ data, faktor, setFaktor }: { data: UppfoljningObjekt[];
               <div style={{ display: 'inline-flex', marginTop: 5 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: V6_WARN, border: `1px solid rgba(255,159,10,0.4)`, borderRadius: 5, padding: '1px 5px' }}>uppskattat</span>
               </div>
-              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 6 }}>{grotMedVolym.length} objekt{grotUtanVolym > 0 ? ` · ${grotUtanVolym} utan avverkningsdata` : ''}</div>
+              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 6 }}>{risObjekt.length} objekt</div>
             </>
           ) : (
             <>
-              <div style={{ fontSize: 15, color: V6_GREY, fontWeight: 600, marginTop: 9, lineHeight: 1.2 }}>avverkningsdata saknas</div>
-              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 6 }}>{grotObjekt.length} objekt</div>
+              <div style={{ fontSize: 15, color: V6_GREY, fontWeight: 600, marginTop: 9, lineHeight: 1.2 }}>ingen kvar</div>
+              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 6 }}>grot hämtad på alla objekt</div>
             </>
           )}
         </div>
@@ -186,7 +186,7 @@ function OskotadeLista({ data, onSelect, faktor }: { data: UppfoljningObjekt[]; 
                   {o.namn}{o.grotSkotning && <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 500 }}> · ris</span>}
                 </div>
                 <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{liggetid}</div>
-                {o.grotAnpassad && (() => {
+                {o.grotAnpassad && !o.grotHamtad && (() => {
                   const g = uppskattaGrotM3fub(o.volymSkordare, faktor);
                   return (
                     <div style={{ fontSize: 12, color: V6_WARN, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
