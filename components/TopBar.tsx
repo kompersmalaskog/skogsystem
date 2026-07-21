@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { CURRENT_VERSION } from '@/lib/changelog'
 
 const pageNames: Record<string, string> = {
   '/': 'Kompersmåla Skog',
@@ -27,6 +28,7 @@ const pageNames: Record<string, string> = {
   '/maskinflytt/platser': 'Flyttplatser',
   '/avtal': 'Avtal & Abonnemang',
   '/personal': 'Personal',
+  '/om': 'Om appen',
 }
 
 export default function TopBar() {
@@ -102,19 +104,24 @@ export default function TopBar() {
         {pageName}
       </span>
 
-      {/* Diskret bygg-tagg — för att i fält kunna se VILKEN version som laddats (t.ex.
-          verifiera att "Ladda om" faktiskt gav en ny). Dold på / och /planering (ingen TopBar). */}
+      {/* Version-tagg nere t.h. — läsbar version (från changelog[0], samma källa som /om)
+          stort, git-SHA mindre under för felsökning/fälttest. Dold på / och /planering. */}
       <span aria-hidden="true" style={{
         position: 'absolute',
         right: 12,
-        bottom: 5,
-        fontSize: 9,
-        color: 'rgba(255,255,255,0.28)',
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        letterSpacing: 0.2,
+        bottom: 4,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        lineHeight: 1.1,
         pointerEvents: 'none',
       }}>
-        {(process.env.NEXT_PUBLIC_BUILD_SHA || 'dev').slice(0, 7)}
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.2 }}>
+          v{CURRENT_VERSION}
+        </span>
+        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.26)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: 0.2 }}>
+          {(process.env.NEXT_PUBLIC_BUILD_SHA || 'dev').slice(0, 7)}
+        </span>
       </span>
     </header>
   )
