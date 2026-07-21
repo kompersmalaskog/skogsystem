@@ -136,12 +136,9 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
 
   // 1. Senaste rad i fakt_lass — bestämmer vilket datum vi visar
   //    och ger senasteLossningsTid för färskhetsetiketten.
-  const { data: latestRows } = await supabase
-    .from('fakt_lass')
-    .select('datum, lossnings_tid')
-    .in('maskin_id', ids)
-    .order('lossnings_tid', { ascending: false })
-    .limit(1)
+  const { data: latestRows } = await supabase.rpc('maskindata_lass_senaste', {
+    p_maskin_ids: ids,
+  })
 
   if (!latestRows || latestRows.length === 0) return null
 
@@ -155,21 +152,11 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
     / 86400000,
   )
 
-  // 2. Hämta alla lass för senasteDatum (paginerat, samma mönster som fetchAll)
-  const PAGE = 1000
-  let allRows: any[] = [], off = 0
-  while (true) {
-    const { data } = await supabase
-      .from('fakt_lass')
-      .select('lossnings_tid, volym_m3sub, korstracka_m')
-      .in('maskin_id', ids)
-      .eq('datum', senasteDatum)
-      .range(off, off + PAGE - 1)
-    const batch = data || []
-    allRows = allRows.concat(batch)
-    if (batch.length < PAGE) break
-    off += PAGE
-  }
+  // 2. Hämta alla lass för senasteDatum via RPC (kringgår RLS)
+  const { data: lassData } = await supabase.rpc('maskindata_lass', {
+    p_maskin_ids: ids, p_datum_start: senasteDatum, p_datum_slut: senasteDatum,
+  })
+  const allRows: any[] = lassData || []
 
   // 3. Aggregera totaler och bygg timme-buckets
   let totalVolym = 0, totalDist = 0
@@ -194,11 +181,9 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
 
   // 4. G15h från fakt_tid + mom_tider — separata hämtningar, parallellt.
   const [tidResult, momTiderResult] = await Promise.allSettled([
-    supabase
-      .from('fakt_tid')
-      .select('processing_sek, terrain_sek')
-      .eq('maskin_id', maskinId)
-      .eq('datum', senasteDatum),
+    supabase.rpc('maskindata_tid', {
+      p_maskin_ids: ids, p_datum_start: senasteDatum, p_datum_slut: senasteDatum,
+    }),
     fetchMomTider(maskinId, senasteDatum),
   ])
 
