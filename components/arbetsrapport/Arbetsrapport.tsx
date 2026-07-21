@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
-import { extraMinPerDag } from "@/lib/arbetstid";
+import { extraMinPerDag, arbetadTidInklExtra } from "@/lib/arbetstid";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
@@ -5226,13 +5226,29 @@ export default function Arbetsrapport() {
     }
     const målH = arbetsdagar*8;
 
-    // Total jobbad tid denna månad
-    const jobbadMin = Object.values(dagData).reduce((a: number, d: any) => a + (d.arbMin || 0), 0);
+    // Total jobbad tid denna månad = maskintid + extra tid (#188 — samma
+    // definition som alla andra vyer, via lib/arbetstid). Hjälten, progress-
+    // stapeln och "av X tim" bygger alla på samma totalMin.
+    const månadsPrefix = `${kalÅr}-${String(kalMånad+1).padStart(2,'0')}`;
+    const månadsExtra = Object.entries(extraDagData)
+      .filter(([d]) => d.startsWith(månadsPrefix))
+      .flatMap(([datum, arr]) => (arr as any[]).map(e => ({ datum, minuter: e.minuter })));
+    const månadsDagRader = Object.entries(dagData)
+      .filter(([k]) => k.startsWith(månadsPrefix));
+    const { totalMin: jobbadMin, extraMin: månExtraMin } = arbetadTidInklExtra(
+      månadsDagRader.map(([, d]: any) => ({ arbetad_min: d.arbMin || 0 })),
+      månadsExtra,
+    );
     const jobbadH = Math.round(jobbadMin / 60 * 10) / 10;
+    // Dagar föraren faktiskt jobbat (maskinpass eller extra tid) — skiljs
+    // från vardagsräknaren `arbetsdagar` som är månadens KAPACITET (mål).
+    const jobbadeDagar = new Set([
+      ...månadsDagRader.filter(([, d]: any) => (d.arbMin || 0) > 0).map(([k]) => k),
+      ...månadsExtra.filter(e => (e.minuter || 0) > 0).map(e => e.datum),
+    ]).size;
     // km hämtas från /api/km-summary som fyller ut saknade DB-värden via ORS
     const totalKm = kmSummary?.totalKm ?? 0;
     const ersKm   = kmSummary?.ersattningsKm ?? 0;
-    const övH = Math.max(0, jobbadH-målH);
 
     const statusFärg=(d)=>{
       const k=dagKey(d);
@@ -5281,16 +5297,6 @@ export default function Arbetsrapport() {
 
         <main style={{ flex:1,padding:"0 16px 128px",overflowY:"auto" }}>
 
-          {/* Extra-tid summa för månaden */}
-          {(() => {
-            const månExtraMin = Object.entries(extraDagData)
-              .filter(([d])=>d.startsWith(`${kalÅr}-${String(kalMånad+1).padStart(2,'0')}`))
-              .reduce((a,[,arr])=>a + arr.reduce((s:number,e:any)=>s+(e.minuter||0),0), 0);
-            return månExtraMin > 0 ? (
-              <p style={{ margin:"8px 4px 0",fontSize:12,color:"#30d158",fontWeight:600 }}>+ {Math.round(månExtraMin/60*10)/10}h extra (utöver maskin)</p>
-            ) : null;
-          })()}
-
           {/* Summary card — hjälte: månadens berättelse (jobbat mot mål) överst,
               resten som lugna stödrader. Målet ingår i hjälten ("av X tim"). */}
           <section style={{ marginTop:16,marginBottom:32 }}>
@@ -5308,7 +5314,12 @@ export default function Arbetsrapport() {
               </div>
               <div style={{ borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:18,paddingTop:8 }}>
                 {[
-                  ["Arbetsdagar",`${arbetsdagar}`],
+                  // "Varav extra tid" = stödrad till hjältens total (samma
+                  // mönster som "Varav fakturerbart" i månadssammanställningen)
+                  ...(månExtraMin > 0 ? [["Varav extra tid", `${String(Math.round(månExtraMin/60*10)/10).replace('.',',')} tim`]] : []),
+                  // Jobbade dagar = faktiskt jobbade; "av X" = månadens
+                  // vardagar (kapaciteten bakom tim-målet) — inte samma sak
+                  ["Jobbade dagar",`${jobbadeDagar} av ${arbetsdagar}`],
                   ["Körning",`${totalKm.toLocaleString('sv-SE')} km`],
                   ["Km med ersättning",`${ersKm.toLocaleString('sv-SE')} km`],
                 ].map(([label,val])=>(
