@@ -6,6 +6,12 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  env: {
+    // Bakas in i klient-bundlen vid build. Vercel sätter VERCEL_GIT_COMMIT_SHA per deploy;
+    // /api/version läser SAMMA env i runtime. Skiljer de sig → klienten kör ett äldre bygge
+    // än det utrollade → visa "Ny version". Lokalt (ingen Vercel-env) → 'dev', ingen banner.
+    NEXT_PUBLIC_BUILD_SHA: process.env.VERCEL_GIT_COMMIT_SHA || 'dev',
+  },
   outputFileTracingExcludes: {
     '*': [
       'maplibre-gl/**',
