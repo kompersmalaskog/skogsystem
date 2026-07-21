@@ -618,7 +618,7 @@ export default function PlannerPage() {
   // Tidigare 'satellite' (Esri imagery) kombinerat med markfuktighet+lutning-
   // overlays gav grötig gul/lila yta som dolde terräng-information. OpenTopoMap
   // ger ren outdoor-kartografi med vägar, höjdkurvor och skogssymboler.
-  const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain'>('terrain');
+  const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain' | 'lantmateriet'>('lantmateriet');
   
   // Overlay-lager — persistas i localStorage via useMapLayers
   const [overlays, setOverlays] = useMapLayers();
@@ -687,19 +687,15 @@ export default function PlannerPage() {
         tileSize: 256,
         maxzoom: 17,
       },
-      // Positron (CARTO light_all) — dämpad bas för körvyns TYSTA stil: mjuka toner, svaga hus,
-      // ljusa vägar, viskande grå etiketter. Bara körvy; planeringsvyn använder terrain (topo).
-      positron: {
+      // Lantmäteriet topowebb (nedtonad) via egen proxy /api/forarkarta — SVENSK topografisk
+      // baskarta, server-cache + CDN-cache. CARTO Positron borttagen (kräver Enterprise-licens
+      // för kommersiell drift). Proxyn byter till LM öppna data-WMTS när LM_OPEN_TOPO_TOKEN sätts.
+      lantmateriet: {
         type: 'raster' as const,
-        tiles: [
-          'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-          'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-        ],
+        tiles: ['/api/forarkarta?z={z}&x={x}&y={y}'],
         tileSize: 256,
-        maxzoom: 19,
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        maxzoom: 17,
+        attribution: '&copy; Lantmäteriet',
       },
     },
     layers: [
@@ -714,8 +710,10 @@ export default function PlannerPage() {
       // handleMapReady läser mapType för att sätta exakt visibility vid map-init —
       // initial-värdena här är fallback om handleMapReady av nån anledning inte kör.
       { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: 'none' as const } },
-      { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: 'visible' as const } },
-      { id: 'positron-layer', type: 'raster' as const, source: 'positron', layout: { visibility: 'none' as const } },
+      // LM-baskartan är TYST: nedtonad topowebb + avmättnad/kontrast/opacitet så förarens egna
+      // symboler, traktgränser, larmpin och GPS-prick DOMINERAR. Kartan = underlag, ej huvudsak.
+      { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: { 'raster-saturation': -0.45, 'raster-contrast': -0.06, 'raster-opacity': 0.9 }, layout: { visibility: 'visible' as const } },
+      { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: 'none' as const } },
       { id: 'contours-layer', type: 'raster' as const, source: 'contours', paint: { 'raster-opacity': 0.4 }, layout: { visibility: 'none' as const } },
     ],
   });
@@ -1101,6 +1099,7 @@ export default function PlannerPage() {
     setBaseVis('satellite-layer', mapType === 'satellite');
     setBaseVis('osm-layer', mapType === 'osm');
     setBaseVis('terrain-layer', mapType === 'terrain');
+    setBaseVis('lm-layer', mapType === 'lantmateriet');
     console.log('[MapLibre] Base layers initialized — mapType:', mapType);
 
     // === Marker symbol layer (GPU-renderad, smidig i 3D) ===
@@ -2347,9 +2346,9 @@ export default function PlannerPage() {
   useEffect(() => {
     if (korvyActive) acquireGpsWithFallback();
   }, [korvyActive]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Körvyns bas-karta: 'positron' (tyst, dämpad) eller 'topo' (OpenTopoMap, terräng tydlig).
-  // Fält-test-växling — default tyst så föraren möter den nya stilen, togglar för att jämföra.
-  const [korvyBasKarta, setKorvyBasKarta] = useState<'positron' | 'topo'>('positron');
+  // Körvyns bas-karta: 'lm' (tyst — Lantmäteriet nedtonad, dämpad) eller 'topo' (OpenTopoMap).
+  // Default tyst så föraren möter den lugna svenska baskartan; toggla för terräng-detalj.
+  const [korvyBasKarta, setKorvyBasKarta] = useState<'lm' | 'topo'>('lm');
   const [korvyBlinkOn, setKorvyBlinkOn] = useState(true);
   const korvyPrevCameraRef = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
   const korvyZoomRef = useRef<number>(KORVY_BASE_ZOOM);  // utjämnad närhets-zoom (lerp → ingen studs)
@@ -2446,6 +2445,7 @@ export default function PlannerPage() {
     setVis('osm-layer', mapType === 'osm');
     setVis('satellite-layer', mapType === 'satellite');
     setVis('terrain-layer', mapType === 'terrain');
+    setVis('lm-layer', mapType === 'lantmateriet');
   }, [mapType, mapLibreReady]);
 
   // === MapLibre: Höjdkurvor overlay ===
@@ -5631,13 +5631,13 @@ export default function PlannerPage() {
       // Cesium 3D Körvy som båda har OpenTopoMap som default-bas. Lm-skuggning
       // och sks-markfuktighet finns kvar i lager-menyn under 'Skogsstyrelsen
       // Raster' / 'Lantmäteriet' om föraren vill toggla på dem manuellt.
-      // Bas-karta: tyst (Positron) eller terräng (OpenTopoMap) — växlas för fält-test.
-      const SHOW = new Set<string>([korvyBasKarta === 'positron' ? 'positron-layer' : 'terrain-layer']);
+      // Bas-karta: tyst (Lantmäteriet nedtonad) eller terräng (OpenTopoMap) — växlas i toggeln.
+      const SHOW = new Set<string>([korvyBasKarta === 'lm' ? 'lm-layer' : 'terrain-layer']);
       // Våra ritade data + immersion-layers
       const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-'];
       for (const l of allLayers) {
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
-        // effekten en knapp EFTER öppning → basen (Positron) + symboler laddar okonkurrerat →
+        // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
         // snabb start. Övriga WMS → av (ren tyst vy). Återställs på utträde via korvyPrevVisRef
         // → planeringsvyns overlay-val rörs INTE.
         if (l.id.startsWith('wms-layer-')) {
@@ -5658,7 +5658,7 @@ export default function PlannerPage() {
     }
   }, [korvyActive, mapLibreReady, korvyBasKarta]);
 
-  // === KÖRVY: DEFERA skyddslagren — tänds en knapp EFTER öppning så basen (Positron) + symboler
+  // === KÖRVY: DEFERA skyddslagren — tänds en knapp EFTER öppning så basen (LM nedtonad) + symboler
   // laddar OKONKURRERAT → snabb start. De 7 gov-WMS congestar annars mobil-uppkopplingen vid
   // öppning. wms-proxyns timeout gör dem robusta om en server hänger (droppar snyggt, hänger ej).
   useEffect(() => {
@@ -9327,7 +9327,7 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === KÖRVY: FÄLT-TEST-VÄXLING bas-karta (Tyst/Positron ⇄ Terräng/OpenTopoMap) === */}
+      {/* === KÖRVY: BASKARTE-VÄXLING (Tyst/Lantmäteriet ⇄ Terräng/OpenTopoMap) === */}
       {korvyActive && (
         <div style={{
           position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', right: 12, zIndex: 260,
@@ -9336,7 +9336,7 @@ export default function PlannerPage() {
           border: '1px solid rgba(255,255,255,0.12)',
           fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
         }}>
-          {(['positron', 'topo'] as const).map(mode => (
+          {(['lm', 'topo'] as const).map(mode => (
             <button key={mode} type="button"
               onClick={() => { if (navigator.vibrate) navigator.vibrate(8); setKorvyBasKarta(mode); }}
               style={{
@@ -9345,7 +9345,7 @@ export default function PlannerPage() {
                 background: korvyBasKarta === mode ? '#0a84ff' : 'transparent',
                 color: korvyBasKarta === mode ? '#fff' : 'rgba(255,255,255,0.6)',
               }}>
-              {mode === 'positron' ? 'Tyst' : 'Terräng'}
+              {mode === 'lm' ? 'Tyst' : 'Terräng'}
             </button>
           ))}
         </div>
@@ -12588,13 +12588,14 @@ export default function PlannerPage() {
                 Bakgrundskarta
               </div>
               {[
-                { id: 'osm', name: 'Karta', desc: 'OpenStreetMap' },
+                { id: 'lantmateriet', name: 'Karta', desc: 'Lantmäteriet — tyst' },
                 { id: 'satellite', name: 'Satellit', desc: 'Flygfoto' },
-                { id: 'terrain', name: 'Terräng', desc: 'Höjdkurvor & detaljer' },
+                { id: 'terrain', name: 'Terräng', desc: 'OpenTopoMap — höjdkurvor' },
+                { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
               ].map(type => (
                 <div
                   key={type.id}
-                  onClick={() => setMapType(type.id as 'osm' | 'satellite' | 'terrain')}
+                  onClick={() => setMapType(type.id as 'osm' | 'satellite' | 'terrain' | 'lantmateriet')}
                   style={{
                     padding: '14px 16px',
                     display: 'flex',
@@ -15044,9 +15045,10 @@ export default function PlannerPage() {
                   {/* Karttyp */}
                   <div
                     onClick={() => {
-                      if (mapType === 'osm') setMapType('satellite');
+                      if (mapType === 'lantmateriet') setMapType('satellite');
                       else if (mapType === 'satellite') setMapType('terrain');
-                      else setMapType('osm');
+                      else if (mapType === 'terrain') setMapType('osm');
+                      else setMapType('lantmateriet');
                     }}
                     style={{
                       padding: '16px 20px',
@@ -15067,7 +15069,7 @@ export default function PlannerPage() {
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '15px', color: '#fff' }}>Karttyp</div>
                       <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>
-                        {mapType === 'osm' ? 'Karta' : mapType === 'satellite' ? 'Satellit' : 'Terräng'}
+                        {mapType === 'lantmateriet' ? 'Karta' : mapType === 'satellite' ? 'Satellit' : mapType === 'terrain' ? 'Terräng' : 'OpenStreetMap'}
                       </div>
                     </div>
                   </div>
