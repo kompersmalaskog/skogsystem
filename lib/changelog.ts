@@ -20,6 +20,13 @@ export interface ChangelogEntry {
 // Senaste ÖVERST.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.9.5',
+    date: '21 juli 2026',
+    changes: [
+      'Ny vy: Om appen med versionshistorik.',
+    ],
+  },
+  {
     version: '0.9.4',
     date: '18 juli 2026',
     changes: [
