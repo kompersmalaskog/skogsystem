@@ -1169,16 +1169,18 @@ export default function KalibreringPage() {
       // sDia tar max-absolut över mätpunkter + toppen (samma logik som
       // stocklistan längre ner — utan den missar man fel som bara dyker
       // upp i ett enskilt mätställe på en annars samlad stock).
-      type StockSwarmEntry = { id: number; stam_nummer: number; stock_nummer: number; sLen: number; sDia: number };
+      type StockSwarmEntry = { id: number; stam_nummer: number; stock_nummer: number; sLen: number; sDia: number; lenKl: boolean; diaKl: boolean };
       const stockDist: StockSwarmEntry[] = data.stockar.map((s) => {
-        const sLen = s.langd_avvikelse_cm ?? 0;
+        // "Klavad" = operatören har mätt. Oklavade stockar har ingen avvikelse
+        // (NULL i DB) och får INTE räknas som "inom tolerans".
+        const lenKl = s.operator_langd_cm != null && s.operator_langd_cm !== 0;
         const mpA = s.matpunkter
           .filter((m) => m.diameter_maskin_mm != null && m.diameter_operator_mm != null)
           .map((m) => (m.diameter_maskin_mm as number) - (m.diameter_operator_mm as number));
-        const sDia = [...mpA, s.dia_avvikelse_mm ?? 0].reduce(
-          (a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0
-        );
-        return { id: s.id, stam_nummer: s.stam_nummer, stock_nummer: s.stock_nummer, sLen, sDia };
+        const diaKl = mpA.length > 0 || (s.operator_toppdia_mm != null && s.operator_toppdia_mm !== 0);
+        const sLen = lenKl ? (s.langd_avvikelse_cm ?? 0) : 0;
+        const sDia = diaKl ? [...mpA, s.dia_avvikelse_mm ?? 0].reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0) : 0;
+        return { id: s.id, stam_nummer: s.stam_nummer, stock_nummer: s.stock_nummer, sLen, sDia, lenKl, diaKl };
       });
 
       // Svärmens prickar + per-mått-talet färgas via delade avvikelseTon/
@@ -1187,18 +1189,24 @@ export default function KalibreringPage() {
 
       // Status-raden räknar enskilda stockar utanför tolerans — snittet
       // kan se OK ut även när flera stockar är dåliga.
-      const utanforLen = stockDist.filter((e) => Math.abs(e.sLen) > tolLen).length;
-      const utanforDia = stockDist.filter((e) => Math.abs(e.sDia) > tolDia).length;
+      // Räkna BARA på klavade stockar — oklavade har ingen dom.
+      const lenKlavade = stockDist.filter((e) => e.lenKl);
+      const diaKlavade = stockDist.filter((e) => e.diaKl);
+      const utanforLen = lenKlavade.filter((e) => Math.abs(e.sLen) > tolLen).length;
+      const utanforDia = diaKlavade.filter((e) => Math.abs(e.sDia) > tolDia).length;
+      const ejKlavadeLen = stockDist.length - lenKlavade.length;
+      const ejKlavadeDia = stockDist.length - diaKlavade.length;
       const lenStatusTone: 'ok' | 'bad' = utanforLen === 0 ? 'ok' : 'bad';
       const diaStatusTone: 'ok' | 'bad' = utanforDia === 0 ? 'ok' : 'bad';
-      // Längd visar TRÄFFPROCENT (andel inom ±tol), inte snitt — stocken kapas.
-      const lenTraff = data.stockar.length > 0 ? Math.round((100 * (data.stockar.length - utanforLen)) / data.stockar.length) : null;
-      const lenLabel = utanforLen === 0
-        ? `Alla ${data.stockar.length} inom tolerans`
-        : `${utanforLen} av ${data.stockar.length} stockar utanför`;
-      const diaLabel = utanforDia === 0
-        ? `Alla ${data.stockar.length} inom tolerans`
-        : `${utanforDia} av ${data.stockar.length} stockar utanför`;
+      // Längd visar TRÄFFPROCENT (andel klavade inom ±tol) — stocken kapas.
+      const lenTraff = lenKlavade.length > 0 ? Math.round((100 * (lenKlavade.length - utanforLen)) / lenKlavade.length) : null;
+      const statusLabel = (klavade: number, utanfor: number, ejKlavade: number, total: number): string => {
+        if (klavade === 0) return `${total} ej klavade`;
+        const bas = utanfor === 0 ? `Alla ${klavade} inom tolerans` : `${utanfor} av ${klavade} utanför`;
+        return ejKlavade > 0 ? `${bas} · ${ejKlavade} ej klavade` : bas;
+      };
+      const lenLabel = statusLabel(lenKlavade.length, utanforLen, ejKlavadeLen, stockDist.length);
+      const diaLabel = statusLabel(diaKlavade.length, utanforDia, ejKlavadeDia, stockDist.length);
 
       // Svärm-position: avvikelse → procent. Clipp till [4,96] så dotter
       // aldrig sitter på kanten även vid extrema värden.
@@ -1242,6 +1250,9 @@ export default function KalibreringPage() {
           .sort((a, b) => a.position_cm - b.position_cm);
         const hasMp = mpAvvik.length > 0;
         const topAvvik = s.dia_avvikelse_mm ?? 0;
+        // Klavad = operatören har mätt. Utan det: ingen avvikelse, ingen dom.
+        const lenKlavad = s.operator_langd_cm != null && s.operator_langd_cm !== 0;
+        const diaKlavad = hasMp || (s.operator_toppdia_mm != null && s.operator_toppdia_mm !== 0);
 
         // Max-avvikelse (med tecken) över mätpunkter + topp
         type DiaEntry = { avvik: number; pos: number | null };
@@ -1341,22 +1352,24 @@ export default function KalibreringPage() {
               <div className="kalib-card">
                 <div className="kalib-tol-header">
                   <div className="kalib-tol-label">Längd</div>
-                  <div className={`kalib-tol-value ${sLenCls2 === 'bad' ? 'bad' : ''}`}>
-                    {fmtAvvikelse(sLen, 'cm')} cm
+                  <div className={`kalib-tol-value ${lenKlavad && sLenCls2 === 'bad' ? 'bad' : ''}`}>
+                    {lenKlavad ? `${fmtAvvikelse(sLen, 'cm')} cm` : 'Ej klavad'}
                   </div>
                 </div>
                 <div className="kalib-stock-mo-line">
-                  Maskin {s.maskin_langd_cm ?? '–'} cm · Operatör {s.operator_langd_cm ?? '–'} cm
+                  Maskin {s.maskin_langd_cm ?? '–'} cm · {lenKlavad ? `Operatör ${s.operator_langd_cm} cm` : 'ej klavad av operatör'}
                 </div>
               </div>
 
               <div className="kalib-card">
                 <div className="kalib-tol-header">
                   <div className="kalib-tol-label">Diameter</div>
-                  <div className={`kalib-tol-value ${diagnos?.tone === 'bad' ? 'bad' : diagnos?.tone === 'warn' ? 'warn' : ''}`}>
-                    {hasMp && maxAvvikPos !== null
-                      ? `störst fel: ${fmtAvvikelse(maxAvvik, 'mm')} mm vid ${maxAvvikPos} cm`
-                      : `${fmtAvvikelse(maxAvvik, 'mm')} mm`}
+                  <div className={`kalib-tol-value ${diaKlavad && diagnos?.tone === 'bad' ? 'bad' : diaKlavad && diagnos?.tone === 'warn' ? 'warn' : ''}`}>
+                    {!diaKlavad
+                      ? 'Ej klavad'
+                      : hasMp && maxAvvikPos !== null
+                        ? `störst fel: ${fmtAvvikelse(maxAvvik, 'mm')} mm vid ${maxAvvikPos} cm`
+                        : `${fmtAvvikelse(maxAvvik, 'mm')} mm`}
                   </div>
                 </div>
 
@@ -1410,11 +1423,13 @@ export default function KalibreringPage() {
                       </div>
                     )}
                   </>
-                ) : (
+                ) : diaKlavad ? (
                   <div className="kalib-stock-mo-line">
                     Endast toppmätning · Maskin {s.maskin_toppdia_mm ?? '–'} mm · Operatör{' '}
-                    {s.operator_toppdia_mm ?? '–'} mm
+                    {s.operator_toppdia_mm} mm
                   </div>
+                ) : (
+                  <div className="kalib-stock-mo-line">Ej klavad av operatör</div>
                 )}
               </div>
 
@@ -1725,13 +1740,13 @@ export default function KalibreringPage() {
               <div className="kalib-tol-header">
                 <div className="kalib-tol-label">Längd · träffprocent</div>
                 <div className={`kalib-tol-value tone-${lenStatusTone === 'bad' ? 'hot' : 'ok'}`}>
-                  {lenTraff != null ? `${lenTraff}%` : '–'}
+                  {lenKlavade.length === 0 ? 'Ej klavad' : lenTraff != null ? `${lenTraff}%` : '–'}
                 </div>
               </div>
               <div className="kalib-swarm" aria-label="Stockfördelning längd">
                 <div className="kalib-swarm-tol" />
                 <div className="kalib-swarm-zero" />
-                {stockDist.map((e) => (
+                {stockDist.filter((e) => e.lenKl).map((e) => (
                   <div
                     key={e.id}
                     className={`kalib-swarm-dot tone-${avvikelseTon(e.sLen, 'len')}`}
@@ -1739,7 +1754,8 @@ export default function KalibreringPage() {
                     title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sLen, 'cm')} cm`}
                   />
                 ))}
-                {/* Ingen snitt-markör för längd — längd bedöms på träffprocent, inte snitt. */}
+                {/* Ingen snitt-markör för längd — längd bedöms på träffprocent, inte snitt.
+                    Oklavade stockar ritas inte — de har ingen avvikelse. */}
               </div>
               <div className="kalib-swarm-scale">
                 <span>−{fmtKrav(2 * tolLen)}</span><span>±{fmtKrav(tolLen)} tolerans</span><span>+{fmtKrav(2 * tolLen)} cm</span>
@@ -1753,14 +1769,14 @@ export default function KalibreringPage() {
             <div className="kalib-card">
               <div className="kalib-tol-header">
                 <div className="kalib-tol-label">Diameter</div>
-                <div className={`kalib-tol-value tone-${avvikelseTon(diaSnitt, 'dia')}`}>
-                  {fmtAvvikelse(diaSnitt, 'mm')} mm
+                <div className={`kalib-tol-value tone-${diaKlavade.length === 0 ? 'ok' : avvikelseTon(diaSnitt, 'dia')}`}>
+                  {diaKlavade.length === 0 ? 'Ej klavad' : `${fmtAvvikelse(diaSnitt, 'mm')} mm`}
                 </div>
               </div>
               <div className="kalib-swarm" aria-label="Stockfördelning diameter">
                 <div className="kalib-swarm-tol" />
                 <div className="kalib-swarm-zero" />
-                {stockDist.map((e) => (
+                {stockDist.filter((e) => e.diaKl).map((e) => (
                   <div
                     key={e.id}
                     className={`kalib-swarm-dot tone-${avvikelseTon(e.sDia, 'dia')}`}
@@ -1768,11 +1784,13 @@ export default function KalibreringPage() {
                     title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sDia, 'mm')} mm`}
                   />
                 ))}
-                <div
-                  className="kalib-swarm-snitt"
-                  style={{ left: `${swarmX(diaSnitt, 2 * tolDia)}%` }}
-                  title={`Snitt: ${fmtAvvikelse(diaSnitt, 'mm')} mm`}
-                />
+                {diaKlavade.length > 0 && (
+                  <div
+                    className="kalib-swarm-snitt"
+                    style={{ left: `${swarmX(diaSnitt, 2 * tolDia)}%` }}
+                    title={`Snitt: ${fmtAvvikelse(diaSnitt, 'mm')} mm`}
+                  />
+                )}
               </div>
               <div className="kalib-swarm-scale">
                 <span>−{fmtKrav(2 * tolDia)}</span><span>±{fmtKrav(tolDia)} tolerans</span><span>+{fmtKrav(2 * tolDia)} mm</span>
@@ -1791,8 +1809,11 @@ export default function KalibreringPage() {
             </div>
             <div className="kalib-stockar-list">
               {data.stockar.map((s) => {
+                // Klavad = operatören har faktiskt mätt. Oklavat värde (0/NULL)
+                // får aldrig visas som avvikelse — samma regel som resten av vyn.
+                const lenKl = s.operator_langd_cm != null && s.operator_langd_cm !== 0;
                 const sLen = s.langd_avvikelse_cm ?? 0;
-                const sLenTon = avvikelseTon(sLen, 'len');
+                const sLenTon = lenKl ? avvikelseTon(sLen, 'len') : 'ok';
 
                 // Max diameter-avvikelse över alla mätpunkter + toppen,
                 // med tecknet på det värdet som har störst absolut värde.
@@ -1801,11 +1822,13 @@ export default function KalibreringPage() {
                             && m.diameter_operator_mm != null)
                   .map(m => (m.diameter_maskin_mm as number)
                           - (m.diameter_operator_mm as number));
+                const diaKl = mpAvvik.length > 0
+                  || (s.operator_toppdia_mm != null && s.operator_toppdia_mm !== 0);
                 const allaDiaAvvik = [...mpAvvik, s.dia_avvikelse_mm ?? 0];
                 const sDia = allaDiaAvvik.reduce(
                   (a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0
                 );
-                const sDiaTon = avvikelseTon(sDia, 'dia');
+                const sDiaTon = diaKl ? avvikelseTon(sDia, 'dia') : 'ok';
 
                 // Raden bär varningen: dess ton = värsta måttet (delad skala).
                 const tonRank: Record<ToneToken, number> = { ok: 0, cold: 1, hi: 2, hot: 3 };
@@ -1838,10 +1861,10 @@ export default function KalibreringPage() {
                     </div>
                     <div className="kalib-stock-row-diff">
                       <span className={`kalib-stock-row-len tone-${sLenTon}`}>
-                        {fmtAvvikelse(sLen, 'cm')} cm
+                        {lenKl ? `${fmtAvvikelse(sLen, 'cm')} cm` : 'ej klavad'}
                       </span>
                       <span className={`kalib-stock-row-dia tone-${sDiaTon}`}>
-                        {fmtAvvikelse(sDia, 'mm')} mm
+                        {diaKl ? `${fmtAvvikelse(sDia, 'mm')} mm` : 'ej klavad'}
                       </span>
                     </div>
                   </div>
@@ -1906,8 +1929,14 @@ export default function KalibreringPage() {
   const openStockModal = (stock: DetaljKontrollStock) => {
     const lenDiff = stock.langd_avvikelse_cm;
     const diaDiff = stock.dia_avvikelse_mm;
-    const lenTon = avvikelseTon(lenDiff, 'len');
-    const diaTon = avvikelseTon(diaDiff, 'dia');
+    // "Klavad" = operatören har mätt. Utan operatörsvärde finns ingen avvikelse
+    // och ingen dom — säg "Ej klavad", inte "Inom" (avvikelseTon(NULL) → 'ok').
+    const lenKlavad = stock.operator_langd_cm != null && stock.operator_langd_cm !== 0;
+    const diaKlavad = stock.operator_toppdia_mm != null && stock.operator_toppdia_mm !== 0;
+    const opLen = lenKlavad ? `${stock.operator_langd_cm} cm` : '–';
+    const opDia = diaKlavad ? `${stock.operator_toppdia_mm} mm` : '–';
+    const lenTon = lenKlavad ? avvikelseTon(lenDiff, 'len') : 'ok';
+    const diaTon = diaKlavad ? avvikelseTon(diaDiff, 'dia') : 'ok';
     const badgeText = (t: ToneToken) => (t === 'ok' ? 'Inom' : t === 'cold' ? 'Under' : 'Utanför');
     const maskinW = Math.max(180, stock.maskin_langd_cm * 0.7);
     const maskinH = Math.max(28, stock.maskin_toppdia_mm * 0.22);
@@ -1930,7 +1959,7 @@ export default function KalibreringPage() {
             <div className="kalib-stock-compare-row">
               <div className="kalib-stock-compare-label">Operatör</div>
               <div className="kalib-log-body" style={{ width: operatorW, height: operatorH }}>
-                <span className="kalib-log-num">{stock.operator_langd_cm} cm</span>
+                <span className="kalib-log-num">{opLen}</span>
               </div>
             </div>
           </div>
@@ -1943,36 +1972,44 @@ export default function KalibreringPage() {
               </div>
               <div className="kalib-total-item">
                 <div className="kalib-total-label">Längd operatör</div>
-                <div className="kalib-total-value">{stock.operator_langd_cm}<span className="kalib-total-unit"> cm</span></div>
+                <div className="kalib-total-value">{lenKlavad ? <>{stock.operator_langd_cm}<span className="kalib-total-unit"> cm</span></> : '–'}</div>
               </div>
             </div>
           </div>
           <div className="kalib-summary-row" style={{ marginTop: 16 }}>
             <div className="kalib-summary-item">
               <div className="kalib-summary-label">Längd (M−O)</div>
-              <div className={`kalib-summary-value tone-${lenTon}`}>{fmtAvvikelse(lenDiff, 'cm')} cm</div>
-              <div className={`kalib-diff-badge tone-${lenTon}`}>{badgeText(lenTon)}</div>
+              <div className={`kalib-summary-value tone-${lenTon}`}>{lenKlavad ? `${fmtAvvikelse(lenDiff, 'cm')} cm` : '–'}</div>
+              <div className={`kalib-diff-badge tone-${lenTon}`}>{lenKlavad ? badgeText(lenTon) : 'Ej klavad'}</div>
             </div>
             <div className="kalib-summary-item">
               <div className="kalib-summary-label">Topp ⌀ maskin</div>
               <div className="kalib-summary-value">{stock.maskin_toppdia_mm} mm</div>
-              <div className="kalib-summary-hint">op: {stock.operator_toppdia_mm} mm</div>
+              <div className="kalib-summary-hint">op: {opDia}</div>
             </div>
             <div className="kalib-summary-item">
               <div className="kalib-summary-label">Dia (M−O)</div>
-              <div className={`kalib-summary-value tone-${diaTon}`}>{fmtAvvikelse(diaDiff, 'mm')} mm</div>
-              <div className={`kalib-diff-badge tone-${diaTon}`}>{badgeText(diaTon)}</div>
+              <div className={`kalib-summary-value tone-${diaTon}`}>{diaKlavad ? `${fmtAvvikelse(diaDiff, 'mm')} mm` : '–'}</div>
+              <div className={`kalib-diff-badge tone-${diaTon}`}>{diaKlavad ? badgeText(diaTon) : 'Ej klavad'}</div>
             </div>
           </div>
-          {(stock.maskin_volym_sub != null && stock.operator_volym_sub != null) && (
-            <div className="kalib-info-box neutral" style={{ marginTop: 16 }}>
-              <span className="kalib-info-icon"><MSym name="inventory_2" size={20} color="#fff" /></span>
-              <div className="kalib-info-content">
-                <div className="kalib-info-title">Volym (m³fub)</div>
-                <div className="kalib-info-text">Maskin: {stock.maskin_volym_sub?.toFixed(4)} • Operatör: {stock.operator_volym_sub?.toFixed(4)} • Diff: {stock.volym_avvikelse?.toFixed(4)}</div>
+          {stock.maskin_volym_sub != null && (() => {
+            // Operatörsvolym kräver att operatören klavat BÅDE längd och diameter.
+            // Utan det kan volymen (och diffen) inte finnas — visa "–", ingen diff.
+            const volKlavad = lenKlavad && diaKlavad && stock.operator_volym_sub != null;
+            return (
+              <div className="kalib-info-box neutral" style={{ marginTop: 16 }}>
+                <span className="kalib-info-icon"><MSym name="inventory_2" size={20} color="#fff" /></span>
+                <div className="kalib-info-content">
+                  <div className="kalib-info-title">Volym (m³fub)</div>
+                  <div className="kalib-info-text">
+                    Maskin: {stock.maskin_volym_sub.toFixed(4)} • Operatör: {volKlavad ? stock.operator_volym_sub!.toFixed(4) : '–'}
+                    {volKlavad && stock.volym_avvikelse != null ? ` • Diff: ${stock.volym_avvikelse.toFixed(4)}` : ''}
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </>
       )
     });
