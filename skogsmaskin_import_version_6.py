@@ -701,6 +701,13 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         op_key = get_text(shift_def, 'OperatorKey', ns)
         start_time = get_text(shift_def, 'ShiftStartTime', ns)
         end_time = get_text(shift_def, 'ShiftEndTime', ns)
+        # ShifKey (StanForD:s stavning) = maskinens EGET skift-id, stabilt
+        # genom skiftets hela livscykel. Timvisa MOM-filer rapporterar samma
+        # skift som växande ögonblicksbilder där BÅDE start och slut glider
+        # (07:00 -> 07:57 -> 13:18 -> 06:00 för samma skift observerat) —
+        # ShifKey är enda stabila identiteten. Verifierat 2026-07-21 över
+        # 1031 keys/3 maskiner: en key = ett skift = ett startdatum, alltid.
+        shift_key = get_text(shift_def, 'ShifKey', ns)
         
         start_dt = parse_datetime(start_time)
         end_dt = parse_datetime(end_time)
@@ -730,10 +737,11 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             login_lat = data['gps_spar'][0]['latitude']
             login_lon = data['gps_spar'][0]['longitude']
         
+        skift_op_id = op_id_for_key(op_key, 'skift')
         data['skift'].append({
             'datum': start_dt.date() if start_dt else None,
             'maskin_id': maskin_id,
-            'operator_id': op_id_for_key(op_key, 'skift'),
+            'operator_id': skift_op_id,
             'inloggning_tid': start_dt,
             'utloggning_tid': end_dt,
             'langd_sek': langd_sek,
@@ -741,7 +749,10 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             'gps_long': login_lon,
             'logout_lat': logout_lat,
             'logout_lon': logout_lon,
-            'filnamn': filnamn
+            'filnamn': filnamn,
+            # Fallback om ShifKey mot förmodan saknas: deterministisk nyckel
+            # per (dag, operator) — samma som Rottnes syntetiska skift
+            'shift_key': shift_key if shift_key else f"SYN_{start_dt.date() if start_dt else 'okand'}_{skift_op_id or op_key or 'okand'}"
         })
     
     # === ARBETSTID & PRODUKTION ===
@@ -1160,7 +1171,11 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                 'gps_long': None,
                 'logout_lat': None,
                 'logout_lon': None,
-                'filnamn': filnamn
+                'filnamn': filnamn,
+                # Rottne saknar ShifKey — deterministisk nyckel per (dag,
+                # operator) så timvisa snapshot-filer upsert:ar samma rad
+                # i stället för att stapla dubbletter
+                'shift_key': f"SYN_{datum}_{op_id}"
             })
 
         if data['skift']:
@@ -2935,9 +2950,14 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 batch = data['gps_spar'][i:i+batch_size]
                 upsert_data('detalj_gps_spar', batch)
 
-        # Skift — upsert on unique constraint (maskin_id, inloggning_tid, filnamn)
+        # Skift — nyckel (maskin_id, datum, shift_key), INTE filnamn/inloggning_tid:
+        # timvisa MOM-filer gav en NY rad per fil (filnamn i gamla nyckeln) och
+        # starttiden glider mellan ögonblicksbilder. ShifKey är skiftets äkta
+        # identitet; senare fil UPPDATERAR raden (senaste = mest kompletta).
+        # datum i nyckeln = billig försäkring mot framtida ShifKey-reset
+        # (maskindatorbyte); startdatum är verifierat stabilt per skift.
         if data.get('skift'):
-            if upsert_data('fakt_skift', data['skift'], ['maskin_id', 'inloggning_tid', 'filnamn']) == 0:
+            if upsert_data('fakt_skift', data['skift'], ['maskin_id', 'datum', 'shift_key']) == 0:
                 logger.warning(f"  Skift-data kunde inte sparas (ej kritiskt)")
 
         # Tid — re-aggregera från ALLA filer i Behandlade/<maskin>/mom/ för
