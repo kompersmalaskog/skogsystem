@@ -74,7 +74,7 @@ async function hamtaAlla(tabell: string, kolumner: string): Promise<any[]> {
   return alla;
 }
 
-function typAvMaskin(maskinTyp: string | null | undefined): 'skordare' | 'skotare' | null {
+export function typAvMaskin(maskinTyp: string | null | undefined): 'skordare' | 'skotare' | null {
   const t = (maskinTyp || '').toLowerCase();
   if (t === 'harvester' || t.includes('skörd')) return 'skordare';
   if (t === 'forwarder' || t.includes('skot')) return 'skotare';
