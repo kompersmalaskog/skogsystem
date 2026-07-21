@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode }
 import { supabase } from "@/lib/supabase";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag } from "@/lib/arbetstid";
+import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
@@ -544,6 +545,9 @@ export default function Arbetsrapport() {
   const [trakÄndrad,  setTrakÄndrad]  = useState(false);
   // Felmeddelande under Bekräfta-knappen när guarden blockerar (tomma tider).
   const [bekraftaFel, setBekraftaFel] = useState<string | null>(null);
+  // Föraren väljer aktivt att bekräfta fast dagen fortfarande ser pågående ut
+  // (stall-detektionen har inte slagit till). Ingen ska låsas ute.
+  const [bekraftaÄndå, setBekraftaÄndå] = useState(false);
   const [ändring,setÄ]     = useState(null);
   const [betald,setBetald] = useState(0);
   const [trak,  setTrak]   = useState<{summa:number}|null>(null);
@@ -998,8 +1002,37 @@ export default function Arbetsrapport() {
     const slutKey = `arbetsdag_toast_slut_${today}`;
 
     let knownIds = new Set<string>();
-    let knownSlut: Record<string, string | null> = {}; // id → slut_tid
     let initialDone = false;
+
+    // Slut-rutan är VILLKORSBASERAD, inte förändringsbaserad: timvisa
+    // MOM-filer sätter slut_tid redan på morgonen och skjuter den framåt
+    // varje timme — "slut_tid blev satt" betyder inte längre "dagen är slut".
+    // Och efter dagens SISTA fil kommer inget nytt event, så en förändrings-
+    // lyssnare kan aldrig fånga avslutet. Villkoret (stall-detektionen i
+    // arDagAvslutad) utvärderas varje poll; localStorage-vakten ger en
+    // visning per dag.
+    const kollaSlutRuta = async (row: any) => {
+      if (localStorage.getItem(slutKey)) return false;
+      if (!row.slut_tid || !arDagAvslutad(today, row.slut_tid)) return false;
+      const maskin = maskinNamnMap[row.maskin_id] || row.maskin_id || '';
+      const objNamn = objektLista.find((o: any) => o.id === row.objekt_id)?.namn || row.objekt_id || '';
+      const startTid = row.start_tid ? row.start_tid.slice(0, 5) : '';
+      const slutTid = row.slut_tid.slice(0, 5);
+      // Dagstotal = maskintid + dagens extra tid. Hämtas färskt här (inte
+      // ur extraTidData-state) — effekten har stale closure på state.
+      const { data: dagensExtra } = await supabase.from('extra_tid')
+        .select('minuter').eq('medarbetare_id', medarbetare.id).eq('datum', today);
+      const extraMinIdag = (dagensExtra || []).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
+      const totMin = (row.arbetad_min || 0) + extraMinIdag;
+      const tid = `${Math.floor(totMin / 60)}h ${totMin % 60}min`;
+      setArbetsdagToast({ typ: 'slut', maskin, objekt: objNamn, start: startTid, slut: slutTid, tid });
+      localStorage.setItem(slutKey, '1');
+      setTimeout(() => setArbetsdagToast(null), 10000);
+      // Ingen klient-push längre: dagsslut-notisen ägs av servern
+      // (mom-import köar i notis_kö, flush-cronen skickar). In-app-rutan
+      // ovan behålls; den är poängen när man är inne.
+      return true;
+    };
 
     const poll = async () => {
       const { data } = await supabase.from('arbetsdag')
@@ -1010,8 +1043,10 @@ export default function Arbetsrapport() {
 
       if (!initialDone) {
         knownIds = new Set(data.map((r: any) => r.id));
-        for (const r of data) knownSlut[r.id] = r.slut_tid || null;
         initialDone = true;
+        // Öppnas appen efter att dagen redan stallat ska rutan visas direkt,
+        // inte först vid nästa poll.
+        for (const row of data) { if (await kollaSlutRuta(row)) break; }
         return;
       }
 
@@ -1023,7 +1058,6 @@ export default function Arbetsrapport() {
         // Ny rad → start-notis + auto-stoppa pågående extra-aktiviteter
         if (!knownIds.has(row.id) && !localStorage.getItem(startKey)) {
           knownIds.add(row.id);
-          knownSlut[row.id] = row.slut_tid || null;
           setArbetsdagToast({ typ: 'start', maskin, objekt: objNamn, start: startTid });
           localStorage.setItem(startKey, '1');
           setTimeout(() => setArbetsdagToast(null), 10000);
@@ -1054,32 +1088,10 @@ export default function Arbetsrapport() {
           return;
         }
 
-        // slut_tid blev satt → slut-notis
-        const prevSlut = knownSlut[row.id];
-        if (!prevSlut && row.slut_tid && !localStorage.getItem(slutKey)) {
-          knownSlut[row.id] = row.slut_tid;
-          const slutTid = row.slut_tid.slice(0, 5);
-          // Dagstotal = maskintid + dagens extra tid. Hämtas färskt här (inte
-          // ur extraTidData-state) — effekten har stale closure på state.
-          const { data: dagensExtra } = await supabase.from('extra_tid')
-            .select('minuter').eq('medarbetare_id', medarbetare.id).eq('datum', today);
-          const extraMinIdag = (dagensExtra || []).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
-          const totMin = (row.arbetad_min || 0) + extraMinIdag;
-          const h = Math.floor(totMin / 60);
-          const m = totMin % 60;
-          const tid = `${h}h ${m}min`;
-          setArbetsdagToast({ typ: 'slut', maskin, objekt: objNamn, start: startTid, slut: slutTid, tid });
-          localStorage.setItem(slutKey, '1');
-          setTimeout(() => setArbetsdagToast(null), 10000);
-          // Ingen klient-push längre: dagsslut-notisen ägs av servern
-          // (mom-import köar i notis_kö, flush-cronen skickar kl 17) — ett
-          // klient-anrop här gav dubbelnotis när appen råkade vara öppen.
-          // In-app-toasten ovan behålls; den är poängen när man är inne.
-          return;
-        }
+        // Dagen ser avslutad ut (stall) → slut-ruta, en gång per dag
+        if (await kollaSlutRuta(row)) return;
 
         knownIds.add(row.id);
-        knownSlut[row.id] = row.slut_tid || null;
       }
     };
     poll();
@@ -2161,6 +2173,38 @@ export default function Arbetsrapport() {
           );
           const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
           const öppnaKm    = () => { setTMK(kmM?.km||0); setTKK(kmK?.km||0); setVisaKmSheet(true); };
+          // PÅGÅR-LÄGE: timvisa MOM-filer sätter slut_tid redan på morgonen
+          // och skjuter den framåt varje timme — "slut_tid finns" betyder inte
+          // längre "dagen är slut". Tills stall-detektionen slagit till visas
+          // dagen som löpande utan bekräfta-knapp; länken låter föraren
+          // bekräfta ändå så ingen låses ute.
+          const dagPågår = harMaskinPass && !redanBekräftad && !bekraftaÄndå
+            && !arDagAvslutad(idagKey, idagArb?.slut_tid);
+          if (dagPågår) {
+            return (
+              <section style={{ marginBottom:32 }}>
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                  <p style={{ margin:"0 0 6px",...TYPE.body,color:"#fff" }}>{datumRubrik}</p>
+                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
+                    <span style={{ width:8,height:8,borderRadius:4,background:"#30d158",display:"inline-block" }} />
+                    <span style={{ ...TYPE.meta,color:"#30d158" }}>Pågår</span>
+                  </div>
+                  <div style={{ textAlign:"center",padding:"14px 0 16px" }}>
+                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Maskinpass</p>
+                    <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(arbMin)}</p>
+                    <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
+                      {start} → pågår{rast ? ` · rast ${rast} min` : ''}
+                    </p>
+                    <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Hittills — uppdateras när nya maskinfiler kommer</p>
+                  </div>
+                  <p onClick={()=>setBekraftaÄndå(true)}
+                     style={{ margin:"4px 0 0",textAlign:"center",...TYPE.meta,color:"#8e8e93",textDecoration:"underline",cursor:"pointer" }}>
+                    Dagen är inte avslutad än — bekräfta ändå
+                  </p>
+                </div>
+              </section>
+            );
+          }
           return (
             <section style={{ marginBottom:32 }}>
               <div style={{ background:"#1c1c1e",borderRadius:12,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
