@@ -2953,10 +2953,39 @@ def save_mom_to_supabase(data: Dict) -> bool:
         # Skift — nyckel (maskin_id, datum, shift_key), INTE filnamn/inloggning_tid:
         # timvisa MOM-filer gav en NY rad per fil (filnamn i gamla nyckeln) och
         # starttiden glider mellan ögonblicksbilder. ShifKey är skiftets äkta
-        # identitet; senare fil UPPDATERAR raden (senaste = mest kompletta).
-        # datum i nyckeln = billig försäkring mot framtida ShifKey-reset
-        # (maskindatorbyte); startdatum är verifierat stabilt per skift.
+        # identitet; datum i nyckeln = billig försäkring mot framtida
+        # ShifKey-reset (maskindatorbyte); startdatum är verifierat stabilt.
+        #
+        # KUVERT-MERGE — ren överskrivning räcker inte: timfilernas fönster
+        # GLIDER (19 juli key 625: 08:01→09:02 ... 14:05→14:46), så sista
+        # rapporten täcker inte fragmenterade dagar. Raden slås ihop med
+        # befintlig: inloggning = min, utloggning = max, langd = spännet.
+        # Ordningsoberoende — omimport och kumulativa arkivfiler ger samma
+        # kuvert oavsett i vilken ordning filerna kommer.
         if data.get('skift'):
+            for rad in data['skift']:
+                if not rad.get('datum') or not rad.get('shift_key'):
+                    continue
+                try:
+                    resp = requests.get(
+                        f"{SUPABASE_URL}/rest/v1/fakt_skift",
+                        params={'maskin_id': f"eq.{rad['maskin_id']}",
+                                'datum': f"eq.{rad['datum']}",
+                                'shift_key': f"eq.{rad['shift_key']}",
+                                'select': 'inloggning_tid,utloggning_tid'},
+                        headers=SUPABASE_HEADERS, timeout=30)
+                    bef = resp.json() if resp.ok else []
+                except Exception:
+                    bef = []  # kuvertet är best effort — upserten sker ändå
+                if bef:
+                    bef_in = parse_datetime(bef[0].get('inloggning_tid'))
+                    bef_ut = parse_datetime(bef[0].get('utloggning_tid'))
+                    if bef_in and rad.get('inloggning_tid') and bef_in < rad['inloggning_tid']:
+                        rad['inloggning_tid'] = bef_in
+                    if bef_ut and rad.get('utloggning_tid') and bef_ut > rad['utloggning_tid']:
+                        rad['utloggning_tid'] = bef_ut
+                if rad.get('inloggning_tid') and rad.get('utloggning_tid'):
+                    rad['langd_sek'] = int((rad['utloggning_tid'] - rad['inloggning_tid']).total_seconds())
             if upsert_data('fakt_skift', data['skift'], ['maskin_id', 'datum', 'shift_key']) == 0:
                 logger.warning(f"  Skift-data kunde inte sparas (ej kritiskt)")
 
