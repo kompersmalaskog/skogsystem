@@ -530,7 +530,6 @@ export default function MaskinflyttClient() {
     const { data, error } = await supabase.from('maskin_flytt').insert({
       maskin_id: maskin?.maskin_id ?? null,
       extern_maskin: externMaskin,
-      flytt_typ: flyttTyp,
       flyttdag_id: d.id,
       fran_objekt_id: franObjekt?.id ?? null,
       fran_plats_id: franPlats?.id ?? null,
@@ -765,7 +764,7 @@ export default function MaskinflyttClient() {
     if (f.maskin_id && !m) return
     setMaskin(m ?? null)
     setExternMaskin(f.extern_maskin)
-    setFlyttTyp((f.flytt_typ as FlyttTyp) || (f.extern_maskin ? 'kunduppdrag' : 'produktion'))
+    setFlyttTyp(f.extern_maskin ? 'kunduppdrag' : ((f.flytt_typ as FlyttTyp) || 'produktion'))
     setKund(f.kund ?? '')
     if (f.till_plats_id) {
       supabase.from('flyttplats').select('id, namn, typ, lat, lng, aktiv').eq('id', f.till_plats_id).single()
