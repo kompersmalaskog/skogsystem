@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, Fragment, Children } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useMatchning } from './hooks/useMatchning'
-import { useFildata, filStatus, slaIhopFildata } from './hooks/useFildata'
+import { useFildata, filStatus, slaIhopFildata, harExternSkotning } from './hooks/useFildata'
 import MatchningsVy from './MatchningsVy'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
@@ -92,6 +92,26 @@ function syskonRader(allaObjekt: any[], obj: any): any[] {
   if (!obj?.vo_nummer) return [obj]
   const grupp = allaObjekt.filter(o => o.vo_nummer === obj.vo_nummer)
   return grupp.length > 0 ? grupp : [obj]
+}
+
+// Har VO-gruppen en skotarmaskin som aldrig sänder filer (dim_maskin.
+// sander_filer=false, t.ex. JD810E)? Styr grå prick + proaktiv uppräkning.
+function gruppSkotareSanderEj(syskon: any[], fildata: any): boolean {
+  if (!fildata?.maskinInfo) return false
+  return (syskon || []).some((o: any) => {
+    const mi = fildata.maskinInfo.get(o.maskin_id)
+    return mi?.typ === 'skotare' && mi?.sanderFiler === false
+  })
+}
+
+// Volymer över VO-gruppen för luckvarningen: skördat (lass ingår ej) och
+// skotat = lass + manuellt uppräknad volym. kortInfo kommer från useMatchning.
+function volymForGrupp(allaObjekt: any[], kortInfo: Record<string, any>, obj: any): { skordat: number; skotat: number } {
+  const syskon = syskonRader(allaObjekt, obj)
+  const skordat = syskon.reduce((s: number, o: any) => s + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)
+  const lass = syskon.reduce((s: number, o: any) => s + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0)
+  const manuell = Math.max(0, ...syskon.map((o: any) => Number(o.skotad_volym_manuell) || 0))
+  return { skordat, skotat: lass + manuell }
 }
 
 // Boolean-switchar vars VÄRDE läses tillbaka efter save. Radräkning bevisar
@@ -252,10 +272,22 @@ function formatEndDateDisplay(iso) {
 // Versaliserar första bokstaven
 function capFirst(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
 
-// Konkreta varningar för fält som behöver fixas (oftast import-fel)
-function getWarnings(obj) {
+// Konkreta varningar för fält som behöver fixas (oftast import-fel).
+// volym (skördat/skotat över VO-gruppen) är valfri — anropare med kortInfo
+// skickar den så luckvarningen "skotning klar men 0 m³" kan räknas.
+function getWarnings(obj, volym?: { skordat: number; skotat: number }) {
   if (!obj || obj.exkludera) return []
   const w = []
+
+  // Lucka i timpengstatistiken: skotning avslutad men ingen skotad volym
+  // (varken lass eller manuell) trots skördad volym. Triggar INTE på
+  // nollskördade objekt (ris/grot/test — inget att räkna upp från) eller
+  // egen/extern skotning (annan tar volymen).
+  if (volym && obj.skotning_avslutad
+      && volym.skordat > 0 && volym.skotat <= 0
+      && obj.egen_skotning !== true && !harExternSkotning(obj)) {
+    w.push({ key: 'skotning_noll', text: 'Skotning klar men 0 m³ skotat', target: 'avslut-skotare-section' })
+  }
   if (!obj.huvudtyp) w.push({ key: 'huvudtyp', text: 'Saknar huvudtyp', target: 'huvudtyp-section' })
   if (obj.huvudtyp && !obj.atgard) w.push({ key: 'atgard', text: 'Saknar åtgärd', target: 'atgard-section' })
   if (looksLikeAutoDate(obj.object_name)) w.push({ key: 'autoname', text: 'Autogenererat namn', target: 'object_name-section' })
@@ -846,8 +878,8 @@ function ConfirmDialog({
 }
 
 // Subtila text-badges på listkort med vad som saknas (max 3, +N fler)
-function KortBadges({ obj }) {
-  const warnings = getWarnings(obj)
+function KortBadges({ obj, volym }: any) {
+  const warnings = getWarnings(obj, volym)
   if (warnings.length === 0) return null
   const visible = warnings.slice(0, 3)
   const more = warnings.length - visible.length
@@ -1356,8 +1388,8 @@ function SubSkordare({ obj, set, syskon, onRaderUppdaterade }: any) {
 // Kortindikator: två prickar (skördare, skotare). Grön = data finns,
 // gul = förväntas men saknas, grå = förväntas ej. Ingen text på kortet —
 // detaljerna bor i Filer-undersidan.
-function MaskinPrickar({ obj, rader }: any) {
-  const s = filStatus(obj, rader)
+function MaskinPrickar({ obj, rader, sanderEj }: any) {
+  const s = filStatus(obj, rader, { skotareSanderEjFiler: sanderEj })
   const farg = (st: any) => st === 'data' ? '#30d158' : st === 'saknas' ? '#FF9F0A' : 'rgba(255,255,255,0.18)'
   return (
     <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center', flexShrink: 0 }} aria-label="Fildata skördare/skotare">
@@ -1370,7 +1402,7 @@ function MaskinPrickar({ obj, rader }: any) {
 // UNDERSIDA: Filer — vilka maskinfiler som bär objektets data, per maskinslag.
 // Datumet är primärsignalen; antal/typer är dämpad sekundärrad. Statusraden
 // överst knyter ihop förväntan (egenskaperna) med vad som faktiskt kommit in.
-function SubFiler({ obj, rader, hamtStatus }: any) {
+function SubFiler({ obj, rader, hamtStatus, skotareSanderEj }: any) {
   if (hamtStatus === 'fel') {
     return (
       <IosGroup title="Filer">
@@ -1386,7 +1418,7 @@ function SubFiler({ obj, rader, hamtStatus }: any) {
     )
   }
 
-  const s = filStatus(obj, rader)
+  const s = filStatus(obj, rader, { skotareSanderEjFiler: skotareSanderEj })
   const alla = rader || []
   const skordare = alla.filter((r: any) => r.typ === 'skordare')
   const skotare = alla.filter((r: any) => r.typ === 'skotare')
@@ -1601,9 +1633,20 @@ function SubSkotning({ obj, set }: any) {
 // avslut. Färdigskotat-knappen skriver direkt till DB (ärlig sparning med
 // radräkning) och speglas i snapshotet via onRaderUppdaterade så den inte
 // räknas som osparad ändring.
-function SubSkotare({ obj, set, info, skordatTotal, syskon, onRaderUppdaterade }: any) {
+function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAvslutad, skotareSanderEj, syskon, onRaderUppdaterade }: any) {
   const [fardigskotat, setFardigskotat] = useState({ sparar: false, fel: '' })
   const radMaskinTyp = (obj.maskin_typ || '').toLowerCase()
+
+  // Proaktiv uppräkningsfråga: (skotning avslutad ELLER icke-filsändande
+  // skotare) OCH (lass + manuell) < skördat. Skrivningen är samma verifierade
+  // färdigskotat-knapp nedanför — frågan pekar bara på den.
+  const manuellMax = Math.max(0, ...(syskon && syskon.length ? syskon : [obj]).map((o: any) => Number(o.skotad_volym_manuell) || 0))
+  const totSkotat = Math.round((Number(skotatTotal) || 0) + manuellMax)
+  const totSkordat = Math.round(Number(skordatTotal) || 0)
+  const skotningKlarDatum = (syskon && syskon.length ? syskon : [obj])
+    .map((o: any) => o.skotning_avslutad).filter(Boolean).sort().slice(-1)[0] || null
+  const visaUpprakningsFraga = (gruppSkotningAvslutad || skotareSanderEj)
+    && totSkordat > 0 && totSkotat < totSkordat
 
   const skotningWarning = (() => {
     if (!obj.skotning_avslutad) return null
@@ -1632,6 +1675,13 @@ function SubSkotare({ obj, set, info, skordatTotal, syskon, onRaderUppdaterade }
             <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span> <span style={{ color: 'rgba(255,255,255,0.35)' }}>(lass)</span></>
           )}
         </div>
+        {visaUpprakningsFraga && (
+          <div style={{ ...styles.validationWarning, margin: '0 0 10px' }}>
+            {gruppSkotningAvslutad
+              ? `Skotning klar${skotningKlarDatum ? ` ${fmtKortDatum(skotningKlarDatum)}` : ''} men ${totSkotat.toLocaleString('sv-SE')} m³ skotat — rapportera upp till skördad volym (${totSkordat.toLocaleString('sv-SE')} m³)?`
+              : `Skotaren sänder inte filer — rapportera upp till skördad volym (${totSkordat.toLocaleString('sv-SE')} m³)?`}
+          </div>
+        )}
         {(() => {
           const manuell = (Number(obj.skotad_volym_manuell) || 0) > 0
           const volymAttSatta = Math.round(Number(skordatTotal) || 0)
@@ -1715,7 +1765,7 @@ function SubSkotare({ obj, set, info, skordatTotal, syskon, onRaderUppdaterade }
 // ÖVERSIKTSSIDAN i sheeten: progressrad -> "Måste fyllas i" (öppna rader) ->
 // "Mer om objektet" (undersidor) -> Exkludera. De obligatoriska fälten
 // redigeras direkt här; allt annat nås via NavRad + oppnaSub.
-function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, filRader, filHamtStatus }: any) {
+function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, filRader, filHamtStatus, gruppSkotningAvslutad, skotareSanderEj }: any) {
   const isGallring = obj.huvudtyp === 'Gallring'
   const atgarder = isGallring ? atgarderGallring : atgarderSlut
   const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
@@ -1734,7 +1784,10 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
   const harSkotarData = (info?.skotatM3 ?? 0) > 0 || (Number(obj.skotad_volym_manuell) || 0) > 0
   const ingenData = !harSkordarData && !harSkotarData
   const visaSkordare = harSkordarData || ingenData
-  const visaSkotare = harSkotarData || ingenData
+  // Skotare-raden syns även utan data när skotningen är avslutad eller
+  // skotarmaskinen aldrig sänder filer — uppräkningen måste vara nåbar
+  // från noll (Åkarp-fallet: skotad utan en enda lassrad)
+  const visaSkotare = harSkotarData || ingenData || !!gruppSkotningAvslutad || !!skotareSanderEj
 
   const requestHuvudtyp = (v: any) => {
     if (v === obj.huvudtyp) { setOppetFalt(null); return }
@@ -1778,7 +1831,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
     warn: false,
   }
 
-  const fil = filStatus(obj, filRader)
+  const fil = filStatus(obj, filRader, { skotareSanderEjFiler: skotareSanderEj })
   const antalFiler = (filRader || []).reduce((sum: number, r: any) => sum + (r.antalFiler || 0), 0)
   const filerSum = filHamtStatus === 'fel' ? { text: 'Kunde inte läsas', warn: true }
     : filHamtStatus === 'laddar' ? { text: 'Läser …', warn: false }
@@ -1920,6 +1973,9 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   const syskon = valtObjekt ? syskonRader(objekt, valtObjekt) : []
   const info = valtObjekt ? kortInfo[valtObjekt.objekt_id] : null
   const skordatTotal = syskon.reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)
+  const skotatTotal = syskon.reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0)
+  const gruppSkotningAvslutad = syskon.some((o: any) => !!o.skotning_avslutad)
+  const skotareSanderEj = gruppSkotareSanderEj(syskon, fildata)
 
   // Gäller ALLA stängningsvägar (✕, Esc, drag, backdrop) — även från undersida
   const attemptCloseModal = () => {
@@ -2000,17 +2056,18 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
             atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut}
             atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring}
             info={info} filRader={filRader} filHamtStatus={fildata?.status || 'laddar'}
+            gruppSkotningAvslutad={gruppSkotningAvslutad} skotareSanderEj={skotareSanderEj}
           />
         )}
         {valtObjekt && subpage === 'filer' && (
-          <SubFiler obj={valtObjekt} rader={filRader} hamtStatus={fildata?.status || 'laddar'} />
+          <SubFiler obj={valtObjekt} rader={filRader} hamtStatus={fildata?.status || 'laddar'} skotareSanderEj={skotareSanderEj} />
         )}
         {valtObjekt && subpage === 'identitet' && (
           <SubIdentitet obj={valtObjekt} set={setValtObjekt} inkopare={inkopare} setInkopare={setInkopare} listAtgarder={listAtgarder} />
         )}
         {valtObjekt && subpage === 'skordare' && <SubSkordare obj={valtObjekt} set={setValtObjekt} syskon={syskon} onRaderUppdaterade={raderUppdaterade} />}
         {valtObjekt && subpage === 'skotare' && (
-          <SubSkotare obj={valtObjekt} set={setValtObjekt} info={info} skordatTotal={skordatTotal} syskon={syskon} onRaderUppdaterade={raderUppdaterade} />
+          <SubSkotare obj={valtObjekt} set={setValtObjekt} info={info} skordatTotal={skordatTotal} skotatTotal={skotatTotal} gruppSkotningAvslutad={gruppSkotningAvslutad} skotareSanderEj={skotareSanderEj} syskon={syskon} onRaderUppdaterade={raderUppdaterade} />
         )}
         {valtObjekt && subpage === 'skotning' && <SubSkotning obj={valtObjekt} set={setValtObjekt} />}
         {valtObjekt && subpage === 'pris' && <SubPris obj={valtObjekt} set={setValtObjekt} />}
@@ -2119,7 +2176,7 @@ function hittaKandidater(jobb: any, objekt: any[]): any[] {
 // maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
 // eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
 // med två åtgärder: Namnge (öppnar sheeten) eller Ignorera (exkludera).
-function ArbetsKort({ obj, info, modell, fildata, filRader, onOppna, onIgnorera, delay }: any) {
+function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, onOppna, onIgnorera, delay }: any) {
   const namnlos = !obj.object_name
   const meta = []
   if (modell) meta.push(modell)
@@ -2142,11 +2199,11 @@ function ArbetsKort({ obj, info, modell, fildata, filRader, onOppna, onIgnorera,
             )}
             <div style={styles.kortVo}>{obj.vo_nummer}</div>
           </div>
-          {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={filRader} />}
+          {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={filRader} sanderEj={sanderEj} />}
           <div style={styles.kortPil}>›</div>
         </div>
         {meta.length > 0 && <div style={styles.kortInfo}>{meta.join(' · ')}</div>}
-        <KortBadges obj={obj} />
+        <KortBadges obj={obj} volym={volym} />
         {namnlos && (
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
             <button onClick={onOppna} className="tap-press" style={{ ...knapp, border: 'none', background: '#adc6ff', color: '#000' }}>Namnge</button>
@@ -2298,7 +2355,7 @@ export default function ObjektRedigering() {
   // Listans längd ÄR statusen — ingen procentring.
   const namnlosa = aktiva.filter(o => !o.object_name)
   const ofullstandiga = aktiva
-    .filter(o => o.object_name && getWarnings(o).length > 0)
+    .filter(o => o.object_name && getWarnings(o, volymForGrupp(objekt, kortInfo, o)).length > 0)
     .sort((a, b) => (kortInfo[b.objekt_id]?.senasteAktivitet || '').localeCompare(kortInfo[a.objekt_id]?.senasteAktivitet || ''))
   const attAtgarda = [...namnlosa, ...ofullstandiga]
 
@@ -2526,6 +2583,8 @@ export default function ObjektRedigering() {
               modell={maskiner[obj.maskin_id]}
               fildata={fildata}
               filRader={filRaderGrupp(obj)}
+              sanderEj={gruppSkotareSanderEj(syskonRader(objekt, obj), fildata)}
+              volym={volymForGrupp(objekt, kortInfo, obj)}
               delay={i * 60}
               onOppna={() => openObjekt(obj)}
               onIgnorera={() => ignoreraObjekt(obj)}
@@ -2776,14 +2835,14 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
                   <div style={obj.object_name ? styles.kortNamn : { ...styles.kortNamn, color: '#FF9F0A' }}>{obj.object_name || 'Namnlöst objekt'}</div>
                   <div style={styles.kortVo}>{obj.vo_nummer}</div>
                 </div>
-                {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={slaIhopFildata(syskonRader(objekt, obj).map((o: any) => fildata.perObjekt.get(o.objekt_id)))} />}
+                {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={slaIhopFildata(syskonRader(objekt, obj).map((o: any) => fildata.perObjekt.get(o.objekt_id)))} sanderEj={gruppSkotareSanderEj(syskonRader(objekt, obj), fildata)} />}
                 <div style={styles.kortPil}>›</div>
               </div>
               <div style={styles.kortInfo}>
                 {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]} · </span>}
                 {obj.huvudtyp} · {obj.bolag} · {obj.atgard}
               </div>
-              <KortBadges obj={obj} />
+              <KortBadges obj={obj} volym={volymForGrupp(objekt, kortInfo, obj)} />
               <div style={styles.kortMeta}>{obj.skogsagare}</div>
             </div>
           </AnimatedCard>
