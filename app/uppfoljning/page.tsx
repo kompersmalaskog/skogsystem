@@ -36,17 +36,29 @@ function kvarM3(o: UppfoljningObjekt): number {
 
 type Sektion = 'skordare' | 'oskotat' | 'ovrigt' | 'avslutade';
 
+// Brytdatum: första dagen lassregistrering fanns i systemet (MIN fakt_lass.datum).
+// Objekt avverkade FÖRE detta hann aldrig få lassdata → 0 lass betyder
+// "skotad utan lassdata" (historiskt, markera färdig). Objekt avverkade EFTER
+// → 0 lass betyder bara att skotaren inte hunnit dit, virket ligger genuint
+// oskotat på backen. Utan brytdatum skulle ett nyavverkat objekt felaktigt
+// hamna i "markera färdig" innan skotaren ens börjat.
+const LASSDATA_START = '2025-12-11';
+
 // EXKLUSIV sektionsindelning: varje icke-exkluderat objekt hamnar i EXAKT en
 // sektion. Ordningen är avgörande (else-if-kedja). Avslutat = SKOTNINGEN klar
-// (inte skördning). Oskotat = kvar-volym MED registrerade lass (skotning
-// pågår genuint). Allt annat → Övrigt, med ärlig text (ovrigtText).
+// (inte skördning). Allt annat → Övrigt, med ärlig text (ovrigtText).
 function sektionAv(o: UppfoljningObjekt): Sektion {
   const seven = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
   const skordareAktiv = !!(o.skordareLastDate && o.skordareLastDate >= seven);
   if (skordareAktiv && !o.skotningAvslutad) return 'skordare';
   if (o.skotningAvslutad) return 'avslutade';
   if (o.externSkotning) return 'ovrigt';
-  if (kvarM3(o) > 0 && o.antalLass > 0) return 'oskotat';
+  if (kvarM3(o) > 0) {
+    if (o.antalLass > 0) return 'oskotat';
+    // 0 lass: efter brytdatum = genuint oskotat (skotaren ej börjat än);
+    // före = historiskt objekt som skotades innan lassregistreringen.
+    if (o.sistaAvverkning && o.sistaAvverkning >= LASSDATA_START) return 'oskotat';
+  }
   return 'ovrigt';
 }
 
