@@ -166,10 +166,32 @@ export type Data = {
 // ─────────────────────────────────────────────────────────────
 // Datahämtning — slim, separat per tabell
 // ─────────────────────────────────────────────────────────────
+// Tabeller med RLS som blockerar förare — rutats via SECURITY DEFINER-RPC.
+// Direkta SELECT-anrop från andra vyer (ekonomi, uppföljning) träffas
+// fortfarande av operator_id-filtret — RLS-policyerna är OFÖRÄNDRADE.
+const MASKINVY_RPC: Record<string, string> = {
+  fakt_produktion: 'maskindata_produktion',
+  fakt_tid:        'maskindata_tid',
+  fakt_avbrott:    'maskindata_avbrott',
+  fakt_lass:       'maskindata_lass',
+}
+
 export async function fetchAll(
   table: string, sel: string, ids: string[], start: string, end: string,
   operatorId?: string,
 ): Promise<any[]> {
+  const rpcName = MASKINVY_RPC[table]
+  if (rpcName) {
+    const { data } = await supabase.rpc(rpcName, {
+      p_maskin_ids:  ids,
+      p_datum_start: start,
+      p_datum_slut:  end,
+    })
+    let rows: any[] = data || []
+    if (operatorId) rows = rows.filter(r => r.operator_id === operatorId)
+    return rows
+  }
+  // Övriga tabeller — ingen RLS-blockering, direkt SELECT med pagination.
   const PAGE = 1000
   let rows: any[] = []
   let off = 0

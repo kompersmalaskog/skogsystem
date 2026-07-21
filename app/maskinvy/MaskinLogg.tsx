@@ -67,8 +67,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
     if (!selectedMaskin) return;
     const [loggRes, tidRes] = await Promise.all([
       supabase.from('maskin_logg').select('*').eq('maskin_id', selectedMaskin).order('datum', { ascending: false }),
-      supabase.from('fakt_tid').select('datum, processing_sek, terrain_sek, other_work_sek')
-        .eq('maskin_id', selectedMaskin).order('datum'),
+      supabase.rpc('maskindata_tid', { p_maskin_ids: [selectedMaskin] }),
     ]);
     if (loggRes.data) setLogg(loggRes.data);
 
@@ -81,8 +80,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
         byDay[r.datum].g15 += (r.processing_sek || 0) + (r.terrain_sek || 0);
       }
       // Also get production volumes
-      const prodRes = await supabase.from('fakt_produktion').select('datum, volym_m3sub')
-        .eq('maskin_id', selectedMaskin).order('datum');
+      const prodRes = await supabase.rpc('maskindata_produktion', { p_maskin_ids: [selectedMaskin] });
       if (prodRes.data) {
         for (const r of prodRes.data) {
           if (!byDay[r.datum]) byDay[r.datum] = { g15: 0 };

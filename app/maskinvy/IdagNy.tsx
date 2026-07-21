@@ -144,10 +144,17 @@ type IdagData = {
 
 // ── Datahämtning ─────────────────────────────────────────────
 
-/** Paginerad SELECT med eq('datum', datum) — aldrig joinar fakt_produktion + fakt_tid */
+/** Paginerad hämtning — fakt_produktion och fakt_tid via RPC (kringgår RLS), övriga direkt. */
 async function fetchPaged(
   table: string, sel: string, ids: string[], datum: string,
 ): Promise<any[]> {
+  if (table === 'fakt_produktion' || table === 'fakt_tid') {
+    const rpcName = table === 'fakt_produktion' ? 'maskindata_produktion' : 'maskindata_tid'
+    const { data } = await supabase.rpc(rpcName, {
+      p_maskin_ids: ids, p_datum_start: datum, p_datum_slut: datum,
+    })
+    return data || []
+  }
   const PAGE = 1000
   let rows: any[] = [], off = 0
   while (true) {
@@ -185,13 +192,11 @@ async function fetchDetaljStam(ids: string[], datum: string): Promise<any[]> {
   return rows
 }
 
-/** fakt_avbrott — alla avbrott för aktuell dag, bucketas på starttimme (klockslag) */
+/** fakt_avbrott — alla avbrott för aktuell dag via RPC (kringgår RLS), bucketas på starttimme */
 async function fetchAvbrottForDay(ids: string[], datum: string): Promise<any[]> {
-  const { data, error } = await supabase
-    .from('fakt_avbrott')
-    .select('klockslag, langd_sek, typ, kategori_kod')
-    .in('maskin_id', ids)
-    .eq('datum', datum)
+  const { data, error } = await supabase.rpc('maskindata_avbrott', {
+    p_maskin_ids: ids, p_datum_start: datum, p_datum_slut: datum,
+  })
   if (error) throw error
   return data || []
 }
@@ -214,13 +219,9 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
 
   // Steg 1: Hitta senaste datum + skapad_tid — visar hur färsk datan är.
   // ORDER BY datum DESC, skapad_tid DESC → senaste dag + senast importerade raden.
-  const { data: latestRows } = await supabase
-    .from('fakt_produktion')
-    .select('datum, skapad_tid')
-    .in('maskin_id', ids)
-    .order('datum', { ascending: false })
-    .order('skapad_tid', { ascending: false })
-    .limit(1)
+  const { data: latestRows } = await supabase.rpc('maskindata_produktion_senaste', {
+    p_maskin_ids: ids,
+  })
 
   if (!latestRows || latestRows.length === 0) return null
 
