@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
+import { arDagAvslutad } from "@/lib/arbetsdagStall";
 
 /**
  * Processar notis_kö — hämtar alla rader där skickas_at <= now() och
@@ -40,6 +41,7 @@ async function flush() {
   let skickade = 0;
   let fel = 0;
   let skippade = 0;
+  let uppskjutna = 0;
 
   for (const n of (pendingRader || [])) {
     try {
@@ -48,7 +50,7 @@ async function flush() {
       if (n.typ === "dagsslut" && n.datum) {
         const { data: dag } = await supabase
           .from("arbetsdag")
-          .select("bekraftad")
+          .select("bekraftad, slut_tid")
           .eq("medarbetare_id", n.mottagare_id)
           .eq("datum", n.datum)
           .maybeSingle();
@@ -58,6 +60,15 @@ async function flush() {
             fel_meddelande: "Ej skickad — dagen var redan bekräftad",
           }).eq("id", n.id);
           skippade++;
+          continue;
+        }
+        // Stall-vakt: timvisa MOM-filer sätter slut_tid redan på morgonen —
+        // skicka inte "dagen är slut" mitt i pågående dag. Raden lämnas
+        // OSKICKAD (ingen markering): cronen var 5:e minut försöker igen
+        // och skickar av sig själv ~STALL_MIN efter dagens sista fil.
+        // Gårdagar är per definition avslutade och går direkt.
+        if (dag?.slut_tid && !arDagAvslutad(n.datum, dag.slut_tid)) {
+          uppskjutna++;
           continue;
         }
       }
@@ -114,6 +125,7 @@ async function flush() {
     totalt: pendingRader?.length || 0,
     skickade,
     skippade,
+    uppskjutna,
     fel,
   });
 }
