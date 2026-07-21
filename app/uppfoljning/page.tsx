@@ -36,13 +36,13 @@ function kvarM3(o: UppfoljningObjekt): number {
 
 type Sektion = 'skordare' | 'oskotat' | 'ovrigt' | 'avslutade';
 
-// Brytdatum: första dagen lassregistrering fanns i systemet (MIN fakt_lass.datum).
-// Objekt avverkade FÖRE detta hann aldrig få lassdata → 0 lass betyder
-// "skotad utan lassdata" (historiskt, markera färdig). Objekt avverkade EFTER
-// → 0 lass betyder bara att skotaren inte hunnit dit, virket ligger genuint
-// oskotat på backen. Utan brytdatum skulle ett nyavverkat objekt felaktigt
-// hamna i "markera färdig" innan skotaren ens börjat.
-const LASSDATA_START = '2025-12-11';
+// Brytdatum: historiken färdigmarkerades i DB detta datum — från och med nu
+// är lassdata + färdigmarkering (skotning_avslutad) sanningskällorna. Objekt
+// avverkade FÖRE detta med 0 lass är historiska (skotades utan lassregistrering)
+// → Övrigt "skotad utan lassdata". Objekt avverkade EFTER → 0 lass betyder bara
+// att skotaren inte hunnit dit, virket ligger genuint oskotat på backen. Utan
+// brytdatum skulle ett nyavverkat objekt felaktigt hamna i "markera färdig".
+const LASSDATA_START = '2026-07-21';
 
 // EXKLUSIV sektionsindelning: varje icke-exkluderat objekt hamnar i EXAKT en
 // sektion. Ordningen är avgörande (else-if-kedja). Avslutat = SKOTNINGEN klar

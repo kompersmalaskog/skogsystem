@@ -206,10 +206,16 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             if (l) { stVol += l.vol; stCount += l.count; }
           }
           // Manuellt angiven skotad volym (dim_objekt.skotad_volym_manuell)
-          // gäller FÖRE lass-summan — skotaren registrerar inte alltid lass.
+          // TRUMFAR lass-summan — skotaren registrerar inte alltid lass, och en
+          // mänsklig rapport vinner över ofullständig lassdata. Gäller så snart
+          // fältet är SATT (även = 0: "0 skotat, bekräftat" vinner över lass).
           // Källan följer med till UI:t så det alltid syns att den är manuell.
-          const manuellVolym = Math.max(0, ...entries.map((e: any) => Number(e.skotad_volym_manuell) || 0));
-          const skotatArManuell = manuellVolym > 0;
+          const manuellRader = entries
+            .map((e: any) => e.skotad_volym_manuell)
+            .filter((v: any) => v != null)
+            .map((v: any) => Number(v) || 0);
+          const skotatArManuell = manuellRader.length > 0;
+          const manuellVolym = skotatArManuell ? Math.max(0, ...manuellRader) : 0;
 
           if (stCount === 0 && skotareEntry) {
             const seenFb = new Set<string>();
