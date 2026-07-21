@@ -100,6 +100,21 @@ export default function TopBar() {
       }}>
         {pageName}
       </span>
+
+      {/* Diskret bygg-tagg — för att i fält kunna se VILKEN version som laddats (t.ex.
+          verifiera att "Ladda om" faktiskt gav en ny). Dold på / och /planering (ingen TopBar). */}
+      <span aria-hidden="true" style={{
+        position: 'absolute',
+        right: 12,
+        bottom: 5,
+        fontSize: 9,
+        color: 'rgba(255,255,255,0.28)',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        letterSpacing: 0.2,
+        pointerEvents: 'none',
+      }}>
+        {(process.env.NEXT_PUBLIC_BUILD_SHA || 'dev').slice(0, 7)}
+      </span>
     </header>
   )
 }

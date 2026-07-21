@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import TopBar from '../components/TopBar'
 import PushRegister from '../components/PushRegister'
+import VersionChecker from '../components/VersionChecker'
 import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
 
 export const metadata: Metadata = {
@@ -45,6 +46,7 @@ export default function RootLayout({
       </head>
       <body style={{ margin: 0, padding: 0 }}>
         <TopBar />
+        <VersionChecker />
         <PushRegister />
         <CurrentMedarbetareProvider>
           <div style={{ paddingTop: 'calc(56px + env(safe-area-inset-top))' }}>
