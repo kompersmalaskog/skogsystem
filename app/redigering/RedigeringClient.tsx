@@ -94,18 +94,38 @@ function syskonRader(allaObjekt: any[], obj: any): any[] {
   return grupp.length > 0 ? grupp : [obj]
 }
 
-// Direktuppdatering med ÄRLIG sparning: .select() och räkna träffade rader.
+// Boolean-switchar vars VÄRDE läses tillbaka efter save. Radräkning bevisar
+// att en rad rördes — inte att switchen faktiskt landade i den. En stale
+// klient som utelämnar fältet, ett RLS-partiellt skriv eller en felroutad
+// fältklass ger rätt radantal men fel värde: "ser sparad ut men är det inte".
+// Just den tysta lögnen ska switchar aldrig kunna bära igen.
+const VERIFIERA_BOOL = ['grot_anpassad', 'timpeng', 'exkludera', 'stubbbehandling',
+  'risskotning', 'egen_skotning', 'extra_vagn', 'klippning',
+  'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']
+
+// Direktuppdatering med ÄRLIG sparning: .select() räknar träffade rader OCH
+// läser tillbaka boolean-switcharnas faktiska värde (se VERIFIERA_BOOL).
 async function direktPatchDimObjekt(ids: string[], patch: any): Promise<{ ok: boolean; message: string }> {
   if (ids.length === 0) return { ok: true, message: '' }
+  const boolFalt = Object.keys(patch).filter(f => VERIFIERA_BOOL.includes(f))
+  const selectCols = ['objekt_id', ...boolFalt].join(',')
   const { data, error } = await supabase
     .from('dim_objekt')
     .update(patch)
     .in('objekt_id', ids)
-    .select('objekt_id')
+    .select(selectCols)
   if (error) return { ok: false, message: 'Kunde inte spara: ' + error.message }
   const traffade = (data || []).length
   if (traffade !== ids.length) {
     return { ok: false, message: `Bara ${traffade} av ${ids.length} rader uppdaterades — objektet är INTE komplett sparat` }
+  }
+  // Värdeverifiering: bekräfta att varje switch faktiskt fick sitt värde i DB.
+  for (const rad of data as any[]) {
+    for (const f of boolFalt) {
+      if ((rad[f] === true) !== (patch[f] === true)) {
+        return { ok: false, message: `"${f}" sparades inte — värdet står kvar som ${rad[f] === true}. Ladda om sidan och försök igen.` }
+      }
+    }
   }
   return { ok: true, message: '' }
 }
