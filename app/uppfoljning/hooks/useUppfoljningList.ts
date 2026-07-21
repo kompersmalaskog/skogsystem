@@ -226,7 +226,13 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           const stStart = skotareEntry?.start_date || null;
           const stSlut = skotareEntry?.end_date || skotareEntry?.skotning_avslutad || null;
 
-          const allDone = entries.every((e: any) => e.end_date || e.skordning_avslutad || e.skotning_avslutad);
+          // Skördning klar ≠ avslutat. Ett objekt är AVSLUTAT först när
+          // SKOTNINGEN är markerad klar (skotning_avslutad). Ett skördning-
+          // klart men oskotat objekt är pågående — annars sväljs oskotat-
+          // våningen och objekten hamnar felaktigt bland avslutade.
+          const skordningKlar = entries.some((e: any) => e.skordning_avslutad != null || e.end_date != null);
+          const skotningKlar = entries.some((e: any) => e.skotning_avslutad != null);
+          const allDone = skotningKlar;
 
           const earliestStart = [skStart, stStart].filter(Boolean).sort()[0] || null;
           const latestEnd = [skSlut, stSlut].filter(Boolean).sort().reverse()[0] || null;
@@ -289,6 +295,8 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             dieselTotal: 0, // visas inte på förstasidan; detaljvyn hämtar sitt eget
             dagar,
             status: allDone ? 'avslutat' : 'pagaende',
+            skordningAvslutad: skordningKlar,
+            skotningAvslutad: skotningKlar,
             egenSkotning: entries.some((e: any) => e.egen_skotning === true),
             grotSkotning: entries.some((e: any) => e.risskotning === true),
             grotAnpassad: entries.some((e: any) => e.grot_anpassad === true),

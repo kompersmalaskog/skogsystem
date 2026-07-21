@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { type UppfoljningObjekt } from './lib/transform';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
-import { uppfoljningStatus } from '@/lib/uppfoljning/status';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
 
 /* ── Design tokens (V6) ── */
@@ -30,11 +29,37 @@ function fmtDate(d: string | null): string {
   if (!d) return '';
   return new Date(d).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
 }
-const v6Status = (obj: UppfoljningObjekt) =>
-  uppfoljningStatus({ ...obj, skordat: obj.volymSkordare, skotat: obj.volymSkotare });
 
 function kvarM3(o: UppfoljningObjekt): number {
   return Math.max(0, o.volymSkordare - o.volymSkotare);
+}
+
+type Sektion = 'skordare' | 'oskotat' | 'ovrigt' | 'avslutade';
+
+// EXKLUSIV sektionsindelning: varje icke-exkluderat objekt hamnar i EXAKT en
+// sektion. Ordningen är avgörande (else-if-kedja). Avslutat = SKOTNINGEN klar
+// (inte skördning). Oskotat = kvar-volym MED registrerade lass (skotning
+// pågår genuint). Allt annat → Övrigt, med ärlig text (ovrigtText).
+function sektionAv(o: UppfoljningObjekt): Sektion {
+  const seven = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const skordareAktiv = !!(o.skordareLastDate && o.skordareLastDate >= seven);
+  if (skordareAktiv && !o.skotningAvslutad) return 'skordare';
+  if (o.skotningAvslutad) return 'avslutade';
+  if (o.externSkotning) return 'ovrigt';
+  if (kvarM3(o) > 0 && o.antalLass > 0) return 'oskotat';
+  return 'ovrigt';
+}
+
+// Ärlig statustext för Övrigt-raden — objektet är aldrig i limbo, det står
+// utskrivet VARFÖR det ligger här och vad som väntas.
+function ovrigtText(o: UppfoljningObjekt): string {
+  if (o.externSkotning) return 'Skotas externt';
+  if (o.volymSkordare === 0) return 'Ingen produktionsdata än';
+  const kvar = kvarM3(o);
+  if (kvar > 0 && o.antalLass === 0 && o.skordningAvslutad) return 'Skotad utan lassdata — markera färdig';
+  if (kvar > 0 && o.antalLass === 0) return 'Avverkat — väntar på skotning';
+  if (kvar === 0 && !o.skotningAvslutad) return 'Klar — markera avslutad';
+  return 'Övrigt';
 }
 function typLabel(o: UppfoljningObjekt): string {
   return o.typ === 'gallring' ? 'Gallring' : 'Slutavverkning';
@@ -297,8 +322,7 @@ function Ovrigt({ objekt, onSelect }: { objekt: UppfoljningObjekt[]; onSelect: (
       <GroupHeader title="Övrigt" count={objekt.length} />
       <div style={{ margin: '0 16px 4px', background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
         {objekt.map((o, i) => {
-          const s = v6Status(o);
-          const info = o.externSkotning ? 'Skotas externt' : s.t;
+          const info = ovrigtText(o);
           return (
             <button key={o.skordareObjektId || o.skotareObjektId || o.vo_nummer} onClick={() => onSelect(o)} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 52, padding: '11px 16px', gap: 12, background: 'transparent', border: 'none', textAlign: 'left', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -407,31 +431,40 @@ export default function UppfoljningPage() {
   };
   const matchTyp = (o: UppfoljningObjekt) => vald === 'slutavverkning' ? o.typ === 'slutavverkning' : vald === 'gallring' ? o.typ === 'gallring' : true;
 
-  // ── Buckets ──
+  // ── Sektioner: tilldela varje objekt EN sektion, EN gång (invarianten) ──
+  const sektioner = useMemo(() => {
+    const b: Record<Sektion, UppfoljningObjekt[]> = { skordare: [], oskotat: [], ovrigt: [], avslutade: [] };
+    for (const o of objekt) b[sektionAv(o)].push(o);
+    // Larm ska larma: om summan inte går ihop tappas objekt mellan stolarna.
+    if (process.env.NODE_ENV !== 'production') {
+      const t = b.skordare.length + b.oskotat.length + b.ovrigt.length + b.avslutade.length;
+      if (t !== objekt.length) {
+        // eslint-disable-next-line no-console
+        console.warn(`[uppfoljning] sektionssumma ${t} ≠ ${objekt.length} icke-exkluderade objekt — någon faller mellan stolarna`);
+      }
+    }
+    return b;
+  }, [objekt]);
+
   // Ris-urval (C): grot-anpassat, har stamvolym, grot inte hämtad.
   const risAlla = useMemo(() => objekt.filter(o => o.grotAnpassad && o.volymSkordare > 0 && !o.grotHamtad), [objekt]);
 
-  // Kort-summor (över ALLA objekt — korten är filterkällan, inte filtrerade).
-  const oskotatEligible = (o: UppfoljningObjekt) => o.status !== 'avslutat' && !o.externSkotning && v6Status(o).k !== 'skordare' && kvarM3(o) > 0;
+  // Kort-summor ur OSKOTAT-bucketen (genuint på backen) per typ — korten är
+  // filterkällan. Ärlig nolla: typ utan oskotade objekt → 0 obj → kortet visar "—".
   const kort = useMemo(() => {
     let sM3 = 0, sN = 0, gM3 = 0, gN = 0;
-    for (const o of objekt) {
-      if (!oskotatEligible(o)) continue;
+    for (const o of sektioner.oskotat) {
       if (o.typ === 'gallring') { gM3 += kvarM3(o); gN++; } else { sM3 += kvarM3(o); sN++; }
     }
     const risM3 = risAlla.reduce((a, o) => a + (uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0), 0);
     return { sM3, sN, gM3, gN, risM3, risN: risAlla.length };
-  }, [objekt, risAlla, grotFaktor]);
+  }, [sektioner, risAlla, grotFaktor]);
 
-  const synliga = useMemo(() => objekt.filter(o => matchSok(o) && matchTyp(o)), [objekt, sok, vald]);
-  const skordareKor = useMemo(() => synliga.filter(o => v6Status(o).k === 'skordare'), [synliga]);
-  const oskotat = useMemo(() => synliga.filter(oskotatEligible), [synliga]);
-  const avslutade = useMemo(() => objekt.filter(o => o.status === 'avslutat' && matchSok(o) && matchTyp(o)), [objekt, sok, vald]);
-  const ovrigt = useMemo(() => {
-    const iSkord = new Set(skordareKor);
-    const iOskot = new Set(oskotat);
-    return synliga.filter(o => o.status !== 'avslutat' && !iSkord.has(o) && !iOskot.has(o));
-  }, [synliga, skordareKor, oskotat]);
+  const passar = (o: UppfoljningObjekt) => matchSok(o) && matchTyp(o);
+  const skordareKor = useMemo(() => sektioner.skordare.filter(passar), [sektioner, sok, vald]);
+  const oskotat = useMemo(() => sektioner.oskotat.filter(passar), [sektioner, sok, vald]);
+  const ovrigt = useMemo(() => sektioner.ovrigt.filter(passar), [sektioner, sok, vald]);
+  const avslutade = useMemo(() => sektioner.avslutade.filter(passar), [sektioner, sok, vald]);
 
   const risSynlig = useMemo(() => risAlla.filter(matchSok), [risAlla, sok]);
   const inget = !loading && !error && vald !== 'ris' && skordareKor.length === 0 && oskotat.length === 0 && ovrigt.length === 0;

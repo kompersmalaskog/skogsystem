@@ -34,6 +34,10 @@ export interface UppfoljningObjekt {
   dieselTotal: number;
   dagar: number | null;
   status: 'pagaende' | 'avslutat';
+  // Skördning/skotning klar-signaler (explicit, för sektionsindelningen).
+  // status='avslutat' = skotningen klar; skördning klar ensamt är INTE avslutat.
+  skordningAvslutad: boolean;
+  skotningAvslutad: boolean;
   egenSkotning: boolean;
   grotSkotning: boolean;
   // GROT-anpassat avverkningsobjekt (dim_objekt.grot_anpassad). Skild från
