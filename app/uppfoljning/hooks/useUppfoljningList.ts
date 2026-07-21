@@ -59,44 +59,29 @@ export function useUppfoljningList(): UseUppfoljningListResult {
       setError(null);
 
       try {
-        const [dimObjektRes, dimMaskinRes, objektTblRes, exkluderade] = await Promise.all([
+        // Volym SUMMERAS I DB via aggregat-vyer (en rad per objekt_id) — INTE
+        // genom att hämta 8000+ råa fakt-rader och summera i klienten. Den råa
+        // vägen trunkerades tyst vid PostgREST 1000-radstaket och gav dessutom
+        // icke-deterministiska summor när importen skrev under paginering.
+        // prod-vyns maskiner = skördare (producerar), lass-vyns = skotare.
+        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, exkluderade] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
           supabase.from('objekt').select('vo_nummer, markagare, areal, typ, skotare_maskin_id'),
+          supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub, stammar, sista_datum, maskin_ids'),
+          supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, antal_lass, sista_datum, maskin_ids'),
           hamtaExkluderadeObjektId(),
         ]);
+
+        // Ett fel på någon källa får ALDRIG se ut som tom lista.
+        const forstaFel = dimObjektRes.error || dimMaskinRes.error || objektTblRes.error || prodRes.error || lassRes.error;
+        if (forstaFel) throw forstaFel;
 
         const dimObjekt: any[] = dimObjektRes.data || [];
         const dimMaskin: any[] = dimMaskinRes.data || [];
         const objektTbl: any[] = objektTblRes.data || [];
-
-        const allObjektIds = [...new Set(dimObjekt.map(d => d.objekt_id).filter(Boolean))] as string[];
-
-        const fetchPaginated = async <T>(query: () => any): Promise<T[]> => {
-          let all: T[] = [];
-          let from = 0;
-          const pageSize = 1000;
-          while (true) {
-            const { data } = await query().range(from, from + pageSize - 1);
-            if (!data || data.length === 0) break;
-            all = all.concat(data);
-            if (data.length < pageSize) break;
-            from += pageSize;
-          }
-          return all;
-        };
-
-        const [produktion, lass, tid] = await Promise.all([
-          allObjektIds.length > 0
-            ? fetchPaginated<any>(() => supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, datum').in('objekt_id', allObjektIds))
-            : Promise.resolve([] as any[]),
-          allObjektIds.length > 0
-            ? fetchPaginated<any>(() => supabase.from('fakt_lass').select('objekt_id, volym_m3sub').in('objekt_id', allObjektIds))
-            : Promise.resolve([] as any[]),
-          allObjektIds.length > 0
-            ? fetchPaginated<any>(() => supabase.from('fakt_tid').select('objekt_id, maskin_id, bransle_liter, datum').in('objekt_id', allObjektIds))
-            : Promise.resolve([] as any[]),
-        ]);
+        const prodView: any[] = prodRes.data || [];
+        const lassView: any[] = lassRes.data || [];
 
         const maskinMap = new Map<string, any>();
         dimMaskin.forEach(m => maskinMap.set(m.maskin_id, m));
@@ -108,72 +93,32 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           }
         });
 
+        // ── Prod-aggregat (skördare) per objekt_id, ur vyn ──
         const prodAgg = new Map<string, { vol: number; stammar: number }>();
-        produktion.forEach(p => {
-          const key = p.objekt_id;
-          const prev = prodAgg.get(key) || { vol: 0, stammar: 0 };
-          prev.vol += (p.volym_m3sub || 0);
-          prev.stammar += (p.stammar || 0);
-          prodAgg.set(key, prev);
-        });
-
-        // Sista avverkningsdag per objekt — liggetidens ankare i oskotade-listan
         const prodMaxDatum = new Map<string, string>();
-        produktion.forEach(p => {
-          if (p.objekt_id && p.datum) {
-            const prev = prodMaxDatum.get(p.objekt_id);
-            if (!prev || p.datum > prev) prodMaxDatum.set(p.objekt_id, p.datum);
-          }
-        });
-
         const prodMaskinMap = new Map<string, string>();
-        produktion.forEach(p => {
-          if (p.maskin_id && p.objekt_id && !prodMaskinMap.has(p.objekt_id)) {
-            prodMaskinMap.set(p.objekt_id, p.maskin_id);
-          }
+        const prodMaskiner = new Map<string, string[]>();
+        prodView.forEach(p => {
+          if (!p.objekt_id) return;
+          prodAgg.set(p.objekt_id, { vol: Number(p.volym_m3sub) || 0, stammar: Number(p.stammar) || 0 });
+          if (p.sista_datum) prodMaxDatum.set(p.objekt_id, p.sista_datum);
+          const mids = (p.maskin_ids || []).filter(Boolean) as string[];
+          if (mids[0]) prodMaskinMap.set(p.objekt_id, mids[0]);
+          prodMaskiner.set(p.objekt_id, mids);
         });
 
-        const tidMaskinMap = new Map<string, string>();
-        tid.forEach(t => {
-          if (t.maskin_id && t.objekt_id && !tidMaskinMap.has(t.objekt_id)) {
-            tidMaskinMap.set(t.objekt_id, t.maskin_id);
-          }
-        });
-
+        // ── Lass-aggregat (skotare) per objekt_id, ur vyn ──
         const lassAgg = new Map<string, { vol: number; count: number }>();
-        lass.forEach(l => {
-          const key = l.objekt_id;
-          const prev = lassAgg.get(key) || { vol: 0, count: 0 };
-          prev.vol += (l.volym_m3sub || 0);
-          prev.count += 1;
-          lassAgg.set(key, prev);
-        });
-
-        const tidPerMaskin = new Map<string, number>();
-        tid.forEach(t => {
-          if (t.objekt_id && t.maskin_id) {
-            const k = t.objekt_id + '::' + t.maskin_id;
-            tidPerMaskin.set(k, (tidPerMaskin.get(k) || 0) + (t.bransle_liter || 0));
-          }
-        });
-
-        const tidMaskinPerObjekt = new Map<string, Set<string>>();
-        tid.forEach(t => {
-          if (t.objekt_id && t.maskin_id) {
-            const s = tidMaskinPerObjekt.get(t.objekt_id) || new Set<string>();
-            s.add(t.maskin_id);
-            tidMaskinPerObjekt.set(t.objekt_id, s);
-          }
-        });
-
-        // Track last activity date per (objekt_id::maskin_id)
-        const lastDatePerMaskin = new Map<string, string>();
-        tid.forEach(t => {
-          if (t.objekt_id && t.maskin_id && t.datum) {
-            const k = t.objekt_id + '::' + t.maskin_id;
-            const prev = lastDatePerMaskin.get(k);
-            if (!prev || t.datum > prev) lastDatePerMaskin.set(k, t.datum);
-          }
+        const lassMaxDatum = new Map<string, string>();
+        const lassMaskinMap = new Map<string, string>();
+        const lassMaskiner = new Map<string, string[]>();
+        lassView.forEach(l => {
+          if (!l.objekt_id) return;
+          lassAgg.set(l.objekt_id, { vol: Number(l.volym_m3sub) || 0, count: Number(l.antal_lass) || 0 });
+          if (l.sista_datum) lassMaxDatum.set(l.objekt_id, l.sista_datum);
+          const mids = (l.maskin_ids || []).filter(Boolean) as string[];
+          if (mids[0]) lassMaskinMap.set(l.objekt_id, mids[0]);
+          lassMaskiner.set(l.objekt_id, mids);
         });
 
         const voGroups = new Map<string, any[]>();
@@ -203,19 +148,20 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             else unknownEntries.push(e);
           }
 
+          // Maskiner som PRODUCERAT/SKOTAT på objektet men inte sitter på en
+          // dim_objekt-rad (delade objekt): prod-vyns maskiner är skördare,
+          // lass-vyns är skotare. Härleds ur vyerna, inte ur råa fakt_tid.
           const allObjIds = entries.map((e: any) => e.objekt_id);
           for (const oid of allObjIds) {
-            const tidMaskiner = tidMaskinPerObjekt.get(oid);
-            if (!tidMaskiner) continue;
-            for (const mid of tidMaskiner) {
+            for (const mid of (prodMaskiner.get(oid) || [])) {
               if (knownMaskinIds.has(mid)) continue;
               knownMaskinIds.add(mid);
-              const maskin = maskinMap.get(mid);
-              const mType = getMachineType(maskin);
-              const synthetic = { objekt_id: oid, maskin_id: mid, _synthetic: true };
-              if (mType === 'skordare') skordareEntries.push(synthetic);
-              else if (mType === 'skotare') skotareEntries.push(synthetic);
-              else unknownEntries.push(synthetic);
+              skordareEntries.push({ objekt_id: oid, maskin_id: mid, _synthetic: true });
+            }
+            for (const mid of (lassMaskiner.get(oid) || [])) {
+              if (knownMaskinIds.has(mid)) continue;
+              knownMaskinIds.add(mid);
+              skotareEntries.push({ objekt_id: oid, maskin_id: mid, _synthetic: true });
             }
           }
 
@@ -275,16 +221,6 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             }
           }
 
-          let skDiesel = 0, stDiesel = 0;
-          for (const e of skordareEntries) {
-            const k = e.objekt_id + '::' + e.maskin_id;
-            skDiesel += tidPerMaskin.get(k) || 0;
-          }
-          for (const e of skotareEntries) {
-            const k = e.objekt_id + '::' + e.maskin_id;
-            stDiesel += tidPerMaskin.get(k) || 0;
-          }
-
           const skStart = skordareEntry?.start_date || null;
           const skSlut = skordareEntry?.end_date || skordareEntry?.skordning_avslutad || null;
           const stStart = skotareEntry?.start_date || null;
@@ -300,8 +236,9 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           }
 
           const skMaskinId = skordareEntry?.maskin_id || prodMaskinMap.get(skordareEntry?.objekt_id);
-          const stMaskinId = skotareEntry?.maskin_id || tidMaskinMap.get(skotareEntry?.objekt_id);
+          const stMaskinId = skotareEntry?.maskin_id || lassMaskinMap.get(skotareEntry?.objekt_id);
 
+          // Sista avverkningsdag = MAX över skördarens objekt_id ur prod-vyn.
           let sistaAvverkning: string | null = null;
           for (const e of skordareEntries) {
             const d = prodMaxDatum.get(e.objekt_id);
@@ -313,15 +250,16 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           // skotaren börjat); dim-världens skotarrad (filer finns) fallback.
           const planeradSkotare = info?.skotareMaskinId ? getMachineLabel(maskinMap.get(info.skotareMaskinId)) : '';
 
-          // Find last activity dates
+          // Senaste aktivitet: skördaren ur prod-vyns sista_datum, skotaren ur
+          // lass-vyns — produktion/lass ÄR maskinens aktivitet.
           let skLastDate: string | null = null;
           for (const e of skordareEntries) {
-            const d = lastDatePerMaskin.get(e.objekt_id + '::' + e.maskin_id);
+            const d = prodMaxDatum.get(e.objekt_id);
             if (d && (!skLastDate || d > skLastDate)) skLastDate = d;
           }
           let stLastDate: string | null = null;
           for (const e of skotareEntries) {
-            const d = lastDatePerMaskin.get(e.objekt_id + '::' + e.maskin_id);
+            const d = lassMaxDatum.get(e.objekt_id);
             if (d && (!stLastDate || d > stLastDate)) stLastDate = d;
           }
 
@@ -348,7 +286,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             sistaAvverkning,
             tilldeladSkotare: planeradSkotare || (skotareEntry ? getMachineLabel(maskinMap.get(stMaskinId)) : '') || null,
             antalLass: stCount,
-            dieselTotal: skDiesel + stDiesel,
+            dieselTotal: 0, // visas inte på förstasidan; detaljvyn hämtar sitt eget
             dagar,
             status: allDone ? 'avslutat' : 'pagaende',
             egenSkotning: entries.some((e: any) => e.egen_skotning === true),
