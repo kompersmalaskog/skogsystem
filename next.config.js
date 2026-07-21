@@ -23,6 +23,19 @@ const nextConfig = {
       './CLAUDE.md',
     ],
   },
+  // Kalibrerings-API:erna serverar live förar-/maskindata. Next:s default för
+  // force-dynamic-routes är "Cache-Control: public, max-age=0, must-revalidate"
+  // — 'public' låter webbläsare/Vercel-CDN lagra svaret, vilket serverade en
+  // förare 10 h gammal 90-dagarsfönster trots färsk data i DB. no-store förbjuder
+  // ALL cachning i alla lager. Ett ställe → gäller alla /api/kalibrering/*.
+  async headers() {
+    return [
+      {
+        source: '/api/kalibrering/:path*',
+        headers: [{ key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' }],
+      },
+    ];
+  },
 }
 
 module.exports = nextConfig
