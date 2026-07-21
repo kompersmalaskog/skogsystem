@@ -39,6 +39,9 @@ export interface UppfoljningObjekt {
   // GROT-anpassat avverkningsobjekt (dim_objekt.grot_anpassad). Skild från
   // grotSkotning (=risskotning, det separata skotarjobbet) — se hooken.
   grotAnpassad: boolean;
+  // grot_hamtad (date, NULL = riset ligger kvar på hygget). Frikopplar riset
+  // HELT från virkets skotningsstatus — riset räknas tills DET är hämtat.
+  grotHamtad: string | null;
   externSkotning: boolean;
   externForetag: string;
   externPrisTyp: 'm3' | 'timme';

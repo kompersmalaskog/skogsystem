@@ -354,6 +354,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             egenSkotning: entries.some((e: any) => e.egen_skotning === true),
             grotSkotning: entries.some((e: any) => e.risskotning === true),
             grotAnpassad: entries.some((e: any) => e.grot_anpassad === true),
+            grotHamtad: entries.map((e: any) => e.grot_hamtad).find(Boolean) || null,
             externSkotning: entries.some((e: any) => {
               try { return e.ovrigt_info && JSON.parse(e.ovrigt_info).extern_skotning === true; } catch { return false; }
             }),
