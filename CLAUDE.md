@@ -58,7 +58,8 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 | `/maskinvy2` | Skördare Analytics | Detaljerad produktionsanalys per vecka/månad/kvartal/år |
 | `/maskinvy-ny` | Maskinvy Ny | Ny maskinvy med daglig produktion, KPI:er, tidsfördelning |
 | `/maskinflytt` | Maskinflytt | Dagmodell: flyttdag (hem→n flyttar→hem) äger tillkörning/hemresa; flytt äger flytt_km (fakturerbar ≥ 3 mil) + mellankörning; var-står-maskinen-steg, navigering alla ben, väder; skriver flyttdag + maskin_flytt + maskin_position |
-| `/maskinflytt/sammanstallning` | Flyttlogg | Två nivåer: Dagar (hela dagens km/tid, mätt exkl. hemresa) och Flyttar (fakturerbara sträckor) — period V/M/K/Å, filter, CSV per flik; avbrutna/pågående räknas ej |
+| `/maskinflytt/sammanstallning` | Flyttlogg | Två nivåer: Dagar (hela dagens km/tid, mätt exkl. hemresa) och Flyttar (fakturerbara sträckor, typ/kund-filter, per-typ-summering) — period V/M/K/Å, CSV per flik; avbrutna/pågående räknas ej |
+| `/maskinflytt/platser` | Flyttplatser | Hantera flyttplats-snabbval (verkstad/uppställning/gård/kund) — lägg till, redigera, inaktivera |
 | `/arbetsrapport` | Arbetsrapport | Generering av arbetsrapporter |
 | `/bestallningar` | Beställningar | Orderspårning med progressringar och månadsstatistik |
 | `/forbattringsforslag` | Förbättringsförslag | Feedbacksystem med ljudinspelning och textinmatning |
