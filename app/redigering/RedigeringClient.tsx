@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, Fragment, Children } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useMatchning } from './hooks/useMatchning'
-import { useFildata, filStatus } from './hooks/useFildata'
+import { useFildata, filStatus, slaIhopFildata } from './hooks/useFildata'
 import MatchningsVy from './MatchningsVy'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
@@ -1907,7 +1907,11 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   }
 
   const titlar: any = { identitet: 'Identitet', filer: 'Filer', skordare: '🌲 Skördare', skotare: '🚜 Skotare', skotning: 'Skotning', pris: 'Pris & ersättning' }
-  const filRader = valtObjekt ? fildata?.perObjekt?.get(valtObjekt.objekt_id) : undefined
+  // Filer över hela VO-gruppen — ett fysiskt objekt är ofta flera rader,
+  // och en kopplad maskinrad ska synas oavsett vilken rad som öppnas
+  const filRader = valtObjekt && fildata?.status === 'ok'
+    ? slaIhopFildata(syskon.map((o: any) => fildata.perObjekt.get(o.objekt_id)))
+    : undefined
 
   return (
     <>
@@ -1982,6 +1986,11 @@ function namnUrHprFilnamn(filnamn: string, maskinId: string): string | null {
 // - smajobb: Ponsses interna k-nummer (k63, k76 …) -> småjobb utan riktigt
 //   VO, ingen åtgärd krävs, bara synliga bakom en nedtonad rad
 function analyseraOkopplade(hprFiler: any[], objekt: any[]) {
+  // Träff på BÅDE vo_nummer och objekt_id: när importen (eller Koppla-flödet)
+  // skapat en rad vars objekt_id ÄR maskinens jobbnummer har jobbet ett
+  // objekt — även om radens vo_nummer är ett annat (P-VO/riktigt VO).
+  // Utan detta larmar redan-kopplade jobb för evigt (falsklarm).
+  const kandaId = new Set(objekt.map((o: any) => o.objekt_id).filter(Boolean))
   const voSet = new Set(objekt.map((o: any) => o.vo_nummer).filter(Boolean))
   const perNyckel = new Map<string, any>()
   hprFiler.forEach((f: any) => {
@@ -1990,7 +1999,7 @@ function analyseraOkopplade(hprFiler: any[], objekt: any[]) {
     if (i <= 0) return
     const maskinId = nyckel.slice(0, i)
     const vo = nyckel.slice(i + 1)
-    if (!vo || voSet.has(vo)) return
+    if (!vo || voSet.has(vo) || kandaId.has(vo)) return
     const prev = perNyckel.get(nyckel)
     if (!prev || (f.stammar_count || 0) > prev.stammar) {
       perNyckel.set(nyckel, { nyckel, maskinId, vo, stammar: f.stammar_count || 0, filnamn: f.filnamn || '' })
@@ -2008,11 +2017,42 @@ function analyseraOkopplade(hprFiler: any[], objekt: any[]) {
   return { larm, smajobb }
 }
 
+// Tokenbaserad namn-/markägarlikhet för koppla-kandidater. Maskinens
+// jobbnamn ("Görgen Gustafsson Amundshylte") jämförs mot objektnamn +
+// markägare — minst hälften av jobbnamnets ord ska träffa.
+function namnTokens(s: string): string[] {
+  return String(s || '').toLowerCase().split(/[^a-zåäöé0-9]+/).filter(t => t.length >= 3)
+}
+
+function kandidatPoang(jobbNamn: string, obj: any): number {
+  const jt = new Set(namnTokens(jobbNamn))
+  if (jt.size === 0) return 0
+  const ot = new Set([...namnTokens(obj.object_name || ''), ...namnTokens(obj.skogsagare || '')])
+  let traff = 0
+  jt.forEach(t => { if (ot.has(t)) traff++ })
+  return traff / jt.size
+}
+
+// Topp 3 kandidater, dedupade per VO-grupp (en grupp = ett fysiskt objekt)
+function hittaKandidater(jobb: any, objekt: any[]): any[] {
+  if (!jobb.namn) return []
+  const perVo = new Map<string, any>()
+  objekt.forEach((o: any) => {
+    if (o.exkludera === true) return
+    const poang = kandidatPoang(jobb.namn, o)
+    if (poang < 0.5) return
+    const nyckel = o.vo_nummer || o.objekt_id
+    const prev = perVo.get(nyckel)
+    if (!prev || poang > prev.poang) perVo.set(nyckel, { objekt: o, poang })
+  })
+  return Array.from(perVo.values()).sort((a, b) => b.poang - a.poang).slice(0, 3)
+}
+
 // Kort i arbetslistan — visar VAD objektet ÄR (volym, senaste aktivitet,
 // maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
 // eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
 // med två åtgärder: Namnge (öppnar sheeten) eller Ignorera (exkludera).
-function ArbetsKort({ obj, info, modell, fildata, onOppna, onIgnorera, delay }: any) {
+function ArbetsKort({ obj, info, modell, fildata, filRader, onOppna, onIgnorera, delay }: any) {
   const namnlos = !obj.object_name
   const meta = []
   if (modell) meta.push(modell)
@@ -2035,7 +2075,7 @@ function ArbetsKort({ obj, info, modell, fildata, onOppna, onIgnorera, delay }: 
             )}
             <div style={styles.kortVo}>{obj.vo_nummer}</div>
           </div>
-          {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={fildata.perObjekt.get(obj.objekt_id)} />}
+          {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={filRader} />}
           <div style={styles.kortPil}>›</div>
         </div>
         {meta.length > 0 && <div style={styles.kortInfo}>{meta.join(' · ')}</div>}
@@ -2072,10 +2112,17 @@ export default function ObjektRedigering() {
   const [skapaJobb, setSkapaJobb] = useState<any>(null)
   const [skapar, setSkapar] = useState(false)
   const [visaSmajobb, setVisaSmajobb] = useState(false)
+  const [oppetKopplaJobb, setOppetKopplaJobb] = useState<string | null>(null) // larmrad med expanderad kandidatlista
+  const [kopplaVal, setKopplaVal] = useState<any>(null) // { jobb, kandidat } -> ConfirmDialog
+  const [kopplar, setKopplar] = useState(false)
   // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
   const matchning = useMatchning()
   // Fildata per objekt (kortprickar + Filer-undersidan)
   const fildata = useFildata()
+  // Prickar räknas över hela VO-gruppen — syskonradernas filer hör till objektet
+  const filRaderGrupp = (obj: any) => fildata.status === 'ok'
+    ? slaIhopFildata(syskonRader(objekt, obj).map((o: any) => fildata.perObjekt.get(o.objekt_id)))
+    : undefined
 
   // Val-listorna (bolag/inköpare) förvaltas i sina tabeller — lägg till/
   // ta bort påverkar BARA listan, aldrig objekt som redan har värdet satt.
@@ -2238,6 +2285,45 @@ export default function ObjektRedigering() {
     setSkapar(false)
   }
 
+  // Koppla maskinjobbet till ett BEFINTLIGT objekt: ny syskonrad i målets
+  // VO-grupp med objekt_id = maskinens jobbnummer (så framtida import mergar
+  // dit) och målets vo_nummer + gemensamma fält (multi-rad-modellens
+  // invariant: gemensamt är lika över gruppen). Filerna syns därefter i
+  // objektets Filer-undersida via VO-grupp-mergen. Ärlig sparning.
+  async function kopplaJobbTillBefintligt() {
+    if (!kopplaVal || kopplar) return
+    setKopplar(true)
+    setSaveError('')
+    const { jobb, kandidat } = kopplaVal
+    const mal = kandidat.objekt
+    const rad = {
+      objekt_id: jobb.vo,
+      vo_nummer: mal.vo_nummer,
+      object_name: mal.object_name,
+      maskin_id: jobb.maskinId,
+      skogsagare: mal.skogsagare ?? null,
+      bolag: mal.bolag ?? null,
+      inkopare: mal.inkopare ?? null,
+      huvudtyp: mal.huvudtyp ?? null,
+      atgard: mal.atgard ?? null,
+      grot_anpassad: mal.grot_anpassad === true,
+      timpeng: mal.timpeng === true,
+      exkludera: mal.exkludera === true,
+    }
+    const { data, error: err } = await supabase.from('dim_objekt').insert(rad).select('*')
+    if (err || !data || data.length === 0) {
+      setSaveError('Kunde inte koppla — inget sparades')
+      setTimeout(() => setSaveError(''), 6000)
+    } else {
+      const ny = { ...data[0], maskin_typ: maskinTyper[jobb.maskinId] || null }
+      setObjekt((prev: any[]) => [...prev, ny])
+      setKopplaVal(null)
+      setOppetKopplaJobb(null)
+      setRedigerObj(ny) // öppna gruppen — Filer-undersidan visar nu jobbets filer
+    }
+    setKopplar(false)
+  }
+
   // Loading-vy
   if (loading) {
     return (
@@ -2297,19 +2383,43 @@ export default function ObjektRedigering() {
             <span style={styles.larmIkon}>!</span>
             <span>{okopplade.larm.length} {okopplade.larm.length === 1 ? 'jobb har data men inget objekt' : 'jobb har data men inget objekt'}</span>
           </div>
-          {okopplade.larm.map((j: any, i: number) => (
-            <div key={j.nyckel} style={{ ...styles.larmRad, borderTop: '1px solid rgba(255,159,10,0.12)' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {j.namn || 'Namnlöst jobb'}
+          {okopplade.larm.map((j: any) => {
+            const kandidater = hittaKandidater(j, objekt)
+            const oppen = oppetKopplaJobb === j.nyckel
+            return (
+              <Fragment key={j.nyckel}>
+                <div style={{ ...styles.larmRad, borderTop: '1px solid rgba(255,159,10,0.12)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {j.namn || 'Namnlöst jobb'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
+                      VO {j.vo} · {j.stammar.toLocaleString('sv-SE')} stammar · {maskiner[j.maskinId] || j.maskinId}
+                    </div>
+                  </div>
+                  {kandidater.length > 0 ? (
+                    <button onClick={() => setOppetKopplaJobb(oppen ? null : j.nyckel)} className="tap-press" style={styles.skapaBtn}>Koppla ›</button>
+                  ) : (
+                    <button onClick={() => setSkapaJobb(j)} className="tap-press" style={styles.skapaBtn}>Skapa nytt ›</button>
+                  )}
                 </div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
-                  VO {j.vo} · {j.stammar.toLocaleString('sv-SE')} stammar · {maskiner[j.maskinId] || j.maskinId}
-                </div>
-              </div>
-              <button onClick={() => setSkapaJobb(j)} className="tap-press" style={styles.skapaBtn}>Skapa ›</button>
-            </div>
-          ))}
+                {oppen && (
+                  <div style={styles.kandidatLista}>
+                    <div style={styles.kandidatRubrik}>Koppla till befintligt objekt — troligast först</div>
+                    {kandidater.map((k: any) => (
+                      <button key={k.objekt.objekt_id} onClick={() => setKopplaVal({ jobb: j, kandidat: k })} className="tap-press" style={styles.kandidatRad as any}>
+                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>{k.objekt.object_name}</span>
+                        <span style={{ flexShrink: 0, color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>VO {k.objekt.vo_nummer}{k.objekt.skogsagare ? ` · ${k.objekt.skogsagare}` : ''}</span>
+                      </button>
+                    ))}
+                    <button onClick={() => { setOppetKopplaJobb(null); setSkapaJobb(j) }} className="tap-press" style={styles.kandidatSkapaNytt as any}>
+                      Ingen av dessa stämmer — skapa nytt objekt
+                    </button>
+                  </div>
+                )}
+              </Fragment>
+            )
+          })}
         </div>
       )}
       {okopplade.smajobb.length > 0 && (
@@ -2348,6 +2458,7 @@ export default function ObjektRedigering() {
               info={kortInfo[obj.objekt_id]}
               modell={maskiner[obj.maskin_id]}
               fildata={fildata}
+              filRader={filRaderGrupp(obj)}
               delay={i * 60}
               onOppna={() => openObjekt(obj)}
               onIgnorera={() => ignoreraObjekt(obj)}
@@ -2436,6 +2547,15 @@ export default function ObjektRedigering() {
         fildata={fildata}
         listAtgarder={listAtgarder}
         onClose={() => setRedigerObj(null)}
+      />
+      <ConfirmDialog
+        open={!!kopplaVal}
+        title="Koppla till befintligt objekt?"
+        message={kopplaVal ? `"${kopplaVal.jobb.namn || 'Namnlöst jobb'}" (VO ${kopplaVal.jobb.vo}, ${kopplaVal.jobb.stammar.toLocaleString('sv-SE')} stammar) kopplas till "${kopplaVal.kandidat.objekt.object_name}" (VO ${kopplaVal.kandidat.objekt.vo_nummer}). Maskindatans filer hamnar under objektets Filer.` : ''}
+        confirmLabel={kopplar ? 'Kopplar …' : 'Koppla'}
+        cancelLabel="Avbryt"
+        onConfirm={kopplaJobbTillBefintligt}
+        onCancel={() => setKopplaVal(null)}
       />
       <ConfirmDialog
         open={!!skapaJobb}
@@ -2589,7 +2709,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
                   <div style={obj.object_name ? styles.kortNamn : { ...styles.kortNamn, color: '#FF9F0A' }}>{obj.object_name || 'Namnlöst objekt'}</div>
                   <div style={styles.kortVo}>{obj.vo_nummer}</div>
                 </div>
-                {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={fildata.perObjekt.get(obj.objekt_id)} />}
+                {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={slaIhopFildata(syskonRader(objekt, obj).map((o: any) => fildata.perObjekt.get(o.objekt_id)))} />}
                 <div style={styles.kortPil}>›</div>
               </div>
               <div style={styles.kortInfo}>
@@ -2659,6 +2779,11 @@ const styles = {
   larmIkon: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 10, background: 'rgba(255,159,10,0.2)', color: '#FF9F0A', fontSize: 13, fontWeight: 700, flexShrink: 0 },
   larmRad: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' },
   skapaBtn: { flexShrink: 0, minHeight: 44, padding: '0 16px', borderRadius: 12, border: '1px solid rgba(173,198,255,0.4)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' },
+  // Kandidatlista under larmrad — koppla till befintligt objekt
+  kandidatLista: { padding: '10px 16px 14px', borderTop: '1px solid rgba(255,159,10,0.12)', background: 'rgba(0,0,0,0.15)' },
+  kandidatRubrik: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px', marginBottom: 8 },
+  kandidatRad: { display: 'flex', alignItems: 'baseline', gap: 10, width: '100%', minHeight: 48, padding: '8px 12px', marginBottom: 6, borderRadius: 12, border: '1px solid rgba(173,198,255,0.25)', background: 'rgba(173,198,255,0.07)', color: '#fff', fontSize: 14, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' },
+  kandidatSkapaNytt: { display: 'block', width: '100%', minHeight: 40, padding: '8px 12px', borderRadius: 10, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.45)', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' },
   // Småjobb utan VO (k-nummer) — nedtonat, inget larm, ingen åtgärd
   smajobbWrap: { marginBottom: 20, fontSize: 13, color: 'rgba(255,255,255,0.45)' },
   smajobbToggle: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', minHeight: 40, padding: '8px 4px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' },

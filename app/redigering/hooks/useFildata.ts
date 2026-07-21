@@ -21,9 +21,41 @@ export type MaskinFiler = {
   typ: 'skordare' | 'skotare' | null;
   antalFiler: number;
   filtyper: string[]; // ur filändelsen: MOM/HPR/FPR/HQC
+  filnamnLista: string[]; // unika filnamn — gör VO-grupp-merge dedupbar
   senasteData: string | null; // max fakt-datum (YYYY-MM-DD) — "data t.o.m."
   senasteImport: string | null; // max meta.importerad_tid — null när metaloggen saknar filerna
 };
+
+// Slår ihop fildata över en VO-grupps rader (syskonRader) till en lista per
+// maskin. Ett fysiskt objekt är ofta FLERA dim_objekt-rader — filerna ska
+// synas oavsett vilken rad i gruppen som öppnas. Dedupe per filnamn: samma
+// fil kan bära data för flera rader i gruppen.
+export function slaIhopFildata(listor: (MaskinFiler[] | undefined)[]): MaskinFiler[] {
+  const perMaskin = new Map<string, MaskinFiler & { _filer: Set<string>; _typer: Set<string> }>();
+  listor.forEach(lista => (lista || []).forEach(r => {
+    let m = perMaskin.get(r.maskinId);
+    if (!m) {
+      m = { ...r, _filer: new Set<string>(), _typer: new Set<string>() };
+      perMaskin.set(r.maskinId, m);
+    }
+    (r.filnamnLista || []).forEach(f => m!._filer.add(f));
+    (r.filtyper || []).forEach(t => m!._typer.add(t));
+    if (r.senasteData && (!m.senasteData || r.senasteData > m.senasteData)) m.senasteData = r.senasteData;
+    if (r.senasteImport && (!m.senasteImport || r.senasteImport > m.senasteImport)) m.senasteImport = r.senasteImport;
+  }));
+  const ut: MaskinFiler[] = [];
+  perMaskin.forEach(m => {
+    ut.push({
+      maskinId: m.maskinId, modell: m.modell, typ: m.typ,
+      antalFiler: m._filer.size,
+      filtyper: Array.from(m._typer).sort(),
+      filnamnLista: Array.from(m._filer),
+      senasteData: m.senasteData, senasteImport: m.senasteImport,
+    });
+  });
+  ut.sort((a, b) => (a.typ === b.typ ? b.antalFiler - a.antalFiler : a.typ === 'skordare' ? -1 : 1));
+  return ut;
+}
 
 export type FildataStatus = 'laddar' | 'fel' | 'ok';
 
@@ -110,15 +142,19 @@ export function useFildata(): Fildata {
     (async () => {
       try {
         const KOL = 'objekt_id, maskin_id, filnamn, datum';
-        const [tid, prod, lass, sortiment, maskinRes, meta] = await Promise.all([
+        const [tid, prod, lass, sortiment, maskinRes, meta, hprRes, dimRes] = await Promise.all([
           hamtaAlla('fakt_tid', KOL),
           hamtaAlla('fakt_produktion', KOL),
           hamtaAlla('fakt_lass', KOL),
           hamtaAlla('fakt_sortiment', KOL),
           supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
           hamtaAlla('meta_importerade_filer', 'filnamn, importerad_tid'),
+          supabase.from('hpr_filer').select('objekt_nyckel, filnamn, fil_datum'),
+          supabase.from('dim_objekt').select('objekt_id, vo_nummer'),
         ]);
         if (maskinRes.error) throw new Error('Kunde inte läsa dim_maskin: ' + maskinRes.error.message);
+        if (hprRes.error) throw new Error('Kunde inte läsa hpr_filer: ' + hprRes.error.message);
+        if (dimRes.error) throw new Error('Kunde inte läsa dim_objekt: ' + dimRes.error.message);
 
         const maskinMap = new Map<string, { modell: string | null; typ: 'skordare' | 'skotare' | null }>();
         (maskinRes.data || []).forEach((m: any) =>
@@ -154,6 +190,33 @@ export function useFildata(): Fildata {
         lass.forEach(laggTill);
         sortiment.forEach(laggTill);
 
+        // hpr_filer som extra filkälla: HPR-snapshots som saknar fakta-spår
+        // (t.ex. fristående import_hpr.py-jobb). VO ur objekt_nyckel
+        // "maskin:vo" -> raden vars objekt_id ÄR maskinens nummer först
+        // (kopplad syskonrad), annars första vo_nummer-träffen. Samma
+        // filnamn som redan finns via fakta dedupas av filnamn-nyckeln.
+        const perObjektId = new Map<string, string>(); // objekt_id -> objekt_id (existens)
+        const perVo = new Map<string, string>(); // vo_nummer -> första objekt_id
+        (dimRes.data || []).forEach((d: any) => {
+          if (d.objekt_id) perObjektId.set(String(d.objekt_id), String(d.objekt_id));
+          if (d.vo_nummer && !perVo.has(String(d.vo_nummer))) perVo.set(String(d.vo_nummer), String(d.objekt_id));
+        });
+        (hprRes.data || []).forEach((h: any) => {
+          const nyckel = String(h.objekt_nyckel || '');
+          const i = nyckel.indexOf(':');
+          if (i <= 0 || !h.filnamn) return;
+          const maskinId = nyckel.slice(0, i);
+          const vo = nyckel.slice(i + 1);
+          const objektId = perObjektId.get(vo) || perVo.get(vo);
+          if (!objektId) return; // okopplat jobb — hanteras av larmsektionen
+          laggTill({
+            objekt_id: objektId,
+            maskin_id: maskinId,
+            filnamn: h.filnamn,
+            datum: h.fil_datum ? String(h.fil_datum).slice(0, 10) : null,
+          });
+        });
+
         const resultat = new Map<string, MaskinFiler[]>();
         agg.forEach((perMaskin, objektId) => {
           const rader: MaskinFiler[] = [];
@@ -169,6 +232,7 @@ export function useFildata(): Fildata {
               typ: maskinMap.get(maskinId)?.typ || null,
               antalFiler: m.filer.size,
               filtyper: Array.from(new Set(Array.from(m.filer.values()))).sort(),
+              filnamnLista: Array.from(m.filer.keys()),
               senasteData: m.senasteData,
               senasteImport: senasteImport ? String(senasteImport).slice(0, 10) : null,
             });
