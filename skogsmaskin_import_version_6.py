@@ -3384,8 +3384,7 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     }
                     for k, v in tider_agg.items()
                 ]
-                if upsert_data('mom_tider', mom_rows,
-                               ['maskin_id', 'operator_id', 'timme', 'typ']) == 0:
+                if upsert_data('mom_tider', mom_rows) == 0:  # plain INSERT — DELETE körs alltid precis innan; ON CONFLICT matchar ej COALESCE-index
                     fel.append('mom_tider')
                 else:
                     logger.info(f"  mom_tider: {len(mom_rows)} timrader sparade")
