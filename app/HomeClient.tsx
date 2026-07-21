@@ -39,6 +39,7 @@ const adminApps = [
   { href: '/maskinflytt/sammanstallning', label: 'Flyttlogg', icon: 'list_alt' },
   { href: '/avtal', label: 'Avtal', icon: 'receipt_long' },
   { href: '/personal', label: 'Personal', icon: 'badge' },
+  { href: '/om', label: 'Om appen', icon: 'info' },
 ]
 
 const markagarrapportEntry = { href: '/admin/markagarrapport', label: 'Markägarrapport', icon: 'summarize' }
