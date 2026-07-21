@@ -2962,6 +2962,11 @@ def save_mom_to_supabase(data: Dict) -> bool:
         # befintlig: inloggning = min, utloggning = max, langd = spännet.
         # Ordningsoberoende — omimport och kumulativa arkivfiler ger samma
         # kuvert oavsett i vilken ordning filerna kommer.
+        #
+        # OBS: läs-ändra-skriv (GET + upsert) — säkert ENDAST för att importen
+        # är serialiserad (en fil i taget). Parallelliseras importen någon gång
+        # måste kuvertet flyttas in i databasen: ON CONFLICT DO UPDATE med
+        # LEAST(inloggning_tid)/GREATEST(utloggning_tid).
         if data.get('skift'):
             for rad in data['skift']:
                 if not rad.get('datum') or not rad.get('shift_key'):
