@@ -750,9 +750,19 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             'logout_lat': logout_lat,
             'logout_lon': logout_lon,
             'filnamn': filnamn,
-            # Fallback om ShifKey mot förmodan saknas: deterministisk nyckel
-            # per (dag, operator) — samma som Rottnes syntetiska skift
-            'shift_key': shift_key if shift_key else f"SYN_{start_dt.date() if start_dt else 'okand'}_{skift_op_id or op_key or 'okand'}"
+            # Fallback om ShifKey mot förmodan saknas (alla kända maskiner med
+            # ShiftDefinitions HAR ShifKey — Ponsse Scorpion/Wisent/Elephant
+            # verifierade 2026-07-22): deterministisk nyckel som inkluderar
+            # STARTTIDEN, annars slår två äkta skift samma dag (Wisent 20/7:
+            # 11:33–17:01 + 17:02–18:53) ihop till en rad — eller värre,
+            # krockar i samma upsert-batch så HELA filens skift tappas.
+            # KÄND BEGRÄNSNING: skulle en framtida maskin BÅDE sakna ShifKey
+            # OCH skicka timvisa ögonblicksbilder med glidande start håller
+            # ingen tidsbaserad nyckel — då krävs överlappsmerge vid upsert.
+            # (Verifierat: Wisent-stil-filer bär FÄRDIGA skift med stabila
+            # tider mellan filer, så starttiden är säker som nyckel där.)
+            'shift_key': shift_key if shift_key else
+                f"SYN_{start_dt.date() if start_dt else 'okand'}_{skift_op_id or op_key or 'okand'}_{start_dt.strftime('%H%M') if start_dt else 'x'}"
         })
     
     # === ARBETSTID & PRODUKTION ===
@@ -3037,6 +3047,12 @@ def save_mom_to_supabase(data: Dict) -> bool:
         if data.get('skift'):
             for rad in data['skift']:
                 if not rad.get('datum') or not rad.get('shift_key'):
+                    # Ska inte kunna hända (alla rader får shift_key i parsern)
+                    # — men om det gör det ska det SYNAS, inte tappas tyst.
+                    logger.warning(
+                        f"  SKIFT UTAN NYCKEL hoppar kuvert-merge: "
+                        f"{rad.get('maskin_id')} {rad.get('inloggning_tid')} "
+                        f"(datum={rad.get('datum')}, shift_key={rad.get('shift_key')})")
                     continue
                 try:
                     resp = requests.get(
@@ -3059,7 +3075,17 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 if rad.get('inloggning_tid') and rad.get('utloggning_tid'):
                     rad['langd_sek'] = int((rad['utloggning_tid'] - rad['inloggning_tid']).total_seconds())
             if upsert_data('fakt_skift', data['skift'], ['maskin_id', 'datum', 'shift_key']) == 0:
-                logger.warning(f"  Skift-data kunde inte sparas (ej kritiskt)")
+                # Detta ÄR kritiskt — skiftrader bär lönedata (arbetsdagens
+                # start/slut). Wisent-regressionen 21/7 upptäcktes bara för
+                # att Martin råkade kolla sin dag: gamla constrainten
+                # fakt_skift_unik låg kvar och fällde hela batchen tyst.
+                forlorade = '; '.join(
+                    f"{r.get('maskin_id')}/{r.get('datum')}/key={r.get('shift_key')}"
+                    for r in data['skift'])
+                skift_fil = data['skift'][0].get('filnamn', 'okänd fil')
+                logger.error(
+                    f"  SKIFT-DATA FÖRLORAD ({len(data['skift'])} rader ur {skift_fil}): "
+                    f"{forlorade} — lönedata saknas tills filen omimporteras!")
 
         # Tid — re-aggregera från ALLA filer i Behandlade/<maskin>/mom/ för
         # berörda (datum, maskin). Segment-IDENTITET är (start_time, maskin);
