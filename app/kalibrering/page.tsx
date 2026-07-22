@@ -46,7 +46,16 @@ interface DetaljKontrollStock {
   latitude: number | null;
   longitude: number | null;
   objekt_id: string | null;
+  // Mätpunkter längs stocken (ControlLogDiameter). Toppdiametern ovan är
+  // EN punkt vid kapsnittet — dessa är de övriga, och alla ingår i
+  // diameterstatistiken (lib/kalibrering/diameterpunkter).
+  matpunkter?: { position_cm: number; diameter_maskin_mm: number | null; diameter_operator_mm: number | null }[] | null;
 }
+
+// Senaste-kortets stockar: hela raden + mätpunkterna längs stocken, så
+// stock-modalen kan visa att toppen bara är ETT av flera diametermått.
+const STOCK_SELECT =
+  '*, matpunkter:detalj_kontroll_stock_matpunkt(position_cm,diameter_maskin_mm,diameter_operator_mm)';
 
 interface KalibHistorik {
   id: number;
@@ -1042,7 +1051,7 @@ export default function KalibreringPage() {
       const latestFilnamn = kalibRows[0].filnamn;
       const { data: stockRows, error: stockErr } = await supabase
         .from('detalj_kontroll_stock')
-        .select('*')
+        .select(STOCK_SELECT)
         .eq('filnamn', latestFilnamn)
         .order('stock_nummer', { ascending: true });
 
@@ -1101,7 +1110,7 @@ export default function KalibreringPage() {
     let cancelled = false;
     supabase
       .from('detalj_kontroll_stock')
-      .select('*')
+      .select(STOCK_SELECT)
       .eq('filnamn', heroFilnamn)
       .order('stock_nummer', { ascending: true })
       .then(({ data }) => {
@@ -1988,11 +1997,53 @@ export default function KalibreringPage() {
               <div className="kalib-summary-hint">op: {opDia}</div>
             </div>
             <div className="kalib-summary-item">
-              <div className="kalib-summary-label">Dia (M−O)</div>
+              <div className="kalib-summary-label">Topp (M−O)</div>
               <div className={`kalib-summary-value tone-${diaTon}`}>{diaKlavad ? `${fmtAvvikelse(diaDiff, 'mm')} mm` : '–'}</div>
               <div className={`kalib-diff-badge tone-${diaTon}`}>{diaKlavad ? badgeText(diaTon) : 'Ej klavad'}</div>
             </div>
           </div>
+          {(() => {
+            // Toppdiametern ovan är EN diameterpunkt (vid kapsnittet). Maskinen
+            // mäter dessutom längs stocken — de punkterna ingår i statistiken
+            // precis som toppen, så modalen får inte se ut som om toppen vore
+            // hela sanningen. Klavad-gating som resten av vyn.
+            const mps = (stock.matpunkter ?? [])
+              .filter((m) => m.diameter_maskin_mm != null)
+              .sort((a, b) => a.position_cm - b.position_cm);
+            if (mps.length === 0) return null;
+            const totalt = mps.length + (diaKlavad ? 1 : 0);
+            return (
+              <>
+                <div className="kalib-modal-section-header">
+                  <div className="kalib-modal-section-title">Mätpunkter längs stocken</div>
+                  <div className="kalib-modal-section-subtitle">
+                    {diaKlavad
+                      ? `Toppen ovan är 1 av ${totalt} diametermått — alla ingår i statistiken`
+                      : `${mps.length} diametermått på stocken — alla ingår i statistiken`}
+                  </div>
+                </div>
+                <div className="kalib-mp-list">
+                  {mps.map((m) => {
+                    const kl = m.diameter_operator_mm != null && m.diameter_operator_mm !== 0;
+                    const d = kl ? (m.diameter_maskin_mm as number) - (m.diameter_operator_mm as number) : null;
+                    const ton = d != null ? avvikelseTon(d, 'dia') : 'ok';
+                    return (
+                      <div key={m.position_cm} className="kalib-mp-row">
+                        <div className="kalib-mp-pos">{m.position_cm} cm</div>
+                        <div className="kalib-mp-meta">
+                          Maskin {m.diameter_maskin_mm} mm
+                          {kl ? ` · Operatör ${m.diameter_operator_mm} mm` : ' · ej klavad av operatör'}
+                        </div>
+                        <div className={`kalib-mp-diff tone-${ton}`}>
+                          {d != null ? `${fmtAvvikelse(d, 'mm')} mm` : 'ej klavad'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
           {stock.maskin_volym_sub != null && (() => {
             // Operatörsvolym kräver att operatören klavat BÅDE längd och diameter.
             // Utan det kan volymen (och diffen) inte finnas — visa "–", ingen diff.
@@ -2734,6 +2785,17 @@ export default function KalibreringPage() {
         .kalib-tol-status.tone-bad .kalib-tol-status-dot{background:#FF3B30}
 
         .kalib-stockar-list{display:flex;flex-direction:column;gap:6px}
+        /* Mätpunkter längs stocken i stock-modalen — STATISK lista (ingen
+           cursor:pointer; raden går inte att trycka på, till skillnad från
+           .kalib-stock-row). Toppen visas ovanför; dessa är de övriga. */
+        .kalib-mp-list{display:flex;flex-direction:column;gap:6px}
+        .kalib-mp-row{display:flex;align-items:center;gap:12px;min-height:44px;padding:8px 14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);border-radius:10px}
+        .kalib-mp-pos{width:56px;flex-shrink:0;font-size:12px;font-weight:600;color:#fff;font-variant-numeric:tabular-nums}
+        .kalib-mp-meta{flex:1;min-width:0;font-size:12px;color:#8E8E93}
+        .kalib-mp-diff{flex-shrink:0;min-width:70px;text-align:right;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:#8E8E93}
+        .kalib-mp-diff.tone-cold{color:#0A84FF}
+        .kalib-mp-diff.tone-hi{color:#FF9F0A}
+        .kalib-mp-diff.tone-hot{color:#FF453A}
         .kalib-stock-row{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:12px;cursor:pointer;transition:background 0.12s,border-color 0.12s,transform 0.12s}
         .kalib-stock-row:hover{background:rgba(255,255,255,0.07)}
         .kalib-stock-row:active{transform:scale(0.99)}
