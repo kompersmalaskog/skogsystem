@@ -46,6 +46,15 @@ LOG_FILE = os.path.join(SCRIPT_DIR, "import_logg.txt")
 
 VERCEL_API_URL = "https://skogsystem.vercel.app/api/mom-import"
 
+# Fördelningsuppföljningen (etapp 1.5): varje ny .hpr POST:as även till
+# /api/hpr-import. Vercel kapar request-bodies vid ~4,5 MB, så filen laddas
+# först upp till Supabase Storage (raw-files/incoming/) och API:et får bara
+# sökvägen. Nycklar läses ur miljön/.env.local — saknas de loggas en varning
+# och steget hoppas över. FÅR ALDRIG stoppa arkiveringsflödet.
+FORDELNING_API_URL = os.environ.get(
+    "FORDELNING_API_URL", "https://skogsystem.vercel.app/api/hpr-import"
+)
+
 SETTLE_DELAY = 5  # sekunder att vänta innan import (fil kanske inte skrivits klart)
 
 PERIODIC_SCAN_INTERVAL = 300  # 5 min — skyddsnät om watchdog missar events
@@ -210,6 +219,94 @@ def notify_vercel():
         logger.warning(f"Vercel API fel (ej kritiskt): {e}")
 
 
+# ============================================================
+# FÖRDELNINGSUPPFÖLJNING (etapp 1.5)
+# ============================================================
+
+def _env_local(name: str) -> str | None:
+    """Miljövariabel, med fallback till SCRIPT_DIR/.env.local (samma fil som
+    import_hpr.py läser). Returnerar None om nyckeln inte finns någonstans."""
+    if os.environ.get(name):
+        return os.environ[name]
+    try:
+        env_path = os.path.join(SCRIPT_DIR, ".env.local")
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(f"{name}="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return None
+
+
+# Hindra att periodisk scan laddar upp samma fil om och om igen medan den
+# ligger kvar i Inkommande. Serverns filhash-dedupe är sista försvar.
+_fordelning_posted: set[tuple[str, int]] = set()
+
+
+def post_hpr_fordelning(filepath: str):
+    """Ladda upp .hpr till raw-files/incoming/ och peka /api/hpr-import dit.
+    Självständig och ofarlig: varje fel loggas och sväljs — arkiveringen
+    (MOM/HPR-importen) fortsätter alltid oavsett vad som händer här."""
+    try:
+        basename = os.path.basename(filepath)
+        try:
+            data = open(filepath, "rb").read()
+        except OSError as e:
+            logger.warning(f"Fördelning: kunde inte läsa {basename} ({e}) — "
+                           f"backfill_fordelning_hpr.py tar den från Behandlade senare.")
+            return
+        cache_key = (basename.lower(), len(data))
+        if cache_key in _fordelning_posted:
+            return
+        supabase_url = _env_local("NEXT_PUBLIC_SUPABASE_URL") or _env_local("SUPABASE_URL")
+        service_key = _env_local("SUPABASE_SERVICE_ROLE_KEY")
+        import_key = _env_local("HPR_IMPORT_KEY")
+        if not (supabase_url and service_key and import_key):
+            logger.warning("Fördelning: NEXT_PUBLIC_SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/"
+                           "HPR_IMPORT_KEY saknas i miljö/.env.local — hoppar över POST.")
+            return
+
+        import hashlib
+        digest = hashlib.sha256(data).hexdigest()
+        storage_path = f"incoming/{digest}.hpr"
+        up = requests.post(
+            f"{supabase_url}/storage/v1/object/raw-files/{storage_path}",
+            headers={
+                "apikey": service_key,
+                "Authorization": f"Bearer {service_key}",
+                "Content-Type": "application/xml",
+                "x-upsert": "true",
+            },
+            data=data,
+            timeout=300,
+        )
+        if up.status_code not in (200, 201):
+            logger.warning(f"Fördelning: storage-uppladdning misslyckades för {basename}: "
+                           f"{up.status_code} {up.text[:200]}")
+            return
+        resp = requests.post(
+            FORDELNING_API_URL,
+            params={"key": import_key},
+            json={"storage_path": storage_path},
+            timeout=120,
+        )
+        if resp.status_code == 200:
+            status = (resp.json() or {}).get("status", "?")
+            logger.info(f"Fördelning: {basename} → {status}")
+            _fordelning_posted.add(cache_key)
+        else:
+            logger.warning(f"Fördelning: import-API svarade {resp.status_code} för "
+                           f"{basename}: {resp.text[:200]}")
+    except Exception as e:
+        # requests-fel kan innehålla URL:en inkl ?key=... — släpp aldrig nyckeln till loggen
+        import re as _re
+        msg = _re.sub(r"key=[^&\s']+", "key=***", str(e))
+        logger.warning(f"Fördelning: oväntat fel för {os.path.basename(filepath)} "
+                       f"(ej kritiskt, arkiveringen påverkas inte): {msg}")
+
+
 def is_duplicate(filepath: str) -> bool:
     """Kolla om filen redan processats nyligen."""
     now = time.time()
@@ -249,6 +346,8 @@ def periodic_scan():
                 run_mom_import()
                 notify_vercel()
             if hpr_files:
+                for f in hpr_files:
+                    post_hpr_fordelning(str(f))  # sväljer egna fel, se funktionen
                 logger.info(">>> Periodisk scan: kör HPR-import")
                 run_hpr_import()
         except Exception as e:
@@ -296,6 +395,11 @@ class IncomingFileHandler(FileSystemEventHandler):
         time.sleep(SETTLE_DELAY)
 
         if ext == ".mom":
+            # MOM-importen flyttar ALLA filtyper till Behandlade — .hpr-filer
+            # vars events inte hunnit fyra måste POST:as till fördelningen
+            # INNAN de flyttas (lokala cachen gör om-POST billig/ofarlig).
+            for hpr in list(Path(WATCH_DIR).glob("*.hpr")) + list(Path(WATCH_DIR).glob("*.HPR")):
+                post_hpr_fordelning(str(hpr))
             logger.info(f">>> Kör MOM-import för: {basename}")
             run_mom_import()
             notify_vercel()
@@ -304,6 +408,10 @@ class IncomingFileHandler(FileSystemEventHandler):
             run_hpr_import()
 
         elif ext == ".hpr":
+            # Fördelningsuppföljningen först, medan filen ännu ligger i
+            # Inkommande (importen nedan flyttar den till Behandlade).
+            # Fel härifrån stoppar aldrig importen.
+            post_hpr_fordelning(filepath)
             logger.info(f">>> Kör HPR-import för: {basename}")
             run_hpr_import()
 

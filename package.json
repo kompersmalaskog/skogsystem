@@ -25,6 +25,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "copy-webpack-plugin": "^14.0.0",
+    "fast-xml-parser": "^5.10.1",
     "framer-motion": "^12.38.0",
     "geotiff": "^3.0.3",
     "jszip": "^3.10.1",
