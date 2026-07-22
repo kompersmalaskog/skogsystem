@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { signeraKartfil } from '@/lib/kartfiler';
 
 interface KartaVyProps {
   objekt: any;
@@ -108,9 +109,11 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
           .addTo(map);
       }
 
-      // Kartbild-overlay
-      map.on('load', () => {
+      // Kartbild-overlay — bucketen är privat, signera läs-URL:en
+      map.on('load', async () => {
         if (objekt.kartbild_url && objekt.kartbild_bounds) {
+          const signeradUrl = await signeraKartfil(objekt.kartbild_url);
+          if (cancelled || !signeradUrl) return; // kunde inte signeras -> ingen overlay (loggat i helpern)
           const bounds = objekt.kartbild_bounds;
           const sw: [number, number] = [bounds[0][1], bounds[0][0]]; // [lng, lat]
           const ne: [number, number] = [bounds[1][1], bounds[1][0]];
@@ -119,7 +122,7 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
 
           map.addSource('kartbild', {
             type: 'image',
-            url: objekt.kartbild_url,
+            url: signeradUrl,
             coordinates: [nw, ne, se, sw],
           });
           map.addLayer({
