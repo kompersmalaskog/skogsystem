@@ -614,10 +614,10 @@ export default function PlannerPage() {
   const [mapCenter, setMapCenter] = useState({ lat: 57.1052, lng: 14.8261 }); // Stenshult ungefär
   const [mapZoom, setMapZoom] = useState(16);
   const [showMap, setShowMap] = useState(true);
-  // Default 'terrain' (OpenTopoMap, samma kartstil som Cesium 3D Körvy).
-  // Tidigare 'satellite' (Esri imagery) kombinerat med markfuktighet+lutning-
-  // overlays gav grötig gul/lila yta som dolde terräng-information. OpenTopoMap
-  // ger ren outdoor-kartografi med vägar, höjdkurvor och skogssymboler.
+  // Default 'lantmateriet' = Karta (LM topowebb nedtonad, dämpad). Tidigare Esri-satellit
+  // kombinerat med markfuktighet+lutning-overlays gav grötig gul/lila yta som dolde
+  // terräng-informationen. LM ger ren svensk kartografi med vägar, höjdkurvor och
+  // skogssymboler — och Topokarta är samma källa i full färg.
   const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain' | 'lantmateriet'>('lantmateriet');
   
   // Overlay-lager — persistas i localStorage via useMapLayers
@@ -677,18 +677,17 @@ export default function PlannerPage() {
         maxzoom: 19,
         attribution: '&copy; OpenStreetMap',
       },
+      // TOPOKARTA — SAMMA Lantmäteriet-källa som Karta, fast i FULL FÄRG (topowebbkartan) med
+      // tydliga höjdkurvor. OpenTopoMap BORTTAGEN: volontärdriven utan tillgänglighetsgaranti,
+      // en enda host, uppmätt 1,5–2 s per orenderad ruta. En källa, två presentationer.
+      // Höjdkurvor-overlayen var SAMMA OpenTopoMap-tiles ("två namn, en källa") — borttagen;
+      // LM har höjdkurvorna inbakade i kartan.
       topographic: {
         type: 'raster' as const,
-        tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
+        tiles: ['/api/forarkarta?layer=farg&z={z}&x={x}&y={y}'],
         tileSize: 256,
         maxzoom: 17,
-        attribution: '&copy; OpenTopoMap',
-      },
-      contours: {
-        type: 'raster' as const,
-        tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
-        tileSize: 256,
-        maxzoom: 17,
+        attribution: '&copy; Lantmäteriet',
       },
       // Lantmäteriet topowebb (nedtonad) via egen proxy /api/forarkarta — SVENSK topografisk
       // baskarta, server-cache + CDN-cache. CARTO Positron borttagen (kräver Enterprise-licens
@@ -704,8 +703,8 @@ export default function PlannerPage() {
     layers: [
       // Ljusgrå bakgrund (#e8e8e8) syns när tiles inte hunnit laddas eller vid
       // utzoom bortom täckning. Tidigare #0a0a0a (svart) gav stor skarp kontrast
-      // mot OpenTopoMap-tiles → "svarta hörn" vid zoom/laddning. Neutral grå
-      // smälter ihop bättre med både Karta (Lantmäteriet), Topokarta (OpenTopoMap),
+      // mot ljusa karttiles → "svarta hörn" vid zoom/laddning. Neutral grå
+      // smälter ihop bättre med både Karta och Topokarta (Lantmäteriet),
       // osm. Körvy 2D använder samma 'bg'-layer som fallback.
       { id: 'bg', type: 'background' as const, paint: { 'background-color': '#e8e8e8' } },
       { id: 'osm-layer', type: 'raster' as const, source: 'osm', layout: { visibility: 'none' as const } },
@@ -717,7 +716,6 @@ export default function PlannerPage() {
       // symboler, traktgränser, larmpin och GPS-prick DOMINERAR. Kartan = underlag, ej huvudsak.
       { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: { 'raster-saturation': -0.45, 'raster-contrast': -0.06, 'raster-opacity': 0.9 }, layout: { visibility: 'visible' as const } },
       { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: 'none' as const } },
-      { id: 'contours-layer', type: 'raster' as const, source: 'contours', paint: { 'raster-opacity': 0.4 }, layout: { visibility: 'none' as const } },
     ],
   });
 
@@ -2349,7 +2347,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (korvyActive) acquireGpsWithFallback();
   }, [korvyActive]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Körvyns bas-karta: 'lm' (tyst — Lantmäteriet nedtonad, dämpad) eller 'topo' (OpenTopoMap).
+  // Körvyns bas-karta: 'lm' (Karta — LM nedtonad, dämpad) eller 'topo' (Topokarta — LM full färg).
   // Default tyst så föraren möter den lugna svenska baskartan; toggla för terräng-detalj.
   const [korvyBasKarta, setKorvyBasKarta] = useState<'lm' | 'topo'>('lm');
   const [korvyBlinkOn, setKorvyBlinkOn] = useState(true);
@@ -2450,14 +2448,6 @@ export default function PlannerPage() {
     setVis('terrain-layer', mapType === 'terrain');
     setVis('lm-layer', mapType === 'lantmateriet');
   }, [mapType, mapLibreReady]);
-
-  // === MapLibre: Höjdkurvor overlay ===
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !map.getLayer('contours-layer')) return;
-    map.setLayoutProperty('contours-layer', 'visibility', overlays.contours && mapType !== 'terrain' ? 'visible' : 'none');
-    map.setPaintProperty('contours-layer', 'raster-opacity', mapType === 'satellite' ? 0.5 : 0.3);
-  }, [overlays.contours, mapType, mapLibreReady]);
 
 
 
@@ -5630,11 +5620,11 @@ export default function PlannerPage() {
       // Apple-omdesign 2026-05: bytt från ['bg-korvy', 'hillshade-korvy',
       // 'lm-skuggning-layer', 'sks-markfuktighet-layer'] (mörk Tesla-bakgrund +
       // 1m DEM-skuggning + Lantmäteriet-skuggning + Skogsstyrelsen-markfuktighet)
-      // till bara ['terrain-layer'] (OpenTopoMap). Matchar nu planeringsvyn +
-      // Cesium 3D Körvy som båda har OpenTopoMap som default-bas. Lm-skuggning
+      // till bara baskarte-lagret (Lantmäteriet). Matchar nu planeringsvyn +
+      // som har Lantmäteriet som default-bas. Lm-skuggning
       // och sks-markfuktighet finns kvar i lager-menyn under 'Skogsstyrelsen
       // Raster' / 'Lantmäteriet' om föraren vill toggla på dem manuellt.
-      // Bas-karta: tyst (Lantmäteriet nedtonad) eller terräng (OpenTopoMap) — växlas i toggeln.
+      // Bas-karta: Karta (LM dämpad) eller Topokarta (LM full färg) — växlas i toggeln.
       const SHOW = new Set<string>([korvyBasKarta === 'lm' ? 'lm-layer' : 'terrain-layer']);
       // Våra ritade data + immersion-layers
       const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-'];
@@ -9330,7 +9320,7 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === KÖRVY: BASKARTE-VÄXLING (Karta/Lantmäteriet ⇄ Topokarta/OpenTopoMap) === */}
+      {/* === KÖRVY: BASKARTE-VÄXLING (Karta/dämpad ⇄ Topokarta/full färg — båda Lantmäteriet) === */}
       {korvyActive && (
         <div style={{
           position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', right: 12, zIndex: 260,
@@ -12593,7 +12583,7 @@ export default function PlannerPage() {
               {[
                 { id: 'lantmateriet', name: 'Karta', desc: 'Lantmäteriet — dämpad' },
                 { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
-                { id: 'terrain', name: 'Topokarta', desc: 'OpenTopoMap' },
+                { id: 'terrain', name: 'Topokarta', desc: 'Lantmäteriet — full färg' },
                 { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
               ].map(type => (
                 <div
@@ -12650,7 +12640,6 @@ export default function PlannerPage() {
               {[
                 { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
-                { id: 'contours', name: 'Höjdkurvor', desc: 'OpenTopoMap-kurvor ovanpå', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
                 { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
                 { id: 'hydrografi', name: 'Diken & vattendrag', desc: 'Vattenytor och flödesackumulation (SKS)', enabled: true },

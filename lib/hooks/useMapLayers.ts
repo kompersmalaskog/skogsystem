@@ -18,7 +18,7 @@ import type { Dispatch, SetStateAction } from 'react'
 
 // v4: bumpad nyckel 2026-05 för att kassera befintliga sparningar där
 // markfuktighet + lutning ofta var påslagna som default sedan tidigare —
-// kombinerat med ny default-baskarta (OpenTopoMap istället för Esri-satellit)
+// kombinerat med dåvarande default-baskarta
 // blev resultatet en grötig gul/lila yta som dolde terräng-informationen.
 // Gamla 'mapLayers' / 'mapLayers_v2' / 'mapLayers_v3'-nycklar lämnas orörda
 // i localStorage. Användaren får börja från clean state med inga overlays.
@@ -34,7 +34,6 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   fastighetsgranser: false,
   hydrografi: false,
   moisture: false,
-  contours: false,
   wetlands: false,
   // Skogsstyrelsen
   nyckelbiotoper: false,

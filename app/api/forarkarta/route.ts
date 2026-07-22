@@ -21,7 +21,8 @@ const UA = 'skogsystem-baskarta/1.0';
 
 // A — nyckellös minkarta (WMS). Verifierat: GetMap → 200 image/png utan auth (1.3.0, CRS 3857).
 const LM_WMS = 'https://minkarta.lantmateriet.se/map/topowebb/wms/v1.3';
-const LM_LAYER = 'topowebbkartan_nedtonad';
+const LM_LAYER = 'topowebbkartan_nedtonad';      // "Karta"      — dämpad
+const LM_LAYER_FARG = 'topowebbkartan';          // "Topokarta"  — full färg, tydliga höjdkurvor
 const MINKARTA_HOST = 'minkarta.lantmateriet.se';
 
 // FLYGFOTO — LM ortofoto 0,5 m, samma nyckellösa minkarta. Esri World Imagery är BORTTAGEN
@@ -35,6 +36,7 @@ const LM_ORTO_LAYER = 'Ortofoto_0.5';
 // B — öppna data-WMTS. Aktiveras när token finns i miljön (annars tom → A används).
 const OPEN_TOKEN = process.env.LM_OPEN_TOPO_TOKEN || '';
 const OPEN_LAYER = process.env.LM_OPEN_TOPO_LAYER || 'topowebb_nedtonad';
+const OPEN_LAYER_FARG = process.env.LM_OPEN_TOPO_LAYER_FARG || 'topowebb';
 const OPEN_HOST = 'api.lantmateriet.se';
 
 const ALLOWED_HOSTS = new Set([MINKARTA_HOST, OPEN_HOST]);
@@ -53,9 +55,12 @@ function tileBbox3857(z: number, x: number, y: number): string {
   return `${minx},${miny},${maxx},${maxy}`;
 }
 
+// Vad rutan föreställer: 'dampad' = Karta, 'farg' = Topokarta (full färg), 'ortofoto' = Flygfoto.
+type TileKind = 'dampad' | 'farg' | 'ortofoto';
+
 // Upstream-URL för en enskild ruta. Öppna data (WMTS) om token satt, annars minkarta (WMS).
-function tileUpstreamUrl(z: number, x: number, y: number, orto: boolean): string {
-  if (orto) {
+function tileUpstreamUrl(z: number, x: number, y: number, kind: TileKind): string {
+  if (kind === 'ortofoto') {
     // Flygfoto går alltid via minkarta — ingen öppen data-ortofoto finns att flippa till.
     const b = tileBbox3857(z, x, y);
     return `${LM_ORTO_WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${LM_ORTO_LAYER}` +
@@ -63,10 +68,10 @@ function tileUpstreamUrl(z: number, x: number, y: number, orto: boolean): string
   }
   if (OPEN_TOKEN) {
     // WMTS REST: .../{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol} = 3857/{z}/{y}/{x}.
-    return `https://${OPEN_HOST}/open/topowebb-ccby/v1/wmts/token/${OPEN_TOKEN}/1.0.0/${OPEN_LAYER}/default/3857/${z}/${y}/${x}.png`;
+    return `https://${OPEN_HOST}/open/topowebb-ccby/v1/wmts/token/${OPEN_TOKEN}/1.0.0/${kind === 'farg' ? OPEN_LAYER_FARG : OPEN_LAYER}/default/3857/${z}/${y}/${x}.png`;
   }
   const bbox = tileBbox3857(z, x, y);
-  return `${LM_WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${LM_LAYER}` +
+  return `${LM_WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${kind === 'farg' ? LM_LAYER_FARG : LM_LAYER}` +
     `&STYLES=&FORMAT=image/png&CRS=EPSG:3857&BBOX=${encodeURIComponent(bbox)}&WIDTH=256&HEIGHT=256`;
 }
 
@@ -124,15 +129,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (!/^\d+$/.test(z || '') || !/^\d+$/.test(x || '') || !/^\d+$/.test(y || '')) {
       return NextResponse.json({ error: 'bad z/x/y' }, { status: 400 });
     }
-    const orto = p.get('layer') === 'ortofoto';
-    const cacheKey = `t:${orto ? 'orto' : OPEN_TOKEN ? 'o' : 'm'}:${z}/${x}/${y}`;
+    const lp = p.get('layer');
+    const kind: TileKind = lp === 'ortofoto' ? 'ortofoto' : lp === 'farg' ? 'farg' : 'dampad';
+    const cacheKey = `t:${kind}:${OPEN_TOKEN ? 'o' : 'm'}:${z}/${x}/${y}`;
     const cached = getCached(cacheKey);
     if (cached) {
       return new NextResponse(cached.body, {
         headers: { 'Content-Type': cached.ct, 'Cache-Control': 'public, max-age=1800', 'X-Cache': 'HIT' },
       });
     }
-    return serveUpstream(tileUpstreamUrl(Number(z), Number(x), Number(y), orto), cacheKey);
+    return serveUpstream(tileUpstreamUrl(Number(z), Number(x), Number(y), kind), cacheKey);
   }
 
   // === bbox-läge (översikt/förarkarta) — oförändrat, nyckellös minkarta-WMS ===
