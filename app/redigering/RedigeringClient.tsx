@@ -1640,6 +1640,9 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
   // Proaktiv uppräkningsfråga: (skotning avslutad ELLER icke-filsändande
   // skotare) OCH (lass + manuell) < skördat. Skrivningen är samma verifierade
   // färdigskotat-knapp nedanför — frågan pekar bara på den.
+  // SAMMA gate som luckvarningen i getWarnings: tyst vid egen skotning
+  // (markägaren skotar — inte vår volym) och extern skotare (redovisas via
+  // prisfälten). Fråga och varning ska aldrig säga olika saker.
   const manuellMax = Math.max(0, ...(syskon && syskon.length ? syskon : [obj]).map((o: any) => Number(o.skotad_volym_manuell) || 0))
   const totSkotat = Math.round((Number(skotatTotal) || 0) + manuellMax)
   const totSkordat = Math.round(Number(skordatTotal) || 0)
@@ -1647,6 +1650,7 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
     .map((o: any) => o.skotning_avslutad).filter(Boolean).sort().slice(-1)[0] || null
   const visaUpprakningsFraga = (gruppSkotningAvslutad || skotareSanderEj)
     && totSkordat > 0 && totSkotat < totSkordat
+    && obj.egen_skotning !== true && !harExternSkotning(obj)
 
   const skotningWarning = (() => {
     if (!obj.skotning_avslutad) return null
