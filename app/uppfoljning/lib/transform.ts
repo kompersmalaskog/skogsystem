@@ -3,12 +3,14 @@
 
 import type { UppfoljningData, Maskin, Forare, AvbrottRad, DieselDag } from '../UppfoljningVy';
 import { G15_GRANS_SEK } from '@/lib/g15';
+import { type ObjektTyp } from '@/lib/objekt/typ';
 
 // ── Typer ─────────────────────────────────────────────────────────────────
 export interface UppfoljningObjekt {
   vo_nummer: string;
   namn: string;
-  typ: 'slutavverkning' | 'gallring';
+  // Härledd typ (lib/objekt/typ.ts). null = okänd — aldrig gissad.
+  typ: ObjektTyp;
   agare: string;
   areal: number;
   skordareModell: string | null;
@@ -46,6 +48,14 @@ export interface UppfoljningObjekt {
   // grot_hamtad (date, NULL = riset ligger kvar på hygget). Frikopplar riset
   // HELT från virkets skotningsstatus — riset räknas tills DET är hämtat.
   grotHamtad: string | null;
+  // Skotargruppering: lassdata (hård) → tilldelad_skotare (planerad) → null.
+  // dim_objekt.maskin_id är SKÖRDAREN och används ALDRIG här.
+  skotareKalla: 'lass' | 'tilldelad' | null;
+  // Satt när lassdatan säger en annan skotare än tilldelningen — visas som
+  // stillsam notis, aldrig som tyst övertäckning.
+  skotareAvvikelse: { lass: string; tilldelad: string } | null;
+  // Aktiv koppling till ett PÅGÅENDE risjobb (F3)
+  risskotningPagar: boolean;
   externSkotning: boolean;
   externForetag: string;
   externPrisTyp: 'm3' | 'timme';

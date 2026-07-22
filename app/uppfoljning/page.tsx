@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { type UppfoljningObjekt } from './lib/transform';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
+import { typKort, arRisjobb } from '@/lib/objekt/typ';
 
 /* ── Design tokens (V6) ── */
 const V6_GREY = '#8e8e93';
@@ -66,6 +67,11 @@ function sektionAv(o: UppfoljningObjekt): Sektion {
 // utskrivet VARFÖR det ligger här och vad som väntas.
 function ovrigtText(o: UppfoljningObjekt): string {
   if (o.externSkotning) return 'Skotas externt';
+  // Risjobb skördar aldrig — deras volym är skotarens RAPPORTERADE lass.
+  // "Ingen produktionsdata" vore fel: riset ÄR hämtat och mängden känd.
+  if (o.grotSkotning) {
+    return o.volymSkotare > 0 ? `${sv(o.volymSkotare)} m³ ris hämtat` : 'Inga lass registrerade än';
+  }
   if (o.volymSkordare === 0) return 'Ingen produktionsdata än';
   const kvar = kvarM3(o);
   if (kvar > 0 && o.antalLass === 0 && o.skordningAvslutad) return 'Skotad utan lassdata — markera färdig';
@@ -85,11 +91,35 @@ function liggetidText(o: UppfoljningObjekt): React.ReactNode {
 }
 
 /* ── Typ-tagg ── */
-function TypTagg({ o }: { o: UppfoljningObjekt }) {
-  const gall = o.typ === 'gallring';
+// VISSHETSGRAD — tre nivåer som ALDRIG får se likadana ut:
+//  matt        = skördarmätt virke (stockmätning). Grön. Reserverad.
+//  rapporterat = skotarens lassvolym på ris — förarens bedömning i m³fub,
+//                inte stockmätning. Ska aldrig bära grön Mätt.
+//  schablon    = beräknad ur stamvolym × faktor.
+function Visshet({ grad }: { grad: 'matt' | 'rapporterat' | 'schablon' }) {
+  const stil = grad === 'matt'
+    ? { color: V6_DONE, border: '1px solid rgba(48,209,88,0.35)' }
+    : grad === 'rapporterat'
+      ? { color: '#8ab4f8', border: '1px solid rgba(138,180,248,0.35)' }
+      : { color: V6_WARN, border: '1px solid rgba(255,159,10,0.4)' };
   return (
-    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.03em', color: gall ? V6_SK : '#cfe3ff', background: gall ? 'rgba(168,213,130,0.13)' : 'rgba(120,170,255,0.13)', borderRadius: 5, padding: '1px 6px', whiteSpace: 'nowrap' }}>
-      {gall ? 'Gallring' : 'Slutavv.'}
+    <span style={{ ...stil, fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', borderRadius: 5, padding: '1px 4px', whiteSpace: 'nowrap' }}>
+      {grad === 'matt' ? 'mätt' : grad === 'rapporterat' ? 'rapporterat' : 'schablon'}
+    </span>
+  );
+}
+
+function TypTagg({ o }: { o: UppfoljningObjekt }) {
+  // Typen kommer ur den DELADE regeln (lib/objekt/typ.ts) — aldrig ur
+  // huvudtyp direkt, aldrig med fallback-gissning.
+  const t = o.typ;
+  const f = t === 'grot' ? { c: V6_ST, b: 'rgba(240,178,76,0.13)' }
+    : t === 'gallring' ? { c: V6_SK, b: 'rgba(168,213,130,0.13)' }
+    : t === 'slutavverkning' ? { c: '#cfe3ff', b: 'rgba(120,170,255,0.13)' }
+    : { c: V6_GREY, b: 'rgba(142,142,147,0.13)' };
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.03em', color: f.c, background: f.b, borderRadius: 5, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+      {typKort(t)}
     </span>
   );
 }
@@ -121,7 +151,7 @@ function SummaKort({
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginTop: 7, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.4px', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{sv(m3)}</span>
           <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 600 }}>{enhet}</span>
-          <span style={{ fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_DONE, border: '1px solid rgba(48,209,88,0.35)', borderRadius: 5, padding: '1px 4px' }}>mätt</span>
+          <Visshet grad="matt" />
         </div>
       );
 
@@ -162,7 +192,7 @@ function SummaKort({
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setVisaFaktor(!visaFaktor); } }}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 5, fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_WARN, border: '1px solid rgba(255,159,10,0.4)', borderRadius: 5, padding: '1px 4px', cursor: 'pointer' }}
           >
-            uppskattat · ×{faktorStr}
+            schablon · ×{faktorStr}
           </div>
         </button>
       </div>
@@ -238,6 +268,8 @@ function OskotatPerSkotare({ objekt, onSelect, faktor }: { objekt: UppfoljningOb
         return a.sistaAvverkning.localeCompare(b.sistaAvverkning); // äldst först
       }),
       summa: objs.reduce((s, o) => s + kvarM3(o), 0),
+      // "I kö" = grupperad på PLANERAD tilldelning, inget lass ännu.
+      iKo: objs.filter(o => o.skotareKalla === 'tilldelad').length,
     }));
     // Maskinen med mest på backen överst; Ej tilldelad alltid sist.
     lista.sort((a, b) => (a.namn === null ? 1 : b.namn === null ? -1 : b.summa - a.summa));
@@ -252,7 +284,10 @@ function OskotatPerSkotare({ objekt, onSelect, faktor }: { objekt: UppfoljningOb
       {grupper.map(g => (
         <div key={g.namn || 'ej'} style={{ margin: '0 16px 10px' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '4px 4px 6px', gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: g.namn ? '#fff' : V6_WARN }}>{g.namn || 'Ej tilldelad'}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: g.namn ? '#fff' : V6_WARN }}>
+              {g.namn || 'Ej tilldelad'}
+              {g.iKo > 0 && <span style={{ color: V6_GREY, fontWeight: 500 }}> · {g.iKo} {g.iKo === 1 ? 'objekt' : 'objekt'} i kö</span>}
+            </span>
             <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{sv(g.summa)} m³ på backen</span>
           </div>
           <div style={{ background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
@@ -266,9 +301,14 @@ function OskotatPerSkotare({ objekt, onSelect, faktor }: { objekt: UppfoljningOb
                       <TypTagg o={o} />
                     </div>
                     <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{liggetidText(o)}</div>
+                    {o.skotareAvvikelse && (
+                      <div style={{ fontSize: 11, color: V6_GREY2, marginTop: 2 }}>
+                        Lassdata: {o.skotareAvvikelse.lass} · tilldelad: {o.skotareAvvikelse.tilldelad}
+                      </div>
+                    )}
                     {grot != null && (
                       <div style={{ fontSize: 12, color: V6_WARN, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-                        ≈ {sv(grot)} m³fub ris kvar <span style={{ color: V6_GREY2 }}>(uppskattat)</span>
+                        ≈ {sv(grot)} m³fub ris kvar <span style={{ color: V6_GREY2 }}>(schablon)</span>
                       </div>
                     )}
                   </div>
@@ -307,7 +347,10 @@ function RisLista({ objekt, onSelect, faktor }: { objekt: UppfoljningObjekt[]; o
               <button key={o.skordareObjektId || o.vo_nummer} onClick={() => onSelect(o)} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 56, padding: '11px 16px', gap: 12, background: 'transparent', border: 'none', textAlign: 'left', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</div>
-                  <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{liggetidText(o)}</div>
+                  <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                    {liggetidText(o)}
+                    {o.risskotningPagar && <span style={{ color: V6_ST }}> · risskotning pågår</span>}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, flexShrink: 0 }}>
                   <span style={{ fontSize: 15, color: V6_GREY, fontWeight: 600 }}>~</span>
@@ -441,7 +484,13 @@ export default function UppfoljningPage() {
     const t = sok.toLowerCase();
     return o.namn.toLowerCase().includes(t) || (o.agare || '').toLowerCase().includes(t) || (o.vo_nummer || '').includes(t);
   };
-  const matchTyp = (o: UppfoljningObjekt) => vald === 'slutavverkning' ? o.typ === 'slutavverkning' : vald === 'gallring' ? o.typ === 'gallring' : true;
+  // Korten ÄR filtren — symmetriskt: Ris-kortet filtrerar till risjobb
+  // (även bland avslutade), precis som Slutavv./Gallring gör för virke.
+  const matchTyp = (o: UppfoljningObjekt) =>
+    vald === 'slutavverkning' ? o.typ === 'slutavverkning'
+    : vald === 'gallring' ? o.typ === 'gallring'
+    : vald === 'ris' ? arRisjobb(o)
+    : true;
 
   // ── Sektioner: tilldela varje objekt EN sektion, EN gång (invarianten) ──
   const sektioner = useMemo(() => {
@@ -466,6 +515,7 @@ export default function UppfoljningPage() {
   const kort = useMemo(() => {
     let sM3 = 0, sN = 0, gM3 = 0, gN = 0;
     for (const o of sektioner.oskotat) {
+      if (o.grotSkotning) continue; // risjobb är typ Grot, inte virke
       if (o.typ === 'gallring') { gM3 += kvarM3(o); gN++; } else { sM3 += kvarM3(o); sN++; }
     }
     const risM3 = risAlla.reduce((a, o) => a + (uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0), 0);
@@ -480,6 +530,42 @@ export default function UppfoljningPage() {
 
   const risSynlig = useMemo(() => risAlla.filter(matchSok), [risAlla, sok]);
   const inget = !loading && !error && vald !== 'ris' && skordareKor.length === 0 && oskotat.length === 0 && ovrigt.length === 0;
+
+  // Avslutade-listan visas i BÅDA lägena (virkesfilter och ris) — korten ska
+  // bete sig likadant oavsett vilket som är valt.
+  const avslutadeBlock = avslutade.length > 0 ? (
+    <div style={{ padding: '20px 16px 12px' }}>
+      <button onClick={() => setVisaAvslutade(!visaAvslutade)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '12px 16px', background: 'transparent', border: `0.5px solid ${V6_SEP}`, borderRadius: 10, color: V6_GREY, fontSize: 13, fontWeight: 500, fontFamily: V6_FF, cursor: 'pointer' }}>
+        <span>{visaAvslutade ? 'Dölj' : 'Visa'} avslutade</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>({avslutade.length})</span>
+      </button>
+      {visaAvslutade && (
+        <div style={{ marginTop: 10, background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
+          {avslutade.map((o, i) => (
+            <button key={o.skordareObjektId || o.skotareObjektId || o.vo_nummer} onClick={() => handleSelect(o)} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 52, padding: '11px 16px', gap: 12, background: 'transparent', border: 'none', textAlign: 'left', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: V6_DONE, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</span>
+                  <TypTagg o={o} />
+                </div>
+                <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {arRisjobb(o)
+                    ? (o.volymSkotare > 0
+                        ? <>Avslutat · {sv(o.volymSkotare)} m³ ris <Visshet grad="rapporterat" /></>
+                        : <>Avslutat · inga lass registrerade</>)
+                    : (o.volymSkordare > 0
+                        ? <>Avslutat · {sv(o.volymSkordare)} m³ <Visshet grad="matt" /></>
+                        : <>Avslutat · ingen volym registrerad</>)}
+                </div>
+              </div>
+              <Chevron />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div style={{ height: 'calc(100dvh - 56px - env(safe-area-inset-top))', overflowY: 'auto', background: bg, color: text, fontFamily: ff, WebkitFontSmoothing: 'antialiased' }}>
@@ -506,7 +592,10 @@ export default function UppfoljningPage() {
               <div style={{ color: muted, fontSize: 13, marginTop: 6 }}>Kontrollera anslutningen och försök igen.</div>
             </div>
           ) : vald === 'ris' ? (
-            <RisLista objekt={risSynlig} onSelect={handleSelect} faktor={grotFaktor} />
+            <>
+              <RisLista objekt={risSynlig} onSelect={handleSelect} faktor={grotFaktor} />
+              {avslutadeBlock}
+            </>
           ) : (
             <>
               <SkordareKor objekt={skordareKor} onSelect={handleSelect} />
@@ -517,7 +606,8 @@ export default function UppfoljningPage() {
                   {vald ? 'Inga objekt i det filtret' : 'Inga aktiva objekt'}
                 </div>
               )}
-              {avslutade.length > 0 && (
+              {avslutadeBlock}
+              {false && (
                 <div style={{ padding: '20px 16px 12px' }}>
                   <button onClick={() => setVisaAvslutade(!visaAvslutade)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '12px 16px', background: 'transparent', border: `0.5px solid ${V6_SEP}`, borderRadius: 10, color: V6_GREY, fontSize: 13, fontWeight: 500, fontFamily: V6_FF, cursor: 'pointer' }}>
                     <span>{visaAvslutade ? 'Dölj' : 'Visa'} avslutade</span>
@@ -530,7 +620,11 @@ export default function UppfoljningPage() {
                           <span style={{ width: 8, height: 8, borderRadius: '50%', background: V6_DONE, flexShrink: 0 }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</div>
-                            <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2 }}>Avslutat · {sv(o.volymSkordare)} m³</div>
+                            <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {o.grotSkotning
+                                ? <>Avslutat · {o.volymSkotare > 0 ? `${sv(o.volymSkotare)} m³ ris` : 'inga lass'} {o.volymSkotare > 0 && <Visshet grad="rapporterat" />}</>
+                                : <>Avslutat · {sv(o.volymSkordare)} m³ {o.volymSkordare > 0 && <Visshet grad="matt" />}</>}
+                            </div>
                           </div>
                           <Chevron />
                         </button>

@@ -1693,6 +1693,44 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
   const [fardigskotat, setFardigskotat] = useState({ sparar: false, fel: '' })
   const radMaskinTyp = (obj.maskin_typ || '').toLowerCase()
 
+  // TILLDELAD SKOTARE — planeringens skotare. dim_objekt.maskin_id är
+  // SKÖRDAREN och används ALDRIG här. Lassdata vinner i vyerna när den finns;
+  // tilldelningen grupperar objektet i kö dessförinnan.
+  const [skotarLista, setSkotarLista] = useState<any[]>([])
+  const [tillLage, setTillLage] = useState({ sparar: false, fel: '' })
+
+  useEffect(() => {
+    let avbruten = false
+    ;(async () => {
+      const { data } = await supabase.from('dim_maskin').select('maskin_id, tillverkare, modell, maskin_typ')
+      if (avbruten) return
+      setSkotarLista((data || []).filter((m: any) => {
+        const t = (m.maskin_typ || '').toLowerCase()
+        return t.includes('forwarder') || t.includes('skotare')
+      }))
+    })()
+    return () => { avbruten = true }
+  }, [])
+
+  const sattTilldeladSkotare = async (mid: string | null) => {
+    setTillLage({ sparar: true, fel: '' })
+    const ids = (syskon && syskon.length ? syskon : [obj]).map((o: any) => o.objekt_id)
+    const { data, error } = await supabase
+      .from('dim_objekt').update({ tilldelad_skotare: mid }).in('objekt_id', ids)
+      .select('objekt_id, tilldelad_skotare')
+    if (error) { setTillLage({ sparar: false, fel: 'Kunde inte spara: ' + error.message }); return }
+    if ((data || []).length !== ids.length) {
+      setTillLage({ sparar: false, fel: `Bara ${(data || []).length} av ${ids.length} rader uppdaterades` }); return
+    }
+    // #222: läs tillbaka VÄRDET, inte bara radantalet
+    if ((data as any[]).some(r => (r.tilldelad_skotare || null) !== mid)) {
+      setTillLage({ sparar: false, fel: 'Tilldelningen landade inte — ladda om och försök igen' }); return
+    }
+    set({ ...obj, tilldelad_skotare: mid })
+    if (onRaderUppdaterade) onRaderUppdaterade(ids, { tilldelad_skotare: mid })
+    setTillLage({ sparar: false, fel: '' })
+  }
+
   // F1: RISJOBBETS KOPPLING — vilka avverkningsobjekt hämtas riset från?
   // Fångas vid källan (här, där risskotning sätts) så avbockningen kan bli
   // automatisk när jobbet markeras färdigt. Går att hoppa över (allt ris har
@@ -1862,6 +1900,36 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
             <EgenskapSwitch key={e.key} label={e.label} active={obj[e.key] === true} onClick={() => set({ ...obj, [e.key]: !obj[e.key] })} orange={false} />
           ))}
         </div>
+        {!arRisjobb && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ ...styles.subsectionLabel, marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>Tilldelad skotare</span>
+              {obj.skotare_konfiguration && (
+                /* Objektets kravade konfiguration — syns vid valet så fel
+                   maskintyp inte väljs av misstag. */
+                <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#8ab4f8', border: '1px solid rgba(138,180,248,0.35)', borderRadius: 5, padding: '1px 5px' }}>
+                  kräver {obj.skotare_konfiguration}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', margin: '0 0 8px', lineHeight: 1.45 }}>
+              Grupperar objektet under skotaren redan innan första lasset. När lass börjar rulla vinner lassdatan.
+            </div>
+            <div style={styles.chipGrid as any}>
+              {skotarLista.map((m: any) => {
+                const vald = obj.tilldelad_skotare === m.maskin_id
+                const namn = [m.tillverkare, m.modell].filter(Boolean).join(' ') || m.maskin_id
+                return (
+                  <Chip key={m.maskin_id} label={namn} selected={vald}
+                    onClick={() => sattTilldeladSkotare(vald ? null : m.maskin_id)}
+                    editMode={false} onDelete={() => {}} />
+                )
+              })}
+            </div>
+            {tillLage.sparar && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 6 }}>Sparar …</div>}
+            {tillLage.fel && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{tillLage.fel}</div>}
+          </div>
+        )}
         {arRisjobb && (
           <div style={{ marginTop: 14 }}>
             <div style={{ ...styles.subsectionLabel, marginTop: 0 }}>Ris hämtas från</div>
