@@ -1442,7 +1442,10 @@ export default function PlannerPage() {
   });
   const [stickvagWarningShown, setStickvagWarningShown] = useState(false); // Har vi varnat för detta utanför-tillfälle
   const previousStickvagRef = useRef<any>(null); // Senaste stickvägen att mäta mot
-  const [showSavedPopup, setShowSavedPopup] = useState(false); // Popup efter sparande
+  // Efter sparad väg: kort bekräftelse högst upp + färgrutor i botten. INGEN helskärm —
+  // den stal blicken mitt i arbetet och sa inget föraren inte redan visste.
+  const [sparadToast, setSparadToast] = useState(false);
+  const [visaFargval, setVisaFargval] = useState(false);
   const [savedVagColor, setSavedVagColor] = useState<string | null>(null); // Sparad färg för highlight
   const [lastUsedColorId, setLastUsedColorId] = useState<string>('rod'); // Senast använda färgen
   const [showAvslutaBekraftelse, setShowAvslutaBekraftelse] = useState(false); // Bekräftelse vid avsluta
@@ -1781,11 +1784,8 @@ export default function PlannerPage() {
   const [subMenu, setSubMenu] = useState<string | null>(null); // För meny-i-meny
   const [menuHeight, setMenuHeight] = useState(0); // 0 = stängd, 300 = öppen, 600 = full
   const [activeCategory, setActiveCategory] = useState<string | null>(null); // Ny fullskärmsmeny
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [showCamera, setShowCamera] = useState(false);
-  const [detectedColor, setDetectedColor] = useState<any>(null);
+  // Stickväg (default) eller backväg — segmenterad väljare i Gallring-menyn, minns sitt läge.
   const [selectedVagType, setSelectedVagType] = useState('stickvag');
-  const [selectedVagColor, setSelectedVagColor] = useState<any>(null);
   
   // Rita
   const [isDrawMode, setIsDrawMode] = useState(false);
@@ -5177,15 +5177,15 @@ export default function PlannerPage() {
   ];
 
   // Färger för stickvägar/backvägar (Gallring)
+  // BARA RÖD/GUL/BLÅ. De fem övriga togs bort 2026-07: de var en tyst FÄLLA — vägen sparades
+  // som sideRoadGreen/Orange/... men findNearestStickvag räknar bara Red/Yellow/Blue, så
+  // avståndsmätningen slutade fungera utan att något syntes. Verifierat före borttag: 0 sparade
+  // vägar hade dessa färger. Färgen är dessutom skördarförarens navigering — blått snitselband
+  // i skogen ska betyda blå väg i appen.
   const vagColors = [
     { id: 'rod', name: 'Röd', color: '#ff453a' },
     { id: 'gul', name: 'Gul', color: '#fbbf24' },
     { id: 'bla', name: 'Blå', color: '#3b82f6' },
-    { id: 'gron', name: 'Grön', color: '#30d158' },
-    { id: 'orange', name: 'Orange', color: '#f97316' },
-    { id: 'vit', name: 'Vit', color: '#fff' },
-    { id: 'svart', name: 'Svart', color: '#1f2937' },
-    { id: 'rosa', name: 'Rosa', color: '#ec4899' },
   ];
 
   // Meny-kategorier för fullskärmsmenyn
@@ -7687,12 +7687,37 @@ export default function PlannerPage() {
     setGpsPaused(false);
     gpsPausedRef.current = false;
 
-    // Visa popup - håll stickvagMode aktiv
+    // Håll stickvagMode aktiv. Ingen helskärm: kort bekräftelse + färgrutor i botten.
     setStickvagMode(true);
-    setShowSavedPopup(true);
+    setSparadToast(true);
+    setVisaFargval(true);
   };
 
   // Fortsätt snitslande med vald färg
+  // Bekräftelsen försvinner själv — föraren ska inte behöva kvittera något mitt i arbetet.
+  useEffect(() => {
+    if (!sparadToast) return;
+    const t = setTimeout(() => setSparadToast(false), 2500);
+    return () => clearTimeout(t);
+  }, [sparadToast]);
+
+  // Ett tryck på en färg = igång. Typen (stickväg/backväg) är förvald och minns sitt läge,
+  // så normalfallet kostar noll extra tryck. Ersätter det gamla 3-stegsflödet
+  // (färgsida → typval → "Starta GPS-spårning").
+  const startaSnitsling = (colorId: string) => {
+    const colorMap: Record<string, string> = { rod: 'Red', gul: 'Yellow', bla: 'Blue' };
+    const eng = colorMap[colorId] || 'Red';
+    const lineId = selectedVagType === 'backvag' ? `backRoad${eng}` : `sideRoad${eng}`;
+    setLastUsedColorId(colorId);
+    startGpsTracking(lineId);
+    setStickvagMode(true);
+    setVisaFargval(false);
+    setSparadToast(false);
+    setMenuOpen(false);
+    setMenuHeight(0);
+    setActiveCategory(null);
+  };
+
   const continueWithColor = (colorId: string) => {
     const colorMap: Record<string, string> = {
       'rod': 'sideRoadRed',
@@ -7700,7 +7725,8 @@ export default function PlannerPage() {
       'bla': 'sideRoadBlue',
     };
     setLastUsedColorId(colorId); // Spara senast använda färgen
-    setShowSavedPopup(false);
+    setVisaFargval(false);
+    setSparadToast(false);
     startGpsTracking(colorMap[colorId] || 'sideRoadRed');
     setStickvagMode(true);
     // previousStickvagRef är redan satt från saveAndShowPopup
@@ -13419,10 +13445,6 @@ export default function PlannerPage() {
           {/* Backdrop — tap-utanför stänger sheet */}
           <div
             onClick={() => {
-              setShowCamera(false);
-              setDetectedColor(null);
-              setShowColorPicker(false);
-              setSelectedVagColor(null);
               setSubMenu(null);
               setActiveCategory(null);
               setMenuOpen(false);
@@ -13475,24 +13497,11 @@ export default function PlannerPage() {
             flexShrink: 0,
           }}>
             {/* Back-pil (bara synlig vid submenu/camera/colorPicker) */}
-            {(showCamera || showColorPicker || subMenu) ? (
+            {subMenu ? (
               <button
                 type="button"
                 aria-label="Tillbaka"
-                onClick={() => {
-                  if (showCamera) {
-                    setShowCamera(false);
-                    setDetectedColor(null);
-                  } else if (showColorPicker) {
-                    if (selectedVagColor) {
-                      setSelectedVagColor(null);
-                    } else {
-                      setShowColorPicker(false);
-                    }
-                  } else if (subMenu) {
-                    setSubMenu(null);
-                  }
-                }}
+                onClick={() => { if (subMenu) setSubMenu(null); }}
                 className="press-scale"
                 style={{
                   width: 44,
@@ -13528,10 +13537,7 @@ export default function PlannerPage() {
               color: '#fff',
               letterSpacing: '-0.2px',
             }}>
-              {showCamera ? 'Fota snitsel' :
-               showColorPicker && selectedVagColor ? `${selectedVagColor.name} väg` :
-               showColorPicker ? 'Välj färg' :
-               subMenu ? (
+              {subMenu ? (
                  activeCategory === 'symbols' ? symbolCategories.find(c => c.name === subMenu)?.name :
                  subMenu === 'gps-lines' ? 'Spåra med GPS' :
                  subMenu === 'draw-lines' ? 'Rita manuellt' :
@@ -13546,10 +13552,6 @@ export default function PlannerPage() {
               type="button"
               aria-label="Stäng"
               onClick={() => {
-                setShowCamera(false);
-                setDetectedColor(null);
-                setShowColorPicker(false);
-                setSelectedVagColor(null);
                 setSubMenu(null);
                 setActiveCategory(null);
                 setMenuOpen(false);
@@ -14136,42 +14138,55 @@ export default function PlannerPage() {
             )}
 
             {/* === GALLRING === */}
-            {activeCategory === 'gallring' && !showColorPicker && !showCamera && !subMenu && (
+            {activeCategory === 'gallring' && !subMenu && (
               <div style={{ padding: '12px' }}>
-                {/* Huvudval */}
+                {/* SNITSLA — ett tryck på färgen startar GPS. Typen är förvald och minns sig,
+                    så normalfallet (stickväg) kostar noll extra tryck. */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                  marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
-                  {/* Snitsla ny stickväg */}
-                  <div
-                    onClick={() => setShowColorPicker(true)}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round">
-                        <path d="M12 5v14M5 12h14"/>
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Snitsla ny stickväg</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Välj färg och starta GPS</div>
-                    </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                      <path d="M9 6 L15 12 L9 18" />
-                    </svg>
+                  <div style={{ fontSize: '15px', color: '#fff', marginBottom: '3px' }}>Snitsla ny stickväg</div>
+                  <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '14px' }}>
+                    Tryck på färgen du har i handen — GPS startar direkt
                   </div>
 
-                  {/* Stickvägsavstånd */}
+                  <div style={{ display: 'flex', gap: '4px', padding: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '12px', marginBottom: '14px' }}>
+                    {[{ id: 'stickvag', n: 'Stickväg' }, { id: 'backvag', n: 'Backväg' }].map(t => (
+                      <button key={t.id} type="button" onClick={() => setSelectedVagType(t.id)} style={{
+                        flex: 1, padding: '10px 0', borderRadius: '9px', border: 'none', cursor: 'pointer',
+                        fontFamily: 'inherit', fontSize: '14px', fontWeight: 600,
+                        background: selectedVagType === t.id ? '#0a84ff' : 'transparent',
+                        color: selectedVagType === t.id ? '#fff' : 'rgba(255,255,255,0.55)',
+                      }}>{t.n}</button>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    {vagColors.map(f => (
+                      <button key={f.id} type="button" className="btn-press"
+                        onClick={() => startaSnitsling(f.id)}
+                        aria-label={`Snitsla ${f.name} ${selectedVagType === 'backvag' ? 'backväg' : 'stickväg'}`}
+                        style={{
+                          flex: 1, height: '72px', borderRadius: '16px', border: 'none',
+                          cursor: 'pointer', background: f.color, position: 'relative', fontFamily: 'inherit',
+                        }}>
+                        <span style={{
+                          position: 'absolute', bottom: '8px', left: 0, right: 0,
+                          fontSize: '13px', fontWeight: 700,
+                          color: f.id === 'gul' ? 'rgba(0,0,0,0.7)' : '#fff',
+                        }}>{f.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Övriga val */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '8px', marginBottom: '16px',
+                }}>
+                  {/* Stickvägsavstånd */}                  {/* Stickvägsavstånd */}
                   <div
                     onClick={() => {
                       setStickvagMode(true);
@@ -14328,371 +14343,6 @@ export default function PlannerPage() {
                   </div>
                   <div style={{ fontSize: '36px', fontWeight: '400', marginTop: '8px', opacity: 0.9 }}>
                     {markers.filter(m => m.isLine && (m.lineType?.startsWith('sideRoad') || m.lineType?.startsWith('backRoad'))).length}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Gallring - Färgval */}
-            {activeCategory === 'gallring' && showColorPicker && !selectedVagColor && !showCamera && (
-              <div style={{ padding: '12px' }}>
-                {/* Fota snitsel */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                  marginBottom: '16px',
-                }}>
-                  <div
-                    onClick={() => setShowCamera(true)}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
-                        <rect x="3" y="6" width="18" height="14" rx="2"/>
-                        <circle cx="12" cy="13" r="4"/>
-                        <path d="M8 6V4h8v2"/>
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Fota snitsel</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Appen känner igen färgen</div>
-                    </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                      <path d="M9 6 L15 12 L9 18" />
-                    </svg>
-                  </div>
-                </div>
-
-                {/* Färgval */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '16px',
-                }}>
-                  {vagColors.map((color) => (
-                    <div
-                      key={color.id}
-                      onClick={() => setSelectedVagColor(color)}
-                      style={{
-                        padding: '14px 16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '16px',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '8px',
-                        background: color.color,
-                        border: color.id === 'vit' ? '2px solid rgba(255,255,255,0.3)' : 'none',
-                      }} />
-                      <span style={{ fontSize: '15px', opacity: 0.8 }}>{color.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Gallring - Kamera (simulerad) */}
-            {activeCategory === 'gallring' && showCamera && !detectedColor && (
-              <div style={{ padding: '20px' }}>
-                <div 
-                  onClick={() => {
-                    // Simulera färgdetektering
-                    const colors = ['rod', 'gul', 'bla', 'gron', 'orange', 'vit'];
-                    const randomColor = colors[Math.floor(Math.random() * colors.length)];
-                    setDetectedColor(vagColors.find(c => c.id === randomColor));
-                  }}
-                  style={{
-                    background: '#1c1c1e',
-                    borderRadius: '16px',
-                    height: '300px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: '20px',
-                    cursor: 'pointer',
-                    border: '2px dashed rgba(255,255,255,0.2)',
-                  }}
-                >
-                  <div style={{ fontSize: '60px', marginBottom: '16px' }}>📷</div>
-                  <div style={{ fontSize: '15px', opacity: 0.7 }}>Tryck för att fota snitsel</div>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginTop: '8px' }}>(Simulerar i prototyp)</div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setShowCamera(false);
-                    setShowColorPicker(true);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '16px',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    background: 'transparent',
-                    color: '#fff',
-                    fontSize: '15px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Välj färg manuellt istället
-                </button>
-              </div>
-            )}
-
-            {/* Gallring - Hittad färg */}
-            {activeCategory === 'gallring' && showCamera && detectedColor && (
-              <div style={{ padding: '20px' }}>
-                <div style={{
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: '16px',
-                  padding: '30px',
-                  textAlign: 'center',
-                  marginBottom: '20px',
-                }}>
-                  <div style={{ fontSize: '15px', opacity: 0.6, marginBottom: '16px' }}>Appen hittade:</div>
-                  <div style={{
-                    width: '80px',
-                    height: '80px',
-                    borderRadius: '50%',
-                    background: detectedColor.color,
-                    margin: '0 auto 16px',
-                    border: detectedColor.id === 'vit' ? '3px solid #ccc' : '3px solid rgba(255,255,255,0.3)',
-
-                  }} />
-                  <div style={{ fontSize: '24px', fontWeight: '700' }}>{detectedColor.name}</div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button
-                    onClick={() => {
-                      setSelectedVagColor(detectedColor);
-                      setShowCamera(false);
-                      setShowColorPicker(true);
-                      setDetectedColor(null);
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '18px',
-                      borderRadius: '14px',
-                      border: 'none',
-                      background: '#30d158',
-                      color: '#fff',
-                      fontSize: '15px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ✓ RÄTT
-                  </button>
-                  <button
-                    onClick={() => {
-                      setDetectedColor(null);
-                      setShowCamera(false);
-                      setShowColorPicker(true);
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '18px',
-                      borderRadius: '14px',
-                      border: '2px solid rgba(255,255,255,0.3)',
-                      background: 'transparent',
-                      color: '#fff',
-                      fontSize: '15px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ✕ ÄNDRA
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Gallring - Välj typ (Stickväg/Backväg) */}
-            {activeCategory === 'gallring' && showColorPicker && selectedVagColor && (
-              <div style={{ padding: '12px' }}>
-                {/* Vald färg */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '20px',
-                  marginBottom: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                }}>
-                  <div style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '50%',
-                    background: selectedVagColor.color,
-                    border: selectedVagColor.id === 'vit' ? '2px solid rgba(255,255,255,0.3)' : 'none',
-                  }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '15px', color: '#fff' }}>{selectedVagColor.name} väg</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Vald färg</div>
-                  </div>
-                </div>
-
-                {/* Välj typ */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                  marginBottom: '16px',
-                }}>
-                  <div
-                    onClick={() => setSelectedVagType('stickvag')}
-                    style={{
-                      padding: '16px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round">
-                        <path d="M4 12 Q8 8 12 12 Q16 16 20 12" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Stickväg</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Snitsla ny stickväg</div>
-                    </div>
-                    <div style={{
-                      width: '22px',
-                      height: '22px',
-                      borderRadius: '50%',
-                      border: selectedVagType === 'stickvag' ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: selectedVagType === 'stickvag' ? '#30d158' : 'transparent',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      {selectedVagType === 'stickvag' && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
-                          <path d="M5 12 L10 17 L19 8" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-
-                  <div
-                    onClick={() => setSelectedVagType('backvag')}
-                    style={{
-                      padding: '16px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round">
-                        <path d="M19 12 L5 12" />
-                        <path d="M10 7 L5 12 L10 17" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Backväg</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Markera backväg</div>
-                    </div>
-                    <div style={{
-                      width: '22px',
-                      height: '22px',
-                      borderRadius: '50%',
-                      border: selectedVagType === 'backvag' ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: selectedVagType === 'backvag' ? '#30d158' : 'transparent',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      {selectedVagType === 'backvag' && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
-                          <path d="M5 12 L10 17 L19 8" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Starta-knapp */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                }}>
-                  <div
-                    onClick={() => {
-                      // Mappa svenska färgnamn till engelska för lineType
-                      const colorMap: Record<string, string> = {
-                        'rod': 'Red',
-                        'gul': 'Yellow',
-                        'bla': 'Blue',
-                        'gron': 'Green',
-                        'orange': 'Orange',
-                        'vit': 'White',
-                        'svart': 'Black',
-                        'rosa': 'Pink',
-                      };
-                      const englishColor = colorMap[selectedVagColor.id] || 'Red';
-                      const lineId = selectedVagType === 'backvag' 
-                        ? `backRoad${englishColor}` 
-                        : `sideRoad${englishColor}`;
-                      // Spara senast använda färgen för översikt
-                      if (['rod', 'gul', 'bla'].includes(selectedVagColor.id)) {
-                        setLastUsedColorId(selectedVagColor.id);
-                      }
-                      startGpsTracking(lineId);
-                      setStickvagMode(true);
-                      setShowColorPicker(false);
-                      setSelectedVagColor(null);
-                      setActiveCategory(null);
-                    }}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                      background: 'rgba(34,197,94,0.15)',
-                    }}
-                  >
-                    <div style={{ color: '#30d158' }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="3" />
-                        <circle cx="12" cy="12" r="8" />
-                        <line x1="12" y1="2" x2="12" y2="4" />
-                        <line x1="12" y1="20" x2="12" y2="22" />
-                        <line x1="2" y1="12" x2="4" y2="12" />
-                        <line x1="20" y1="12" x2="22" y2="12" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff', color: '#30d158' }}>Starta GPS-spårning</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Börja gå längs stickvägen</div>
-                    </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="1.5" style={{ opacity: 0.6 }}>
-                      <path d="M9 6 L15 12 L9 18" />
-                    </svg>
                   </div>
                 </div>
               </div>
@@ -15358,205 +15008,177 @@ export default function PlannerPage() {
 
 
       {/* === GALLRING OVERLAY === */}
-      {stickvagMode && !stickvagOversikt && !showSavedPopup && !menuOpen && !isZoneMode && !isDrawMode && (
+      {stickvagMode && !stickvagOversikt && !menuOpen && !isZoneMode && !isDrawMode && (
         <>
-          {/* Stor avståndssiffra */}
+          {/* Kort bekräftelse — försvinner själv, kräver ingen kvittering */}
+          {sparadToast && (
+            <div style={{
+              position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 74px)', left: '50%',
+              transform: 'translateX(-50%)', zIndex: 610, pointerEvents: 'none',
+              background: 'rgba(28,28,30,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+              border: '1px solid rgba(48,209,88,0.45)', borderRadius: 14, padding: '10px 18px',
+              fontSize: 14, fontWeight: 600, color: '#30d158', whiteSpace: 'nowrap',
+            }}>
+              Väg {markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} sparad
+            </div>
+          )}
+
+          {/* AVSTÅND + MÅL + RIKTNING + MÄTARE.
+              Fasta höjder så inget hoppar när föraren tittar upp en sekund. */}
           <div style={{
-            position: 'fixed',
-            top: '30%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            zIndex: 600,
-            pointerEvents: 'none',
-            textAlign: 'center',
+            position: 'fixed', top: '25%', left: '50%', transform: 'translateX(-50%)',
+            zIndex: 600, pointerEvents: 'none', textAlign: 'center', width: 'min(300px, 86vw)',
           }}>
             {(() => {
+              const target = stickvagSettings?.targetDistance || 25;
+              const tol = stickvagSettings?.tolerance || 3;
               const dist = getStickvagDistance();
-              const target = stickvagSettings?.targetDistance || 20;
-              const tolerance = stickvagSettings?.tolerance || 5;
-              const isInRange = dist !== null && Math.abs(dist - target) <= tolerance;
-              
+              const har = dist !== null;
+              const inom = har && Math.abs(dist - target) <= tol;
+              const osaker = gpsAccuracy != null && gpsAccuracy > 15;
+              const GRON = '#30d158', ORANGE = '#FF9F0A';
+              // Aldrig rött: att inte vara framme än är inte ett fel.
+              const farg = !har ? 'rgba(255,255,255,0.8)' : inom ? GRON : ORANGE;
+
+              // Mätarfönster: mål ±15 m. Smalt nog att pricken rör sig tydligt i det spann
+              // föraren faktiskt håller sig i. Utanför → pricken nålas vid kanten.
+              const SPAN = 15;
+              const lo = target - SPAN, hi = target + SPAN;
+              const pct = (v: number) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
+              const utanforSkala = har && (dist < lo || dist > hi);
+              const bandL = pct(target - tol), bandR = pct(target + tol);
+
+              const riktning = !har ? 'första vägen'
+                : inom ? 'inom mål'
+                : dist < target ? `→ ${target - dist} m ut`
+                : `← ${dist - target} m in`;
+
               return (
-                <div style={{
-                  fontSize: '120px',
-                  fontWeight: '400',
-                  color: isInRange ? '#30d158' : '#fff',
-                  lineHeight: 0.9,
-                  textShadow: '0 4px 30px rgba(0,0,0,0.9)',
-                }}>
-                  {dist !== null ? dist : '—'}
-                </div>
+                <>
+                  <div style={{
+                    fontSize: '76px', fontWeight: 500, color: farg, lineHeight: 1,
+                    textShadow: '0 4px 30px rgba(0,0,0,0.9)', fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {har ? dist : '—'}
+                  </div>
+
+                  {/* Målet syns ALLTID — han ska aldrig behöva hålla det i huvudet */}
+                  <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.7)', marginTop: '4px', textShadow: '0 2px 12px rgba(0,0,0,0.9)' }}>
+                    mål {target} m · ±{tol}
+                  </div>
+
+                  {/* VAD HAN SKA GÖRA, inte bara var han är. Fast höjd. */}
+                  <div style={{ height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '6px' }}>
+                    <span style={{
+                      fontSize: '18px', fontWeight: 700,
+                      color: !har ? 'rgba(255,255,255,0.45)' : inom ? GRON : ORANGE,
+                      textShadow: '0 2px 12px rgba(0,0,0,0.9)', whiteSpace: 'nowrap',
+                    }}>{riktning}</span>
+                  </div>
+
+                  {/* MÄTAREN — läsbar på en blick utan att läsa siffran */}
+                  <div style={{
+                    position: 'relative', height: '10px', borderRadius: '5px',
+                    background: 'rgba(255,255,255,0.18)', marginTop: '10px',
+                    boxShadow: '0 2px 12px rgba(0,0,0,0.6)',
+                  }}>
+                    <div style={{
+                      position: 'absolute', top: 0, bottom: 0, left: bandL + '%', width: (bandR - bandL) + '%',
+                      background: 'rgba(48,209,88,0.6)', borderRadius: '5px',
+                    }} />
+                    {har && (
+                      <div style={{
+                        position: 'absolute', top: '50%', left: pct(dist) + '%',
+                        transform: 'translate(-50%,-50%)', width: '16px', height: '16px', borderRadius: '8px',
+                        background: inom ? GRON : ORANGE, border: '2.5px solid #fff',
+                        boxShadow: '0 1px 6px rgba(0,0,0,0.8)',
+                      }} />
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px', fontSize: '11px', color: 'rgba(255,255,255,0.45)', textShadow: '0 2px 8px rgba(0,0,0,0.9)' }}>
+                    <span>för nära</span>
+                    {utanforSkala && <span style={{ color: ORANGE, fontWeight: 700 }}>utanför skalan</span>}
+                    <span>för långt</span>
+                  </div>
+
+                  {/* GPS-noggrannhet — ärligt. Positioner sämre än 15 m används inte för
+                      linjen, och då fryser siffran. Det ska SYNAS, inte gissas. */}
+                  <div style={{
+                    marginTop: '10px', fontSize: '12px', fontWeight: 500,
+                    color: osaker ? ORANGE : 'rgba(255,255,255,0.5)',
+                    textShadow: '0 2px 12px rgba(0,0,0,0.9)',
+                  }}>
+                    {gpsAccuracy == null ? 'söker GPS…'
+                      : osaker ? `osäker position · ±${Math.round(gpsAccuracy)} m`
+                      : `GPS ±${Math.round(gpsAccuracy)} m`}
+                  </div>
+                </>
               );
             })()}
           </div>
 
           {/* Pausad-indikator */}
-          {gpsPaused && (
+          {gpsPaused && !visaFargval && (
             <div style={{
-              position: 'fixed',
-              top: '60px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 600,
-              background: 'rgba(245,158,11,0.2)',
-              color: '#f59e0b',
-              padding: '8px 20px',
-              borderRadius: '16px',
-              fontSize: '13px',
-              fontWeight: '500',
+              position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 74px)', left: '50%',
+              transform: 'translateX(-50%)', zIndex: 600,
+              background: 'rgba(245,158,11,0.2)', color: '#f59e0b',
+              padding: '8px 20px', borderRadius: '16px', fontSize: '13px', fontWeight: '500',
             }}>
               PAUSAD
             </div>
           )}
 
-          {/* Tre knappar i botten */}
+          {/* BOTTEN: Paus + Spara — eller, efter sparad väg, Avsluta + tre färger.
+              Plus-knappen är BORTTAGEN: den satt mellan Paus och Spara och öppnade
+              symbolmenyn mitt i gången när man träffade fel med handskar. */}
           <div style={{
-            position: 'fixed',
-            bottom: '50px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            gap: '20px',
-            zIndex: 600,
+            position: 'fixed', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 44px)',
+            left: 0, right: 0, zIndex: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: visaFargval ? '14px' : '72px', padding: '0 24px',
           }}>
-            {/* Paus/Play */}
-            <button
-              onClick={() => {
-                const newPaused = !gpsPaused;
-                setGpsPaused(newPaused);
-                gpsPausedRef.current = newPaused;
-              }}
-              style={{
-                width: '60px',
-                height: '60px',
-                borderRadius: '50%',
-                border: 'none',
-                background: gpsPaused ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.15)',
-                color: gpsPaused ? '#f59e0b' : '#fff',
-                fontSize: '17px',
-                cursor: 'pointer',
-              }}
-            >
-              {gpsPaused ? '▶' : '❚❚'}
-            </button>
+            {visaFargval ? (
+              <>
+                <button type="button" onClick={() => { setVisaFargval(false); setShowAvslutaBekraftelse(true); }}
+                  style={{
+                    padding: '0 16px', height: '64px', borderRadius: '18px', border: '1px solid rgba(255,255,255,0.18)',
+                    background: 'rgba(28,28,30,0.9)', color: 'rgba(255,255,255,0.75)',
+                    fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+                  }}>Avsluta</button>
+                {vagColors.map(f => (
+                  <button key={f.id} type="button" className="btn-press"
+                    onClick={() => continueWithColor(f.id)}
+                    aria-label={`Nästa väg: ${f.name}`}
+                    style={{
+                      width: '64px', height: '64px', borderRadius: '18px', cursor: 'pointer',
+                      background: f.color, flexShrink: 0,
+                      border: lastUsedColorId === f.id ? '3px solid rgba(255,255,255,0.55)' : '3px solid transparent',
+                    }} />
+                ))}
+              </>
+            ) : (
+              <>
+                <button type="button" className="btn-press"
+                  onClick={() => { const n = !gpsPaused; setGpsPaused(n); gpsPausedRef.current = n; }}
+                  aria-label={gpsPaused ? 'Fortsätt' : 'Pausa'}
+                  style={{
+                    width: '64px', height: '64px', borderRadius: '32px', border: 'none',
+                    background: gpsPaused ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.15)',
+                    color: gpsPaused ? '#f59e0b' : '#fff', fontSize: '18px', cursor: 'pointer', fontFamily: 'inherit',
+                  }}>{gpsPaused ? '▶' : '❚❚'}</button>
 
-            {/* + Meny */}
-            <button
-              onClick={() => {
-                setMenuOpen(true);
-                setActiveCategory('symbols');
-              }}
-              style={{
-                width: '60px',
-                height: '60px',
-                borderRadius: '50%',
-                border: 'none',
-                background: 'rgba(255,255,255,0.15)',
-                color: '#fff',
-                fontSize: '28px',
-                fontWeight: '400',
-                cursor: 'pointer',
-              }}
-            >
-              +
-            </button>
-
-            {/* Spara */}
-            <button
-              onClick={() => saveAndShowPopup()}
-              style={{
-                width: '60px',
-                height: '60px',
-                borderRadius: '50%',
-                border: 'none',
-                background: '#30d158',
-                color: '#fff',
-                fontSize: '24px',
-                cursor: 'pointer',
-              }}
-            >
-              ✓
-            </button>
+                <button type="button" className="btn-press"
+                  onClick={() => saveAndShowPopup()}
+                  aria-label="Spara vägen"
+                  style={{
+                    width: '76px', height: '76px', borderRadius: '38px', border: 'none',
+                    background: '#30d158', color: '#fff', fontSize: '30px', cursor: 'pointer', fontFamily: 'inherit',
+                  }}>✓</button>
+              </>
+            )}
           </div>
         </>
-      )}
-
-      {/* === VÄG SPARAD POPUP === */}
-      {showSavedPopup && !showAvslutaBekraftelse && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          background: '#000',
-          zIndex: 510,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '24px',
-        }}>
-          <div style={{
-            width: '64px', height: '64px', borderRadius: '50%',
-            background: 'rgba(34, 197, 94, 0.15)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            marginBottom: '16px',
-          }}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2">
-              <path d="M5 12l5 5L20 7"/>
-            </svg>
-          </div>
-          
-          <div style={{ fontSize: '17px', fontWeight: '500', marginBottom: '6px', opacity: 0.9, color: '#fff' }}>
-            Väg sparad
-          </div>
-          <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '32px', color: '#fff' }}>
-            {markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} vägar totalt
-          </div>
-
-          <div style={{
-            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '20px',
-            width: '100%', maxWidth: '260px',
-          }}>
-            <div style={{ 
-              fontSize: '13px', opacity: 0.4, marginBottom: '16px',
- textAlign: 'center', color: '#fff',
-            }}>
-              Nästa väg
-            </div>
-
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginBottom: '20px' }}>
-              {[
-                { id: 'rod', color: '#ff453a' },
-                { id: 'gul', color: '#fbbf24' },
-                { id: 'bla', color: '#3b82f6' },
-              ].map((f) => (
-                <button key={f.id} onClick={() => continueWithColor(f.id)} style={{
-                  width: '56px', height: '56px', borderRadius: '16px',
-                  border: savedVagColor === f.color ? '2px solid rgba(255,255,255,0.4)' : '2px solid transparent',
-                  background: f.color, cursor: 'pointer',
-                }} />
-              ))}
-            </div>
-
-            <button onClick={() => {
-              setShowSavedPopup(false);
-              setStickvagOversikt(true);
-            }} style={{
-              width: '100%', padding: '14px', borderRadius: '12px', border: 'none',
-              background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: '13px',
-              fontWeight: '500', cursor: 'pointer',
-            }}>
-              Översikt
-            </button>
-          </div>
-
-          <button onClick={() => setShowAvslutaBekraftelse(true)} style={{
-            marginTop: '24px', padding: '12px 24px',
-            border: 'none', background: 'transparent', color: '#fff',
-            fontSize: '13px', opacity: 0.4, cursor: 'pointer',
-          }}>
-            Avsluta snitsling
-          </button>
-        </div>
       )}
 
       {/* === BEKRÄFTA AVSLUTA SNITSLING === */}
@@ -15615,7 +15237,8 @@ export default function PlannerPage() {
           <button
             onClick={() => {
               setShowAvslutaBekraftelse(false);
-              setShowSavedPopup(false);
+              setVisaFargval(false);
+              setSparadToast(false);
               setStickvagMode(false);
               setStickvagOversikt(false);
               previousStickvagRef.current = null;
@@ -15731,7 +15354,7 @@ export default function PlannerPage() {
                 onClick={() => {
                   setStickvagOversikt(false);
                   setStickvagMode(true);
-                  setShowSavedPopup(true);
+                  setVisaFargval(true);
                 }}
                 style={{
                   background: 'rgba(255,255,255,0.15)',
