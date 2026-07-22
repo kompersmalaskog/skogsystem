@@ -2661,6 +2661,64 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
 # certifiering, cutting_method, koordinater, objektnr m.fl.
 SKYDDADE_OBJEKTFALT = ('bolag', 'skogsagare', 'saljare', 'vo_nummer')
 
+def _arv_skotartilldelning(nyfodda: List[str]):
+    """Nyfödda dim_objekt-rader ärver Martins planerade skotare EN gång.
+
+    objekt.skotare_maskin_id (planeringen) -> dim_objekt.tilldelad_skotare.
+    Matchar på dim_objekt_id (FK = sanningskällan) eller exakt vo_nummer.
+
+    Skriver ALDRIG över ett satt tilldelad_skotare — filtret
+    tilldelad_skotare=is.null gör det i databasen, så en mänsklig ändring
+    vinner även om den skedde mellan läsning och skrivning.
+
+    Engångshändelse vid födsel. Ingen läs-tid-fallback: vyerna läser bara
+    dim_objekt.tilldelad_skotare (ett begrepp = ett ställe). Misslyckas arvet
+    loggas det — objektet hamnar under "Ej tilldelad" tills någon tilldelar.
+    """
+    if not nyfodda:
+        return
+    try:
+        # Planeringsrader med skotare satt
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/objekt",
+            params={'skotare_maskin_id': 'not.is.null',
+                    'select': 'dim_objekt_id,vo_nummer,skotare_maskin_id'},
+            headers=SUPABASE_HEADERS, timeout=30)
+        if resp.status_code != 200:
+            logger.warning("  tilldelad_skotare: kunde inte lasa planeringen — arv hoppas over")
+            return
+        plan = resp.json() or []
+        per_fk = {p['dim_objekt_id']: p['skotare_maskin_id']
+                  for p in plan if p.get('dim_objekt_id')}
+        per_vo = {p['vo_nummer']: p['skotare_maskin_id']
+                  for p in plan if p.get('vo_nummer') and not p.get('dim_objekt_id')}
+        if not per_fk and not per_vo:
+            return
+
+        # VO för de nyfödda raderna (behovs for vo-fallbacken)
+        id_list = ','.join(f'"{i}"' for i in nyfodda)
+        r2 = requests.get(
+            f"{SUPABASE_URL}/rest/v1/dim_objekt",
+            params={'objekt_id': f'in.({id_list})', 'select': 'objekt_id,vo_nummer'},
+            headers=SUPABASE_HEADERS, timeout=30)
+        vo_per_id = {r['objekt_id']: r.get('vo_nummer')
+                     for r in (r2.json() or [])} if r2.status_code == 200 else {}
+
+        for oid in nyfodda:
+            skotare = per_fk.get(oid) or per_vo.get(vo_per_id.get(oid))
+            if not skotare:
+                continue
+            enc = requests.utils.quote(str(oid), safe='')
+            resp3 = requests.patch(
+                f"{SUPABASE_URL}/rest/v1/dim_objekt"
+                f"?objekt_id=eq.{enc}&tilldelad_skotare=is.null",
+                headers={**SUPABASE_HEADERS, 'Prefer': 'return=representation'},
+                json={'tilldelad_skotare': skotare}, timeout=30)
+            if resp3.status_code == 200 and (resp3.json() or []):
+                logger.info(f"  tilldelad_skotare: {oid} arvde {skotare} fran planeringen")
+    except Exception as e:
+        logger.warning(f"  tilldelad_skotare: arv hoppades over ({e})")
+
 def upsert_dim_objekt(objekt_rows: List[Dict]) -> int:
     """ALL skrivning till dim_objekt går genom denna (MOM/HPR/FPR).
     Upsertar per rad (aldrig batch — batch-normalisering fyller None som
@@ -2694,6 +2752,9 @@ def upsert_dim_objekt(objekt_rows: List[Dict]) -> int:
                        "skyddade fält (namn/bolag/skogsägare) hoppas över denna körning")
 
     sparade = 0
+    # Nyfodda rader (fanns inte fore denna korning). Kraver att lasningen av
+    # befintliga lyckades — annars vet vi inte vad som ar nytt och avstar.
+    nyfodda: List[str] = []
     for obj in objekt_rows:
         # Nulla aldrig: skicka bara fält med värde
         clean = {k: v for k, v in obj.items() if v not in (None, '')}
@@ -2716,6 +2777,12 @@ def upsert_dim_objekt(objekt_rows: List[Dict]) -> int:
 
         if upsert_data('dim_objekt', [clean], ['objekt_id']) > 0:
             sparade += 1
+            if ex is None and hamtning_ok:
+                nyfodda.append(obj['objekt_id'])
+
+    # Skotartilldelning foljer med fran planeringen vid FODSEL — sa Martins
+    # planering inte tappas nar maskindatan skapar objektets dim_objekt-rad.
+    _arv_skotartilldelning(nyfodda)
     return sparade
 
 def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
