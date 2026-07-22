@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 
 /**
  * GET /api/kalibrering/objekt?key=skogsystem-debug
@@ -76,9 +77,14 @@ export async function GET(req: NextRequest) {
   const filInfo = new Map<string, { obj: string | null; maskin: string }>();
   for (const r of fk.data) filInfo.set(r.filnamn, { obj: r.object_name, maskin: r.maskin_id });
 
-  // stock id → filnamn
-  const stockRes = await fetchAllRows<{ id: number; filnamn: string }>((f, t) =>
-    supabase.from("detalj_kontroll_stock").select("id,filnamn").order("id", { ascending: true }).range(f, t),
+  // stock id → filnamn (+ toppdia för att toppen ska räknas som mätpunkt)
+  const stockRes = await fetchAllRows<{
+    id: number;
+    filnamn: string;
+    maskin_toppdia_mm: number | null;
+    operator_toppdia_mm: number | null;
+  }>((f, t) =>
+    supabase.from("detalj_kontroll_stock").select(`id,filnamn,${TOPPDIA_COLS}`).order("id", { ascending: true }).range(f, t),
   );
   if (stockRes.error) {
     const e = stockRes.error as { message?: string };
@@ -86,42 +92,28 @@ export async function GET(req: NextRequest) {
   }
   const stockFil = new Map<number, string>();
   for (const s of stockRes.data) stockFil.set(s.id, s.filnamn);
-  const stockIds = stockRes.data.map((s) => s.id);
 
-  // matpunkter → per objekt + per maskin (OMÄTT-filtrerat)
+  // Diameterpunkter (mätpunkter + toppdia, OMÄTT-filtrerat) → per objekt + per maskin
   const objAvvik = new Map<string, { avvik: number[]; maskin: string | null }>();
   const maskAvvik = new Map<string, number[]>();
-  const CHUNK = 1000;
-  for (let i = 0; i < stockIds.length; i += CHUNK) {
-    const chunk = stockIds.slice(i, i + CHUNK);
-    if (chunk.length === 0) continue;
-    const mpRes = await fetchAllRows<{ detalj_kontroll_stock_id: number; diameter_maskin_mm: number | null; diameter_operator_mm: number | null }>((f, t) =>
-      supabase.from("detalj_kontroll_stock_matpunkt")
-        .select("detalj_kontroll_stock_id,diameter_maskin_mm,diameter_operator_mm")
-        .in("detalj_kontroll_stock_id", chunk).range(f, t),
-    );
-    if (mpRes.error) {
-      const e = mpRes.error as { message?: string };
-      return NextResponse.json({ ok: false, error: `matpunkt: ${e.message}` }, { status: 500 });
+  const punktRes = await hamtaDiameterPunkter(supabase, stockRes.data);
+  if (punktRes.error) {
+    return NextResponse.json({ ok: false, error: `matpunkt: ${punktRes.error.message}` }, { status: 500 });
+  }
+  for (const p of punktRes.data) {
+    const fil = stockFil.get(p.stockId);
+    if (!fil) continue;
+    const info = filInfo.get(fil);
+    if (!info) continue;
+    if (info.obj) {
+      let o = objAvvik.get(info.obj);
+      if (!o) { o = { avvik: [], maskin: info.maskin }; objAvvik.set(info.obj, o); }
+      o.avvik.push(p.avvik);
     }
-    for (const m of mpRes.data) {
-      const dm = m.diameter_maskin_mm, do_ = m.diameter_operator_mm;
-      if (dm == null || do_ == null || do_ === 0) continue; // OMÄTT-filter
-      const fil = stockFil.get(m.detalj_kontroll_stock_id);
-      if (!fil) continue;
-      const info = filInfo.get(fil);
-      if (!info) continue;
-      const avvik = dm - do_;
-      if (info.obj) {
-        let o = objAvvik.get(info.obj);
-        if (!o) { o = { avvik: [], maskin: info.maskin }; objAvvik.set(info.obj, o); }
-        o.avvik.push(avvik);
-      }
-      if (info.maskin) {
-        let ma = maskAvvik.get(info.maskin);
-        if (!ma) { ma = []; maskAvvik.set(info.maskin, ma); }
-        ma.push(avvik);
-      }
+    if (info.maskin) {
+      let ma = maskAvvik.get(info.maskin);
+      if (!ma) { ma = []; maskAvvik.set(info.maskin, ma); }
+      ma.push(p.avvik);
     }
   }
 

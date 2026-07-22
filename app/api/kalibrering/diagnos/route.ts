@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 
 /**
  * GET /api/kalibrering/diagnos?key=skogsystem-debug&maskin_id=X
@@ -22,6 +23,9 @@ import { createClient } from "@supabase/supabase-js";
  * Klassaxel: diameter klassas på OPERATÖRENS (sanna) diameter för träff/
  * systematik. Planområden räknas ur maskinens stem_diameter_profile och
  * klassas på punktens EGEN maskindiameter (det finns ingen operatörsprofil).
+ *
+ * Underlaget = mätpunkter längs stocken OCH toppdiametern vid kapsnittet,
+ * via lib/kalibrering/diameterpunkter (samma källa som bedomning).
  */
 
 export const runtime = "nodejs";
@@ -133,8 +137,13 @@ export async function GET(req: NextRequest) {
   const tillExkl = new Date(tillD.getTime() + 86400000).toISOString().slice(0, 10);
 
   // === Stockar: HELA historiken (månadsserier) + fönster-flagga (verdikt) ===
-  const stockRes = await fetchAllRows<{ id: number; kontroll_datum: string }>((from, to) =>
-    supabase.from("detalj_kontroll_stock").select("id,kontroll_datum")
+  const stockRes = await fetchAllRows<{
+    id: number;
+    kontroll_datum: string;
+    maskin_toppdia_mm: number | null;
+    operator_toppdia_mm: number | null;
+  }>((from, to) =>
+    supabase.from("detalj_kontroll_stock").select(`id,kontroll_datum,${TOPPDIA_COLS}`)
       .eq("maskin_id", maskinId)
       .order("id", { ascending: true }).range(from, to),
   );
@@ -149,7 +158,6 @@ export async function GET(req: NextRequest) {
     stockMonth.set(s.id, d.slice(0, 7));
     stockInWin.set(s.id, d >= fran && d < tillExkl);
   }
-  const stockIds = stockRes.data.map((s) => s.id);
 
   // === Matpunkter (OMÄTT-filtrerat) → per klass: fönster-aggregat (verdikt) + månadsserier (allt) ===
   type KB = {
@@ -159,36 +167,26 @@ export async function GET(req: NextRequest) {
   };
   const perKlass = new Map<string, KB>();
   for (const k of KLASS_DEF) perKlass.set(k.klass, { winAvvik: [], winTraff: 0, winManad: new Map(), allManad: new Map() });
-  const CHUNK = 1000;
-  for (let i = 0; i < stockIds.length; i += CHUNK) {
-    const chunk = stockIds.slice(i, i + CHUNK);
-    if (chunk.length === 0) continue;
-    const mpRes = await fetchAllRows<{ detalj_kontroll_stock_id: number; diameter_maskin_mm: number | null; diameter_operator_mm: number | null }>((from, to) =>
-      supabase.from("detalj_kontroll_stock_matpunkt")
-        .select("detalj_kontroll_stock_id,diameter_maskin_mm,diameter_operator_mm")
-        .in("detalj_kontroll_stock_id", chunk).range(from, to),
-    );
-    if (mpRes.error) {
-      const e = mpRes.error as { message?: string };
-      return NextResponse.json({ ok: false, error: `matpunkt: ${e.message}` }, { status: 500 });
-    }
-    for (const m of mpRes.data) {
-      const dm = m.diameter_maskin_mm, do_ = m.diameter_operator_mm;
-      if (dm == null || do_ == null || do_ === 0) continue; // OMÄTT-filter
-      const sid = m.detalj_kontroll_stock_id;
-      const b = perKlass.get(klassAv(do_))!;
-      const avvik = dm - do_;
-      const traff = Math.abs(avvik) <= 4;
-      const mo = stockMonth.get(sid) ?? "?";
-      let am = b.allManad.get(mo);
-      if (!am) { am = { avvik: [], traff: 0 }; b.allManad.set(mo, am); }
-      am.avvik.push(avvik); if (traff) am.traff++;
-      if (stockInWin.get(sid)) {
-        b.winAvvik.push(avvik); if (traff) b.winTraff++;
-        let wm = b.winManad.get(mo);
-        if (!wm) { wm = []; b.winManad.set(mo, wm); }
-        wm.push(avvik);
-      }
+  // Mätpunkter längs stocken + toppdiametern vid kapsnittet (OMÄTT-filtrerat
+  // i hjälparen). Klassaxeln är operatörens diameter — toppen har en sådan
+  // och klassas på exakt samma sätt som en mätpunkt.
+  const punktRes = await hamtaDiameterPunkter(supabase, stockRes.data);
+  if (punktRes.error) {
+    return NextResponse.json({ ok: false, error: `matpunkt: ${punktRes.error.message}` }, { status: 500 });
+  }
+  for (const p of punktRes.data) {
+    const b = perKlass.get(klassAv(p.operator_mm))!;
+    const avvik = p.avvik;
+    const traff = Math.abs(avvik) <= 4;
+    const mo = stockMonth.get(p.stockId) ?? "?";
+    let am = b.allManad.get(mo);
+    if (!am) { am = { avvik: [], traff: 0 }; b.allManad.set(mo, am); }
+    am.avvik.push(avvik); if (traff) am.traff++;
+    if (stockInWin.get(p.stockId)) {
+      b.winAvvik.push(avvik); if (traff) b.winTraff++;
+      let wm = b.winManad.get(mo);
+      if (!wm) { wm = []; b.winManad.set(mo, wm); }
+      wm.push(avvik);
     }
   }
 

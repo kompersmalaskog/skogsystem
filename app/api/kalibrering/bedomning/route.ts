@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 
 /**
  * GET /api/kalibrering/bedomning?key=skogsystem-debug&maskin_id=X
@@ -20,8 +21,9 @@ import { createClient } from "@supabase/supabase-js";
  * (~+20 cm i stället för ~0). Filtret sitter här, på ett ställe.
  *
  * Beräkningsnivå:
- *   - Diameter: MÄTPUNKTSNIVÅ (detalj_kontroll_stock_matpunkt,
- *     diameter_maskin_mm vs diameter_operator_mm)
+ *   - Diameter: MÄTPUNKTSNIVÅ — både ControlLogDiameter längs stocken OCH
+ *     toppdiametern vid kapsnittet. Båda källorna hämtas via
+ *     lib/kalibrering/diameterpunkter (där OMÄTT-filtret bor).
  *   - Längd: STOCKNIVÅ (detalj_kontroll_stock, maskin_langd_cm vs operator_langd_cm)
  *
  * Endpointen returnerar RÅA metriker + profilens trösklar. Själva
@@ -176,11 +178,17 @@ export async function GET(req: NextRequest) {
   const tillExkl = new Date(tillD.getTime() + 86400000).toISOString().slice(0, 10);
 
   // === 4) Stockar i fönstret (längd + join-nycklar för diameter) ===
-  type StockRow = { id: number; maskin_langd_cm: number | null; operator_langd_cm: number | null };
+  type StockRow = {
+    id: number;
+    maskin_langd_cm: number | null;
+    operator_langd_cm: number | null;
+    maskin_toppdia_mm: number | null;
+    operator_toppdia_mm: number | null;
+  };
   const stockRes = await fetchAllRows<StockRow>((from, to) =>
     supabase
       .from("detalj_kontroll_stock")
-      .select("id,maskin_langd_cm,operator_langd_cm")
+      .select(`id,maskin_langd_cm,operator_langd_cm,${TOPPDIA_COLS}`)
       .eq("maskin_id", maskinId)
       .gte("kontroll_datum", fran)
       .lt("kontroll_datum", tillExkl)
@@ -201,31 +209,14 @@ export async function GET(req: NextRequest) {
   }
   const langd = statistik(lenAvvik, tolFor("langd", "traffprocent"), tolFor("langd", "grov_avvikelse"));
 
-  // === 5) Matpunkter för fönstrets stockar (diameter) ===
-  const stockIds = stockRes.data.map((s) => s.id);
-  const diaAvvik: number[] = [];
-  const CHUNK = 1000;
-  for (let i = 0; i < stockIds.length; i += CHUNK) {
-    const chunk = stockIds.slice(i, i + CHUNK);
-    if (chunk.length === 0) continue;
-    const mpRes = await fetchAllRows<{ diameter_maskin_mm: number | null; diameter_operator_mm: number | null }>((from, to) =>
-      supabase
-        .from("detalj_kontroll_stock_matpunkt")
-        .select("diameter_maskin_mm,diameter_operator_mm")
-        .in("detalj_kontroll_stock_id", chunk)
-        .range(from, to),
-    );
-    if (mpRes.error) {
-      const e = mpRes.error as { message?: string };
-      return NextResponse.json({ ok: false, error: `matpunkt: ${e.message}` }, { status: 500 });
-    }
-    for (const m of mpRes.data) {
-      if (m.diameter_maskin_mm == null) continue;
-      // OMÄTT-filter: operator-diameter NULL/0 exkluderas
-      if (m.diameter_operator_mm == null || m.diameter_operator_mm === 0) continue;
-      diaAvvik.push(m.diameter_maskin_mm - m.diameter_operator_mm);
-    }
+  // === 5) Diametermätpunkter för fönstrets stockar ===
+  // Mätpunkter längs stocken + toppdiametern vid kapsnittet. OMÄTT-filtret
+  // ligger i hjälparen, gemensamt för båda källorna.
+  const punktRes = await hamtaDiameterPunkter(supabase, stockRes.data);
+  if (punktRes.error) {
+    return NextResponse.json({ ok: false, error: `matpunkt: ${punktRes.error.message}` }, { status: 500 });
   }
+  const diaAvvik = punktRes.data.map((p) => p.avvik);
   const diameter = statistik(diaAvvik, tolFor("diameter", "traffprocent"), tolFor("diameter", "grov_avvikelse"));
 
   const response: BedomningResponse = {

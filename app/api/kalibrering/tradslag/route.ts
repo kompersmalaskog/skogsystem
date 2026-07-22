@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 
 /**
  * GET /api/kalibrering/tradslag?key=skogsystem-debug&maskin_id=X
@@ -98,9 +99,16 @@ export async function GET(req: NextRequest) {
   const filTradslag = new Map<string, string>();
   for (const r of fkRes.data) if (r.tradslag) filTradslag.set(r.filnamn, r.tradslag.trim());
 
-  // stockar (denna maskin): id → filnamn + längd
-  const stockRes = await fetchAllRows<{ id: number; filnamn: string; maskin_langd_cm: number | null; operator_langd_cm: number | null }>((f, t) =>
-    supabase.from("detalj_kontroll_stock").select("id,filnamn,maskin_langd_cm,operator_langd_cm")
+  // stockar (denna maskin): id → filnamn + längd + toppdia
+  const stockRes = await fetchAllRows<{
+    id: number;
+    filnamn: string;
+    maskin_langd_cm: number | null;
+    operator_langd_cm: number | null;
+    maskin_toppdia_mm: number | null;
+    operator_toppdia_mm: number | null;
+  }>((f, t) =>
+    supabase.from("detalj_kontroll_stock").select(`id,filnamn,maskin_langd_cm,operator_langd_cm,${TOPPDIA_COLS}`)
       .eq("maskin_id", maskinId).order("id", { ascending: true }).range(f, t),
   );
   if (stockRes.error) {
@@ -121,31 +129,17 @@ export async function GET(req: NextRequest) {
       (lenAvvik.get(key) ?? lenAvvik.set(key, []).get(key)!).push(s.maskin_langd_cm - s.operator_langd_cm);
     }
   }
-  const stockIds = stockRes.data.map((s) => s.id);
-
-  // matpunkter → dia per trädslag (OMÄTT-filtrerat)
-  const CHUNK = 1000;
-  for (let i = 0; i < stockIds.length; i += CHUNK) {
-    const chunk = stockIds.slice(i, i + CHUNK);
-    if (chunk.length === 0) continue;
-    const mpRes = await fetchAllRows<{ detalj_kontroll_stock_id: number; diameter_maskin_mm: number | null; diameter_operator_mm: number | null }>((f, t) =>
-      supabase.from("detalj_kontroll_stock_matpunkt")
-        .select("detalj_kontroll_stock_id,diameter_maskin_mm,diameter_operator_mm")
-        .in("detalj_kontroll_stock_id", chunk).range(f, t),
-    );
-    if (mpRes.error) {
-      const e = mpRes.error as { message?: string };
-      return NextResponse.json({ ok: false, error: `matpunkt: ${e.message}` }, { status: 500 });
-    }
-    for (const m of mpRes.data) {
-      const dm = m.diameter_maskin_mm, do_ = m.diameter_operator_mm;
-      if (dm == null || do_ == null || do_ === 0) continue; // OMÄTT
-      const fil = stockFil.get(m.detalj_kontroll_stock_id);
-      const tr = fil ? filTradslag.get(fil) : undefined;
-      if (!tr) continue;
-      const key = tr.toLowerCase();
-      (diaAvvik.get(key) ?? diaAvvik.set(key, []).get(key)!).push(dm - do_);
-    }
+  // Diameterpunkter (mätpunkter + toppdia, OMÄTT-filtrerat) → dia per trädslag
+  const punktRes = await hamtaDiameterPunkter(supabase, stockRes.data);
+  if (punktRes.error) {
+    return NextResponse.json({ ok: false, error: `matpunkt: ${punktRes.error.message}` }, { status: 500 });
+  }
+  for (const p of punktRes.data) {
+    const fil = stockFil.get(p.stockId);
+    const tr = fil ? filTradslag.get(fil) : undefined;
+    if (!tr) continue;
+    const key = tr.toLowerCase();
+    (diaAvvik.get(key) ?? diaAvvik.set(key, []).get(key)!).push(p.avvik);
   }
 
   const keys = Array.from(new Set([...diaAvvik.keys(), ...lenAvvik.keys()]));

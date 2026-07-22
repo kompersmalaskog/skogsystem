@@ -13,6 +13,13 @@ import { createClient } from "@supabase/supabase-js";
  * Server-side aggregat eftersom matpunkter-datasetet är för stort att
  * hämta till klienten (~30k rader). Stddev = populationens stddev
  * (delas på N, inte N-1 — vi har hela populationen, inte ett urval).
+ *
+ * MEDVETET UTAN TOPPDIAMETERN: driftkurvan aggregerar per position_cm längs
+ * stocken (100/200/300…) för att visa VAR på stocken felet sitter. Toppen
+ * sitter vid kapsnittet och har ingen jämförbar position — den skulle inte
+ * höra hemma på någon av kurvans punkter. Toppen ingår däremot i all
+ * diameterSTATISTIK (träff/systematik/spridning) via
+ * lib/kalibrering/diameterpunkter — se bedomning/diagnos/objekt/tradslag.
  */
 
 export const runtime = "nodejs";
