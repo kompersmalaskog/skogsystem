@@ -1745,18 +1745,33 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
         )}
         {(() => {
           const manuell = (Number(obj.skotad_volym_manuell) || 0) > 0
-          const volymAttSatta = Math.round(Number(skordatTotal) || 0)
+          // RISJOBB: "färdigskotat" betyder RISET HÄMTAT, jobbet klart. Samma
+          // knapp, annan innebörd — ingen egen knapp (ett begrepp, ett ställe).
+          // Bekräftelsen utgår från MÄTT lass-volym (riset som faktiskt kördes
+          // ut); ett risjobb skördar inget, så skördad stamvolym är alltid 0
+          // och gråade tidigare ut knappen — automatiken hade ingen tändning.
+          const volymAttSatta = Math.round(Number(arRisjobb ? skotatTotal : skordatTotal) || 0)
           const skotarIds = raderForMaskinslag(syskon || [obj], 'forwarder', obj.objekt_id)
+          const idagDatum = new Date().toISOString().slice(0, 10)
           const satt = async (varde: number | null) => {
             setFardigskotat({ sparar: true, fel: '' })
-            const r = await direktPatchDimObjekt(skotarIds, { skotad_volym_manuell: varde })
-            if (r.ok) {
-              set({ ...obj, skotad_volym_manuell: varde })
-              if (onRaderUppdaterade) onRaderUppdaterade(skotarIds, { skotad_volym_manuell: varde })
-              setFardigskotat({ sparar: false, fel: '' })
-            } else {
-              setFardigskotat({ sparar: false, fel: r.message })
+            // På risjobb är detta ENDA klart-handlingen: den sätter både den
+            // mätta volymen och avslutsdatumet — och tänder grot-automatiken.
+            const patch: any = { skotad_volym_manuell: varde }
+            if (arRisjobb) patch.skotning_avslutad = varde == null ? null : idagDatum
+            const r = await direktPatchDimObjekt(skotarIds, patch)
+            if (!r.ok) { setFardigskotat({ sparar: false, fel: r.message }); return }
+            if (arRisjobb) {
+              // Automatiken körs EFTER att markeringen landat. Misslyckas den
+              // visas felet — en halvkörd avbockning tigs aldrig ihjäl.
+              const a = varde == null
+                ? await angraGrotHamtadAutomatik(obj.objekt_id)
+                : await grotHamtadAutomatik(obj.objekt_id, idagDatum)
+              if (!a.ok) { setFardigskotat({ sparar: false, fel: a.message }); return }
             }
+            set({ ...obj, ...patch })
+            if (onRaderUppdaterade) onRaderUppdaterade(skotarIds, patch)
+            setFardigskotat({ sparar: false, fel: '' })
           }
           return (
             <div>
@@ -1775,8 +1790,12 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
                   }}
                 >
                   {fardigskotat.sparar ? 'Sparar …' : volymAttSatta > 0
-                    ? `Markera som färdigskotat (${volymAttSatta.toLocaleString('sv-SE')} m³)`
-                    : 'Färdigskotat — ingen skördad volym att utgå från'}
+                    ? (arRisjobb
+                        ? `Färdigskotat · ${volymAttSatta.toLocaleString('sv-SE')} m³ ris hämtat`
+                        : `Markera som färdigskotat (${volymAttSatta.toLocaleString('sv-SE')} m³)`)
+                    : (arRisjobb
+                        ? 'Färdigskotat — inga lass registrerade än'
+                        : 'Färdigskotat — ingen skördad volym att utgå från')}
                 </button>
               ) : (
                 <button
@@ -1790,7 +1809,9 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
                     opacity: fardigskotat.sparar ? 0.6 : 1,
                   }}
                 >
-                  {fardigskotat.sparar ? 'Sparar …' : 'Ta bort färdigskotat-markeringen'}
+                  {fardigskotat.sparar ? 'Sparar …' : (arRisjobb
+                    ? 'Ångra — riset inte hämtat än'
+                    : 'Ta bort färdigskotat-markeringen')}
                 </button>
               )}
               {fardigskotat.fel && (
@@ -1821,6 +1842,7 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
               <>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 8, lineHeight: 1.45 }}>
                   Markera de avverkningsobjekt riset kommer från. När jobbet markeras skotat bockas groten av på dem automatiskt. Kan hoppas över och fyllas i senare.
+                  {' '}<span style={{ color: 'rgba(255,255,255,0.62)' }}>Vanligtvis ett hygge per risjobb — välj flera bara om rundan blandade ris från flera.</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
                   {risKand.map((k: any) => {
