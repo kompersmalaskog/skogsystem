@@ -9,8 +9,11 @@
  *  - Två body-format:
  *      multipart/form-data med "file"  — drag-drop-sidan (obs: Vercel kapar
  *        request-bodies vid ~4,5 MB, så stora filer fungerar bara lokalt)
- *      application/json {storage_path} — watchdog/backfill laddar först upp
- *        filen till raw-files (Storage har ingen 4,5 MB-gräns) och pekar hit.
+ *      application/json {storage_path, skip_raw_copy?, source_name?} —
+ *        watchdog/backfill laddar först upp filen till raw-files/incoming/
+ *        (Storage har ingen 4,5 MB-gräns) och pekar hit. skip_raw_copy sätts
+ *        av backfillen: originalen finns redan i OneDrive-arkivet, så den
+ *        permanenta Storage-kopian hoppas över (~8 GB dubbellagring).
  *  - object_key är MASKINSKOPAD: "{maskin_id}:{ObjectKey}" där maskin_id =
  *    BaseMachineManufacturerID (serienumret, t.ex. PONS20SDJAA270231). StanForD:s
  *    ObjectKey är en maskin-lokal räknare — Hushållningssällskapet=109 på
@@ -109,6 +112,12 @@ export async function POST(req: NextRequest) {
   let buf: Buffer;
   let sourceName: string;
   let stagingPath: string | null = null;
+  // Backfill av redan arkiverade filer sätter skip_raw_copy: originalen ligger
+  // kvar i OneDrive (Behandlade/), så en permanent kopia i Storage vore ~8 GB
+  // dubbellagring utan värde. Staging-filen städas som vanligt. Löpande drift
+  // sätter INTE flaggan — där är Storage-kopian enda arkivet av rådatan.
+  let skipRawCopy = false;
+  let archiveRef: string | null = null;
   const contentType = req.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     const body = await req.json().catch(() => null);
@@ -116,6 +125,8 @@ export async function POST(req: NextRequest) {
     if (typeof storagePath !== "string" || !storagePath.startsWith("incoming/")) {
       return NextResponse.json({ error: "storage_path saknas eller ligger utanför incoming/" }, { status: 400 });
     }
+    skipRawCopy = body?.skip_raw_copy === true;
+    if (typeof body?.source_name === "string") archiveRef = body.source_name;
     const { data: blob, error: dlErr } = await supabase.storage.from("raw-files").download(storagePath);
     if (dlErr || !blob) {
       return NextResponse.json(
@@ -136,12 +147,32 @@ export async function POST(req: NextRequest) {
 
   const hash = createHash("sha256").update(buf).digest("hex");
 
-  // Städa staging-objektet när importen är avgjord (även vid duplicate) —
-  // annars samlas timfiler i incoming/ för evigt. Best effort.
+  // Städa staging-objektet när importen är avgjord — oavsett utfall, annars
+  // samlas timfilerna i incoming/ för evigt (en backfill lämnade 4,2 GB skräp
+  // efter sig innan avbryt() fanns). Best effort.
   const cleanupStaging = async () => {
     if (!stagingPath) return;
     const { error } = await supabase.storage.from("raw-files").remove([stagingPath]);
     if (error) console.warn(`hpr-import: kunde inte städa ${stagingPath}: ${error.message}`);
+    stagingPath = null;
+  };
+
+  // hpr_files-raden skrivs innan stockarna. Kraschar en stock-batch skulle
+  // filhashen annars ligga kvar och få en OMKÖRNING att svara "duplicate" —
+  // en halvimporterad fil som ser komplett ut. Varje felutgång går därför
+  // via avbryt(), som tar bort filraden så importen kan köras om.
+  // Redan skrivna stockar lämnas kvar (de är giltiga upsertade rader);
+  // source_file_id nollas bara för att inte bryta främmande nyckel.
+  let fileRowId: string | null = null;
+  const avbryt = async (body: unknown, status: number) => {
+    await cleanupStaging();
+    if (fileRowId) {
+      await supabase.from("logs").update({ source_file_id: null }).eq("source_file_id", fileRowId);
+      const { error } = await supabase.from("hpr_files").delete().eq("id", fileRowId);
+      if (error) console.error(`hpr-import: KUNDE INTE rulla tillbaka filrad ${fileRowId} — ` +
+        `omkörning kommer svara "duplicate" trots ofullständig import: ${error.message}`);
+    }
+    return NextResponse.json(body as any, { status });
   };
 
   // 1. Exakt samma fil igen? Klart, ingen åtgärd.
@@ -155,21 +186,18 @@ export async function POST(req: NextRequest) {
   // 2. Parsa + validera. Fel = importera INTE tyst — visa varför.
   const parsed = parseHpr(buf);
   if (!parsed.validation.ok) {
-    return NextResponse.json(
-      { status: "validation_failed", validation: parsed.validation },
-      { status: 422 }
-    );
+    return avbryt({ status: "validation_failed", validation: parsed.validation }, 422);
   }
   const xmlText = buf.toString("utf8");
   const rawObjectKey = parsed.fileMeta.objectKey;
   const machineId = detectMachineId(xmlText, parsed.fileMeta.machineKey);
   if (!rawObjectKey || !machineId) {
-    return NextResponse.json(
+    return avbryt(
       {
         status: "validation_failed",
         validation: { ...parsed.validation, errors: [`${!rawObjectKey ? "ObjectKey" : "Maskin-id (BaseMachineManufacturerID/MachineKey)"} saknas i filen`] },
       },
-      { status: 422 }
+      422
     );
   }
   // Maskinskopad nyckel — ObjectKey är en maskin-lokal räknare.
@@ -179,16 +207,20 @@ export async function POST(req: NextRequest) {
   const endDate = detectEndDate(xmlText);
   if (!endDate) console.log(`hpr-import: ingen EndDate i ${sourceName} — objektet lämnas/förblir active`);
 
-  // 3. Rådatan till Storage — alltid, oavsett vad som händer sen.
-  const storagePath = `hpr/${machineId}/${rawObjectKey}/${hash}.hpr`;
-  const { error: storageErr } = await supabase.storage.from("raw-files").upload(storagePath, buf, {
-    contentType: "application/xml", upsert: true,
-  });
-  if (storageErr) {
-    return NextResponse.json(
-      { error: `Kunde inte spara rådatafilen: ${storageErr.message}` },
-      { status: 500 }
-    );
+  // 3. Rådatan till Storage — alltid i löpande drift. Vid backfill av redan
+  //    arkiverade filer (skip_raw_copy) pekar storage_path i stället ut
+  //    OneDrive-arkivet, så raden aldrig ljuger om var rådatan finns.
+  let storagePath: string;
+  if (skipRawCopy) {
+    storagePath = `onedrive:Behandlade/${machineId}/HPR/${archiveRef ?? `${hash}.hpr`}`;
+  } else {
+    storagePath = `hpr/${machineId}/${rawObjectKey}/${hash}.hpr`;
+    const { error: storageErr } = await supabase.storage.from("raw-files").upload(storagePath, buf, {
+      contentType: "application/xml", upsert: true,
+    });
+    if (storageErr) {
+      return avbryt({ error: `Kunde inte spara rådatafilen: ${storageErr.message}` }, 500);
+    }
   }
 
   // 4. Objekt + fil + produkter + matrisceller (upsert — kumulativa filer)
@@ -214,11 +246,9 @@ export async function POST(req: NextRequest) {
     creation_date: parsed.fileMeta.creationDate,
     log_count: parsed.validation.logCount, validation: parsed.validation,
   }).select("id").single();
+  fileRowId = fileRow?.id ?? null;
   if (fileErr) {
-    return NextResponse.json(
-      { error: `Kunde inte registrera filen: ${fileErr.message}` },
-      { status: 500 }
-    );
+    return avbryt({ error: `Kunde inte registrera filen: ${fileErr.message}` }, 500);
   }
 
   for (const p of parsed.products.filter((p) => p.classified)) {
@@ -232,10 +262,7 @@ export async function POST(req: NextRequest) {
       distribution_category: p.distributionCategory, max_deviation: p.maxDeviation,
     }, { onConflict: "object_key,product_key" }).select("id").single();
     if (prodErr) {
-      return NextResponse.json(
-        { error: `Kunde inte spara produkt ${p.productKey}: ${prodErr.message}` },
-        { status: 500 }
-      );
+      return avbryt({ error: `Kunde inte spara produkt ${p.productKey}: ${prodErr.message}` }, 500);
     }
 
     if (prodRow && p.cells.length) {
@@ -248,10 +275,7 @@ export async function POST(req: NextRequest) {
         { onConflict: "product_id,dia_lower,len_lower" }
       );
       if (cellErr) {
-        return NextResponse.json(
-          { error: `Kunde inte spara matrisceller för ${p.productKey}: ${cellErr.message}` },
-          { status: 500 }
-        );
+        return avbryt({ error: `Kunde inte spara matrisceller för ${p.productKey}: ${cellErr.message}` }, 500);
       }
     }
   }
@@ -270,10 +294,7 @@ export async function POST(req: NextRequest) {
       onConflict: "object_key,stem_key,log_key",
     });
     if (logErr) {
-      return NextResponse.json(
-        { error: `Kunde inte spara stockar (batch ${i / 1000 + 1}): ${logErr.message}` },
-        { status: 500 }
-      );
+      return avbryt({ error: `Kunde inte spara stockar (batch ${i / 1000 + 1}): ${logErr.message}` }, 500);
     }
   }
 
@@ -298,10 +319,7 @@ export async function POST(req: NextRequest) {
   if (summaries.length) {
     const { error: snapErr } = await supabase.from("distribution_snapshots").insert(summaries);
     if (snapErr) {
-      return NextResponse.json(
-        { error: `Kunde inte spara snapshot: ${snapErr.message}` },
-        { status: 500 }
-      );
+      return avbryt({ error: `Kunde inte spara snapshot: ${snapErr.message}` }, 500);
     }
   }
 

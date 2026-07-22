@@ -99,8 +99,15 @@ def post_file(p: Path, api_url: str, supabase_url: str, service_key: str, import
     )
     if up.status_code not in (200, 201):
         return f"storage_fel {up.status_code}: {up.text[:150]}"
+    # skip_raw_copy: originalen ligger kvar i OneDrive (Behandlade/) — en
+    # permanent Storage-kopia av hela arkivet vore ~8 GB dubbellagring.
+    # Staging-filen städas av API:et som vanligt. Löpande drift (watchdogen)
+    # sätter INTE flaggan; där är Storage-kopian enda arkivet.
     resp = requests.post(
-        api_url, params={"key": import_key}, json={"storage_path": storage_path}, timeout=180,
+        api_url,
+        params={"key": import_key},
+        json={"storage_path": storage_path, "skip_raw_copy": True, "source_name": p.name},
+        timeout=180,
     )
     if resp.status_code not in (200, 422):
         return f"api_fel {resp.status_code}: {resp.text[:150]}"
