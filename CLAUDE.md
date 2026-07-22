@@ -57,7 +57,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 | `/maskinvy` | Maskinvy | Maskinöversikt med flikar för Skördare, Skotare och jämförelse |
 | `/maskinvy2` | Skördare Analytics | Detaljerad produktionsanalys per vecka/månad/kvartal/år |
 | `/maskinvy-ny` | Maskinvy Ny | Ny maskinvy med daglig produktion, KPI:er, tidsfördelning |
-| `/maskinflytt` | Maskinflytt | Dagmodell: flyttdag (hem→n flyttar→hem) äger tillkörning/hemresa; flytt äger flytt_km (fakturerbar ≥ 3 mil) + mellankörning; var-står-maskinen-steg, navigering alla ben, väder; skriver flyttdag + maskin_flytt + maskin_position |
+| `/maskinflytt` | Maskinflytt | Förarflöde: maskinlistan är startsidan med senast kända plats ifylld (`senastePlats.ts` — senaste av avslutad flytt / fakt_tid-objekt; spärrar: koordinat > 15 mil från verksamheten = osäker, objekt > 30 dagar = osäker, båda dämpade men klickbara). Starta körning → Hämtat → Vart ska den → Lämnat → dagssammanfattning; Maps öppnas ur förarens tryck (länk, ej popup). Dagmodell oförändrad: flyttdag (hem→n flyttar→hem) äger tillkörning/hemresa, flytt äger flytt_km (fakturerbar ≥ 3 mil) + mellankörning. Verkstad som destination → flytt_typ=service automatiskt. Skriver flyttdag + maskin_flytt + maskin_position |
 | `/maskinflytt/sammanstallning` | Flyttlogg | Två nivåer: Dagar (hela dagens km/tid, mätt exkl. hemresa) och Flyttar (fakturerbara sträckor, typ/kund-filter, per-typ-summering) — period V/M/K/Å, CSV per flik; avbrutna/pågående räknas ej |
 | `/maskinflytt/platser` | Flyttplatser | Hantera flyttplats-snabbval (verkstad/uppställning/gård/kund) — lägg till, redigera, inaktivera |
 | `/arbetsrapport` | Arbetsrapport | Generering av arbetsrapporter |

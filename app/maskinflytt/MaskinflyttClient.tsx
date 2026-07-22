@@ -5,6 +5,10 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { haversine } from '@/utils/geo'
 import { vaderIkon } from './vader'
+import {
+  hamtaSenastePlatser, tillampaSparrar, relativTid, rimligGpsPunkt,
+  type PlatsForslag,
+} from './senastePlats'
 
 // ── Tema — samma palett som starta-jobb/förarvyerna ──
 const C = {
@@ -14,10 +18,15 @@ const C = {
 }
 const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif"
 
-// Dagmodellen: en flyttdag (hemifrån → n flyttar → hem) äger tillkörning och
-// hemresa; varje flytt äger flytt_km (fakturerbar-styrande) och mellankörning
-// (tomkörning från förra flyttens slutpunkt). Mätt och beräknat blandas aldrig.
-type Steg = 'maskin' | 'franObjekt' | 'hamta' | 'transport' | 'bekrafta' | 'klart' | 'dagKlart'
+// Appen föreslår, föraren bekräftar. Maskinlistan är startsidan och bär redan
+// varje maskins senast kända plats (senastePlats.ts) — "Var står maskinen?"-
+// steget är borta, för det var en fråga appen kunde svara på själv.
+//
+// Dagmodellen är oförändrad: en flyttdag (hemifrån → n flyttar → hem) äger
+// tillkörning och hemresa; varje flytt äger flytt_km (fakturerbar-styrande) och
+// mellankörning (tomkörning från förra flyttens slutpunkt). Mätt och beräknat
+// blandas aldrig.
+type Steg = 'maskin' | 'starta' | 'hamta' | 'transport' | 'bekrafta' | 'klart' | 'dagKlart'
 type KoordKalla = 'larmkoordinat' | 'objekt' | 'dim_objekt' | 'karta' | 'gps' | 'flyttplats'
 type FlyttTyp = 'produktion' | 'service' | 'kunduppdrag' | 'annat'
 type PlatsTyp = 'verkstad' | 'uppstallning' | 'gard' | 'kund' | 'annat'
@@ -105,6 +114,17 @@ interface PagaendeFlytt {
   mellankorning_km: number | null
 }
 
+/** En rad i STEG 5:s sammanfattning — en flytt så som föraren minns den. */
+interface DagFlyttRad {
+  maskin: string
+  fran: string
+  till: string
+  km: number | null
+  tidMin: number | null
+  fakturerbar: boolean
+  typ: FlyttTyp
+}
+
 function typLabel(t: string | null): string {
   if (t === 'Harvester') return 'Skördare'
   if (t === 'Forwarder') return 'Skotare'
@@ -113,15 +133,6 @@ function typLabel(t: string | null): string {
 
 function maskinNamn(m: Maskin): string {
   return m.visningsnamn || m.modell || m.maskin_id
-}
-
-const KALLA_LABEL: Record<KoordKalla, string> = {
-  larmkoordinat: 'Larmkoordinat (bekräftad)',
-  objekt: 'Objektets position',
-  dim_objekt: 'Maskindata',
-  karta: 'Vald på karta',
-  gps: 'GPS vid lämning',
-  flyttplats: 'Flyttplats',
 }
 
 /** En GPS-fix som promise. Avvisar efter 15 s eller vid nekad behörighet. */
@@ -226,7 +237,7 @@ async function objektKoordinat(o: ObjektRad): Promise<Destination | null> {
 const OBJEKT_FALT = 'id, namn, vo_nummer, dim_objekt_id, status, lat, lng, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_bekraftad, barighet, transport_trailer_in, transport_kommentar'
 const FLYTT_FALT = 'id, maskin_id, extern_maskin, flytt_typ, kund, flyttdag_id, fran_lat, fran_lng, till_objekt_id, till_lat, till_lng, fran_plats_id, till_plats_id, koord_kalla, starttid, hamtad_tid, mellankorning_km'
 
-const STEG_NR: Record<Steg, number> = { maskin: 1, franObjekt: 2, hamta: 3, transport: 4, bekrafta: 5, klart: 5, dagKlart: 5 }
+const STEG_NR: Record<Steg, number> = { maskin: 1, starta: 2, hamta: 3, transport: 4, bekrafta: 5, klart: 5, dagKlart: 5 }
 
 export default function MaskinflyttClient() {
   const [steg, setSteg] = useState<Steg>('maskin')
@@ -239,6 +250,12 @@ export default function MaskinflyttClient() {
   const [laddFel, setLaddFel] = useState<string | null>(null)
   const [tabellSaknas, setTabellSaknas] = useState<string | null>(null)
 
+  // Maskinernas senast kända platser (STEG 0) — laddas separat så listan
+  // kan ritas direkt; per maskin: laddar / förslag / inget förslag
+  const [platser, setPlatser] = useState<Map<string, PlatsForslag>>(new Map())
+  const [platserLaddar, setPlatserLaddar] = useState(true)
+  const [platserFel, setPlatserFel] = useState<string | null>(null)
+
   // Dagen
   const [dag, setDag] = useState<Flyttdag | null>(null)
   const dagRef = useRef<Flyttdag | null>(null)
@@ -250,16 +267,19 @@ export default function MaskinflyttClient() {
   // Flyttens tillstånd
   const [maskin, setMaskin] = useState<Maskin | null>(null)
   const [externMaskin, setExternMaskin] = useState<string | null>(null) // främmande maskin (fritext)
-  const [externFalt, setExternFalt] = useState(false)                    // visar inline-fältet på steg 1
+  const [externOppen, setExternOppen] = useState(false)                 // "Annat …"-raden utfälld
   const [externNamn, setExternNamn] = useState('')
   const [flyttplatser, setFlyttplatser] = useState<Flyttplats[]>([])
   const [franPlats, setFranPlats] = useState<Flyttplats | null>(null)
   const [tillPlats, setTillPlats] = useState<Flyttplats | null>(null)
   const [flyttTyp, setFlyttTyp] = useState<FlyttTyp>('produktion')
   const [kund, setKund] = useState('')
+  const [typOppen, setTypOppen] = useState(false)      // typväljaren bakom "Ändra"
   const [nyPlatsFor, setNyPlatsFor] = useState<'fran' | 'till' | null>(null)
   const [flyttId, setFlyttId] = useState<string | null>(null)
-  const [startPos, setStartPos] = useState<Pos | null>(null)   // GPS vid maskinvalet (dagstart-fallback)
+  const [startPos, setStartPos] = useState<Pos | null>(null)   // GPS vid "Starta körning"
+  const [startPosFel, setStartPosFel] = useState<string | null>(null)
+  const startPosLoppet = useRef<Promise<Pos | null> | null>(null)
   const [aPos, setAPos] = useState<Pos | null>(null)           // A: hämtplatsen
   const [franObjekt, setFranObjekt] = useState<ObjektRad | null>(null)
   const [valtObjekt, setValtObjekt] = useState<ObjektRad | null>(null)
@@ -267,15 +287,17 @@ export default function MaskinflyttClient() {
   const [flodesStart, setFlodesStart] = useState<string | null>(null)
   const [hamtadTid, setHamtadTid] = useState<string | null>(null)
 
-  // Navigering till maskinen (Hämta-steget)
-  const [navMaskin, setNavMaskin] = useState<{ lat: number; lng: number; etikett: string } | null>(null)
+  // STEG 1: maskinens plats — förslaget, eller förarens egen ändring
+  const [forslag, setForslag] = useState<PlatsForslag | null>(null)
+  const [andradPlats, setAndradPlats] = useState<PlatsForslag | null>(null)
+  const [andraOppen, setAndraOppen] = useState(false)
 
   // GPS-läge för Hämta-steget
   const [gpsPos, setGpsPos] = useState<Pos | null>(null)
   const [gpsFel, setGpsFel] = useState<string | null>(null)
   const [gpsHamtar, setGpsHamtar] = useState(false)
 
-  // Objektlistor (delas av franObjekt- och transport-stegen)
+  // Objektlistor (delas av platsväljaren och transport-steget)
   const [objektLista, setObjektLista] = useState<ObjektRad[] | null>(null)
   const [objektFel, setObjektFel] = useState<string | null>(null)
   const [sok, setSok] = useState('')
@@ -301,6 +323,8 @@ export default function MaskinflyttClient() {
     flyttKmSumma: number; mellankorningKmSumma: number
     hemKm: number | null; tidHemMin: number | null
     totalKm: number; totalTidMin: number | null; dagOgiltig: boolean
+    fakturerbarKm: number; fakturerbarAntal: number
+    rader: DagFlyttRad[]
   } | null>(null)
   const [hembasSparar, setHembasSparar] = useState(false)
   const [hembasFel, setHembasFel] = useState<string | null>(null)
@@ -322,8 +346,14 @@ export default function MaskinflyttClient() {
           supabase.auth.getUser(),
         ])
 
-        if (mRes.error) { setLaddFel(`Kunde inte läsa maskiner: ${mRes.error.message}`); setLaddar(false); return }
+        if (mRes.error) { setLaddFel(`Kunde inte läsa maskiner: ${mRes.error.message}`); setLaddar(false); setPlatserLaddar(false); return }
         setMaskiner(mRes.data || [])
+
+        // Platsuppslaget blockerar inte listan — den ritas direkt, platsen fylls i
+        hamtaSenastePlatser((mRes.data || []).map(m => m.maskin_id))
+          .then(({ platser, fel }) => { setPlatser(platser); setPlatserFel(fel) })
+          .catch(e => setPlatserFel(`Kunde inte slå upp maskinernas platser: ${e?.message || String(e)}`))
+          .finally(() => setPlatserLaddar(false))
 
         supabase.from('flyttplats')
           .select('id, namn, typ, lat, lng, aktiv')
@@ -346,6 +376,7 @@ export default function MaskinflyttClient() {
         await laddaDag(m)
       } catch (e: any) {
         setLaddFel(`Nätverksfel: ${e?.message || String(e)}`)
+        setPlatserLaddar(false)
       }
       setLaddar(false)
     })()
@@ -414,8 +445,8 @@ export default function MaskinflyttClient() {
   }, [])
 
   useEffect(() => {
-    if ((steg === 'transport' || steg === 'franObjekt') && objektLista === null) laddaObjekt()
-  }, [steg, objektLista, laddaObjekt])
+    if ((steg === 'transport' || andraOppen) && objektLista === null) laddaObjekt()
+  }, [steg, andraOppen, objektLista, laddaObjekt])
 
   // ── GPS-fix när Hämta-steget öppnas ──
   const hamtaGps = useCallback(() => {
@@ -430,74 +461,72 @@ export default function MaskinflyttClient() {
     if (steg === 'hamta') hamtaGps()
   }, [steg, hamtaGps])
 
-  // ── Steg 1: välj maskin — klockan startar HÄR ──
+  /** Maskinens plats just nu: förarens ändring vinner över appens förslag. */
+  const hamtplats = andradPlats ?? forslag
+
+  // ── STEG 0: välj maskin — klockan startar HÄR ──
   function valjMaskin(m: Maskin) {
     setMaskin(m)
-    setExternMaskin(null); setExternFalt(false); setExternNamn('')
-    setFlyttTyp('produktion'); setKund('')
+    setExternMaskin(null); setExternOppen(false); setExternNamn('')
+    setFlyttTyp('produktion'); setKund(''); setTypOppen(false)
     setSparFel(null)
     setFlodesStart(new Date().toISOString())
-    getGps().then(setStartPos).catch(() => { /* startpos är valfri — ingen gissning */ })
-    // Senast kända maskinposition — förstahandsförslag för navigering till maskinen
-    supabase.from('maskin_position')
-      .select('lat, lng, tidpunkt')
-      .eq('maskin_id', m.maskin_id)
-      .order('tidpunkt', { ascending: false }).limit(1)
-      .then(({ data }) => {
-        if (data?.length) {
-          const nar = new Date(data[0].tidpunkt).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })
-          setNavMaskin({ lat: data[0].lat, lng: data[0].lng, etikett: `Senast kända maskinposition · ${nar}` })
-        }
-      })
+    setForslag(platser.get(m.maskin_id) ?? null)
+    setAndradPlats(null)
+    startaGpsLoppet()
     setSok('')
-    setSteg('franObjekt')
+    setSteg('starta')
   }
 
-  // ── Steg 1b: annans maskin — fritext, kunduppdrag förvalt (går att byta) ──
+  // ── STEG 0b: "Annat …" — extern maskin + kund (constrainten kräver kunden) ──
   function valjExternMaskin() {
     const namn = externNamn.trim()
-    if (!namn) return
+    if (!namn || !kund.trim()) return
     setExternMaskin(namn)
     setMaskin(null)
-    setNavMaskin(null) // ingen maskin_position för främmande maskiner
-    setFlyttTyp('kunduppdrag'); setKund('')
+    setForslag(null); setAndradPlats(null)  // ingen historik för främmande maskiner
+    setFlyttTyp('kunduppdrag'); setTypOppen(false)
     setSparFel(null)
     setFlodesStart(new Date().toISOString())
-    getGps().then(setStartPos).catch(() => { /* valfri */ })
+    startaGpsLoppet()
     setSok('')
-    setSteg('franObjekt')
+    setSteg('starta')
   }
 
-  // ── Steg 2: var står maskinen? (valfritt — styr navigeringen dit) ──
-  async function valjFranObjekt(o: ObjektRad | null) {
-    setFranObjekt(o)
-    setFranPlats(null) // aldrig objekt och plats i samma ände (DB-spärr finns också)
-    setSok('')
-    if (o && !navMaskin) {
-      // Ingen känd maskinposition → navigera mot objektets koordinat i stället
-      const k = await objektKoordinat(o)
-      if (k) setNavMaskin({ lat: k.lat, lng: k.lng, etikett: KALLA_LABEL[k.kalla] })
-    }
-    setSteg('hamta')
+  /** GPS-fixen till dagens startpunkt hämtas så fort maskinen valts, så den
+   *  hunnit landa när föraren trycker "Starta körning". */
+  function startaGpsLoppet() {
+    setStartPos(null); setStartPosFel(null)
+    startPosLoppet.current = getGps()
+      .then(p => { setStartPos(p); return p })
+      .catch(e => { setStartPosFel(e?.message || 'Platsen kunde inte hämtas'); return null })
   }
 
-  function valjFranPlats(pl: Flyttplats) {
-    setFranPlats(pl)
-    setFranObjekt(null)
-    if (pl.lat != null && pl.lng != null) {
-      setNavMaskin({ lat: pl.lat, lng: pl.lng, etikett: `${PLATS_TYP_LABEL[pl.typ]} · ${pl.namn}` })
-    }
-    setSok('')
-    setSteg('hamta')
+  /** Vad tillkörningen faktiskt kommer räknas från. "Hämtar …" får bara stå
+   *  medan den hämtas — en misslyckad GPS ska säga att den misslyckades. */
+  function tillkorningsText(): string {
+    const harHembas = rimligGpsPunkt(medarb?.hem_lat ?? null, medarb?.hem_lng ?? null)
+    if (startPos && rimligGpsPunkt(startPos.lat, startPos.lng)) return 'Tillkörningen räknas från din plats nu.'
+    const orsak = startPos ? 'GPS-punkten ser trasig ut' : startPosFel ? 'Din plats kunde inte hämtas' : null
+    if (!orsak) return 'Hämtar din plats för tillkörningen …'
+    return harHembas
+      ? `${orsak} — tillkörningen räknas från din hembas i stället.`
+      : `${orsak} — tillkörningen kan inte räknas den här dagen.`
   }
 
-  /** Dagen skapas lazy vid dagens första "Hämta här" — hembasen som startpunkt
-   *  om den finns, annars GPS från maskinvalet. Ärligt null om ingen finns. */
+  /** Dagen skapas vid "Starta körning". Startpunkten är förarens nuvarande
+   *  GPS — men bara om den är rimlig; en trasig fix (null-ön, utanför Norden)
+   *  får aldrig bli en tillkörning. Hembas är fallback; saknas båda startar
+   *  dagen utan startpunkt och tillkörningen redovisas ärligt som oräknad. */
   async function ensureDag(): Promise<Flyttdag | null> {
     if (dagRef.current) return dagRef.current
-    const start = medarb?.hem_lat != null && medarb?.hem_lng != null
-      ? { lat: medarb.hem_lat, lng: medarb.hem_lng, kalla: 'hembas' }
-      : startPos ? { lat: startPos.lat, lng: startPos.lng, kalla: 'gps' } : null
+    const gps = startPos ?? (startPosLoppet.current ? await startPosLoppet.current : null)
+    const start =
+      gps && rimligGpsPunkt(gps.lat, gps.lng)
+        ? { lat: gps.lat, lng: gps.lng, kalla: 'gps' }
+        : rimligGpsPunkt(medarb?.hem_lat ?? null, medarb?.hem_lng ?? null)
+          ? { lat: medarb!.hem_lat!, lng: medarb!.hem_lng!, kalla: 'hembas' }
+          : null
     const { data, error } = await supabase.from('flyttdag').insert({
       forare: medarb?.namn ?? null,
       medarbetare_id: medarb?.id ?? null,
@@ -516,7 +545,45 @@ export default function MaskinflyttClient() {
     return d
   }
 
-  // ── Steg 3: "Hämta här" → skapa flyttraden ──
+  // ── STEG 1: "Starta körning" — dagen startar, Maps öppnas av länken ──
+  async function startaKorning() {
+    if ((!maskin && !externMaskin) || sparar) return
+    setSparar(true); setSparFel(null)
+    setFranObjekt(null); setFranPlats(null)
+    // Hämtplatsens objekt/plats följer med flytten (redigerbart via "Ändra")
+    if (hamtplats?.objektId && objektLista) {
+      setFranObjekt(objektLista.find(o => o.id === hamtplats.objektId) ?? null)
+    }
+    const d = await ensureDag()
+    setSparar(false)
+    if (!d) return
+    setSteg('hamta')
+  }
+
+  // ── STEG 1: "Ändra" — föraren pekar ut var maskinen faktiskt står ──
+  function andraTillObjekt(o: ObjektRad) {
+    setAndraOppen(false); setSok('')
+    setFranObjekt(o); setFranPlats(null)
+    objektKoordinat(o).then(k => {
+      setAndradPlats(tillampaSparrar({
+        namn: o.namn,
+        koordinat: k ? { lat: k.lat, lng: k.lng } : null,
+        objektId: o.id, platsId: null, tidpunkt: null, kalla: 'manuell',
+      }))
+    })
+  }
+
+  function andraTillPlats(pl: Flyttplats) {
+    setAndraOppen(false); setSok('')
+    setFranPlats(pl); setFranObjekt(null)
+    setAndradPlats(tillampaSparrar({
+      namn: pl.namn,
+      koordinat: pl.lat != null && pl.lng != null ? { lat: pl.lat, lng: pl.lng } : null,
+      objektId: null, platsId: pl.id, tidpunkt: null, kalla: 'manuell',
+    }))
+  }
+
+  // ── STEG 2: "Hämtat" → skapa flyttraden (GPS tar A) ──
   async function hamtaHar() {
     if ((!maskin && !externMaskin) || !gpsPos || sparar) return
     setSparar(true); setSparFel(null)
@@ -531,8 +598,8 @@ export default function MaskinflyttClient() {
       maskin_id: maskin?.maskin_id ?? null,
       extern_maskin: externMaskin,
       flyttdag_id: d.id,
-      fran_objekt_id: franObjekt?.id ?? null,
-      fran_plats_id: franPlats?.id ?? null,
+      fran_objekt_id: franObjekt?.id ?? hamtplats?.objektId ?? null,
+      fran_plats_id: franObjekt ? null : (franPlats?.id ?? hamtplats?.platsId ?? null),
       mellankorning_km: mellankorning,
       fran_lat: gpsPos.lat,
       fran_lng: gpsPos.lng,
@@ -547,7 +614,7 @@ export default function MaskinflyttClient() {
       return
     }
 
-    // Dagens tillkörning: hem/start → dagens första maskin (en gång per dag)
+    // Dagens tillkörning: start → dagens första maskin (en gång per dag)
     if (!forraB && d.tillkorning_km == null && d.start_lat != null && d.start_lng != null) {
       const t = await korRutt({ lat: d.start_lat, lng: d.start_lng }, gpsPos)
       const { data: du } = await supabase.from('flyttdag')
@@ -563,9 +630,11 @@ export default function MaskinflyttClient() {
     setSteg('transport')
   }
 
-  // ── Steg 4: välj destination ──
+  // ── STEG 3: välj destination ──
   async function valjObjekt(o: ObjektRad) {
     setValtObjekt(o); setTillPlats(null); setSparFel(null); setDestHamtar(true)
+    // Objekt är aldrig service — typen faller tillbaka till grundläget
+    if (!externMaskin) { setFlyttTyp('produktion'); setKund('') }
     const d = await objektKoordinat(o)
     setDestHamtar(false)
     if (d) setDest(d)
@@ -576,11 +645,17 @@ export default function MaskinflyttClient() {
     setTillPlats(pl)
     setValtObjekt(null)
     setSparFel(null)
+    // Verkstad → serviceflytt. Skrivs ut i klartext på destinationskortet och
+    // går att ändra där; inga typ-chips i flödet.
+    if (!externMaskin) {
+      setFlyttTyp(pl.typ === 'verkstad' ? 'service' : 'produktion')
+      setKund('')
+    }
     if (pl.lat != null && pl.lng != null) setDest({ lat: pl.lat, lng: pl.lng, kalla: 'flyttplats' })
     else { setDest(null); setKartaOppen(true) }
   }
 
-  // ── Steg 4 → 5: spara preliminär destination (för resume) ──
+  // ── STEG 3 → 4: spara preliminär destination (för resume) ──
   async function startaTransport() {
     if (!flyttId || (!valtObjekt && !tillPlats) || !dest || sparar) return
     setSparar(true); setSparFel(null)
@@ -599,7 +674,7 @@ export default function MaskinflyttClient() {
     setSteg('bekrafta')
   }
 
-  // ── Steg 5: "Ja, lämnad här" ──
+  // ── STEG 4: "Lämnat" ──
   async function lamnadHar() {
     if (!flyttId || (!maskin && !externMaskin) || !aPos || !dest || sparar) return
     if (flyttTyp === 'kunduppdrag' && !kund.trim()) { setSparFel('Kunduppdrag kräver kund — fyll i kundnamnet.'); return }
@@ -658,6 +733,18 @@ export default function MaskinflyttClient() {
         .insert({ maskin_id: maskin.maskin_id, lat: b.lat, lng: b.lng, tidpunkt: nu })
         .select('maskin_id')
       positionSparad = !posRes.error && (posRes.data?.length ?? 0) > 0
+
+      // Maskinlistan ska visa den NYA platsen direkt — flytten är den
+      // starkaste signalen om var maskinen står, och den vet vi just nu.
+      const nyPlats = tillampaSparrar({
+        namn: valtObjekt?.namn ?? tillPlats?.namn ?? 'Senast lämnad plats',
+        koordinat: { lat: b.lat, lng: b.lng },
+        objektId: valtObjekt?.id ?? null,
+        platsId: tillPlats?.id ?? null,
+        tidpunkt: nu,
+        kalla: 'flytt',
+      })
+      setPlatser(prev => new Map(prev).set(maskin.maskin_id, nyPlats))
     }
 
     setSparar(false)
@@ -676,11 +763,12 @@ export default function MaskinflyttClient() {
 
   // ── "Nästa flytt" — dagen fortsätter ──
   function nastaFlytt() {
-    setMaskin(null); setExternMaskin(null); setExternFalt(false); setExternNamn('')
+    setMaskin(null); setExternMaskin(null); setExternOppen(false); setExternNamn('')
     setFlyttId(null); setAPos(null); setFranObjekt(null); setFranPlats(null)
     setValtObjekt(null); setTillPlats(null); setDest(null); setGpsPos(null); setGpsFel(null)
-    setResultat(null); setSparFel(null); setSok(''); setNavMaskin(null)
-    setFlyttTyp('produktion'); setKund(''); setNyPlatsFor(null)
+    setResultat(null); setSparFel(null); setSok('')
+    setForslag(null); setAndradPlats(null); setAndraOppen(false)
+    setFlyttTyp('produktion'); setKund(''); setTypOppen(false); setNyPlatsFor(null)
     setFlodesStart(null); setHamtadTid(null)
     setSteg('maskin')
   }
@@ -692,7 +780,7 @@ export default function MaskinflyttClient() {
     setSparar(true); setSparFel(null)
 
     const { data: fl, error: flErr } = await supabase.from('maskin_flytt')
-      .select('flytt_km, mellankorning_km, till_lat, till_lng, sluttid')
+      .select('maskin_id, extern_maskin, flytt_km, mellankorning_km, tid_flytt_min, fakturerbar, flytt_typ, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, till_lat, till_lng, sluttid')
       .eq('flyttdag_id', d.id).not('sluttid', 'is', null).eq('avbruten', false)
       .order('sluttid', { ascending: false })
     if (flErr) {
@@ -705,10 +793,34 @@ export default function MaskinflyttClient() {
     const sistaB = forraB ?? (fl?.length && fl[0].till_lat != null && fl[0].till_lng != null
       ? { lat: fl[0].till_lat, lng: fl[0].till_lng } : null)
 
-    // Hemresa: bara med hembas OCH en känd slutpunkt — annars ärligt tomt
-    const hem = medarb?.hem_lat != null && medarb?.hem_lng != null && sistaB
-      ? await korRutt(sistaB, { lat: medarb.hem_lat, lng: medarb.hem_lng }, true)
-      : null
+    // Namn till sammanfattningens rader — en läsning per tabell, inga N+1
+    const objektIds = Array.from(new Set((fl || []).flatMap(f => [f.fran_objekt_id, f.till_objekt_id]).filter(Boolean))) as string[]
+    const platsIds = Array.from(new Set((fl || []).flatMap(f => [f.fran_plats_id, f.till_plats_id]).filter(Boolean))) as string[]
+    const [objNamn, platsNamn, hem] = await Promise.all([
+      objektIds.length ? supabase.from('objekt').select('id, namn').in('id', objektIds) : Promise.resolve({ data: [] as any[] }),
+      platsIds.length ? supabase.from('flyttplats').select('id, namn').in('id', platsIds) : Promise.resolve({ data: [] as any[] }),
+      // Hemresa: bara med hembas OCH en känd slutpunkt — annars ärligt tomt
+      medarb?.hem_lat != null && medarb?.hem_lng != null && sistaB
+        ? korRutt(sistaB, { lat: medarb.hem_lat, lng: medarb.hem_lng }, true)
+        : Promise.resolve(null),
+    ])
+    const namnFor = (objektId: string | null, platsId: string | null) =>
+      (objektId && (objNamn.data || []).find((o: any) => o.id === objektId)?.namn)
+      || (platsId && (platsNamn.data || []).find((p: any) => p.id === platsId)?.namn)
+      || '—'
+    const maskinEtikett = (id: string | null, extern: string | null) =>
+      extern || (id && maskiner.find(m => m.maskin_id === id) ? maskinNamn(maskiner.find(m => m.maskin_id === id)!) : id) || '—'
+
+    // Äldst först — dagen läses uppifrån och ner
+    const rader: DagFlyttRad[] = [...(fl || [])].reverse().map(f => ({
+      maskin: maskinEtikett(f.maskin_id, f.extern_maskin),
+      fran: namnFor(f.fran_objekt_id, f.fran_plats_id),
+      till: namnFor(f.till_objekt_id, f.till_plats_id),
+      km: f.flytt_km ?? null,
+      tidMin: f.tid_flytt_min ?? null,
+      fakturerbar: !!f.fakturerbar,
+      typ: (f.flytt_typ as FlyttTyp) || 'produktion',
+    }))
 
     const nu = new Date()
     const raMin = Math.round((nu.getTime() - new Date(d.starttid).getTime()) / 60000)
@@ -736,6 +848,9 @@ export default function MaskinflyttClient() {
       flyttKmSumma, mellankorningKmSumma: mellanSumma,
       hemKm: hem?.km ?? null, tidHemMin: hem?.minutes ?? null,
       totalKm, totalTidMin: dagOgiltig ? null : raMin, dagOgiltig,
+      fakturerbarKm: (fl || []).reduce((s, f) => s + (f.fakturerbar ? (f.flytt_km ?? 0) : 0), 0),
+      fakturerbarAntal: (fl || []).filter(f => f.fakturerbar).length,
+      rader,
     })
     setDag(null); setForraB(null); setDagFlyttAntal(0)
     setSteg('dagKlart')
@@ -747,6 +862,7 @@ export default function MaskinflyttClient() {
     setHembasSparar(true); setHembasFel(null)
     try {
       const p = await getGps()
+      if (!rimligGpsPunkt(p.lat, p.lng)) throw new Error('GPS-punkten ser trasig ut — försök igen utomhus')
       const { data, error } = await supabase.from('medarbetare')
         .update({ hem_lat: p.lat, hem_lng: p.lng })
         .eq('id', medarb.id).select('id')
@@ -809,34 +925,19 @@ export default function MaskinflyttClient() {
     setDagResultat(null); setDagNotis(null); setHembasFel(null)
   }
 
-  const filtreradeObjekt = useMemo(() => {
-    if (!objektLista) return []
-    if (!sok.trim()) return objektLista
-    const t = sok.toLowerCase()
-    return objektLista.filter(o =>
-      o.namn.toLowerCase().includes(t) || (o.vo_nummer || '').toLowerCase().includes(t))
-  }, [objektLista, sok])
-
   const aktivMaskinNamn = maskin ? maskinNamn(maskin) : (externMaskin ?? '—')
   const destNamn = valtObjekt?.namn ?? tillPlats?.namn ?? 'Vald plats'
 
-  const filtreradePlatser = useMemo(() => {
-    const aktiva = flyttplatser.filter(pl => pl.aktiv)
-    if (!sok.trim()) return aktiva
-    const t = sok.toLowerCase()
-    return aktiva.filter(pl => pl.namn.toLowerCase().includes(t))
-  }, [flyttplatser, sok])
-
   function tillbaka() {
     setSparFel(null)
-    if (steg === 'franObjekt') { setMaskin(null); setNavMaskin(null); setSteg('maskin') }
-    else if (steg === 'hamta') setSteg('franObjekt')
+    if (steg === 'starta') { setMaskin(null); setExternMaskin(null); setForslag(null); setAndradPlats(null); setSteg('maskin') }
+    else if (steg === 'hamta') setSteg('starta')
     else if (steg === 'transport') setSteg('hamta')
     else if (steg === 'bekrafta') setSteg('transport')
   }
 
   // Mellansteg har egen bakåtpil → dölj TopBar:s hemknapp (appens mönster)
-  const harBakat = steg === 'franObjekt' || steg === 'hamta' || steg === 'transport' || steg === 'bekrafta'
+  const harBakat = steg === 'starta' || steg === 'hamta' || steg === 'transport' || steg === 'bekrafta'
   useEffect(() => {
     if (harBakat) document.body.setAttribute('data-hide-home', '1')
     else document.body.removeAttribute('data-hide-home')
@@ -848,54 +949,69 @@ export default function MaskinflyttClient() {
     padding: '20px 0', fontSize: 18, fontWeight: 800, cursor: 'pointer', fontFamily: ff,
   })
 
-  const platsLista = (valj: (pl: Flyttplats) => void, nyFor: 'fran' | 'till') => (
-    <>
-      {filtreradePlatser.length > 0 && (
-        <>
-          <div style={{ fontSize: 12, color: C.t3, fontWeight: 700, margin: '14px 0 8px' }}>FLYTTPLATSER</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {filtreradePlatser.map(pl => (
-              <button key={pl.id} onClick={() => valj(pl)} style={{
-                display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-                background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
-                padding: '14px 14px', cursor: 'pointer', fontFamily: ff, color: C.t1, width: '100%',
-              }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.orange }}>
-                  {pl.typ === 'verkstad' ? 'build' : 'location_on'}
-                </span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600 }}>{pl.namn}</div>
-                  <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>{PLATS_TYP_LABEL[pl.typ]}</div>
-                </div>
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.t3 }}>chevron_right</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-      <button onClick={() => setNyPlatsFor(nyFor)} style={{
-        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-        background: 'transparent', border: `1px dashed ${C.border}`, borderRadius: 12,
-        padding: '13px 14px', cursor: 'pointer', fontFamily: ff, color: C.t2, fontSize: 14,
-        fontWeight: 600, marginTop: 10,
-      }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t3 }}>add_location_alt</span>
-        Ny plats …
-      </button>
-    </>
-  )
+  /** Stor knapp som ÄR navigeringen: länken öppnar Maps direkt ur förarens
+   *  tryck (ingen popup-blockering), onClick driver flödet vidare. */
+  const mapsKnapp = (
+    lat: number, lng: number, namn: string, etikett: string,
+    onClick: () => void, bg = C.green, fg = '#000',
+  ) => {
+    const url = navUrl(lat, lng, namn)
+    return (
+      <a
+        href={url}
+        {...(url.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        onClick={onClick}
+        style={{
+          ...storKnapp(bg, fg), display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: 10, textDecoration: 'none', boxSizing: 'border-box',
+        }}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 24 }}>near_me</span>
+        {etikett}
+      </a>
+    )
+  }
 
-  const navLank = (lat: number, lng: number, namn: string, etikett: string, marginBottom = 10) => (
-    <a href={navUrl(lat, lng, namn)} target="_blank" rel="noopener noreferrer" style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-      width: '100%', boxSizing: 'border-box', background: C.card, color: C.t1,
-      border: `1px solid ${C.border}`, borderRadius: 16, padding: '14px 0',
-      fontSize: 15, fontWeight: 700, fontFamily: ff, textDecoration: 'none', marginBottom,
-    }}>
-      <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.blue }}>near_me</span>
-      {etikett}
-    </a>
-  )
+  const navLank = (lat: number, lng: number, namn: string, etikett: string, marginBottom = 10) => {
+    const url = navUrl(lat, lng, namn)
+    return (
+      <a href={url} {...(url.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})} style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        width: '100%', boxSizing: 'border-box', background: C.card, color: C.t1,
+        border: `1px solid ${C.border}`, borderRadius: 16, padding: '14px 0',
+        fontSize: 15, fontWeight: 700, fontFamily: ff, textDecoration: 'none', marginBottom,
+      }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.blue }}>near_me</span>
+        {etikett}
+      </a>
+    )
+  }
+
+  const lankStil: React.CSSProperties = {
+    background: 'transparent', color: C.blue, border: 'none', fontSize: 13,
+    fontWeight: 600, cursor: 'pointer', fontFamily: ff, padding: 0,
+  }
+
+  /** Platsraden under maskinnamnet i listan — tre ärliga tillstånd. */
+  function platsRad(m: Maskin) {
+    const f = platser.get(m.maskin_id)
+    if (!f) {
+      return (
+        <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
+          {typLabel(m.maskin_typ)}
+          {platserLaddar ? ' · hämtar plats …' : ' · Välj plats själv'}
+        </div>
+      )
+    }
+    const dampad = !!f.osaker
+    return (
+      <div style={{ fontSize: 13, color: dampad ? C.t3 : C.t2, marginTop: 2 }}>
+        {f.namn} · {f.tidpunkt ? relativTid(f.tidpunkt) : 'vald plats'}
+        {f.osaker === 'koordinat_orimlig' && <span style={{ color: C.orange }}> · plats osäker</span>}
+        {f.osaker === 'gammal' && <span style={{ color: C.orange }}> · plats osäker</span>}
+      </div>
+    )
+  }
 
   // ─────────────────────────── Render ───────────────────────────
 
@@ -932,7 +1048,7 @@ export default function MaskinflyttClient() {
           }}>{sparFel}</div>
         )}
 
-        {/* ── Steg 1: Välj maskin ── */}
+        {/* ── STEG 0: Maskinlistan är startsidan ── */}
         {steg === 'maskin' && (
           <>
             {laddar && <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Laddar maskiner …</div>}
@@ -1010,65 +1126,90 @@ export default function MaskinflyttClient() {
                 <p style={{ fontSize: 14, color: C.t3, margin: '0 0 16px' }}>
                   {dag ? 'Nästa flytt läggs på dagens körning.' : 'Dagen startar med första flytten.'}
                 </p>
+
+                {platserFel && (
+                  <div style={{ background: 'rgba(255,159,10,0.12)', border: '1px solid rgba(255,159,10,0.4)', borderRadius: 12, padding: 12, marginBottom: 14, fontSize: 13 }}>
+                    {platserFel} — välj plats manuellt i nästa steg.
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {maskiner.map(m => (
-                    <button key={m.maskin_id} onClick={() => valjMaskin(m)} style={{
-                      display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
-                      background: C.card, border: `1px solid ${C.border}`, borderRadius: 14,
-                      padding: '16px 16px', cursor: 'pointer', fontFamily: ff, color: C.t1, width: '100%',
-                    }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 26, color: m.maskin_typ === 'Harvester' ? C.green : C.blue }}>
-                        {m.maskin_typ === 'Harvester' ? 'forest' : 'local_shipping'}
-                      </span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {maskinNamn(m)}
-                          {m.extramaskin && (
-                            <span style={{
-                              fontSize: 11, fontWeight: 700, color: C.orange, border: `1px solid ${C.orange}`,
-                              borderRadius: 6, padding: '1px 6px',
-                            }}>Extra</span>
-                          )}
+                  {maskiner.map(m => {
+                    const f = platser.get(m.maskin_id)
+                    const dampad = !f || !!f.osaker
+                    return (
+                      <button key={m.maskin_id} onClick={() => valjMaskin(m)} style={{
+                        display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
+                        background: C.card, border: `1px solid ${C.border}`, borderRadius: 14,
+                        padding: '16px 16px', cursor: 'pointer', fontFamily: ff, color: C.t1, width: '100%',
+                        opacity: dampad ? 0.72 : 1,
+                      }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 26, color: m.maskin_typ === 'Harvester' ? C.green : C.blue }}>
+                          {m.maskin_typ === 'Harvester' ? 'forest' : 'local_shipping'}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {maskinNamn(m)}
+                            {m.extramaskin && (
+                              <span style={{
+                                fontSize: 11, fontWeight: 700, color: C.orange, border: `1px solid ${C.orange}`,
+                                borderRadius: 6, padding: '1px 6px',
+                              }}>Extra</span>
+                            )}
+                          </div>
+                          {platsRad(m)}
                         </div>
-                        <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>{typLabel(m.maskin_typ)}</div>
-                      </div>
-                      <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t3 }}>chevron_right</span>
-                    </button>
-                  ))}
+                        <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t3 }}>chevron_right</span>
+                      </button>
+                    )
+                  })}
                   {maskiner.length === 0 && (
                     <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Inga aktiva maskiner i registret.</div>
                   )}
-
-                  {/* Främmande maskin — snabbt: ett tryck + namn, kunduppdrag förvalt */}
-                  {!externFalt ? (
-                    <button onClick={() => setExternFalt(true)} style={{
-                      display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
-                      background: 'transparent', border: `1px dashed ${C.border}`, borderRadius: 14,
-                      padding: '14px 16px', cursor: 'pointer', fontFamily: ff, color: C.t2, width: '100%',
-                    }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 24, color: C.t3 }}>add_circle</span>
-                      <div style={{ flex: 1, fontSize: 15, fontWeight: 600 }}>Annans maskin …</div>
-                    </button>
-                  ) : (
-                    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14 }}>
-                      <div style={{ fontSize: 13, color: C.t3, marginBottom: 8 }}>Vems maskin? Skriv fritt, t.ex. "Kalles John Deere 1210".</div>
-                      <input
-                        value={externNamn} onChange={e => setExternNamn(e.target.value)} autoFocus
-                        placeholder="Maskin och ägare …"
-                        style={{
-                          width: '100%', boxSizing: 'border-box', background: C.bg, border: `1px solid ${C.border}`,
-                          borderRadius: 10, padding: '11px 12px', fontSize: 15, color: C.t1, fontFamily: ff,
-                          marginBottom: 10, outline: 'none',
-                        }}
-                      />
-                      <button onClick={valjExternMaskin} disabled={!externNamn.trim()} style={{
-                        width: '100%', background: C.blue, color: '#fff', border: 'none', borderRadius: 10,
-                        padding: '12px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: ff,
-                        opacity: externNamn.trim() ? 1 : 0.4,
-                      }}>Fortsätt med denna maskin</button>
-                    </div>
-                  )}
                 </div>
+
+                {/* Annat … — extern maskin/kunduppdrag. Diskret rad, inte en knapp
+                    bland maskinerna. Kund samlas in här: DB-spärren kräver den. */}
+                {!externOppen ? (
+                  <button onClick={() => { setExternOppen(true); setKund('') }} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, marginTop: 18,
+                    background: 'transparent', border: 'none', padding: 0,
+                    color: C.t3, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: ff,
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>
+                    Annat …
+                  </button>
+                ) : (
+                  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginTop: 18 }}>
+                    <div style={{ fontSize: 13, color: C.t3, marginBottom: 10 }}>
+                      Annans maskin eller kunduppdrag — flytten faktureras.
+                    </div>
+                    <input
+                      value={externNamn} onChange={e => setExternNamn(e.target.value)} autoFocus
+                      placeholder='Maskin, t.ex. "Kalles John Deere 1210"'
+                      style={{
+                        width: '100%', boxSizing: 'border-box', background: C.bg, border: `1px solid ${C.border}`,
+                        borderRadius: 10, padding: '11px 12px', fontSize: 15, color: C.t1, fontFamily: ff,
+                        marginBottom: 8, outline: 'none',
+                      }}
+                    />
+                    <input
+                      value={kund} onChange={e => setKund(e.target.value)}
+                      placeholder="Kund (krävs) …"
+                      style={{
+                        width: '100%', boxSizing: 'border-box', background: C.bg,
+                        border: `1px solid ${kund.trim() ? C.border : 'rgba(255,159,10,0.5)'}`,
+                        borderRadius: 10, padding: '11px 12px', fontSize: 15, color: C.t1, fontFamily: ff,
+                        marginBottom: 10, outline: 'none',
+                      }}
+                    />
+                    <button onClick={valjExternMaskin} disabled={!externNamn.trim() || !kund.trim()} style={{
+                      width: '100%', background: C.blue, color: '#fff', border: 'none', borderRadius: 10,
+                      padding: '12px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: ff,
+                      opacity: externNamn.trim() && kund.trim() ? 1 : 0.4,
+                    }}>Fortsätt med denna maskin</button>
+                  </div>
+                )}
 
                 {/* Sammanställningen — huvudvägen är startsidans ruta, detta är genvägen */}
                 <Link href="/maskinflytt/sammanstallning" style={{
@@ -1084,79 +1225,94 @@ export default function MaskinflyttClient() {
           </>
         )}
 
-        {/* ── Steg 2: Var står maskinen? ── */}
-        {steg === 'franObjekt' && (maskin || externMaskin) && (
+        {/* ── STEG 1: Starta körning ── */}
+        {steg === 'starta' && (maskin || externMaskin) && (
           <>
-            <h2 style={{ fontSize: 22, fontWeight: 700, margin: '4px 0 4px' }}>Var står {aktivMaskinNamn}?</h2>
+            <h2 style={{ fontSize: 22, fontWeight: 700, margin: '4px 0 4px' }}>{aktivMaskinNamn}</h2>
             <p style={{ fontSize: 14, color: C.t3, margin: '0 0 16px' }}>
-              Objektet maskinen hämtas från — styr navigeringen dit.
+              {hamtplats?.koordinat && !hamtplats.osaker
+                ? 'Kör till maskinen — kartan öppnas när du startar.'
+                : 'Välj var maskinen står, så öppnas kartan dit.'}
             </p>
-            {navMaskin && (
-              <div style={{ fontSize: 13, color: C.t2, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.blue }}>location_on</span>
-                {navMaskin.etikett}
+
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span className="material-symbols-outlined" style={{
+                  fontSize: 22, color: hamtplats?.koordinat && !hamtplats.osaker ? C.blue : C.t3,
+                }}>location_on</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {hamtplats ? (
+                    <>
+                      <div style={{ fontSize: 16, fontWeight: 700 }}>{hamtplats.namn}</div>
+                      <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
+                        {hamtplats.tidpunkt ? `Här ${relativTid(hamtplats.tidpunkt)}` : 'Vald plats'}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 15, fontWeight: 600, color: C.t2 }}>Ingen plats vald</div>
+                  )}
+                </div>
+                <button onClick={() => { setSok(''); setAndraOppen(true) }} style={lankStil}>Ändra</button>
               </div>
-            )}
-            <input
-              value={sok} onChange={e => setSok(e.target.value)} placeholder="Sök objekt …"
-              style={{
-                width: '100%', boxSizing: 'border-box', background: C.card, border: `1px solid ${C.border}`,
-                borderRadius: 12, padding: '12px 14px', fontSize: 15, color: C.t1, fontFamily: ff,
-                marginBottom: 12, outline: 'none',
-              }}
-            />
-            {objektLista === null && !objektFel && (
-              <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Laddar objekt …</div>
-            )}
-            {objektFel && (
-              <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 12, padding: 14, fontSize: 14 }}>
-                {objektFel}
-                <button onClick={laddaObjekt} style={{
-                  display: 'block', marginTop: 8, background: 'transparent', color: C.blue, border: 'none',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff, padding: 0,
-                }}>Försök igen</button>
-              </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {filtreradeObjekt.map(o => (
-                <button key={o.id} onClick={() => valjFranObjekt(o)} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-                  background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
-                  padding: '14px 14px', cursor: 'pointer', fontFamily: ff, color: C.t1, width: '100%',
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 15, fontWeight: 600 }}>{o.namn}</div>
-                    <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>
-                      {o.vo_nummer || '—'} · {o.status === 'pagaende' ? 'Pågående' : 'Planerad'}
-                    </div>
-                  </div>
-                  <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.t3 }}>chevron_right</span>
-                </button>
-              ))}
+
+              {hamtplats?.osaker && (
+                <div style={{ fontSize: 13, color: C.orange, marginTop: 10, display: 'flex', gap: 6 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>error</span>
+                  <span>
+                    {hamtplats.osaker === 'koordinat_orimlig'
+                      ? 'Plats osäker — den sparade punkten ligger långt utanför området. Välj plats själv.'
+                      : `Plats osäker — maskinen sågs här senast ${relativTid(hamtplats.tidpunkt!)}.`}
+                  </span>
+                </div>
+              )}
+              {hamtplats && !hamtplats.koordinat && !hamtplats.osaker && (
+                <div style={{ fontSize: 13, color: C.t3, marginTop: 10 }}>
+                  Platsen saknar koordinat — välj plats själv för att få vägbeskrivning.
+                </div>
+              )}
             </div>
-            {platsLista(valjFranPlats, 'fran')}
-            <button onClick={() => valjFranObjekt(null)} style={{
-              width: '100%', background: 'transparent', color: C.t2, border: `1px solid ${C.border}`,
-              borderRadius: 12, padding: '13px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-              fontFamily: ff, marginTop: 12,
-            }}>Objekt och plats okänd — hoppa över</button>
+
+            {hamtplats?.koordinat && (
+              <KartRuta lat={hamtplats.koordinat.lat} lng={hamtplats.koordinat.lng} />
+            )}
+
+            <div style={{ fontSize: 13, color: C.t3, margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>my_location</span>
+              {tillkorningsText()}
+            </div>
+
+            {/* Auto-Maps bara när platsen är både känd OCH säker. Osäker plats får
+                en vanlig knapp + egen länk — föraren bestämmer, appen påstår inte. */}
+            {hamtplats?.koordinat && !hamtplats.osaker
+              ? mapsKnapp(hamtplats.koordinat.lat, hamtplats.koordinat.lng, hamtplats.namn,
+                  sparar ? 'Startar …' : 'Starta körning', startaKorning)
+              : (
+                <>
+                  <button onClick={startaKorning} disabled={sparar || !!tabellSaknas} style={{
+                    ...storKnapp(C.green, '#000'), opacity: sparar || tabellSaknas ? 0.4 : 1,
+                  }}>{sparar ? 'Startar …' : 'Starta körning'}</button>
+                  {hamtplats?.koordinat && (
+                    <div style={{ marginTop: 10 }}>
+                      {navLank(hamtplats.koordinat.lat, hamtplats.koordinat.lng, hamtplats.namn, 'Öppna i kartan ändå', 0)}
+                    </div>
+                  )}
+                </>
+              )}
+            {tabellSaknas && (
+              <p style={{ fontSize: 13, color: C.orange, marginTop: 10, textAlign: 'center' }}>
+                Kan inte spara — migrationen är inte körd.
+              </p>
+            )}
           </>
         )}
 
-        {/* ── Steg 3: Hämta (A via telefonens GPS) ── */}
+        {/* ── STEG 2: Hämtat (A via telefonens GPS) ── */}
         {steg === 'hamta' && (maskin || externMaskin) && (
           <>
-            <h2 style={{ fontSize: 22, fontWeight: 700, margin: '4px 0 4px' }}>Hämta {aktivMaskinNamn}</h2>
+            <h2 style={{ fontSize: 22, fontWeight: 700, margin: '4px 0 4px' }}>Hämtat {aktivMaskinNamn}?</h2>
             <p style={{ fontSize: 14, color: C.t3, margin: '0 0 20px' }}>
-              Ställ dig vid maskinen och tryck på knappen — hämtplatsen tas från telefonens GPS.
+              Tryck när du står vid maskinen — hämtplatsen tas från telefonens GPS.
             </p>
-
-            {navMaskin && (
-              <>
-                {navLank(navMaskin.lat, navMaskin.lng, franObjekt?.namn || franPlats?.namn || aktivMaskinNamn, 'Navigera till maskinen', 4)}
-                <p style={{ fontSize: 12, color: C.t3, margin: '0 0 16px', textAlign: 'center' }}>{navMaskin.etikett}</p>
-              </>
-            )}
 
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1172,10 +1328,7 @@ export default function MaskinflyttClient() {
                   {!gpsHamtar && !gpsPos && gpsFel && <span style={{ color: C.red }}>{gpsFel}</span>}
                 </div>
                 {!gpsHamtar && (
-                  <button onClick={hamtaGps} style={{
-                    background: 'transparent', color: C.blue, border: 'none', fontSize: 13, fontWeight: 600,
-                    cursor: 'pointer', fontFamily: ff, padding: 4,
-                  }}>{gpsPos ? 'Uppdatera' : 'Försök igen'}</button>
+                  <button onClick={hamtaGps} style={lankStil}>{gpsPos ? 'Uppdatera' : 'Försök igen'}</button>
                 )}
               </div>
             </div>
@@ -1184,7 +1337,7 @@ export default function MaskinflyttClient() {
               ...storKnapp(C.green, '#000'),
               opacity: !gpsPos || sparar || tabellSaknas ? 0.4 : 1,
             }}>
-              {sparar ? 'Sparar …' : 'Hämta här'}
+              {sparar ? 'Sparar …' : 'Hämtat — maskinen är här'}
             </button>
             {tabellSaknas && (
               <p style={{ fontSize: 13, color: C.orange, marginTop: 10, textAlign: 'center' }}>
@@ -1194,58 +1347,19 @@ export default function MaskinflyttClient() {
           </>
         )}
 
-        {/* ── Steg 4: Transport — vart ska maskinen? ── */}
+        {/* ── STEG 3: Vart ska den? ── */}
         {steg === 'transport' && (maskin || externMaskin) && (
           <>
             <h2 style={{ fontSize: 22, fontWeight: 700, margin: '4px 0 4px' }}>Vart ska {aktivMaskinNamn}?</h2>
-            <p style={{ fontSize: 14, color: C.t3, margin: '0 0 16px' }}>Välj trakten maskinen lämnas på.</p>
 
             {!valtObjekt && !tillPlats && (
-              <>
-                <input
-                  value={sok} onChange={e => setSok(e.target.value)} placeholder="Sök objekt …"
-                  style={{
-                    width: '100%', boxSizing: 'border-box', background: C.card, border: `1px solid ${C.border}`,
-                    borderRadius: 12, padding: '12px 14px', fontSize: 15, color: C.t1, fontFamily: ff,
-                    marginBottom: 12, outline: 'none',
-                  }}
-                />
-                {objektLista === null && !objektFel && (
-                  <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Laddar objekt …</div>
-                )}
-                {objektFel && (
-                  <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 12, padding: 14, fontSize: 14 }}>
-                    {objektFel}
-                    <button onClick={laddaObjekt} style={{
-                      display: 'block', marginTop: 8, background: 'transparent', color: C.blue, border: 'none',
-                      fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff, padding: 0,
-                    }}>Försök igen</button>
-                  </div>
-                )}
-                {objektLista !== null && !objektFel && filtreradeObjekt.length === 0 && (
-                  <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>
-                    {sok.trim() ? 'Inga objekt matchar sökningen.' : 'Inga aktiva objekt (planerad/pågående) finns.'}
-                  </div>
-                )}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {filtreradeObjekt.map(o => (
-                    <button key={o.id} onClick={() => valjObjekt(o)} style={{
-                      display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-                      background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
-                      padding: '14px 14px', cursor: 'pointer', fontFamily: ff, color: C.t1, width: '100%',
-                    }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 15, fontWeight: 600 }}>{o.namn}</div>
-                        <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>
-                          {o.vo_nummer || '—'} · {o.status === 'pagaende' ? 'Pågående' : 'Planerad'}
-                        </div>
-                      </div>
-                      <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.t3 }}>chevron_right</span>
-                    </button>
-                  ))}
-                </div>
-                {platsLista(valjTillPlats, 'till')}
-              </>
+              <PlatsValjare
+                sok={sok} setSok={setSok}
+                objekt={objektLista} objektFel={objektFel} omLaddaOm={laddaObjekt}
+                platser={flyttplatser}
+                onValjObjekt={valjObjekt} onValjPlats={valjTillPlats}
+                onNyPlats={() => setNyPlatsFor('till')}
+              />
             )}
 
             {valtObjekt && destHamtar && (
@@ -1259,23 +1373,50 @@ export default function MaskinflyttClient() {
                   <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
                     {valtObjekt ? (valtObjekt.vo_nummer || '—') : tillPlats ? PLATS_TYP_LABEL[tillPlats.typ] : '—'}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.blue }}>location_on</span>
-                    <span style={{ fontSize: 13, color: C.t2 }}>{dest.lat.toFixed(5)}, {dest.lng.toFixed(5)}</span>
-                    <span style={{
-                      fontSize: 11, fontWeight: 700, color: C.blue, border: '1px solid rgba(59,130,246,0.5)',
-                      borderRadius: 6, padding: '1px 6px',
-                    }}>{KALLA_LABEL[dest.kalla]}</span>
+
+                  {/* Typen i klartext — ingen chip-rad i flödet */}
+                  <div style={{ fontSize: 13, color: C.t3, marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span>
+                      {flyttTyp === 'service' ? 'Blir serviceflytt — faktureras inte.'
+                        : flyttTyp === 'kunduppdrag' ? `Kunduppdrag${kund.trim() ? ` för ${kund.trim()}` : ''} — faktureras.`
+                        : flyttTyp === 'annat' ? 'Annat — faktureras inte.'
+                        : 'Produktionsflytt.'}
+                    </span>
+                    <button onClick={() => setTypOppen(o => !o)} style={lankStil}>{typOppen ? 'Klar' : 'Ändra'}</button>
                   </div>
+
+                  {typOppen && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {(['produktion', 'service', 'kunduppdrag', 'annat'] as FlyttTyp[]).map(t => (
+                          <button key={t} onClick={() => setFlyttTyp(t)} style={{
+                            background: flyttTyp === t ? 'rgba(59,130,246,0.18)' : C.bg,
+                            color: flyttTyp === t ? C.blue : C.t2,
+                            border: `1px solid ${flyttTyp === t ? 'rgba(59,130,246,0.6)' : C.border}`,
+                            borderRadius: 10, padding: '8px 14px', fontSize: 13, fontWeight: 700,
+                            cursor: 'pointer', fontFamily: ff,
+                          }}>{FLYTT_TYP_LABEL[t]}</button>
+                        ))}
+                      </div>
+                      {flyttTyp === 'kunduppdrag' && (
+                        <input
+                          value={kund} onChange={e => setKund(e.target.value)} placeholder="Kund (krävs) …"
+                          style={{
+                            width: '100%', boxSizing: 'border-box', background: C.bg,
+                            border: `1px solid ${kund.trim() ? C.border : 'rgba(255,159,10,0.5)'}`,
+                            borderRadius: 10, padding: '11px 12px', fontSize: 15, color: C.t1, fontFamily: ff,
+                            marginTop: 10, outline: 'none',
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
-                    <button onClick={() => { setValtObjekt(null); setTillPlats(null); setDest(null) }} style={{
-                      background: 'transparent', color: C.t2, border: 'none', fontSize: 13, fontWeight: 600,
-                      cursor: 'pointer', fontFamily: ff, padding: 0,
-                    }}>Byt destination</button>
-                    <button onClick={() => setKartaOppen(true)} style={{
-                      background: 'transparent', color: C.blue, border: 'none', fontSize: 13, fontWeight: 600,
-                      cursor: 'pointer', fontFamily: ff, padding: 0,
-                    }}>Justera på karta</button>
+                    <button onClick={() => { setValtObjekt(null); setTillPlats(null); setDest(null); setTypOppen(false) }} style={{ ...lankStil, color: C.t2 }}>
+                      Byt destination
+                    </button>
+                    <button onClick={() => setKartaOppen(true)} style={lankStil}>Justera på karta</button>
                   </div>
                 </div>
 
@@ -1302,29 +1443,28 @@ export default function MaskinflyttClient() {
                   </div>
                 )}
 
-                {navLank(dest.lat, dest.lng, destNamn, 'Navigera dit')}
-                <button onClick={startaTransport} disabled={sparar} style={{
-                  ...storKnapp(C.blue, '#fff'),
-                  opacity: sparar ? 0.4 : 1,
-                }}>
-                  {sparar ? 'Sparar …' : 'Starta transport'}
-                </button>
+                {mapsKnapp(dest.lat, dest.lng, destNamn,
+                  sparar ? 'Sparar …' : 'Starta transport', startaTransport, C.blue, '#fff')}
+                {flyttTyp === 'kunduppdrag' && !kund.trim() && (
+                  <p style={{ fontSize: 13, color: C.orange, marginTop: 8, textAlign: 'center' }}>
+                    Kunduppdrag kräver kundnamn — fyll i det under &quot;Ändra&quot;.
+                  </p>
+                )}
               </div>
             )}
 
             {(valtObjekt || tillPlats) && !destHamtar && !dest && !kartaOppen && (
               <div style={{ background: 'rgba(255,159,10,0.12)', border: '1px solid rgba(255,159,10,0.4)', borderRadius: 12, padding: 14, fontSize: 14 }}>
                 {destNamn} saknar koordinat i alla källor.
-                <button onClick={() => setKartaOppen(true)} style={{
-                  display: 'block', marginTop: 8, background: 'transparent', color: C.blue, border: 'none',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff, padding: 0,
-                }}>Peka ut platsen på kartan</button>
+                <button onClick={() => setKartaOppen(true)} style={{ ...lankStil, display: 'block', marginTop: 8 }}>
+                  Peka ut platsen på kartan
+                </button>
               </div>
             )}
           </>
         )}
 
-        {/* ── Steg 5: Bekräfta lämnad ── */}
+        {/* ── STEG 4: Lämnat ── */}
         {steg === 'bekrafta' && (maskin || externMaskin) && dest && (
           <>
             <h2 style={{ fontSize: 22, fontWeight: 700, margin: '4px 0 4px' }}>Transport pågår</h2>
@@ -1335,59 +1475,29 @@ export default function MaskinflyttClient() {
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginBottom: 20 }}>
               <div style={{ fontSize: 13, color: C.t3 }}>Destination</div>
               <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{destNamn}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.blue }}>location_on</span>
-                <span style={{ fontSize: 13, color: C.t2 }}>{dest.lat.toFixed(5)}, {dest.lng.toFixed(5)}</span>
-                <span style={{
-                  fontSize: 11, fontWeight: 700, color: C.blue, border: '1px solid rgba(59,130,246,0.5)',
-                  borderRadius: 6, padding: '1px 6px',
-                }}>{KALLA_LABEL[dest.kalla]}</span>
-              </div>
-              <a href={navUrl(dest.lat, dest.lng, destNamn)} target="_blank" rel="noopener noreferrer"
+              {flyttTyp !== 'produktion' && (
+                <div style={{ fontSize: 13, color: C.t3, marginTop: 6 }}>
+                  {flyttTyp === 'service' ? 'Serviceflytt — faktureras inte.'
+                    : flyttTyp === 'kunduppdrag' ? `Kunduppdrag${kund.trim() ? ` för ${kund.trim()}` : ''} — faktureras.`
+                    : 'Annat — faktureras inte.'}
+                </div>
+              )}
+              <a href={navUrl(dest.lat, dest.lng, destNamn)}
+                {...(navUrl(dest.lat, dest.lng, destNamn).startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12,
                   color: C.blue, fontSize: 13, fontWeight: 600, textDecoration: 'none', fontFamily: ff,
                 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>near_me</span>
-                Navigera dit
+                Öppna kartan igen
               </a>
-            </div>
-
-            {/* Typ av flytt — Produktion förvald (noll extra tryck i vanligaste fallet).
-                Kunduppdrag förvalt för extern maskin. Styr ENBART fakturerbar-flaggan. */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: C.t3, fontWeight: 700, marginBottom: 8 }}>TYP AV FLYTT</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {(['produktion', 'service', 'kunduppdrag', 'annat'] as FlyttTyp[]).map(t => (
-                  <button key={t} onClick={() => setFlyttTyp(t)} style={{
-                    background: flyttTyp === t ? 'rgba(59,130,246,0.18)' : C.card,
-                    color: flyttTyp === t ? C.blue : C.t2,
-                    border: `1px solid ${flyttTyp === t ? 'rgba(59,130,246,0.6)' : C.border}`,
-                    borderRadius: 10, padding: '8px 14px', fontSize: 13, fontWeight: 700,
-                    cursor: 'pointer', fontFamily: ff,
-                  }}>{FLYTT_TYP_LABEL[t]}</button>
-                ))}
-              </div>
-              {flyttTyp === 'service' && (
-                <div style={{ fontSize: 12, color: C.t3, marginTop: 8 }}>Service faktureras aldrig — egen kostnad.</div>
-              )}
-              {flyttTyp === 'kunduppdrag' && (
-                <input
-                  value={kund} onChange={e => setKund(e.target.value)} placeholder="Kund (krävs) …"
-                  style={{
-                    width: '100%', boxSizing: 'border-box', background: C.card, border: `1px solid ${kund.trim() ? C.border : 'rgba(255,159,10,0.5)'}`,
-                    borderRadius: 10, padding: '11px 12px', fontSize: 15, color: C.t1, fontFamily: ff,
-                    marginTop: 10, outline: 'none',
-                  }}
-                />
-              )}
             </div>
 
             <button onClick={lamnadHar} disabled={sparar || (flyttTyp === 'kunduppdrag' && !kund.trim())} style={{
               ...storKnapp(C.green, '#000'),
               opacity: sparar || (flyttTyp === 'kunduppdrag' && !kund.trim()) ? 0.4 : 1,
             }}>
-              {sparar ? 'Sparar …' : 'Ja, lämnad här'}
+              {sparar ? 'Sparar …' : 'Lämnat'}
             </button>
             {flyttTyp === 'kunduppdrag' && !kund.trim() && (
               <p style={{ fontSize: 13, color: C.orange, marginTop: 8, textAlign: 'center' }}>Kunduppdrag kräver kundnamn.</p>
@@ -1398,7 +1508,7 @@ export default function MaskinflyttClient() {
           </>
         )}
 
-        {/* ── Klart (per flytt) — dagen fortsätter eller avslutas ── */}
+        {/* ── Flyttkortet — dagen fortsätter eller avslutas ── */}
         {steg === 'klart' && (maskin || externMaskin) && resultat && (
           <>
             <div style={{ textAlign: 'center', margin: '12px 0 20px' }}>
@@ -1416,7 +1526,7 @@ export default function MaskinflyttClient() {
                 ...(resultat.mellankorningKm != null
                   ? [['Mellankörning (tomkörning)', `${resultat.mellankorningKm} km`]]
                   : []),
-                ['Flyttsträcka (A → B)',
+                ['Flyttsträcka',
                   `${resultat.flyttKm} km${
                     resultat.flyttOgiltig ? ' · tid ej sparad (över 6 tim)' :
                     resultat.tidFlyttMin != null ? ` · ${fmtMin(resultat.tidFlyttMin)}` : ''}`],
@@ -1465,7 +1575,7 @@ export default function MaskinflyttClient() {
               ...storKnapp(C.blue, '#fff'),
               opacity: sparar ? 0.4 : 1,
             }}>
-              {sparar ? 'Avslutar …' : 'Kör hem — avsluta dagen'}
+              {sparar ? 'Avslutar …' : 'Kör hem — avsluta'}
             </button>
             <Link href="/" style={{
               display: 'block', textAlign: 'center', marginTop: 14, color: C.t3,
@@ -1474,35 +1584,70 @@ export default function MaskinflyttClient() {
           </>
         )}
 
-        {/* ── Dag avslutad ── */}
+        {/* ── STEG 5: Sammanfattningen (ersätter pappret) ── */}
         {steg === 'dagKlart' && dagResultat && (
           <>
             <div style={{ textAlign: 'center', margin: '12px 0 20px' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 56, color: C.blue }}>check_circle</span>
-              <h2 style={{ fontSize: 22, fontWeight: 700, margin: '8px 0 0' }}>Dag avslutad</h2>
+              <h2 style={{ fontSize: 22, fontWeight: 700, margin: '8px 0 0' }}>Dagen är klar</h2>
             </div>
 
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
-              {[
-                ['Flyttar', String(dagResultat.antalFlyttar)],
-                ['Tillkörning (hem → första maskinen)', dagResultat.tillkorningKm != null ? `${dagResultat.tillkorningKm} km` : '—'],
-                ['Flyttsträckor', `${dagResultat.flyttKmSumma} km`],
-                ['Mellankörning (tomkörning)', `${dagResultat.mellankorningKmSumma} km`],
-                ['Hemresa (beräknad)', dagResultat.hemKm != null
-                  ? `${dagResultat.hemKm} km${dagResultat.tidHemMin != null ? ` · ~${fmtMin(dagResultat.tidHemMin)}` : ''}`
-                  : 'hembas saknas'],
-                ['Total körsträcka', `${dagResultat.totalKm} km`],
-                ['Tid (mätt, exkl. hemresa)',
-                  dagResultat.dagOgiltig ? 'ej sparad (över 16 tim)' : fmtMin(dagResultat.totalTidMin)],
-              ].map(([label, varde]) => (
-                <div key={label as string} style={{
-                  display: 'flex', justifyContent: 'space-between', gap: 12, padding: '7px 0',
-                  borderBottom: `1px solid ${C.border}`, fontSize: 14,
-                }}>
-                  <span style={{ color: C.t3 }}>{label}</span>
-                  <span style={{ fontWeight: 600, textAlign: 'right' }}>{varde}</span>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <div style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 }}>
+                <div style={{ fontSize: 12, color: C.t3, fontWeight: 700 }}>HELA KÖRNINGEN</div>
+                <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{dagResultat.totalKm} km</div>
+                <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
+                  {dagResultat.dagOgiltig ? 'tid ej sparad (över 16 tim)' : fmtMin(dagResultat.totalTidMin)}
                 </div>
-              ))}
+              </div>
+              <div style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 }}>
+                <div style={{ fontSize: 12, color: C.t3, fontWeight: 700 }}>FAKTURERBART</div>
+                <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6, color: dagResultat.fakturerbarKm > 0 ? C.green : C.t1 }}>
+                  {dagResultat.fakturerbarKm} km
+                </div>
+                <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
+                  {dagResultat.fakturerbarAntal} av {dagResultat.antalFlyttar} {dagResultat.antalFlyttar === 1 ? 'flytt' : 'flyttar'}
+                </div>
+              </div>
+            </div>
+
+            {dagResultat.rader.length > 0 ? (
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '4px 16px', marginBottom: 14 }}>
+                {dagResultat.rader.map((r, i) => (
+                  <div key={i} style={{
+                    padding: '12px 0',
+                    borderBottom: i < dagResultat.rader.length - 1 ? `1px solid ${C.border}` : 'none',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+                      <div style={{ fontSize: 15, fontWeight: 700 }}>{r.maskin}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        {r.km != null ? `${r.km} km` : '—'}
+                        {r.tidMin != null && <span style={{ color: C.t3, fontWeight: 400 }}> · {fmtMin(r.tidMin)}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 3, alignItems: 'baseline' }}>
+                      <div style={{ fontSize: 13, color: C.t3 }}>{r.fran} → {r.till}</div>
+                      <div style={{
+                        fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
+                        color: r.fakturerbar ? C.green : C.t3,
+                      }}>
+                        {r.fakturerbar ? 'Fakturerbar' : r.typ === 'service' ? 'Service' : r.typ === 'annat' ? 'Annat' : 'Ej fakturerbar'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ color: C.t3, fontSize: 14, padding: '8px 0 16px', textAlign: 'center' }}>
+                Inga avslutade flyttar den här dagen.
+              </div>
+            )}
+
+            <div style={{ fontSize: 13, color: C.t3, marginBottom: 16, lineHeight: 1.6 }}>
+              Tillkörning {dagResultat.tillkorningKm != null ? `${dagResultat.tillkorningKm} km` : 'ej räknad'}
+              {' · '}
+              Hemresa {dagResultat.hemKm != null ? `${dagResultat.hemKm} km (beräknad)` : 'ej räknad'}
+              {dagResultat.mellankorningKmSumma > 0 && ` · Mellankörning ${dagResultat.mellankorningKmSumma} km`}
             </div>
 
             {dagResultat.hemKm == null && (
@@ -1511,9 +1656,7 @@ export default function MaskinflyttClient() {
                   <>
                     Hemresan kunde inte räknas utan hembas. Sätt den för nästa gång:
                     <button onClick={sattHembas} disabled={hembasSparar} style={{
-                      display: 'block', marginTop: 8, background: 'transparent', color: C.blue, border: 'none',
-                      fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff, padding: 0,
-                      opacity: hembasSparar ? 0.5 : 1,
+                      ...lankStil, display: 'block', marginTop: 8, opacity: hembasSparar ? 0.5 : 1,
                     }}>{hembasSparar ? 'Sparar …' : 'Sätt hembas till min nuvarande plats'}</button>
                     {hembasFel && <div style={{ color: C.red, marginTop: 6 }}>{hembasFel}</div>}
                   </>
@@ -1534,6 +1677,30 @@ export default function MaskinflyttClient() {
         )}
       </main>
 
+      {/* "Ändra" på STEG 1 — samma sökbara lista som destinationsvalet */}
+      {andraOppen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1400, background: C.bg, overflow: 'auto' }}>
+          <div style={{
+            padding: 'calc(10px + env(safe-area-inset-top)) 16px 10px',
+            display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px solid ${C.border}`,
+          }}>
+            <button onClick={() => { setAndraOppen(false); setSok('') }} aria-label="Stäng" style={{ background: 'none', border: 'none', color: C.t2, padding: 6, cursor: 'pointer', display: 'flex' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 24 }}>close</span>
+            </button>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.t1, fontFamily: ff }}>Var står {aktivMaskinNamn}?</div>
+          </div>
+          <div style={{ maxWidth: 500, margin: '0 auto', padding: '16px 16px calc(32px + env(safe-area-inset-bottom))' }}>
+            <PlatsValjare
+              sok={sok} setSok={setSok}
+              objekt={objektLista} objektFel={objektFel} omLaddaOm={laddaObjekt}
+              platser={flyttplatser}
+              onValjObjekt={andraTillObjekt} onValjPlats={andraTillPlats}
+              onNyPlats={() => setNyPlatsFor('fran')}
+            />
+          </div>
+        </div>
+      )}
+
       {kartaOppen && (
         <KartPicker
           start={dest ? { lat: dest.lat, lng: dest.lng } : aPos ? { lat: aPos.lat, lng: aPos.lng } : { lat: 56.5, lng: 14.7 }}
@@ -1547,7 +1714,7 @@ export default function MaskinflyttClient() {
           skapadAv={medarb?.namn ?? null}
           onSparad={pl => {
             setFlyttplatser(prev => [...prev, pl].sort((a, b) => a.namn.localeCompare(b.namn, 'sv')))
-            if (nyPlatsFor === 'fran') valjFranPlats(pl)
+            if (nyPlatsFor === 'fran') andraTillPlats(pl)
             else valjTillPlats(pl)
             setNyPlatsFor(null)
           }}
@@ -1555,6 +1722,158 @@ export default function MaskinflyttClient() {
         />
       )}
     </div>
+  )
+}
+
+// ── Objekt och flyttplatser i EN sökbar lista. Platser bär sin typ som tagg;
+//    föraren ser platser, inte vilken tabell de kommer ur. ──
+function PlatsValjare({ sok, setSok, objekt, objektFel, omLaddaOm, platser, onValjObjekt, onValjPlats, onNyPlats }: {
+  sok: string
+  setSok: (s: string) => void
+  objekt: ObjektRad[] | null
+  objektFel: string | null
+  omLaddaOm: () => void
+  platser: Flyttplats[]
+  onValjObjekt: (o: ObjektRad) => void
+  onValjPlats: (pl: Flyttplats) => void
+  onNyPlats: () => void
+}) {
+  const rader = useMemo(() => {
+    const t = sok.trim().toLowerCase()
+    const o = (objekt || [])
+      .filter(x => !t || x.namn.toLowerCase().includes(t) || (x.vo_nummer || '').toLowerCase().includes(t))
+      .map(x => ({ sortNamn: x.namn, nod: 'objekt' as const, o: x }))
+    const p = platser
+      .filter(x => x.aktiv && (!t || x.namn.toLowerCase().includes(t)))
+      .map(x => ({ sortNamn: x.namn, nod: 'plats' as const, pl: x }))
+    return [...o, ...p].sort((a, b) => a.sortNamn.localeCompare(b.sortNamn, 'sv'))
+  }, [objekt, platser, sok])
+
+  return (
+    <>
+      <input
+        value={sok} onChange={e => setSok(e.target.value)} placeholder="Sök objekt eller plats …"
+        style={{
+          width: '100%', boxSizing: 'border-box', background: C.card, border: `1px solid ${C.border}`,
+          borderRadius: 12, padding: '12px 14px', fontSize: 15, color: C.t1, fontFamily: ff,
+          marginBottom: 12, outline: 'none',
+        }}
+      />
+      {objekt === null && !objektFel && (
+        <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Laddar objekt …</div>
+      )}
+      {objektFel && (
+        <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 12, padding: 14, fontSize: 14, marginBottom: 12 }}>
+          {objektFel}
+          <button onClick={omLaddaOm} style={{
+            display: 'block', marginTop: 8, background: 'transparent', color: C.blue, border: 'none',
+            fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff, padding: 0,
+          }}>Försök igen</button>
+        </div>
+      )}
+      {objekt !== null && !objektFel && rader.length === 0 && (
+        <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>
+          {sok.trim() ? 'Inget matchar sökningen.' : 'Inga aktiva objekt eller sparade platser.'}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rader.map(r => r.nod === 'objekt' ? (
+          <button key={`o-${r.o.id}`} onClick={() => onValjObjekt(r.o)} style={{
+            display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+            background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
+            padding: '14px 14px', cursor: 'pointer', fontFamily: ff, color: C.t1, width: '100%',
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{r.o.namn}</div>
+              <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>
+                {r.o.vo_nummer || '—'} · {r.o.status === 'pagaende' ? 'Pågående' : 'Planerad'}
+              </div>
+            </div>
+            <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.t3 }}>chevron_right</span>
+          </button>
+        ) : (
+          <button key={`p-${r.pl.id}`} onClick={() => onValjPlats(r.pl)} style={{
+            display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+            background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
+            padding: '14px 14px', cursor: 'pointer', fontFamily: ff, color: C.t1, width: '100%',
+          }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.orange }}>
+              {r.pl.typ === 'verkstad' ? 'build' : 'location_on'}
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{r.pl.namn}</div>
+              <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>{PLATS_TYP_LABEL[r.pl.typ]}</div>
+            </div>
+            <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.t3 }}>chevron_right</span>
+          </button>
+        ))}
+      </div>
+      <button onClick={onNyPlats} style={{
+        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+        background: 'transparent', border: `1px dashed ${C.border}`, borderRadius: 12,
+        padding: '13px 14px', cursor: 'pointer', fontFamily: ff, color: C.t2, fontSize: 14,
+        fontWeight: 600, marginTop: 10,
+      }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t3 }}>add_location_alt</span>
+        Ny plats …
+      </button>
+    </>
+  )
+}
+
+// ── Liten kartruta: var maskinen står, innan föraren startar. Egen
+//    LM-ortofotoproxy — ingen extern kart-embed (CSP + licens). ──
+function KartRuta({ lat, lng }: { lat: number; lng: number }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<any>(null)
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return
+    let cancelled = false
+
+    if (!document.getElementById('maplibre-css-flytt')) {
+      const link = document.createElement('link')
+      link.id = 'maplibre-css-flytt'
+      link.rel = 'stylesheet'
+      link.href = 'https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.css'
+      document.head.appendChild(link)
+    }
+
+    import('maplibre-gl').then(mlbre => {
+      if (cancelled || !containerRef.current) return
+      const map = new mlbre.Map({
+        container: containerRef.current,
+        style: {
+          version: 8,
+          sources: {
+            sat: {
+              type: 'raster',
+              tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'],
+              tileSize: 256,
+              attribution: '© Lantmäteriet',
+            },
+          },
+          layers: [{ id: 'sat-layer', type: 'raster', source: 'sat' }],
+        },
+        center: [lng, lat],
+        zoom: 13,
+        interactive: false,
+        attributionControl: false,
+      })
+      mapRef.current = map
+      new mlbre.Marker({ color: '#ff9f0a' }).setLngLat([lng, lat]).addTo(map)
+    })
+    return () => {
+      cancelled = true
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
+    }
+  }, [lat, lng])
+
+  return (
+    <div ref={containerRef} style={{
+      height: 150, borderRadius: 14, overflow: 'hidden', marginBottom: 14,
+      border: `1px solid ${C.border}`, background: C.card,
+    }} />
   )
 }
 
