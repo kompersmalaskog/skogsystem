@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useRef, Fragment, Children } from 'react'
+import { useState, useEffect, useRef, Fragment, Children, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
 import { useMatchning } from './hooks/useMatchning'
@@ -148,6 +149,35 @@ function gruppVarningar(rader: any[], volym: { skordat: number; skotat: number }
 // Gruppens maskinmodeller för kortet: "Rottne + Wisent 2015"
 function gruppModeller(g: any, maskiner: Record<string, any>): string {
   return Array.from(new Set(g.rader.map((o: any) => maskiner[o.maskin_id]).filter(Boolean))).join(' + ')
+}
+
+// PÅGÅENDE: gruppen är inte färdig. Skördning ELLER skotning saknar
+// avslutsdatum. Undantag: när någon rad har egen/extern skotning kommer
+// skotningen aldrig att markeras av oss — då avgör skördningen ensam.
+// Exkluderade grupper är aldrig pågående.
+function arPagaende(g: any): boolean {
+  const rader = g.rader || []
+  if (rader.every((o: any) => o.exkludera === true)) return false
+  const skordningKlar = rader.some((o: any) => !!o.skordning_avslutad)
+  const skotningKlar = rader.some((o: any) => !!o.skotning_avslutad)
+  const annanSkotar = rader.some((o: any) => o.egen_skotning === true || harExternSkotning(o))
+  if (annanSkotar) return !skordningKlar
+  return !skordningKlar || !skotningKlar
+}
+
+// Senaste datadatum för gruppen — max "data t.o.m." över gruppens
+// maskinrader. SAMMA källa som Filer-undersidan (useFildata), inte
+// fakt_tid-aktiviteten i kortInfo, så kortets datum och undersidans
+// datum aldrig kan säga olika saker.
+function gruppSenasteData(g: any, fildata: any): string | null {
+  if (fildata?.status !== 'ok') return null
+  let max: string | null = null
+  ;(g.rader || []).forEach((o: any) => {
+    (fildata.perObjekt.get(o.objekt_id) || []).forEach((r: any) => {
+      if (r.senasteData && (!max || r.senasteData > max)) max = r.senasteData
+    })
+  })
+  return max
 }
 
 // Boolean-switchar vars VÄRDE läses tillbaka efter save. Radräkning bevisar
@@ -2384,11 +2414,14 @@ function hittaKandidater(jobb: any, objekt: any[]): any[] {
 // maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
 // eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
 // med två åtgärder: Namnge (öppnar sheeten) eller Ignorera (exkludera).
-function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, warnings, onOppna, onIgnorera, delay }: any) {
+function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, warnings, senasteData, onOppna, onIgnorera, delay }: any) {
   const namnlos = !obj.object_name
   const meta = []
   if (modell) meta.push(modell)
-  if (info?.senasteAktivitet) meta.push(`senast ${info.senasteAktivitet}`)
+  // Pågående-listan sorteras på datadatumet — visa det så sorteringen går
+  // att förstå. Ersätter fakt_tid-aktiviteten för att inte visa två datum.
+  if (senasteData) meta.push(`senaste data ${fmtKortDatum(senasteData)}`)
+  else if (info?.senasteAktivitet) meta.push(`senast ${info.senasteAktivitet}`)
   if (info?.skordatM3 > 0) meta.push(`${info.skordatM3.toLocaleString('sv-SE')} m³ skördat`)
   if (info?.skotatM3 > 0) meta.push(`${info.skotatM3.toLocaleString('sv-SE')} m³ skotat`)
   const knapp = {
@@ -2423,7 +2456,12 @@ function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, war
   )
 }
 
+// Suspense-gräns krävs för useSearchParams (samma mönster som /objekt)
 export default function ObjektRedigering() {
+  return <Suspense fallback={null}><ObjektRedigeringInner /></Suspense>
+}
+
+function ObjektRedigeringInner() {
   const [objekt, setObjekt] = useState<any[]>([])
   const [maskiner, setMaskiner] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
@@ -2437,6 +2475,20 @@ export default function ObjektRedigering() {
   const [saveError, setSaveError] = useState('')
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
   const [visaMatchning, setVisaMatchning] = useState(false)
+  // Valt listfilter, bokmärkbart via ?filter= (samma mönster som /objekt
+  // läser ?ar=&manad=). Okänt värde faller tillbaka på arbetslistan.
+  const sokParams = useSearchParams()
+  const filterFranUrl = sokParams.get('filter') === 'pagaende' ? 'pagaende' : 'att-atgarda'
+  const [listFilter, setListFilter] = useState<'att-atgarda' | 'pagaende'>(filterFranUrl)
+  const valjFilter = (v: 'att-atgarda' | 'pagaende') => {
+    setListFilter(v)
+    if (typeof window === 'undefined') return
+    const p = new URLSearchParams(window.location.search)
+    if (v === 'att-atgarda') p.delete('filter')
+    else p.set('filter', v)
+    const fraga = p.toString()
+    window.history.replaceState(null, '', window.location.pathname + (fraga ? `?${fraga}` : ''))
+  }
   // DEL 2: jobb med maskindata men utan objekt (hpr_filer-VO utan dim_objekt)
   const [hprFiler, setHprFiler] = useState<any[]>([])
   const [hprStatus, setHprStatus] = useState<'laddar' | 'fel' | 'ok'>('laddar')
@@ -2578,6 +2630,14 @@ export default function ObjektRedigering() {
     .filter(g => g.rep.object_name && gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep)).length > 0)
     .sort((a, b) => gruppSenaste(b).localeCompare(gruppSenaste(a)))
   const attAtgarda = [...namnlosa, ...ofullstandiga]
+
+  // PÅGÅENDE — det som körs just nu, färskast datadatum överst så det
+  // Martin jobbar med idag ligger först. Grupper utan data hamnar sist.
+  const pagaende = aktivaGrupper
+    .filter(arPagaende)
+    .sort((a, b) => (gruppSenasteData(b, fildata) || '').localeCompare(gruppSenasteData(a, fildata) || ''))
+
+  const synligaGrupper = listFilter === 'pagaende' ? pagaende : attAtgarda
 
   // Ignorera = exkludera HELA VO-gruppen (annars ligger syskonraden kvar i
   // listan). Ärlig sparning enligt #222-mönstret: räkna rader OCH läs
@@ -2785,19 +2845,31 @@ export default function ObjektRedigering() {
         </div>
       )}
 
-      <div style={styles.sectionHeader}>
-        <span style={styles.sectionTitel}>Att åtgärda</span>
-        <span style={styles.sectionCount}>{attAtgarda.length}</span>
+      {/* Listfilter — samma kortlista, två urval */}
+      <div style={styles.filterToggleBar as any}>
+        {[
+          { varde: 'att-atgarda' as const, etikett: 'Att åtgärda', antal: attAtgarda.length },
+          { varde: 'pagaende' as const, etikett: 'Pågående', antal: pagaende.length },
+        ].map(p => (
+          <button
+            key={p.varde}
+            onClick={() => valjFilter(p.varde)}
+            className="tap-press"
+            style={{ ...styles.filterToggleBtn, ...(listFilter === p.varde ? styles.filterToggleBtnActive : {}) }}
+          >
+            {p.etikett} <span style={{ marginLeft: 6, opacity: 0.7 }}>{p.antal}</span>
+          </button>
+        ))}
       </div>
 
-      {attAtgarda.length === 0 ? (
+      {synligaGrupper.length === 0 ? (
         <div style={styles.allaDone}>
           <div style={styles.allaDoneCheck}>✓</div>
-          <div>Inget att åtgärda</div>
+          <div>{listFilter === 'pagaende' ? 'Inget pågående just nu' : 'Inget att åtgärda'}</div>
         </div>
       ) : (
         <div style={styles.lista}>
-          {attAtgarda.map((g, i) => (
+          {synligaGrupper.map((g, i) => (
             <ArbetsKort
               key={g.nyckel}
               obj={g.rep}
@@ -2808,6 +2880,7 @@ export default function ObjektRedigering() {
               sanderEj={gruppSkotareSanderEj(g.rader, fildata)}
               volym={volymForGrupp(objekt, kortInfo, g.rep)}
               warnings={gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep))}
+              senasteData={listFilter === 'pagaende' ? gruppSenasteData(g, fildata) : null}
               delay={i * 60}
               onOppna={() => openObjekt(g.rep)}
               onIgnorera={() => ignoreraGrupp(g)}
@@ -3103,6 +3176,10 @@ const styles = {
   sectionHeader: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 },
   sectionTitel: { fontSize: 18, fontWeight: 600, flex: 1 },
   sectionCount: { fontSize: 14, fontWeight: 600, color: '#FF9F0A', background: 'rgba(255,159,10,0.15)', padding: '4px 12px', borderRadius: 12 },
+  // Listfilter-piller (Att åtgärda / Pågående)
+  filterToggleBar: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' },
+  filterToggleBtn: { minHeight: 40, padding: '0 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', transition: 'all 0.15s ease' },
+  filterToggleBtnActive: { background: 'rgba(173,198,255,0.12)', borderColor: 'rgba(173,198,255,0.35)', color: '#adc6ff' },
   subsectionLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.2px', marginTop: 20, marginBottom: 10 },
   validationWarning: { margin: '12px 16px 4px', padding: '10px 14px', borderRadius: 12, background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', color: 'rgba(255,200,120,0.95)', fontSize: 13, lineHeight: 1.4 },
   saveErrorToast: { position: 'fixed', bottom: 120, left: '50%', transform: 'translateX(-50%)', background: 'rgba(60,18,18,0.95)', color: 'rgba(255,160,160,0.98)', padding: '12px 18px', borderRadius: 12, fontSize: 14, fontWeight: 500, fontFamily: 'inherit', border: '1px solid rgba(255,69,58,0.35)', boxShadow: '0 8px 30px rgba(0,0,0,0.5)', zIndex: 250, animation: 'fadeIn 0.2s ease', maxWidth: '90%', textAlign: 'center' },
