@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Fragment, Children } from 'react'
 import { supabase } from '@/lib/supabase'
+import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
 import { useMatchning } from './hooks/useMatchning'
 import { useFildata, filStatus, slaIhopFildata, harExternSkotning } from './hooks/useFildata'
 import MatchningsVy from './MatchningsVy'
@@ -1637,6 +1638,42 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
   const [fardigskotat, setFardigskotat] = useState({ sparar: false, fel: '' })
   const radMaskinTyp = (obj.maskin_typ || '').toLowerCase()
 
+  // F1: RISJOBBETS KOPPLING — vilka avverkningsobjekt hämtas riset från?
+  // Fångas vid källan (här, där risskotning sätts) så avbockningen kan bli
+  // automatisk när jobbet markeras färdigt. Går att hoppa över (allt ris har
+  // inte känt ursprung, t.ex. "Ris över väg") och komplettera när som helst.
+  const arRisjobb = obj.risskotning === true
+  const [risKand, setRisKand] = useState<any[]>([])
+  const [valdaRis, setValdaRis] = useState<string[]>([])
+  const [risLage, setRisLage] = useState({ laddar: false, sparar: false, fel: '', sparat: false })
+
+  useEffect(() => {
+    if (!arRisjobb || !obj.objekt_id) return
+    let avbruten = false
+    ;(async () => {
+      setRisLage(l => ({ ...l, laddar: true, fel: '' }))
+      const [kand, kopp] = await Promise.all([hamtaRisKandidater(), hamtaKopplingar(obj.objekt_id)])
+      if (avbruten) return
+      if (!kand.ok || !kopp.ok) {
+        setRisLage({ laddar: false, sparar: false, fel: kand.message || kopp.message, sparat: false })
+        return
+      }
+      setRisKand(kand.rader)
+      setValdaRis(kopp.rader.map(r => r.avverknings_objekt_id))
+      setRisLage({ laddar: false, sparar: false, fel: '', sparat: false })
+    })()
+    return () => { avbruten = true }
+  }, [arRisjobb, obj.objekt_id])
+
+  const vaxlaRis = (id: string) =>
+    setValdaRis(v => v.includes(id) ? v.filter(x => x !== id) : [...v, id])
+
+  const sparaRisKoppling = async () => {
+    setRisLage(l => ({ ...l, sparar: true, fel: '', sparat: false }))
+    const r = await sparaKopplingar(obj.objekt_id, valdaRis)
+    setRisLage({ laddar: false, sparar: false, fel: r.ok ? '' : r.message, sparat: r.ok })
+  }
+
   // Proaktiv uppräkningsfråga: (skotning avslutad ELLER icke-filsändande
   // skotare) OCH (lass + manuell) < skördat. Skrivningen är samma verifierade
   // färdigskotat-knapp nedanför — frågan pekar bara på den.
@@ -1749,6 +1786,58 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
             <EgenskapSwitch key={e.key} label={e.label} active={obj[e.key] === true} onClick={() => set({ ...obj, [e.key]: !obj[e.key] })} orange={false} />
           ))}
         </div>
+        {arRisjobb && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ ...styles.subsectionLabel, marginTop: 0 }}>Ris hämtas från</div>
+            {risLage.laddar ? (
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', padding: '6px 0' }}>Läser objekt …</div>
+            ) : risLage.fel && risKand.length === 0 ? (
+              <div style={{ ...styles.validationWarning, margin: '4px 0 0' }}>{risLage.fel}</div>
+            ) : risKand.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', padding: '6px 0' }}>
+                Inga grot-anpassade objekt med ris kvar just nu.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 8, lineHeight: 1.45 }}>
+                  Markera de avverkningsobjekt riset kommer från. När jobbet markeras skotat bockas groten av på dem automatiskt. Kan hoppas över och fyllas i senare.
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
+                  {risKand.map((k: any) => {
+                    const vald = valdaRis.includes(k.objekt_id)
+                    const dagar = k.sista_datum ? Math.max(0, Math.round((Date.now() - new Date(k.sista_datum).getTime()) / 864e5)) : null
+                    return (
+                      <button
+                        key={k.objekt_id}
+                        onClick={() => vaxlaRis(k.objekt_id)}
+                        className="tap-press"
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 11px', borderRadius: 10, border: vald ? '1px solid rgba(240,178,76,0.55)' : '1px solid rgba(255,255,255,0.10)', background: vald ? 'rgba(240,178,76,0.10)' : 'transparent', color: '#fff', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}
+                      >
+                        <span style={{ width: 16, height: 16, borderRadius: 5, flexShrink: 0, border: vald ? 'none' : '1px solid rgba(255,255,255,0.3)', background: vald ? '#f0b24c' : 'transparent', color: '#000', fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{vald ? '✓' : ''}</span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
+                          <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.45)', fontVariantNumeric: 'tabular-nums' }}>
+                            {Math.round(k.volym_m3sub).toLocaleString('sv-SE')} m³ avverkat{dagar != null ? ` · legat ${dagar} dgr` : ''}
+                          </span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <button
+                  onClick={sparaRisKoppling}
+                  disabled={risLage.sparar}
+                  className="tap-press"
+                  style={{ width: '100%', minHeight: 44, marginTop: 10, borderRadius: 12, border: 'none', background: '#adc6ff', color: '#000', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', opacity: risLage.sparar ? 0.6 : 1 }}
+                >
+                  {risLage.sparar ? 'Sparar …' : `Spara koppling (${valdaRis.length} valda)`}
+                </button>
+                {risLage.fel && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{risLage.fel}</div>}
+                {risLage.sparat && <div style={{ fontSize: 12, color: '#a8d582', marginTop: 8 }}>Kopplingen sparad</div>}
+              </>
+            )}
+          </div>
+        )}
       </div>
       <div id="avslut-skotare-section" style={{ padding: '4px 16px 14px' }}>
         <div style={styles.switchList}>
@@ -2024,6 +2113,31 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
         if (skotarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skotarPatch }
         return uppdaterad
       }))
+      // F2: risjobbets färdigmarkering driver grot-avbockningen på de kopplade
+      // avverkningsobjekten. Körs EFTER lyckad save — färdigmarkeringen ska ha
+      // landat innan automatiken agerar på den. Misslyckas den stängs INTE
+      // sheeten: felet syns, för en halvkörd avbockning ska aldrig tigas ihjäl.
+      if (valtObjekt.risskotning === true) {
+        const fore = originalObjekt?.skotning_avslutad || null
+        const efter = valtObjekt.skotning_avslutad || null
+        let autoFel = ''
+        try {
+          if (!fore && efter) {
+            const r = await grotHamtadAutomatik(valtObjekt.objekt_id, efter)
+            if (!r.ok) autoFel = 'Sparat — men grot-avbockningen: ' + r.message
+          } else if (fore && !efter) {
+            const r = await angraGrotHamtadAutomatik(valtObjekt.objekt_id)
+            if (!r.ok) autoFel = 'Sparat — men ångrandet av grot-avbockningen: ' + r.message
+          }
+        } catch {
+          autoFel = 'Sparat — men grot-avbockningen kunde inte köras'
+        }
+        if (autoFel) {
+          setSaveError(autoFel)
+          setSaving(false)
+          return
+        }
+      }
       setSaved(true)
       setTimeout(() => { setSaved(false); onClose() }, 600)
     } else {
