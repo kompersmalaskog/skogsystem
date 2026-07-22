@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
+import { signeraKartfil } from '@/lib/kartfiler'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
 import PanelErrorBoundary from './panel-error-boundary'
@@ -2477,32 +2478,39 @@ export default function PlannerPage() {
         [b[0][1], b[0][0]], // bottom-left: [west_lng, south_lat]
       ];
 
-      if (map.getSource('vida-overlay')) {
-        try {
-          (map.getSource('vida-overlay') as any).updateImage({
-            url: valtObjekt.kartbild_url,
-            coordinates
-          });
-        } catch {}
-      } else {
-        try {
-          map.addSource('vida-overlay', {
-            type: 'image',
-            url: valtObjekt.kartbild_url,
-            coordinates
-          });
-          // Lägg vida-lagret ovanpå bakgrundskartan men under ritade features
-          const firstLineLayer = map.getStyle().layers?.find((l: any) => l.id.startsWith('zone-') || l.id.startsWith('line-'));
-          map.addLayer({
-            id: 'vida-layer',
-            type: 'raster',
-            source: 'vida-overlay',
-            paint: { 'raster-opacity': 0.8 }
-          }, firstLineLayer?.id);
-        } catch (e) { console.error('[MapLibre] VIDA layer error:', e); }
-      }
+      // Privat bucket — signera läs-URL:en innan MapLibre får den
+      let avbruten = false;
+      (async () => {
+        const signeradUrl = await signeraKartfil(valtObjekt.kartbild_url);
+        if (avbruten || !signeradUrl) return; // kunde inte signeras -> ingen overlay (loggat i helpern)
+        if (map.getSource('vida-overlay')) {
+          try {
+            (map.getSource('vida-overlay') as any).updateImage({
+              url: signeradUrl,
+              coordinates
+            });
+          } catch {}
+        } else {
+          try {
+            map.addSource('vida-overlay', {
+              type: 'image',
+              url: signeradUrl,
+              coordinates
+            });
+            // Lägg vida-lagret ovanpå bakgrundskartan men under ritade features
+            const firstLineLayer = map.getStyle().layers?.find((l: any) => l.id.startsWith('zone-') || l.id.startsWith('line-'));
+            map.addLayer({
+              id: 'vida-layer',
+              type: 'raster',
+              source: 'vida-overlay',
+              paint: { 'raster-opacity': 0.8 }
+            }, firstLineLayer?.id);
+          } catch (e) { console.error('[MapLibre] VIDA layer error:', e); }
+        }
+        if (map.getLayer('vida-layer')) map.setLayoutProperty('vida-layer', 'visibility', 'visible');
+      })();
 
-      if (map.getLayer('vida-layer')) map.setLayoutProperty('vida-layer', 'visibility', 'visible');
+      return () => { avbruten = true; };
     } else {
       if (map.getLayer('vida-layer')) map.setLayoutProperty('vida-layer', 'visibility', 'none');
     }
@@ -17141,8 +17149,13 @@ export default function PlannerPage() {
                 {(valtObjekt?.traktdirektiv_url || valtObjekt?.stamplingslangd_url) && (() => {
                   const docFarg = valtObjekt?.typ === 'slutavverkning' ? '#eab308' : '#22c55e';
                   const dokKnapp = (url: string, etikett: string) => (
-                    <a href={url} target="_blank" rel="noopener noreferrer"
-                      onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
+                    <a href="#" target="_blank" rel="noopener noreferrer"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        // Privat bucket — signera vid klick (TTL 1h)
+                        const signerad = await signeraKartfil(url);
+                        if (signerad) openExternal(signerad);
+                      }}
                       style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none',
                         fontSize: '13px', fontWeight: 600, background: `${docFarg}1a`, border: `1px solid ${docFarg}55`, color: docFarg }}>
                       {etikett}

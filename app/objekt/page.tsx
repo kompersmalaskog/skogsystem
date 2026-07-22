@@ -3,6 +3,7 @@
 import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { signeraKartfil } from '@/lib/kartfiler';
 import PageContainer from '@/components/PageContainer';
 import proj4 from 'proj4';
 import { TreePine, Trees } from 'lucide-react';
@@ -664,7 +665,13 @@ function ObjektPageInner() {
               const dokFarg = form.typ === 'slut' ? '#BA7515' : '#3f9457'; // dämpade typtoner (matchande dämpning)
               const ikonStil = { width: '14px', height: '14px', flexShrink: 0 } as React.CSSProperties;
               const pill = (url: string, etikett: string, ikon: React.ReactNode) => (
-                <a href={url} target="_blank" rel="noopener noreferrer"
+                <a href="#" target="_blank" rel="noopener noreferrer"
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    // Privat bucket — signera läs-URL vid klick (TTL 1h)
+                    const signerad = await signeraKartfil(url);
+                    if (signerad) window.open(signerad, '_blank', 'noopener,noreferrer');
+                  }}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '9px 12px', borderRadius: '9px',
                     textDecoration: 'none', fontSize: '13px', fontWeight: 500, lineHeight: 1,
                     background: `${dokFarg}18`, border: `1px solid ${dokFarg}40`, color: dokFarg }}>{ikon}{etikett}</a>

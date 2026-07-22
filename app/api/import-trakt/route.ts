@@ -1,12 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import JSZip from 'jszip';
 import proj4 from 'proj4';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Klient med ANVÄNDARENS session (cookies) — inte en naken anon-klient.
+// Uppladdningarna till kartbilder-bucketen går då genom storage-policyerna
+// (privat bucket, bara admin skriver) istället för anonymt.
+async function skapaInloggadKlient() {
+  const cookieStore = await cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll(); },
+        setAll() { /* svar från API-route sätter inga cookies */ },
+      },
+    }
+  );
+}
 
 // Läs JPEG-dimensioner från binärdata
 function getJpegDimensions(data: Uint8Array): { width: number; height: number } | null {
@@ -38,6 +51,23 @@ function sweref99ToWgs84(n: number, e: number): { lat: number; lng: number } {
 
 export async function POST(request: NextRequest) {
   try {
+    // Auth-gate: trakt-importen skriver markägardata (objekt + kartbilder-
+    // bucketen) — bara inloggad admin får köra den. Tidigare var routen
+    // helt öppen och skrev via anon-klient.
+    const supabase = await skapaInloggadKlient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.email) {
+      return NextResponse.json({ error: 'Inte inloggad' }, { status: 401 });
+    }
+    const { data: medarbetare } = await supabase
+      .from('medarbetare')
+      .select('roll')
+      .eq('epost', user.email)
+      .single();
+    if (medarbetare?.roll !== 'admin') {
+      return NextResponse.json({ error: 'Kräver admin' }, { status: 403 });
+    }
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const ar = parseInt(formData.get('ar') as string);
@@ -301,11 +331,10 @@ export async function POST(request: NextRequest) {
         if (uploadError) {
           console.error('Upload error details:', JSON.stringify(uploadError, null, 2));
         } else {
-          const { data: urlData } = supabase.storage
-            .from('kartbilder')
-            .getPublicUrl(storagePath);
-          kartbild_url = urlData.publicUrl;
-          console.log('Kartbild URL:', kartbild_url);
+          // Bucketen är PRIVAT — lagra PATH, aldrig URL. Läsning signerar
+          // via lib/kartfiler.ts (createSignedUrl).
+          kartbild_url = storagePath;
+          console.log('Kartbild path:', kartbild_url);
         }
 
         // Beräkna bounds om JGW finns och JPEG-dimensioner kan läsas
@@ -367,8 +396,8 @@ export async function POST(request: NextRequest) {
 
     // === DOKUMENT (PDF:er) — spara filerna i 'kartbilder'-bucketen (samma mönster som
     // kartbild_url). Tolka INTE innehållet; format varierar mellan leverantörer.
-    // MÅSTE-FIX FÖRE LAUNCH: bucketen är PUBLIK och PDF:erna innehåller markägares
-    // namn/telefon/e-post → byt till signerade URL:er (privat bucket + createSignedUrl).
+    // Bucketen är PRIVAT (PDF:erna bär markägares namn/telefon/e-post) —
+    // vi lagrar PATHS och läsning signerar via lib/kartfiler.ts.
     let traktdirektiv_url: string | null = null;
     let stamplingslangd_url: string | null = null;
     const laddaUppPdf = async (bytes: Uint8Array | null, suffix: string): Promise<string | null> => {
@@ -377,7 +406,7 @@ export async function POST(request: NextRequest) {
       const { error: pdfErr } = await supabase.storage.from('kartbilder')
         .upload(path, bytes, { contentType: 'application/pdf', upsert: true });
       if (pdfErr) { console.error(`PDF-uppladdning (${suffix}) misslyckades:`, pdfErr); return null; }
-      return supabase.storage.from('kartbilder').getPublicUrl(path).data.publicUrl;
+      return path;
     };
     traktdirektiv_url = await laddaUppPdf(pdfBytes, 'traktdirektiv');           // _TD.pdf
     stamplingslangd_url = await laddaUppPdf(stampPdfBytes, 'stamplingslangd');  // övrig pdf
