@@ -24,6 +24,14 @@ const LM_WMS = 'https://minkarta.lantmateriet.se/map/topowebb/wms/v1.3';
 const LM_LAYER = 'topowebbkartan_nedtonad';
 const MINKARTA_HOST = 'minkarta.lantmateriet.se';
 
+// FLYGFOTO — LM ortofoto 0,5 m, samma nyckellösa minkarta. Esri World Imagery är BORTTAGEN
+// (kommersiell användning kräver ArcGIS-licens). OBS: det finns INGEN öppna data-motsvarighet
+// för ortofoto att flippa till — verifierat: api.lantmateriet.se/open/ortofoto-* svarar 404
+// medan topowebb-ccby svarar. Sanktionerad väg för flygbild = beställa Ortofoto Visning
+// (betald Geotorget-produkt). Tills dess ligger flygfotot i samma minkarta-gråzon som basen.
+const LM_ORTO_WMS = 'https://minkarta.lantmateriet.se/map/ortofoto/wms/v1.3';
+const LM_ORTO_LAYER = 'Ortofoto_0.5';
+
 // B — öppna data-WMTS. Aktiveras när token finns i miljön (annars tom → A används).
 const OPEN_TOKEN = process.env.LM_OPEN_TOPO_TOKEN || '';
 const OPEN_LAYER = process.env.LM_OPEN_TOPO_LAYER || 'topowebb_nedtonad';
@@ -46,7 +54,13 @@ function tileBbox3857(z: number, x: number, y: number): string {
 }
 
 // Upstream-URL för en enskild ruta. Öppna data (WMTS) om token satt, annars minkarta (WMS).
-function tileUpstreamUrl(z: number, x: number, y: number): string {
+function tileUpstreamUrl(z: number, x: number, y: number, orto: boolean): string {
+  if (orto) {
+    // Flygfoto går alltid via minkarta — ingen öppen data-ortofoto finns att flippa till.
+    const b = tileBbox3857(z, x, y);
+    return `${LM_ORTO_WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${LM_ORTO_LAYER}` +
+      `&STYLES=&FORMAT=image/png&CRS=EPSG:3857&BBOX=${encodeURIComponent(b)}&WIDTH=256&HEIGHT=256`;
+  }
   if (OPEN_TOKEN) {
     // WMTS REST: .../{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol} = 3857/{z}/{y}/{x}.
     return `https://${OPEN_HOST}/open/topowebb-ccby/v1/wmts/token/${OPEN_TOKEN}/1.0.0/${OPEN_LAYER}/default/3857/${z}/${y}/${x}.png`;
@@ -110,14 +124,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (!/^\d+$/.test(z || '') || !/^\d+$/.test(x || '') || !/^\d+$/.test(y || '')) {
       return NextResponse.json({ error: 'bad z/x/y' }, { status: 400 });
     }
-    const cacheKey = `t:${OPEN_TOKEN ? 'o' : 'm'}:${z}/${x}/${y}`;
+    const orto = p.get('layer') === 'ortofoto';
+    const cacheKey = `t:${orto ? 'orto' : OPEN_TOKEN ? 'o' : 'm'}:${z}/${x}/${y}`;
     const cached = getCached(cacheKey);
     if (cached) {
       return new NextResponse(cached.body, {
         headers: { 'Content-Type': cached.ct, 'Cache-Control': 'public, max-age=1800', 'X-Cache': 'HIT' },
       });
     }
-    return serveUpstream(tileUpstreamUrl(Number(z), Number(x), Number(y)), cacheKey);
+    return serveUpstream(tileUpstreamUrl(Number(z), Number(x), Number(y), orto), cacheKey);
   }
 
   // === bbox-läge (översikt/förarkarta) — oförändrat, nyckellös minkarta-WMS ===

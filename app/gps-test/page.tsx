@@ -78,11 +78,12 @@ export default function GpsTestPage() {
         style: {
           version: 8,
           sources: {
+            // Flygfoto: LM ortofoto via egen proxy. Esri borttagen (kräver ArcGIS-licens).
             'sat': {
               type: 'raster',
-              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+              tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'],
               tileSize: 256,
-              attribution: 'Esri World Imagery',
+              attribution: '© Lantmäteriet',
             },
           },
           layers: [{ id: 'sat-layer', type: 'raster', source: 'sat' }],

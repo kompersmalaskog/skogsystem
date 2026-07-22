@@ -660,12 +660,15 @@ export default function PlannerPage() {
   const mapStyleConfig = useRef({
     version: 8 as const,
     sources: {
+      // FLYGFOTO — Lantmäteriets ortofoto 0,5 m via egen proxy. Esri World Imagery borttagen:
+      // kommersiell användning kräver ArcGIS-licens. (Intern id 'satellite' behållet — bara
+      // visningsnamnet är "Flygfoto", vilket är vad bilden faktiskt är.)
       satellite: {
         type: 'raster' as const,
-        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'],
         tileSize: 256,
         maxzoom: 18,
-        attribution: '&copy; Esri',
+        attribution: '&copy; Lantmäteriet',
       },
       osm: {
         type: 'raster' as const,
@@ -702,7 +705,7 @@ export default function PlannerPage() {
       // Ljusgrå bakgrund (#e8e8e8) syns när tiles inte hunnit laddas eller vid
       // utzoom bortom täckning. Tidigare #0a0a0a (svart) gav stor skarp kontrast
       // mot OpenTopoMap-tiles → "svarta hörn" vid zoom/laddning. Neutral grå
-      // smälter ihop bättre med både terrain (OpenTopoMap), satellit (Esri) och
+      // smälter ihop bättre med både Karta (Lantmäteriet), Topokarta (OpenTopoMap),
       // osm. Körvy 2D använder samma 'bg'-layer som fallback.
       { id: 'bg', type: 'background' as const, paint: { 'background-color': '#e8e8e8' } },
       { id: 'osm-layer', type: 'raster' as const, source: 'osm', layout: { visibility: 'none' as const } },
@@ -9327,7 +9330,7 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === KÖRVY: BASKARTE-VÄXLING (Tyst/Lantmäteriet ⇄ Terräng/OpenTopoMap) === */}
+      {/* === KÖRVY: BASKARTE-VÄXLING (Karta/Lantmäteriet ⇄ Topokarta/OpenTopoMap) === */}
       {korvyActive && (
         <div style={{
           position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', right: 12, zIndex: 260,
@@ -9345,7 +9348,7 @@ export default function PlannerPage() {
                 background: korvyBasKarta === mode ? '#0a84ff' : 'transparent',
                 color: korvyBasKarta === mode ? '#fff' : 'rgba(255,255,255,0.6)',
               }}>
-              {mode === 'lm' ? 'Tyst' : 'Terräng'}
+              {mode === 'lm' ? 'Karta' : 'Topokarta'}
             </button>
           ))}
         </div>
@@ -12588,9 +12591,9 @@ export default function PlannerPage() {
                 Bakgrundskarta
               </div>
               {[
-                { id: 'lantmateriet', name: 'Karta', desc: 'Lantmäteriet — tyst' },
-                { id: 'satellite', name: 'Satellit', desc: 'Flygfoto' },
-                { id: 'terrain', name: 'Terräng', desc: 'OpenTopoMap — höjdkurvor' },
+                { id: 'lantmateriet', name: 'Karta', desc: 'Lantmäteriet — dämpad' },
+                { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
+                { id: 'terrain', name: 'Topokarta', desc: 'OpenTopoMap' },
                 { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
               ].map(type => (
                 <div
@@ -12647,7 +12650,7 @@ export default function PlannerPage() {
               {[
                 { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
-                { id: 'contours', name: 'Höjdkurvor', desc: 'Terräng ovanpå karta/satellit', enabled: true },
+                { id: 'contours', name: 'Höjdkurvor', desc: 'OpenTopoMap-kurvor ovanpå', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
                 { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
                 { id: 'hydrografi', name: 'Diken & vattendrag', desc: 'Vattenytor och flödesackumulation (SKS)', enabled: true },
@@ -15069,7 +15072,7 @@ export default function PlannerPage() {
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '15px', color: '#fff' }}>Karttyp</div>
                       <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>
-                        {mapType === 'lantmateriet' ? 'Karta' : mapType === 'satellite' ? 'Satellit' : mapType === 'terrain' ? 'Terräng' : 'OpenStreetMap'}
+                        {mapType === 'lantmateriet' ? 'Karta' : mapType === 'satellite' ? 'Flygfoto' : mapType === 'terrain' ? 'Topokarta' : 'OpenStreetMap'}
                       </div>
                     </div>
                   </div>

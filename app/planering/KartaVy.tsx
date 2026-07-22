@@ -50,12 +50,13 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
         style: {
           version: 8,
           sources: {
+            // Flygfoto: LM ortofoto via egen proxy. Esri borttagen (kräver ArcGIS-licens).
             satellite: {
               type: 'raster',
-              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+              tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'],
               tileSize: 256,
               maxzoom: 18,
-              attribution: '&copy; Esri',
+              attribution: '&copy; Lantmäteriet',
             },
             'terrain-dem': {
               type: 'raster-dem',

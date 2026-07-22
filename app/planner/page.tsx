@@ -2341,7 +2341,8 @@ export default function PlannerPage() {
                 // Bakgrundskarta URL
                 let url: string;
                 if (mapType === 'satellite') {
-                  url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${tileY}/${tileX}`;
+                  // Flygfoto: LM ortofoto via egen proxy. Esri borttagen (kräver ArcGIS-licens).
+                  url = `/api/forarkarta?layer=ortofoto&z=${z}&x=${tileX}&y=${tileY}`;
                 } else if (mapType === 'terrain') {
                   url = `https://tile.opentopomap.org/${z}/${tileX}/${tileY}.png`;
                 } else {
@@ -4270,9 +4271,9 @@ export default function PlannerPage() {
                 Bakgrundskarta
               </div>
               {[
-                { id: 'osm', name: 'Karta', desc: 'OpenStreetMap' },
-                { id: 'satellite', name: 'Satellit', desc: 'Flygfoto' },
-                { id: 'terrain', name: 'Terräng', desc: 'Höjdkurvor & detaljer' },
+                { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
+                { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
+                { id: 'terrain', name: 'Topokarta', desc: 'OpenTopoMap' },
               ].map(type => (
                 <div
                   key={type.id}
@@ -6015,7 +6016,7 @@ export default function PlannerPage() {
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '15px', color: '#fff' }}>Karttyp</div>
                       <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>
-                        {mapType === 'osm' ? 'Karta' : mapType === 'satellite' ? 'Satellit' : 'Terräng'}
+                        {mapType === 'osm' ? 'OpenStreetMap' : mapType === 'satellite' ? 'Flygfoto' : 'Topokarta'}
                       </div>
                     </div>
                   </div>
