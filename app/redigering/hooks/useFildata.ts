@@ -59,9 +59,18 @@ export function slaIhopFildata(listor: (MaskinFiler[] | undefined)[]): MaskinFil
 
 export type FildataStatus = 'laddar' | 'fel' | 'ok';
 
+export type MaskinInfo = {
+  modell: string | null;
+  typ: 'skordare' | 'skotare' | null;
+  // dim_maskin.sander_filer — false = maskinen sänder aldrig filer (JD810E).
+  // Läses defensivt: saknas kolumnen behandlas maskinen som sändande.
+  sanderFiler: boolean;
+};
+
 export type Fildata = {
   status: FildataStatus;
   perObjekt: Map<string, MaskinFiler[]>;
+  maskinInfo: Map<string, MaskinInfo>;
 };
 
 // Förväntan per maskinslag utifrån objektets egenskaper + status för
@@ -83,19 +92,24 @@ export function harExternSkotning(obj: any): boolean {
   }
 }
 
-export function filStatus(obj: any, rader: MaskinFiler[] | undefined): {
+export function filStatus(obj: any, rader: MaskinFiler[] | undefined, opts?: { skotareSanderEjFiler?: boolean }): {
   skordare: MaskinslagStatus;
   skotare: MaskinslagStatus;
-  skotareEjOrsak: 'egen skotning' | 'extern skotare' | null;
+  skotareEjOrsak: 'egen skotning' | 'extern skotare' | 'sänder inte filer' | null;
   skordareEjOrsak: 'risskotning' | 'klippning' | null;
   ovantadSkotardata: boolean;
 } {
   const r = rader || [];
   const harSkordarfiler = r.some(x => x.typ === 'skordare');
   const harSkotarfiler = r.some(x => x.typ === 'skotare');
-  const skotareEjOrsak = obj?.egen_skotning === true ? 'egen skotning' as const
+  const egenExternOrsak = obj?.egen_skotning === true ? 'egen skotning' as const
     : harExternSkotning(obj) ? 'extern skotare' as const
     : null;
+  // Icke-filsändande skotarmaskin (dim_maskin.sander_filer=false på gruppens
+  // skotarrad) -> grå "förväntas ej", aldrig gul. Data som ändå dyker upp
+  // vinner alltid (maskinen kanske började sända).
+  const skotareEjOrsak = egenExternOrsak
+    || (opts?.skotareSanderEjFiler ? 'sänder inte filer' as const : null);
   const skordareEjOrsak = obj?.risskotning === true ? 'risskotning' as const
     : obj?.klippning === true ? 'klippning' as const
     : null;
@@ -104,7 +118,9 @@ export function filStatus(obj: any, rader: MaskinFiler[] | undefined): {
     skotare: harSkotarfiler ? 'data' : (skotareEjOrsak ? 'forvantas_ej' : 'saknas'),
     skotareEjOrsak,
     skordareEjOrsak,
-    ovantadSkotardata: harSkotarfiler && skotareEjOrsak !== null,
+    // Oväntad = data trots egen/extern skotning. Gäller INTE sander_filer-
+    // flaggan — där är ny data goda nyheter, ingen flagga.
+    ovantadSkotardata: harSkotarfiler && egenExternOrsak !== null,
   };
 }
 
@@ -136,6 +152,7 @@ async function hamtaAlla(tabell: string, kolumner: string): Promise<any[]> {
 export function useFildata(): Fildata {
   const [status, setStatus] = useState<FildataStatus>('laddar');
   const [perObjekt, setPerObjekt] = useState<Map<string, MaskinFiler[]>>(new Map());
+  const [maskinInfo, setMaskinInfo] = useState<Map<string, MaskinInfo>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -147,7 +164,7 @@ export function useFildata(): Fildata {
           hamtaAlla('fakt_produktion', KOL),
           hamtaAlla('fakt_lass', KOL),
           hamtaAlla('fakt_sortiment', KOL),
-          supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
+          supabase.from('dim_maskin').select('*'),
           hamtaAlla('meta_importerade_filer', 'filnamn, importerad_tid'),
           supabase.from('hpr_filer').select('objekt_nyckel, filnamn, fil_datum'),
           supabase.from('dim_objekt').select('objekt_id, vo_nummer'),
@@ -156,9 +173,13 @@ export function useFildata(): Fildata {
         if (hprRes.error) throw new Error('Kunde inte läsa hpr_filer: ' + hprRes.error.message);
         if (dimRes.error) throw new Error('Kunde inte läsa dim_objekt: ' + dimRes.error.message);
 
-        const maskinMap = new Map<string, { modell: string | null; typ: 'skordare' | 'skotare' | null }>();
+        const maskinMap = new Map<string, MaskinInfo>();
         (maskinRes.data || []).forEach((m: any) =>
-          maskinMap.set(m.maskin_id, { modell: m.modell || null, typ: typAvMaskin(m.maskin_typ) }));
+          maskinMap.set(m.maskin_id, {
+            modell: m.modell || null,
+            typ: typAvMaskin(m.maskin_typ),
+            sanderFiler: m.sander_filer !== false,
+          }));
 
         // Importtid per filnamn — nyckla på både metanamnet och det
         // suffix-strippade namnet (fakta refererar originalnamnet)
@@ -244,6 +265,7 @@ export function useFildata(): Fildata {
 
         if (cancelled) return;
         setPerObjekt(resultat);
+        setMaskinInfo(maskinMap);
         setStatus('ok');
       } catch {
         if (!cancelled) setStatus('fel');
@@ -252,5 +274,5 @@ export function useFildata(): Fildata {
     return () => { cancelled = true; };
   }, []);
 
-  return { status, perObjekt };
+  return { status, perObjekt, maskinInfo };
 }
