@@ -289,8 +289,11 @@ function getWarnings(obj, volym?: { skordat: number; skotat: number }) {
       && obj.egen_skotning !== true && !harExternSkotning(obj)) {
     w.push({ key: 'skotning_noll', text: 'Skotning klar men 0 m³ skotat', target: 'avslut-skotare-section' })
   }
-  if (!obj.huvudtyp) w.push({ key: 'huvudtyp', text: 'Saknar huvudtyp', target: 'huvudtyp-section' })
-  if (obj.huvudtyp && !obj.atgard) w.push({ key: 'atgard', text: 'Saknar åtgärd', target: 'atgard-section' })
+  // Risjobb: typen ÄR risskotning — huvudtyp/åtgärd efterfrågas aldrig.
+  if (!arRisjobb(obj)) {
+    if (!obj.huvudtyp) w.push({ key: 'huvudtyp', text: 'Saknar huvudtyp', target: 'huvudtyp-section' })
+    if (obj.huvudtyp && !obj.atgard) w.push({ key: 'atgard', text: 'Saknar åtgärd', target: 'atgard-section' })
+  }
   if (looksLikeAutoDate(obj.object_name)) w.push({ key: 'autoname', text: 'Autogenererat namn', target: 'object_name-section' })
   if (!obj.skogsagare) w.push({ key: 'skogsagare', text: 'Saknar markägare', target: 'skogsagare-section' })
   if (!obj.bolag) w.push({ key: 'bolag', text: 'Saknar bolag', target: 'bolag-section' })
@@ -331,6 +334,23 @@ const KRAV_FALT = [
   { key: 'atgard', label: 'Åtgärd', target: 'atgard-section' },
 ]
 
+// TYP-REGEL: risskotning = true ÄR jobbets typ. Typ-tagg och grot-filter
+// härleds ALLTID ur flaggan, aldrig ur huvudtyp.
+export function arRisjobb(obj: any): boolean {
+  return obj?.risskotning === true
+}
+
+// Risjobb har ingen huvudtyp — och därmed ingen åtgärd, eftersom åtgärds-
+// listan väljs UR huvudtypen (utan huvudtyp finns inget att välja bland).
+// Att kräva dem tvingade fram felmärkningar: alla 12 risjobb stod som
+// Slutavverkning/Gallring/tom. Krav som inte går att uppfylla är en fälla,
+// inte en kvalitetskontroll.
+function kravFaltFor(obj: any) {
+  return arRisjobb(obj)
+    ? KRAV_FALT.filter(f => f.key !== 'huvudtyp' && f.key !== 'atgard')
+    : KRAV_FALT
+}
+
 // "12 maj" ur "YYYY-MM-DD" — fasta namn, ingen locale-överraskning
 const MANADER_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
 function fmtKortDatum(ymd: any) {
@@ -340,11 +360,11 @@ function fmtKortDatum(ymd: any) {
 }
 
 // "2 av 4 klart — Bolag och åtgärd saknas" (första ordet versalt, resten gemena)
-function progressText(saknas: any[]) {
+function progressText(saknas: any[], total: number = KRAV_FALT.length) {
   if (saknas.length === 0) return 'Alla obligatoriska fält ifyllda'
   const namn = saknas.map((f: any, i: number) => i === 0 ? f.label : f.label.toLowerCase())
   const lista = namn.length === 1 ? namn[0] : `${namn.slice(0, -1).join(', ')} och ${namn[namn.length - 1]}`
-  return `${KRAV_FALT.length - saknas.length} av ${KRAV_FALT.length} klart — ${lista} saknas`
+  return `${total - saknas.length} av ${total} klart — ${lista} saknas`
 }
 
 // Smooth scroll + flash highlight i 0.6s
@@ -1865,7 +1885,8 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
   const [oppetFalt, setOppetFalt] = useState<any>(null)
   const [pendingHuvudtyp, setPendingHuvudtyp] = useState<any>(null)
 
-  const saknas = KRAV_FALT.filter(f => !obj[f.key])
+  const kravFalt = kravFaltFor(obj)
+  const saknas = kravFalt.filter(f => !obj[f.key])
   const warnings = getWarnings(obj)
   const avslutWarn = warnings.find(w => w.key === 'reported_end' || w.key === 'maybe_done')
   const radTyp = (obj.maskin_typ || '').toLowerCase()
@@ -1944,21 +1965,33 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
           scrollAndFlash(saknas[0].target)
         }}
       >
-        <MiniRing progress={(KRAV_FALT.length - saknas.length) / KRAV_FALT.length} />
-        <span style={styles.progressText}>{progressText(saknas)}</span>
+        <MiniRing progress={(kravFalt.length - saknas.length) / kravFalt.length} />
+        <span style={styles.progressText}>{progressText(saknas, kravFalt.length)}</span>
       </div>
 
       <IosGroup title="Måste fyllas i">
         <div id="huvudtyp-section">
-          <KravRad label="Huvudtyp" value={obj.huvudtyp} expanded={oppetFalt === 'huvudtyp'} onToggle={() => setOppetFalt(oppetFalt === 'huvudtyp' ? null : 'huvudtyp')}>
-            <div style={{ padding: '0 16px 16px' }}>
-              <div style={styles.chipGrid as any}>
-                {HUVUDTYPER.map(h => (
-                  <Chip key={h} label={h} selected={obj.huvudtyp === h} onClick={() => requestHuvudtyp(h)} editMode={false} onDelete={() => {}} />
-                ))}
-              </div>
+          {arRisjobb(obj) ? (
+            /* Typen ÄR risskotning — härledd, inte vald. Ingen väljare, inget
+               krav: att tvinga fram Slutavverkning/Gallring på ett risjobb ger
+               bara felmärkt data. */
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px' }}>
+              <span style={{ fontSize: 15, color: 'rgba(255,255,255,0.55)' }}>Typ</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: '#f0b24c' }}>
+                Grot (risskotning)
+              </span>
             </div>
-          </KravRad>
+          ) : (
+            <KravRad label="Huvudtyp" value={obj.huvudtyp} expanded={oppetFalt === 'huvudtyp'} onToggle={() => setOppetFalt(oppetFalt === 'huvudtyp' ? null : 'huvudtyp')}>
+              <div style={{ padding: '0 16px 16px' }}>
+                <div style={styles.chipGrid as any}>
+                  {HUVUDTYPER.map(h => (
+                    <Chip key={h} label={h} selected={obj.huvudtyp === h} onClick={() => requestHuvudtyp(h)} editMode={false} onDelete={() => {}} />
+                  ))}
+                </div>
+              </div>
+            </KravRad>
+          )}
         </div>
         <div id="bolag-section">
           <KravRad label="Bolag" value={obj.bolag} expanded={oppetFalt === 'bolag'} onToggle={() => setOppetFalt(oppetFalt === 'bolag' ? null : 'bolag')}>
