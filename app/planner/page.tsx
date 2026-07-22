@@ -75,7 +75,6 @@ export default function PlannerPage() {
   const [overlays, setOverlays] = useState({
     propertyLines: false,  // Fastighetsgränser
     moisture: false,       // Markfuktighet (kräver konto)
-    contours: false,       // Höjdkurvor
     wetlands: false,       // Sumpskog (öppet)
   });
   
@@ -2341,9 +2340,11 @@ export default function PlannerPage() {
                 // Bakgrundskarta URL
                 let url: string;
                 if (mapType === 'satellite') {
-                  url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${tileY}/${tileX}`;
+                  // Flygfoto: LM ortofoto via egen proxy. Esri borttagen (kräver ArcGIS-licens).
+                  url = `/api/forarkarta?layer=ortofoto&z=${z}&x=${tileX}&y=${tileY}`;
                 } else if (mapType === 'terrain') {
-                  url = `https://tile.opentopomap.org/${z}/${tileX}/${tileY}.png`;
+                  // Topokarta: LM full färg via egen proxy. OpenTopoMap borttagen (volontärdriven).
+                  url = `/api/forarkarta?layer=farg&z=${z}&x=${tileX}&y=${tileY}`;
                 } else {
                   url = `https://tile.openstreetmap.org/${z}/${tileX}/${tileY}.png`;
                 }
@@ -2367,28 +2368,6 @@ export default function PlannerPage() {
                   />
                 );
                 
-                // Overlay: Höjdkurvor (visas på satellit eller vanlig karta)
-                if (overlays.contours && mapType !== 'terrain') {
-                  tiles.push(
-                    <img
-                      key={`contour-${tileX}-${tileY}-${z}`}
-                      src={`https://tile.opentopomap.org/${z}/${tileX}/${tileY}.png`}
-                      alt=""
-                      style={{
-                        position: 'absolute',
-                        left: screenX,
-                        top: screenY,
-                        width: tileSize * zoom,
-                        height: tileSize * zoom,
-                        opacity: mapType === 'satellite' ? 0.5 : 0.3,
-                        mixBlendMode: mapType === 'satellite' ? 'normal' : 'multiply',
-                      }}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  );
-                }
               }
             }
             
@@ -4270,9 +4249,9 @@ export default function PlannerPage() {
                 Bakgrundskarta
               </div>
               {[
-                { id: 'osm', name: 'Karta', desc: 'OpenStreetMap' },
-                { id: 'satellite', name: 'Satellit', desc: 'Flygfoto' },
-                { id: 'terrain', name: 'Terräng', desc: 'Höjdkurvor & detaljer' },
+                { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
+                { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
+                { id: 'terrain', name: 'Topokarta', desc: 'Lantmäteriet — full färg' },
               ].map(type => (
                 <div
                   key={type.id}
@@ -4327,7 +4306,6 @@ export default function PlannerPage() {
               </div>
               {[
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
-                { id: 'contours', name: 'Höjdkurvor', desc: 'Terräng ovanpå karta/satellit', enabled: true },
                 { id: 'moisture', name: 'Markfuktighet', desc: 'Kräver Skogsstyrelsen-konto', enabled: false },
                 { id: 'propertyLines', name: 'Fastighetsgränser', desc: 'Kommer snart', enabled: false },
               ].map(overlay => (
@@ -6015,7 +5993,7 @@ export default function PlannerPage() {
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '15px', color: '#fff' }}>Karttyp</div>
                       <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>
-                        {mapType === 'osm' ? 'Karta' : mapType === 'satellite' ? 'Satellit' : 'Terräng'}
+                        {mapType === 'osm' ? 'OpenStreetMap' : mapType === 'satellite' ? 'Flygfoto' : 'Topokarta'}
                       </div>
                     </div>
                   </div>
