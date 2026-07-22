@@ -114,6 +114,41 @@ function volymForGrupp(allaObjekt: any[], kortInfo: Record<string, any>, obj: an
   return { skordat, skotat: lass + manuell }
 }
 
+// VO-GRUPPERING AV LISTORNA: ett fysiskt objekt (en VO-grupp) = ETT kort,
+// hur många maskinrader det än har. Sheeten har alltid arbetat per grupp
+// (syskonRader) — listorna visade däremot en rad per dim_objekt-rad, så
+// ihopslagna objekt (samma VO, t.ex. P-1015 Björkebråten) såg dubbla ut.
+// Representanten (kortets ansikte) = raden med mest ifyllt; rader utan VO
+// blir egna en-radsgrupper (samma fallback som syskonRader).
+function grupperaPerVo(rader: any[]): { nyckel: string; rep: any; rader: any[] }[] {
+  const grupper = new Map<string, any[]>()
+  rader.forEach((o: any) => {
+    const vo = o.vo_nummer && String(o.vo_nummer).trim() ? String(o.vo_nummer) : null
+    const nyckel = vo || `__rad__${o.objekt_id}`
+    const lista = grupper.get(nyckel) || []
+    lista.push(o)
+    grupper.set(nyckel, lista)
+  })
+  const poang = (o: any) => ['huvudtyp', 'bolag', 'skogsagare', 'atgard'].filter(f => o[f]).length + (o.object_name ? 10 : 0)
+  return Array.from(grupper.entries()).map(([nyckel, lista]) => {
+    const rep = lista.reduce((basta: any, o: any) => poang(o) > poang(basta) ? o : basta, lista[0])
+    return { nyckel, rep, rader: lista }
+  })
+}
+
+// Union av varningar över gruppens rader (dedupe per varningstyp) — en
+// varning på NÅGON rad gör gruppen åtgärdskrävande
+function gruppVarningar(rader: any[], volym: { skordat: number; skotat: number }): any[] {
+  const per = new Map<string, any>()
+  rader.forEach((o: any) => getWarnings(o, volym).forEach((w: any) => { if (!per.has(w.key)) per.set(w.key, w) }))
+  return Array.from(per.values())
+}
+
+// Gruppens maskinmodeller för kortet: "Rottne + Wisent 2015"
+function gruppModeller(g: any, maskiner: Record<string, any>): string {
+  return Array.from(new Set(g.rader.map((o: any) => maskiner[o.maskin_id]).filter(Boolean))).join(' + ')
+}
+
 // Boolean-switchar vars VÄRDE läses tillbaka efter save. Radräkning bevisar
 // att en rad rördes — inte att switchen faktiskt landade i den. En stale
 // klient som utelämnar fältet, ett RLS-partiellt skriv eller en felroutad
@@ -878,14 +913,14 @@ function ConfirmDialog({
 }
 
 // Subtila text-badges på listkort med vad som saknas (max 3, +N fler)
-function KortBadges({ obj, volym }: any) {
-  const warnings = getWarnings(obj, volym)
+function KortBadges({ obj, volym, warnings: fardiga }: any) {
+  const warnings = fardiga ?? getWarnings(obj, volym)
   if (warnings.length === 0) return null
   const visible = warnings.slice(0, 3)
   const more = warnings.length - visible.length
   return (
     <div style={styles.kortBadges}>
-      {visible.map((w, i) => (
+      {visible.map((w: any, i: number) => (
         <span key={w.key} style={styles.kortBadge}>
           {i > 0 && <span style={{ color: 'rgba(255,255,255,0.2)', marginRight: 6 }}>·</span>}
           {w.text}
@@ -2180,7 +2215,7 @@ function hittaKandidater(jobb: any, objekt: any[]): any[] {
 // maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
 // eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
 // med två åtgärder: Namnge (öppnar sheeten) eller Ignorera (exkludera).
-function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, onOppna, onIgnorera, delay }: any) {
+function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, warnings, onOppna, onIgnorera, delay }: any) {
   const namnlos = !obj.object_name
   const meta = []
   if (modell) meta.push(modell)
@@ -2207,7 +2242,7 @@ function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, onO
           <div style={styles.kortPil}>›</div>
         </div>
         {meta.length > 0 && <div style={styles.kortInfo}>{meta.join(' · ')}</div>}
-        <KortBadges obj={obj} volym={volym} />
+        <KortBadges obj={obj} volym={volym} warnings={warnings} />
         {namnlos && (
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
             <button onClick={onOppna} className="tap-press" style={{ ...knapp, border: 'none', background: '#adc6ff', color: '#000' }}>Namnge</button>
@@ -2346,38 +2381,52 @@ export default function ObjektRedigering() {
       })
   }, [])
 
-  const exkluderade = objekt.filter(o => o.exkludera === true)
-  const aktiva = objekt.filter(o => o.exkludera !== true)
+  // Listorna arbetar per VO-GRUPP — ett fysiskt objekt = ett kort
+  const allaGrupper = grupperaPerVo(objekt)
+  const aktivaGrupper = allaGrupper.filter(g => g.rader.some((o: any) => o.exkludera !== true))
+  const exkluderadeGrupper = allaGrupper.filter(g => g.rader.every((o: any) => o.exkludera === true))
+
+  const gruppSenaste = (g: any) => g.rader.reduce((max: string, o: any) => {
+    const d = kortInfo[o.objekt_id]?.senasteAktivitet || ''
+    return d > max ? d : max
+  }, '')
+  const gruppKortInfo = (g: any) => ({
+    senasteAktivitet: gruppSenaste(g) || null,
+    skordatM3: g.rader.reduce((s: number, o: any) => s + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0),
+    skotatM3: g.rader.reduce((s: number, o: any) => s + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0),
+  })
 
   // Berikningsinfo per objekt_id (från useMatchning — kan saknas medan den laddar)
   const kortInfo: Record<string, any> = {}
   ;[...matchning.omatchadeMaskin, ...matchning.matchade.map(p => p.maskin)]
     .forEach(k => { kortInfo[k.objektId] = k })
 
-  // ARBETSLISTAN — det som behöver en människa. Namnlösa först (importen
-  // hittar inte på namn längre), sedan ofullständiga efter senaste aktivitet.
-  // Listans längd ÄR statusen — ingen procentring.
-  const namnlosa = aktiva.filter(o => !o.object_name)
-  const ofullstandiga = aktiva
-    .filter(o => o.object_name && getWarnings(o, volymForGrupp(objekt, kortInfo, o)).length > 0)
-    .sort((a, b) => (kortInfo[b.objekt_id]?.senasteAktivitet || '').localeCompare(kortInfo[a.objekt_id]?.senasteAktivitet || ''))
+  // ARBETSLISTAN — det som behöver en människa, per VO-grupp. Namnlösa
+  // först (importen hittar inte på namn längre), sedan grupper där NÅGON
+  // rad har varningar, efter senaste aktivitet. Listans längd ÄR statusen.
+  const namnlosa = aktivaGrupper.filter(g => !g.rep.object_name)
+  const ofullstandiga = aktivaGrupper
+    .filter(g => g.rep.object_name && gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep)).length > 0)
+    .sort((a, b) => gruppSenaste(b).localeCompare(gruppSenaste(a)))
   const attAtgarda = [...namnlosa, ...ofullstandiga]
 
-  // Ignorera = exkludera (central regel gäller alla vyer). Ärlig sparning:
-  // 0 träffade rader får aldrig se ut som succé.
-  async function ignoreraObjekt(obj: any) {
+  // Ignorera = exkludera HELA VO-gruppen (annars ligger syskonraden kvar i
+  // listan). Ärlig sparning enligt #222-mönstret: räkna rader OCH läs
+  // tillbaka värdet.
+  async function ignoreraGrupp(g: any) {
     setSaveError('')
+    const ids = g.rader.map((o: any) => o.objekt_id)
     const { data, error: err } = await supabase
       .from('dim_objekt')
       .update({ exkludera: true })
-      .eq('objekt_id', obj.objekt_id)
-      .select('objekt_id')
-    if (err || !data || data.length === 0) {
-      setSaveError('Kunde inte ignorera — inget sparades')
+      .in('objekt_id', ids)
+      .select('objekt_id, exkludera')
+    if (err || !data || data.length !== ids.length || (data as any[]).some(r => r.exkludera !== true)) {
+      setSaveError('Kunde inte ignorera — inget eller bara delvis sparat')
       setTimeout(() => setSaveError(''), 6000)
       return
     }
-    setObjekt(objekt.map(o => o.objekt_id === obj.objekt_id ? { ...o, exkludera: true } : o))
+    setObjekt(objekt.map(o => ids.includes(o.objekt_id) ? { ...o, exkludera: true } : o))
   }
 
   // Okopplade jobb räknas mot AKTUELL objektlista — när ett objekt skapas
@@ -2579,19 +2628,20 @@ export default function ObjektRedigering() {
         </div>
       ) : (
         <div style={styles.lista}>
-          {attAtgarda.map((obj, i) => (
+          {attAtgarda.map((g, i) => (
             <ArbetsKort
-              key={obj.objekt_id}
-              obj={obj}
-              info={kortInfo[obj.objekt_id]}
-              modell={maskiner[obj.maskin_id]}
+              key={g.nyckel}
+              obj={g.rep}
+              info={gruppKortInfo(g)}
+              modell={gruppModeller(g, maskiner)}
               fildata={fildata}
-              filRader={filRaderGrupp(obj)}
-              sanderEj={gruppSkotareSanderEj(syskonRader(objekt, obj), fildata)}
-              volym={volymForGrupp(objekt, kortInfo, obj)}
+              filRader={filRaderGrupp(g.rep)}
+              sanderEj={gruppSkotareSanderEj(g.rader, fildata)}
+              volym={volymForGrupp(objekt, kortInfo, g.rep)}
+              warnings={gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep))}
               delay={i * 60}
-              onOppna={() => openObjekt(obj)}
-              onIgnorera={() => ignoreraObjekt(obj)}
+              onOppna={() => openObjekt(g.rep)}
+              onIgnorera={() => ignoreraGrupp(g)}
             />
           ))}
         </div>
@@ -2634,29 +2684,29 @@ export default function ObjektRedigering() {
           className="tap-press"
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', minHeight: 52, background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'rgba(255,255,255,0.65)', fontSize: 14, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' }}
         >
-          Alla objekt <span style={{ opacity: 0.6 }}>({aktiva.length})</span> ›
+          Alla objekt <span style={{ opacity: 0.6 }}>({aktivaGrupper.length})</span> ›
         </button>
       </div>
 
-      {exkluderade.length > 0 && (
+      {exkluderadeGrupper.length > 0 && (
         <>
           <div style={{...styles.sectionHeader, marginTop: 40}}>
             <span style={{...styles.sectionTitel, color: 'rgba(255,255,255,0.4)'}}>Exkluderade</span>
-            <span style={{...styles.sectionCount, background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)'}}>{exkluderade.length}</span>
+            <span style={{...styles.sectionCount, background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)'}}>{exkluderadeGrupper.length}</span>
           </div>
           <div style={styles.lista}>
-            {exkluderade.map((obj, i) => (
-              <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => openObjekt(obj)}>
+            {exkluderadeGrupper.map((g, i) => (
+              <AnimatedCard key={g.nyckel} delay={i * 60} onClick={() => openObjekt(g.rep)}>
                 <div style={{...styles.kortInner, opacity: 0.5}}>
                   <div style={styles.kortTop}>
                     <div style={{flex: 1}}>
-                      <div style={styles.kortNamn}>{obj.object_name || 'Namnlöst objekt'}</div>
-                      <div style={styles.kortVo}>{obj.vo_nummer}</div>
+                      <div style={styles.kortNamn}>{g.rep.object_name || 'Namnlöst objekt'}</div>
+                      <div style={styles.kortVo}>{g.rep.vo_nummer}</div>
                     </div>
                     <div style={styles.kortPil}>›</div>
                   </div>
                   <div style={styles.kortInfo}>
-                    {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]}</span>}
+                    {gruppModeller(g, maskiner) && <span>{gruppModeller(g, maskiner)}</span>}
                   </div>
                 </div>
               </AnimatedCard>
@@ -2716,28 +2766,29 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
 
   const openObjekt = (obj: any) => setRedigerObj(obj)
 
-  // "Alla objekt" ska betyda alla AKTIVA — tidigare visades bara kompletta,
-  // och exkluderade slank med (isKomplett hoppar över exkluderade i getSaknas)
+  // "Alla objekt" = alla AKTIVA, grupperade per VO — ett fysiskt objekt är
+  // ETT kort även när det består av flera maskinrader. Sök/filter träffar
+  // om NÅGON rad i gruppen matchar.
   const allaAktiva = objekt.filter(o => o.exkludera !== true)
   const unikaBolag = [...new Set(allaAktiva.map(o => o.bolag).filter(Boolean))].sort()
   const unikaInkopare = [...new Set(allaAktiva.map(o => o.inkopare).filter(Boolean))].sort()
 
-  let filtered = allaAktiva
+  let filtered = grupperaPerVo(objekt).filter(g => g.rader.some((o: any) => o.exkludera !== true))
 
   if (search.trim()) {
     const s = search.toLowerCase()
-    filtered = filtered.filter(o => 
-      o.object_name?.toLowerCase().includes(s) || 
-      o.vo_nummer?.toLowerCase().includes(s) || 
+    filtered = filtered.filter(g => g.rader.some((o: any) =>
+      o.object_name?.toLowerCase().includes(s) ||
+      o.vo_nummer?.toLowerCase().includes(s) ||
       o.skogsagare?.toLowerCase().includes(s) ||
       o.bolag?.toLowerCase().includes(s) ||
       o.inkopare?.toLowerCase().includes(s)
-    )
+    ))
   }
 
-  if (filterBolag) filtered = filtered.filter(o => o.bolag === filterBolag)
-  if (filterHuvudtyp) filtered = filtered.filter(o => o.huvudtyp === filterHuvudtyp)
-  if (filterInkopare) filtered = filtered.filter(o => o.inkopare === filterInkopare)
+  if (filterBolag) filtered = filtered.filter(g => g.rader.some((o: any) => o.bolag === filterBolag))
+  if (filterHuvudtyp) filtered = filtered.filter(g => g.rader.some((o: any) => o.huvudtyp === filterHuvudtyp))
+  if (filterInkopare) filtered = filtered.filter(g => g.rader.some((o: any) => o.inkopare === filterInkopare))
 
   const hasActiveFilters = filterBolag || filterHuvudtyp || filterInkopare || search.trim()
 
@@ -2831,23 +2882,23 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
       )}
 
       <div style={styles.lista}>
-        {filtered.map((obj, i) => (
-          <AnimatedCard key={obj.objekt_id} delay={i * 40} onClick={() => openObjekt(obj)}>
+        {filtered.map((g, i) => (
+          <AnimatedCard key={g.nyckel} delay={i * 40} onClick={() => openObjekt(g.rep)}>
             <div style={styles.kortInner}>
               <div style={styles.kortTop}>
                 <div style={{flex: 1}}>
-                  <div style={obj.object_name ? styles.kortNamn : { ...styles.kortNamn, color: '#FF9F0A' }}>{obj.object_name || 'Namnlöst objekt'}</div>
-                  <div style={styles.kortVo}>{obj.vo_nummer}</div>
+                  <div style={g.rep.object_name ? styles.kortNamn : { ...styles.kortNamn, color: '#FF9F0A' }}>{g.rep.object_name || 'Namnlöst objekt'}</div>
+                  <div style={styles.kortVo}>{g.rep.vo_nummer}</div>
                 </div>
-                {fildata?.status === 'ok' && <MaskinPrickar obj={obj} rader={slaIhopFildata(syskonRader(objekt, obj).map((o: any) => fildata.perObjekt.get(o.objekt_id)))} sanderEj={gruppSkotareSanderEj(syskonRader(objekt, obj), fildata)} />}
+                {fildata?.status === 'ok' && <MaskinPrickar obj={g.rep} rader={slaIhopFildata(g.rader.map((o: any) => fildata.perObjekt.get(o.objekt_id)))} sanderEj={gruppSkotareSanderEj(g.rader, fildata)} />}
                 <div style={styles.kortPil}>›</div>
               </div>
               <div style={styles.kortInfo}>
-                {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]} · </span>}
-                {obj.huvudtyp} · {obj.bolag} · {obj.atgard}
+                {gruppModeller(g, maskiner) && <span>{gruppModeller(g, maskiner)} · </span>}
+                {g.rep.huvudtyp} · {g.rep.bolag} · {g.rep.atgard}
               </div>
-              <KortBadges obj={obj} volym={volymForGrupp(objekt, kortInfo, obj)} />
-              <div style={styles.kortMeta}>{obj.skogsagare}</div>
+              <KortBadges obj={g.rep} warnings={gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep))} />
+              <div style={styles.kortMeta}>{g.rep.skogsagare}</div>
             </div>
           </AnimatedCard>
         ))}
