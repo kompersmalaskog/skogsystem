@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
-import { type ObjektTyp } from '@/lib/objekt/typ';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
+import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 
@@ -35,6 +37,7 @@ export interface DieselDag {
 
 export interface UppfoljningData {
   objektNamn: string;
+  objektId?: string | null;
   // Våning 2 — beräknas i useObjektUppfoljning (kräver 90-dagarsreferensen)
   avvikelser?: AvvikelseRad[];
   senastUppdaterad?: string;
@@ -184,8 +187,9 @@ function avbrottSv(raw: string): string {
 
 // ── Headline (meta + H1) ──────────────────────────────────────────────────
 function Headline({ data }: { data: UppfoljningData }) {
-  const typLabel = data.typ === 'slutavverkning' ? 'Slutavverkning' : data.typ === 'gallring' ? 'Gallring' : '';
-  const parts = [typLabel, data.areal ? `${data.areal} ha` : null, data.agare || null].filter(Boolean);
+  // Typen kommer ur den delade regeln — 'Grot' för risjobb, aldrig gissad.
+  const label = data.typ ? typLabel(data.typ) : '';
+  const parts = [label, data.areal ? `${data.areal} ha` : null, data.agare || null].filter(Boolean);
   return (
     <section style={{ padding: '22px 24px 12px' }}>
       {parts.length > 0 && (
@@ -279,6 +283,82 @@ function MaskinCell({
         )}
       </div>
     </div>
+  );
+}
+
+// ── Risjobbets rubrikvolym: RAPPORTERAD grotvolym (blå badge) ──────────────
+// Ett risjobb skördar aldrig — dess volym är skotarens lassmätning i m³fub,
+// förarens bedömning, inte skördarmätt virke. Aldrig grön Mätt, aldrig "0 m³".
+function RisRubrik({ data }: { data: UppfoljningData }) {
+  const vol = Math.round(data.skotat);
+  const harVol = vol > 0;
+  return (
+    <section style={{ padding: '0 24px 20px' }}>
+      <div style={{ background: V6_CARD, borderRadius: 16, padding: '16px 18px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST }} />
+          <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Ris hämtat</span>
+        </div>
+        {harVol ? (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.8px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{vol.toLocaleString('sv-SE')}</span>
+            <span style={{ fontSize: 14, color: V6_GREY, fontWeight: 500 }}>m³fub</span>
+            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#8ab4f8', border: '1px solid rgba(138,180,248,0.35)', borderRadius: 5, padding: '1px 5px' }}>rapporterat</span>
+          </div>
+        ) : (
+          <div style={{ fontSize: 15, color: V6_GREY, fontWeight: 600 }}>Inga lass registrerade än</div>
+        )}
+        {(data.skotareModell || data.operatorSkotare) && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY }}>
+            {[data.skotareModell, data.operatorSkotare].filter(Boolean).join(' · ')}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// Källhyggen: avverkningsobjekten riset kommer från (grot_koppling). Namn +
+// länk till respektive detaljvy. Tomt/laddar/fel hålls isär (ärliga tillstånd).
+function Kallhyggen({ objektId }: { objektId?: string | null }) {
+  const router = useRouter();
+  const [lage, setLage] = useState<{ status: 'laddar' | 'ok' | 'fel'; hyggen: Kallhygge[]; fel: string }>({ status: 'laddar', hyggen: [], fel: '' });
+
+  useEffect(() => {
+    if (!objektId) { setLage({ status: 'ok', hyggen: [], fel: '' }); return; }
+    let avbruten = false;
+    (async () => {
+      const r = await hamtaKallhyggen(objektId);
+      if (avbruten) return;
+      setLage(r.ok ? { status: 'ok', hyggen: r.hyggen, fel: '' } : { status: 'fel', hyggen: [], fel: r.message });
+    })();
+    return () => { avbruten = true; };
+  }, [objektId]);
+
+  return (
+    <section style={{ padding: '0 24px 20px' }}>
+      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: '0 0 8px 2px' }}>Ris hämtas från</div>
+      {lage.status === 'laddar' ? (
+        <div style={{ fontSize: 13, color: V6_GREY, padding: '4px 2px' }}>Läser källhyggen …</div>
+      ) : lage.status === 'fel' ? (
+        <div style={{ fontSize: 13, color: V6_WARN, padding: '4px 2px' }}>Kunde inte läsa källhyggena</div>
+      ) : lage.hyggen.length === 0 ? (
+        <div style={{ fontSize: 13, color: V6_GREY2, padding: '4px 2px' }}>Inga källhyggen kopplade — kopplas i redigeringen.</div>
+      ) : (
+        <div style={{ background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
+          {lage.hyggen.map((h, i) => (
+            <button key={h.objekt_id} onClick={() => router.push(`/uppfoljning/${encodeURIComponent(h.urlId)}`)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 48, padding: '11px 16px', background: 'transparent', border: 'none', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.namn}</span>
+              {h.auto_avbockad && <span style={{ fontSize: 10, color: V6_DONE, fontWeight: 600 }}>grot avbockat</span>}
+              <svg width="7" height="12" viewBox="0 0 8 14" fill="none" stroke={V6_GREY2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <polyline points="1 1 7 7 1 13" />
+              </svg>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -783,6 +863,7 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   const hasProdPerDag = (data.prodSkordarePerDag?.length || 0) > 0 || (data.lassPerDag?.some(d => typeof d.m3 === 'number' && d.m3 > 0));
   const hasTradslagSort = data.tradslag.length > 0 || data.sortiment.length > 0;
   const hasTidDiesel = data.skordareG15h > 0 || data.skotareG15h > 0 || data.dieselTotalt > 0;
+  const risjobb = arRisjobb(data);
 
   // ── Rubriktal — samma tal som sektionerna visar, inget nytt beräknas.
   // ÄRLIGHET: en maskin utan data får inget påhittat värde — den utelämnas.
@@ -845,12 +926,22 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
       <Headline data={data} />
       <StatusRad data={data} />
       <AvvikelseZon avvikelser={data.avvikelser} />
-      <Maskinkort data={data} />
+      {/* Ett objekts vy speglar vad objektet ÄR. Risjobb: rapporterad
+          grotvolym + källhyggen, inga virkessektioner. Virkesjobb: som förut,
+          inga grot-fält. arRisjobb gate:ar. */}
+      {risjobb ? (
+        <>
+          <RisRubrik data={data} />
+          <Kallhyggen objektId={data.objektId} />
+        </>
+      ) : (
+        <Maskinkort data={data} />
+      )}
 
       <div style={{ marginTop: 8 }}>
-        {hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={data} /></Collapse>}
-        {hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={data} /></Collapse>}
-        {hasTradslagSort && (
+        {!risjobb && hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={data} /></Collapse>}
+        {!risjobb && hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={data} /></Collapse>}
+        {!risjobb && hasTradslagSort && (
           <Collapse title="Trädslag & sortiment" varde={tradslagVarde}>
             <Tradslag tradslag={data.tradslag} />
             <Sortiment sortiment={data.sortiment} />
