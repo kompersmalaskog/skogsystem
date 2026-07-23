@@ -1441,7 +1441,13 @@ export default function PlannerPage() {
     vagbredd: 4, // Vägbredd i meter
   });
   const [stickvagWarningShown, setStickvagWarningShown] = useState(false); // Har vi varnat för detta utanför-tillfälle
-  const previousStickvagRef = useRef<any>(null); // Senaste stickvägen att mäta mot
+  // MÄTREFERENS — mot vilken stickväg avståndet mäts. matVagId = förarens LÅSTA val (chip-lås
+  // eller kart-tryck), null = AUTO. autoRefId = vad auto valt just nu (underhålls av effekt med
+  // hysteres). refByte = kort larm när auto byter referens. Ersätter previousStickvagRef som
+  // blandade ihop "vägen jag ritade" och "vägen jag mäter mot".
+  const [matVagId, setMatVagId] = useState<string | null>(null);
+  const [autoRefId, setAutoRefId] = useState<string | null>(null);
+  const [refByte, setRefByte] = useState<{ namn: string } | null>(null);
   // Snitsel-läge: false = AVSTÅNDSLÄGET (mörk, i princip tom skärm — bara avståndet, det han
   // behöver när han går och tittar på marken). true = KARTLÄGET (ett tryck bort, för överblick
   // + symbolsättning). Inspelningen fortsätter i BÅDA. Default avståndsläget.
@@ -4159,9 +4165,14 @@ export default function PlannerPage() {
       if (e.features && e.features.length > 0) {
         const featureId = e.features[0].properties.id;
         const marker = markers.find(m => String(m.id) === String(featureId));
-        if (marker) {
-          setMarkerMenuOpen(marker.id === markerMenuOpen ? null : marker.id);
+        if (!marker) return;
+        // Snitsel-KARTLÄGET: tryck på en stickväg = mät mot DEN (lås). Otvetydigt val när det är trångt.
+        // Tryck igen på samma → tillbaka till auto.
+        if (stickvagMode && snitselKarta && marker.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(marker.lineType || '')) {
+          setMatVagId(prev => prev === String(marker.id) ? null : String(marker.id));
+          return;
         }
+        setMarkerMenuOpen(marker.id === markerMenuOpen ? null : marker.id);
       }
     };
 
@@ -4196,7 +4207,7 @@ export default function PlannerPage() {
       map.off('mouseenter', 'zone-fill', onEnter);
       map.off('mouseleave', 'zone-fill', onLeave);
     };
-  }, [mapLibreReady, isDrawMode, isZoneMode, markers, markerMenuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapLibreReady, isDrawMode, isZoneMode, markers, markerMenuOpen, stickvagMode, snitselKarta]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Centrera på GPS-position
   const centerOnMe = () => {
@@ -7332,46 +7343,66 @@ export default function PlannerPage() {
     return { distance: minDist * scale, closestPoint }; // Konvertera pixlar till meter
   };
   
-  // Hitta närmaste stickväg (ignorerar backvägar och traktgräns)
-  const findNearestStickvag = (pos = gpsMapPosition) => {
-    if (!pos || pos.x === undefined || pos.y === undefined) return null;
-    
-    const stickvägar = markers.filter(m => 
-      m.isLine && 
-      (['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')) &&
-      m.path && m.path.length > 1
-    );
-    
-    if (stickvägar.length === 0) return null;
-    
-    let nearestRoad = null;
-    let minDistance = Infinity;
-    
-    stickvägar.forEach(road => {
-      const result = getDistanceToPath(pos, road.path!);
-      if (result.distance < minDistance) {
-        minDistance = result.distance;
-        nearestRoad = road;
-      }
-    });
-    
-    return nearestRoad;
-  };
-  
-  // Hämta aktuellt avstånd till närmaste stickväg
-  const getStickvagDistance = (pos = gpsMapPosition): number | null => {
-    // Hitta närmaste stickväg dynamiskt
-    const nearest = findNearestStickvag(pos);
-    if (!nearest?.path) return null;
-    
-    // Uppdatera referensen om den ändrats
-    if (nearest.id !== previousStickvagRef.current?.id) {
-      previousStickvagRef.current = nearest;
+  // Alla snitslade stickvägar (backvägar/traktgräns exkluderade).
+  const stickvagLinjer = (): Marker[] => markers.filter(m =>
+    m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '') && m.path && m.path.length > 1);
+
+  const narmasteStickvag = (pos: any, linjer: Marker[]): { road: Marker; dist: number } | null => {
+    if (!pos || pos.x === undefined || pos.y === undefined || linjer.length === 0) return null;
+    let road: Marker | null = null, min = Infinity;
+    for (const l of linjer) {
+      const d = getDistanceToPath(pos, l.path!).distance;
+      if (d < min) { min = d; road = l; }
     }
-    
-    const result = getDistanceToPath(pos, nearest.path);
-    return Math.round(result.distance);
+    return road ? { road, dist: min } : null;
   };
+
+  // Vägen avståndet mäts mot JUST NU: låst → den; annars auto-referensen; annars närmaste (fallback).
+  const getMatVag = (pos = gpsMapPosition): Marker | null => {
+    const linjer = stickvagLinjer();
+    if (matVagId != null) { const l = linjer.find(m => String(m.id) === matVagId); if (l) return l; }
+    if (autoRefId != null) { const l = linjer.find(m => String(m.id) === autoRefId); if (l) return l; }
+    return narmasteStickvag(pos, linjer)?.road || null;
+  };
+
+  // Färgen är förarens språk.
+  const stickvagFargNamn = (lt?: string) => lt === 'sideRoadRed' ? 'röd' : lt === 'sideRoadYellow' ? 'gul' : lt === 'sideRoadBlue' ? 'blå' : 'väg';
+  const stickvagFargHex = (lt?: string) => lineTypes.find(t => t.id === lt)?.color || '#fff';
+
+  // Avstånd till den AKTIVA mätvägen (inte längre blint närmaste).
+  const getStickvagDistance = (pos = gpsMapPosition): number | null => {
+    const vag = getMatVag(pos);
+    if (!vag?.path || !pos) return null;
+    return Math.round(getDistanceToPath(pos, vag.path).distance);
+  };
+
+  // AUTO-referensens hysteres + ärligt byte-larm. Byter BARA när en annan väg är TYDLIGT närmare
+  // (annars hoppar siffran mellan lika nära vägar), och det SYNS när den byter — aldrig tyst.
+  useEffect(() => {
+    if (!stickvagMode || matVagId != null) return; // låst → ingen auto
+    const pos = gpsMapPosition as any;
+    if (!pos) return;
+    const linjer = stickvagLinjer();
+    if (linjer.length === 0) { if (autoRefId != null) setAutoRefId(null); return; }
+    const nara = narmasteStickvag(pos, linjer);
+    if (!nara) return;
+    const nuvarande = autoRefId != null ? linjer.find(m => String(m.id) === autoRefId) : null;
+    if (!nuvarande) { setAutoRefId(String(nara.road.id)); return; } // första/borttagen → tyst
+    if (String(nuvarande.id) === String(nara.road.id)) return;
+    const nuDist = getDistanceToPath(pos, nuvarande.path!).distance;
+    const MARGIN = 5; // m — hysteres mot jitter mellan lika nära vägar
+    if (nara.dist < nuDist - MARGIN) {
+      setAutoRefId(String(nara.road.id));
+      setRefByte({ namn: stickvagFargNamn(nara.road.lineType) });
+    }
+  }, [gpsMapPosition, markers, stickvagMode, matVagId, autoRefId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Byte-larmet försvinner själv.
+  useEffect(() => {
+    if (!refByte) return;
+    const t = setTimeout(() => setRefByte(null), 2600);
+    return () => clearTimeout(t);
+  }, [refByte]);
   
   // Spela varningsljud
   const playStickvagWarning = (tooClose: boolean) => {
@@ -7432,20 +7463,11 @@ export default function PlannerPage() {
     // Kolla om det är en stickväg och om det finns tidigare stickvägar
     const isStickväg = ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(lineType);
     if (isStickväg) {
-      // Hitta alla stickvägar (inte backvägar)
-      const previousStickvägar = markers.filter(m => 
-        m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType)
-      );
-      
       // Aktivera ALLTID stickvagMode för stickvägar
       setStickvagMode(true);
       setStickvagOversikt(false);
       setStickvagWarningShown(false);
-      
-      // Sätt referens till föregående väg om det finns
-      if (!previousStickvagRef.current && previousStickvägar.length > 0) {
-        previousStickvagRef.current = previousStickvägar[previousStickvägar.length - 1];
-      }
+      // Mätreferensen väljs av auto-effekten (närmaste) eller förarens lås — ingen seed här.
     }
     
     // Om GPS redan är igång, använd den
@@ -7638,7 +7660,8 @@ export default function PlannerPage() {
     // Stäng av stickvägsmode och översikt
     setStickvagMode(false);
     setStickvagOversikt(false);
-    previousStickvagRef.current = null;
+    setMatVagId(null);
+    setAutoRefId(null);
 
     // OBS: Vi stänger INTE av isTracking eller watchIdRef - GPS fortsätter visa position
   };
@@ -7660,8 +7683,7 @@ export default function PlannerPage() {
       const lineType = lineTypes.find(t => t.id === currentLineType);
       setSavedVagColor(lineType?.color || '#fff');
 
-      // Sätt den sparade linjen som referens för nästa spårning
-      previousStickvagRef.current = newLine;
+      // (Auto-referensen tar närmaste när nästa väg startas — ingen manuell seed.)
     }
 
     // Slutför GPS-spår i Supabase och förbered för nästa
@@ -7716,6 +7738,8 @@ export default function PlannerPage() {
     startGpsTracking(lineId);
     setStickvagMode(true);
     setSnitselKarta(false);
+    setMatVagId(null);
+    setAutoRefId(null);
     setVisaFargval(false);
     setSparadToast(false);
     setMenuOpen(false);
@@ -7734,7 +7758,7 @@ export default function PlannerPage() {
     setSparadToast(false);
     startGpsTracking(colorMap[colorId] || 'sideRoadRed');
     setStickvagMode(true);
-    // previousStickvagRef är redan satt från saveAndShowPopup
+    // Auto-referensen tar närmaste när nästa väg börjar spelas in.
   };
   
   const toggleGpsPause = () => {
@@ -10460,21 +10484,30 @@ export default function PlannerPage() {
           
           {/* Linjer/zoner klickas nu via MapLibre layers (line-hitbox, zone-fill) */}
 
-          {/* Förra stickvägen (visas under snitslande) */}
-          {stickvagMode && previousStickvagRef.current?.path && (
-            <path
-              d={previousStickvagRef.current.path.map((p, i) => {
-                const s = svgToScreen(p.x, p.y);
-                return s ? `${i === 0 ? 'M' : 'L'} ${s.x} ${s.y}` : '';
-              }).join(' ')}
-              fill="none"
-              stroke={lineTypes.find(t => t.id === previousStickvagRef.current.lineType)?.color || '#ff453a'}
-              strokeWidth={6}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity={0.7}
-            />
-          )}
+          {/* AKTIVA MÄTVÄGEN — otvetydigt markerad: bred halo + vit kappa + färgkärna + streckad
+              mätlinje till förarens position. Omöjlig att förväxla med de andra vägarna. */}
+          {stickvagMode && (() => {
+            const vag = getMatVag();
+            if (!vag?.path) return null;
+            const d = vag.path.map((p, i) => {
+              const s = svgToScreen(p.x, p.y);
+              return s ? `${i === 0 ? 'M' : 'L'} ${s.x} ${s.y}` : '';
+            }).join(' ');
+            const col = stickvagFargHex(vag.lineType);
+            const posS = gpsMapPosition ? svgToScreen(gpsMapPosition.x, gpsMapPosition.y) : null;
+            const cp = gpsMapPosition ? getDistanceToPath(gpsMapPosition, vag.path).closestPoint : null;
+            const cpS = cp ? svgToScreen(cp.x, cp.y) : null;
+            return (
+              <g>
+                <path d={d} fill="none" stroke={col} strokeWidth={20} strokeLinecap="round" strokeLinejoin="round" opacity={0.22} />
+                <path d={d} fill="none" stroke="#fff" strokeWidth={11} strokeLinecap="round" strokeLinejoin="round" opacity={0.95} />
+                <path d={d} fill="none" stroke={col} strokeWidth={6} strokeLinecap="round" strokeLinejoin="round" />
+                {posS && cpS && (
+                  <line x1={posS.x} y1={posS.y} x2={cpS.x} y2={cpS.y} stroke="#fff" strokeWidth={2} strokeDasharray="5,5" opacity={0.85} />
+                )}
+              </g>
+            );
+          })()}
 
           {/* Körspår (completed — blå linjer) */}
           {korspårTracks.map((track, ti) => {
@@ -15052,6 +15085,30 @@ export default function PlannerPage() {
           </div>
         );
 
+        // MÄTREFERENS-CHIP — visar MOT VILKEN väg (färg = förarens språk) och låser/auto på ETT tryck.
+        // Låst ser TYDLIGT annorlunda ut än auto (färgad ram + tint + lås), inte bara ett litet hänglås.
+        const matVag = getMatVag();
+        const last = matVagId != null;
+        const matFarg = matVag ? stickvagFargHex(matVag.lineType) : '#fff';
+        const matNamn = matVag ? stickvagFargNamn(matVag.lineType) : '';
+        const chip = matVag ? (
+          <button type="button" className="btn-press"
+            onClick={() => setMatVagId(last ? null : String(matVag.id))}
+            aria-label={last ? `Lås upp — mäter mot ${matNamn}` : `Lås mätning mot ${matNamn}`}
+            style={{
+              pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: last ? '8px 15px' : '6px 12px', borderRadius: 22, cursor: 'pointer', fontFamily: 'inherit',
+              border: last ? `2px solid ${matFarg}` : '1px solid rgba(255,255,255,0.16)',
+              background: last ? `${matFarg}26` : 'rgba(255,255,255,0.06)',
+              animation: refByte && !last ? 'pulse 0.5s ease-in-out 3' : 'none',
+            }}>
+            <span style={{ width: last ? 15 : 12, height: last ? 15 : 12, borderRadius: 8, background: matFarg, flexShrink: 0, boxShadow: last ? '0 0 0 2px rgba(255,255,255,0.35)' : 'none' }} />
+            <span style={{ fontSize: last ? 15 : 13, fontWeight: last ? 700 : 500, color: last ? '#fff' : 'rgba(255,255,255,0.72)', whiteSpace: 'nowrap' }}>
+              {last ? `🔒 mäter mot ${matNamn}` : `närmaste · ${matNamn}`}
+            </span>
+          </button>
+        ) : null;
+
         return (
           <>
             {/* Opak mörk botten — BARA avståndsläget. Täcker karta + räknare + centrera + plus,
@@ -15108,6 +15165,10 @@ export default function PlannerPage() {
                   <span style={{ fontSize: '28px', fontWeight: 400, color: 'rgba(255,255,255,0.4)', marginLeft: 6 }}>m</span>
                 </div>
                 <div style={{ fontSize: 16, color: 'rgba(255,255,255,0.65)', marginTop: 8 }}>mål {target} m · ±{tol}</div>
+                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center' }}>{chip}</div>
+                {refByte && !last && (
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ORANGE, marginTop: 6 }}>↷ referens bytt · mäter mot {refByte.namn}</div>
+                )}
                 <div style={{ height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
                   <span style={{ fontSize: 20, fontWeight: 700, color: !har ? 'rgba(255,255,255,0.45)' : inom ? GRON : ORANGE, whiteSpace: 'nowrap' }}>{riktning}</span>
                 </div>
@@ -15139,6 +15200,7 @@ export default function PlannerPage() {
                     <div style={{ fontSize: 16, fontWeight: 700, color: !har ? 'rgba(255,255,255,0.45)' : inom ? GRON : ORANGE, whiteSpace: 'nowrap' }}>{riktning}</div>
                   </div>
                 </div>
+                <div style={{ marginTop: 10, display: 'flex', justifyContent: 'center' }}>{chip}</div>
                 <div style={{ marginTop: 10 }}>{matare(7)}</div>
                 <div style={{ marginTop: 8, fontSize: 11.5, fontWeight: 500, color: osaker ? ORANGE : 'rgba(255,255,255,0.4)' }}>
                   {gpsAccuracy == null ? 'söker GPS…' : osaker ? `osäker position · ±${Math.round(gpsAccuracy)} m` : `GPS ±${Math.round(gpsAccuracy)} m`}
@@ -15267,9 +15329,10 @@ export default function PlannerPage() {
               setVisaFargval(false);
               setSparadToast(false);
               setSnitselKarta(false);
+              setMatVagId(null);
+              setAutoRefId(null);
               setStickvagMode(false);
               setStickvagOversikt(false);
-              previousStickvagRef.current = null;
               setMenuOpen(true);
               setMenuHeight(window.innerHeight * 0.7);
             }}
