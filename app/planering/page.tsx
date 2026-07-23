@@ -1442,6 +1442,10 @@ export default function PlannerPage() {
   });
   const [stickvagWarningShown, setStickvagWarningShown] = useState(false); // Har vi varnat för detta utanför-tillfälle
   const previousStickvagRef = useRef<any>(null); // Senaste stickvägen att mäta mot
+  // Snitsel-läge: false = AVSTÅNDSLÄGET (mörk, i princip tom skärm — bara avståndet, det han
+  // behöver när han går och tittar på marken). true = KARTLÄGET (ett tryck bort, för överblick
+  // + symbolsättning). Inspelningen fortsätter i BÅDA. Default avståndsläget.
+  const [snitselKarta, setSnitselKarta] = useState(false);
   // Efter sparad väg: kort bekräftelse högst upp + färgrutor i botten. INGEN helskärm —
   // den stal blicken mitt i arbetet och sa inget föraren inte redan visste.
   const [sparadToast, setSparadToast] = useState(false);
@@ -7711,6 +7715,7 @@ export default function PlannerPage() {
     setLastUsedColorId(colorId);
     startGpsTracking(lineId);
     setStickvagMode(true);
+    setSnitselKarta(false);
     setVisaFargval(false);
     setSparadToast(false);
     setMenuOpen(false);
@@ -15008,180 +15013,202 @@ export default function PlannerPage() {
 
 
       {/* === GALLRING OVERLAY === */}
-      {stickvagMode && !stickvagOversikt && !menuOpen && !isZoneMode && !isDrawMode && (
-        <>
-          {/* Kort bekräftelse — försvinner själv, kräver ingen kvittering */}
-          {sparadToast && (
-            <div style={{
-              position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 74px)', left: '50%',
-              transform: 'translateX(-50%)', zIndex: 610, pointerEvents: 'none',
-              background: 'rgba(28,28,30,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-              border: '1px solid rgba(48,209,88,0.45)', borderRadius: 14, padding: '10px 18px',
-              fontSize: 14, fontWeight: 600, color: '#30d158', whiteSpace: 'nowrap',
-            }}>
-              Väg {markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} sparad
-            </div>
-          )}
+      {stickvagMode && !stickvagOversikt && !menuOpen && !isZoneMode && !isDrawMode && !showAvslutaBekraftelse && (() => {
+        // Avstånds-metrik beräknas EN gång, renderas i två lägen (mörk fullskärm / kompakt glas).
+        const target = stickvagSettings?.targetDistance || 25;
+        const tol = stickvagSettings?.tolerance || 3;
+        const dist = getStickvagDistance();
+        const har = dist !== null;
+        const inom = har && Math.abs(dist - target) <= tol;
+        const osaker = gpsAccuracy != null && gpsAccuracy > 15;
+        const GRON = '#30d158', ORANGE = '#FF9F0A';
+        // Aldrig rött: att inte vara framme än är inget fel.
+        const farg = !har ? 'rgba(255,255,255,0.85)' : inom ? GRON : ORANGE;
 
-          {/* AVSTÅND + MÅL + RIKTNING + MÄTARE.
-              Fasta höjder så inget hoppar när föraren tittar upp en sekund. */}
-          <div style={{
-            position: 'fixed', top: '25%', left: '50%', transform: 'translateX(-50%)',
-            zIndex: 600, pointerEvents: 'none', textAlign: 'center', width: 'min(300px, 86vw)',
-          }}>
-            {(() => {
-              const target = stickvagSettings?.targetDistance || 25;
-              const tol = stickvagSettings?.tolerance || 3;
-              const dist = getStickvagDistance();
-              const har = dist !== null;
-              const inom = har && Math.abs(dist - target) <= tol;
-              const osaker = gpsAccuracy != null && gpsAccuracy > 15;
-              const GRON = '#30d158', ORANGE = '#FF9F0A';
-              // Aldrig rött: att inte vara framme än är inte ett fel.
-              const farg = !har ? 'rgba(255,255,255,0.8)' : inom ? GRON : ORANGE;
+        // Mätarfönster: mål ±15 m. Smalt nog att pricken rör sig tydligt i det spann föraren
+        // faktiskt håller sig i. Utanför → pricken nålas vid kanten.
+        const SPAN = 15;
+        const lo = target - SPAN, hi = target + SPAN;
+        const pct = (v: number) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
+        const utanforSkala = har && (dist! < lo || dist! > hi);
+        const bandL = pct(target - tol), bandR = pct(target + tol);
+        const riktning = !har ? 'första vägen'
+          : inom ? 'inom mål'
+          : dist! < target ? `→ ${target - dist!} m ut`
+          : `← ${dist! - target} m in`;
+        const vagNr = markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length;
 
-              // Mätarfönster: mål ±15 m. Smalt nog att pricken rör sig tydligt i det spann
-              // föraren faktiskt håller sig i. Utanför → pricken nålas vid kanten.
-              const SPAN = 15;
-              const lo = target - SPAN, hi = target + SPAN;
-              const pct = (v: number) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
-              const utanforSkala = har && (dist < lo || dist > hi);
-              const bandL = pct(target - tol), bandR = pct(target + tol);
-
-              const riktning = !har ? 'första vägen'
-                : inom ? 'inom mål'
-                : dist < target ? `→ ${target - dist} m ut`
-                : `← ${dist - target} m in`;
-
-              return (
-                <>
-                  <div style={{
-                    fontSize: '76px', fontWeight: 500, color: farg, lineHeight: 1,
-                    textShadow: '0 4px 30px rgba(0,0,0,0.9)', fontVariantNumeric: 'tabular-nums',
-                  }}>
-                    {har ? dist : '—'}
-                  </div>
-
-                  {/* Målet syns ALLTID — han ska aldrig behöva hålla det i huvudet */}
-                  <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.7)', marginTop: '4px', textShadow: '0 2px 12px rgba(0,0,0,0.9)' }}>
-                    mål {target} m · ±{tol}
-                  </div>
-
-                  {/* VAD HAN SKA GÖRA, inte bara var han är. Fast höjd. */}
-                  <div style={{ height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '6px' }}>
-                    <span style={{
-                      fontSize: '18px', fontWeight: 700,
-                      color: !har ? 'rgba(255,255,255,0.45)' : inom ? GRON : ORANGE,
-                      textShadow: '0 2px 12px rgba(0,0,0,0.9)', whiteSpace: 'nowrap',
-                    }}>{riktning}</span>
-                  </div>
-
-                  {/* MÄTAREN — läsbar på en blick utan att läsa siffran */}
-                  <div style={{
-                    position: 'relative', height: '10px', borderRadius: '5px',
-                    background: 'rgba(255,255,255,0.18)', marginTop: '10px',
-                    boxShadow: '0 2px 12px rgba(0,0,0,0.6)',
-                  }}>
-                    <div style={{
-                      position: 'absolute', top: 0, bottom: 0, left: bandL + '%', width: (bandR - bandL) + '%',
-                      background: 'rgba(48,209,88,0.6)', borderRadius: '5px',
-                    }} />
-                    {har && (
-                      <div style={{
-                        position: 'absolute', top: '50%', left: pct(dist) + '%',
-                        transform: 'translate(-50%,-50%)', width: '16px', height: '16px', borderRadius: '8px',
-                        background: inom ? GRON : ORANGE, border: '2.5px solid #fff',
-                        boxShadow: '0 1px 6px rgba(0,0,0,0.8)',
-                      }} />
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px', fontSize: '11px', color: 'rgba(255,255,255,0.45)', textShadow: '0 2px 8px rgba(0,0,0,0.9)' }}>
-                    <span>för nära</span>
-                    {utanforSkala && <span style={{ color: ORANGE, fontWeight: 700 }}>utanför skalan</span>}
-                    <span>för långt</span>
-                  </div>
-
-                  {/* GPS-noggrannhet — ärligt. Positioner sämre än 15 m används inte för
-                      linjen, och då fryser siffran. Det ska SYNAS, inte gissas. */}
-                  <div style={{
-                    marginTop: '10px', fontSize: '12px', fontWeight: 500,
-                    color: osaker ? ORANGE : 'rgba(255,255,255,0.5)',
-                    textShadow: '0 2px 12px rgba(0,0,0,0.9)',
-                  }}>
-                    {gpsAccuracy == null ? 'söker GPS…'
-                      : osaker ? `osäker position · ±${Math.round(gpsAccuracy)} m`
-                      : `GPS ±${Math.round(gpsAccuracy)} m`}
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-
-          {/* Pausad-indikator */}
-          {gpsPaused && !visaFargval && (
-            <div style={{
-              position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 74px)', left: '50%',
-              transform: 'translateX(-50%)', zIndex: 600,
-              background: 'rgba(245,158,11,0.2)', color: '#f59e0b',
-              padding: '8px 20px', borderRadius: '16px', fontSize: '13px', fontWeight: '500',
-            }}>
-              PAUSAD
-            </div>
-          )}
-
-          {/* BOTTEN: Paus + Spara — eller, efter sparad väg, Avsluta + tre färger.
-              Plus-knappen är BORTTAGEN: den satt mellan Paus och Spara och öppnade
-              symbolmenyn mitt i gången när man träffade fel med handskar. */}
-          <div style={{
-            position: 'fixed', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 44px)',
-            left: 0, right: 0, zIndex: 600,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            gap: visaFargval ? '14px' : '72px', padding: '0 24px',
-          }}>
-            {visaFargval ? (
-              <>
-                <button type="button" onClick={() => { setVisaFargval(false); setShowAvslutaBekraftelse(true); }}
-                  style={{
-                    padding: '0 16px', height: '64px', borderRadius: '18px', border: '1px solid rgba(255,255,255,0.18)',
-                    background: 'rgba(28,28,30,0.9)', color: 'rgba(255,255,255,0.75)',
-                    fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
-                  }}>Avsluta</button>
-                {vagColors.map(f => (
-                  <button key={f.id} type="button" className="btn-press"
-                    onClick={() => continueWithColor(f.id)}
-                    aria-label={`Nästa väg: ${f.name}`}
-                    style={{
-                      width: '64px', height: '64px', borderRadius: '18px', cursor: 'pointer',
-                      background: f.color, flexShrink: 0,
-                      border: lastUsedColorId === f.id ? '3px solid rgba(255,255,255,0.55)' : '3px solid transparent',
-                    }} />
-                ))}
-              </>
-            ) : (
-              <>
-                <button type="button" className="btn-press"
-                  onClick={() => { const n = !gpsPaused; setGpsPaused(n); gpsPausedRef.current = n; }}
-                  aria-label={gpsPaused ? 'Fortsätt' : 'Pausa'}
-                  style={{
-                    width: '64px', height: '64px', borderRadius: '32px', border: 'none',
-                    background: gpsPaused ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.15)',
-                    color: gpsPaused ? '#f59e0b' : '#fff', fontSize: '18px', cursor: 'pointer', fontFamily: 'inherit',
-                  }}>{gpsPaused ? '▶' : '❚❚'}</button>
-
-                <button type="button" className="btn-press"
-                  onClick={() => saveAndShowPopup()}
-                  aria-label="Spara vägen"
-                  style={{
-                    width: '76px', height: '76px', borderRadius: '38px', border: 'none',
-                    background: '#30d158', color: '#fff', fontSize: '30px', cursor: 'pointer', fontFamily: 'inherit',
-                  }}>✓</button>
-              </>
+        // Mätaren som återanvänds i båda lägena (h = bandhöjd i px).
+        const matare = (h: number) => (
+          <div style={{ position: 'relative', height: h, borderRadius: h / 2, background: 'rgba(255,255,255,0.18)' }}>
+            <div style={{ position: 'absolute', top: 0, bottom: 0, left: bandL + '%', width: (bandR - bandL) + '%', background: 'rgba(48,209,88,0.55)', borderRadius: h / 2 }} />
+            {har && (
+              <div style={{
+                position: 'absolute', top: '50%', left: pct(dist!) + '%', transform: 'translate(-50%,-50%)',
+                width: h + 6, height: h + 6, borderRadius: (h + 6) / 2, background: inom ? GRON : ORANGE,
+                border: '2.5px solid #fff', boxShadow: '0 1px 6px rgba(0,0,0,0.8)',
+              }} />
             )}
           </div>
-        </>
-      )}
+        );
 
-      {/* === BEKRÄFTA AVSLUTA SNITSLING === */}
+        return (
+          <>
+            {/* Opak mörk botten — BARA avståndsläget. Täcker karta + räknare + centrera + plus,
+                så skärmen visar EN sak. Kartan avmonteras inte (byte blir momentant, position live). */}
+            {!snitselKarta && (
+              <div style={{ position: 'fixed', inset: 0, background: '#0e0f11', zIndex: 500 }} />
+            )}
+
+            {/* Objektnamn litet uppe t.v. — bara avståndsläget (kartläget har objekt-pillen). */}
+            {!snitselKarta && valtObjekt?.namn && (
+              <div style={{
+                position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 20px)', left: 20, zIndex: 606,
+                fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.55)', maxWidth: '52vw',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none',
+              }}>{valtObjekt.namn}</div>
+            )}
+
+            {/* HÖRN-TOGGLE uppe t.h. — LÅNGT från Spara. Byter mellan avstånd och karta.
+                Medvetet i hörnet, aldrig i knappraden: en knapp bredvid Spara gav feltryck med handskar. */}
+            <button type="button" className="btn-press"
+              onClick={() => setSnitselKarta(v => !v)}
+              aria-label={snitselKarta ? 'Visa avstånd' : 'Visa karta'}
+              style={{
+                position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 14px)', right: 14, zIndex: 606,
+                height: 40, padding: '0 15px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.18)',
+                background: 'rgba(28,28,30,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', gap: 7,
+              }}>
+              {snitselKarta ? '← Avstånd' : '🗺 Karta'}
+            </button>
+
+            {/* Kort bekräftelse — försvinner själv, kräver ingen kvittering */}
+            {sparadToast && (
+              <div style={{
+                position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 66px)', left: '50%',
+                transform: 'translateX(-50%)', zIndex: 610, pointerEvents: 'none',
+                background: 'rgba(28,28,30,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid rgba(48,209,88,0.45)', borderRadius: 14, padding: '10px 18px',
+                fontSize: 14, fontWeight: 600, color: '#30d158', whiteSpace: 'nowrap',
+              }}>
+                Väg {vagNr} sparad
+              </div>
+            )}
+
+            {!snitselKarta ? (
+              /* ═══ AVSTÅNDSLÄGET — mörk, tom skärm, siffran äger hela ytan ═══ */
+              <div style={{
+                position: 'fixed', top: '38%', left: '50%', transform: 'translate(-50%,-50%)',
+                zIndex: 550, pointerEvents: 'none', textAlign: 'center', width: 'min(340px, 88vw)',
+              }}>
+                <div style={{ fontSize: 'clamp(84px, 27vw, 108px)', fontWeight: 500, color: farg, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  {har ? dist : '—'}
+                  <span style={{ fontSize: '28px', fontWeight: 400, color: 'rgba(255,255,255,0.4)', marginLeft: 6 }}>m</span>
+                </div>
+                <div style={{ fontSize: 16, color: 'rgba(255,255,255,0.65)', marginTop: 8 }}>mål {target} m · ±{tol}</div>
+                <div style={{ height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: !har ? 'rgba(255,255,255,0.45)' : inom ? GRON : ORANGE, whiteSpace: 'nowrap' }}>{riktning}</span>
+                </div>
+                <div style={{ marginTop: 14 }}>{matare(12)}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+                  <span>för nära</span>
+                  {utanforSkala && <span style={{ color: ORANGE, fontWeight: 700 }}>utanför skalan</span>}
+                  <span>för långt</span>
+                </div>
+                <div style={{ marginTop: 16, fontSize: 12.5, fontWeight: 500, color: osaker ? ORANGE : 'rgba(255,255,255,0.45)' }}>
+                  {gpsAccuracy == null ? 'söker GPS…' : osaker ? `osäker position · ±${Math.round(gpsAccuracy)} m` : `GPS ±${Math.round(gpsAccuracy)} m`}
+                </div>
+              </div>
+            ) : (
+              /* ═══ KARTLÄGET — kartan syns bakom; avståndet i en kompakt mörk glas-panel (inte genomskinlig text) ═══ */
+              <div style={{
+                position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 64px)', left: '50%',
+                transform: 'translateX(-50%)', zIndex: 550, pointerEvents: 'none', width: 'min(360px, 92vw)',
+                background: 'rgba(20,20,22,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: '12px 16px',
+                boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div style={{ fontSize: 44, fontWeight: 500, color: farg, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                    {har ? dist : '—'}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)', marginLeft: 3 }}>m</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.55)' }}>mål {target} m · ±{tol}</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: !har ? 'rgba(255,255,255,0.45)' : inom ? GRON : ORANGE, whiteSpace: 'nowrap' }}>{riktning}</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10 }}>{matare(7)}</div>
+                <div style={{ marginTop: 8, fontSize: 11.5, fontWeight: 500, color: osaker ? ORANGE : 'rgba(255,255,255,0.4)' }}>
+                  {gpsAccuracy == null ? 'söker GPS…' : osaker ? `osäker position · ±${Math.round(gpsAccuracy)} m` : `GPS ±${Math.round(gpsAccuracy)} m`}
+                </div>
+              </div>
+            )}
+
+            {/* Pausad-indikator (paus syns även på knappen; extra tydlighet) */}
+            {gpsPaused && !visaFargval && (
+              <div style={{
+                position: 'fixed', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 132px)', left: '50%',
+                transform: 'translateX(-50%)', zIndex: 601,
+                background: 'rgba(245,158,11,0.22)', color: '#f59e0b',
+                padding: '7px 18px', borderRadius: 16, fontSize: 13, fontWeight: 600, pointerEvents: 'none',
+              }}>PAUSAD</div>
+            )}
+
+            {/* BOTTEN — Paus + Spara med gott om luft, eller efter sparad väg: Avsluta + tre färger.
+                Kart-toggeln sitter i HÖRNET, aldrig här (undviker feltryck med handskar). */}
+            <div style={{
+              position: 'fixed', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 44px)',
+              left: 0, right: 0, zIndex: 600,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              gap: visaFargval ? '14px' : '96px', padding: '0 24px',
+            }}>
+              {visaFargval ? (
+                <>
+                  <button type="button" onClick={() => { setVisaFargval(false); setShowAvslutaBekraftelse(true); }}
+                    style={{
+                      padding: '0 16px', height: '64px', borderRadius: '18px', border: '1px solid rgba(255,255,255,0.18)',
+                      background: 'rgba(28,28,30,0.9)', color: 'rgba(255,255,255,0.75)',
+                      fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+                    }}>Avsluta</button>
+                  {vagColors.map(f => (
+                    <button key={f.id} type="button" className="btn-press"
+                      onClick={() => continueWithColor(f.id)}
+                      aria-label={`Nästa väg: ${f.name}`}
+                      style={{
+                        width: '64px', height: '64px', borderRadius: '18px', cursor: 'pointer',
+                        background: f.color, flexShrink: 0,
+                        border: lastUsedColorId === f.id ? '3px solid rgba(255,255,255,0.55)' : '3px solid transparent',
+                      }} />
+                  ))}
+                </>
+              ) : (
+                <>
+                  <button type="button" className="btn-press"
+                    onClick={() => { const n = !gpsPaused; setGpsPaused(n); gpsPausedRef.current = n; }}
+                    aria-label={gpsPaused ? 'Fortsätt' : 'Pausa'}
+                    style={{
+                      width: '64px', height: '64px', borderRadius: '32px', border: 'none',
+                      background: gpsPaused ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.15)',
+                      color: gpsPaused ? '#f59e0b' : '#fff', fontSize: '18px', cursor: 'pointer', fontFamily: 'inherit',
+                    }}>{gpsPaused ? '▶' : '❚❚'}</button>
+
+                  <button type="button" className="btn-press"
+                    onClick={() => saveAndShowPopup()}
+                    aria-label="Spara vägen"
+                    style={{
+                      width: '76px', height: '76px', borderRadius: '38px', border: 'none',
+                      background: '#30d158', color: '#fff', fontSize: '30px', cursor: 'pointer', fontFamily: 'inherit',
+                    }}>✓</button>
+                </>
+              )}
+            </div>
+          </>
+        );
+      })()}
+
+      {/* === BEKRÄFTA AVSLUTA SNITSLING === */}      {/* === BEKRÄFTA AVSLUTA SNITSLING === */}
       {showAvslutaBekraftelse && (
         <div style={{
           position: 'fixed',
@@ -15239,6 +15266,7 @@ export default function PlannerPage() {
               setShowAvslutaBekraftelse(false);
               setVisaFargval(false);
               setSparadToast(false);
+              setSnitselKarta(false);
               setStickvagMode(false);
               setStickvagOversikt(false);
               previousStickvagRef.current = null;
