@@ -370,6 +370,59 @@ function Chevron() {
 }
 
 /* ── V6 iOS sökbar ── */
+// Aptering-ingång + avslutspåminnelser. Hämtar aktiva objekt en gång:
+//  - ingång-raden in i apteringsvyn (dämpad amber-prick när läge 2 finns)
+//  - stilla påminnelserader för aktiva objekt utan ny fil på 14 dagar, med
+//    ETT tryck som sätter completed (spec 3b). Ingen dialog, ingen automatik.
+// Ett fetchfel får aldrig se ut som "inget att titta på": då visas bara
+// ingången (neutral), aldrig en falsk "inom mål".
+function ApteringIngang({ onClick }: { onClick: () => void }) {
+  const [objekt, setObjekt] = useState<any[] | null>(null);
+  const [avslutade, setAvslutade] = useState<Set<string>>(new Set());
+
+  const ladda = React.useCallback(() => {
+    fetch('/api/fordelning?scope=aktiva')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.objekt) setObjekt(d.objekt); })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { ladda(); }, [ladda]);
+
+  const läge2 = (objekt ?? []).filter((o) => o.lage === 2).length;
+  const påminnelser = (objekt ?? []).filter((o) => o.status === 'active' && (o.dagarSedanFil ?? 0) >= 14 && !avslutade.has(o.objectKey));
+  const text = objekt === null ? 'Aptering'
+    : läge2 > 0 ? `Aptering · ${läge2} att titta på`
+    : 'Aptering';
+
+  const markera = async (k: string) => {
+    setAvslutade((s) => new Set(s).add(k)); // optimistiskt: raden försvinner direkt
+    await fetch(`/api/fordelning/${encodeURIComponent(k)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'markera_avslutad' }),
+    }).catch(() => {});
+  };
+
+  return (
+    <>
+      <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '13px 16px', background: V6_CARD, border: 'none', borderRadius: 12, color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+        {läge2 > 0 && <span style={{ width: 8, height: 8, borderRadius: 4, background: V6_WARN, flexShrink: 0 }} />}
+        <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{text}</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round"><polyline points="4 2 8 6 4 10" /></svg>
+      </button>
+      {påminnelser.map((o) => (
+        <div key={o.objectKey} style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, padding: '11px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 10 }}>
+          <span style={{ flex: 1, fontSize: 13, color: V6_GREY }}>
+            {o.objektNamn} — ingen ny fil på {o.dagarSedanFil} dagar. Markera som avslutad?
+          </span>
+          <button onClick={() => markera(o.objectKey)} style={{ background: 'none', border: `0.5px solid ${V6_SEP}`, color: '#fff', fontSize: 13, borderRadius: 8, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: V6_FF }}>
+            Avsluta
+          </button>
+        </div>
+      ))}
+    </>
+  );
+}
+
 function V6Search({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [focused, setFocused] = useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -543,6 +596,10 @@ export default function UppfoljningPage() {
         </div>
         <div style={{ padding: '8px 16px 14px' }}>
           <V6Search value={sok} onChange={setSok} />
+        </div>
+
+        <div style={{ padding: '0 16px 14px' }}>
+          <ApteringIngang onClick={() => router.push('/uppfoljning/fordelning')} />
         </div>
 
         <SummaKort
