@@ -167,12 +167,12 @@ function SummaKort({
         <button onClick={() => valj('slutavverkning')} style={kortStil(vald === 'slutavverkning')}>
           <div style={etikett}>Slutavv.</div>
           {matt(slutavvM3, slutavvN, 'm³')}
-          <div style={{ fontSize: 10, color: V6_GREY, marginTop: 5 }}>{slutavvN} obj oskotat</div>
+          <div style={{ fontSize: 10, color: V6_GREY, marginTop: 5 }}>{slutavvN === 1 ? '1 objekt' : `${slutavvN} objekt`}</div>
         </button>
         <button onClick={() => valj('gallring')} style={kortStil(vald === 'gallring')}>
           <div style={etikett}>Gallring</div>
           {matt(gallringM3, gallringN, 'm³')}
-          <div style={{ fontSize: 10, color: V6_GREY, marginTop: 5 }}>{gallringN} obj oskotat</div>
+          <div style={{ fontSize: 10, color: V6_GREY, marginTop: 5 }}>{gallringN === 1 ? '1 objekt' : `${gallringN} objekt`}</div>
         </button>
         <button onClick={() => valj('ris')} style={kortStil(vald === 'ris')}>
           <div style={etikett}>Ris</div>
@@ -262,55 +262,41 @@ function SkordareKor({ objekt, onSelect }: { objekt: UppfoljningObjekt[]; onSele
    Objekt utan känd skotare → "Ej tilldelad", gissa aldrig maskin. Objektrad:
    namn, volym, typ-tagg, liggetid, + "≈ X m³fub ris kvar" ENDAST om grot-
    anpassat (aldrig "0" annars). */
-function OskotatPerSkotare({ objekt, pagaende, onSelect, faktor }: { objekt: UppfoljningObjekt[]; pagaende: UppfoljningObjekt[]; onSelect: (o: UppfoljningObjekt) => void; faktor: number }) {
+function MaskinUppdelning({ objekt, skordas, titel, onSelect }: { objekt: UppfoljningObjekt[]; skordas: Set<UppfoljningObjekt>; titel: string; onSelect: (o: UppfoljningObjekt) => void }) {
   const grupper = useMemo(() => {
-    // objs = oskotade objekt (rader VISAS). pag = pågående skörd med samma
-    // skotare (räknas i SUMMAN, raden bor kvar under Skördare kör — ett
-    // objekt, ett ställe). Summan svarar på 'vem har mest att skota' och får
-    // aldrig utelämna det som just nu avverkas åt skotaren.
-    const m = new Map<string, { objs: UppfoljningObjekt[]; pag: UppfoljningObjekt[] }>();
-    const hink = (namn: string) => { const k = namn; if (!m.has(k)) m.set(k, { objs: [], pag: [] }); return m.get(k)!; };
-    for (const o of objekt) hink(o.tilldeladSkotare || ' ej').objs.push(o);
-    // Bara pågående med KÄND skotare räknas in — utan skotare finns ingen
-    // backe att tillskriva, gissa aldrig.
-    for (const o of pagaende) { if (o.tilldeladSkotare) hink(o.tilldeladSkotare).pag.push(o); }
-
-    const lista = Array.from(m.entries()).map(([namn, g]) => ({
+    const m = new Map<string, UppfoljningObjekt[]>();
+    for (const o of objekt) { const k = o.tilldeladSkotare || ' ej'; if (!m.has(k)) m.set(k, []); m.get(k)!.push(o); }
+    const lista = Array.from(m.entries()).map(([namn, objs]) => ({
       namn: namn === ' ej' ? null : namn,
-      objs: g.objs.slice().sort((a, b) => {
+      objs: objs.slice().sort((a, b) => {
+        // Oskotade (klara att skota) först, äldst överst; skördas-ännu sist.
+        const sa = skordas.has(a), sb = skordas.has(b);
+        if (sa !== sb) return sa ? 1 : -1;
         if (!a.sistaAvverkning) return 1;
         if (!b.sistaAvverkning) return -1;
-        return a.sistaAvverkning.localeCompare(b.sistaAvverkning); // äldst först
+        return a.sistaAvverkning.localeCompare(b.sistaAvverkning);
       }),
-      // Summa = oskotad kvar + pågående kvar (det som är på väg till backen).
-      summa: g.objs.reduce((s, o) => s + kvarM3(o), 0) + g.pag.reduce((s, o) => s + kvarM3(o), 0),
-      pagaende: g.pag.length,
+      summa: objs.reduce((s, o) => s + kvarM3(o), 0),
     }));
     // Skotare med mest på backen överst; Ej tilldelad alltid sist.
     lista.sort((a, b) => (a.namn === null ? 1 : b.namn === null ? -1 : b.summa - a.summa));
     return lista;
-  }, [objekt, pagaende]);
+  }, [objekt, skordas]);
 
-  const antalRader = objekt.length;
   if (grupper.length === 0) return null;
 
   return (
     <section>
-      <GroupHeader title="Oskotat · äldst först" count={antalRader} />
+      <GroupHeader title={`${titel} · per skotare`} count={objekt.length} />
       {grupper.map(g => (
         <div key={g.namn || 'ej'} style={{ margin: '0 16px 10px' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '4px 4px 6px', gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: g.namn ? '#fff' : V6_WARN }}>
-              {g.namn || 'Ej tilldelad'}
-              {g.pagaende > 0 && <span style={{ color: V6_SK, fontWeight: 500 }}> · varav {g.pagaende} pågående</span>}
-            </span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: g.namn ? '#fff' : V6_WARN }}>{g.namn || 'Ej tilldelad'}</span>
             <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{sv(g.summa)} m³ på backen</span>
           </div>
-          {/* Gruppen kan vara summa-bara (all volym under pågående skörd) —
-              då är objektlistan tom med flit, raderna bor i Skördare kör. */}
           <div style={{ background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
             {g.objs.map((o, i) => {
-              const grot = o.grotAnpassad && !o.grotHamtad ? uppskattaGrotM3fub(o.volymSkordare, faktor) : null;
+              const annu = skordas.has(o);
               return (
                 <button key={o.skordareObjektId || o.vo_nummer} onClick={() => onSelect(o)} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 58, padding: '11px 16px', gap: 12, background: 'transparent', border: 'none', textAlign: 'left', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -318,15 +304,14 @@ function OskotatPerSkotare({ objekt, pagaende, onSelect, faktor }: { objekt: Upp
                       <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</span>
                       <TypTagg o={o} />
                     </div>
-                    <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{liggetidText(o)}</div>
+                    {annu ? (
+                      <div style={{ fontSize: 12, color: V6_SK, marginTop: 2, fontWeight: 500 }}>skördas ännu</div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{liggetidText(o)}</div>
+                    )}
                     {o.skotareAvvikelse && (
                       <div style={{ fontSize: 11, color: V6_GREY2, marginTop: 2 }}>
                         Lassdata: {o.skotareAvvikelse.lass} · tilldelad: {o.skotareAvvikelse.tilldelad}
-                      </div>
-                    )}
-                    {grot != null && (
-                      <div style={{ fontSize: 12, color: V6_WARN, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-                        ≈ {sv(grot)} m³fub ris kvar <span style={{ color: V6_GREY2 }}>(schablon)</span>
                       </div>
                     )}
                   </div>
@@ -344,8 +329,6 @@ function OskotatPerSkotare({ objekt, pagaende, onSelect, faktor }: { objekt: Upp
     </section>
   );
 }
-
-/* ── Rislista — grot-urvalet (C), äldst först på liggetid ── */
 function RisLista({ objekt, onSelect, faktor }: { objekt: UppfoljningObjekt[]; onSelect: (o: UppfoljningObjekt) => void; faktor: number }) {
   const rader = objekt.slice().sort((a, b) => {
     if (!a.sistaAvverkning) return 1;
@@ -530,15 +513,24 @@ export default function UppfoljningPage() {
 
   // Kort-summor ur OSKOTAT-bucketen (genuint på backen) per typ — korten är
   // filterkällan. Ärlig nolla: typ utan oskotade objekt → 0 obj → kortet visar "—".
+  // Korten visar TOTALEN på backen per typ — inklusive objekt där skörd
+  // fortfarande pågår (annars svarar de fel på "hur mycket ligger på backen"
+  // varje gång en skördare kör). Virke = mätt kvar (skördat − skotat).
   const kort = useMemo(() => {
     let sM3 = 0, sN = 0, gM3 = 0, gN = 0;
-    for (const o of sektioner.oskotat) {
-      if (o.grotSkotning) continue; // risjobb är typ Grot, inte virke
+    for (const o of [...sektioner.skordare, ...sektioner.oskotat]) {
+      if (arRisjobb(o) || kvarM3(o) <= 0) continue; // risjobb = typ Grot; noll kvar räknas ej
       if (o.typ === 'gallring') { gM3 += kvarM3(o); gN++; } else { sM3 += kvarM3(o); sN++; }
     }
     const risM3 = risAlla.reduce((a, o) => a + (uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0), 0);
     return { sM3, sN, gM3, gN, risM3, risN: risAlla.length };
   }, [sektioner, risAlla, grotFaktor]);
+
+  // På-backen-virke per typ (oskotat + pågående skörd) — underlag till
+  // maskinuppdelningen när ett kort är valt. skordasSet = vilka som avverkas än.
+  const paBackenVirke = useMemo(() => [...sektioner.skordare, ...sektioner.oskotat].filter(o => !arRisjobb(o) && kvarM3(o) > 0), [sektioner]);
+  const skordasSet = useMemo(() => new Set(sektioner.skordare), [sektioner]);
+  const uppdelning = useMemo(() => paBackenVirke.filter(o => matchTyp(o) && matchSok(o)), [paBackenVirke, vald, sok]);
 
   const passar = (o: UppfoljningObjekt) => matchSok(o) && matchTyp(o);
   const skordareKor = useMemo(() => sektioner.skordare.filter(passar), [sektioner, sok, vald]);
@@ -614,43 +606,28 @@ export default function UppfoljningPage() {
               <RisLista objekt={risSynlig} onSelect={handleSelect} faktor={grotFaktor} />
               {avslutadeBlock}
             </>
-          ) : (
+          ) : (vald === 'slutavverkning' || vald === 'gallring') ? (
+            /* KORT VALT: uppdelning per skotare, objektraderna synliga (oskotat
+               + pågående skörd, taggade). Objektet syns HÄR, inte dubbelt. */
             <>
-              <SkordareKor objekt={skordareKor} onSelect={handleSelect} />
-              <OskotatPerSkotare objekt={oskotat} pagaende={skordareKor} onSelect={handleSelect} faktor={grotFaktor} />
-              <Ovrigt objekt={ovrigt} onSelect={handleSelect} />
-              {inget && (
+              <MaskinUppdelning objekt={uppdelning} skordas={skordasSet} titel={vald === 'gallring' ? 'Gallring' : 'Slutavverkning'} onSelect={handleSelect} />
+              {uppdelning.length === 0 && (
                 <div style={{ textAlign: 'center', padding: 80, color: V6_GREY, fontSize: 15 }}>
-                  {vald ? 'Inga objekt i det filtret' : 'Inga aktiva objekt'}
+                  Inget {vald === 'gallring' ? 'gallringsvirke' : 'slutavverkningsvirke'} på backen
                 </div>
               )}
               {avslutadeBlock}
-              {false && (
-                <div style={{ padding: '20px 16px 12px' }}>
-                  <button onClick={() => setVisaAvslutade(!visaAvslutade)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '12px 16px', background: 'transparent', border: `0.5px solid ${V6_SEP}`, borderRadius: 10, color: V6_GREY, fontSize: 13, fontWeight: 500, fontFamily: V6_FF, cursor: 'pointer' }}>
-                    <span>{visaAvslutade ? 'Dölj' : 'Visa'} avslutade</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>({avslutade.length})</span>
-                  </button>
-                  {visaAvslutade && (
-                    <div style={{ marginTop: 10, background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
-                      {avslutade.map((o, i) => (
-                        <button key={o.skordareObjektId || o.skotareObjektId || o.vo_nummer} onClick={() => handleSelect(o)} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 52, padding: '11px 16px', gap: 12, background: 'transparent', border: 'none', textAlign: 'left', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: V6_DONE, flexShrink: 0 }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</div>
-                            <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {o.grotSkotning
-                                ? <>Avslutat · {o.volymSkotare > 0 ? `${sv(o.volymSkotare)} m³ ris` : 'inga lass'} {o.volymSkotare > 0 && <Visshet grad="rapporterat" />}</>
-                                : <>Avslutat · {sv(o.volymSkordare)} m³ {o.volymSkordare > 0 && <Visshet grad="matt" />}</>}
-                            </div>
-                          </div>
-                          <Chevron />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+            </>
+          ) : (
+            /* OVALT: bara Skördare kör + avslutade. Ingen halvtom
+               maskinuppdelning med rubriker utan rader. */
+            <>
+              <SkordareKor objekt={skordareKor} onSelect={handleSelect} />
+              <Ovrigt objekt={ovrigt} onSelect={handleSelect} />
+              {skordareKor.length === 0 && ovrigt.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 80, color: V6_GREY, fontSize: 15 }}>Inga aktiva objekt</div>
               )}
+              {avslutadeBlock}
             </>
           )}
         </div>
