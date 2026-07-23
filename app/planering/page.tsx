@@ -9295,19 +9295,53 @@ export default function PlannerPage() {
           wet: ['fuktig mark', 'fuktiga partier'], steep: ['brant', 'branter'], trail: ['stig', 'stigar'], warning: ['varning', 'varningar'],
         };
         const namnFor = (t: string, n: number) => (plural[t]?.[n === 1 ? 0 : 1]) || t;
-        const grupper: { typ: string; items: any[] }[] = [];
+        // Linjer grupperas på samma sätt (färg = förarens språk för väg-linjer).
+        const linjePlural: Record<string, [string, string]> = {
+          mainRoad: ['basväg', 'basvägar'], ditch: ['dike', 'diken'], trail: ['stig', 'stigar'],
+          nature: ['naturvårdslinje', 'naturvårdslinjer'],
+          sideRoadRed: ['röd stickväg', 'röda stickvägar'], sideRoadYellow: ['gul stickväg', 'gula stickvägar'], sideRoadBlue: ['blå stickväg', 'blå stickvägar'],
+          backRoadRed: ['röd backväg', 'röda backvägar'], backRoadYellow: ['gul backväg', 'gula backvägar'], backRoadBlue: ['blå backväg', 'blå backvägar'],
+        };
+        const linjeNamnFor = (t: string, n: number) => (linjePlural[t]?.[n === 1 ? 0 : 1]) || (lineTypes.find(l => l.id === t)?.name || t).toLowerCase();
+
+        // PÅ TRAKTEN: symboler FÖRST (punkt-hänsyn han inte får missa), sedan linjer (infrastruktur).
+        // ditch/trail finns som BÅDE symbol och linje → nyckel = kind:typ (annars krock). Traktgräns
+        // (boundary) utesluts — den finns alltid runt hela trakten och är inget han "letar efter".
+        const grupper: { key: string; kind: 'symbol' | 'line'; typ: string; items: any[] }[] = [];
         for (const m of markers) {
           if (!m.isMarker) continue;
           const t = m.type || 'default';
-          let g = grupper.find(x => x.typ === t);
-          if (!g) { g = { typ: t, items: [] }; grupper.push(g); }
+          const key = 'symbol:' + t;
+          let g = grupper.find(x => x.key === key);
+          if (!g) { g = { key, kind: 'symbol', typ: t, items: [] }; grupper.push(g); }
           g.items.push(m);
         }
+        for (const m of markers) {
+          if (!m.isLine || !m.lineType || m.lineType === 'boundary') continue;
+          const t = m.lineType;
+          const key = 'line:' + t;
+          let g = grupper.find(x => x.key === key);
+          if (!g) { g = { key, kind: 'line', typ: t, items: [] }; grupper.push(g); }
+          g.items.push(m);
+        }
+
+        // Chip-ikon: symbol = färgad cirkel + glyf (renderIcon — identiskt med kartan; grå bg blir
+        // ljusare så den syns mot mörk panel). Linje = liten swatch (randig/streckad/färgad som ritad).
+        const chipBg = (t: string) => { const b = getIconBackground(t); return b === 'rgba(0,0,0,0.6)' ? 'rgba(255,255,255,0.12)' : b; };
+        const linjeSwatch = (t: string) => {
+          const lt: any = lineTypes.find(l => l.id === t);
+          const col = lt?.color || '#fff', col2 = lt?.color2 || col;
+          const bg = lt?.striped ? `repeating-linear-gradient(90deg, ${col} 0, ${col} 3px, ${col2} 3px, ${col2} 6px)`
+            : lt?.dashed ? `repeating-linear-gradient(90deg, ${col} 0, ${col} 4px, transparent 4px, transparent 7px)` : col;
+          return <span style={{ width: 20, height: 4, borderRadius: 2, background: bg, flexShrink: 0 }} />;
+        };
 
         const flyTill = (m: any) => {
           setTraktOversiktOpen(false); setOversiktSymbolTyp(null);
           const map = mapInstanceRef.current; if (!map) return;
-          try { const ll = svgToLatLon(m.x, m.y); map.flyTo({ center: [ll.lon, ll.lat], zoom: Math.max(map.getZoom(), 17), duration: 700 }); } catch {}
+          let x = m.x, y = m.y;
+          if (m.isLine && Array.isArray(m.path) && m.path.length) { const mid = m.path[Math.floor(m.path.length / 2)]; x = mid.x; y = mid.y; }
+          try { const ll = svgToLatLon(x, y); map.flyTo({ center: [ll.lon, ll.lat], zoom: Math.max(map.getZoom(), 17), duration: 700 }); } catch {}
         };
         const stang = () => { setTraktOversiktOpen(false); setOversiktSymbolTyp(null); };
         const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang;
@@ -9386,21 +9420,24 @@ export default function PlannerPage() {
                     {grupper.map(g => {
                       const kommenterade = g.items.filter((m: any) => (m.comment || '').trim());
                       const tappbar = g.items.length === 1 || kommenterade.length > 0;
-                      const aktiv = oversiktSymbolTyp === g.typ;
+                      const aktiv = oversiktSymbolTyp === g.key;
                       return (
-                        <button key={g.typ} type="button" disabled={!tappbar}
-                          onClick={() => { if (g.items.length === 1) flyTill(g.items[0]); else setOversiktSymbolTyp(aktiv ? null : g.typ); }}
+                        <button key={g.key} type="button" disabled={!tappbar}
+                          onClick={() => { if (g.items.length === 1) flyTill(g.items[0]); else setOversiktSymbolTyp(aktiv ? null : g.key); }}
                           className={tappbar ? 'btn-press' : undefined}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', borderRadius: 20, border: aktiv ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.12)', background: aktiv ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: tappbar ? 'pointer' : 'default', opacity: tappbar ? 1 : 0.65, fontFamily: 'inherit' }}>
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px 7px 8px', borderRadius: 20, border: aktiv ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.12)', background: aktiv ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: tappbar ? 'pointer' : 'default', opacity: tappbar ? 1 : 0.65, fontFamily: 'inherit' }}>
+                          {g.kind === 'symbol'
+                            ? <span style={{ width: 22, height: 22, borderRadius: 11, background: chipBg(g.typ), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{renderIcon(g.typ, 13, '#fff')}</span>
+                            : linjeSwatch(g.typ)}
                           <span style={{ fontWeight: 700 }}>{g.items.length}</span>
-                          <span style={{ color: 'rgba(255,255,255,0.8)' }}>{namnFor(g.typ, g.items.length)}</span>
+                          <span style={{ color: 'rgba(255,255,255,0.8)' }}>{g.kind === 'symbol' ? namnFor(g.typ, g.items.length) : linjeNamnFor(g.typ, g.items.length)}</span>
                           {tappbar && g.items.length > 1 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', transform: aktiv ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>&#x203A;</span>}
                         </button>
                       );
                     })}
                   </div>
                   {oversiktSymbolTyp && (() => {
-                    const g = grupper.find(x => x.typ === oversiktSymbolTyp);
+                    const g = grupper.find(x => x.key === oversiktSymbolTyp);
                     if (!g) return null;
                     const rader = g.items.filter((m: any) => (m.comment || '').trim());
                     if (rader.length === 0) return null;
