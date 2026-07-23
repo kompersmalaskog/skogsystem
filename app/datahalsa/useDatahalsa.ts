@@ -58,6 +58,17 @@ export type GapCheckData = {
   sammanfattning: string | null
 }
 
+// import_fel — verifierade datatapp: tabellskrivningar som misslyckades i
+// Python-importen (upsert_data:s felgren). Wisent-läxan 21/7: skiftdata
+// tappades tyst i en logg ingen läser; nu läser datahälsan tabellen direkt.
+export type ImportFelRad = {
+  tid: string
+  tabell: string
+  filnamn: string | null
+  felkod: string | null
+  feltext: string | null
+}
+
 export type Sektion<T> = {
   laddar: boolean
   fel: string | null             // 'kunde inte läsa'-tillstånd — aldrig tyst tomt
@@ -75,6 +86,7 @@ export type Datahalsa = {
   maskiner: Sektion<MaskinRad[]>
   invarianter: Sektion<InvarianterData>
   gapCheck: Sektion<GapCheckData | null> & { tabellSaknas: boolean }
+  importFel: Sektion<ImportFelRad[]> & { tabellSaknas: boolean }
   besked: Besked
 }
 
@@ -100,6 +112,8 @@ export function useDatahalsa(): Datahalsa {
   const [maskiner, setMaskiner] = useState<Sektion<MaskinRad[]>>({ laddar: true, fel: null, data: null })
   const [invarianter, setInvarianter] = useState<Sektion<InvarianterData>>({ laddar: true, fel: null, data: null })
   const [gapCheck, setGapCheck] = useState<Sektion<GapCheckData | null> & { tabellSaknas: boolean }>(
+    { laddar: true, fel: null, data: null, tabellSaknas: false })
+  const [importFel, setImportFel] = useState<Sektion<ImportFelRad[]> & { tabellSaknas: boolean }>(
     { laddar: true, fel: null, data: null, tabellSaknas: false })
 
   useEffect(() => {
@@ -243,11 +257,30 @@ export function useDatahalsa(): Datahalsa {
       })
     })()
 
+    // ── 5. Tappades något vid import? (import_fel — kräver migration) ──
+    // Sektionen visar 7 dygn; beskedet blir rött bara på rader senaste
+    // DYGNET, så ett åtgärdat tapp (omimporterad fil) inte skriker i en
+    // vecka. Äldre rader syns ändå i listan.
+    ;(async () => {
+      const { data, error } = await supabase.from('import_fel')
+        .select('tid, tabell, filnamn, felkod, feltext')
+        .gte('tid', new Date(Date.now() - 7 * 86400_000).toISOString())
+        .order('tid', { ascending: false })
+        .limit(50)
+      if (avbruten) return
+      if (error) {
+        const saknas = /does not exist|relation|schema cache/i.test(error.message)
+        setImportFel({ laddar: false, fel: saknas ? null : error.message, data: null, tabellSaknas: saknas })
+        return
+      }
+      setImportFel({ laddar: false, fel: null, tabellSaknas: false, data: (data ?? []) as ImportFelRad[] })
+    })()
+
     return () => { avbruten = true }
   }, [])
 
   // ── Beskedet — EN sammanvägning, samma överallt ──
-  const laddar = filer.laddar || maskiner.laddar || invarianter.laddar || gapCheck.laddar
+  const laddar = filer.laddar || maskiner.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar
   let besked: Besked
   if (laddar) {
     besked = { niva: 'laddar', rubrik: 'Kontrollerar …', punkter: [] }
@@ -268,8 +301,12 @@ export function useDatahalsa(): Datahalsa {
     }
     if (gapCheck.data && gapCheck.data.status !== 'OK')
       punkter.push(`Gap Check larmade (${gapCheck.data.larmAntal})`)
+    const farskaImportFel = (importFel.data ?? [])
+      .filter(r => Date.now() - new Date(r.tid).getTime() < 86400_000).length
+    if (farskaImportFel > 0)
+      punkter.push(`${farskaImportFel} tabellskrivfel senaste dygnet — data tappades vid import`)
 
-    const kundeInteLasa = [filer.fel, maskiner.fel, invarianter.fel, gapCheck.fel].some(Boolean)
+    const kundeInteLasa = [filer.fel, maskiner.fel, invarianter.fel, gapCheck.fel, importFel.fel].some(Boolean)
     if (punkter.length > 0) {
       besked = { niva: 'rod', rubrik: `${punkter.length} sak${punkter.length > 1 ? 'er' : ''} att titta på`, punkter }
     } else if (kundeInteLasa) {
@@ -285,5 +322,5 @@ export function useDatahalsa(): Datahalsa {
     }
   }
 
-  return { filer, maskiner, invarianter, gapCheck, besked }
+  return { filer, maskiner, invarianter, gapCheck, importFel, besked }
 }

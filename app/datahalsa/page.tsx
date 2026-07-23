@@ -79,7 +79,7 @@ export function beskedFarg(niva: Besked['niva']): string {
 }
 
 export default function DatahalsaPage() {
-  const { filer, maskiner, invarianter, gapCheck, besked } = useDatahalsa()
+  const { filer, maskiner, invarianter, gapCheck, importFel, besked } = useDatahalsa()
   const [visaFel, setVisaFel] = useState(false)
 
   const importFarg = filer.data?.timmarSedan == null ? C.muted
@@ -187,6 +187,34 @@ export default function DatahalsaPage() {
           <Rad vanster="Tomgångs-inkonsistens"
                hoger={invarianter.data?.tomgangInkonsistenta === 0 ? '0 · LÄKT ✅' : `${invarianter.data?.tomgangInkonsistenta} ⛔`}
                hogerFarg={invarianter.data?.tomgangInkonsistenta === 0 ? C.gron : C.rod} />
+        </Kort>
+
+        {/* ── 3b. Tappades något vid import? — varje rad är ett verifierat
+            datatapp (en tabellskrivning som misslyckades). Wisent-läxan:
+            tappet fanns i en logg ingen läser — nu står det här. ── */}
+        <Kort rubrik="TAPPADES NÅGOT VID IMPORT?" laddar={importFel.laddar} fel={importFel.fel}>
+          {importFel.tabellSaknas ? (
+            <div style={{ fontSize: 13, color: C.muted }}>
+              Kräver att migrationen för <code>import_fel</code> körs — tills dess
+              syns tabellskrivfel bara i importloggen på datorn.
+            </div>
+          ) : (
+            <>
+              <Rad vanster="Senaste 7 dygnen"
+                   hoger={(importFel.data ?? []).length === 0 ? '0 ✅' : `${(importFel.data ?? []).length} ⛔`}
+                   hogerFarg={(importFel.data ?? []).length === 0 ? C.gron : C.rod} />
+              {(importFel.data ?? []).map(r => (
+                <div key={r.tid + r.tabell} style={{
+                  padding: '6px 0 6px 16px', fontSize: 12, color: C.rod,
+                  borderTop: `0.5px solid ${C.divider}`, wordBreak: 'break-all',
+                }}>
+                  <div>{new Date(r.tid).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })} · {r.tabell}{r.felkod ? ` · ${r.felkod}` : ''}</div>
+                  {r.filnamn && <div style={{ color: C.muted }}>{r.filnamn}</div>}
+                  {r.feltext && <div style={{ color: C.dim }}>{r.feltext.slice(0, 160)}</div>}
+                </div>
+              ))}
+            </>
+          )}
         </Kort>
 
         {/* ── 4. Senaste Gap Check ── */}
