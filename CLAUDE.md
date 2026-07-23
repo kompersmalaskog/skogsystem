@@ -269,6 +269,12 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 
 **Branch-namn ska beskriva vad som ändras.** Exempel: `arbetsrapport-dag-stadrunda`, `fix-hpr-import-dedup`, `add-helikopter-v2`. Inte de auto-genererade `claude/optimistic-elion-904505`-namnen från worktree-systemet — om worktreen ger ett sådant, byt branch-namn innan första push.
 
+## Arbetsregler — LÄS
+
+**Aldrig bar `git stash` i detta repo.** Stash-stacken är delad per *repository*, inte per worktree, och flera sessioner arbetar parallellt i samma repo (~45 worktrees). En `git stash pop` kan plocka en ANNAN sessions stash — det har hänt (2026-07-22: en tsc-baseline-mätning via stash/pop drog in en parallell sessions arbete i fel commit). Behöver du gömma undan ändringar temporärt: gör en **WIP-commit** i stället. Ska du mäta tsc-baseline mot main: gör det i en **egen worktree på origin/main**, aldrig genom att stasha bort ditt arbete.
+
+**Verifiera på INNEHÅLL, inte på utskrift** (gäller alla sessioner). Ett patch-script som skriver "OK", en `.select()` som räknar rader, en preview som ser rätt ut — inget av det bevisar att värdet faktiskt landade. Efter varje skrivning: läs tillbaka det FAKTISKA innehållet (grep filen, läs kolumnvärdet, jämför mot avsikten) innan du går vidare eller committar. Samma princip som appen själv bygger på: radräkning bevisar att en rad rördes, inte att ändringen finns i den.
+
 ## Framtida förbättringar (bygg inte nu)
 
 ### HPR-automatik som komplement till "Starta körning"-knappen
