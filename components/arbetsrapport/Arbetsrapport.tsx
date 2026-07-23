@@ -671,7 +671,6 @@ export default function Arbetsrapport() {
   const [pagaendeAktiviteter, setPagaendeAktiviteter] = useState<any[]>([]);
   const [stoppaSlutTid, setStoppaSlutTid] = useState(nuKlock());
   const [stoppaTarget, setStoppaTarget] = useState<any>(null);
-  const [tidslinjeDatum, setTidslinjeDatum] = useState<string|null>(null);
   const [extraDagData, setExtraDagData] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
@@ -1109,9 +1108,9 @@ export default function Arbetsrapport() {
   useEffect(() => {
     if (!medarbetare) return;
     // Kör bara när användaren faktiskt är i kalender-vyn eller vyer som
-    // visar kalender-data (redigera/tidslinje). Slipp att köra varje gång
+    // visar kalender-data (redigera). Slipp att köra varje gång
     // morgon/mintid/inst-state ändras.
-    if (steg !== 'kalender' && steg !== 'redigera' && steg !== 'tidslinje' && steg !== 'morgon') return;
+    if (steg !== 'kalender' && steg !== 'redigera' && steg !== 'morgon') return;
     const förstadag = new Date(kalÅr, kalMånad, 1).toISOString().slice(0, 10);
     const sistadag = new Date(kalÅr, kalMånad + 1, 0).toISOString().slice(0, 10);
     // Hämta arbetsdag + arbetsdag_objekt parallellt så vi kan visa flera
@@ -1354,6 +1353,26 @@ export default function Arbetsrapport() {
       // nästa render. Ingen toast/UI-fel, bara console-logg.
       console.error('Vilo-analys/re-fetch misslyckades efter mutation:', err);
     }
+  };
+
+  // Öppna redigera-vyn för en dag — EN väg för ALLA dagar (med eller utan
+  // extra tid). Tidigare fanns den här setupen duplicerad i dagcellen och i
+  // "glömde bekräfta"-bannern, och extra-tid-dagar routades i stället till
+  // en avskalad tidslinje utan redigering/bekräfta — inkonsekvensen som var
+  // buggen. Nu ser varje dag likadan ut.
+  const öppnaRedigera = (datum: string) => {
+    const d2 = dagData[datum];
+    setRedDag({ ...(d2 || {}), datum });
+    setRedStart(d2?.start_tid || "00:00");
+    setRedSlut(d2?.slut_tid || "00:00");
+    setRedRast(d2?.rast_min || 0);
+    setRedKm(d2?.km_totalt || 0);
+    setRedKmBerakning(null);
+    setRedAnl("");
+    setRedObjektId(d2?.objekt_id || null);
+    setRedMaskinId(d2?.maskin_id || null);
+    setRedVy("översikt");
+    setSteg("redigera");
   };
 
   // Bekräfta arbetsdagen — extraherad så samma kod kan köras både direkt
@@ -1787,99 +1806,11 @@ export default function Arbetsrapport() {
     );
   }
 
-  /* ─── TIDSLINJE FÖR EN DAG ─── */
-  if(steg==="tidslinje" && tidslinjeDatum) {
-    const dag = dagData[tidslinjeDatum];
-    const extra = (extraDagData[tidslinjeDatum] || []).slice().sort((a,b)=>(a.start_tid||'').localeCompare(b.start_tid||''));
-    type Hand = { typ:'maskin'|'extra'; start:string; slut:string; label:string; sub?:string; minuter:number; debiterbar?:boolean; post?:any };
-    const händelser: Hand[] = [];
-    if(dag?.start_tid && dag?.slut_tid) {
-      const objNamn = objektLista.find(o=>o.id===dag.objekt_id)?.namn || dag.objekt_namn || dag.maskin_id || 'Maskin';
-      händelser.push({
-        typ:'maskin',
-        start:dag.start_tid.slice(0,5),
-        slut:dag.slut_tid.slice(0,5),
-        label:`Maskin — ${objNamn}`,
-        sub: dag.maskin_namn || dag.maskin_id,
-        minuter: dag.arbMin||0,
-      });
-    }
-    for(const e of extra) {
-      händelser.push({
-        typ:'extra',
-        start:(e.start_tid||'').slice(0,5),
-        slut:(e.slut_tid||'').slice(0,5)||'pågår',
-        label: aktLabel(e.aktivitet_typ),
-        sub: e.aktivitet_text || (e.objekt_id ? (objektLista.find(o=>o.id===e.objekt_id)?.namn || '') : ''),
-        minuter: e.minuter||0,
-        debiterbar: e.debiterbar,
-        post: e, // originalposten — behövs för att öppna redigeringssheeten
-      });
-    }
-    händelser.sort((a,b)=>a.start.localeCompare(b.start));
-    const totMaskin = dag?.arbMin||0;
-    const totExtra = extra.reduce((a,e)=>a+(e.minuter||0),0);
-    const datDate = new Date(tidslinjeDatum);
-    const datLabel = `${["sön","mån","tis","ons","tor","fre","lör"][datDate.getDay()]} ${datDate.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][datDate.getMonth()]}`;
-    return (
-      <div style={shell}>
-        <style>{css}</style>{timerBanner}
-        <div style={topBar}>
-          <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-            <BackBtn onClick={()=>{setTidslinjeDatum(null);setSteg("kalender");}}/>
-            <div>
-              <p style={{ margin:0,fontSize:13,color:C.label,textTransform:"capitalize" }}>{datLabel}</p>
-              <h1 style={{ margin:"4px 0 0",...TYPE.h1 }}>Tidslinje</h1>
-            </div>
-          </div>
-        </div>
-        <div style={{ flex:1,overflowY:"auto",paddingTop:16,paddingBottom:32 }}>
-          {/* Summering */}
-          <Card style={{ padding:"16px 20px" }}>
-            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}>
-              <span style={{ ...TYPE.meta,color:C.label }}>Maskin</span>
-              <span style={{ ...TYPE.bodyList,...TNUM }}>{fmt(totMaskin)}</span>
-            </div>
-            {totExtra>0&&(
-              <div style={{ display:"flex",justifyContent:"space-between" }}>
-                <span style={{ ...TYPE.meta,color:C.label }}>Extra tid</span>
-                <span style={{ ...TYPE.bodyList,color:C.orange,...TNUM }}>+ {fmt(totExtra)}</span>
-              </div>
-            )}
-          </Card>
-          {/* Lista händelser */}
-          <div style={{ marginTop:16 }}>
-            {händelser.length===0?(
-              <Card><p style={{ margin:0,...TYPE.meta,color:C.label,textAlign:"center" }}>Inga händelser denna dag</p></Card>
-            ):händelser.map((h,i)=>(
-              /* Extra-händelser är klickbara — öppnar samma "Vad gjorde du?"-sheet
-                 som Dag-vyn, så poster kan redigeras i efterhand härifrån */
-              <Card key={i} onClick={h.typ==='extra'&&h.post ? ()=>{
-                  setKvAvTyp(h.post.aktivitet_typ || null);
-                  setKvAvObj(h.post.objekt_id ? objektLista.find(o => o.id === h.post.objekt_id) || null : null);
-                  setKvAvDeb(!!h.post.debiterbar);
-                  setKvAvBesk(h.post.kommentar || "");
-                  setEfterStoppSheet(h.post);
-                } : undefined}
-                style={{ display:"flex",alignItems:"flex-start",gap:14,cursor:h.typ==='extra'?'pointer':'default' }}>
-                <div style={{ minWidth:90,...TYPE.meta,color:C.label,fontWeight:500,fontVariantNumeric:"tabular-nums" }}>
-                  {h.start}–{h.slut}
-                </div>
-                <div style={{ flex:1 }}>
-                  <p style={{ margin:0,...TYPE.bodyList,color:h.typ==='maskin'?'#fff':C.orange }}>{h.label}</p>
-                  {h.sub&&<p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{h.sub}</p>}
-                  <p style={{ margin:"6px 0 0",fontSize:12,fontWeight:500,color:C.label }}>{fmt(h.minuter)}{h.debiterbar?' · debiterbar':''}</p>
-                </div>
-                {h.typ==='extra'&&<span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.25)",alignSelf:"center" }}>chevron_right</span>}
-              </Card>
-            ))}
-          </div>
-        </div>
-        {/* "Vad gjorde du?"-sheeten — delad UI, öppnas av extra-korten ovan */}
-        {efterStoppUI}
-      </div>
-    );
-  }
+  /* ─── TIDSLINJE PENSIONERAD ─── En dag ska se likadan ut oavsett extra tid.
+     Extra-tid-dagar routas nu (via öppnaRedigera) till samma redigera-vy som
+     alla andra dagar, där maskinpasset redigeras och extra-posterna listas
+     under "Loggad tid". Den gamla read-only-tidslinjen kunde varken redigera
+     tider eller bekräfta dagen — det var buggen. Blocket är borttaget. */
 
   /* ─── HEM (morgon/dag/meny unified) ─── */
   if(steg==="morgon"||steg==="dag"||steg==="meny") return (
@@ -1895,20 +1826,7 @@ export default function Arbetsrapport() {
 
         {/* Påminnelse obekräftad dag */}
         {igårObekräftad&&(
-          <div onClick={()=>{
-            const d2=dagData[igårKey];
-            setRedDag({...(d2||{}),datum:igårKey});
-            setRedStart(d2?.start_tid||"00:00");
-            setRedSlut(d2?.slut_tid||"00:00");
-            setRedRast(d2?.rast_min||0);
-            setRedKm(d2?.km_totalt||0);
-            setRedKmBerakning(null);
-            setRedAnl("");
-            setRedObjektId(d2?.objekt_id||null);
-            setRedMaskinId(d2?.maskin_id||null);
-            setRedVy("översikt");
-            setSteg("redigera");
-          }} style={{ background:"rgba(255,159,10,0.06)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:"fadeUp 0.3s ease" }}>
+          <div onClick={()=>öppnaRedigera(igårKey)} style={{ background:"rgba(255,159,10,0.06)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:"fadeUp 0.3s ease" }}>
             <div style={{ display:"flex",alignItems:"center",gap:10 }}>
               <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>warning</span>
               <span style={{ ...TYPE.bodyList,color:"#fff" }}>Du glömde bekräfta gårdagen</span>
@@ -5363,28 +5281,7 @@ export default function Arbetsrapport() {
 
                 return (
                   <div key={i}
-                    onClick={()=>{
-                      // Alla dagar är klickbara. Om extra-tid finns: visa tidslinje,
-                      // annars öppna dagvy (redigera). Tom data → tom dagvy med
-                      // "Lägg till manuellt"-fallback.
-                      if(harExtra) {
-                        setTidslinjeDatum(datum);
-                        setSteg("tidslinje");
-                        return;
-                      }
-                      const d2=dagData[k];
-                      setRedDag({...(d2||{}),datum});
-                      setRedStart(d2?.start_tid||"00:00");
-                      setRedSlut(d2?.slut_tid||"00:00");
-                      setRedRast(d2?.rast_min||0);
-                      setRedKm(d2?.km_totalt||0);
-                      setRedKmBerakning(null);
-                      setRedAnl("");
-                      setRedObjektId(d2?.objekt_id||null);
-                      setRedMaskinId(d2?.maskin_id||null);
-                      setRedVy("översikt");
-                      setSteg("redigera");
-                    }}
+                    onClick={()=>öppnaRedigera(datum)}
                     style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",padding:"8px 0" }}>
                     {/* Ring: idag=blå, redigerad=gul, idag har prioritet */}
                     {isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #0a84ff",borderRadius:"50%" }} />}
@@ -5430,7 +5327,7 @@ export default function Arbetsrapport() {
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:12,height:12,borderRadius:"50%",background:"#0A84FF" }} />
-                <span style={{ ...TYPE.meta,color:"#fff" }}>Extra tid (klicka för tidslinje)</span>
+                <span style={{ ...TYPE.meta,color:"#fff" }}>Extra tid</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:20,height:20,border:"2px solid #ffd60a",borderRadius:"50%" }} />
