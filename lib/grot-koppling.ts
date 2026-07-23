@@ -39,6 +39,45 @@ export async function hamtaKopplingar(risjobbId: string): Promise<{ ok: boolean;
   return { ok: true, rader: (data || []) as GrotKopplingRad[], message: '' };
 }
 
+// ── Källhyggen för ett risjobb: namn + länkmål till avverkningsobjektet ─────
+// Används av risjobbets detaljvy. vo_nummer först (läsbart), objekt_id fallback
+// — samma prioritet som urlIdFor i uppföljningslistan.
+export interface Kallhygge {
+  objekt_id: string;
+  namn: string;
+  urlId: string;
+  auto_avbockad: boolean;
+}
+
+export async function hamtaKallhyggen(risjobbId: string): Promise<{ ok: boolean; hyggen: Kallhygge[]; message: string }> {
+  const kopp = await hamtaKopplingar(risjobbId);
+  if (!kopp.ok) return { ok: false, hyggen: [], message: kopp.message };
+  if (kopp.rader.length === 0) return { ok: true, hyggen: [], message: '' };
+
+  const ids = kopp.rader.map(r => r.avverknings_objekt_id);
+  const { data, error } = await supabase
+    .from('dim_objekt')
+    .select('objekt_id, object_name, vo_nummer')
+    .in('objekt_id', ids);
+  if (error) return { ok: false, hyggen: [], message: 'Kunde inte läsa källhyggena: ' + error.message };
+
+  const namnMap = new Map<string, { namn: string; vo: string | null }>();
+  for (const d of data || []) {
+    namnMap.set((d as any).objekt_id, { namn: (d as any).object_name || 'Namnlöst objekt', vo: (d as any).vo_nummer || null });
+  }
+  const hyggen: Kallhygge[] = kopp.rader.map(r => {
+    const info = namnMap.get(r.avverknings_objekt_id);
+    return {
+      objekt_id: r.avverknings_objekt_id,
+      namn: info?.namn || r.avverknings_objekt_id,
+      urlId: info?.vo || r.avverknings_objekt_id,
+      auto_avbockad: r.auto_avbockad_datum != null,
+    };
+  });
+  hyggen.sort((a, b) => a.namn.localeCompare(b.namn, 'sv'));
+  return { ok: true, hyggen, message: '' };
+}
+
 // ── Spara urvalet (ersätter hela mängden för risjobbet) ───────────────────
 // Ärlig sparning: både borttag och tillägg verifieras mot faktiskt utfall.
 export async function sparaKopplingar(risjobbId: string, valda: string[]): Promise<Utfall> {
