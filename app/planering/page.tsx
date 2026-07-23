@@ -9340,19 +9340,18 @@ export default function PlannerPage() {
                 </div>
               )}
 
-              <div style={{ marginBottom: 14, background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '12px 14px' }}>
-                <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.4)', marginBottom: 8 }}>Träd per ha → avstånd</div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {([[10, 32], [20, 22], [30, 18], [50, 14]] as [number, number][]).map(([n, m]) => {
-                    const hit = loN != null && hiN != null && n >= loN && n <= hiN;
-                    return (
-                      <div key={n} style={{ flex: 1, textAlign: 'center', padding: '9px 4px', borderRadius: 10, background: hit ? 'rgba(10,132,255,0.22)' : 'rgba(255,255,255,0.04)', border: hit ? '1px solid rgba(10,132,255,0.5)' : '1px solid transparent' }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: hit ? '#4da3ff' : '#fff' }}>{n}</div>
-                        <div style={{ fontSize: 12, color: hit ? '#4da3ff' : 'rgba(255,255,255,0.5)' }}>{m} m</div>
-                      </div>
-                    );
-                  })}
-                </div>
+              {/* Omräkningstabell — tunt STÖD, inte tryckbart. Direktivet ska dominera. */}
+              <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5 }}>
+                <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: 'rgba(255,255,255,0.3)', marginRight: 2 }}>träd/ha</span>
+                {([[10, 32], [20, 22], [30, 18], [50, 14]] as [number, number][]).map(([n, m], i) => {
+                  const hit = loN != null && hiN != null && n >= loN && n <= hiN;
+                  return (
+                    <span key={n} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+                      {i > 0 && <span style={{ color: 'rgba(255,255,255,0.22)' }}>·</span>}
+                      <span style={{ color: hit ? '#4da3ff' : 'rgba(255,255,255,0.55)', fontWeight: hit ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>{n} → {m} m</span>
+                    </span>
+                  );
+                })}
               </div>
 
               {egna && (
