@@ -92,11 +92,19 @@ export function harExternSkotning(obj: any): boolean {
   }
 }
 
+// Extern skördare = annans maskin avverkar, vi skotar bara. Spegelbild av
+// extern skotning. Boolean-kolumn dim_objekt.extern_skordning (symmetri med
+// egen_skotning i schemat); läses defensivt så koden tål en DB utan kolumnen.
+export function harExternSkordning(obj: any): boolean {
+  return obj?.extern_skordning === true;
+}
+
 export function filStatus(obj: any, rader: MaskinFiler[] | undefined, opts?: { skotareSanderEjFiler?: boolean }): {
   skordare: MaskinslagStatus;
   skotare: MaskinslagStatus;
   skotareEjOrsak: 'egen skotning' | 'extern skotare' | 'sänder inte filer' | null;
-  skordareEjOrsak: 'risskotning' | 'klippning' | null;
+  skordareEjOrsak: 'risskotning' | 'klippning' | 'extern skördare' | null;
+  ovantadSkordardata: boolean;
   ovantadSkotardata: boolean;
 } {
   const r = rader || [];
@@ -110,7 +118,11 @@ export function filStatus(obj: any, rader: MaskinFiler[] | undefined, opts?: { s
   // vinner alltid (maskinen kanske började sända).
   const skotareEjOrsak = egenExternOrsak
     || (opts?.skotareSanderEjFiler ? 'sänder inte filer' as const : null);
-  const skordareEjOrsak = obj?.risskotning === true ? 'risskotning' as const
+  // Extern skördare -> skördare förväntas ej (grå), spegelbild av extern
+  // skotning. risskotning/klippning gäller rena skotarjobb där aggregatet
+  // sitter på skotaren.
+  const skordareEjOrsak = harExternSkordning(obj) ? 'extern skördare' as const
+    : obj?.risskotning === true ? 'risskotning' as const
     : obj?.klippning === true ? 'klippning' as const
     : null;
   return {
@@ -118,8 +130,9 @@ export function filStatus(obj: any, rader: MaskinFiler[] | undefined, opts?: { s
     skotare: harSkotarfiler ? 'data' : (skotareEjOrsak ? 'forvantas_ej' : 'saknas'),
     skotareEjOrsak,
     skordareEjOrsak,
-    // Oväntad = data trots egen/extern skotning. Gäller INTE sander_filer-
-    // flaggan — där är ny data goda nyheter, ingen flagga.
+    // Oväntad = data trots att maskinslaget inte förväntas. Gäller INTE
+    // sander_filer-flaggan — där är ny data goda nyheter, ingen flagga.
+    ovantadSkordardata: harSkordarfiler && harExternSkordning(obj),
     ovantadSkotardata: harSkotarfiler && egenExternOrsak !== null,
   };
 }
