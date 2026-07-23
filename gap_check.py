@@ -36,7 +36,7 @@ Körning:
   python gap_check.py --quiet    # bara logg (för schemalagd körning)
   python gap_check.py --days 30  # annat fönster
 """
-import os, sys, glob, json, argparse, datetime, urllib.request
+import os, sys, glob, json, argparse, datetime, urllib.request, urllib.error
 from collections import defaultdict
 
 try:  # Windows-konsol är ofta cp1252 — loggen är utf-8, gör utskriften det med
@@ -300,6 +300,41 @@ def check_deploy_drift():
     return [], 'OK', f'OK — {len(DRIFT_FILER)} importfiler byte-identiska med origin/main ({sha})'
 
 
+def check_import_fel():
+    """import_fel-rader senaste 8 dygnen (täcker en veckokörning med
+    marginal) -> LARM-rader. Varje rad är ett verifierat datatapp — en
+    tabellskrivning som misslyckades i importen (upsert_data:s felgren).
+    Wisent-läxan 21/7: skiftdata tappades tyst i en logg ingen läser;
+    nu ska tappet nå både datahälsan (läser tabellen direkt) och den
+    här kontrollen. READ-ONLY.
+    -> (larmrader, antal | None om tabellen inte kunde läsas)."""
+    try:
+        sedan = (datetime.datetime.now(datetime.timezone.utc)
+                 - datetime.timedelta(days=8)).isoformat()
+        req = urllib.request.Request(
+            imp.SUPABASE_URL + '/rest/v1/import_fel'
+            + '?tid=gte.' + sedan.replace('+', '%2B')
+            + '&select=tid,tabell,filnamn,felkod,feltext&order=tid.desc&limit=100',
+            headers=_hdr())
+        rows = json.loads(urllib.request.urlopen(req, timeout=30).read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', 'replace')[:200]
+        # PostgREST säger "Could not find the table ... in the schema cache"
+        # (PGRST205) när migrationen inte är körd — larma inte i evighet då.
+        if ('does not exist' in body or 'Could not find the table' in body
+                or 'PGRST205' in body):
+            return [], None
+        return [f'  LARM  import_fel gick inte att läsa (HTTP {e.code}): {body}'], None
+    except Exception as e:
+        return [f'  LARM  import_fel gick inte att läsa: {e}'], None
+    larm = [
+        f'  LARM  IMPORTFEL {str(r.get("tid", ""))[:16]} tabell={r.get("tabell")} '
+        f'fil={r.get("filnamn") or "?"} {r.get("felkod")}: {(r.get("feltext") or "")[:120]}'
+        for r in rows
+    ]
+    return larm, len(rows)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--quiet', action='store_true', help='Bara logg, ingen utskrift (schemalagd körning).')
@@ -348,6 +383,15 @@ def main():
     L.append(f'    deploy-drift: {drift_detalj}')
     L.extend(drift_larm)
     alarms.extend(drift_larm)   # drift-larm ska larma: LARM-fil + exit-kod 1
+
+    # ── Del 4: tappades något vid import? (import_fel, senaste 8 dygnen) ──
+    fel_larm, fel_antal = check_import_fel()
+    if fel_antal is None and not fel_larm:
+        L.append('    import_fel: tabellen saknas (migration ej körd) — hoppar kontrollen')
+    else:
+        L.append(f'    import_fel senaste 8 dygnen: {fel_antal if fel_antal is not None else "?"} rader')
+    L.extend(fel_larm)
+    alarms.extend(fel_larm)     # datatapp ska larma — det var så Wisent-tappet gömde sig
 
     if alarms:
         L.append(f'>>> {len(alarms)} LARM — kontrollera per (maskin, dag) ovan.')

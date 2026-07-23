@@ -100,6 +100,17 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     print("FEL: SUPABASE_URL och SUPABASE_SERVICE_ROLE_KEY måste finnas i .env.local")
     sys.exit(1)
 
+# Nedre gräns för arbetsdag-bygget — SAMMA sanning som Vercel-routens
+# SYNK_FRAN i app/api/mom-import/route.ts. Två runtimes kan inte dela en
+# konstant, så de delar env-nyckel (MOM_SYNK_FRAN) och default — flyttas
+# gränsen görs det ALLTID i par (rutten + här).
+# Bakgrund: fakt_skift-rader före gränsen bär pre-#145-felattribution
+# (OperatorKey), och historiska arbetsdagar är redan manuellt rättade.
+# Utan gränsen återskapade omimporten av Lärk-filen (2026-07-22) 30h
+# arbetsdagar för 7–9 juli på FEL person — exakt det Vercel-routens
+# gräns fanns för att hindra, fast via den här andra skrivvägen.
+MOM_SYNK_FRAN = _env.get('MOM_SYNK_FRAN') or os.getenv('MOM_SYNK_FRAN') or '2026-07-14'
+
 # OneDrive-mappar
 ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
 INKOMMANDE = os.path.join(ONEDRIVE_BASE, "Inkommande")
@@ -2590,6 +2601,28 @@ def insert_if_not_exists(table: str, data: List[Dict], filnamn_key: str = 'filna
         return 0
 
 
+def _rapportera_import_fel(tabell: str, filnamn, antal: int, felkod, feltext):
+    """Skriv ett tabellskrivfel till import_fel — så datatapp SYNS i
+    datahälsan och gap_check i stället för att dö i en oläst logg
+    (Wisent-läxan 21/7: felet loggades men ingen såg det).
+    Fail-soft: fel-rapportering får ALDRIG fälla importen, och aldrig
+    rekursera på sig själv."""
+    if tabell == 'import_fel':
+        return
+    try:
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/import_fel",
+            headers=SUPABASE_HEADERS,
+            json={'tabell': tabell,
+                  'filnamn': filnamn,
+                  'antal_rader': antal,
+                  'felkod': str(felkod)[:50],
+                  'feltext': str(feltext)[:500]},
+            timeout=15)
+    except Exception:
+        pass
+
+
 def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, on_conflict: str = 'merge'):
     """Upsert data till Supabase via REST API. on_conflict: 'merge' or 'ignore'"""
     if not data:
@@ -2646,9 +2679,19 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
             return len(normalized)
         else:
             logger.error(f"  Fel vid sparande till {table}: {response.status_code} - {response.text[:200]}")
+            _rapportera_import_fel(
+                table,
+                normalized[0].get('filnamn') if normalized else None,
+                len(normalized), response.status_code, response.text)
             return 0
     except Exception as e:
         logger.error(f"  Fel vid sparande till {table}: {e}")
+        fil = None
+        try:
+            fil = data[0].get('filnamn') if data and isinstance(data[0], dict) else None
+        except Exception:
+            pass
+        _rapportera_import_fel(table, fil, len(data), type(e).__name__, e)
         return 0
 
 # ── dim_objekt-skrivpolicy ────────────────────────────────────────────────
@@ -2854,6 +2897,20 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
             if datum and op_id and op_to_medarb.get(op_id):
                 beforda_datum.add(datum)
 
+        if not beforda_datum:
+            return
+
+        # Synk-gränsen (se MOM_SYNK_FRAN vid env-inläsningen): bygg ALDRIG
+        # arbetsdagar bakåt förbi gränsen — gamla fakt_skift bär pre-#145-
+        # felattribution och historiska dagar är manuellt rättade.
+        fore_grans = {d for d in beforda_datum if d < MOM_SYNK_FRAN}
+        if fore_grans:
+            logger.info(
+                f"  Arbetsdag: hoppar {len(fore_grans)} datum före synk-gränsen "
+                f"{MOM_SYNK_FRAN}: {', '.join(sorted(fore_grans))} — rätta "
+                f"fakt_skift-attributionen först och flytta gränsen medvetet "
+                f"via MOM_SYNK_FRAN om bakåtbygge verkligen behövs")
+            beforda_datum -= fore_grans
         if not beforda_datum:
             return
 
