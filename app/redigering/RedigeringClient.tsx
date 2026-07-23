@@ -84,9 +84,9 @@ const GEMENSAMMA_FALT = ['vo_nummer', 'object_name', 'skogsagare', 'bolag', 'ink
   'huvudtyp', 'atgard', 'grot_anpassad', 'timpeng', 'exkludera', 'extern_skordning',
   'timpeng_undantag_timmar_skordare', 'timpeng_undantag_timmar_skotare',
   'timpeng_undantag_volym', 'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']
-const SKORDARFALT = ['stubbbehandling', 'skordning_avslutad']
+const SKORDARFALT = ['stubbbehandling', 'skordning_avslutad', 'skordning_avslutad_auto']
 const SKOTARFALT = ['risskotning', 'egen_skotning', 'extra_vagn', 'klippning',
-  'skotad_volym_manuell', 'skotning_avslutad', 'ovrigt_info']
+  'skotad_volym_manuell', 'skotning_avslutad', 'skotning_avslutad_auto', 'ovrigt_info']
 
 // Rader som hör till samma objekt: samma icke-tomma vo_nummer, annars bara
 // raden själv. maskin_typ är berikad vid inläsning.
@@ -185,6 +185,67 @@ function gruppSenasteData(g: any, fildata: any): string | null {
   return max
 }
 
+// Senaste datadatum för ETT maskinslag i gruppen (skordare/skotare).
+function gruppSenasteDataTyp(g: any, fildata: any, typ: 'skordare' | 'skotare'): string | null {
+  if (fildata?.status !== 'ok') return null
+  let max: string | null = null
+  ;(g.rader || []).forEach((o: any) => {
+    (fildata.perObjekt.get(o.objekt_id) || []).forEach((r: any) => {
+      if (r.typ === typ && r.senasteData && (!max || r.senasteData > max)) max = r.senasteData
+    })
+  })
+  return max
+}
+
+// AVSLUTSFÖRSLAG per maskinslag. Föreslår ALDRIG autoskriv — bara ett datum
+// att godkänna. Två signaler:
+//   1) maskindata: maskinens end_date (starkast — 80% exakt / 86% ≤3 dgr mot
+//      Martins facit för skördning, 81% ≤3 dgr för skotning)
+//   2) stale: end_date saknas men senaste data äldre än STALE_DAGAR -> objektet
+//      körs inte längre, föreslå sista datadatum
+// Föreslår bara för maskinslag som är VÅRT att avsluta (ej extern skördning /
+// egen-extern skotning) och som inte redan är avslutat.
+const STALE_DAGAR = 21 // 3 veckor
+function avslutsForslag(g: any, fildata: any): Array<{
+  field: string; autoField: string; label: string; typ: 'skordare' | 'skotare';
+  maskinTyp: 'harvester' | 'forwarder'; datum: string; kalla: 'maskindata' | 'stale'; dagar?: number
+}> {
+  const rader = g.rader || []
+  if (rader.every((o: any) => o.exkludera === true)) return []
+  const idag = new Date()
+  const dagarSedan = (ymd: string) => Math.floor((idag.getTime() - new Date(ymd + 'T00:00:00').getTime()) / 86400000)
+
+  const forslag: any[] = []
+  const bygg = (
+    field: string, autoField: string, label: string, typ: 'skordare' | 'skotare',
+    maskinTyp: string, hoppaOver: boolean,
+  ) => {
+    if (hoppaOver) return
+    if (rader.some((o: any) => !!o[field])) return // redan avslutat i gruppen
+    // Primär: maskinens end_date (max över maskinslagets rader)
+    let endYmd: string | null = null
+    rader.forEach((o: any) => {
+      if ((o.maskin_typ || '').toLowerCase() === maskinTyp && o.end_date) {
+        const y = formatYMD(o.end_date)
+        if (y && (!endYmd || y > endYmd)) endYmd = y
+      }
+    })
+    if (endYmd) { forslag.push({ field, autoField, label, typ, maskinTyp, datum: endYmd, kalla: 'maskindata' }); return }
+    // Fallback: stale — senaste data för maskinslaget äldre än STALE_DAGAR
+    const sista = gruppSenasteDataTyp(g, fildata, typ)
+    if (sista) {
+      const d = dagarSedan(sista)
+      if (d >= STALE_DAGAR) forslag.push({ field, autoField, label, typ, maskinTyp, datum: sista, kalla: 'stale', dagar: d })
+    }
+  }
+
+  const externSkordar = rader.some((o: any) => harExternSkordning(o))
+  const annanSkotar = rader.some((o: any) => o.egen_skotning === true || harExternSkotning(o))
+  bygg('skordning_avslutad', 'skordning_avslutad_auto', 'skördning', 'skordare', 'harvester', externSkordar)
+  bygg('skotning_avslutad', 'skotning_avslutad_auto', 'skotning', 'skotare', 'forwarder', annanSkotar)
+  return forslag
+}
+
 // Boolean-switchar vars VÄRDE läses tillbaka efter save. Radräkning bevisar
 // att en rad rördes — inte att switchen faktiskt landade i den. En stale
 // klient som utelämnar fältet, ett RLS-partiellt skriv eller en felroutad
@@ -192,6 +253,7 @@ function gruppSenasteData(g: any, fildata: any): string | null {
 // Just den tysta lögnen ska switchar aldrig kunna bära igen.
 const VERIFIERA_BOOL = ['grot_anpassad', 'timpeng', 'exkludera', 'stubbbehandling',
   'risskotning', 'egen_skotning', 'extra_vagn', 'klippning', 'extern_skordning',
+  'skordning_avslutad_auto', 'skotning_avslutad_auto',
   'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']
 
 // Direktuppdatering med ÄRLIG sparning: .select() räknar träffade rader OCH
@@ -225,7 +287,7 @@ function plocka(obj: any, falt: string[]): any {
   const ut: any = {}
   for (const f of falt) ut[f] = obj[f] ?? null
   // Booleans ska aldrig sparas som null
-  for (const f of ['grot_anpassad', 'timpeng', 'exkludera', 'stubbbehandling', 'risskotning', 'egen_skotning', 'extra_vagn', 'klippning', 'extern_skordning']) {
+  for (const f of ['grot_anpassad', 'timpeng', 'exkludera', 'stubbbehandling', 'risskotning', 'egen_skotning', 'extra_vagn', 'klippning', 'extern_skordning', 'skordning_avslutad_auto', 'skotning_avslutad_auto']) {
     if (f in ut) ut[f] = ut[f] === true
   }
   for (const f of ['timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']) {
@@ -1323,27 +1385,32 @@ function MaskinBadges({ syskon, kortInfo }: any) {
 // "Maskinen rapporterar avslut"-ruta + snabbfix. end_date och maskin_id
 // skrivs av SAMMA fil vid varje import — end_date tillhör alltså maskinen i
 // maskin_id. Anroparen renderar rutan bara i rätt maskinslags undersida.
-function MaskinAvslutRuta({ obj, set, field, label }: any) {
-  if (!obj.end_date) return null
-  const display = formatEndDateDisplay(obj.end_date)
-  const ymd = formatYMD(obj.end_date)
-  const alreadySet = obj[field]
+// Avslutsförslag i sheeten (skördning/skotning). Godkänn = lokalt set av
+// avslutsdatum + auto-flaggan (källmärkning), sparas av stora Spara-knappen.
+// forslag kommer gruppberäknat från avslutsForslag() — end_date eller stale.
+// Aldrig autoskriv; knappen kräver ett tryck. Redan avslutat -> ingen ruta.
+function AvslutForslagRuta({ obj, set, field, autoField, label, forslag }: any) {
+  if (obj[field]) {
+    // Redan avslutat — visa källmärkning om det sattes via maskindata-förslag
+    if (obj[autoField]) {
+      return <div style={styles.machineEndDone}>{capFirst(label)} avslutad {fmtKortDatum(obj[field])} · ur maskindata</div>
+    }
+    return null
+  }
+  if (!forslag) return null
   return (
     <div style={styles.machineEndInfo}>
-      <div style={styles.machineEndLabel}>Maskinen rapporterar avslut</div>
-      <div style={styles.machineEndValue}>{display}</div>
-      {!alreadySet && ymd && (
-        <button
-          onClick={() => set({ ...obj, [field]: ymd })}
-          className="tap-press"
-          style={styles.machineEndFixBtn}
-        >
-          Sätt {label} avslutad till {ymd}
-        </button>
-      )}
-      {alreadySet && (
-        <div style={styles.machineEndDone}>{capFirst(label)} redan markerad avslutad ({obj[field]})</div>
-      )}
+      <div style={styles.machineEndLabel}>
+        {forslag.kalla === 'maskindata' ? 'Maskinen rapporterar avslut' : `Ingen data på ${forslag.dagar} dagar`}
+      </div>
+      <div style={styles.machineEndValue}>{fmtKortDatum(forslag.datum)}</div>
+      <button
+        onClick={() => set({ ...obj, [forslag.field]: forslag.datum, [forslag.autoField]: true })}
+        className="tap-press"
+        style={styles.machineEndFixBtn}
+      >
+        Markera {forslag.label} avslutad {fmtKortDatum(forslag.datum)}
+      </button>
     </div>
   )
 }
@@ -1403,8 +1470,7 @@ function SubIdentitet({ obj, set, inkopare, setInkopare, listAtgarder }: any) {
 
 // UNDERSIDA: Skördare — egenskaper + avslut (synlighet styrs av faktisk data
 // i översikten, #167: rätt fält för rätt maskin)
-function SubSkordare({ obj, set, syskon, onRaderUppdaterade }: any) {
-  const radMaskinTyp = (obj.maskin_typ || '').toLowerCase()
+function SubSkordare({ obj, set, syskon, onRaderUppdaterade, forslag }: any) {
   const [grotSpar, setGrotSpar] = useState({ sparar: false, fel: '' })
 
   // grot_hamtad är ett GEMENSAMT objekt-faktum → skrivs till HELA VO-gruppen.
@@ -1466,11 +1532,11 @@ function SubSkordare({ obj, set, syskon, onRaderUppdaterade }: any) {
           <DateToggle
             label="Skördning avslutad"
             date={obj.skordning_avslutad || null}
-            onToggle={(val: any) => set({ ...obj, skordning_avslutad: val })}
-            onDateChange={(val: any) => set({ ...obj, skordning_avslutad: val })}
+            onToggle={(val: any) => set({ ...obj, skordning_avslutad: val, skordning_avslutad_auto: false })}
+            onDateChange={(val: any) => set({ ...obj, skordning_avslutad: val, skordning_avslutad_auto: false })}
           />
         </div>
-        {radMaskinTyp === 'harvester' && <MaskinAvslutRuta obj={obj} set={set} field="skordning_avslutad" label="skördning" />}
+        <AvslutForslagRuta obj={obj} set={set} field="skordning_avslutad" autoField="skordning_avslutad_auto" label="skördning" forslag={forslag} />
       </div>
     </IosGroup>
   )
@@ -1745,9 +1811,8 @@ function SubSkotning({ obj, set }: any) {
 // avslut. Färdigskotat-knappen skriver direkt till DB (ärlig sparning med
 // radräkning) och speglas i snapshotet via onRaderUppdaterade så den inte
 // räknas som osparad ändring.
-function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAvslutad, skotareSanderEj, syskon, onRaderUppdaterade }: any) {
+function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAvslutad, skotareSanderEj, syskon, onRaderUppdaterade, forslag }: any) {
   const [fardigskotat, setFardigskotat] = useState({ sparar: false, fel: '' })
-  const radMaskinTyp = (obj.maskin_typ || '').toLowerCase()
 
   // TILLDELAD SKOTARE — planeringens skotare. dim_objekt.maskin_id är
   // SKÖRDAREN och används ALDRIG här. Lassdata vinner i vyerna när den finns;
@@ -2045,12 +2110,12 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
           <DateToggle
             label="Skotning avslutad"
             date={obj.skotning_avslutad || null}
-            onToggle={(val: any) => set({ ...obj, skotning_avslutad: val })}
-            onDateChange={(val: any) => set({ ...obj, skotning_avslutad: val })}
+            onToggle={(val: any) => set({ ...obj, skotning_avslutad: val, skotning_avslutad_auto: false })}
+            onDateChange={(val: any) => set({ ...obj, skotning_avslutad: val, skotning_avslutad_auto: false })}
           />
           {skotningWarning && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{skotningWarning}</div>}
         </div>
-        {radMaskinTyp === 'forwarder' && <MaskinAvslutRuta obj={obj} set={set} field="skotning_avslutad" label="skotning" />}
+        <AvslutForslagRuta obj={obj} set={set} field="skotning_avslutad" autoField="skotning_avslutad_auto" label="skotning" forslag={forslag} />
       </div>
     </IosGroup>
   )
@@ -2285,6 +2350,11 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   const skotatTotal = syskon.reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0)
   const gruppSkotningAvslutad = syskon.some((o: any) => !!o.skotning_avslutad)
   const skotareSanderEj = gruppSkotareSanderEj(syskon, fildata)
+  // Avslutsförslag för gruppen (end_date/stale) — samma som Pågående-kortet,
+  // matchat per maskinslag till respektive undersida
+  const sheetForslag = valtObjekt ? avslutsForslag({ rader: syskon, rep: valtObjekt }, fildata) : []
+  const skordForslag = sheetForslag.find((f: any) => f.field === 'skordning_avslutad') || null
+  const skotForslag = sheetForslag.find((f: any) => f.field === 'skotning_avslutad') || null
 
   // Gäller ALLA stängningsvägar (✕, Esc, drag, backdrop) — även från undersida
   const attemptCloseModal = () => {
@@ -2399,9 +2469,9 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
         {valtObjekt && subpage === 'identitet' && (
           <SubIdentitet obj={valtObjekt} set={setValtObjekt} inkopare={inkopare} setInkopare={setInkopare} listAtgarder={listAtgarder} />
         )}
-        {valtObjekt && subpage === 'skordare' && <SubSkordare obj={valtObjekt} set={setValtObjekt} syskon={syskon} onRaderUppdaterade={raderUppdaterade} />}
+        {valtObjekt && subpage === 'skordare' && <SubSkordare obj={valtObjekt} set={setValtObjekt} syskon={syskon} onRaderUppdaterade={raderUppdaterade} forslag={skordForslag} />}
         {valtObjekt && subpage === 'skotare' && (
-          <SubSkotare obj={valtObjekt} set={setValtObjekt} info={info} skordatTotal={skordatTotal} skotatTotal={skotatTotal} gruppSkotningAvslutad={gruppSkotningAvslutad} skotareSanderEj={skotareSanderEj} syskon={syskon} onRaderUppdaterade={raderUppdaterade} />
+          <SubSkotare obj={valtObjekt} set={setValtObjekt} info={info} skordatTotal={skordatTotal} skotatTotal={skotatTotal} gruppSkotningAvslutad={gruppSkotningAvslutad} skotareSanderEj={skotareSanderEj} syskon={syskon} onRaderUppdaterade={raderUppdaterade} forslag={skotForslag} />
         )}
         {valtObjekt && subpage === 'skotning' && <SubSkotning obj={valtObjekt} set={setValtObjekt} />}
         {valtObjekt && subpage === 'pris' && <SubPris obj={valtObjekt} set={setValtObjekt} />}
@@ -2510,7 +2580,7 @@ function hittaKandidater(jobb: any, objekt: any[]): any[] {
 // maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
 // eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
 // med två åtgärder: Namnge (öppnar sheeten) eller Ignorera (exkludera).
-function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, warnings, senasteData, onOppna, onIgnorera, delay }: any) {
+function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, warnings, senasteData, forslag, onGodkannForslag, onOppna, onIgnorera, delay }: any) {
   const namnlos = !obj.object_name
   const meta = []
   if (modell) meta.push(modell)
@@ -2541,6 +2611,23 @@ function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, war
         </div>
         {meta.length > 0 && <div style={styles.kortInfo}>{meta.join(' · ')}</div>}
         <KortBadges obj={obj} volym={volym} warnings={warnings} />
+        {(forslag || []).length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
+            {forslag.map((f: any) => (
+              <button
+                key={f.field}
+                onClick={() => onGodkannForslag(f)}
+                className="tap-press"
+                style={styles.forslagBtn as any}
+              >
+                <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
+                  Markera {f.label} avslutad {fmtKortDatum(f.datum)}
+                </span>
+                <span style={styles.forslagKalla}>{f.kalla === 'maskindata' ? 'ur maskindata' : `ingen data på ${f.dagar} dgr`}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {namnlos && (
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
             <button onClick={onOppna} className="tap-press" style={{ ...knapp, border: 'none', background: '#adc6ff', color: '#000' }}>Namnge</button>
@@ -2595,6 +2682,8 @@ function ObjektRedigeringInner() {
   const [oppetKopplaJobb, setOppetKopplaJobb] = useState<string | null>(null) // larmrad med expanderad kandidatlista
   const [kopplaVal, setKopplaVal] = useState<any>(null) // { jobb, kandidat } -> ConfirmDialog
   const [kopplar, setKopplar] = useState(false)
+  const [avslutVal, setAvslutVal] = useState<any>(null) // { g, forslag } -> ConfirmDialog (massverkan från kort)
+  const [avslutar, setAvslutar] = useState(false)
   // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
   const matchning = useMatchning()
   // Fildata per objekt (kortprickar + Filer-undersidan)
@@ -2787,6 +2876,28 @@ function ObjektRedigeringInner() {
     setSkapar(false)
   }
 
+  // Godkänn ett avslutsförslag (massverkan från kortet, via ConfirmDialog).
+  // ALDRIG autoskriv — detta körs bara på Martins tryck + bekräftelse.
+  // Direktskrivning till maskinslagets rader i gruppen, källmärkt auto=true,
+  // med #222-värdeverifiering. Speglas i lokal state.
+  async function godkannAvslut() {
+    if (!avslutVal || avslutar) return
+    const { g, forslag } = avslutVal
+    setAvslutar(true)
+    setSaveError('')
+    const ids = raderForMaskinslag(g.rader, forslag.maskinTyp, g.rep.objekt_id)
+    const patch = { [forslag.field]: forslag.datum, [forslag.autoField]: true }
+    const r = await direktPatchDimObjekt(ids, patch)
+    if (r.ok) {
+      setObjekt((prev: any[]) => prev.map((o: any) => ids.includes(o.objekt_id) ? { ...o, ...patch } : o))
+      setAvslutVal(null)
+    } else {
+      setSaveError(r.message || 'Kunde inte markera avslutad')
+      setTimeout(() => setSaveError(''), 6000)
+    }
+    setAvslutar(false)
+  }
+
   // Koppla maskinjobbet till ett BEFINTLIGT objekt: ny syskonrad i målets
   // VO-grupp med objekt_id = maskinens jobbnummer (så framtida import mergar
   // dit) och målets vo_nummer + gemensamma fält (multi-rad-modellens
@@ -2977,6 +3088,8 @@ function ObjektRedigeringInner() {
               volym={volymForGrupp(objekt, kortInfo, g.rep)}
               warnings={gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep))}
               senasteData={listFilter === 'pagaende' ? gruppSenasteData(g, fildata) : null}
+              forslag={listFilter === 'pagaende' ? avslutsForslag(g, fildata) : []}
+              onGodkannForslag={(f: any) => setAvslutVal({ g, forslag: f })}
               delay={i * 60}
               onOppna={() => openObjekt(g.rep)}
               onIgnorera={() => ignoreraGrupp(g)}
@@ -3083,6 +3196,15 @@ function ObjektRedigeringInner() {
         cancelLabel="Avbryt"
         onConfirm={skapaObjektFranJobb}
         onCancel={() => setSkapaJobb(null)}
+      />
+      <ConfirmDialog
+        open={!!avslutVal}
+        title="Markera avslutad?"
+        message={avslutVal ? `${capFirst(avslutVal.forslag.label)} för "${avslutVal.g.rep.object_name || avslutVal.g.rep.vo_nummer}" markeras avslutad ${fmtKortDatum(avslutVal.forslag.datum)} — ${avslutVal.forslag.kalla === 'maskindata' ? 'datum ur maskindata' : `ingen data på ${avslutVal.forslag.dagar} dagar`}. Sätts som auto-bekräftat och går att ändra i sheeten.` : ''}
+        confirmLabel={avslutar ? 'Sparar …' : 'Markera avslutad'}
+        cancelLabel="Avbryt"
+        onConfirm={godkannAvslut}
+        onCancel={() => setAvslutVal(null)}
       />
       {saveError && (
         <div style={styles.saveErrorToast} role="alert">{saveError}</div>
@@ -3302,6 +3424,9 @@ const styles = {
   larmIkon: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 10, background: 'rgba(255,159,10,0.2)', color: '#FF9F0A', fontSize: 13, fontWeight: 700, flexShrink: 0 },
   larmRad: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' },
   skapaBtn: { flexShrink: 0, minHeight: 44, padding: '0 16px', borderRadius: 12, border: '1px solid rgba(173,198,255,0.4)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' },
+  // Avslutsförslag på Pågående-kortet: godkänn med en tapp (ConfirmDialog i föräldern)
+  forslagBtn: { display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 44, padding: '8px 14px', borderRadius: 12, border: '1px solid rgba(48,209,88,0.35)', background: 'rgba(48,209,88,0.10)', color: '#8ee6a4', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' },
+  forslagKalla: { flexShrink: 0, fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.4)' },
   // Kandidatlista under larmrad — koppla till befintligt objekt
   kandidatLista: { padding: '10px 16px 14px', borderTop: '1px solid rgba(255,159,10,0.12)', background: 'rgba(0,0,0,0.15)' },
   kandidatRubrik: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px', marginBottom: 8 },
