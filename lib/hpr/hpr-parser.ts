@@ -226,7 +226,8 @@ export function parseHpr(xml: string | Buffer): HprParseResult {
   // --- Stockar (Stem → SingleTreeProcessedStem → Log) ---
   const logs: HprLog[] = [];
   let unclassifiable = 0;
-  let unclassifiableAuto = 0;
+  let unclassifiableAutoOver = 0;  // grovre/langre an storsta klassen - forvantad verklighet
+  let unclassifiableAutoOther = 0; // under minsta klass / saknad diameter - trolig bugg
   for (const stem of asArray(machine.Stem)) {
     const stemKey = text(stem.StemKey) ?? "";
     const harvestDate = text(stem.HarvestDate);
@@ -267,7 +268,13 @@ export function parseHpr(xml: string | Buffer): HprParseResult {
           const l = classify(log.lengthCm, p.lenLimits, p.lenMax);
           if (d == null || l == null) {
             unclassifiable++;
-            if (log.cuttingReason === "Automatic") unclassifiableAuto++;
+            if (log.cuttingReason === "Automatic") {
+              const overMax =
+                (dia != null && p.diaMax != null && dia > p.diaMax) ||
+                (p.lenMax != null && log.lengthCm > p.lenMax);
+              if (overMax) unclassifiableAutoOver++;
+              else unclassifiableAutoOther++;
+            }
           }
         }
       }
@@ -279,13 +286,18 @@ export function parseHpr(xml: string | Buffer): HprParseResult {
     logsPerProduct[l.productKey] = (logsPerProduct[l.productKey] ?? 0) + 1;
 
   if (logs.length === 0) errors.push("Inga stockar i filen");
-  if (unclassifiableAuto > 0)
+  if (unclassifiableAutoOther > 0)
     errors.push(
-      `${unclassifiableAuto} AUTOMATISKT kapade stockar utanför klassgränserna — trolig bugg i klasslogik eller enheter`
+      `${unclassifiableAutoOther} AUTOMATISKT kapade stockar UNDER minsta klass eller utan diameter — trolig bugg i klasslogik eller enheter`
     );
-  if (unclassifiable - unclassifiableAuto > 0)
+  if (unclassifiableAutoOver > 0)
     warnings.push(
-      `${unclassifiable - unclassifiableAuto} manuellt kapade stockar utanför matrisen (överlängder m.m. — förväntat)`
+      `${unclassifiableAutoOver} automatiskt kapade stockar grövre/längre än prislistans största klass (överdimensionerade — förväntat)`
+    );
+  const manualOut = unclassifiable - unclassifiableAutoOver - unclassifiableAutoOther;
+  if (manualOut > 0)
+    warnings.push(
+      `${manualOut} manuellt kapade stockar utanför matrisen (överlängder m.m. — förväntat)`
     );
 
   return {

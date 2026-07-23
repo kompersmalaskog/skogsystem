@@ -65,7 +65,7 @@ def sort_key(p: Path):
     return (m.group(1), int(m.group(2) or 0), 0)
 
 
-def collect(maskin: str, name_filter: str | None) -> list[Path]:
+def collect(maskin: str, name_filter: str | None, fillista: str | None) -> list[Path]:
     if maskin == "alla":
         dirs = sorted(BEHANDLADE.glob("*/HPR"))
     else:
@@ -79,6 +79,17 @@ def collect(maskin: str, name_filter: str | None) -> list[Path]:
     files = sorted(set(files), key=sort_key)
     if name_filter:
         files = [p for p in files if name_filter.lower() in p.name.lower()]
+    if fillista:
+        # Exakt namnlista (en per rad) — t.ex. filer som avvisades i en tidigare
+        # körning. Saknade namn larmas, aldrig tyst tappade.
+        onskade = [r.strip() for r in open(fillista, encoding="utf-8") if r.strip()]
+        hittade = {p.name: p for p in files}
+        saknas = [n for n in onskade if n not in hittade]
+        if saknas:
+            print(f"VARNING: {len(saknas)} namn i {fillista} hittades INTE bland filerna:")
+            for n in saknas[:10]:
+                print(f"    {n}")
+        files = sorted({hittade[n] for n in onskade if n in hittade}, key=sort_key)
     return files
 
 
@@ -128,10 +139,12 @@ def main():
     ap.add_argument("--maskin", default=DEFAULT_MASKIN,
                     help=f"maskin-id eller 'alla' (default {DEFAULT_MASKIN})")
     ap.add_argument("--filter", default=None, help="substräng i filnamnet")
+    ap.add_argument("--fillista", default=None,
+                    help="textfil med exakta filnamn, ett per rad (t.ex. tidigare avvisade)")
     ap.add_argument("--api-url", default=DEFAULT_API)
     args = ap.parse_args()
 
-    files = collect(args.maskin, args.filter)
+    files = collect(args.maskin, args.filter, args.fillista)
     total_mb = sum(p.stat().st_size for p in files) / 1e6
 
     # Objektöversikt: gruppera på filnamnets objekt-del (allt före _MASKINID)
