@@ -18,7 +18,8 @@ type Flik = 'dagar' | 'flyttar'
 
 // Två nivåer som ALDRIG blandas i samma siffra:
 //  - Dagar: hela dagens körning (tillkörning + flyttar + tomkörning + hemresa)
-//  - Flyttar: de fakturerbara sträckorna (flytt_km >= 30 per enskild flytt)
+//  - Flyttar: de fakturerbara sträckorna (per enskild flytt)
+// Presentationen följer förarflödet: ETT tal i fokus per rad, detaljer bakom tryck.
 interface FlyttRad {
   id: string
   maskin_id: string
@@ -65,17 +66,13 @@ const TYP_ETIKETT: Record<string, string> = {
   produktion: 'Produktion', service: 'Service', kunduppdrag: 'Kunduppdrag', annat: 'Annat',
 }
 
-function fmtMin(min: number | null): string {
+/** Kompakt tid för rader/summering: "52 min", "1 h", "1 h 12 min". */
+function fmtTid(min: number | null): string {
   if (min == null) return '—'
   const m = Math.round(min)
   if (m < 60) return `${m} min`
-  return `${Math.floor(m / 60)} tim ${m % 60} min`
-}
-
-/** Mätt tid för en flytt = till-maskin + flytt (aldrig någon beräknad del). */
-function mattTid(f: FlyttRad): number | null {
-  if (f.tid_till_maskin_min == null && f.tid_flytt_min == null) return null
-  return (f.tid_till_maskin_min ?? 0) + (f.tid_flytt_min ?? 0)
+  const h = Math.floor(m / 60), r = m % 60
+  return r === 0 ? `${h} h` : `${h} h ${r} min`
 }
 
 /** ISO-vecka (måndag som veckostart). */
@@ -138,7 +135,6 @@ export default function SammanstallningClient() {
   const [offset, setOffset] = useState(0)
   const [flyttar, setFlyttar] = useState<FlyttRad[] | null>(null)
   const [dagar, setDagar] = useState<DagRad[] | null>(null)
-  const [dagFlyttAntal, setDagFlyttAntal] = useState<Map<string, number>>(new Map())
   const [fel, setFel] = useState<string | null>(null)
   const [maskinNamn, setMaskinNamn] = useState<Map<string, string>>(new Map())
   const [objektNamn, setObjektNamn] = useState<Map<string, string>>(new Map())
@@ -146,6 +142,8 @@ export default function SammanstallningClient() {
   const [typFilter, setTypFilter] = useState('alla')
   const [maskinFilter, setMaskinFilter] = useState('alla')
   const [forareFilter, setForareFilter] = useState('alla')
+  const [oppnaDagar, setOppnaDagar] = useState<Set<string>>(new Set())
+  const [oppnaFlyttar, setOppnaFlyttar] = useState<Set<string>>(new Set())
 
   const period = useMemo(() => periodIntervall(periodTyp, offset), [periodTyp, offset])
 
@@ -153,6 +151,7 @@ export default function SammanstallningClient() {
     let avbruten = false
     ;(async () => {
       setFlyttar(null); setDagar(null); setFel(null)
+      setOppnaDagar(new Set()); setOppnaFlyttar(new Set())
       const [fRes, dRes] = await Promise.all([
         supabase.from('maskin_flytt')
           .select('id, maskin_id, extern_maskin, flytt_typ, kund, flyttdag_id, fran_lat, fran_lng, fran_objekt_id, till_objekt_id, fran_plats_id, till_plats_id, till_lat, till_lng, flytt_km, mellankorning_km, total_km, fakturerbar, tid_till_maskin_min, tid_flytt_min, vader_temp_c, vader_kod, starttid, sluttid, avbruten, forare')
@@ -170,12 +169,6 @@ export default function SammanstallningClient() {
       if (dRes.error) { setFel(`Kunde inte läsa flyttdagar: ${dRes.error.message}`); return }
       setFlyttar(fRes.data || [])
       setDagar(dRes.data || [])
-
-      const antal = new Map<string, number>()
-      for (const f of fRes.data || []) {
-        if (f.flyttdag_id && !f.avbruten && f.sluttid) antal.set(f.flyttdag_id, (antal.get(f.flyttdag_id) || 0) + 1)
-      }
-      setDagFlyttAntal(antal)
 
       const objektIds = Array.from(new Set(
         (fRes.data || []).flatMap(f => [f.till_objekt_id, f.fran_objekt_id]).filter(Boolean))) as string[]
@@ -205,7 +198,49 @@ export default function SammanstallningClient() {
       ...(dagar || []).map(d => d.forare),
     ].filter(Boolean))) as string[], [flyttar, dagar])
   const maskiner = useMemo(() =>
-    Array.from(new Set((flyttar || []).map(f => f.maskin_id))), [flyttar])
+    Array.from(new Set((flyttar || []).map(f => f.maskin_id).filter(Boolean))) as string[], [flyttar])
+
+  const namnForMaskin = (id: string | null, extern: string | null) =>
+    id ? (maskinNamn.get(id) || id) : (extern || '—')
+  const namnForAnde = (objektId: string | null, platsId: string | null) =>
+    (objektId && objektNamn.get(objektId)) || (platsId && platsNamn.get(platsId)) || null
+
+  // Slutförda flyttar per dag (avbrutna/pågående räknas aldrig som "en flytt")
+  const flyttPerDag = useMemo(() => {
+    const m = new Map<string, FlyttRad[]>()
+    for (const f of flyttar || []) {
+      if (!f.flyttdag_id || f.avbruten || !f.sluttid) continue
+      const arr = m.get(f.flyttdag_id) || []
+      arr.push(f)
+      m.set(f.flyttdag_id, arr)
+    }
+    // Kronologisk ordning inom dagen (queryn är fallande)
+    Array.from(m.values()).forEach((arr: FlyttRad[]) => arr.sort((a, b) => a.starttid.localeCompare(b.starttid)))
+    return m
+  }, [flyttar])
+
+  // ── Dag-nivån (maskinfiltret gäller inte dagar — en dag kan röra flera maskiner) ──
+  // En dag = en flyttdag-rad. Två förare samma datum = två rader; förarnamnet
+  // i sekundärraden är det som skiljer dem, så det visas alltid.
+  const dagRader = useMemo(() => (dagar || []).filter(d =>
+    (forareFilter === 'alla' || d.forare === forareFilter) &&
+    (flyttPerDag.get(d.id)?.length || 0) >= 1  // dagar med 0 flyttar är inte kördagar
+  ), [dagar, forareFilter, flyttPerDag])
+  const kordagar = useMemo(() =>
+    dagRader.filter(d => d.status !== 'pagaende' && d.sluttid != null), [dagRader])
+
+  // Fakturerbart = Σ flytt_km för ALLA fakturerbara flyttar (kunduppdrag ingår,
+  // fakturerbara oavsett sträcka) — allt vi kan ta betalt för.
+  const fakturerbartKm = useMemo(() => (flyttar || [])
+    .filter(f => f.fakturerbar && !f.avbruten && f.sluttid &&
+      (forareFilter === 'alla' || f.forare === forareFilter))
+    .reduce((s, f) => s + (f.flytt_km ?? 0), 0), [flyttar, forareFilter])
+
+  const dagSumma = useMemo(() => ({
+    km: kordagar.reduce((s, d) => s + (d.total_km ?? 0), 0),
+    dagar: kordagar.length,
+    flyttar: kordagar.reduce((s, d) => s + (flyttPerDag.get(d.id)?.length || 0), 0),
+  }), [kordagar, flyttPerDag])
 
   // ── Flyttar-nivån ──
   const filtreradeFlyttar = useMemo(() => (flyttar || []).filter(f =>
@@ -214,36 +249,35 @@ export default function SammanstallningClient() {
     (typFilter === 'alla' || (f.flytt_typ || 'produktion') === typFilter)
   ), [flyttar, maskinFilter, forareFilter, typFilter])
   const slutforda = useMemo(() => filtreradeFlyttar.filter(f => !f.avbruten && f.sluttid != null), [filtreradeFlyttar])
-  const flyttSumma = useMemo(() => {
-    const medTid = slutforda.filter(f => mattTid(f) != null)
-    return {
-      antal: slutforda.length,
-      flyttKm: slutforda.reduce((s, f) => s + (f.flytt_km ?? 0), 0),
-      mellanKm: slutforda.reduce((s, f) => s + (f.mellankorning_km ?? 0), 0),
-      tidMatt: medTid.length ? medTid.reduce((s, f) => s + mattTid(f)!, 0) : null,
-      fakturerbara: slutforda.filter(f => f.fakturerbar).length,
-      perTyp: (['produktion', 'service', 'kunduppdrag', 'annat'] as const).map(t => ({
-        typ: t,
-        antal: slutforda.filter(f => (f.flytt_typ || 'produktion') === t).length,
-        km: slutforda.filter(f => (f.flytt_typ || 'produktion') === t).reduce((s, f) => s + (f.flytt_km ?? 0), 0),
-      })).filter(r => r.antal > 0),
-    }
-  }, [slutforda])
+  const flyttSumma = useMemo(() => ({
+    antal: slutforda.length,
+    flyttKm: slutforda.reduce((s, f) => s + (f.flytt_km ?? 0), 0),
+    tidMatt: slutforda.reduce((s, f) => s + (f.tid_flytt_min ?? 0), 0),
+    utanTid: slutforda.filter(f => f.tid_flytt_min == null).length,
+    fakturerbara: slutforda.filter(f => f.fakturerbar).length,
+    fakturerbarKm: slutforda.filter(f => f.fakturerbar).reduce((s, f) => s + (f.flytt_km ?? 0), 0),
+    perTyp: (['produktion', 'service', 'kunduppdrag', 'annat'] as const).map(t => ({
+      typ: t,
+      antal: slutforda.filter(f => (f.flytt_typ || 'produktion') === t).length,
+      km: slutforda.filter(f => (f.flytt_typ || 'produktion') === t).reduce((s, f) => s + (f.flytt_km ?? 0), 0),
+    })).filter(r => r.antal > 0),
+  }), [slutforda])
 
-  // ── Dag-nivån (maskinfiltret gäller inte dagar — en dag kan röra flera maskiner) ──
-  const filtreradeDagar = useMemo(() => (dagar || []).filter(d =>
-    forareFilter === 'alla' || d.forare === forareFilter
-  ), [dagar, forareFilter])
-  const raknadeDagar = useMemo(() => filtreradeDagar.filter(d => d.status !== 'pagaende' && d.sluttid != null), [filtreradeDagar])
-  const dagSumma = useMemo(() => {
-    const medTid = raknadeDagar.filter(d => d.total_tid_min != null)
-    return {
-      antal: raknadeDagar.length,
-      km: raknadeDagar.reduce((s, d) => s + (d.total_km ?? 0), 0),
-      tidMatt: medTid.length ? medTid.reduce((s, d) => s + d.total_tid_min!, 0) : null,
-      flyttar: raknadeDagar.reduce((s, d) => s + (dagFlyttAntal.get(d.id) || 0), 0),
-    }
-  }, [raknadeDagar, dagFlyttAntal])
+  function toggle(set: Set<string>, uppdatera: (s: Set<string>) => void, id: string) {
+    const ny = new Set(set)
+    ny.has(id) ? ny.delete(id) : ny.add(id)
+    uppdatera(ny)
+  }
+
+  /** Dagens ben som EN sekundär rad. Nollben och saknade ben utelämnas —
+   *  "~0 km" skrivs aldrig ut. ~ markerar den beräknade hemresan. Tiden ligger
+   *  på själva radhuvudet, så den upprepas inte här. */
+  function benRad(d: DagRad): string | null {
+    const delar: string[] = []
+    if (d.tillkorning_km != null && d.tillkorning_km > 0) delar.push(`Tillkörning ${d.tillkorning_km} km`)
+    if (d.hem_km != null && d.hem_km > 0) delar.push(`Hemresa ~${d.hem_km} km`)
+    return delar.length ? delar.join(' · ') : null
+  }
 
   function exportFlyttCsv() {
     const rubrik = ['Datum', 'Maskin', 'Typ', 'Kund', 'Förare', 'Från', 'Till', 'Mellankörning km', 'Flytt km', 'Flyttid min (mätt)', 'Fakturerbar']
@@ -253,8 +287,8 @@ export default function SammanstallningClient() {
       TYP_ETIKETT[f.flytt_typ || 'produktion'],
       f.kund || '',
       f.forare || '',
-      f.fran_objekt_id ? (objektNamn.get(f.fran_objekt_id) || '') : f.fran_plats_id ? (platsNamn.get(f.fran_plats_id) || '') : '',
-      f.till_objekt_id ? (objektNamn.get(f.till_objekt_id) || '') : f.till_plats_id ? (platsNamn.get(f.till_plats_id) || '') : '',
+      namnForAnde(f.fran_objekt_id, f.fran_plats_id) || '',
+      namnForAnde(f.till_objekt_id, f.till_plats_id) || '',
       f.mellankorning_km ?? '',
       f.flytt_km ?? '',
       f.tid_flytt_min != null ? Math.round(f.tid_flytt_min) : '',
@@ -265,10 +299,10 @@ export default function SammanstallningClient() {
 
   function exportDagCsv() {
     const rubrik = ['Datum', 'Förare', 'Flyttar', 'Tillkörning km', 'Hemresa km (beräknad)', 'Total km', 'Tid min (mätt, exkl. hemresa)', 'Status']
-    const rader = raknadeDagar.map(d => [
+    const rader = kordagar.map(d => [
       new Date(d.starttid).toLocaleDateString('sv-SE'),
       d.forare || '',
-      dagFlyttAntal.get(d.id) || 0,
+      flyttPerDag.get(d.id)?.length || 0,
       d.tillkorning_km ?? '',
       d.hem_km ?? '',
       d.total_km ?? '',
@@ -277,6 +311,34 @@ export default function SammanstallningClient() {
     ])
     laddaNerCsv([rubrik, ...rader], `flyttdagar-${period.etikett.replace(/[ .]/g, '-')}.csv`)
   }
+
+  const laddar = flyttar === null || dagar === null
+
+  // ── Deltal-komponenter ──
+  const fakturerbarBadge = (km: number) => (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10,
+      fontSize: 13, fontWeight: 800, color: C.green, background: 'rgba(34,197,94,0.14)',
+      borderRadius: 10, padding: '6px 12px',
+    }}>
+      <span className="material-symbols-outlined" style={{ fontSize: 17 }}>payments</span>
+      {km} km fakturerbart
+    </span>
+  )
+
+  const tomLage = (text: string) => (
+    <div style={{ textAlign: 'center', padding: '48px 16px', color: C.t3 }}>
+      <span className="material-symbols-outlined" style={{ fontSize: 40, opacity: 0.6 }}>local_shipping</span>
+      <div style={{ fontSize: 15, marginTop: 10 }}>{text}</div>
+    </div>
+  )
+
+  const fakturerbarChip = (typ: string | null) => (
+    <span style={{
+      fontSize: 11, fontWeight: 800, color: C.green, background: 'rgba(34,197,94,0.15)',
+      borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap',
+    }}>{typ === 'kunduppdrag' ? 'Fakturerbar · kund' : 'Fakturerbar'}</span>
+  )
 
   return (
     <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: ff, WebkitFontSmoothing: 'antialiased', color: C.t1 }}>
@@ -299,7 +361,7 @@ export default function SammanstallningClient() {
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <button onClick={() => setOffset(o => o - 1)} aria-label="Föregående period" style={{
             background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, color: C.t2,
             padding: '6px 10px', cursor: 'pointer', display: 'flex',
@@ -315,219 +377,253 @@ export default function SammanstallningClient() {
           </button>
         </div>
 
-        {/* Nivåflikar: dagens helhet vs fakturerbara flyttar — blandas aldrig */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-          {([['dagar', 'Dagar'], ['flyttar', 'Flyttar']] as [Flik, string][]).map(([f, namn]) => (
-            <button key={f} onClick={() => setFlik(f)} style={{
-              flex: 1, background: flik === f ? 'rgba(255,255,255,0.10)' : 'transparent',
-              color: flik === f ? C.t1 : C.t3,
-              border: `1px solid ${flik === f ? 'rgba(255,255,255,0.2)' : C.border}`,
-              borderRadius: 10, padding: '9px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: ff,
-            }}>{namn}</button>
-          ))}
-        </div>
-
-        {/* Filter */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          {flik === 'flyttar' && (
-            <select className="flytt-select" style={{ flex: 1 }} value={maskinFilter} onChange={e => setMaskinFilter(e.target.value)}>
-              <option value="alla">Alla maskiner</option>
-              {maskiner.map(id => <option key={id} value={id}>{maskinNamn.get(id) || id}</option>)}
-            </select>
-          )}
-          <select className="flytt-select" style={{ flex: 1 }} value={forareFilter} onChange={e => setForareFilter(e.target.value)}>
-            <option value="alla">Alla förare</option>
-            {forare.map(n => <option key={n} value={n}>{n}</option>)}
-          </select>
-          {flik === 'flyttar' && (
-            <select className="flytt-select" style={{ flex: 1 }} value={typFilter} onChange={e => setTypFilter(e.target.value)}>
-              <option value="alla">Alla typer</option>
-              {Object.entries(TYP_ETIKETT).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          )}
-        </div>
-
         {fel && (
           <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 12, padding: 14, fontSize: 14 }}>{fel}</div>
         )}
-        {flyttar === null && !fel && (
+        {laddar && !fel && (
           <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Laddar …</div>
         )}
 
         {/* ══ DAGAR ══ */}
-        {flik === 'dagar' && dagar !== null && !fel && (
+        {flik === 'dagar' && !laddar && !fel && (
           <>
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginBottom: 14 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, textAlign: 'center' }}>
-                {[
-                  ['Dagar', String(dagSumma.antal)],
-                  ['Flyttar', String(dagSumma.flyttar)],
-                  ['Total km', String(dagSumma.km)],
-                  ['Tid (mätt)*', fmtMin(dagSumma.tidMatt)],
-                ].map(([label, varde]) => (
-                  <div key={label}>
-                    <div style={{ fontSize: 18, fontWeight: 800 }}>{varde}</div>
-                    <div style={{ fontSize: 11, color: C.t3, fontWeight: 600 }}>{label}</div>
-                  </div>
-                ))}
+            {/* Summering: ett stort tal — periodens totala km */}
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 18px 16px', marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: C.t3, fontWeight: 700, letterSpacing: 0.3 }}>HELA KÖRNINGEN</div>
+              <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1, marginTop: 4 }}>{dagSumma.km} km</div>
+              <div style={{ fontSize: 14, color: C.t3, marginTop: 4 }}>
+                {dagSumma.flyttar} {dagSumma.flyttar === 1 ? 'flytt' : 'flyttar'} · {dagSumma.dagar} {dagSumma.dagar === 1 ? 'kördag' : 'kördagar'}
               </div>
-              <div style={{ fontSize: 11, color: C.t3, marginTop: 8, textAlign: 'center' }}>
-                * mätt till "Kör hem" — hemresan är beräknad och ingår inte
-              </div>
+              {fakturerbarBadge(fakturerbartKm)}
             </div>
 
-            {filtreradeDagar.length === 0 && (
-              <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Inga flyttdagar i perioden.</div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {filtreradeDagar.map(d => {
-                const pagaende = d.status === 'pagaende' || d.sluttid == null
-                const auto = d.status === 'auto_avslutad'
-                return (
-                  <div key={d.id} style={{
-                    background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px',
-                    opacity: pagaende || auto ? 0.6 : 1,
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, flex: 1 }}>
-                        {new Date(d.starttid).toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' })}
-                        {d.forare && <span style={{ color: C.t3, fontWeight: 400 }}> · {d.forare}</span>}
-                        {pagaende && <span style={{ color: C.blue, fontWeight: 600 }}> · Pågår</span>}
-                        {auto && <span style={{ color: C.orange, fontWeight: 600 }}> · Auto-avslutad</span>}
-                      </span>
-                      <span style={{ fontSize: 12, color: C.t3 }}>{dagFlyttAntal.get(d.id) || 0} flyttar</span>
+            {dagRader.length === 0 ? tomLage('Inga flyttar den här perioden.') : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {dagRader.map(d => {
+                  const pagaende = d.status === 'pagaende' || d.sluttid == null
+                  const auto = d.status === 'auto_avslutad'
+                  const oppen = oppnaDagar.has(d.id)
+                  const dagFlyttar = flyttPerDag.get(d.id) || []
+                  const ben = benRad(d)
+                  return (
+                    <div key={d.id} style={{
+                      background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
+                      opacity: pagaende || auto ? 0.6 : 1,
+                    }}>
+                      {/* Kollapsad rad: ett tal (dagens km) högerställt */}
+                      <button onClick={() => toggle(oppnaDagar, setOppnaDagar, d.id)} style={{
+                        display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+                        background: 'transparent', border: 'none', padding: '13px 14px', cursor: 'pointer', fontFamily: ff, color: C.t1,
+                      }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t3 }}>
+                          {oppen ? 'expand_more' : 'chevron_right'}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 15, fontWeight: 700 }}>
+                            {new Date(d.starttid).toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' })}
+                            {pagaende && <span style={{ color: C.blue, fontWeight: 600 }}> · Pågår</span>}
+                            {auto && <span style={{ color: C.orange, fontWeight: 600 }}> · Auto-avslutad</span>}
+                          </div>
+                          <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
+                            {dagFlyttar.length} {dagFlyttar.length === 1 ? 'flytt' : 'flyttar'}
+                            {d.forare && ` · ${d.forare}`}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: 17, fontWeight: 800 }}>{d.total_km != null ? `${d.total_km} km` : '—'}</div>
+                          {d.total_tid_min != null && (
+                            <div style={{ fontSize: 12, color: C.t3, marginTop: 1 }}>{fmtTid(d.total_tid_min)}</div>
+                          )}
+                        </div>
+                      </button>
+
+                      {/* Expanderat på plats: flyttarna + en sekundär benrad */}
+                      {oppen && (
+                        <div style={{ padding: '0 14px 12px 44px' }}>
+                          {dagFlyttar.map(f => (
+                            <div key={f.id} style={{
+                              display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0',
+                              borderTop: `1px solid ${C.border}`,
+                            }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 14, fontWeight: 600 }}>
+                                  {namnForMaskin(f.maskin_id, f.extern_maskin)}
+                                  {!f.maskin_id && <span style={{ color: C.t3, fontWeight: 400 }}> (extern)</span>}
+                                </div>
+                                <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>
+                                  {namnForAnde(f.fran_objekt_id, f.fran_plats_id) || 'Okänd plats'}
+                                  {' → '}
+                                  {namnForAnde(f.till_objekt_id, f.till_plats_id) || (f.till_lat != null ? 'Vald plats' : '—')}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontSize: 14, fontWeight: 700 }}>{f.flytt_km != null ? `${f.flytt_km} km` : '—'}</div>
+                                {f.fakturerbar
+                                  ? <div style={{ marginTop: 3 }}>{fakturerbarChip(f.flytt_typ)}</div>
+                                  : <div style={{ fontSize: 11, color: C.t3, marginTop: 3 }}>
+                                      {(f.flytt_typ || 'produktion') === 'service' ? 'Service'
+                                        : (f.flytt_typ || 'produktion') === 'annat' ? 'Annat' : 'Ej fakt.'}
+                                    </div>}
+                              </div>
+                            </div>
+                          ))}
+                          {ben && (
+                            <div style={{ fontSize: 12, color: C.t3, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>{ben}</div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {!pagaende && (
-                      <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 12, color: C.t3, flexWrap: 'wrap' }}>
-                        <span>Tillkörning: <b style={{ color: C.t1 }}>{d.tillkorning_km != null ? `${d.tillkorning_km} km` : '—'}</b></span>
-                        <span>Hemresa: <b style={{ color: C.t1 }}>{d.hem_km != null ? `~${d.hem_km} km` : '—'}</b></span>
-                        <span>Totalt: <b style={{ color: C.t1 }}>{d.total_km != null ? `${d.total_km} km` : '—'}</b></span>
-                        <span>Tid (mätt): <b style={{ color: C.t1 }}>{fmtMin(d.total_tid_min)}</b></span>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            {raknadeDagar.length > 0 && (
-              <button onClick={exportDagCsv} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                width: '100%', background: C.card, color: C.t1, border: `1px solid ${C.border}`,
-                borderRadius: 12, padding: '13px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                fontFamily: ff, marginTop: 16,
-              }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>download</span>
-                Exportera CSV ({raknadeDagar.length} dagar)
-              </button>
+                  )
+                })}
+              </div>
             )}
           </>
         )}
 
         {/* ══ FLYTTAR ══ */}
-        {flik === 'flyttar' && flyttar !== null && !fel && (
+        {flik === 'flyttar' && !laddar && !fel && (
           <>
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginBottom: 14 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, textAlign: 'center' }}>
-                {[
-                  ['Flyttar', String(flyttSumma.antal)],
-                  ['Flytt-km', String(flyttSumma.flyttKm)],
-                  ['Tomkörning', `${flyttSumma.mellanKm} km`],
-                  ['Fakturerbara', String(flyttSumma.fakturerbara)],
-                ].map(([label, varde]) => (
-                  <div key={label}>
-                    <div style={{ fontSize: 18, fontWeight: 800 }}>{varde}</div>
-                    <div style={{ fontSize: 11, color: C.t3, fontWeight: 600 }}>{label}</div>
-                  </div>
-                ))}
+            {/* Summering: ett stort tal — periodens flytt-km */}
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 18px 16px', marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: C.t3, fontWeight: 700, letterSpacing: 0.3 }}>FLYTTSTRÄCKOR</div>
+              <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1, marginTop: 4 }}>{flyttSumma.flyttKm} km</div>
+              <div style={{ fontSize: 14, color: C.t3, marginTop: 4 }}>
+                {flyttSumma.antal} {flyttSumma.antal === 1 ? 'flytt' : 'flyttar'} · {fmtTid(flyttSumma.tidMatt)} flyttid
+                {flyttSumma.utanTid > 0 && (
+                  <span style={{ color: C.t3 }}> (exkl {flyttSumma.utanTid} utan tid)</span>
+                )}
               </div>
+              <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>{flyttSumma.fakturerbara} fakturerbara</div>
+              {fakturerbarBadge(flyttSumma.fakturerbarKm)}
               {flyttSumma.perTyp.length > 0 && (
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 10, fontSize: 12, color: C.t3, justifyContent: 'center' }}>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12, fontSize: 12, color: C.t3 }}>
                   {flyttSumma.perTyp.map(r => (
-                    <span key={r.typ}>{TYP_ETIKETT[r.typ]}: <b style={{ color: C.t1 }}>{r.antal} st · {r.km} km</b></span>
+                    <span key={r.typ}>{TYP_ETIKETT[r.typ]}: <b style={{ color: C.t2 }}>{r.antal} st · {r.km} km</b></span>
                   ))}
                 </div>
               )}
             </div>
 
-            {filtreradeFlyttar.length === 0 && (
-              <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Inga flyttar i perioden.</div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {filtreradeFlyttar.map(f => {
-                const pagaende = !f.avbruten && f.sluttid == null
-                const dampat = f.avbruten || pagaende
-                const franNamn = f.fran_objekt_id ? objektNamn.get(f.fran_objekt_id)
-                  : f.fran_plats_id ? platsNamn.get(f.fran_plats_id) : null
-                return (
-                  <div key={f.id} style={{
-                    background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px',
-                    opacity: dampat ? 0.55 : 1,
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, flex: 1 }}>
-                        {f.maskin_id ? (maskinNamn.get(f.maskin_id) || f.maskin_id) : (f.extern_maskin || '—')}
-                        {!f.maskin_id && <span style={{ color: C.t3, fontWeight: 400 }}> (extern)</span>}
-                        {(f.flytt_typ || 'produktion') !== 'produktion' && (
-                          <span style={{ color: f.flytt_typ === 'kunduppdrag' ? C.green : C.t3, fontWeight: 600 }}>
-                            {' · '}{TYP_ETIKETT[f.flytt_typ || 'produktion']}{f.kund ? ` · ${f.kund}` : ''}
-                          </span>
-                        )}
-                        {f.avbruten && <span style={{ color: C.orange, fontWeight: 600 }}> · Avbruten</span>}
-                        {pagaende && <span style={{ color: C.blue, fontWeight: 600 }}> · Pågår</span>}
-                      </span>
-                      {f.vader_temp_c != null && (
-                        <span style={{ fontSize: 12, color: C.t2 }}>{vaderIkon(f.vader_kod)} {Math.round(f.vader_temp_c)}°C</span>
-                      )}
-                      <span style={{ fontSize: 12, color: C.t3 }}>
-                        {new Date(f.starttid).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 13, color: C.t2, marginTop: 4 }}>
-                      {franNamn ? <b style={{ color: C.t1 }}>{franNamn}</b> : (
-                        <a href={`https://www.google.com/maps?q=${f.fran_lat},${f.fran_lng}`} target="_blank" rel="noopener noreferrer"
-                          style={{ color: C.t3, textDecoration: 'none' }}>
-                          {f.fran_lat.toFixed(3)}, {f.fran_lng.toFixed(3)}
-                        </a>
-                      )}
-                      {' → '}
-                      <b style={{ color: C.t1 }}>{f.till_objekt_id ? (objektNamn.get(f.till_objekt_id) || '—')
-                        : f.till_plats_id ? (platsNamn.get(f.till_plats_id) || '—')
-                        : (f.till_lat != null ? 'Vald plats' : '—')}</b>
-                    </div>
-                    {!f.avbruten && (
-                      <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 12, color: C.t3, flexWrap: 'wrap', alignItems: 'center' }}>
-                        {f.mellankorning_km != null && <span>Tomkörning: <b style={{ color: C.t1 }}>{f.mellankorning_km} km</b></span>}
-                        <span>Flytt: <b style={{ color: C.t1 }}>{f.flytt_km != null ? `${f.flytt_km} km` : '—'}</b></span>
-                        <span>Flyttid: <b style={{ color: C.t1 }}>{fmtMin(f.tid_flytt_min)}</b></span>
-                        {f.flyttdag_id == null && f.total_km != null && (
-                          <span>Totalt (gammal modell): <b style={{ color: C.t1 }}>{f.total_km} km</b></span>
-                        )}
-                        {f.fakturerbar && (
-                          <span style={{
-                            fontSize: 11, fontWeight: 800, color: C.green, background: 'rgba(34,197,94,0.15)',
-                            borderRadius: 6, padding: '1px 7px',
-                          }}>{f.flytt_typ === 'kunduppdrag' ? 'Fakturerbar · kunduppdrag' : 'Fakturerbar'}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+            {/* Flik-specifika filter (typ/maskin) — förarfiltret ligger i bottenraden */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <select className="flytt-select" style={{ flex: 1 }} value={maskinFilter} onChange={e => setMaskinFilter(e.target.value)}>
+                <option value="alla">Alla maskiner</option>
+                {maskiner.map(id => <option key={id} value={id}>{maskinNamn.get(id) || id}</option>)}
+              </select>
+              <select className="flytt-select" style={{ flex: 1 }} value={typFilter} onChange={e => setTypFilter(e.target.value)}>
+                <option value="alla">Alla typer</option>
+                {Object.entries(TYP_ETIKETT).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
             </div>
 
-            {slutforda.length > 0 && (
-              <button onClick={exportFlyttCsv} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                width: '100%', background: C.card, color: C.t1, border: `1px solid ${C.border}`,
-                borderRadius: 12, padding: '13px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                fontFamily: ff, marginTop: 16,
-              }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>download</span>
-                Exportera CSV ({slutforda.length} flyttar)
-              </button>
+            {filtreradeFlyttar.length === 0 ? tomLage('Inga flyttar den här perioden.') : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {filtreradeFlyttar.map(f => {
+                  const pagaende = !f.avbruten && f.sluttid == null
+                  const dampat = f.avbruten || pagaende
+                  const oppen = oppnaFlyttar.has(f.id)
+                  const franNamn = namnForAnde(f.fran_objekt_id, f.fran_plats_id)
+                  const tillNamn = namnForAnde(f.till_objekt_id, f.till_plats_id) || (f.till_lat != null ? 'Vald plats' : '—')
+                  return (
+                    <div key={f.id} style={{
+                      background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
+                      opacity: dampat ? 0.55 : 1,
+                    }}>
+                      {/* Kollapsad rad: maskin + ett tal (flytt-km) */}
+                      <button onClick={() => toggle(oppnaFlyttar, setOppnaFlyttar, f.id)} style={{
+                        display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+                        background: 'transparent', border: 'none', padding: '13px 14px', cursor: 'pointer', fontFamily: ff, color: C.t1,
+                      }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t3 }}>
+                          {oppen ? 'expand_more' : 'chevron_right'}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 15, fontWeight: 700 }}>
+                            {namnForMaskin(f.maskin_id, f.extern_maskin)}
+                            {!f.maskin_id && <span style={{ color: C.t3, fontWeight: 400 }}> (extern)</span>}
+                            {f.avbruten && <span style={{ color: C.orange, fontWeight: 600 }}> · Avbruten</span>}
+                            {pagaende && <span style={{ color: C.blue, fontWeight: 600 }}> · Pågår</span>}
+                          </div>
+                          <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
+                            {new Date(f.starttid).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })}
+                            {(f.flytt_typ || 'produktion') !== 'produktion' &&
+                              ` · ${TYP_ETIKETT[f.flytt_typ || 'produktion']}${f.kund ? ` · ${f.kund}` : ''}`}
+                          </div>
+                        </div>
+                        {f.fakturerbar && !dampat && (
+                          <span className="material-symbols-outlined" style={{ fontSize: 16, color: C.green }}>payments</span>
+                        )}
+                        <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: 17, fontWeight: 800 }}>{f.flytt_km != null ? `${f.flytt_km} km` : '—'}</div>
+                          {f.tid_flytt_min != null && (
+                            <div style={{ fontSize: 12, color: C.t3, marginTop: 1 }}>{fmtTid(f.tid_flytt_min)}</div>
+                          )}
+                        </div>
+                      </button>
+
+                      {/* Expanderat: från→till, ben, väder, fakturerbar */}
+                      {oppen && (
+                        <div style={{ padding: '0 14px 12px 44px' }}>
+                          <div style={{ fontSize: 13, color: C.t2, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                            {franNamn ? <b style={{ color: C.t1 }}>{franNamn}</b> : (
+                              <a href={`https://www.google.com/maps?q=${f.fran_lat},${f.fran_lng}`} target="_blank" rel="noopener noreferrer"
+                                style={{ color: C.t3, textDecoration: 'none' }}>
+                                {f.fran_lat.toFixed(3)}, {f.fran_lng.toFixed(3)}
+                              </a>
+                            )}
+                            {' → '}
+                            <b style={{ color: C.t1 }}>{tillNamn}</b>
+                          </div>
+                          <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 12, color: C.t3, flexWrap: 'wrap', alignItems: 'center' }}>
+                            {f.mellankorning_km != null && f.mellankorning_km > 0 && <span>Tomkörning {f.mellankorning_km} km</span>}
+                            {f.flyttdag_id == null && f.total_km != null && <span>Totalt (gammal modell) {f.total_km} km</span>}
+                            {f.vader_temp_c != null && <span>{vaderIkon(f.vader_kod)} {Math.round(f.vader_temp_c)}°C</span>}
+                            {f.fakturerbar && fakturerbarChip(f.flytt_typ)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </>
+        )}
+
+        {/* ── Diskret bottenrad: fliktoggle · förarfilter · CSV ── */}
+        {!laddar && !fel && (
+          <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 4, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3 }}>
+                {([['dagar', 'Dagar'], ['flyttar', 'Flyttar']] as [Flik, string][]).map(([f, namn]) => (
+                  <button key={f} onClick={() => setFlik(f)} style={{
+                    background: flik === f ? 'rgba(255,255,255,0.10)' : 'transparent',
+                    color: flik === f ? C.t1 : C.t3,
+                    border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: ff,
+                  }}>{namn}</button>
+                ))}
+              </div>
+              {forare.length > 0 && (
+                <select className="flytt-select" value={forareFilter} onChange={e => setForareFilter(e.target.value)}>
+                  <option value="alla">Alla förare</option>
+                  {forare.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              )}
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={flik === 'dagar' ? exportDagCsv : exportFlyttCsv}
+                disabled={flik === 'dagar' ? kordagar.length === 0 : slutforda.length === 0}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', color: C.t2,
+                  border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 12px', fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: ff,
+                  opacity: (flik === 'dagar' ? kordagar.length === 0 : slutforda.length === 0) ? 0.4 : 1,
+                }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>
+                CSV
+              </button>
+            </div>
+          </div>
         )}
 
         <Link href="/maskinflytt/platser" style={{
