@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { type ObjektTyp } from '@/lib/objekt/typ';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 
@@ -49,7 +50,7 @@ export interface UppfoljningData {
   externAntal?: number;
   maskiner: Maskin[];
   // V6 detail meta
-  typ?: 'slutavverkning' | 'gallring';
+  typ?: ObjektTyp;
   areal?: number;
   agare?: string;
   status?: 'pagaende' | 'avslutat';

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
+import { harledTyp } from '@/lib/objekt/typ';
 import { type UppfoljningObjekt } from '../lib/transform';
 
 // ── URL-identifierare för ett objekt ─────────────────────────────────────
@@ -33,12 +34,7 @@ function getMachineLabel(maskin: any): string {
   if (!maskin) return '';
   return [maskin.tillverkare, maskin.modell].filter(Boolean).join(' ');
 }
-function inferType(huvudtyp: string | undefined): 'slutavverkning' | 'gallring' {
-  if (!huvudtyp) return 'slutavverkning';
-  const t = huvudtyp.toLowerCase();
-  if (t.includes('gallr')) return 'gallring';
-  return 'slutavverkning';
-}
+
 
 export interface UseUppfoljningListResult {
   objekt: UppfoljningObjekt[];
@@ -64,17 +60,18 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         // vägen trunkerades tyst vid PostgREST 1000-radstaket och gav dessutom
         // icke-deterministiska summor när importen skrev under paginering.
         // prod-vyns maskiner = skördare (producerar), lass-vyns = skotare.
-        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, exkluderade] = await Promise.all([
+        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
-          supabase.from('objekt').select('vo_nummer, markagare, areal, typ, skotare_maskin_id'),
+          supabase.from('objekt').select('vo_nummer, markagare, areal, typ'),
           supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub, stammar, sista_datum, maskin_ids'),
           supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, antal_lass, sista_datum, maskin_ids'),
+          supabase.from('grot_koppling').select('risjobb_objekt_id, avverknings_objekt_id'),
           hamtaExkluderadeObjektId(),
         ]);
 
         // Ett fel på någon källa får ALDRIG se ut som tom lista.
-        const forstaFel = dimObjektRes.error || dimMaskinRes.error || objektTblRes.error || prodRes.error || lassRes.error;
+        const forstaFel = dimObjektRes.error || dimMaskinRes.error || objektTblRes.error || prodRes.error || lassRes.error || kopplingRes.error;
         if (forstaFel) throw forstaFel;
 
         const dimObjekt: any[] = dimObjektRes.data || [];
@@ -82,14 +79,15 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         const objektTbl: any[] = objektTblRes.data || [];
         const prodView: any[] = prodRes.data || [];
         const lassView: any[] = lassRes.data || [];
+        const kopplingar: any[] = kopplingRes.data || [];
 
         const maskinMap = new Map<string, any>();
         dimMaskin.forEach(m => maskinMap.set(m.maskin_id, m));
 
-        const objektInfo = new Map<string, { agare: string; areal: number; typ: string; skotareMaskinId: string | null }>();
+        const objektInfo = new Map<string, { agare: string; areal: number; typ: string }>();
         objektTbl.forEach(o => {
           if (o.vo_nummer) {
-            objektInfo.set(o.vo_nummer, { agare: o.markagare || '', areal: o.areal || 0, typ: o.typ || '', skotareMaskinId: o.skotare_maskin_id || null });
+            objektInfo.set(o.vo_nummer, { agare: o.markagare || '', areal: o.areal || 0, typ: o.typ || '' });
           }
         });
 
@@ -119,6 +117,18 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           const mids = (l.maskin_ids || []).filter(Boolean) as string[];
           if (mids[0]) lassMaskinMap.set(l.objekt_id, mids[0]);
           lassMaskiner.set(l.objekt_id, mids);
+        });
+
+        // F3: ett avverkningsobjekt har "risskotning pågår" när det är kopplat
+        // till ett risjobb vars skotning ännu inte är avslutad.
+        const risjobbKlart = new Map<string, boolean>();
+        dimObjekt.forEach(d => {
+          if (d.objekt_id) risjobbKlart.set(d.objekt_id, d.skotning_avslutad != null);
+        });
+        const harPagaendeRis = new Set<string>();
+        kopplingar.forEach(k => {
+          if (!k.avverknings_objekt_id || !k.risjobb_objekt_id) return;
+          if (risjobbKlart.get(k.risjobb_objekt_id) === false) harPagaendeRis.add(k.avverknings_objekt_id);
         });
 
         const voGroups = new Map<string, any[]>();
@@ -186,7 +196,9 @@ export function useUppfoljningList(): UseUppfoljningListResult {
 
           const agare = firstEntry.skogsagare || firstEntry.bolag || info?.agare || '';
           const areal = info?.areal || 0;
-          const typ = inferType(firstEntry.huvudtyp || info?.typ);
+          // Typen härleds ur risskotning-flaggan + huvudtyp — aldrig gissad.
+          const risFlagga = entries.some((e: any) => e.risskotning === true);
+          const typ = harledTyp(risFlagga, firstEntry.huvudtyp || info?.typ);
 
           let skVol = 0, skStammar = 0;
           const seenSkObjIds = new Set<string>();
@@ -257,10 +269,26 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             if (d && (!sistaAvverkning || d > sistaAvverkning)) sistaAvverkning = d;
           }
 
-          // Tilldelad skotare — BARA maskinnamn, aldrig förarnamn.
-          // Planeringens objekt.skotare_maskin_id är primärkällan (satt innan
-          // skotaren börjat); dim-världens skotarrad (filer finns) fallback.
-          const planeradSkotare = info?.skotareMaskinId ? getMachineLabel(maskinMap.get(info.skotareMaskinId)) : '';
+          // SKOTARGRUPPERING — BARA maskinnamn, aldrig förarnamn, och ALDRIG
+          // dim_objekt.maskin_id (den är SKÖRDAREN).
+          //  1. Lassdata (vy_uppf_lass_per_objekt) = hård data, vinner alltid.
+          //  2. dim_objekt.tilldelad_skotare = Martins planering, grupperar
+          //     objektet redan innan första lasset.
+          //  3. Annars null → "Ej tilldelad". Gissa aldrig.
+          let lassMaskinId: string | null = null;
+          for (const e of skotareEntries) {
+            const mid = lassMaskinMap.get(e.objekt_id);
+            if (mid) { lassMaskinId = mid; break; }
+          }
+          const tilldeladId = entries.map((e: any) => e.tilldelad_skotare).find(Boolean) || null;
+          const namnFranLass = lassMaskinId ? getMachineLabel(maskinMap.get(lassMaskinId)) : '';
+          const namnFranTilldelning = tilldeladId ? getMachineLabel(maskinMap.get(tilldeladId)) : '';
+          const skotareKalla: 'lass' | 'tilldelad' | null =
+            namnFranLass ? 'lass' : namnFranTilldelning ? 'tilldelad' : null;
+          // Lassdatan vinner vid konflikt — men avvikelsen tigs inte ihjäl.
+          const skotareAvvikelse = (lassMaskinId && tilldeladId && lassMaskinId !== tilldeladId && namnFranLass && namnFranTilldelning)
+            ? { lass: namnFranLass, tilldelad: namnFranTilldelning }
+            : null;
 
           // Senaste aktivitet: skördaren ur prod-vyns sista_datum, skotaren ur
           // lass-vyns — produktion/lass ÄR maskinens aktivitet.
@@ -296,7 +324,10 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             volymSkotare: skotatArManuell ? manuellVolym : stVol,
             skotatArManuell,
             sistaAvverkning,
-            tilldeladSkotare: planeradSkotare || (skotareEntry ? getMachineLabel(maskinMap.get(stMaskinId)) : '') || null,
+            tilldeladSkotare: namnFranLass || namnFranTilldelning || null,
+            skotareKalla,
+            skotareAvvikelse,
+            risskotningPagar: entries.some((e: any) => harPagaendeRis.has(e.objekt_id)),
             antalLass: stCount,
             dieselTotal: 0, // visas inte på förstasidan; detaljvyn hämtar sitt eget
             dagar,
