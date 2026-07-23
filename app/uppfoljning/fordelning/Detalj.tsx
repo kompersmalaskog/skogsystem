@@ -89,7 +89,10 @@ function Guiden({ p }: { p: ProduktVy }) {
 /* ── 4. Detaljmatrisen — hopfälld ── */
 function Detaljmatris({ p }: { p: ProduktVy }) {
   const [öppen, setÖppen] = useState(false);
-  const längder = Array.from(new Set(p.matris.map((m) => m.lenLower))).sort((a, b) => a - b);
+  // Bara längdklasser som har mål eller utfall — vältorna (computeLengthPiles)
+  // är redan filtrerade på (actualM3 > 0 || orderedM3 > 0), så tomma klasser
+  // (338/398/458 …) faller bort och rubrikcellen (t.ex. 340/548) trängs inte ut.
+  const längder = Array.from(new Set(p.vältor.map((v) => v.lenLower))).sort((a, b) => a - b);
   const diametrar = Array.from(new Set(p.matris.map((m) => m.diaLower))).sort((a, b) => a - b);
   const cell = (d: number, l: number) => p.matris.find((m) => m.diaLower === d && m.lenLower === l);
   const klent = diametrar.filter((d) => d < 310);
@@ -115,7 +118,7 @@ function Detaljmatris({ p }: { p: ProduktVy }) {
     <section style={{ background: CARD, borderRadius: 12, padding: 16, marginBottom: 12 }}>
       <button onClick={() => setÖppen(!öppen)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
         <span style={{ transform: öppen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', color: GREY }}>›</span>
-        Visa detaljmatris
+        {öppen ? 'Dölj detaljmatris' : 'Visa detaljmatris'}
       </button>
       {öppen && (
         <div style={{ marginTop: 14 }}>

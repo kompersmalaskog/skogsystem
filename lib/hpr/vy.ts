@@ -151,8 +151,11 @@ function produktVy(p: HprProduct, data: ObjektData): ProduktVy | null {
       automatiskAndel: dist.automaticOnly.gradePct ?? 0,
     },
     guide: {
-      klen: guide.klen ? `Klena stockar → kapa 6 cm längre, mot ${guide.klen.lenLower} cm (saknas ${guide.klen.deficitM3} m³)` : null,
-      grov: guide.grov ? `Grova stockar → kapa mot ${guide.grov.lenLower} cm (saknas ${guide.grov.deficitM3} m³)` : null,
+      // Visa bara när underskottet är minst 3 m³ (samma tröskel som matrisen).
+      klen: guide.klen && guide.klen.deficitM3 >= 3
+        ? `Klena stockar → sträck mot ${guide.klen.lenLower} cm (saknas ${guide.klen.deficitM3} m³)` : null,
+      grov: guide.grov && guide.grov.deficitM3 >= 3
+        ? `Grova stockar → sträck mot ${guide.grov.lenLower} cm (saknas ${guide.grov.deficitM3} m³)` : null,
     },
     matris: matris(d),
     färgadeRutor: d.cells.filter((c) => c.exceeds && Math.abs(c.deviationM3) >= 3).length,
