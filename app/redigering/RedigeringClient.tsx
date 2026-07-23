@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
 import { useMatchning } from './hooks/useMatchning'
-import { useFildata, filStatus, slaIhopFildata, harExternSkotning } from './hooks/useFildata'
+import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkordning } from './hooks/useFildata'
 import MatchningsVy from './MatchningsVy'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
@@ -81,7 +81,7 @@ async function hamtaMaskinerFranSupabase() {
 // fylls i EN gång och skrivs till ALLA rader i gruppen; maskinspecifika
 // skrivs till respektive maskinslags rader.
 const GEMENSAMMA_FALT = ['vo_nummer', 'object_name', 'skogsagare', 'bolag', 'inkopare',
-  'huvudtyp', 'atgard', 'grot_anpassad', 'timpeng', 'exkludera',
+  'huvudtyp', 'atgard', 'grot_anpassad', 'timpeng', 'exkludera', 'extern_skordning',
   'timpeng_undantag_timmar_skordare', 'timpeng_undantag_timmar_skotare',
   'timpeng_undantag_volym', 'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']
 const SKORDARFALT = ['stubbbehandling', 'skordning_avslutad']
@@ -152,8 +152,10 @@ function gruppModeller(g: any, maskiner: Record<string, any>): string {
 }
 
 // PÅGÅENDE: gruppen är inte färdig. Skördning ELLER skotning saknar
-// avslutsdatum. Undantag: när någon rad har egen/extern skotning kommer
-// skotningen aldrig att markeras av oss — då avgör skördningen ensam.
+// avslutsdatum. Undantag när ett maskinslag inte är vårt att avsluta:
+// - egen/extern skotning -> skotningen markeras aldrig av oss, skördningen avgör
+// - extern skördning -> skördningen markeras aldrig av oss, skotningen avgör
+// (spegelbild). Görs BÅDA externt finns inget för oss att slutföra.
 // Exkluderade grupper är aldrig pågående.
 function arPagaende(g: any): boolean {
   const rader = g.rader || []
@@ -161,6 +163,9 @@ function arPagaende(g: any): boolean {
   const skordningKlar = rader.some((o: any) => !!o.skordning_avslutad)
   const skotningKlar = rader.some((o: any) => !!o.skotning_avslutad)
   const annanSkotar = rader.some((o: any) => o.egen_skotning === true || harExternSkotning(o))
+  const externSkordar = rader.some((o: any) => harExternSkordning(o))
+  if (externSkordar && annanSkotar) return false
+  if (externSkordar) return !skotningKlar
   if (annanSkotar) return !skordningKlar
   return !skordningKlar || !skotningKlar
 }
@@ -186,7 +191,7 @@ function gruppSenasteData(g: any, fildata: any): string | null {
 // fältklass ger rätt radantal men fel värde: "ser sparad ut men är det inte".
 // Just den tysta lögnen ska switchar aldrig kunna bära igen.
 const VERIFIERA_BOOL = ['grot_anpassad', 'timpeng', 'exkludera', 'stubbbehandling',
-  'risskotning', 'egen_skotning', 'extra_vagn', 'klippning',
+  'risskotning', 'egen_skotning', 'extra_vagn', 'klippning', 'extern_skordning',
   'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']
 
 // Direktuppdatering med ÄRLIG sparning: .select() räknar träffade rader OCH
@@ -220,7 +225,7 @@ function plocka(obj: any, falt: string[]): any {
   const ut: any = {}
   for (const f of falt) ut[f] = obj[f] ?? null
   // Booleans ska aldrig sparas som null
-  for (const f of ['grot_anpassad', 'timpeng', 'exkludera', 'stubbbehandling', 'risskotning', 'egen_skotning', 'extra_vagn', 'klippning']) {
+  for (const f of ['grot_anpassad', 'timpeng', 'exkludera', 'stubbbehandling', 'risskotning', 'egen_skotning', 'extra_vagn', 'klippning', 'extern_skordning']) {
     if (f in ut) ut[f] = ut[f] === true
   }
   for (const f of ['timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']) {
@@ -1515,6 +1520,9 @@ function SubFiler({ obj, rader, hamtStatus, skotareSanderEj }: any) {
   if (s.ovantadSkotardata) {
     statusTon = 'gul'
     statusText = `Skotardata finns trots ${s.skotareEjOrsak} — kontrollera egenskapen`
+  } else if (s.ovantadSkordardata) {
+    statusTon = 'gul'
+    statusText = 'Skördardata finns trots extern skördare — kontrollera egenskapen'
   } else if (s.skordare === 'saknas' && s.skotare === 'saknas') {
     statusTon = 'gul'
     statusText = 'Inget fildata ännu'
@@ -1664,6 +1672,24 @@ function SubSkotning({ obj, set }: any) {
   const radRam = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14 }
   return (
     <>
+      {/* Skördning — vem avverkar. Extern skördare = annans maskin avverkar,
+          vi skotar bara. Spegelbild av extern skotning: bor här (inte på
+          Skördare-undersidan) eftersom rena skotarobjekt saknar skördardata
+          och den sidan då är dold — precis som extern skotning måste gå att
+          sätta på rena skördarobjekt. */}
+      <IosGroup title="Skördning">
+        <div style={{ padding: '14px 16px' }}>
+          <div style={styles.switchList}>
+            <EgenskapSwitch label="Extern skördare (annan avverkar)" active={obj.extern_skordning === true} onClick={() => set({ ...obj, extern_skordning: !obj.extern_skordning })} orange={false} />
+          </div>
+          {obj.extern_skordning && (
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, marginTop: 8 }}>
+              Annan maskin avverkar — vi skotar bara. Skördardata förväntas inte (grå, ej saknad), skördningsavslut krävs inte för att objektet ska räknas som klart, och Pågående tittar bara på skotningen.
+            </div>
+          )}
+        </div>
+      </IosGroup>
+
       <IosGroup title="Skotning">
         <div style={{ padding: '14px 16px' }}>
           <div style={styles.switchList}>
@@ -2087,10 +2113,11 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
   const skordareSum = maskinSum(obj.skordning_avslutad, EGENSKAPER_SKORDARE, radTyp === 'harvester')
   const skotareSum = maskinSum(obj.skotning_avslutad, EGENSKAPER_SKOTARE, radTyp === 'forwarder')
 
-  const skotningSum = {
-    text: obj._extern_skotning ? 'Extern skotare' : obj.egen_skotning ? 'Egen skotning' : '—',
-    warn: false,
-  }
+  const skotningSum = (() => {
+    const skotDel = obj._extern_skotning ? 'Extern skotare' : obj.egen_skotning ? 'Egen skotning' : null
+    const delar = [obj.extern_skordning ? 'Extern skördare' : null, skotDel].filter(Boolean)
+    return { text: delar.length ? delar.join(' · ') : '—', warn: false }
+  })()
   const harUndantag = obj.timpeng !== true && (
     (Number(obj.timpeng_undantag_timmar_skordare) || 0) > 0 ||
     (Number(obj.timpeng_undantag_timmar_skotare) || 0) > 0 ||
@@ -2105,6 +2132,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
   const filerSum = filHamtStatus === 'fel' ? { text: 'Kunde inte läsas', warn: true }
     : filHamtStatus === 'laddar' ? { text: 'Läser …', warn: false }
     : fil.ovantadSkotardata ? { text: 'Oväntad skotardata', warn: true }
+    : fil.ovantadSkordardata ? { text: 'Oväntad skördardata', warn: true }
     : fil.skordare === 'saknas' && fil.skotare === 'saknas' ? { text: 'Inget data ännu', warn: true }
     : fil.skotare === 'saknas' ? { text: 'Skotardata saknas', warn: true }
     : fil.skordare === 'saknas' ? { text: 'Skördardata saknas', warn: true }
