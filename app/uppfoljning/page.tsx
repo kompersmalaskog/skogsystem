@@ -167,12 +167,12 @@ function SummaKort({
         <button onClick={() => valj('slutavverkning')} style={kortStil(vald === 'slutavverkning')}>
           <div style={etikett}>Slutavv.</div>
           {matt(slutavvM3, slutavvN, 'm³')}
-          <div style={{ fontSize: 10, color: V6_GREY, marginTop: 5 }}>{slutavvN === 1 ? '1 objekt' : `${slutavvN} objekt`}</div>
+          <div style={{ fontSize: 10, color: V6_GREY, marginTop: 5 }}>{slutavvN === 0 ? 'inget kvar' : slutavvN === 1 ? '1 objekt' : `${slutavvN} objekt`}</div>
         </button>
         <button onClick={() => valj('gallring')} style={kortStil(vald === 'gallring')}>
           <div style={etikett}>Gallring</div>
           {matt(gallringM3, gallringN, 'm³')}
-          <div style={{ fontSize: 10, color: V6_GREY, marginTop: 5 }}>{gallringN === 1 ? '1 objekt' : `${gallringN} objekt`}</div>
+          <div style={{ fontSize: 10, color: V6_GREY, marginTop: 5 }}>{gallringN === 0 ? 'inget kvar' : gallringN === 1 ? '1 objekt' : `${gallringN} objekt`}</div>
         </button>
         <button onClick={() => valj('ris')} style={kortStil(vald === 'ris')}>
           <div style={etikett}>Ris</div>
@@ -185,6 +185,7 @@ function SummaKort({
               <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 600 }}>m³fub</span>
             </div>
           )}
+          <div style={{ fontSize: 10, color: V6_GREY, marginTop: 5 }}>{risN === 0 ? 'inget kvar' : risN === 1 ? '1 objekt' : `${risN} objekt`}</div>
           <div
             role="button"
             tabIndex={0}
@@ -219,50 +220,7 @@ function SummaKort({
 }
 
 /* ── VÅNING 2: Skördare kör — pågående skörd, INGEN liggetid (volymen växer) ── */
-// Skotarens läge på ett objekt: aktiv skotare ur lassdata (annars tilldelad),
-// och hur mycket som skotats av det skördade hittills. Utan både lass och
-// tilldelning: väntar på skotare — gissa aldrig maskin.
-function skotarText(o: UppfoljningObjekt): string {
-  if (o.skotareKalla === 'lass') return `${o.tilldeladSkotare} skotar · ${sv(o.volymSkotare)} m³ av ${sv(o.volymSkordare)}`;
-  if (o.tilldeladSkotare) return `${o.tilldeladSkotare} tilldelad · väntar på lass`;
-  return 'väntar på skotare';
-}
-
-function SkordareKor({ objekt, onSelect }: { objekt: UppfoljningObjekt[]; onSelect: (o: UppfoljningObjekt) => void }) {
-  if (objekt.length === 0) return null;
-  return (
-    <section>
-      <GroupHeader title="Skördare kör" count={objekt.length} />
-      <div style={{ margin: '0 16px 4px', background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
-        {objekt.map((o, i) => (
-          <button key={o.skordareObjektId || o.vo_nummer} onClick={() => onSelect(o)} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 56, padding: '11px 16px', gap: 12, background: 'transparent', border: 'none', textAlign: 'left', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: V6_SK, flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</div>
-              <div style={{ fontSize: 12, color: V6_GREY, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <TypTagg o={o} />{o.areal ? <span>{o.areal} ha</span> : null}
-              </div>
-              {/* Skotarens halva — svarar på 'vem skotar detta, hur långt kommet' */}
-              <div style={{ fontSize: 12, color: V6_ST, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{skotarText(o)}</div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, flexShrink: 0 }}>
-              <span style={{ fontSize: 16, fontWeight: 600, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.3px' }}>{sv(kvarM3(o))}</span>
-              <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 500 }}>kvar m³</span>
-            </div>
-            <Chevron />
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/* ── VÅNING 3: Oskotat · äldst först — grupperat per skotare ──────────────
-   Gruppens rubrik: skotare + summa ("… m³ på backen"), maskin med mest överst.
-   Objekt utan känd skotare → "Ej tilldelad", gissa aldrig maskin. Objektrad:
-   namn, volym, typ-tagg, liggetid, + "≈ X m³fub ris kvar" ENDAST om grot-
-   anpassat (aldrig "0" annars). */
-function MaskinUppdelning({ objekt, skordas, titel, onSelect }: { objekt: UppfoljningObjekt[]; skordas: Set<UppfoljningObjekt>; titel: string; onSelect: (o: UppfoljningObjekt) => void }) {
+function MaskinUppdelning({ objekt, skordas, onSelect }: { objekt: UppfoljningObjekt[]; skordas: Set<UppfoljningObjekt>; onSelect: (o: UppfoljningObjekt) => void }) {
   const grupper = useMemo(() => {
     const m = new Map<string, UppfoljningObjekt[]>();
     for (const o of objekt) { const k = o.tilldeladSkotare || ' ej'; if (!m.has(k)) m.set(k, []); m.get(k)!.push(o); }
@@ -287,7 +245,7 @@ function MaskinUppdelning({ objekt, skordas, titel, onSelect }: { objekt: Uppfol
 
   return (
     <section>
-      <GroupHeader title={`${titel} · per skotare`} count={objekt.length} />
+      <GroupHeader title="På backen · per maskin" count={objekt.length} />
       {grupper.map(g => (
         <div key={g.namn || 'ej'} style={{ margin: '0 16px 10px' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '4px 4px 6px', gap: 10 }}>
@@ -606,26 +564,16 @@ export default function UppfoljningPage() {
               <RisLista objekt={risSynlig} onSelect={handleSelect} faktor={grotFaktor} />
               {avslutadeBlock}
             </>
-          ) : (vald === 'slutavverkning' || vald === 'gallring') ? (
-            /* KORT VALT: uppdelning per skotare, objektraderna synliga (oskotat
-               + pågående skörd, taggade). Objektet syns HÄR, inte dubbelt. */
-            <>
-              <MaskinUppdelning objekt={uppdelning} skordas={skordasSet} titel={vald === 'gallring' ? 'Gallring' : 'Slutavverkning'} onSelect={handleSelect} />
-              {uppdelning.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 80, color: V6_GREY, fontSize: 15 }}>
-                  Inget {vald === 'gallring' ? 'gallringsvirke' : 'slutavverkningsvirke'} på backen
-                </div>
-              )}
-              {avslutadeBlock}
-            </>
           ) : (
-            /* OVALT: bara Skördare kör + avslutade. Ingen halvtom
-               maskinuppdelning med rubriker utan rader. */
+            /* På backen · per maskin — ALLTID synlig direkt under korten.
+               Pågående skörd ligger i listan under sin maskin, taggad
+               'skördas ännu'. Ingen separat Skördare kör-sektion (två
+               sektioner för samma objekt är just röran som togs bort).
+               Korten filtrerar listan per typ; ovalt = allt virke. */
             <>
-              <SkordareKor objekt={skordareKor} onSelect={handleSelect} />
-              <Ovrigt objekt={ovrigt} onSelect={handleSelect} />
-              {skordareKor.length === 0 && ovrigt.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 80, color: V6_GREY, fontSize: 15 }}>Inga aktiva objekt</div>
+              <MaskinUppdelning objekt={uppdelning} skordas={skordasSet} onSelect={handleSelect} />
+              {uppdelning.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 80, color: V6_GREY, fontSize: 15 }}>Inget på backen</div>
               )}
               {avslutadeBlock}
             </>
