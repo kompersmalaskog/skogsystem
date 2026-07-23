@@ -36,6 +36,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import { parseHpr } from "@/lib/hpr/hpr-parser";
 import { computeDistribution } from "@/lib/hpr/fordelning";
+import { hamtaObjektData } from "@/lib/hpr/objekt-data";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -298,14 +299,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 6. Snapshot av fördelningsgraden, stämplad med filens CreationDate så
-  //    historiken blir sann även när gamla filer backfillas. is_final = true
-  //    när filen bär EndDate (objektet avslutat).
-  //    OBS: snapshotten beräknas ur DENNA fils stockar. För objekt som
-  //    passerat 4000-stammarstaket (delfiler _1, _2 …) täcker en delfil inte
-  //    hela objektet — vyn (etapp 2) ska räkna live ur logs-tabellen.
-  const summaries = parsed.products
-    .map((p) => computeDistribution(p, parsed.logs))
+  // 6. Snapshot av fördelningsgraden — räknas ur DATABASENS samlade stockar
+  //    för HELA objektet (alla filer), inte ur denna fils delmängd. En delfil
+  //    efter 4000-stammarstaket innehåller bara svansen och skulle annars ge
+  //    en falsk snapshot (t.ex. 68,5 % för 56 stockar i stället för objektets
+  //    91,1 % för 3 522). Stämplas med filens CreationDate; is_final = true när
+  //    filen bär EndDate. Befintliga snapshots lämnas som revisionsspår.
+  const objektData = await hamtaObjektData(supabase, objectKey);
+  const summaries = objektData.produkter
+    .map((p) => computeDistribution(p, objektData.stockar))
     .filter((d) => d != null)
     .map((d) => ({
       object_key: objectKey, product_key: d!.total.productKey,

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useDatahalsa } from './datahalsa/useDatahalsa'
+import { useApteringBanner } from './uppfoljning/fordelning/useApteringBanner'
 
 function getDatum() {
   const now = new Date()
@@ -68,6 +69,29 @@ function DatahalsaBanner() {
         <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', flex: 1 }}>
           Datahälsa: {besked.rubrik}
         </span>
+        <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#8e8e93' }}>chevron_right</span>
+      </div>
+    </Link>
+  )
+}
+
+// ── Aptering-bannern — samma mönster som Datahälsa: syns BARA vid avvikelse ──
+// (aktivt objekt i läge 2). Inom mål → ingenting. Tystnadsregeln.
+function ApteringBanner() {
+  const b = useApteringBanner()
+  if (!b.visa) return null
+  const text = b.antal === 1 && b.mening
+    ? `Aptering: ${b.mening.toLowerCase()}`
+    : `Aptering: ${b.antal} objekt att titta på`
+  return (
+    <Link href={b.href} style={{ textDecoration: 'none' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        background: '#141416', borderRadius: 14, padding: '13px 16px',
+        marginBottom: 28, border: '1px solid rgba(255,255,255,0.05)',
+      }}>
+        <span style={{ width: 10, height: 10, borderRadius: 5, background: '#ff9f0a', flexShrink: 0 }} />
+        <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', flex: 1 }}>{text}</span>
         <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#8e8e93' }}>chevron_right</span>
       </div>
     </Link>
@@ -149,6 +173,9 @@ export default function HomeClient() {
 
         {/* Datahälsa — morgonkollen */}
         <DatahalsaBanner />
+
+        {/* Aptering — syns bara vid avvikelse */}
+        <ApteringBanner />
 
         {/* Produktion */}
         <div style={{ marginBottom: 32 }}>
