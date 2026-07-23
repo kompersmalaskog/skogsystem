@@ -341,13 +341,17 @@ def periodic_scan():
             )
             for f in sorted(mom_files + hpr_files + other):
                 logger.info(f"    - {f.name}")
+            # Fördelnings-POST FÖRST — MOM-importen flyttar ALLA filtyper (även
+            # .hpr) till Behandlade, så läser vi efteråt är filen borta ("No such
+            # file"). Samma ordning som .mom-eventvägen. Fel sväljs i funktionen.
+            if hpr_files:
+                for f in hpr_files:
+                    post_hpr_fordelning(str(f))
             if mom_files or other:
                 logger.info(">>> Periodisk scan: kör MOM-import")
                 run_mom_import()
                 notify_vercel()
             if hpr_files:
-                for f in hpr_files:
-                    post_hpr_fordelning(str(f))  # sväljer egna fel, se funktionen
                 logger.info(">>> Periodisk scan: kör HPR-import")
                 run_hpr_import()
         except Exception as e:
