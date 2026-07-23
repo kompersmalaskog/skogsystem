@@ -4288,19 +4288,44 @@ export default function PlannerPage() {
   }, []);
   
   // Synlighet
-  const [visibleLines, setVisibleLines] = useState({
-    boundary: true, mainRoad: true, sideRoadRed: true, 
-    sideRoadYellow: true, sideRoadBlue: true, nature: true, ditch: true,
-  });
-  const [visibleZones, setVisibleZones] = useState({
+  // Lager-synlighet. DEFAULT: allt synligt. Persisteras PER OBJEKT (localStorage). Ett lager är
+  // synligt om det inte UTTRYCKLIGEN släckts (!== false) → framtida linjetyper defaultar synliga
+  // och kan aldrig hamna i "stig-fällan" (saknad default = osynlig). Bug 2026-07: trail + backRoad*
+  // saknades i defaulten → alltid dolda tills föraren tände dem manuellt, om och om igen.
+  const DEFAULT_VISIBLE_LINES: Record<string, boolean> = {
+    boundary: true, mainRoad: true, nature: true, ditch: true, trail: true,
+    sideRoadRed: true, sideRoadYellow: true, sideRoadBlue: true,
+    backRoadRed: true, backRoadYellow: true, backRoadBlue: true,
+  };
+  const DEFAULT_VISIBLE_ZONES: Record<string, boolean> = {
     wet: true, steep: true, protected: true, culture: true, noentry: true, fornlamning: true,
-  });
-  const [visibleLayers, setVisibleLayers] = useState({
-    symbols: true,
-    arrows: true,
-    zones: true,
-    lines: true,
-  });
+  };
+  const DEFAULT_VISIBLE_LAYERS: Record<string, boolean> = { symbols: true, arrows: true, zones: true, lines: true };
+  const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>(DEFAULT_VISIBLE_LINES);
+  const [visibleZones, setVisibleZones] = useState<Record<string, boolean>>(DEFAULT_VISIBLE_ZONES);
+  const [visibleLayers, setVisibleLayers] = useState<Record<string, boolean>>(DEFAULT_VISIBLE_LAYERS);
+
+  // Ladda lager-synligheten för objektet. Mergas ÖVER defaults så en sparad inställning ALDRIG
+  // kan dölja ett lager som inte fanns när den sparades (framtida lager syns).
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    try {
+      const raw = localStorage.getItem('skogLager_v1_' + valtObjekt.id);
+      const s = raw ? JSON.parse(raw) : {};
+      setVisibleLines({ ...DEFAULT_VISIBLE_LINES, ...(s.lines || {}) });
+      setVisibleZones({ ...DEFAULT_VISIBLE_ZONES, ...(s.zones || {}) });
+      setVisibleLayers({ ...DEFAULT_VISIBLE_LAYERS, ...(s.layers || {}) });
+    } catch {}
+  }, [valtObjekt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Spara vid varje ändring — tänder/släcker föraren ett lager förblir det så tills han ändrar
+  // igen. Deps utan objekt-id (id läses ur closure vid fyrning) undviker stale-write vid objektbyte.
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    try {
+      localStorage.setItem('skogLager_v1_' + valtObjekt.id, JSON.stringify({ lines: visibleLines, zones: visibleZones, layers: visibleLayers }));
+    } catch {}
+  }, [visibleLines, visibleZones, visibleLayers]); // eslint-disable-line react-hooks/exhaustive-deps
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
   const [warningMenuOpen, setWarningMenuOpen] = useState(false);
   const [warningShowAll, setWarningShowAll] = useState(false);
@@ -6876,7 +6901,7 @@ export default function PlannerPage() {
       const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
       const stripedTypeIds = ['boundary', 'mainRoad', 'nature', 'ditch'];
       lineTypeIds.forEach(id => {
-        const vis = visibleLayers.lines && visibleLines[id] ? 'visible' : 'none';
+        const vis = visibleLayers.lines && visibleLines[id] !== false ? 'visible' : 'none';
         safeSetVisibility(`line-${id}-casing`, vis);
         safeSetVisibility(`line-${id}-base`, vis);
         if (stripedTypeIds.includes(id)) {
@@ -13058,7 +13083,7 @@ export default function PlannerPage() {
                 {zoneTypes.map(zone => (
                   <div
                     key={zone.id}
-                    onClick={() => setVisibleZones(prev => ({ ...prev, [zone.id]: !prev[zone.id] }))}
+                    onClick={() => setVisibleZones(prev => ({ ...prev, [zone.id]: prev[zone.id] === false }))}
                     style={{
                       padding: '14px 16px',
                       display: 'flex',
@@ -13080,13 +13105,13 @@ export default function PlannerPage() {
                       width: '24px',
                       height: '24px',
                       borderRadius: '50%',
-                      border: visibleZones[zone.id] ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: visibleZones[zone.id] ? '#30d158' : 'transparent',
+                      border: visibleZones[zone.id] !== false ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                      background: visibleZones[zone.id] !== false ? '#30d158' : 'transparent',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
-                      {visibleZones[zone.id] && (
+                      {visibleZones[zone.id] !== false && (
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
                           <path d="M5 12 L10 17 L19 8" />
                         </svg>
@@ -13116,7 +13141,7 @@ export default function PlannerPage() {
                 {lineTypes.filter(l => !l.id.includes('sideRoad') && !l.id.includes('backRoad')).map(line => (
                   <div
                     key={line.id}
-                    onClick={() => setVisibleLines(prev => ({ ...prev, [line.id]: !prev[line.id] }))}
+                    onClick={() => setVisibleLines(prev => ({ ...prev, [line.id]: prev[line.id] === false }))}
                     style={{
                       padding: '14px 16px',
                       display: 'flex',
@@ -13139,13 +13164,13 @@ export default function PlannerPage() {
                       width: '24px',
                       height: '24px',
                       borderRadius: '50%',
-                      border: visibleLines[line.id] ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: visibleLines[line.id] ? '#30d158' : 'transparent',
+                      border: visibleLines[line.id] !== false ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                      background: visibleLines[line.id] !== false ? '#30d158' : 'transparent',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
-                      {visibleLines[line.id] && (
+                      {visibleLines[line.id] !== false && (
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
                           <path d="M5 12 L10 17 L19 8" />
                         </svg>
