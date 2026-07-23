@@ -240,6 +240,8 @@ export default function SammanstallningClient() {
     km: kordagar.reduce((s, d) => s + (d.total_km ?? 0), 0),
     dagar: kordagar.length,
     flyttar: kordagar.reduce((s, d) => s + (flyttPerDag.get(d.id)?.length || 0), 0),
+    tidMatt: kordagar.reduce((s, d) => s + (d.total_tid_min ?? 0), 0),
+    utanTid: kordagar.filter(d => d.total_tid_min == null).length,
   }), [kordagar, flyttPerDag])
 
   // ── Flyttar-nivån ──
@@ -392,7 +394,10 @@ export default function SammanstallningClient() {
               <div style={{ fontSize: 12, color: C.t3, fontWeight: 700, letterSpacing: 0.3 }}>HELA KÖRNINGEN</div>
               <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1, marginTop: 4 }}>{dagSumma.km} km</div>
               <div style={{ fontSize: 14, color: C.t3, marginTop: 4 }}>
-                {dagSumma.flyttar} {dagSumma.flyttar === 1 ? 'flytt' : 'flyttar'} · {dagSumma.dagar} {dagSumma.dagar === 1 ? 'kördag' : 'kördagar'}
+                {dagSumma.flyttar} {dagSumma.flyttar === 1 ? 'flytt' : 'flyttar'} · {dagSumma.dagar} {dagSumma.dagar === 1 ? 'kördag' : 'kördagar'} · {fmtTid(dagSumma.tidMatt)}
+                {dagSumma.utanTid > 0 && (
+                  <span style={{ color: C.t3 }}> (exkl {dagSumma.utanTid} utan tid)</span>
+                )}
               </div>
               {fakturerbarBadge(fakturerbartKm)}
             </div>
@@ -457,7 +462,12 @@ export default function SammanstallningClient() {
                                 </div>
                               </div>
                               <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                <div style={{ fontSize: 14, fontWeight: 700 }}>{f.flytt_km != null ? `${f.flytt_km} km` : '—'}</div>
+                                <div style={{ fontSize: 14, fontWeight: 700 }}>
+                                  {f.flytt_km != null ? `${f.flytt_km} km` : '—'}
+                                  {f.tid_flytt_min != null && (
+                                    <span style={{ color: C.t3, fontWeight: 400 }}> · {fmtTid(f.tid_flytt_min)}</span>
+                                  )}
+                                </div>
                                 {f.fakturerbar
                                   ? <div style={{ marginTop: 3 }}>{fakturerbarChip(f.flytt_typ)}</div>
                                   : <div style={{ fontSize: 11, color: C.t3, marginTop: 3 }}>
