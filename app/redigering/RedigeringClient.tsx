@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
 import { useMatchning } from './hooks/useMatchning'
-import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkordning } from './hooks/useFildata'
+import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkordning, skordareForvantasEj, skotareForvantasEj } from './hooks/useFildata'
 import MatchningsVy from './MatchningsVy'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
@@ -151,22 +151,26 @@ function gruppModeller(g: any, maskiner: Record<string, any>): string {
   return Array.from(new Set(g.rader.map((o: any) => maskiner[o.maskin_id]).filter(Boolean))).join(' + ')
 }
 
-// PÅGÅENDE: gruppen är inte färdig. Skördning ELLER skotning saknar
-// avslutsdatum. Undantag när ett maskinslag inte är vårt att avsluta:
-// - egen/extern skotning -> skotningen markeras aldrig av oss, skördningen avgör
-// - extern skördning -> skördningen markeras aldrig av oss, skotningen avgör
-// (spegelbild). Görs BÅDA externt finns inget för oss att slutföra.
-// Exkluderade grupper är aldrig pågående.
+// PÅGÅENDE: gruppen är inte färdig. Ett maskinslag "avgör" bara om avslutet
+// är VÅRT att sätta — dvs. någon annan gör slaget. Samma orsak-hjälpare som
+// filstatus, MEN sander_filer räknas INTE här: en icke-filsändande skotare
+// är VÅR skotare som skotar på riktigt, avslutet är vårt att sätta (och är
+// enda klart-signalen när maskinen är tyst). Därför skotareForvantasEj UTAN
+// sanderEj — den flaggan hör till pricken (filer förväntas ej), inte till
+// avslutskravet (jobbet förväntas avslutas). Förväntas BÅDA slag ej av oss
+// finns inget att slutföra. Exkluderade grupper är aldrig pågående.
+//   skordEj-orsaker: extern skördning, klippning, risskotning
+//   skotEj-orsaker: egen/extern skotning (EJ sander_filer)
 function arPagaende(g: any): boolean {
   const rader = g.rader || []
   if (rader.every((o: any) => o.exkludera === true)) return false
   const skordningKlar = rader.some((o: any) => !!o.skordning_avslutad)
   const skotningKlar = rader.some((o: any) => !!o.skotning_avslutad)
-  const annanSkotar = rader.some((o: any) => o.egen_skotning === true || harExternSkotning(o))
-  const externSkordar = rader.some((o: any) => harExternSkordning(o))
-  if (externSkordar && annanSkotar) return false
-  if (externSkordar) return !skotningKlar
-  if (annanSkotar) return !skordningKlar
+  const skordEj = skordareForvantasEj(rader) !== null
+  const skotEj = skotareForvantasEj(rader) !== null
+  if (skordEj && skotEj) return false
+  if (skordEj) return !skotningKlar
+  if (skotEj) return !skordningKlar
   return !skordningKlar || !skotningKlar
 }
 

@@ -99,41 +99,60 @@ export function harExternSkordning(obj: any): boolean {
   return obj?.extern_skordning === true;
 }
 
+// EN KÄLLA för "maskinslaget förväntas ej av oss". Både filstatus (grå prick,
+// aldrig gul) och Pågående-villkoret (avslut krävs ej) läser HÄR — aldrig var
+// sin lista. Tar en rad-array: filStatus skickar [obj], arPagaende hela
+// VO-gruppens rader (så en syskonrads SKOTARFALT-flagga inte missas).
+export type SkordareEjOrsak = 'extern skördare' | 'klippning' | 'risskotning';
+export type SkotareEjOrsak = 'egen skotning' | 'extern skotare' | 'sänder inte filer';
+
+// Skördare förväntas ej: extern skördning (annan avverkar) ELLER klippning/
+// risskotning (aggregatet sitter på skotaren — ingen skördarfil kommer).
+export function skordareForvantasEj(rader: any[]): SkordareEjOrsak | null {
+  const r = rader || [];
+  if (r.some(o => harExternSkordning(o))) return 'extern skördare';
+  if (r.some(o => o?.risskotning === true)) return 'risskotning';
+  if (r.some(o => o?.klippning === true)) return 'klippning';
+  return null;
+}
+
+// Skotare förväntas ej: egen/extern skotning (annan skotar) ELLER
+// icke-filsändande skotarmaskin (dim_maskin.sander_filer=false, t.ex. JD810E).
+export function skotareForvantasEj(rader: any[], sanderEjFiler?: boolean): SkotareEjOrsak | null {
+  const r = rader || [];
+  if (r.some(o => o?.egen_skotning === true)) return 'egen skotning';
+  if (r.some(o => harExternSkotning(o))) return 'extern skotare';
+  if (sanderEjFiler) return 'sänder inte filer';
+  return null;
+}
+
 export function filStatus(obj: any, rader: MaskinFiler[] | undefined, opts?: { skotareSanderEjFiler?: boolean }): {
   skordare: MaskinslagStatus;
   skotare: MaskinslagStatus;
-  skotareEjOrsak: 'egen skotning' | 'extern skotare' | 'sänder inte filer' | null;
-  skordareEjOrsak: 'risskotning' | 'klippning' | 'extern skördare' | null;
+  skotareEjOrsak: SkotareEjOrsak | null;
+  skordareEjOrsak: SkordareEjOrsak | null;
   ovantadSkordardata: boolean;
   ovantadSkotardata: boolean;
 } {
   const r = rader || [];
   const harSkordarfiler = r.some(x => x.typ === 'skordare');
   const harSkotarfiler = r.some(x => x.typ === 'skotare');
-  const egenExternOrsak = obj?.egen_skotning === true ? 'egen skotning' as const
-    : harExternSkotning(obj) ? 'extern skotare' as const
-    : null;
-  // Icke-filsändande skotarmaskin (dim_maskin.sander_filer=false på gruppens
-  // skotarrad) -> grå "förväntas ej", aldrig gul. Data som ändå dyker upp
-  // vinner alltid (maskinen kanske började sända).
-  const skotareEjOrsak = egenExternOrsak
-    || (opts?.skotareSanderEjFiler ? 'sänder inte filer' as const : null);
-  // Extern skördare -> skördare förväntas ej (grå), spegelbild av extern
-  // skotning. risskotning/klippning gäller rena skotarjobb där aggregatet
-  // sitter på skotaren.
-  const skordareEjOrsak = harExternSkordning(obj) ? 'extern skördare' as const
-    : obj?.risskotning === true ? 'risskotning' as const
-    : obj?.klippning === true ? 'klippning' as const
-    : null;
+  // Delade hjälpare — SAMMA orsaker som arPagaende använder.
+  const skotareEjOrsak = skotareForvantasEj([obj], opts?.skotareSanderEjFiler);
+  const skordareEjOrsak = skordareForvantasEj([obj]);
+  // Oväntad-flaggan gäller bara "annan gör det"-orsaker (egen/extern), inte
+  // sander_filer/klipp/ris där utebliven data är väntad, inte fel.
+  const egenExternOrsak = obj?.egen_skotning === true || harExternSkotning(obj);
   return {
     skordare: harSkordarfiler ? 'data' : (skordareEjOrsak ? 'forvantas_ej' : 'saknas'),
     skotare: harSkotarfiler ? 'data' : (skotareEjOrsak ? 'forvantas_ej' : 'saknas'),
     skotareEjOrsak,
     skordareEjOrsak,
-    // Oväntad = data trots att maskinslaget inte förväntas. Gäller INTE
-    // sander_filer-flaggan — där är ny data goda nyheter, ingen flagga.
+    // Oväntad = data trots att maskinslaget inte förväntas. Gäller bara
+    // "annan gör det"-orsaker (extern skörd / egen-extern skotning), INTE
+    // sander_filer/klipp/ris — där är ny data goda nyheter, ingen flagga.
     ovantadSkordardata: harSkordarfiler && harExternSkordning(obj),
-    ovantadSkotardata: harSkotarfiler && egenExternOrsak !== null,
+    ovantadSkotardata: harSkotarfiler && egenExternOrsak,
   };
 }
 
