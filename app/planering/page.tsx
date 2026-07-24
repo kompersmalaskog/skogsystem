@@ -1467,6 +1467,10 @@ export default function PlannerPage() {
   // Trakt-panel (Fakta | Prognos)
   const [traktOpen, setTraktOpen] = useState(false);
   const [traktTab, setTraktTab] = useState<'fakta' | 'prognos' | 'larm'>('fakta');
+  // Traktöversikten (fälls ner från objektnamnet) — Stefans snabbkoll, i planering + körvy.
+  const [traktOversiktOpen, setTraktOversiktOpen] = useState(false);
+  const [oversiktSymbolTyp, setOversiktSymbolTyp] = useState<string | null>(null);
+  const [vidaDirektiv, setVidaDirektiv] = useState(''); // objekt.anteckningar (Vida/kontoret), read-only i översikten
   const [traktData, setTraktData] = useState<TraktData>({
     volym: 649, // m³fub - från VIDA
     areal: 2.0, // ha - från VIDA
@@ -1548,7 +1552,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, larmkoordinat_kalla, larmkoordinat_bekraftad')
+        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, larmkoordinat_kalla, larmkoordinat_bekraftad')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -1574,6 +1578,7 @@ export default function PlannerPage() {
         setInfoMarkagareVed(data.markagare_ska_ha_ved || false);
         setInfoMarkagareVedText(data.markagare_ved_text || '');
         setInfoAnteckningar(data.info_anteckningar || '');
+        setVidaDirektiv(data.anteckningar || '');
         setInfoSkotareExtraVagn(data.skotare_extra_vagn || false);
         setInfoAreal(data.areal != null ? String(data.areal) : '');
         setInfoVolym(data.volym != null ? String(data.volym) : '');
@@ -9226,18 +9231,15 @@ export default function PlannerPage() {
             </svg>
           </Link>
 
-          {/* Objekt-pill (glasig). STEG 4: i "Visa som"-läge får pillen orange
-              border + prefix "👁 <förnamn> ·" + tap-handler som öppnar +-menyn
-              (där VY-växlaren bor) så admin kan växla tillbaka snabbt. */}
+          {/* Objekt-pill (glasig). Tryck → traktöversikten (Stefans snabbkoll). "Visa som"-läge
+              behåller orange border + prefix; VY-växlaren bor kvar i +-menyn (listan Planerare/Visa som X). */}
           <div
-            {...(visarSomForare ? {
-              role: 'button',
-              tabIndex: 0,
-              onClick: () => setPlusMenuOpen(true),
-              onKeyDown: (e: React.KeyboardEvent) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPlusMenuOpen(true); }
-              },
-            } : {})}
+            role="button"
+            tabIndex={0}
+            onClick={() => setTraktOversiktOpen(o => !o)}
+            onKeyDown={(e: React.KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTraktOversiktOpen(o => !o); }
+            }}
             style={{
             pointerEvents: 'auto',
             flex: '0 1 auto',
@@ -9256,7 +9258,7 @@ export default function PlannerPage() {
             textOverflow: 'ellipsis',
             letterSpacing: '-0.2px',
             textAlign: 'center',
-            cursor: visarSomForare ? 'pointer' : 'default',
+            cursor: 'pointer',
           }}>
             {visarSomForare && simuleradForare && (
               <span style={{ color: '#ff9f0a', fontWeight: '600', marginRight: 6 }}>
@@ -9280,6 +9282,278 @@ export default function PlannerPage() {
           <span style={{ width: '44px', flexShrink: 0 }} aria-hidden="true" />
         </div>
       )}
+
+      {/* === TRAKTÖVERSIKT — fälls ner från objektnamnet. Stefans snabbkoll (planering + körvy). === */}
+      {traktOversiktOpen && valtObjekt && (() => {
+        const vida = (vidaDirektiv || '').trim();
+        const egna = (infoAnteckningar || '').trim();
+        const restr = (traktData as any)?.beraknad?.restriktioner as Array<{ name?: string; type?: string; details?: string; warning?: string }> | undefined;
+        const arealNum = parseFloat(String(infoAreal ?? '').replace(',', '.'));
+        const harAreal = Number.isFinite(arealNum) && arealNum > 0;
+        const volymTxt = (infoVolym ?? '').toString().trim();
+
+        // N träd/ha ur Vida-texten — aldrig gissa. Intervall räknas i båda ändar.
+        const avstand = (n: number) => Math.round(Math.sqrt(10000 / n));
+        let planttext: string | null = null;
+        let loN: number | null = null, hiN: number | null = null;
+        if (vida) {
+          const range = vida.match(/(\d{1,3})\s*[-–]\s*(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
+          const single = vida.match(/(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
+          if (range) {
+            const a = Math.min(+range[1], +range[2]), b = Math.max(+range[1], +range[2]);
+            loN = a; hiN = b;
+            planttext = `ca ${avstand(b)}–${avstand(a)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * a)}–${Math.round(arealNum * b)} st totalt` : '');
+          } else if (single) {
+            const n = +single[1]; loN = n; hiN = n;
+            planttext = `ca ${avstand(n)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * n)} st totalt` : '');
+          }
+        }
+
+        // Symboler grupperade per typ (svenska plural; singular vid 1).
+        const plural: Record<string, [string, string]> = {
+          eternitytree: ['evighetsträd', 'evighetsträd'], naturecorner: ['naturhörna', 'naturhörnor'],
+          culturemonument: ['kulturminne', 'kulturminnen'], culturestump: ['kulturstubbe', 'kulturstubbar'],
+          highstump: ['högstubbe', 'högstubbar'], landing: ['avlägg', 'avlägg'], brashpile: ['rishög', 'rishögar'],
+          windfall: ['vindfälle', 'vindfällen'], manualfelling: ['manuell fällning', 'manuella fällningar'],
+          powerline: ['kraftledning', 'kraftledningar'], road: ['väg', 'vägar'], turningpoint: ['vändplats', 'vändplatser'],
+          ditch: ['dike', 'diken'], bridge: ['bro', 'broar'], corduroy: ['kavling', 'kavlingar'],
+          wet: ['fuktig mark', 'fuktiga partier'], steep: ['brant', 'branter'], trail: ['stig', 'stigar'], warning: ['varning', 'varningar'],
+        };
+        const namnFor = (t: string, n: number) => (plural[t]?.[n === 1 ? 0 : 1]) || t;
+        // Linjer grupperas på samma sätt (färg = förarens språk för väg-linjer).
+        const linjePlural: Record<string, [string, string]> = {
+          mainRoad: ['basväg', 'basvägar'], ditch: ['dike', 'diken'], trail: ['stig', 'stigar'],
+          nature: ['naturvårdslinje', 'naturvårdslinjer'],
+          sideRoadRed: ['röd stickväg', 'röda stickvägar'], sideRoadYellow: ['gul stickväg', 'gula stickvägar'], sideRoadBlue: ['blå stickväg', 'blå stickvägar'],
+          backRoadRed: ['röd backväg', 'röda backvägar'], backRoadYellow: ['gul backväg', 'gula backvägar'], backRoadBlue: ['blå backväg', 'blå backvägar'],
+        };
+        const linjeNamnFor = (t: string, n: number) => (linjePlural[t]?.[n === 1 ? 0 : 1]) || (lineTypes.find(l => l.id === t)?.name || t).toLowerCase();
+
+        // PÅ TRAKTEN: symboler FÖRST (punkt-hänsyn han inte får missa), sedan linjer (infrastruktur).
+        // ditch/trail finns som BÅDE symbol och linje → nyckel = kind:typ (annars krock). Traktgräns
+        // (boundary) utesluts — den finns alltid runt hela trakten och är inget han "letar efter".
+        const grupper: { key: string; kind: 'symbol' | 'line'; typ: string; items: any[] }[] = [];
+        for (const m of markers) {
+          if (!m.isMarker) continue;
+          const t = m.type || 'default';
+          const key = 'symbol:' + t;
+          let g = grupper.find(x => x.key === key);
+          if (!g) { g = { key, kind: 'symbol', typ: t, items: [] }; grupper.push(g); }
+          g.items.push(m);
+        }
+        for (const m of markers) {
+          if (!m.isLine || !m.lineType || m.lineType === 'boundary') continue;
+          const t = m.lineType;
+          const key = 'line:' + t;
+          let g = grupper.find(x => x.key === key);
+          if (!g) { g = { key, kind: 'line', typ: t, items: [] }; grupper.push(g); }
+          g.items.push(m);
+        }
+
+        // Chip-ikon: symbol = färgad cirkel + glyf (renderIcon — identiskt med kartan; grå bg blir
+        // ljusare så den syns mot mörk panel). Linje = liten swatch (randig/streckad/färgad som ritad).
+        const chipBg = (t: string) => { const b = getIconBackground(t); return b === 'rgba(0,0,0,0.6)' ? 'rgba(255,255,255,0.12)' : b; };
+        const linjeSwatch = (t: string) => {
+          const lt: any = lineTypes.find(l => l.id === t);
+          const col = lt?.color || '#fff', col2 = lt?.color2 || col;
+          const bg = lt?.striped ? `repeating-linear-gradient(90deg, ${col} 0, ${col} 3px, ${col2} 3px, ${col2} 6px)`
+            : lt?.dashed ? `repeating-linear-gradient(90deg, ${col} 0, ${col} 4px, transparent 4px, transparent 7px)` : col;
+          return <span style={{ width: 20, height: 4, borderRadius: 2, background: bg, flexShrink: 0 }} />;
+        };
+
+        const flyTill = (m: any) => {
+          setTraktOversiktOpen(false); setOversiktSymbolTyp(null);
+          const map = mapInstanceRef.current; if (!map) return;
+          let x = m.x, y = m.y;
+          if (m.isLine && Array.isArray(m.path) && m.path.length) { const mid = m.path[Math.floor(m.path.length / 2)]; x = mid.x; y = mid.y; }
+          try { const ll = svgToLatLon(x, y); map.flyTo({ center: [ll.lon, ll.lat], zoom: Math.max(map.getZoom(), 17), duration: 700 }); } catch {}
+        };
+        // Larmkoordinat / mötesplats — samma fält som Larm-fliken (manuellt satt vid rekning, aldrig auto).
+        // Räddningstjänstens mötesplats: det första föraren behöver om något händer på trakten.
+        const larmLat = parseFloat((infoLarmLat || '').replace(',', '.'));
+        const larmLng = parseFloat((infoLarmLng || '').replace(',', '.'));
+        const larmSatt = Number.isFinite(larmLat) && Number.isFinite(larmLng);
+        const larmBeskr = (infoLarmBeskrivning || '').trim();
+        const larmFlyTill = () => {
+          if (!larmSatt) return;
+          setTraktOversiktOpen(false); setOversiktSymbolTyp(null);
+          const map = mapInstanceRef.current; if (!map) return;
+          map.flyTo({ center: [larmLng, larmLat], zoom: Math.max(map.getZoom(), 17), duration: 700 });
+        };
+        const stang = () => { setTraktOversiktOpen(false); setOversiktSymbolTyp(null); };
+        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr;
+
+        return (
+          <>
+            <div onClick={stang} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 470 }} />
+            <div style={{
+              position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 64px)', left: '50%', transform: 'translateX(-50%)',
+              width: 'min(560px, 94vw)', maxHeight: '82vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', zIndex: 480,
+              background: '#101012', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, boxShadow: '0 18px 50px rgba(0,0,0,0.6)',
+              padding: '16px 16px calc(env(safe-area-inset-bottom, 0px) + 20px)',
+              fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valtObjekt.namn}</div>
+                  <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)' }}>{[valtObjekt.areal ? `${valtObjekt.areal} ha` : '', valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : valtObjekt.typ === 'gallring' ? 'Gallring' : valtObjekt.typ].filter(Boolean).join(' · ')}</div>
+                </div>
+                <button type="button" onClick={stang} aria-label="Stäng" style={{ width: 34, height: 34, borderRadius: 17, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 16, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit' }}>✕</button>
+              </div>
+
+              {vida && (
+                <div style={{ marginBottom: 14, background: 'rgba(10,132,255,0.08)', border: '1px solid rgba(10,132,255,0.3)', borderRadius: 14, padding: '13px 15px' }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#4da3ff', marginBottom: 7 }}>Direktiv från Vida</div>
+                  <div style={{ fontSize: 15, lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{vida}</div>
+                  {planttext && (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: 14, fontWeight: 600, color: '#4da3ff' }}>{planttext}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Omräkningstabell — tunt STÖD, inte tryckbart. Direktivet ska dominera. */}
+              <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5 }}>
+                <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: 'rgba(255,255,255,0.3)', marginRight: 2 }}>träd/ha</span>
+                {([[10, 32], [20, 22], [30, 18], [50, 14]] as [number, number][]).map(([n, m], i) => {
+                  const hit = loN != null && hiN != null && n >= loN && n <= hiN;
+                  return (
+                    <span key={n} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+                      {i > 0 && <span style={{ color: 'rgba(255,255,255,0.22)' }}>·</span>}
+                      <span style={{ color: hit ? '#4da3ff' : 'rgba(255,255,255,0.55)', fontWeight: hit ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>{n} → {m} m</span>
+                    </span>
+                  );
+                })}
+              </div>
+
+              {egna && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 7 }}>Att tänka på</div>
+                  <div style={{ fontSize: 14.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.9)', whiteSpace: 'pre-wrap', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '12px 14px' }}>{egna}</div>
+                </div>
+              )}
+
+              {restr && restr.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 7 }}>Restriktioner</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {restr.map((r, i) => (
+                      <div key={i} style={{ background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '11px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 14.5, fontWeight: 600, color: '#fff' }}>{r.name || 'Område'}</span>
+                          {r.type && <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'rgba(255,255,255,0.4)' }}>{r.type}</span>}
+                        </div>
+                        {r.details && <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.55)', marginTop: 3, lineHeight: 1.4 }}>{r.details}</div>}
+                        {r.warning && <div style={{ fontSize: 13, color: '#ffb84d', marginTop: 6, lineHeight: 1.45 }}>{r.warning}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* LARMKOORDINAT — säkerhet, mellan restriktioner och symbollistan. Alltid synlig:
+                  satt = tryckbart kort som flyger till larmpinnen; ej satt = ärlig varning (föraren
+                  MÅSTE veta att mötesplatsen saknas — farligare att dölja än att visa). */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Larmkoordinat</div>
+                {larmSatt ? (
+                  <button type="button" onClick={larmFlyTill} className="btn-press" aria-label="Visa larmkoordinaten på kartan"
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'rgba(10,132,255,0.1)', border: '1px solid rgba(10,132,255,0.3)', borderRadius: 14, padding: '13px 15px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                      <span style={{ width: 30, height: 30, borderRadius: 15, background: 'rgba(10,132,255,0.9)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2"><path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11Z" /><circle cx="12" cy="10" r="2.4" /></svg>
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{larmLat.toFixed(5)}, {larmLng.toFixed(5)}</div>
+                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen — satt vid rekning' : 'Källa ej angiven'}</div>
+                      </div>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 6 L15 12 L9 18" /></svg>
+                    </div>
+                    <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: infoLarmBekraftad ? '#30d158' : 'rgba(255,159,10,0.9)' }}>
+                      {infoLarmBekraftad
+                        ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2.6" style={{ flexShrink: 0 }}><path d="M20 6 L9 17 L4 12" /></svg>
+                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,159,10,0.9)" strokeWidth="2" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="9" /><path d="M12 8v4" /><path d="M12 16h.01" /></svg>}
+                      {infoLarmBekraftad ? 'Bekräftad på plats' : 'Ej bekräftad på plats'}
+                    </div>
+                    {larmBeskr && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.12)', fontSize: 14, lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{larmBeskr}</div>
+                    )}
+                  </button>
+                ) : (
+                  <div style={{ background: 'rgba(255,159,10,0.1)', border: '1px solid rgba(255,159,10,0.3)', borderRadius: 14, padding: '13px 15px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 15, fontWeight: 700, color: '#FF9F0A' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF9F0A" strokeWidth="2.2" style={{ flexShrink: 0 }}><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.7 3.86a2 2 0 0 0-3.42 0Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+                      Larmkoordinat ej satt
+                    </div>
+                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 6, lineHeight: 1.45 }}>Ingen mötesplats för räddningstjänsten är angiven för trakten. Sätt den i Trakt-panelens Larm-flik.</div>
+                    {larmBeskr && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,159,10,0.25)', fontSize: 14, lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{larmBeskr}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {grupper.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>På trakten</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {grupper.map(g => {
+                      const kommenterade = g.items.filter((m: any) => (m.comment || '').trim());
+                      const tappbar = g.items.length === 1 || kommenterade.length > 0;
+                      const aktiv = oversiktSymbolTyp === g.key;
+                      return (
+                        <button key={g.key} type="button" disabled={!tappbar}
+                          onClick={() => { if (g.items.length === 1) flyTill(g.items[0]); else setOversiktSymbolTyp(aktiv ? null : g.key); }}
+                          className={tappbar ? 'btn-press' : undefined}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px 7px 8px', borderRadius: 20, border: aktiv ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.12)', background: aktiv ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: tappbar ? 'pointer' : 'default', opacity: tappbar ? 1 : 0.65, fontFamily: 'inherit' }}>
+                          {g.kind === 'symbol'
+                            ? <span style={{ width: 22, height: 22, borderRadius: 11, background: chipBg(g.typ), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{renderIcon(g.typ, 13, '#fff')}</span>
+                            : linjeSwatch(g.typ)}
+                          <span style={{ fontWeight: 700 }}>{g.items.length}</span>
+                          <span style={{ color: 'rgba(255,255,255,0.8)' }}>{g.kind === 'symbol' ? namnFor(g.typ, g.items.length) : linjeNamnFor(g.typ, g.items.length)}</span>
+                          {tappbar && g.items.length > 1 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', transform: aktiv ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>&#x203A;</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {oversiktSymbolTyp && (() => {
+                    const g = grupper.find(x => x.key === oversiktSymbolTyp);
+                    if (!g) return null;
+                    const rader = g.items.filter((m: any) => (m.comment || '').trim());
+                    if (rader.length === 0) return null;
+                    return (
+                      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {rader.map((m: any) => (
+                          <button key={m.id} type="button" className="btn-press" onClick={() => flyTill(m)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                            {m.photoData && <img src={m.photoData} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
+                            <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: '#fff', lineHeight: 1.4 }}>{(m.comment || '').trim()}</span>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 6 L15 12 L9 18" /></svg>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {(volymTxt || infoBarighet || infoTerrang) && (
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Fakta</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {volymTxt && <div style={{ background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 14px' }}><span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Volym </span><span style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{volymTxt} m³</span></div>}
+                    {infoBarighet && <div style={{ background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 14px' }}><span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Bärighet </span><span style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{infoBarighet}</span></div>}
+                    {infoTerrang && <div style={{ background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 14px' }}><span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Terräng </span><span style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{infoTerrang}</span></div>}
+                  </div>
+                </div>
+              )}
+
+              {!harAnnat && (
+                <div style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '4px 0 2px' }}>Inget mer ifyllt för den här trakten ännu.</div>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {/* === MODE-BANNER (aktivt verktygsläge) === */}
       {!briefingMode && activeMode && (
