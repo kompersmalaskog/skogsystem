@@ -49,6 +49,31 @@ function sweref99ToWgs84(n: number, e: number): { lat: number; lng: number } {
   return { lat, lng };
 }
 
+// Larmkoordinat ur Vidas TD — läses ENDAST via "Larmkoordinat:"-etiketten, ALDRIG som
+// första koordinaten i dokumentet. Första 7+6-träffen blir objektets lat/lng, och saknar
+// TD:n en larmkoordinat är den träffen ett avlägg — att märka den "larmkoordinat" vore en
+// falsk säkerhetsuppgift. Saknas etiketten eller ett giltigt talpar → null (förblir ej satt).
+// Nord/Syd- och Öst/Väst-etiketterna kan stå i omvänd ordning mot talen i den extraherade
+// texten, så vi disambiguerar på MAGNITUD (northing 6,0–7,8 Mm = 7 siffror, easting
+// 150 k–1 Mm = 6 siffror), inte på etikett. Sverige-box som sista spärr.
+function parseLarmkoordinatFromTd(text: string): { lat: number; lng: number } | null {
+  const idx = text.search(/larmkoordinat/i);
+  if (idx < 0) return null;
+  const fonster = text.slice(idx, idx + 160);
+  const m = fonster.match(/(\d{6,7})\s+(\d{6,7})/);
+  if (!m) return null;
+  const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+  const arNorthing = (v: number) => v >= 6_000_000 && v <= 7_800_000;
+  const arEasting = (v: number) => v >= 150_000 && v <= 1_000_000;
+  let northing: number, easting: number;
+  if (arNorthing(a) && arEasting(b)) { northing = a; easting = b; }
+  else if (arNorthing(b) && arEasting(a)) { northing = b; easting = a; }
+  else return null;
+  const { lat, lng } = sweref99ToWgs84(northing, easting);
+  if (lat < 55 || lat > 70 || lng < 10 || lng > 25) return null; // utanför Sverige → förkasta
+  return { lat, lng };
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Auth-gate: trakt-importen skriver markägardata (objekt + kartbilder-
@@ -247,6 +272,11 @@ export async function POST(request: NextRequest) {
     }
     console.log('koordinater:', lat, lng);
 
+    // Larmkoordinat — ENDAST via "Larmkoordinat:"-etiketten (ingen blind fallback till lat/lng
+    // ovan). Saknas etiketten → förblir ej satt. Vida ritar från kontoret → bekraftad=false.
+    const larm = parseLarmkoordinatFromTd(text);
+    console.log('larmkoordinat:', larm);
+
     // GROT - leta efter exakt "GROT-anpassa avverkningen" följt av Ja eller Nej
     let grot = false;
     const grotMatch = text.match(/GROT-anpassa avverkningen\s+(Ja|Nej)/i);
@@ -432,6 +462,10 @@ export async function POST(request: NextRequest) {
       grot,
       lat,
       lng,
+      larmkoordinat_lat: larm ? larm.lat : null,
+      larmkoordinat_lng: larm ? larm.lng : null,
+      larmkoordinat_kalla: larm ? 'td' : null,
+      larmkoordinat_bekraftad: larm ? false : null,
       sortiment: sortiment.length > 0 ? sortiment : null,
       anteckningar: anteckningar || null,
       kartbild_url,
