@@ -108,8 +108,12 @@ export async function GET(req: NextRequest) {
           segCount = chain.segments.length;
           source = chain.segments.length > 0 ? chain.segments[chain.segments.length - 1].source : "chain";
 
-          // Spara tillbaka för 1-objekt-1-rad-dagar så nästa request läser DB
-          if (sekvens.length === 1 && dagRader.length === 1 && chain.segments.length === 2) {
+          // Spara tillbaka för 1-objekt-1-rad-dagar så nästa request läser DB.
+          // BARA riktiga vägberäkningar (cache/ors) fryses in — en fallback
+          // (haversine × 1,4) är en osäker uppskattning som inte ska bli en
+          // persisterad "sanning"; den räknas om varje gång i stället.
+          const bådaÄkta = chain.segments.every(s => s.source !== "fallback");
+          if (sekvens.length === 1 && dagRader.length === 1 && chain.segments.length === 2 && bådaÄkta) {
             const r0 = dagRader[0];
             if ((Number(r0.km_morgon) || 0) === 0 && (Number(r0.km_kvall) || 0) === 0 && (Number(r0.km_totalt) || 0) === 0 && r0.id) {
               await supabase.from("arbetsdag")
