@@ -228,7 +228,7 @@ export async function fetchData(
 
   const [prodRows, tidRows, avbrRows, opRes] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar, operator_id', ids, start, end, operatorId),
-    fetchAll('fakt_tid', 'operator_id, processing_sek, terrain_sek, kort_stopp_sek, rast_sek, bransle_liter, tomgang_sek, engine_time_sek', ids, start, end, operatorId),
+    fetchAll('fakt_tid', 'operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, rast_sek, bransle_liter, tomgang_sek, engine_time_sek', ids, start, end, operatorId),
     fetchAll('fakt_avbrott', 'kategori_kod, langd_sek', ids, start, end, operatorId),
     operatorId
       ? Promise.resolve({ data: [] as Array<{ operator_id: string; operator_namn: string }> })
@@ -256,19 +256,21 @@ export async function fetchData(
   }
 
   // fakt_tid → total + per operator
-  let proc = 0, terr = 0, kort = 0, rast = 0, bransle = 0
+  let proc = 0, terr = 0, ow = 0, kort = 0, rast = 0, bransle = 0
   let tomgang = 0, engine = 0
-  const tidByOp: Record<string, { proc: number; terr: number }> = {}
+  const tidByOp: Record<string, { proc: number; terr: number; ow: number }> = {}
   for (const r of tidRows) {
     proc    += r.processing_sek || 0
     terr    += r.terrain_sek || 0
+    ow      += r.other_work_sek || 0
     kort    += r.kort_stopp_sek || 0
     rast    += r.rast_sek || 0
     bransle += parseFloat(r.bransle_liter) || 0
     tomgang += r.tomgang_sek || 0
     engine  += r.engine_time_sek || 0
     if (r.operator_id) {
-      if (!tidByOp[r.operator_id]) tidByOp[r.operator_id] = { proc: 0, terr: 0 }
+      if (!tidByOp[r.operator_id]) tidByOp[r.operator_id] = { proc: 0, terr: 0, ow: 0 }
+      tidByOp[r.operator_id].ow += r.other_work_sek || 0
       tidByOp[r.operator_id].proc += r.processing_sek || 0
       tidByOp[r.operator_id].terr += r.terrain_sek || 0
     }
@@ -296,7 +298,7 @@ export async function fetchData(
     .map(([kategori, v]) => ({ kategori, sek: v.sek, antal: v.antal }))
     .sort((a, b) => b.sek - a.sek)
 
-  const g15h = (proc + terr) / 3600
+  const g15h = (proc + terr + ow) / 3600
   const produktivitet  = g15h > 0    ? volym / g15h    : null
   const medelstam      = stammar > 0 ? volym / stammar : null
   const branslePerM3   = volym > 0   ? bransle / volym : null
@@ -307,8 +309,8 @@ export async function fetchData(
   const allOpIds = new Set<string>([...Object.keys(prodByOp), ...Object.keys(tidByOp)])
   const operatorer: Operator[] = Array.from(allOpIds).map(id => {
     const p = prodByOp[id] || { vol: 0, st: 0, dagar: new Set<string>() }
-    const t = tidByOp[id]  || { proc: 0, terr: 0 }
-    const opG15h = (t.proc + t.terr) / 3600
+    const t = tidByOp[id]  || { proc: 0, terr: 0, ow: 0 }
+    const opG15h = (t.proc + t.terr + t.ow) / 3600
     return {
       id,
       namn: opNames[id] || id,
@@ -363,7 +365,7 @@ export async function fetchSeries(
 
   const [prodRows, tidRows] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar', ids, spanStart, spanEnd, operatorId),
-    fetchAll('fakt_tid', 'datum, processing_sek, terrain_sek, bransle_liter, kort_stopp_sek, engine_time_sek', ids, spanStart, spanEnd, operatorId),
+    fetchAll('fakt_tid', 'datum, processing_sek, terrain_sek, other_work_sek, bransle_liter, kort_stopp_sek, engine_time_sek', ids, spanStart, spanEnd, operatorId),
   ])
 
   const bucketOf = (datum: string): number => {
@@ -374,7 +376,7 @@ export async function fetchSeries(
   }
 
   const buckets = ranges.map(() => ({
-    volym: 0, stammar: 0, proc: 0, terr: 0, bransle: 0,
+    volym: 0, stammar: 0, proc: 0, terr: 0, ow: 0, bransle: 0,
     kortStopp: 0, engine: 0,
     prodDays: new Set<string>(),
   }))
@@ -389,13 +391,14 @@ export async function fetchSeries(
     const b = bucketOf(r.datum); if (b < 0) continue
     buckets[b].proc    += r.processing_sek || 0
     buckets[b].terr    += r.terrain_sek || 0
+    buckets[b].ow      += r.other_work_sek || 0
     buckets[b].bransle += parseFloat(r.bransle_liter) || 0
     buckets[b].kortStopp += r.kort_stopp_sek || 0
     buckets[b].engine  += r.engine_time_sek || 0
   }
 
   return buckets.map((b, i) => {
-    const g15h = (b.proc + b.terr) / 3600
+    const g15h = (b.proc + b.terr + b.ow) / 3600
     const hasData = b.prodDays.size >= MIN_DAYS_PER_PERIOD
     if (!hasData) {
       return {

@@ -147,7 +147,7 @@ export default function MotAckordClient() {
         ),
         fetchAllRows((from, to) =>
           supabase.from('fakt_tid')
-            .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek')
+            .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek, other_work_sek')
             .in('objekt_id', ids).range(from, to)
         ),
         fetchAllRows((from, to) =>

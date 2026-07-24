@@ -452,7 +452,7 @@ export async function POST(req: NextRequest) {
     //    (täcker fall där fakt_skift saknas men fakt_tid finns)
     const { data: tidData } = await supabase
       .from('fakt_tid')
-      .select('datum, maskin_id, operator_id, processing_sek, terrain_sek, rast_sek, engine_time_sek, objekt_id')
+      .select('datum, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, rast_sek, engine_time_sek, objekt_id')
       .in('datum', datumSet);
 
     if (tidData?.length) {
@@ -472,7 +472,7 @@ export async function POST(req: NextRequest) {
             g15sek: 0, rastSek: 0, engineSek: 0, objekt_id: null,
           };
         }
-        tidAgg[key].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
+        tidAgg[key].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0);
         tidAgg[key].rastSek += r.rast_sek || 0;
         tidAgg[key].engineSek += r.engine_time_sek || 0;
         if (r.objekt_id) tidAgg[key].objekt_id = r.objekt_id;

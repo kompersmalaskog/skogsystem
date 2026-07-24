@@ -30,9 +30,15 @@ export const G15_GRANS_SEK = 900
 /** Under G15-gränsen → hör (för skördare) till "Korta pauser", inte avbrott. */
 export const arKortPaus = (langdSek: number) => langdSek < G15_GRANS_SEK
 
-// G15-tid = processing + terrain (verifierat mot PONSSE-rapport på två maskiner,
-// se app/uppfoljning/lib/transform.ts). ENDA definitionen — vyer som räknar
-// G15-timmar (uppföljning, maskinvy, ekonomi) ska summera via denna, aldrig
-// engine_time_sek (motortid, ±2–3 % fel åt båda håll) eller processing ensam.
-export const g15Sek = (processing_sek: number | null | undefined, terrain_sek: number | null | undefined) =>
-  (processing_sek || 0) + (terrain_sek || 0)
+// G15-tid = processing + terrain + other_work. Validerat mot FEM tillverkar-
+// rapporter / 2 fabrikat: Ponsse "Effektiv tid" (Scorpion/Elefant/Wisent) och
+// Rottne "Grundtid G(t)" (H8E -23/-26) är samma sak och inkluderar BÅDA övrigt
+// arbete. P+T ensam underskattar 3–6 % → m³/G15h och kr/G15h överskattas. ENDA
+// definitionen — vyer ska summera via denna, aldrig engine_time_sek (motortid,
+// mäter dessutom bara P+T — other_work sker ofta med motorn av) eller P+T ensam.
+// OBS: other_work_sek finns i fakt_tid; glöm inte fetch:a den i select:en.
+export const g15Sek = (
+  processing_sek: number | null | undefined,
+  terrain_sek: number | null | undefined,
+  other_work_sek: number | null | undefined,
+) => (processing_sek || 0) + (terrain_sek || 0) + (other_work_sek || 0)

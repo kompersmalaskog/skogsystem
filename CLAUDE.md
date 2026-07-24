@@ -19,7 +19,7 @@ ALLTID göra så här:
 3. Merga i JavaScript med Map<datum, data>
 
 ### Beräkningar
-- G15h = (processing_sek + terrain_sek) / 3600
+- G15h = (processing_sek + terrain_sek + other_work_sek) / 3600 — validerat mot 5 tillverkarrapporter (Ponsse "Effektiv tid" + Rottne "G(t)", båda inkl. övrigt arbete). Summera ALLTID via `lib/g15.ts` `g15Sek()`. other_work sker ofta med motorn av → G15 kan legitimt överstiga engine_time; fysik-invariant = P+T ≤ engine_time, ej G15 ≤ engine_time
 - m³/G15h = SUM(volym_m3sub) / SUM(g15_h) — viktat snitt, aldrig snitt av snitt
 - L/m³ = SUM(bransle_liter) / SUM(volym_m3sub) — viktat snitt
 - Medelstam per objekt = SUM(volym_m3sub) / SUM(stammar)
