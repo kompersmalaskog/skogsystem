@@ -637,24 +637,34 @@ export default function HelikopterV2Page() {
 
   // Kalibrering: hur prognoserna träffar per skogstyp. avvikelse = medel(utfall_h/prognos_h)−1 i %.
   const kalibrering = useMemo(() => {
-    const bygg = (roll: 'skordare' | 'skotare', intervall: { min: number; max: number; label: string }[], nyckel: (u: UtfallVyRad) => number | null) => {
-      const grupper = intervall.map(iv => ({ label: iv.label, ratios: [] as number[] }))
-      for (const o of utfallLista) {
+    const bygg = (roll: 'skordare' | 'skotare', tillhor: (id: string) => boolean, intervall: { min: number; max: number; label: string }[], nyckel: (u: UtfallVyRad) => number | null) => {
+      const grupper = intervall.map(iv => ({ label: iv.label, takter: [] as number[], ratios: [] as number[] }))
+      for (const o of utfallLista) { // ALLA avslutade (VF bortfiltrerat); takt behöver ingen prognos
         const r = roll === 'skordare' ? o.skord : o.skot
-        if (!r.avslutad || !r.u || r.prognosH == null || r.u.timmar == null || r.u.timmar <= 0) continue
+        if (!r.avslutad || !r.u || r.u.timmar == null || r.u.timmar <= 0 || r.u.takt == null) continue
+        if (!tillhor(r.u.maskin_id || '')) continue // PER MASKIN — man planerar ett objekt på en bestämd maskin
         const g = grupper.find(x => x.label === intervallFor(nyckel(r.u!), intervall))
-        if (g) g.ratios.push(r.u.timmar / r.prognosH)
+        if (!g) continue
+        g.takter.push(r.u.takt)                                        // uppmätt takt (matar kurvan)
+        if (r.prognosH != null) g.ratios.push(r.u.timmar / r.prognosH)  // prognosträff — bara med prognos
       }
+      const snitt = (arr: number[]) => arr.reduce((s, x) => s + x, 0) / arr.length
       return grupper.map(g => ({
         label: g.label,
-        antal: g.ratios.length,
-        avvikelse: g.ratios.length >= 2 ? Math.round((g.ratios.reduce((s, x) => s + x, 0) / g.ratios.length - 1) * 100) : null,
+        antal: g.takter.length,
+        // Minst 6 objekt för ett kurv-tal. Ett tunt medel (t.ex. 5 obj) blir ett opålitligt tal som
+        // ändå används i planeringen — och kan ge omöjlig form (takt som sjunker med grövre stam).
+        // Hellre "väntar på data" än fel siffra.
+        takt: g.takter.length >= 6 ? snitt(g.takter) : null,
+        avvikelse: g.ratios.length >= 2 ? Math.round((snitt(g.ratios) - 1) * 100) : null,
       }))
     }
-    return {
-      skordare: bygg('skordare', MEDELSTAM_INTERVALL, u => u.medelstam),
-      skotare: bygg('skotare', SKOTVAG_INTERVALL, u => u.skotvag_m),
-    }
+    return [
+      { label: 'Scorpion', enhet: 'medelstam', grupper: bygg('skordare', id => MASKIN_SLUT.has(id), MEDELSTAM_INTERVALL, u => u.medelstam) },
+      { label: 'Rottne', enhet: 'medelstam', grupper: bygg('skordare', id => MASKIN_GALLRING.has(id), MEDELSTAM_INTERVALL, u => u.medelstam) },
+      { label: 'Wisent', enhet: 'skotväg', grupper: bygg('skotare', id => id === 'A030353', SKOTVAG_INTERVALL, u => u.skotvag_m) },
+      { label: 'Elefant', enhet: 'skotväg', grupper: bygg('skotare', id => id === 'A110148', SKOTVAG_INTERVALL, u => u.skotvag_m) },
+    ]
   }, [utfallLista])
 
   const SPAR = [
@@ -1014,8 +1024,10 @@ export default function HelikopterV2Page() {
               <div style={{ textAlign: 'center', padding: '48px 8px', color: muted, fontSize: 14 }}>Inga avslutade objekt än.</div>
             ) : (
               <>
-                {(['Slutavverkning', 'Gallring', 'GROT'] as const).map(gruppTyp => {
-                  const iTyp = utfallLista.filter(o => o.typ === gruppTyp)
+                {/* Lista — BARA objekt med prognos (utan prognos finns inget att jämföra mot, bara brus) */}
+                {utfallLista.some(o => o.skord.prognosH != null || o.skot.prognosH != null) ? (
+                  (['Slutavverkning', 'Gallring', 'GROT'] as const).map(gruppTyp => {
+                  const iTyp = utfallLista.filter(o => (o.skord.prognosH != null || o.skot.prognosH != null) && o.typ === gruppTyp)
                   if (iTyp.length === 0) return null
                   const aktuella = iTyp.filter(o => o.arbetsdatum >= utfallGrans)
                   const aldre = iTyp.filter(o => o.arbetsdatum < utfallGrans)
@@ -1091,21 +1103,27 @@ export default function HelikopterV2Page() {
                   )}
                 </div>
                   )
-                })}
-                {/* Kalibrering — hur prognoserna träffar per skogstyp, växer med antal objekt */}
+                })
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '40px 12px', color: muted, fontSize: 14, lineHeight: 1.6 }}>
+                    Inga avslutade objekt med prognos än.<br />Sätt prognos vid planering så visas utfallet här.
+                  </div>
+                )}
+                {/* Kalibrering/kurva — ALLA avslutade objekt (utom VF). Uppmätt takt behöver ingen prognos. */}
                 <div style={{ ...card, marginTop: 4, marginBottom: 12, padding: '14px 16px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginBottom: 4 }}>Kalibrering — hur prognoserna träffar</div>
-                  <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>Utfall mot prognos, grupperat på skogstyp. Grönt = gick snabbare än prognos, orange = tog längre.</div>
-                  {([['skordare', 'Skördare — per medelstam', kalibrering.skordare], ['skotare', 'Skotare — per skotväg', kalibrering.skotare]] as const).map(([roll, rubrik, grupper]) => (
-                    <div key={roll} style={{ borderTop: `1px solid ${divider}`, paddingTop: 8, marginTop: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: muted, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4 }}>{rubrik}</div>
-                      {grupper.map(g => (
+                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginBottom: 4 }}>Uppmätt takt per skogstyp</div>
+                  <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>Alla avslutade objekt (utom VF/Bark) — takten är mätt, behöver ingen prognos. Prognosträff visas när prognos finns.</div>
+                  {kalibrering.map(k => (
+                    <div key={k.label} style={{ borderTop: `1px solid ${divider}`, paddingTop: 8, marginTop: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: muted, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4 }}>{k.label} — per {k.enhet}</div>
+                      {k.grupper.map(g => (
                         <div key={g.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, fontSize: 13, padding: '3px 0' }}>
                           <span style={{ color: 'rgba(255,255,255,0.7)' }}>{g.label}</span>
-                          {g.avvikelse != null ? (
+                          {g.takt != null ? (
                             <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                              <span style={{ color: g.avvikelse <= 0 ? '#30d158' : '#d08a3e', fontWeight: 600 }}>{g.avvikelse > 0 ? '+' : ''}{g.avvikelse}%</span>
+                              <span style={{ color: text, fontWeight: 600 }}>{g.takt.toFixed(1).replace('.', ',')} m³fub/h</span>
                               <span style={{ color: muted }}> · {g.antal} obj</span>
+                              {g.avvikelse != null && <span style={{ color: g.avvikelse <= 0 ? '#30d158' : '#d08a3e' }}> · prognos {g.avvikelse > 0 ? '+' : ''}{g.avvikelse}%</span>}
                             </span>
                           ) : (
                             <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>väntar på data{g.antal > 0 ? ` (${g.antal})` : ''}</span>
