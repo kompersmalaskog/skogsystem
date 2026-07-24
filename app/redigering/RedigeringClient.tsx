@@ -151,21 +151,23 @@ function gruppModeller(g: any, maskiner: Record<string, any>): string {
   return Array.from(new Set(g.rader.map((o: any) => maskiner[o.maskin_id]).filter(Boolean))).join(' + ')
 }
 
-// PÅGÅENDE: gruppen är inte färdig. Ett maskinslag "avgör" bara om det är
-// VÅRT att avsluta. När maskinslaget "förväntas ej" (skordareForvantasEj /
-// skotareForvantasEj — SAMMA hjälpare som filstatus) krävs inget avslut för
-// det slaget. Förväntas BÅDA ej finns inget för oss att slutföra.
-// Exkluderade grupper är aldrig pågående.
+// PÅGÅENDE: gruppen är inte färdig. Ett maskinslag "avgör" bara om avslutet
+// är VÅRT att sätta — dvs. någon annan gör slaget. Samma orsak-hjälpare som
+// filstatus, MEN sander_filer räknas INTE här: en icke-filsändande skotare
+// är VÅR skotare som skotar på riktigt, avslutet är vårt att sätta (och är
+// enda klart-signalen när maskinen är tyst). Därför skotareForvantasEj UTAN
+// sanderEj — den flaggan hör till pricken (filer förväntas ej), inte till
+// avslutskravet (jobbet förväntas avslutas). Förväntas BÅDA slag ej av oss
+// finns inget att slutföra. Exkluderade grupper är aldrig pågående.
 //   skordEj-orsaker: extern skördning, klippning, risskotning
-//   skotEj-orsaker: egen/extern skotning, icke-filsändande skotarmaskin
-// sanderEj kommer från gruppSkotareSanderEj (kräver fildata) via anroparen.
-function arPagaende(g: any, sanderEj?: boolean): boolean {
+//   skotEj-orsaker: egen/extern skotning (EJ sander_filer)
+function arPagaende(g: any): boolean {
   const rader = g.rader || []
   if (rader.every((o: any) => o.exkludera === true)) return false
   const skordningKlar = rader.some((o: any) => !!o.skordning_avslutad)
   const skotningKlar = rader.some((o: any) => !!o.skotning_avslutad)
   const skordEj = skordareForvantasEj(rader) !== null
-  const skotEj = skotareForvantasEj(rader, sanderEj) !== null
+  const skotEj = skotareForvantasEj(rader) !== null
   if (skordEj && skotEj) return false
   if (skordEj) return !skotningKlar
   if (skotEj) return !skordningKlar
@@ -2821,7 +2823,7 @@ function ObjektRedigeringInner() {
   // PÅGÅENDE — det som körs just nu, färskast datadatum överst så det
   // Martin jobbar med idag ligger först. Grupper utan data hamnar sist.
   const pagaende = aktivaGrupper
-    .filter((g) => arPagaende(g, gruppSkotareSanderEj(g.rader, fildata)))
+    .filter(arPagaende)
     .sort((a, b) => (gruppSenasteData(b, fildata) || '').localeCompare(gruppSenasteData(a, fildata) || ''))
 
   const synligaGrupper = listFilter === 'pagaende' ? pagaende : attAtgarda
