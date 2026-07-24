@@ -77,6 +77,8 @@ export interface UppfoljningData {
   skordareRast: number;
   skordareAvbrott: number;
   skotareG15h: number;
+  // true = skotartiden är manuellt angiven (JD810E, inga fakt_tid-filer)
+  skotareTidManuell?: boolean;
   skotareG0: number;
   skotareTomgang: number;
   skotareKortaStopp: number;
@@ -742,7 +744,7 @@ function Tid({ data }: { data: UppfoljningData }) {
   return (
     <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: 10 }}>
       {hasSk && <TidKort label="Skördare" color={V6_SK} rows={skRows} />}
-      {hasSt && <TidKort label="Skotare" color={V6_ST} rows={stRows} />}
+      {hasSt && <TidKort label={data.skotareTidManuell ? 'Skotare · manuell tid' : 'Skotare'} color={V6_ST} rows={stRows} />}
     </div>
   );
 }

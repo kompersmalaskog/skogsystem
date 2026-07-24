@@ -86,7 +86,7 @@ const GEMENSAMMA_FALT = ['vo_nummer', 'object_name', 'skogsagare', 'bolag', 'ink
   'timpeng_undantag_volym', 'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']
 const SKORDARFALT = ['stubbbehandling', 'skordning_avslutad', 'skordning_avslutad_auto']
 const SKOTARFALT = ['risskotning', 'egen_skotning', 'extra_vagn', 'klippning',
-  'skotad_volym_manuell', 'skotning_avslutad', 'skotning_avslutad_auto', 'ovrigt_info']
+  'skotad_volym_manuell', 'skotning_g15_manuell', 'skotning_avslutad', 'skotning_avslutad_auto', 'ovrigt_info']
 
 // Rader som hör till samma objekt: samma icke-tomma vo_nummer, annars bara
 // raden själv. maskin_typ är berikad vid inläsning.
@@ -100,8 +100,13 @@ function syskonRader(allaObjekt: any[], obj: any): any[] {
 // sander_filer=false, t.ex. JD810E)? Styr grå prick + proaktiv uppräkning.
 function gruppSkotareSanderEj(syskon: any[], fildata: any): boolean {
   if (!fildata?.maskinInfo) return false
+  // Skotaren är dim_objekt.tilldelad_skotare — dim_objekt.maskin_id är
+  // SKÖRDAREN (aldrig skotare). En icke-filsändande skotare (JD810E) kan
+  // BARA upptäckas via tilldelningen; en filsändande skotare hade ju synts
+  // via lassdata. Läste tidigare maskin_id -> hittade aldrig JD810E, så
+  // Skotare-undersidan doldes för rena JD810E-objekt tills skotning avslutats.
   return (syskon || []).some((o: any) => {
-    const mi = fildata.maskinInfo.get(o.maskin_id)
+    const mi = fildata.maskinInfo.get(o.tilldelad_skotare)
     return mi?.typ === 'skotare' && mi?.sanderFiler === false
   })
 }
@@ -1941,6 +1946,37 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
               : `Skotaren sänder inte filer — rapportera upp till skördad volym (${totSkordat.toLocaleString('sv-SE')} m³)?`}
           </div>
         )}
+        {/* MANUELL RAPPORTERING — bara när gruppens tilldelade skotare aldrig
+            sänder filer (JD810E). Inga fejkade fakt_tid-rader: G15-timmar och
+            volym bor på dim_objekt-raden, källmärkta manuella, räknas till
+            maskinen i uppföljningen. Spegel av extern skotare-blocket. */}
+        {skotareSanderEj && (() => {
+          const tim = Number(obj.skotning_g15_manuell) || 0
+          const vol = Number(obj.skotad_volym_manuell) || 0
+          const m3PerG15 = tim > 0 && vol > 0 ? vol / tim : null
+          const mObj = skotarLista.find((m: any) => m.maskin_id === obj.tilldelad_skotare)
+          const namn = mObj ? (mObj.modell || mObj.maskin_id) : (obj.tilldelad_skotare || 'skotaren')
+          const radRam = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, marginTop: 8 }
+          return (
+            <div style={{ marginBottom: 10, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,159,10,0.06)', border: '1px solid rgba(255,159,10,0.2)' }}>
+              <div style={{ ...styles.subsectionLabel, marginTop: 0 }}>Manuell rapportering — {namn} (sänder inga filer)</div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5, marginBottom: 4 }}>
+                Inga filer kommer från maskinen. Ange G15-timmar och skotad volym manuellt — de räknas till {namn} i uppföljningen, källmärkta som manuella. Sparas med Spara-knappen.
+              </div>
+              <div style={radRam}>
+                <NumField label="G15-timmar" value={obj.skotning_g15_manuell ?? null} onChange={(v: number | null) => set({ ...obj, skotning_g15_manuell: v })} placeholder="0" suffix="h" />
+              </div>
+              <div style={radRam}>
+                <NumField label="Skotad volym" value={obj.skotad_volym_manuell ?? null} onChange={(v: number | null) => set({ ...obj, skotad_volym_manuell: v })} placeholder="0" suffix="m³" />
+              </div>
+              {m3PerG15 != null && (
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>
+                  Rimlighetskoll: {m3PerG15.toLocaleString('sv-SE', { maximumFractionDigits: 1 })} m³/G15h
+                </div>
+              )}
+            </div>
+          )
+        })()}
         {(() => {
           const manuell = (Number(obj.skotad_volym_manuell) || 0) > 0
           // RISJOBB: "färdigskotat" betyder RISET HÄMTAT, jobbet klart. Samma

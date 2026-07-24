@@ -27,6 +27,9 @@ export interface UppfoljningObjekt {
   skotareModellMaskinId: string | null;
   volymSkotare: number;
   skotatArManuell: boolean;
+  // Manuella G15-timmar för icke-filsändande skotare (JD810E). > 0 =>
+  // överstyr den fakt_tid-baserade skotartiden (som är 0 utan filer).
+  skotarG15Manuell?: number;
   // Sista avverkningsdag = MAX(fakt_produktion.datum) — liggetidens ankare
   sistaAvverkning: string | null;
   // Tilldelad skotare (BARA maskinnamn, aldrig förare): planeringens
@@ -352,8 +355,15 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   });
   const antalLass = lassRows.length;
   const snittLass = antalLass > 0 ? Math.round((totalLassVol / antalLass) * 10) / 10 : 0;
-  const lassPerG15 = stTid.g15 > 0 ? Math.round((antalLass / stTid.g15) * 100) / 100 : 0;
-  const m3PerG15St = stTid.g15 > 0 ? Math.round((obj.volymSkotare / stTid.g15) * 10) / 10 : 0;
+  // Skotartid: fakt_tid-baserad G15 normalt. För icke-filsändande skotare
+  // (JD810E) finns ingen fakt_tid -> stTid.g15 = 0; då används manuellt
+  // angivna G15-timmar (dim_objekt.skotning_g15_manuell). Källmärks så vyn
+  // visar att tiden är manuell, precis som volymen.
+  const skotarG15Manuell = Number(obj.skotarG15Manuell) || 0;
+  const skotareTidManuell = stTid.g15 <= 0 && skotarG15Manuell > 0;
+  const skotareG15hEff = skotareTidManuell ? skotarG15Manuell : stTid.g15;
+  const lassPerG15 = skotareG15hEff > 0 ? Math.round((antalLass / skotareG15hEff) * 100) / 100 : 0;
+  const m3PerG15St = skotareG15hEff > 0 ? Math.round((obj.volymSkotare / skotareG15hEff) * 10) / 10 : 0;
   const avstand = antalLass > 0 ? Math.round(totalKor / antalLass) : 0;
   const lassPerDag = Array.from(lassPerDagMap.entries())
     .sort(([a], [b]) => a.localeCompare(b))
@@ -455,7 +465,8 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     skordareKortaStopp: Math.round((skTid.kortaStopp + kortaAvbrottTimmar(skAvbrott)) * 10) / 10,
     skordareRast: Math.round(skTid.rast * 10) / 10,
     skordareAvbrott: Math.round(skTid.avbrott * 10) / 10,
-    skotareG15h: stTid.g15,
+    skotareG15h: skotareG15hEff,
+    skotareTidManuell,
     skotareG0: stTid.g0,
     skotareTomgang: Math.round(stTid.tomgang * 10) / 10,
     // Skotare: rå kort_stopp_sek (= 0 i verkligheten — skotare har inga korta
@@ -500,7 +511,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     lassPerDag,
     // Balans
     skordareBalG15h: skTid.g15,
-    skotareBalG15h: stTid.g15,
+    skotareBalG15h: skotareG15hEff,
   };
 }
 
