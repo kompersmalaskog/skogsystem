@@ -154,6 +154,10 @@ export type Data = {
   // i tidsfördelningen (dubbelräkning). Visas som eget nyckeltal: h + % av motortid.
   tomgangSek: number
   engineSek: number
+  // Korta stopp = rå fakt_tid.kort_stopp_sek (StanForD IndividualShortDownTime).
+  // Ponsse-validerat: G15 − G0 = kort_stopp exakt (Scorpion 7,45 h). Ersätter
+  // den härledda "tomgången" som aldrig fanns i StanForD/Opti.
+  kortStoppSek: number
   proc: number; terr: number; kort: number; avbr: number; rast: number
   dagar: number               // distinkta produktionsdagar
   operatorer: Operator[]      // filter: volym > 0 || stammar > 0
@@ -319,6 +323,7 @@ export async function fetchData(
     volym, stammar, g15h, produktivitet, medelstam,
     bransleTotalt: bransle, branslePerM3, stammarPerG15h,
     tomgangSek: tomgang, engineSek: engine,
+    kortStoppSek: kort,
     proc, terr, kort: kort + kortaAvbrottSek, avbr, rast,
     dagar: prodDays.size,
     operatorer, avbrottPerKat,
@@ -337,7 +342,7 @@ export type PeriodKpi = {
   medelstam: number | null
   branslePerM3: number | null
   stammarPerG15h: number | null
-  tomgangAndel: number | null   // % av motortid
+  kortStoppAndel: number | null   // korta stopp som % av motortid (mätt)
 }
 
 const MIN_DAYS_PER_PERIOD = 2
@@ -355,7 +360,7 @@ export async function fetchSeries(
 
   const [prodRows, tidRows] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar', ids, spanStart, spanEnd, operatorId),
-    fetchAll('fakt_tid', 'datum, processing_sek, terrain_sek, bransle_liter, tomgang_sek, engine_time_sek', ids, spanStart, spanEnd, operatorId),
+    fetchAll('fakt_tid', 'datum, processing_sek, terrain_sek, bransle_liter, kort_stopp_sek, engine_time_sek', ids, spanStart, spanEnd, operatorId),
   ])
 
   const bucketOf = (datum: string): number => {
@@ -367,7 +372,7 @@ export async function fetchSeries(
 
   const buckets = ranges.map(() => ({
     volym: 0, stammar: 0, proc: 0, terr: 0, bransle: 0,
-    tomgang: 0, engine: 0,
+    kortStopp: 0, engine: 0,
     prodDays: new Set<string>(),
   }))
 
@@ -382,7 +387,7 @@ export async function fetchSeries(
     buckets[b].proc    += r.processing_sek || 0
     buckets[b].terr    += r.terrain_sek || 0
     buckets[b].bransle += parseFloat(r.bransle_liter) || 0
-    buckets[b].tomgang += r.tomgang_sek || 0
+    buckets[b].kortStopp += r.kort_stopp_sek || 0
     buckets[b].engine  += r.engine_time_sek || 0
   }
 
@@ -394,7 +399,7 @@ export async function fetchSeries(
         label: ranges[i].label, hasData: false,
         produktivitet: null, volym: null, stammar: null,
         medelstam: null, branslePerM3: null, stammarPerG15h: null,
-        tomgangAndel: null,
+        kortStoppAndel: null,
       }
     }
     return {
@@ -405,7 +410,7 @@ export async function fetchSeries(
       medelstam:       b.stammar > 0                  ? b.volym / b.stammar : null,
       branslePerM3:    (b.volym > 0 && b.bransle > 0) ? b.bransle / b.volym : null,
       stammarPerG15h:  (g15h > 0 && b.stammar > 0)    ? b.stammar / g15h    : null,
-      tomgangAndel:    b.engine > 0                   ? (b.tomgang / b.engine) * 100 : null,
+      kortStoppAndel:  b.engine > 0                   ? (b.kortStopp / b.engine) * 100 : null,
     }
   })
 }
@@ -699,7 +704,7 @@ export function HeroCard({
 // jämförelse-kolumnen visar procentdelta ('previous'/'machine' för
 // hastighetsmått) eller andel ('machine' för totalmått Volym/Stammar).
 // ─────────────────────────────────────────────────────────────
-type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h' | 'tomgangAndel'
+type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h' | 'kortStoppAndel'
 
 export function KpiList({
   data, prev, series, loading,
@@ -722,13 +727,14 @@ export function KpiList({
     kind: 'rate' | 'total'
     display?: string   // ersätter fmtSv(cur)+unit i värdecellen (t.ex. "72h · 5,9%")
   }
-  // Tomgång: MOTOR-mätning som överlappar väggklocke-hinkarna — eget nyckeltal
-  // (aldrig segment i tidsfördelningen). Delta/trend jämför ANDELEN (% av
-  // motortid, lägre är bättre) — timmar skalar med periodlängd och vore missvisande.
-  const tomgangAndel = (d: Data | null) =>
-    d && d.engineSek > 0 ? (d.tomgangSek / d.engineSek) * 100 : null
-  const tomgangDisplay = data && data.engineSek > 0
-    ? `${fmtSv(data.tomgangSek / 3600, 0)}h · ${fmtSv((data.tomgangSek / data.engineSek) * 100, 1)}%`
+  // Korta stopp (mätt): rå kort_stopp_sek, andel av motortid. Ponsse-validerat
+  // (G15 − G0). Ersätter den härledda "tomgången" — som varken StanForD eller
+  // Opti4G har någon post för. Lägre är bättre; timmar skalar med periodlängd
+  // så delta/trend jämför ANDELEN.
+  const kortStoppAndel = (d: Data | null) =>
+    d && d.engineSek > 0 ? (d.kortStoppSek / d.engineSek) * 100 : null
+  const kortStoppDisplay = data && data.engineSek > 0
+    ? `${fmtSv(data.kortStoppSek / 3600, 0)}h · ${fmtSv((data.kortStoppSek / data.engineSek) * 100, 1)}%`
     : undefined
   const rows: Row[] = [
     { label: 'Volym',         metric: 'volym',          cur: data?.volym ?? null,           prev: prev?.volym ?? null,           unit: 'm³sub',   dec: 0, lowerIsBetter: false, kind: 'total' },
@@ -736,7 +742,7 @@ export function KpiList({
     { label: 'Medelstam',     metric: 'medelstam',      cur: data?.medelstam ?? null,       prev: prev?.medelstam ?? null,       unit: 'm³/stam', dec: 2, lowerIsBetter: false, kind: 'rate'  },
     { label: 'Bränsle/m³',    metric: 'branslePerM3',   cur: data?.branslePerM3 ?? null,    prev: prev?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2, lowerIsBetter: true,  kind: 'rate'  },
     { label: 'Stammar/G15h',  metric: 'stammarPerG15h', cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false, kind: 'rate'  },
-    { label: 'Tomgång',       metric: 'tomgangAndel',   cur: tomgangAndel(data),            prev: tomgangAndel(prev),            unit: '%',       dec: 1, lowerIsBetter: true,  kind: 'rate',  display: tomgangDisplay },
+    { label: 'Korta stopp',   metric: 'kortStoppAndel', cur: kortStoppAndel(data),          prev: kortStoppAndel(prev),          unit: '%',       dec: 1, lowerIsBetter: true,  kind: 'rate',  display: kortStoppDisplay },
   ]
 
   return (

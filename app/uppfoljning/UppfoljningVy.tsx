@@ -691,7 +691,10 @@ function Sortiment({ sortiment }: { sortiment: { namn: string; m3: number }[] })
 }
 
 // ── Tid & Diesel ──────────────────────────────────────────────────────────
-function TidKort({ label, color, rows }: { label: string; color: string; rows: [string, number, boolean?][] }) {
+// rows: [etikett, timmar|null, framhävd?]. null = måttet rapporteras inte av
+// maskinen (skotarens G0/korta stopp finns varken i StanForD eller Opti4G) —
+// visas som "rapporteras inte", aldrig som en falsk 0,0 h.
+function TidKort({ label, color, rows }: { label: string; color: string; rows: [string, number | null, boolean?][] }) {
   return (
     <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
@@ -702,9 +705,13 @@ function TidKort({ label, color, rows }: { label: string; color: string; rows: [
         {rows.map(([k, v, accent], i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <span style={{ fontSize: 12, color: accent ? '#fff' : V6_GREY, fontWeight: accent ? 600 : 400 }}>{k}</span>
-            <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : 500, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
-              {v.toFixed(1)}<span style={{ fontSize: 10, color: V6_GREY, marginLeft: 2 }}>h</span>
-            </span>
+            {v === null ? (
+              <span style={{ fontSize: 12, color: V6_GREY, fontWeight: 400 }}>rapporteras inte</span>
+            ) : (
+              <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : 500, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+                {v.toFixed(1)}<span style={{ fontSize: 10, color: V6_GREY, marginLeft: 2 }}>h</span>
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -716,19 +723,19 @@ function Tid({ data }: { data: UppfoljningData }) {
   const hasSk = data.skordareG15h > 0;
   const hasSt = data.skotareG15h > 0;
   if (!hasSk && !hasSt) return null;
-  const skRows: [string, number, boolean?][] = [
+  const skRows: [string, number | null, boolean?][] = [
     ['G15', data.skordareG15h, true],
     ['G0', data.skordareG0],
-    ['Tomgång', data.skordareTomgang],
     ['Korta pauser', data.skordareKortaStopp],
     ['Rast', data.skordareRast],
     ['Avbrott', data.skordareAvbrott],
   ];
-  const stRows: [string, number, boolean?][] = [
+  // Skotaren har varken G0 eller korta stopp i källdata — StanForD emitterar
+  // ingen ShortDownTime, Opti4G har ingen G0-rad. Rapporteras inte, aldrig 0.
+  const stRows: [string, number | null, boolean?][] = [
     ['G15', data.skotareG15h, true],
-    ['G0', data.skotareG0],
-    ['Tomgång', data.skotareTomgang],
-    ['Korta pauser', data.skotareKortaStopp],
+    ['G0', null],
+    ['Korta pauser', null],
     ['Rast', data.skotareRast],
     ['Avbrott', data.skotareAvbrott],
   ];

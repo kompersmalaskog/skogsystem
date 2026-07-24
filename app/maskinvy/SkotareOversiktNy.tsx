@@ -418,25 +418,19 @@ function SkotareKpiList({
   prev:    SkotareData | null
   loading: boolean
 }) {
-  // Tomgång: eget nyckeltal (motoraxel, överlappar hinkarna — aldrig i tidsför-
-  // delningen). Delta jämför ANDELEN av motortid (lägre är bättre) — timmar
-  // skalar med periodlängd. Visas för ALLA maskiner; skotarens låga andel
-  // (~0,5–1 %) är kvittot, inte ett skäl att gömma måttet.
   type Row = {
     label: string; val: number | null; prevVal: number | null
-    unit: string; dec: number; lowerIsBetter?: boolean; display?: string
+    unit: string; dec: number; lowerIsBetter?: boolean; display?: string; muted?: boolean
   }
-  const tomgangAndel = (d: SkotareData | null) =>
-    d && d.engineSek > 0 ? (d.tomgangSek / d.engineSek) * 100 : null
-  const tomgangDisplay = data && data.engineSek > 0
-    ? `${fmtSv(data.tomgangSek / 3600, 0)}h · ${fmtSv((data.tomgangSek / data.engineSek) * 100, 1)}%`
-    : undefined
   const rows: Row[] = [
     { label: 'Lass',         val: data?.lass          ?? null, prevVal: prev?.lass          ?? null, unit: 'st',      dec: 0 },
     { label: 'Snittlass',    val: data?.snittLass      ?? null, prevVal: prev?.snittLass      ?? null, unit: 'm³/lass', dec: 1 },
     { label: 'Snittsträcka', val: data?.snittSträcka   ?? null, prevVal: prev?.snittSträcka   ?? null, unit: 'm',       dec: 0 },
     { label: 'Lass/G15h',    val: data?.lassPerG15h    ?? null, prevVal: prev?.lassPerG15h    ?? null, unit: 'st/G15h', dec: 1 },
-    { label: 'Tomgång',      val: tomgangAndel(data),           prevVal: tomgangAndel(prev),           unit: '%',       dec: 1, lowerIsBetter: true, display: tomgangDisplay },
+    // Korta stopp finns inte för skotaren: StanForD emitterar ingen ShortDownTime
+    // och Opti4G har ingen G0-/tomgångsrad. En härledd tomgång (~0,5 %) vore en
+    // falsk siffra — visa ärligt att måttet inte rapporteras.
+    { label: 'Korta stopp',  val: null,                         prevVal: null,                         unit: '',        dec: 0, display: 'rapporteras inte', muted: true },
   ]
 
   return (
@@ -454,7 +448,8 @@ function SkotareKpiList({
         >
           <div style={{ fontSize: 15, color: C.text }}>{r.label}</div>
           <div style={{
-            fontSize: 16, fontWeight: 500, color: C.text,
+            fontSize: r.muted ? 13 : 16, fontWeight: r.muted ? 400 : 500,
+            color: r.muted ? C.muted : C.text,
             fontVariantNumeric: 'tabular-nums', textAlign: 'right',
           }}>
             {loading ? '—' : r.display ?? (r.val !== null ? fmtSv(r.val, r.dec) : '—')}
@@ -465,7 +460,7 @@ function SkotareKpiList({
             )}
           </div>
           <div style={{ textAlign: 'right' }}>
-            {loading
+            {loading || r.muted
               ? <span style={{ fontSize: 11, color: C.dim }}>—</span>
               : <DeltaBadge current={r.val} previous={r.prevVal} lowerIsBetter={r.lowerIsBetter ?? false} size="sm" />}
           </div>
