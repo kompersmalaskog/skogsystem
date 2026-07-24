@@ -228,6 +228,14 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             .map((v: any) => Number(v) || 0);
           const skotatArManuell = manuellRader.length > 0;
           const manuellVolym = skotatArManuell ? Math.max(0, ...manuellRader) : 0;
+          // Manuella G15-timmar för icke-filsändande skotare (JD810E) —
+          // dim_objekt.skotning_g15_manuell, ingen fakt_tid finns. Max över
+          // gruppen (skrivs likadant över syskonraderna som volymen).
+          const g15ManuellRader = entries
+            .map((e: any) => e.skotning_g15_manuell)
+            .filter((v: any) => v != null)
+            .map((v: any) => Number(v) || 0);
+          const skotarG15Manuell = g15ManuellRader.length > 0 ? Math.max(0, ...g15ManuellRader) : 0;
 
           if (stCount === 0 && skotareEntry) {
             const seenFb = new Set<string>();
@@ -323,6 +331,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             skotareModellMaskinId: stMaskinId || null,
             volymSkotare: skotatArManuell ? manuellVolym : stVol,
             skotatArManuell,
+            skotarG15Manuell,
             sistaAvverkning,
             tilldeladSkotare: namnFranLass || namnFranTilldelning || null,
             skotareKalla,
