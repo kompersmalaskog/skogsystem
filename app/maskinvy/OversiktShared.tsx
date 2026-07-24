@@ -728,24 +728,29 @@ export function KpiList({
     cur: number | null; prev: number | null
     unit: string; dec: number; lowerIsBetter: boolean
     kind: 'rate' | 'total'
-    display?: string   // ersätter fmtSv(cur)+unit i värdecellen (t.ex. "72h · 5,9%")
+    display?: string       // ersätter fmtSv(cur)+unit i värdecellen (t.ex. "72h · 5,9%")
+    mutedDisplay?: boolean // display renderas dämpad (t.ex. "rapporteras inte")
   }
   // Korta stopp (mätt): rå kort_stopp_sek, andel av motortid. Ponsse-validerat
   // (G15 − G0). Ersätter den härledda "tomgången" — som varken StanForD eller
-  // Opti4G har någon post för. Lägre är bättre; timmar skalar med periodlängd
-  // så delta/trend jämför ANDELEN.
+  // Opti4G har någon post för. Visas mätt OM maskinen rapporterar signalen,
+  // annars "rapporteras inte" — villkoret avläses ur DATAN (kort_stopp === 0),
+  // inte ur maskintypen (Rottne rapporterar, Ponsse-skotarna inte). Lägre bättre.
+  const kortSaknas = !!data && data.engineSek > 0 && data.kortStoppSek === 0
   const kortStoppAndel = (d: Data | null) =>
-    d && d.engineSek > 0 ? (d.kortStoppSek / d.engineSek) * 100 : null
-  const kortStoppDisplay = data && data.engineSek > 0
-    ? `${fmtSv(data.kortStoppSek / 3600, 0)}h · ${fmtSv((data.kortStoppSek / data.engineSek) * 100, 1)}%`
-    : undefined
+    d && d.engineSek > 0 && d.kortStoppSek > 0 ? (d.kortStoppSek / d.engineSek) * 100 : null
+  const kortStoppDisplay = kortSaknas
+    ? 'rapporteras inte'
+    : (data && data.kortStoppSek > 0
+        ? `${fmtSv(data.kortStoppSek / 3600, 0)}h · ${fmtSv((data.kortStoppSek / data.engineSek) * 100, 1)}%`
+        : undefined)
   const rows: Row[] = [
     { label: 'Volym',         metric: 'volym',          cur: data?.volym ?? null,           prev: prev?.volym ?? null,           unit: 'm³sub',   dec: 0, lowerIsBetter: false, kind: 'total' },
     { label: 'Stammar',       metric: 'stammar',        cur: data?.stammar ?? null,         prev: prev?.stammar ?? null,         unit: 'st',      dec: 0, lowerIsBetter: false, kind: 'total' },
     { label: 'Medelstam',     metric: 'medelstam',      cur: data?.medelstam ?? null,       prev: prev?.medelstam ?? null,       unit: 'm³/stam', dec: 2, lowerIsBetter: false, kind: 'rate'  },
     { label: 'Bränsle/m³',    metric: 'branslePerM3',   cur: data?.branslePerM3 ?? null,    prev: prev?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2, lowerIsBetter: true,  kind: 'rate'  },
     { label: 'Stammar/G15h',  metric: 'stammarPerG15h', cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false, kind: 'rate'  },
-    { label: 'Korta stopp',   metric: 'kortStoppAndel', cur: kortStoppAndel(data),          prev: kortStoppAndel(prev),          unit: '%',       dec: 1, lowerIsBetter: true,  kind: 'rate',  display: kortStoppDisplay },
+    { label: 'Korta stopp',   metric: 'kortStoppAndel', cur: kortStoppAndel(data),          prev: kortStoppAndel(prev),          unit: '%',       dec: 1, lowerIsBetter: true,  kind: 'rate',  display: kortStoppDisplay, mutedDisplay: kortSaknas },
   ]
 
   return (
@@ -791,7 +796,7 @@ export function KpiList({
             }}
           >
             <div style={{ fontSize: 15, color: C.text }}>{r.label}</div>
-            <div style={{ fontSize: 16, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+            <div style={{ fontSize: r.mutedDisplay ? 13 : 16, fontWeight: r.mutedDisplay ? 400 : 500, color: r.mutedDisplay ? C.muted : C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
               {loading ? '—' : r.display ?? (r.cur !== null ? fmtSv(r.cur, r.dec) : '—')}
               {!(!loading && r.display) && (
                 <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>{r.unit}</span>

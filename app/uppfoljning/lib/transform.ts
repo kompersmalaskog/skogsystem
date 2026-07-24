@@ -463,6 +463,9 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     skordareG0: skTid.g0,
     skordareTomgang: Math.round(skTid.tomgang * 10) / 10,
     skordareKortaStopp: Math.round((skTid.kortaStopp + kortaAvbrottTimmar(skAvbrott)) * 10) / 10,
+    // Rå kort_stopp (ShortDownTime) utan kortaAvbrott-fold — 0 = maskinen
+    // rapporterar ingen signal (skotare), grunden för "rapporteras inte".
+    skordareKortStoppRaa: Math.round(skTid.kortaStopp * 10) / 10,
     skordareRast: Math.round(skTid.rast * 10) / 10,
     skordareAvbrott: Math.round(skTid.avbrott * 10) / 10,
     skotareG15h: skotareG15hEff,
@@ -528,7 +531,7 @@ export function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
     skotatArManuell: obj.skotatArManuell,
     skotareModell: obj.skotareModell, skotareStart: obj.skotareStart, skotareSlut: obj.skotareSlut, skotareLastDate: obj.skotareLastDate,
     operatorSkordare: null, operatorSkotare: null, prodSkordarePerDag: [],
-    skordareG15h: 0, skordareG0: 0, skordareTomgang: 0, skordareKortaStopp: 0, skordareRast: 0, skordareAvbrott: 0,
+    skordareG15h: 0, skordareG0: 0, skordareTomgang: 0, skordareKortaStopp: 0, skordareKortStoppRaa: 0, skordareRast: 0, skordareAvbrott: 0,
     skotareG15h: 0, skotareG0: 0, skotareTomgang: 0, skotareKortaStopp: 0, skotareRast: 0, skotareAvbrott: 0,
     skordareM3G15h: 0, skordareStammarG15h: 0, skordareMedelstam: 0,
     skotareM3G15h: 0, skotareLassG15h: 0, skotareSnittlass: 0,
