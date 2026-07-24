@@ -43,6 +43,19 @@ interface DimMaskin {
   aktiv_till: string | null    // satt = såld/utfasad
 }
 
+interface UtfallVyRad {
+  objekt_id: string
+  roll: 'skordare' | 'skotare'
+  maskin_id: string | null
+  dagar: number | null
+  vol_m3sub: number | null
+  stammar: number | null
+  timmar: number | null      // attribuerad g0_h
+  takt: number | null        // vol / timmar
+  medelstam: number | null   // skördare
+  skotvag_m: number | null   // skotare
+}
+
 // ============================================================
 // Constants & Design tokens
 // ============================================================
@@ -175,6 +188,25 @@ function arbetsdagarKvar(ar: number, manad: number): number {
   return count
 }
 
+// Skogstyp-intervall för Utfall-kalibreringen (takt-kurvornas grupper).
+const MEDELSTAM_INTERVALL = [
+  { min: 0, max: 0.40, label: '< 0,40' },
+  { min: 0.40, max: 0.60, label: '0,40–0,60' },
+  { min: 0.60, max: 0.80, label: '0,60–0,80' },
+  { min: 0.80, max: Infinity, label: '> 0,80' },
+]
+const SKOTVAG_INTERVALL = [
+  { min: 0, max: 500, label: '< 500 m' },
+  { min: 500, max: 900, label: '500–900 m' },
+  { min: 900, max: 1400, label: '900–1400 m' },
+  { min: 1400, max: Infinity, label: '> 1400 m' },
+]
+function intervallFor(v: number | null, intervall: { min: number; max: number; label: string }[]): string | null {
+  if (v == null) return null
+  const i = intervall.find(x => v >= x.min && v < x.max)
+  return i ? i.label : null
+}
+
 // ============================================================
 // Sheet (för export-menyn)
 // ============================================================
@@ -210,6 +242,8 @@ export default function HelikopterV2Page() {
   const [dimMaskiner, setDimMaskiner] = useState<DimMaskin[]>([])
   const [maskinstoppData, setMaskinstoppData] = useState<{ maskin_id: string; fran_datum: string; till_datum: string; orsak: string }[]>([])
   const [avslutByVo, setAvslutByVo] = useState<Record<string, { skord: boolean; skot: boolean }>>({}) // vo_nummer → avslutstatus per roll (ur dim_objekt)
+  const [utfallVy, setUtfallVy] = useState<UtfallVyRad[]>([]) // per (objekt_id, roll) ur vy_objekt_utfall
+  const [avslutObjekt, setAvslutObjekt] = useState<{ objekt_id: string; object_name: string | null; vo_nummer: string | null; skordning_avslutad: string | null; skotning_avslutad: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [ar, setAr] = useState(() => new Date().getFullYear())
   const [manad, setManad] = useState(() => new Date().getMonth() + 1)
@@ -224,14 +258,15 @@ export default function HelikopterV2Page() {
   const load = useCallback(async () => {
     try {
       // Läs via inloggad session-klient (inte hårdkodad anon-nyckel).
-      const [hv, best, dimo, obj, dimm, stopp, stoppMaskin] = await Promise.all([
+      const [hv, best, dimo, obj, dimm, stopp, stoppMaskin, utfall] = await Promise.all([
         supabase.from('helikopter_vy').select('*'),
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
-        supabase.from('dim_objekt').select('objekt_id,maskin_id,vo_nummer,skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto'),
+        supabase.from('dim_objekt').select('objekt_id,object_name,maskin_id,vo_nummer,skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto'),
         supabase.from('objekt').select('id,namn,vo_nummer,typ,ar,manad,status,volym,manuell_prognos,skordare_maskin_id,skotare_maskin_id,skordare_utforare,skotare_utforare'),
         supabase.from('dim_maskin').select('maskin_id,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'),
         supabase.from('stopp').select('id,fran_datum,till_datum,orsak'),
         supabase.from('stopp_maskin').select('stopp_id,maskin_id'),
+        supabase.from('vy_objekt_utfall').select('*'),
       ])
       // Härled huvudtyp där den saknas (maskin-regel + vo-match) — fas 1, ingen DB-ändring.
       const maskinById = new Map<string, string>((dimo.data || []).map((d: any) => [d.objekt_id, d.maskin_id]))
@@ -266,6 +301,11 @@ export default function HelikopterV2Page() {
         }
       }
       setAvslutByVo(avslut)
+      // Utfall (ej månadsbunden): vy_objekt_utfall + avslutade objekt (skörd/skot-datum satt) med namn.
+      setUtfallVy((utfall.data || []) as UtfallVyRad[])
+      setAvslutObjekt(((dimo.data || []) as any[])
+        .filter(d => d.skordning_avslutad != null || d.skotning_avslutad != null)
+        .map(d => ({ objekt_id: d.objekt_id, object_name: d.object_name, vo_nummer: d.vo_nummer, skordning_avslutad: d.skordning_avslutad, skotning_avslutad: d.skotning_avslutad })))
     } catch { /* use empty */ }
   }, [ar, manad])
 
@@ -543,6 +583,56 @@ export default function HelikopterV2Page() {
     })
     return { skordare, skotare, extraMaskiner, offMaskin, tillgangligaDagar, totalKapacitet, ingaStopp: antalStoppIManad === 0, forslag }
   }, [objektAlla, dimMaskiner, maskinstoppData, avslutByVo, ar, manad])
+
+  // === UTFALL: avslutade objekt, prognos vs faktiskt utfall per maskintyp (läser vy_objekt_utfall) ===
+  const utfallLista = useMemo(() => {
+    const prognosByVo = new Map<string, { skordare: number | null; skotare: number | null }>()
+    for (const o of objektAlla) {
+      const vo = String(o.vo_nummer || '').trim()
+      if (!vo) continue
+      prognosByVo.set(vo, { skordare: parseTimmar(o.manuell_prognos?.skordare), skotare: parseTimmar(o.manuell_prognos?.skotare) })
+    }
+    const utfallByKey = new Map<string, UtfallVyRad>()
+    for (const u of utfallVy) utfallByKey.set(`${u.objekt_id}|${u.roll}`, u)
+    return avslutObjekt.map(a => {
+      const prog = prognosByVo.get(String(a.vo_nummer || '').trim())
+      const bygg = (roll: 'skordare' | 'skotare', avslutDatum: string | null) => ({
+        roll, avslutDatum, avslutad: avslutDatum != null,
+        prognosH: roll === 'skordare' ? (prog?.skordare ?? null) : (prog?.skotare ?? null),
+        u: utfallByKey.get(`${a.objekt_id}|${roll}`) || null,
+      })
+      const senast = [a.skordning_avslutad, a.skotning_avslutad].filter((d): d is string => !!d).sort().pop() || ''
+      return {
+        objekt_id: a.objekt_id,
+        namn: a.object_name || a.vo_nummer || 'Objekt',
+        senast,
+        skord: bygg('skordare', a.skordning_avslutad),
+        skot: bygg('skotare', a.skotning_avslutad),
+      }
+    }).sort((x, y) => y.senast.localeCompare(x.senast)) // senast avslutad först
+  }, [avslutObjekt, objektAlla, utfallVy])
+
+  // Kalibrering: hur prognoserna träffar per skogstyp. avvikelse = medel(utfall_h/prognos_h)−1 i %.
+  const kalibrering = useMemo(() => {
+    const bygg = (roll: 'skordare' | 'skotare', intervall: { min: number; max: number; label: string }[], nyckel: (u: UtfallVyRad) => number | null) => {
+      const grupper = intervall.map(iv => ({ label: iv.label, ratios: [] as number[] }))
+      for (const o of utfallLista) {
+        const r = roll === 'skordare' ? o.skord : o.skot
+        if (!r.avslutad || !r.u || r.prognosH == null || r.u.timmar == null || r.u.timmar <= 0) continue
+        const g = grupper.find(x => x.label === intervallFor(nyckel(r.u!), intervall))
+        if (g) g.ratios.push(r.u.timmar / r.prognosH)
+      }
+      return grupper.map(g => ({
+        label: g.label,
+        antal: g.ratios.length,
+        avvikelse: g.ratios.length >= 2 ? Math.round((g.ratios.reduce((s, x) => s + x, 0) / g.ratios.length - 1) * 100) : null,
+      }))
+    }
+    return {
+      skordare: bygg('skordare', MEDELSTAM_INTERVALL, u => u.medelstam),
+      skotare: bygg('skotare', SKOTVAG_INTERVALL, u => u.skotvag_m),
+    }
+  }, [utfallLista])
 
   const SPAR = [
     { typ: 'Slutavverkning' as const, Ikon: TreePine, farg: '#eab308', best: slutBest },
@@ -887,12 +977,95 @@ export default function HelikopterV2Page() {
             <div style={{ textAlign: 'center', padding: '40px 0', color: muted, fontSize: 13 }}>Månaden är avslutad — ingen kapacitetsberäkning.</div>
           )}
 
-          {/* === UTFALL-fliken — placeholder (byggs i STEG 3). Löpande lista, ej månadsbunden. === */}
+          {/* === UTFALL-fliken — löpande lista, avslutade objekt senast först (ej månadsbunden) === */}
           {flik === 'utfall' && (
-            <div style={{ textAlign: 'center', padding: '48px 8px', color: muted, fontSize: 14, lineHeight: 1.6 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: text, marginBottom: 8 }}>Utfall</div>
-              Löpande lista över avslutade objekt — prognos mot faktiskt utfall per maskintyp.<br />Byggs i STEG 3.
-            </div>
+            utfallLista.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 8px', color: muted, fontSize: 14 }}>Inga avslutade objekt än.</div>
+            ) : (
+              <>
+                {utfallLista.map(o => (
+                  <div key={o.objekt_id} style={{ ...card, marginBottom: 12, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: text, marginBottom: 8 }}>{o.namn}</div>
+                    {([['skordare', 'Skördare', '#eab308'], ['skotare', 'Skotare', '#0a84ff']] as const).map(([roll, rubrik, typfarg]) => {
+                      const r = roll === 'skordare' ? o.skord : o.skot
+                      const u = r.u
+                      const harUtfall = r.avslutad && u != null && u.timmar != null && u.timmar > 0
+                      const utfallH = harUtfall ? (u!.timmar as number) : 0
+                      const prognosH = r.prognosH
+                      const maxH = Math.max(prognosH || 0, utfallH) || 1
+                      const avvik = (harUtfall && prognosH != null) ? prognosH - utfallH : null
+                      // Dölj roll utan innehåll (t.ex. GROT saknar skördningsfas) — inget att visa, ingen falsk "pågår".
+                      if (!r.avslutad && !harUtfall && prognosH == null) return null
+                      return (
+                        <div key={roll} style={{ padding: '8px 0', borderTop: roll === 'skotare' && (o.skord.avslutad || o.skord.prognosH != null || (o.skord.u && o.skord.u.timmar)) ? `1px solid ${divider}` : 'none' }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: muted, letterSpacing: 0.4, textTransform: 'uppercase' }}>{rubrik}</span>
+                            {avvik != null ? (
+                              <span style={{ fontSize: 15, fontWeight: 700, color: avvik >= 0 ? '#30d158' : '#d08a3e', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{Math.abs(Math.round(avvik))} h {avvik >= 0 ? 'snabbare' : 'längre'}</span>
+                            ) : !r.avslutad ? (
+                              <span style={{ fontSize: 13, color: muted, flexShrink: 0 }}>pågår</span>
+                            ) : (
+                              <span style={{ fontSize: 13, color: muted, flexShrink: 0 }}>{harUtfall ? 'ingen prognos' : 'väntar på data'}</span>
+                            )}
+                          </div>
+                          {prognosH != null && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <span style={{ fontSize: 10, color: muted, width: 52, flexShrink: 0 }}>Prognos</span>
+                              <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.min(100, (prognosH / maxH) * 100)}%`, background: 'rgba(255,255,255,0.35)', borderRadius: 3 }} />
+                              </div>
+                              <span style={{ fontSize: 10, color: muted, width: 40, textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{Math.round(prognosH)} h</span>
+                            </div>
+                          )}
+                          {harUtfall && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 10, color: muted, width: 52, flexShrink: 0 }}>Utfall</span>
+                              <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.min(100, (utfallH / maxH) * 100)}%`, background: typfarg, borderRadius: 3 }} />
+                              </div>
+                              <span style={{ fontSize: 10, color: typfarg, width: 40, textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{Math.round(utfallH)} h</span>
+                            </div>
+                          )}
+                          {harUtfall && u!.takt != null && (
+                            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 6, paddingLeft: 60 }}>
+                              {u!.takt.toFixed(1).replace('.', ',')} m³fub/h
+                              {roll === 'skordare' && u!.medelstam != null && ` · medelstam ${u!.medelstam.toFixed(2).replace('.', ',')}`}
+                              {roll === 'skotare' && u!.skotvag_m != null && ` · skotväg ${Math.round(u!.skotvag_m).toLocaleString('sv-SE')} m`}
+                            </div>
+                          )}
+                          {r.avslutad && !harUtfall && (
+                            <div style={{ fontSize: 12, color: muted, paddingLeft: prognosH != null ? 60 : 0 }}>Avslutad {r.avslutDatum} — väntar på maskindata</div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+                {/* Kalibrering — hur prognoserna träffar per skogstyp, växer med antal objekt */}
+                <div style={{ ...card, marginTop: 4, marginBottom: 12, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginBottom: 4 }}>Kalibrering — hur prognoserna träffar</div>
+                  <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>Utfall mot prognos, grupperat på skogstyp. Grönt = gick snabbare än prognos, orange = tog längre.</div>
+                  {([['skordare', 'Skördare — per medelstam', kalibrering.skordare], ['skotare', 'Skotare — per skotväg', kalibrering.skotare]] as const).map(([roll, rubrik, grupper]) => (
+                    <div key={roll} style={{ borderTop: `1px solid ${divider}`, paddingTop: 8, marginTop: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: muted, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4 }}>{rubrik}</div>
+                      {grupper.map(g => (
+                        <div key={g.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, fontSize: 13, padding: '3px 0' }}>
+                          <span style={{ color: 'rgba(255,255,255,0.7)' }}>{g.label}</span>
+                          {g.avvikelse != null ? (
+                            <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                              <span style={{ color: g.avvikelse <= 0 ? '#30d158' : '#d08a3e', fontWeight: 600 }}>{g.avvikelse > 0 ? '+' : ''}{g.avvikelse}%</span>
+                              <span style={{ color: muted }}> · {g.antal} obj</span>
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>väntar på data{g.antal > 0 ? ` (${g.antal})` : ''}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )
           )}
         </div>
       )}
