@@ -25,6 +25,7 @@ läses ur miljön, med fallback till .env.local bredvid scriptet.
 """
 
 import argparse
+import gzip
 import hashlib
 import os
 import re
@@ -96,16 +97,19 @@ def collect(maskin: str, name_filter: str | None, fillista: str | None) -> list[
 def post_file(p: Path, api_url: str, supabase_url: str, service_key: str, import_key: str) -> str:
     data = p.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
-    storage_path = f"incoming/{digest}.hpr"
+    # Gzippa före uppladdning (HPR = XML, ~8:1) för att komma under Supabase
+    # Storages uppladdningsgräns; routen dekomprimerar och hashar originalet.
+    payload = gzip.compress(data)
+    storage_path = f"incoming/{digest}.hpr.gz"
     up = requests.post(
         f"{supabase_url}/storage/v1/object/raw-files/{storage_path}",
         headers={
             "apikey": service_key,
             "Authorization": f"Bearer {service_key}",
-            "Content-Type": "application/xml",
+            "Content-Type": "application/gzip",
             "x-upsert": "true",
         },
-        data=data,
+        data=payload,
         timeout=300,
     )
     if up.status_code not in (200, 201):

@@ -268,18 +268,23 @@ def post_hpr_fordelning(filepath: str):
                            "HPR_IMPORT_KEY saknas i miljö/.env.local — hoppar över POST.")
             return
 
-        import hashlib
+        import hashlib, gzip
+        # Gzippa före uppladdning — HPR är XML (~8:1), så en 62 MB-fil blir ~7 MB
+        # och kommer under Supabase Storages uppladdningsgräns. Routen dekomprimerar
+        # efter nedladdning. Hashen i filnamnet är på ORIGINALET (routen hashar det
+        # dekomprimerade), så dedup är oförändrad.
         digest = hashlib.sha256(data).hexdigest()
-        storage_path = f"incoming/{digest}.hpr"
+        payload = gzip.compress(data)
+        storage_path = f"incoming/{digest}.hpr.gz"
         up = requests.post(
             f"{supabase_url}/storage/v1/object/raw-files/{storage_path}",
             headers={
                 "apikey": service_key,
                 "Authorization": f"Bearer {service_key}",
-                "Content-Type": "application/xml",
+                "Content-Type": "application/gzip",
                 "x-upsert": "true",
             },
-            data=data,
+            data=payload,
             timeout=300,
         )
         if up.status_code not in (200, 201):
