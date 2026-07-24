@@ -886,6 +886,18 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                         entry['terrain_bransle_liter'] = t_fuel
             else:
                 entry['other_work_sek'] = duration
+                # StanForD lägger under-kategorin i attributet otherWorkCategory
+                # när run-time-värdet är "Other work" (Road travel / Preparing
+                # strip roads / Towing other machine / Roadside loading of truck /
+                # Unspecified). Fånga sekunder per kategori.
+                if cat == 'Other work':
+                    owc = get_attr(run_cat, 'otherWorkCategory') or 'Unspecified'
+                else:
+                    # Genuint okänt run-time-VÄRDE — bokförs i other_work men LOGGA;
+                    # en catch-all som tiger döljer nya StanForD-kategorier.
+                    logger.warning(f"  Okänd IndividualMachineRunTimeCategory '{cat}' i {filnamn} — bokförd som other_work")
+                    owc = f'OKÄND:{cat}'
+                entry['other_work_kategorier'] = {owc: duration}
         elif down_time is not None:
             maint = find_element(down_time, 'Maintenance', ns)
             dist = find_element(down_time, 'Disturbance', ns)
@@ -3334,7 +3346,8 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 # attribution.
                 dates_by_maskin = {m: {d for m2, d in affected if m2 == m}
                                    for m in affected_maskins}
-                agg = defaultdict(lambda: {f: 0 for f in tid_fields})
+                agg = defaultdict(lambda: {**{f: 0 for f in tid_fields},
+                                           'other_work_kategorier': {}})
                 for ident, entry in merged_entries.items():
                     _, maskin = ident
                     _, objekt, operator, _ = merged_attr[ident]
@@ -3344,6 +3357,11 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     dag_key = (datum, maskin, objekt, operator)
                     for f in tid_fields:
                         agg[dag_key][f] += (entry.get(f) or 0)
+                    # other_work_kategorier mergas (ej summeras som skalär) —
+                    # {kategori: sekunder} följer med **values till upserten.
+                    okat = agg[dag_key]['other_work_kategorier']
+                    for k, v in (entry.get('other_work_kategorier') or {}).items():
+                        okat[k] = okat.get(k, 0) + v
 
                 for dag_key, values in agg.items():
                     datum, maskin, objekt, operator = dag_key
