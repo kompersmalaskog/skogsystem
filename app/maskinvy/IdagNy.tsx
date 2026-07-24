@@ -131,7 +131,7 @@ type IdagData = {
   freshness: FreshnessInfo
   volym: number
   stammar: number
-  g15h: number                  // timmar (proc + terr) / 3600
+  g15h: number                  // timmar (proc + terr + other_work) / 3600
   produktivitet: number | null  // volym / g15h
   hourBuckets: Record<number, number>  // timme (0–23) → antal stammar
   hasRytm: boolean              // false om detalj_stam var tom/misslyckad
@@ -241,7 +241,7 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
   // Promise.allSettled: om enskild hämtning misslyckas visas ändå resten.
   const [prodResult, tidResult, rytmResult, avbrottResult, tradNamnResult, momTiderResult] = await Promise.allSettled([
     fetchPaged('fakt_produktion', 'volym_m3sub, stammar', ids, senasteDatum),
-    fetchPaged('fakt_tid', 'processing_sek, terrain_sek', ids, senasteDatum),
+    fetchPaged('fakt_tid', 'processing_sek, terrain_sek, other_work_sek', ids, senasteDatum),
     fetchDetaljStam(ids, senasteDatum),
     fetchAvbrottForDay(ids, senasteDatum),
     fetchTradslagNamn(ids),
@@ -263,12 +263,13 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
   }
 
   // Aggregera tid (G15h = (processing_sek + terrain_sek) / 3600)
-  let proc = 0, terr = 0
+  let proc = 0, terr = 0, ow = 0
   for (const r of tidRows) {
     proc += r.processing_sek || 0
     terr += r.terrain_sek    || 0
+    ow   += r.other_work_sek || 0
   }
-  const g15h = (proc + terr) / 3600
+  const g15h = (proc + terr + ow) / 3600
 
   // Bucketa stammar per timme + bygg stamDetalj för HourPanel
   const hourBuckets: Record<number, number> = {}
