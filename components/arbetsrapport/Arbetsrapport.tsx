@@ -555,8 +555,6 @@ export default function Arbetsrapport() {
   const [dagTyp,setDagTyp] = useState("normal");
   const [hemadress, setHemadress] = useState("");
   const [redigHem, setRedigHem] = useState("");
-  const [btBil, setBtBil] = useState("");
-  const [redigBt, setRedigBt] = useState("");
   const [kvAvTyp,  setKvAvTyp]  = useState(null);
   const [kvAvBesk, setKvAvBesk] = useState("");
   const [kvAvDeb,  setKvAvDeb]  = useState(false);
@@ -568,6 +566,12 @@ export default function Arbetsrapport() {
   const [redKm,    setRedKm]    = useState(0);
   const [redKmBerakning, setRedKmBerakning] = useState<number|null>(null);
   const [redKmChain, setRedKmChain] = useState<{fromLabel:string;toLabel:string;km:number;source:string}[]|null>(null);
+  // Km-källa för den beräknade siffran: 'beraknad' = riktig vägberäkning
+  // (route_cache/ORS), 'fallback' = haversine × 1,4 (fågelvägen, OSÄKER),
+  // null = ej beräknat. 'saknarKoord' = något objekt saknar koordinat, då
+  // går km inte att beräkna alls. Föraren ska se skillnaden.
+  const [redKmKälla, setRedKmKälla] = useState<'beraknad'|'fallback'|null>(null);
+  const [redKmSaknarKoord, setRedKmSaknarKoord] = useState(false);
   const [redAnl,   setRedAnl]   = useState("");
   const [redVy,    setRedVy]    = useState("översikt");
   const [redDagar, setRedDagar] = useState<Record<string, {start:string;slut:string;rast:number;km:number;anl:string}>>({});
@@ -689,7 +693,6 @@ export default function Arbetsrapport() {
       if(med.data) {
         setMedarbetare(med.data);
         setHemadress(med.data.hemadress || "");
-        setBtBil(med.data.bt_bil || "");
         // Fetch maskin namn
         if(med.data.maskin_id) {
           supabase.from("maskiner").select("namn").eq("maskin_id", med.data.maskin_id).single()
@@ -829,13 +832,26 @@ export default function Arbetsrapport() {
     if (!medarbetare?.id || !redDag.datum) return;
     setRedKmChain(null);
     setRedKmBerakning(null);
+    setRedKmKälla(null);
+    setRedKmSaknarKoord(false);
     let cancelled = false;
     fetch(`/api/km-chain?medarbetare_id=${encodeURIComponent(medarbetare.id)}&datum=${redDag.datum}`)
       .then(r => r.json())
       .then(j => {
         if (cancelled || !j?.ok) return;
-        setRedKmChain(j.segments || []);
+        const segs = j.segments || [];
+        setRedKmChain(segs);
         setRedKmBerakning(j.totalKm);
+        // Något objekt i dagens sekvens utan koordinat → km kan inte beräknas.
+        // km-chain hoppar då över de segmenten, så totalen blir missvisande.
+        const sekvens: string[] = j.sekvens || [];
+        const koord = j.objektKoord || {};
+        const saknarKoord = sekvens.some((oid: string) => koord[oid]?.lat == null || koord[oid]?.lng == null);
+        setRedKmSaknarKoord(saknarKoord);
+        // Källa: 'fallback' om NÅGOT segment är fågelvägen (haversine), annars
+        // 'beraknad' (route_cache/ORS = riktig vägberäkning). Tom kedja = null.
+        setRedKmKälla(segs.length === 0 ? null
+          : segs.some((s: any) => s.source === 'fallback') ? 'fallback' : 'beraknad');
         setRedKm(prev => prev === 0 ? j.totalKm : prev);
       })
       .catch(() => {});
@@ -3996,9 +4012,19 @@ export default function Arbetsrapport() {
 
   /* ─── INSTÄLLNINGAR ─── */
   if(steg==="inst") {
-    const autoSave = (field: 'hem'|'bt', val: string) => {
-      if(field==='hem'&&val&&val!==hemadress){setHemadress(val);setSparatToast(true);setTimeout(()=>setSparatToast(false),2000);}
-      if(field==='bt'&&val&&val!==btBil){setBtBil(val);setSparatToast(true);setTimeout(()=>setSparatToast(false),2000);}
+    // Hemadress sparas VERIFIERAT till DB — tidigare satte den bara lokal state
+    // + "Sparat"-toast utan att skriva någonstans (samma #162-bugg som togs bort
+    // för Bluetooth-fältet). "Sparat" visas nu bara om raden faktiskt träffades.
+    // OBS: km-beräkningen använder hem_lat/hem_lng (koordinater), inte adress-
+    // texten — se flaggan om geokodning. Texten sparas ärligt oavsett.
+    const autoSave = async (field: 'hem', val: string) => {
+      if(field==='hem' && val && val!==hemadress){
+        const res = await uppdateraVerifierat(supabase, "medarbetare", { hemadress: val }, { id: medarbetare.id });
+        if(!res.ok){ alert(res.fel); return; }
+        setHemadress(val);
+        setMedarbetare((m:any)=>({ ...m, hemadress: val }));
+        setSparatToast(true); setTimeout(()=>setSparatToast(false),2000);
+      }
     };
     return (
     <div style={shell}><style>{css}</style>{timerBanner}
@@ -4029,24 +4055,6 @@ export default function Arbetsrapport() {
           </div>
           <div style={{ width:8,height:8,borderRadius:"50%",background:C.green }}/>
         </Card>
-
-        <div style={{ marginTop:24 }}/>
-        <Label>Bil · Bluetooth</Label>
-        <Card style={{ marginBottom:6 }}>
-          <p style={{ margin:"0 0 10px",fontSize:13,color:C.label }}>Appen startar automatiskt när bilen kopplar upp</p>
-          <input
-            value={redigBt||btBil}
-            onChange={e=>setRedigBt(e.target.value)}
-            onFocus={()=>{ if(!redigBt) setRedigBt(btBil); }}
-            onBlur={()=>autoSave('bt',redigBt)}
-            placeholder="T.ex. Min bil"
-            style={{ width:"100%",padding:"13px 14px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.06)",color:"#fff",fontFamily:"inherit" }}
-          />
-        </Card>
-        {btBil&&<div style={{ background:"rgba(48,209,88,0.08)",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8 }}>
-          <div style={{ width:8,height:8,borderRadius:"50%",background:C.green,flexShrink:0 }}/>
-          <p style={{ margin:0,fontSize:13,color:C.green,fontWeight:500 }}>{btBil} ansluten</p>
-        </div>}
 
         <Card onClick={()=>setSteg("avtal")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:24 }}>
           <div>
@@ -4482,7 +4490,11 @@ export default function Arbetsrapport() {
           <div style={{ textAlign:"center",padding:20,background:"rgba(48,209,88,0.07)",borderRadius:12 }}>
             <Label>Körning</Label>
             <p style={{ margin:0,...TYPE.bigNum,color:C.green,...TNUM }}>{redKm} km</p>
-            {redKmBerakning!=null&&redKmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>Beräknat: {redKmBerakning} km (vägavstånd)</p>}
+            {redKmBerakning!=null&&redKmBerakning>0&&(
+              redKmKälla==='fallback'
+                ? <p style={{ margin:"4px 0 0",fontSize:12,color:C.orange,...TNUM }}>Osäker: ~{redKmBerakning} km fågelvägen (ingen vägberäkning)</p>
+                : <p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>Beräknat: {redKmBerakning} km (vägavstånd)</p>
+            )}
             {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
               return över>0
                 ? <p style={{ margin:"8px 0 0",...TYPE.meta,color:C.green,...TNUM }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
@@ -4817,9 +4829,31 @@ export default function Arbetsrapport() {
                 <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10 }}>
                   {rad("Totalt", `${redKm} km`, true, öppnaKmSheet)}
                 </div>
-                {redKmBerakning!=null&&(
-                  <p style={{ margin:"8px 0 0",fontSize:12,color:"#fff" }}>Beräknat vägavstånd</p>
-                )}
+                {(()=>{
+                  // Källmärkning — visa ärligt vad siffran ÄR:
+                  //  · föraren skrivit över (redKm ≠ beräknat) → "Egen uppgift"
+                  //  · objekt utan koordinat → km går inte att beräkna, OSÄKER
+                  //  · fallback (haversine × 1,4) → fågelvägen, OSÄKER
+                  //  · route_cache/ORS → riktigt beräknat vägavstånd
+                  const egen = redKmBerakning != null && redKm !== redKmBerakning;
+                  if (egen) return (
+                    <p style={{ margin:"8px 0 0",fontSize:12,color:"#8e8e93" }}>Egen uppgift</p>
+                  );
+                  if (redKmSaknarKoord) return (
+                    <p style={{ margin:"8px 0 0",fontSize:12,color:C.orange }}>
+                      ⚠ Objektet saknar koordinat — går inte att beräkna. Fyll i själv.
+                    </p>
+                  );
+                  if (redKmKälla === 'fallback') return (
+                    <p style={{ margin:"8px 0 0",fontSize:12,color:C.orange }}>
+                      ⚠ Osäker uppskattning (fågelvägen × 1,4) — ingen vägberäkning. Kontrollera.
+                    </p>
+                  );
+                  if (redKmKälla === 'beraknad') return (
+                    <p style={{ margin:"8px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat vägavstånd</p>
+                  );
+                  return null;
+                })()}
                 {över>0&&(
                   <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:10,paddingTop:10 }}>
                     <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
