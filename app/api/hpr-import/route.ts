@@ -10,10 +10,12 @@
  *      multipart/form-data med "file"  — drag-drop-sidan (obs: Vercel kapar
  *        request-bodies vid ~4,5 MB, så stora filer fungerar bara lokalt)
  *      application/json {storage_path, skip_raw_copy?, source_name?} —
- *        watchdog/backfill laddar först upp filen till raw-files/incoming/
- *        (Storage har ingen 4,5 MB-gräns) och pekar hit. skip_raw_copy sätts
- *        av backfillen: originalen finns redan i OneDrive-arkivet, så den
- *        permanenta Storage-kopian hoppas över (~8 GB dubbellagring).
+ *        watchdog/backfill GZIPPAR filen (HPR = XML, ~8:1) och laddar upp den
+ *        till raw-files/incoming/*.hpr.gz — så den kommer under Supabase Storages
+ *        uppladdningsgräns (filerna passerade 50 MB). Routen dekomprimerar efter
+ *        nedladdning; hashen beräknas på originalet så dedup är oförändrad.
+ *        skip_raw_copy sätts av backfillen: originalen finns redan i OneDrive-
+ *        arkivet, så den permanenta Storage-kopian hoppas över (~8 GB dubbellagring).
  *  - object_key är MASKINSKOPAD: "{maskin_id}:{ObjectKey}" där maskin_id =
  *    BaseMachineManufacturerID (serienumret, t.ex. PONS20SDJAA270231). StanForD:s
  *    ObjectKey är en maskin-lokal räknare — Hushållningssällskapet=109 på
@@ -30,6 +32,7 @@
  * Parsning av den verkliga filen tar ~5 s.
  */
 import { createHash } from "crypto";
+import { gunzipSync } from "zlib";
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
@@ -135,7 +138,19 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
-    buf = Buffer.from(await blob.arrayBuffer());
+    const raw = Buffer.from(await blob.arrayBuffer());
+    // Watchdog/backfill gzippar filen före uppladdning (HPR är XML, ~8:1) för
+    // att komma under Supabase Storages uppladdningsgräns. .gz → dekomprimera
+    // här, så allt nedströms (hash, parse) ser originalinnehållet. Hashen
+    // beräknas alltså på det DEKOMPRIMERADE innehållet → dedup oförändrad.
+    try {
+      buf = storagePath.endsWith(".gz") ? gunzipSync(raw) : raw;
+    } catch (e: any) {
+      return NextResponse.json(
+        { error: `Kunde inte dekomprimera ${storagePath}: ${e?.message ?? e}` },
+        { status: 422 }
+      );
+    }
     sourceName = storagePath;
     stagingPath = storagePath;
   } else {
