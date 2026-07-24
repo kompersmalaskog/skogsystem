@@ -92,10 +92,13 @@ export function calcDelta(current: number | null, previous: number | null, lower
 export type Maskin = { id: string; namn: string }
 export type Period = 'V' | 'M' | 'K' | 'Å'
 
+// Namn = dim_maskin.visningsnamn (Martin äger dem i DB). Rottne-årsmodellerna
+// skiljs på -23 (R64101, gammal, körde t.o.m. 2026-03-11) och -26 (R64428, ny,
+// från 2026-03-12) i stället för det tvetydiga "(ny)/(gammal)".
 export const MASKINER: Maskin[] = [
-  { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion Giant 8W' },
-  { id: 'R64428',            namn: 'Rottne H8E (ny)' },
-  { id: 'R64101',            namn: 'Rottne H8E (gammal)' },
+  { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion' },
+  { id: 'R64428',            namn: 'Rottne H8E -26' },
+  { id: 'R64101',            namn: 'Rottne H8E -23' },
   { id: 'R64101+R64428',     namn: 'Rottne H8E (båda)' },
 ]
 
