@@ -9343,8 +9343,20 @@ export default function PlannerPage() {
           if (m.isLine && Array.isArray(m.path) && m.path.length) { const mid = m.path[Math.floor(m.path.length / 2)]; x = mid.x; y = mid.y; }
           try { const ll = svgToLatLon(x, y); map.flyTo({ center: [ll.lon, ll.lat], zoom: Math.max(map.getZoom(), 17), duration: 700 }); } catch {}
         };
+        // Larmkoordinat / mötesplats — samma fält som Larm-fliken (manuellt satt vid rekning, aldrig auto).
+        // Räddningstjänstens mötesplats: det första föraren behöver om något händer på trakten.
+        const larmLat = parseFloat((infoLarmLat || '').replace(',', '.'));
+        const larmLng = parseFloat((infoLarmLng || '').replace(',', '.'));
+        const larmSatt = Number.isFinite(larmLat) && Number.isFinite(larmLng);
+        const larmBeskr = (infoLarmBeskrivning || '').trim();
+        const larmFlyTill = () => {
+          if (!larmSatt) return;
+          setTraktOversiktOpen(false); setOversiktSymbolTyp(null);
+          const map = mapInstanceRef.current; if (!map) return;
+          map.flyTo({ center: [larmLng, larmLat], zoom: Math.max(map.getZoom(), 17), duration: 700 });
+        };
         const stang = () => { setTraktOversiktOpen(false); setOversiktSymbolTyp(null); };
-        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang;
+        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr;
 
         return (
           <>
@@ -9412,6 +9424,48 @@ export default function PlannerPage() {
                   </div>
                 </div>
               )}
+
+              {/* LARMKOORDINAT — säkerhet, mellan restriktioner och symbollistan. Alltid synlig:
+                  satt = tryckbart kort som flyger till larmpinnen; ej satt = ärlig varning (föraren
+                  MÅSTE veta att mötesplatsen saknas — farligare att dölja än att visa). */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Larmkoordinat</div>
+                {larmSatt ? (
+                  <button type="button" onClick={larmFlyTill} className="btn-press" aria-label="Visa larmkoordinaten på kartan"
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'rgba(10,132,255,0.1)', border: '1px solid rgba(10,132,255,0.3)', borderRadius: 14, padding: '13px 15px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                      <span style={{ width: 30, height: 30, borderRadius: 15, background: 'rgba(10,132,255,0.9)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2"><path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11Z" /><circle cx="12" cy="10" r="2.4" /></svg>
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{larmLat.toFixed(5)}, {larmLng.toFixed(5)}</div>
+                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen — satt vid rekning' : 'Källa ej angiven'}</div>
+                      </div>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 6 L15 12 L9 18" /></svg>
+                    </div>
+                    <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: infoLarmBekraftad ? '#30d158' : 'rgba(255,159,10,0.9)' }}>
+                      {infoLarmBekraftad
+                        ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2.6" style={{ flexShrink: 0 }}><path d="M20 6 L9 17 L4 12" /></svg>
+                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,159,10,0.9)" strokeWidth="2" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="9" /><path d="M12 8v4" /><path d="M12 16h.01" /></svg>}
+                      {infoLarmBekraftad ? 'Bekräftad på plats' : 'Ej bekräftad på plats'}
+                    </div>
+                    {larmBeskr && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.12)', fontSize: 14, lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{larmBeskr}</div>
+                    )}
+                  </button>
+                ) : (
+                  <div style={{ background: 'rgba(255,159,10,0.1)', border: '1px solid rgba(255,159,10,0.3)', borderRadius: 14, padding: '13px 15px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 15, fontWeight: 700, color: '#FF9F0A' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF9F0A" strokeWidth="2.2" style={{ flexShrink: 0 }}><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.7 3.86a2 2 0 0 0-3.42 0Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+                      Larmkoordinat ej satt
+                    </div>
+                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 6, lineHeight: 1.45 }}>Ingen mötesplats för räddningstjänsten är angiven för trakten. Sätt den i Trakt-panelens Larm-flik.</div>
+                    {larmBeskr && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,159,10,0.25)', fontSize: 14, lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{larmBeskr}</div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {grupper.length > 0 && (
                 <div style={{ marginBottom: 14 }}>
