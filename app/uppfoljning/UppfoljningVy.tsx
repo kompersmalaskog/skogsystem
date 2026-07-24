@@ -74,6 +74,7 @@ export interface UppfoljningData {
   skordareG0: number;
   skordareTomgang: number;
   skordareKortaStopp: number;
+  skordareKortStoppRaa: number;  // rå kort_stopp (utan kortaAvbrott-fold) — signal-frånvaro = 0
   skordareRast: number;
   skordareAvbrott: number;
   skotareG15h: number;
@@ -725,19 +726,22 @@ function Tid({ data }: { data: UppfoljningData }) {
   const hasSk = data.skordareG15h > 0;
   const hasSt = data.skotareG15h > 0;
   if (!hasSk && !hasSt) return null;
+  // G0 och korta pauser visas bara om maskinen rapporterar ShortDownTime (rå
+  // kort_stopp > 0). Villkoret avläses ur DATAN, inte ur maskintypen — Rottne
+  // rapporterar signalen, Ponsse-skotarna inte. Saknas den: "rapporteras inte".
+  const skKortSaknas = data.skordareG15h > 0 && data.skordareKortStoppRaa === 0;
+  const stKortSaknas = data.skotareG15h > 0 && data.skotareKortaStopp === 0;
   const skRows: [string, number | null, boolean?][] = [
     ['G15', data.skordareG15h, true],
-    ['G0', data.skordareG0],
-    ['Korta pauser', data.skordareKortaStopp],
+    ['G0', skKortSaknas ? null : data.skordareG0],
+    ['Korta pauser', skKortSaknas ? null : data.skordareKortaStopp],
     ['Rast', data.skordareRast],
     ['Avbrott', data.skordareAvbrott],
   ];
-  // Skotaren har varken G0 eller korta stopp i källdata — StanForD emitterar
-  // ingen ShortDownTime, Opti4G har ingen G0-rad. Rapporteras inte, aldrig 0.
   const stRows: [string, number | null, boolean?][] = [
     ['G15', data.skotareG15h, true],
-    ['G0', null],
-    ['Korta pauser', null],
+    ['G0', stKortSaknas ? null : data.skotareG0],
+    ['Korta pauser', stKortSaknas ? null : data.skotareKortaStopp],
     ['Rast', data.skotareRast],
     ['Avbrott', data.skotareAvbrott],
   ];
