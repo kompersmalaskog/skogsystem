@@ -214,6 +214,7 @@ export default function HelikopterV2Page() {
   const [manad, setManad] = useState(() => new Date().getMonth() + 1)
   const [exportOpen, setExportOpen] = useState(false)
   const [oppetSpar, setOppetSpar] = useState<'Slutavverkning' | 'Gallring' | null>(null) // dragspel: ett spår-djup i taget
+  const [flik, setFlik] = useState<'bestallning' | 'kapacitet' | 'utfall'>('bestallning') // tre flikar: Beställning | Kapacitet | Utfall
   const [pullDistance, setPullDistance] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -523,7 +524,8 @@ export default function HelikopterV2Page() {
         </div>
       )}
 
-      {/* Header — månadsväljare */}
+      {/* Header — månadsväljare. Gäller Beställning + Kapacitet; Utfall är inte månadsbunden. */}
+      {flik !== 'utfall' && (
       <div style={{ padding: '32px 24px 0' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr 92px', alignItems: 'center', marginBottom: 28 }}>
           <div>
@@ -541,6 +543,16 @@ export default function HelikopterV2Page() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Flikar — under månadsväljaren (Beställning · Kapacitet · Utfall) */}
+      <div style={{ padding: flik === 'utfall' ? '32px 24px 0' : '0 24px', marginBottom: 22 }}>
+        <div style={{ display: 'flex', width: '100%', background: '#1c1c1e', borderRadius: 10, padding: 3, gap: 3 }}>
+          {([['bestallning', 'Beställning'], ['kapacitet', 'Kapacitet'], ['utfall', 'Utfall']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setFlik(id)} style={{ flex: 1, minHeight: 38, fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer', borderRadius: 8, border: 'none', background: flik === id ? 'rgba(255,255,255,0.1)' : 'transparent', color: flik === id ? text : muted, transition: 'background 0.15s, color 0.15s' }}>{label}</button>
+          ))}
+        </div>
+      </div>
 
       {loading && (
         <div style={{ textAlign: 'center', padding: 40, color: muted }}>Laddar...</div>
@@ -548,7 +560,7 @@ export default function HelikopterV2Page() {
 
       {!loading && (
         <div style={{ padding: '0 24px 120px' }}>
-          {harProduktion ? (
+          {flik === 'bestallning' && (harProduktion ? (
           <>
           {/* Hero-procenten borttagen — den mätte skotat/beställt medan spåren visar skördat+skotat
               per typ (dubbelt budskap, och missvisande röd när skördat är över mål men skotat släpar).
@@ -727,10 +739,10 @@ export default function HelikopterV2Page() {
                 ))}
               </div>
             </>
-          )}
+          ))}
 
-          {/* === KAPACITET (framåt): hinner vi + finns luft — lägg TILL, rör inget ovan === */}
-          {!manadAvslutad && (
+          {/* === KAPACITET-fliken: hinner maskinerna med månadens objekt (RÄKNAD kapacitet, dagar × 8) === */}
+          {flik === 'kapacitet' && !manadAvslutad && (
             <div style={{ ...card, marginTop: 20, padding: '4px 18px' }}>
               {/* Rubrik: Beläggning <månad> + dagar kvar */}
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '16px 0 10px' }}>
@@ -810,6 +822,19 @@ export default function HelikopterV2Page() {
               <div style={{ borderTop: `1px solid ${divider}`, padding: '12px 0 16px', fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
                 Räknat på 8 h dagtid. Övertid och extramaskin är er buffert — inte inräknade.
               </div>
+            </div>
+          )}
+
+          {/* Kapacitet-fliken när månaden är avslutad — ingen framåtberäkning */}
+          {flik === 'kapacitet' && manadAvslutad && (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: muted, fontSize: 13 }}>Månaden är avslutad — ingen kapacitetsberäkning.</div>
+          )}
+
+          {/* === UTFALL-fliken — placeholder (byggs i STEG 3). Löpande lista, ej månadsbunden. === */}
+          {flik === 'utfall' && (
+            <div style={{ textAlign: 'center', padding: '48px 8px', color: muted, fontSize: 14, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: text, marginBottom: 8 }}>Utfall</div>
+              Löpande lista över avslutade objekt — prognos mot faktiskt utfall per maskintyp.<br />Byggs i STEG 3.
             </div>
           )}
         </div>
