@@ -51,9 +51,10 @@ type SkotareData = {
   terr:         number   // terrain_sek summerat (G15h-tid)
   avbr:         number   // fakt_avbrott exkl. flytt (= avbrottsvyns "Stopp")
   flytt:        number   // fakt_avbrott Trailer transportation (= avbrottsvyns flyttkort)
-  // Tomgång: MOTOR-mätning som överlappar väggklocke-hinkarna — eget nyckeltal,
-  // ALDRIG segment i tidsfördelningen (dubbelräknas annars).
-  tomgangSek:   number
+  // Korta stopp: rå kort_stopp_sek (StanForD ShortDownTime). Skotarna emitterar
+  // ingen sådan post → 0. Villkoret för "rapporteras inte" avläses ur DATAN
+  // (kortStoppSek === 0), inte ur maskintypen — Rottne rapporterar det.
+  kortStoppSek: number
   engineSek:    number
 }
 
@@ -92,7 +93,7 @@ async function fetchSkotareData(
   // Hämta fakt_lass, fakt_tid och fakt_avbrott SEPARAT — aldrig i samma query
   const [lassRows, tidRows, avbrottRows] = await Promise.all([
     fetchAll('fakt_lass', 'datum, volym_m3sub, korstracka_m', ids, start, end),
-    fetchAll('fakt_tid',  'processing_sek, terrain_sek, tomgang_sek, engine_time_sek', ids, start, end),
+    fetchAll('fakt_tid',  'processing_sek, terrain_sek, kort_stopp_sek, engine_time_sek', ids, start, end),
     fetchAll('fakt_avbrott', 'kategori_kod, langd_sek', ids, start, end),
   ])
 
@@ -115,12 +116,12 @@ async function fetchSkotareData(
   const lass = lassRows.length
 
   // ── fakt_tid → G15h + tomgång (summeras fristående, aldrig join mot lass) ──
-  let proc = 0, terr = 0, tomgangSek = 0, engineSek = 0
+  let proc = 0, terr = 0, kortStoppSek = 0, engineSek = 0
   for (const r of tidRows) {
-    proc       += r.processing_sek  || 0
-    terr       += r.terrain_sek     || 0
-    tomgangSek += r.tomgang_sek     || 0
-    engineSek  += r.engine_time_sek || 0
+    proc         += r.processing_sek  || 0
+    terr         += r.terrain_sek     || 0
+    kortStoppSek += r.kort_stopp_sek  || 0
+    engineSek    += r.engine_time_sek || 0
   }
   const g15h = (proc + terr) / 3600
 
@@ -155,7 +156,7 @@ async function fetchSkotareData(
     terr,
     avbr,
     flytt,
-    tomgangSek,
+    kortStoppSek,
     engineSek,
   }
 }
@@ -422,15 +423,24 @@ function SkotareKpiList({
     label: string; val: number | null; prevVal: number | null
     unit: string; dec: number; lowerIsBetter?: boolean; display?: string; muted?: boolean
   }
+  // Korta stopp: mätt (rå kort_stopp_sek, andel av motortid) OM maskinen
+  // rapporterar det — annars "rapporteras inte". Villkoret avläses ur datan
+  // (kort_stopp === 0), inte ur maskintypen. Skotarna saknar signalen; skulle
+  // en skotare börja emittera ShortDownTime visas den automatiskt.
+  const kortSaknas = !!data && data.engineSek > 0 && data.kortStoppSek === 0
+  const kortAndel = (d: SkotareData | null) =>
+    d && d.engineSek > 0 && d.kortStoppSek > 0 ? (d.kortStoppSek / d.engineSek) * 100 : null
+  const kortDisplay = kortSaknas
+    ? 'rapporteras inte'
+    : (data && data.kortStoppSek > 0
+        ? `${fmtSv(data.kortStoppSek / 3600, 0)}h · ${fmtSv((data.kortStoppSek / data.engineSek) * 100, 1)}%`
+        : undefined)
   const rows: Row[] = [
     { label: 'Lass',         val: data?.lass          ?? null, prevVal: prev?.lass          ?? null, unit: 'st',      dec: 0 },
     { label: 'Snittlass',    val: data?.snittLass      ?? null, prevVal: prev?.snittLass      ?? null, unit: 'm³/lass', dec: 1 },
     { label: 'Snittsträcka', val: data?.snittSträcka   ?? null, prevVal: prev?.snittSträcka   ?? null, unit: 'm',       dec: 0 },
     { label: 'Lass/G15h',    val: data?.lassPerG15h    ?? null, prevVal: prev?.lassPerG15h    ?? null, unit: 'st/G15h', dec: 1 },
-    // Korta stopp finns inte för skotaren: StanForD emitterar ingen ShortDownTime
-    // och Opti4G har ingen G0-/tomgångsrad. En härledd tomgång (~0,5 %) vore en
-    // falsk siffra — visa ärligt att måttet inte rapporteras.
-    { label: 'Korta stopp',  val: null,                         prevVal: null,                         unit: '',        dec: 0, display: 'rapporteras inte', muted: true },
+    { label: 'Korta stopp',  val: kortAndel(data),              prevVal: kortAndel(prev),              unit: '%',       dec: 1, lowerIsBetter: true, display: kortDisplay, muted: kortSaknas },
   ]
 
   return (
