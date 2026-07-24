@@ -82,7 +82,7 @@ interface ObjektRad {
 }
 
 interface Medarb { id: string; namn: string; hem_lat: number | null; hem_lng: number | null }
-interface Pos { lat: number; lng: number; accuracy: number }
+interface Pos { lat: number; lng: number; accuracy: number; tid: number }
 interface Destination { lat: number; lng: number; kalla: KoordKalla }
 
 interface Flyttdag {
@@ -135,20 +135,45 @@ function maskinNamn(m: Maskin): string {
   return m.visningsnamn || m.modell || m.maskin_id
 }
 
-/** En GPS-fix som promise. Avvisar efter 15 s eller vid nekad behörighet. */
-function getGps(): Promise<Pos> {
+/** En GPS-fix som promise. `farsk` tvingar en NY mätning (maximumAge:0) — för
+ *  punkter som styr pengar får en cachad position aldrig accepteras. Avvisar
+ *  vid nekad behörighet eller timeout. */
+function getGps(farsk = false): Promise<Pos> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
       reject(new Error('GPS stöds inte i den här webbläsaren'))
       return
     }
     navigator.geolocation.getCurrentPosition(
-      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, tid: p.timestamp }),
       e => reject(new Error(e.code === 1 ? 'Platsåtkomst nekad — tillåt i webbläsarens inställningar' : e.message)),
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 },
+      { enableHighAccuracy: true, maximumAge: farsk ? 0 : 15000, timeout: farsk ? 25000 : 15000 },
     )
   })
 }
+
+/** Hur gammal en "färsk" fix får vara. maximumAge:0 ska ge en ny mätning, men
+ *  iOS-PWA ignorerar det ibland och lämnar en gammal cachad punkt (exakt det
+ *  som gav tillkörning 0 / fel fakturerbar 2026-07-24). Därför verifieras
+ *  tidsstämpeln, och en gammal fix avvisas efter ett nytt försök. */
+const FARSK_MAX_ALDER_MS = 15000
+
+/** Färsk fix för pengapunkter (Hämtat/Lämnat/dagstart). Kastar hellre ett
+ *  ärligt fel än att returnera en position från 40 minuter sedan. */
+async function getFarskGps(): Promise<Pos> {
+  let p = await getGps(true)
+  if (Date.now() - p.tid > FARSK_MAX_ALDER_MS) {
+    p = await getGps(true)  // en till chans att tvinga ett nytt sampel
+    if (Date.now() - p.tid > FARSK_MAX_ALDER_MS) {
+      throw new Error('GPS gav en gammal cachad position — gå ut i det fria och tryck igen')
+    }
+  }
+  return p
+}
+
+/** Hur långt förarens GPS-punkt får ligga från maskinens förväntade plats
+ *  innan appen frågar (blockerar aldrig — föraren beslutar). */
+const RIMLIG_AVSTAND_KM = 2
 
 /** Körsträcka (och ev. ORS-restid) via /api/routing (cache→ORS→haversine×1.4).
  *  minutes är alltid null när restiden inte kunde fås — aldrig en gissning. */
@@ -280,7 +305,7 @@ export default function MaskinflyttClient() {
   const [startPos, setStartPos] = useState<Pos | null>(null)   // GPS vid "Starta körning"
   const [startPosFel, setStartPosFel] = useState<string | null>(null)
   const startPosLoppet = useRef<Promise<Pos | null> | null>(null)
-  const [aPos, setAPos] = useState<Pos | null>(null)           // A: hämtplatsen
+  const [aPos, setAPos] = useState<{ lat: number; lng: number } | null>(null)  // A: hämtplatsen
   const [franObjekt, setFranObjekt] = useState<ObjektRad | null>(null)
   const [valtObjekt, setValtObjekt] = useState<ObjektRad | null>(null)
   const [dest, setDest] = useState<Destination | null>(null)   // B (preliminär tills lämnad)
@@ -296,6 +321,13 @@ export default function MaskinflyttClient() {
   const [gpsPos, setGpsPos] = useState<Pos | null>(null)
   const [gpsFel, setGpsFel] = useState<string | null>(null)
   const [gpsHamtar, setGpsHamtar] = useState(false)
+
+  // Rimlighetsvakt: GPS-punkten ligger långt från maskinens förväntade plats.
+  // Blockerar aldrig — föraren väljer mellan sin GPS och den kända platsen.
+  const [posVarning, setPosVarning] = useState<{
+    steg: 'hamta' | 'lamnat'; namn: string; avstandKm: number
+    gps: { lat: number; lng: number }; forvantad: { lat: number; lng: number }
+  } | null>(null)
 
   // Objektlistor (delas av platsväljaren och transport-steget)
   const [objektLista, setObjektLista] = useState<ObjektRad[] | null>(null)
@@ -448,12 +480,13 @@ export default function MaskinflyttClient() {
     if ((steg === 'transport' || andraOppen) && objektLista === null) laddaObjekt()
   }, [steg, andraOppen, objektLista, laddaObjekt])
 
-  // ── GPS-fix när Hämta-steget öppnas ──
+  // ── Färsk GPS-fix när Hämta-steget öppnas (styr pengar → aldrig cachad) ──
   const hamtaGps = useCallback(() => {
     setGpsHamtar(true); setGpsFel(null)
-    getGps()
+    getFarskGps()
       .then(p => { setGpsPos(p); setGpsFel(null) })
-      .catch(e => setGpsFel(e.message))
+      // Rensa ev. gammal punkt vid fel — knappen ska aldrig kunna spara en stale
+      .catch(e => { setGpsPos(null); setGpsFel(e.message) })
       .finally(() => setGpsHamtar(false))
   }, [])
 
@@ -497,7 +530,8 @@ export default function MaskinflyttClient() {
    *  hunnit landa när föraren trycker "Starta körning". */
   function startaGpsLoppet() {
     setStartPos(null); setStartPosFel(null)
-    startPosLoppet.current = getGps()
+    // Färsk fix även här — dagstarten styr tillkörningen
+    startPosLoppet.current = getFarskGps()
       .then(p => { setStartPos(p); return p })
       .catch(e => { setStartPosFel(e?.message || 'Platsen kunde inte hämtas'); return null })
   }
@@ -583,15 +617,36 @@ export default function MaskinflyttClient() {
     }))
   }
 
-  // ── STEG 2: "Hämtat" → skapa flyttraden (GPS tar A) ──
-  async function hamtaHar() {
+  // ── STEG 2: "Hämtat" — rimlighetsvakt innan spar ──
+  function hamtatTryck() {
     if ((!maskin && !externMaskin) || !gpsPos || sparar) return
+    // Står föraren verkligen vid maskinen? Fråga om GPS-punkten ligger långt
+    // från maskinens kända plats — men blockera aldrig, föraren beslutar.
+    if (hamtplats?.koordinat) {
+      const avstand = haversine(gpsPos.lat, gpsPos.lng, hamtplats.koordinat.lat, hamtplats.koordinat.lng)
+      if (avstand > RIMLIG_AVSTAND_KM) {
+        setPosVarning({
+          steg: 'hamta', namn: hamtplats.namn, avstandKm: Math.round(avstand),
+          gps: { lat: gpsPos.lat, lng: gpsPos.lng }, forvantad: hamtplats.koordinat,
+        })
+        return
+      }
+    }
+    hamtaHar({ lat: gpsPos.lat, lng: gpsPos.lng })
+  }
+
+  // ── STEG 2: skapa flyttraden. `punkt` = förarens valda hämtpunkt — färsk GPS,
+  //    eller (via rimlighetsvakten) maskinens kända plats. Alla A-beroende
+  //    beräkningar (fran, tomkörning, tillkörning) använder SAMMA punkt. ──
+  async function hamtaHar(punkt: { lat: number; lng: number }) {
+    if ((!maskin && !externMaskin) || sparar) return
+    setPosVarning(null)
     setSparar(true); setSparFel(null)
     const d = await ensureDag()
     if (!d) { setSparar(false); return }
 
     // Tomkörning: förra flyttens slutpunkt → den här maskinen. Null för dagens första.
-    const mellankorning = forraB ? (await korRutt(forraB, gpsPos)).km : null
+    const mellankorning = forraB ? (await korRutt(forraB, punkt)).km : null
 
     const nu = new Date().toISOString()
     const { data, error } = await supabase.from('maskin_flytt').insert({
@@ -601,8 +656,8 @@ export default function MaskinflyttClient() {
       fran_objekt_id: franObjekt?.id ?? hamtplats?.objektId ?? null,
       fran_plats_id: franObjekt ? null : (franPlats?.id ?? hamtplats?.platsId ?? null),
       mellankorning_km: mellankorning,
-      fran_lat: gpsPos.lat,
-      fran_lng: gpsPos.lng,
+      fran_lat: punkt.lat,
+      fran_lng: punkt.lng,
       starttid: flodesStart ?? nu,
       hamtad_tid: nu,
       forare: medarb?.namn ?? null,
@@ -614,9 +669,11 @@ export default function MaskinflyttClient() {
       return
     }
 
-    // Dagens tillkörning: start → dagens första maskin (en gång per dag)
-    if (!forraB && d.tillkorning_km == null && d.start_lat != null && d.start_lng != null) {
-      const t = await korRutt({ lat: d.start_lat, lng: d.start_lng }, gpsPos)
+    // Dagens tillkörning: start → dagens första maskin. Villkoret tar bara den
+    // FÖRSTA flytten (mellankörning ägs av senare flyttar), inte "är km null" —
+    // en felaktig 0:a från ett tidigare försök får inte blockera omräkningen.
+    if (!forraB && d.start_lat != null && d.start_lng != null) {
+      const t = await korRutt({ lat: d.start_lat, lng: d.start_lng }, punkt)
       const { data: du } = await supabase.from('flyttdag')
         .update({ tillkorning_km: t.km }).eq('id', d.id).select('id')
       if (du?.length) setDag({ ...d, tillkorning_km: t.km })
@@ -624,7 +681,7 @@ export default function MaskinflyttClient() {
 
     setSparar(false)
     setFlyttId(data[0].id)
-    setAPos(gpsPos)
+    setAPos(punkt)
     setHamtadTid(nu)
     setSok('')
     setSteg('transport')
@@ -674,17 +731,35 @@ export default function MaskinflyttClient() {
     setSteg('bekrafta')
   }
 
-  // ── STEG 4: "Lämnat" ──
-  async function lamnadHar() {
+  // ── STEG 4: "Lämnat" — färsk fix + rimlighetsvakt mot vald destination ──
+  async function lamnatTryck() {
     if (!flyttId || (!maskin && !externMaskin) || !aPos || !dest || sparar) return
     if (flyttTyp === 'kunduppdrag' && !kund.trim()) { setSparFel('Kunduppdrag kräver kund — fyll i kundnamnet.'); return }
     setSparar(true); setSparFel(null)
+    let gps: Pos | null = null
+    try { gps = await getFarskGps() } catch { /* GPS kan saknas — faller tillbaka på vald destination */ }
+    // Bra fix långt från vald destination → fråga innan flytt_km (=pengar) sätts
+    if (gps && gps.accuracy <= 150) {
+      const avstand = haversine(gps.lat, gps.lng, dest.lat, dest.lng)
+      if (avstand > RIMLIG_AVSTAND_KM) {
+        setSparar(false)
+        setPosVarning({
+          steg: 'lamnat', namn: destNamn, avstandKm: Math.round(avstand),
+          gps: { lat: gps.lat, lng: gps.lng }, forvantad: { lat: dest.lat, lng: dest.lng },
+        })
+        return
+      }
+      lamnadHar({ lat: gps.lat, lng: gps.lng, kalla: 'gps' })
+    } else {
+      lamnadHar(dest)  // ingen brukbar fix → behåll vald koordinat (som förr)
+    }
+  }
 
-    let b: Destination = dest
-    try {
-      const p = await getGps()
-      if (p.accuracy <= 150) b = { lat: p.lat, lng: p.lng, kalla: 'gps' }
-    } catch { /* behåll vald koordinat */ }
+  // ── Avsluta flytten mot slutpunkten `b` (färsk GPS eller vald destination). ──
+  async function lamnadHar(b: Destination) {
+    if (!flyttId || (!maskin && !externMaskin) || !aPos) return
+    setPosVarning(null)
+    setSparar(true); setSparFel(null)
 
     const [flytt, vader] = await Promise.all([
       korRutt(aPos, b),
@@ -761,12 +836,26 @@ export default function MaskinflyttClient() {
     setSteg('klart')
   }
 
+  /** Förarens val i rimlighetsvarningen: sin egen GPS eller maskinens/
+   *  destinationens kända plats. Går vidare till samma spar-väg med den
+   *  valda punkten. */
+  function valjPosVarning(val: 'gps' | 'forvantad') {
+    const v = posVarning
+    if (!v) return
+    setPosVarning(null)
+    if (v.steg === 'hamta') {
+      hamtaHar(val === 'gps' ? v.gps : v.forvantad)
+    } else if (dest) {
+      lamnadHar(val === 'gps' ? { lat: v.gps.lat, lng: v.gps.lng, kalla: 'gps' } : dest)
+    }
+  }
+
   // ── "Nästa flytt" — dagen fortsätter ──
   function nastaFlytt() {
     setMaskin(null); setExternMaskin(null); setExternOppen(false); setExternNamn('')
     setFlyttId(null); setAPos(null); setFranObjekt(null); setFranPlats(null)
     setValtObjekt(null); setTillPlats(null); setDest(null); setGpsPos(null); setGpsFel(null)
-    setResultat(null); setSparFel(null); setSok('')
+    setResultat(null); setSparFel(null); setSok(''); setPosVarning(null)
     setForslag(null); setAndradPlats(null); setAndraOppen(false)
     setFlyttTyp('produktion'); setKund(''); setTypOppen(false); setNyPlatsFor(null)
     setFlodesStart(null); setHamtadTid(null)
@@ -861,7 +950,7 @@ export default function MaskinflyttClient() {
     if (!medarb || hembasSparar) return
     setHembasSparar(true); setHembasFel(null)
     try {
-      const p = await getGps()
+      const p = await getFarskGps()
       if (!rimligGpsPunkt(p.lat, p.lng)) throw new Error('GPS-punkten ser trasig ut — försök igen utomhus')
       const { data, error } = await supabase.from('medarbetare')
         .update({ hem_lat: p.lat, hem_lng: p.lng })
@@ -887,7 +976,7 @@ export default function MaskinflyttClient() {
         .then(({ data }) => { if (data) setTillPlats(data as Flyttplats) })
     }
     setFlyttId(f.id)
-    setAPos({ lat: f.fran_lat, lng: f.fran_lng, accuracy: 0 })
+    setAPos({ lat: f.fran_lat, lng: f.fran_lng })
     setFlodesStart(f.starttid)
     setHamtadTid(f.hamtad_tid)
     setSparFel(null)
@@ -1321,7 +1410,7 @@ export default function MaskinflyttClient() {
                   color: gpsPos ? C.green : gpsFel ? C.red : C.t3,
                 }}>my_location</span>
                 <div style={{ flex: 1, fontSize: 14 }}>
-                  {gpsHamtar && <span style={{ color: C.t3 }}>Hämtar GPS-position …</span>}
+                  {gpsHamtar && <span style={{ color: C.t3 }}>Hämtar färsk GPS-position …</span>}
                   {!gpsHamtar && gpsPos && (
                     <span>Position hittad <span style={{ color: C.t3 }}>(±{Math.round(gpsPos.accuracy)} m)</span></span>
                   )}
@@ -1331,9 +1420,25 @@ export default function MaskinflyttClient() {
                   <button onClick={hamtaGps} style={lankStil}>{gpsPos ? 'Uppdatera' : 'Försök igen'}</button>
                 )}
               </div>
+              {/* Visa var appen tror att föraren är — INNAN något sparas. En förare
+                  som ser "≈ 21 km från Brokamåla" upptäcker en gammal fix direkt. */}
+              {!gpsHamtar && gpsPos && (
+                <div style={{ fontSize: 12, marginTop: 10, paddingLeft: 32 }}>
+                  <span style={{ color: C.t3 }}>{gpsPos.lat.toFixed(5)}, {gpsPos.lng.toFixed(5)}</span>
+                  {hamtplats?.koordinat && (() => {
+                    const avst = haversine(gpsPos.lat, gpsPos.lng, hamtplats.koordinat.lat, hamtplats.koordinat.lng)
+                    const langt = avst > RIMLIG_AVSTAND_KM
+                    return (
+                      <span style={{ color: langt ? C.orange : C.t3, fontWeight: langt ? 700 : 400 }}>
+                        {' · '}{avst < 1 ? '< 1' : `≈ ${Math.round(avst)}`} km från {hamtplats.namn}
+                      </span>
+                    )
+                  })()}
+                </div>
+              )}
             </div>
 
-            <button onClick={hamtaHar} disabled={!gpsPos || sparar || !!tabellSaknas} style={{
+            <button onClick={hamtatTryck} disabled={!gpsPos || sparar || !!tabellSaknas} style={{
               ...storKnapp(C.green, '#000'),
               opacity: !gpsPos || sparar || tabellSaknas ? 0.4 : 1,
             }}>
@@ -1493,7 +1598,7 @@ export default function MaskinflyttClient() {
               </a>
             </div>
 
-            <button onClick={lamnadHar} disabled={sparar || (flyttTyp === 'kunduppdrag' && !kund.trim())} style={{
+            <button onClick={lamnatTryck} disabled={sparar || (flyttTyp === 'kunduppdrag' && !kund.trim())} style={{
               ...storKnapp(C.green, '#000'),
               opacity: sparar || (flyttTyp === 'kunduppdrag' && !kund.trim()) ? 0.4 : 1,
             }}>
@@ -1676,6 +1781,35 @@ export default function MaskinflyttClient() {
           </>
         )}
       </main>
+
+      {/* Rimlighetsvarning: GPS långt från förväntad plats. Blockerar aldrig —
+          föraren väljer sin GPS eller den kända platsen. */}
+      {posVarning && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1700, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        }}>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: 20, maxWidth: 380, width: '100%', fontFamily: ff }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 24, color: C.orange }}>warning</span>
+              <div style={{ fontSize: 17, fontWeight: 800 }}>Är du på rätt plats?</div>
+            </div>
+            <div style={{ fontSize: 14, color: C.t2, lineHeight: 1.5, marginBottom: 18 }}>
+              Din GPS-punkt ligger <b style={{ color: C.t1 }}>{posVarning.avstandKm} km</b> från {posVarning.namn}.
+              {posVarning.steg === 'hamta' ? ' Står du vid maskinen?' : ' Är maskinen lämnad här?'}
+            </div>
+            <button onClick={() => valjPosVarning('gps')} style={{
+              ...storKnapp(C.green, '#000'), fontSize: 15, padding: '15px 0', marginBottom: 10,
+            }}>Använd min GPS-punkt</button>
+            <button onClick={() => valjPosVarning('forvantad')} style={{
+              ...storKnapp(C.card, C.t1), border: `1px solid ${C.border}`, fontSize: 15, padding: '15px 0',
+            }}>Använd {posVarning.namn}s plats</button>
+            <button onClick={() => setPosVarning(null)} style={{ ...lankStil, display: 'block', margin: '14px auto 0' }}>
+              Avbryt
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* "Ändra" på STEG 1 — samma sökbara lista som destinationsvalet */}
       {andraOppen && (
