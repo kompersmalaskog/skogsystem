@@ -43,6 +43,19 @@ interface DimMaskin {
   aktiv_till: string | null    // satt = såld/utfasad
 }
 
+interface UtfallVyRad {
+  objekt_id: string
+  roll: 'skordare' | 'skotare'
+  maskin_id: string | null
+  dagar: number | null
+  vol_m3sub: number | null
+  stammar: number | null
+  timmar: number | null      // attribuerad g0_h
+  takt: number | null        // vol / timmar
+  medelstam: number | null   // skördare
+  skotvag_m: number | null   // skotare
+}
+
 // ============================================================
 // Constants & Design tokens
 // ============================================================
@@ -102,8 +115,9 @@ function svenskaRodaDagar(year: number): Set<string> {
   for (let o = 0; o <= 6; o++) { const d = new Date(year, 9, 31 + o); if (d.getDay() === 6) { add(d); break } }        // alla helgons dag (lör 31 okt–6 nov)
   return s
 }
-// Tillgängliga arbetsdagar i månaden: vardag (mån–fre), ej röd dag, och (pågående månad) från idag.
-function arbetsdagarIManad(ar: number, manad: number, idagISO: string): string[] {
+// Arbetsdagar i HELA månaden: vardag (mån–fre), ej röd dag. Kapaciteten räknas på hela månaden,
+// INTE "från idag" — månadens totala golv (matchar facit: juli 2026 = 23 vardagar).
+function arbetsdagarIManad(ar: number, manad: number): string[] {
   const roda = svenskaRodaDagar(ar)
   const dagar: string[] = []
   const antalDagar = new Date(ar, manad, 0).getDate()
@@ -113,7 +127,6 @@ function arbetsdagarIManad(ar: number, manad: number, idagISO: string): string[]
     if (dow === 0 || dow === 6) continue // helg
     const iso = isoDatum(d)
     if (roda.has(iso)) continue          // röd dag
-    if (iso < idagISO) continue          // redan passerad
     dagar.push(iso)
   }
   return dagar
@@ -175,6 +188,39 @@ function arbetsdagarKvar(ar: number, manad: number): number {
   return count
 }
 
+// Skogstyp-intervall för Utfall-kalibreringen (takt-kurvornas grupper).
+const MEDELSTAM_INTERVALL = [
+  { min: 0, max: 0.40, label: '< 0,40' },
+  { min: 0.40, max: 0.60, label: '0,40–0,60' },
+  { min: 0.60, max: 0.80, label: '0,60–0,80' },
+  { min: 0.80, max: Infinity, label: '> 0,80' },
+]
+const SKOTVAG_INTERVALL = [
+  { min: 0, max: 500, label: '< 500 m' },
+  { min: 500, max: 900, label: '500–900 m' },
+  { min: 900, max: 1400, label: '900–1400 m' },
+  { min: 1400, max: Infinity, label: '> 1400 m' },
+]
+function intervallFor(v: number | null, intervall: { min: number; max: number; label: string }[]): string | null {
+  if (v == null) return null
+  const i = intervall.find(x => v >= x.min && v < x.max)
+  return i ? i.label : null
+}
+
+// Utfall-gruppering: Slutavverkning · Gallring · GROT. GROT = huvudtyp null ELLER namn med GROT/Ris
+// (fångar felklassade "GROT ..."-objekt som ligger under Slutavverkning). Ordgräns undviker substräng-träff.
+function utfallTyp(huvudtyp: string | null, namn: string | null): 'Slutavverkning' | 'Gallring' | 'GROT' {
+  if (/\b(grot|ris)\b/i.test(namn || '')) return 'GROT'
+  if (huvudtyp === 'Slutavverkning') return 'Slutavverkning'
+  if (huvudtyp === 'Gallring') return 'Gallring'
+  return 'GROT'
+}
+// VF/Bark (vindfällen) döljs helt — de går ~70 % av normal takt och bär orimliga siffror.
+function arVindfalle(atgard: string | null): boolean {
+  const a = (atgard || '').toLowerCase()
+  return a.includes('vf') || a.includes('vindfäll')
+}
+
 // ============================================================
 // Sheet (för export-menyn)
 // ============================================================
@@ -209,11 +255,16 @@ export default function HelikopterV2Page() {
   }[]>([])
   const [dimMaskiner, setDimMaskiner] = useState<DimMaskin[]>([])
   const [maskinstoppData, setMaskinstoppData] = useState<{ maskin_id: string; fran_datum: string; till_datum: string; orsak: string }[]>([])
+  const [avslutByVo, setAvslutByVo] = useState<Record<string, { skord: boolean; skot: boolean }>>({}) // vo_nummer → avslutstatus per roll (ur dim_objekt)
+  const [utfallVy, setUtfallVy] = useState<UtfallVyRad[]>([]) // per (objekt_id, roll) ur vy_objekt_utfall
+  const [avslutObjekt, setAvslutObjekt] = useState<{ objekt_id: string; object_name: string | null; vo_nummer: string | null; skordning_avslutad: string | null; skotning_avslutad: string | null; huvudtyp: string | null; atgard: string | null }[]>([])
+  const [visaAldre, setVisaAldre] = useState<Record<string, boolean>>({}) // per Utfall-typ: expandera äldre
   const [loading, setLoading] = useState(true)
   const [ar, setAr] = useState(() => new Date().getFullYear())
   const [manad, setManad] = useState(() => new Date().getMonth() + 1)
   const [exportOpen, setExportOpen] = useState(false)
   const [oppetSpar, setOppetSpar] = useState<'Slutavverkning' | 'Gallring' | null>(null) // dragspel: ett spår-djup i taget
+  const [flik, setFlik] = useState<'bestallning' | 'kapacitet' | 'utfall'>('bestallning') // tre flikar: Beställning | Kapacitet | Utfall
   const [pullDistance, setPullDistance] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -222,13 +273,15 @@ export default function HelikopterV2Page() {
   const load = useCallback(async () => {
     try {
       // Läs via inloggad session-klient (inte hårdkodad anon-nyckel).
-      const [hv, best, dimo, obj, dimm, mstopp] = await Promise.all([
+      const [hv, best, dimo, obj, dimm, stopp, stoppMaskin, utfall] = await Promise.all([
         supabase.from('helikopter_vy').select('*'),
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
-        supabase.from('dim_objekt').select('objekt_id,maskin_id'),
+        supabase.from('dim_objekt').select('objekt_id,object_name,maskin_id,vo_nummer,huvudtyp,atgard,skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto'),
         supabase.from('objekt').select('id,namn,vo_nummer,typ,ar,manad,status,volym,manuell_prognos,skordare_maskin_id,skotare_maskin_id,skordare_utforare,skotare_utforare'),
         supabase.from('dim_maskin').select('maskin_id,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'),
-        supabase.from('maskinstopp').select('maskin_id,fran_datum,till_datum,orsak'),
+        supabase.from('stopp').select('id,fran_datum,till_datum,orsak'),
+        supabase.from('stopp_maskin').select('stopp_id,maskin_id'),
+        supabase.from('vy_objekt_utfall').select('*'),
       ])
       // Härled huvudtyp där den saknas (maskin-regel + vo-match) — fas 1, ingen DB-ändring.
       const maskinById = new Map<string, string>((dimo.data || []).map((d: any) => [d.objekt_id, d.maskin_id]))
@@ -246,7 +299,28 @@ export default function HelikopterV2Page() {
       if (best.data) setBestallningar(best.data)
       setObjektAlla(obj.data || [])
       if (dimm.data) setDimMaskiner(dimm.data as DimMaskin[])
-      setMaskinstoppData(mstopp.data || [])
+      // Stopp: tabellen `maskinstopp` finns inte — joina stopp (datum/orsak) med stopp_maskin (vilka maskiner).
+      const stoppById = new Map<string, any>((stopp.data || []).map((s: any) => [s.id, s]))
+      setMaskinstoppData((stoppMaskin.data || []).flatMap((sm: any) => {
+        const s = stoppById.get(sm.stopp_id)
+        return s ? [{ maskin_id: sm.maskin_id, fran_datum: s.fran_datum, till_datum: s.till_datum, orsak: s.orsak || 'stopp' }] : []
+      }))
+      // Avslut per vo_nummer ur dim_objekt (namnen skiljer objekt/dim_objekt → matcha på vo). Avslutad = datum satt ELLER _auto.
+      const avslut: Record<string, { skord: boolean; skot: boolean }> = {}
+      for (const d of (dimo.data || []) as any[]) {
+        const vo = String(d.vo_nummer || '').trim()
+        if (!vo) continue
+        avslut[vo] = {
+          skord: d.skordning_avslutad != null || d.skordning_avslutad_auto === true,
+          skot: d.skotning_avslutad != null || d.skotning_avslutad_auto === true,
+        }
+      }
+      setAvslutByVo(avslut)
+      // Utfall (ej månadsbunden): vy_objekt_utfall + avslutade objekt (skörd/skot-datum satt) med namn.
+      setUtfallVy((utfall.data || []) as UtfallVyRad[])
+      setAvslutObjekt(((dimo.data || []) as any[])
+        .filter(d => d.skordning_avslutad != null || d.skotning_avslutad != null)
+        .map(d => ({ objekt_id: d.objekt_id, object_name: d.object_name, vo_nummer: d.vo_nummer, skordning_avslutad: d.skordning_avslutad, skotning_avslutad: d.skotning_avslutad, huvudtyp: d.huvudtyp, atgard: d.atgard })))
     } catch { /* use empty */ }
   }, [ar, manad])
 
@@ -440,8 +514,8 @@ export default function HelikopterV2Page() {
     const aktiv = (m: DimMaskin) => !m.aktiv_till || m.aktiv_till >= idag
     const kapMaskiner = dimMaskiner.filter(m => (m.maskin_typ === 'Harvester' || m.maskin_typ === 'Forwarder') && aktiv(m) && !m.extramaskin)
     const extraMaskiner = dimMaskiner.filter(m => m.extramaskin && aktiv(m))
-    // Arbetsdagar (vardag, ej röd, ej passerad) — golv 8 h/dag
-    const availableDays = arbetsdagarIManad(ar, manad, idag)
+    // Arbetsdagar — HELA månadens vardagar (ej "från idag"), golv 8 h/dag
+    const availableDays = arbetsdagarIManad(ar, manad)
     const tillgangligaDagar = availableDays.length
     const totalKapacitet = tillgangligaDagar * TIMMAR_PER_DAG
     // Stoppdagar per maskin = availableDays som täcks av maskinens maskinstopp
@@ -456,14 +530,18 @@ export default function HelikopterV2Page() {
       if (s) { s.dagar += traffar; if (!s.orsaker.includes(st.orsak)) s.orsaker.push(st.orsak) }
     }
     // Timmar + hål + objektlista per maskin. egen/extern + otilldelad samlas per roll (utanför maskinerna).
-    type ObjRad = { namn: string; timmar: number | null }
+    type ObjRad = { namn: string; timmar: number | null; typ: string | null }
     const agg: Record<string, { timmar: number; antal: number; hal: number; objekt: ObjRad[] }> = {}
     for (const m of kapMaskiner) agg[m.maskin_id] = { timmar: 0, antal: 0, hal: 0, objekt: [] }
     const offMaskin: Record<'skordare' | 'skotare', { namn: string; kind: 'egen' | 'extern' | 'otilldelad' }[]> = { skordare: [], skotare: [] }
     for (const o of monthObjekt) {
       const mp = o.manuell_prognos || {}
       const namn = o.namn || o.vo_nummer || 'Objekt'
+      const avslut = o.vo_nummer ? avslutByVo[String(o.vo_nummer).trim()] : undefined
       for (const roll of ['skordare', 'skotare'] as const) {
+        // Avslutad för DEN rollen → belastar inte maskinen (avslut-fält rakt av, ingen volym-härledning).
+        if (roll === 'skordare' && avslut?.skord) continue
+        if (roll === 'skotare' && avslut?.skot) continue
         const utforare = roll === 'skordare' ? o.skordare_utforare : o.skotare_utforare
         const maskinId = roll === 'skordare' ? o.skordare_maskin_id : o.skotare_maskin_id
         if (utforare === 'egen' || utforare === 'extern') {
@@ -475,10 +553,10 @@ export default function HelikopterV2Page() {
           if (tim != null) {
             agg[maskinId].timmar += tim
             agg[maskinId].antal += 1
-            agg[maskinId].objekt.push({ namn, timmar: tim })
+            agg[maskinId].objekt.push({ namn, timmar: tim, typ: o.typ })
           } else {
             agg[maskinId].hal += 1
-            agg[maskinId].objekt.push({ namn, timmar: null }) // hål — saknar tid
+            agg[maskinId].objekt.push({ namn, timmar: null, typ: o.typ }) // hål — saknar tid
           }
         } else {
           // Ingen maskin, ingen utförare — otilldelad. Får inte försvinna tyst.
@@ -501,13 +579,106 @@ export default function HelikopterV2Page() {
     })
     const skordare = rader.filter(r => r.maskin.maskin_typ === 'Harvester').sort((x, y) => x.luft - y.luft)
     const skotare = rader.filter(r => r.maskin.maskin_typ === 'Forwarder').sort((x, y) => x.luft - y.luft)
-    return { skordare, skotare, extraMaskiner, offMaskin, tillgangligaDagar, totalKapacitet, ingaStopp: antalStoppIManad === 0 }
-  }, [objektAlla, dimMaskiner, maskinstoppData, ar, manad])
+    // Förslag: för varje flaskhals (över kapacitet) — vem kan ta över, FILTRERAT på klarar_typ.
+    // Kandidat = samma roll som klarar minst en av flaskhalsens objekt-typer; med luft, eller extramaskin (buffert).
+    const klararTyp = (m: DimMaskin, typ: string | null) => {
+      const k = (m.klarar_typ || '').toLowerCase()
+      return k === 'bada' || (typ != null && k === typ.toLowerCase())
+    }
+    const forslag = rader.filter(r => r.status === 'rod').map(fl => {
+      const typer = Array.from(new Set(fl.objekt.map(o => o.typ).filter((t): t is string => !!t)))
+      const roll = fl.maskin.maskin_typ
+      const medLuft = rader
+        .filter(r => r.maskin.maskin_typ === roll && r.maskin.maskin_id !== fl.maskin.maskin_id && r.luft > 0 && typer.some(t => klararTyp(r.maskin, t)))
+        .map(r => ({ maskin: r.maskin, luftH: r.luft as number | null, buffert: false }))
+      const bufferten = extraMaskiner
+        .filter(m => m.maskin_typ === roll && typer.some(t => klararTyp(m, t)))
+        .map(m => ({ maskin: m, luftH: null as number | null, buffert: true }))
+      return { fran: fl.maskin, overH: -fl.luft, typer, kandidater: [...medLuft, ...bufferten] }
+    })
+    return { skordare, skotare, extraMaskiner, offMaskin, tillgangligaDagar, totalKapacitet, ingaStopp: antalStoppIManad === 0, forslag }
+  }, [objektAlla, dimMaskiner, maskinstoppData, avslutByVo, ar, manad])
+
+  // === UTFALL: avslutade objekt, prognos vs faktiskt utfall per maskintyp (läser vy_objekt_utfall) ===
+  const utfallLista = useMemo(() => {
+    const prognosByVo = new Map<string, { skordare: number | null; skotare: number | null }>()
+    for (const o of objektAlla) {
+      const vo = String(o.vo_nummer || '').trim()
+      if (!vo) continue
+      prognosByVo.set(vo, { skordare: parseTimmar(o.manuell_prognos?.skordare), skotare: parseTimmar(o.manuell_prognos?.skotare) })
+    }
+    const utfallByKey = new Map<string, UtfallVyRad>()
+    for (const u of utfallVy) utfallByKey.set(`${u.objekt_id}|${u.roll}`, u)
+    return avslutObjekt
+      .filter(a => !arVindfalle(a.atgard)) // VF/Bark döljs helt
+      .map(a => {
+        const prog = prognosByVo.get(String(a.vo_nummer || '').trim())
+        const bygg = (roll: 'skordare' | 'skotare', avslutDatum: string | null) => ({
+          roll, avslutDatum, avslutad: avslutDatum != null,
+          prognosH: roll === 'skordare' ? (prog?.skordare ?? null) : (prog?.skotare ?? null),
+          u: utfallByKey.get(`${a.objekt_id}|${roll}`) || null,
+        })
+        // "Aktuellt" styrs av SKÖRDNINGSDATUMET (verkligt arbete), inte skotningens avslutsdatum:
+        // skotningen bulk-stängdes administrativt 2026-07-21 och säger inget om när arbetet skedde.
+        // GROT saknar skördning → faller tillbaka på skotningsdatum (där ÄR skotningen själva arbetet).
+        // FÖRFINING (senare): sista faktiska arbetsdagen ur produktionsdatan — max(datum) i
+        // fakt_produktion/fakt_lass per objekt — vore ännu bättre; kräver en kolumn till i vy_objekt_utfall.
+        const arbetsdatum = a.skordning_avslutad || a.skotning_avslutad || ''
+        return {
+          objekt_id: a.objekt_id,
+          namn: a.object_name || a.vo_nummer || 'Objekt',
+          typ: utfallTyp(a.huvudtyp, a.object_name),
+          arbetsdatum,
+          skord: bygg('skordare', a.skordning_avslutad),
+          skot: bygg('skotare', a.skotning_avslutad),
+        }
+      }).sort((x, y) => y.arbetsdatum.localeCompare(x.arbetsdatum)) // senast arbetat (skördning) först
+  }, [avslutObjekt, objektAlla, utfallVy])
+
+  // Kalibrering: hur prognoserna träffar per skogstyp. avvikelse = medel(utfall_h/prognos_h)−1 i %.
+  const kalibrering = useMemo(() => {
+    const bygg = (roll: 'skordare' | 'skotare', tillhor: (id: string) => boolean, intervall: { min: number; max: number; label: string }[], nyckel: (u: UtfallVyRad) => number | null) => {
+      const grupper = intervall.map(iv => ({ label: iv.label, takter: [] as number[], ratios: [] as number[] }))
+      for (const o of utfallLista) { // ALLA avslutade (VF bortfiltrerat); takt behöver ingen prognos
+        const r = roll === 'skordare' ? o.skord : o.skot
+        if (!r.avslutad || !r.u || r.u.timmar == null || r.u.timmar <= 0 || r.u.takt == null) continue
+        if (!tillhor(r.u.maskin_id || '')) continue // PER MASKIN — man planerar ett objekt på en bestämd maskin
+        const g = grupper.find(x => x.label === intervallFor(nyckel(r.u!), intervall))
+        if (!g) continue
+        g.takter.push(r.u.takt)                                        // uppmätt takt (matar kurvan)
+        if (r.prognosH != null) g.ratios.push(r.u.timmar / r.prognosH)  // prognosträff — bara med prognos
+      }
+      const snitt = (arr: number[]) => arr.reduce((s, x) => s + x, 0) / arr.length
+      return grupper.map(g => ({
+        label: g.label,
+        antal: g.takter.length,
+        // Minst 6 objekt för ett kurv-tal. Ett tunt medel (t.ex. 5 obj) blir ett opålitligt tal som
+        // ändå används i planeringen — och kan ge omöjlig form (takt som sjunker med grövre stam).
+        // Hellre "väntar på data" än fel siffra.
+        takt: g.takter.length >= 6 ? snitt(g.takter) : null,
+        avvikelse: g.ratios.length >= 2 ? Math.round((snitt(g.ratios) - 1) * 100) : null,
+      }))
+    }
+    return [
+      { label: 'Scorpion', enhet: 'medelstam', grupper: bygg('skordare', id => MASKIN_SLUT.has(id), MEDELSTAM_INTERVALL, u => u.medelstam) },
+      { label: 'Rottne', enhet: 'medelstam', grupper: bygg('skordare', id => MASKIN_GALLRING.has(id), MEDELSTAM_INTERVALL, u => u.medelstam) },
+      { label: 'Wisent', enhet: 'skotväg', grupper: bygg('skotare', id => id === 'A030353', SKOTVAG_INTERVALL, u => u.skotvag_m) },
+      { label: 'Elefant', enhet: 'skotväg', grupper: bygg('skotare', id => id === 'A110148', SKOTVAG_INTERVALL, u => u.skotvag_m) },
+    ]
+  }, [utfallLista])
 
   const SPAR = [
     { typ: 'Slutavverkning' as const, Ikon: TreePine, farg: '#eab308', best: slutBest },
     { typ: 'Gallring' as const, Ikon: Trees, farg: '#22c55e', best: gallBest },
   ]
+
+  // Utfall: "aktuellt" = avslutat innevarande + föregående månad (från idag, ej vald månad). Äldre bakom knapp.
+  const utfallGrans = (() => {
+    const now = new Date()
+    const pm = now.getMonth() === 0 ? 12 : now.getMonth()  // föregående månad, 1-indexerad
+    const py = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+    return `${py}-${String(pm).padStart(2, '0')}-01`
+  })()
 
   return (
     <div
@@ -523,7 +694,8 @@ export default function HelikopterV2Page() {
         </div>
       )}
 
-      {/* Header — månadsväljare */}
+      {/* Header — månadsväljare. Gäller Beställning + Kapacitet; Utfall är inte månadsbunden. */}
+      {flik !== 'utfall' && (
       <div style={{ padding: '32px 24px 0' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr 92px', alignItems: 'center', marginBottom: 28 }}>
           <div>
@@ -541,6 +713,16 @@ export default function HelikopterV2Page() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Flikar — under månadsväljaren (Beställning · Kapacitet · Utfall) */}
+      <div style={{ padding: flik === 'utfall' ? '32px 24px 0' : '0 24px', marginBottom: 22 }}>
+        <div style={{ display: 'flex', width: '100%', background: '#1c1c1e', borderRadius: 10, padding: 3, gap: 3 }}>
+          {([['bestallning', 'Beställning'], ['kapacitet', 'Kapacitet'], ['utfall', 'Utfall']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setFlik(id)} style={{ flex: 1, minHeight: 38, fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer', borderRadius: 8, border: 'none', background: flik === id ? 'rgba(255,255,255,0.1)' : 'transparent', color: flik === id ? text : muted, transition: 'background 0.15s, color 0.15s' }}>{label}</button>
+          ))}
+        </div>
+      </div>
 
       {loading && (
         <div style={{ textAlign: 'center', padding: 40, color: muted }}>Laddar...</div>
@@ -548,7 +730,7 @@ export default function HelikopterV2Page() {
 
       {!loading && (
         <div style={{ padding: '0 24px 120px' }}>
-          {harProduktion ? (
+          {flik === 'bestallning' && (harProduktion ? (
           <>
           {/* Hero-procenten borttagen — den mätte skotat/beställt medan spåren visar skördat+skotat
               per typ (dubbelt budskap, och missvisande röd när skördat är över mål men skotat släpar).
@@ -727,15 +909,15 @@ export default function HelikopterV2Page() {
                 ))}
               </div>
             </>
-          )}
+          ))}
 
-          {/* === KAPACITET (framåt): hinner vi + finns luft — lägg TILL, rör inget ovan === */}
-          {!manadAvslutad && (
+          {/* === KAPACITET-fliken: hinner maskinerna med månadens objekt (RÄKNAD kapacitet, dagar × 8) === */}
+          {flik === 'kapacitet' && !manadAvslutad && (
             <div style={{ ...card, marginTop: 20, padding: '4px 18px' }}>
               {/* Rubrik: Beläggning <månad> + dagar kvar */}
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '16px 0 10px' }}>
                 <span style={{ fontSize: 15, fontWeight: 600, color: text }}>Beläggning {MANAD[manad]}</span>
-                <span style={{ fontSize: 13, color: muted, flexShrink: 0 }}>{kapacitet.tillgangligaDagar} dagar kvar · 8 h/dag</span>
+                <span style={{ fontSize: 13, color: muted, flexShrink: 0 }}>{kapacitet.tillgangligaDagar} arbetsdagar · 8 h/dag</span>
               </div>
               {/* Noll stopp inlagda = full kapacitet antas. Visa det tyst — aldrig påstå mer än vi vet. */}
               {kapacitet.ingaStopp && (
@@ -748,7 +930,8 @@ export default function HelikopterV2Page() {
                 <div key={rubrik} style={{ borderTop: `1px solid ${divider}` }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: muted, letterSpacing: 0.5, textTransform: 'uppercase', padding: '12px 0 2px' }}>{rubrik}</div>
                   {maskiner.map(r => {
-                    const farg = r.status === 'gron' ? '#30d158' : r.status === 'rod' ? '#ff453a' : r.status === 'gul' ? '#FF9F0A' : muted
+                    const luftFarg = rubrik === 'Skotare' ? '#0a84ff' : '#30d158' // skotare i eget blått
+                    const farg = r.status === 'gron' ? luftFarg : r.status === 'rod' ? '#d08a3e' /* flaskhals = dämpad orange, aldrig rött */ : r.status === 'gul' ? '#FF9F0A' : muted
                     const statusTxt = r.status === 'tom' ? 'tom' : r.luft < 0 ? `${Math.round(-r.luft)} h över` : `${Math.round(r.luft)} h luft`
                     const over = r.luft < 0
                     // Stapel: normalt skala = kapacitet; över → skala = behov + svart streck vid kapacitetsgolvet
@@ -799,6 +982,23 @@ export default function HelikopterV2Page() {
                   ))}
                 </div>
               ))}
+              {/* Förslag — vem kan ta över en flaskhals, filtrerat på klarar_typ */}
+              {kapacitet.forslag.length > 0 && (
+                <div style={{ borderTop: `1px solid ${divider}`, padding: '12px 0 4px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: muted, letterSpacing: 0.5, textTransform: 'uppercase', paddingBottom: 6 }}>Förslag — vem kan ta över</div>
+                  {kapacitet.forslag.map((f, i) => (
+                    <div key={i} style={{ fontSize: 13, padding: '4px 0', lineHeight: 1.5 }}>
+                      <span style={{ color: '#d08a3e', fontWeight: 600 }}>{maskinModell(f.fran)}</span>
+                      <span style={{ color: muted }}> {Math.round(f.overH)} h över → </span>
+                      {f.kandidater.length > 0 ? f.kandidater.map((k, j) => (
+                        <span key={j} style={{ color: 'rgba(255,255,255,0.75)' }}>{j > 0 ? ' · ' : ''}{maskinModell(k.maskin)} <span style={{ color: muted }}>{k.buffert ? '(buffert)' : `(${Math.round(k.luftH as number)} h luft)`}</span></span>
+                      )) : (
+                        <span style={{ color: muted }}>ingen ledig maskin klarar {f.typer.join('/') || 'objekten'}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               {/* Extramaskiner — ej inne, ingen kapacitet */}
               {kapacitet.extraMaskiner.map(m => (
                 <div key={m.maskin_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 0', borderTop: `1px solid ${divider}` }}>
@@ -811,6 +1011,130 @@ export default function HelikopterV2Page() {
                 Räknat på 8 h dagtid. Övertid och extramaskin är er buffert — inte inräknade.
               </div>
             </div>
+          )}
+
+          {/* Kapacitet-fliken när månaden är avslutad — ingen framåtberäkning */}
+          {flik === 'kapacitet' && manadAvslutad && (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: muted, fontSize: 13 }}>Månaden är avslutad — ingen kapacitetsberäkning.</div>
+          )}
+
+          {/* === UTFALL-fliken — löpande lista, avslutade objekt senast först (ej månadsbunden) === */}
+          {flik === 'utfall' && (
+            utfallLista.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 8px', color: muted, fontSize: 14 }}>Inga avslutade objekt än.</div>
+            ) : (
+              <>
+                {/* Lista — BARA objekt med prognos (utan prognos finns inget att jämföra mot, bara brus) */}
+                {utfallLista.some(o => o.skord.prognosH != null || o.skot.prognosH != null) ? (
+                  (['Slutavverkning', 'Gallring', 'GROT'] as const).map(gruppTyp => {
+                  const iTyp = utfallLista.filter(o => (o.skord.prognosH != null || o.skot.prognosH != null) && o.typ === gruppTyp)
+                  if (iTyp.length === 0) return null
+                  const aktuella = iTyp.filter(o => o.arbetsdatum >= utfallGrans)
+                  const aldre = iTyp.filter(o => o.arbetsdatum < utfallGrans)
+                  const synliga = visaAldre[gruppTyp] ? iTyp : aktuella
+                  return (
+                <div key={gruppTyp}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: text, letterSpacing: 0.3, padding: '8px 2px' }}>{gruppTyp} <span style={{ color: muted, fontWeight: 400 }}>· {iTyp.length}</span></div>
+                  {aktuella.length === 0 && !visaAldre[gruppTyp] && (
+                    <div style={{ fontSize: 13, color: muted, padding: '0 2px 12px' }}>Inget avslutat de senaste två månaderna.</div>
+                  )}
+                  {synliga.map(o => (
+                  <div key={o.objekt_id} style={{ ...card, marginBottom: 12, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: text, marginBottom: 8 }}>{o.namn}</div>
+                    {([['skordare', 'Skördare', '#eab308'], ['skotare', 'Skotare', '#0a84ff']] as const).map(([roll, rubrik, typfarg]) => {
+                      const r = roll === 'skordare' ? o.skord : o.skot
+                      const u = r.u
+                      const harUtfall = r.avslutad && u != null && u.timmar != null && u.timmar > 0
+                      const utfallH = harUtfall ? (u!.timmar as number) : 0
+                      const prognosH = r.prognosH
+                      const maxH = Math.max(prognosH || 0, utfallH) || 1
+                      const avvik = (harUtfall && prognosH != null) ? prognosH - utfallH : null
+                      // Dölj roll utan innehåll (t.ex. GROT saknar skördningsfas) — inget att visa, ingen falsk "pågår".
+                      if (!r.avslutad && !harUtfall && prognosH == null) return null
+                      return (
+                        <div key={roll} style={{ padding: '8px 0', borderTop: roll === 'skotare' && (o.skord.avslutad || o.skord.prognosH != null || (o.skord.u && o.skord.u.timmar)) ? `1px solid ${divider}` : 'none' }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: muted, letterSpacing: 0.4, textTransform: 'uppercase' }}>{rubrik}</span>
+                            {avvik != null ? (
+                              <span style={{ fontSize: 15, fontWeight: 700, color: avvik >= 0 ? '#30d158' : '#d08a3e', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{Math.abs(Math.round(avvik))} h {avvik >= 0 ? 'snabbare' : 'längre'}</span>
+                            ) : !r.avslutad ? (
+                              <span style={{ fontSize: 13, color: muted, flexShrink: 0 }}>pågår</span>
+                            ) : (
+                              <span style={{ fontSize: 13, color: muted, flexShrink: 0 }}>{harUtfall ? 'ingen prognos' : 'väntar på data'}</span>
+                            )}
+                          </div>
+                          {prognosH != null && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <span style={{ fontSize: 10, color: muted, width: 52, flexShrink: 0 }}>Prognos</span>
+                              <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.min(100, (prognosH / maxH) * 100)}%`, background: 'rgba(255,255,255,0.35)', borderRadius: 3 }} />
+                              </div>
+                              <span style={{ fontSize: 10, color: muted, width: 40, textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{Math.round(prognosH)} h</span>
+                            </div>
+                          )}
+                          {harUtfall && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 10, color: muted, width: 52, flexShrink: 0 }}>Utfall</span>
+                              <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.min(100, (utfallH / maxH) * 100)}%`, background: typfarg, borderRadius: 3 }} />
+                              </div>
+                              <span style={{ fontSize: 10, color: typfarg, width: 40, textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{Math.round(utfallH)} h</span>
+                            </div>
+                          )}
+                          {harUtfall && u!.takt != null && (
+                            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 6, paddingLeft: 60 }}>
+                              {u!.takt.toFixed(1).replace('.', ',')} m³fub/h
+                              {roll === 'skordare' && u!.medelstam != null && ` · medelstam ${u!.medelstam.toFixed(2).replace('.', ',')}`}
+                              {roll === 'skotare' && u!.skotvag_m != null && ` · skotväg ${Math.round(u!.skotvag_m).toLocaleString('sv-SE')} m`}
+                            </div>
+                          )}
+                          {r.avslutad && !harUtfall && (
+                            <div style={{ fontSize: 12, color: muted, paddingLeft: prognosH != null ? 60 : 0 }}>Avslutad {r.avslutDatum} — väntar på maskindata</div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+                  {aldre.length > 0 && (
+                    <button onClick={() => setVisaAldre(v => ({ ...v, [gruppTyp]: !v[gruppTyp] }))} style={{ width: '100%', minHeight: 40, marginBottom: 16, background: 'transparent', border: `1px solid ${divider}`, borderRadius: 10, color: '#0a84ff', fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer' }}>
+                      {visaAldre[gruppTyp] ? 'Dölj äldre' : `Visa äldre (${aldre.length})`}
+                    </button>
+                  )}
+                </div>
+                  )
+                })
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '40px 12px', color: muted, fontSize: 14, lineHeight: 1.6 }}>
+                    Inga avslutade objekt med prognos än.<br />Sätt prognos vid planering så visas utfallet här.
+                  </div>
+                )}
+                {/* Kalibrering/kurva — ALLA avslutade objekt (utom VF). Uppmätt takt behöver ingen prognos. */}
+                <div style={{ ...card, marginTop: 4, marginBottom: 12, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginBottom: 4 }}>Uppmätt takt per skogstyp</div>
+                  <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>Alla avslutade objekt (utom VF/Bark) — takten är mätt, behöver ingen prognos. Prognosträff visas när prognos finns.</div>
+                  {kalibrering.map(k => (
+                    <div key={k.label} style={{ borderTop: `1px solid ${divider}`, paddingTop: 8, marginTop: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: muted, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4 }}>{k.label} — per {k.enhet}</div>
+                      {k.grupper.map(g => (
+                        <div key={g.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, fontSize: 13, padding: '3px 0' }}>
+                          <span style={{ color: 'rgba(255,255,255,0.7)' }}>{g.label}</span>
+                          {g.takt != null ? (
+                            <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                              <span style={{ color: text, fontWeight: 600 }}>{g.takt.toFixed(1).replace('.', ',')} m³fub/h</span>
+                              <span style={{ color: muted }}> · {g.antal} obj</span>
+                              {g.avvikelse != null && <span style={{ color: g.avvikelse <= 0 ? '#30d158' : '#d08a3e' }}> · prognos {g.avvikelse > 0 ? '+' : ''}{g.avvikelse}%</span>}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>väntar på data{g.antal > 0 ? ` (${g.antal})` : ''}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )
           )}
         </div>
       )}
