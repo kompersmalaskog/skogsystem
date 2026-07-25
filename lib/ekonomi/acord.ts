@@ -92,7 +92,7 @@ export function skotAvstandKr(datum: string, korstrackaM: number, volymM3: numbe
 // timmarUtanPris: G15-timmar som saknade datumgiltig prisrad (ingår ej i
 // timpeng) — visas som varning om > 0.
 export function timpengForTidRows(
-  rows: { datum: string; maskin_id: string; processing_sek: number | null; terrain_sek: number | null }[],
+  rows: { datum: string; maskin_id: string; processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }[],
   timprisList: MaskinTimpris[],
 ): { timmar: number; timpeng: number | null; timmarUtanPris: number } {
   let timmar = 0;
@@ -100,7 +100,7 @@ export function timpengForTidRows(
   let timmarUtanPris = 0;
   let harPrisrad = false;
   for (const r of rows) {
-    const t = g15Sek(r.processing_sek, r.terrain_sek) / 3600;
+    const t = g15Sek(r.processing_sek, r.terrain_sek, r.other_work_sek) / 3600;
     timmar += t;
     const tp = timprisList.find(p => p.maskin_id === r.maskin_id && isValidOn(r.datum, p.giltig_fran, p.giltig_till));
     if (tp) { harPrisrad = true; timpeng += t * tp.timpris; }

@@ -76,8 +76,8 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
       const byDay: Record<string, { g15: number }> = {};
       for (const r of tidRes.data) {
         if (!byDay[r.datum]) byDay[r.datum] = { g15: 0 };
-        // G15 = processing + terrain (PONSSE-definition). other_work räknas inte in.
-        byDay[r.datum].g15 += (r.processing_sek || 0) + (r.terrain_sek || 0);
+        // G15 = processing + terrain + other_work (validerat mot 5 tillverkarrapporter).
+        byDay[r.datum].g15 += (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0);
       }
       // Also get production volumes
       const prodRes = await supabase.rpc('maskindata_produktion', { p_maskin_ids: [selectedMaskin] });

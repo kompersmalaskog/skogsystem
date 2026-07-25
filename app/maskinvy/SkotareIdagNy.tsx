@@ -189,7 +189,7 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
 
   const tidRows = tidResult.status === 'fulfilled' ? (tidResult.value.data || []) : []
   const g15sek  = tidRows.reduce(
-    (sum, r) => sum + (r.processing_sek || 0) + (r.terrain_sek || 0), 0,
+    (sum, r) => sum + (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0), 0,
   )
   const g15h    = g15sek / 3600
   const momTider = momTiderResult.status === 'fulfilled' ? momTiderResult.value : null

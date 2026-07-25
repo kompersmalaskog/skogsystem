@@ -206,8 +206,8 @@ export default function Jamforelse() {
       const o = agg[mId][r.objekt_id];
       o.distSum += r.terrain_korstracka_m;
       o.distCount++;
-      // G15 = processing + terrain (PONSSE-definition). other_work räknas inte in.
-      o.g15Sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
+      // G15 = processing + terrain + other_work (validerat mot 5 tillverkarrapporter).
+      o.g15Sek += (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0);
       o.bransle += (r.bransle_liter || 0);
       if (r.datum) o.skift.add(r.datum);
     }

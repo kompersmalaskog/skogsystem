@@ -59,7 +59,7 @@ function grupperaRef(refTid: any[], maskinId: string, egnaObjektId: Set<string>)
     if (r.maskin_id !== maskinId || !r.objekt_id) continue;
     if (egnaObjektId.has(r.objekt_id)) continue; // aldrig sin egen referens
     const p = perObjekt.get(r.objekt_id) || { g15h: 0, avbrottH: 0, dieselL: 0 };
-    p.g15h += ((r.processing_sek || 0) + (r.terrain_sek || 0)) / 3600;
+    p.g15h += ((r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0)) / 3600;
     p.avbrottH += ((r.maintenance_sek || 0) + (r.disturbance_sek || 0) + (r.avbrott_sek || 0)) / 3600;
     p.dieselL += r.bransle_liter || 0;
     perObjekt.set(r.objekt_id, p);
@@ -202,7 +202,7 @@ function grupperaRefEtt(refTid: any[], maskinId: string, objektId: string): RefO
   for (const r of refTid) {
     if (r.maskin_id !== maskinId || r.objekt_id !== objektId) continue;
     traff = true;
-    g15h += ((r.processing_sek || 0) + (r.terrain_sek || 0)) / 3600;
+    g15h += ((r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0)) / 3600;
     avbrottH += ((r.maintenance_sek || 0) + (r.disturbance_sek || 0) + (r.avbrott_sek || 0)) / 3600;
     dieselL += r.bransle_liter || 0;
   }

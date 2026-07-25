@@ -66,7 +66,7 @@ export default function EkonomiClient() {
       ] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_tid')
-            .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek')
+            .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek, other_work_sek')
             .gte('datum', start).lte('datum', end)
             .range(from, to)
         ),

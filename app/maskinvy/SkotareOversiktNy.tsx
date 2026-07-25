@@ -93,7 +93,7 @@ async function fetchSkotareData(
   // Hämta fakt_lass, fakt_tid och fakt_avbrott SEPARAT — aldrig i samma query
   const [lassRows, tidRows, avbrottRows] = await Promise.all([
     fetchAll('fakt_lass', 'datum, volym_m3sub, korstracka_m', ids, start, end),
-    fetchAll('fakt_tid',  'processing_sek, terrain_sek, kort_stopp_sek, engine_time_sek', ids, start, end),
+    fetchAll('fakt_tid',  'processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, engine_time_sek', ids, start, end),
     fetchAll('fakt_avbrott', 'kategori_kod, langd_sek', ids, start, end),
   ])
 
@@ -116,14 +116,15 @@ async function fetchSkotareData(
   const lass = lassRows.length
 
   // ── fakt_tid → G15h + tomgång (summeras fristående, aldrig join mot lass) ──
-  let proc = 0, terr = 0, kortStoppSek = 0, engineSek = 0
+  let proc = 0, terr = 0, ow = 0, kortStoppSek = 0, engineSek = 0
   for (const r of tidRows) {
     proc         += r.processing_sek  || 0
     terr         += r.terrain_sek     || 0
+    ow           += r.other_work_sek  || 0
     kortStoppSek += r.kort_stopp_sek  || 0
     engineSek    += r.engine_time_sek || 0
   }
-  const g15h = (proc + terr) / 3600
+  const g15h = (proc + terr + ow) / 3600
 
   // ── fakt_avbrott → avbrott + flytt ──────────────────────────
   // SAMMA källa som avbrottsvyn: alla DownTime-rader oavsett längd
@@ -175,7 +176,7 @@ async function fetchSkotareOperatorer(
 
   const [lassRows, tidRows, opRes] = await Promise.all([
     fetchAll('fakt_lass', 'datum, volym_m3sub, operator_id', ids, start, end),
-    fetchAll('fakt_tid',  'datum, operator_id, processing_sek, terrain_sek', ids, start, end),
+    fetchAll('fakt_tid',  'datum, operator_id, processing_sek, terrain_sek, other_work_sek', ids, start, end),
     supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', ids),
   ])
 
@@ -196,13 +197,14 @@ async function fetchSkotareOperatorer(
   }
 
   // Aggregera fakt_tid per operator_id → G15h (SEPARAT, aldrig join mot lass)
-  const tidByOp: Record<string, { proc: number; terr: number }> = {}
+  const tidByOp: Record<string, { proc: number; terr: number; ow: number }> = {}
   for (const r of tidRows) {
     const id = r.operator_id
     if (!id) continue
-    if (!tidByOp[id]) tidByOp[id] = { proc: 0, terr: 0 }
+    if (!tidByOp[id]) tidByOp[id] = { proc: 0, terr: 0, ow: 0 }
     tidByOp[id].proc += r.processing_sek || 0
     tidByOp[id].terr += r.terrain_sek    || 0
+    tidByOp[id].ow   += r.other_work_sek || 0
   }
 
   // Slå ihop, beräkna m³/G15h, filtrera och sortera alfabetiskt
@@ -210,8 +212,8 @@ async function fetchSkotareOperatorer(
   return Array.from(allIds)
     .map(id => {
       const l = lassByOp[id] || { volym: 0, dagar: new Set<string>() }
-      const t = tidByOp[id]  || { proc: 0, terr: 0 }
-      const g15h = (t.proc + t.terr) / 3600
+      const t = tidByOp[id]  || { proc: 0, terr: 0, ow: 0 }
+      const g15h = (t.proc + t.terr + t.ow) / 3600
       return {
         id,
         namn:    opNames[id] || id,
@@ -236,7 +238,7 @@ async function fetchSkotareOpDeep(
   const ids = [maskinId]
   const [lassRows, tidRows, avbrottRows] = await Promise.all([
     fetchAll('fakt_lass', 'datum, volym_m3sub, korstracka_m, operator_id', ids, start, end),
-    fetchAll('fakt_tid',  'datum, operator_id, processing_sek, terrain_sek', ids, start, end),
+    fetchAll('fakt_tid',  'datum, operator_id, processing_sek, terrain_sek, other_work_sek', ids, start, end),
     fetchAll('fakt_avbrott', 'operator_id, kategori_kod, langd_sek', ids, start, end),
   ])
 
@@ -258,12 +260,13 @@ async function fetchSkotareOpDeep(
   }
   const lass = lassOp.length
 
-  let proc = 0, terr = 0
+  let proc = 0, terr = 0, ow = 0
   for (const r of tidOp) {
     proc += r.processing_sek || 0
     terr += r.terrain_sek    || 0
+    ow   += r.other_work_sek || 0
   }
-  const g15h = (proc + terr) / 3600
+  const g15h = (proc + terr + ow) / 3600
 
   // fakt_avbrott → avbrott + flytt, samma uppdelning som maskinnivån
   let avbr = 0, flytt = 0

@@ -89,7 +89,7 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
         };
         const [refTid, refProdVolym, refLassVolym] = await Promise.all([
           refMaskiner.length > 0
-            ? hamtaAllt((a, b) => supabase.from('fakt_tid').select('objekt_id, maskin_id, processing_sek, terrain_sek, maintenance_sek, disturbance_sek, avbrott_sek, bransle_liter').in('maskin_id', refMaskiner).gte('datum', refFran).range(a, b))
+            ? hamtaAllt((a, b) => supabase.from('fakt_tid').select('objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, bransle_liter').in('maskin_id', refMaskiner).gte('datum', refFran).range(a, b))
             : Promise.resolve([] as any[]),
           skMidFb
             ? hamtaAllt((a, b) => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub').eq('maskin_id', skMidFb).gte('datum', refFran).range(a, b))

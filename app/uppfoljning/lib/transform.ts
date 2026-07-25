@@ -120,9 +120,10 @@ export function buildTid(rows: any[]) {
     }
   });
 
-  // G15 = processing + terrain (verifierat mot PONSSE-rapport på två maskiner).
-  // other_work ingår INTE i G15 — visas som egen siffra där så behövs.
-  const runtime = processing + terrain;
+  // G15 = processing + terrain + other_work. Validerat mot 5 tillverkarrapporter
+  // (Ponsse "Effektiv tid" + Rottne "G(t)"); båda inkluderar övrigt arbete.
+  // g0 = G15 − korta stopp följer runtime automatiskt (Ponsse G(0)).
+  const runtime = processing + terrain + otherWork;
   const g0h = (runtime - kortStopp) / 3600;
   const g15h = runtime / 3600;
 
@@ -130,7 +131,7 @@ export function buildTid(rows: any[]) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([datum, v]) => ({
       datum,
-      g15: (v.processing + v.terrain) / 3600,
+      g15: (v.processing + v.terrain + v.otherWork) / 3600,
       diesel: v.diesel,
     }));
 
