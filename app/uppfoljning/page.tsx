@@ -79,9 +79,6 @@ function ovrigtText(o: UppfoljningObjekt): string {
   if (kvar === 0 && !o.skotningAvslutad) return 'Klar — markera avslutad';
   return 'Övrigt';
 }
-function typLabel(o: UppfoljningObjekt): string {
-  return o.typ === 'gallring' ? 'Gallring' : 'Slutavverkning';
-}
 // Liggetid ur sista avverkningsdag; null-datum skrivs ut ärligt, aldrig gissat.
 function liggetidText(o: UppfoljningObjekt): React.ReactNode {
   if (!o.sistaAvverkning) return <span style={{ color: V6_GREY2 }}>avverkningsdatum saknas</span>;

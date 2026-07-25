@@ -7,12 +7,16 @@ import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomat
 import { useMatchning } from './hooks/useMatchning'
 import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkordning, skordareForvantasEj, skotareForvantasEj } from './hooks/useFildata'
 import MatchningsVy from './MatchningsVy'
+import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
 // kompletteras med unika värden ur datan vid inläsning.
 // Inköpare seedas ENBART ur datan (inga hårdkodade namn).
 const STANDARD_BOLAG = ['Vida', 'ATA', 'Privat', 'JGA', 'Rönås', 'Södra']
-const HUVUDTYPER = ['Slutavverkning', 'Gallring']
+// 'Grot' är ett riktigt huvudtyp-värde (inte en uteslutningsklass). Att välja
+// det synkar risskotning-flaggan (arGrotHuvudtyp ⟺ risskotning=true) så typ-
+// regeln kan läsa vilken väg som helst. Se lib/objekt/typ.ts.
+const HUVUDTYPER = ['Slutavverkning', 'Gallring', 'Grot']
 
 // Delade keyframes/klasser — renderas av båda listvyerna (tidigare två
 // identiska inline-kopior)
@@ -49,8 +53,10 @@ const EGENSKAPER_SKORDARE = [
   { key: 'stubbbehandling', label: 'Stubbbehandling' },
 ]
 
+// Risskotning bor INTE längre som en skotar-switch — grot är ett riktigt
+// huvudtyp-värde och sätts via huvudtyp-chippen (som synkar risskotning-
+// flaggan). En enda kontroll, ingen dubbel som kan glida isär.
 const EGENSKAPER_SKOTARE = [
-  { key: 'risskotning', label: 'Risskotning' },
   { key: 'extra_vagn', label: 'Extra vagn' },
   { key: 'klippning', label: 'Klippning' },
 ]
@@ -475,17 +481,14 @@ const KRAV_FALT = [
   { key: 'atgard', label: 'Åtgärd', target: 'atgard-section' },
 ]
 
-// TYP-REGEL: risskotning = true ÄR jobbets typ. Typ-tagg och grot-filter
-// härleds ALLTID ur flaggan, aldrig ur huvudtyp.
-export function arRisjobb(obj: any): boolean {
-  return obj?.risskotning === true
-}
+// TYP-REGEL: en enda källa — lib/objekt/typ.ts. Ett objekt är risjobb när
+// risskotning=true ELLER huvudtyp='Grot' (de synkas, se HUVUDTYPER). arRisjobb
+// importeras därifrån; ingen lokal kopia som kan glida isär.
 
-// Risjobb har ingen huvudtyp — och därmed ingen åtgärd, eftersom åtgärds-
-// listan väljs UR huvudtypen (utan huvudtyp finns inget att välja bland).
-// Att kräva dem tvingade fram felmärkningar: alla 12 risjobb stod som
-// Slutavverkning/Gallring/tom. Krav som inte går att uppfylla är en fälla,
-// inte en kvalitetskontroll.
+// Ett risjobb är redan KÄNT som grot (flagga/huvudtyp='Grot'), och har ingen
+// åtgärd — åtgärdslistan gäller bara slutavverkning/gallring. Både huvudtyp och
+// åtgärd undantas därför från kravet, i takt med getWarnings som hoppar över
+// samma två via arRisjobb. Att kräva åtgärd på grot tvingade fram felmärkningar.
 function kravFaltFor(obj: any) {
   return arRisjobb(obj)
     ? KRAV_FALT.filter(f => f.key !== 'huvudtyp' && f.key !== 'atgard')
@@ -1865,7 +1868,7 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
   // Fångas vid källan (här, där risskotning sätts) så avbockningen kan bli
   // automatisk när jobbet markeras färdigt. Går att hoppa över (allt ris har
   // inte känt ursprung, t.ex. "Ris över väg") och komplettera när som helst.
-  const arRisjobb = obj.risskotning === true
+  const arRisjobb = obj.risskotning === true || arGrotHuvudtyp(obj.huvudtyp)
   const [risKand, setRisKand] = useState<any[]>([])
   const [valdaRis, setValdaRis] = useState<string[]>([])
   const [risLage, setRisLage] = useState({ laddar: false, sparar: false, fel: '', sparat: false })
@@ -2189,6 +2192,15 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
   // från noll (Åkarp-fallet: skotad utan en enda lassrad)
   const visaSkotare = harSkotarData || ingenData || !!gruppSkotningAvslutad || !!skotareSanderEj
 
+  // Grot är ett huvudtyp-värde OCH en flagga — de synkas här så de aldrig kan
+  // säga emot varandra: väljer man 'Grot' sätts risskotning=true, väljer man
+  // slutavverkning/gallring nollas den. Ett byte TILL/FRÅN grot ändrar alltid
+  // risskotning, så det får aldrig gömmas som en fantomändring.
+  const nyHuvudtypPatch = (v: any) => {
+    const patch: any = { huvudtyp: v }
+    if (arGrotHuvudtyp(v) !== (obj.risskotning === true)) patch.risskotning = arGrotHuvudtyp(v)
+    return patch
+  }
   const requestHuvudtyp = (v: any) => {
     if (v === obj.huvudtyp) { setOppetFalt(null); return }
     if (obj.atgard) {
@@ -2196,7 +2208,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
     } else {
       // Rör inte atgard här — den är redan tom, och null -> '' skulle
       // räknas som en fantomändring i Spara-räknaren
-      set({ ...obj, huvudtyp: v })
+      set({ ...obj, ...nyHuvudtypPatch(v) })
       setOppetFalt(null)
     }
   }
@@ -2259,27 +2271,24 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
 
       <IosGroup title="Måste fyllas i">
         <div id="huvudtyp-section">
-          {arRisjobb(obj) ? (
-            /* Typen ÄR risskotning — härledd, inte vald. Ingen väljare, inget
-               krav: att tvinga fram Slutavverkning/Gallring på ett risjobb ger
-               bara felmärkt data. */
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px' }}>
-              <span style={{ fontSize: 15, color: 'rgba(255,255,255,0.55)' }}>Typ</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: '#f0b24c' }}>
-                Grot (risskotning)
-              </span>
-            </div>
-          ) : (
-            <KravRad label="Huvudtyp" value={obj.huvudtyp} expanded={oppetFalt === 'huvudtyp'} onToggle={() => setOppetFalt(oppetFalt === 'huvudtyp' ? null : 'huvudtyp')}>
-              <div style={{ padding: '0 16px 16px' }}>
-                <div style={styles.chipGrid as any}>
-                  {HUVUDTYPER.map(h => (
-                    <Chip key={h} label={h} selected={obj.huvudtyp === h} onClick={() => requestHuvudtyp(h)} editMode={false} onDelete={() => {}} />
-                  ))}
-                </div>
+          {/* Grot är ett riktigt huvudtyp-val bredvid Slutavverkning/Gallring,
+              inte en härledd sidoflagga. Att välja 'Grot' synkar risskotning
+              (se requestHuvudtyp). Ett grot-objekt kan därför också väljas bort
+              från grot igen — det gick inte med den gamla läs-bara raden. */}
+          <KravRad label="Huvudtyp" value={obj.huvudtyp} expanded={oppetFalt === 'huvudtyp'} onToggle={() => setOppetFalt(oppetFalt === 'huvudtyp' ? null : 'huvudtyp')}>
+            <div style={{ padding: '0 16px 16px' }}>
+              <div style={styles.chipGrid as any}>
+                {HUVUDTYPER.map(h => (
+                  <Chip key={h} label={h} selected={obj.huvudtyp === h} onClick={() => requestHuvudtyp(h)} editMode={false} onDelete={() => {}} />
+                ))}
               </div>
-            </KravRad>
-          )}
+              {arGrotHuvudtyp(obj.huvudtyp) && (
+                <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+                  Grot = risskotning. Åtgärd efterfrågas inte för grot.
+                </div>
+              )}
+            </div>
+          </KravRad>
         </div>
         <div id="bolag-section">
           <KravRad label="Bolag" value={obj.bolag} expanded={oppetFalt === 'bolag'} onToggle={() => setOppetFalt(oppetFalt === 'bolag' ? null : 'bolag')}>
@@ -2336,11 +2345,13 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
       <ConfirmDialog
         open={!!pendingHuvudtyp}
         title="Byt huvudtyp?"
-        message={`Detta tar bort vald åtgärd ("${obj.atgard}"). Du måste välja åtgärd på nytt.`}
+        message={arGrotHuvudtyp(pendingHuvudtyp)
+          ? `Detta tar bort vald åtgärd ("${obj.atgard}"). Grot har ingen åtgärd.`
+          : `Detta tar bort vald åtgärd ("${obj.atgard}"). Du måste välja åtgärd på nytt.`}
         confirmLabel="Byt huvudtyp"
         cancelLabel="Avbryt"
         onConfirm={() => {
-          set({ ...obj, huvudtyp: pendingHuvudtyp, atgard: '' })
+          set({ ...obj, ...nyHuvudtypPatch(pendingHuvudtyp), atgard: '' })
           setPendingHuvudtyp(null)
           setOppetFalt(null)
         }}
@@ -2443,7 +2454,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       // avverkningsobjekten. Körs EFTER lyckad save — färdigmarkeringen ska ha
       // landat innan automatiken agerar på den. Misslyckas den stängs INTE
       // sheeten: felet syns, för en halvkörd avbockning ska aldrig tigas ihjäl.
-      if (valtObjekt.risskotning === true) {
+      if (arRisjobb(valtObjekt)) {
         const fore = originalObjekt?.skotning_avslutad || null
         const efter = valtObjekt.skotning_avslutad || null
         let autoFel = ''
@@ -3257,7 +3268,7 @@ function ObjektRedigeringInner() {
 function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, kortInfo, fildata, listAtgarder, onBack }: any) {
   const [search, setSearch] = useState('')
   const [filterBolag, setFilterBolag] = useState(null)
-  const [filterHuvudtyp, setFilterHuvudtyp] = useState(null)
+  const [filterHuvudtyp, setFilterHuvudtyp] = useState<string | null>(null)
   const [filterInkopare, setFilterInkopare] = useState(null)
   const [showSearch, setShowSearch] = useState(false)
   const [redigerObj, setRedigerObj] = useState<any>(null)
@@ -3287,7 +3298,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   }
 
   if (filterBolag) filtered = filtered.filter(g => g.rader.some((o: any) => o.bolag === filterBolag))
-  if (filterHuvudtyp) filtered = filtered.filter(g => g.rader.some((o: any) => o.huvudtyp === filterHuvudtyp))
+  if (filterHuvudtyp) filtered = filtered.filter(g => g.rader.some((o: any) => filterHuvudtyp === 'Grot' ? arRisjobb(o) : o.huvudtyp === filterHuvudtyp))
   if (filterInkopare) filtered = filtered.filter(g => g.rader.some((o: any) => o.inkopare === filterInkopare))
 
   const hasActiveFilters = filterBolag || filterHuvudtyp || filterInkopare || search.trim()
@@ -3350,6 +3361,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
             <div style={styles.filterChips}>
               <FilterChip label="Slutavverkning" active={filterHuvudtyp === 'Slutavverkning'} onClick={() => setFilterHuvudtyp(filterHuvudtyp === 'Slutavverkning' ? null : 'Slutavverkning')} />
               <FilterChip label="Gallring" active={filterHuvudtyp === 'Gallring'} onClick={() => setFilterHuvudtyp(filterHuvudtyp === 'Gallring' ? null : 'Gallring')} />
+              <FilterChip label="Grot" active={filterHuvudtyp === 'Grot'} onClick={() => setFilterHuvudtyp(filterHuvudtyp === 'Grot' ? null : 'Grot')} />
             </div>
           </div>
 
