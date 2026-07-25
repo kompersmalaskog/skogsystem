@@ -231,6 +231,7 @@ interface TraktData {
     restriktioner?: { type: string; name: string; details?: string; warning?: string }[];
     // Tidsstämpel
     beraknadAt?: number;
+    restriktionerAnalyseradAt?: number; // när tractanalysen (restriktioner) senast kördes — null = aldrig
   };
 }
 
@@ -4617,21 +4618,25 @@ export default function PlannerPage() {
     }
   }, [markers]);
 
-  // Auto-spara traktanalys-restriktioner till trakt_data.beraknad
+  // Auto-spara traktanalys-restriktioner till trakt_data.beraknad. En omkörning ska ALLTID skriva
+  // ÖVER — även när resultatet är TOMT. Ett tomt FÄRDIGT resultat är giltigt: hittar omkörningen
+  // (med rätt origo) inga restriktioner ska de gamla ERSÄTTAS, aldrig ligga kvar. Tidigare returnerade
+  // vi vid tomt → gamla fel-restriktioner (t.ex. felaktig Halen från gammalt origo) låg kvar i DB fast
+  // panelen visade "Inga kända restriktioner" (panelen läser live-analysen, översikten den sparade).
   useEffect(() => {
+    // Skriv BARA när minst en analys körts KLART ('done'). Innan dess (inga analyser än / laddar /
+    // fel) rör vi INTE restriktioner — annars wipe:as sparad data under laddning eller vid analysfel.
+    const klara = Object.values(tractAnalysis).filter(a => a.status === 'done');
+    if (klara.length === 0) return;
     const allHits: TraktAnalysisHit[] = [];
-    for (const a of Object.values(tractAnalysis)) {
-      if (a.status === 'done' && a.hits.length > 0) {
-        allHits.push(...a.hits);
-      }
-    }
-    if (allHits.length === 0) return;
+    for (const a of klara) allHits.push(...a.hits);
     setTraktData(prev => ({
       ...prev,
       beraknad: {
         ...prev.beraknad,
         restriktioner: allHits.map(h => ({ type: h.type, name: h.name, details: h.details, warning: h.warning })),
         beraknadAt: Date.now(),
+        restriktionerAnalyseradAt: Date.now(),
       },
     }));
   }, [tractAnalysis]);
