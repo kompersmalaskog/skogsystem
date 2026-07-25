@@ -91,14 +91,37 @@ async function hamtaToken(clientId: string, clientSecret: string) {
   return { token: s2.json.token as string, refreshToken: s2.json.refreshToken ?? null }
 }
 
-/** Ett rFMS-anrop. rFMS 4 använder versionerad media-typ i Accept; vid fel
- *  avslöjar råsvaret (t.ex. 406) vilken typ servern vill ha. */
-async function rfms(path: string, token: string, accept: string) {
-  const r = await fetch(`${RFMS_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: accept },
-    cache: 'no-store',
-  })
-  return { path, accept, ...(await las(r)) }
+/** Accept-kandidater per rFMS-resurs. rFMS 4.0-specen (V4.0.0, 2021-09-17)
+ *  visar exakt "application/json; rfms=<resurs>.v4.0" — den provas först.
+ *  Övriga är fallback ifall Scanias server vill ha en annan dialekt
+ *  (vnd.fmsstandard-varianten, eller den .v4 vi först skickade som gav 406). */
+function kandidater(resurs: string): string[] {
+  const Resurs = resurs.charAt(0).toUpperCase() + resurs.slice(1)
+  return [
+    `application/json; rfms=${resurs}.v4.0`,
+    `application/json; rfms=${resurs}.v4`,
+    `application/vnd.fmsstandard.com.${Resurs}.v4.0+json`,
+    `application/vnd.fmsstandard.com.${resurs}.v4.0+json`,
+  ]
+}
+
+/** Ett rFMS-anrop som provar Accept-kandidaterna i tur och ordning tills en
+ *  INTE ger 406 (fel Accept-dialekt). 200/403/annat = servern accepterade
+ *  dialekten → sluta prova och rapportera det svaret. */
+async function rfms(path: string, token: string, accepts: string[]) {
+  const forsok: { accept: string; status: number }[] = []
+  let sista: Awaited<ReturnType<typeof las>> & { accept: string } = { accept: '', status: 0, ok: false, contentType: null, json: null, text: undefined }
+  for (const accept of accepts) {
+    const r = await fetch(`${RFMS_BASE}${path}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: accept },
+      cache: 'no-store',
+    })
+    const s = await las(r)
+    forsok.push({ accept, status: s.status })
+    sista = { accept, ...s }
+    if (s.status !== 406) break  // 406 = fel Accept → nästa kandidat; annat = accepterad dialekt
+  }
+  return { path, forsok, ...sista }
 }
 
 /** Vilka fält en rad faktiskt bär (topp-nivå + ett steg ner) — så rapporten
@@ -152,10 +175,10 @@ export async function GET() {
   }
 
   // ── rFMS: fordonslista ──
-  const vehicles = await rfms('/vehicles', token, 'application/json; rfms=vehicles.v4')
+  const vehicles = await rfms('/vehicles', token, kandidater('vehicles'))
   rapport.vehicles = {
     status: vehicles.status, contentType: vehicles.contentType,
-    accept: vehicles.accept,
+    acceptForsok: vehicles.forsok, valdAccept: vehicles.accept,
     svar: vehicles.json ?? vehicles.text,
   }
   const fordon: any[] = vehicles.json?.vehicleResponse?.vehicles ?? vehicles.json?.vehicles ?? []
@@ -166,19 +189,21 @@ export async function GET() {
   }
 
   // ── rFMS: senaste position + status (odometer m.m.) för alla fordon ──
-  const positions = await rfms('/vehiclepositions?latestOnly=true', token, 'application/json; rfms=vehiclepositions.v4')
+  const positions = await rfms('/vehiclepositions?latestOnly=true', token, kandidater('vehiclepositions'))
   const posRader: any[] = positions.json?.vehiclePositionResponse?.vehiclePositions ?? positions.json?.vehiclePositions ?? []
   rapport.vehiclepositions = {
-    status: positions.status, contentType: positions.contentType, accept: positions.accept,
+    status: positions.status, contentType: positions.contentType,
+    acceptForsok: positions.forsok, valdAccept: positions.accept,
     antal: posRader.length,
     faltPerRad: posRader.length ? faltKarta(posRader[0]) : [],
     exempel: posRader[0] ?? positions.json ?? positions.text,
   }
 
-  const statuses = await rfms('/vehiclestatuses?latestOnly=true', token, 'application/json; rfms=vehiclestatuses.v4')
+  const statuses = await rfms('/vehiclestatuses?latestOnly=true', token, kandidater('vehiclestatuses'))
   const statRader: any[] = statuses.json?.vehicleStatusResponse?.vehicleStatuses ?? statuses.json?.vehicleStatuses ?? []
   rapport.vehiclestatuses = {
-    status: statuses.status, contentType: statuses.contentType, accept: statuses.accept,
+    status: statuses.status, contentType: statuses.contentType,
+    acceptForsok: statuses.forsok, valdAccept: statuses.accept,
     antal: statRader.length,
     faltPerRad: statRader.length ? faltKarta(statRader[0]) : [],
     exempel: statRader[0] ?? statuses.json ?? statuses.text,
@@ -186,8 +211,10 @@ export async function GET() {
 
   rapport.ok = vehicles.ok
   rapport.slutsats = vehicles.ok
-    ? `Auth OK. ${fordon.length} fordon i listan. Positioner: HTTP ${positions.status} (${posRader.length} rader). Status/odometer: HTTP ${statuses.status} (${statRader.length} rader). Se faltPerRad/exempel för exakt vilka fält som levereras.`
-    : `Auth OK men /vehicles gav HTTP ${vehicles.status} — troligen behörighet ("not entitled") eller fel Accept-media-typ. Råsvaret ligger i vehicles.svar.`
+    ? `Auth OK. Accept-dialekt som funkade: "${vehicles.accept}". ${fordon.length} fordon i listan. Positioner: HTTP ${positions.status} (${posRader.length} rader). Status/odometer: HTTP ${statuses.status} (${statRader.length} rader). Se faltPerRad/exempel för exakt vilka fält som levereras.`
+    : vehicles.status === 406
+      ? `Auth OK men alla Accept-kandidater gav 406 på /vehicles. Se vehicles.acceptForsok för vad som provades — nästa steg är att läsa serverns råsvar (vehicles.svar) för vilken media-typ den vill ha.`
+      : `Auth OK men /vehicles gav HTTP ${vehicles.status} med Accept "${vehicles.accept}" — troligen behörighet ("not entitled"). Råsvaret ligger i vehicles.svar.`
 
   return NextResponse.json(rapport, { status: 200 })
 }
