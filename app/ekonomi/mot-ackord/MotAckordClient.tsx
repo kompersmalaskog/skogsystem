@@ -3,11 +3,12 @@
 // Mot ackord — jämför vad avräknade objekt gav på ackord mot vad samma
 // arbete hade gett på timpeng. Bara intäktssida, ingen kostnad.
 //
-// GRUNDREGEL: allt bygger på AVRÄKNADE objekt = BÅDA
-// dim_objekt.skordning_avslutad OCH skotning_avslutad satta. Perioden är
-// när objektet AVRÄKNADES (skotning_avslutad), inte när arbetet utfördes —
-// varje objekt räknas helt, en gång. Preliminära objekt (ett datum satt,
-// ett saknas) är ALDRIG med i talen — de listas nedtonat.
+// GRUNDREGEL: allt bygger på AVRÄKNADE objekt enligt centrala regeln i
+// lib/objekt/avrakning — båda avslutsdatumen satta, eller för egen
+// skotning (markägaren skotar själv) enbart skordning_avslutad. Perioden
+// är när objektet AVRÄKNADES (avrakningsdatum), inte när arbetet utfördes
+// — varje objekt räknas helt, en gång. Preliminära objekt är ALDRIG med
+// i talen — de listas nedtonat.
 //
 // Gallring/timpeng-flaggade objekt ÄR timpeng — ingen jämförelse, bara en
 // dämpad räknare.
@@ -18,6 +19,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
+import { arSlutavraknad, avrakningsdatum } from '@/lib/objekt/avrakning';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
@@ -51,6 +53,7 @@ type ObjektRad = {
   diff: number;
   krPerM3: number | null; // null när volym saknas — visas som streck, aldrig 0
   timmarUtanPris: number; // G15-timmar utan giltig timprisrad — gör jämförelsen halt
+  egenSkotning: boolean;  // markägaren skotar — noll skotad volym är KORREKT
   maskiner: MaskinDel[];
 };
 type MaskinAgg = {
@@ -88,7 +91,7 @@ export default function MotAckordClient() {
       const { start, end } = getPeriodDates(period, periodOffset);
 
       const [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, exkluderade] = await Promise.all([
-        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -104,8 +107,12 @@ export default function MotAckordClient() {
 
       const alla = (objRes.data || []).filter((o: any) => !exkluderade.has(o.objekt_id));
       const arTimpengObj = (o: any) => (o.huvudtyp || '') === 'Gallring' || o.timpeng === true;
-      const arAvraknad = (o: any) => !!(o.skordning_avslutad && o.skotning_avslutad);
-      const iPerioden = (o: any) => o.skotning_avslutad >= start && o.skotning_avslutad <= end;
+      // Central avräkningsregel — egen skotning avräknas på skördningens avslut
+      const arAvraknad = (o: any) => arSlutavraknad(o);
+      const iPerioden = (o: any) => {
+        const d = avrakningsdatum(o);
+        return d != null && d >= start && d <= end;
+      };
 
       // Urvalet: ackordobjekt avräknade i perioden
       const valda = alla.filter((o: any) => !arTimpengObj(o) && arAvraknad(o) && iPerioden(o));
@@ -224,7 +231,7 @@ export default function MotAckordClient() {
       const laggTill = (oid: string, mid: string, roll: 'skördare' | 'skotare', ackord: number) => {
         const t = timpengForTidRows(tidPerKey[`${oid}|${mid}`] || [], timprisList);
         utanPrisPerObjekt[oid] = (utanPrisPerObjekt[oid] || 0) + t.timmarUtanPris;
-        const avrakningsdag = objMeta[oid]?.skotning_avslutad || '';
+        const avrakningsdag = avrakningsdatum(objMeta[oid]) || '';
         const tp = timprisList.find(p => p.maskin_id === mid && isValidOn(avrakningsdag, p.giltig_fran, p.giltig_till))
           || timprisList.find(p => p.maskin_id === mid);
         (delar[oid] ||= []).push({
@@ -276,6 +283,7 @@ export default function MotAckordClient() {
           diff,
           krPerM3: volym > 0 ? diff / volym : null,
           timmarUtanPris: utanPrisPerObjekt[o.objekt_id] || 0,
+          egenSkotning: o.egen_skotning === true,
           maskiner: m,
         };
       }).sort((a, b) => b.diff - a.diff);
@@ -445,7 +453,9 @@ export default function MotAckordClient() {
                   }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.namn}</div>
-                      <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>{Math.round(o.volym).toLocaleString('sv-SE')} m³fub · {formatKr(o.ackord)} ackord</div>
+                      <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>
+                        {Math.round(o.volym).toLocaleString('sv-SE')} m³fub · {formatKr(o.ackord)} ackord{o.egenSkotning && ' · egen skotning'}
+                      </div>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: diffColor(o.diff), fontVariantNumeric: 'tabular-nums' }}>
@@ -536,7 +546,9 @@ export default function MotAckordClient() {
               <div style={{ marginBottom: 18 }}>
                 <div style={s.sheetH}>Fördelning av ackordet</div>
                 <div style={{ fontSize: 13, color: '#bfcab9' }}>
-                  Skördare {Math.round(skordAckord / tot * 100)} % · Skotare {Math.round(skotAckord / tot * 100)} %
+                  {o.egenSkotning
+                    ? <>Skördare 100 % — egen skotning, markägaren skotar själv. Noll skotad volym är korrekt, ingen skotardel finns i affären.</>
+                    : <>Skördare {Math.round(skordAckord / tot * 100)} % · Skotare {Math.round(skotAckord / tot * 100)} %</>}
                 </div>
               </div>
             )}
@@ -577,7 +589,7 @@ export default function MotAckordClient() {
           <div style={{ fontSize: 13, lineHeight: 1.6, color: '#bfcab9', display: 'grid', gap: 14 }}>
             <div>
               <div style={s.sheetH}>Bara avräknade objekt</div>
-              Ett objekt räknas när BÅDE skördning och skotning är avslutade, i den period skotningen avslutades. Hela objektet räknas då — allt arbete, oavsett när det utfördes. Preliminära objekt (ett moment kvar) står nedtonade under &quot;Väntar på avräkning&quot; och ingår aldrig i talen.
+              Ett objekt räknas när BÅDE skördning och skotning är avslutade, i den period skotningen avslutades. Hela objektet räknas då — allt arbete, oavsett när det utfördes. Objekt med <em>egen skotning</em> (markägaren skotar själv) avräknas när skördningen är avslutad, i skördningens period — bara skördardelen jämförs, noll skotad volym är korrekt. Preliminära objekt (vårt moment kvar) står nedtonade under &quot;Väntar på avräkning&quot; och ingår aldrig i talen.
             </div>
             <div>
               <div style={s.sheetH}>Ackord</div>
