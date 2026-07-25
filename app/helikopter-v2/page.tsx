@@ -96,29 +96,33 @@ function paskdagen(year: number): Date {
 function isoDatum(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-// Svenska helgdagar (röda dagar) för ett år. Rörliga via påsk; midsommar/alla helgons via lördagsregel.
-function svenskaRodaDagar(year: number): Set<string> {
+// Svenska lediga dagar för ett år: formellt röda (rörliga via påsk; midsommar/alla helgons via
+// lördagsregel) PLUS arbetsfria aftnar (midsommar-/jul-/nyårsafton — ej formellt röda men lediga).
+// Kapaciteten drar bort dessa när de infaller mån–fre. Rörliga dagar beräknas, aldrig hårdkodas.
+function svenskaLedigaDagar(year: number): Set<string> {
   const s = new Set<string>()
   const add = (d: Date) => s.add(isoDatum(d))
   add(new Date(year, 0, 1))   // nyårsdagen
   add(new Date(year, 0, 6))   // trettondedag jul
   add(new Date(year, 4, 1))   // första maj
   add(new Date(year, 5, 6))   // nationaldagen
+  add(new Date(year, 11, 24)) // julafton (arbetsfri afton)
   add(new Date(year, 11, 25)) // juldagen
   add(new Date(year, 11, 26)) // annandag jul
+  add(new Date(year, 11, 31)) // nyårsafton (arbetsfri afton)
   const p = paskdagen(year)
   const off = (n: number) => new Date(year, p.getMonth(), p.getDate() + n)
   add(off(-2)) // långfredag
   add(off(1))  // annandag påsk
   add(off(39)) // Kristi himmelsfärd
-  for (let day = 20; day <= 26; day++) { const d = new Date(year, 5, day); if (d.getDay() === 6) { add(d); break } } // midsommardagen (lör 20–26 juni)
+  for (let day = 20; day <= 26; day++) { const d = new Date(year, 5, day); if (d.getDay() === 6) { add(d); add(new Date(year, 5, day - 1)); break } } // midsommardagen (lör) + midsommarafton (fre)
   for (let o = 0; o <= 6; o++) { const d = new Date(year, 9, 31 + o); if (d.getDay() === 6) { add(d); break } }        // alla helgons dag (lör 31 okt–6 nov)
   return s
 }
 // Arbetsdagar i HELA månaden: vardag (mån–fre), ej röd dag. Kapaciteten räknas på hela månaden,
 // INTE "från idag" — månadens totala golv (matchar facit: juli 2026 = 23 vardagar).
 function arbetsdagarIManad(ar: number, manad: number): string[] {
-  const roda = svenskaRodaDagar(ar)
+  const lediga = svenskaLedigaDagar(ar)
   const dagar: string[] = []
   const antalDagar = new Date(ar, manad, 0).getDate()
   for (let day = 1; day <= antalDagar; day++) {
@@ -126,10 +130,24 @@ function arbetsdagarIManad(ar: number, manad: number): string[] {
     const dow = d.getDay()
     if (dow === 0 || dow === 6) continue // helg
     const iso = isoDatum(d)
-    if (roda.has(iso)) continue          // röd dag
+    if (lediga.has(iso)) continue        // röd dag / arbetsfri afton
     dagar.push(iso)
   }
   return dagar
+}
+
+// Antal LEDIGA vardagar (röda dagar + arbetsfria aftnar mån–fre) i månaden — för "N röda borträknade".
+function ledigaVardagarIManad(ar: number, manad: number): number {
+  const lediga = svenskaLedigaDagar(ar)
+  let n = 0
+  const antalDagar = new Date(ar, manad, 0).getDate()
+  for (let day = 1; day <= antalDagar; day++) {
+    const d = new Date(ar, manad - 1, day)
+    const dow = d.getDay()
+    if (dow === 0 || dow === 6) continue
+    if (lediga.has(isoDatum(d))) n++
+  }
+  return n
 }
 
 // ============================================================
@@ -519,6 +537,7 @@ export default function HelikopterV2Page() {
     // Arbetsdagar — HELA månadens vardagar (ej "från idag"), golv 8 h/dag
     const availableDays = arbetsdagarIManad(ar, manad)
     const tillgangligaDagar = availableDays.length
+    const rodaBorttagna = ledigaVardagarIManad(ar, manad) // röda vardagar + arbetsfria aftnar — visas i headern
     const totalKapacitet = tillgangligaDagar * TIMMAR_PER_DAG
     // Stoppdagar per maskin = availableDays som täcks av maskinens maskinstopp
     const stoppByMaskin: Record<string, { dagar: number; orsaker: string[] }> = {}
@@ -598,7 +617,7 @@ export default function HelikopterV2Page() {
         .map(m => ({ maskin: m, luftH: null as number | null, buffert: true }))
       return { fran: fl.maskin, overH: -fl.luft, typer, kandidater: [...medLuft, ...bufferten] }
     })
-    return { skordare, skotare, extraMaskiner, offMaskin, tillgangligaDagar, totalKapacitet, ingaStopp: antalStoppIManad === 0, forslag }
+    return { skordare, skotare, extraMaskiner, offMaskin, tillgangligaDagar, totalKapacitet, rodaBorttagna, ingaStopp: antalStoppIManad === 0, forslag }
   }, [objektAlla, dimMaskiner, maskinstoppData, avslutByVo, ar, manad])
 
   // === UTFALL: avslutade objekt, prognos vs faktiskt utfall per maskintyp (läser vy_objekt_utfall) ===
@@ -920,7 +939,7 @@ export default function HelikopterV2Page() {
               {/* Rubrik: Beläggning <månad> + dagar kvar */}
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '16px 0 10px' }}>
                 <span style={{ fontSize: 15, fontWeight: 600, color: text }}>Beläggning {MANAD[manad]}</span>
-                <span style={{ fontSize: 13, color: muted, flexShrink: 0 }}>{kapacitet.tillgangligaDagar} arbetsdagar · 8 h/dag</span>
+                <span style={{ fontSize: 13, color: muted, flexShrink: 0 }}>{kapacitet.tillgangligaDagar} arbetsdagar{kapacitet.rodaBorttagna > 0 ? ` · ${kapacitet.rodaBorttagna} röda borträknade` : ''} · 8 h/dag</span>
               </div>
               {/* Noll stopp inlagda = full kapacitet antas. Visa det tyst — aldrig påstå mer än vi vet. */}
               {kapacitet.ingaStopp && (
