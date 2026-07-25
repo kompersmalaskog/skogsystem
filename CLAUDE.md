@@ -118,7 +118,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 `ledighet_ansokningar`
 
 ### Utbildning
-`utbildningar`, `utbildningsbevis`
+`utbildning_typ`, `utbildning_krav`, `utbildning_bevis`, vyn `utbildning_status`, `medarbetare`. PDF-bevis lagras i storage-bucketen `utbildningsbevis` (privat).
 
 ### Förbättringsförslag
 `feedback`, `audio` (storage bucket)
@@ -165,7 +165,11 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 - `maskin_logg` — maskinaktivitetslogg
 - `maskin_ko` — maskinko/ordning
 - `ledighet_ansokningar` — ledighetsansökan
-- `utbildningar` / `utbildningsbevis` — utbildning och certifikat
+- `utbildning_typ` — utbildningskatalog (namn, kravtyp `lag`/`certifiering`/`bestallare`, `giltighet_manader` (null=ingen utgång), `galler_alla`, `aktiv`)
+- `utbildning_krav` — vilka utbildningar som gäller vilka medarbetare (PK: `utbildning_typ_id` + `medarbetare_id`); används när `galler_alla=false`
+- `utbildning_bevis` — genomförda utbildningar per medarbetare (`genomford_datum`, `giltig_till_manuell` sätts bara vid avvikelse, `pdf_url` = storage-sökväg, mjuk radering via `aktiv=false` + `borttagen`)
+- `utbildning_status` (VY) — en rad per medarbetare×utbildning med färdig `status` (`giltig`/`gar_ut_snart`/`utgangen`/`saknas`) och `giltig_till`. Läs status HÄRIFRÅN — beräkna aldrig utgång/status i frontend. De gamla tabellerna `utbildningar`/`utbildningsbevis` finns INTE (deras migrationer kördes aldrig)
+- Storage-bucket `utbildningsbevis` — privata PDF-bevis (max 10 MB, skrivning kräver admin); visa via `createSignedUrl`, aldrig `getPublicUrl`
 - `planering_markeringar` — kartmarkeringar för planering
 - `kartbilder` — kartbilder
 - `tma_assessments` — terrängframkomlighet
