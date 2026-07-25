@@ -1,89 +1,64 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
+import { autentisera, supaService } from "@/lib/resurs-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Admin/chef kan läsa alla; alla inloggade får läsa (read-only). Bara admin/chef
-// kan skapa. Enkel variant — finare RLS kan läggas till senare.
+// KOMPATIBILITETS-SHIM (#6). Mappar nya resurs+kontroll tillbaka till den gamla
+// Fordon-formen så nuvarande FordonsoversiktClient fungerar oförändrad tills
+// vyn byggs om. ENBART läsning — skatt/försäkring utgår (returneras null).
+// Kastas i nästa steg.
 
-async function autentisera(): Promise<{ user: any; roll: string | null }> {
-  const cookieStore = await cookies();
-  const authClient = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll(cs) { cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); },
-      },
-    },
-  );
-  const { data: { user } } = await authClient.auth.getUser();
-  if (!user?.email) return { user: null, roll: null };
-  const { data: med } = await authClient
-    .from("medarbetare")
-    .select("roll")
-    .eq("epost", user.email)
-    .maybeSingle();
-  return { user, roll: med?.roll || null };
+type NyTyp = "bil" | "lastbil" | "slap" | "maskin" | "cistern";
+
+// Nya resurstyper → gammal (typ, grupp) som klienten känner igen.
+function gammalTypGrupp(typ: NyTyp): { typ: string; grupp: string } {
+  switch (typ) {
+    case "bil":     return { typ: "bil",   grupp: "bil" };
+    case "lastbil": return { typ: "lastbil", grupp: "lastbil_slap" };
+    case "slap":    return { typ: "slap",  grupp: "lastbil_slap" };
+    case "maskin":  return { typ: "annan", grupp: "maskin" };
+    case "cistern": return { typ: "annan", grupp: "maskin" };
+  }
 }
 
-function supaService() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
-}
-
-export async function GET(req: NextRequest) {
+export async function GET() {
   const { user } = await autentisera();
   if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
 
   const supabase = supaService();
   const { data, error } = await supabase
-    .from("fordon")
-    .select("*")
+    .from("resurs")
+    .select("id, namn, regnr, typ, matarstallning, anteckning, kontroll(*)")
     .eq("aktiv", true)
-    .order("grupp")
+    .order("typ")
     .order("namn");
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true, fordon: data || [] });
-}
+  const fordon = (data || []).map((r: any) => {
+    const { typ, grupp } = gammalTypGrupp(r.typ);
+    const arMaskin = r.typ === "maskin";
+    const kontroller: any[] = r.kontroll || [];
+    const besiktning = kontroller.find((k) => k.typ === "besiktning" && k.aktiv);
+    const service = kontroller.find((k) => k.typ === "service" && k.aktiv);
 
-export async function POST(req: NextRequest) {
-  const { user, roll } = await autentisera();
-  if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
-  if (roll !== "admin" && roll !== "chef") {
-    return NextResponse.json({ ok: false, error: "Kräver admin/chef" }, { status: 403 });
-  }
+    return {
+      id: r.id,
+      namn: r.namn,
+      regnr: r.regnr,
+      typ,
+      grupp,
+      besiktning_datum: besiktning?.nasta_forfall ?? null,
+      forsakring_datum: null, // utgår
+      skatt_datum: null,      // utgår
+      service_datum: service?.nasta_forfall ?? null,
+      service_timmar: arMaskin ? service?.nasta_matarvarde ?? null : null,
+      nuvarande_timmar: arMaskin ? r.matarstallning ?? null : null,
+      service_km: arMaskin ? null : service?.nasta_matarvarde ?? null,
+      nuvarande_km: arMaskin ? null : r.matarstallning ?? null,
+      anteckning: r.anteckning,
+    };
+  });
 
-  const body = await req.json();
-  const supabase = supaService();
-
-  const payload: any = {
-    namn: String(body.namn || "").trim(),
-    regnr: body.regnr ? String(body.regnr).toUpperCase().replace(/\s+/g, "") : null,
-    typ: body.typ,
-    grupp: body.grupp,
-    besiktning_datum: body.besiktning_datum || null,
-    forsakring_datum: body.forsakring_datum || null,
-    skatt_datum: body.skatt_datum || null,
-    service_datum: body.service_datum || null,
-    service_timmar: body.service_timmar ?? null,
-    nuvarande_timmar: body.nuvarande_timmar ?? null,
-    service_km: body.service_km ?? null,
-    nuvarande_km: body.nuvarande_km ?? null,
-    anteckning: body.anteckning || null,
-  };
-  if (!payload.namn || !payload.typ || !payload.grupp) {
-    return NextResponse.json({ ok: false, error: "namn, typ, grupp krävs" }, { status: 400 });
-  }
-
-  const { data, error } = await supabase.from("fordon").insert(payload).select().single();
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, fordon: data });
+  return NextResponse.json({ ok: true, fordon });
 }
