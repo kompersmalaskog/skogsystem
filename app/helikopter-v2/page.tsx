@@ -195,6 +195,8 @@ const MEDELSTAM_INTERVALL = [
   { min: 0.60, max: 0.80, label: '0,60–0,80' },
   { min: 0.80, max: Infinity, label: '> 0,80' },
 ]
+// Bucketarna ligger MEDVETET kvar fast skotarkurvan är avstängd (skotartakten opålitlig).
+// När lass-rapporteringen mognat och nivån självrättar kan kurvan sättas tillbaka — städa inte bort.
 const SKOTVAG_INTERVALL = [
   { min: 0, max: 500, label: '< 500 m' },
   { min: 500, max: 900, label: '500–900 m' },
@@ -662,8 +664,9 @@ export default function HelikopterV2Page() {
     return [
       { label: 'Scorpion', enhet: 'medelstam', grupper: bygg('skordare', id => MASKIN_SLUT.has(id), MEDELSTAM_INTERVALL, u => u.medelstam) },
       { label: 'Rottne', enhet: 'medelstam', grupper: bygg('skordare', id => MASKIN_GALLRING.has(id), MEDELSTAM_INTERVALL, u => u.medelstam) },
-      { label: 'Wisent', enhet: 'skotväg', grupper: bygg('skotare', id => id === 'A030353', SKOTVAG_INTERVALL, u => u.skotvag_m) },
-      { label: 'Elefant', enhet: 'skotväg', grupper: bygg('skotare', id => id === 'A110148', SKOTVAG_INTERVALL, u => u.skotvag_m) },
+      // Skotar-KURVAN utelämnad — skotartakten är opålitlig: underrapporterade lass ger fel nivå,
+      // och snittet förorenas av flyttar (skotväg >3000 m), pyttevolymer (<50 m³) och blandade huvudtyper.
+      // Prognos-mot-utfall per objekt i listan står kvar (skotarraden där = prognos + pågår/utfall, inte ett snitt).
     ]
   }, [utfallLista])
 
@@ -1111,8 +1114,8 @@ export default function HelikopterV2Page() {
                 )}
                 {/* Kalibrering/kurva — ALLA avslutade objekt (utom VF). Uppmätt takt behöver ingen prognos. */}
                 <div style={{ ...card, marginTop: 4, marginBottom: 12, padding: '14px 16px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginBottom: 4 }}>Uppmätt takt per skogstyp</div>
-                  <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>Alla avslutade objekt (utom VF/Bark) — takten är mätt, behöver ingen prognos. Prognosträff visas när prognos finns.</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginBottom: 4 }}>Uppmätt skördartakt per medelstam</div>
+                  <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>Skördartakt ur alla avslutade objekt (utom VF/Bark) — mätt, ingen prognos behövs; prognosträff läggs på när prognos finns. Skotaren följs per objekt i listan, inte som kurva här (lass-snittet är ännu för ojämnt).</div>
                   {kalibrering.map(k => (
                     <div key={k.label} style={{ borderTop: `1px solid ${divider}`, paddingTop: 8, marginTop: 8 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: muted, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4 }}>{k.label} — per {k.enhet}</div>
