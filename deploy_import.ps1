@@ -28,7 +28,8 @@
 param(
     [switch]$Force,
     [string]$DeployDir = 'C:\skogsystem-import',
-    [string]$TaskName  = 'Skogsystem Auto Import'
+    [string]$TaskName  = 'Skogsystem Auto Import',
+    [int]$MaxVantaImportSek = 300   # hur lange steg 3 vantar ut en pagaende import innan hogt avbrott
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,11 +81,33 @@ if ($dirty) {
 
 # -- 3. Stoppa enligt watchdog-disciplinen --
 Steg '3/6 stoppa watchdogen'
-$importJobb = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -match [regex]::Escape($DeployDir) }
-if ($importJobb) { Fel "Ett importjobb kor just nu (python.exe i $DeployDir) -- vanta tills det ar klart och kor om." }
+# Disable FORST -> inga NYA importer startar under vantan. En redan pagaende
+# import (python.exe i DeployDir) dodas ALDRIG mitt i -- vi vantar ut den (RETRY)
+# och avbryter HOGT om den fastnar. Aldrig ett tyst avbrott som lamnar drift pa
+# gammal kod (samma felklass som byggts bort overallt annars -- 3 tysta miss
+# denna vecka).
 Disable-ScheduledTask -TaskName $TaskName | Out-Null
 $script:WatchdogStoppad = $true
+
+$vantat = 0
+while ($true) {
+    $importJobb = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match [regex]::Escape($DeployDir) })
+    if ($importJobb.Count -eq 0) { break }
+    if ($vantat -ge $MaxVantaImportSek) {
+        # Import fastnat -> ateraktivera watchdogen (lamna ALDRIG drift utan den)
+        # och avbryt HOGT. Drift ar OFORANDRAD.
+        Enable-ScheduledTask -TaskName $TaskName | Out-Null
+        $script:WatchdogStoppad = $false
+        Fel ("AVBRUTEN -- ett importjobb (python.exe i $DeployDir, PID $($importJobb[0].ProcessId)) har kort " +
+             "i > $MaxVantaImportSek s och blockerar deployen. DRIFT AR OFORANDRAD (kor fortf. GAMMAL kod). " +
+             "Watchdogen ar ateraktiverad. KOR OM deployen nar importen ar klar.")
+    }
+    Write-Host ("  Import kor (PID $($importJobb[0].ProcessId)) -- vantar ut den... $vantat/$MaxVantaImportSek s") -ForegroundColor Yellow
+    Start-Sleep -Seconds 10
+    $vantat += 10
+}
+
 Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 Get-Process pythonw -ErrorAction SilentlyContinue | ForEach-Object {
     Write-Host "Stoppar pythonw PID $($_.Id)"
