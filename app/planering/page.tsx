@@ -9545,13 +9545,18 @@ export default function PlannerPage() {
                         <button key={g.key} type="button" disabled={!tappbar}
                           onClick={() => { if (g.items.length === 1) flyTill(g.items[0]); else setOversiktSymbolTyp(aktiv ? null : g.key); }}
                           className={tappbar ? 'btn-press' : undefined}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px 7px 8px', borderRadius: 20, border: aktiv ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.12)', background: aktiv ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: tappbar ? 'pointer' : 'default', opacity: tappbar ? 1 : 0.65, fontFamily: 'inherit' }}>
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px 7px 8px', borderRadius: 20, border: aktiv ? '1px solid rgba(255,255,255,0.5)' : kommenterade.length > 0 ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(255,255,255,0.12)', background: aktiv ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: tappbar ? 'pointer' : 'default', opacity: tappbar ? 1 : 0.65, fontFamily: 'inherit' }}>
                           {g.kind === 'symbol'
                             ? <span style={{ width: 22, height: 22, borderRadius: 11, background: chipBg(g.typ), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{renderIcon(g.typ, 13, '#fff')}</span>
                             : linjeSwatch(g.typ)}
                           <span style={{ fontWeight: 700 }}>{g.items.length}</span>
                           <span style={{ color: 'rgba(255,255,255,0.8)' }}>{g.kind === 'symbol' ? namnFor(g.typ, g.items.length) : linjeNamnFor(g.typ, g.items.length)}</span>
-                          {tappbar && g.items.length > 1 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', transform: aktiv ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>&#x203A;</span>}
+                          {kommenterade.length > 0 && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 4, paddingLeft: 8, borderLeft: '1px solid rgba(255,255,255,0.16)' }} aria-label={`${kommenterade.length} med anteckning`}>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" /></svg>
+                              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'rgba(255,255,255,0.5)', fontVariantNumeric: 'tabular-nums' }}>{kommenterade.length}</span>
+                            </span>
+                          )}
                         </button>
                       );
                     })}
