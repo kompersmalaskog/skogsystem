@@ -506,7 +506,10 @@ function Collapse({ title, varde, children, defaultOpen = false }: { title: stri
 }
 
 // ── Produktivitet ─────────────────────────────────────────────────────────
-function ProdKort({ color, label, rows }: { color: string; label: string; rows: [string, string][] }) {
+// rows: [värde, enhet, manuellt?]. manuellt=true → "manuellt"-badge (G15-taltet
+// kommer ur skotning_g15_manuell, inte mätt maskintid — samma ärlighetsregel som
+// mätt/rapporterat/schablon: säg vilken sorts siffra det är).
+function ProdKort({ color, label, rows }: { color: string; label: string; rows: [string, string, boolean?][] }) {
   return (
     <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
@@ -514,10 +517,13 @@ function ProdKort({ color, label, rows }: { color: string; label: string; rows: 
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-        {rows.map(([v, u], i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        {rows.map(([v, u, manuell], i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>{v}</span>
             <span style={{ fontSize: 11, color: V6_GREY, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>{u}</span>
+            {manuell && (
+              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_GREY, border: `1px solid ${V6_SEP}`, borderRadius: 5, padding: '1px 5px' }}>manuellt</span>
+            )}
           </div>
         ))}
       </div>
@@ -526,14 +532,17 @@ function ProdKort({ color, label, rows }: { color: string; label: string; rows: 
 }
 
 function Produktivitet({ data }: { data: UppfoljningData }) {
-  const skRows: [string, string][] = [];
+  const skRows: [string, string, boolean?][] = [];
   if (data.skordareM3G15h > 0) skRows.push([String(data.skordareM3G15h), 'm³/G15h']);
   if (data.skordareStammarG15h > 0) skRows.push([String(data.skordareStammarG15h), 'stammar/G15h']);
   if (data.skordareMedelstam > 0) skRows.push([String(data.skordareMedelstam), 'm³ medelstam']);
 
-  const stRows: [string, string][] = [];
-  if (data.skotareM3G15h > 0) stRows.push([String(data.skotareM3G15h), 'm³/G15h']);
-  if (data.skotareLassG15h > 0) stRows.push([String(data.skotareLassG15h), 'lass/G15h']);
+  // m³/G15h och lass/G15h delar G15-nämnaren → märks "manuellt" när skotartiden
+  // kommer ur skotning_g15_manuell. Snittlass/skotningsavstånd rör inte G15 → omärkta.
+  const st = data.skotareTidManuell;
+  const stRows: [string, string, boolean?][] = [];
+  if (data.skotareM3G15h > 0) stRows.push([String(data.skotareM3G15h), 'm³/G15h', st]);
+  if (data.skotareLassG15h > 0) stRows.push([String(data.skotareLassG15h), 'lass/G15h', st]);
   if (data.skotareSnittlass > 0) stRows.push([`${data.skotareSnittlass} m³`, 'snittlass']);
   if (data.skotningsavstand > 0) stRows.push([`${data.skotningsavstand} m`, 'skotningsavstånd']);
 
@@ -885,9 +894,10 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   const prodVarde = (() => {
     const sk = data.skordareM3G15h > 0 ? data.skordareM3G15h : null;
     const st = data.skotareM3G15h > 0 ? data.skotareM3G15h : null;
-    if (sk != null && st != null) return `Skördare ${sv(sk)} · Skotare ${sv(st)}`;
+    const man = data.skotareTidManuell ? ' · manuellt' : '';
+    if (sk != null && st != null) return `Skördare ${sv(sk)} · Skotare ${sv(st)}${man}`;
     if (sk != null) return `${sv(sk)} m³/G15h`;
-    if (st != null) return `${sv(st)} m³/G15h`;
+    if (st != null) return `${sv(st)} m³/G15h${man}`;
     return null;
   })();
 
