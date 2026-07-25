@@ -9333,22 +9333,33 @@ export default function PlannerPage() {
         const harAreal = Number.isFinite(arealNum) && arealNum > 0;
         const volymTxt = (infoVolym ?? '').toString().trim();
 
-        // N träd/ha ur Vida-texten — aldrig gissa. Intervall räknas i båda ändar.
+        // N träd/ha ur texten — aldrig gissa. Tabellen visas ENDAST när ett faktiskt tal matchar
+        // (siffra + träd/tall-ord + per ha), aldrig bara för att ordet "tall" råkar finnas. Läses ur
+        // BÅDA fälten: Vidas direktiv (anteckningar) OCH egen anteckning (info_anteckningar). Vida
+        // VINNER. Skiljer sig fälten åt döljs det aldrig tyst — en notis visas (cert-krav).
         const avstand = (n: number) => Math.round(Math.sqrt(10000 / n));
-        let planttext: string | null = null;
-        let loN: number | null = null, hiN: number | null = null;
-        if (vida) {
-          const range = vida.match(/(\d{1,3})\s*[-–]\s*(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
-          const single = vida.match(/(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
+        const extractTal = (text: string): { lo: number; hi: number; txt: string } | null => {
+          if (!text) return null;
+          const range = text.match(/(\d{1,3})\s*[-–]\s*(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
           if (range) {
             const a = Math.min(+range[1], +range[2]), b = Math.max(+range[1], +range[2]);
-            loN = a; hiN = b;
-            planttext = `ca ${avstand(b)}–${avstand(a)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * a)}–${Math.round(arealNum * b)} st totalt` : '');
-          } else if (single) {
-            const n = +single[1]; loN = n; hiN = n;
-            planttext = `ca ${avstand(n)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * n)} st totalt` : '');
+            return { lo: a, hi: b, txt: `ca ${avstand(b)}–${avstand(a)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * a)}–${Math.round(arealNum * b)} st totalt` : '') };
           }
-        }
+          const single = text.match(/(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
+          if (single) {
+            const n = +single[1];
+            return { lo: n, hi: n, txt: `ca ${avstand(n)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * n)} st totalt` : '') };
+          }
+          return null;
+        };
+        const vidaTal = extractTal(vida);
+        const egnaTal = extractTal(egna);
+        const tal = vidaTal || egnaTal;                    // Vida vinner
+        const loN: number | null = tal ? tal.lo : null;
+        const hiN: number | null = tal ? tal.hi : null;
+        const planttext: string | null = tal ? tal.txt : null;
+        const talKonflikt = !!(vidaTal && egnaTal && (vidaTal.lo !== egnaTal.lo || vidaTal.hi !== egnaTal.hi));
+        const egnaTalStr = egnaTal ? (egnaTal.lo === egnaTal.hi ? `${egnaTal.lo}` : `${egnaTal.lo}–${egnaTal.hi}`) : '';
 
         // Symboler grupperade per typ (svenska plural; singular vid 1).
         const plural: Record<string, [string, string]> = {
@@ -9446,25 +9457,37 @@ export default function PlannerPage() {
                 <div style={{ marginBottom: 14, background: 'rgba(10,132,255,0.08)', border: '1px solid rgba(10,132,255,0.3)', borderRadius: 14, padding: '13px 15px' }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#4da3ff', marginBottom: 7 }}>Direktiv från Vida</div>
                   <div style={{ fontSize: 15, lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{vida}</div>
-                  {planttext && (
+                  {vidaTal && planttext && (
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: 14, fontWeight: 600, color: '#4da3ff' }}>{planttext}</div>
                   )}
                 </div>
               )}
 
-              {/* Omräkningstabell — tunt STÖD, inte tryckbart. Direktivet ska dominera. */}
-              <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5 }}>
-                <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: 'rgba(255,255,255,0.3)', marginRight: 2 }}>träd/ha</span>
-                {([[10, 32], [20, 22], [30, 18], [50, 14]] as [number, number][]).map(([n, m], i) => {
-                  const hit = loN != null && hiN != null && n >= loN && n <= hiN;
-                  return (
-                    <span key={n} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
-                      {i > 0 && <span style={{ color: 'rgba(255,255,255,0.22)' }}>·</span>}
-                      <span style={{ color: hit ? '#4da3ff' : 'rgba(255,255,255,0.55)', fontWeight: hit ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>{n} → {m} m</span>
-                    </span>
-                  );
-                })}
-              </div>
+              {/* Omräkningstabell — visas ENDAST när ett tal/ha matchat (Vidas eller egen). Tunt STÖD. */}
+              {tal && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5 }}>
+                    <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: 'rgba(255,255,255,0.3)', marginRight: 2 }}>träd/ha</span>
+                    {([[10, 32], [20, 22], [30, 18], [50, 14]] as [number, number][]).map(([n, m], i) => {
+                      const hit = loN != null && hiN != null && n >= loN && n <= hiN;
+                      return (
+                        <span key={n} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+                          {i > 0 && <span style={{ color: 'rgba(255,255,255,0.22)' }}>·</span>}
+                          <span style={{ color: hit ? '#4da3ff' : 'rgba(255,255,255,0.55)', fontWeight: hit ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>{n} → {m} m</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {/* Talet kom från egen anteckning (Vida saknar) → visa uträkningen här, inte i Vida-rutan. */}
+                  {!vidaTal && egnaTal && planttext && (
+                    <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: '#4da3ff' }}>{planttext} <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.4)' }}>(egen anteckning)</span></div>
+                  )}
+                  {/* Tyst konflikt i ett cert-krav får aldrig döljas. Vida vinner, men skillnaden syns. */}
+                  {talKonflikt && (
+                    <div style={{ marginTop: 8, fontSize: 12.5, color: '#ffb84d' }}>Egen anteckning anger {egnaTalStr}/ha — Vidas direktiv gäller</div>
+                  )}
+                </div>
+              )}
 
               {egna && (
                 <div style={{ marginBottom: 14 }}>
