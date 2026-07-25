@@ -1549,6 +1549,13 @@ export default function PlannerPage() {
   // Ladda info-data från Supabase när objekt väljs
   useEffect(() => {
     if (!valtObjekt?.id) { setInfoLoaded(false); return; }
+    // KRITISK: markera som "ej laddad" + nollställ objektets BERÄKNAD state direkt vid objektbyte.
+    // infoLoaded=false blockerar den debouncade spar-effekten (rad ~1758 + saveInfoToDb-guarden) så
+    // den TOMMA reset-datan ALDRIG kan sparas — annars kunde en långsam laddning låta timern hinna
+    // wipe:a objektets sparade restriktioner. Förra objektets regelverk får aldrig synas/sparas på
+    // den nya trakten (fel regelverk på fel trakt är farligt). Sätts till objektets EGNA data nedan.
+    setInfoLoaded(false);
+    setTraktData({ volym: Number(valtObjekt.volym) || 0, areal: Number(valtObjekt.areal) || 0 });
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
@@ -1590,7 +1597,9 @@ export default function PlannerPage() {
         // Prognos, traktdata, körläge, stickväg
         if (data.prognos_settings) setPrognosSettings(data.prognos_settings);
         if (data.manuell_prognos) setManuellPrognos(data.manuell_prognos);
-        if (data.trakt_data) setTraktData(data.trakt_data);
+        // Ovillkorligt: ladda objektets EGNA trakt_data, annars ren bas (utan beraknad/
+        // restriktioner). Det gamla villkoret 'if (data.trakt_data)' lämnade förra objektets kvar.
+        setTraktData(data.trakt_data || { volym: Number(data.volym) || 0, areal: Number(data.areal) || 0 });
         // körläge (driving_mode) läses INTE längre härifrån — härleds från kvittot (STEG 6a-3)
         if (data.stickvag_settings) setStickvagSettings(data.stickvag_settings);
         if (data.checklist_items) setChecklistItems(data.checklist_items);
