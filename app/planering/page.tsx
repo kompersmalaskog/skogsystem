@@ -2345,6 +2345,48 @@ export default function PlannerPage() {
 
   // MapLibre
   const mapInstanceRef = useRef<any>(null);
+
+  // === KART-ORIGO för SVG-markörer (KRITISK SÄKERHET) ===========================================
+  // svgToLatLon/latLonToSvg räknar markörernas x/y RELATIVT mapCenter. Markörerna bakades relativt
+  // objektets center i planeringsvyn (där ObjektVäljaren satte mapCenter+mapZoom). Läses de med ett
+  // ANNAT origo hamnar traktgräns/stickvägar/symboler flera mil fel — och i körvyn matar
+  // fällningsradien mot fel plats: föraren ser en LUGN skärm och tror att inga hinder finns.
+  // Buggen: mapCenter sattes BARA av ObjektVäljaren. Förarens objekt auto-väljs (tilldelat
+  // pågående/planerat) eller sätts vid "starta körning" — båda gick förbi den, så mapCenter fastnade
+  // på default-Stenshult (~8 mil fel). Fixen: en effekt sätter origot på VARJE objekt-inladdning.
+  const objektKartCenter = (obj: any): { lat: number; lng: number; zoom: number } | null => {
+    if (!obj) return null;
+    const b = obj.kartbild_bounds;
+    if (b && Array.isArray(b) && Array.isArray(b[0]) && Array.isArray(b[1]) && b[0][0] != null && b[1][0] != null) {
+      return { lat: (b[0][0] + b[1][0]) / 2, lng: (b[0][1] + b[1][1]) / 2, zoom: 15 };
+    }
+    if (obj.lat != null && obj.lng != null) return { lat: obj.lat, lng: obj.lng, zoom: 16 };
+    return null; // saknar BÅDE bounds och lat/lng → origo kan inte härledas (se objektSaknarPosition)
+  };
+
+  // Objekt utan härledbart origo. Då kan SVG-markörer INTE placeras rätt — vi ritar dem inte (de
+  // skulle se rätt ut men mata fällningsradien mot fel plats) och varnar tydligt i stället.
+  const objektSaknarPosition = !!valtObjekt && objektKartCenter(valtObjekt) === null;
+
+  // Centrera SVG-origot (och MapLibre-kameran) på objektet. Samma logik och samma zoom som
+  // ObjektVäljaren använde när markörerna ritades → läs-origo/skala == rit-origo/skala.
+  const centreraPaObjekt = (obj: any) => {
+    const cc = objektKartCenter(obj);
+    if (!cc) return; // gissa ALDRIG ett origo för ett positionslöst objekt — varna i stället
+    setMapCenter({ lat: cc.lat, lng: cc.lng });
+    setMapZoom(cc.zoom);
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.jumpTo({ center: [cc.lng, cc.lat], zoom: cc.zoom, pitch: 50, bearing: 0 });
+      setTimeout(() => mapInstanceRef.current?.resize(), 50);
+    }
+  };
+
+  // Sätt origot vid VARJE objektbyte (och när kartan blir redo) — oavsett hur objektet valdes:
+  // ObjektVäljaren, auto-val eller "starta körning". Detta är själva fixen: ingen väg in kan
+  // längre glömma att centrera, så fällningsradien matar aldrig mer mot fel plats.
+  useEffect(() => {
+    centreraPaObjekt(valtObjekt);
+  }, [valtObjekt?.id, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
   
@@ -5309,6 +5351,7 @@ export default function PlannerPage() {
     try {
       const src = map.getSource('lines-source') as any;
       if (!src) return;
+      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte på fel plats
       const features: any[] = [];
       const korvyPos = korvyActive ? (currentPosition as any) : null;
       markers
@@ -5338,7 +5381,7 @@ export default function PlannerPage() {
         console.log('[MapLibre] lines-source synced:', features.length, 'features', types);
       }
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition]);
+  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition]);
 
   // 2) Synka zoner → MapLibre zones-source
   useEffect(() => {
@@ -5347,6 +5390,7 @@ export default function PlannerPage() {
     try {
       const src = map.getSource('zones-source') as any;
       if (!src) return;
+      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte på fel plats
       const features: any[] = [];
       markers
         .filter((m: any) => m.isZone && m.path && m.path.length > 2)
@@ -5369,7 +5413,7 @@ export default function PlannerPage() {
       });
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, visibleZones]);
+  }, [markers, mapLibreReady, mapCenter, visibleZones, objektSaknarPosition]);
 
   // 2b) Synka markeringar → MapLibre markers-source (GPU-renderad symbol layer)
   // Inkluderar opacity per feature baserat på proximity
@@ -5405,6 +5449,7 @@ export default function PlannerPage() {
         if (drivingMode) console.log('[Proximity] SKIP: markers-source not found');
         return;
       }
+      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte symboler på fel plats (fällningsradien vore blind)
       const features: any[] = [];
       // KÖRVY: from-driver — visa symboler inom synhåll från MIG (GPS), inte från trakt-centrum.
       // Jämför två VERKLIGA positioner (GPS + symbolens svgToLatLon) → robust mot skevt/saknat
@@ -9088,26 +9133,8 @@ export default function PlannerPage() {
           console.log('kartbild_bounds type:', typeof obj.kartbild_bounds);
           console.log('lat:', obj.lat, 'lng:', obj.lng);
           setValtObjekt(obj);
-          // Centrera kartan på objektets koordinater eller kartbild
-          if (obj.kartbild_bounds) {
-            const bounds = obj.kartbild_bounds;
-            const centerLat = (bounds[0][0] + bounds[1][0]) / 2;
-            const centerLng = (bounds[0][1] + bounds[1][1]) / 2;
-            setMapCenter({ lat: centerLat, lng: centerLng });
-            setMapZoom(15);
-            // Flytta MapLibre-kartan om den finns
-            if (mapInstanceRef.current) {
-              mapInstanceRef.current.jumpTo({ center: [centerLng, centerLat], zoom: 15, pitch: 50, bearing: 0 });
-              setTimeout(() => mapInstanceRef.current?.resize(), 50);
-            }
-          } else if (obj.lat && obj.lng) {
-            setMapCenter({ lat: obj.lat, lng: obj.lng });
-            setMapZoom(16);
-            if (mapInstanceRef.current) {
-              mapInstanceRef.current.jumpTo({ center: [obj.lng, obj.lat], zoom: 16, pitch: 50, bearing: 0 });
-              setTimeout(() => mapInstanceRef.current?.resize(), 50);
-            }
-          }
+          // Kart-origot (mapCenter/mapZoom + kamera) sätts av centrerings-effekten på valtObjekt.id
+          // — EN väg för ALLA sätt att välja objekt (ObjektVäljaren, auto-val, starta körning).
           setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
           setZoom(1);
         }}
@@ -9280,6 +9307,20 @@ export default function PlannerPage() {
 
           {/* Platshållare där nödlägesknappen satt — håller objekt-pillen centrerad */}
           <span style={{ width: '44px', flexShrink: 0 }} aria-hidden="true" />
+        </div>
+      )}
+
+      {/* Objekt utan position — VARNA, rita inte. Fällningsradien kan inte beräknas → aldrig tyst. */}
+      {objektSaknarPosition && (
+        <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 60px)', left: 12, right: 12, zIndex: 620,
+          background: 'rgba(255,59,48,0.96)', color: '#fff', borderRadius: 12, padding: '11px 13px',
+          display: 'flex', alignItems: 'flex-start', gap: 10, boxShadow: '0 8px 26px rgba(0,0,0,0.45)',
+          fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif" }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" style={{ flexShrink: 0, marginTop: 1 }}><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.7 3.86a2 2 0 0 0-3.42 0Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.4 }}>
+            <div style={{ fontWeight: 700 }}>Objektet saknar position</div>
+            <div style={{ opacity: 0.92 }}>Kartmarkeringar visas inte och avståndsvarningar (fällningsradie) fungerar inte här. Lita inte på en lugn skärm — kontrollera hinder manuellt.</div>
+          </div>
         </div>
       )}
 
