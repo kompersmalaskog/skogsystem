@@ -168,12 +168,54 @@ def mom_ceiling(maskin, dayset):
     return dict(day_pt)
 
 
+# ── Fysik-invarianter: strukturerad registry ────────────────────────────────
+# Lägg till en ny invariant genom att skriva en funktion (rows) -> list[str] och
+# registrera den i FYSIK_INVARIANTER. Var och en är READ-ONLY och larmar BARA på
+# ÄKTA fysikbrott — aldrig på kända/ofarliga tomlägen. Där mätartefakter finns
+# (väggklocka vs motoraxel) måste checken ha tolerans, annars falsklarmar den.
+
+def _inv_other_work_kategorier(rows):
+    """other_work_kategorier = {}  ELLER  SUM(värden) = other_work_sek.
+    {} är en ärlig lucka (rad importerad före PR B, eller fler-operatörs-objekt-
+    dag där kategorifördelningen mellan operatörerna inte kan läsas) och är
+    ALDRIG ett fel — bara en icke-{} rad vars kategorisumma avviker från totalen
+    är ett brott (då har backfillen eller importen skrivit fel fördelning)."""
+    larm = []
+    for r in rows:
+        kat = r.get('other_work_kategorier') or {}
+        if not kat:
+            continue
+        try:
+            s = sum(int(v) for v in kat.values())
+        except (TypeError, ValueError):
+            larm.append('  LARM  INVARIANT other_work_kategorier icke-numerisk: '
+                        f"{r['maskin_id']} {r['datum']} obj={r.get('objekt_id')} kat={kat}")
+            continue
+        if s != (r.get('other_work_sek') or 0):
+            larm.append('  LARM  INVARIANT other_work_kategorier != other_work_sek: '
+                        f"{r['maskin_id']} {r['datum']} obj={r.get('objekt_id')} "
+                        f"op={r.get('operator_id')} — SUM(kat)={s} != ows={r.get('other_work_sek') or 0}")
+    return larm
+
+# Framtida kandidater — samma mönster (skriv funktion + registrera nedan):
+#   _inv_pt_under_engine    : processing+terrain <= engine_time + TOLERANS. OBS:
+#       G15 (=P+T+other_work) FÅR överstiga engine_time (other_work sker ofta med
+#       motorn av), och P+T ligger marginellt över engine på enstaka dagar
+#       (väggklocka vs motoraxel, t.ex. Elefant 95,86 vs 95,85 h) — kräver alltså
+#       en tolerans (t.ex. > 2 % eller > N min) för att inte falsklarma.
+#   _inv_skotat_le_avverkat : skotad volym <= avverkad + marginal (fakt_lass-join).
+#   _inv_lassvolym_spann    : volym per lass inom rimligt spann (fakt_lass).
+FYSIK_INVARIANTER = [
+    ('other_work_kategorier', _inv_other_work_kategorier),
+]
+
+
 def check_invarianter():
     """Invarianter över HELA fakt_tid (ren DB, ordnad hämtning).
     -> (larmrader, antal_rader, tomgang_arv_kvar). READ-ONLY."""
     url_bas = (imp.SUPABASE_URL +
                '/rest/v1/fakt_tid?select=datum,maskin_id,objekt_id,operator_id,'
-               'processing_sek,terrain_sek,other_work_sek,kort_stopp_sek,'
+               'processing_sek,terrain_sek,other_work_sek,other_work_kategorier,kort_stopp_sek,'
                'tomgang_sek,engine_time_sek,bransle_liter'
                '&order=id&limit=1000&offset=')
     rows, offset = [], 0
@@ -227,6 +269,11 @@ def check_invarianter():
     if tomgang_arv > KANDA_TOMGANG_ARV:
         larm.append(f'  LARM  INVARIANT tomgång-inkonsistens VÄXER: {tomgang_arv} rader '
                     f'(känt arv: {KANDA_TOMGANG_ARV}) — skapas NYA trots #124-fixen?')
+
+    # (d) Fysik-invarianter — strukturerad registry (se FYSIK_INVARIANTER ovan).
+    for _namn, _fn in FYSIK_INVARIANTER:
+        larm += _fn(rows)
+
     return larm, len(rows), tomgang_arv
 
 
