@@ -9427,7 +9427,20 @@ export default function PlannerPage() {
           map.flyTo({ center: [larmLng, larmLat], zoom: Math.max(map.getZoom(), 17), duration: 700 });
         };
         const stang = () => { setTraktOversiktOpen(false); setOversiktSymbolTyp(null); };
-        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr;
+        // Kontorets dokument (TD + stämplingslängd) ligger i privat bucket → signeras vid klick och
+        // öppnas externt (PDF i telefonens läsare / ny flik). Ingen inbäddning. Rad visas bara om url finns.
+        const harDok = !!(valtObjekt.traktdirektiv_url || valtObjekt.stamplingslangd_url);
+        const dokRad = (etikett: string, url: string) => (
+          <button type="button" key={etikett} className="btn-press" onClick={async () => { const s = await signeraKartfil(url); if (s) openExternal(s); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+            <span style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(10,132,255,0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4da3ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" /></svg>
+            </span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: '#fff' }}>{etikett}</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6" /><path d="M10 14 21 3" /></svg>
+          </button>
+        );
+        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr || harDok;
 
         return (
           <>
@@ -9454,6 +9467,17 @@ export default function PlannerPage() {
                   {planttext && (
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: 14, fontWeight: 600, color: '#4da3ff' }}>{planttext}</div>
                   )}
+                </div>
+              )}
+
+              {/* DOKUMENT — kontorets underlag (TD + stämplingslängd), nära Direktiv från Vida. */}
+              {harDok && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Dokument</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {valtObjekt.traktdirektiv_url && dokRad('Traktdirektiv', valtObjekt.traktdirektiv_url)}
+                    {valtObjekt.stamplingslangd_url && dokRad('Stämplingslängd', valtObjekt.stamplingslangd_url)}
+                  </div>
                 </div>
               )}
 
@@ -9548,7 +9572,7 @@ export default function PlannerPage() {
                       const aktiv = oversiktSymbolTyp === g.key;
                       return (
                         <button key={g.key} type="button" disabled={!tappbar}
-                          onClick={() => { if (g.items.length === 1) flyTill(g.items[0]); else setOversiktSymbolTyp(aktiv ? null : g.key); }}
+                          onClick={() => { if (kommenterade.length > 0) setOversiktSymbolTyp(aktiv ? null : g.key); else flyTill(g.items[0]); }}
                           className={tappbar ? 'btn-press' : undefined}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px 7px 8px', borderRadius: 20, border: aktiv ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.12)', background: aktiv ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: tappbar ? 'pointer' : 'default', opacity: tappbar ? 1 : 0.65, fontFamily: 'inherit' }}>
                           {g.kind === 'symbol'
