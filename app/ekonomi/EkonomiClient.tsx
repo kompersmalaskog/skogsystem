@@ -20,7 +20,7 @@ import { arSlutavraknad } from '@/lib/objekt/avrakning';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
-  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag,
+  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
 } from '@/lib/ekonomi/acord';
 import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
 import EkonomiBottomNav from './EkonomiBottomNav';
@@ -91,7 +91,7 @@ export default function EkonomiClient() {
             .range(from, to)
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
-        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -178,14 +178,55 @@ export default function EkonomiClient() {
         harvAgg[key].vol += Number(r.volym_m3sub) || 0;
         harvAgg[key].stammar += Number(r.stammar) || 0;
       }
+      // Skotarvolym: manuell korrigering (dim_objekt.skotad_volym_manuell)
+      // gäller när satt — FPR-lassen läcker. Fördelningen kräver objektets
+      // HELA historik (annars dubbelräknas volymen mellan perioder), så för
+      // korrigerade objekt hämtas all lass/skotartid och periodens delar
+      // filtreras fram. Skotavståndstillägget räknas alltid ur faktiska lass.
+      // Samma motorfunktion som /ekonomi/mot-ackord — vyerna får aldrig visa
+      // olika skotarvolym för samma objekt.
+      const manuellObjekt = (objRes.data || []).filter((o: any) =>
+        !exkluderade.has(o.objekt_id) && Number(o.skotad_volym_manuell) > 0);
+      const manuellIds = new Set<string>(manuellObjekt.map((o: any) => o.objekt_id));
+      const manuellPeriodDelar: Record<string, number> = {}; // `${objekt}|${maskin}` → volym i perioden
+      if (manuellObjekt.length > 0) {
+        const idList = manuellObjekt.map((o: any) => o.objekt_id);
+        const [helaLass, helaTid] = await Promise.all([
+          fetchAllRows((from, to) =>
+            supabase.from('fakt_lass')
+              .select('datum, maskin_id, objekt_id, volym_m3sub')
+              .in('objekt_id', idList).range(from, to)
+          ),
+          fetchAllRows((from, to) =>
+            supabase.from('fakt_tid')
+              .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek, other_work_sek')
+              .in('objekt_id', idList).range(from, to)
+          ),
+        ]);
+        for (const o of manuellObjekt) {
+          const oLass = helaLass.filter((r: any) => r.objekt_id === o.objekt_id);
+          const oTid = helaTid.filter((r: any) => r.objekt_id === o.objekt_id && maskinMap[r.maskin_id]?.maskin_typ === 'Forwarder');
+          const f = fordelaSkotadVolym(o.skotad_volym_manuell, oLass, oTid);
+          for (const d of f.delar) {
+            if (d.datum < start || d.datum > end) continue;
+            const key = `${o.objekt_id}|${d.maskin_id}`;
+            manuellPeriodDelar[key] = (manuellPeriodDelar[key] || 0) + d.volym;
+          }
+        }
+      }
+
       const fwdAgg: Record<string, { vol: number; skotavstand_kr: number }> = {};
       for (const r of lassRows) {
         if (!r.objekt_id) continue;
         const key = `${r.objekt_id}|${r.maskin_id}`;
         if (!fwdAgg[key]) fwdAgg[key] = { vol: 0, skotavstand_kr: 0 };
         const vol = Number(r.volym_m3sub) || 0;
-        fwdAgg[key].vol += vol;
+        if (!manuellIds.has(r.objekt_id)) fwdAgg[key].vol += vol;
         fwdAgg[key].skotavstand_kr += skotAvstandKr(r.datum, r.korstracka_m || 0, vol, avstandList);
+      }
+      for (const [key, vol] of Object.entries(manuellPeriodDelar)) {
+        if (!fwdAgg[key]) fwdAgg[key] = { vol: 0, skotavstand_kr: 0 };
+        fwdAgg[key].vol += vol;
       }
 
       // ── Klassning & aggregering per maskin ──
@@ -471,7 +512,7 @@ export default function EkonomiClient() {
             <div style={{ fontSize: 13, lineHeight: 1.6, color: '#bfcab9', display: 'grid', gap: 14 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 }}>Volym i perioden</div>
-                Skördat {formatVol(skordatVol)} · Skotat {formatVol(skotatVol)}. Samma virke passerar båda maskinerna — därför visas volymerna var för sig här, inte hopsummerade per stock.
+                Skördat {formatVol(skordatVol)} · Skotat {formatVol(skotatVol)}. Samma virke passerar båda maskinerna — därför visas volymerna var för sig här, inte hopsummerade per stock. Där FPR-lassen är ofullständiga och en manuell skotad volym är satt används den, fördelad över skotarens registrerade tid.
                 {antagenVol > 0 && (
                   <> {formatVol(antagenVol)} av det skotade saknar skördardata i perioden och prissätts med antagen medelstam {ANTAGEN_MEDELSTAM.toString().replace('.', ',')}.</>
                 )}

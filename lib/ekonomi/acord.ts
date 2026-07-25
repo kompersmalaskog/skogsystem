@@ -143,3 +143,74 @@ export function tillampaTimpengUndantag(
     aktivt: true,
   };
 }
+
+// ── Skotad volym med manuell korrigering ──
+//
+// FPR-lassen läcker: 24 avräknade objekt har dim_objekt.skotad_volym_manuell
+// satt för att laga volymen (t.ex. Jeppshoka: lass 486 m³, verklig 2763).
+// MOM-tiden (fakt_tid) är däremot komplett — därför fördelas den manuella
+// volymen per (datum, maskin) proportionellt mot skotarens G15-sekunder på
+// objektet. Finns ingen tid alls faller vi tillbaka på lass-proportion;
+// finns ingetdera kan volymen inte fördelas (anroparen ska då INTE gissa —
+// visa objektet som ej jämförbart/ej periodiserbart).
+//
+// Fördelningen kräver objektets HELA historik (alla lass- och tidrader,
+// inget datumfilter) — annars dubbelräknas volymen mellan perioder.
+// Periodvyer filtrerar de returnerade delarna på datum EFTERÅT.
+//
+// Skotningsavståndstillägget räknas fortsatt enbart ur faktiska lass —
+// för korrigerade objekt är det underskattat (dämpad not i vyn, aldrig tyst).
+// Etta (/ekonomi) och tvåa (/ekonomi/mot-ackord) MÅSTE båda gå via denna —
+// samma objekt får aldrig visa olika skotarvolym i olika vyer.
+
+export type SkotadVolymDel = { datum: string; maskin_id: string; volym: number };
+
+export function fordelaSkotadVolym(
+  manuellVolym: number | null | undefined,
+  lassRader: { datum: string; maskin_id: string; volym_m3sub: number | null }[],
+  skotarTidRader: { datum: string; maskin_id: string; processing_sek: number | null; terrain_sek: number | null; other_work_sek?: number | null }[],
+): { delar: SkotadVolymDel[]; anvandeManuell: boolean; kundeInteFordela: boolean } {
+  const manuell = Number(manuellVolym);
+  const lassAgg = new Map<string, SkotadVolymDel>();
+  let lassSum = 0;
+  for (const r of lassRader) {
+    const v = Number(r.volym_m3sub) || 0;
+    lassSum += v;
+    const key = `${r.datum}|${r.maskin_id}`;
+    const d = lassAgg.get(key) || { datum: r.datum, maskin_id: r.maskin_id, volym: 0 };
+    d.volym += v;
+    lassAgg.set(key, d);
+  }
+
+  if (!(manuell > 0)) {
+    return { delar: Array.from(lassAgg.values()), anvandeManuell: false, kundeInteFordela: false };
+  }
+
+  const tidAgg = new Map<string, { datum: string; maskin_id: string; sek: number }>();
+  let tidSum = 0;
+  for (const r of skotarTidRader) {
+    const s = g15Sek(r.processing_sek, r.terrain_sek, r.other_work_sek);
+    if (s <= 0) continue;
+    tidSum += s;
+    const key = `${r.datum}|${r.maskin_id}`;
+    const d = tidAgg.get(key) || { datum: r.datum, maskin_id: r.maskin_id, sek: 0 };
+    d.sek += s;
+    tidAgg.set(key, d);
+  }
+
+  if (tidSum > 0) {
+    return {
+      delar: Array.from(tidAgg.values()).map(d => ({ datum: d.datum, maskin_id: d.maskin_id, volym: manuell * (d.sek / tidSum) })),
+      anvandeManuell: true,
+      kundeInteFordela: false,
+    };
+  }
+  if (lassSum > 0) {
+    return {
+      delar: Array.from(lassAgg.values()).map(d => ({ ...d, volym: manuell * (d.volym / lassSum) })),
+      anvandeManuell: true,
+      kundeInteFordela: false,
+    };
+  }
+  return { delar: [], anvandeManuell: true, kundeInteFordela: true };
+}

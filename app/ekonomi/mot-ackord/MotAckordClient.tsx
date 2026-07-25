@@ -23,7 +23,7 @@ import { arSlutavraknad, avrakningsdatum } from '@/lib/objekt/avrakning';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
-  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag,
+  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
 } from '@/lib/ekonomi/acord';
 import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
 import EkonomiBottomNav from '../EkonomiBottomNav';
@@ -31,6 +31,12 @@ import EkonomiBottomNav from '../EkonomiBottomNav';
 // Under så här många G15-timmar är ett kr/tim-tal brus, inte fakta.
 // Ändras tröskeln: uppdatera även texten i (i)-sheeten.
 const OSAKER_TIM = 15;
+
+// Rimlighetsvakt (heuristik): en skotare gör normalt 15–40 m³/G15h. Implicerar
+// skotarvolymen mer än så per timme kan tid- och volymsidan inte höra ihop
+// (skotartiden ofullständig) → objektet kan inte jämföras ärligt. Objekten som
+// fångas listas med orsak i vyn och i (i)-sheeten så tröskeln kan granskas.
+const MAX_SKOTAD_M3_PER_G15H = 60;
 
 const GRON = '90,255,140';
 const ROD = '255,90,90';
@@ -52,8 +58,8 @@ type ObjektRad = {
   timpeng: number;
   diff: number;
   krPerM3: number | null; // null när volym saknas — visas som streck, aldrig 0
-  timmarUtanPris: number; // G15-timmar utan giltig timprisrad — gör jämförelsen halt
   egenSkotning: boolean;  // markägaren skotar — noll skotad volym är KORREKT
+  ejJamforbarOrsak: string | null; // satt → objektet står utanför talen, med orsak
   maskiner: MaskinDel[];
 };
 type MaskinAgg = {
@@ -76,9 +82,9 @@ export default function MotAckordClient() {
   const [objektRader, setObjektRader] = useState<ObjektRad[]>([]);
   const [vantarNamn, setVantarNamn] = useState<string[]>([]);       // prel: ett datum satt, ett saknas
   const [timpengAntal, setTimpengAntal] = useState(0);              // timpeng-objekt avräknade i perioden
-  // Objekt vars timpeng-sida är ofullständig (timmar utan giltigt timpris) —
-  // en halt jämförelse kan byta tecken på hela heron, så de står UTANFÖR talen
-  const [ejJamforbara, setEjJamforbara] = useState<{ namn: string; timmar: number }[]>([]);
+  // Objekt vars jämförelse är halt (timpris saknas / skotartid ofullständig) —
+  // ett halt tal kan byta tecken på hela heron, så de står UTANFÖR talen
+  const [ejJamforbara, setEjJamforbara] = useState<{ namn: string; orsak: string }[]>([]);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, { namn: string; typ: string | null }>>({});
   const [sheetObjekt, setSheetObjekt] = useState<ObjektRad | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -91,7 +97,7 @@ export default function MotAckordClient() {
       const { start, end } = getPeriodDates(period, periodOffset);
 
       const [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, exkluderade] = await Promise.all([
-        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -214,14 +220,37 @@ export default function MotAckordClient() {
         harvAgg[key].vol += Number(r.volym_m3sub) || 0;
         harvAgg[key].stammar += Number(r.stammar) || 0;
       }
+      // Skotarvolym per (objekt, maskin) via motorn — manuell korrigering
+      // (skotad_volym_manuell) när satt, annars lass. Skotavståndstillägget
+      // räknas alltid enbart ur faktiska lass.
       const fwdAgg: Record<string, { vol: number; skotKr: number }> = {};
       for (const r of lassRows) {
         if (!r.objekt_id) continue;
         const key = `${r.objekt_id}|${r.maskin_id}`;
         (fwdAgg[key] ||= { vol: 0, skotKr: 0 });
-        const vol = Number(r.volym_m3sub) || 0;
-        fwdAgg[key].vol += vol;
-        fwdAgg[key].skotKr += skotAvstandKr(r.datum, r.korstracka_m || 0, vol, avstandList);
+        fwdAgg[key].skotKr += skotAvstandKr(r.datum, r.korstracka_m || 0, Number(r.volym_m3sub) || 0, avstandList);
+      }
+      const lassPerObjekt: Record<string, any[]> = {};
+      for (const r of lassRows) { if (r.objekt_id) (lassPerObjekt[r.objekt_id] ||= []).push(r); }
+      const skotarTidPerObjekt: Record<string, any[]> = {};
+      for (const r of tidRows) {
+        if (!r.objekt_id || maskinMap[r.maskin_id]?.typ !== 'Forwarder') continue;
+        (skotarTidPerObjekt[r.objekt_id] ||= []).push(r);
+      }
+      const kundeInteFordela = new Set<string>();
+      for (const o of valda) {
+        const f = fordelaSkotadVolym(o.skotad_volym_manuell, lassPerObjekt[o.objekt_id] || [], skotarTidPerObjekt[o.objekt_id] || []);
+        if (f.kundeInteFordela) kundeInteFordela.add(o.objekt_id);
+        for (const d of f.delar) {
+          const key = `${o.objekt_id}|${d.maskin_id}`;
+          (fwdAgg[key] ||= { vol: 0, skotKr: 0 });
+          fwdAgg[key].vol += d.volym;
+        }
+      }
+      const objSkotadVol: Record<string, number> = {};
+      for (const [key, f] of Object.entries(fwdAgg)) {
+        const oid = key.split('|')[0];
+        objSkotadVol[oid] = (objSkotadVol[oid] || 0) + f.vol;
       }
 
       // ── Maskindelar per objekt: ackord (motorn) + timpeng (G15 × timpris) ──
@@ -270,10 +299,24 @@ export default function MotAckordClient() {
         const ackord = m.reduce((s2, d) => s2 + d.ackord, 0);
         const timpeng = m.reduce((s2, d) => s2 + d.timpeng, 0);
         const skordadVol = objVol[o.objekt_id]?.vol || 0;
-        const skotadVol = m.filter(d => d.roll === 'skotare')
-          .reduce((s2, d) => s2 + (fwdAgg[`${o.objekt_id}|${d.maskin_id}`]?.vol || 0), 0);
+        const skotadVol = objSkotadVol[o.objekt_id] || 0;
         const volym = skordadVol > 0 ? skordadVol : skotadVol;
         const diff = ackord - timpeng;
+
+        // Halt jämförelse → utanför talen, med orsak. Ordningen: värsta först.
+        const utanPris = utanPrisPerObjekt[o.objekt_id] || 0;
+        const skotarTim = m.filter(d => d.roll === 'skotare').reduce((s2, d) => s2 + d.timmar, 0);
+        let orsak: string | null = null;
+        if (utanPris > 0.5) {
+          orsak = `${fmtTim(utanPris)} h saknar timpris`;
+        } else if (kundeInteFordela.has(o.objekt_id)) {
+          orsak = `${Math.round(Number(o.skotad_volym_manuell))} m³ manuell skotad volym utan tids- eller lassdata att fördela på`;
+        } else if (skotadVol > 0 && skotarTim < 1) {
+          orsak = `${Math.round(skotadVol)} m³ skotat men under en timmes skotartid — skotartiden ofullständig`;
+        } else if (skotarTim > 0 && skotadVol / skotarTim > MAX_SKOTAD_M3_PER_G15H) {
+          orsak = `${Math.round(skotadVol)} m³ på ${fmtTim(skotarTim)} h = ${Math.round(skotadVol / skotarTim)} m³/tim (över ${MAX_SKOTAD_M3_PER_G15H}) — skotartiden ofullständig`;
+        }
+
         return {
           objekt_id: o.objekt_id,
           namn: o.object_name || o.vo_nummer || o.objekt_id,
@@ -282,16 +325,14 @@ export default function MotAckordClient() {
           timpeng,
           diff,
           krPerM3: volym > 0 ? diff / volym : null,
-          timmarUtanPris: utanPrisPerObjekt[o.objekt_id] || 0,
           egenSkotning: o.egen_skotning === true,
+          ejJamforbarOrsak: orsak,
           maskiner: m,
         };
       }).sort((a, b) => b.diff - a.diff);
 
-      // Halt jämförelse (timmar utan timpris, t.ex. 2025-arbete före prislistans
-      // start) skevar diffen med hela den saknade timpeng-sidan — ut ur talen.
-      setObjektRader(rader.filter(o => o.timmarUtanPris <= 0.5));
-      setEjJamforbara(rader.filter(o => o.timmarUtanPris > 0.5).map(o => ({ namn: o.namn, timmar: o.timmarUtanPris })));
+      setObjektRader(rader.filter(o => !o.ejJamforbarOrsak));
+      setEjJamforbara(rader.filter(o => o.ejJamforbarOrsak).map(o => ({ namn: o.namn, orsak: o.ejJamforbarOrsak! })));
       setVantarNamn(vantar.map((o: any) => o.object_name || o.vo_nummer || o.objekt_id));
       setTimpengAntal(timpengIPeriod.length);
       setMaskinNamnMap(maskinMap);
@@ -436,7 +477,7 @@ export default function MotAckordClient() {
           {ejJamforbara.length > 0 && (
             <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 16, padding: '0 8px', lineHeight: 1.6, textAlign: 'center' }}>
               {ejJamforbara.map((o, i) => (
-                <div key={i}>{o.namn} — {fmtTim(o.timmar)} h saknar timpris, kan inte jämföras ärligt. Står utanför talen.</div>
+                <div key={i}>{o.namn} — {o.orsak}. Kan inte jämföras ärligt — står utanför talen.</div>
               ))}
             </div>
           )}
@@ -604,8 +645,21 @@ export default function MotAckordClient() {
               kr/tim delar på timmar — under {OSAKER_TIM} G15-timmar är talet brus och märks &quot;osäkert&quot;. Gallring och timpeng-flaggade objekt körs redan på timpeng och har ingen jämförelse.
             </div>
             <div>
+              <div style={s.sheetH}>Skotad volym</div>
+              FPR-lassen är ofullständiga på flera objekt — där en manuell skotad volym är satt (redigeringsvyn) används den som skotarens ackordvolym, fördelad över skotarens registrerade tid. Skotningsavståndstillägget kan bara räknas ur faktiska lass och är underskattat för korrigerade objekt.
+            </div>
+            <div>
               <div style={s.sheetH}>Kan inte jämföras</div>
-              Objekt med G15-timmar som saknar giltigt timpris (t.ex. arbete före prislistans start) får en halt timpeng-sida som kan vända hela resultatet — de står nedtonade utanför talen tills timpris finns för perioden.
+              Objekt står utanför talen när jämförelsen är halt: G15-timmar utan giltigt timpris (t.ex. arbete före prislistans start), eller när skotarvolym och skotartid inte hör ihop — implicerad prestanda över {MAX_SKOTAD_M3_PER_G15H} m³/G15h (normal skotare gör 15–40) betyder att tiden är ofullständig, inte att skotningen var övermänsklig. Tröskeln är en heuristik — objekten som fångas listas med orsak:
+              {ejJamforbara.length > 0 ? (
+                <div style={{ marginTop: 6 }}>
+                  {ejJamforbara.map((o, i) => (
+                    <div key={i} style={{ fontSize: 12, color: '#7a7a72', marginTop: 3 }}>{o.namn} — {o.orsak}</div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 6 }}>Inga objekt fångade i den här perioden.</div>
+              )}
             </div>
           </div>
         </>
