@@ -8,13 +8,15 @@
 // som per-objekt-fliken: ackord löpande på volym, timpeng för gallring och
 // timpeng-flaggade objekt. Vyn aggregerar bara.
 //
-// PRELIMINÄRT: ett ackordobjekt är avräknat först när BÅDA
-// dim_objekt.skordning_avslutad och skotning_avslutad är satta. Preliminär
-// intäkt ingår i summan men märks — dämpat, inte larmigt.
+// PRELIMINÄRT: ett ackordobjekt är avräknat enligt centrala regeln i
+// lib/objekt/avrakning (båda avslutsdatumen; egen skotning avräknas på
+// skördningens avslut). Preliminär intäkt ingår i summan men märks —
+// dämpat, inte larmigt.
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaExkluderadeObjektId, utanExkluderade } from '@/lib/objekt/exkludera';
+import { arSlutavraknad } from '@/lib/objekt/avrakning';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
@@ -89,7 +91,7 @@ export default function EkonomiClient() {
             .range(from, to)
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
-        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -192,11 +194,9 @@ export default function EkonomiClient() {
         const o = objMap[objekt_id];
         return (o?.huvudtyp || '') === 'Gallring' || o?.timpeng === true;
       };
-      // Avräknat = BÅDA avslutsdatumen satta. Objekt utan dim-rad → preliminärt.
-      const arAvraknad = (objekt_id: string) => {
-        const o = objMap[objekt_id];
-        return !!(o?.skordning_avslutad && o?.skotning_avslutad);
-      };
+      // Central avräkningsregel (lib/objekt/avrakning) — egen skotning
+      // avräknas på skördningens avslut. Objekt utan dim-rad → preliminärt.
+      const arAvraknad = (objekt_id: string) => arSlutavraknad(objMap[objekt_id]);
 
       const agg: Record<string, MaskinAgg> = {};
       const maskinAgg = (maskin_id: string): MaskinAgg => {
