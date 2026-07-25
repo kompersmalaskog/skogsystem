@@ -20,6 +20,11 @@ export const kategoriNamn: Record<string, string> = {
   'Miscellaneous / other':      'Övrigt',
   'Administration, telephone':  'Administration & telefon',
   'Weather':                    'Väder',
+  // StanForD OtherMachineDownTimeStandardCode = avbrott per definition (rad
+  // 254-268 i MOM-dokumentet). Krypto-koderna byts mot begriplig svenska; INGET
+  // flyttas ut ur avbrott (det var en namnfälla — allt i typ='Övrigt' ÄR avbrott).
+  'Other':                      'Övrigt (ej specificerat)',
+  'Waiting for other machine production': 'Väntar på annan maskin',
   // OBS: 'Unproductive terrain work' är INTE körning. Källverifierat (A030353,
   // 116/118 segment i MOM): EngineTime=0 & DrivenDistance=0 — maskinen står STILL.
   // StanForD 2010 = oproduktivt terrängarbete, EN AV FÖRARENS VALBARA KATEGORIER —
@@ -27,7 +32,7 @@ export const kategoriNamn: Record<string, string> = {
   // Trailer, Refilling, Unproductive, Machine stuck, ...). Fritext-detalj
   // (CodeDescription) används inte, men orsak saknas alltså INTE. Mönstret hos oss:
   // stillestånd vid skiftstart.
-  'Unproductive terrain work':  'Oproduktiv terrängtid',
+  'Unproductive terrain work':  'Improduktiv terrängtid / väntan',
   'Waiting for repair':         'Väntar på reparation',
 
   // ── Reparation (REPAIR_*) — verifierat mot DB 2026-05 ─────
@@ -40,7 +45,10 @@ export const kategoriNamn: Record<string, string> = {
   'REPAIR_OTHER':                       'Övrigt haveri',
 
   // ── Fallback ───────────────────────────────────────────────
-  'Default':                    'Ej kategoriserat',
+  // Default = controller-genererad rad, föraren valde ingen kod (även null
+  // kategori_kod mappas hit i vyerna). "Orsak ej registrerad" = samma begrepp
+  // som "Ej kategoriserat" tidigare, en formulering.
+  'Default':                    'Orsak ej registrerad',
 }
 
 export const translateKategori = (kod: string) =>
