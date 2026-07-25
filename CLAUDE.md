@@ -277,6 +277,11 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 
 **Verifiera på INNEHÅLL, inte på utskrift** (gäller alla sessioner). Ett patch-script som skriver "OK", en `.select()` som räknar rader, en preview som ser rätt ut — inget av det bevisar att värdet faktiskt landade. Efter varje skrivning: läs tillbaka det FAKTISKA innehållet (grep filen, läs kolumnvärdet, jämför mot avsikten) innan du går vidare eller committar. Samma princip som appen själv bygger på: radräkning bevisar att en rad rördes, inte att ändringen finns i den.
 
+**Squash-merge tappar commits — verifiera LEVERANS, inte merge-status.** Fyra gånger på en vecka har en commit fallit bort i en squash-merge (#254 ×2, #268): en följd-commit pushad till en PR som redan hunnit mergas bygger preview men når aldrig main. Två regler, utan undantag:
+
+1. **Pusha ALDRIG till en PR utan att först kolla att den fortfarande är öppen** — `gh pr view <nr> --json state`. Är den `MERGED`: öppna en NY PR för commiten. Pusha aldrig till den stängda grenen — det bygger en preview som ser rätt ut men aldrig landar i main.
+2. **Efter varje merge Martin gör: verifiera på INNEHÅLL att ändringen finns i `origin/main`** — `git fetch` + grep efter en unik markör ur diffen (`git show origin/main:<fil> | grep <markör>`), aldrig på PR-status. "Merged" betyder inte "levererad": squashen kan ha tagit bara en delmängd av commitsen (#268 tog 1 av 2 — den data-drivna korta-stopp-fixen tappades och fick återlandas i #274).
+
 ## Framtida förbättringar (bygg inte nu)
 
 ### HPR-automatik som komplement till "Starta körning"-knappen
