@@ -91,7 +91,7 @@ export default function EkonomiClient() {
             .range(from, to)
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
-        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -150,10 +150,21 @@ export default function EkonomiClient() {
         if (!g) continue;
         (objGrupper[s.objekt_id] ||= new Set()).add(g);
       }
+      // Ackordgrund-overrides (dim_objekt.*_manuell, sätts i /redigering) —
+      // NULL = auto. Samma regler som /ekonomi/mot-ackord.
+      const grupperFor = (oid: string) => {
+        const man = objMap[oid]?.sortiment_grupper_manuell;
+        return man != null ? Number(man) : (objGrupper[oid]?.size || 0);
+      };
+      const medelstamOverride = (oid: string): number | null => {
+        const man = Number(objMap[oid]?.medelstam_manuell);
+        return man > 0 ? man : null;
+      };
+
       const objSortTillaggKr: Record<string, number> = {};
       const objTraktKr: Record<string, number> = {};
       for (const objekt_id of Object.keys({ ...objGrupper, ...objVol })) {
-        objSortTillaggKr[objekt_id] = sortimentTillagg(objGrupper[objekt_id]?.size || 0, sortConf);
+        objSortTillaggKr[objekt_id] = sortimentTillagg(grupperFor(objekt_id), sortConf);
         objTraktKr[objekt_id] = traktTillagg(objVol[objekt_id]?.vol || 0, traktBrackets).krPerM3;
       }
 
@@ -229,6 +240,18 @@ export default function EkonomiClient() {
         fwdAgg[key].vol += vol;
       }
 
+      // Manuellt skotavstånd (override): tillägget räknas på periodens skotade
+      // volym med det angivna avståndet — ersätter per-lass-summan för objektet.
+      // Prisuppslag på periodslutet (en config-rad i taget är det normala).
+      for (const o of (objRes.data || [])) {
+        const avst = Number(o.skotavstand_manuell);
+        if (!(avst > 0) || exkluderade.has(o.objekt_id)) continue;
+        for (const [key, f] of Object.entries(fwdAgg)) {
+          if (key.split('|')[0] !== o.objekt_id) continue;
+          f.skotavstand_kr = skotAvstandKr(end, avst, f.vol, avstandList);
+        }
+      }
+
       // ── Klassning & aggregering per maskin ──
 
       const somTimpeng = (objekt_id: string) => {
@@ -271,7 +294,7 @@ export default function EkonomiClient() {
           continue;
         }
         ackordRaderFinns = true;
-        const medelstam = h.stammar > 0 ? h.vol / h.stammar : ANTAGEN_MEDELSTAM;
+        const medelstam = medelstamOverride(objekt_id) ?? (h.stammar > 0 ? h.vol / h.stammar : ANTAGEN_MEDELSTAM);
         const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skordare || 0;
         const extraKr = (objSortTillaggKr[objekt_id] || 0) + (objTraktKr[objekt_id] || 0);
         const meta = objMap[objekt_id];
@@ -295,9 +318,10 @@ export default function EkonomiClient() {
           continue;
         }
         ackordRaderFinns = true;
-        const harMedelstam = objMedelstam[objekt_id] != null;
+        const msMan = medelstamOverride(objekt_id);
+        const harMedelstam = msMan != null || objMedelstam[objekt_id] != null;
         if (!harMedelstam) antagenVolSum += f.vol;
-        const medelstam = objMedelstam[objekt_id] || ANTAGEN_MEDELSTAM;
+        const medelstam = msMan ?? (objMedelstam[objekt_id] || ANTAGEN_MEDELSTAM);
         const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skotare || 0;
         const extraKr = (objSortTillaggKr[objekt_id] || 0) + (objTraktKr[objekt_id] || 0);
         const metaF = objMap[objekt_id];

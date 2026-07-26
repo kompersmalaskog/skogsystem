@@ -89,10 +89,13 @@ async function hamtaMaskinerFranSupabase() {
 const GEMENSAMMA_FALT = ['vo_nummer', 'object_name', 'skogsagare', 'bolag', 'inkopare',
   'huvudtyp', 'atgard', 'grot_anpassad', 'timpeng', 'exkludera', 'extern_skordning',
   'timpeng_undantag_timmar_skordare', 'timpeng_undantag_timmar_skotare',
-  'timpeng_undantag_volym', 'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare']
-const SKORDARFALT = ['stubbbehandling', 'skordning_avslutad', 'skordning_avslutad_auto']
+  'timpeng_undantag_volym', 'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare',
+  // Ackordgrund-overrides på objektnivå (används av BÅDA maskindelarnas prisuppslag)
+  'medelstam_manuell', 'sortiment_grupper_manuell']
+const SKORDARFALT = ['stubbbehandling', 'skordning_avslutad', 'skordning_avslutad_auto', 'skordning_g15_manuell']
 const SKOTARFALT = ['risskotning', 'egen_skotning', 'extra_vagn', 'klippning',
-  'skotad_volym_manuell', 'skotning_g15_manuell', 'skotning_avslutad', 'skotning_avslutad_auto', 'ovrigt_info']
+  'skotad_volym_manuell', 'skotning_g15_manuell', 'skotning_avslutad', 'skotning_avslutad_auto', 'ovrigt_info',
+  'skotavstand_manuell']
 
 // Rader som hör till samma objekt: samma icke-tomma vo_nummer, annars bara
 // raden själv. maskin_typ är berikad vid inläsning.
@@ -1734,6 +1737,54 @@ function SubPris({ obj, set }: any) {
           </div>
         </div>
       )}
+      {/* ACKORDGRUND-OVERRIDES — handsatta värden som ersätter mätt/beräknat i
+          acordmotorn (Ekonomi + Mot ackord). Importen skriver ALDRIG över dem;
+          tomt fält = auto. Källmärks bärnsten i Mot ackord-detaljvyn. */}
+      <div style={{ padding: '4px 16px 10px' }}>
+        <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Ackordgrund — manuella värden</div>
+        <NumField
+          label="Medelstam"
+          value={obj.medelstam_manuell}
+          onChange={(v: number | null) => set({ ...obj, medelstam_manuell: v })}
+          placeholder="auto"
+          suffix="m³"
+        />
+        <NumField
+          label="Sortimentgrupper"
+          value={obj.sortiment_grupper_manuell}
+          onChange={(v: number | null) => set({ ...obj, sortiment_grupper_manuell: v })}
+          placeholder="auto"
+          suffix="st"
+        />
+        <NumField
+          label="Skotavstånd"
+          value={obj.skotavstand_manuell}
+          onChange={(v: number | null) => set({ ...obj, skotavstand_manuell: v })}
+          placeholder="auto"
+          suffix="m"
+        />
+        <NumField
+          label="G15 skördare"
+          value={obj.skordning_g15_manuell}
+          onChange={(v: number | null) => set({ ...obj, skordning_g15_manuell: v })}
+          placeholder="auto"
+          suffix="h"
+        />
+        <NumField
+          label="G15 skotare"
+          value={obj.skotning_g15_manuell}
+          onChange={(v: number | null) => set({ ...obj, skotning_g15_manuell: v })}
+          placeholder="auto"
+          suffix="h"
+        />
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, padding: '6px 2px 0' }}>
+          Ersätter mätt/beräknat värde i ackordberäkningen — permanent tills du
+          tömmer fältet (importen rör dem aldrig). Tomt = automatiskt värde.
+          Medelstam och sortimentgrupper styr prisuppslaget, skotavstånd räknar
+          tillägget på hela skotarvolymen, G15-timmarna styr timpeng-jämförelsen
+          i Mot ackord.
+        </div>
+      </div>
     </IosGroup>
   )
 }
@@ -2771,6 +2822,19 @@ function ObjektRedigeringInner() {
   }
 
   const openObjekt = (obj: any) => setRedigerObj(obj)
+
+  // Deep-link: ?objekt=<objekt_id> öppnar editorn direkt (Mot ackord-detaljvyns
+  // "Öppna i redigering"-knapp). Körs en gång när objektlistan laddats.
+  const djupLankKord = useRef(false)
+  useEffect(() => {
+    if (djupLankKord.current || objekt.length === 0) return
+    const vill = sokParams.get('objekt')
+    if (!vill) { djupLankKord.current = true; return }
+    djupLankKord.current = true
+    const traff = objekt.find((o: any) => o.objekt_id === vill)
+    if (traff) setRedigerObj(traff)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objekt])
 
   // Hämta från Supabase vid start
   useEffect(() => {
