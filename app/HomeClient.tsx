@@ -34,7 +34,7 @@ const adminApps = [
   { href: '/helikopter', label: 'Helikopter', icon: 'flight' },
   { href: '/helikopter-v2', label: 'Helikopter 2', icon: 'helicopter' },
   { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
-  { href: '/fordonsoversikt', label: 'Fordon', icon: 'local_shipping' },
+  { href: '/kontroller', label: 'Kontroller', icon: 'fact_check' },
   { href: '/avtal', label: 'Avtal', icon: 'receipt_long' },
   { href: '/personal', label: 'Personal', icon: 'badge' },
 ]

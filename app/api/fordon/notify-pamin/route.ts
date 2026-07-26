@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
         const r = await fetch(`${origin}/api/notify`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ medarbetare_id: m.id, title, body, url: "/fordonsoversikt" }),
+          body: JSON.stringify({ medarbetare_id: m.id, title, body, url: "/kontroller" }),
         });
         const j = await r.json();
         utskick.push({ kontroll_id: (k as any).id, datum, dagar_fore: målsDagar.dagar, mottagare: m.namn, ok: !!j?.ok });
