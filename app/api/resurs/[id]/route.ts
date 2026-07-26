@@ -4,6 +4,22 @@ import { autentisera, supaService, kanRedigera, selectResurs, ekonomiUtanRatt } 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const { user, roll } = await autentisera();
+  if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
+
+  const supabase = supaService();
+  const { data, error } = await supabase
+    .from("resurs")
+    .select(`${selectResurs(roll)}, kontroll(*)`)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ ok: false, error: "Hittades inte" }, { status: 404 });
+  return NextResponse.json({ ok: true, resurs: data });
+}
+
 const UPPDATERBARA = [
   "namn", "typ", "regnr", "serienr", "marke", "modell", "arsmodell",
   "avstalld", "matarstallning", "matare_avlast", "anteckning", "aktiv",

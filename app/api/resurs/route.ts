@@ -1,8 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { autentisera, supaService, kanRedigera, selectResurs, ekonomiUtanRatt } from "@/lib/resurs-auth";
+import { kontrolltyperForResurs, type Resurstyp } from "@/lib/kontrolltyper";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Kontroller som ska finnas för en ny resurs skapas automatiskt ur
+// kontrolltyperna (intervall från standard; datum/mätarvärde sätts först vid
+// registrerad åtgärd → age-only tills dess). Ger KOMMANDE något att fyllas av.
+function defaultKontroller(resurs_id: string, typ: Resurstyp) {
+  return kontrolltyperForResurs(typ).map((kt) => {
+    const enhet = kt.enhet(typ);
+    const iv = kt.standardintervall(typ);
+    return {
+      resurs_id,
+      typ: kt.nyckel,
+      intervall_manader: enhet === "manader" ? iv : null,
+      intervall_timmar: enhet === "timmar" ? iv : null,
+      intervall_km: enhet === "km" ? iv : null,
+    };
+  });
+}
 
 // Fält en klient får sätta vid skapande (ekonomi ingår men gate:as separat).
 const SKRIVBARA = [
@@ -47,7 +65,17 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = supaService();
-  const { data, error } = await supabase.from("resurs").insert(payload).select(selectResurs(roll)).single();
+  const { data, error } = await supabase.from("resurs").insert(payload).select("id, typ").single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, resurs: data });
+
+  // Auto-skapa kontroller för den nya resursen.
+  const kontroller = defaultKontroller(data.id, data.typ as Resurstyp);
+  if (kontroller.length) {
+    const { error: kFel } = await supabase.from("kontroll").insert(kontroller);
+    if (kFel) return NextResponse.json({ ok: false, error: `Resurs skapad men kontroller misslyckades: ${kFel.message}` }, { status: 500 });
+  }
+
+  // Läs tillbaka fält-filtrerat + kontroller.
+  const { data: full } = await supabase.from("resurs").select(`${selectResurs(roll)}, kontroll(*)`).eq("id", data.id).single();
+  return NextResponse.json({ ok: true, resurs: full });
 }
