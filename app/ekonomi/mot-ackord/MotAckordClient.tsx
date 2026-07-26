@@ -25,6 +25,7 @@ import {
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
   timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
 } from '@/lib/ekonomi/acord';
+import Link from 'next/link';
 import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
 import EkonomiBottomNav from '../EkonomiBottomNav';
 
@@ -49,6 +50,7 @@ type MaskinDel = {
   timpeng: number;
   timmar: number;
   timpris: number;        // gällande timpris vid avräkningsdatumet
+  manuellTid: boolean;    // G15-timmarna är handsatta (redigeringsvyn), inte mätta
 };
 type ObjektRad = {
   objekt_id: string;
@@ -60,6 +62,9 @@ type ObjektRad = {
   krPerM3: number | null; // null när volym saknas — visas som streck, aldrig 0
   egenSkotning: boolean;  // markägaren skotar — noll skotad volym är KORREKT
   ejJamforbarOrsak: string | null; // satt → objektet står utanför talen, med orsak
+  // Ackordgrunden i läsläge — manuell=true renderas i bärnsten (färgregeln:
+  // mätt i benvitt, manuellt/uppskattat i bärnsten)
+  grund: { label: string; text: string; manuell: boolean }[];
   maskiner: MaskinDel[];
 };
 type MaskinAgg = {
@@ -97,7 +102,7 @@ export default function MotAckordClient() {
       const { start, end } = getPeriodDates(period, periodOffset);
 
       const [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, exkluderade] = await Promise.all([
-        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, skordning_g15_manuell, skotning_g15_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -199,10 +204,21 @@ export default function MotAckordClient() {
         if (!g) continue;
         (objGrupper[s2.objekt_id] ||= new Set()).add(g);
       }
+      // Ackordgrund-overrides (dim_objekt.*_manuell) ersätter mätt/beräknat.
+      // NULL = auto. Sätts i /redigering, visas i bärnsten i detaljvyn.
+      const grupperFor = (oid: string) => {
+        const man = objMeta[oid]?.sortiment_grupper_manuell;
+        return man != null ? Number(man) : (objGrupper[oid]?.size || 0);
+      };
+      const medelstamOverride = (oid: string): number | null => {
+        const man = Number(objMeta[oid]?.medelstam_manuell);
+        return man > 0 ? man : null;
+      };
+
       const objSortKr: Record<string, number> = {};
       const objTraktKr: Record<string, number> = {};
       for (const oid of ids) {
-        objSortKr[oid] = sortimentTillagg(objGrupper[oid]?.size || 0, sortConf);
+        objSortKr[oid] = sortimentTillagg(grupperFor(oid), sortConf);
         objTraktKr[oid] = traktTillagg(objVol[oid]?.vol || 0, traktBrackets).krPerM3;
       }
 
@@ -232,6 +248,15 @@ export default function MotAckordClient() {
       }
       const lassPerObjekt: Record<string, any[]> = {};
       for (const r of lassRows) { if (r.objekt_id) (lassPerObjekt[r.objekt_id] ||= []).push(r); }
+      // Viktat snittavstånd ur faktiska lass — för ackordgrund-visningen
+      const objLassAvstand: Record<string, { viktat: number; vol: number }> = {};
+      for (const r of lassRows) {
+        if (!r.objekt_id) continue;
+        const v = Number(r.volym_m3sub) || 0;
+        (objLassAvstand[r.objekt_id] ||= { viktat: 0, vol: 0 });
+        objLassAvstand[r.objekt_id].viktat += (Number(r.korstracka_m) || 0) * v;
+        objLassAvstand[r.objekt_id].vol += v;
+      }
       const skotarTidPerObjekt: Record<string, any[]> = {};
       for (const r of tidRows) {
         if (!r.objekt_id || maskinMap[r.maskin_id]?.typ !== 'Forwarder') continue;
@@ -253,28 +278,56 @@ export default function MotAckordClient() {
         objSkotadVol[oid] = (objSkotadVol[oid] || 0) + f.vol;
       }
 
+      // Manuellt skotavstånd: tillägget räknas om på HELA maskinens skotarvolym
+      // med det angivna avståndet — ersätter per-lass-summan för objektet.
+      for (const o of valda) {
+        const avst = Number(o.skotavstand_manuell);
+        if (!(avst > 0)) continue;
+        const dag = avrakningsdatum(o) || '';
+        for (const [key, f] of Object.entries(fwdAgg)) {
+          if (key.split('|')[0] !== o.objekt_id) continue;
+          f.skotKr = skotAvstandKr(dag, avst, f.vol, avstandList);
+        }
+      }
+
       // ── Maskindelar per objekt: ackord (motorn) + timpeng (G15 × timpris) ──
       const delar: Record<string, MaskinDel[]> = {};
       const utanPrisPerObjekt: Record<string, number> = {};
 
       const laggTill = (oid: string, mid: string, roll: 'skördare' | 'skotare', ackord: number) => {
-        const t = timpengForTidRows(tidPerKey[`${oid}|${mid}`] || [], timprisList);
-        utanPrisPerObjekt[oid] = (utanPrisPerObjekt[oid] || 0) + t.timmarUtanPris;
         const avrakningsdag = avrakningsdatum(objMeta[oid]) || '';
         const tp = timprisList.find(p => p.maskin_id === mid && isValidOn(avrakningsdag, p.giltig_fran, p.giltig_till))
           || timprisList.find(p => p.maskin_id === mid);
+        // G15-manuell (redigeringsvyn) ersätter mätt tid för timpeng-jämförelsen —
+        // manuella timmar prissätts med avräkningsdagens timpris, inga pris-hål.
+        const manuellTim = roll === 'skördare'
+          ? Number(objMeta[oid]?.skordning_g15_manuell)
+          : Number(objMeta[oid]?.skotning_g15_manuell);
+        if (manuellTim > 0) {
+          (delar[oid] ||= []).push({
+            maskin_id: mid, roll, ackord,
+            timpeng: manuellTim * (tp?.timpris || 0),
+            timmar: manuellTim,
+            timpris: tp?.timpris || 0,
+            manuellTid: true,
+          });
+          return;
+        }
+        const t = timpengForTidRows(tidPerKey[`${oid}|${mid}`] || [], timprisList);
+        utanPrisPerObjekt[oid] = (utanPrisPerObjekt[oid] || 0) + t.timmarUtanPris;
         (delar[oid] ||= []).push({
           maskin_id: mid, roll, ackord,
           timpeng: t.timpeng || 0,
           timmar: t.timmar,
           timpris: tp?.timpris || 0,
+          manuellTid: false,
         });
       };
 
       for (const [key, h] of Object.entries(harvAgg)) {
         const [oid, mid] = key.split('|');
         if (h.vol <= 0) continue;
-        const medelstam = h.stammar > 0 ? h.vol / h.stammar : ANTAGEN_MEDELSTAM;
+        const medelstam = medelstamOverride(oid) ?? (h.stammar > 0 ? h.vol / h.stammar : ANTAGEN_MEDELSTAM);
         const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skordare || 0;
         const extra = (objSortKr[oid] || 0) + (objTraktKr[oid] || 0);
         const meta = objMeta[oid];
@@ -285,7 +338,7 @@ export default function MotAckordClient() {
       for (const [key, f] of Object.entries(fwdAgg)) {
         const [oid, mid] = key.split('|');
         if (f.vol <= 0) continue;
-        const medelstam = objMedelstam[oid] || ANTAGEN_MEDELSTAM;
+        const medelstam = medelstamOverride(oid) ?? (objMedelstam[oid] || ANTAGEN_MEDELSTAM);
         const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skotare || 0;
         const extra = (objSortKr[oid] || 0) + (objTraktKr[oid] || 0);
         const meta = objMeta[oid];
@@ -317,6 +370,56 @@ export default function MotAckordClient() {
           orsak = `${Math.round(skotadVol)} m³ på ${fmtTim(skotarTim)} h = ${Math.round(skotadVol / skotarTim)} m³/tim (över ${MAX_SKOTAD_M3_PER_G15H}) — skotartiden ofullständig`;
         }
 
+        // Ackordgrunden — färgregeln: mätt värde = benvitt, manuellt/uppskattat = bärnsten
+        const egen = o.egen_skotning === true;
+        const skotadManuell = Number(o.skotad_volym_manuell) > 0;
+        const avstManuell = Number(o.skotavstand_manuell) > 0;
+        const msMan = medelstamOverride(o.objekt_id);
+        const msAuto = objMedelstam[o.objekt_id];
+        const la = objLassAvstand[o.objekt_id];
+        const lassAvst = la && la.vol > 0 ? la.viktat / la.vol : null;
+        const g15Sk = m.filter(d => d.roll === 'skördare');
+        const g15St = m.filter(d => d.roll === 'skotare');
+        const fmtM3 = (n: number) => Math.round(n).toLocaleString('sv-SE');
+        const sumTim = (dd: MaskinDel[]) => dd.reduce((s2, d) => s2 + d.timmar, 0);
+        const grund = [
+          { label: 'Skördad volym', text: skordadVol > 0 ? `${fmtM3(skordadVol)} m³fub` : '—', manuell: false },
+          {
+            label: 'Skotad volym',
+            text: egen ? '— egen skotning' : (skotadVol > 0 ? `${fmtM3(skotadVol)} m³fub${skotadManuell ? ' · manuell' : ''}` : '—'),
+            manuell: skotadManuell,
+          },
+          {
+            label: 'Medelstam',
+            text: `${(msMan ?? msAuto ?? ANTAGEN_MEDELSTAM).toFixed(3).replace('.', ',')} m³${msMan != null ? ' · manuell' : (msAuto == null ? ' · antagen' : '')}`,
+            manuell: msMan != null || msAuto == null,
+          },
+          {
+            label: 'Sortimentgrupper',
+            text: `${grupperFor(o.objekt_id)} st${o.sortiment_grupper_manuell != null ? ' · manuell' : ''}`,
+            manuell: o.sortiment_grupper_manuell != null,
+          },
+          {
+            label: 'Skotavstånd',
+            text: avstManuell ? `${Math.round(Number(o.skotavstand_manuell))} m · manuell`
+              : egen ? '— egen skotning'
+              : lassAvst == null ? '— saknas i lassen'
+              : skotadManuell ? `≈${Math.round(lassAvst)} m · uppskattat ur ofullständiga lass`
+              : `${Math.round(lassAvst)} m`,
+            manuell: avstManuell || (!egen && (lassAvst == null || skotadManuell)),
+          },
+          {
+            label: 'G15 skördare',
+            text: g15Sk.length ? `${fmtTim(sumTim(g15Sk))} h${g15Sk.some(d => d.manuellTid) ? ' · manuell' : ''}` : '—',
+            manuell: g15Sk.some(d => d.manuellTid),
+          },
+          {
+            label: 'G15 skotare',
+            text: g15St.length ? `${fmtTim(sumTim(g15St))} h${g15St.some(d => d.manuellTid) ? ' · manuell' : ''}` : (egen ? '— egen skotning' : '—'),
+            manuell: g15St.some(d => d.manuellTid),
+          },
+        ];
+
         return {
           objekt_id: o.objekt_id,
           namn: o.object_name || o.vo_nummer || o.objekt_id,
@@ -325,8 +428,9 @@ export default function MotAckordClient() {
           timpeng,
           diff,
           krPerM3: volym > 0 ? diff / volym : null,
-          egenSkotning: o.egen_skotning === true,
+          egenSkotning: egen,
           ejJamforbarOrsak: orsak,
+          grund,
           maskiner: m,
         };
       }).sort((a, b) => b.diff - a.diff);
@@ -594,6 +698,28 @@ export default function MotAckordClient() {
               </div>
             )}
 
+            {/* ACKORDGRUND — läsläge. Mätt i benvitt, manuellt/uppskattat i
+                bärnsten: man ska se vad som är mätt och vad som är ihopskrivet
+                INNAN man går och rättar. Redigering sker i /redigering. */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={s.sheetH}>Ackordgrund</div>
+              {o.grund.map((g, gi) => (
+                <div key={gi} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12,
+                  padding: '7px 0', borderBottom: gi < o.grund.length - 1 ? '0.5px solid rgba(255,255,255,0.07)' : 'none',
+                }}>
+                  <span style={{ fontSize: 12, color: '#7a7a72' }}>{g.label}</span>
+                  <span style={{
+                    fontSize: 13, fontVariantNumeric: 'tabular-nums', textAlign: 'right',
+                    color: g.manuell ? `rgba(${BARNSTEN},0.9)` : '#e8e8e4',
+                  }}>{g.text}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 6 }}>
+                Benvitt = mätt ur maskindata · <span style={{ color: `rgba(${BARNSTEN},0.85)` }}>bärnsten</span> = manuellt eller uppskattat
+              </div>
+            </div>
+
             <div style={s.sheetH}>Per maskin — timpeng mot ackord i kr/tim</div>
             {o.maskiner.map(d => {
               const v = visaMaskin(d.maskin_id);
@@ -613,11 +739,21 @@ export default function MotAckordClient() {
                     )}
                   </div>
                   <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>
-                    {fmtTim(d.timmar)} tim{osaker && d.timmar > 0 && ' — osäkert'} · {formatKr(d.ackord)} ackord
+                    {fmtTim(d.timmar)} tim{d.manuellTid && <span style={{ color: `rgba(${BARNSTEN},0.85)` }}> · manuell</span>}{osaker && d.timmar > 0 && ' — osäkert'} · {formatKr(d.ackord)} ackord
                   </div>
                 </div>
               );
             })}
+
+            {/* Ett redigeringsställe: allt rättande sker i /redigering */}
+            <Link href={`/redigering?objekt=${encodeURIComponent(o.objekt_id)}`} style={{
+              display: 'block', textAlign: 'center', marginTop: 18,
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+              color: '#e8e8e4', borderRadius: 10, padding: '12px 14px',
+              fontSize: 13, fontWeight: 600, textDecoration: 'none',
+            }}>
+              Öppna i redigering
+            </Link>
           </>
         );
       })())}
