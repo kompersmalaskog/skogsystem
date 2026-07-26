@@ -38,10 +38,14 @@ export async function GET(req: NextRequest) {
   const rawPath = decodeURIComponent((target.split('/sign/kartbilder/')[1] || 'dokument.pdf').split('?')[0]);
   const filnamn = (rawPath.split('/').pop() || 'dokument.pdf').replace(/[^\w.\-]/g, '_');
 
+  // Tvinga application/pdf oavsett vad bucketen råkar rapportera. laskvyUrl används BARA
+  // för PDF-dokument (TD/stämplingslängd); en felaktig lagrad content-type (t.ex. octet-stream
+  // på en gammal eller framtida fil) skulle annars trigga nedladdning i stället för läsvy.
+  // Så slipper vi någonsin röra de redan lagrade filerna för att få dem att öppnas rätt.
   return new NextResponse(upstream.body, {
     status: 200,
     headers: {
-      'Content-Type': upstream.headers.get('content-type') || 'application/pdf',
+      'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${filnamn}"`,
       'Cache-Control': 'private, no-store',
     },
