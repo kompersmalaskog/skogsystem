@@ -24,7 +24,7 @@ import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
   timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
-  ovrigtKrPerM3, terrangKrPerM3, type OvrigtRad, type TerrangRad,
+  ovrigtKrPerM3, type OvrigtRad,
 } from '@/lib/ekonomi/acord';
 import Link from 'next/link';
 import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
@@ -102,8 +102,8 @@ export default function MotAckordClient() {
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
 
-      const [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, ovrigtRes, terrangRes, exkluderade] = await Promise.all([
-        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, skordning_g15_manuell, skotning_g15_manuell, terrang_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+      const [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, ovrigtRes, exkluderade] = await Promise.all([
+        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, skordning_g15_manuell, skotning_g15_manuell, terrang_kr_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -112,10 +112,9 @@ export default function MotAckordClient() {
         supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
         supabase.from('acord_ovrigt').select('nyckel, varde, giltig_fran, giltig_till'),
-        supabase.from('acord_terrang').select('namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till'),
         hamtaExkluderadeObjektId(),
       ]);
-      for (const res of [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, ovrigtRes, terrangRes]) {
+      for (const res of [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, ovrigtRes]) {
         if (res.error) throw new Error(res.error.message);
       }
 
@@ -219,7 +218,6 @@ export default function MotAckordClient() {
       };
 
       const ovrigtList: OvrigtRad[] = ovrigtRes.data || [];
-      const terrangList: TerrangRad[] = terrangRes.data || [];
 
       const objSortKr: Record<string, number> = {};
       const objTraktKr: Record<string, number> = {};
@@ -231,7 +229,7 @@ export default function MotAckordClient() {
         objTraktKr[oid] = traktTillagg(objVol[oid]?.vol || 0, traktBrackets).krPerM3;
         const dag = avrakningsdatum(objMeta[oid]) || '';
         objOvrigKr[oid] = ovrigtKrPerM3('kvalitetssakring', ovrigtList, dag)
-          + terrangKrPerM3(objMeta[oid]?.terrang_manuell, terrangList, dag);
+          + (Number(objMeta[oid]?.terrang_kr_manuell) || 0);
       }
 
       const tidPerKey: Record<string, any[]> = {};
@@ -432,10 +430,17 @@ export default function MotAckordClient() {
           },
           {
             label: 'Terräng',
-            text: o.terrang_manuell
-              ? `${o.terrang_manuell} +${terrangKrPerM3(o.terrang_manuell, terrangList, avrakningsdatum(o) || '').toLocaleString('sv-SE')} kr/m³ · manuell`
+            text: Number(o.terrang_kr_manuell) > 0
+              ? `Svår +${Number(o.terrang_kr_manuell).toLocaleString('sv-SE')} kr/m³ · manuell`
               : 'Normal · förval',
-            manuell: !!o.terrang_manuell,
+            manuell: Number(o.terrang_kr_manuell) > 0,
+          },
+          // Kvalitetssäkring/ForestLink — läggs på automatiskt, ALLTID. Läsrad
+          // så admin ser att den är med; ändras bara i Inställningar (för alla).
+          {
+            label: 'Kvalitetssäkring',
+            text: `${ovrigtKrPerM3('kvalitetssakring', ovrigtList, avrakningsdatum(o) || '').toLocaleString('sv-SE')} kr/m³ · alltid med`,
+            manuell: false,
           },
         ];
 

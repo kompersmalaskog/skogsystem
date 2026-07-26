@@ -6,9 +6,9 @@
 // Ingår medvetet INTE ännu: objekt_prisscenario, 3-meters massaved
 // (massa_3m_tillagg — hoppas medvetet), manuella per-objekt-poster
 // (snittsling m.m. — tas som övrig ersättning om/när det behövs).
-// Kvalitetssäkring (acord_ovrigt) och terräng (acord_terrang) ingår via
-// ovrigtKrPerM3/terrangKrPerM3. Vyer som visar resultatet ska ha fotnot
-// om det som saknas.
+// Kvalitetssäkring (acord_ovrigt) ingår via ovrigtKrPerM3; terräng via
+// dim_objekt.terrang_kr_manuell (spann 1–8, bedömt per objekt). Vyer som
+// visar resultatet ska ha fotnot om det som saknas.
 
 import { g15Sek } from '@/lib/g15';
 
@@ -226,15 +226,15 @@ export function fordelaSkotadVolym(
 // hårdkoda aldrig värdet. (Posten 'kvalitetssakring_gallring' lämnas —
 // gallring körs som timpeng i systemet.)
 //
-// Terräng (acord_terrang, valt manuellt per objekt i dim_objekt.
-// terrang_manuell): NULL/okänt val = 0 kr — inget objekt får svår-tillägg
-// av misstag. Exakt namn-match, aldrig mönster.
+// Terräng är ett SPANN (Svår 1–8 kr/m³fub, bedömning per objekt): det
+// inmatade kronvärdet bor i dim_objekt.terrang_kr_manuell (NULL = Normal
+// = 0 kr — inget objekt får svår-tillägg av misstag) och läggs direkt i
+// extraKr av vyerna. acord_terrang-taxan är numera bara referens.
 //
 // Båda appliceras som extraKr per maskindel — samma etablerade mönster som
 // trakt- och sortimenttilläggen.
 
 export type OvrigtRad = { nyckel: string; varde: number | string; giltig_fran: string | null; giltig_till: string | null };
-export type TerrangRad = { namn: string; tillagg_kr_per_m3fub: number | string; giltig_fran: string | null; giltig_till: string | null };
 
 export function ovrigtKrPerM3(nyckel: string, rader: OvrigtRad[], datum: string): number {
   const rad = rader.find(r => r.nyckel === nyckel && isValidOn(datum, r.giltig_fran, r.giltig_till))
@@ -242,9 +242,3 @@ export function ovrigtKrPerM3(nyckel: string, rader: OvrigtRad[], datum: string)
   return rad ? (Number(rad.varde) || 0) : 0;
 }
 
-export function terrangKrPerM3(val: string | null | undefined, rader: TerrangRad[], datum: string): number {
-  if (!val) return 0;
-  const rad = rader.find(r => r.namn === val && isValidOn(datum, r.giltig_fran, r.giltig_till))
-    || rader.find(r => r.namn === val);
-  return rad ? (Number(rad.tillagg_kr_per_m3fub) || 0) : 0;
-}
