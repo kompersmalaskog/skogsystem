@@ -91,7 +91,7 @@ const GEMENSAMMA_FALT = ['vo_nummer', 'object_name', 'skogsagare', 'bolag', 'ink
   'timpeng_undantag_timmar_skordare', 'timpeng_undantag_timmar_skotare',
   'timpeng_undantag_volym', 'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare',
   // Ackordgrund-overrides på objektnivå (används av BÅDA maskindelarnas prisuppslag)
-  'medelstam_manuell', 'sortiment_grupper_manuell', 'terrang_manuell']
+  'medelstam_manuell', 'sortiment_grupper_manuell', 'terrang_kr_manuell']
 const SKORDARFALT = ['stubbbehandling', 'skordning_avslutad', 'skordning_avslutad_auto', 'skordning_g15_manuell']
 const SKOTARFALT = ['risskotning', 'egen_skotning', 'extra_vagn', 'klippning',
   'skotad_volym_manuell', 'skotning_g15_manuell', 'skotning_avslutad', 'skotning_avslutad_auto', 'ovrigt_info',
@@ -1677,14 +1677,6 @@ function SubFiler({ obj, rader, hamtStatus, skotareSanderEj }: any) {
 // UNDERSIDA: Pris & ersättning — Ackord/Timpeng + timpeng-undantag.
 // dim_objekt.timpeng är ENDA källan för flaggan.
 function SubPris({ obj, set }: any) {
-  // Terrängtaxorna ur prislistan (Inställningar äger dem) — driver väljaren
-  const [terrangRader, setTerrangRader] = useState<any[]>([])
-  useEffect(() => {
-    supabase.from('acord_terrang')
-      .select('namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till')
-      .is('giltig_till', null).order('namn')
-      .then(({ data }) => setTerrangRader(data || []))
-  }, [])
   return (
     <IosGroup title="Pris & ersättning">
       <div id="timpeng-section" style={{ padding: '14px 16px 4px' }}>
@@ -1785,28 +1777,35 @@ function SubPris({ obj, set }: any) {
           placeholder="auto"
           suffix="h"
         />
-        {/* TERRÄNG — manuellt val per objekt (appen kan inte bedöma terräng).
-            Taxan bor i acord_terrang. Inget val = Normal = 0 kr; aktivt
-            Normal-val sparas som tomt så bara avvikelser lagras. */}
+        {/* TERRÄNG — ett SPANN (Svår 1–8 kr/m³), bedömt manuellt per objekt.
+            Kronvärdet bor i terrang_kr_manuell; NULL = Normal = 0 kr. Växling
+            till Svår förifyller spannets mitt (4) — redigerbart direkt. Tomt
+            fält = tillbaka till Normal; bara avvikelser lagras. */}
         <div style={{ ...styles.subsectionLabel, marginTop: 12 }}>Terräng</div>
         <Segment
-          value={obj.terrang_manuell ?? null}
+          value={(Number(obj.terrang_kr_manuell) || 0) > 0}
           options={[
-            { varde: null, label: 'Normal' },
-            ...terrangRader.filter((r: any) => r.namn !== 'Normal').map((r: any) => ({
-              varde: r.namn,
-              label: `${r.namn} +${Number(r.tillagg_kr_per_m3fub).toLocaleString('sv-SE')} kr/m³`,
-            })),
+            { varde: false, label: 'Normal' },
+            { varde: true, label: 'Svår (1–8 kr/m³)' },
           ]}
-          onChange={(v: string | null) => set({ ...obj, terrang_manuell: v })}
+          onChange={(v: boolean) => set({ ...obj, terrang_kr_manuell: v ? (Number(obj.terrang_kr_manuell) || 4) : null })}
         />
+        {(Number(obj.terrang_kr_manuell) || 0) > 0 && (
+          <NumField
+            label="Terrängtillägg"
+            value={obj.terrang_kr_manuell}
+            onChange={(v: number | null) => set({ ...obj, terrang_kr_manuell: v == null ? null : Math.min(8, Math.max(1, v)) })}
+            placeholder="1–8"
+            suffix="kr/m³"
+          />
+        )}
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, padding: '6px 2px 0' }}>
           Ersätter mätt/beräknat värde i ackordberäkningen — permanent tills du
           tömmer fältet (importen rör dem aldrig). Tomt = automatiskt värde.
           Medelstam och sortimentgrupper styr prisuppslaget, skotavstånd räknar
           tillägget på hela skotarvolymen, G15-timmarna styr timpeng-jämförelsen
-          i Mot ackord. Terräng lägger acord_terrang-taxan per m³ — Normal är
-          förval och kostar inget.
+          i Mot ackord. Terräng: Svår är en bedömning per objekt inom prislistans
+          spann 1–8 kr/m³ — Normal är förval och kostar inget.
         </div>
       </div>
     </IosGroup>

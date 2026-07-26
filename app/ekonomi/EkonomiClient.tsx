@@ -21,7 +21,7 @@ import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
   timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
-  ovrigtKrPerM3, terrangKrPerM3, type OvrigtRad, type TerrangRad,
+  ovrigtKrPerM3, type OvrigtRad,
 } from '@/lib/ekonomi/acord';
 import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
 import EkonomiBottomNav from './EkonomiBottomNav';
@@ -65,7 +65,7 @@ export default function EkonomiClient() {
         tidRowsRaa, prodRowsRaa, lassRowsRaa, sortRowsRaa,
         sortGruppRes, objRes, maskinRes, timprisRes,
         acordRes, avstandRes, sortTillaggRes, traktRes,
-        ovrigtRes, terrangRes,
+        ovrigtRes,
         exkluderade,
       ] = await Promise.all([
         fetchAllRows((from, to) =>
@@ -93,7 +93,7 @@ export default function EkonomiClient() {
             .range(from, to)
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
-        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, terrang_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, terrang_kr_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -101,13 +101,12 @@ export default function EkonomiClient() {
         supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
         supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
         supabase.from('acord_ovrigt').select('nyckel, varde, giltig_fran, giltig_till'),
-        supabase.from('acord_terrang').select('namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till'),
         hamtaExkluderadeObjektId(),
       ]);
 
       // Ärligt fel även på engångshämtningarna — en tyst tom dim-tabell
       // skulle ge 0-priser som ser ut som fakta.
-      for (const res of [sortGruppRes, objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, ovrigtRes, terrangRes]) {
+      for (const res of [sortGruppRes, objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, ovrigtRes]) {
         if (res.error) throw new Error(res.error.message);
       }
 
@@ -168,10 +167,9 @@ export default function EkonomiClient() {
       // taxor ur prislistan, uppslag på periodslutet. Funktion (inte map) så
       // även objekt utan produktion/sortiment (GROT/skotare-only) täcks.
       const ovrigtList: OvrigtRad[] = ovrigtRes.data || [];
-      const terrangList: TerrangRad[] = terrangRes.data || [];
       const ovrigKrFor = (oid: string) =>
         ovrigtKrPerM3('kvalitetssakring', ovrigtList, end)
-        + terrangKrPerM3(objMap[oid]?.terrang_manuell, terrangList, end);
+        + (Number(objMap[oid]?.terrang_kr_manuell) || 0);
 
       const objSortTillaggKr: Record<string, number> = {};
       const objTraktKr: Record<string, number> = {};
