@@ -31,3 +31,14 @@ export async function signeraKartfil(varde: string | null | undefined, ttlSek = 
   }
   return data.signedUrl;
 }
+
+// PDF i LÄSVY (aldrig nedladdning): signerar + proxar via /api/dokument som sätter
+// explicit Content-Disposition: inline same-origin. En cross-origin bucket-PDF utan
+// disposition laddas annars ner i många webbläsare/PWA-webviews (särskilt iOS Safari).
+// Returnerar en öppningsbar URL, eller null om den inte kunde signeras.
+// OBS: bara för dokument som ska ÖPPNAS — inte för kartbild-overlays (bildkälla) eller
+// filer som faktiskt ska laddas ner.
+export async function laskvyUrl(varde: string | null | undefined, ttlSek = 3600): Promise<string | null> {
+  const signed = await signeraKartfil(varde, ttlSek);
+  return signed ? `/api/dokument?url=${encodeURIComponent(signed)}` : null;
+}
