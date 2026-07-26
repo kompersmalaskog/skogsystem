@@ -24,6 +24,7 @@ import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
   timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
+  ovrigtKrPerM3, terrangKrPerM3, type OvrigtRad, type TerrangRad,
 } from '@/lib/ekonomi/acord';
 import Link from 'next/link';
 import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
@@ -101,8 +102,8 @@ export default function MotAckordClient() {
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
 
-      const [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, exkluderade] = await Promise.all([
-        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, skordning_g15_manuell, skotning_g15_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+      const [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, ovrigtRes, terrangRes, exkluderade] = await Promise.all([
+        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, skordning_g15_manuell, skotning_g15_manuell, terrang_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -110,9 +111,11 @@ export default function MotAckordClient() {
         supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
         supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
+        supabase.from('acord_ovrigt').select('nyckel, varde, giltig_fran, giltig_till'),
+        supabase.from('acord_terrang').select('namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till'),
         hamtaExkluderadeObjektId(),
       ]);
-      for (const res of [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes]) {
+      for (const res of [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, ovrigtRes, terrangRes]) {
         if (res.error) throw new Error(res.error.message);
       }
 
@@ -215,11 +218,20 @@ export default function MotAckordClient() {
         return man > 0 ? man : null;
       };
 
+      const ovrigtList: OvrigtRad[] = ovrigtRes.data || [];
+      const terrangList: TerrangRad[] = terrangRes.data || [];
+
       const objSortKr: Record<string, number> = {};
       const objTraktKr: Record<string, number> = {};
+      // Kvalitetssäkring (alltid, alla objekt) + terräng (manuellt val, annars 0)
+      // — prislistetaxor ur acord_ovrigt/acord_terrang, uppslag på avräkningsdagen
+      const objOvrigKr: Record<string, number> = {};
       for (const oid of ids) {
         objSortKr[oid] = sortimentTillagg(grupperFor(oid), sortConf);
         objTraktKr[oid] = traktTillagg(objVol[oid]?.vol || 0, traktBrackets).krPerM3;
+        const dag = avrakningsdatum(objMeta[oid]) || '';
+        objOvrigKr[oid] = ovrigtKrPerM3('kvalitetssakring', ovrigtList, dag)
+          + terrangKrPerM3(objMeta[oid]?.terrang_manuell, terrangList, dag);
       }
 
       const tidPerKey: Record<string, any[]> = {};
@@ -329,7 +341,7 @@ export default function MotAckordClient() {
         if (h.vol <= 0) continue;
         const medelstam = medelstamOverride(oid) ?? (h.stammar > 0 ? h.vol / h.stammar : ANTAGEN_MEDELSTAM);
         const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skordare || 0;
-        const extra = (objSortKr[oid] || 0) + (objTraktKr[oid] || 0);
+        const extra = (objSortKr[oid] || 0) + (objTraktKr[oid] || 0) + (objOvrigKr[oid] || 0);
         const meta = objMeta[oid];
         const undTp = timprisList.find(p => p.maskin_id === mid)?.timpris || 0;
         const und = tillampaTimpengUndantag(h.vol, meta?.timpeng_undantag_timmar_skordare, meta?.timpeng_undantag_dra_skordare !== false, meta?.timpeng_undantag_volym, undTp);
@@ -340,7 +352,7 @@ export default function MotAckordClient() {
         if (f.vol <= 0) continue;
         const medelstam = medelstamOverride(oid) ?? (objMedelstam[oid] || ANTAGEN_MEDELSTAM);
         const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skotare || 0;
-        const extra = (objSortKr[oid] || 0) + (objTraktKr[oid] || 0);
+        const extra = (objSortKr[oid] || 0) + (objTraktKr[oid] || 0) + (objOvrigKr[oid] || 0);
         const meta = objMeta[oid];
         const undTp = timprisList.find(p => p.maskin_id === mid)?.timpris || 0;
         const und = tillampaTimpengUndantag(f.vol, meta?.timpeng_undantag_timmar_skotare, meta?.timpeng_undantag_dra_skotare !== false, meta?.timpeng_undantag_volym, undTp);
@@ -417,6 +429,13 @@ export default function MotAckordClient() {
             label: 'G15 skotare',
             text: g15St.length ? `${fmtTim(sumTim(g15St))} h${g15St.some(d => d.manuellTid) ? ' · manuell' : ''}` : (egen ? '— egen skotning' : '—'),
             manuell: g15St.some(d => d.manuellTid),
+          },
+          {
+            label: 'Terräng',
+            text: o.terrang_manuell
+              ? `${o.terrang_manuell} +${terrangKrPerM3(o.terrang_manuell, terrangList, avrakningsdatum(o) || '').toLocaleString('sv-SE')} kr/m³ · manuell`
+              : 'Normal · förval',
+            manuell: !!o.terrang_manuell,
           },
         ];
 
@@ -770,7 +789,7 @@ export default function MotAckordClient() {
             </div>
             <div>
               <div style={s.sheetH}>Ackord</div>
-              Skördad volym × skördarpris och skotad volym × skotarpris per närmaste medelstam, plus trakt-, sortiment- och skotningsavståndstillägg — samma motor som per-objekt-fliken. Terräng- och flyttersättning ingår inte ännu.
+              Skördad volym × skördarpris och skotad volym × skotarpris per närmaste medelstam, plus trakt-, sortiment-, skotningsavstånds- och terrängtillägg. Kvalitetssäkring/ForestLink ingår alltid (taxa ur prislistan, kr/m³ per maskindel). 3-meters massaved och manuella poster (snittsling m.m.) ingår inte — flyttersättning redovisas separat. OBS: per-objekt-fliken har ännu inte kvalitets-/terrängtilläggen.
             </div>
             <div>
               <div style={s.sheetH}>Timpeng-jämförelsen</div>
