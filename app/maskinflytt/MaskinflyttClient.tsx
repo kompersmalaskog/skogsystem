@@ -92,6 +92,25 @@ interface Flyttdag {
   start_lng: number | null
   start_kalla: string | null
   tillkorning_km: number | null
+  start_odometer_m: number | null
+  start_odometer_tid: string | null
+  odometer_stale: boolean | null
+}
+
+const FLYTTDAG_FALT = 'id, starttid, start_lat, start_lng, start_kalla, tillkorning_km, start_odometer_m, start_odometer_tid, odometer_stale'
+
+/** Lastbilens odometer just nu via /api/scania/odometer (nycklar server-side).
+ *  Scania får ALDRIG blockera — fel/timeout ger null och dagen sparas utan
+ *  mätarvärde. Samma princip som vädret. */
+async function hamtaOdometer(): Promise<{ odometer_m: number; tid: string | null; stale: boolean } | null> {
+  try {
+    const r = await fetch('/api/scania/odometer', { cache: 'no-store' })
+    if (!r.ok) return null
+    const b = await r.json()
+    return b?.ok && Number.isFinite(b.odometer_m)
+      ? { odometer_m: b.odometer_m, tid: b.tid ?? null, stale: !!b.stale }
+      : null
+  } catch { return null }
 }
 
 interface PagaendeFlytt {
@@ -198,6 +217,24 @@ async function korRutt(
 const MAX_TID_TILL_MASKIN_MIN = 180  // bas→A över 3 tim = föraren gjorde annat
 const MAX_TID_FLYTT_MIN = 360        // A→B över 6 tim = appen låg öppen
 const MAX_DAG_MIN = 960              // dag över 16 tim = aldrig avslutad på riktigt
+
+// Tröskelvärden för lastbilens tankvarning — konstanter så de enkelt justeras
+// efter verklig användning. Under NÅGON av dem → varningsläge (orange kort som
+// flyttar upp till toppen). Diskret grönt annars.
+const BRANSLE_MIN = 25    // %
+const ADBLUE_MIN = 20     // %
+const RACKVIDD_MIN_KM = 150
+
+/** "nyss" / "för X min sedan" / "för X tim sedan" — så föraren ser att
+ *  tankdatan inte är realtid. */
+function tankAlder(iso: string | null): string {
+  if (!iso) return ''
+  const min = Math.round((Date.now() - Date.parse(iso)) / 60000)
+  if (!Number.isFinite(min) || min < 0) return ''
+  if (min < 1) return 'nyss'
+  if (min < 60) return `för ${min} min sedan`
+  return `för ${Math.floor(min / 60)} tim sedan`
+}
 
 function fmtMin(min: number | null): string {
   if (min == null) return '—'
@@ -322,6 +359,13 @@ export default function MaskinflyttClient() {
   const [gpsFel, setGpsFel] = useState<string | null>(null)
   const [gpsHamtar, setGpsHamtar] = useState(false)
 
+  // Lastbilens tankstatus (Scania) — null tills hämtad; förblir null vid fel
+  // så kortet bara inte visas. Blockerar aldrig maskinlistan.
+  const [tank, setTank] = useState<{
+    namn: string | null; fuel: number | null; adblue: number | null
+    rackvidd_km: number | null; tid: string | null
+  } | null>(null)
+
   // Rimlighetsvakt: GPS-punkten ligger långt från maskinens förväntade plats.
   // Blockerar aldrig — föraren väljer mellan sin GPS och den kända platsen.
   const [posVarning, setPosVarning] = useState<{
@@ -356,6 +400,7 @@ export default function MaskinflyttClient() {
     hemKm: number | null; tidHemMin: number | null
     totalKm: number; totalTidMin: number | null; dagOgiltig: boolean
     fakturerbarKm: number; fakturerbarAntal: number
+    matareKm: number | null; odometerStale: boolean
     rader: DagFlyttRad[]
   } | null>(null)
   const [hembasSparar, setHembasSparar] = useState(false)
@@ -414,11 +459,22 @@ export default function MaskinflyttClient() {
     })()
   }, [])
 
+  // Lastbilens tankstatus — en gång vid mount, serverside-cachad. Fel/timeout
+  // låter tank förbli null → kortet visas inte. Scania blockerar aldrig listan.
+  useEffect(() => {
+    fetch('/api/scania/tank', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(b => {
+        if (b?.ok) setTank({ namn: b.namn ?? null, fuel: b.fuel_pct ?? null, adblue: b.adblue_pct ?? null, rackvidd_km: b.rackvidd_km ?? null, tid: b.tid ?? null })
+      })
+      .catch(() => { /* tyst — kortet bara uteblir */ })
+  }, [])
+
   /** Hämta pågående flyttdag. En dag från ett tidigare dygn auto-stängs —
    *  nästa dags flytt får aldrig hamna i gårdagens dag. */
   async function laddaDag(m: Medarb | null) {
     const bas = supabase.from('flyttdag')
-      .select('id, starttid, start_lat, start_lng, start_kalla, tillkorning_km')
+      .select(FLYTTDAG_FALT)
       .is('sluttid', null).order('starttid', { ascending: false }).limit(1)
     const { data, error } = m ? await bas.eq('medarbetare_id', m.id) : await bas.is('medarbetare_id', null)
     if (error) {
@@ -568,7 +624,7 @@ export default function MaskinflyttClient() {
       start_lat: start?.lat ?? null,
       start_lng: start?.lng ?? null,
       start_kalla: start?.kalla ?? null,
-    }).select('id, starttid, start_lat, start_lng, start_kalla, tillkorning_km')
+    }).select(FLYTTDAG_FALT)
     if (error || !data?.length) {
       setSparFel(`Kunde inte starta dagen: ${error?.message || 'inga rader sparades'}`)
       return null
@@ -576,6 +632,23 @@ export default function MaskinflyttClient() {
     const d = data[0] as Flyttdag
     setDag(d)
     setDagFlyttAntal(0)
+
+    // Lastbilens odometer vid dagstart — fire-and-forget så Scania aldrig
+    // fördröjer "Starta körning". Landar den skrivs start_odometer på dagen;
+    // gör den inte det förblir mätaren bara oräknad (matare_km null).
+    hamtaOdometer().then(odo => {
+      if (!odo) return
+      supabase.from('flyttdag').update({
+        start_odometer_m: odo.odometer_m,
+        start_odometer_tid: odo.tid,
+        odometer_stale: odo.stale,
+      }).eq('id', d.id).then(() => {
+        setDag(prev => prev && prev.id === d.id
+          ? { ...prev, start_odometer_m: odo.odometer_m, start_odometer_tid: odo.tid, odometer_stale: odo.stale }
+          : prev)
+      })
+    })
+
     return d
   }
 
@@ -885,14 +958,26 @@ export default function MaskinflyttClient() {
     // Namn till sammanfattningens rader — en läsning per tabell, inga N+1
     const objektIds = Array.from(new Set((fl || []).flatMap(f => [f.fran_objekt_id, f.till_objekt_id]).filter(Boolean))) as string[]
     const platsIds = Array.from(new Set((fl || []).flatMap(f => [f.fran_plats_id, f.till_plats_id]).filter(Boolean))) as string[]
-    const [objNamn, platsNamn, hem] = await Promise.all([
+    const [objNamn, platsNamn, hem, slutOdo, dagFarsk] = await Promise.all([
       objektIds.length ? supabase.from('objekt').select('id, namn').in('id', objektIds) : Promise.resolve({ data: [] as any[] }),
       platsIds.length ? supabase.from('flyttplats').select('id, namn').in('id', platsIds) : Promise.resolve({ data: [] as any[] }),
       // Hemresa: bara med hembas OCH en känd slutpunkt — annars ärligt tomt
       medarb?.hem_lat != null && medarb?.hem_lng != null && sistaB
         ? korRutt(sistaB, { lat: medarb.hem_lat, lng: medarb.hem_lng }, true)
         : Promise.resolve(null),
+      // Lastbilens odometer nu (slut) + färsk start-avläsning från dagen
+      hamtaOdometer(),
+      supabase.from('flyttdag').select('start_odometer_m, start_odometer_tid, odometer_stale').eq('id', d.id).single(),
     ])
+
+    // Mätarställning: (slut − start) / 1000, en decimal. Saknas endera → null.
+    // Odometern är lastbilens totalsträcka — vid sidan av rutt-km, aldrig i stället.
+    const startOdoM: number | null = dagFarsk.data?.start_odometer_m ?? d.start_odometer_m ?? null
+    const startStale: boolean = !!(dagFarsk.data?.odometer_stale ?? d.odometer_stale)
+    const slutOdoM: number | null = slutOdo?.odometer_m ?? null
+    const matareKm: number | null = startOdoM != null && slutOdoM != null
+      ? Math.round(((slutOdoM - startOdoM) / 1000) * 10) / 10 : null
+    const odometerStale: boolean = startStale || !!slutOdo?.stale
     const namnFor = (objektId: string | null, platsId: string | null) =>
       (objektId && (objNamn.data || []).find((o: any) => o.id === objektId)?.namn)
       || (platsId && (platsNamn.data || []).find((p: any) => p.id === platsId)?.namn)
@@ -924,6 +1009,10 @@ export default function MaskinflyttClient() {
       tid_hem_min: hem?.minutes ?? null,
       total_km: totalKm,
       total_tid_min: dagOgiltig ? null : raMin,
+      slut_odometer_m: slutOdoM,
+      slut_odometer_tid: slutOdo?.tid ?? null,
+      matare_km: matareKm,
+      odometer_stale: odometerStale,
       status: 'avslutad',
     }).eq('id', d.id).select('id')
     setSparar(false)
@@ -939,6 +1028,7 @@ export default function MaskinflyttClient() {
       totalKm, totalTidMin: dagOgiltig ? null : raMin, dagOgiltig,
       fakturerbarKm: (fl || []).reduce((s, f) => s + (f.fakturerbar ? (f.flytt_km ?? 0) : 0), 0),
       fakturerbarAntal: (fl || []).filter(f => f.fakturerbar).length,
+      matareKm, odometerStale,
       rader,
     })
     setDag(null); setForraB(null); setDagFlyttAntal(0)
@@ -983,7 +1073,7 @@ export default function MaskinflyttClient() {
     // Flyttens dag återupptas också om den inte redan är laddad
     if (f.flyttdag_id && dagRef.current?.id !== f.flyttdag_id) {
       const { data } = await supabase.from('flyttdag')
-        .select('id, starttid, start_lat, start_lng, start_kalla, tillkorning_km')
+        .select(FLYTTDAG_FALT)
         .eq('id', f.flyttdag_id).single()
       if (data) setDag(data as Flyttdag)
     }
@@ -1079,6 +1169,56 @@ export default function MaskinflyttClient() {
   const lankStil: React.CSSProperties = {
     background: 'transparent', color: C.blue, border: 'none', fontSize: 13,
     fontWeight: 600, cursor: 'pointer', fontFamily: ff, padding: 0,
+  }
+
+  // Varningsläge när någon nivå är under tröskel → kortet flyttar upp till
+  // toppen (ett beslut föraren ska fatta INNAN han väljer maskin).
+  const tankVarning = !!tank && (
+    (tank.fuel != null && tank.fuel < BRANSLE_MIN) ||
+    (tank.adblue != null && tank.adblue < ADBLUE_MIN) ||
+    (tank.rackvidd_km != null && tank.rackvidd_km < RACKVIDD_MIN_KM)
+  )
+
+  /** Lastbilskort på maskinlistan: diskret när allt är ok, orange "Planera
+   *  tankning" i varningsläge. Ålder alltid utskriven — datan är inte realtid. */
+  function tankKort() {
+    if (!tank) return null
+    const v = tankVarning
+    const varde = (label: string, val: number | null, enhet: string, under: boolean) =>
+      val == null ? null : (
+        <span style={{ color: under ? C.orange : C.t2, fontWeight: under ? 700 : 400 }}>
+          {label} {Math.round(val)}{enhet}
+        </span>
+      )
+    return (
+      <div style={{
+        background: v ? 'rgba(255,159,10,0.12)' : C.card,
+        border: `1px solid ${v ? 'rgba(255,159,10,0.5)' : C.border}`,
+        borderRadius: 14, padding: 14, marginBottom: 14,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 22, color: v ? C.orange : C.t3 }}>local_shipping</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>
+              Lastbil{tank.namn ? ` ${tank.namn}` : ''}
+              {v && <span style={{ color: C.orange }}> · Planera tankning</span>}
+            </div>
+            <div style={{ fontSize: 13, marginTop: 3, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {varde('Diesel', tank.fuel, '%', tank.fuel != null && tank.fuel < BRANSLE_MIN)}
+              {varde('AdBlue', tank.adblue, '%', tank.adblue != null && tank.adblue < ADBLUE_MIN)}
+              {tank.rackvidd_km != null && (
+                <span style={{ color: tank.rackvidd_km < RACKVIDD_MIN_KM ? C.orange : C.t2, fontWeight: tank.rackvidd_km < RACKVIDD_MIN_KM ? 700 : 400 }}>
+                  Räckvidd ~{tank.rackvidd_km} km
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        {tank.tid && (
+          <div style={{ fontSize: 11, color: C.t3, marginTop: 8 }}>Uppdaterad {tankAlder(tank.tid)}</div>
+        )}
+      </div>
+    )
   }
 
   /** Platsraden under maskinnamnet i listan — tre ärliga tillstånd. */
@@ -1211,6 +1351,8 @@ export default function MaskinflyttClient() {
 
             {!laddar && !laddFel && (
               <>
+                {/* Varning ska synas INNAN maskinvalet → kortet upp till toppen */}
+                {tankVarning && tankKort()}
                 <h2 style={{ fontSize: 22, fontWeight: 700, margin: '4px 0 4px' }}>Vilken maskin flyttas?</h2>
                 <p style={{ fontSize: 14, color: C.t3, margin: '0 0 16px' }}>
                   {dag ? 'Nästa flytt läggs på dagens körning.' : 'Dagen startar med första flytten.'}
@@ -1298,6 +1440,11 @@ export default function MaskinflyttClient() {
                       opacity: externNamn.trim() && kund.trim() ? 1 : 0.4,
                     }}>Fortsätt med denna maskin</button>
                   </div>
+                )}
+
+                {/* Tankstatus diskret nederst när allt är ok — bakgrundsinfo, inte ett beslut */}
+                {!tankVarning && (
+                  <div style={{ marginTop: 20 }}>{tankKort()}</div>
                 )}
 
                 {/* Sammanställningen — huvudvägen är startsidans ruta, detta är genvägen */}
@@ -1704,6 +1851,12 @@ export default function MaskinflyttClient() {
                 <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
                   {dagResultat.dagOgiltig ? 'tid ej sparad (över 16 tim)' : fmtMin(dagResultat.totalTidMin)}
                 </div>
+                {dagResultat.matareKm != null && (
+                  <div style={{ fontSize: 13, color: C.t3, marginTop: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>speed</span>
+                    Mätare {dagResultat.odometerStale ? '~' : ''}{dagResultat.matareKm.toLocaleString('sv-SE')} km
+                  </div>
+                )}
               </div>
               <div style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 }}>
                 <div style={{ fontSize: 12, color: C.t3, fontWeight: 700 }}>FAKTURERBART</div>
