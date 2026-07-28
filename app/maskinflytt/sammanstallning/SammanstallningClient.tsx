@@ -59,6 +59,8 @@ interface DagRad {
   tid_hem_min: number | null
   total_km: number | null
   total_tid_min: number | null
+  matare_km: number | null           // lastbilens mätta sträcka (Scania) — vid sidan av total_km
+  odometer_stale: boolean | null
   status: string
 }
 
@@ -159,7 +161,7 @@ export default function SammanstallningClient() {
           .lt('starttid', period.slut.toISOString())
           .order('starttid', { ascending: false }),
         supabase.from('flyttdag')
-          .select('id, forare, starttid, sluttid, tillkorning_km, hem_km, tid_hem_min, total_km, total_tid_min, status')
+          .select('id, forare, starttid, sluttid, tillkorning_km, hem_km, tid_hem_min, total_km, total_tid_min, matare_km, odometer_stale, status')
           .gte('starttid', period.start.toISOString())
           .lt('starttid', period.slut.toISOString())
           .order('starttid', { ascending: false }),
@@ -477,8 +479,14 @@ export default function SammanstallningClient() {
                               </div>
                             </div>
                           ))}
-                          {ben && (
-                            <div style={{ fontSize: 12, color: C.t3, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>{ben}</div>
+                          {(ben || d.matare_km != null) && (
+                            <div style={{ fontSize: 12, color: C.t3, paddingTop: 10, borderTop: `1px solid ${C.border}`, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                              {ben && <span>{ben}</span>}
+                              {/* Mätaren vid sidan av rutt-km — två mätningar, ärligt märkta */}
+                              {d.matare_km != null && (
+                                <span>Mätare {d.odometer_stale ? '~' : ''}{d.matare_km.toLocaleString('sv-SE')} km</span>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}
