@@ -20,6 +20,9 @@ import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
 const DynamicMapLibre = dynamic(() => import('@/components/MapLibreMap'), { ssr: false })
 const TraktBriefing = dynamic(() => import('./TraktBriefing'), { ssr: false })
+// In-app PDF-läsvy (dokument öppnas INNE i appen, ej window.open). pdfjs laddas
+// lazy inuti komponenten — inget av detta drar in i planeringsvyns startbundle.
+const PdfLasare = dynamic(() => import('./PdfLasare'), { ssr: false })
 
 // Öppna extern länk utan att döda iOS standalone-PWA:n. Ett <a target="_blank"> navigerar
 // där ofta IN-PLACE → appen kall-startar vid retur (kastas till objektväljaren, tappar vald
@@ -287,6 +290,8 @@ const EMPTY_KVITT: KvittRad = { checked_ids: [], kvitterat_av_id: null, kvittera
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
+  // Öppet dokument i in-app PDF-läsvyn (signerad url + titel), null = stängd
+  const [pdfDok, setPdfDok] = useState<{ url: string; titel: string } | null>(null);
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
   const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null; roll: string | null }>>([]);
   const [sendingKlar, setSendingKlar] = useState(false);
@@ -9329,6 +9334,9 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* In-app PDF-läsvy — traktdirektiv/stämplingslängd öppnas HÄR, aldrig via nedladdning/extern flik. */}
+      {pdfDok && <PdfLasare signedUrl={pdfDok.url} titel={pdfDok.titel} onClose={() => setPdfDok(null)} />}
+
       {/* === TRAKTÖVERSIKT — fälls ner från objektnamnet. Stefans snabbkoll (planering + körvy). === */}
       {traktOversiktOpen && valtObjekt && (() => {
         const vida = (vidaDirektiv || '').trim();
@@ -9439,10 +9447,11 @@ export default function PlannerPage() {
         };
         const stang = () => { setTraktOversiktOpen(false); setOversiktSymbolTyp(null); };
         // Kontorets dokument (TD + stämplingslängd) ligger i privat bucket → signeras vid klick och
-        // öppnas externt (PDF i telefonens läsare / ny flik). Ingen inbäddning. Rad visas bara om url finns.
+        // renderas i in-app PDF-läsvyn (PdfLasare), aldrig window.open/nedladdning som slänger ut
+        // föraren ur den installerade appen. Rad visas bara om url finns.
         const harDok = !!(valtObjekt.traktdirektiv_url || valtObjekt.stamplingslangd_url);
         const dokRad = (etikett: string, url: string) => (
-          <button type="button" key={etikett} className="btn-press" onClick={async () => { console.log('[DOK-DIAG] dokRad(traktöversikt) IN url=', JSON.stringify(url)); const signerad = await signeraKartfil(url); console.log('[DOK-DIAG] dokRad(traktöversikt) SIGNERAD=', JSON.stringify(signerad)); if (signerad) openExternal(signerad); }}
+          <button type="button" key={etikett} className="btn-press" onClick={async () => { const s = await signeraKartfil(url); if (s) setPdfDok({ url: s, titel: etikett }); }}
             style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit' }}>
             <span style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(10,132,255,0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4da3ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" /></svg>
@@ -17257,11 +17266,9 @@ export default function PlannerPage() {
                     <a href="#" target="_blank" rel="noopener noreferrer"
                       onClick={async (e) => {
                         e.preventDefault();
-                        // Privat bucket — signera vid klick (TTL 1h)
-                        console.log('[DOK-DIAG] dokKnapp(Trakt-panel) IN url=', JSON.stringify(url));
-                        const signerad = await signeraKartfil(url);
-                        console.log('[DOK-DIAG] dokKnapp(Trakt-panel) SIGNERAD=', JSON.stringify(signerad));
-                        if (signerad) openExternal(signerad);
+                        // Privat bucket — signera vid klick (TTL 1h), rendera i in-app-läsvyn
+                        const s = await signeraKartfil(url);
+                        if (s) setPdfDok({ url: s, titel: etikett });
                       }}
                       style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none',
                         fontSize: '13px', fontWeight: 600, background: `${docFarg}1a`, border: `1px solid ${docFarg}55`, color: docFarg }}>
