@@ -11,6 +11,7 @@ import os
 import sys
 import time
 import subprocess
+import shutil
 import logging
 import threading
 import socket
@@ -46,14 +47,14 @@ LOG_FILE = os.path.join(SCRIPT_DIR, "import_logg.txt")
 
 VERCEL_API_URL = "https://skogsystem.vercel.app/api/mom-import"
 
-# Fördelningsuppföljningen (etapp 1.5): varje ny .hpr POST:as även till
-# /api/hpr-import. Vercel kapar request-bodies vid ~4,5 MB, så filen laddas
-# först upp till Supabase Storage (raw-files/incoming/) och API:et får bara
-# sökvägen. Nycklar läses ur miljön/.env.local — saknas de loggas en varning
-# och steget hoppas över. FÅR ALDRIG stoppa arkiveringsflödet.
-FORDELNING_API_URL = os.environ.get(
-    "FORDELNING_API_URL", "https://skogsystem.vercel.app/api/hpr-import"
-)
+# Fördelningsuppföljningen: varje ny .hpr importeras via ett LOKALT Node-script
+# (scripts/import_fordelning.ts) i stället för att POST:a till Vercel — Vercels
+# nyckel-env slog aldrig igenom, och 62 MB-parsningen riskerade minnes-/tidstaket.
+# Scriptet återanvänder EXAKT samma lib/hpr-import som Vercel-routen. Läser en
+# lokal fil direkt (ingen 4,5 MB-gräns, ingen Storage-staging) och gzippar
+# rådatakopian. FÅR ALDRIG stoppa arkiveringsflödet.
+FORDELNING_SCRIPT = os.path.join(SCRIPT_DIR, "scripts", "import_fordelning.ts")
+_NPX = shutil.which("npx")  # full sökväg till npx.cmd — list-form funkar på Windows
 
 SETTLE_DELAY = 5  # sekunder att vänta innan import (fil kanske inte skrivits klart)
 
@@ -223,93 +224,60 @@ def notify_vercel():
 # FÖRDELNINGSUPPFÖLJNING (etapp 1.5)
 # ============================================================
 
-def _env_local(name: str) -> str | None:
-    """Miljövariabel, med fallback till SCRIPT_DIR/.env.local (samma fil som
-    import_hpr.py läser). Returnerar None om nyckeln inte finns någonstans."""
-    if os.environ.get(name):
-        return os.environ[name]
-    try:
-        env_path = os.path.join(SCRIPT_DIR, ".env.local")
-        with open(env_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith(f"{name}="):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except OSError:
-        pass
-    return None
-
-
-# Hindra att periodisk scan laddar upp samma fil om och om igen medan den
-# ligger kvar i Inkommande. Serverns filhash-dedupe är sista försvar.
+# Hindra att periodisk scan kör om samma fil om och om igen medan den ligger
+# kvar i Inkommande. Scriptets filhash-dedupe är sista försvar (duplicate).
 _fordelning_posted: set[tuple[str, int]] = set()
 
 
 def post_hpr_fordelning(filepath: str):
-    """Ladda upp .hpr till raw-files/incoming/ och peka /api/hpr-import dit.
+    """Kör det lokala importscriptet (npx tsx scripts/import_fordelning.ts) mot
+    Supabase — importerar .hpr till fördelningsuppföljningen utan Vercel.
     Självständig och ofarlig: varje fel loggas och sväljs — arkiveringen
-    (MOM/HPR-importen) fortsätter alltid oavsett vad som händer här."""
+    (MOM/HPR-importen) fortsätter alltid. Cache på (filnamn, storlek) hindrar
+    om-körning på periodisk scan; scriptets hash-dedupe ger ändå duplicate."""
     try:
         basename = os.path.basename(filepath)
         try:
-            data = open(filepath, "rb").read()
+            size = os.path.getsize(filepath)
         except OSError as e:
             logger.warning(f"Fördelning: kunde inte läsa {basename} ({e}) — "
                            f"backfill_fordelning_hpr.py tar den från Behandlade senare.")
             return
-        cache_key = (basename.lower(), len(data))
+        cache_key = (basename.lower(), size)
         if cache_key in _fordelning_posted:
             return
-        supabase_url = _env_local("NEXT_PUBLIC_SUPABASE_URL") or _env_local("SUPABASE_URL")
-        service_key = _env_local("SUPABASE_SERVICE_ROLE_KEY")
-        import_key = _env_local("HPR_IMPORT_KEY")
-        if not (supabase_url and service_key and import_key):
-            logger.warning("Fördelning: NEXT_PUBLIC_SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/"
-                           "HPR_IMPORT_KEY saknas i miljö/.env.local — hoppar över POST.")
+        if not _NPX:
+            logger.warning("Fördelning: npx hittades inte i PATH — hoppar över (Node/npm saknas?).")
+            return
+        if not os.path.isfile(FORDELNING_SCRIPT):
+            logger.warning(f"Fördelning: {FORDELNING_SCRIPT} saknas — hoppar över.")
             return
 
-        import hashlib, gzip
-        # Gzippa före uppladdning — HPR är XML (~8:1), så en 62 MB-fil blir ~7 MB
-        # och kommer under Supabase Storages uppladdningsgräns. Routen dekomprimerar
-        # efter nedladdning. Hashen i filnamnet är på ORIGINALET (routen hashar det
-        # dekomprimerade), så dedup är oförändrad.
-        digest = hashlib.sha256(data).hexdigest()
-        payload = gzip.compress(data)
-        storage_path = f"incoming/{digest}.hpr.gz"
-        up = requests.post(
-            f"{supabase_url}/storage/v1/object/raw-files/{storage_path}",
-            headers={
-                "apikey": service_key,
-                "Authorization": f"Bearer {service_key}",
-                "Content-Type": "application/gzip",
-                "x-upsert": "true",
-            },
-            data=payload,
-            timeout=300,
+        result = subprocess.run(
+            [_NPX, "tsx", FORDELNING_SCRIPT, filepath],
+            cwd=SCRIPT_DIR, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=300, env=_env,
         )
-        if up.status_code not in (200, 201):
-            logger.warning(f"Fördelning: storage-uppladdning misslyckades för {basename}: "
-                           f"{up.status_code} {up.text[:200]}")
-            return
-        resp = requests.post(
-            FORDELNING_API_URL,
-            params={"key": import_key},
-            json={"storage_path": storage_path},
-            timeout=120,
-        )
-        if resp.status_code == 200:
-            status = (resp.json() or {}).get("status", "?")
-            logger.info(f"Fördelning: {basename} → {status}")
+        # Scriptets statusrad ("Fördelning: ... → imported/duplicate/...") på stdout.
+        loggat = False
+        for line in (result.stdout or "").splitlines():
+            if line.startswith("Fördelning:"):
+                logger.info(line)
+                loggat = True
+        if result.returncode == 0:
             _fordelning_posted.add(cache_key)
         else:
-            logger.warning(f"Fördelning: import-API svarade {resp.status_code} för "
-                           f"{basename}: {resp.text[:200]}")
+            for line in (result.stderr or "").strip().splitlines()[-3:]:
+                if line.strip():
+                    logger.warning(f"Fördelning: {line.strip()}")
+                    loggat = True
+            if not loggat:
+                logger.warning(f"Fördelning: {basename} → scriptet avslutades med kod {result.returncode}")
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Fördelning: timeout (>300s) för {os.path.basename(filepath)} — ej kritiskt.")
     except Exception as e:
-        # requests-fel kan innehålla URL:en inkl ?key=... — släpp aldrig nyckeln till loggen
-        import re as _re
-        msg = _re.sub(r"key=[^&\s']+", "key=***", str(e))
         logger.warning(f"Fördelning: oväntat fel för {os.path.basename(filepath)} "
-                       f"(ej kritiskt, arkiveringen påverkas inte): {msg}")
+                       f"(ej kritiskt, arkiveringen påverkas inte): {e}")
 
 
 def is_duplicate(filepath: str) -> bool:
