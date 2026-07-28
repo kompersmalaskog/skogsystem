@@ -9442,7 +9442,7 @@ export default function PlannerPage() {
         // öppnas externt (PDF i telefonens läsare / ny flik). Ingen inbäddning. Rad visas bara om url finns.
         const harDok = !!(valtObjekt.traktdirektiv_url || valtObjekt.stamplingslangd_url);
         const dokRad = (etikett: string, url: string) => (
-          <button type="button" key={etikett} className="btn-press" onClick={async () => { const signerad = await signeraKartfil(url); if (signerad) openExternal(signerad); }}
+          <button type="button" key={etikett} className="btn-press" onClick={async () => { console.log('[DOK-DIAG] dokRad(traktöversikt) IN url=', JSON.stringify(url)); const signerad = await signeraKartfil(url); console.log('[DOK-DIAG] dokRad(traktöversikt) SIGNERAD=', JSON.stringify(signerad)); if (signerad) openExternal(signerad); }}
             style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit' }}>
             <span style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(10,132,255,0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4da3ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" /></svg>
@@ -17258,7 +17258,9 @@ export default function PlannerPage() {
                       onClick={async (e) => {
                         e.preventDefault();
                         // Privat bucket — signera vid klick (TTL 1h)
+                        console.log('[DOK-DIAG] dokKnapp(Trakt-panel) IN url=', JSON.stringify(url));
                         const signerad = await signeraKartfil(url);
+                        console.log('[DOK-DIAG] dokKnapp(Trakt-panel) SIGNERAD=', JSON.stringify(signerad));
                         if (signerad) openExternal(signerad);
                       }}
                       style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none',
