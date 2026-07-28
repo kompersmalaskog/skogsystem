@@ -20,6 +20,9 @@ import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
 const DynamicMapLibre = dynamic(() => import('@/components/MapLibreMap'), { ssr: false })
 const TraktBriefing = dynamic(() => import('./TraktBriefing'), { ssr: false })
+// In-app PDF-läsvy (dokument öppnas INNE i appen, ej window.open). pdfjs laddas
+// lazy inuti komponenten — inget av detta drar in i planeringsvyns startbundle.
+const PdfLasare = dynamic(() => import('./PdfLasare'), { ssr: false })
 
 // Öppna extern länk utan att döda iOS standalone-PWA:n. Ett <a target="_blank"> navigerar
 // där ofta IN-PLACE → appen kall-startar vid retur (kastas till objektväljaren, tappar vald
@@ -287,6 +290,8 @@ const EMPTY_KVITT: KvittRad = { checked_ids: [], kvitterat_av_id: null, kvittera
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
+  // Öppet dokument i in-app PDF-läsvyn (signerad url + titel), null = stängd
+  const [pdfDok, setPdfDok] = useState<{ url: string; titel: string } | null>(null);
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
   const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null; roll: string | null }>>([]);
   const [sendingKlar, setSendingKlar] = useState(false);
@@ -9329,6 +9334,9 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* In-app PDF-läsvy — traktdirektiv/stämplingslängd öppnas HÄR, aldrig via nedladdning/extern flik. */}
+      {pdfDok && <PdfLasare signedUrl={pdfDok.url} titel={pdfDok.titel} onClose={() => setPdfDok(null)} />}
+
       {/* === TRAKTÖVERSIKT — fälls ner från objektnamnet. Stefans snabbkoll (planering + körvy). === */}
       {traktOversiktOpen && valtObjekt && (() => {
         const vida = (vidaDirektiv || '').trim();
@@ -9338,22 +9346,33 @@ export default function PlannerPage() {
         const harAreal = Number.isFinite(arealNum) && arealNum > 0;
         const volymTxt = (infoVolym ?? '').toString().trim();
 
-        // N träd/ha ur Vida-texten — aldrig gissa. Intervall räknas i båda ändar.
+        // N träd/ha ur texten — aldrig gissa. Tabellen visas ENDAST när ett faktiskt tal matchar
+        // (siffra + träd/tall-ord + per ha), aldrig bara för att ordet "tall" råkar finnas. Läses ur
+        // BÅDA fälten: Vidas direktiv (anteckningar) OCH egen anteckning (info_anteckningar). Vida
+        // VINNER. Skiljer sig fälten åt döljs det aldrig tyst — en notis visas (cert-krav).
         const avstand = (n: number) => Math.round(Math.sqrt(10000 / n));
-        let planttext: string | null = null;
-        let loN: number | null = null, hiN: number | null = null;
-        if (vida) {
-          const range = vida.match(/(\d{1,3})\s*[-–]\s*(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
-          const single = vida.match(/(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
+        const extractTal = (text: string): { lo: number; hi: number; txt: string } | null => {
+          if (!text) return null;
+          const range = text.match(/(\d{1,3})\s*[-–]\s*(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
           if (range) {
             const a = Math.min(+range[1], +range[2]), b = Math.max(+range[1], +range[2]);
-            loN = a; hiN = b;
-            planttext = `ca ${avstand(b)}–${avstand(a)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * a)}–${Math.round(arealNum * b)} st totalt` : '');
-          } else if (single) {
-            const n = +single[1]; loN = n; hiN = n;
-            planttext = `ca ${avstand(n)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * n)} st totalt` : '');
+            return { lo: a, hi: b, txt: `ca ${avstand(b)}–${avstand(a)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * a)}–${Math.round(arealNum * b)} st totalt` : '') };
           }
-        }
+          const single = text.match(/(\d{1,3})\s*(?:tallar?|tr[aä]d|stammar?|granar?|l[oö]vtr[aä]d)\b[^.\n]{0,15}?(?:per|\/)\s*(?:ha\b|hektar)/i);
+          if (single) {
+            const n = +single[1];
+            return { lo: n, hi: n, txt: `ca ${avstand(n)} m mellan träden` + (harAreal ? ` · ca ${Math.round(arealNum * n)} st totalt` : '') };
+          }
+          return null;
+        };
+        const vidaTal = extractTal(vida);
+        const egnaTal = extractTal(egna);
+        const tal = vidaTal || egnaTal;                    // Vida vinner
+        const loN: number | null = tal ? tal.lo : null;
+        const hiN: number | null = tal ? tal.hi : null;
+        const planttext: string | null = tal ? tal.txt : null;
+        const talKonflikt = !!(vidaTal && egnaTal && (vidaTal.lo !== egnaTal.lo || vidaTal.hi !== egnaTal.hi));
+        const egnaTalStr = egnaTal ? (egnaTal.lo === egnaTal.hi ? `${egnaTal.lo}` : `${egnaTal.lo}–${egnaTal.hi}`) : '';
 
         // Symboler grupperade per typ (svenska plural; singular vid 1).
         const plural: Record<string, [string, string]> = {
@@ -9427,7 +9446,21 @@ export default function PlannerPage() {
           map.flyTo({ center: [larmLng, larmLat], zoom: Math.max(map.getZoom(), 17), duration: 700 });
         };
         const stang = () => { setTraktOversiktOpen(false); setOversiktSymbolTyp(null); };
-        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr;
+        // Kontorets dokument (TD + stämplingslängd) ligger i privat bucket → signeras vid klick och
+        // renderas i in-app PDF-läsvyn (PdfLasare), aldrig window.open/nedladdning som slänger ut
+        // föraren ur den installerade appen. Rad visas bara om url finns.
+        const harDok = !!(valtObjekt.traktdirektiv_url || valtObjekt.stamplingslangd_url);
+        const dokRad = (etikett: string, url: string) => (
+          <button type="button" key={etikett} className="btn-press" onClick={async () => { const s = await signeraKartfil(url); if (s) setPdfDok({ url: s, titel: etikett }); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+            <span style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(10,132,255,0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4da3ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" /></svg>
+            </span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: '#fff' }}>{etikett}</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6" /><path d="M10 14 21 3" /></svg>
+          </button>
+        );
+        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr || harDok;
 
         return (
           <>
@@ -9451,25 +9484,48 @@ export default function PlannerPage() {
                 <div style={{ marginBottom: 14, background: 'rgba(10,132,255,0.08)', border: '1px solid rgba(10,132,255,0.3)', borderRadius: 14, padding: '13px 15px' }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#4da3ff', marginBottom: 7 }}>Direktiv från Vida</div>
                   <div style={{ fontSize: 15, lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{vida}</div>
-                  {planttext && (
+                  {vidaTal && planttext && (
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: 14, fontWeight: 600, color: '#4da3ff' }}>{planttext}</div>
                   )}
                 </div>
               )}
 
-              {/* Omräkningstabell — tunt STÖD, inte tryckbart. Direktivet ska dominera. */}
-              <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5 }}>
-                <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: 'rgba(255,255,255,0.3)', marginRight: 2 }}>träd/ha</span>
-                {([[10, 32], [20, 22], [30, 18], [50, 14]] as [number, number][]).map(([n, m], i) => {
-                  const hit = loN != null && hiN != null && n >= loN && n <= hiN;
-                  return (
-                    <span key={n} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
-                      {i > 0 && <span style={{ color: 'rgba(255,255,255,0.22)' }}>·</span>}
-                      <span style={{ color: hit ? '#4da3ff' : 'rgba(255,255,255,0.55)', fontWeight: hit ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>{n} → {m} m</span>
-                    </span>
-                  );
-                })}
-              </div>
+              {/* DOKUMENT — kontorets underlag (TD + stämplingslängd), nära Direktiv från Vida. */}
+              {harDok && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Dokument</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {valtObjekt.traktdirektiv_url && dokRad('Traktdirektiv', valtObjekt.traktdirektiv_url)}
+                    {valtObjekt.stamplingslangd_url && dokRad('Stämplingslängd', valtObjekt.stamplingslangd_url)}
+                  </div>
+                </div>
+              )}
+
+              {/* Omräkningstabell — visas ENDAST när ett tal/ha matchat (Vidas eller egen). Tunt STÖD. */}
+              {tal && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5 }}>
+                    <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: 'rgba(255,255,255,0.3)', marginRight: 2 }}>träd/ha</span>
+                    {([[10, 32], [20, 22], [30, 18], [50, 14]] as [number, number][]).map(([n, m], i) => {
+                      const hit = loN != null && hiN != null && n >= loN && n <= hiN;
+                      return (
+                        <span key={n} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+                          {i > 0 && <span style={{ color: 'rgba(255,255,255,0.22)' }}>·</span>}
+                          <span style={{ color: hit ? '#4da3ff' : 'rgba(255,255,255,0.55)', fontWeight: hit ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>{n} → {m} m</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {/* Talet kom från egen anteckning (Vida saknar) → visa uträkningen här, inte i Vida-rutan. */}
+                  {!vidaTal && egnaTal && planttext && (
+                    <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: '#4da3ff' }}>{planttext} <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.4)' }}>(egen anteckning)</span></div>
+                  )}
+                  {/* Tyst konflikt i ett cert-krav får aldrig döljas. Vida vinner, men skillnaden syns. */}
+                  {talKonflikt && (
+                    <div style={{ marginTop: 8, fontSize: 12.5, color: '#ffb84d' }}>Egen anteckning anger {egnaTalStr}/ha — Vidas direktiv gäller</div>
+                  )}
+                </div>
+              )}
 
               {egna && (
                 <div style={{ marginBottom: 14 }}>
@@ -9548,15 +9604,20 @@ export default function PlannerPage() {
                       const aktiv = oversiktSymbolTyp === g.key;
                       return (
                         <button key={g.key} type="button" disabled={!tappbar}
-                          onClick={() => { if (g.items.length === 1) flyTill(g.items[0]); else setOversiktSymbolTyp(aktiv ? null : g.key); }}
+                          onClick={() => { if (kommenterade.length > 0) setOversiktSymbolTyp(aktiv ? null : g.key); else flyTill(g.items[0]); }}
                           className={tappbar ? 'btn-press' : undefined}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px 7px 8px', borderRadius: 20, border: aktiv ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.12)', background: aktiv ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: tappbar ? 'pointer' : 'default', opacity: tappbar ? 1 : 0.65, fontFamily: 'inherit' }}>
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px 7px 8px', borderRadius: 20, border: aktiv ? '1px solid rgba(255,255,255,0.5)' : kommenterade.length > 0 ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(255,255,255,0.12)', background: aktiv ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: tappbar ? 'pointer' : 'default', opacity: tappbar ? 1 : 0.65, fontFamily: 'inherit' }}>
                           {g.kind === 'symbol'
                             ? <span style={{ width: 22, height: 22, borderRadius: 11, background: chipBg(g.typ), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{renderIcon(g.typ, 13, '#fff')}</span>
                             : linjeSwatch(g.typ)}
                           <span style={{ fontWeight: 700 }}>{g.items.length}</span>
                           <span style={{ color: 'rgba(255,255,255,0.8)' }}>{g.kind === 'symbol' ? namnFor(g.typ, g.items.length) : linjeNamnFor(g.typ, g.items.length)}</span>
-                          {tappbar && g.items.length > 1 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', transform: aktiv ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>&#x203A;</span>}
+                          {kommenterade.length > 0 && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 4, paddingLeft: 8, borderLeft: '1px solid rgba(255,255,255,0.16)' }} aria-label={`${kommenterade.length} med anteckning`}>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" /></svg>
+                              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'rgba(255,255,255,0.5)', fontVariantNumeric: 'tabular-nums' }}>{kommenterade.length}</span>
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -17205,9 +17266,9 @@ export default function PlannerPage() {
                     <a href="#" target="_blank" rel="noopener noreferrer"
                       onClick={async (e) => {
                         e.preventDefault();
-                        // Privat bucket — signera vid klick (TTL 1h)
-                        const signerad = await signeraKartfil(url);
-                        if (signerad) openExternal(signerad);
+                        // Privat bucket — signera vid klick (TTL 1h), rendera i in-app-läsvyn
+                        const s = await signeraKartfil(url);
+                        if (s) setPdfDok({ url: s, titel: etikett });
                       }}
                       style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none',
                         fontSize: '13px', fontWeight: 600, background: `${docFarg}1a`, border: `1px solid ${docFarg}55`, color: docFarg }}>

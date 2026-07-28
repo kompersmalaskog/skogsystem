@@ -40,6 +40,9 @@ yarn-error.log*
 # Generated terrain tiles (run scripts/build-terrain-tiles.py to create)
 /public/terrain-tiles/
 
+# pdf.js-worker kopieras från node_modules i prebuild/predev/vercel-build
+/public/pdf.worker.min.mjs
+
 # Python import scripts — secrets now loaded from .env.local
 
 # Python cache
