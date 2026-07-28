@@ -133,6 +133,35 @@ foreach ($f in $ImportFiler) {
     Write-Host "  OK  $f"
 }
 
+# -- 5.5 Node-beroenden for det lokala fordelnings-importscriptet --
+# scripts/import_fordelning.ts kors av watchdogen (npx tsx) och behover
+# fast-xml-parser + @supabase/supabase-js + tsx i node_modules. Guardat: kor bara
+# npm ci nar node_modules saknas eller package-lock andrats (markorfil med lock-hash),
+# sa vanliga deploys inte betalar reinstall-tid i onodan. node_modules ar gitignorerad
+# och overlever git reset. OBS: aldras sjalvt en deploy sen -- den korande
+# deploy_import.ps1 ar redan inladdad nar den resetar sig sjalv; forsta deployen
+# EFTER att detta landat kor annu gamla scriptet (utan detta steg), nasta kor det.
+Steg '5.5/6 npm-beroenden (fordelningsimport)'
+$npmCmd = (Get-Command npm -ErrorAction SilentlyContinue).Source
+if (-not $npmCmd) { Fel 'npm hittades inte i PATH -- Node/npm kravs for det lokala importscriptet' }
+$lockHash = (Get-FileHash (Join-Path $DeployDir 'package-lock.json')).Hash
+$markor   = Join-Path $DeployDir 'node_modules\.deploy-lock-hash'
+$behovsInstall = (-not (Test-Path (Join-Path $DeployDir 'node_modules'))) -or
+                 (-not (Test-Path $markor)) -or
+                 (((Get-Content $markor -Raw -ErrorAction SilentlyContinue)).Trim() -ne $lockHash)
+if ($behovsInstall) {
+    Write-Host 'node_modules saknas eller package-lock andrad -- kor npm ci...'
+    Push-Location $DeployDir
+    npm ci --no-audit --no-fund
+    $npmRc = $LASTEXITCODE
+    Pop-Location
+    if ($npmRc -ne 0) { Fel "npm ci misslyckades (kod $npmRc) -- fordelningsimporten kan inte kora utan node_modules" }
+    Set-Content -Path $markor -Value $lockHash -Encoding ascii
+    Write-Host 'npm ci klar.'
+} else {
+    Write-Host 'node_modules i synk med package-lock -- hoppar over npm ci.'
+}
+
 # -- 6. Starta och verifiera den korande processen --
 Steg '6/6 starta watchdogen'
 Enable-ScheduledTask -TaskName $TaskName | Out-Null
