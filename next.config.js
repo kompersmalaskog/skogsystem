@@ -1,3 +1,29 @@
+// Kopiera pdf.js-workern till /public som en DEL AV BYGGET (körs när Next laddar
+// den här configen, före kompilering — ingen separat prebuild-cp som kan bryta
+// build-kedjan). BÄST-EFFORT: allt ligger i try/catch och kastar ALDRIG. En
+// saknad eller oåtkomlig worker ger en trasig PDF-läsare (PdfLasare visar "kunde
+// inte läsa"), ALDRIG en död app. En hjälpfunktion ska aldrig kunna sänka hela
+// systemet — den isoleras här.
+function kopieraPdfWorker() {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const { createRequire } = require('module');
+    const req = createRequire(__filename);
+    const kalla = req.resolve('pdfjs-dist/legacy/build/pdf.worker.min.mjs');
+    const malDir = path.join(__dirname, 'public');
+    fs.mkdirSync(malDir, { recursive: true });
+    fs.copyFileSync(kalla, path.join(malDir, 'pdf.worker.min.mjs'));
+    console.log('[next.config] pdf.js-worker kopierad till /public/pdf.worker.min.mjs');
+  } catch (e) {
+    console.warn(
+      '[next.config] VARNING: kunde inte kopiera pdf.js-worker — PDF-läsaren blir ' +
+      'otillgänglig, men appen byggs och fungerar i övrigt:', e && e.message
+    );
+  }
+}
+kopieraPdfWorker();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {

@@ -82,5 +82,8 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|.*\\.png$|.*\\.ico$|.*\\.svg$).*)'],
+  // pdf.worker.min.mjs undantas: den serveras som ren statisk fil till pdf.js-läsaren
+  // och får ALDRIG gå via auth-getUser() — annars kopplas PDF-hjälparen till auth
+  // (onödig latens per worker-hämtning, och den skulle HÄNGA vid en Auth-störning).
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|pdf.worker.min.mjs|.*\\.png$|.*\\.ico$|.*\\.svg$).*)'],
 };
