@@ -65,7 +65,7 @@ const FIL_KARTA: Record<string, string> = {
   FortnoxResultPerCC:     'app/api/fortnox/result-per-costcenter/route.ts',
   FortnoxProbe:           'app/api/fortnox/probe/route.ts',
   FortnoxSyncInvoices:    'app/api/fortnox/sync-invoices/route.ts',
-  PerObjektClient:        'app/ekonomi/per-objekt/PerObjektClient.tsx',
+  PerKlassClient:         'app/ekonomi/per-klass/PerKlassClient.tsx',
 
   // Planeringsvy + 3D-körvy
   PlaneringPage:          'app/planering/page.tsx',

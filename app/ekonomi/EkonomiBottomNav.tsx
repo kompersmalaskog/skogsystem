@@ -7,7 +7,7 @@ type Tab = { href: string; icon: string; label: string; match: (p: string) => bo
 
 const TABS: Tab[] = [
   { href: '/ekonomi', icon: 'insights', label: 'Översikt', match: p => p === '/ekonomi' },
-  { href: '/ekonomi/per-objekt', icon: 'layers', label: 'Per objekt', match: p => p.startsWith('/ekonomi/per-objekt') },
+  { href: '/ekonomi/per-klass', icon: 'layers', label: 'Per klass', match: p => p.startsWith('/ekonomi/per-klass') },
   { href: '/ekonomi/mot-ackord', icon: 'balance', label: 'Mot ackord', match: p => p.startsWith('/ekonomi/mot-ackord') },
   { href: '/ekonomi/per-maskin', icon: 'construction', label: 'Per maskin', match: p => p.startsWith('/ekonomi/per-maskin') },
   { href: '/ekonomi/resultat', icon: 'account_balance', label: 'Resultat', match: p => p.startsWith('/ekonomi/resultat') },
