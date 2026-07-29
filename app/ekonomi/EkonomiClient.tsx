@@ -48,6 +48,7 @@ export default function EkonomiClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [maskiner, setMaskiner] = useState<MaskinAgg[]>([]);
+  const [avverkadVol, setAvverkadVol] = useState(0);     // heron: per objekt skördad, skotad som fallback
   const [skordatVol, setSkordatVol] = useState(0);
   const [skotatVol, setSkotatVol] = useState(0);
   const [prelObjektAntal, setPrelObjektAntal] = useState(0);
@@ -359,7 +360,23 @@ export default function EkonomiClient() {
         else skordat += m.volym;
       }
 
+      // AVVERKAD volym för heron: skördad + skotad är SAMMA virke genom två
+      // maskiner — aldrig summera dem per objekt. Per objekt: skördad om den
+      // finns, annars skotad (GROT/skotare-only-objekt saknar skördardata
+      // och skulle annars försvinna ur totalen).
+      const objSkotadPeriod: Record<string, number> = {};
+      for (const [key, f] of Object.entries(fwdAgg)) {
+        const oid = key.split('|')[0];
+        objSkotadPeriod[oid] = (objSkotadPeriod[oid] || 0) + f.vol;
+      }
+      let avverkad = 0;
+      for (const oid of Object.keys({ ...objVol, ...objSkotadPeriod })) {
+        const sk = objVol[oid]?.vol || 0;
+        avverkad += sk > 0 ? sk : (objSkotadPeriod[oid] || 0);
+      }
+
       setMaskiner(Object.values(agg).sort((a, b) => b.intakt - a.intakt));
+      setAvverkadVol(avverkad);
       setSkordatVol(skordat);
       setSkotatVol(skotat);
       setPrelObjektAntal(prelObjekt.size);
@@ -444,7 +461,7 @@ export default function EkonomiClient() {
               {formatKr(sumIntakt)}
             </div>
             <div style={{ fontSize: 13, color: '#bfcab9', marginTop: 10 }}>
-              {formatVol(skordatVol + skotatVol)}
+              {formatVol(avverkadVol)}
             </div>
             {sumPrel > 0 && (
               <div style={{
@@ -546,7 +563,7 @@ export default function EkonomiClient() {
             <div style={{ fontSize: 13, lineHeight: 1.6, color: '#bfcab9', display: 'grid', gap: 14 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 }}>Volym i perioden</div>
-                Skördat {formatVol(skordatVol)} · Skotat {formatVol(skotatVol)}. Samma virke passerar båda maskinerna — därför visas volymerna var för sig här, inte hopsummerade per stock. Där FPR-lassen är ofullständiga och en manuell skotad volym är satt används den, fördelad över skotarens registrerade tid.
+                Hero-talet visar AVVERKAD volym: per objekt räknas skördad volym, eller skotad där skördardata saknas (GROT) — aldrig båda, eftersom samma virke passerar båda maskinerna. Skördat {formatVol(skordatVol)} · Skotat {formatVol(skotatVol)} — de visas var för sig här av just det skälet. Där FPR-lassen är ofullständiga och en manuell skotad volym är satt används den, fördelad över skotarens registrerade tid.
                 {antagenVol > 0 && (
                   <> {formatVol(antagenVol)} av det skotade saknar skördardata i perioden och prissätts med antagen medelstam {ANTAGEN_MEDELSTAM.toString().replace('.', ',')}.</>
                 )}
