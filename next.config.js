@@ -1,9 +1,13 @@
-// Kopiera pdf.js-workern till /public som en DEL AV BYGGET (körs när Next laddar
-// den här configen, före kompilering — ingen separat prebuild-cp som kan bryta
-// build-kedjan). BÄST-EFFORT: allt ligger i try/catch och kastar ALDRIG. En
-// saknad eller oåtkomlig worker ger en trasig PDF-läsare (PdfLasare visar "kunde
-// inte läsa"), ALDRIG en död app. En hjälpfunktion ska aldrig kunna sänka hela
-// systemet — den isoleras här.
+// Kopiera pdf.js-workern till /public via webpack-hooken nedan — INTE prebuild.
+// Vercel kör `vercel-build`, och npm kör då bara `prevercel-build`, ALDRIG
+// `prebuild`. En prebuild-cp hoppas alltså tyst över på Vercel (grön preview,
+// död production). Webpack-hooken körs däremot alltid när Next kompilerar, både
+// lokalt och på Vercel.
+//
+// BÄST-EFFORT: allt ligger i try/catch och kastar ALDRIG. En saknad eller
+// oåtkomlig worker ger en trasig PDF-läsare (PdfLasare visar "kunde inte läsa"),
+// ALDRIG en död app eller ett brutet bygge. Ett hjälp-beroende ska aldrig kunna
+// sänka hela systemet — det isoleras här.
 function kopieraPdfWorker() {
   try {
     const fs = require('fs');
@@ -22,7 +26,6 @@ function kopieraPdfWorker() {
     );
   }
 }
-kopieraPdfWorker();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -37,6 +40,13 @@ const nextConfig = {
     // /api/version läser SAMMA env i runtime. Skiljer de sig → klienten kör ett äldre bygge
     // än det utrollade → visa "Ny version". Lokalt (ingen Vercel-env) → 'dev', ingen banner.
     NEXT_PUBLIC_BUILD_SHA: process.env.VERCEL_GIT_COMMIT_SHA || 'dev',
+  },
+  // Worker-kopieringen körs som en del av kompileringen (aldrig prebuild). Hooken
+  // returnerar config oförändrad — kopian är en ren sidoeffekt, och kan aldrig
+  // fälla bygget (kopieraPdfWorker kastar aldrig).
+  webpack: (config) => {
+    kopieraPdfWorker();
+    return config;
   },
   outputFileTracingExcludes: {
     '*': [
