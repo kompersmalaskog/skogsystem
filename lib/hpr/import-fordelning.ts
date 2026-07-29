@@ -164,6 +164,18 @@ export async function importeraHpr(
   }).select("id").single();
   fileRowId = fileRow?.id ?? null;
   if (fileErr) {
+    // Race: två samtidiga importer av samma fil (watchdogen fyrar created+modified
+    // tätt, eller event + periodisk scan) passerar båda dedup-kollen ovan innan
+    // någon hunnit inserta. En vinner file_hash-unikheten, de andra får 23505.
+    // Filen ÄR då en dubblett — behandla som duplicate, inte fel. fileRowId är
+    // null (insert misslyckades) så avbryt-rollbacken river inget; storage-kopian
+    // och harvest_objects-upserten ovan är idempotenta.
+    const unik = fileErr.code === "23505" ||
+      /duplicate key|hpr_files_file_hash_key/i.test(fileErr.message ?? "");
+    if (unik) {
+      await cleanup();
+      return { httpStatus: 200, body: { status: "duplicate" } };
+    }
     return avbryt({ error: `Kunde inte registrera filen: ${fileErr.message}` }, 500);
   }
 

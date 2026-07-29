@@ -224,27 +224,27 @@ def notify_vercel():
 # FÖRDELNINGSUPPFÖLJNING (etapp 1.5)
 # ============================================================
 
-# Hindra att periodisk scan kör om samma fil om och om igen medan den ligger
-# kvar i Inkommande. Scriptets filhash-dedupe är sista försvar (duplicate).
-_fordelning_posted: set[tuple[str, int]] = set()
+# Hindra att periodisk scan/dubbelevents kör om samma fil. Nyckel = filnamn
+# (HPR-filnamn har tidsstämpel → unika). Scriptets filhash-dedupe är sista
+# försvar (duplicate), även vid race mellan samtidiga invokeringar.
+_fordelning_posted: set[str] = set()
 
 
 def post_hpr_fordelning(filepath: str):
     """Kör det lokala importscriptet (npx tsx scripts/import_fordelning.ts) mot
     Supabase — importerar .hpr till fördelningsuppföljningen utan Vercel.
     Självständig och ofarlig: varje fel loggas och sväljs — arkiveringen
-    (MOM/HPR-importen) fortsätter alltid. Cache på (filnamn, storlek) hindrar
-    om-körning på periodisk scan; scriptets hash-dedupe ger ändå duplicate."""
+    (MOM/HPR-importen) fortsätter alltid. Cache på filnamn hindrar om-körning."""
     try:
         basename = os.path.basename(filepath)
-        try:
-            size = os.path.getsize(filepath)
-        except OSError as e:
-            logger.warning(f"Fördelning: kunde inte läsa {basename} ({e}) — "
-                           f"backfill_fordelning_hpr.py tar den från Behandlade senare.")
+        # Cache-koll FÖRST — en redan importerad fil som hunnit flyttas till
+        # Behandlade får INTE logga en falsk "kunde inte läsa" när en andra
+        # invokering (dubbelevent/periodisk scan) råkar peka på den.
+        if basename.lower() in _fordelning_posted:
             return
-        cache_key = (basename.lower(), size)
-        if cache_key in _fordelning_posted:
+        if not os.path.isfile(filepath):
+            logger.warning(f"Fördelning: {basename} finns inte i Inkommande (redan flyttad?) — "
+                           f"backfill_fordelning_hpr.py tar den från Behandlade senare.")
             return
         if not _NPX:
             logger.warning("Fördelning: npx hittades inte i PATH — hoppar över (Node/npm saknas?).")
@@ -265,7 +265,7 @@ def post_hpr_fordelning(filepath: str):
                 logger.info(line)
                 loggat = True
         if result.returncode == 0:
-            _fordelning_posted.add(cache_key)
+            _fordelning_posted.add(basename.lower())
         else:
             for line in (result.stderr or "").strip().splitlines()[-3:]:
                 if line.strip():
