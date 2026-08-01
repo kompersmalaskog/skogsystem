@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag, arbetadTidInklExtra } from "@/lib/arbetstid";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
+import { ymdLokal } from "@/lib/datumLokal";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
@@ -1127,8 +1128,11 @@ export default function Arbetsrapport() {
     // visar kalender-data (redigera). Slipp att köra varje gång
     // morgon/mintid/inst-state ändras.
     if (steg !== 'kalender' && steg !== 'redigera' && steg !== 'morgon') return;
-    const förstadag = new Date(kalÅr, kalMånad, 1).toISOString().slice(0, 10);
-    const sistadag = new Date(kalÅr, kalMånad + 1, 0).toISOString().slice(0, 10);
+    // LOKALT datum, inte toISOString — annars flyttas midnatt bakåt ett dygn i
+    // UTC+2 och sista dagen i månaden faller ur frågan (kalenderprick + hela
+    // månadsaggregatet tappade sin sista dag). Se lib/datumLokal.
+    const förstadag = ymdLokal(new Date(kalÅr, kalMånad, 1));
+    const sistadag = ymdLokal(new Date(kalÅr, kalMånad + 1, 0));
     // Hämta arbetsdag + arbetsdag_objekt parallellt så vi kan visa flera
     // objekt per dag i UI:t (Hössjömåla + Flytt etc.).
     Promise.all([

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 import { beräknaExport, arbetsperiodFrånLöneperiod } from "@/lib/lonesystem/loneberakning";
+import { sistaDagenIManaden } from "@/lib/datumLokal";
 
 /**
  * POST /api/fortnox/salary-export
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     const arbetsperiod = arbetsperiodFrånLöneperiod(period);
     const [aÅ, aM] = arbetsperiod.split("-").map(Number);
     const arbStart = arbetsperiod + "-01";
-    const arbSlut = new Date(aÅ, aM, 0).toISOString().slice(0, 10);
+    const arbSlut = sistaDagenIManaden(aÅ, aM); // LOKALT — toISOString tappade sista dagen i UTC+2
 
     // Ladda data
     const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes] = await Promise.all([

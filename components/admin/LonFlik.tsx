@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { C, secHead, Card, btnPrimary, btnSecondary, ChevronRight } from "./design";
 import LonesystemUnderflik from "./LonesystemUnderflik";
 import AtkUnderflik from "./AtkUnderflik";
@@ -134,7 +135,7 @@ function Loneunderlag() {
       try {
         const periodStart = period + "-01";
         const [å, m] = period.split("-").map(Number);
-        const periodSlut = new Date(å, m, 0).toISOString().slice(0, 10); // sista dagen i månaden
+        const periodSlut = sistaDagenIManaden(å, m); // sista dagen i månaden (LOKALT — toISOString tappade den i UTC+2)
 
         const [medRes, arbRes, exRes, avtRes] = await Promise.all([
           supabase.from("medarbetare").select("id, namn").order("namn"),
