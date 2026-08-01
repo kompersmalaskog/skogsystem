@@ -6310,7 +6310,7 @@ export default function PlannerPage() {
         features: [{
           type: 'Feature' as const,
           properties: {},
-          geometry: { type: 'Polygon' as const, coordinates: conePolygon(pos.lat, pos.lon, korvyHeading, 150, 15) },
+          geometry: { type: 'Polygon' as const, coordinates: conePolygon(pos.lat, pos.lon, korvyHeading, 75, 8) },
         }],
       });
     } catch (e) { console.error('[Körvy] gps-cone update:', e); }
