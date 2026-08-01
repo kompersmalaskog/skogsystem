@@ -2408,6 +2408,10 @@ export default function PlannerPage() {
   // 'nekad' = iOS-tillstånd nekat, 'saknas' = ingen sensor (t.ex. dator). Aldrig tyst död —
   // vid 'nekad'/'saknas' ligger kartan kvar i norr-upp (fungerar, roterar bara inte).
   const [korvyKompass, setKorvyKompass] = useState<'av' | 'aktiv' | 'nekad' | 'saknas'>('av');
+  // TILLFÄLLIG diagnostik för att bekräfta kompass-rotationen mot Apple Kartor: råa sensorvärden.
+  // wk = webkitCompassHeading (iOS, mot geografisk nord), a = event.alpha, abs = event.absolute.
+  // Tas bort när rotationen är verifierad skarp. Jämför wk mot Apple Kartors riktning på plats.
+  const [kompassDbg, setKompassDbg] = useState<{ wk: number | null; a: number | null; abs: boolean } | null>(null);
 
   // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
   const [korvyActive, setKorvyActive] = useState(false);
@@ -4310,8 +4314,24 @@ export default function PlannerPage() {
   };
   
   const handleOrientation = (event) => {
-    // webkitCompassHeading för iOS, alpha för Android
-    let heading = event.webkitCompassHeading || (360 - event.alpha);
+    // iOS ger event.webkitCompassHeading = kompass MEDURS från GEOGRAFISK nord (redan
+    // deklinationskorrigerad — samma referens som Apple Kartor). Använd ALLTID den på iOS.
+    // event.alpha är på iOS RELATIV till enhetens orientering när lyssnaren startade (inte
+    // mot nord) → gav konsekvent snett. Gammal kod: `webkitCompassHeading || (360 - alpha)`
+    // föll dessutom igenom till alpha när headingen var exakt 0° (nord) eftersom 0 är falsy.
+    // Använd alpha BARA för Android:s ABSOLUTA orientering; annars rör vi inte bearingen.
+    const wk = event.webkitCompassHeading;
+    setKompassDbg({
+      wk: typeof wk === 'number' && !isNaN(wk) ? Math.round(wk) : null,
+      a: typeof event.alpha === 'number' && !isNaN(event.alpha) ? Math.round(event.alpha) : null,
+      abs: event.absolute === true,
+    });
+    let heading: number | null = null;
+    if (typeof wk === 'number' && !isNaN(wk)) {
+      heading = wk;                                    // iOS: rätt mot geografisk nord
+    } else if (event.absolute === true && typeof event.alpha === 'number' && !isNaN(event.alpha)) {
+      heading = (360 - event.alpha) % 360;             // Android absolut: moturs → medurs
+    }
     if (heading !== null && !isNaN(heading)) {
       // Normalisera till 0-360
       heading = ((heading % 360) + 360) % 360;
@@ -9871,6 +9891,15 @@ export default function PlannerPage() {
               <span>{korvyKompass === 'nekad' ? 'Kompass nekad — norr-upp. Tryck för att försöka igen.' : 'Aktivera kompass'}</span>
             </button>
           )}
+        </div>
+      )}
+
+      {/* TILLFÄLLIG kompass-diagnostik — jämför "wk" mot Apple Kartors riktning på plats. Tas bort efter verifiering. */}
+      {korvyActive && (
+        <div style={{ position: 'fixed', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)', left: 12, zIndex: 260,
+          padding: '5px 9px', borderRadius: 8, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.75)', fontSize: 11, fontFamily: 'ui-monospace, Menlo, monospace', whiteSpace: 'nowrap' }}>
+          upp {Math.round(((korvyHeading % 360) + 360) % 360)}° · wk {kompassDbg?.wk ?? '–'} · α {kompassDbg?.a ?? '–'} · abs {kompassDbg?.abs ? '1' : '0'} · {gpsHeading != null ? 'gps' : 'kompass'}
         </div>
       )}
 
