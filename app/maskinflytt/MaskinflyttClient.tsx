@@ -331,6 +331,8 @@ export default function MaskinflyttClient() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([])
   const [medarb, setMedarb] = useState<Medarb | null>(null)
   const [lastbilVin, setLastbilVin] = useState<string | null>(null)  // aktiv lastbil — sätts på rundan för dubbelskyddet
+  const [lastbilUte, setLastbilUte] = useState<string | null>(null)  // öppen auto-rundas starttid → "Lastbilen är ute"
+  const [rundaPrompt, setRundaPrompt] = useState<{ punkt: { lat: number; lng: number }; rundaId: string } | null>(null)  // ny/fortsätt-runda
   const [pagaende, setPagaende] = useState<PagaendeFlytt[]>([])
   const [laddar, setLaddar] = useState(true)
   const [laddFel, setLaddFel] = useState<string | null>(null)
@@ -488,6 +490,15 @@ export default function MaskinflyttClient() {
   useEffect(() => {
     supabase.from('lastbil').select('vin').eq('aktiv', true).limit(1).maybeSingle()
       .then(({ data }) => { if (data?.vin) setLastbilVin(data.vin) })
+  }, [])
+
+  // "Lastbilen är ute": en öppen AUTO-runda (cron öppnade när bilen lämnade
+  // basen) som ingen tagit över manuellt. Diskret info, inte en väntande flytt.
+  useEffect(() => {
+    supabase.from('flyttdag').select('starttid')
+      .is('sluttid', null).eq('auto_skapad', true)
+      .order('starttid', { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => { if (data?.starttid) setLastbilUte(data.starttid) })
   }, [])
 
   // Lastbilens tankstatus — en gång vid mount, serverside-cachad. Fel/timeout
@@ -763,9 +774,26 @@ export default function MaskinflyttClient() {
   // ── STEG 2: skapa flyttraden. `punkt` = förarens valda hämtpunkt — färsk GPS,
   //    eller (via rimlighetsvakten) maskinens kända plats. Alla A-beroende
   //    beräkningar (fran, tomkörning, tillkörning) använder SAMMA punkt. ──
-  async function hamtaHar(punkt: { lat: number; lng: number }) {
+  async function hamtaHar(punkt: { lat: number; lng: number }, hoppaRundaFraga = false) {
     if ((!maskin && !externMaskin) || sparar) return
     setPosVarning(null)
+
+    // "Ny runda eller fortsätt?" — ingen öppen runda finns MEN en auto-stängdes
+    // för < 60 min sedan (bilen kan ha svängt förbi basen). Ett tryck, aldrig
+    // tyst gissning. Utanför 60 min visas den inte.
+    if (!hoppaRundaFraga && !dagRef.current) {
+      const [oppen, stangd] = await Promise.all([
+        supabase.from('flyttdag').select('id').is('sluttid', null).limit(1),
+        supabase.from('flyttdag').select('id').eq('auto_avslutad_av', 'cron')
+          .gte('sluttid', new Date(Date.now() - 60 * 60000).toISOString())
+          .order('sluttid', { ascending: false }).limit(1),
+      ])
+      if (!oppen.data?.length && stangd.data?.length) {
+        setRundaPrompt({ punkt, rundaId: stangd.data[0].id })
+        return
+      }
+    }
+
     setSparar(true); setSparFel(null)
     const d = await ensureDag()
     if (!d) { setSparar(false); return }
@@ -1027,12 +1055,27 @@ export default function MaskinflyttClient() {
     }
   }
 
+  /** Förarens svar på "Ny runda eller fortsätt?". Fortsätt → återöppna den
+   *  auto-stängda rundan (ensureDag återanvänder den sedan); Ny → hoppa frågan
+   *  så ensureDag skapar en ny. Båda fortsätter Lassat med samma punkt. */
+  async function valjRundaPrompt(val: 'ny' | 'fortsatt') {
+    const p = rundaPrompt
+    if (!p) return
+    setRundaPrompt(null)
+    if (val === 'fortsatt') {
+      await supabase.from('flyttdag')
+        .update({ sluttid: null, status: 'pagaende', auto_skapad: false, auto_avslutad_av: null })
+        .eq('id', p.rundaId)
+    }
+    hamtaHar(p.punkt, true)
+  }
+
   // ── "Nästa flytt" — dagen fortsätter ──
   function nastaFlytt() {
     setMaskin(null); setExternMaskin(null); setExternOppen(false); setExternNamn('')
     setFlyttId(null); setAPos(null); setFranObjekt(null); setFranPlats(null)
     setValtObjekt(null); setTillPlats(null); setDest(null); setGpsPos(null); setGpsFel(null)
-    setResultat(null); setSparFel(null); setSok(''); setPosVarning(null)
+    setResultat(null); setSparFel(null); setSok(''); setPosVarning(null); setRundaPrompt(null)
     setForslag(null); setAndradPlats(null); setAndraOppen(false)
     setFlyttTyp('produktion'); setKund(''); setTypOppen(false); setNyPlatsFor(null)
     setFlodesStart(null); setHamtadTid(null)
@@ -1082,6 +1125,20 @@ export default function MaskinflyttClient() {
     const matareKm: number | null = startOdoM != null && slutOdoM != null
       ? Math.round(((slutOdoM - startOdoM) / 1000) * 10) / 10 : null
     const odometerStale: boolean = startStale || !!slutOdo?.stale
+
+    // Bränsle: (slut − start bransle_ml)/1000 ur lastbil_logg — samma som
+    // auto-stängningen, så manuell "Kör hem" ger också liter. Saknas → null.
+    let bransleL: number | null = null
+    const startOdoTid = dagFarsk.data?.start_odometer_tid ?? d.start_odometer_tid
+    if (lastbilVin && startOdoTid) {
+      const [sp, lp] = await Promise.all([
+        supabase.from('lastbil_logg').select('bransle_ml').eq('vin', lastbilVin).eq('tidpunkt', startOdoTid).maybeSingle(),
+        supabase.from('lastbil_logg').select('bransle_ml').eq('vin', lastbilVin).order('tidpunkt', { ascending: false }).limit(1).maybeSingle(),
+      ])
+      if (sp.data?.bransle_ml != null && lp.data?.bransle_ml != null) {
+        bransleL = Math.round(((lp.data.bransle_ml - sp.data.bransle_ml) / 1000) * 10) / 10
+      }
+    }
     const namnFor = (objektId: string | null, platsId: string | null) =>
       (objektId && (objNamn.data || []).find((o: any) => o.id === objektId)?.namn)
       || (platsId && (platsNamn.data || []).find((p: any) => p.id === platsId)?.namn)
@@ -1116,6 +1173,7 @@ export default function MaskinflyttClient() {
       slut_odometer_m: slutOdoM,
       slut_odometer_tid: slutOdo?.tid ?? null,
       matare_km: matareKm,
+      bransle_l: bransleL,
       odometer_stale: odometerStale,
       status: 'avslutad',
     }).eq('id', d.id).select('id')
@@ -1201,6 +1259,18 @@ export default function MaskinflyttClient() {
       return
     }
     setPagaende(prev => prev.filter(x => x.id !== f.id))
+
+    // Torsdagsscenariot: var det rundans enda flytt? Lämna aldrig en tom runda
+    // evigt öppen — informera så föraren kör hem (auto-rundan stängs ändå av
+    // cron:en på basen; en manuell måste stängas för hand).
+    if (f.flyttdag_id) {
+      const { count } = await supabase.from('maskin_flytt')
+        .select('id', { count: 'exact', head: true })
+        .eq('flyttdag_id', f.flyttdag_id).eq('avbruten', false).not('sluttid', 'is', null)
+      if ((count ?? 0) === 0) {
+        setDagNotis('Flytten avbröts och rundan har inga flyttar kvar. Tryck "Kör hem — avsluta" för att stänga rundan (annars stängs den automatiskt när bilen är tillbaka på basen).')
+      }
+    }
   }
 
   function nyDag() {
@@ -1397,6 +1467,18 @@ export default function MaskinflyttClient() {
             {dagNotis && !laddar && (
               <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 16, fontSize: 13, color: C.t2 }}>
                 {dagNotis}
+              </div>
+            )}
+
+            {/* "Lastbilen är ute" — öppen auto-runda utan manuell övertagning.
+                Diskret grå, inte en väntande flytt. Tar över när föraren lassar. */}
+            {!laddar && lastbilUte && !dag && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 12px',
+                background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, fontSize: 13, color: C.t3,
+              }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>local_shipping</span>
+                Lastbilen är ute — sedan {new Date(lastbilUte).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}
               </div>
             )}
 
@@ -2010,6 +2092,30 @@ export default function MaskinflyttClient() {
           </>
         )}
       </main>
+
+      {/* "Ny runda eller fortsätt?" — en auto-stängd runda < 60 min sedan. */}
+      {rundaPrompt && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1700, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        }}>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: 20, maxWidth: 380, width: '100%', fontFamily: ff }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 24, color: C.blue }}>route</span>
+              <div style={{ fontSize: 17, fontWeight: 800 }}>Ny runda eller fortsätt?</div>
+            </div>
+            <div style={{ fontSize: 14, color: C.t2, lineHeight: 1.5, marginBottom: 18 }}>
+              En runda avslutades nyss automatiskt. Hör den här lastningen till samma runda, eller är det en ny?
+            </div>
+            <button onClick={() => valjRundaPrompt('fortsatt')} style={{ ...storKnapp(C.blue, '#fff'), fontSize: 15, padding: '15px 0', marginBottom: 10 }}>
+              Fortsätt förra rundan
+            </button>
+            <button onClick={() => valjRundaPrompt('ny')} style={{ ...storKnapp(C.card, C.t1), border: `1px solid ${C.border}`, fontSize: 15, padding: '15px 0' }}>
+              Ny runda
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Rimlighetsvarning: GPS långt från förväntad plats. Blockerar aldrig —
           föraren väljer sin GPS eller den kända platsen. */}
