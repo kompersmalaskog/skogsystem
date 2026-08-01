@@ -1421,8 +1421,15 @@ export default function Arbetsrapport() {
       medarbetare_id: medarbetare.id,
       datum: idagKey,
       start_tid: start, slut_tid: slut, rast_min: rast,
-      km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
-      maskin_id: medarbetare.maskin_id,
+      // Skriv ALDRIG lokal tom-värde över synkad/beräknad data. maskin_id
+      // och km kom från synken (rätt maskin ur skiftet, beräknat vägavstånd)
+      // och fanns inte i lokal state — bekräftelsen NULL:ade/nollade dem
+      // tidigare. maskin_id: behåll dagens faktiska maskin, fall tillbaka på
+      // förarens default bara om dagen saknar maskin (annars felattribution
+      // för multi-maskin-förare). km: skriv inte 0 över ett befintligt värde.
+      km_morgon: kmM?.km ?? idagArb?.km_morgon ?? 0,
+      km_kvall: kmK?.km ?? idagArb?.km_kvall ?? 0,
+      maskin_id: idagArb?.maskin_id || medarbetare.maskin_id || null,
       objekt_id: dagObjId,
       traktamente: trak, bekraftad: true,
       bekraftad_tid: nuBekrIso,
