@@ -96,10 +96,13 @@ function dagEtikett(dagar: number): string {
 }
 
 function levLage(m: LeveransRad): LevLage {
+  // Röd kan BARA nås när maskinen både sänder filer OCH är i drift — de två
+  // grå-grindarna nedan ligger före färgberäkningen. En filfri (810) eller
+  // urdriftad maskin bedöms aldrig på filleverans, lyser aldrig rött.
   if (m.aktivTill)
     return { farg: C.dim, etikett: `ur drift ${m.aktivTill.slice(0, 10)}`, dimmad: true, kanKvittera: false }
   if (!m.sanderFiler)
-    return { farg: C.dim, etikett: 'sänder inte filer', dimmad: true, kanKvittera: false }
+    return { farg: C.dim, etikett: 'manuell maskin — ej filbaserad', dimmad: true, kanKvittera: false }
   if (m.senasteData == null || m.dagarSedan == null)
     return { farg: C.muted, etikett: 'ingen data ännu', dimmad: true, kanKvittera: false }
   const farg = m.dagarSedan <= LEV_GRON_DYGN ? C.gron : m.dagarSedan <= LEV_GUL_DYGN ? C.gul : C.rod
@@ -236,7 +239,8 @@ export default function DatahalsaPage() {
           <div style={{ paddingTop: 8, fontSize: 11, color: C.dim }}>
             Senaste dag med data (fakt_tid/fakt_lass), inte fil-loggen — kumulativa
             filer bär flera dagar per fil. Tystnad kan vara semester eller planerat
-            uppehåll — visas, larmas aldrig. Ur drift och icke-filsändande gråtonas.
+            uppehåll — visas, larmas aldrig. Ur drift och manuella (filfria)
+            maskiner gråtonas och bedöms aldrig på filleverans.
           </div>
         </Kort>
 
