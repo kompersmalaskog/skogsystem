@@ -2,9 +2,9 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Viewport } from "next";
-import PerObjektClient from "./PerObjektClient";
+import PerKlassClient from "./PerKlassClient";
 
-export const metadata = { title: "Ekonomi · Per objekt" };
+export const metadata = { title: "Ekonomi · Per klass" };
 export const dynamic = "force-dynamic";
 
 export const viewport: Viewport = {
@@ -43,5 +43,5 @@ export default async function Page() {
     redirect("/arbetsrapport");
   }
 
-  return <PerObjektClient />;
+  return <PerKlassClient />;
 }
