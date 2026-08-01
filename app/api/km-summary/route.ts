@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { bygKedjaKm, Point } from "@/lib/routing";
+import { sistaDagenIManaden } from "@/lib/datumLokal";
 
 /**
  * GET /api/km-summary?medarbetare_id=&month=YYYY-MM
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
 
     const [y, m] = month.split("-").map(Number);
     const fromDate = `${month}-01`;
-    const toDate = new Date(y, m, 0).toISOString().slice(0, 10);
+    const toDate = sistaDagenIManaden(y, m); // LOKALT — toISOString tappade sista dagen i UTC+2
     const idag = new Date().toISOString().slice(0, 10);
 
     const supabase = createClient(
