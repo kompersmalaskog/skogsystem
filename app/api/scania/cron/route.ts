@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { hamtaStatusRatt, loggFalt } from '@/lib/scania'
+import { koraRundlogik } from '@/lib/lastbilRunda'
 
 // Bakgrundsmotorn (STEG 1): var 5:e minut → en rå vehiclestatus från Scania →
 // en rad i lastbil_logg (dedupe på vin+tidpunkt, så samma avläsning aldrig
@@ -90,6 +91,12 @@ async function kor(req: NextRequest) {
     rapport.skrivet = (data?.length ?? 0) > 0
     if (!rapport.skrivet) rapport.dedupe = 'samma avläsning fanns redan (Scania har inte uppdaterat sedan förra cykeln)'
   }
+
+  // Rund-state-maskinen körs VARJE cykel (även vid dedupe) — annars kan en
+  // parkerad bils runda aldrig auto-stängas 35 min efter ankomst. Egen
+  // try/catch i modulen; ett fel här fäller aldrig loggskrivningen ovan.
+  rapport.runda = await koraRundlogik(supabase)
+
   return NextResponse.json(rapport, { status: 200 })
 }
 

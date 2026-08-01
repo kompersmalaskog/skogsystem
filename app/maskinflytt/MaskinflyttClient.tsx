@@ -307,6 +307,7 @@ export default function MaskinflyttClient() {
   // Grunddata
   const [maskiner, setMaskiner] = useState<Maskin[]>([])
   const [medarb, setMedarb] = useState<Medarb | null>(null)
+  const [lastbilVin, setLastbilVin] = useState<string | null>(null)  // aktiv lastbil — sätts på rundan för dubbelskyddet
   const [pagaende, setPagaende] = useState<PagaendeFlytt[]>([])
   const [laddar, setLaddar] = useState(true)
   const [laddFel, setLaddFel] = useState<string | null>(null)
@@ -457,6 +458,13 @@ export default function MaskinflyttClient() {
       }
       setLaddar(false)
     })()
+  }, [])
+
+  // Aktiv lastbils vin — sätts på rundan vid manuell start/övertagning så
+  // dubbelskydds-indexet (en öppen runda per vin) griper. Fel → null (degradera).
+  useEffect(() => {
+    supabase.from('lastbil').select('vin').eq('aktiv', true).limit(1).maybeSingle()
+      .then(({ data }) => { if (data?.vin) setLastbilVin(data.vin) })
   }, [])
 
   // Lastbilens tankstatus — en gång vid mount, serverside-cachad. Fel/timeout
@@ -610,6 +618,29 @@ export default function MaskinflyttClient() {
    *  dagen utan startpunkt och tillkörningen redovisas ärligt som oräknad. */
   async function ensureDag(): Promise<Flyttdag | null> {
     if (dagRef.current) return dagRef.current
+
+    // Dubbelskydd: finns redan en öppen runda för bilen (auto övrig-körning
+    // som cron:en öppnat, eller en manuell) — TA ÖVER den i stället för att
+    // skapa en andra öppen runda. auto_skapad=false gör att cron:en slutar
+    // röra den (manuellt vinner alltid). Odometern är redan satt av cron:en.
+    const { data: oppna } = await supabase.from('flyttdag')
+      .select(FLYTTDAG_FALT).is('sluttid', null).order('starttid', { ascending: false }).limit(1)
+    if (oppna?.length) {
+      const d = oppna[0] as Flyttdag
+      await supabase.from('flyttdag').update({
+        forare: medarb?.namn ?? null,
+        medarbetare_id: medarb?.id ?? null,
+        vin: lastbilVin ?? null,
+        auto_skapad: false,
+      }).eq('id', d.id)
+      setDag(d)
+      const { count } = await supabase.from('maskin_flytt')
+        .select('id', { count: 'exact', head: true })
+        .eq('flyttdag_id', d.id).not('sluttid', 'is', null).eq('avbruten', false)
+      setDagFlyttAntal(count ?? 0)
+      return d
+    }
+
     const gps = startPos ?? (startPosLoppet.current ? await startPosLoppet.current : null)
     const start =
       gps && rimligGpsPunkt(gps.lat, gps.lng)
@@ -620,6 +651,7 @@ export default function MaskinflyttClient() {
     const { data, error } = await supabase.from('flyttdag').insert({
       forare: medarb?.namn ?? null,
       medarbetare_id: medarb?.id ?? null,
+      vin: lastbilVin ?? null,        // engagerar dubbelskydds-indexet flyttdag_en_oppen_per_vin
       starttid: flodesStart ?? new Date().toISOString(),
       start_lat: start?.lat ?? null,
       start_lng: start?.lng ?? null,
