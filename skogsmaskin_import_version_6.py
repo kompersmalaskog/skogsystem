@@ -3071,7 +3071,7 @@ def save_mom_to_supabase(data: Dict) -> bool:
         # Maskin
         if data.get('maskin'):
             log_if_new_maskin(data['maskin'].get('maskin_id', ''), data['maskin'].get('maskin_typ', 'Okänd'))
-            if upsert_data('dim_maskin', [data['maskin']], ['maskin_id']) == 0:
+            if upsert_maskin(data['maskin']) == 0:
                 fel.append('dim_maskin')
 
         # Operatörer
@@ -3781,7 +3781,7 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 
         if data.get('maskin'):
             log_if_new_maskin(data['maskin'].get('maskin_id', ''), data['maskin'].get('maskin_typ', 'Okänd'))
-            if upsert_data('dim_maskin', [data['maskin']], ['maskin_id']) == 0:
+            if upsert_maskin(data['maskin']) == 0:
                 fel.append('dim_maskin')
 
         if data.get('objekt'):
@@ -4011,7 +4011,7 @@ def save_fpr_to_supabase(data: Dict) -> bool:
 
         if data.get('maskin'):
             log_if_new_maskin(data['maskin'].get('maskin_id', ''), data['maskin'].get('maskin_typ', 'Okänd'))
-            if upsert_data('dim_maskin', [data['maskin']], ['maskin_id']) == 0:
+            if upsert_maskin(data['maskin']) == 0:
                 fel.append('dim_maskin')
 
         if data.get('operatorer'):
@@ -4125,6 +4125,48 @@ def log_if_new_maskin(maskin_id: str, maskin_typ: str):
             logger.info(f"  ✓ Ny maskin registrerad automatiskt: {maskin_id} ({maskin_typ})")
     except Exception:
         pass
+
+# Beskrivande fält som admin ÄGER så snart maskinen är bekräftad. Importen får
+# aldrig skriva över dem då — maskindata skriver aldrig över mänsklig kunskap
+# (speglar arbetsdag.bekraftad-guarden + objekt-namnpolicyn). Obekräftade
+# maskiner uppdateras fortfarande fullt ut så metadatan hålls färsk tills Martin
+# bekräftar i admin. Övriga fält (aggregat, ägare, chassi …) är rent fil-ägda
+# och uppdateras alltid.
+MASKIN_ADMIN_FALT = ('tillverkare', 'modell', 'maskin_typ')
+
+def maskin_ar_bekraftad(maskin_id: str) -> bool:
+    """True om maskinen finns i dim_maskin med bekraftad = true.
+    Osäkert svar (nätfel etc.) → False = importen uppdaterar som vanligt;
+    en bekräftad maskin får då i värsta fall ett fil-värde tillbakaskrivet,
+    aldrig tvärtom (aldrig radering av mänsklig kunskap på falsk grund)."""
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/dim_maskin?maskin_id=eq.{maskin_id}&select=bekraftad",
+            headers=SUPABASE_HEADERS, timeout=10
+        )
+        if r.status_code == 200:
+            rows = r.json()
+            return bool(rows) and rows[0].get('bekraftad') is True
+    except Exception:
+        pass
+    return False
+
+def upsert_maskin(maskin: dict) -> int:
+    """Upsert dim_maskin med människa-vinner-guard. Bekräftade maskiner behåller
+    sina admin-ägda fält (MASKIN_ADMIN_FALT); nya/obekräftade maskiner skapas
+    och uppdateras fullt ut (föds bekraftad = false via DB-default). Returnerar
+    antal påverkade rader (0 = fel), eller 1 om inget kvarstod att skriva."""
+    mid = maskin.get('maskin_id')
+    if not mid:
+        return upsert_data('dim_maskin', [maskin], ['maskin_id'])
+    payload = dict(maskin)
+    if maskin_ar_bekraftad(mid):
+        for f in MASKIN_ADMIN_FALT:
+            payload.pop(f, None)
+        # Bara nyckel/fil-speglingar kvar utan eget värde → inget att uppdatera.
+        if all(k in ('maskin_id', 'chassi') for k in payload):
+            return 1
+    return upsert_data('dim_maskin', [payload], ['maskin_id'])
 
 def is_file_already_imported(filnamn: str) -> bool:
     """Kolla om fil redan är importerad med status OK. FEL-filer tillåts omimporteras."""
