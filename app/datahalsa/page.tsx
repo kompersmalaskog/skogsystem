@@ -87,19 +87,23 @@ export function beskedFarg(niva: Besked['niva']): string {
     : niva === 'rod' ? C.rod : C.muted
 }
 
-// ── Leverans-rad: färg ur tid sedan senaste fil, aldrig ur maskintyp ──
+// ── Leverans-rad: färg ur dagar sedan senaste DATA (fakt_tid/fakt_lass),
+//    aldrig ur maskintyp eller fil-loggen ──
 type LevLage = { farg: string; etikett: string; dimmad: boolean; kanKvittera: boolean }
+
+function dagEtikett(dagar: number): string {
+  return dagar <= 0 ? 'i dag' : dagar === 1 ? '1 dag sedan' : `${dagar} dagar sedan`
+}
 
 function levLage(m: LeveransRad): LevLage {
   if (m.aktivTill)
     return { farg: C.dim, etikett: `ur drift ${m.aktivTill.slice(0, 10)}`, dimmad: true, kanKvittera: false }
   if (!m.sanderFiler)
     return { farg: C.dim, etikett: 'sänder inte filer', dimmad: true, kanKvittera: false }
-  if (m.senasteFil == null)
-    return { farg: C.muted, etikett: 'ingen fil ännu', dimmad: true, kanKvittera: false }
-  const dygn = (m.timmarSedan ?? 0) / 24
-  const farg = dygn <= LEV_GRON_DYGN ? C.gron : dygn <= LEV_GUL_DYGN ? C.gul : C.rod
-  return { farg, etikett: tidSedan(m.senasteFil), dimmad: false, kanKvittera: farg === C.rod }
+  if (m.senasteData == null || m.dagarSedan == null)
+    return { farg: C.muted, etikett: 'ingen data ännu', dimmad: true, kanKvittera: false }
+  const farg = m.dagarSedan <= LEV_GRON_DYGN ? C.gron : m.dagarSedan <= LEV_GUL_DYGN ? C.gul : C.rod
+  return { farg, etikett: dagEtikett(m.dagarSedan), dimmad: false, kanKvittera: farg === C.rod }
 }
 
 export default function DatahalsaPage() {
@@ -178,10 +182,11 @@ export default function DatahalsaPage() {
           )}
         </div>
 
-        {/* ── LEVERANS-ÖVERBLICK — senaste fil per maskin. Visas, larmar
-            ALDRIG (filtystnad = observation, inte fel). Röd kan kvitteras
-            som "förväntat" (semester) → dämpas utan att döljas. ── */}
-        <Kort rubrik="SENASTE FIL PER MASKIN" laddar={leverans.laddar} fel={leverans.fel}>
+        {/* ── LEVERANS-ÖVERBLICK — senaste DATA per maskin (MAX datum i
+            fakt_tid/fakt_lass, inte fil-loggen). Visas, larmar ALDRIG
+            (tystnad = observation, inte fel). Röd kan kvitteras som
+            "förväntat" (semester) → dämpas utan att döljas. ── */}
+        <Kort rubrik="LEVERERAR MASKINERNA?" laddar={leverans.laddar} fel={leverans.fel}>
           {(leverans.data ?? []).map(m => {
             const lage = levLage(m)
             const kvitteradTill = kvitt[m.maskinId]
@@ -229,8 +234,9 @@ export default function DatahalsaPage() {
             )
           })}
           <div style={{ paddingTop: 8, fontSize: 11, color: C.dim }}>
-            Tystnad kan vara semester eller planerat uppehåll — visas, larmas aldrig.
-            Ur drift och icke-filsändande maskiner gråtonas.
+            Senaste dag med data (fakt_tid/fakt_lass), inte fil-loggen — kumulativa
+            filer bär flera dagar per fil. Tystnad kan vara semester eller planerat
+            uppehåll — visas, larmas aldrig. Ur drift och icke-filsändande gråtonas.
           </div>
         </Kort>
 

@@ -47,15 +47,20 @@ export type FilerData = {
   felFiler: FelFil[]
 }
 
-// Leverans-överblick: en rad per maskin med tid sedan senaste importerade fil.
+// Leverans-överblick: en rad per maskin med tid sedan senaste DATA.
+// Källan är MAX(datum) i fakt_tid + fakt_lass — den sanna leveranssignalen.
+// INTE meta_importerade_filer: den är en fil-logg nycklad på filnamn, och
+// kumulativa MOM/FPR-filer bär många dagars data per fil → fil-antal ≪
+// dag-antal (Wisent: ~6 filer men 12 produktionsdagar). Meta skulle visa en
+// levererande maskin som röd/tyst — tvärtemot syftet.
 export type LeveransRad = {
   maskinId: string
   namn: string                   // visningsnamn || modell || maskin_id
   aktivTill: string | null       // satt = ur drift (gråtonas, larmar aldrig)
   sanderFiler: boolean           // false = förväntas aldrig sända filer (JD810E)
   bekraftad: boolean             // false = obekräftad/upptäckt maskin
-  senasteFil: string | null      // ISO importerad_tid ur meta_importerade_filer
-  timmarSedan: number | null
+  senasteData: string | null     // 'YYYY-MM-DD', MAX(datum) i fakt_tid/fakt_lass
+  dagarSedan: number | null
 }
 
 export type InvarianterData = {
@@ -174,56 +179,66 @@ export function useDatahalsa(): Datahalsa {
       })
     })()
 
-    // ── 2. Leverans-överblick: senaste FIL per maskin (meta_importerade_filer
-    //       + dim_maskin). Visas men larmar ALDRIG — filtystnad är en
-    //       observation (semester), inte ett fel. ──
+    // ── 2+3. Leverans-överblick + invarianter — delar EN fakt_tid-hämtning.
+    //   Leverans = MAX(datum) i fakt_tid/fakt_lass per maskin (sann leverans-
+    //   signal, INTE meta_importerade_filer — se LeveransRad). Visas men larmar
+    //   ALDRIG (semester ser ut som fel). Invarianterna körs på samma fakt_tid. ──
     ;(async () => {
-      const dim = await supabase.from('dim_maskin')
-        .select('maskin_id, visningsnamn, modell, aktiv_till, sander_filer, bekraftad')
+      const [dimRes, tidRes, lassRes] = await Promise.all([
+        supabase.from('dim_maskin')
+          .select('maskin_id, visningsnamn, modell, aktiv_till, sander_filer, bekraftad'),
+        hamtaAlla('fakt_tid', 'maskin_id, datum, objekt_id, operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, engine_time_sek, tomgang_sek, bransle_liter'),
+        hamtaAlla('fakt_lass', 'maskin_id, datum'),
+      ])
       if (avbruten) return
-      if (dim.error) { setLeverans({ laddar: false, fel: dim.error.message, data: null }); return }
-      const maskinerRaw = (dim.data ?? []).filter((m: any) => m.maskin_id !== 'TEST_MASKIN')
 
-      // Senaste fil per maskin — en liten indexerad query per maskin (fåtal maskiner).
-      const filResultat = await Promise.all(maskinerRaw.map(async (m: any) => {
-        const { data, error } = await supabase.from('meta_importerade_filer')
-          .select('importerad_tid').eq('maskin_id', m.maskin_id)
-          .order('importerad_tid', { ascending: false }).limit(1)
-        return { id: m.maskin_id, tid: error ? null : (data?.[0]?.importerad_tid ?? null), fel: error?.message ?? null }
-      }))
-      if (avbruten) return
-      const nagotFel = filResultat.find(r => r.fel)
-      if (nagotFel) { setLeverans({ laddar: false, fel: nagotFel.fel, data: null }); return }
-
-      const filMap = new Map(filResultat.map(r => [r.id, r.tid]))
-      const lista: LeveransRad[] = maskinerRaw
-        .map((m: any): LeveransRad => {
-          const tid = filMap.get(m.maskin_id) ?? null
-          return {
-            maskinId: m.maskin_id,
-            namn: (m.visningsnamn || '').trim() || m.modell || m.maskin_id,
-            aktivTill: m.aktiv_till ?? null,
-            sanderFiler: m.sander_filer !== false,
-            bekraftad: m.bekraftad !== false,
-            senasteFil: tid,
-            timmarSedan: tid ? (Date.now() - new Date(tid).getTime()) / 3600_000 : null,
-          }
-        })
-        // aktiva filsändare först (färskast överst), sen icke-sändare, sen ur drift
-        .sort((a, b) => {
-          const grupp = (x: LeveransRad) => x.aktivTill ? 3 : !x.sanderFiler ? 2 : x.senasteFil ? 0 : 1
-          if (grupp(a) !== grupp(b)) return grupp(a) - grupp(b)
-          return (a.timmarSedan ?? 9e9) - (b.timmarSedan ?? 9e9)
-        })
-      setLeverans({ laddar: false, fel: null, data: lista })
-    })()
-
-    // ── 3. Är datan galen? (invarianter ur HELA fakt_tid) ──
-    ;(async () => {
-      const tid = await hamtaAlla('fakt_tid', 'maskin_id, datum, objekt_id, operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, engine_time_sek, tomgang_sek, bransle_liter')
-      if (avbruten) return
-      if (tid.fel) { setInvarianter({ laddar: false, fel: tid.fel, data: null }); return }
+      const tid = tidRes
       const rader = tid.rows.filter(r => r.maskin_id !== 'TEST_MASKIN')
+
+      // ── Leverans: senaste produktions-/lass-datum per maskin ──
+      // fakt_tid saknas → kan inte avgöra leverans → fel-tillstånd (aldrig tyst).
+      if (dimRes.error || tid.fel) {
+        setLeverans({ laddar: false, fel: dimRes.error?.message || tid.fel, data: null })
+      } else {
+        const senast: Record<string, string> = {}
+        const stoppaMax = (mid: string, d: any) => {
+          const datum = d ? String(d) : ''
+          if (datum && (!senast[mid] || datum > senast[mid])) senast[mid] = datum
+        }
+        for (const r of rader) stoppaMax(r.maskin_id, r.datum)
+        // fakt_lass kompletterar (skotare kan ha lass-dag utan fakt_tid-rad).
+        // Fel på fakt_lass är icke-fatalt — fakt_tid bär huvudsignalen.
+        if (!lassRes.fel) {
+          for (const r of lassRes.rows) {
+            if (r.maskin_id && r.maskin_id !== 'TEST_MASKIN') stoppaMax(r.maskin_id, r.datum)
+          }
+        }
+        const idag = new Date(new Date().toISOString().slice(0, 10)).getTime()
+        const lista: LeveransRad[] = (dimRes.data ?? [])
+          .filter((m: any) => m.maskin_id !== 'TEST_MASKIN')
+          .map((m: any): LeveransRad => {
+            const d = senast[m.maskin_id] ?? null
+            return {
+              maskinId: m.maskin_id,
+              namn: (m.visningsnamn || '').trim() || m.modell || m.maskin_id,
+              aktivTill: m.aktiv_till ?? null,
+              sanderFiler: m.sander_filer !== false,
+              bekraftad: m.bekraftad !== false,
+              senasteData: d,
+              dagarSedan: d ? Math.round((idag - new Date(d).getTime()) / 86400_000) : null,
+            }
+          })
+          // aktiva filsändare först (färskast överst), sen icke-sändare, sen ur drift
+          .sort((a, b) => {
+            const grupp = (x: LeveransRad) => x.aktivTill ? 3 : !x.sanderFiler ? 2 : x.senasteData ? 0 : 1
+            if (grupp(a) !== grupp(b)) return grupp(a) - grupp(b)
+            return (a.dagarSedan ?? 9e9) - (b.dagarSedan ?? 9e9)
+          })
+        setLeverans({ laddar: false, fel: null, data: lista })
+      }
+
+      // ── Invarianter ur HELA fakt_tid ──
+      if (tid.fel) { setInvarianter({ laddar: false, fel: tid.fel, data: null }); return }
 
       // Invarianterna — SAMMA formler som gap_check (håll i synk):
       // (a) >24h motortid per (maskin, dag)
