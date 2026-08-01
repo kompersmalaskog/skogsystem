@@ -113,6 +113,22 @@ async function hamtaOdometer(): Promise<{ odometer_m: number; tid: string | null
   } catch { return null }
 }
 
+/** Mätta ben: lastbilens senast LOGGADE odometer (ur lastbil_logg). Närmaste
+ *  punkt i tid = den senaste. `farsk` = punkten ligger inom NARBEN_TID_MIN av
+ *  nu; annars är odometern för gammal för att märka ett enskilt ben. Rådata
+ *  (fran/till_odometer_m) sparas ändå — visningen gate:ar på färsk + benlängd. */
+async function narmasteOdometer(vin: string | null): Promise<{ odometer_m: number; tid: string; farsk: boolean } | null> {
+  if (!vin) return null
+  try {
+    const { data } = await supabase.from('lastbil_logg')
+      .select('odometer_m, tidpunkt').eq('vin', vin)
+      .order('tidpunkt', { ascending: false }).limit(1)
+    const p = data?.[0]
+    if (!p || p.odometer_m == null) return null
+    return { odometer_m: p.odometer_m, tid: p.tidpunkt, farsk: (Date.now() - Date.parse(p.tidpunkt)) <= NARBEN_TID_MIN * 60_000 }
+  } catch { return null }
+}
+
 interface PagaendeFlytt {
   id: string
   maskin_id: string | null
@@ -193,6 +209,13 @@ async function getFarskGps(): Promise<Pos> {
 /** Hur långt förarens GPS-punkt får ligga från maskinens förväntade plats
  *  innan appen frågar (blockerar aldrig — föraren beslutar). */
 const RIMLIG_AVSTAND_KM = 2
+
+// Mätta ben (del 4): loggpunkt inom NARBEN_TID_MIN av händelsen = tillförlitligt;
+// ben kortare än NARBEN_MIN_KM visar bara rutt-km (odometerdiffen blir grövre än
+// benet självt). MATCH_RADIE_KM = "Lassat av" matchar närmaste objekt/plats inom.
+const NARBEN_TID_MIN = 3
+const NARBEN_MIN_KM = 2
+const MATCH_RADIE_KM = 1
 
 /** Körsträcka (och ev. ORS-restid) via /api/routing (cache→ORS→haversine×1.4).
  *  minutes är alltid null när restiden inte kunde fås — aldrig en gissning. */
@@ -784,6 +807,11 @@ export default function MaskinflyttClient() {
       if (du?.length) setDag({ ...d, tillkorning_km: t.km })
     }
 
+    // Mätt ben: lastbilens odometer vid Lassat (fire-and-forget — blockerar aldrig)
+    narmasteOdometer(lastbilVin).then(o => {
+      if (o) supabase.from('maskin_flytt').update({ fran_odometer_m: o.odometer_m }).eq('id', data[0].id)
+    })
+
     setSparar(false)
     setFlyttId(data[0].id)
     setAPos(punkt)
@@ -866,9 +894,10 @@ export default function MaskinflyttClient() {
     setPosVarning(null)
     setSparar(true); setSparFel(null)
 
-    const [flytt, vader] = await Promise.all([
+    const [flytt, vader, tillOdo] = await Promise.all([
       korRutt(aPos, b),
       hamtaVader(b.lat, b.lng),
+      narmasteOdometer(lastbilVin),   // mätt ben: odometer vid Lassat av
     ])
     const flyttKm = flytt.km
     // fakturerbar: EN regel, per typ (produktion=km-gräns, service=aldrig,
@@ -894,6 +923,7 @@ export default function MaskinflyttClient() {
       kund: kund.trim() || null,
       tid_till_maskin_min: tillMaskinOgiltig ? null : raTillMaskin,
       tid_flytt_min: flyttOgiltig ? null : raFlytt,
+      till_odometer_m: tillOdo?.odometer_m ?? null,
       vader_temp_c: vader.temp,
       vader_kod: vader.kod,
       vader_nederbord_mm: vader.nederbord,
