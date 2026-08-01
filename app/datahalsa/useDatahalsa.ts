@@ -8,6 +8,9 @@
 // Designprinciper (juli-26-lärdomarna):
 //  - Larm ska LARMA — men bara på verkliga problem. Kända arv
 //    hanteras med daterade baslinjer; larm vid FÖRÄNDRING.
+//  - Skilj OFARLIGT från ÄKTA: en avvisad dubblett (409) är ingen
+//    datatapp — den ska aldrig lysa rött. Rött reserveras för
+//    verkligt tapp (parse-fel, DB-fel som inte är 409).
 //  - Tre tillstånd per sektion: laddar / data / kunde-inte-läsa.
 //    Kunde-inte-läsa smittar beskedet ("kunde inte kontrollera
 //    allt") — aldrig grönt på ofullständig kontroll.
@@ -27,6 +30,14 @@ export const KANDA_IMPORTFEL = 4
 const GRONT_TIM = 24
 const GULT_TIM = 72
 
+// Leverans per maskin — tid sedan senaste FIL (inte produktion). Trösklar
+// satta så normal maskinkadens är grön (Scorpion dagligen, Wisent 2 fil/vecka,
+// Rottne-26 ~10/vecka) och bara genuint lång tystnad går gul/röd. Färgen är en
+// OBSERVATION, inte ett larm — den matar aldrig beskedet, och röd kan kvitteras
+// som "förväntat" (semester) i vyn. Justerbara.
+export const LEV_GRON_DYGN = 3
+export const LEV_GUL_DYGN = 10
+
 export type FelFil = { filnamn: string; felmeddelande: string | null; importerad_tid: string }
 
 export type FilerData = {
@@ -36,12 +47,19 @@ export type FilerData = {
   felFiler: FelFil[]
 }
 
-export type MaskinRad = {
+// Leverans-överblick: en rad per maskin med tid sedan senaste DATA.
+// Källan är MAX(datum) i fakt_tid + fakt_lass — den sanna leveranssignalen.
+// INTE meta_importerade_filer: den är en fil-logg nycklad på filnamn, och
+// kumulativa MOM/FPR-filer bär många dagars data per fil → fil-antal ≪
+// dag-antal (Wisent: ~6 filer men 12 produktionsdagar). Meta skulle visa en
+// levererande maskin som röd/tyst — tvärtemot syftet.
+export type LeveransRad = {
   maskinId: string
-  modell: string
-  aktivTill: string | null       // satt = avslutad maskin
-  extramaskin: boolean
-  senasteData: string | null     // ISO-datum ur fakt_tid
+  namn: string                   // visningsnamn || modell || maskin_id
+  aktivTill: string | null       // satt = ur drift (gråtonas, larmar aldrig)
+  sanderFiler: boolean           // false = förväntas aldrig sända filer (JD810E)
+  bekraftad: boolean             // false = obekräftad/upptäckt maskin
+  senasteData: string | null     // 'YYYY-MM-DD', MAX(datum) i fakt_tid/fakt_lass
   dagarSedan: number | null
 }
 
@@ -69,6 +87,21 @@ export type ImportFelRad = {
   feltext: string | null
 }
 
+// Skilj OFARLIGT tabellskrivfel från ÄKTA datatapp. Importern lagrar felkod =
+// HTTP-status (t.ex. "409") vid DB-avvisning, feltext = PostgREST-svaret.
+//  - 409 / unique-constraint (23505) / "already exists" = raden finns REDAN =
+//    ingen data tappad, tvärtom (dubbletten stoppades korrekt).
+//  - flytt/arkiverings-strul = filen sparades, bara filflytten failade.
+//  - allt annat (parse-fel, 4xx/5xx som inte är 409, saknad data) = ÄKTA tapp.
+export function importFelKlass(r: ImportFelRad): 'ofarligt' | 'akta' {
+  const kod = (r.felkod || '').toLowerCase()
+  const txt = (r.feltext || '').toLowerCase()
+  if (kod === '409') return 'ofarligt'
+  if (txt.includes('duplicate key') || txt.includes('23505') || txt.includes('already exists')) return 'ofarligt'
+  if (txt.includes('flytt') || /\bmove\b/.test(txt)) return 'ofarligt'
+  return 'akta'
+}
+
 export type Sektion<T> = {
   laddar: boolean
   fel: string | null             // 'kunde inte läsa'-tillstånd — aldrig tyst tomt
@@ -83,7 +116,7 @@ export type Besked = {
 
 export type Datahalsa = {
   filer: Sektion<FilerData>
-  maskiner: Sektion<MaskinRad[]>
+  leverans: Sektion<LeveransRad[]>
   invarianter: Sektion<InvarianterData>
   gapCheck: Sektion<GapCheckData | null> & { tabellSaknas: boolean }
   importFel: Sektion<ImportFelRad[]> & { tabellSaknas: boolean }
@@ -109,7 +142,7 @@ async function hamtaAlla(tabell: string, kolumner: string): Promise<{ rows: any[
 
 export function useDatahalsa(): Datahalsa {
   const [filer, setFiler] = useState<Sektion<FilerData>>({ laddar: true, fel: null, data: null })
-  const [maskiner, setMaskiner] = useState<Sektion<MaskinRad[]>>({ laddar: true, fel: null, data: null })
+  const [leverans, setLeverans] = useState<Sektion<LeveransRad[]>>({ laddar: true, fel: null, data: null })
   const [invarianter, setInvarianter] = useState<Sektion<InvarianterData>>({ laddar: true, fel: null, data: null })
   const [gapCheck, setGapCheck] = useState<Sektion<GapCheckData | null> & { tabellSaknas: boolean }>(
     { laddar: true, fel: null, data: null, tabellSaknas: false })
@@ -146,49 +179,66 @@ export function useDatahalsa(): Datahalsa {
       })
     })()
 
-    // ── 2+3. Maskinleverans + invarianter (dim_maskin + HELA fakt_tid) ──
+    // ── 2+3. Leverans-överblick + invarianter — delar EN fakt_tid-hämtning.
+    //   Leverans = MAX(datum) i fakt_tid/fakt_lass per maskin (sann leverans-
+    //   signal, INTE meta_importerade_filer — se LeveransRad). Visas men larmar
+    //   ALDRIG (semester ser ut som fel). Invarianterna körs på samma fakt_tid. ──
     ;(async () => {
-      const [dim, tid] = await Promise.all([
-        supabase.from('dim_maskin').select('maskin_id, modell, aktiv_till, extramaskin'),
+      const [dimRes, tidRes, lassRes] = await Promise.all([
+        supabase.from('dim_maskin')
+          .select('maskin_id, visningsnamn, modell, aktiv_till, sander_filer, bekraftad'),
         hamtaAlla('fakt_tid', 'maskin_id, datum, objekt_id, operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, engine_time_sek, tomgang_sek, bransle_liter'),
+        hamtaAlla('fakt_lass', 'maskin_id, datum'),
       ])
       if (avbruten) return
-      if (dim.error) setMaskiner({ laddar: false, fel: dim.error.message, data: null })
-      if (tid.fel) {
-        setMaskiner(m => m.fel ? m : { laddar: false, fel: tid.fel, data: null })
-        setInvarianter({ laddar: false, fel: tid.fel, data: null })
-        return
-      }
+
+      const tid = tidRes
       const rader = tid.rows.filter(r => r.maskin_id !== 'TEST_MASKIN')
 
-      // Senaste datum per maskin
-      const senast: Record<string, string> = {}
-      for (const r of rader) {
-        if (r.datum && (!senast[r.maskin_id] || r.datum > senast[r.maskin_id])) senast[r.maskin_id] = r.datum
-      }
-      if (!dim.error) {
+      // ── Leverans: senaste produktions-/lass-datum per maskin ──
+      // fakt_tid saknas → kan inte avgöra leverans → fel-tillstånd (aldrig tyst).
+      if (dimRes.error || tid.fel) {
+        setLeverans({ laddar: false, fel: dimRes.error?.message || tid.fel, data: null })
+      } else {
+        const senast: Record<string, string> = {}
+        const stoppaMax = (mid: string, d: any) => {
+          const datum = d ? String(d) : ''
+          if (datum && (!senast[mid] || datum > senast[mid])) senast[mid] = datum
+        }
+        for (const r of rader) stoppaMax(r.maskin_id, r.datum)
+        // fakt_lass kompletterar (skotare kan ha lass-dag utan fakt_tid-rad).
+        // Fel på fakt_lass är icke-fatalt — fakt_tid bär huvudsignalen.
+        if (!lassRes.fel) {
+          for (const r of lassRes.rows) {
+            if (r.maskin_id && r.maskin_id !== 'TEST_MASKIN') stoppaMax(r.maskin_id, r.datum)
+          }
+        }
         const idag = new Date(new Date().toISOString().slice(0, 10)).getTime()
-        const lista: MaskinRad[] = (dim.data ?? [])
+        const lista: LeveransRad[] = (dimRes.data ?? [])
           .filter((m: any) => m.maskin_id !== 'TEST_MASKIN')
-          .map((m: any) => {
+          .map((m: any): LeveransRad => {
             const d = senast[m.maskin_id] ?? null
             return {
               maskinId: m.maskin_id,
-              modell: m.modell || m.maskin_id,
+              namn: (m.visningsnamn || '').trim() || m.modell || m.maskin_id,
               aktivTill: m.aktiv_till ?? null,
-              extramaskin: !!m.extramaskin,
+              sanderFiler: m.sander_filer !== false,
+              bekraftad: m.bekraftad !== false,
               senasteData: d,
               dagarSedan: d ? Math.round((idag - new Date(d).getTime()) / 86400_000) : null,
             }
           })
-          // aktiva med data först (färskast överst), sen extramaskiner, sen avslutade
-          .sort((a: MaskinRad, b: MaskinRad) => {
-            const grupp = (x: MaskinRad) => x.aktivTill ? 2 : x.senasteData ? 0 : 1
+          // aktiva filsändare först (färskast överst), sen icke-sändare, sen ur drift
+          .sort((a, b) => {
+            const grupp = (x: LeveransRad) => x.aktivTill ? 3 : !x.sanderFiler ? 2 : x.senasteData ? 0 : 1
             if (grupp(a) !== grupp(b)) return grupp(a) - grupp(b)
             return (a.dagarSedan ?? 9e9) - (b.dagarSedan ?? 9e9)
           })
-        setMaskiner({ laddar: false, fel: null, data: lista })
+        setLeverans({ laddar: false, fel: null, data: lista })
       }
+
+      // ── Invarianter ur HELA fakt_tid ──
+      if (tid.fel) { setInvarianter({ laddar: false, fel: tid.fel, data: null }); return }
 
       // Invarianterna — SAMMA formler som gap_check (håll i synk):
       // (a) >24h motortid per (maskin, dag)
@@ -258,9 +308,9 @@ export function useDatahalsa(): Datahalsa {
     })()
 
     // ── 5. Tappades något vid import? (import_fel — kräver migration) ──
-    // Sektionen visar 7 dygn; beskedet blir rött bara på rader senaste
-    // DYGNET, så ett åtgärdat tapp (omimporterad fil) inte skriker i en
-    // vecka. Äldre rader syns ändå i listan.
+    // Sektionen visar 7 dygn; beskedet blir rött bara på ÄKTA rader senaste
+    // DYGNET (409-dubbletter räknas aldrig som tapp), så ett åtgärdat tapp
+    // inte skriker i en vecka. Äldre/ofarliga rader syns ändå i listan.
     ;(async () => {
       const { data, error } = await supabase.from('import_fel')
         .select('tid, tabell, filnamn, felkod, feltext')
@@ -279,8 +329,9 @@ export function useDatahalsa(): Datahalsa {
     return () => { avbruten = true }
   }, [])
 
-  // ── Beskedet — EN sammanvägning, samma överallt ──
-  const laddar = filer.laddar || maskiner.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar
+  // ── Beskedet — EN sammanvägning, samma överallt. Leverans (maskintystnad)
+  //    matar ALDRIG beskedet: semester ser ut som fel. ──
+  const laddar = filer.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar
   let besked: Besked
   if (laddar) {
     besked = { niva: 'laddar', rubrik: 'Kontrollerar …', punkter: [] }
@@ -301,12 +352,14 @@ export function useDatahalsa(): Datahalsa {
     }
     if (gapCheck.data && gapCheck.data.status !== 'OK')
       punkter.push(`Gap Check larmade (${gapCheck.data.larmAntal})`)
-    const farskaImportFel = (importFel.data ?? [])
-      .filter(r => Date.now() - new Date(r.tid).getTime() < 86400_000).length
-    if (farskaImportFel > 0)
-      punkter.push(`${farskaImportFel} tabellskrivfel senaste dygnet — data tappades vid import`)
+    // Bara ÄKTA tapp senaste dygnet är rött — avvisade dubbletter (409) är
+    // ingen datatapp och räknas aldrig hit.
+    const farskaAktaImportFel = (importFel.data ?? [])
+      .filter(r => importFelKlass(r) === 'akta' && Date.now() - new Date(r.tid).getTime() < 86400_000).length
+    if (farskaAktaImportFel > 0)
+      punkter.push(`${farskaAktaImportFel} tabellskrivfel senaste dygnet — data tappades vid import`)
 
-    const kundeInteLasa = [filer.fel, maskiner.fel, invarianter.fel, gapCheck.fel, importFel.fel].some(Boolean)
+    const kundeInteLasa = [filer.fel, invarianter.fel, gapCheck.fel, importFel.fel].some(Boolean)
     if (punkter.length > 0) {
       besked = { niva: 'rod', rubrik: `${punkter.length} sak${punkter.length > 1 ? 'er' : ''} att titta på`, punkter }
     } else if (kundeInteLasa) {
@@ -322,5 +375,5 @@ export function useDatahalsa(): Datahalsa {
     }
   }
 
-  return { filer, maskiner, invarianter, gapCheck, importFel, besked }
+  return { filer, leverans, invarianter, gapCheck, importFel, besked }
 }

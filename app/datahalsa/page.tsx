@@ -9,9 +9,15 @@
 // Vyn visar VAD den vet, gissar aldrig varför. Maskintystnad
 // visas men larmar aldrig (semester ser ut som fel). Målet är
 // att vyn oftast är nästan tom och grön.
+//
+// Skiljer OFARLIGT från ÄKTA: avvisade dubbletter (409) visas
+// dämpat/grupperat, aldrig rött — inget tappades. Rött = verkligt tapp.
 // ─────────────────────────────────────────────────────────────
-import { useState } from 'react'
-import { useDatahalsa, KANDA_IMPORTFEL, type Besked } from './useDatahalsa'
+import { useState, useEffect } from 'react'
+import {
+  useDatahalsa, KANDA_IMPORTFEL, LEV_GRON_DYGN, LEV_GUL_DYGN,
+  importFelKlass, type Besked, type LeveransRad, type ImportFelRad,
+} from './useDatahalsa'
 
 const C = {
   bg: '#000', card: '#141416', divider: 'rgba(255,255,255,0.06)',
@@ -19,6 +25,9 @@ const C = {
   gron: '#30d158', gul: '#ffd60a', rod: '#ff453a', bla: '#0a84ff',
 }
 const FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,sans-serif"
+
+const KVITT_NYCKEL = 'datahalsa_leverans_forvantat'
+const KVITT_DYGN = 21   // hur länge en "förväntat"-kvittering håller (täcker semester)
 
 function tidSedan(iso: string | null): string {
   if (!iso) return '—'
@@ -78,9 +87,59 @@ export function beskedFarg(niva: Besked['niva']): string {
     : niva === 'rod' ? C.rod : C.muted
 }
 
+// ── Leverans-rad: färg ur dagar sedan senaste DATA (fakt_tid/fakt_lass),
+//    aldrig ur maskintyp eller fil-loggen ──
+type LevLage = { farg: string; etikett: string; dimmad: boolean; kanKvittera: boolean }
+
+function dagEtikett(dagar: number): string {
+  return dagar <= 0 ? 'i dag' : dagar === 1 ? '1 dag sedan' : `${dagar} dagar sedan`
+}
+
+function levLage(m: LeveransRad): LevLage {
+  // Röd kan BARA nås när maskinen både sänder filer OCH är i drift — de två
+  // grå-grindarna nedan ligger före färgberäkningen. En filfri (810) eller
+  // urdriftad maskin bedöms aldrig på filleverans, lyser aldrig rött.
+  if (m.aktivTill)
+    return { farg: C.dim, etikett: `ur drift ${m.aktivTill.slice(0, 10)}`, dimmad: true, kanKvittera: false }
+  if (!m.sanderFiler)
+    return { farg: C.dim, etikett: 'manuell maskin — ej filbaserad', dimmad: true, kanKvittera: false }
+  if (m.senasteData == null || m.dagarSedan == null)
+    return { farg: C.muted, etikett: 'ingen data ännu', dimmad: true, kanKvittera: false }
+  const farg = m.dagarSedan <= LEV_GRON_DYGN ? C.gron : m.dagarSedan <= LEV_GUL_DYGN ? C.gul : C.rod
+  return { farg, etikett: dagEtikett(m.dagarSedan), dimmad: false, kanKvittera: farg === C.rod }
+}
+
 export default function DatahalsaPage() {
-  const { filer, maskiner, invarianter, gapCheck, importFel, besked } = useDatahalsa()
+  const { filer, leverans, invarianter, gapCheck, importFel, besked } = useDatahalsa()
   const [visaFel, setVisaFel] = useState(false)
+
+  // Kvittering "förväntat tyst" per maskin — client-lokal (ingen migration),
+  // med utgång (KVITT_DYGN) så en glömd kvittering inte döljer ett verkligt
+  // stopp för evigt. Håller bara nere FÄRGEN i denna vy; beskedet påverkas ej.
+  const [kvitt, setKvitt] = useState<Record<string, string>>({})
+  useEffect(() => {
+    try {
+      const rått = JSON.parse(localStorage.getItem(KVITT_NYCKEL) || '{}') as Record<string, string>
+      const nu = Date.now()
+      const giltiga: Record<string, string> = {}
+      for (const [id, until] of Object.entries(rått)) {
+        if (until && new Date(until).getTime() > nu) giltiga[id] = until
+      }
+      setKvitt(giltiga)
+    } catch { /* tom/trasig localStorage — ignorera */ }
+  }, [])
+
+  const sparaKvitt = (next: Record<string, string>) => {
+    setKvitt(next)
+    try { localStorage.setItem(KVITT_NYCKEL, JSON.stringify(next)) } catch { /* ignore */ }
+  }
+  const kvitteraForvantat = (maskinId: string) => {
+    const until = new Date(Date.now() + KVITT_DYGN * 86400_000).toISOString()
+    sparaKvitt({ ...kvitt, [maskinId]: until })
+  }
+  const angraKvitt = (maskinId: string) => {
+    const next = { ...kvitt }; delete next[maskinId]; sparaKvitt(next)
+  }
 
   const importFarg = filer.data?.timmarSedan == null ? C.muted
     : filer.data.timmarSedan < 24 ? C.gron
@@ -88,6 +147,17 @@ export default function DatahalsaPage() {
 
   const felAntal = filer.data?.felFiler.length ?? 0
   const nyaFel = Math.max(0, felAntal - KANDA_IMPORTFEL)
+
+  // Klassificera import_fel: ofarliga (409-dubbletter) grupperas dämpat,
+  // äkta tapp listas rött. Rubriken svarar ärligt på om något tappades.
+  const importFelData = importFel.data ?? []
+  const ofarliga = importFelData.filter(r => importFelKlass(r) === 'ofarligt')
+  const akta = importFelData.filter(r => importFelKlass(r) === 'akta')
+  // Gruppera ofarliga per tabell för en dämpad sammanfattning (ej en rad/förekomst).
+  const ofarligaPerTabell = ofarliga.reduce<Record<string, number>>((acc, r) => {
+    acc[r.tabell] = (acc[r.tabell] || 0) + 1
+    return acc
+  }, {})
 
   return (
     <div style={{
@@ -114,6 +184,65 @@ export default function DatahalsaPage() {
             </ul>
           )}
         </div>
+
+        {/* ── LEVERANS-ÖVERBLICK — senaste DATA per maskin (MAX datum i
+            fakt_tid/fakt_lass, inte fil-loggen). Visas, larmar ALDRIG
+            (tystnad = observation, inte fel). Röd kan kvitteras som
+            "förväntat" (semester) → dämpas utan att döljas. ── */}
+        <Kort rubrik="LEVERERAR MASKINERNA?" laddar={leverans.laddar} fel={leverans.fel}>
+          {(leverans.data ?? []).map(m => {
+            const lage = levLage(m)
+            const kvitteradTill = kvitt[m.maskinId]
+            const kvitterad = !!kvitteradTill && lage.kanKvittera
+            return (
+              <div key={m.maskinId} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '9px 0', borderTop: `0.5px solid ${C.divider}`, gap: 10,
+                fontSize: 14, color: (lage.dimmad || kvitterad) ? C.dim : C.text,
+              }}>
+                <span style={{ minWidth: 0 }}>
+                  {m.namn}
+                  {!m.bekraftad && <span style={{ color: C.gul }}> · obekräftad</span>}
+                </span>
+                <span style={{
+                  display: 'flex', alignItems: 'center', gap: 8, textAlign: 'right',
+                  fontVariantNumeric: 'tabular-nums', flexShrink: 0,
+                }}>
+                  {kvitterad ? (
+                    <>
+                      <span style={{ color: C.dim, fontSize: 13 }}>
+                        förväntat t.o.m. {kvitteradTill.slice(0, 10)}
+                      </span>
+                      <button onClick={() => angraKvitt(m.maskinId)} style={{
+                        background: 'none', border: 'none', color: C.bla, fontFamily: FONT,
+                        fontSize: 12, cursor: 'pointer', padding: 0,
+                      }}>ångra</button>
+                      <Prick farg={C.gul} />
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ color: lage.dimmad ? C.dim : C.text }}>{lage.etikett}</span>
+                      {lage.kanKvittera && (
+                        <button onClick={() => kvitteraForvantat(m.maskinId)} style={{
+                          background: 'none', border: `0.5px solid ${C.dim}`, color: C.muted,
+                          fontFamily: FONT, fontSize: 11, cursor: 'pointer', padding: '2px 8px',
+                          borderRadius: 7, whiteSpace: 'nowrap',
+                        }}>förväntat?</button>
+                      )}
+                      <Prick farg={lage.farg} />
+                    </>
+                  )}
+                </span>
+              </div>
+            )
+          })}
+          <div style={{ paddingTop: 8, fontSize: 11, color: C.dim }}>
+            Senaste dag med data (fakt_tid/fakt_lass), inte fil-loggen — kumulativa
+            filer bär flera dagar per fil. Tystnad kan vara semester eller planerat
+            uppehåll — visas, larmas aldrig. Ur drift och manuella (filfria)
+            maskiner gråtonas och bedöms aldrig på filleverans.
+          </div>
+        </Kort>
 
         {/* ── 1. Kommer filerna in? ── */}
         <Kort rubrik="KOMMER FILERNA IN?" laddar={filer.laddar} fel={filer.fel}>
@@ -146,26 +275,6 @@ export default function DatahalsaPage() {
           ))}
         </Kort>
 
-        {/* ── 2. Levererar maskinerna? — visas, larmar ALDRIG ── */}
-        <Kort rubrik="LEVERERAR MASKINERNA?" laddar={maskiner.laddar} fel={maskiner.fel}>
-          {(maskiner.data ?? []).map(m => {
-            const dimmad = !!m.aktivTill || (m.extramaskin && !m.senasteData)
-            const etikett = m.aktivTill
-              ? `avslutad ${m.aktivTill.slice(0, 10)}`
-              : m.senasteData
-                ? (m.dagarSedan === 0 ? 'i dag' : m.dagarSedan === 1 ? '1 dag sedan' : `${m.dagarSedan} dagar sedan`)
-                : m.extramaskin ? 'extramaskin — ingen data ännu' : 'ingen data'
-            return (
-              <Rad key={m.maskinId}
-                vanster={<>{m.modell}{m.extramaskin && !m.aktivTill ? <span style={{ color: C.dim }}> · extramaskin</span> : null}</>}
-                hoger={etikett} dimmad={dimmad} />
-            )
-          })}
-          <div style={{ paddingTop: 8, fontSize: 11, color: C.dim }}>
-            Tystnad kan vara semester eller planerat uppehåll — visas, larmas inte.
-          </div>
-        </Kort>
-
         {/* ── 3. Är datan galen? — ska alltid vara 0 ── */}
         <Kort rubrik="ÄR DATAN GALEN?" laddar={invarianter.laddar} fel={invarianter.fel}>
           <Rad vanster="Dagar med >24h motortid"
@@ -189,9 +298,9 @@ export default function DatahalsaPage() {
                hogerFarg={invarianter.data?.tomgangInkonsistenta === 0 ? C.gron : C.rod} />
         </Kort>
 
-        {/* ── 3b. Tappades något vid import? — varje rad är ett verifierat
-            datatapp (en tabellskrivning som misslyckades). Wisent-läxan:
-            tappet fanns i en logg ingen läser — nu står det här. ── */}
+        {/* ── 3b. Tappades något vid import? — skiljer ÄKTA tapp (rött) från
+            OFARLIGA avvisade dubbletter (409, dämpat). En 409 = raden fanns
+            redan = inget tappades, tvärtom (dedup rätt). ── */}
         <Kort rubrik="TAPPADES NÅGOT VID IMPORT?" laddar={importFel.laddar} fel={importFel.fel}>
           {importFel.tabellSaknas ? (
             <div style={{ fontSize: 13, color: C.muted }}>
@@ -200,10 +309,18 @@ export default function DatahalsaPage() {
             </div>
           ) : (
             <>
-              <Rad vanster="Senaste 7 dygnen"
-                   hoger={(importFel.data ?? []).length === 0 ? '0 ✅' : `${(importFel.data ?? []).length} ⛔`}
-                   hogerFarg={(importFel.data ?? []).length === 0 ? C.gron : C.rod} />
-              {(importFel.data ?? []).map(r => (
+              {/* Ärligt svar i rubrikraden */}
+              <Rad
+                vanster="Äkta datatapp (7 dygn)"
+                hoger={akta.length === 0
+                  ? (ofarliga.length > 0
+                      ? `Nej — allt sparades`
+                      : '0 ✅')
+                  : `${akta.length} ⛔`}
+                hogerFarg={akta.length === 0 ? C.gron : C.rod}
+              />
+              {/* Äkta tapp — rött, per rad */}
+              {akta.map(r => (
                 <div key={r.tid + r.tabell} style={{
                   padding: '6px 0 6px 16px', fontSize: 12, color: C.rod,
                   borderTop: `0.5px solid ${C.divider}`, wordBreak: 'break-all',
@@ -213,6 +330,23 @@ export default function DatahalsaPage() {
                   {r.feltext && <div style={{ color: C.dim }}>{r.feltext.slice(0, 160)}</div>}
                 </div>
               ))}
+              {/* Ofarliga avvisade dubbletter — dämpat, grupperat, aldrig rött */}
+              {ofarliga.length > 0 && (
+                <div style={{
+                  marginTop: 8, padding: '10px 12px', borderTop: `0.5px solid ${C.divider}`,
+                  background: 'rgba(255,255,255,0.02)', borderRadius: 8,
+                }}>
+                  <div style={{ fontSize: 13, color: C.muted, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Prick farg={C.dim} />
+                    {ofarliga.length} avvisade dubbletter — ofarligt, fanns redan i databasen
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: C.dim, paddingLeft: 18 }}>
+                    {Object.entries(ofarligaPerTabell)
+                      .map(([tabell, n]) => `${tabell}: ${n}`)
+                      .join(' · ')}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </Kort>
