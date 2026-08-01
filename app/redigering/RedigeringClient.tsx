@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, Fragment, Children, Suspense } from 'react
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
+import { hamtaAckordgrundAuto, type AckordgrundAuto } from '@/lib/ekonomi/ackordgrund'
 import { useMatchning } from './hooks/useMatchning'
 import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkordning, skordareForvantasEj, skotareForvantasEj } from './hooks/useFildata'
 import MatchningsVy from './MatchningsVy'
@@ -1247,7 +1248,7 @@ function IosGroup({ title, children }) {
 // Talfält med svensk decimalkomma. Rå text lokalt (så "5," går att skriva),
 // parsat värde (eller null) propageras vid varje ändring. Ogiltig text får
 // röd kant och propagerar null — aldrig ett tyst 0.
-function NumField({ label, value, onChange, placeholder, suffix }: any) {
+function NumField({ label, value, onChange, placeholder, suffix, accent }: any) {
   const [raw, setRaw] = useState(value == null ? '' : String(value).replace('.', ','))
   const [focused, setFocused] = useState(false)
   useEffect(() => {
@@ -1277,7 +1278,9 @@ function NumField({ label, value, onChange, placeholder, suffix }: any) {
             ...styles.directRowInput, flex: 'none', width: 110,
             padding: '4px 8px', borderRadius: 8,
             border: `1px solid ${invalid ? 'rgba(255,69,58,0.6)' : 'transparent'}`,
-            color: invalid ? '#FF453A' : '#fff',
+            // accent: satt värde i manuell-orange — skiljer "mitt override"
+            // från auto-placeholderns grå på en blick
+            color: invalid ? '#FF453A' : (accent && raw.trim() !== '' ? '#FF9F0A' : '#fff'),
           } as any}
         />
         {suffix && <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{suffix}</span>}
@@ -1676,7 +1679,25 @@ function SubFiler({ obj, rader, hamtStatus, skotareSanderEj }: any) {
 
 // UNDERSIDA: Pris & ersättning — Ackord/Timpeng + timpeng-undantag.
 // dim_objekt.timpeng är ENDA källan för flaggan.
-function SubPris({ obj, set }: any) {
+function SubPris({ obj, set, gruppIds }: any) {
+  // AUTO-värdena för ackordgrunden — SAMMA helpers som ekonomins beräkning
+  // (lib/ekonomi/ackordgrund); redigeringen får aldrig visa ett annat
+  // auto-värde än det Mot ackord/Per klass räknar på. null = laddar/fel →
+  // fälten visar bara "auto", aldrig en påhittad nolla.
+  const [autoV, setAutoV] = useState<AckordgrundAuto | null>(null)
+  const idsNyckel = (gruppIds || [obj.objekt_id]).join('|')
+  useEffect(() => {
+    let aktiv = true
+    setAutoV(null)
+    hamtaAckordgrundAuto(idsNyckel.split('|').filter(Boolean))
+      .then(v => { if (aktiv) setAutoV(v) })
+      .catch(() => { if (aktiv) setAutoV(null) })
+    return () => { aktiv = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsNyckel])
+  // "0,42 · auto" när beräknat värde finns, annars bara "auto"
+  const autoText = (v: number | null | undefined, dec: number) =>
+    v == null ? 'auto' : `${v.toFixed(dec).replace('.', ',')} · auto`
   return (
     <IosGroup title="Pris & ersättning">
       <div id="timpeng-section" style={{ padding: '14px 16px 4px' }}>
@@ -1746,36 +1767,41 @@ function SubPris({ obj, set }: any) {
           label="Medelstam"
           value={obj.medelstam_manuell}
           onChange={(v: number | null) => set({ ...obj, medelstam_manuell: v })}
-          placeholder="auto"
+          placeholder={autoText(autoV?.medelstam, 3)}
           suffix="m³"
+          accent
         />
         <NumField
           label="Sortimentgrupper"
           value={obj.sortiment_grupper_manuell}
           onChange={(v: number | null) => set({ ...obj, sortiment_grupper_manuell: v })}
-          placeholder="auto"
+          placeholder={autoV == null ? 'auto' : `${autoV.sortimentgrupper} · auto`}
           suffix="st"
+          accent
         />
         <NumField
           label="Skotavstånd"
           value={obj.skotavstand_manuell}
           onChange={(v: number | null) => set({ ...obj, skotavstand_manuell: v })}
-          placeholder="auto"
+          placeholder={autoV?.skotavstand == null ? 'auto' : `${Math.round(autoV.skotavstand)} · auto`}
           suffix="m"
+          accent
         />
         <NumField
           label="G15 skördare"
           value={obj.skordning_g15_manuell}
           onChange={(v: number | null) => set({ ...obj, skordning_g15_manuell: v })}
-          placeholder="auto"
+          placeholder={autoText(autoV?.g15Skordare, 1)}
           suffix="h"
+          accent
         />
         <NumField
           label="G15 skotare"
           value={obj.skotning_g15_manuell}
           onChange={(v: number | null) => set({ ...obj, skotning_g15_manuell: v })}
-          placeholder="auto"
+          placeholder={autoText(autoV?.g15Skotare, 1)}
           suffix="h"
+          accent
         />
         {/* TERRÄNG — ett SPANN (Svår 1–8 kr/m³), bedömt manuellt per objekt.
             Kronvärdet bor i terrang_kr_manuell; NULL = Normal = 0 kr. Växling
@@ -2599,7 +2625,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
           <SubSkotare obj={valtObjekt} set={setValtObjekt} info={info} skordatTotal={skordatTotal} skotatTotal={skotatTotal} gruppSkotningAvslutad={gruppSkotningAvslutad} skotareSanderEj={skotareSanderEj} syskon={syskon} onRaderUppdaterade={raderUppdaterade} forslag={skotForslag} />
         )}
         {valtObjekt && subpage === 'skotning' && <SubSkotning obj={valtObjekt} set={setValtObjekt} />}
-        {valtObjekt && subpage === 'pris' && <SubPris obj={valtObjekt} set={setValtObjekt} />}
+        {valtObjekt && subpage === 'pris' && <SubPris obj={valtObjekt} set={setValtObjekt} gruppIds={syskon.map((o: any) => o.objekt_id)} />}
       </EditSheet>
       <ConfirmDialog
         open={showDirtyDialog}
