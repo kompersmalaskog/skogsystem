@@ -82,5 +82,10 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|.*\\.png$|.*\\.ico$|.*\\.svg$).*)'],
+  // Statiska hjälpresurser går ALDRIG genom auth-middleware (ingen getUser). De är
+  // publika filer, inte skyddad data — och en helper som kräver auth kan HÄNGA vid en
+  // Auth-störning (pdf.js-workern gav 307→/login; service workern likaså). Undanta
+  // dem hårt: pdf.worker.min.mjs (.mjs), sw.js (service worker), teckensnitt (.woff*),
+  // utöver bilder/ikoner/manifest. Sidrutter (utan filändelse) fortsätter gå via auth.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|.*\\.png$|.*\\.ico$|.*\\.svg$|.*\\.mjs$|.*\\.woff2?$).*)'],
 };
