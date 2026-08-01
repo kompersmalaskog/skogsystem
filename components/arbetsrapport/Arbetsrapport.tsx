@@ -566,6 +566,10 @@ export default function Arbetsrapport() {
   const [redKm,    setRedKm]    = useState(0);
   const [redKmBerakning, setRedKmBerakning] = useState<number|null>(null);
   const [redKmChain, setRedKmChain] = useState<{fromLabel:string;toLabel:string;km:number;source:string}[]|null>(null);
+  // Redigera-vyn hämtar dagens rad AUKTORITATIVT från DB vid öppning; detta
+  // flaggar den hämtningen så vyn visar "Laddar…" i stället för "Ingen data"
+  // innan svaret kommit (annars renderas tom editor över en komplett rad).
+  const [redLaddar, setRedLaddar] = useState(false);
   // Km-källa för den beräknade siffran: 'beraknad' = riktig vägberäkning
   // (route_cache/ORS), 'fallback' = haversine × 1,4 (fågelvägen, OSÄKER),
   // null = ej beräknat. 'saknarKoord' = något objekt saknar koordinat, då
@@ -1376,19 +1380,79 @@ export default function Arbetsrapport() {
   // "glömde bekräfta"-bannern, och extra-tid-dagar routades i stället till
   // en avskalad tidslinje utan redigering/bekräfta — inkonsekvensen som var
   // buggen. Nu ser varje dag likadan ut.
-  const öppnaRedigera = (datum: string) => {
-    const d2 = dagData[datum];
-    setRedDag({ ...(d2 || {}), datum });
-    setRedStart(d2?.start_tid || "00:00");
-    setRedSlut(d2?.slut_tid || "00:00");
-    setRedRast(d2?.rast_min || 0);
-    setRedKm(d2?.km_totalt || 0);
+  // AUKTORITATIV läsning: fråga DB om den specifika dagen — lita ALDRIG på den
+  // async, månads-scopade dagData-cachen för att avgöra "Ingen data". Racet:
+  // byte av kalendermånad ritar om direkt men dagData-hämtningen landar senare;
+  // ett tryck däremellan (eller PWA-resume/cross-month) läste tom cache →
+  // "Ingen data" över en komplett rad. Samma familj som "Sparat!" utan
+  // skrivning. dagData används som snabb första-paint; DB avgör sanningen.
+  const bygRedDagFrånRad = (data: any, oj: any[]): any => ({
+    id: data.id,
+    arbMin: data.arbetad_min || 0,
+    km: data.km_totalt || 0,
+    km_morgon: data.km_morgon || 0,
+    km_kvall: data.km_kvall || 0,
+    km_totalt: data.km_totalt || 0,
+    trak: !!data.traktamente,
+    traktamente: !!data.traktamente,
+    dagtyp: data.dagtyp,
+    bekraftad: !!data.bekraftad,
+    bekraftad_tid: data.bekraftad_tid,
+    start_tid: data.start_tid || null,
+    slut_tid: data.slut_tid || null,
+    rast_min: data.rast_min ?? 0,
+    maskin_id: data.maskin_id,
+    maskin_namn: maskinNamnMap[data.maskin_id] || data.maskin_id || null,
+    objekt_id: data.objekt_id || null,
+    objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || data.objekt_id || null,
+    objekt_lista: (oj || []).map(o => ({
+      id: o.id, objekt_id: o.objekt_id,
+      objekt_namn: o.objekt_namn || objektLista.find(x => x.id === o.objekt_id)?.namn || o.objekt_id,
+      start_tid: o.start_tid, slut_tid: o.slut_tid, arbetad_min: o.arbetad_min, ordning: o.ordning,
+    })),
+  });
+
+  const öppnaRedigera = async (datum: string) => {
+    // Öppna vyn direkt i laddningsläge — steg-bytet behöver en truthy redDag.
+    setRedDag({ datum } as any);
+    setRedVy("översikt");
     setRedKmBerakning(null);
     setRedAnl("");
-    setRedObjektId(d2?.objekt_id || null);
-    setRedMaskinId(d2?.maskin_id || null);
-    setRedVy("översikt");
+    setRedLaddar(true);
     setSteg("redigera");
+
+    // Snabb första-paint ur cachen om den råkar ha dagen (annars null).
+    let rad: any = dagData[datum] || null;
+    try {
+      const { data } = await supabase
+        .from("arbetsdag")
+        .select("*")
+        .eq("medarbetare_id", medarbetare.id)
+        .eq("datum", datum)
+        .maybeSingle();
+      if (data) {
+        const { data: oj } = await supabase
+          .from("arbetsdag_objekt")
+          .select("id, objekt_id, objekt_namn, start_tid, slut_tid, arbetad_min, ordning")
+          .eq("arbetsdag_id", data.id)
+          .order("ordning", { ascending: true });
+        rad = bygRedDagFrånRad(data, oj || []);
+        setDagData(d => ({ ...d, [datum]: rad })); // håll cachen färsk
+      } else {
+        rad = null; // DB BEKRÄFTAR: ingen rad → äkta tomt (Lägg till manuellt)
+      }
+    } catch {
+      // Nätfel: behåll ev. cache-rad hellre än att visa tomt över riktig data.
+    }
+
+    setRedDag({ ...(rad || {}), datum });
+    setRedStart(rad?.start_tid || "00:00");
+    setRedSlut(rad?.slut_tid || "00:00");
+    setRedRast(rad?.rast_min || 0);
+    setRedKm(rad?.km_totalt || 0);
+    setRedObjektId(rad?.objekt_id || null);
+    setRedMaskinId(rad?.maskin_id || null);
+    setRedLaddar(false);
   };
 
   // Bekräfta arbetsdagen — extraherad så samma kod kan köras både direkt
@@ -4445,6 +4509,16 @@ export default function Arbetsrapport() {
 
   /* ─── REDIGERA HISTORIK ─── */
   if(steg==="redigera"&&redDag){
+    // Auktoritativ hämtning pågår — visa "Laddar…", ALDRIG "Ingen data" innan
+    // DB svarat (annars renderas tom editor över en komplett rad — buggen).
+    if(redLaddar) return (
+      <div style={shell}><style>{css}</style>{timerBanner}
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("kalender")}/><h1 style={{ margin:0,...TYPE.h1 }}>Dag</h1></div></div>
+        <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center" }}>
+          <p style={{ ...TYPE.meta,color:C.label }}>Laddar…</p>
+        </div>
+      </div>
+    );
     const redArbMin = Math.max(0, tim(redStart,redSlut)-redRast);
     // Jämför mot snake_case-fälten i redDag — tidigare använde vi camelCase
     // (redDag.start etc.) som alltid var undefined, vilket gjorde harÄndrat=true
