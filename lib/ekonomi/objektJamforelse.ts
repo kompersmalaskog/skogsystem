@@ -26,6 +26,7 @@ import {
   ovrigtKrPerM3, type OvrigtRad,
 } from '@/lib/ekonomi/acord';
 import { fetchAllRows } from '@/lib/ekonomi/period';
+import { medelstamAuto, sortimentgrupperAuto, skotavstandVagtAuto } from '@/lib/ekonomi/ackordgrund';
 
 // Under så här många G15-timmar är ett kr/tim- eller kr/m³-tal brus, inte
 // fakta. Delas av kr/tim-märkningen (mot-ackord) och klass-märkningen
@@ -166,20 +167,21 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     objVol[r.objekt_id].vol += Number(r.volym_m3sub) || 0;
     objVol[r.objekt_id].stammar += Number(r.stammar) || 0;
   }
+  // Auto-delvärdena via delade helpers (lib/ekonomi/ackordgrund) — samma
+  // uträkningar visas som auto-värden i redigeringens Ackordgrund-fält
+  // och får aldrig drifta från vad ekonomin räknar på.
   const objMedelstam: Record<string, number> = {};
-  for (const [oid, v] of Object.entries(objVol)) if (v.stammar > 0) objMedelstam[oid] = v.vol / v.stammar;
-
-  const objGrupper: Record<string, Set<string>> = {};
-  for (const s2 of sortRows) {
-    if (!s2.objekt_id) continue;
-    const g = sortGruppMap[s2.sortiment_id];
-    if (!g) continue;
-    (objGrupper[s2.objekt_id] ||= new Set()).add(g);
+  for (const [oid, v] of Object.entries(objVol)) {
+    const ms = medelstamAuto(v.vol, v.stammar);
+    if (ms != null) objMedelstam[oid] = ms;
   }
+
+  const sortPerObjekt: Record<string, any[]> = {};
+  for (const s2 of sortRows) { if (s2.objekt_id) (sortPerObjekt[s2.objekt_id] ||= []).push(s2); }
   // Ackordgrund-overrides (dim_objekt.*_manuell) ersätter mätt/beräknat.
   const grupperFor = (oid: string) => {
     const man = objMeta[oid]?.sortiment_grupper_manuell;
-    return man != null ? Number(man) : (objGrupper[oid]?.size || 0);
+    return man != null ? Number(man) : sortimentgrupperAuto(sortPerObjekt[oid] || [], sortGruppMap);
   };
   const medelstamOverride = (oid: string): number | null => {
     const man = Number(objMeta[oid]?.medelstam_manuell);
@@ -227,15 +229,6 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   }
   const lassPerObjekt: Record<string, any[]> = {};
   for (const r of lassRows) { if (r.objekt_id) (lassPerObjekt[r.objekt_id] ||= []).push(r); }
-  // Viktat snittavstånd ur faktiska lass — för ackordgrund-visningen
-  const objLassAvstand: Record<string, { viktat: number; vol: number }> = {};
-  for (const r of lassRows) {
-    if (!r.objekt_id) continue;
-    const v = Number(r.volym_m3sub) || 0;
-    (objLassAvstand[r.objekt_id] ||= { viktat: 0, vol: 0 });
-    objLassAvstand[r.objekt_id].viktat += (Number(r.korstracka_m) || 0) * v;
-    objLassAvstand[r.objekt_id].vol += v;
-  }
   const skotarTidPerObjekt: Record<string, any[]> = {};
   for (const r of tidRows) {
     if (!r.objekt_id || maskinNamnMap[r.maskin_id]?.typ !== 'Forwarder') continue;
@@ -355,8 +348,8 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     const avstManuell = Number(o.skotavstand_manuell) > 0;
     const msMan = medelstamOverride(o.objekt_id);
     const msAuto = objMedelstam[o.objekt_id];
-    const la = objLassAvstand[o.objekt_id];
-    const lassAvst = la && la.vol > 0 ? la.viktat / la.vol : null;
+    // Viktat snittavstånd ur faktiska lass — delad helper (ackordgrund)
+    const lassAvst = skotavstandVagtAuto(lassPerObjekt[o.objekt_id] || []);
     const g15Sk = m.filter(d => d.roll === 'skördare');
     const g15St = m.filter(d => d.roll === 'skotare');
     const fmtM3 = (n: number) => Math.round(n).toLocaleString('sv-SE');
