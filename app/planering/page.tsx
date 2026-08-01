@@ -2404,6 +2404,10 @@ export default function PlannerPage() {
   // Kompass-rotation
   const [compassMode, setCompassMode] = useState(false);
   const [deviceHeading, setDeviceHeading] = useState(0);
+  // Körvyns kompass-rotation (deviceorientation): 'av' = ej aktiverad, 'aktiv' = roterar,
+  // 'nekad' = iOS-tillstånd nekat, 'saknas' = ingen sensor (t.ex. dator). Aldrig tyst död —
+  // vid 'nekad'/'saknas' ligger kartan kvar i norr-upp (fungerar, roterar bara inte).
+  const [korvyKompass, setKorvyKompass] = useState<'av' | 'aktiv' | 'nekad' | 'saknas'>('av');
 
   // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
   const [korvyActive, setKorvyActive] = useState(false);
@@ -4339,6 +4343,42 @@ export default function PlannerPage() {
       window.removeEventListener('deviceorientation', handleOrientation);
     };
   }, []);
+
+  // Aktivera körvyns kompass-rotation. iOS 13+ kräver DeviceOrientationEvent.requestPermission()
+  // från en ANVÄNDARGEST (knapptryck) första gången — appen lyssnade men frågade aldrig, därför
+  // kom ingen kompassdata och kartan låg stilla. Efter beviljande minns vi valet (localStorage)
+  // och auto-aktiverar nästa gång körvyn öppnas. Failar det (nekat / sensor saknas) sätts ett
+  // ärligt status → norr-upp, ingen krasch, ingen tyst död knapp.
+  const aktiveraKompass = async (franGest: boolean) => {
+    const DOE: any = typeof DeviceOrientationEvent !== 'undefined' ? DeviceOrientationEvent : null;
+    if (!DOE) { setKorvyKompass('saknas'); return; }                       // ingen sensor (dator)
+    if (typeof DOE.requestPermission === 'function') {                     // iOS 13+
+      const tidigareJa = (() => { try { return localStorage.getItem('korvy_kompass') === 'granted'; } catch { return false; } })();
+      if (!franGest && !tidigareJa) { setKorvyKompass('av'); return; }      // auto utan tidigare ja → visa knappen
+      try {
+        const perm = await DOE.requestPermission();
+        if (perm !== 'granted') { try { localStorage.removeItem('korvy_kompass'); } catch {} setKorvyKompass('nekad'); return; }
+        try { localStorage.setItem('korvy_kompass', 'granted'); } catch {}
+      } catch {
+        // requestPermission avvisad (t.ex. auto utan gest) → norr-upp; visa knappen om det var ett tryck
+        setKorvyKompass(franGest ? 'nekad' : 'av'); return;
+      }
+    }
+    // Android / äldre iOS (ingen requestPermission) ELLER redan beviljad iOS
+    window.addEventListener('deviceorientation', handleOrientation);
+    setKorvyKompass('aktiv');
+  };
+
+  // Körvy öppnas → auto-aktivera kompassen om tillstånd redan getts (iOS minns valet). Stängs → rensa.
+  useEffect(() => {
+    if (korvyActive) {
+      aktiveraKompass(false);
+    } else {
+      window.removeEventListener('deviceorientation', handleOrientation);
+      setKorvyKompass('av');
+    }
+    return () => { window.removeEventListener('deviceorientation', handleOrientation); };
+  }, [korvyActive]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // Synlighet
   // Lager-synlighet. DEFAULT: allt synligt. Persisteras PER OBJEKT (localStorage). Ett lager är
@@ -9810,6 +9850,27 @@ export default function PlannerPage() {
               {mode === 'lm' ? 'Karta' : 'Topokarta'}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* === KÖRVY: KOMPASS-AKTIVERING — heading-up kräver telefonens kompass; iOS kräver tillstånd. === */}
+      {korvyActive && korvyKompass !== 'aktiv' && (
+        <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 112px)', right: 12, zIndex: 260, maxWidth: 214 }}>
+          {korvyKompass === 'saknas' ? (
+            <div style={{ padding: '8px 12px', borderRadius: 14, background: 'rgba(28,28,30,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 500, lineHeight: 1.35 }}>
+              Ingen kompass på enheten — kartan ligger i norr-upp.
+            </div>
+          ) : (
+            <button type="button" onClick={() => { if (navigator.vibrate) navigator.vibrate(8); aktiveraKompass(true); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 13px', borderRadius: 14, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+                backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                border: korvyKompass === 'nekad' ? '1px solid rgba(255,159,10,0.5)' : '1px solid rgba(10,132,255,0.5)',
+                background: korvyKompass === 'nekad' ? 'rgba(255,159,10,0.14)' : 'rgba(10,132,255,0.18)',
+                color: korvyKompass === 'nekad' ? '#FF9F0A' : '#4da3ff', fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></svg>
+              <span>{korvyKompass === 'nekad' ? 'Kompass nekad — norr-upp. Tryck för att försöka igen.' : 'Aktivera kompass'}</span>
+            </button>
+          )}
         </div>
       )}
 
