@@ -886,6 +886,12 @@ export default function PlannerPage() {
     map.addSource('drawing-close-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'drawing-close-line', type: 'line', source: 'drawing-close-source', paint: { 'line-color': '#7cba3f', 'line-width': 3, 'line-dasharray': [4, 4], 'line-opacity': 0.6 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 
+    // Mätverktyg (avstånd + yta) — geo-låst geometri, MapLibre projicerar per frame.
+    map.addSource('measure-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'measure-fill', type: 'fill', source: 'measure-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#0a84ff', 'fill-opacity': 0.18 } });
+    map.addLayer({ id: 'measure-line', type: 'line', source: 'measure-source', filter: ['!=', ['geometry-type'], 'Point'], paint: { 'line-color': '#0a84ff', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'measure-vertices', type: 'circle', source: 'measure-source', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#0a84ff', 'circle-stroke-width': 3 } });
+
     // === WMS overlay sources + layers ===
     const wmsLayerDefs = [
       { id: 'nyckelbiotoper', tiles: ['/api/wms-proxy?layer=nyckelbiotoper&bbox={bbox-epsg-3857}&width=256&height=256'] },
@@ -1869,8 +1875,13 @@ export default function PlannerPage() {
   const [showMeasurements, setShowMeasurements] = useState(true);
   const [measureMode, setMeasureMode] = useState(false);
   const [measureAreaMode, setMeasureAreaMode] = useState(false); // Ytmätning
-  const [measurePath, setMeasurePath] = useState<Point[]>([]);
+  const [measurePath, setMeasurePath] = useState<Point[]>([]); // (vestigial — gamla skärmkoord-systemet)
   const [isMeasuring, setIsMeasuring] = useState(false);
+  // Geo-mätning: committad path i lng/lat (sanning för siffran), live-drag i ref (ingen re-render
+  // per punkt), och ett ref till siffer-etiketten för live-uppdatering under drag.
+  const [measureGeo, setMeasureGeo] = useState<[number, number][]>([]);
+  const measureLiveRef = useRef<[number, number][]>([]);
+  const measureLabelRef = useRef<HTMLDivElement>(null);
   
   // GPS
   const [isTracking, setIsTracking] = useState(false);
@@ -8741,6 +8752,160 @@ export default function PlannerPage() {
     }
     return `${Math.round(sqMeters)} m²`;
   };
+
+  // === GEO-MÄTNING (riktiga meter, ej pixlar) ===
+  // Mätverktyget räknar i lng/lat via haversine (avstånd) och sfärisk excess (yta),
+  // så siffran STÄMMER oavsett pan/zoom — till skillnad från de gamla pixel-baserade
+  // calculateLength/calculateArea (samma buggfamilj som origo-buggen). WGS84-sfär.
+  const metersBetween = (a: [number, number], b: [number, number]): number => {
+    const R = 6371008.8; // meters, medelradie
+    const rad = (d: number) => d * Math.PI / 180;
+    const dLat = rad(b[1] - a[1]);
+    const dLng = rad(b[0] - a[0]);
+    const s = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+  };
+  const pathMeters = (coords: [number, number][]): number => {
+    if (!coords || coords.length < 2) return 0;
+    let m = 0;
+    for (let i = 1; i < coords.length; i++) m += metersBetween(coords[i - 1], coords[i]);
+    return m;
+  };
+  // Sfärisk polygon-area i m² (samma formel som @turf/area). Ringen sluts implicit.
+  const ringAreaM2 = (coords: [number, number][]): number => {
+    if (!coords || coords.length < 3) return 0;
+    const R = 6378137; // meters, WGS84 ekvatorradie
+    const rad = (d: number) => d * Math.PI / 180;
+    let total = 0;
+    for (let i = 0; i < coords.length; i++) {
+      const [lng1, lat1] = coords[i];
+      const [lng2, lat2] = coords[(i + 1) % coords.length];
+      total += rad(lng2 - lng1) * (2 + Math.sin(rad(lat1)) + Math.sin(rad(lat2)));
+    }
+    return Math.abs(total * R * R / 2);
+  };
+
+  // Uppdatera MapLibre-lagret för mätningen (geo-låst geometri: linje/polygon + ändpunkter).
+  const uppdateraMatlager = (coords: [number, number][], yta: boolean) => {
+    const src = mapInstanceRef.current?.getSource('measure-source') as any;
+    if (!src) return;
+    const features: any[] = [];
+    if (coords.length >= 2) {
+      features.push({
+        type: 'Feature', properties: {},
+        geometry: yta && coords.length >= 3
+          ? { type: 'Polygon', coordinates: [[...coords, coords[0]]] }
+          : { type: 'LineString', coordinates: coords },
+      });
+    }
+    if (coords.length >= 1) features.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: coords[0] } });
+    if (coords.length >= 2) features.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: coords[coords.length - 1] } });
+    src.setData({ type: 'FeatureCollection', features });
+  };
+  const rensaMatning = () => {
+    measureLiveRef.current = [];
+    setMeasureGeo([]);
+    setIsMeasuring(false);
+    uppdateraMatlager([], false);
+  };
+  const avslutaMatning = () => {
+    setMeasureMode(false);
+    setMeasureAreaMode(false);
+    rensaMatning();
+  };
+  const startaMatning = (yta: boolean) => {
+    setMeasureMode(!yta);
+    setMeasureAreaMode(yta);
+    measureLiveRef.current = [];
+    setMeasureGeo([]);
+    setIsMeasuring(false);
+    uppdateraMatlager([], yta);
+    setMenuOpen(false);
+    setMenuHeight(0);
+    setActiveCategory(null);
+  };
+
+  // Mät-drag (geo): tryck+dra ritar mätlinjen/ytan i lng/lat via unproject. dragPan av så
+  // dragningen MÄTER istället för att panorera. Live-geometri via setData (ingen re-render per
+  // punkt), siffran live via etikett-ref, commit till measureGeo vid släpp. Ny drag börjar om.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    if (!measureMode && !measureAreaMode) return;
+    const yta = measureAreaMode;
+    const canvas = map.getCanvas();
+
+    map.dragPan.disable();
+    map.doubleClickZoom.disable();
+
+    const s2ll = (cx: number, cy: number): [number, number] => {
+      const r = canvas.getBoundingClientRect();
+      const p = map.unproject([cx - r.left, cy - r.top]);
+      return [p.lng, p.lat];
+    };
+    const skrivEtikett = () => {
+      const c = measureLiveRef.current;
+      if (!measureLabelRef.current) return;
+      measureLabelRef.current.textContent = yta
+        ? (c.length >= 3 ? formatArea(ringAreaM2(c)) : '0 m²')
+        : (c.length >= 2 ? formatLength(pathMeters(c)) : '0 m');
+    };
+    let dragging = false, lastX = 0, lastY = 0;
+
+    const down = (e: MouseEvent | TouchEvent) => {
+      if ('button' in e && (e as MouseEvent).button !== 0) return;
+      const cx = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
+      const cy = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+      dragging = true; lastX = cx; lastY = cy;
+      measureLiveRef.current = [s2ll(cx, cy)];
+      setIsMeasuring(true);
+      uppdateraMatlager(measureLiveRef.current, yta);
+      skrivEtikett();
+    };
+    const move = (e: MouseEvent | TouchEvent) => {
+      if (!dragging) return;
+      if ('buttons' in e && (e as MouseEvent).buttons === 0) { dragging = false; return; }
+      const cx = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
+      const cy = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+      if (Math.abs(cx - lastX) < 3 && Math.abs(cy - lastY) < 3) return;
+      lastX = cx; lastY = cy;
+      measureLiveRef.current.push(s2ll(cx, cy));
+      uppdateraMatlager(measureLiveRef.current, yta);
+      skrivEtikett();
+    };
+    const up = () => {
+      if (!dragging) return;
+      dragging = false;
+      const coords = [...measureLiveRef.current];
+      setIsMeasuring(false);
+      setMeasureGeo(coords);
+      uppdateraMatlager(coords, yta);
+    };
+
+    canvas.addEventListener('mousedown', down);
+    canvas.addEventListener('touchstart', down, { passive: true });
+    document.addEventListener('mousemove', move);
+    document.addEventListener('touchmove', move, { passive: true });
+    document.addEventListener('mouseup', up);
+    document.addEventListener('touchend', up);
+
+    return () => {
+      canvas.removeEventListener('mousedown', down);
+      canvas.removeEventListener('touchstart', down);
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('touchmove', move);
+      document.removeEventListener('mouseup', up);
+      document.removeEventListener('touchend', up);
+      if (map.dragPan) map.dragPan.enable();
+      if (map.doubleClickZoom) map.doubleClickZoom.enable();
+    };
+  }, [measureMode, measureAreaMode, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Håll mät-lagret i synk med committad measureGeo (t.ex. efter baskarte-omladdning som
+  // återskapar källan). Under drag drivs källan direkt av drag-handlern (ingen re-render).
+  useEffect(() => {
+    uppdateraMatlager(measureGeo, measureAreaMode);
+  }, [measureGeo, measureAreaMode, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // === KÖRLÄGE FUNKTIONER ===
 
@@ -12594,7 +12759,8 @@ export default function PlannerPage() {
       )}
 
       {/* === MÄTNINGS-INDIKATOR === */}
-      {measureMode && !isMeasuring && (
+      {/* Ersatt av det samlade geo-mätverktyget (siffra + Rensa/Stäng) högre upp. */}
+      {false && measureMode && !isMeasuring && (
         <div style={{
           position: 'absolute',
           bottom: menuHeight + 130,
@@ -12686,7 +12852,8 @@ export default function PlannerPage() {
       )}
 
       {/* === YTMÄTNINGS-INDIKATOR === */}
-      {measureAreaMode && !isMeasuring && (
+      {/* Ersatt av det samlade geo-mätverktyget högre upp. */}
+      {false && measureAreaMode && !isMeasuring && (
         <div style={{
           position: 'absolute',
           bottom: menuHeight + 130,
@@ -13035,25 +13202,28 @@ export default function PlannerPage() {
         </div>
       )}
       
-      {/* === MÄTER JUST NU === */}
-      {isMeasuring && (
+      {/* === MÄTVERKTYG (geo) — siffra i riktiga meter/hektar. Live via label-ref under drag,
+           committad via measureGeo. Geometrin ritas som MapLibre-lager (geo-låst). === */}
+      {(measureMode || measureAreaMode) && (
         <div style={{
-          position: 'absolute',
-          top: '120px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          color: '#fff',
-          padding: '16px 24px',
-          borderRadius: '16px',
-          zIndex: 150,
-
-          textAlign: 'center',
+          position: 'absolute', top: '120px', left: '50%', transform: 'translateX(-50%)',
+          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', color: '#fff',
+          padding: '14px 20px', borderRadius: '16px', zIndex: 150, textAlign: 'center', minWidth: 180,
         }}>
-          <div style={{ fontSize: '32px', fontWeight: '400', opacity: 0.9 }}>
-            {formatLength(calculateLength(measurePath))}
+          <div ref={measureLabelRef} style={{ fontSize: '32px', fontWeight: 400, opacity: 0.95 }}>
+            {measureAreaMode
+              ? (measureGeo.length >= 3 ? formatArea(ringAreaM2(measureGeo)) : '0 m²')
+              : (measureGeo.length >= 2 ? formatLength(pathMeters(measureGeo)) : '0 m')}
           </div>
-          <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '4px' }}>Släpp för att mäta</div>
+          <div style={{ fontSize: '13px', opacity: 0.5, margin: '4px 0 12px' }}>
+            {isMeasuring ? 'Släpp för att låsa måttet' : `Dra på kartan för att mäta${measureAreaMode ? ' ytan' : ' avståndet'}`}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+            <button type="button" onClick={rensaMatning}
+              style={{ padding: '9px 16px', borderRadius: 11, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: measureGeo.length ? 'pointer' : 'default', opacity: measureGeo.length ? 1 : 0.4, fontFamily: 'inherit' }}>Rensa</button>
+            <button type="button" onClick={avslutaMatning}
+              style={{ padding: '9px 18px', borderRadius: 11, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Stäng</button>
+          </div>
         </div>
       )}
 
@@ -14577,14 +14747,7 @@ export default function PlannerPage() {
                   padding: '8px',
                 }}>
                   <div
-                    onClick={() => {
-                      setMeasureMode(true);
-                      setMeasureAreaMode(false);
-                      setMeasurePath([]);
-                      setMenuOpen(false);
-                      setMenuHeight(0);
-                      setActiveCategory(null);
-                    }}
+                    onClick={() => startaMatning(false)}
                     style={{
                       padding: '18px 20px',
                       display: 'flex',
@@ -14610,14 +14773,7 @@ export default function PlannerPage() {
                   </div>
 
                   <div
-                    onClick={() => {
-                      setMeasureAreaMode(true);
-                      setMeasureMode(false);
-                      setMeasurePath([]);
-                      setMenuOpen(false);
-                      setMenuHeight(0);
-                      setActiveCategory(null);
-                    }}
+                    onClick={() => startaMatning(true)}
                     style={{
                       padding: '18px 20px',
                       display: 'flex',
