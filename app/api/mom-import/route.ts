@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
 
     const { data: skyddadeRader } = await supabase
       .from('arbetsdag')
-      .select('id, medarbetare_id, datum, start_tid, slut_tid, rast_min, redigerad, bekraftad')
+      .select('id, medarbetare_id, datum, start_tid, slut_tid, rast_min, maskin_id, redigerad, bekraftad')
       .in('datum', datumSet)
       .in('medarbetare_id', medarbetareIds)
       .or('redigerad.eq.true,bekraftad.eq.true');
@@ -287,6 +287,44 @@ export async function POST(req: NextRequest) {
         })
         .eq('id', skyddad.id);
       if (avvErr) console.warn('synk_avvikelse kunde inte skrivas (migration ej körd?):', avvErr.message);
+    }
+
+    // 5e. Läk maskinlösa skyddade dagar. Bekräftelsen (bekraftaDagen) skrev
+    // tidigare maskin_id = förarens default — NULL för multi-maskin-förare —
+    // och NULL:ade därmed den maskin synken satt. Här FYLLER vi bara ett
+    // SAKNAT maskinfält. Rör ALDRIG tider/rast/bekräftelse — att komplettera
+    // en saknad maskin är inte att skriva över förarens bekräftelse. Fångar
+    // den äkta racen: dag bekräftad innan skiftet importerats. (Primärfixen i
+    // bekraftaDagen stoppar nya fall; detta läker gamla + dagar som bekräftas
+    // mellan import-körningar.)
+    //
+    // Maskinval: matcha dagens start_tid mot skiftets inloggning (som en
+    // manuell rättning gör), INTE förarens default och INTE bara första
+    // skiftet — en multi-maskin-dag har flera skift och första behöver inte
+    // vara dagens pass. Fallback: dagens dominanta maskin (mest skifttid).
+    const skiftPerMedDag: Record<string, { maskin_id: string; start: string; langd: number }[]> = {};
+    for (const s of skift) {
+      const medId = opMap[s.operator_id];
+      if (!medId || !s.maskin_id) continue;
+      const k = `${medId}_${s.datum}`;
+      (skiftPerMedDag[k] = skiftPerMedDag[k] || []).push({
+        maskin_id: s.maskin_id, start: hhmm(s.inloggning_tid), langd: s.langd_sek || 0,
+      });
+    }
+    for (const skyddad of (skyddadeRader || [])) {
+      if (skyddad.maskin_id) continue; // har redan maskin — rör inte
+      const lista = skiftPerMedDag[`${skyddad.medarbetare_id}_${skyddad.datum}`];
+      if (!lista?.length) continue;    // inget skift för dagen — inget att fylla med
+      const dagStart = (skyddad.start_tid || '').slice(0, 5);
+      const matchad = lista.find(x => x.start === dagStart)
+        || [...lista].sort((a, b) => b.langd - a.langd)[0];
+      if (!matchad?.maskin_id) continue;
+      const { error: maskErr } = await supabase
+        .from('arbetsdag')
+        .update({ maskin_id: matchad.maskin_id })
+        .eq('id', skyddad.id)
+        .is('maskin_id', null);        // idempotent + skydd mot samtidig ifyllnad
+      if (maskErr) console.warn('maskin_id-läkning misslyckades:', maskErr.message);
     }
 
     const rows = Object.values(dagMap)
