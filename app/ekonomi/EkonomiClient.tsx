@@ -17,6 +17,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaExkluderadeObjektId, utanExkluderade } from '@/lib/objekt/exkludera';
 import { arSlutavraknad } from '@/lib/objekt/avrakning';
+import { harledTyp } from '@/lib/objekt/typ';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
@@ -25,6 +26,21 @@ import {
 } from '@/lib/ekonomi/acord';
 import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
 import EkonomiBottomNav from './EkonomiBottomNav';
+
+// Intäkt per arbetstyp — vad kör vi in och på vilken sorts jobb. Byggd med
+// EXAKT samma additioner som maskinAgg (annan grupperingsnyckel) — summan
+// över typerna är per konstruktion hero-totalen.
+type ArbetstypAgg = {
+  typ: string;            // slutavverkning | gallring | grot | energiklippning | okant
+  intakt: number;
+  ackordKr: number;       // intäkt från ackordobjekt
+  timpengKr: number;      // intäkt från timpeng-/gallringsobjekt
+  skordadVol: number;     // avverkad volym (slutavverkningens enhet)
+  timmar: number;         // periodens G15-timmar (timpeng-typernas enhet)
+  ackordTimmar: number;
+  timpengTimmar: number;
+  ackordVol: number;      // skördad volym i ackorddelen (uppfällningen)
+};
 
 type MaskinAgg = {
   maskin_id: string;
@@ -55,6 +71,9 @@ export default function EkonomiClient() {
   const [antagenVol, setAntagenVol] = useState(0);       // skotad volym prissatt på antagen medelstam
   const [ackordUtanPrislista, setAckordUtanPrislista] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);        // (i)-sheeten med beräkningsförklaringen
+  const [arbetstyper, setArbetstyper] = useState<ArbetstypAgg[]>([]);
+  const [listVal, setListVal] = useState<'arbetstyp' | 'maskin'>('arbetstyp');
+  const [oppenTyp, setOppenTyp] = useState<string | null>(null);   // uppfälld arbetstypsrad
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -94,7 +113,7 @@ export default function EkonomiClient() {
             .range(from, to)
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
-        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, terrang_kr_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, atgard, risskotning, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, terrang_kr_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -288,6 +307,25 @@ export default function EkonomiClient() {
         return agg[maskin_id];
       };
 
+      // ── Arbetstyp per objekt — atgard-regexen FÖRST (energiklippning bär
+      // huvudtyp='Gallring' men ÄR energiklippning; fältet sätts för hand så
+      // matchningen tål stavningsvariation), sedan centrala typregeln
+      // (lib/objekt/typ — risskotning-flaggan + huvudtyp). Omatchat → 'okant',
+      // egen dämpad rad, aldrig tyst bortkastat.
+      const arbetstypFor = (objekt_id: string): string => {
+        const o = objMap[objekt_id];
+        if (/energi.*klipp/i.test(String(o?.atgard || ''))) return 'energiklippning';
+        return harledTyp(o?.risskotning, o?.huvudtyp) ?? 'okant';
+      };
+      const typAggMap: Record<string, ArbetstypAgg> = {};
+      const typAgg = (objekt_id: string): ArbetstypAgg => {
+        const t = arbetstypFor(objekt_id);
+        return (typAggMap[t] ||= {
+          typ: t, intakt: 0, ackordKr: 0, timpengKr: 0,
+          skordadVol: 0, timmar: 0, ackordTimmar: 0, timpengTimmar: 0, ackordVol: 0,
+        });
+      };
+
       const prelObjekt = new Set<string>();
       let antagenVolSum = 0;
       let ackordRaderFinns = false;
@@ -299,9 +337,13 @@ export default function EkonomiClient() {
         const m = maskinAgg(maskin_id);
         m.volym += h.vol;
         const tid = tidAgg[key];
+        const ta = typAgg(objekt_id);
+        ta.skordadVol += h.vol;
         if (somTimpeng(objekt_id)) {
           m.intakt += tid?.timpeng || 0;
           m.timmarUtanPris += tid?.timmarUtanPris || 0;
+          ta.intakt += tid?.timpeng || 0;
+          ta.timpengKr += tid?.timpeng || 0;
           continue;
         }
         ackordRaderFinns = true;
@@ -313,6 +355,9 @@ export default function EkonomiClient() {
         const und = tillampaTimpengUndantag(h.vol, meta?.timpeng_undantag_timmar_skordare, meta?.timpeng_undantag_dra_skordare !== false, meta?.timpeng_undantag_volym, undTimpris);
         const acord = und.volymEfterUndantag * (grundpris + extraKr) + und.undantagKr;
         m.intakt += acord;
+        ta.intakt += acord;
+        ta.ackordKr += acord;
+        ta.ackordVol += h.vol;
         if (!arAvraknad(objekt_id)) { m.prel += acord; prelObjekt.add(objekt_id); }
       }
 
@@ -323,9 +368,12 @@ export default function EkonomiClient() {
         const m = maskinAgg(maskin_id);
         m.volym += f.vol;
         const tid = tidAgg[key];
+        const taF = typAgg(objekt_id);
         if (somTimpeng(objekt_id)) {
           m.intakt += tid?.timpeng || 0;
           m.timmarUtanPris += tid?.timmarUtanPris || 0;
+          taF.intakt += tid?.timpeng || 0;
+          taF.timpengKr += tid?.timpeng || 0;
           continue;
         }
         ackordRaderFinns = true;
@@ -340,6 +388,8 @@ export default function EkonomiClient() {
         const undF = tillampaTimpengUndantag(f.vol, metaF?.timpeng_undantag_timmar_skotare, metaF?.timpeng_undantag_dra_skotare !== false, metaF?.timpeng_undantag_volym, undTimprisF);
         const acord = undF.volymEfterUndantag * (grundpris + extraKr) + f.skotavstand_kr + undF.undantagKr;
         m.intakt += acord;
+        taF.intakt += acord;
+        taF.ackordKr += acord;
         if (!arAvraknad(objekt_id)) { m.prel += acord; prelObjekt.add(objekt_id); }
       }
 
@@ -352,6 +402,20 @@ export default function EkonomiClient() {
         const m = maskinAgg(maskin_id);
         m.intakt += tid.timpeng;
         m.timmarUtanPris += tid.timmarUtanPris;
+        const taT = typAgg(objekt_id);
+        taT.intakt += tid.timpeng;
+        taT.timpengKr += tid.timpeng;
+      }
+
+      // Periodens G15-timmar per arbetstyp (enheten för timpeng-typerna).
+      // Alla objektets timmar räknas — utfört arbete, ackord- resp. timpeng-hink.
+      for (const [key, tid] of Object.entries(tidAgg)) {
+        const [objekt_id] = key.split('|');
+        if (tid.timmar <= 0 || !objMap[objekt_id]) continue;
+        const taH = typAgg(objekt_id);
+        taH.timmar += tid.timmar;
+        if (somTimpeng(objekt_id)) taH.timpengTimmar += tid.timmar;
+        else taH.ackordTimmar += tid.timmar;
       }
 
       let skordat = 0, skotat = 0;
@@ -376,6 +440,10 @@ export default function EkonomiClient() {
       }
 
       setMaskiner(Object.values(agg).sort((a, b) => b.intakt - a.intakt));
+      // Okänt sist, övriga på intäkt — summan av typerna är per konstruktion
+      // exakt hero-totalen (samma additioner som maskinAgg, bara annan nyckel)
+      setArbetstyper(Object.values(typAggMap).sort((a, b) =>
+        (a.typ === 'okant' ? 1 : 0) - (b.typ === 'okant' ? 1 : 0) || b.intakt - a.intakt));
       setAvverkadVol(avverkad);
       setSkordatVol(skordat);
       setSkotatVol(skotat);
@@ -488,9 +556,88 @@ export default function EkonomiClient() {
             </div>
           )}
 
-          {/* Per maskin — neutralt: rollen i text, rangordningen som proportionsstapel */}
-          <div style={s.sectionTitle}>Per maskin</div>
-          {(() => {
+          {/* Listval: Per arbetstyp (standard — vad kör vi in och på vilken
+              sorts jobb) eller Per maskin. Båda byggs av SAMMA intäkts-
+              additioner — de kan inte visa olika total. */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 32, marginBottom: 10, padding: '0 4px' }}>
+            {([['arbetstyp', 'Per arbetstyp'], ['maskin', 'Per maskin']] as ['arbetstyp' | 'maskin', string][]).map(([v, label]) => (
+              <button key={v} style={{ ...s.periodBtn, ...(listVal === v ? s.periodBtnActive : {}) }}
+                onClick={() => setListVal(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {listVal === 'arbetstyp' && (() => {
+            const TYP_NAMN: Record<string, string> = {
+              slutavverkning: 'Slutavverkning', gallring: 'Gallring', grot: 'GROT',
+              energiklippning: 'Energiklippning', okant: 'Okänt',
+            };
+            const totalIntakt = arbetstyper.reduce((s2, t) => s2 + t.intakt, 0);
+            const fmtTim2 = (n: number) => `${Math.round(n).toLocaleString('sv-SE')} G15-tim`;
+            const synliga = arbetstyper.filter(t => t.intakt > 0 || t.timmar > 0);
+            return (
+              <div style={{ ...s.card, padding: '0 16px' }}>
+                {synliga.map((t, i) => {
+                  const blandad = t.ackordKr > 0 && t.timpengKr > 0;
+                  const etikett = blandad ? 'ackord · viss timpeng' : (t.ackordKr > 0 ? 'ackord' : 'timpeng');
+                  const andel = totalIntakt > 0 ? t.intakt / totalIntakt : 0;
+                  const okand = t.typ === 'okant';
+                  const oppen = oppenTyp === t.typ;
+                  return (
+                    <div key={t.typ} style={{
+                      padding: '16px 0',
+                      borderBottom: i < synliga.length - 1 ? '0.5px solid rgba(255,255,255,0.07)' : 'none',
+                    }}>
+                      <div onClick={() => blandad && setOppenTyp(oppen ? null : t.typ)} style={{ cursor: blandad ? 'pointer' : 'default' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: okand ? '#7a7a72' : '#e8e8e4' }}>
+                              {TYP_NAMN[t.typ] || t.typ}
+                              <span style={{ color: '#7a7a72', fontWeight: 400, fontSize: 11 }}> · {etikett}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>
+                              {/* Rätt enhet per typ — avverkad volym för slutavverkning,
+                                  G15-timmar för timpeng-typerna. Aldrig hopblandad volym. */}
+                              {t.typ === 'slutavverkning'
+                                ? `${Math.round(t.skordadVol).toLocaleString('sv-SE')} m³fub avverkat`
+                                : fmtTim2(t.timmar)}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: okand ? '#7a7a72' : '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
+                              {formatKr(t.intakt)}
+                            </div>
+                            {blandad && <span style={{ fontSize: 11, color: '#7a7a72', transform: oppen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>}
+                          </div>
+                        </div>
+                        {/* Andel av total intäkt — på radens bredd */}
+                        <div style={{ marginTop: 8, height: 3, borderRadius: 2, width: `${andel * 100}%`, background: 'rgba(122,122,114,0.5)' }} />
+                      </div>
+                      {oppen && blandad && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '0.5px solid rgba(255,255,255,0.07)', display: 'grid', gap: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
+                            <span style={{ color: '#7a7a72' }}>
+                              Ackord · {t.typ === 'slutavverkning'
+                                ? `${Math.round(t.ackordVol).toLocaleString('sv-SE')} m³fub`
+                                : fmtTim2(t.ackordTimmar)}
+                            </span>
+                            <span style={{ color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>{formatKr(t.ackordKr)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
+                            <span style={{ color: '#7a7a72' }}>Timpeng · {fmtTim2(t.timpengTimmar)}</span>
+                            <span style={{ color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>{formatKr(t.timpengKr)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {listVal === 'maskin' && (() => {
             // Rollparentesen ur prisnamnet ersätts av metaradens roll-text
             const rensaNamn = (namn: string) => namn.replace(/\s*\((skördare|skotare)\)\s*$/i, '');
             const namnAntal: Record<string, number> = {};
