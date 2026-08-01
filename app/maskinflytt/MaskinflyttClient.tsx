@@ -331,6 +331,7 @@ export default function MaskinflyttClient() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([])
   const [medarb, setMedarb] = useState<Medarb | null>(null)
   const [lastbilVin, setLastbilVin] = useState<string | null>(null)  // aktiv lastbil — sätts på rundan för dubbelskyddet
+  const [lastbilUte, setLastbilUte] = useState<string | null>(null)  // öppen auto-rundas starttid → "Lastbilen är ute"
   const [pagaende, setPagaende] = useState<PagaendeFlytt[]>([])
   const [laddar, setLaddar] = useState(true)
   const [laddFel, setLaddFel] = useState<string | null>(null)
@@ -488,6 +489,15 @@ export default function MaskinflyttClient() {
   useEffect(() => {
     supabase.from('lastbil').select('vin').eq('aktiv', true).limit(1).maybeSingle()
       .then(({ data }) => { if (data?.vin) setLastbilVin(data.vin) })
+  }, [])
+
+  // "Lastbilen är ute": en öppen AUTO-runda (cron öppnade när bilen lämnade
+  // basen) som ingen tagit över manuellt. Diskret info, inte en väntande flytt.
+  useEffect(() => {
+    supabase.from('flyttdag').select('starttid')
+      .is('sluttid', null).eq('auto_skapad', true)
+      .order('starttid', { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => { if (data?.starttid) setLastbilUte(data.starttid) })
   }, [])
 
   // Lastbilens tankstatus — en gång vid mount, serverside-cachad. Fel/timeout
@@ -1397,6 +1407,18 @@ export default function MaskinflyttClient() {
             {dagNotis && !laddar && (
               <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 16, fontSize: 13, color: C.t2 }}>
                 {dagNotis}
+              </div>
+            )}
+
+            {/* "Lastbilen är ute" — öppen auto-runda utan manuell övertagning.
+                Diskret grå, inte en väntande flytt. Tar över när föraren lassar. */}
+            {!laddar && lastbilUte && !dag && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 12px',
+                background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, fontSize: 13, color: C.t3,
+              }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>local_shipping</span>
+                Lastbilen är ute — sedan {new Date(lastbilUte).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}
               </div>
             )}
 
