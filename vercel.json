@@ -3,6 +3,10 @@
     {
       "path": "/api/notis/flush",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/scania/cron",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

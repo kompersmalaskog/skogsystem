@@ -140,3 +140,65 @@ export function arGammal(createdDateTime: string | null, minuter = 30): boolean 
   if (!Number.isFinite(t)) return true
   return Date.now() - t > minuter * 60_000
 }
+
+// ── Bakgrundsmotorn (cron): rå vehiclestatus + rate-limit-insyn ──
+
+export interface StatusRatt {
+  httpStatus: number                     // 0 = timeout/nätfel
+  rad: any | null                        // nyaste rå vehiclestatus-raden
+  rateLimit: Record<string, string>      // rate-limit-relaterade svarsheaders
+  hamtadTid: string
+}
+
+/** Scanias exakta rate-limit-headernamn är OEM-specifika och odokumenterade —
+ *  fånga allt som liknar rate/limit/quota så vi ser taket i praktiken. */
+function plockaRateHeaders(h: Headers): Record<string, string> {
+  const ut: Record<string, string> = {}
+  h.forEach((v, k) => { if (/rate|limit|quota|throttle|retry-after/i.test(k)) ut[k] = v })
+  return ut
+}
+
+/** Rå vehiclestatus + rate-limit-headers för cron. INGEN cache (varje cykel
+ *  vill ha färskt). null endast vid saknade nycklar/token — kastar aldrig. */
+export async function hamtaStatusRatt(): Promise<StatusRatt | null> {
+  const token = await hamtaToken()
+  if (!token) return null
+  const hamtadTid = new Date().toISOString()
+  try {
+    const r = await fetchTimeout(`${RFMS_BASE}/vehiclestatuses?latestOnly=true`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json; rfms=vehiclestatuses.v4.0' },
+    })
+    const rateLimit = plockaRateHeaders(r.headers)
+    if (!r.ok) return { httpStatus: r.status, rad: null, rateLimit, hamtadTid }
+    const body = await r.json()
+    const rader: any[] = body?.vehicleStatusResponse?.vehicleStatuses ?? body?.vehicleStatuses ?? []
+    const nyast = rader.length
+      ? rader.reduce((a, b) => (Date.parse(b?.createdDateTime ?? '') || 0) > (Date.parse(a?.createdDateTime ?? '') || 0) ? b : a)
+      : null
+    return { httpStatus: r.status, rad: nyast, rateLimit, hamtadTid }
+  } catch {
+    return { httpStatus: 0, rad: null, rateLimit: {}, hamtadTid }
+  }
+}
+
+/** Plocka loggkolumnerna ur en rå vehiclestatus-rad. Position/fart ligger i
+ *  snapshotData.gnssPosition/wheelBasedSpeed (bevisat via proben); odometer och
+ *  ackumulerat bränsle på toppnivå. */
+export function loggFalt(rad: any): {
+  vin: string | null; tidpunkt: string | null
+  lat: number | null; lng: number | null; hastighet: number | null
+  odometer_m: number | null; bransle_ml: number | null
+} {
+  const snap = rad?.snapshotData ?? {}
+  const gnss = snap?.gnssPosition ?? {}
+  const tal = (v: any) => (Number.isFinite(v) ? Number(v) : null)
+  return {
+    vin: rad?.vin ?? null,
+    tidpunkt: rad?.createdDateTime ?? null,
+    lat: tal(gnss?.latitude),
+    lng: tal(gnss?.longitude),
+    hastighet: tal(snap?.wheelBasedSpeed ?? gnss?.speed),
+    odometer_m: tal(rad?.hrTotalVehicleDistance ?? snap?.hrTotalVehicleDistance),
+    bransle_ml: tal(rad?.engineTotalFuelUsed ?? snap?.engineTotalFuelUsed),
+  }
+}
