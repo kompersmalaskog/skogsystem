@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { expectedWorkMinutes } from "@/lib/roda-dagar";
 import { C, adminCss as css, secHead, Card } from "./design";
 import MedarbetareFlik from "./MedarbetareFlik";
+import MaskinerFlik from "./MaskinerFlik";
 import AvtalFlik from "./AvtalFlik";
 import LonFlik from "./LonFlik";
 
@@ -23,11 +24,12 @@ const shell: CSSProperties = {
 
 const topBar: CSSProperties = { paddingTop: 24, paddingBottom: 12 };
 
-type Tab = "oversikt" | "medarbetare" | "avtal" | "lon" | "installningar";
+type Tab = "oversikt" | "medarbetare" | "maskiner" | "avtal" | "lon" | "installningar";
 
 const TABS: { key: Tab; icon: string; label: string }[] = [
   { key: "oversikt",      icon: "dashboard",   label: "Översikt" },
   { key: "medarbetare",   icon: "group",       label: "Medarbetare" },
+  { key: "maskiner",      icon: "agriculture", label: "Maskiner" },
   { key: "avtal",         icon: "description", label: "Avtal" },
   { key: "lon",           icon: "payments",    label: "Lön" },
   { key: "installningar", icon: "settings",    label: "Inst." },
@@ -97,6 +99,7 @@ export default function AdminClient({ currentUser }: { currentUser: { id: string
       <main style={{ flex: 1, paddingTop: 16, animation: "fadeUp 0.25s ease-out" }} key={aktiv}>
         {aktiv === "oversikt"      && <OversiktFlik />}
         {aktiv === "medarbetare"   && <MedarbetareFlik />}
+        {aktiv === "maskiner"      && <MaskinerFlik />}
         {aktiv === "avtal"         && <AvtalFlik />}
         {aktiv === "lon"           && <LonFlik currentUser={currentUser} />}
         {aktiv === "installningar" && <Placeholder label="Inställningar" />}
