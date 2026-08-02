@@ -5203,12 +5203,39 @@ export default function Arbetsrapport() {
       månadsExtra,
     );
     const jobbadH = Math.round(jobbadMin / 60 * 10) / 10;
-    // Dagar föraren faktiskt jobbat (maskinpass eller extra tid) — skiljs
-    // från vardagsräknaren `arbetsdagar` som är månadens KAPACITET (mål).
-    const jobbadeDagar = new Set([
-      ...månadsDagRader.filter(([, d]: any) => (d.arbMin || 0) > 0).map(([k]) => k),
-      ...månadsExtra.filter(e => (e.minuter || 0) > 0).map(e => e.datum),
-    ]).size;
+    // Ärlig uppdelning av månaden per dagtyp + veckodag — INTE en äpplen/päron-
+    // kvot (täljare alla jobbade dagar, nämnare bara vardagar gav "25 av 23").
+    // dagtyp: arbete = 'Produktion'/'normal'; frånvaro = 'sjuk'/'semester'/'vab'
+    // (verifierat mot DB). Jobbade dagar = arbetsdagar med maskinpass ELLER
+    // extra tid; vardag/helg ur veckodagen. Frånvaro räknas separat, aldrig
+    // som jobbad. 0-rader döljs i renderingen (visa det som hänt).
+    const FRANVARO_TYPER = new Set(['sjuk', 'semester', 'vab']);
+    const ärHelg = (datum: string) => {
+      const [y, m, dd] = datum.split('-').map(Number);
+      const w = new Date(y, m - 1, dd).getDay(); // lokal veckodag, 0=sön 6=lör
+      return w === 0 || w === 6;
+    };
+    let sjukDagar = 0, semesterDagar = 0, vabDagar = 0;
+    const jobbadeSet = new Set<string>();
+    for (const [datum, d] of månadsDagRader as [string, any][]) {
+      const typ = String(d.dagtyp || '').toLowerCase();
+      if (typ === 'sjuk') { sjukDagar++; continue; }
+      if (typ === 'semester') { semesterDagar++; continue; }
+      if (typ === 'vab') { vabDagar++; continue; }
+      if ((d.arbMin || 0) > 0) jobbadeSet.add(datum);
+    }
+    for (const e of månadsExtra) if ((e.minuter || 0) > 0) jobbadeSet.add(e.datum);
+    let vardagar = 0, helgdagar = 0;
+    Array.from(jobbadeSet).forEach(datum => { if (ärHelg(datum)) helgdagar++; else vardagar++; });
+    const jobbadeDagar = jobbadeSet.size; // = vardagar + helgdagar
+    // Uppdelningsrader, 0 döljs. Helg får en diskret prick (helg = OB-dag).
+    const dagtypRader: { label: string; värde: number; helg?: boolean }[] = [
+      { label: 'Vardagar', värde: vardagar },
+      { label: 'Helgdagar', värde: helgdagar, helg: true },
+      { label: 'Sjukdagar', värde: sjukDagar },
+      { label: 'Semesterdagar', värde: semesterDagar },
+      { label: 'VAB-dagar', värde: vabDagar },
+    ].filter(r => r.värde > 0);
     // km hämtas från /api/km-summary som fyller ut saknade DB-värden via ORS
     const totalKm = kmSummary?.totalKm ?? 0;
     const ersKm   = kmSummary?.ersattningsKm ?? 0;
@@ -5276,13 +5303,35 @@ export default function Arbetsrapport() {
                 </div>
               </div>
               <div style={{ borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:18,paddingTop:8 }}>
+                {/* "Varav extra tid" = stödrad till hjältens total (samma
+                    mönster som "Varav fakturerbart" i månadssammanställningen) */}
+                {månExtraMin > 0 && (
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0" }}>
+                    <span style={{ ...TYPE.meta,color:"#8e8e93" }}>Varav extra tid</span>
+                    <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM }}>{String(Math.round(månExtraMin/60*10)/10).replace('.',',')} tim</span>
+                  </div>
+                )}
+                {/* Jobbade dagar — bara talet (ingen vardags-nämnare, det blev
+                    äpplen/päron när helgjobb räknades i täljaren). Under: ärlig
+                    uppdelning per dagtyp, 0-rader döljda. */}
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0" }}>
+                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>Jobbade dagar</span>
+                  <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM }}>{jobbadeDagar}</span>
+                </div>
+                {dagtypRader.length > 0 && (
+                  <div style={{ paddingLeft:12,paddingBottom:2 }}>
+                    {dagtypRader.map(r=>(
+                      <div key={r.label} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0" }}>
+                        <span style={{ ...TYPE.caption,color:"#636366",display:"flex",alignItems:"center",gap:6 }}>
+                          {r.helg && <span style={{ width:5,height:5,borderRadius:"50%",background:"#0A84FF",display:"inline-block",flexShrink:0 }}/>}
+                          {r.label}
+                        </span>
+                        <span style={{ ...TYPE.caption,color:"#8e8e93",...TNUM }}>{r.värde}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {[
-                  // "Varav extra tid" = stödrad till hjältens total (samma
-                  // mönster som "Varav fakturerbart" i månadssammanställningen)
-                  ...(månExtraMin > 0 ? [["Varav extra tid", `${String(Math.round(månExtraMin/60*10)/10).replace('.',',')} tim`]] : []),
-                  // Jobbade dagar = faktiskt jobbade; "av X" = månadens
-                  // vardagar (kapaciteten bakom tim-målet) — inte samma sak
-                  ["Jobbade dagar",`${jobbadeDagar} av ${arbetsdagar}`],
                   ["Körning",`${totalKm.toLocaleString('sv-SE')} km`],
                   ["Km med ersättning",`${ersKm.toLocaleString('sv-SE')} km`],
                 ].map(([label,val])=>(
