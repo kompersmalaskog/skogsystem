@@ -443,6 +443,7 @@ function SkotareKpiList({
     { label: 'Snittlass',    val: data?.snittLass      ?? null, prevVal: prev?.snittLass      ?? null, unit: 'm³/lass', dec: 1 },
     { label: 'Snittsträcka', val: data?.snittSträcka   ?? null, prevVal: prev?.snittSträcka   ?? null, unit: 'm',       dec: 0 },
     { label: 'Lass/G15h',    val: data?.lassPerG15h    ?? null, prevVal: prev?.lassPerG15h    ?? null, unit: 'st/G15h', dec: 1 },
+    { label: 'G15-tid',      val: data && data.g15h > 0 ? data.g15h : null, prevVal: prev && prev.g15h > 0 ? prev.g15h : null, unit: 'h', dec: 1 },
     { label: 'Korta stopp',  val: kortAndel(data),              prevVal: kortAndel(prev),              unit: '%',       dec: 1, lowerIsBetter: true, display: kortDisplay, muted: kortSaknas },
   ]
 
