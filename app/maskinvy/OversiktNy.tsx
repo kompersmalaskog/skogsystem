@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import {
-  C, FONT, MASKINER, getPeriodRange,
+  C, FONT, MASKINER, getPeriodRange, getPrevDateRange,
   fetchData, fetchSeries,
   HeroCard, KpiList, TimeDistribution, OperatorList,
   type Maskin, type Period, type Data, type Operator, type PeriodKpi,
@@ -30,11 +30,11 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    const cur = getPeriodRange(period, offset)
-    const prev = getPeriodRange(period, offset - 1)
+    const cur       = getPeriodRange(period, offset)
+    const prevRange = getPrevDateRange(period, offset)
     Promise.all([
-      fetchData(maskin.id, cur.start,  cur.end ).catch(() => null),
-      fetchData(maskin.id, prev.start, prev.end).catch(() => null),
+      fetchData(maskin.id, cur.start,       cur.end      ).catch(() => null),
+      fetchData(maskin.id, prevRange.start, prevRange.end).catch(() => null),
       fetchSeries(maskin.id, period, offset).catch(() => null),
     ]).then(([curD, prevD, ser]) => {
       if (cancelled) return
@@ -52,13 +52,7 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
 
   const { label } = getPeriodRange(period, offset)
 
-  // Konkret jämförelse-etikett: "mot april", "mot vecka 18", "mot 2025" …
-  const refLabel = (() => {
-    const prevL = getPeriodRange(period, offset - 1).label
-    if (period === 'Å') return `mot ${prevL}`                                     // "mot 2025"
-    if (period === 'M') return `mot ${prevL.split(' ')[0].toLowerCase()}`          // "mot april"
-    return `mot ${prevL.split(' · ')[0].toLowerCase()}`                            // "mot vecka 18" / "mot kvartal 1"
-  })()
+  const refLabel = getPrevDateRange(period, offset).refLabel
 
   // Skriv maskinnamn + period till global TopBar (samma mönster som gamla vyn)
   useEffect(() => {
