@@ -54,6 +54,28 @@ const LEGEND = {
   vit:           '#fff',     // vit       – stig/led
 };
 
+// Rita pil-ikonen (skaft + spets, pekar UPP = norr vid rotation 0) till en canvas för
+// MapLibre-symbol-lagret. Pilarna renderas nu geo-låst via MapLibre (som symboler), inte
+// längre i SVG/skärmkoordinater — så de sitter fast på marken och skalar inte med skärmen.
+function ritaPilIkon(farg: string, px = 80): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = px; c.height = px;
+  const ctx = c.getContext('2d');
+  if (!ctx) return c;
+  const mx = px / 2, my = px / 2, s = px / 56; // originalpilen ~40 units hög, marginal runt
+  ctx.strokeStyle = farg; ctx.fillStyle = farg; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.lineWidth = 4 * s;                                  // skaft (0,20)→(0,-10)
+  ctx.beginPath(); ctx.moveTo(mx, my + 20 * s); ctx.lineTo(mx, my - 10 * s); ctx.stroke();
+  ctx.beginPath();                                        // spets M0,-20 L10,-5 L0,-10 L-10,-5 Z
+  ctx.moveTo(mx, my - 20 * s);
+  ctx.lineTo(mx + 10 * s, my - 5 * s);
+  ctx.lineTo(mx, my - 10 * s);
+  ctx.lineTo(mx - 10 * s, my - 5 * s);
+  ctx.closePath(); ctx.fill();
+  ctx.lineWidth = 1 * s; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.stroke();
+  return c;
+}
+
 // Fällningsradie: en skogsmaskin fäller träd ÅT SIDAN (~30 m trädlängd + marginal för
 // fallriktning/osäkerhet), så fara är allt inom räckhåll RUNT föraren — inte bara i
 // körriktningen. Styr körvyns symbol-tändning, nästa-hinder-panelen ("inom fällningsradie")
@@ -888,6 +910,7 @@ export default function PlannerPage() {
 
     // Mätverktyg (avstånd + yta) — geo-låst geometri, MapLibre projicerar per frame.
     map.addSource('measure-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource('arrows-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'measure-fill', type: 'fill', source: 'measure-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#0a84ff', 'fill-opacity': 0.18 } });
     map.addLayer({ id: 'measure-line', type: 'line', source: 'measure-source', filter: ['!=', ['geometry-type'], 'Point'], paint: { 'line-color': '#0a84ff', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'measure-vertices', type: 'circle', source: 'measure-source', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#0a84ff', 'circle-stroke-width': 3 } });
@@ -1205,6 +1228,42 @@ export default function PlannerPage() {
         });
       } catch (e) {
         console.error('[MapLibre] markers-korvy-label error:', e);
+      }
+
+      // Pilar (Fällriktning/Körriktning) — geo-låst MapLibre-symbol-layer, samma mönster som
+      // symboler. icon-rotation-alignment 'map' → pilen behåller sin VERKLIGA riktning när
+      // kartan roterar (körvy heading-up). icon-size = samma zoom-interpolering som symboler
+      // (skalar inte längre med skärmen). Två statiska ikoner (grön fällriktning / blå körriktning).
+      try {
+        ([
+          { id: 'fellingdirection', color: LEGEND.naturvard },
+          { id: 'drivedirection', color: LEGEND.vatten },
+        ]).forEach(a => {
+          if (map.hasImage(`arrow-${a.id}`)) return;
+          const img = canvasToMapLibreImage(ritaPilIkon(a.color));
+          if (img) map.addImage(`arrow-${a.id}`, img);
+        });
+        map.addLayer({
+          id: 'arrows-layer',
+          type: 'symbol',
+          source: 'arrows-source',
+          layout: {
+            'icon-image': ['concat', 'arrow-', ['get', 'arrowType']],
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.15, 12, 0.2, 13, 0.3, 14, 0.4, 15, 0.5, 16, 0.6, 17, 0.75],
+            'icon-rotate': ['number', ['get', 'rotation'], 0],
+            'icon-rotation-alignment': 'map',
+            'icon-pitch-alignment': 'viewport',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'icon-anchor': 'center',
+          },
+          paint: {
+            'icon-opacity': ['number', ['get', 'opacity'], 1],
+          },
+        });
+        console.log('[MapLibre] arrows-layer added');
+      } catch (e) {
+        console.error('[MapLibre] arrows-layer error:', e);
       }
     });
 
@@ -5576,6 +5635,26 @@ export default function PlannerPage() {
 
   // Synka vid dataändringar och proximity-tick
   useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Synka pilar → arrows-source (geo-låst MapLibre-layer). x/y → lng/lat via svgToLatLon (samma
+  // konvertering som symboler, origo-fix-medveten). Riktningen bärs av m.rotation → icon-rotate.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource('arrows-source') as any;
+    if (!src) return;
+    if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte pilar på fel plats
+    const arrows = visibleLayers.arrows ? markers.filter((m: any) => m.isArrow) : [];
+    const features = arrows.map((m: any) => {
+      const ll = svgToLatLon(m.x, m.y);
+      return {
+        type: 'Feature' as const,
+        properties: { arrowType: m.arrowType || 'drivedirection', rotation: m.rotation || 0, opacity: 1 },
+        geometry: { type: 'Point' as const, coordinates: [ll.lng, ll.lat] },
+      };
+    });
+    src.setData({ type: 'FeatureCollection', features });
+  }, [markers, mapLibreReady, mapCenter, visibleLayers.arrows, objektSaknarPosition]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === KÖRVY (3D-förarvy) effekter ===
   // Helper: bearing från (lat1,lon1) → (lat2,lon2), 0-360°
@@ -11018,8 +11097,8 @@ export default function PlannerPage() {
                 {isAcknowledged && drivingMode && (
                   <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#30d158" strokeWidth={getConstrainedSize(3)} />
                 )}
-                <g 
-                  transform={`translate(${m.x}, ${m.y}) rotate(${m.rotation || 0}) scale(${arrowScale})`}
+                <g
+                  transform={`translate(${m.x}, ${m.y})`}
                   onMouseDown={(e) => handleMarkerDragStart(e, m)}
                   onTouchStart={(e) => handleMarkerDragStart(e, m)}
                   onClick={(e) => {
@@ -11031,24 +11110,9 @@ export default function PlannerPage() {
                   }}
                   style={{ cursor: isDragging ? 'grabbing' : 'pointer', pointerEvents: isInDrawingMode ? 'none' : 'auto' }}
                 >
-                  {isDragging && hasMoved && (
-                    <circle cx={0} cy={0} r={35} fill="rgba(0,0,0,0.3)" />
-                  )}
-                  {/* Pilskaft */}
-                  <line 
-                    x1={0} y1={20} x2={0} y2={-10}
-                    stroke={arrow?.color || '#fff'}
-                    strokeWidth={isDragging && hasMoved ? 5 : 4}
-                    strokeLinecap="round"
-                  />
-                  {/* Pilspets */}
-                  <path 
-                    d="M0,-20 L10,-5 L0,-10 L-10,-5 Z"
-                    fill={arrow?.color || '#fff'}
-                    stroke={isDragging && hasMoved ? '#fff' : 'rgba(0,0,0,0.5)'}
-                    strokeWidth={1}
-                    style={{ transform: isDragging && hasMoved ? 'scale(1.2)' : 'scale(1)' }}
-                  />
+                  {/* Pilen ritas nu via MapLibre arrows-layer (geo-låst, geo-riktad). Här bara
+                      osynlig hit-area för drag/klick — samma mönster som symbolernas hit-area. */}
+                  <circle cx={0} cy={0} r={getConstrainedSize(30)} fill="rgba(0,0,0,0)" />
                 </g>
                 {/* Foto-indikator (utanför rotation) */}
                 {m.photoData && (
