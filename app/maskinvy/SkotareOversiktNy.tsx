@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
-  C, FONT, getPeriodRange, fetchAll,
+  C, FONT, getPeriodRange, getPrevDateRange, fetchAll,
   fmtSv, DeltaBadge, Sparkline, OperatorList, initials,
   type Period, type Operator,
 } from './OversiktShared'
@@ -778,12 +778,12 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
     let cancelled = false
     setLoading(true)
 
-    const cur  = getPeriodRange(period, offset)
-    const prev = getPeriodRange(period, offset - 1)
+    const cur       = getPeriodRange(period, offset)
+    const prevRange = getPrevDateRange(period, offset)
 
     Promise.all([
-      fetchSkotareData(maskin.id, cur.start,  cur.end ).catch(() => null),
-      fetchSkotareData(maskin.id, prev.start, prev.end).catch(() => null),
+      fetchSkotareData(maskin.id, cur.start,       cur.end      ).catch(() => null),
+      fetchSkotareData(maskin.id, prevRange.start, prevRange.end).catch(() => null),
       fetchSkotareSerie(maskin.id, period, offset).catch(() => []),
       fetchSkotareOperatorer(maskin.id, cur.start, cur.end).catch(() => []),
     ]).then(([curD, prevD, ser, ops]) => {
@@ -807,13 +807,7 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
 
   const { label } = getPeriodRange(period, offset)
 
-  // Konkret jämförelsetext: "mot april", "mot vecka 18", "mot 2025" …
-  const refLabel = (() => {
-    const prevL = getPeriodRange(period, offset - 1).label
-    if (period === 'Å') return `mot ${prevL}`
-    if (period === 'M') return `mot ${prevL.split(' ')[0].toLowerCase()}`
-    return `mot ${prevL.split(' · ')[0].toLowerCase()}`
-  })()
+  const refLabel = getPrevDateRange(period, offset).refLabel
 
   return (
     <div style={{

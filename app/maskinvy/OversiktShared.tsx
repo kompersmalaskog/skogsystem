@@ -104,6 +104,7 @@ export const MASKINER: Maskin[] = [
 
 export const COMBO_IDS: Record<string, string[]> = { 'R64101+R64428': ['R64101', 'R64428'] }
 const MONTHS = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December']
+const MON_ABBR = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec']
 
 export function getPeriodRange(p: Period, offset: number): { start: string; end: string; label: string } {
   const now = new Date()
@@ -133,6 +134,67 @@ export function getPeriodRange(p: Period, offset: number): { start: string; end:
   const ms = new Date(now.getFullYear(), now.getMonth() + offset, 1)
   const me = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0)
   return { start: fmt(ms), end: fmt(me), label: `${MONTHS[ms.getMonth()]} ${ms.getFullYear()}` }
+}
+
+// Beräknar föregående period för delta-jämförelse med rättvis trunkering.
+// Pågående period: jämför mot lika många dagar i föregående period
+//   (aug 1–3 → jul 1–3; vecka 32 mån–ons → vecka 31 mån–ons).
+// Avslutad period: full period mot full period (refLabel = befintligt format).
+// Returnerar { start, end, refLabel } där start/end är det datum-fönster
+// som faktiskt ska hämtas och refLabel är texten som visas (t.ex. "mot 1–3 jul").
+export function getPrevDateRange(
+  p: Period,
+  offset: number,
+): { start: string; end: string; refLabel: string } {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const fmtDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+
+  const cur  = getPeriodRange(p, offset)
+  const prev = getPeriodRange(p, offset - 1)
+
+  const today = new Date()
+  const todayStr = fmtDate(today)
+
+  // Avslutad period → full jämförelse, befintlig etikett-stil
+  const isOngoing = todayStr >= cur.start && todayStr <= cur.end
+  if (!isOngoing) {
+    const prevL = prev.label
+    let refLabel: string
+    if (p === 'Å') refLabel = `mot ${prevL}`
+    else if (p === 'M') refLabel = `mot ${prevL.split(' ')[0].toLowerCase()}`
+    else refLabel = `mot ${prevL.split(' · ')[0].toLowerCase()}`
+    return { start: prev.start, end: prev.end, refLabel }
+  }
+
+  // Pågående period → trunkera föregående till lika många dagar som har gått
+  const curStart  = new Date(cur.start)
+  const prevStart = new Date(prev.start)
+  const prevEnd   = new Date(prev.end)
+
+  // Antal dagar från periodstart t.o.m. idag (0 = bara startdagen)
+  const elapsedDays = Math.floor((today.getTime() - curStart.getTime()) / 86400000)
+
+  // prevEnd = prevStart + elapsedDays, men aldrig efter periodgränsen
+  const prevEndTrunc = new Date(prevStart)
+  prevEndTrunc.setDate(prevStart.getDate() + elapsedDays)
+  const prevEndCapped = prevEndTrunc > prevEnd ? prevEnd : prevEndTrunc
+
+  const truncEnd = fmtDate(prevEndCapped)
+
+  // Bygg "D–D mon" (samma månad) eller "D mon–D mon" (kors-månad)
+  const d1 = prevStart.getDate()
+  const d2 = prevEndCapped.getDate()
+  const m1 = MON_ABBR[prevStart.getMonth()]
+  const m2 = MON_ABBR[prevEndCapped.getMonth()]
+  const sameMonth = prevStart.getMonth() === prevEndCapped.getMonth()
+  const rangeStr = sameMonth ? `${d1}–${d2} ${m1}` : `${d1} ${m1}–${d2} ${m2}`
+
+  // Å: lägg till år (jämför olika kalenderår)
+  const refLabel = p === 'Å'
+    ? `mot ${rangeStr} ${prevStart.getFullYear()}`
+    : `mot ${rangeStr}`
+
+  return { start: prev.start, end: truncEnd, refLabel }
 }
 
 // ─────────────────────────────────────────────────────────────
