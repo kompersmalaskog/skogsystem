@@ -7,16 +7,25 @@
 //    stilla" mot NU − ankomstpunktens tid (wall clock), inte antal punkter.
 //    Cron:en måste därför köra denna logik VARJE cykel (även vid dedupe), så
 //    en runda kan stängas 35 min efter ankomst trots att ingen ny punkt kom.
-//  • Manuellt vinner alltid: en runda med auto_skapad=false rörs aldrig.
+//  • Manuellt vinner alltid NÄR föraren agerar: en runda med auto_skapad=false
+//    stängs aldrig av auto-tröskeln (35 min). MEN ett SÄKERHETSNÄT fångar en
+//    bortglömd "Kör hem": har bilen stått stilla på hemmabasen i SAKERHETSNAT_MIN
+//    (2 h) stänger cron:en även en manuell runda — annars blir en glömd runda
+//    evigt öppen och blockerar dubbelskyddet (torsdagsproblemet på rundnivå).
+//    Nätet märker auto_avslutad_av='cron_sakerhetsnat' så loggen kan säga ärligt
+//    att "Kör hem" aldrig trycktes. En manuell stängning som faktiskt sker vinner
+//    ändå — nätet fångar bara det bortglömda, och slut_odometer tas från första
+//    punkten efter ankomst precis som vid auto-stängning (mätare/bränsle rätt).
 //  • Dubbelskydd: auto-öppnar bara om INGEN öppen runda finns för bilen
 //    (matchar även manuella vin-null-rundor).
 //  • Kraschar aldrig: allt i try/catch, fel rapporteras men fäller inte cron:en.
 
 import { haversine } from '@/utils/geo'
 
-const STILLA_KMH = 2       // ≤ detta = stillastående
-const STANG_MIN = 35       // min i radien innan auto-stängning
-const HISTORIK_TIM = 48    // hur långt bak vi läser loggpunkter
+const STILLA_KMH = 2          // ≤ detta = stillastående
+const STANG_MIN = 35          // min i radien innan auto-stängning (auto-runda)
+const SAKERHETSNAT_MIN = 120  // min stilla på hemmabas innan nätet stänger en MANUELL runda
+const HISTORIK_TIM = 48       // hur långt bak vi läser loggpunkter
 
 type Db = {
   from: (t: string) => any
@@ -85,21 +94,29 @@ export async function koraRundlogik(db: Db): Promise<RundRapport> {
     }
 
     // ── Öppen runda finns ──
-    if (!oppen.auto_skapad) return { atgard: 'manuell_orord' }   // manuellt vinner
-    if (!iRadie(senaste)) return { atgard: 'inget', detalj: 'ute, rundan fortsätter' }
+    // Auto-runda stängs efter STANG_MIN. Manuell runda rörs INTE av den tröskeln
+    // (manuellt vinner) — men säkerhetsnätet stänger den efter SAKERHETSNAT_MIN
+    // stilla på hemmabasen och märker det som 'cron_sakerhetsnat'. Är bilen ute
+    // eller rör sig hemma → 'manuell_orord' för manuell runda (nätet slog inte till).
+    const manuell = !oppen.auto_skapad
+    const stangMin = manuell ? SAKERHETSNAT_MIN : STANG_MIN
+    const avslutAv = manuell ? 'cron_sakerhetsnat' : 'cron'
+    const rorEjSvar: RundRapport['atgard'] = manuell ? 'manuell_orord' : 'inget'
+
+    if (!iRadie(senaste)) return { atgard: rorEjSvar, detalj: 'ute, rundan fortsätter' }
     if (!(senaste.hastighet != null && senaste.hastighet <= STILLA_KMH)) {
-      return { atgard: 'inget', detalj: 'i radien men rör sig' }
+      return { atgard: rorEjSvar, detalj: 'i radien men rör sig' }
     }
     // Ankomst = första punkt i den pågående hemma-sviten (efter senaste ute-punkt)
     let ankomstIdx = punkter.length - 1
     for (let i = punkter.length - 1; i >= 0; i--) { if (iRadie(punkter[i])) ankomstIdx = i; else break }
     const ankomst = punkter[ankomstIdx]
     const minSedanAnkomst = (Date.now() - Date.parse(ankomst.tidpunkt)) / 60000
-    if (minSedanAnkomst < STANG_MIN) {
-      return { atgard: 'inget', detalj: `hemma ${Math.round(minSedanAnkomst)}/${STANG_MIN} min` }
+    if (minSedanAnkomst < stangMin) {
+      return { atgard: rorEjSvar, detalj: `hemma ${Math.round(minSedanAnkomst)}/${stangMin} min${manuell ? ' (säkerhetsnät)' : ''}` }
     }
 
-    // ── Auto-STÄNG: slut = ankomstpunkten (inkl. hemresan i odometern) ──
+    // ── STÄNG (auto-tröskel ELLER säkerhetsnät): slut = ankomstpunkten (inkl. hemresan i odometern) ──
     const startOdo: number | null = oppen.start_odometer_m
     const matareKm = startOdo != null ? Math.round(((ankomst.odometer_m - startOdo) / 1000) * 10) / 10 : null
 
@@ -125,10 +142,10 @@ export async function koraRundlogik(db: Db): Promise<RundRapport> {
       slut_odometer_m: ankomst.odometer_m, slut_odometer_tid: ankomst.tidpunkt,
       matare_km: matareKm, bransle_l: bransleL,
       total_tid_min: raMin >= 0 && raMin <= 960 ? raMin : null,
-      auto_avslutad_av: 'cron', status,
+      auto_avslutad_av: avslutAv, status,
     }).eq('id', oppen.id)
     if (error) return { atgard: 'fel', detalj: `stäng: ${error.message}` }
-    return { atgard: 'stangde', rundaId: oppen.id, detalj: { status, matareKm, bransleL } }
+    return { atgard: 'stangde', rundaId: oppen.id, detalj: { sakerhetsnat: manuell, status, matareKm, bransleL } }
   } catch (e: any) {
     return { atgard: 'fel', detalj: String(e?.message || e) }
   }
