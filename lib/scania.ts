@@ -87,6 +87,10 @@ async function hamtaToken(): Promise<string | null> {
 function tolka(rad: any): FordonsStatus {
   const snap = rad?.snapshotData ?? {}
   const tal = (v: any) => (Number.isFinite(v) ? Number(v) : null)
+  // estimatedDistanceToEmpty är i rFMS 4.0 ett OBJEKT {fuel,total} (meter) —
+  // inte ett tal. tal(objekt) blir null, så räckvidden föll bort helt i
+  // tankkortet. Läs .total (annars .fuel), tåla även äldre tal-form.
+  const rackvidd = (v: any) => (v && typeof v === 'object' ? tal(v.total ?? v.fuel) : tal(v))
   return {
     vin: rad?.vin ?? null,
     namn: rad?.customerVehicleName ?? rad?.vehicleName ?? null,
@@ -94,7 +98,7 @@ function tolka(rad: any): FordonsStatus {
     odometer_m: tal(rad?.hrTotalVehicleDistance ?? snap?.hrTotalVehicleDistance),
     fuel_pct: tal(snap?.fuelLevel1 ?? rad?.fuelLevel1),
     adblue_pct: tal(snap?.catalystFuelLevel ?? rad?.catalystFuelLevel),
-    rackvidd_m: tal(snap?.estimatedDistanceToEmpty ?? rad?.estimatedDistanceToEmpty),
+    rackvidd_m: rackvidd(snap?.estimatedDistanceToEmpty ?? rad?.estimatedDistanceToEmpty),
   }
 }
 
