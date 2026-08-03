@@ -64,6 +64,7 @@ interface DagRad {
   bransle_l: number | null           // förbrukning under rundan (Scania)
   odometer_stale: boolean | null
   status: string
+  auto_avslutad_av: string | null    // 'cron' = auto-tröskel, 'cron_sakerhetsnat' = bortglömd "Kör hem"
 }
 
 const TYP_ETIKETT: Record<string, string> = {
@@ -166,7 +167,7 @@ export default function SammanstallningClient() {
           .lt('starttid', period.slut.toISOString())
           .order('starttid', { ascending: false })),
         medAbortRetry(() => supabase.from('flyttdag')
-          .select('id, forare, starttid, sluttid, tillkorning_km, hem_km, tid_hem_min, total_km, total_tid_min, matare_km, bransle_l, odometer_stale, status')
+          .select('id, forare, starttid, sluttid, tillkorning_km, hem_km, tid_hem_min, total_km, total_tid_min, matare_km, bransle_l, odometer_stale, status, auto_avslutad_av')
           .gte('starttid', period.start.toISOString())
           .lt('starttid', period.slut.toISOString())
           .order('starttid', { ascending: false })),
@@ -354,7 +355,8 @@ export default function SammanstallningClient() {
       d.hem_km ?? '',
       d.total_km ?? '',
       d.total_tid_min != null ? Math.round(d.total_tid_min) : '',
-      d.status === 'auto_avslutad' ? 'Auto-avslutad' : 'Avslutad',
+      d.auto_avslutad_av === 'cron_sakerhetsnat' ? 'Auto-stängd (säkerhetsnät)'
+        : d.status === 'auto_avslutad' ? 'Auto-avslutad' : 'Avslutad',
     ])
     laddaNerCsv([rubrik, ...rader], `flyttdagar-${period.etikett.replace(/[ .]/g, '-')}.csv`)
   }
@@ -473,6 +475,7 @@ export default function SammanstallningClient() {
                   const pagaende = d.status === 'pagaende' || d.sluttid == null
                   const auto = d.status === 'auto_avslutad'
                   const ovrig = d.status === 'ovrig_korning'
+                  const natstangd = d.auto_avslutad_av === 'cron_sakerhetsnat'   // bortglömd "Kör hem"
                   const oppen = oppnaDagar.has(d.id)
                   const dagFlyttar = flyttPerDag.get(d.id) || []
                   const ben = benRad(d)
@@ -496,6 +499,7 @@ export default function SammanstallningClient() {
                             {ovrig ? 'Övrig körning' : `${dagFlyttar.length} ${dagFlyttar.length === 1 ? 'flytt' : 'flyttar'}`}
                             {pagaende && <span style={{ color: C.blue, fontWeight: 600 }}> · Pågår</span>}
                             {auto && <span style={{ color: C.orange, fontWeight: 600 }}> · Auto-avslutad</span>}
+                            {natstangd && <span style={{ color: C.orange, fontWeight: 600 }}> · Auto-stängd</span>}
                           </div>
                           <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
                             {klockslag}{d.forare && ` · ${d.forare}`}
@@ -517,6 +521,12 @@ export default function SammanstallningClient() {
                       {/* Expanderat på plats: flyttarna + ben + lastbilens mätvärden */}
                       {oppen && (
                         <div style={{ padding: '0 14px 12px 44px' }}>
+                          {natstangd && (
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', color: C.orange, fontSize: 12, padding: '10px 0 4px' }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>info</span>
+                              <span>Stängdes automatiskt efter 2 h stilla på basen — &quot;Kör hem&quot; trycktes aldrig.</span>
+                            </div>
+                          )}
                           {dagFlyttar.map(f => (
                             <div key={f.id} style={{
                               display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0',
