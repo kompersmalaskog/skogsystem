@@ -16,11 +16,10 @@ import {
   type ObjektRad, type MaskinDel,
 } from '@/lib/ekonomi/objektJamforelse';
 import { type PeriodType, getPeriodDates, getPeriodLabel } from '@/lib/ekonomi/period';
-import EkonomiBottomNav from '../EkonomiBottomNav';
-
-const GRON = '90,255,140';
-const ROD = '255,90,90';
-const BARNSTEN = '240,178,76';
+import {
+  EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad, EnhetsFot, SektionsTitel,
+  Laddar, FelRuta, Tomt, GRON, ROD,
+} from '../delade/mall';
 
 type DelAgg = { ackord: number; timpeng: number; volym: number };
 type KlassAgg = {
@@ -103,162 +102,110 @@ export default function PerKlassClient() {
   const arOsaker = (k: KlassAgg) => k.timmar < OSAKER_TIM;
 
   const s = {
-    page: { background: '#111110', minHeight: '100vh', paddingTop: 24, paddingBottom: 120, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
-    filterBar: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', gap: 8 } as const,
-    periodBtn: { border: 'none', background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '5px 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: '#7a7a72', cursor: 'pointer' } as const,
-    periodBtnActive: { background: 'rgba(255,255,255,0.12)', color: '#e8e8e4' } as const,
-    arrow: { border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 8px' } as const,
-    label: { fontSize: 12, fontWeight: 600, color: '#e8e8e4', minWidth: 104, textAlign: 'center' as const },
-    card: { background: '#1a1a18', borderRadius: 14 } as const,
-    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 32, padding: '0 4px' } as const,
     sheetH: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 } as const,
   };
 
   return (
-    <div style={s.page}>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..600&display=swap" />
-
+    <EkonomiSida>
       {/* Bara Månad/Kvartal/År — inget objekt avräknas på en dag */}
-      <div style={s.filterBar}>
-        {(['M', 'K', 'A'] as PeriodType[]).map(p => (
-          <button key={p} style={{ ...s.periodBtn, ...(period === p ? s.periodBtnActive : {}) }}
-            onClick={() => { setPeriod(p); setPeriodOffset(0); setOppenKlass(null); }}>
-            {p === 'M' ? 'Månad' : p === 'K' ? 'Kvartal' : 'År'}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        <button style={s.arrow} aria-label="Föregående period" onClick={() => { setPeriodOffset(o => o - 1); setOppenKlass(null); }}>&#8249;</button>
-        <span style={s.label}>{getPeriodLabel(period, periodOffset)}</span>
-        <button style={s.arrow} aria-label="Nästa period" onClick={() => { setPeriodOffset(o => o + 1); setOppenKlass(null); }}>&#8250;</button>
-        <button aria-label="Om beräkningen" onClick={() => setInfoOpen(true)} style={{
-          width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-          background: 'rgba(255,255,255,0.08)', border: 'none', color: '#7a7a72',
-          fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', fontStyle: 'italic', lineHeight: 1,
-        }}>i</button>
-      </div>
+      <Periodvaxlare
+        perioder={['M', 'K', 'A']}
+        period={period}
+        offset={periodOffset}
+        onPeriod={p => { setPeriod(p); setPeriodOffset(0); setOppenKlass(null); }}
+        onOffset={o => { setPeriodOffset(o); setOppenKlass(null); }}
+        onInfo={() => setInfoOpen(true)}
+      />
 
-      {loading && <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72' }}>Laddar...</div>}
+      {loading && <Laddar />}
 
       {!loading && error && (
-        <div style={{ margin: 16, padding: 14, background: `rgba(${ROD},0.08)`, border: `1px solid rgba(${ROD},0.3)`, color: 'rgba(255,160,160,0.95)', borderRadius: 10, fontSize: 12, lineHeight: 1.5 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Kunde inte läsa ackordsdata</div>
-          <div>{error}</div>
-          <button onClick={fetchData} style={{ marginTop: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#e8e8e4', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}>Försök igen</button>
-        </div>
+        <FelRuta titel="Kunde inte läsa ackordsdata" fel={error} onRetry={fetchData} />
       )}
 
       {!loading && !error && (
         <div style={{ padding: '0 16px' }}>
           {klasser.length === 0 ? (
             /* Ärligt tomt — inte en tom lista som ser trasig ut */
-            <div style={{ textAlign: 'center', padding: '56px 16px 8px' }}>
-              <div style={{ fontSize: 13, color: '#7a7a72' }}>
-                Inga {ejJamforbara.length > 0 ? 'jämförbara ' : ''}avräknade objekt i {getPeriodLabel(period, periodOffset)}
-              </div>
-            </div>
+            <Tomt>
+              Inga {ejJamforbara.length > 0 ? 'jämförbara ' : ''}avräknade objekt i {getPeriodLabel(period, periodOffset)}
+            </Tomt>
           ) : (
-            /* Hero — klassen som går bäst mot timpeng */
-            <div style={{ textAlign: 'center', padding: '56px 8px 8px' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.2, color: '#7a7a72' }}>
-                Bäst mot timpeng
-              </div>
-              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 40, lineHeight: 1.1, fontWeight: 500, color: diffColor(krPerM3(bast)), marginTop: 10, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
-                {fmtKlass(bast.klass)}-klassen
-              </div>
-              <div style={{ fontSize: 15, color: diffColor(krPerM3(bast)), marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>
-                {fmtDiff(krPerM3(bast))} kr/m³ mot timpeng
-              </div>
-              <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 8 }}>
-                {klasser.length} klasser · {rader.length} objekt avräknade{arOsaker(bast) && ' · bästa klassen vilar på få timmar — osäkert'}
-              </div>
-            </div>
+            /* Hero — klassen som går bäst. Klassnamnet är INTE ett signerat tal
+               → benvitt; bara kr/m³-raden bär grönt/rött. */
+            <Hero
+              etikett="Bäst mot timpeng"
+              varde={`${fmtKlass(bast.klass)}-klassen`}
+              storlek={40}
+              under={<>
+                <div style={{ fontSize: 15, color: diffColor(krPerM3(bast)), marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>
+                  {fmtDiff(krPerM3(bast))} kr/m³ mot timpeng
+                </div>
+                <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 8 }}>
+                  {klasser.length} klasser · {rader.length} objekt avräknade{arOsaker(bast) && ' · bästa klassen vilar på få timmar — osäkert'}
+                </div>
+              </>}
+            />
           )}
 
-          {vantarAntal > 0 && (
-            <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '5px 12px', borderRadius: 999,
-                background: `rgba(${BARNSTEN},0.10)`, color: `rgba(${BARNSTEN},0.85)`,
-                fontSize: 11, fontWeight: 500,
-              }}>
-                <span style={{ width: 5, height: 5, borderRadius: '50%', background: `rgba(${BARNSTEN},0.8)`, flexShrink: 0 }} />
-                {vantarAntal} preliminär{vantarAntal === 1 ? 't' : 'a'} objekt ej med
-              </div>
-            </div>
-          )}
-
-          {ejJamforbara.length > 0 && (
-            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 16, padding: '0 8px', lineHeight: 1.6, textAlign: 'center' }}>
-              {ejJamforbara.map((o, i) => (
-                <div key={i}>{o.namn} — {o.orsak}. Kan inte jämföras ärligt — står utanför talen.</div>
-              ))}
-            </div>
-          )}
+          {/* Metarad — prel i bärnsten, resten dämpat. Detaljer i Mot ackord. */}
+          <MetaRad delar={[
+            vantarAntal > 0 && { text: `${vantarAntal} preliminär${vantarAntal === 1 ? 't' : 'a'} ej med`, barnsten: true },
+            ejJamforbara.length > 0 && { text: `${ejJamforbara.length} utan jämförelse` },
+            timpengAntal > 0 && { text: `${timpengAntal} på timpeng` },
+          ]} />
 
           {klasser.length > 0 && (
             <>
-              <div style={s.sectionTitle}>Per medelstamklass</div>
-              <div style={{ ...s.card, padding: '0 16px' }}>
+              <SektionsTitel>Per medelstamklass</SektionsTitel>
+              <Lista>
                 {klasser.map((k, i) => {
                   const kr = krPerM3(k);
                   const andel = maxAbs > 0 ? Math.abs(kr) / maxAbs : 0;
                   const oppen = oppenKlass === k.klass;
                   const delKr = (d: DelAgg) => d.volym > 0 ? (d.ackord - d.timpeng) / d.volym : null;
                   return (
-                    <div key={k.klass} style={{
-                      padding: '16px 0',
-                      borderBottom: i < klasser.length - 1 ? '0.5px solid rgba(255,255,255,0.07)' : 'none',
-                    }}>
-                      <div onClick={() => setOppenKlass(oppen ? null : k.klass)} style={{ cursor: 'pointer' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4' }}>
-                              {fmtKlass(k.klass)}
-                              <span style={{ color: '#7a7a72', fontWeight: 400, fontSize: 12 }}> medelstam</span>
-                            </div>
-                            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>
-                              ackord {k.volym > 0 ? Math.round(k.ackord / k.volym) : '—'} · timpeng {k.volym > 0 ? Math.round(k.timpeng / k.volym) : '—'} kr/m³
-                              {' · '}{Math.round(k.volym).toLocaleString('sv-SE')} m³fub · {k.antal} objekt
-                              {arOsaker(k) && ' · få timmar — osäkert'}
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: diffColor(kr), fontVariantNumeric: 'tabular-nums' }}>
-                              {fmtDiff(kr)} kr/m³
-                            </div>
-                            <span style={{ fontSize: 11, color: '#7a7a72', transform: oppen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
-                          </div>
-                        </div>
-                        {/* |kr/m³| relativt största klassen — på RADENS bredd så
-                            längderna är jämförbara mellan rader */}
-                        <div style={{ marginTop: 8, height: 3, borderRadius: 2, width: `${andel * 100}%`, background: 'rgba(122,122,114,0.5)' }} />
+                    <ListRad key={k.klass}
+                      rubrik={<>
+                        {fmtKlass(k.klass)}
+                        <span style={{ color: '#7a7a72', fontWeight: 400, fontSize: 12 }}> medelstam</span>
+                      </>}
+                      detalj={<>
+                        {Math.round(k.volym).toLocaleString('sv-SE')} m³fub · {k.antal} objekt
+                        {arOsaker(k) && ' · få timmar — osäkert'}
+                      </>}
+                      tal={fmtDiff(kr)}
+                      talFarg={diffColor(kr)}
+                      /* |kr/m³| relativt största klassen — på RADENS bredd så
+                         längderna är jämförbara mellan rader */
+                      stapelAndel={andel}
+                      chevron
+                      oppen={oppen}
+                      onClick={() => setOppenKlass(oppen ? null : k.klass)}
+                      sista={i === klasser.length - 1}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
+                        <span style={{ color: '#7a7a72' }}>Ackord mot timpeng</span>
+                        <span style={{ color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
+                          {k.volym > 0 ? Math.round(k.ackord / k.volym) : '—'} · {k.volym > 0 ? Math.round(k.timpeng / k.volym) : '—'} kr/m³
+                        </span>
                       </div>
-                      {oppen && (
-                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '0.5px solid rgba(255,255,255,0.07)', display: 'grid', gap: 6 }}>
-                          {([['Skördare', k.skord], ['Skotare', k.skot]] as [string, DelAgg][]).map(([namn, d]) => (
-                            <div key={namn} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
-                              <span style={{ color: '#7a7a72' }}>{namn} · {Math.round(d.volym).toLocaleString('sv-SE')} m³fub</span>
-                              {delKr(d) != null ? (
-                                <span style={{ color: diffColor(delKr(d)!), fontVariantNumeric: 'tabular-nums' }}>{fmtDiff(delKr(d)!)} kr/m³</span>
-                              ) : (
-                                <span style={{ color: '#7a7a72' }}>—</span>
-                              )}
-                            </div>
-                          ))}
+                      {([['Skördare', k.skord], ['Skotare', k.skot]] as [string, DelAgg][]).map(([namn, d]) => (
+                        <div key={namn} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
+                          <span style={{ color: '#7a7a72' }}>{namn} · {Math.round(d.volym).toLocaleString('sv-SE')} m³fub</span>
+                          {delKr(d) != null ? (
+                            <span style={{ color: diffColor(delKr(d)!), fontVariantNumeric: 'tabular-nums' }}>{fmtDiff(delKr(d)!)} kr/m³</span>
+                          ) : (
+                            <span style={{ color: '#7a7a72' }}>—</span>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      ))}
+                    </ListRad>
                   );
                 })}
-              </div>
+              </Lista>
+              <EnhetsFot>kr/m³ mot timpeng</EnhetsFot>
             </>
-          )}
-
-          {timpengAntal > 0 && (
-            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 16, padding: '0 4px', textAlign: 'center' }}>
-              {timpengAntal} objekt avräknade på timpeng i perioden — ingen ackordjämförelse.
-            </div>
           )}
         </div>
       )}
@@ -303,8 +250,6 @@ export default function PerKlassClient() {
           </div>
         </>
       )}
-
-      <EkonomiBottomNav />
-    </div>
+    </EkonomiSida>
   );
 }

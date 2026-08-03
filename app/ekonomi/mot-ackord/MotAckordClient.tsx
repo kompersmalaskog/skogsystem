@@ -17,11 +17,10 @@ import {
   type ObjektRad,
 } from '@/lib/ekonomi/objektJamforelse';
 import { type PeriodType, getPeriodDates, getPeriodLabel } from '@/lib/ekonomi/period';
-import EkonomiBottomNav from '../EkonomiBottomNav';
-
-const GRON = '90,255,140';
-const ROD = '255,90,90';
-const BARNSTEN = '240,178,76';
+import {
+  EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad, EnhetsFot, SektionsTitel,
+  Laddar, FelRuta, Tomt, BARNSTEN, GRON, ROD,
+} from '../delade/mall';
 
 type MaskinAgg = {
   maskin_id: string;
@@ -48,6 +47,8 @@ export default function MotAckordClient() {
   const [sheetObjekt, setSheetObjekt] = useState<ObjektRad | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const [vantarOpen, setVantarOpen] = useState(false);
+  const [ejJamfOpen, setEjJamfOpen] = useState(false);    // "utan jämförelse" uppfälld
+  const [maskinOpen, setMaskinOpen] = useState(false);    // per maskin-sektionen uppfälld
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -93,14 +94,6 @@ export default function MotAckordClient() {
   };
 
   const s = {
-    page: { background: '#111110', minHeight: '100vh', paddingTop: 24, paddingBottom: 120, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
-    filterBar: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', gap: 8 } as const,
-    periodBtn: { border: 'none', background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '5px 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: '#7a7a72', cursor: 'pointer' } as const,
-    periodBtnActive: { background: 'rgba(255,255,255,0.12)', color: '#e8e8e4' } as const,
-    arrow: { border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 8px' } as const,
-    label: { fontSize: 12, fontWeight: 600, color: '#e8e8e4', minWidth: 104, textAlign: 'center' as const },
-    card: { background: '#1a1a18', borderRadius: 14 } as const,
-    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 32, padding: '0 4px' } as const,
     sheetH: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 } as const,
   };
 
@@ -126,155 +119,135 @@ export default function MotAckordClient() {
   );
 
   return (
-    <div style={s.page}>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..600&display=swap" />
-
+    <EkonomiSida>
       {/* Bara Månad/Kvartal/År — inget objekt avräknas på en dag */}
-      <div style={s.filterBar}>
-        {(['M', 'K', 'A'] as PeriodType[]).map(p => (
-          <button key={p} style={{ ...s.periodBtn, ...(period === p ? s.periodBtnActive : {}) }}
-            onClick={() => { setPeriod(p); setPeriodOffset(0); }}>
-            {p === 'M' ? 'Månad' : p === 'K' ? 'Kvartal' : 'År'}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        <button style={s.arrow} aria-label="Föregående period" onClick={() => setPeriodOffset(o => o - 1)}>&#8249;</button>
-        <span style={s.label}>{getPeriodLabel(period, periodOffset)}</span>
-        <button style={s.arrow} aria-label="Nästa period" onClick={() => setPeriodOffset(o => o + 1)}>&#8250;</button>
-        <button aria-label="Om beräkningen" onClick={() => setInfoOpen(true)} style={{
-          width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-          background: 'rgba(255,255,255,0.08)', border: 'none', color: '#7a7a72',
-          fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', fontStyle: 'italic', lineHeight: 1,
-        }}>i</button>
-      </div>
+      <Periodvaxlare
+        perioder={['M', 'K', 'A']}
+        period={period}
+        offset={periodOffset}
+        onPeriod={p => { setPeriod(p); setPeriodOffset(0); }}
+        onOffset={setPeriodOffset}
+        onInfo={() => setInfoOpen(true)}
+      />
 
-      {loading && <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72' }}>Laddar...</div>}
+      {loading && <Laddar />}
 
       {!loading && error && (
-        <div style={{ margin: 16, padding: 14, background: `rgba(${ROD},0.08)`, border: `1px solid rgba(${ROD},0.3)`, color: 'rgba(255,160,160,0.95)', borderRadius: 10, fontSize: 12, lineHeight: 1.5 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Kunde inte läsa ackordsdata</div>
-          <div>{error}</div>
-          <button onClick={fetchData} style={{ marginTop: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#e8e8e4', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}>Försök igen</button>
-        </div>
+        <FelRuta titel="Kunde inte läsa ackordsdata" fel={error} onRetry={fetchData} />
       )}
 
       {!loading && !error && (
         <div style={{ padding: '0 16px' }}>
           {objektRader.length === 0 ? (
             /* Ärligt tomt — inte +0 kr som ser ut som fakta */
-            <div style={{ textAlign: 'center', padding: '56px 16px 8px' }}>
-              <div style={{ fontSize: 13, color: '#7a7a72' }}>
-                Inga {ejJamforbara.length > 0 ? 'jämförbara ' : ''}avräknade objekt i {getPeriodLabel(period, periodOffset)}
-              </div>
-            </div>
+            <Tomt>
+              Inga {ejJamforbara.length > 0 ? 'jämförbara ' : ''}avräknade objekt i {getPeriodLabel(period, periodOffset)}
+            </Tomt>
           ) : (
-            /* Hero — periodens totala överskott mot timpeng */
-            <div style={{ textAlign: 'center', padding: '56px 8px 8px' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.2, color: '#7a7a72' }}>
-                {sumDiff >= 0 ? 'Över timpeng' : 'Under timpeng'}
-              </div>
-              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 44, lineHeight: 1.1, fontWeight: 500, color: diffColor(sumDiff), marginTop: 10, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
-                {fmtDiff(sumDiff)} kr
-              </div>
-              <div style={{ fontSize: 13, color: '#bfcab9', marginTop: 10 }}>
-                {objektRader.length} objekt avräknade
-              </div>
-            </div>
+            /* Hero — periodens totala överskott mot timpeng (signerat tal → färg) */
+            <Hero
+              etikett={sumDiff >= 0 ? 'Över timpeng' : 'Under timpeng'}
+              varde={`${fmtDiff(sumDiff)} kr`}
+              vardeFarg={diffColor(sumDiff)}
+              under={
+                <div style={{ fontSize: 13, color: '#bfcab9', marginTop: 10 }}>
+                  {objektRader.length} objekt avräknade
+                </div>
+              }
+            />
           )}
 
-          {/* Preliminärt — bärnsten, aldrig i talen */}
-          {vantarNamn.length > 0 && (
-            <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '5px 12px', borderRadius: 999,
-                background: `rgba(${BARNSTEN},0.10)`, color: `rgba(${BARNSTEN},0.85)`,
-                fontSize: 11, fontWeight: 500,
-              }}>
-                <span style={{ width: 5, height: 5, borderRadius: '50%', background: `rgba(${BARNSTEN},0.8)`, flexShrink: 0 }} />
-                {vantarNamn.length} preliminär{vantarNamn.length === 1 ? 't' : 'a'} objekt ej med
-              </div>
-            </div>
-          )}
-
-          {/* Halt jämförelse — nedtonat, utanför talen (annars byter heron tecken) */}
-          {ejJamforbara.length > 0 && (
-            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 16, padding: '0 8px', lineHeight: 1.6, textAlign: 'center' }}>
-              {ejJamforbara.map((o, i) => (
-                <div key={i}>{o.namn} — {o.orsak}. Kan inte jämföras ärligt — står utanför talen.</div>
-              ))}
-            </div>
-          )}
+          {/* Metarad — prel i bärnsten; utan jämförelse/timpeng dämpat.
+              Detaljerna bor i de uppfällbara raderna längst ner. */}
+          <MetaRad delar={[
+            vantarNamn.length > 0 && { text: `${vantarNamn.length} preliminär${vantarNamn.length === 1 ? 't' : 'a'} ej med`, barnsten: true },
+            ejJamforbara.length > 0 && { text: `${ejJamforbara.length} utan jämförelse` },
+            timpengAntal > 0 && { text: `${timpengAntal} på timpeng` },
+          ]} />
 
           {objektRader.length > 0 && (
             <>
-              {/* Per objekt */}
-              <div style={s.sectionTitle}>Per objekt</div>
-              <div style={{ ...s.card, padding: '0 16px' }}>
+              {/* Per objekt — EN historia per rad: namn, dämpad detalj, ETT tal.
+                  Enheten står EN gång under listan; kr-beloppet bor i sheeten. */}
+              <SektionsTitel>Per objekt</SektionsTitel>
+              <Lista>
                 {objektRader.map((o, i) => (
-                  <div key={o.objekt_id} onClick={() => setSheetObjekt(o)} style={{
-                    display: 'flex', alignItems: 'center', gap: 12, padding: '16px 0', cursor: 'pointer',
-                    borderBottom: i < objektRader.length - 1 ? '0.5px solid rgba(255,255,255,0.07)' : 'none',
-                  }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.namn}</div>
-                      <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>
-                        {Math.round(o.volym).toLocaleString('sv-SE')} m³fub · {formatKr(o.ackord)} ackord{o.egenSkotning && ' · egen skotning'}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: diffColor(o.diff), fontVariantNumeric: 'tabular-nums' }}>
-                        {o.krPerM3 != null ? `${fmtDiff(o.krPerM3)} kr/m³` : '—'}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{fmtDiff(o.diff)} kr</div>
-                    </div>
-                  </div>
+                  <ListRad key={o.objekt_id}
+                    rubrik={o.namn}
+                    detalj={<>
+                      {Math.round(o.volym).toLocaleString('sv-SE')} m³fub · {formatKr(o.ackord)} ackord{o.egenSkotning && ' · egen skotning'}
+                    </>}
+                    tal={o.krPerM3 != null ? fmtDiff(o.krPerM3) : '—'}
+                    talFarg={diffColor(o.diff)}
+                    onClick={() => setSheetObjekt(o)}
+                    sista={i === objektRader.length - 1}
+                  />
                 ))}
-              </div>
+              </Lista>
+              <EnhetsFot>kr/m³ mot timpeng — tryck på ett objekt för detaljer</EnhetsFot>
 
-              {/* Per maskin */}
-              <div style={s.sectionTitle}>Per maskin</div>
-              <div style={{ ...s.card, padding: '0 16px' }}>
-                {maskinAgg.map((m, i) => {
-                  const v = visaMaskin(m.maskin_id);
-                  const diff = m.ackord - m.timpeng;
-                  const krPerTim = m.timmar > 0 ? m.ackord / m.timmar : null;
-                  const osaker = m.timmar < OSAKER_TIM;
-                  return (
-                    <div key={m.maskin_id} style={{
-                      display: 'flex', alignItems: 'center', gap: 12, padding: '16px 0',
-                      borderBottom: i < maskinAgg.length - 1 ? '0.5px solid rgba(255,255,255,0.07)' : 'none',
-                    }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {v.namn}{v.id && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {v.id}</span>}
-                        </div>
-                        <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>
-                          {krPerTim != null
+              {/* Per maskin — kollapsad sektion, inte en andra lista i samma scroll */}
+              <Lista style={{ marginTop: 24 }}>
+                <div onClick={() => setMaskinOpen(v => !v)} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '14px 0', cursor: 'pointer',
+                }}>
+                  <span style={{ fontSize: 13, color: '#7a7a72', flex: 1 }}>Per maskin</span>
+                  <span style={{ fontSize: 13, color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>{maskinAgg.length}</span>
+                  <span style={{ fontSize: 11, color: '#7a7a72', transform: maskinOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
+                </div>
+                {maskinOpen && (
+                  <div style={{ borderTop: '0.5px solid rgba(255,255,255,0.07)' }}>
+                    {maskinAgg.map((m, i) => {
+                      const v = visaMaskin(m.maskin_id);
+                      const diff = m.ackord - m.timpeng;
+                      const krPerTim = m.timmar > 0 ? m.ackord / m.timmar : null;
+                      const osaker = m.timmar < OSAKER_TIM;
+                      return (
+                        <ListRad key={m.maskin_id}
+                          rubrik={<>{v.namn}{v.id && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {v.id}</span>}</>}
+                          detalj={krPerTim != null
                             ? <>ackord motsv. {Math.round(krPerTim).toLocaleString('sv-SE')} kr/tim · {fmtTim(m.timmar)} tim{osaker && ' — osäkert'}</>
                             : 'inga G15-timmar registrerade'}
-                        </div>
-                      </div>
-                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: diffColor(diff), fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                        {fmtDiff(diff)} kr
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                          tal={fmtDiff(diff)}
+                          talFarg={diffColor(diff)}
+                          sista={i === maskinAgg.length - 1}
+                        />
+                      );
+                    })}
+                    <div style={{ fontSize: 11, color: '#7a7a72', textAlign: 'center', padding: '0 0 14px' }}>kr mot timpeng</div>
+                  </div>
+                )}
+              </Lista>
             </>
           )}
 
-          {/* Timpeng-objekt — ingen jämförelse */}
-          {timpengAntal > 0 && (
-            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 16, padding: '0 4px', textAlign: 'center' }}>
-              {timpengAntal} objekt avräknade på timpeng i perioden — ingen ackordjämförelse.
-            </div>
+          {/* Utan jämförelse — halt underlag, utanför talen. EN kollapsad rad;
+              orsakerna (granskningsbara) i uppfällningen, inte som textvägg i vyn. */}
+          {ejJamforbara.length > 0 && (
+            <Lista style={{ marginTop: 24 }}>
+              <div onClick={() => setEjJamfOpen(v => !v)} style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '14px 0', cursor: 'pointer',
+              }}>
+                <span style={{ fontSize: 13, color: '#7a7a72', flex: 1 }}>Utan jämförelse</span>
+                <span style={{ fontSize: 13, color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>{ejJamforbara.length}</span>
+                <span style={{ fontSize: 11, color: '#7a7a72', transform: ejJamfOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
+              </div>
+              {ejJamfOpen && (
+                <div style={{ paddingBottom: 12, borderTop: '0.5px solid rgba(255,255,255,0.07)' }}>
+                  {ejJamforbara.map((o, i) => (
+                    <div key={i} style={{ padding: '9px 0 0' }}>
+                      <div style={{ fontSize: 12, color: '#e8e8e4' }}>{o.namn}</div>
+                      <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{o.orsak} — står utanför talen.</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Lista>
           )}
 
           {/* Väntar på avräkning — EN nedtonad rad, expanderbar. Aldrig i talen. */}
           {vantarNamn.length > 0 && (
-            <div style={{ ...s.card, marginTop: 24, padding: '0 16px' }}>
+            <Lista style={{ marginTop: 24 }}>
               <div onClick={() => setVantarOpen(v => !v)} style={{
                 display: 'flex', alignItems: 'center', gap: 8, padding: '14px 0', cursor: 'pointer',
               }}>
@@ -289,7 +262,7 @@ export default function MotAckordClient() {
                   ))}
                 </div>
               )}
-            </div>
+            </Lista>
           )}
         </div>
       )}
@@ -420,8 +393,6 @@ export default function MotAckordClient() {
           </div>
         </>
       ))}
-
-      <EkonomiBottomNav />
-    </div>
+    </EkonomiSida>
   );
 }
