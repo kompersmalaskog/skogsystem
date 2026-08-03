@@ -181,13 +181,16 @@ export function getPrevDateRange(
 
   const truncEnd = fmtDate(prevEndCapped)
 
-  // Bygg "D–D mon" (samma månad) eller "D mon–D mon" (kors-månad)
+  // Bygg "D mon" (enda dag), "D–D mon" (samma månad), eller "D mon–D mon" (kors-månad)
   const d1 = prevStart.getDate()
   const d2 = prevEndCapped.getDate()
   const m1 = MON_ABBR[prevStart.getMonth()]
   const m2 = MON_ABBR[prevEndCapped.getMonth()]
+  const sameDay   = prevStart.getTime() === prevEndCapped.getTime()
   const sameMonth = prevStart.getMonth() === prevEndCapped.getMonth()
-  const rangeStr = sameMonth ? `${d1}–${d2} ${m1}` : `${d1} ${m1}–${d2} ${m2}`
+  const rangeStr = sameDay
+    ? `${d1} ${m1}`
+    : sameMonth ? `${d1}–${d2} ${m1}` : `${d1} ${m1}–${d2} ${m2}`
 
   // Å: lägg till år (jämför olika kalenderår)
   const refLabel = p === 'Å'
