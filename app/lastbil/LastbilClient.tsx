@@ -102,8 +102,12 @@ export default function LastbilClient() {
       )}
 
       {fel && (
-        <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 14, padding: 14, marginBottom: 14, fontSize: 13, color: C.t1 }}>
-          {fel}
+        <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 14, padding: 16, marginBottom: 14, fontSize: 13, color: C.t1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12 }}>
+          <span>{fel}</span>
+          <button onClick={() => { setLaddar(true); las() }} style={{
+            background: C.blue, color: '#fff', border: 'none', borderRadius: 10,
+            padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          }}>Försök igen</button>
         </div>
       )}
 

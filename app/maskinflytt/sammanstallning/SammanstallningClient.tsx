@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { medAbortRetry } from '@/lib/supabaseRetry'
 import { vaderIkon } from '../vader'
 
 // ── Tema — samma palett som förarflödet ──
@@ -139,6 +140,7 @@ export default function SammanstallningClient() {
   const [flyttar, setFlyttar] = useState<FlyttRad[] | null>(null)
   const [dagar, setDagar] = useState<DagRad[] | null>(null)
   const [fel, setFel] = useState<string | null>(null)
+  const [omforsok, setOmforsok] = useState(0)   // "Försök igen"-knappen bumpar → effekten kör om
   const [maskinNamn, setMaskinNamn] = useState<Map<string, string>>(new Map())
   const [objektNamn, setObjektNamn] = useState<Map<string, string>>(new Map())
   const [platsNamn, setPlatsNamn] = useState<Map<string, string>>(new Map())
@@ -155,39 +157,45 @@ export default function SammanstallningClient() {
     ;(async () => {
       setFlyttar(null); setDagar(null); setFel(null)
       setOppnaDagar(new Set()); setOppnaFlyttar(new Set())
+      // medAbortRetry: supabase auth-låset kan abort:a en fråga vid kall start /
+      // token-refresh (se lib/supabaseRetry) — gör om i stället för att dö.
       const [fRes, dRes] = await Promise.all([
-        supabase.from('maskin_flytt')
+        medAbortRetry(() => supabase.from('maskin_flytt')
           .select('id, maskin_id, extern_maskin, flytt_typ, kund, flyttdag_id, fran_lat, fran_lng, fran_objekt_id, till_objekt_id, fran_plats_id, till_plats_id, till_lat, till_lng, flytt_km, mellankorning_km, total_km, fakturerbar, tid_till_maskin_min, tid_flytt_min, vader_temp_c, vader_kod, starttid, sluttid, avbruten, forare')
           .gte('starttid', period.start.toISOString())
           .lt('starttid', period.slut.toISOString())
-          .order('starttid', { ascending: false }),
-        supabase.from('flyttdag')
+          .order('starttid', { ascending: false })),
+        medAbortRetry(() => supabase.from('flyttdag')
           .select('id, forare, starttid, sluttid, tillkorning_km, hem_km, tid_hem_min, total_km, total_tid_min, matare_km, bransle_l, odometer_stale, status')
           .gte('starttid', period.start.toISOString())
           .lt('starttid', period.slut.toISOString())
-          .order('starttid', { ascending: false }),
+          .order('starttid', { ascending: false })),
       ])
       if (avbruten) return
-      if (fRes.error) { setFel(`Kunde inte läsa flyttar: ${fRes.error.message}`); return }
-      if (dRes.error) { setFel(`Kunde inte läsa flyttdagar: ${dRes.error.message}`); return }
+      if (fRes.error || dRes.error) {
+        // Teknisk detalj till konsolen; föraren ser en vänlig rad + "Försök igen".
+        console.error('[flyttlogg] läsfel', fRes.error || dRes.error)
+        setFel('Kunde inte läsa flyttloggen just nu.')
+        return
+      }
       setFlyttar(fRes.data || [])
       setDagar(dRes.data || [])
 
       const objektIds = Array.from(new Set(
         (fRes.data || []).flatMap(f => [f.till_objekt_id, f.fran_objekt_id]).filter(Boolean))) as string[]
       if (objektIds.length) {
-        const { data: obj } = await supabase.from('objekt').select('id, namn').in('id', objektIds)
+        const { data: obj } = await medAbortRetry(() => supabase.from('objekt').select('id, namn').in('id', objektIds))
         if (!avbruten && obj) setObjektNamn(new Map(obj.map(o => [o.id, o.namn])))
       }
       const platsIds = Array.from(new Set(
         (fRes.data || []).flatMap(f => [f.till_plats_id, f.fran_plats_id]).filter(Boolean))) as string[]
       if (platsIds.length) {
-        const { data: pl } = await supabase.from('flyttplats').select('id, namn').in('id', platsIds)
+        const { data: pl } = await medAbortRetry(() => supabase.from('flyttplats').select('id, namn').in('id', platsIds))
         if (!avbruten && pl) setPlatsNamn(new Map(pl.map(x => [x.id, x.namn])))
       }
     })()
     return () => { avbruten = true }
-  }, [period.start.getTime(), period.slut.getTime()])
+  }, [period.start.getTime(), period.slut.getTime(), omforsok])
 
   useEffect(() => {
     supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell').then(({ data }) => {
@@ -417,7 +425,13 @@ export default function SammanstallningClient() {
         </div>
 
         {fel && (
-          <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 12, padding: 14, fontSize: 14 }}>{fel}</div>
+          <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 12, padding: 16, fontSize: 14, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12 }}>
+            <span>{fel}</span>
+            <button onClick={() => { setFel(null); setOmforsok(n => n + 1) }} style={{
+              background: C.blue, color: '#fff', border: 'none', borderRadius: 10,
+              padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            }}>Försök igen</button>
+          </div>
         )}
         {laddar && !fel && (
           <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Laddar …</div>

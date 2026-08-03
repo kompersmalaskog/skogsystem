@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { medAbortRetry } from '@/lib/supabaseRetry'
 import { haversine } from '@/utils/geo'
 import { vaderIkon } from './vader'
 import {
@@ -336,6 +337,7 @@ export default function MaskinflyttClient() {
   const [pagaende, setPagaende] = useState<PagaendeFlytt[]>([])
   const [laddar, setLaddar] = useState(true)
   const [laddFel, setLaddFel] = useState<string | null>(null)
+  const [omforsok, setOmforsok] = useState(0)   // "Försök igen"-knappen bumpar → grunddata läses om
   const [tabellSaknas, setTabellSaknas] = useState<string | null>(null)
 
   // Maskinernas senast kända platser (STEG 0) — laddas separat så listan
@@ -435,21 +437,27 @@ export default function MaskinflyttClient() {
   // ── Grunddata ──
   useEffect(() => {
     (async () => {
+      setLaddar(true); setLaddFel(null)
       try {
         const idag = new Date().toISOString().slice(0, 10)
+        // medAbortRetry: supabase auth-låset kan abort:a en fråga vid kall start /
+        // token-refresh (se lib/supabaseRetry) — gör om i stället för att dö.
         const [mRes, fRes, { data: { user } }] = await Promise.all([
-          supabase.from('dim_maskin')
+          medAbortRetry(() => supabase.from('dim_maskin')
             .select('maskin_id, visningsnamn, modell, maskin_typ, extramaskin')
             .or(`aktiv_till.is.null,aktiv_till.gte.${idag}`)
-            .order('extramaskin').order('maskin_typ'),
-          supabase.from('maskin_flytt')
+            .order('extramaskin').order('maskin_typ')),
+          medAbortRetry(() => supabase.from('maskin_flytt')
             .select(FLYTT_FALT)
             .is('sluttid', null)
-            .order('starttid', { ascending: false }),
+            .order('starttid', { ascending: false })),
           supabase.auth.getUser(),
         ])
 
-        if (mRes.error) { setLaddFel(`Kunde inte läsa maskiner: ${mRes.error.message}`); setLaddar(false); setPlatserLaddar(false); return }
+        if (mRes.error) {
+          console.error('[maskinflytt] läsfel maskiner', mRes.error)
+          setLaddFel('Kunde inte läsa maskinlistan just nu.'); setLaddar(false); setPlatserLaddar(false); return
+        }
         setMaskiner(mRes.data || [])
 
         // Platsuppslaget blockerar inte listan — den ritas direkt, platsen fylls i
@@ -465,7 +473,7 @@ export default function MaskinflyttClient() {
 
         if (fRes.error) {
           if (/maskin_flytt|mellankorning|flyttdag/.test(fRes.error.message)) setTabellSaknas(fRes.error.message)
-          else setLaddFel(`Kunde inte läsa pågående flyttar: ${fRes.error.message}`)
+          else { console.error('[maskinflytt] läsfel pågående', fRes.error); setLaddFel('Kunde inte läsa pågående flyttar just nu.') }
         } else {
           setPagaende(fRes.data || [])
         }
@@ -478,12 +486,13 @@ export default function MaskinflyttClient() {
         }
         await laddaDag(m)
       } catch (e: any) {
-        setLaddFel(`Nätverksfel: ${e?.message || String(e)}`)
+        console.error('[maskinflytt] grunddata-fel', e)
+        setLaddFel('Kunde inte läsa maskinlistan just nu.')
         setPlatserLaddar(false)
       }
       setLaddar(false)
     })()
-  }, [])
+  }, [omforsok])
 
   // Aktiv lastbils vin — sätts på rundan vid manuell start/övertagning så
   // dubbelskydds-indexet (en öppen runda per vin) griper. Fel → null (degradera).
@@ -1455,8 +1464,12 @@ export default function MaskinflyttClient() {
           <>
             {laddar && <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Laddar maskiner …</div>}
             {laddFel && !laddar && (
-              <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 12, padding: 14, fontSize: 14 }}>
-                {laddFel}
+              <div style={{ background: 'rgba(255,69,58,0.12)', border: '1px solid rgba(255,69,58,0.4)', borderRadius: 12, padding: 16, fontSize: 14, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12 }}>
+                <span>{laddFel}</span>
+                <button onClick={() => setOmforsok(n => n + 1)} style={{
+                  background: C.blue, color: '#fff', border: 'none', borderRadius: 10,
+                  padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                }}>Försök igen</button>
               </div>
             )}
             {tabellSaknas && !laddar && (
