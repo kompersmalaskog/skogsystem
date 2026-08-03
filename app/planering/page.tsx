@@ -419,6 +419,13 @@ export default function PlannerPage() {
     return 'symbol';
   };
 
+  // Mellanlösning (ej full realtid): manuell/fokus-refetch + färskhets-stämpel. markersUppdateradAt
+  // = tiden för senaste LYCKADE hämtning från DB → visas som "Uppdaterad HH:MM" så föraren aldrig
+  // tror att gammalt är färskt. senasteRefetchRef throttlar auto-refetch.
+  const [markersUppdateradAt, setMarkersUppdateradAt] = useState<number | null>(null);
+  const [markersUppdaterar, setMarkersUppdaterar] = useState(false);
+  const senasteRefetchRef = useRef(0);
+
   // Ladda markeringar från Supabase när objekt väljs
   useEffect(() => {
     if (!valtObjekt?.id) {
@@ -448,10 +455,52 @@ export default function PlannerPage() {
         // Markera att `markers` nu tillhör detta objekt → låser upp write-vägarna för det.
         markersObjektIdRef.current = valtObjekt.id;
         setMarkers(laddade);
+        setMarkersUppdateradAt(Date.now());
       }
       setMarkersLoaded(true);
     };
     loadMarkers();
+  }, [valtObjekt?.id]);
+
+  // Engångs-refetch av markörerna för aktuellt objekt (Uppdatera-knapp + fokus-retur). Till skillnad
+  // från initial-laddningen: vid FEL BEHÅLLS nuvarande markörer (aldrig rensa bort förarens karta på
+  // ett nät-hicka) och tidsstämpeln uppdateras EJ. Ersätter med DB-sanning vid lyckad hämtning.
+  const refetchMarkers = useCallback(async (force: boolean) => {
+    const objektId = valtObjekt?.id;
+    if (!objektId) return;
+    if (!force && Date.now() - senasteRefetchRef.current < 5000) return; // throttla auto-refetch
+    senasteRefetchRef.current = Date.now();
+    setMarkersUppdaterar(true);
+    try {
+      const { data, error } = await supabase
+        .from('planering_markeringar')
+        .select('marker_id, data')
+        .eq('objekt_id', objektId);
+      if (error) { console.error('Refetch markörer fel:', error); return; }   // behåll nuvarande, ingen ny stämpel
+      if (markersObjektIdRef.current !== objektId) return;                     // objekt bytt under hämtning
+      const laddade = (data || []).map((row: any) => row.data as Marker);
+      persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id))); // seeda "redan sparad"-vakten
+      setMarkers(laddade);
+      setMarkersUppdateradAt(Date.now());
+    } finally {
+      setMarkersUppdaterar(false);
+    }
+  }, [valtObjekt?.id]);
+
+  // Auto-refetch när appen kommer TILLBAKA i fokus (throttlad). Ingen öppen uppkoppling — bara en
+  // query när föraren tar upp telefonen igen. Flush-vid-hidden (nedan) sparar egna edits före byte.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') refetchMarkers(false); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refetchMarkers]);
+
+  // Tick var 30:e sek → färskhets-stämpeln re-evalueras (gul när gammal) utan användarinteraktion.
+  const [farskhetTick, setFarskhetTick] = useState(0);
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    const iv = setInterval(() => setFarskhetTick(t => t + 1), 30000);
+    return () => clearInterval(iv);
   }, [valtObjekt?.id]);
 
   // Spara en markering till Supabase
@@ -10034,6 +10083,31 @@ export default function PlannerPage() {
                   style={{ flexShrink: 0, padding: '9px 16px', borderRadius: 11, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Försök igen</button>
               )}
             </div>
+          </div>
+        );
+      })()}
+
+      {/* Färskhets-stämpel + Uppdatera (mellanlösning, ingen öppen realtid). Visas i körvy OCH
+          planering. Gul när datan är >10 min gammal — föraren ska aldrig tro att gammalt är färskt. */}
+      {valtObjekt && !briefingMode && (() => {
+        const alderMin = markersUppdateradAt != null ? (Date.now() - markersUppdateradAt) / 60000 : null;
+        const gammal = alderMin != null && alderMin >= 10;
+        const tid = markersUppdateradAt != null ? new Date(markersUppdateradAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
+        return (
+          <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 110px)', left: 12, zIndex: 260,
+            display: 'flex', alignItems: 'center', gap: 8, padding: '6px 7px 6px 11px', borderRadius: 13,
+            background: 'rgba(28,28,30,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+            border: `1px solid ${gammal ? 'rgba(255,159,10,0.55)' : 'rgba(255,255,255,0.12)'}`,
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
+            <span style={{ width: 7, height: 7, borderRadius: 4, background: gammal ? '#FF9F0A' : '#34C759', flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: gammal ? '#FF9F0A' : 'rgba(255,255,255,0.75)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+              {tid ? `Uppdaterad ${tid}${gammal ? ` · ${Math.floor(alderMin ?? 0)} min` : ''}` : 'Ej hämtad än'}
+            </span>
+            <button type="button" onClick={() => refetchMarkers(true)} disabled={markersUppdaterar} aria-label="Uppdatera markeringar"
+              style={{ padding: '4px 11px', borderRadius: 9, border: 'none', background: 'rgba(255,255,255,0.14)', color: '#fff',
+                fontSize: 11.5, fontWeight: 600, cursor: markersUppdaterar ? 'default' : 'pointer', opacity: markersUppdaterar ? 0.5 : 1, fontFamily: 'inherit' }}>
+              {markersUppdaterar ? '…' : 'Uppdatera'}
+            </button>
           </div>
         );
       })()}
