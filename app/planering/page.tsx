@@ -425,6 +425,13 @@ export default function PlannerPage() {
   const [markersUppdateradAt, setMarkersUppdateradAt] = useState<number | null>(null);
   const [markersUppdaterar, setMarkersUppdaterar] = useState(false);
   const senasteRefetchRef = useRef(0);
+  // Refetch får ALDRIG radera egna osparade edits eller avbryta en pågående ritning. sparPagarRef =
+  // sync-upserten pågår just nu; upptagenRef = handen ritar/placerar (uppdateras av effekt nedan);
+  // syncTimeoutRef (befintlig) = osparad sync i 1s-debouncen. Är något av dem sant → skjut upp.
+  const sparPagarRef = useRef(false);
+  const upptagenRef = useRef(false);
+  const refetchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const refetchForsokRef = useRef(0);
 
   // Ladda markeringar från Supabase när objekt väljs
   useEffect(() => {
@@ -465,10 +472,36 @@ export default function PlannerPage() {
   // Engångs-refetch av markörerna för aktuellt objekt (Uppdatera-knapp + fokus-retur). Till skillnad
   // från initial-laddningen: vid FEL BEHÅLLS nuvarande markörer (aldrig rensa bort förarens karta på
   // ett nät-hicka) och tidsstämpeln uppdateras EJ. Ersätter med DB-sanning vid lyckad hämtning.
+  // Spegla "ritar/placerar just nu" i en ref → refetchMarkers ser alltid aktuellt läge utan att
+  // ligga i deps (stale-closure-fritt när den retry:ar via timeout).
+  useEffect(() => {
+    upptagenRef.current = isDrawing || currentDrawCoords.length > 0 || isDrawMode || isZoneMode
+      || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode;
+  }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode]);
+
   const refetchMarkers = useCallback(async (force: boolean) => {
     const objektId = valtObjekt?.id;
     if (!objektId) return;
     if (!force && Date.now() - senasteRefetchRef.current < 5000) return; // throttla auto-refetch
+
+    // SKJUT UPP om något är OSPARAT (sync i debouncen eller upsert pågår) ELLER om handen RITAR/
+    // placerar just nu. Annars kan egna osparade edits raderas eller en pågående ritning avbrytas.
+    // Vänta ut det (retry var 0,9 s), men inte i evighet.
+    const upptagen = syncTimeoutRef.current != null || sparPagarRef.current || upptagenRef.current;
+    if (upptagen) {
+      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+      if (refetchForsokRef.current < 15) {           // ~13 s max väntan, sen ge upp tyst
+        refetchForsokRef.current++;
+        setMarkersUppdaterar(true);                  // "…" medan vi väntar (manuellt tryck)
+        refetchTimerRef.current = setTimeout(() => refetchMarkers(force), 900);
+      } else {
+        refetchForsokRef.current = 0;
+        setMarkersUppdaterar(false);                 // fortfarande upptagen → behåll nuvarande data
+      }
+      return;
+    }
+
+    refetchForsokRef.current = 0;
     senasteRefetchRef.current = Date.now();
     setMarkersUppdaterar(true);
     try {
@@ -478,8 +511,9 @@ export default function PlannerPage() {
         .eq('objekt_id', objektId);
       if (error) { console.error('Refetch markörer fel:', error); return; }   // behåll nuvarande, ingen ny stämpel
       if (markersObjektIdRef.current !== objektId) return;                     // objekt bytt under hämtning
+      // Inget osparat kvar (ej upptagen) → DB-sanningen innehåller egna edits + andras. Ersätt tryggt.
       const laddade = (data || []).map((row: any) => row.data as Marker);
-      persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id))); // seeda "redan sparad"-vakten
+      persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id)));
       setMarkers(laddade);
       setMarkersUppdateradAt(Date.now());
     } finally {
@@ -534,18 +568,24 @@ export default function PlannerPage() {
     if (!valtObjekt?.id || !markersLoaded || markersObjektIdRef.current !== valtObjekt.id) return;
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
     syncTimeoutRef.current = setTimeout(async () => {
-      // Upsert alla nuvarande markers
-      const rows = markers.map(m => ({
-        objekt_id: valtObjekt.id,
-        marker_id: String(m.id),
-        typ: getMarkerTyp(m),
-        data: m,
-      }));
-      if (rows.length > 0) {
-        const { error } = await supabase
-          .from('planering_markeringar')
-          .upsert(rows, { onConflict: 'objekt_id,marker_id' });
-        if (error) console.error('Sync markers fel:', error);
+      syncTimeoutRef.current = null;   // debouncen har fyrat → inte längre "pending"
+      sparPagarRef.current = true;     // men upserten pågår → refetch väntar tills DB har edits
+      try {
+        // Upsert alla nuvarande markers
+        const rows = markers.map(m => ({
+          objekt_id: valtObjekt.id,
+          marker_id: String(m.id),
+          typ: getMarkerTyp(m),
+          data: m,
+        }));
+        if (rows.length > 0) {
+          const { error } = await supabase
+            .from('planering_markeringar')
+            .upsert(rows, { onConflict: 'objekt_id,marker_id' });
+          if (error) console.error('Sync markers fel:', error);
+        }
+      } finally {
+        sparPagarRef.current = false;
       }
     }, 1000);
     return () => { if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current); };
