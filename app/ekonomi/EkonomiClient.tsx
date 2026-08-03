@@ -24,8 +24,11 @@ import {
   timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
   ovrigtKrPerM3, type OvrigtRad,
 } from '@/lib/ekonomi/acord';
-import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
-import EkonomiBottomNav from './EkonomiBottomNav';
+import { type PeriodType, getPeriodDates, fetchAllRows } from '@/lib/ekonomi/period';
+import {
+  EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad,
+  Laddar, FelRuta, Tomt, BARNSTEN,
+} from './delade/mall';
 
 // Intäkt per arbetstyp — vad kör vi in och på vilken sorts jobb. Byggd med
 // EXAKT samma additioner som maskinAgg (annan grupperingsnyckel) — summan
@@ -54,9 +57,6 @@ type MaskinAgg = {
 
 function formatKr(n: number) { return `${Math.round(n).toLocaleString('sv-SE')} kr`; }
 function formatVol(n: number) { return `${Math.round(n).toLocaleString('sv-SE')} m³fub`; }
-
-// Bärnsten — dämpad märkning för preliminärt (design-tokens: V6_ST #f0b24c)
-const BARNSTEN = '240,178,76';
 
 export default function EkonomiClient() {
   const [period, setPeriod] = useState<PeriodType>('M');
@@ -464,85 +464,45 @@ export default function EkonomiClient() {
   const sumPrel = maskiner.reduce((s, m) => s + m.prel, 0);
   const sumTimmarUtanPris = maskiner.reduce((s, m) => s + m.timmarUtanPris, 0);
 
-  // Styles — matchar övriga ekonomiflikar
-  const s = {
-    page: { background: '#111110', minHeight: '100vh', paddingTop: 24, paddingBottom: 120, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
-    filterBar: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', gap: 8 } as const,
-    periodBtn: { border: 'none', background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '5px 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: '#7a7a72', cursor: 'pointer' } as const,
-    periodBtnActive: { background: 'rgba(255,255,255,0.12)', color: '#e8e8e4' } as const,
-    arrow: { border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 8px' } as const,
-    label: { fontSize: 12, fontWeight: 600, color: '#e8e8e4', minWidth: 120, textAlign: 'center' as const },
-    card: { background: '#1a1a18', borderRadius: 14, padding: 16 } as const,
-    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 32, padding: '0 4px' } as const,
-  };
-
   return (
-    <div style={s.page}>
-      {/* Fraunces för hero-talet — refereras i hela ekonomisektionen men laddades aldrig */}
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..600&display=swap" />
-
+    <EkonomiSida>
       {/* Periodväxlare — vyns översta rad; titeln bor i TopBar. (i) öppnar förklaringen. */}
-      <div style={s.filterBar}>
-        {(['D', 'V', 'M', 'K', 'A'] as PeriodType[]).map(p => (
-          <button key={p} style={{ ...s.periodBtn, ...(period === p ? s.periodBtnActive : {}) }}
-            onClick={() => { setPeriod(p); setPeriodOffset(0); }}>
-            {p === 'D' ? 'Dag' : p === 'V' ? 'Vecka' : p === 'M' ? 'Månad' : p === 'K' ? 'Kvartal' : 'År'}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        <button style={s.arrow} aria-label="Föregående period" onClick={() => setPeriodOffset(o => o - 1)}>&#8249;</button>
-        <span style={s.label}>{getPeriodLabel(period, periodOffset)}</span>
-        <button style={s.arrow} aria-label="Nästa period" onClick={() => setPeriodOffset(o => o + 1)}>&#8250;</button>
-        <button
-          aria-label="Om beräkningen"
-          onClick={() => setInfoOpen(true)}
-          style={{
-            width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-            background: 'rgba(255,255,255,0.08)', border: 'none', color: '#7a7a72',
-            fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-            fontStyle: 'italic', lineHeight: 1,
-          }}>i</button>
-      </div>
+      <Periodvaxlare
+        perioder={['D', 'V', 'M', 'K', 'A']}
+        period={period}
+        offset={periodOffset}
+        onPeriod={p => { setPeriod(p); setPeriodOffset(0); }}
+        onOffset={setPeriodOffset}
+        onInfo={() => setInfoOpen(true)}
+      />
 
-      {loading && <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72' }}>Laddar...</div>}
+      {loading && <Laddar />}
 
       {!loading && error && (
-        <div style={{ margin: 16, padding: 14, background: 'rgba(255,90,90,0.08)', border: '1px solid rgba(255,90,90,0.3)', color: 'rgba(255,160,160,0.95)', borderRadius: 10, fontSize: 12, lineHeight: 1.5 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Kunde inte läsa ekonomidata</div>
-          <div>{error}</div>
-          <button onClick={fetchData} style={{ marginTop: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#e8e8e4', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}>
-            Försök igen
-          </button>
-        </div>
+        <FelRuta titel="Kunde inte läsa ekonomidata" fel={error} onRetry={fetchData} />
       )}
 
       {!loading && !error && maskiner.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 48, color: '#7a7a72', fontSize: 13 }}>Ingen data för perioden</div>
+        <Tomt>Ingen data för perioden</Tomt>
       )}
 
       {!loading && !error && maskiner.length > 0 && (
         <div style={{ padding: '0 16px' }}>
-          {/* Hero — appens hjärta: talet ensamt, centrerat, luftigt */}
-          <div style={{ textAlign: 'center', padding: '56px 8px 24px' }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.2, color: '#7a7a72' }}>Vi körde in</div>
-            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 44, lineHeight: 1.1, fontWeight: 500, color: '#e8e8e4', marginTop: 10, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
-              {formatKr(sumIntakt)}
-            </div>
-            <div style={{ fontSize: 13, color: '#bfcab9', marginTop: 10 }}>
-              {formatVol(avverkadVol)}
-            </div>
-            {sumPrel > 0 && (
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 16,
-                padding: '5px 12px', borderRadius: 999,
-                background: `rgba(${BARNSTEN},0.10)`, color: `rgba(${BARNSTEN},0.85)`,
-                fontSize: 11, fontWeight: 500,
-              }}>
-                <span style={{ width: 5, height: 5, borderRadius: '50%', background: `rgba(${BARNSTEN},0.8)`, flexShrink: 0 }} />
-                {formatKr(sumPrel)} preliminärt · {prelObjektAntal} objekt ej slutavräknade
+          {/* Hero — appens hjärta: talet ensamt, centrerat, benvitt (magnitud, inte signerat) */}
+          <Hero
+            etikett="Vi körde in"
+            varde={formatKr(sumIntakt)}
+            under={
+              <div style={{ fontSize: 13, color: '#bfcab9', marginTop: 10 }}>
+                {formatVol(avverkadVol)}
               </div>
-            )}
-          </div>
+            }
+          />
+          {/* Preliminärt — metarad, ingen pill. Bärnsten-ordet bär meningen. */}
+          <MetaRad delar={[
+            sumPrel > 0 && { text: `${formatKr(sumPrel)} preliminärt`, barnsten: true },
+            sumPrel > 0 && { text: `${prelObjektAntal} objekt ej slutavräknade` },
+          ]} />
 
           {/* Larmrader — bara vid trasig konfiguration (förklaringar bor i (i)-sheeten) */}
           {(ackordUtanPrislista || sumTimmarUtanPris > 0) && (
@@ -558,14 +518,20 @@ export default function EkonomiClient() {
 
           {/* Listval: Per arbetstyp (standard — vad kör vi in och på vilken
               sorts jobb) eller Per maskin. Båda byggs av SAMMA intäkts-
-              additioner — de kan inte visa olika total. */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 32, marginBottom: 10, padding: '0 4px' }}>
-            {([['arbetstyp', 'Per arbetstyp'], ['maskin', 'Per maskin']] as ['arbetstyp' | 'maskin', string][]).map(([v, label]) => (
-              <button key={v} style={{ ...s.periodBtn, ...(listVal === v ? s.periodBtnActive : {}) }}
-                onClick={() => setListVal(v)}>
-                {label}
-              </button>
-            ))}
+              additioner — de kan inte visa olika total. Samma understrukna
+              textstil som periodväxlaren. */}
+          <div style={{ display: 'flex', gap: 14, marginTop: 32, marginBottom: 10, padding: '0 4px' }}>
+            {([['arbetstyp', 'Per arbetstyp'], ['maskin', 'Per maskin']] as ['arbetstyp' | 'maskin', string][]).map(([v, label]) => {
+              const aktiv = listVal === v;
+              return (
+                <button key={v} onClick={() => setListVal(v)} style={{
+                  border: 'none', background: 'none', padding: '4px 0 3px',
+                  fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  color: aktiv ? '#e8e8e4' : '#7a7a72',
+                  borderBottom: aktiv ? '1.5px solid #e8e8e4' : '1.5px solid transparent',
+                }}>{label}</button>
+              );
+            })}
           </div>
 
           {listVal === 'arbetstyp' && (() => {
@@ -577,7 +543,7 @@ export default function EkonomiClient() {
             const fmtTim2 = (n: number) => `${Math.round(n).toLocaleString('sv-SE')} G15-tim`;
             const synliga = arbetstyper.filter(t => t.intakt > 0 || t.timmar > 0);
             return (
-              <div style={{ ...s.card, padding: '0 16px' }}>
+              <Lista>
                 {synliga.map((t, i) => {
                   const blandad = t.ackordKr > 0 && t.timpengKr > 0;
                   const etikett = blandad ? 'ackord · viss timpeng' : (t.ackordKr > 0 ? 'ackord' : 'timpeng');
@@ -585,55 +551,41 @@ export default function EkonomiClient() {
                   const okand = t.typ === 'okant';
                   const oppen = oppenTyp === t.typ;
                   return (
-                    <div key={t.typ} style={{
-                      padding: '16px 0',
-                      borderBottom: i < synliga.length - 1 ? '0.5px solid rgba(255,255,255,0.07)' : 'none',
-                    }}>
-                      <div onClick={() => blandad && setOppenTyp(oppen ? null : t.typ)} style={{ cursor: blandad ? 'pointer' : 'default' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: okand ? '#7a7a72' : '#e8e8e4' }}>
-                              {TYP_NAMN[t.typ] || t.typ}
-                              <span style={{ color: '#7a7a72', fontWeight: 400, fontSize: 11 }}> · {etikett}</span>
-                            </div>
-                            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>
-                              {/* Rätt enhet per typ — avverkad volym för slutavverkning,
-                                  G15-timmar för timpeng-typerna. Aldrig hopblandad volym. */}
-                              {t.typ === 'slutavverkning'
-                                ? `${Math.round(t.skordadVol).toLocaleString('sv-SE')} m³fub avverkat`
-                                : fmtTim2(t.timmar)}
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: okand ? '#7a7a72' : '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
-                              {formatKr(t.intakt)}
-                            </div>
-                            {blandad && <span style={{ fontSize: 11, color: '#7a7a72', transform: oppen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>}
-                          </div>
-                        </div>
-                        {/* Andel av total intäkt — på radens bredd */}
-                        <div style={{ marginTop: 8, height: 3, borderRadius: 2, width: `${andel * 100}%`, background: 'rgba(122,122,114,0.5)' }} />
+                    <ListRad key={t.typ}
+                      rubrik={<>
+                        {TYP_NAMN[t.typ] || t.typ}
+                        <span style={{ color: '#7a7a72', fontWeight: 400, fontSize: 11 }}> · {etikett}</span>
+                      </>}
+                      rubrikFarg={okand ? '#7a7a72' : '#e8e8e4'}
+                      /* Rätt enhet per typ — avverkad volym för slutavverkning,
+                         G15-timmar för timpeng-typerna. Aldrig hopblandad volym. */
+                      detalj={t.typ === 'slutavverkning'
+                        ? `${Math.round(t.skordadVol).toLocaleString('sv-SE')} m³fub avverkat`
+                        : fmtTim2(t.timmar)}
+                      tal={formatKr(t.intakt)}
+                      talFarg={okand ? '#7a7a72' : '#e8e8e4'}
+                      stapelAndel={andel}
+                      chevron={blandad}
+                      oppen={oppen && blandad}
+                      onClick={blandad ? () => setOppenTyp(oppen ? null : t.typ) : undefined}
+                      sista={i === synliga.length - 1}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
+                        <span style={{ color: '#7a7a72' }}>
+                          Ackord · {t.typ === 'slutavverkning'
+                            ? `${Math.round(t.ackordVol).toLocaleString('sv-SE')} m³fub`
+                            : fmtTim2(t.ackordTimmar)}
+                        </span>
+                        <span style={{ color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>{formatKr(t.ackordKr)}</span>
                       </div>
-                      {oppen && blandad && (
-                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '0.5px solid rgba(255,255,255,0.07)', display: 'grid', gap: 6 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
-                            <span style={{ color: '#7a7a72' }}>
-                              Ackord · {t.typ === 'slutavverkning'
-                                ? `${Math.round(t.ackordVol).toLocaleString('sv-SE')} m³fub`
-                                : fmtTim2(t.ackordTimmar)}
-                            </span>
-                            <span style={{ color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>{formatKr(t.ackordKr)}</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
-                            <span style={{ color: '#7a7a72' }}>Timpeng · {fmtTim2(t.timpengTimmar)}</span>
-                            <span style={{ color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>{formatKr(t.timpengKr)}</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
+                        <span style={{ color: '#7a7a72' }}>Timpeng · {fmtTim2(t.timpengTimmar)}</span>
+                        <span style={{ color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>{formatKr(t.timpengKr)}</span>
+                      </div>
+                    </ListRad>
                   );
                 })}
-              </div>
+              </Lista>
             );
           })()}
 
@@ -646,42 +598,30 @@ export default function EkonomiClient() {
               namnAntal[n] = (namnAntal[n] || 0) + 1;
             }
             const maxIntakt = maskiner.reduce((mx, m) => Math.max(mx, m.intakt), 0);
-            // EN lista, inte fem kort — rader med hårfin avdelare, ingen efter sista
+            // EN lista, inte fem kort — rader med hårfin avdelare, ingen efter sista.
+            // Stapeln = andel av periodens största maskin, på RADENS bredd.
             return (
-              <div style={{ ...s.card, padding: '0 16px' }}>
+              <Lista>
                 {maskiner.map((m, i) => {
                   const namn = rensaNamn(m.maskin_namn);
                   const roll = m.maskin_typ === 'Forwarder' ? 'skotare' : 'skördare';
                   const andel = maxIntakt > 0 ? Math.max(0, Math.min(1, m.intakt / maxIntakt)) : 0;
                   return (
-                    <div key={m.maskin_id} style={{
-                      padding: '16px 0',
-                      borderBottom: i < maskiner.length - 1 ? '0.5px solid rgba(255,255,255,0.07)' : 'none',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {namn}
-                            {/* Två maskiner kan dela prisnamn (två H8E) — maskin_id är det som faktiskt skiljer dem */}
-                            {namnAntal[namn] > 1 && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {m.maskin_id}</span>}
-                          </div>
-                          <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>{roll} · {formatVol(m.volym)}</div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
-                            {formatKr(m.intakt)}
-                          </div>
-                          {m.prel > 0 && <div style={{ fontSize: 11, color: `rgba(${BARNSTEN},0.75)`, marginTop: 2 }}>{formatKr(m.prel)} prel.</div>}
-                        </div>
-                      </div>
-                      {/* Andel av periodens största maskin — bara den fyllda biten, längden bär
-                          informationen. På RADENS bredd (inte vänsterkolumnens, som varierar med
-                          beloppets textlängd) så längderna är jämförbara mellan rader. */}
-                      <div style={{ marginTop: 8, height: 3, borderRadius: 2, width: `${andel * 100}%`, background: 'rgba(122,122,114,0.5)' }} />
-                    </div>
+                    <ListRad key={m.maskin_id}
+                      rubrik={<>
+                        {namn}
+                        {/* Två maskiner kan dela prisnamn (två H8E) — maskin_id är det som faktiskt skiljer dem */}
+                        {namnAntal[namn] > 1 && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {m.maskin_id}</span>}
+                      </>}
+                      detalj={`${roll} · ${formatVol(m.volym)}`}
+                      tal={formatKr(m.intakt)}
+                      undertal={m.prel > 0 ? <span style={{ color: `rgba(${BARNSTEN},0.75)` }}>{formatKr(m.prel)} prel.</span> : undefined}
+                      stapelAndel={andel}
+                      sista={i === maskiner.length - 1}
+                    />
                   );
                 })}
-              </div>
+              </Lista>
             );
           })()}
 
@@ -738,8 +678,6 @@ export default function EkonomiClient() {
           </div>
         </>
       )}
-
-      <EkonomiBottomNav />
-    </div>
+    </EkonomiSida>
   );
 }
