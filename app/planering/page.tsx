@@ -162,6 +162,11 @@ interface Marker {
   zoneType?: string;
   lineType?: string;
   rotation?: number;
+  // Pilar sparar numera geo direkt (lng/lat + angle) så de aldrig hänger på svgToLatLon/origo;
+  // gamla pilar har bara x/y + rotation → renderas via svgToLatLon (dual-format, ingen försvinner).
+  lng?: number;
+  lat?: number;
+  angle?: number;
   path?: Point[];
   comment?: string;
   antal?: number; // miljöhänsyn: bara eternitytree/highstump — hur många träd/stubbar punkten representerar
@@ -3499,12 +3504,16 @@ export default function PlannerPage() {
 
         if (isArrowMode && arrowType) {
           saveToHistory([...markers]);
+          const arrowLL = svgToLatLon(svgPos.x, svgPos.y);
           const newArrow = {
             id: Date.now(),
             arrowType,
             x: svgPos.x,
             y: svgPos.y,
+            lng: arrowLL.lon,   // geo sparas direkt (nya pilar) — x/y behålls för bakåtkomp.
+            lat: arrowLL.lat,
             rotation: 0,
+            angle: 0,
             isArrow: true,
           };
           setMarkers((prev: any[]) => [...prev, newArrow]);
@@ -5646,11 +5655,14 @@ export default function PlannerPage() {
     if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte pilar på fel plats
     const arrows = visibleLayers.arrows ? markers.filter((m: any) => m.isArrow) : [];
     const features = arrows.map((m: any) => {
-      const ll = svgToLatLon(m.x, m.y);
+      // Dual-format: geo-sparad pil (nya) → använd lng/lat direkt; gammal pil → konvertera x/y via
+      // svgToLatLon (samma origo-metod som symboler; returnerar {lat, LON}). Ingen pil försvinner.
+      const ll = (m.lng != null && m.lat != null) ? { lon: m.lng, lat: m.lat } : svgToLatLon(m.x, m.y);
+      const vinkel = m.angle ?? m.rotation ?? 0; // nya sparar 'angle', gamla har 'rotation'
       return {
         type: 'Feature' as const,
-        properties: { arrowType: m.arrowType || 'drivedirection', rotation: m.rotation || 0, opacity: 1 },
-        geometry: { type: 'Point' as const, coordinates: [ll.lng, ll.lat] },
+        properties: { arrowType: m.arrowType || 'drivedirection', rotation: vinkel, opacity: 1 },
+        geometry: { type: 'Point' as const, coordinates: [ll.lon, ll.lat] },
       };
     });
     src.setData({ type: 'FeatureCollection', features });
@@ -8495,11 +8507,15 @@ export default function PlannerPage() {
     // Placera pil
     if (isArrowMode && arrowType) {
       saveToHistory([...markers]);
+      const arrowLL = svgToLatLon(x, y);
       const newArrow = {
         id: Date.now(),
         arrowType,
         x, y,
+        lng: arrowLL.lon,   // geo sparas direkt (nya pilar) — x/y behålls för bakåtkomp.
+        lat: arrowLL.lat,
         rotation: 0,
+        angle: 0,
         isArrow: true,
       };
       setMarkers(prev => [...prev, newArrow]);
