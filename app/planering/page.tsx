@@ -472,13 +472,8 @@ export default function PlannerPage() {
   // Engångs-refetch av markörerna för aktuellt objekt (Uppdatera-knapp + fokus-retur). Till skillnad
   // från initial-laddningen: vid FEL BEHÅLLS nuvarande markörer (aldrig rensa bort förarens karta på
   // ett nät-hicka) och tidsstämpeln uppdateras EJ. Ersätter med DB-sanning vid lyckad hämtning.
-  // Spegla "ritar/placerar just nu" i en ref → refetchMarkers ser alltid aktuellt läge utan att
-  // ligga i deps (stale-closure-fritt när den retry:ar via timeout).
-  useEffect(() => {
-    upptagenRef.current = isDrawing || currentDrawCoords.length > 0 || isDrawMode || isZoneMode
-      || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode;
-  }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode]);
-
+  // OBS: effekten som sätter upptagenRef ligger LÄNGRE NER (efter att isDrawMode/currentDrawCoords/
+  // measureMode m.fl. deklarerats) — deras deps får inte läsas här uppe (TDZ, kraschade #331).
   const refetchMarkers = useCallback(async (force: boolean) => {
     const objektId = valtObjekt?.id;
     if (!objektId) return;
@@ -2030,6 +2025,14 @@ export default function PlannerPage() {
   const [measureAreaMode, setMeasureAreaMode] = useState(false); // Ytmätning
   const [measurePath, setMeasurePath] = useState<Point[]>([]); // (vestigial — gamla skärmkoord-systemet)
   const [isMeasuring, setIsMeasuring] = useState(false);
+
+  // Spegla "ritar/placerar just nu" i upptagenRef (deklarerad högre upp) så refetchMarkers ser
+  // aktuellt läge utan att ligga i deps (stale-closure-fritt vid retry). MÅSTE ligga EFTER all
+  // refererad state — annars TDZ ("Cannot access before initialization") vid render (kraschade #331).
+  useEffect(() => {
+    upptagenRef.current = isDrawing || currentDrawCoords.length > 0 || isDrawMode || isZoneMode
+      || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode;
+  }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode]);
   // Geo-mätning: committad path i lng/lat (sanning för siffran), live-drag i ref (ingen re-render
   // per punkt), och ett ref till siffer-etiketten för live-uppdatering under drag.
   const [measureGeo, setMeasureGeo] = useState<[number, number][]>([]);
