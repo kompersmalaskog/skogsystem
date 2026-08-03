@@ -38,6 +38,28 @@ function maskinNamn(m: Maskin): string {
   return m.visningsnamn?.trim() || m.modell || m.maskin_id;
 }
 
+// Datumgräns för date-inputarna. Desktop-Chromes date-input tillåter ett
+// 6-siffrigt år i årssegmentet — skriver man en extra siffra blir "2026" till
+// "202607", och Postgres `date` ACCEPTERAR 6-siffriga år så skräpet lagras tyst
+// (aktiv_till blev "202607-02-26" = år 202607). min/max hjälper pickern; den
+// bärande garantin är datumFel() som gate:ar sparandet.
+const DATUM_MIN = "1970-01-01";
+const DATUM_MAX = "2100-12-31";
+const DATUM_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Returnerar felmeddelande om strängen inte är exakt ÅÅÅÅ-MM-DD (fyrsiffrigt år)
+// och ett verkligt datum inom [1970, 2100]. Tomt = giltigt (fältet rensat).
+function datumFel(s: string, etikett: string): string | null {
+  if (!s) return null;
+  if (!DATUM_RE.test(s)) return `${etikett}: ogiltigt format — ska vara ÅÅÅÅ-MM-DD (fyrsiffrigt år).`;
+  const [y, m, d] = s.split("-").map(Number);
+  if (y < 1970 || y > 2100) return `${etikett}: året ${y} verkar fel — skriv ett fyrsiffrigt år.`;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d)
+    return `${etikett}: ${s} är inte ett giltigt datum.`;
+  return null;
+}
+
 type Vy = { typ: "lista" } | { typ: "detalj"; id: string };
 
 export default function MaskinerFlik() {
@@ -265,6 +287,10 @@ function DetaljVy({
   };
 
   const skriv = async (extra: Record<string, any> = {}) => {
+    // Datum-gate: släpp aldrig igenom ett icke-kanoniskt datum (6-siffrigt år
+    // etc.) till dim_maskin. Bättre ärligt fel än tyst skräp i DB.
+    const dFel = datumFel(aktivFran, "Aktiv från") || datumFel(aktivTill, "Aktiv till");
+    if (dFel) { setSparFel(dFel); return; }
     setSparar(true);
     setSparFel(null);
     const ok = await verifieraSkriv({ ...faltPayload(), ...extra });
@@ -355,8 +381,8 @@ function DetaljVy({
       {/* Driftperiod */}
       <p style={{ ...secHead, marginTop: 22 }}>Driftperiod</p>
       <Card>
-        <Field label="Aktiv från" value={aktivFran} onChange={setAktivFran} type="date" />
-        <Field label="Aktiv till" value={aktivTill} onChange={setAktivTill} type="date"
+        <Field label="Aktiv från" value={aktivFran} onChange={setAktivFran} type="date" min={DATUM_MIN} max={DATUM_MAX} />
+        <Field label="Aktiv till" value={aktivTill} onChange={setAktivTill} type="date" min={DATUM_MIN} max={DATUM_MAX}
           hint="Sätts när maskinen säljs/tas ur drift. Historiken bevaras — maskinen faller bara ur bevakning." />
       </Card>
 
@@ -419,16 +445,16 @@ function DetaljVy({
 /* ─── FÄLT-KOMPONENTER ─── */
 
 function Field({
-  label, value, onChange, placeholder, type = "text", hint,
+  label, value, onChange, placeholder, type = "text", hint, min, max,
 }: {
   label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string; hint?: string;
+  placeholder?: string; type?: string; hint?: string; min?: string; max?: string;
 }) {
   return (
     <div style={{ marginBottom: 12 }}>
       <label style={{ display: "block", fontSize: 12, color: C.label, marginBottom: 6, fontWeight: 500 }}>{label}</label>
       <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        style={inputStyle as CSSProperties} />
+        min={min} max={max} style={inputStyle as CSSProperties} />
       {hint && <p style={{ margin: "6px 0 0", fontSize: 11, color: C.label }}>{hint}</p>}
     </div>
   );
