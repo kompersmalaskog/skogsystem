@@ -347,6 +347,7 @@ export type PeriodKpi = {
   medelstam: number | null
   branslePerM3: number | null
   stammarPerG15h: number | null
+  g15h: number | null
   kortStoppAndel: number | null   // korta stopp som % av motortid (mätt)
 }
 
@@ -405,6 +406,7 @@ export async function fetchSeries(
         label: ranges[i].label, hasData: false,
         produktivitet: null, volym: null, stammar: null,
         medelstam: null, branslePerM3: null, stammarPerG15h: null,
+        g15h: null,
         kortStoppAndel: null,
       }
     }
@@ -416,6 +418,7 @@ export async function fetchSeries(
       medelstam:       b.stammar > 0                  ? b.volym / b.stammar : null,
       branslePerM3:    (b.volym > 0 && b.bransle > 0) ? b.bransle / b.volym : null,
       stammarPerG15h:  (g15h > 0 && b.stammar > 0)    ? b.stammar / g15h    : null,
+      g15h:            g15h > 0                       ? g15h                : null,
       kortStoppAndel:  b.engine > 0                   ? (b.kortStopp / b.engine) * 100 : null,
     }
   })
@@ -710,7 +713,7 @@ export function HeroCard({
 // jämförelse-kolumnen visar procentdelta ('previous'/'machine' för
 // hastighetsmått) eller andel ('machine' för totalmått Volym/Stammar).
 // ─────────────────────────────────────────────────────────────
-type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h' | 'kortStoppAndel'
+type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h' | 'g15h' | 'kortStoppAndel'
 
 export function KpiList({
   data, prev, series, loading,
@@ -753,6 +756,7 @@ export function KpiList({
     { label: 'Medelstam',     metric: 'medelstam',      cur: data?.medelstam ?? null,       prev: prev?.medelstam ?? null,       unit: 'm³/stam', dec: 2, lowerIsBetter: false, kind: 'rate'  },
     { label: 'Bränsle/m³',    metric: 'branslePerM3',   cur: data?.branslePerM3 ?? null,    prev: prev?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2, lowerIsBetter: true,  kind: 'rate'  },
     { label: 'Stammar/G15h',  metric: 'stammarPerG15h', cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false, kind: 'rate'  },
+    { label: 'G15-tid',       metric: 'g15h',           cur: data && data.g15h > 0 ? data.g15h : null,  prev: prev && prev.g15h > 0 ? prev.g15h : null,  unit: 'h',       dec: 1, lowerIsBetter: false, kind: 'total' },
     { label: 'Korta stopp',   metric: 'kortStoppAndel', cur: kortStoppAndel(data),          prev: kortStoppAndel(prev),          unit: '%',       dec: 1, lowerIsBetter: true,  kind: 'rate',  display: kortStoppDisplay, mutedDisplay: kortSaknas },
   ]
 
