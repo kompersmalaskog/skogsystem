@@ -256,9 +256,7 @@ export default function EkonomiClient() {
         for (const o of manuellObjekt) {
           const oLass = helaLass.filter((r: any) => r.objekt_id === o.objekt_id);
           const oTid = helaTid.filter((r: any) => r.objekt_id === o.objekt_id && maskinMap[r.maskin_id]?.maskin_typ === 'Forwarder');
-          // Fallback till dim_objekt-värdet om skotare_objekt_manuell-fetch misslyckades
-          const manuellRader = manuellRaderPerObjekt.get(o.objekt_id)
-            ?? [{ maskin_id: null, volym_m3: Number(o.skotad_volym_manuell) }];
+          const manuellRader = manuellRaderPerObjekt.get(o.objekt_id) ?? [];
           const f = fordelaSkotadVolymFrånDB(manuellRader, oLass, oTid);
           for (const d of f.delar) {
             if (d.datum < start || d.datum > end) continue;

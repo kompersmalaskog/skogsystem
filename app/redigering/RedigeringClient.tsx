@@ -364,6 +364,23 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
   if (!r2.ok) return { ok: false, message: 'Skördarfälten: ' + r2.message }
   const r3 = await direktPatchDimObjekt(skotarIds, skotarPatch)
   if (!r3.ok) return { ok: false, message: 'Skotarfälten: ' + r3.message }
+  // Spegla skotarvolym/G15 till skotare_objekt_manuell (primär läskälla sedan DEL 0)
+  const harVolym = (obj.skotad_volym_manuell ?? 0) > 0
+  const harG15 = (obj.skotning_g15_manuell ?? 0) > 0
+  const { error: delManuellErr } = await supabase
+    .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds).is('maskin_id', null)
+  if (delManuellErr) return { ok: false, message: 'Skotarvolym (rensning): ' + delManuellErr.message }
+  if (harVolym || harG15) {
+    const { error: insManuellErr } = await supabase.from('skotare_objekt_manuell').insert(
+      skotarIds.map((id: string) => ({
+        objekt_id: id,
+        maskin_id: null as null,
+        volym_m3: harVolym ? Number(obj.skotad_volym_manuell) : null,
+        g15_timmar: harG15 ? Number(obj.skotning_g15_manuell) : null,
+      }))
+    )
+    if (insManuellErr) return { ok: false, message: 'Skotarvolym (ny tabell): ' + insManuellErr.message }
+  }
   return { ok: true, message: '' }
 }
 // === SLUT SUPABASE ===
@@ -2098,6 +2115,26 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
             if (arRisjobb) patch.skotning_avslutad = varde == null ? null : idagDatum
             const r = await direktPatchDimObjekt(skotarIds, patch)
             if (!r.ok) { setFardigskotat({ sparar: false, fel: r.message }); return }
+            // Spegla till skotare_objekt_manuell (primär läskälla sedan DEL 0)
+            if (varde === null) {
+              const { error: delErr } = await supabase
+                .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds).is('maskin_id', null)
+              if (delErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym: ' + delErr.message }); return }
+            } else {
+              // Bevara befintlig g15_timmar (sätts via spara-formuläret, ej här)
+              const { data: befintliga } = await supabase.from('skotare_objekt_manuell')
+                .select('objekt_id, g15_timmar').in('objekt_id', skotarIds).is('maskin_id', null)
+              const g15Map = new Map((befintliga || []).map((row: any) => [row.objekt_id, row.g15_timmar]))
+              const { error: delErr } = await supabase
+                .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds).is('maskin_id', null)
+              if (delErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (rensning): ' + delErr.message }); return }
+              const { error: insErr } = await supabase.from('skotare_objekt_manuell').insert(
+                skotarIds.map((id: string) => ({
+                  objekt_id: id, maskin_id: null as null, volym_m3: Number(varde), g15_timmar: g15Map.get(id) ?? null,
+                }))
+              )
+              if (insErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (ny tabell): ' + insErr.message }); return }
+            }
             if (arRisjobb) {
               // Automatiken körs EFTER att markeringen landat. Misslyckas den
               // visas felet — en halvkörd avbockning tigs aldrig ihjäl.

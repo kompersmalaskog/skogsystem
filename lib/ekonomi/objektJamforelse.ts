@@ -147,14 +147,20 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
         .in('objekt_id', ids).range(from, to)
     ),
     supabase.from('skotare_objekt_manuell')
-      .select('objekt_id, maskin_id, volym_m3')
+      .select('objekt_id, maskin_id, volym_m3, g15_timmar')
       .in('objekt_id', ids),
   ]);
   const manuellRaderPerObjekt = new Map<string, SkotareManuellRad[]>();
+  const volymManuellPerObjekt = new Map<string, number>();
+  const g15ManuellPerObjekt = new Map<string, number>();
   for (const r of (skotareManuellRes.data || [])) {
     const arr = manuellRaderPerObjekt.get(r.objekt_id) ?? [];
     arr.push({ maskin_id: r.maskin_id, volym_m3: r.volym_m3 });
     manuellRaderPerObjekt.set(r.objekt_id, arr);
+    if (r.maskin_id === null) {
+      if ((r.volym_m3 ?? 0) > 0) volymManuellPerObjekt.set(r.objekt_id, Number(r.volym_m3));
+      if ((r.g15_timmar ?? 0) > 0) g15ManuellPerObjekt.set(r.objekt_id, Number(r.g15_timmar));
+    }
   }
 
   const objMeta: Record<string, any> = {};
@@ -245,9 +251,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   }
   const kundeInteFordela = new Set<string>();
   for (const o of valda) {
-    // Fallback till dim_objekt-värdet om skotare_objekt_manuell-fetch misslyckades
-    const manuellRader = manuellRaderPerObjekt.get(o.objekt_id)
-      ?? (o.skotad_volym_manuell ? [{ maskin_id: null, volym_m3: Number(o.skotad_volym_manuell) }] : []);
+    const manuellRader = manuellRaderPerObjekt.get(o.objekt_id) ?? [];
     const f = fordelaSkotadVolymFrånDB(manuellRader, lassPerObjekt[o.objekt_id] || [], skotarTidPerObjekt[o.objekt_id] || []);
     if (f.kundeInteFordela) kundeInteFordela.add(o.objekt_id);
     for (const d of f.delar) {
@@ -286,7 +290,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     // manuella timmar prissätts med avräkningsdagens timpris, inga pris-hål.
     const manuellTim = roll === 'skördare'
       ? Number(objMeta[oid]?.skordning_g15_manuell)
-      : Number(objMeta[oid]?.skotning_g15_manuell);
+      : (g15ManuellPerObjekt.get(oid) ?? 0);
     if (manuellTim > 0) {
       (delar[oid] ||= []).push({
         maskin_id: mid, roll, volym, ackord,
@@ -347,7 +351,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     if (utanPris > 0.5) {
       orsak = `${fmtTim(utanPris)} h saknar timpris`;
     } else if (kundeInteFordela.has(o.objekt_id)) {
-      orsak = `${Math.round(Number(o.skotad_volym_manuell))} m³ manuell skotad volym utan tids- eller lassdata att fördela på`;
+      orsak = `${Math.round(volymManuellPerObjekt.get(o.objekt_id) ?? 0)} m³ manuell skotad volym utan tids- eller lassdata att fördela på`;
     } else if (skotadVol > 0 && skotarTim < 1) {
       orsak = `${Math.round(skotadVol)} m³ skotat men under en timmes skotartid — skotartiden ofullständig`;
     } else if (skotarTim > 0 && skotadVol / skotarTim > MAX_SKOTAD_M3_PER_G15H) {
@@ -356,7 +360,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
 
     // Ackordgrunden — färgregeln: mätt värde = benvitt, manuellt/uppskattat = bärnsten
     const egen = o.egen_skotning === true;
-    const skotadManuell = Number(o.skotad_volym_manuell) > 0;
+    const skotadManuell = (volymManuellPerObjekt.get(o.objekt_id) ?? 0) > 0;
     const avstManuell = Number(o.skotavstand_manuell) > 0;
     const msMan = medelstamOverride(o.objekt_id);
     const msAuto = objMedelstam[o.objekt_id];
