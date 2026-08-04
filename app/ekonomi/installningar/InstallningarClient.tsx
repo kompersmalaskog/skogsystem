@@ -68,9 +68,48 @@ function numOrNull(v: Num): number | null {
   return v === '' || v === null ? null : Number(v);
 }
 
+// Ett synk-segment: "verifikat 4 aug" dämpat, eller i bärnsten med ålder
+// när senaste lyckade körningen är äldre än 3 dygn (död synk ska synas).
+const SYNK_LARM_DYGN = 3;
+function synkDel(label: string, iso: string | null) {
+  if (!iso) return <span style={{ color: 'rgba(240,178,76,0.85)' }}>{label} aldrig</span>;
+  const dygn = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  const datum = new Date(iso).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+  if (dygn > SYNK_LARM_DYGN) {
+    return <span style={{ color: 'rgba(240,178,76,0.85)' }}>{label} {datum} — {dygn} dygn sedan</span>;
+  }
+  return <span>{label} {datum}</span>;
+}
+
+// Fortnox-synkstatus (fortnox_sync_state via /api/fortnox/sync-status).
+// 'fel' = kunde inte läsas — visas, aldrig tyst (en död statusläsning är
+// samma blindhet som larmet ska bota).
+type SynkStatus = {
+  last_success_at: string | null;
+  invoice_last_sync_at: string | null;
+} | 'fel' | null;
+
 export default function InstallningarClient() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
+  const [synk, setSynk] = useState<SynkStatus>(null);
+
+  useEffect(() => {
+    let avbruten = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/fortnox/sync-status', { cache: 'no-store' });
+        const body = await r.json();
+        if (avbruten) return;
+        setSynk(r.ok && body.ok
+          ? { last_success_at: body.last_success_at || null, invoice_last_sync_at: body.invoice_last_sync_at || null }
+          : 'fel');
+      } catch {
+        if (!avbruten) setSynk('fel');
+      }
+    })();
+    return () => { avbruten = true; };
+  }, []);
 
   const [maskiner, setMaskiner] = useState<MaskinRad[]>([]);
   const [acord, setAcord] = useState<AcordRad[]>([]);
@@ -486,6 +525,19 @@ export default function InstallningarClient() {
       <div style={s.header}>
         <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Prisinställningar</div>
         <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>Ändringar skapar nya rader med dagens datum. Gamla priser bevaras.</div>
+        {/* Synk-status — en död Fortnox-synk ska synas HÄR, inte upptäckas
+            efter månader. Äldre än 3 dygn → bärnsten. */}
+        {synk && (
+          <div style={{ fontSize: 11, marginTop: 6, color: '#7a7a72' }}>
+            {synk === 'fel' ? (
+              <>Fortnox-synk: status kunde inte läsas</>
+            ) : (
+              <>
+                Fortnox senast synkad: {synkDel('verifikat', synk.last_success_at)} · {synkDel('fakturor', synk.invoice_last_sync_at)}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {msg && (

@@ -20,10 +20,14 @@ export const maxDuration = 300;
  */
 
 function auktoriseradCron(req: NextRequest): boolean {
-  const secret = process.env.FORTNOX_SYNC_SECRET;
-  if (!secret) return false;
   const auth = req.headers.get("authorization") || "";
-  return auth === `Bearer ${secret}`;
+  // FORTNOX_SYNC_SECRET = gamla pg_cron-vägen; CRON_SECRET = Vercel cron
+  // (Vercel skickar Authorization: Bearer $CRON_SECRET automatiskt när
+  // env-varn är satt — utan den anropar cron utan header och får 401).
+  for (const secret of [process.env.FORTNOX_SYNC_SECRET, process.env.CRON_SECRET]) {
+    if (secret && auth === `Bearer ${secret}`) return true;
+  }
+  return false;
 }
 
 async function kontrolleraAdmin(req: NextRequest): Promise<boolean> {
