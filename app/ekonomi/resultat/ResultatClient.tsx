@@ -1,8 +1,24 @@
 'use client';
 
+// Resultat — BOKFÖRD vinst ur Fortnox: fakturerad intäkt minus bokförda
+// kostnader för perioden. OBS: detta är INTE samma tal som Översiktens
+// "vi körde in" (producerad ackordintäkt räknad på volym) — skillnaden
+// står i (i)-sheeten så ingen tror att de två flikarna säger emot varandra.
+//
+// Layout via delade mallen (app/ekonomi/delade/mall.tsx). Bara Månad/
+// Kvartal/År — kostnader bokförs inte per dag, en dagsvinst vore en lögn.
+//
+// FÄRGREGELN: resultatet är ett signerat tal → grönt/rött. Kostnader är
+// neutrala/dämpade — ALDRIG bärnsten (bärnsten = preliminärt i sektionen).
+
 import { useEffect, useState, useCallback } from 'react';
-import EkonomiBottomNav from '../EkonomiBottomNav';
 import { type PeriodType, getPeriodDates, getPeriodLabel } from '@/lib/ekonomi/period';
+import {
+  EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad, SektionsTitel,
+  Laddar, FelRuta, Tomt, GRON, ROD,
+} from '../delade/mall';
+
+type Kostnader = { drivmedel: number; drift_service: number; loner: number; avskrivning: number; ovrigt: number; total: number };
 
 type MaskinResult = {
   maskin_id: string;
@@ -13,14 +29,14 @@ type MaskinResult = {
   ok: boolean;
   fel?: string;
   intakter?: number;
-  kostnader?: { drivmedel: number; drift_service: number; loner: number; ovrigt: number; total: number };
+  kostnader?: Kostnader;
   resultat?: number;
 };
 
 type Sammanfattning = {
   ok: boolean;
   intakter: number;
-  kostnader: { drivmedel: number; drift_service: number; loner: number; ovrigt: number; total: number };
+  kostnader: Kostnader;
   resultat: number;
 };
 
@@ -28,11 +44,21 @@ type OvrigtCc = {
   kod: string;
   namn?: string;
   intakter: number;
-  kostnader: { drivmedel: number; drift_service: number; loner: number; ovrigt: number; total: number };
+  kostnader: Kostnader;
   resultat: number;
 };
 
+const KATEGORIER: [keyof Kostnader, string][] = [
+  ['drivmedel', 'Drivmedel'],
+  ['drift_service', 'Drift & service'],
+  ['loner', 'Lön'],
+  ['avskrivning', 'Avskrivning'],
+  ['ovrigt', 'Övrigt'],
+];
+
 function formatKr(n: number) { return `${Math.round(n).toLocaleString('sv-SE')} kr`; }
+function fmtSign(n: number) { return `${n < 0 ? '−' : '+'}${Math.round(Math.abs(n)).toLocaleString('sv-SE')}`; }
+function resFarg(n: number) { return n >= 0 ? `rgba(${GRON},0.9)` : `rgba(${ROD},0.9)`; }
 
 export default function ResultatClient() {
   const [period, setPeriod] = useState<PeriodType>('M');
@@ -43,6 +69,9 @@ export default function ResultatClient() {
   const [foretagetTotalt, setForetagetTotalt] = useState<Sammanfattning | null>(null);
   const [utanKost, setUtanKost] = useState<Sammanfattning | null>(null);
   const [ovriga, setOvriga] = useState<OvrigtCc[]>([]);
+  const [antalRader, setAntalRader] = useState(0);   // ärligt tomt: 0 bokförda rader ≠ 0 kr vinst
+  const [ccOpen, setCcOpen] = useState(false);       // per kostnadsställe-sektionen uppfälld
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -56,6 +85,7 @@ export default function ResultatClient() {
         setForetagetTotalt(null);
         setUtanKost(null);
         setOvriga([]);
+        setAntalRader(0);
         setError(body.meddelande || `HTTP ${r.status}`);
         return;
       }
@@ -63,211 +93,193 @@ export default function ResultatClient() {
       setForetagetTotalt(body.foretaget_totalt || null);
       setUtanKost(body.utan_kostnadsstalle || null);
       setOvriga(body.ovriga_kostnadsstallen || []);
+      setAntalRader(Number(body.antal_rader_i_period) || 0);
     } catch (e: any) {
       setError(e?.message || String(e));
       setMaskiner([]);
       setForetagetTotalt(null);
       setUtanKost(null);
       setOvriga([]);
+      setAntalRader(0);
     }
     setLoading(false);
   }, [period, periodOffset]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const s = {
-    page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 130, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
-    filterBar: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', gap: 8 } as const,
-    periodBtn: { border: 'none', background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '5px 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: '#7a7a72', cursor: 'pointer' } as const,
-    periodBtnActive: { background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' } as const,
-    arrow: { border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 8px' } as const,
-    label: { fontSize: 12, fontWeight: 600, color: '#e8e8e4', minWidth: 120, textAlign: 'center' as const },
-    card: { background: '#1a1a18', borderRadius: 14, padding: 16 } as const,
-    kpiVal: { fontFamily: "'Fraunces', serif", fontSize: 26, lineHeight: 1, fontWeight: 500 },
-    kpiLabel: { fontSize: 10, color: '#7a7a72', marginTop: 3, textTransform: 'uppercase' as const, letterSpacing: 0.6, fontWeight: 600 },
-    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 20, padding: '0 4px' } as const,
-    pill: { display: 'inline-block', fontSize: 10, color: '#7a7a72', padding: '2px 8px', background: 'rgba(255,255,255,0.04)', borderRadius: 999, fontWeight: 600, letterSpacing: 0.3 } as const,
-  };
+  const tot = foretagetTotalt;
+  const harData = tot != null && antalRader > 0;
+  const utanKostAktiv = utanKost != null && (utanKost.intakter !== 0 || utanKost.kostnader.total !== 0);
+  const ccAntal = maskiner.length + ovriga.length + (utanKostAktiv ? 1 : 0);
+  const sheetH = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 } as const;
+
+  // En rad i per kostnadsställe-uppfällningen — maskin, övrigt CC eller utan CC
+  const ccRad = (key: string, rubrik: React.ReactNode, koder: string | null, intakter: number, kostnader: number, resultat: number, sista: boolean) => (
+    <ListRad key={key}
+      rubrik={<>{rubrik}{koder && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {koder}</span>}</>}
+      detalj={`intäkt ${formatKr(intakter)} · kostnad ${formatKr(kostnader)}`}
+      tal={fmtSign(resultat)}
+      talFarg={resFarg(resultat)}
+      sista={sista}
+    />
+  );
 
   return (
-    <div style={s.page}>
-      <div style={{ padding: '16px 16px 0' }}>
-        <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em' }}>Resultat</div>
-        <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Per kostnadsställe från Fortnox. Mappning görs i Inställningar.</div>
-      </div>
+    <EkonomiSida>
+      {/* Bara Månad/Kvartal/År — kostnader landar inte per dag */}
+      <Periodvaxlare
+        perioder={['M', 'K', 'A']}
+        period={period}
+        offset={periodOffset}
+        onPeriod={p => { setPeriod(p); setPeriodOffset(0); }}
+        onOffset={setPeriodOffset}
+        onInfo={() => setInfoOpen(true)}
+      />
 
-      <div style={{ ...s.filterBar, marginTop: 16 }}>
-        {(['D', 'V', 'M', 'K', 'A'] as PeriodType[]).map(p => (
-          <button key={p} style={{ ...s.periodBtn, ...(period === p ? s.periodBtnActive : {}) }}
-            onClick={() => { setPeriod(p); setPeriodOffset(0); }}>
-            {p === 'D' ? 'Dag' : p === 'V' ? 'Vecka' : p === 'M' ? 'Månad' : p === 'K' ? 'Kvartal' : 'År'}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        <button style={s.arrow} onClick={() => setPeriodOffset(o => o - 1)}>&#8249;</button>
-        <span style={s.label}>{getPeriodLabel(period, periodOffset)}</span>
-        <button style={s.arrow} onClick={() => setPeriodOffset(o => o + 1)}>&#8250;</button>
-      </div>
-
-      {loading && <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72' }}>Laddar från Fortnox...</div>}
+      {loading && <Laddar />}
 
       {!loading && error && (
-        <div style={{ margin: '16px', padding: 14, background: 'rgba(255,90,90,0.08)', border: '1px solid rgba(255,90,90,0.3)', color: 'rgba(255,160,160,0.95)', borderRadius: 10, fontSize: 12, lineHeight: 1.5 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Kunde inte hämta resultat</div>
-          <div>{error}</div>
-          {error.includes('costcenter') || error.toLowerCase().includes('404') ? (
-            <div style={{ marginTop: 8, color: 'rgba(255,200,200,0.75)' }}>
-              Tips: Kontrollera att Fortnox är anslutet (Admin → Lönesystem) och att kostnadsställe-mappningen är ifylld i Inställningar.
-            </div>
-          ) : null}
-        </div>
-      )}
-
-      {!loading && !error && (
-        <div style={{ padding: '0 16px' }}>
-          {/* Företaget totalt — alla rader i perioden oavsett kostnadsställe */}
-          <div style={s.sectionTitle}>Företaget totalt</div>
-          <div style={{ ...s.card, marginBottom: 20 }}>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: 'rgba(90,255,140,0.95)' }}>{formatKr(foretagetTotalt?.intakter || 0)}</div>
-                <div style={s.kpiLabel}>Intäkter</div>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: 'rgba(255,179,64,0.95)' }}>{formatKr(foretagetTotalt?.kostnader.total || 0)}</div>
-                <div style={s.kpiLabel}>Kostnader</div>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: (foretagetTotalt?.resultat || 0) >= 0 ? '#e8e8e4' : 'rgba(255,90,90,0.9)' }}>{formatKr(foretagetTotalt?.resultat || 0)}</div>
-                <div style={s.kpiLabel}>Resultat</div>
-              </div>
-            </div>
-          </div>
-
-          {maskiner.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72', fontSize: 13 }}>
-              Inga kostnadsställe-mappningar hittades. Lägg till i <strong>Inställningar → Kostnadsställe per maskin</strong>.
+        <>
+          <FelRuta titel="Kunde inte hämta resultat" fel={error} onRetry={fetchData} />
+          {(error.includes('costcenter') || error.toLowerCase().includes('404')) && (
+            <div style={{ margin: '0 16px', fontSize: 11, color: '#7a7a72', lineHeight: 1.5 }}>
+              Kontrollera att Fortnox är anslutet (Admin → Lönesystem) och att kostnadsställe-mappningen är ifylld i Inställningar.
             </div>
           )}
+        </>
+      )}
 
-          {/* Per maskin */}
-          {maskiner.length > 0 && <div style={s.sectionTitle}>Per maskin</div>}
-          {maskiner.map(m => (
-            <div key={m.maskin_id} style={{ ...s.card, marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 600 }}>{m.maskin_namn}</div>
-                  <div style={{ marginTop: 3, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                    {(m.kostnadsstallen && m.kostnadsstallen.length > 0 ? m.kostnadsstallen : [m.kostnadsstalle]).map(cc => (
-                      <span key={cc.kod} style={s.pill} title={cc.namn || ''}>{cc.kod}</span>
-                    ))}
-                    {m.kostnadsstalle.namn && (!m.kostnadsstallen || m.kostnadsstallen.length <= 1) && <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.kostnadsstalle.namn}</span>}
-                    {m.maskin_typ && (
-                      <span style={{ ...s.pill, color: m.maskin_typ === 'Harvester' ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)', background: m.maskin_typ === 'Harvester' ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)' }}>
-                        {m.maskin_typ === 'Harvester' ? 'SKÖRD' : 'SKOT'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {m.ok ? (
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, color: (m.resultat || 0) >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)' }}>
-                      {formatKr(m.resultat || 0)}
-                    </div>
-                    <div style={{ fontSize: 10, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Resultat</div>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 11, color: 'rgba(255,160,160,0.9)', maxWidth: 200, textAlign: 'right' }}>
-                    {m.fel}
-                  </div>
-                )}
+      {!loading && !error && !harData && (
+        /* Ärligt tomt — inga bokförda rader i perioden är inte "0 kr vinst" */
+        <Tomt>Ingen bokförd data i {getPeriodLabel(period, periodOffset)}</Tomt>
+      )}
+
+      {!loading && !error && harData && tot && (
+        <div style={{ padding: '0 16px' }}>
+          {/* Hero — bokförd vinst, signerat tal → grönt/rött */}
+          <Hero
+            etikett={tot.resultat >= 0 ? 'Vinst' : 'Förlust'}
+            varde={`${fmtSign(tot.resultat)} kr`}
+            vardeFarg={resFarg(tot.resultat)}
+            under={
+              <div style={{ fontSize: 13, color: '#bfcab9', marginTop: 10 }}>
+                Intäkt {formatKr(tot.intakter)} · Kostnad {formatKr(tot.kostnader.total)}
               </div>
-              {m.ok && m.kostnader && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6, fontSize: 12 }}>
-                  <Kpi label="Intäkter" value={m.intakter || 0} color="rgba(90,255,140,0.9)" />
-                  <Kpi label="Drivmedel" value={m.kostnader.drivmedel} color="#bfcab9" />
-                  <Kpi label="Drift & service" value={m.kostnader.drift_service} color="#bfcab9" />
-                  <Kpi label="Löner" value={m.kostnader.loner} color="#bfcab9" />
-                  <Kpi label="Övrigt" value={m.kostnader.ovrigt} color="#bfcab9" />
+            }
+          />
+          <MetaRad delar={[{ text: 'bokfört ur Fortnox — inte samma tal som Översiktens "vi körde in"' }]} />
+
+          {/* Kostnader per kategori — neutralt/dämpat, ingen kategorifärg.
+              Stapeln = andel av totalkostnaden, på radens bredd. */}
+          <SektionsTitel>Kostnader</SektionsTitel>
+          <Lista>
+            {KATEGORIER.map(([nyckel, namn], i) => {
+              const v = tot.kostnader[nyckel];
+              const andel = tot.kostnader.total > 0 ? v / tot.kostnader.total : 0;
+              return (
+                <ListRad key={nyckel}
+                  rubrik={namn}
+                  tal={formatKr(v)}
+                  stapelAndel={andel}
+                  sista={i === KATEGORIER.length - 1}
+                />
+              );
+            })}
+          </Lista>
+
+          {/* Per kostnadsställe — kollapsad sektion, samma mönster som
+              Mot ackords "Per maskin". Maskiner + övriga CC + utan CC. */}
+          {ccAntal > 0 && (
+            <Lista style={{ marginTop: 24 }}>
+              <div onClick={() => setCcOpen(v => !v)} style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '14px 0', cursor: 'pointer',
+              }}>
+                <span style={{ fontSize: 13, color: '#7a7a72', flex: 1 }}>Per kostnadsställe</span>
+                <span style={{ fontSize: 13, color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>{ccAntal}</span>
+                <span style={{ fontSize: 11, color: '#7a7a72', transform: ccOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
+              </div>
+              {ccOpen && (
+                <div style={{ borderTop: '0.5px solid rgba(255,255,255,0.07)' }}>
+                  {maskiner.map((m, i) => ccRad(
+                    m.maskin_id,
+                    m.maskin_namn,
+                    (m.kostnadsstallen && m.kostnadsstallen.length > 0 ? m.kostnadsstallen : [m.kostnadsstalle]).map(cc => cc.kod).join(' '),
+                    m.intakter || 0,
+                    m.kostnader?.total || 0,
+                    m.resultat || 0,
+                    i === maskiner.length - 1 && ovriga.length === 0 && !utanKostAktiv,
+                  ))}
+                  {ovriga.map((o, i) => ccRad(
+                    o.kod,
+                    o.namn || o.kod,
+                    o.namn ? o.kod : null,
+                    o.intakter,
+                    o.kostnader.total,
+                    o.resultat,
+                    i === ovriga.length - 1 && !utanKostAktiv,
+                  ))}
+                  {utanKostAktiv && utanKost && ccRad(
+                    'utan-cc',
+                    'Utan kostnadsställe',
+                    null,
+                    utanKost.intakter,
+                    utanKost.kostnader.total,
+                    utanKost.resultat,
+                    true,
+                  )}
                 </div>
               )}
+            </Lista>
+          )}
+
+          {maskiner.length === 0 && (
+            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 16, padding: '0 4px', textAlign: 'center', lineHeight: 1.5 }}>
+              Inga kostnadsställe-mappningar — lägg till i Inställningar → Kostnadsställe per maskin.
             </div>
-          ))}
-
-          {/* Övriga kostnadsställen — finns i Fortnox men är inte maskin (M8 Lastbil, TRA VM Trailer, EWA osv). */}
-          {ovriga.length > 0 && (
-            <>
-              <div style={s.sectionTitle}>Övriga kostnadsställen</div>
-              {ovriga.map(o => (
-                <div key={o.kod} style={{ ...s.card, marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 600 }}>{o.namn || o.kod}</div>
-                      <div style={{ marginTop: 3, display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <span style={s.pill}>{o.kod}</span>
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, color: o.resultat >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)' }}>
-                        {formatKr(o.resultat)}
-                      </div>
-                      <div style={{ fontSize: 10, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Resultat</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6, fontSize: 12 }}>
-                    <Kpi label="Intäkter" value={o.intakter} color="rgba(90,255,140,0.9)" />
-                    <Kpi label="Drivmedel" value={o.kostnader.drivmedel} color="#bfcab9" />
-                    <Kpi label="Drift & service" value={o.kostnader.drift_service} color="#bfcab9" />
-                    <Kpi label="Löner" value={o.kostnader.loner} color="#bfcab9" />
-                    <Kpi label="Övrigt" value={o.kostnader.ovrigt} color="#bfcab9" />
-                  </div>
-                </div>
-              ))}
-            </>
           )}
-
-          {/* Utan kostnadsställe — rader som saknar CC. Ofta lastbil/löner/OH. */}
-          {utanKost && (utanKost.intakter !== 0 || utanKost.kostnader.total !== 0) && (
-            <>
-              <div style={s.sectionTitle}>Utan kostnadsställe</div>
-              <div style={{ ...s.card, marginBottom: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, color: '#7a7a72' }}>Rader där costcenter saknas i Fortnox</div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, color: (utanKost.resultat || 0) >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)' }}>
-                      {formatKr(utanKost.resultat)}
-                    </div>
-                    <div style={{ fontSize: 10, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Resultat</div>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6, fontSize: 12 }}>
-                  <Kpi label="Intäkter" value={utanKost.intakter} color="rgba(90,255,140,0.9)" />
-                  <Kpi label="Drivmedel" value={utanKost.kostnader.drivmedel} color="#bfcab9" />
-                  <Kpi label="Drift & service" value={utanKost.kostnader.drift_service} color="#bfcab9" />
-                  <Kpi label="Löner" value={utanKost.kostnader.loner} color="#bfcab9" />
-                  <Kpi label="Övrigt" value={utanKost.kostnader.ovrigt} color="#bfcab9" />
-                </div>
-              </div>
-            </>
-          )}
-
-          <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 12, padding: '0 4px', lineHeight: 1.5 }}>
-            Kategori-gruppering (BAS-plan): intäkter = 3xxx · drivmedel = 56xx · drift &amp; service = 50–55 + 57–59 · löner = 7xxx · övrigt = 4/6/8xxx.
-          </div>
         </div>
       )}
-      <EkonomiBottomNav />
-    </div>
-  );
-}
 
-function Kpi({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 10px' }}>
-      <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: 13, fontFamily: "'Fraunces', serif", color, fontVariantNumeric: 'tabular-nums' }}>
-        {Math.round(value).toLocaleString('sv-SE')} kr
-      </div>
-    </div>
+      {/* (i)-sheet — vad talet är och inte är, plus BAS-grupperingen */}
+      {infoOpen && (
+        <>
+          <div onClick={() => setInfoOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 100, backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }} />
+          <div style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 101,
+            background: '#1a1a18', borderRadius: '20px 20px 0 0',
+            padding: '12px 20px calc(28px + env(safe-area-inset-bottom))', maxHeight: '80vh', overflowY: 'auto',
+            borderTop: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 -10px 40px rgba(0,0,0,0.6)',
+            fontFamily: "'Geist', system-ui, sans-serif", color: '#e8e8e4',
+          }}>
+            <div style={{ width: 40, height: 4, background: 'rgba(255,255,255,0.15)', borderRadius: 2, margin: '4px auto 18px' }} />
+            <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', marginBottom: 4 }}>Resultat — hur räknas det?</div>
+            <div style={{ fontSize: 12, color: '#7a7a72', marginBottom: 18 }}>Bokförd vinst ur Fortnox för perioden.</div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, color: '#bfcab9', display: 'grid', gap: 14 }}>
+              <div>
+                <div style={sheetH}>Bokfört — inte producerat</div>
+                Talet är Fortnox-fakturerad intäkt minus bokförda kostnader. Översiktens &quot;vi körde in&quot; är något annat: producerad ackordintäkt räknad på volym, innan fakturering. De två talen mäter olika saker och ska inte stämma överens — fakturering släpar efter produktionen.
+              </div>
+              <div>
+                <div style={sheetH}>Kostnadskategorierna (BAS-plan)</div>
+                Intäkter = 3xxx · Drivmedel = 56xx · Drift &amp; service = 50–55 + 57–59 · Lön = 7xxx utom 78 · Avskrivning = 78xx · Övrigt = 4/6/8xxx. Avskrivningen redovisas separat — den låg tidigare gömd inne i lön.
+              </div>
+              <div>
+                <div style={sheetH}>Per kostnadsställe</div>
+                Varje maskin är mappad till sina Fortnox-kostnadsställen (Inställningar). Rader utan kostnadsställe och kostnadsställen som inte är maskiner (lastbil, trailer m.fl.) visas som egna rader så att inget belopp försvinner tyst.
+              </div>
+              <div>
+                <div style={sheetH}>Bara månad och uppåt</div>
+                Kostnader bokförs inte per dag — en dags- eller veckovinst vore brus, inte fakta.
+              </div>
+            </div>
+            <button onClick={() => setInfoOpen(false)} style={{
+              marginTop: 22, width: '100%', background: '#000', color: '#fff',
+              border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10,
+              padding: '12px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+            }}>Stäng</button>
+          </div>
+        </>
+      )}
+    </EkonomiSida>
   );
 }

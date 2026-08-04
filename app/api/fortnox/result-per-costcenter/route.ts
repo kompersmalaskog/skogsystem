@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
  *   3xxx → intakter
  *   56xx → drivmedel (transportmedel)
  *   50-55xx + 57-59xx → drift_service (lokaler, reparation, ovriga externa)
- *   7xxx → loner (personalkostnader)
+ *   78xx → avskrivning (av- och nedskrivningar av materiella tillgångar)
+ *   70-77xx + 79xx → loner (personalkostnader)
  *   4xxx/6xxx/8xxx → ovrigt
  */
 export async function GET(req: NextRequest) {
@@ -120,20 +121,22 @@ export async function GET(req: NextRequest) {
     // Hjälpare: gruppera rader per konto-klass enligt BAS. netto=debit-credit;
     // 3xxx är credit-saldo → intäkter = -netto.
     function grupperaKonto(accRader: { account: string; sum: number }[]) {
-      let intakter = 0, drivmedel = 0, drift_service = 0, loner = 0, ovrigt = 0;
+      let intakter = 0, drivmedel = 0, drift_service = 0, loner = 0, avskrivning = 0, ovrigt = 0;
       for (const r of accRader) {
         const first = r.account.charAt(0);
         const two = r.account.slice(0, 2);
         if (first === "3") intakter += -r.sum;
         else if (two === "56") drivmedel += r.sum;
         else if (first === "5") drift_service += r.sum;
+        // 78 före 7-fallet: avskrivningen ska inte gömmas inne i lön
+        else if (two === "78") avskrivning += r.sum;
         else if (first === "7") loner += r.sum;
         else if (first === "4" || first === "6" || first === "8") ovrigt += r.sum;
       }
-      const kostnader_total = drivmedel + drift_service + loner + ovrigt;
+      const kostnader_total = drivmedel + drift_service + loner + avskrivning + ovrigt;
       return {
         intakter,
-        kostnader: { drivmedel, drift_service, loner, ovrigt, total: kostnader_total },
+        kostnader: { drivmedel, drift_service, loner, avskrivning, ovrigt, total: kostnader_total },
         resultat: intakter - kostnader_total,
       };
     }
