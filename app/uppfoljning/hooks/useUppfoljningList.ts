@@ -60,7 +60,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         // vägen trunkerades tyst vid PostgREST 1000-radstaket och gav dessutom
         // icke-deterministiska summor när importen skrev under paginering.
         // prod-vyns maskiner = skördare (producerar), lass-vyns = skotare.
-        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade] = await Promise.all([
+        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
           supabase.from('objekt').select('vo_nummer, markagare, areal, typ'),
@@ -68,10 +68,11 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, antal_lass, sista_datum, maskin_ids'),
           supabase.from('grot_koppling').select('risjobb_objekt_id, avverknings_objekt_id'),
           hamtaExkluderadeObjektId(),
+          supabase.from('skotare_objekt_manuell').select('objekt_id, volym_m3, g15_timmar').is('maskin_id', null),
         ]);
 
         // Ett fel på någon källa får ALDRIG se ut som tom lista.
-        const forstaFel = dimObjektRes.error || dimMaskinRes.error || objektTblRes.error || prodRes.error || lassRes.error || kopplingRes.error;
+        const forstaFel = dimObjektRes.error || dimMaskinRes.error || objektTblRes.error || prodRes.error || lassRes.error || kopplingRes.error || skotareManuellRes.error;
         if (forstaFel) throw forstaFel;
 
         const dimObjekt: any[] = dimObjektRes.data || [];
@@ -83,6 +84,10 @@ export function useUppfoljningList(): UseUppfoljningListResult {
 
         const maskinMap = new Map<string, any>();
         dimMaskin.forEach(m => maskinMap.set(m.maskin_id, m));
+        const skotareManuellMap = new Map<string, { volym_m3: number | null; g15_timmar: number | null }>();
+        for (const r of (skotareManuellRes.data || [])) {
+          skotareManuellMap.set(r.objekt_id, { volym_m3: r.volym_m3, g15_timmar: r.g15_timmar });
+        }
 
         const objektInfo = new Map<string, { agare: string; areal: number; typ: string }>();
         objektTbl.forEach(o => {
@@ -217,22 +222,22 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             const l = lassAgg.get(e.objekt_id);
             if (l) { stVol += l.vol; stCount += l.count; }
           }
-          // Manuellt angiven skotad volym (dim_objekt.skotad_volym_manuell)
+          // Manuellt angiven skotad volym (skotare_objekt_manuell.volym_m3, maskin_id IS NULL)
           // TRUMFAR lass-summan — skotaren registrerar inte alltid lass, och en
           // mänsklig rapport vinner över ofullständig lassdata. Gäller så snart
           // fältet är SATT (även = 0: "0 skotat, bekräftat" vinner över lass).
           // Källan följer med till UI:t så det alltid syns att den är manuell.
           const manuellRader = entries
-            .map((e: any) => e.skotad_volym_manuell)
+            .map((e: any) => skotareManuellMap.get(e.objekt_id)?.volym_m3)
             .filter((v: any) => v != null)
             .map((v: any) => Number(v) || 0);
           const skotatArManuell = manuellRader.length > 0;
           const manuellVolym = skotatArManuell ? Math.max(0, ...manuellRader) : 0;
           // Manuella G15-timmar för icke-filsändande skotare (JD810E) —
-          // dim_objekt.skotning_g15_manuell, ingen fakt_tid finns. Max över
+          // skotare_objekt_manuell.g15_timmar, ingen fakt_tid finns. Max över
           // gruppen (skrivs likadant över syskonraderna som volymen).
           const g15ManuellRader = entries
-            .map((e: any) => e.skotning_g15_manuell)
+            .map((e: any) => skotareManuellMap.get(e.objekt_id)?.g15_timmar)
             .filter((v: any) => v != null)
             .map((v: any) => Number(v) || 0);
           const skotarG15Manuell = g15ManuellRader.length > 0 ? Math.max(0, ...g15ManuellRader) : 0;

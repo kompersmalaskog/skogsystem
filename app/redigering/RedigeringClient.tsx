@@ -362,8 +362,30 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
   if (!r1.ok) return r1
   const r2 = await direktPatchDimObjekt(skordarIds, skordarPatch)
   if (!r2.ok) return { ok: false, message: 'Skördarfälten: ' + r2.message }
+  // TODO(#334): TILLFÄLLIG dubbel-skrivning — dim_objekt.skotad_volym_manuell / skotning_g15_manuell
+  // hålls i sync tills kolumnerna tas bort i städ-PR efter att skotare_objekt_manuell är enda källa.
   const r3 = await direktPatchDimObjekt(skotarIds, skotarPatch)
   if (!r3.ok) return { ok: false, message: 'Skotarfälten: ' + r3.message }
+  // Spegla skotarvolym/G15 till skotare_objekt_manuell (primär läskälla sedan DEL 0).
+  // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
+  // maskin_id-filter tar även bort eventuella maskinspecifika rader (migrerade
+  // 2026-07-25) så att läsningens prioritetsregel inte döljer det nya värdet.
+  const harVolym = (obj.skotad_volym_manuell ?? 0) > 0
+  const harG15 = (obj.skotning_g15_manuell ?? 0) > 0
+  const { error: delManuellErr } = await supabase
+    .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
+  if (delManuellErr) return { ok: false, message: 'Skotarvolym (rensning): ' + delManuellErr.message }
+  if (harVolym || harG15) {
+    const { error: insManuellErr } = await supabase.from('skotare_objekt_manuell').insert(
+      skotarIds.map((id: string) => ({
+        objekt_id: id,
+        maskin_id: null as null,
+        volym_m3: harVolym ? Number(obj.skotad_volym_manuell) : null,
+        g15_timmar: harG15 ? Number(obj.skotning_g15_manuell) : null,
+      }))
+    )
+    if (insManuellErr) return { ok: false, message: 'Skotarvolym (ny tabell): ' + insManuellErr.message }
+  }
   return { ok: true, message: '' }
 }
 // === SLUT SUPABASE ===
@@ -2094,10 +2116,49 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
             setFardigskotat({ sparar: true, fel: '' })
             // På risjobb är detta ENDA klart-handlingen: den sätter både den
             // mätta volymen och avslutsdatumet — och tänder grot-automatiken.
+            // TODO(#334): TILLFÄLLIG dubbel-skrivning till dim_objekt — tas bort i städ-PR.
             const patch: any = { skotad_volym_manuell: varde }
             if (arRisjobb) patch.skotning_avslutad = varde == null ? null : idagDatum
             const r = await direktPatchDimObjekt(skotarIds, patch)
             if (!r.ok) { setFardigskotat({ sparar: false, fel: r.message }); return }
+            // Spegla till skotare_objekt_manuell (primär läskälla sedan DEL 0).
+            // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
+            // maskin_id-filter tar även maskinspecifika rader så att prioritetsregeln
+            // inte döljer det nya värdet.
+            // Läs g15_timmar FÖRE raderingen — bevara alltid, oavsett om volym sätts eller nollas.
+            // Ta NULL-maskin-rad om möjligt; annars maskin-specifik (migrationsdata).
+            // "Ta bort färdigskotat" rör aldrig G15-timmar.
+            const { data: befG15 } = await supabase.from('skotare_objekt_manuell')
+              .select('objekt_id, maskin_id, g15_timmar').in('objekt_id', skotarIds)
+            const g15Map = new Map<string, number | null>()
+            for (const id of skotarIds as string[]) {
+              const rows = (befG15 || []).filter((r: any) => r.objekt_id === id)
+              const nullRad = rows.find((r: any) => r.maskin_id === null)
+              const g15 = nullRad?.g15_timmar
+                ?? rows.find((r: any) => (r.g15_timmar ?? 0) > 0)?.g15_timmar
+                ?? null
+              g15Map.set(id, g15 != null ? Number(g15) : null)
+            }
+            const { error: delErr2 } = await supabase
+              .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
+            if (delErr2) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (rensning): ' + delErr2.message }); return }
+            if (varde === null) {
+              // Volym nollad — återinsert bara om g15 fanns; annars radera rent.
+              const medG15 = (skotarIds as string[])
+                .map(id => ({ objekt_id: id, maskin_id: null as null, volym_m3: null as null, g15_timmar: g15Map.get(id) ?? null }))
+                .filter(r => (r.g15_timmar ?? 0) > 0)
+              if (medG15.length > 0) {
+                const { error: insG15Err } = await supabase.from('skotare_objekt_manuell').insert(medG15)
+                if (insG15Err) { setFardigskotat({ sparar: false, fel: 'G15-bevaring: ' + insG15Err.message }); return }
+              }
+            } else {
+              const { error: insErr } = await supabase.from('skotare_objekt_manuell').insert(
+                (skotarIds as string[]).map(id => ({
+                  objekt_id: id, maskin_id: null as null, volym_m3: Number(varde), g15_timmar: g15Map.get(id) ?? null,
+                }))
+              )
+              if (insErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (ny tabell): ' + insErr.message }); return }
+            }
             if (arRisjobb) {
               // Automatiken körs EFTER att markeringen landat. Misslyckas den
               // visas felet — en halvkörd avbockning tigs aldrig ihjäl.

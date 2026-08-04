@@ -22,8 +22,8 @@ import { arSlutavraknad, avrakningsdatum } from '@/lib/objekt/avrakning';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
-  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
-  ovrigtKrPerM3, type OvrigtRad,
+  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag,
+  fordelaSkotadVolymFrånDB, type SkotareManuellRad, ovrigtKrPerM3, type OvrigtRad,
 } from '@/lib/ekonomi/acord';
 import { fetchAllRows } from '@/lib/ekonomi/period';
 import { medelstamAuto, sortimentgrupperAuto, skotavstandVagtAuto } from '@/lib/ekonomi/ackordgrund';
@@ -125,7 +125,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   const ids = valda.map((o: any) => o.objekt_id);
 
   // HELA objektets data — inget datumfilter; objektet räknas helt, en gång
-  const [prodRows, lassRows, tidRows, sortRows] = await Promise.all([
+  const [prodRows, lassRows, tidRows, sortRows, skotareManuellRes] = await Promise.all([
     fetchAllRows((from, to) =>
       supabase.from('fakt_produktion')
         .select('datum, maskin_id, objekt_id, volym_m3sub, stammar')
@@ -146,7 +146,22 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
         .select('objekt_id, sortiment_id')
         .in('objekt_id', ids).range(from, to)
     ),
+    supabase.from('skotare_objekt_manuell')
+      .select('objekt_id, maskin_id, volym_m3, g15_timmar')
+      .in('objekt_id', ids),
   ]);
+  const manuellRaderPerObjekt = new Map<string, SkotareManuellRad[]>();
+  const volymManuellPerObjekt = new Map<string, number>();
+  const g15ManuellPerObjekt = new Map<string, number>();
+  for (const r of (skotareManuellRes.data || [])) {
+    const arr = manuellRaderPerObjekt.get(r.objekt_id) ?? [];
+    arr.push({ maskin_id: r.maskin_id, volym_m3: r.volym_m3 });
+    manuellRaderPerObjekt.set(r.objekt_id, arr);
+    if (r.maskin_id === null) {
+      if ((r.volym_m3 ?? 0) > 0) volymManuellPerObjekt.set(r.objekt_id, Number(r.volym_m3));
+      if ((r.g15_timmar ?? 0) > 0) g15ManuellPerObjekt.set(r.objekt_id, Number(r.g15_timmar));
+    }
+  }
 
   const objMeta: Record<string, any> = {};
   for (const o of valda) objMeta[o.objekt_id] = o;
@@ -236,7 +251,8 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   }
   const kundeInteFordela = new Set<string>();
   for (const o of valda) {
-    const f = fordelaSkotadVolym(o.skotad_volym_manuell, lassPerObjekt[o.objekt_id] || [], skotarTidPerObjekt[o.objekt_id] || []);
+    const manuellRader = manuellRaderPerObjekt.get(o.objekt_id) ?? [];
+    const f = fordelaSkotadVolymFrånDB(manuellRader, lassPerObjekt[o.objekt_id] || [], skotarTidPerObjekt[o.objekt_id] || []);
     if (f.kundeInteFordela) kundeInteFordela.add(o.objekt_id);
     for (const d of f.delar) {
       const key = `${o.objekt_id}|${d.maskin_id}`;
@@ -274,7 +290,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     // manuella timmar prissätts med avräkningsdagens timpris, inga pris-hål.
     const manuellTim = roll === 'skördare'
       ? Number(objMeta[oid]?.skordning_g15_manuell)
-      : Number(objMeta[oid]?.skotning_g15_manuell);
+      : (g15ManuellPerObjekt.get(oid) ?? 0);
     if (manuellTim > 0) {
       (delar[oid] ||= []).push({
         maskin_id: mid, roll, volym, ackord,
@@ -335,7 +351,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     if (utanPris > 0.5) {
       orsak = `${fmtTim(utanPris)} h saknar timpris`;
     } else if (kundeInteFordela.has(o.objekt_id)) {
-      orsak = `${Math.round(Number(o.skotad_volym_manuell))} m³ manuell skotad volym utan tids- eller lassdata att fördela på`;
+      orsak = `${Math.round(volymManuellPerObjekt.get(o.objekt_id) ?? 0)} m³ manuell skotad volym utan tids- eller lassdata att fördela på`;
     } else if (skotadVol > 0 && skotarTim < 1) {
       orsak = `${Math.round(skotadVol)} m³ skotat men under en timmes skotartid — skotartiden ofullständig`;
     } else if (skotarTim > 0 && skotadVol / skotarTim > MAX_SKOTAD_M3_PER_G15H) {
@@ -344,7 +360,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
 
     // Ackordgrunden — färgregeln: mätt värde = benvitt, manuellt/uppskattat = bärnsten
     const egen = o.egen_skotning === true;
-    const skotadManuell = Number(o.skotad_volym_manuell) > 0;
+    const skotadManuell = (volymManuellPerObjekt.get(o.objekt_id) ?? 0) > 0;
     const avstManuell = Number(o.skotavstand_manuell) > 0;
     const msMan = medelstamOverride(o.objekt_id);
     const msAuto = objMedelstam[o.objekt_id];

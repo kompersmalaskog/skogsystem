@@ -21,8 +21,8 @@ import { harledTyp } from '@/lib/objekt/typ';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
-  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
-  ovrigtKrPerM3, type OvrigtRad,
+  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag,
+  fordelaSkotadVolymFrånDB, type SkotareManuellRad, ovrigtKrPerM3, type OvrigtRad,
 } from '@/lib/ekonomi/acord';
 import { type PeriodType, getPeriodDates, fetchAllRows } from '@/lib/ekonomi/period';
 import {
@@ -232,7 +232,7 @@ export default function EkonomiClient() {
       const manuellPeriodDelar: Record<string, number> = {}; // `${objekt}|${maskin}` → volym i perioden
       if (manuellObjekt.length > 0) {
         const idList = manuellObjekt.map((o: any) => o.objekt_id);
-        const [helaLass, helaTid] = await Promise.all([
+        const [helaLass, helaTid, skotareManuellRes] = await Promise.all([
           fetchAllRows((from, to) =>
             supabase.from('fakt_lass')
               .select('datum, maskin_id, objekt_id, volym_m3sub')
@@ -243,11 +243,21 @@ export default function EkonomiClient() {
               .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek, other_work_sek')
               .in('objekt_id', idList).range(from, to)
           ),
+          supabase.from('skotare_objekt_manuell')
+            .select('objekt_id, maskin_id, volym_m3')
+            .in('objekt_id', idList),
         ]);
+        const manuellRaderPerObjekt = new Map<string, SkotareManuellRad[]>();
+        for (const r of (skotareManuellRes.data || [])) {
+          const arr = manuellRaderPerObjekt.get(r.objekt_id) ?? [];
+          arr.push({ maskin_id: r.maskin_id, volym_m3: r.volym_m3 });
+          manuellRaderPerObjekt.set(r.objekt_id, arr);
+        }
         for (const o of manuellObjekt) {
           const oLass = helaLass.filter((r: any) => r.objekt_id === o.objekt_id);
           const oTid = helaTid.filter((r: any) => r.objekt_id === o.objekt_id && maskinMap[r.maskin_id]?.maskin_typ === 'Forwarder');
-          const f = fordelaSkotadVolym(o.skotad_volym_manuell, oLass, oTid);
+          const manuellRader = manuellRaderPerObjekt.get(o.objekt_id) ?? [];
+          const f = fordelaSkotadVolymFrånDB(manuellRader, oLass, oTid);
           for (const d of f.delar) {
             if (d.datum < start || d.datum > end) continue;
             const key = `${o.objekt_id}|${d.maskin_id}`;
