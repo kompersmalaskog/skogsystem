@@ -509,6 +509,17 @@ export default function PlannerPage() {
         .eq('objekt_id', objektId);
       if (error) { console.error('Refetch markörer fel:', error); return; }   // behåll nuvarande, ingen ny stämpel
       if (markersObjektIdRef.current !== objektId) return;                     // objekt bytt under hämtning
+      // IN-FLIGHT-SKYDD: upptagen-gaten kollades FÖRE await. Under hämtningen kan något ha börjat —
+      // ett kort öppnats, en symbol placerats, en kommentar sparats (pending sync). Skriv då ALDRIG
+      // stale DB-sanning över det; försök igen strax (samma backoff som pre-await-deferren). Utan detta
+      // kan en redan påbörjad refetch stänga ett kort/tappa en kommentar som hann hända medan den läste.
+      const fortfarandeUpptagen = syncTimeoutRef.current != null || sparPagarRef.current || upptagenRef.current;
+      if (fortfarandeUpptagen) {
+        if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+        if (refetchForsokRef.current < 15) { refetchForsokRef.current++; refetchTimerRef.current = setTimeout(() => refetchMarkers(force), 900); }
+        else { refetchForsokRef.current = 0; }
+        return;
+      }
       // Inget osparat kvar (ej upptagen) → DB-sanningen innehåller egna edits + andras. Ersätt tryggt.
       const laddade = (data || []).map((row: any) => row.data as Marker);
       persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id)));
@@ -2032,10 +2043,15 @@ export default function PlannerPage() {
   // Spegla "ritar/placerar just nu" i upptagenRef → refetchMarkers ser aktuellt läge utan att ligga i
   // deps. MÅSTE stå här (efter measureAreaMode m.fl. deklarerats ovan) — låg tidigare ~rad 477 vilket
   // gav TDZ ("Cannot access before initialization") eftersom deps-arrayen läser dessa consts vid render.
+  // "Upptaget" = ALLT osparat/pågående arbete som en refetch aldrig får avbryta eller skriva över:
+  // ritning, zon, pil, symbol-placering, mätning, larm-placering — OCH öppet symbol-kort
+  // (markerMenuOpen) samt kort där man skriver kommentar (editingMarker). De två sista lades till
+  // efter att refetch (#331/#336) råkade stänga öppna kort och tappa kommentarer mitt i skrivning.
   useEffect(() => {
     upptagenRef.current = isDrawing || currentDrawCoords.length > 0 || isDrawMode || isZoneMode
-      || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode;
-  }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode]);
+      || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode
+      || markerMenuOpen != null || editingMarker != null;
+  }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode, markerMenuOpen, editingMarker]);
 
   // Geo-mätning: committad path i lng/lat (sanning för siffran), live-drag i ref (ingen re-render
   // per punkt), och ett ref till siffer-etiketten för live-uppdatering under drag.
