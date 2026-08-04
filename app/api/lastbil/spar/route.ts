@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
+import { matchaSpar } from '@/lib/sparMatchning'
 
 // GPS-spåret för EN vald runda (Lastbilsvyns block 4 → rita på kartan i block 1).
 // Punkterna = lastbil_logg i rundans tidsfönster (starttid…sluttid, vin-matchat).
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
     const { data: bilar } = await db.from('lastbil').select('vin').eq('aktiv', true).limit(1)
     vin = bilar?.[0]?.vin ?? null
   }
-  if (!vin || !dag.starttid) return NextResponse.json({ ok: true, spar: [] })
+  if (!vin || !dag.starttid) return NextResponse.json({ ok: true, spar: [], segment: [], nagonOmatchad: false, matchningPa: false })
 
   const till = dag.sluttid ?? new Date().toISOString()
   const { data: pkt } = await db.from('lastbil_logg')
@@ -55,5 +56,9 @@ export async function GET(req: NextRequest) {
     .filter(p => p.lat != null && p.lng != null)
     .map(p => ({ lat: Number(p.lat), lng: Number(p.lng), t: p.tidpunkt }))
 
-  return NextResponse.json({ ok: true, spar })
+  // Map-matcha spåret längs vägnätet (chunkat, cachat per runda). Kraschar
+  // aldrig — vid fel/utan ORS-nyckel ritas raka dämpade segment i stället.
+  const { segment, nagonOmatchad, matchningPa } = await matchaSpar(db, rundaId, spar.map(p => ({ lat: p.lat, lng: p.lng })))
+
+  return NextResponse.json({ ok: true, spar, segment, nagonOmatchad, matchningPa })
 }

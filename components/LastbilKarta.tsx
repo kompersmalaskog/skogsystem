@@ -3,19 +3,24 @@
 import { useEffect, useRef } from 'react'
 
 // Kartan för Lastbilsvyn. Samma kartlösning som förarens kartpekare
-// (maplibre-gl + LM-proxyn /api/forarkarta) — här på vägkarte-lagret
-// (dampad) eftersom en körrutt läses bättre mot vägar än mot flygfoto.
+// (maplibre-gl + LM-proxyn /api/forarkarta, vägkarte-lagret dampad).
 //
-// Ritar: markör på senaste position + en polyline av spårpunkterna
-// (GPS-spår, ~5 min mellan punkter → medvetet grov linje).
+// Ritar:
+//  • det map-matchade spåret (heldragen blå linje längs vägnätet),
+//  • segment som inte kunde matchas rakt och dämpat (streckat) — gissar aldrig,
+//  • de FAKTISKA loggpunkterna som små prickar, så glesheten syns ärligt,
+//  • markör på senaste position.
 
 type Punkt = { lat: number; lng: number }
+// coords = [[lng,lat],...] (GeoJSON-ordning)
+type Segment = { coords: [number, number][]; matchad: boolean }
 
 export default function LastbilKarta({
-  position, spar, height = 260,
+  position, segment, punkter, height = 260,
 }: {
   position: Punkt | null
-  spar: Punkt[]
+  segment: Segment[]
+  punkter: Punkt[]
   height?: number
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
@@ -36,7 +41,7 @@ export default function LastbilKarta({
       document.head.appendChild(link)
     }
 
-    const start = position ?? spar[0] ?? { lat: 56.55, lng: 14.74 } // fallback: verksamhetens trakt
+    const start = position ?? punkter[0] ?? { lat: 56.55, lng: 14.74 } // fallback: verksamhetens trakt
     import('maplibre-gl').then(mlbre => {
       if (cancelled || !boxRef.current) return
       const map = new mlbre.Map({
@@ -60,11 +65,28 @@ export default function LastbilKarta({
       mapRef.current = map
       map.on('load', () => {
         if (cancelled) return
-        map.addSource('spar', { type: 'geojson', data: linjeGeojson([]) })
+        map.addSource('spar', { type: 'geojson', data: tomtFc() })
+        map.addSource('punkter', { type: 'geojson', data: tomtFc() })
+        // Omatchade segment underst (dämpat streck), matchade ovanpå (blått).
         map.addLayer({
-          id: 'spar-linje', type: 'line', source: 'spar',
+          id: 'spar-rak', type: 'line', source: 'spar',
+          filter: ['==', ['get', 'matchad'], false],
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#8a8f98', 'line-width': 2.5, 'line-opacity': 0.5, 'line-dasharray': [2, 2] },
+        })
+        map.addLayer({
+          id: 'spar-matchad', type: 'line', source: 'spar',
+          filter: ['==', ['get', 'matchad'], true],
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: { 'line-color': '#3b82f6', 'line-width': 4, 'line-opacity': 0.9 },
+        })
+        // Faktiska loggpunkter som prickar överst.
+        map.addLayer({
+          id: 'spar-punkter', type: 'circle', source: 'punkter',
+          paint: {
+            'circle-radius': 3.2, 'circle-color': '#e5e7eb',
+            'circle-stroke-color': '#111827', 'circle-stroke-width': 1, 'circle-opacity': 0.95,
+          },
         })
         klarRef.current = true
         rita(mlbre)
@@ -76,16 +98,16 @@ export default function LastbilKarta({
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
       markorRef.current = null
     }
-    // Kartan skapas en gång; position/spår uppdateras i effekten nedan.
+    // Kartan skapas en gång; data uppdateras i effekten nedan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Uppdatera markör + spårlinje när data ändras
+  // Uppdatera markör + spår + punkter när data ändras
   useEffect(() => {
     if (!klarRef.current || !mapRef.current) return
     import('maplibre-gl').then(rita)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [position?.lat, position?.lng, spar])
+  }, [position?.lat, position?.lng, segment, punkter])
 
   function rita(mlbre: any) {
     const map = mapRef.current
@@ -103,20 +125,25 @@ export default function LastbilKarta({
       markorRef.current.remove(); markorRef.current = null
     }
 
-    // Spårlinje
-    const src = map.getSource('spar')
-    if (src) src.setData(linjeGeojson(spar))
+    // Spår (segment) + punkter
+    const sparSrc = map.getSource('spar')
+    if (sparSrc) sparSrc.setData(segmentFc(segment))
+    const punktSrc = map.getSource('punkter')
+    if (punktSrc) punktSrc.setData(punktFc(punkter))
 
-    // Passa in vyn: hela spåret om det finns, annars centrera på positionen
-    const punkter = spar.length ? spar : (position ? [position] : [])
-    if (punkter.length >= 2) {
-      const b = punkter.reduce(
-        (acc, p) => acc.extend([p.lng, p.lat]),
-        new mlbre.LngLatBounds([punkter[0].lng, punkter[0].lat], [punkter[0].lng, punkter[0].lat]),
+    // Passa in vyn: alla segmentkoordinater om de finns, annars punkter/position
+    const allaKoord: [number, number][] = segment.length
+      ? segment.flatMap(s => s.coords)
+      : punkter.map(p => [p.lng, p.lat] as [number, number])
+    const koord = allaKoord.length ? allaKoord : (position ? [[position.lng, position.lat] as [number, number]] : [])
+    if (koord.length >= 2) {
+      const b = koord.reduce(
+        (acc, c) => acc.extend(c),
+        new mlbre.LngLatBounds(koord[0], koord[0]),
       )
       map.fitBounds(b, { padding: 36, maxZoom: 14, duration: 400 })
-    } else if (punkter.length === 1) {
-      map.easeTo({ center: [punkter[0].lng, punkter[0].lat], zoom: 12, duration: 400 })
+    } else if (koord.length === 1) {
+      map.easeTo({ center: koord[0], zoom: 12, duration: 400 })
     }
   }
 
@@ -128,10 +155,28 @@ export default function LastbilKarta({
   )
 }
 
-function linjeGeojson(spar: Punkt[]) {
+function tomtFc() {
+  return { type: 'FeatureCollection' as const, features: [] }
+}
+function segmentFc(segment: Segment[]) {
   return {
-    type: 'Feature' as const,
-    properties: {},
-    geometry: { type: 'LineString' as const, coordinates: spar.map(p => [p.lng, p.lat]) },
+    type: 'FeatureCollection' as const,
+    features: segment
+      .filter(s => s.coords.length >= 2)
+      .map(s => ({
+        type: 'Feature' as const,
+        properties: { matchad: s.matchad },
+        geometry: { type: 'LineString' as const, coordinates: s.coords },
+      })),
+  }
+}
+function punktFc(punkter: Punkt[]) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: punkter.map(p => ({
+      type: 'Feature' as const,
+      properties: {},
+      geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+    })),
   }
 }

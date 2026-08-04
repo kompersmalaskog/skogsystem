@@ -12,6 +12,8 @@ const C = {
 const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif"
 
 type Punkt = { lat: number; lng: number; t?: string }
+type Segment = { coords: [number, number][]; matchad: boolean }
+type KartData = { segment: Segment[]; punkter: Punkt[]; nagonOmatchad: boolean; matchningPa: boolean }
 type Runda = {
   id: string; starttid: string | null; sluttid: string | null
   typ: 'flytt' | 'ovrig' | 'pagar'; antal_flytt: number
@@ -22,7 +24,7 @@ type Data = {
   position: { lat: number; lng: number; tidpunkt: string | null; alder_min: number | null } | null
   tank: { diesel_pct: number | null; adblue_pct: number | null; rackvidd_km: number | null } | null
   halsa: { har_lampor: boolean; lampor: { kod: string; namn: string; state: string }[]; service_km: number | null; matare_km: number | null; motortimmar: number | null } | null
-  spar_idag: Punkt[]; runda_pagar: boolean; rundor: Runda[]; saknas: string[]
+  spar_idag: Punkt[]; runda_pagar: boolean; oppen_runda_id: string | null; rundor: Runda[]; saknas: string[]
 }
 
 const MANAD = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
@@ -45,9 +47,11 @@ export default function LastbilClient() {
   const [laddar, setLaddar] = useState(true)
   const [fel, setFel] = useState<string | null>(null)          // KUNDE INTE läsa (≠ äkta tomt)
   const [valdRunda, setValdRunda] = useState<string | null>(null)
-  const [valtSpar, setValtSpar] = useState<Punkt[] | null>(null)
+  const [kartData, setKartData] = useState<KartData | null>(null)
   const [sparLaddar, setSparLaddar] = useState(false)
+  const [pollN, setPollN] = useState(0)   // bumpas varje lyckad poll → pågående spår färskas tyst
   const kartaRef = useRef<HTMLDivElement>(null)
+  const sistaAktivRef = useRef<string | null>(null)
 
   async function las() {
     try {
@@ -56,7 +60,7 @@ export default function LastbilClient() {
       if (!r.ok) { setFel('Kunde inte läsa lastbilsdata just nu.'); return }
       const j = await r.json()
       if (!j?.ok) { setFel('Kunde inte läsa lastbilsdata just nu.'); return }
-      setFel(null); setData(j)
+      setFel(null); setData(j); setPollN(n => n + 1)
     } catch {
       setFel('Kunde inte läsa lastbilsdata just nu.')
     } finally {
@@ -71,24 +75,39 @@ export default function LastbilClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function valjRunda(id: string) {
-    if (valdRunda === id) { setValdRunda(null); setValtSpar(null); return }   // avmarkera → tillbaka till idag
-    setValdRunda(id); setValtSpar(null); setSparLaddar(true)
+  function valjRunda(id: string) {
+    if (valdRunda === id) { setValdRunda(null); return }   // avmarkera → tillbaka till pågående/inget
+    setValdRunda(id)
     kartaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    try {
-      const r = await fetch(`/api/lastbil/spar?runda=${encodeURIComponent(id)}`, { cache: 'no-store' })
-      const j = await r.json()
-      setValtSpar(j?.ok ? (j.spar ?? []) : [])
-    } catch {
-      setValtSpar([])
-    } finally {
-      setSparLaddar(false)
-    }
   }
 
-  // Vilket spår ritas: vald runda > pågående runda (idag) > inget
-  const kartSpar: Punkt[] = valdRunda ? (valtSpar ?? []) : (data?.runda_pagar ? (data.spar_idag ?? []) : [])
-  const visarLinje = kartSpar.length >= 2
+  // Hämta + map-matcha spåret för AKTIV runda (vald > pågående > inget). Kör om
+  // vid rundbyte OCH vid varje poll (pollN) så pågående spår färskas — men
+  // "Hämtar"-flaggan sätts bara vid rundbyte, inte vid tysta poll-uppdateringar.
+  const aktivRunda = valdRunda ?? (data?.runda_pagar ? data.oppen_runda_id : null)
+  useEffect(() => {
+    if (!aktivRunda) { setKartData(null); sistaAktivRef.current = null; return }
+    const bytteRunda = sistaAktivRef.current !== aktivRunda
+    sistaAktivRef.current = aktivRunda
+    let avbruten = false
+    if (bytteRunda) setSparLaddar(true)
+    fetch(`/api/lastbil/spar?runda=${encodeURIComponent(aktivRunda)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(j => {
+        if (avbruten) return
+        setKartData(j?.ok
+          ? { segment: j.segment ?? [], punkter: j.spar ?? [], nagonOmatchad: !!j.nagonOmatchad, matchningPa: !!j.matchningPa }
+          : { segment: [], punkter: [], nagonOmatchad: false, matchningPa: false })
+      })
+      .catch(() => { if (!avbruten) setKartData({ segment: [], punkter: [], nagonOmatchad: false, matchningPa: false }) })
+      .finally(() => { if (!avbruten && bytteRunda) setSparLaddar(false) })
+    return () => { avbruten = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aktivRunda, pollN])
+
+  const kartSegment: Segment[] = kartData?.segment ?? []
+  const kartPunkter: Punkt[] = kartData?.punkter ?? []
+  const visarLinje = kartSegment.length >= 1
 
   return (
     <main style={{ maxWidth: 560, margin: '0 auto', padding: '12px 16px calc(40px + env(safe-area-inset-bottom))', fontFamily: ff, color: C.t1 }}>
@@ -128,10 +147,12 @@ export default function LastbilClient() {
                 Uppdaterad {fmtAlder(data.position?.alder_min ?? null)}
               </span>
             </div>
-            <LastbilKarta position={data.position} spar={kartSpar} />
+            <LastbilKarta position={data.position} segment={kartSegment} punkter={kartPunkter} />
             <div style={{ fontSize: 11, color: C.t3, margin: '6px 2px 2px' }}>
-              {sparLaddar ? 'Hämtar spår …'
-                : visarLinje ? `GPS-spår (5 min-upplösning)${valdRunda ? ' · vald runda' : ' · pågående runda'}`
+              {sparLaddar ? 'Hämtar och matchar spår …'
+                : visarLinje ? `${kartData?.matchningPa ? 'Spår anpassat till vägnätet — grov upplösning' : 'GPS-spår — grov upplösning'}`
+                    + `${kartData?.nagonOmatchad ? ' · streckat = ej matchat' : ''}`
+                    + ` · prickar = mätta punkter${valdRunda ? ' · vald runda' : ' · pågående runda'}`
                 : valdRunda ? 'Inga spårpunkter för den rundan.'
                 : 'Ingen runda pågår — tryck en runda nedan för att se dess spår.'}
             </div>
