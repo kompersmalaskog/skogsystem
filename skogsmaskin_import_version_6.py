@@ -1184,6 +1184,19 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                     duration_sek += entry.get(f, 0)
                 op_dag_times[(op_id, dt.date())].append((dt, duration_sek))
 
+        # ReportEndTime = rapportens sanna slut = förarens utloggning.
+        # Rottne saknar OperatorShiftDefinition, så syntetiska skift byggs av
+        # WorkTime-slut — vilket missar efterarbete efter sista stocken (körning,
+        # service, tomgång utan bucket). ReportEndTime fyller ut det.
+        # OBS: ReportStartTime används ALDRIG — den är KUMULATIV (arkivets
+        # början, t.ex. 29 juli i en 3-aug-fil), inte dagens start. ReportEndTime
+        # gäller filens SISTA dag; tidigare dagar i en kumulativ fil fick sin
+        # egen ReportEndTime när deras egen fil kom in.
+        report_end_dt = None
+        report_interval = find_element(machine, 'ReportInterval', ns)
+        if report_interval is not None:
+            report_end_dt = parse_datetime(get_text(report_interval, 'ReportEndTime', ns))
+
         for (op_id, datum), entries in op_dag_times.items():
             if not entries:
                 continue
@@ -1193,12 +1206,23 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             latest_end = latest_entry[0] + __import__('datetime').timedelta(seconds=latest_entry[1])
             total_sek = sum(e[1] for e in entries)
 
+            # Fyll ut till förarens sanna utloggning BARA för filens sista dag
+            # (report_end_dt.date() == datum). max()-semantiken: förläng aldrig
+            # bakåt, korta aldrig — bara ut till utloggningen. Saknas
+            # ReportEndTime eller är den <= sista aktiviteten -> oförändrat
+            # (ingen regression). Idempotent: kuvert-merget vid upsert gör
+            # GREATEST(utloggning) och report_end är stabilt per fil, så
+            # omimport av samma fil ger samma resultat.
+            utloggning = latest_end
+            if report_end_dt and report_end_dt.date() == datum and report_end_dt > latest_end:
+                utloggning = report_end_dt
+
             data['skift'].append({
                 'datum': datum,
                 'maskin_id': maskin_id,
                 'operator_id': op_id,
                 'inloggning_tid': earliest,
-                'utloggning_tid': latest_end,
+                'utloggning_tid': utloggning,
                 'langd_sek': total_sek,
                 'gps_lat': None,
                 'gps_long': None,
