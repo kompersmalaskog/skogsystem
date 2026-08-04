@@ -2850,6 +2850,91 @@ def upsert_dim_objekt(objekt_rows: List[Dict]) -> int:
     _arv_skotartilldelning(nyfodda)
     return sparade
 
+# Fält som en ombyggnad ALDRIG får röra på en skyddad dag (tid + bekräftelse).
+# arbetad_min är genererad i DB men listas för tydlighet — vi PATCHar den aldrig.
+_ARBETSDAG_TIDSFALT = ('start_tid', 'slut_tid', 'rast_min', 'arbetad_min')
+# Tomma fält som FÅR kompletteras även på en skyddad dag (ifyllnad, ej
+# överskrivning — bevarar #312: bekräftelse med maskin_id=NULL läks i efterhand).
+_ARBETSDAG_KOMPLETTFALT = ('maskin_id', 'objekt_id')
+
+
+def upsert_arbetsdag(rows: List[Dict]) -> int:
+    """Central, skyddad skrivväg för arbetsdag — ETT ställe för skyddet.
+
+    Regel (samma oavsett anropspunkt): en rad vars BEFINTLIGA DB-rad har
+    redigerad=true ELLER bekraftad=true är SKYDDAD. På en skyddad dag rörs
+    ALDRIG tider (start_tid/slut_tid/rast_min/arbetad_min) eller bekräftelse.
+    MEN tomma fält (maskin_id/objekt_id = NULL) får kompletteras — det är
+    ifyllnad, inte överskrivning (#312: en dag kan bekräftas innan skiftet
+    importerats och då sakna maskin). Oskyddade/nya rader upsert:as fullt ut.
+
+    Loggar (INFO) varje gång skyddet hindrar en tid-överskrivning, så att man
+    kan se i drift att det verkar — tyst skydd går inte att verifiera.
+
+    Bakgrund: Vercel-synken (app/api/mom-import/route.ts) hade skyddet via sin
+    delete-väg, men Python-importern (_create_arbetsdag -> upsert_data) skrev
+    ALLTID över tider oavsett flaggor. Python kör oftare = gjorde skadan
+    (Oskars 3 aug: rättade 16:23 -> skiftets 14:59, om och om)."""
+    if not rows:
+        return 0
+
+    by_key = {(r['medarbetare_id'], str(r['datum'])): r for r in rows}
+    medarb_ids = sorted({r['medarbetare_id'] for r in rows})
+
+    # Hämta befintliga rader (flaggor + tider + kompletterbara fält)
+    befintliga = {}
+    for mid in medarb_ids:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/arbetsdag?medarbetare_id=eq.{mid}"
+            f"&select=id,medarbetare_id,datum,start_tid,slut_tid,rast_min,"
+            f"maskin_id,objekt_id,redigerad,bekraftad",
+            headers=SUPABASE_HEADERS, timeout=30)
+        if resp.status_code == 200:
+            for row in resp.json():
+                befintliga[(row['medarbetare_id'], str(row['datum']))] = row
+
+    def _hhmm(v):
+        return (v or '')[:5]
+
+    oskyddade = []  # full upsert
+    for key, ny in by_key.items():
+        bef = befintliga.get(key)
+        skyddad = bool(bef) and (bef.get('redigerad') is True or bef.get('bekraftad') is True)
+        if not skyddad:
+            oskyddade.append(ny)
+            continue
+
+        # SKYDDAD dag: rör aldrig tider. Logga om en tid SKULLE ha ändrats.
+        tid_andrad = (
+            _hhmm(bef.get('start_tid')) != _hhmm(ny.get('start_tid')) or
+            _hhmm(bef.get('slut_tid')) != _hhmm(ny.get('slut_tid')) or
+            int(bef.get('rast_min') or 0) != int(ny.get('rast_min') or 0))
+        if tid_andrad:
+            flagga = 'redigerad' if bef.get('redigerad') else 'bekräftad'
+            logger.info(
+                f"  Skydd: arbetsdag {key[0]} {key[1]} är {flagga} — hindrade "
+                f"tid-överskrivning (slut {_hhmm(bef.get('slut_tid'))}->"
+                f"{_hhmm(ny.get('slut_tid'))}, rast {bef.get('rast_min')}->"
+                f"{ny.get('rast_min')})")
+
+        # Komplettering: fyll BARA fält som är NULL i DB. is.null-guard gör
+        # PATCHen idempotent och ofarlig vid samtidig ifyllnad (Vercel 5e).
+        for fld in _ARBETSDAG_KOMPLETTFALT:
+            if not bef.get(fld) and ny.get(fld):
+                pr = requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/arbetsdag?id=eq.{bef['id']}&{fld}=is.null",
+                    headers=SUPABASE_HEADERS, data=json.dumps({fld: ny[fld]}), timeout=30)
+                if pr.status_code in (200, 204):
+                    logger.info(
+                        f"  Komplettering: arbetsdag {key[0]} {key[1]} "
+                        f"fyllde tomt {fld}={ny[fld]} (skyddad dag, tider orörda)")
+
+    n = 0
+    if oskyddade:
+        n = upsert_data('arbetsdag', oskyddade, ['medarbetare_id', 'datum'])
+    return n
+
+
 def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
     """Skapa arbetsdag-rader från fakt_skift (start/slut) + fakt_tid (rast).
 
@@ -3041,25 +3126,14 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
         if not arbetsdag_rows:
             return
 
-        # 9. Filtrera bort bekräftade rader — live-import får inte rasera
-        # förares bekräftelser. Rebuild-skriptet hanterar det separat.
-        medarb_list = list(set(r['medarbetare_id'] for r in arbetsdag_rows))
-        bekraftade = set()
-        for mid in medarb_list:
-            check = requests.get(
-                f"{SUPABASE_URL}/rest/v1/arbetsdag?medarbetare_id=eq.{mid}&bekraftad=eq.true&select=medarbetare_id,datum",
-                headers=SUPABASE_HEADERS, timeout=30
-            )
-            if check.status_code == 200:
-                for row in check.json():
-                    bekraftade.add((row['medarbetare_id'], row['datum']))
-
-        to_upsert = [r for r in arbetsdag_rows if (r['medarbetare_id'], r['datum']) not in bekraftade]
-
-        if to_upsert:
-            n = upsert_data('arbetsdag', to_upsert, ['medarbetare_id', 'datum'])
-            if n > 0:
-                logger.info(f"  Arbetsdag: {n} dagar skapade/uppdaterade")
+        # 9. Skriv via den centrala skyddade upsert-vägen. Skyddet (redigerad/
+        # bekraftad fredar tider, tomma fält kompletteras ändå) bor i
+        # upsert_arbetsdag — ETT ställe — så ingen framtida anropspunkt kan
+        # glömma det (vilket var exakt hur denna läcka uppstod: Vercel-synken
+        # fick skyddet, Python-vägen glömdes).
+        n = upsert_arbetsdag(arbetsdag_rows)
+        if n > 0:
+            logger.info(f"  Arbetsdag: {n} dagar skapade/uppdaterade")
     except Exception as e:
         logger.warning(f"  Arbetsdag: kunde inte skapa ({e})")
 
