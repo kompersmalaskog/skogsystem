@@ -22,8 +22,8 @@ import { arSlutavraknad, avrakningsdatum } from '@/lib/objekt/avrakning';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
-  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag, fordelaSkotadVolym,
-  ovrigtKrPerM3, type OvrigtRad,
+  timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag,
+  fordelaSkotadVolymFrånDB, type SkotareManuellRad, ovrigtKrPerM3, type OvrigtRad,
 } from '@/lib/ekonomi/acord';
 import { fetchAllRows } from '@/lib/ekonomi/period';
 import { medelstamAuto, sortimentgrupperAuto, skotavstandVagtAuto } from '@/lib/ekonomi/ackordgrund';
@@ -125,7 +125,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   const ids = valda.map((o: any) => o.objekt_id);
 
   // HELA objektets data — inget datumfilter; objektet räknas helt, en gång
-  const [prodRows, lassRows, tidRows, sortRows] = await Promise.all([
+  const [prodRows, lassRows, tidRows, sortRows, skotareManuellRes] = await Promise.all([
     fetchAllRows((from, to) =>
       supabase.from('fakt_produktion')
         .select('datum, maskin_id, objekt_id, volym_m3sub, stammar')
@@ -146,7 +146,16 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
         .select('objekt_id, sortiment_id')
         .in('objekt_id', ids).range(from, to)
     ),
+    supabase.from('skotare_objekt_manuell')
+      .select('objekt_id, maskin_id, volym_m3')
+      .in('objekt_id', ids),
   ]);
+  const manuellRaderPerObjekt = new Map<string, SkotareManuellRad[]>();
+  for (const r of (skotareManuellRes.data || [])) {
+    const arr = manuellRaderPerObjekt.get(r.objekt_id) ?? [];
+    arr.push({ maskin_id: r.maskin_id, volym_m3: r.volym_m3 });
+    manuellRaderPerObjekt.set(r.objekt_id, arr);
+  }
 
   const objMeta: Record<string, any> = {};
   for (const o of valda) objMeta[o.objekt_id] = o;
@@ -236,7 +245,10 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   }
   const kundeInteFordela = new Set<string>();
   for (const o of valda) {
-    const f = fordelaSkotadVolym(o.skotad_volym_manuell, lassPerObjekt[o.objekt_id] || [], skotarTidPerObjekt[o.objekt_id] || []);
+    // Fallback till dim_objekt-värdet om skotare_objekt_manuell-fetch misslyckades
+    const manuellRader = manuellRaderPerObjekt.get(o.objekt_id)
+      ?? (o.skotad_volym_manuell ? [{ maskin_id: null, volym_m3: Number(o.skotad_volym_manuell) }] : []);
+    const f = fordelaSkotadVolymFrånDB(manuellRader, lassPerObjekt[o.objekt_id] || [], skotarTidPerObjekt[o.objekt_id] || []);
     if (f.kundeInteFordela) kundeInteFordela.add(o.objekt_id);
     for (const d of f.delar) {
       const key = `${o.objekt_id}|${d.maskin_id}`;

@@ -169,6 +169,68 @@ export function tillampaTimpengUndantag(
 
 export type SkotadVolymDel = { datum: string; maskin_id: string; volym: number };
 
+// Rad från skotare_objekt_manuell — en per (objekt, maskin/null, datum_fran).
+// maskin_id = NULL: volymen gäller hela objektet och fördelas via G15/lass
+//   proportionellt över alla maskiner — identisk semantik som det gamla
+//   dim_objekt.skotad_volym_manuell-fältet.
+// maskin_id ≠ NULL: volymen gäller bara den maskinen och fördelas enbart via
+//   den maskinens G15-dagar och lass, aldrig andra maskiners.
+export type SkotareManuellRad = {
+  maskin_id: string | null;
+  volym_m3: number | null;
+};
+
+// Pengarneutral: distribuerar volym per (datum, maskin_id) — aldrig kronor.
+// Ackord/timpeng-gaten sitter hos ANROPAREN (EkonomiClient.tsx:342+372),
+// inte här. Timpeng-objekt med manuell volym → funktionen returnerar delar
+// med volym; att ackordkronor blir 0 beror på att anroparen gater ut
+// objektet INNAN ackordsformeln.
+//
+// Semantik för maskinspecifika rader (maskin_id IS NOT NULL):
+//   SUM(rader.volym_m3) = objektets totala manuella volym.
+//   Varje maskins andel fördelas ENBART mot den maskinens G15-dagar och lass.
+//   NULL-raden (objektnivå) ignoreras när maskinspecifika rader finns —
+//   summera ALDRIG NULL-rad + maskinspecifika rader för samma objekt.
+//
+// Noll-diff-garanti mot fordelaSkotadVolym för NULL-maskin-fall:
+//   fordelaSkotadVolymFrånDB([{maskin_id: null, volym_m3: X}], lass, tid)
+//   ≡ fordelaSkotadVolym(X, lass, tid)  — delegerar internt, exakta siffror.
+export function fordelaSkotadVolymFrånDB(
+  manuellRader: SkotareManuellRad[],
+  lassRader: { datum: string; maskin_id: string; volym_m3sub: number | null }[],
+  skotarTidRader: { datum: string; maskin_id: string; processing_sek: number | null; terrain_sek: number | null; other_work_sek?: number | null }[],
+): { delar: SkotadVolymDel[]; anvandeManuell: boolean; kundeInteFordela: boolean } {
+  const aktiva = manuellRader.filter(r => (r.volym_m3 ?? 0) > 0);
+  const specifika = aktiva.filter(r => r.maskin_id !== null);
+
+  if (specifika.length > 0) {
+    // Maskinspecifika rader: distribuera varje maskins volym mot just den maskinen.
+    // NULL-raden ignoreras (prioritetsregel).
+    const perMaskin = new Map<string, number>();
+    for (const r of specifika) {
+      const m = r.maskin_id!;
+      perMaskin.set(m, (perMaskin.get(m) ?? 0) + (r.volym_m3 ?? 0));
+    }
+    const delar: SkotadVolymDel[] = [];
+    let kundeInteFordela = false;
+    for (const [maskinId, volym] of Array.from(perMaskin.entries())) {
+      const res = fordelaSkotadVolym(
+        volym,
+        lassRader.filter(r => r.maskin_id === maskinId),
+        skotarTidRader.filter(r => r.maskin_id === maskinId),
+      );
+      if (res.kundeInteFordela) kundeInteFordela = true;
+      delar.push(...res.delar);
+    }
+    return { delar, anvandeManuell: true, kundeInteFordela };
+  }
+
+  // Objektnivå-rad (NULL maskin_id): summera och fördela via alla maskiners G15/lass.
+  // Delegerar till fordelaSkotadVolym — identisk kodväg, garanterad noll-diff.
+  const objektVolym = aktiva.reduce((s, r) => s + (r.volym_m3 ?? 0), 0);
+  return fordelaSkotadVolym(objektVolym > 0 ? objektVolym : null, lassRader, skotarTidRader);
+}
+
 export function fordelaSkotadVolym(
   manuellVolym: number | null | undefined,
   lassRader: { datum: string; maskin_id: string; volym_m3sub: number | null }[],
