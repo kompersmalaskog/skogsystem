@@ -362,13 +362,18 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
   if (!r1.ok) return r1
   const r2 = await direktPatchDimObjekt(skordarIds, skordarPatch)
   if (!r2.ok) return { ok: false, message: 'Skördarfälten: ' + r2.message }
+  // TODO(#334): TILLFÄLLIG dubbel-skrivning — dim_objekt.skotad_volym_manuell / skotning_g15_manuell
+  // hålls i sync tills kolumnerna tas bort i städ-PR efter att skotare_objekt_manuell är enda källa.
   const r3 = await direktPatchDimObjekt(skotarIds, skotarPatch)
   if (!r3.ok) return { ok: false, message: 'Skotarfälten: ' + r3.message }
-  // Spegla skotarvolym/G15 till skotare_objekt_manuell (primär läskälla sedan DEL 0)
+  // Spegla skotarvolym/G15 till skotare_objekt_manuell (primär läskälla sedan DEL 0).
+  // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
+  // maskin_id-filter tar även bort eventuella maskinspecifika rader (migrerade
+  // 2026-07-25) så att läsningens prioritetsregel inte döljer det nya värdet.
   const harVolym = (obj.skotad_volym_manuell ?? 0) > 0
   const harG15 = (obj.skotning_g15_manuell ?? 0) > 0
   const { error: delManuellErr } = await supabase
-    .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds).is('maskin_id', null)
+    .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
   if (delManuellErr) return { ok: false, message: 'Skotarvolym (rensning): ' + delManuellErr.message }
   if (harVolym || harG15) {
     const { error: insManuellErr } = await supabase.from('skotare_objekt_manuell').insert(
@@ -2111,22 +2116,26 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
             setFardigskotat({ sparar: true, fel: '' })
             // På risjobb är detta ENDA klart-handlingen: den sätter både den
             // mätta volymen och avslutsdatumet — och tänder grot-automatiken.
+            // TODO(#334): TILLFÄLLIG dubbel-skrivning till dim_objekt — tas bort i städ-PR.
             const patch: any = { skotad_volym_manuell: varde }
             if (arRisjobb) patch.skotning_avslutad = varde == null ? null : idagDatum
             const r = await direktPatchDimObjekt(skotarIds, patch)
             if (!r.ok) { setFardigskotat({ sparar: false, fel: r.message }); return }
-            // Spegla till skotare_objekt_manuell (primär läskälla sedan DEL 0)
+            // Spegla till skotare_objekt_manuell (primär läskälla sedan DEL 0).
+            // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
+            // maskin_id-filter tar även maskinspecifika rader så att prioritetsregeln
+            // inte döljer det nya värdet.
             if (varde === null) {
               const { error: delErr } = await supabase
-                .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds).is('maskin_id', null)
+                .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
               if (delErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym: ' + delErr.message }); return }
             } else {
-              // Bevara befintlig g15_timmar (sätts via spara-formuläret, ej här)
+              // Bevara befintlig g15_timmar från NULL-maskin-raden (sätts via spara-formuläret)
               const { data: befintliga } = await supabase.from('skotare_objekt_manuell')
                 .select('objekt_id, g15_timmar').in('objekt_id', skotarIds).is('maskin_id', null)
               const g15Map = new Map((befintliga || []).map((row: any) => [row.objekt_id, row.g15_timmar]))
               const { error: delErr } = await supabase
-                .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds).is('maskin_id', null)
+                .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
               if (delErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (rensning): ' + delErr.message }); return }
               const { error: insErr } = await supabase.from('skotare_objekt_manuell').insert(
                 skotarIds.map((id: string) => ({
