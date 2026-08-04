@@ -2125,20 +2125,35 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
             // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
             // maskin_id-filter tar även maskinspecifika rader så att prioritetsregeln
             // inte döljer det nya värdet.
+            // Läs g15_timmar FÖRE raderingen — bevara alltid, oavsett om volym sätts eller nollas.
+            // Ta NULL-maskin-rad om möjligt; annars maskin-specifik (migrationsdata).
+            // "Ta bort färdigskotat" rör aldrig G15-timmar.
+            const { data: befG15 } = await supabase.from('skotare_objekt_manuell')
+              .select('objekt_id, maskin_id, g15_timmar').in('objekt_id', skotarIds)
+            const g15Map = new Map<string, number | null>()
+            for (const id of skotarIds as string[]) {
+              const rows = (befG15 || []).filter((r: any) => r.objekt_id === id)
+              const nullRad = rows.find((r: any) => r.maskin_id === null)
+              const g15 = nullRad?.g15_timmar
+                ?? rows.find((r: any) => (r.g15_timmar ?? 0) > 0)?.g15_timmar
+                ?? null
+              g15Map.set(id, g15 != null ? Number(g15) : null)
+            }
+            const { error: delErr2 } = await supabase
+              .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
+            if (delErr2) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (rensning): ' + delErr2.message }); return }
             if (varde === null) {
-              const { error: delErr } = await supabase
-                .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
-              if (delErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym: ' + delErr.message }); return }
+              // Volym nollad — återinsert bara om g15 fanns; annars radera rent.
+              const medG15 = (skotarIds as string[])
+                .map(id => ({ objekt_id: id, maskin_id: null as null, volym_m3: null as null, g15_timmar: g15Map.get(id) ?? null }))
+                .filter(r => (r.g15_timmar ?? 0) > 0)
+              if (medG15.length > 0) {
+                const { error: insG15Err } = await supabase.from('skotare_objekt_manuell').insert(medG15)
+                if (insG15Err) { setFardigskotat({ sparar: false, fel: 'G15-bevaring: ' + insG15Err.message }); return }
+              }
             } else {
-              // Bevara befintlig g15_timmar från NULL-maskin-raden (sätts via spara-formuläret)
-              const { data: befintliga } = await supabase.from('skotare_objekt_manuell')
-                .select('objekt_id, g15_timmar').in('objekt_id', skotarIds).is('maskin_id', null)
-              const g15Map = new Map((befintliga || []).map((row: any) => [row.objekt_id, row.g15_timmar]))
-              const { error: delErr } = await supabase
-                .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
-              if (delErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (rensning): ' + delErr.message }); return }
               const { error: insErr } = await supabase.from('skotare_objekt_manuell').insert(
-                skotarIds.map((id: string) => ({
+                (skotarIds as string[]).map(id => ({
                   objekt_id: id, maskin_id: null as null, volym_m3: Number(varde), g15_timmar: g15Map.get(id) ?? null,
                 }))
               )
