@@ -138,7 +138,8 @@ export async function GET() {
   // Pågår en runda just nu? (öppen flyttdag för bilen — auto eller manuell)
   const { data: oppna } = await db.from('flyttdag')
     .select('id').is('sluttid', null).or(`vin.eq.${vin},vin.is.null`).limit(1)
-  const runda_pagar = (oppna?.length ?? 0) > 0
+  const oppen_runda_id: string | null = oppna?.[0]?.id ?? null
+  const runda_pagar = oppen_runda_id != null
 
   // ── Vad har den gjort: senaste ~10 rundor ──
   const { data: fdag } = await db.from('flyttdag')
@@ -167,6 +168,6 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true, harData: true, vin, namn: bilar?.[0]?.namn ?? null,
-    position, tank, halsa, spar_idag, runda_pagar, rundor, saknas,
+    position, tank, halsa, spar_idag, runda_pagar, oppen_runda_id, rundor, saknas,
   })
 }
