@@ -4,9 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   C, FONT, getPeriodRange, getPrevDateRange, fetchAll,
-  fmtSv, DeltaBadge, Sparkline, OperatorList, initials,
+  fmtSv, DeltaBadge, Sparkline, OperatorList, initials, VolymBadge,
   type Period, type Operator,
 } from './OversiktShared'
+import {
+  hämtaManuellRader, harManuellData, fetchAllTimeLassTid, byggVolymPerDag, sumPerDag,
+  type ManuellRad, type LassRad, type TidRad,
+} from '@/lib/maskinvy/skotarvolym'
 import { FLYTT_KATEGORI } from '../../lib/avbrott-kategorier'
 
 // ─────────────────────────────────────────────────────────────
@@ -56,6 +60,7 @@ type SkotareData = {
   // (kortStoppSek === 0), inte ur maskintypen — Rottne rapporterar det.
   kortStoppSek: number
   engineSek:    number
+  harManuell:   boolean  // true = volym är manuell-korrigerad via skotare_objekt_manuell
 }
 
 // Per-operatör i djupvyn
@@ -159,7 +164,21 @@ async function fetchSkotareData(
     flytt,
     kortStoppSek,
     engineSek,
+    harManuell: false,
   }
+}
+
+// Hämtar manuell-rader och — om sådana finns — all-time lass+tid.
+// Returnerar null om ingen manuell data finns (snabb no-op-väg).
+async function hämtaManuellOchAllTid(maskinId: string): Promise<{
+  rader:    ManuellRad[]
+  lassRows: LassRad[]
+  tidRows:  TidRad[]
+} | null> {
+  const rader = await hämtaManuellRader(maskinId)
+  if (!harManuellData(rader)) return null
+  const { lassRows, tidRows } = await fetchAllTimeLassTid([maskinId])
+  return { rader, lassRows, tidRows }
 }
 
 // ── Operatörslista ────────────────────────────────────────────
@@ -341,13 +360,14 @@ function EkDisclaimer() {
 // Separerat från skördarens HeroCard eftersom trendvärdet är
 // volym (m³), inte produktivitet (m³/G15h).
 function SkotareHero({
-  value, prev, serie, refLabel, loading,
+  value, prev, serie, refLabel, loading, harManuell,
 }: {
-  value:    number | null
-  prev:     number | null
-  serie:    SkotareSerie[]
-  refLabel: string
-  loading:  boolean
+  value:       number | null
+  prev:        number | null
+  serie:       SkotareSerie[]
+  refLabel:    string
+  loading:     boolean
+  harManuell:  boolean
 }) {
   const chartRef = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(0)
@@ -370,14 +390,17 @@ function SkotareHero({
       <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 12, letterSpacing: -0.1 }}>
         Utkört
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <div style={{
-          fontSize: 40, fontWeight: 600, letterSpacing: -1.2,
-          color: C.text, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
-        }}>
-          {loading ? '—' : value !== null ? fmtSv(value, 0) : '—'}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div style={{
+            fontSize: 40, fontWeight: 600, letterSpacing: -1.2,
+            color: C.text, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+          }}>
+            {loading ? '—' : value !== null ? fmtSv(value, 0) : '—'}
+          </div>
+          <div style={{ fontSize: 14, color: C.muted }}>m³sub</div>
         </div>
-        <div style={{ fontSize: 14, color: C.muted }}>m³sub</div>
+        {!loading && <VolymBadge harManuell={harManuell} />}
       </div>
 
       <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -773,6 +796,7 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
   const [loading,  setLoading]          = useState(false)
   const [maskinOpen, setMaskinOpen]     = useState(false)
   const [deepOperator, setDeepOperator] = useState<Operator | null>(null)
+  const [harManuell,  setHarManuell]   = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -786,13 +810,52 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
       fetchSkotareData(maskin.id, prevRange.start, prevRange.end).catch(() => null),
       fetchSkotareSerie(maskin.id, period, offset).catch(() => []),
       fetchSkotareOperatorer(maskin.id, cur.start, cur.end).catch(() => []),
-    ]).then(([curD, prevD, ser, ops]) => {
+      hämtaManuellOchAllTid(maskin.id).catch(() => null),
+    ]).then(([curD, prevD, ser, ops, atData]) => {
       if (cancelled) return
+
+      // DEL B: applicera manuell-korrigering om all-time data finns
+      if (atData && curD) {
+        const { perDag: curPD, harManuell } = byggVolymPerDag(
+          atData.lassRows, atData.rader, atData.tidRows, maskin.id, cur.start, cur.end,
+        )
+        if (harManuell) {
+          const mv = sumPerDag(curPD)
+          curD.volym     = mv
+          curD.snittLass = curD.lass > 0 ? mv / curD.lass : null
+          curD.harManuell = true
+        }
+      }
+      if (atData && prevD) {
+        const { perDag: prevPD, harManuell } = byggVolymPerDag(
+          atData.lassRows, atData.rader, atData.tidRows, maskin.id, prevRange.start, prevRange.end,
+        )
+        if (harManuell) {
+          const mv = sumPerDag(prevPD)
+          prevD.volym     = mv
+          prevD.snittLass = prevD.lass > 0 ? mv / prevD.lass : null
+          prevD.harManuell = true
+        }
+      }
+
+      // Korrigera serie-volymer (6 perioder bakåt)
+      const adjustedSerie = (ser ?? []).map((s, i) => {
+        if (!atData) return s
+        const r = getPeriodRange(period, offset - (5 - i))
+        const { perDag: sPD, harManuell } = byggVolymPerDag(
+          atData.lassRows, atData.rader, atData.tidRows, maskin.id, r.start, r.end,
+        )
+        if (!harManuell) return s
+        const sv = sumPerDag(sPD)
+        return { ...s, volym: s.hasData ? sv : null }
+      })
+
       // 65%-regel: visa delta bara om föregående period har jämförbar täckning.
       const prevValid = (prevD?.dagar ?? 0) >= (curD?.dagar ?? 0) * 0.65
+      setHarManuell(curD?.harManuell ?? false)
       setData(curD)
       setPrevData(prevValid ? prevD : null)
-      setSerie(ser ?? [])
+      setSerie(adjustedSerie)
       setOperatorer(ops ?? [])
       setLoading(false)
     })
@@ -920,6 +983,7 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
           serie={serie}
           refLabel={refLabel}
           loading={loading}
+          harManuell={harManuell}
         />
         <SkotareKpiList data={data} prev={prevData} loading={loading} />
         <SkotareTidsfordelning data={data} loading={loading} />
@@ -929,7 +993,6 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
           loading={loading}
           onSelect={(op) => setDeepOperator(op)}
         />
-        {maskin.id === 'A110148' && <EkDisclaimer />}
       </div>
 
       {/* Operatör-djupvy som overlay */}

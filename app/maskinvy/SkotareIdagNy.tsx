@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
-  C, FONT, fmtSv,
+  C, FONT, fmtSv, VolymBadge,
 } from './OversiktShared'
 
 // ─────────────────────────────────────────────────────────────
@@ -326,6 +326,11 @@ function SiffraCard({ data, loading }: { data: SkotareIdagData | null; loading: 
               {loading ? '—' : item.display}
             </div>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{item.unit}</div>
+            {i === 0 && !loading && (
+              <div style={{ marginTop: 5 }}>
+                <VolymBadge harManuell={false} />
+              </div>
+            )}
           </div>
         ))}
       </div>
