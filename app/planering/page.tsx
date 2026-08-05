@@ -1985,7 +1985,17 @@ export default function PlannerPage() {
   
   // Redigera
   const [editingMarker, setEditingMarker] = useState<Marker | null>(null);
-  
+  // Spara redigera-kortets NUVARANDE innehåll (kommentar m.m.) SYNKRONT: commit till markers +
+  // OMEDELBAR DB-upsert (saveMarkerToDb), inte bara den debouncade sync:en. Anropas vid blur OCH vid
+  // VARJE stängning (bakgrund/X/✓) så texten aldrig tappas när kortet stängs före debounce-fönstret.
+  // saveMarkerToDb + markers är deklarerade ovan (rad ~387/550) → ingen TDZ.
+  const flushEditMarker = () => {
+    const em = editingMarker;
+    if (!em) return;
+    setMarkers(prev => prev.map(m => m.id === em.id ? { ...em } : m));
+    saveMarkerToDb(em);   // skriver hela markören (inkl. comment) till DB direkt
+  };
+
   // Header
   const [headerExpanded, setHeaderExpanded] = useState(false);
   
@@ -15719,7 +15729,7 @@ export default function PlannerPage() {
           justifyContent: 'center',
           zIndex: 300,
         }}
-          onClick={() => setEditingMarker(null)}
+          onClick={() => { flushEditMarker(); setEditingMarker(null); }}
         >
           <div 
             style={{
@@ -15774,6 +15784,7 @@ export default function PlannerPage() {
             <textarea
               value={editingMarker.comment || ''}
               onChange={(e) => setEditingMarker(prev => prev ? { ...prev, comment: e.target.value } : null)}
+              onBlur={() => flushEditMarker()}
               placeholder="Skriv kommentar..."
               autoFocus
               style={{
@@ -15841,7 +15852,7 @@ export default function PlannerPage() {
               borderTop: '1px solid rgba(255,255,255,0.08)',
             }}>
               <button
-                onClick={() => { stopAnyRecording(); setEditingMarker(null); }}
+                onClick={() => { stopAnyRecording(); flushEditMarker(); setEditingMarker(null); }}
                 style={{
                   width: '48px',
                   height: '48px',
@@ -15862,9 +15873,7 @@ export default function PlannerPage() {
                 onClick={() => {
                   stopAnyRecording();
                   saveToHistory([...markers]);
-                  setMarkers(prev => prev.map(m =>
-                    m.id === editingMarker.id ? { ...editingMarker } : m
-                  ));
+                  flushEditMarker();          // commit + omedelbar DB-upsert (samma väg som stängning)
                   // Öppna symbol-menyn igen
                   setMarkerMenuOpen(editingMarker.id);
                   setEditingMarker(null);
