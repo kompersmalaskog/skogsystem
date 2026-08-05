@@ -30,6 +30,7 @@ export type TidRad = {
   processing_sek: number | null
   terrain_sek: number | null
   other_work_sek: number | null
+  objekt_id: string | null | undefined
 }
 
 export type VolymPerDagResult = {
@@ -118,6 +119,17 @@ export function byggVolymPerDag(
     lassByObjekt.set(oid, arr)
   }
 
+  // Grupp tid per objekt_id — KRITISKT: måste vara per-objekt, inte all-time maskin.
+  // fordelaSkotadVolymFrånDB beräknar dag_sek/tidSum som viktfaktor; om tidSum
+  // innehåller hela maskinhistoriken smetas manuellvolymen ut mot fel period.
+  const tidByObjekt = new Map<string, TidRad[]>()
+  for (const r of allTimeTidRows) {
+    const oid = (r.objekt_id ?? null) !== null ? (r.objekt_id as string) : '__null'
+    const arr = tidByObjekt.get(oid) ?? []
+    arr.push(r)
+    tidByObjekt.set(oid, arr)
+  }
+
   // Grupp manuell per objekt_id
   const manuellByObjekt = new Map<string, SkotareManuellRad[]>()
   for (const r of manuellRader) {
@@ -140,13 +152,27 @@ export function byggVolymPerDag(
       addL(r.datum, 1)
     }
 
-    const manuell      = oid !== '__null' ? manuellByObjekt.get(oid) : undefined
+    const manuell       = oid !== '__null' ? manuellByObjekt.get(oid) : undefined
     const hasManuellVol = manuell && manuell.some(r => (r.volym_m3 ?? 0) > 0)
 
     if (hasManuellVol) {
-      // Fördela all-time total med all-time lass/tid som vikter.
-      // Filtrera delar till perioden och denna maskin.
-      const { delar } = fordelaSkotadVolymFrånDB(manuell!, objLass, allTimeTidRows)
+      // Skicka OBJEKTETS egna tid- och lass-rader som vikter (ej maskinens all-time).
+      const objTid = tidByObjekt.get(oid) ?? []
+      const { delar, kundeInteFordela } = fordelaSkotadVolymFrånDB(manuell!, objLass, objTid)
+
+      // Sanity-guard: sum(delar) ≈ objektets manuella totalvolym.
+      // Avvikelse > 0.1 % indikerar att viktunderlaget är fel (t.ex. objekt_id saknas i tid-RPC).
+      const manuellTotal = manuell!.reduce((s, r) => s + (r.volym_m3 ?? 0), 0)
+      const delarTotal   = delar.reduce((s, d) => s + d.volym, 0)
+      if (manuellTotal > 0 && !kundeInteFordela) {
+        const relAvvikelse = Math.abs(delarTotal - manuellTotal) / manuellTotal
+        if (relAvvikelse > 0.001) {
+          console.warn(
+            `[skotarvolym] sanity: objekt ${oid} delar=${delarTotal.toFixed(1)} manuell=${manuellTotal.toFixed(1)} avv=${(relAvvikelse * 100).toFixed(2)}%`,
+          )
+        }
+      }
+
       for (const del of delar) {
         if (del.maskin_id !== maskinId) continue
         if (del.datum < start || del.datum > end) continue
