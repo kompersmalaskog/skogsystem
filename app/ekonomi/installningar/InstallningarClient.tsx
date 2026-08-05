@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, CSSProperties } from 'react';
 import { supabase } from '@/lib/supabase';
+import { uppdateraVerifierat } from '@/lib/supabase-save';
 import EkonomiBottomNav from '../EkonomiBottomNav';
 
 type Num = number | '';
@@ -9,6 +10,9 @@ type Num = number | '';
 type MaskinRad = {
   id?: string; maskin_id: string; maskin_namn: string; timpris: Num;
   giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
+  // Verklig värdeminskning (dim_maskin, INTE timpris-versionerad):
+  // tomt inköpspris = ingen värdeminskning räknas (ärligt, ingen 0-gissning)
+  inkopspris: Num; avskrivning_procent: Num;
 };
 type AcordRad = {
   id?: string; medelstam: Num; pris_total: Num; pris_skordare: Num; pris_skotare: Num;
@@ -158,7 +162,7 @@ export default function InstallningarClient() {
       supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_flyttkostnad').select('id, km_fran, km_till, fast_kr, timpris_trailer_kr, beskrivning, giltig_fran, giltig_till').is('giltig_till', null).order('km_fran'),
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
-      supabase.from('dim_maskin').select('maskin_id, modell').order('modell'),
+      supabase.from('dim_maskin').select('maskin_id, modell, inkopspris, avskrivning_procent').order('modell'),
       supabase.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod'),
       supabase.from('fortnox_invoice_rows')
         .select('id, document_number, invoice_date, description, total, matched_objekt_id, manual_objekt_id')
@@ -170,7 +174,15 @@ export default function InstallningarClient() {
       supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer').order('object_name').limit(1000),
       supabase.from('dim_sortiment').select('sortiment_id, namn, dim_sortiment_grupp(grupp, grupp_manuell)').order('namn'),
     ]);
-    setMaskiner((mRes.data || []).map((m: any) => ({ id: m.id, maskin_id: m.maskin_id, maskin_namn: m.maskin_namn || '', timpris: m.timpris, giltig_fran: m.giltig_fran })));
+    // Värdeminsknings-fälten bor i dim_maskin (stamdata) — merge per maskin_id.
+    // Procent-förval 20 när dim-raden saknas eller är tom.
+    const dimMap: Record<string, any> = {};
+    for (const d of (dimMaskinRes.data || [])) dimMap[d.maskin_id] = d;
+    setMaskiner((mRes.data || []).map((m: any) => ({
+      id: m.id, maskin_id: m.maskin_id, maskin_namn: m.maskin_namn || '', timpris: m.timpris, giltig_fran: m.giltig_fran,
+      inkopspris: dimMap[m.maskin_id]?.inkopspris ?? '',
+      avskrivning_procent: dimMap[m.maskin_id]?.avskrivning_procent ?? 20,
+    })));
     setAcord((aRes.data || []).map((a: any) => ({ id: a.id, medelstam: a.medelstam, pris_total: a.pris_total, pris_skordare: a.pris_skordare, pris_skotare: a.pris_skotare, giltig_fran: a.giltig_fran })));
     const avRow = (avRes.data || [])[0];
     setAvstand(avRow
@@ -255,7 +267,7 @@ export default function InstallningarClient() {
 
   // ── Maskin ──
   const updateMaskin = (idx: number, p: Partial<MaskinRad>) => setMaskiner(prev => prev.map((m, i) => i === idx ? { ...m, ...p, dirty: true } : m));
-  const addMaskin = () => setMaskiner(prev => [...prev, { maskin_id: '', maskin_namn: '', timpris: '', giltig_fran: null, isNew: true, dirty: true }]);
+  const addMaskin = () => setMaskiner(prev => [...prev, { maskin_id: '', maskin_namn: '', timpris: '', inkopspris: '', avskrivning_procent: 20, giltig_fran: null, isNew: true, dirty: true }]);
   const saveMaskin = async (idx: number) => {
     const row = maskiner[idx];
     if (!row.maskin_id.trim() || !row.maskin_namn.trim() || row.timpris === '' || Number(row.timpris) <= 0) { flashMsg('Fyll i maskin-ID, namn och ett pris > 0'); return; }
@@ -263,8 +275,25 @@ export default function InstallningarClient() {
     const err = await saveOneByKey('maskin_timpris', 'maskin_id', row.maskin_id, {
       maskin_id: row.maskin_id.trim(), maskin_namn: row.maskin_namn.trim(), timpris: Number(row.timpris),
     }, !!row.isNew);
+    if (err) { setSavingMaskin(null); flashMsg(`Fel: ${err.message}`); return; }
+
+    // Värdeminskningen bor i dim_maskin (admin-only RLS — chef får tyst 0
+    // rader, därför verifierat sparande med värde-återläsning, aldrig tyst).
+    const villInkop = numOrNull(row.inkopspris);
+    const villProcent = row.avskrivning_procent === '' ? 20 : Number(row.avskrivning_procent);
+    const dimRes = await uppdateraVerifierat(
+      supabase, 'dim_maskin',
+      { inkopspris: villInkop, avskrivning_procent: villProcent },
+      { maskin_id: row.maskin_id.trim() },
+      'maskin_id, inkopspris, avskrivning_procent',
+    );
     setSavingMaskin(null);
-    if (err) { flashMsg(`Fel: ${err.message}`); return; }
+    if (!dimRes.ok) { flashMsg(`Timpris sparat, men värdeminskning: ${dimRes.fel}`); return; }
+    const r0: any = dimRes.rows[0];
+    const landat = (v: any) => (v == null ? null : Number(v));
+    if (landat(r0.inkopspris) !== villInkop || landat(r0.avskrivning_procent) !== villProcent) {
+      flashMsg('Värdeminskning: värdet landade inte i dim_maskin — kontrollera behörighet'); return;
+    }
     flashMsg(`Sparat: ${row.maskin_namn}`);
     await fetchData();
   };
@@ -566,6 +595,18 @@ export default function InstallningarClient() {
                     <button style={{ ...s.btnDark, opacity: isSaving ? 0.6 : 1 } as CSSProperties} disabled={isSaving} onClick={() => saveMaskin(idx)}>
                       {isSaving ? 'Sparar...' : 'Spara'}
                     </button>
+                  </div>
+                  {/* Verklig värdeminskning (kalkyl, ej bokförd avskrivning).
+                      Tomt inköpspris = ingen värdeminskning räknas för maskinen. */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+                    <div>
+                      <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>Inköpspris kr</div>
+                      <NumInput value={m.inkopspris} onChange={v => updateMaskin(idx, { inkopspris: v })} placeholder="tomt = räknas ej" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>Avskrivning %/år</div>
+                      <NumInput value={m.avskrivning_procent} onChange={v => updateMaskin(idx, { avskrivning_procent: v })} placeholder="20" />
+                    </div>
                   </div>
                   <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
                     {datePillFor(m.giltig_fran)}
