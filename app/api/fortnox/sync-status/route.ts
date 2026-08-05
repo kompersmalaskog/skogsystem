@@ -42,7 +42,7 @@ export async function GET() {
 
     const { data, error } = await serverSupabase()
       .from("fortnox_sync_state")
-      .select("last_success_at, last_status, last_error, invoice_last_sync_at, invoice_last_status, invoice_last_error")
+      .select("last_sync_at, last_success_at, last_status, last_error, invoice_last_sync_at, invoice_last_status, invoice_last_error")
       .eq("id", 1)
       .maybeSingle();
     if (error) {
@@ -51,7 +51,17 @@ export async function GET() {
     if (!data) {
       return NextResponse.json({ ok: false, meddelande: "fortnox_sync_state saknar rad 1" }, { status: 500 });
     }
-    return NextResponse.json({ ok: true, ...data });
+    // Timeout-ärlighet: dödas synken av maxDuration hinner den aldrig skriva
+    // "fel" — last_status fastnar på "pågår". En "pågår" äldre än 15 min ÄR
+    // en avbruten körning och rapporteras så (härlett i läsvägen, eftersom
+    // skrivvägen per definition inte finns kvar när Vercel dödat funktionen).
+    const AVBRUTEN_EFTER_MS = 15 * 60 * 1000;
+    let lastStatus = data.last_status;
+    if (lastStatus === "pågår" && data.last_sync_at
+        && Date.now() - new Date(data.last_sync_at).getTime() > AVBRUTEN_EFTER_MS) {
+      lastStatus = "avbruten";
+    }
+    return NextResponse.json({ ok: true, ...data, last_status: lastStatus });
   } catch (e: any) {
     return NextResponse.json({ ok: false, meddelande: e?.message || String(e) }, { status: 500 });
   }
