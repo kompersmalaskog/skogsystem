@@ -1286,6 +1286,17 @@ export default function PlannerPage() {
       } catch (e) {
         console.error('[MapLibre] markers-layer error:', e);
       }
+      // Osynlig träffyta för symbol-TAP (symboler går inte att dra längre). Circle-lager ger en
+      // pålitlig touch-yta oberoende av ikonstorlek; klicket binds i click-effekten → öppnar kortet.
+      // Ligger ovanpå ikon-lagret. Draget är borttaget, så inget nyp/pan fastnar på symbolen.
+      try {
+        if (!map.getLayer('markers-hit')) {
+          map.addLayer({
+            id: 'markers-hit', type: 'circle', source: 'markers-source',
+            paint: { 'circle-radius': 20, 'circle-color': 'rgba(0,0,0,0)' },
+          });
+        }
+      } catch (e) { console.error('[MapLibre] markers-hit error:', e); }
       // KÖRVY-label: BARA danger-typer (powerline/manualfelling/warning/steep)
       // inom 100m. Apple-clean — bara svenska typnamn, ingen dist, inget kort.
       // Andra markörer får ingen text i Körvy 2D — för rörigt annars.
@@ -1368,6 +1379,15 @@ export default function PlannerPage() {
       } catch (e) {
         console.error('[MapLibre] arrows-layer error:', e);
       }
+      // Osynlig träffyta för pil-TAP (pilar går inte att dra längre — rotation via kortets knapp).
+      try {
+        if (!map.getLayer('arrows-hit')) {
+          map.addLayer({
+            id: 'arrows-hit', type: 'circle', source: 'arrows-source',
+            paint: { 'circle-radius': 20, 'circle-color': 'rgba(0,0,0,0)' },
+          });
+        }
+      } catch (e) { console.error('[MapLibre] arrows-hit error:', e); }
     });
 
     setMapLibreReady(true);
@@ -1609,6 +1629,12 @@ export default function PlannerPage() {
   // Stickvägsavstånd
   const [stickvagMode, setStickvagMode] = useState(false); // Aktiv stickvägsvy
   const [stickvagOversikt, setStickvagOversikt] = useState(false); // Översiktsvy
+  // Speglar markers + stickvagOversikt i refs så MapLibre-klick-handlern (symbol/pil-tap, bunden en
+  // gång) alltid ser aktuellt läge utan stale closure.
+  const markersRef = useRef<Marker[]>([]);
+  const stickvagOversiktRef = useRef(false);
+  useEffect(() => { markersRef.current = markers; }, [markers]);
+  useEffect(() => { stickvagOversiktRef.current = stickvagOversikt; }, [stickvagOversikt]);
   const [stickvagSettings, setStickvagSettings] = useState({
     targetDistance: 25, // Målvärde kant-kant i meter
     tolerance: 3, // ±3 meter
@@ -2897,6 +2923,22 @@ export default function PlannerPage() {
       }
     };
 
+    // Symbol/pil-TAP → öppna kortet (drag borttaget). Läs id ur feature-props, hitta markören i
+    // markersRef och öppna dess kort. I stickväg-översikt: välj för översikt istället (som förr).
+    const handleMarkerFeatureClick = (e: any) => {
+      featureClickedRef.current = true;
+      const rawId = e.features?.[0]?.properties?.id;
+      if (rawId == null) return;
+      const m = markersRef.current.find(x => String(x.id) === String(rawId));
+      if (!m) return;
+      if (stickvagOversiktRef.current) {
+        setSelectedOversiktItem(m);
+        setSelectedOversiktVag(null);
+      } else {
+        setMarkerMenuOpen(m.id);
+      }
+    };
+
     map.on('click', 'hogar-hit', handleHogarClick);
     map.on('click', 'hogar-cluster', handleClusterClick);
     map.on('click', handleMapClick);
@@ -2904,6 +2946,13 @@ export default function PlannerPage() {
     map.on('mouseleave', 'hogar-hit', handleLeave);
     map.on('mouseenter', 'hogar-cluster', handleEnter);
     map.on('mouseleave', 'hogar-cluster', handleLeave);
+    // Symbol/pil-tap (drag borttaget — tap öppnar kort, nyp/pan går rakt till kartan)
+    map.on('click', 'markers-hit', handleMarkerFeatureClick);
+    map.on('click', 'arrows-hit', handleMarkerFeatureClick);
+    map.on('mouseenter', 'markers-hit', handleEnter);
+    map.on('mouseleave', 'markers-hit', handleLeave);
+    map.on('mouseenter', 'arrows-hit', handleEnter);
+    map.on('mouseleave', 'arrows-hit', handleLeave);
 
     return () => {
       map.off('click', 'hogar-hit', handleHogarClick);
@@ -2913,6 +2962,12 @@ export default function PlannerPage() {
       map.off('mouseleave', 'hogar-hit', handleLeave);
       map.off('mouseenter', 'hogar-cluster', handleEnter);
       map.off('mouseleave', 'hogar-cluster', handleLeave);
+      map.off('click', 'markers-hit', handleMarkerFeatureClick);
+      map.off('click', 'arrows-hit', handleMarkerFeatureClick);
+      map.off('mouseenter', 'markers-hit', handleEnter);
+      map.off('mouseleave', 'markers-hit', handleLeave);
+      map.off('mouseenter', 'arrows-hit', handleEnter);
+      map.off('mouseleave', 'arrows-hit', handleLeave);
     };
   }, [mapLibreReady]);
 
@@ -5773,7 +5828,7 @@ export default function PlannerPage() {
       const vinkel = m.angle ?? m.rotation ?? 0; // nya sparar 'angle', gamla har 'rotation'
       return {
         type: 'Feature' as const,
-        properties: { arrowType: m.arrowType || 'drivedirection', rotation: vinkel, opacity: 1 },
+        properties: { arrowType: m.arrowType || 'drivedirection', rotation: vinkel, opacity: 1, id: m.id },
         geometry: { type: 'Point' as const, coordinates: [ll.lon, ll.lat] },
       };
     });
@@ -11194,30 +11249,20 @@ export default function PlannerPage() {
                     />
                   </g>
                 )}
-                {/* Osynlig hit-area för drag/klick (opacity: 0 utom vid drag) */}
+                {/* Symboler går inte längre att dra (borttaget — drag fångade fingret vid nyp och
+                    flyttade symbolen av misstag). Träffytan är pointer-events:none så nyp/pan går
+                    rakt till kartan (ren zoom). Tap → öppna kort fångas via MapLibre-klick på
+                    markers-hit (se click-effekten). */}
                 <g
                   transform={`translate(${offsetX}, ${offsetY})`}
-                  onMouseDown={(e) => handleMarkerDragStart(e, m)}
-                  onTouchStart={(e) => handleMarkerDragStart(e, m)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (stickvagOversikt) {
-                      setSelectedOversiktItem(m);
-                      setSelectedOversiktVag(null);
-                    }
-                  }}
-                  style={{
-                    cursor: isDragging ? 'grabbing' : 'pointer',
-                    opacity: isDragging ? 1 : 0,
-                    pointerEvents: isInDrawingMode ? 'none' : 'auto',
-                  }}
+                  style={{ opacity: 0, pointerEvents: 'none' }}
                 >
                   <circle
                     cx={m.x}
                     cy={m.y}
                     r={symbolRadius}
-                    fill={isDragging && hasMoved ? colors.blue : 'transparent'}
-                    stroke={isDragging && hasMoved ? '#fff' : 'transparent'}
+                    fill="transparent"
+                    stroke="transparent"
                     strokeWidth={getConstrainedSize(4)}
                   />
                 </g>
@@ -11250,18 +11295,12 @@ export default function PlannerPage() {
                 {isAcknowledged && drivingMode && (
                   <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#30d158" strokeWidth={getConstrainedSize(3)} />
                 )}
+                {/* Pilar går inte längre att dra (samma zoom-krock som symboler). pointer-events:none
+                    → nyp/pan går till kartan. Tap → kort via MapLibre-klick på arrows-hit. Rotation
+                    finns kvar (armas av Rotera-knappen i kortet, inte av denna träffyta). */}
                 <g
                   transform={`translate(${m.x}, ${m.y})`}
-                  onMouseDown={(e) => handleMarkerDragStart(e, m)}
-                  onTouchStart={(e) => handleMarkerDragStart(e, m)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (stickvagOversikt) {
-                      setSelectedOversiktItem(m);
-                      setSelectedOversiktVag(null);
-                    }
-                  }}
-                  style={{ cursor: isDragging ? 'grabbing' : 'pointer', pointerEvents: isInDrawingMode ? 'none' : 'auto' }}
+                  style={{ pointerEvents: 'none' }}
                 >
                   {/* Pilen ritas nu via MapLibre arrows-layer (geo-låst, geo-riktad). Här bara
                       osynlig hit-area för drag/klick — samma mönster som symbolernas hit-area. */}
