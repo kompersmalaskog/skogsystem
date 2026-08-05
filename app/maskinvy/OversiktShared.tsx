@@ -997,6 +997,29 @@ export function initials(namn: string): string {
   return namn.substring(0, 2).toUpperCase()
 }
 
+// ── VolymBadge (DEL C) ────────────────────────────────────────
+// Signalerar varifrån volymsiffran kommer.
+//   harManuell=true  → 'manuell'   (blå)   — värdet är från skotare_objekt_manuell
+//   harManuell=false → 'preliminär' (dämpad) — värdet är raw FPR-data
+export function VolymBadge({ harManuell }: { harManuell: boolean }) {
+  if (harManuell) {
+    return (
+      <span style={{
+        fontSize: 10, fontWeight: 500, color: C.blue,
+        background: 'rgba(10,132,255,0.12)', borderRadius: 4,
+        padding: '1px 6px', letterSpacing: 0.1,
+      }}>manuell</span>
+    )
+  }
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 400, color: C.muted,
+      background: 'rgba(255,255,255,0.06)', borderRadius: 4,
+      padding: '1px 6px', letterSpacing: 0.1,
+    }}>preliminär</span>
+  )
+}
+
 export function OperatorList({ operatorer, loading, onSelect }: {
   operatorer: Operator[]
   loading: boolean

@@ -3,9 +3,13 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   C, FONT, getPeriodRange, fetchAll,
-  fmtSv,
+  fmtSv, VolymBadge,
   type Period,
 } from './OversiktShared'
+import {
+  hämtaManuellRader, harManuellData, fetchAllTimeLassTid, byggVolymPerDag,
+  type ManuellRad, type LassRad, type TidRad,
+} from '@/lib/maskinvy/skotarvolym'
 
 // ─────────────────────────────────────────────────────────────
 // SkotareProduktionNy — Daglig utkörning för skotare bakom ?ny=1.
@@ -577,6 +581,7 @@ export default function SkotareProduktionNy({ maskin, onMaskinChange }: {
   const [loading, setLoading] = useState(false)
   const [maskinOpen, setMaskinOpen] = useState(false)
   const [openBucketKey, setOpenBucketKey] = useState<string | null>(null)
+  const [harManuell, setHarManuell] = useState(false)
 
   const { label, start, end } = getPeriodRange(period, offset)
 
@@ -586,9 +591,50 @@ export default function SkotareProduktionNy({ maskin, onMaskinChange }: {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetchSkotareProduktion(maskin.id, start, end)
-      .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
-      .catch(() => { if (!cancelled) setLoading(false) })
+    Promise.all([
+      fetchSkotareProduktion(maskin.id, start, end),
+      hämtaManuellRader(maskin.id).then(async rader => {
+        if (!harManuellData(rader)) return null
+        const { lassRows, tidRows } = await fetchAllTimeLassTid([maskin.id])
+        return { rader, lassRows, tidRows }
+      }).catch(() => null),
+    ]).then(([d, atData]) => {
+      if (cancelled) return
+      let manuellAnvänd = false
+      if (atData) {
+        const { perDag: mPerDag, harManuell: hm } = byggVolymPerDag(
+          atData.lassRows, atData.rader, atData.tidRows, maskin.id, start, end,
+        )
+        if (hm) {
+          // Ersätt per-dag-volym med manuell-korrigerat värde
+          for (const [datum, vol] of Array.from(mPerDag.entries())) {
+            if (d.perDag[datum]) d.perDag[datum].volym = vol
+            else d.perDag[datum] = { datum, volym: vol, lass: 0, totalDist: 0 }
+          }
+          // Nollställ dagar utanför mPerDag som annars har raw-volym
+          for (const datum of Object.keys(d.perDag)) {
+            if (!mPerDag.has(datum)) d.perDag[datum].volym = 0
+          }
+          // Räkna om aggregat
+          let tv = 0, tl = 0, ad = 0, bästa: DagInfo | null = null
+          for (const dag of Object.values(d.perDag)) {
+            tv += dag.volym; tl += dag.lass
+            if (dag.volym > 0) {
+              ad++
+              if (!bästa || dag.volym > bästa.volym) bästa = dag
+            }
+          }
+          d.totalVolym      = tv; d.totalLass      = tl; d.arbetsdagar      = ad
+          d.snittVolymPerDag = ad > 0 ? tv / ad : null
+          d.snittLassPerDag  = ad > 0 ? tl / ad : null
+          d.bästaDag         = bästa
+          manuellAnvänd = true
+        }
+      }
+      setHarManuell(manuellAnvänd)
+      setData(d)
+      setLoading(false)
+    }).catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [maskin.id, start, end])
 
@@ -739,6 +785,13 @@ export default function SkotareProduktionNy({ maskin, onMaskinChange }: {
 
       {/* ── Innehåll ── */}
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '14px 16px 80px' }}>
+        {/* Volymkälla-indikator */}
+        {!loading && (
+          <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: C.muted }}>Volym:</span>
+            <VolymBadge harManuell={harManuell} />
+          </div>
+        )}
         {/* Sifferkort: totalt · dagar · snitt */}
         <div style={{
           display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',

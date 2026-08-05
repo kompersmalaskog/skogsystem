@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  C, FONT, fmtSv, getPeriodRange, fetchAll,
+  C, FONT, fmtSv, getPeriodRange, fetchAll, VolymBadge,
   type Period,
 } from './OversiktShared'
+import {
+  hämtaManuellRader, harManuellData, fetchAllTimeLassTid, byggVolymPerDag, sumPerDag,
+} from '@/lib/maskinvy/skotarvolym'
 
 // ─────────────────────────────────────────────────────────────
 // SkotareJamforelseNy — Wisent vs Elephant King, per avståndsklass
@@ -463,11 +466,13 @@ function FordelningsStaplar({
 // ── TotalRad ──────────────────────────────────────────────────
 // Totaler för hela perioden (alla klasser kombinerade, viktat).
 function TotalRad({
-  wisent, ek, matt, loading,
+  wisent, ek, matt, loading, harManuellWisent, harManuellEk,
 }: {
   wisent: MaskinAgg; ek: MaskinAgg; matt: MattId; loading: boolean
+  harManuellWisent: boolean; harManuellEk: boolean
 }) {
   const mattDef = MATT.find(m => m.id === matt)!
+  const harManuell = { [WISENT.id]: harManuellWisent, [EK.id]: harManuellEk }
 
   return (
     <div style={{
@@ -499,6 +504,11 @@ function TotalRad({
               <div style={{ fontSize: 11, color: C.dim, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
                 {agg.totalLass} lass · {fmtSv(agg.totalVolym, 0)} m³
               </div>
+              {!loading && (
+                <div style={{ marginTop: 6 }}>
+                  <VolymBadge harManuell={harManuell[maskin.id] ?? false} />
+                </div>
+              )}
             </div>
           )
         })}
@@ -514,15 +524,61 @@ export default function SkotareJamforelseNy() {
   const [matt,    setMatt]    = useState<MattId>('lass')
   const [data,    setData]    = useState<{ wisent: MaskinAgg; ek: MaskinAgg } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [harManuellWisent, setHarManuellWisent] = useState(false)
+  const [harManuellEk,     setHarManuellEk]     = useState(false)
 
   const { start, end, label } = getPeriodRange(period, offset)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetchJamforelse(start, end)
-      .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
-      .catch(() => { if (!cancelled) setLoading(false) })
+    Promise.all([
+      fetchJamforelse(start, end),
+      hämtaManuellRader(WISENT.id).then(async rader => {
+        if (!harManuellData(rader)) return null
+        const { lassRows, tidRows } = await fetchAllTimeLassTid([WISENT.id])
+        return { rader, lassRows, tidRows }
+      }).catch(() => null),
+      hämtaManuellRader(EK.id).then(async rader => {
+        if (!harManuellData(rader)) return null
+        const { lassRows, tidRows } = await fetchAllTimeLassTid([EK.id])
+        return { rader, lassRows, tidRows }
+      }).catch(() => null),
+    ]).then(([d, wisentAt, ekAt]) => {
+      if (cancelled) return
+
+      // Skalfaktor-korrigering per maskin: manuell total / raw total → applicera på alla klasser
+      let hmW = false
+      if (wisentAt && d.wisent.totalVolym > 0) {
+        const { perDag: wPD, harManuell: hw } = byggVolymPerDag(
+          wisentAt.lassRows, wisentAt.rader, wisentAt.tidRows, WISENT.id, start, end,
+        )
+        if (hw) {
+          const scale = sumPerDag(wPD) / d.wisent.totalVolym
+          for (const kl of d.wisent.klasser) kl.volym *= scale
+          d.wisent.totalVolym = sumPerDag(wPD)
+          hmW = true
+        }
+      }
+
+      let hmE = false
+      if (ekAt && d.ek.totalVolym > 0) {
+        const { perDag: ePD, harManuell: he } = byggVolymPerDag(
+          ekAt.lassRows, ekAt.rader, ekAt.tidRows, EK.id, start, end,
+        )
+        if (he) {
+          const scale = sumPerDag(ePD) / d.ek.totalVolym
+          for (const kl of d.ek.klasser) kl.volym *= scale
+          d.ek.totalVolym = sumPerDag(ePD)
+          hmE = true
+        }
+      }
+
+      setHarManuellWisent(hmW)
+      setHarManuellEk(hmE)
+      setData(d)
+      setLoading(false)
+    }).catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [start, end])
 
@@ -662,6 +718,8 @@ export default function SkotareJamforelseNy() {
           <TotalRad
             wisent={data.wisent} ek={data.ek}
             matt={matt} loading={loading}
+            harManuellWisent={harManuellWisent}
+            harManuellEk={harManuellEk}
           />
         )}
 
@@ -695,15 +753,17 @@ export default function SkotareJamforelseNy() {
           </div>
         )}
 
-        {/* EK-volym-disclaimer (alltid synlig) */}
+        {/* EK-volym-källa */}
         <div style={{
           background: C.card, border: `0.5px solid ${C.divider}`,
           borderRadius: 14, padding: '14px 16px',
         }}>
           <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
             <span style={{ color: C.text, fontWeight: 500 }}>Elephant King — volym (m³sub):</span>{' '}
-            manuell schablon tills FPR-registrering är åtgärdad.
-            Lass och avstånd (korstracka_m) är maskinmätta och tillförlitliga.
+            {harManuellEk
+              ? 'manuell schablon ur systemet (skotare_objekt_manuell), fördelad per dag.'
+              : 'manuell schablon tills FPR-registrering är åtgärdad.'}
+            {' '}Lass och avstånd (korstracka_m) är maskinmätta och tillförlitliga.
           </div>
         </div>
 
