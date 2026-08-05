@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
+import { arFullSynkNatt, FORTNOX_FONSTER_ANROP, FORTNOX_FONSTER_MS } from "@/lib/fortnox/synk";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,10 @@ export const maxDuration = 300; // 5 min — fulls sync för ett års vouchers
  * Synkar verifikat från Fortnox → fortnox_voucher_rows.
  *
  * Default: inkrementell (senaste 14 dagarna). full=1 → hela aktuella året.
+ * SÖNDAGSNATT körs alltid full (bokföringen släpar — sent bokförda verifikat
+ * bär gamla transaktionsdatum och syns aldrig i 14-dagarsfönstret).
+ * Detaljer hämtas bara för verifikat som saknas i cachen (immutabla i
+ * Fortnox) — refetch=1 tvingar omhämtning av allt.
  *
  * Auktorisering: antingen inloggad admin/chef via cookie ELLER
  * Authorization: Bearer <FORTNOX_SYNC_SECRET> (används av pg_cron).
@@ -77,7 +82,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const url = new URL(req.url);
-    const fullSync = url.searchParams.get("full") === "1";
+    // Söndagsnatt kör full årssynk automatiskt — sent bokförda verifikat bär
+    // gamla transaktionsdatum och syns aldrig i 14-dagarsfönstret.
+    const fullSync = url.searchParams.get("full") === "1" || arFullSynkNatt(new Date());
+    // refetch=1 (manuell ventil): hämta om ALLA verifikat, även de som redan
+    // finns i cachen — normalfallet hoppar över befintliga (immutabla).
+    const refetch = url.searchParams.get("refetch") === "1";
     const client = (await getFortnoxClient()) as any;
     const accessToken: string = client.accessToken;
 
@@ -130,61 +140,83 @@ export async function POST(req: NextRequest) {
       if (page > 30) break; // säkerhetsbroms — 30 × 500 = 15000 verifikat
     }
 
-    // 4) Hämta detalj per voucher + skriv till DB i batcher.
-    // Radera först rader för alla verifikat vi ska återskapa så att
-    // borttagna rader också försvinner från cachen.
-    if (voucherList.length > 0) {
-      const vnrLista = voucherList.map(v => v.VoucherNumber);
-      const seriesSet = [...new Set(voucherList.map(v => v.VoucherSeries))];
-      // Batcha delete 200 voucher-nummer åt gången
-      for (let i = 0; i < vnrLista.length; i += 200) {
-        const chunk = vnrLista.slice(i, i + 200);
-        await supabase
+    // 4) DELTA: bokförda verifikat är immutabla i Fortnox (rättas med nya
+    // verifikat, ändras aldrig) — detaljer hämtas bara för verifikat som
+    // SAKNAS i cachen. Det gör veckofullen snabb (lista + bara nya) och
+    // håller den under maxDuration även när året är fullt. refetch=1
+    // kringgår filtret och hämtar om allt.
+    const befintliga = new Set<string>();
+    if (!refetch) {
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await supabase
+          .from("fortnox_voucher_rows")
+          .select("voucher_series, voucher_number")
+          .eq("financial_year", aktuelltFy.Id)
+          .order("id", { ascending: true })
+          .range(offset, offset + 999);
+        if (error) throw new Error(`Cache-nycklar: ${error.message}`);
+        if (!data || data.length === 0) break;
+        for (const r of data) befintliga.add(`${r.voucher_series}|${r.voucher_number}`);
+        if (data.length < 1000) break;
+      }
+    }
+    const attHamta = voucherList.filter(v => refetch || !befintliga.has(`${v.VoucherSeries}|${v.VoucherNumber}`));
+
+    // 5) Detaljer i parallella fönster (FORTNOX_FONSTER_ANROP per 5 s —
+    // under Fortnox rate-limit ~25/5 s, ~7× snabbare än sekventiellt).
+    // Delete + insert sker PER FÖNSTER, hela verifikat åt gången — en
+    // körning som dödas av maxDuration lämnar aldrig raderade-men-ej-
+    // återinsatta hål (gamla koden raderade allt i början).
+    let totalaRader = 0;
+    for (let i = 0; i < attHamta.length; i += FORTNOX_FONSTER_ANROP) {
+      const chunk = attHamta.slice(i, i + FORTNOX_FONSTER_ANROP);
+      const t0 = Date.now();
+      const details: VoucherDetail[] = await Promise.all(chunk.map(v => fortnox(
+        `/3/vouchers/${encodeURIComponent(v.VoucherSeries)}/${v.VoucherNumber}?financialyear=${aktuelltFy.Id}`,
+      )));
+      const rows: any[] = [];
+      for (const detail of details) {
+        const vch = detail.Voucher;
+        if (!vch) continue;
+        (vch.VoucherRows || []).forEach((r, idx) => {
+          rows.push({
+            financial_year: aktuelltFy.Id,
+            voucher_series: vch.VoucherSeries,
+            voucher_number: vch.VoucherNumber,
+            transaction_date: vch.TransactionDate,
+            row_num: idx + 1,
+            account: String(r.Account),
+            debit: Number(r.Debit) || 0,
+            credit: Number(r.Credit) || 0,
+            costcenter: r.CostCenter || null,
+            project: r.Project || null,
+            description: r.Description || vch.Description || null,
+          });
+        });
+      }
+      // Radera chunkens ev. gamla rader precis före insert — per serie, så
+      // .in(nummer) aldrig träffar samma nummer i en annan serie.
+      const perSerie: Record<string, number[]> = {};
+      for (const v of chunk) (perSerie[v.VoucherSeries] ||= []).push(v.VoucherNumber);
+      for (const [serie, nummer] of Object.entries(perSerie)) {
+        const { error } = await supabase
           .from("fortnox_voucher_rows")
           .delete()
           .eq("financial_year", aktuelltFy.Id)
-          .in("voucher_series", seriesSet)
-          .in("voucher_number", chunk);
+          .eq("voucher_series", serie)
+          .in("voucher_number", nummer);
+        if (error) throw new Error(`DB delete: ${error.message}`);
       }
-    }
-
-    let totalaRader = 0;
-    const batchSize = 100;
-    let pendingRows: any[] = [];
-
-    for (const v of voucherList) {
-      const detail: VoucherDetail = await fortnox(
-        `/3/vouchers/${encodeURIComponent(v.VoucherSeries)}/${v.VoucherNumber}?financialyear=${aktuelltFy.Id}`,
-      );
-      const vch = detail.Voucher;
-      if (!vch) continue;
-      const rader = vch.VoucherRows || [];
-      rader.forEach((r, idx) => {
-        pendingRows.push({
-          financial_year: aktuelltFy.Id,
-          voucher_series: vch.VoucherSeries,
-          voucher_number: vch.VoucherNumber,
-          transaction_date: vch.TransactionDate,
-          row_num: idx + 1,
-          account: String(r.Account),
-          debit: Number(r.Debit) || 0,
-          credit: Number(r.Credit) || 0,
-          costcenter: r.CostCenter || null,
-          project: r.Project || null,
-          description: r.Description || vch.Description || null,
-        });
-      });
-      if (pendingRows.length >= batchSize * 20) {
-        const { error } = await supabase.from("fortnox_voucher_rows").insert(pendingRows);
+      if (rows.length > 0) {
+        const { error } = await supabase.from("fortnox_voucher_rows").insert(rows);
         if (error) throw new Error(`DB insert: ${error.message}`);
-        totalaRader += pendingRows.length;
-        pendingRows = [];
+        totalaRader += rows.length;
       }
-    }
-    if (pendingRows.length > 0) {
-      const { error } = await supabase.from("fortnox_voucher_rows").insert(pendingRows);
-      if (error) throw new Error(`DB insert: ${error.message}`);
-      totalaRader += pendingRows.length;
+      // Fyll ut rate-fönstret till 5 s innan nästa (sista slipper vänta)
+      if (i + FORTNOX_FONSTER_ANROP < attHamta.length) {
+        const kvar = FORTNOX_FONSTER_MS - (Date.now() - t0);
+        if (kvar > 0) await new Promise(r => setTimeout(r, kvar));
+      }
     }
 
     const duration = Math.round((Date.now() - start) / 1000);
@@ -203,10 +235,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       läge: fullSync ? "full" : "inkrementell",
+      refetch,
       financial_year: aktuelltFy.Id,
       fromdate,
       todate: aktuelltFy.ToDate,
       voucher_count: voucherList.length,
+      hamtade: attHamta.length,
+      hoppade_over_befintliga: voucherList.length - attHamta.length,
       rader_skrivna: totalaRader,
       duration_sek: duration,
     });

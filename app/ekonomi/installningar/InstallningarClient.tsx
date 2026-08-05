@@ -91,6 +91,7 @@ function synkDel(label: string, iso: string | null) {
 type SynkStatus = {
   last_success_at: string | null;
   invoice_last_sync_at: string | null;
+  last_status: string | null;   // 'ok' | 'pågår' | 'fel' | 'avbruten' (härlett)
 } | 'fel' | null;
 
 export default function InstallningarClient() {
@@ -106,7 +107,7 @@ export default function InstallningarClient() {
         const body = await r.json();
         if (avbruten) return;
         setSynk(r.ok && body.ok
-          ? { last_success_at: body.last_success_at || null, invoice_last_sync_at: body.invoice_last_sync_at || null }
+          ? { last_success_at: body.last_success_at || null, invoice_last_sync_at: body.invoice_last_sync_at || null, last_status: body.last_status || null }
           : 'fel');
       } catch {
         if (!avbruten) setSynk('fel');
@@ -563,6 +564,10 @@ export default function InstallningarClient() {
             ) : (
               <>
                 Fortnox senast synkad: {synkDel('verifikat', synk.last_success_at)} · {synkDel('fakturor', synk.invoice_last_sync_at)}
+                {/* Krashad/avbruten körning ska synas, inte gömmas bakom ett gammalt ok-datum */}
+                {synk.last_status && synk.last_status !== 'ok' && synk.last_status !== 'pågår' && (
+                  <span style={{ color: 'rgba(240,178,76,0.85)' }}> · senaste körning: {synk.last_status}</span>
+                )}
               </>
             )}
           </div>
