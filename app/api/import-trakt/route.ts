@@ -4,12 +4,17 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import JSZip from 'jszip';
 import proj4 from 'proj4';
+import { packaUppEnvz } from '@/lib/trakt/envz';
+import { parseObjektInfo } from '@/lib/trakt/objektinfo';
+import { parseTraktdirektivText } from '@/lib/trakt/td-parser';
+import { mergeFalt, executorGodkand, forvantadExecutorOrgnr } from '@/lib/trakt/merge';
+import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
+import { klassificeraDokument } from '@/lib/trakt/dokument';
 
-export const runtime = 'nodejs'; // JSZip + unpdf behöver Node-runtime, inte edge
+export const runtime = 'nodejs'; // JSZip + unpdf + fast-xml-parser behöver Node-runtime, inte edge
 
-// Klient med ANVÄNDARENS session (cookies) — inte en naken anon-klient.
-// Uppladdningarna till kartbilder-bucketen går då genom storage-policyerna
-// (privat bucket, bara admin skriver) istället för anonymt.
+// Klient med ANVÄNDARENS session (cookies). Uppladdningar till kartbilder-bucketen går då
+// genom storage-policyerna (privat bucket, bara admin skriver) istället för anonymt.
 async function skapaInloggadKlient() {
   const cookieStore = await cookies();
   return createServerClient(
@@ -24,11 +29,8 @@ async function skapaInloggadKlient() {
   );
 }
 
-// Service-role-klient för att LÄSA den privata trakt-inbox-bucketen. Klienten laddar upp
-// råfilen dit via en signerad URL (aldrig genom denna route — se /api/import-trakt/upload-url),
-// och här hämtar vi ner den. trakt-inbox har inga anon/authenticated-policies, så bara
-// service-role kommer åt den. Används ENBART till nedladdningen; objekt + kartbilder skrivs
-// fortsatt med den inloggade admin-klienten.
+// Service-role-klient för att LÄSA den privata trakt-inbox-bucketen och SKRIVA objekt_geometri
+// (vars RLS bara tillåter authenticated SELECT). Går förbi RLS.
 function skapaServiceKlient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -56,45 +58,16 @@ function getJpegDimensions(data: Uint8Array): { width: number; height: number } 
   return null;
 }
 
-// SWEREF99 TM (EPSG:3006) definition för proj4
+// SWEREF99 TM (EPSG:3006) — används av kartbilds-bounds (zip-vägen). RÖR EJ.
 const SWEREF99TM = '+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
-
-// Konvertera SWEREF99 TM till WGS84 med proj4
 function sweref99ToWgs84(n: number, e: number): { lat: number; lng: number } {
   const [lng, lat] = proj4(SWEREF99TM, 'WGS84', [e, n]);
   return { lat, lng };
 }
 
-// Larmkoordinat ur Vidas TD — läses ENDAST via "Larmkoordinat:"-etiketten, ALDRIG som
-// första koordinaten i dokumentet. Första 7+6-träffen blir objektets lat/lng, och saknar
-// TD:n en larmkoordinat är den träffen ett avlägg — att märka den "larmkoordinat" vore en
-// falsk säkerhetsuppgift. Saknas etiketten eller ett giltigt talpar → null (förblir ej satt).
-// Nord/Syd- och Öst/Väst-etiketterna kan stå i omvänd ordning mot talen i den extraherade
-// texten, så vi disambiguerar på MAGNITUD (northing 6,0–7,8 Mm = 7 siffror, easting
-// 150 k–1 Mm = 6 siffror), inte på etikett. Sverige-box som sista spärr.
-function parseLarmkoordinatFromTd(text: string): { lat: number; lng: number } | null {
-  const idx = text.search(/larmkoordinat/i);
-  if (idx < 0) return null;
-  const fonster = text.slice(idx, idx + 160);
-  const m = fonster.match(/(\d{6,7})\s+(\d{6,7})/);
-  if (!m) return null;
-  const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
-  const arNorthing = (v: number) => v >= 6_000_000 && v <= 7_800_000;
-  const arEasting = (v: number) => v >= 150_000 && v <= 1_000_000;
-  let northing: number, easting: number;
-  if (arNorthing(a) && arEasting(b)) { northing = a; easting = b; }
-  else if (arNorthing(b) && arEasting(a)) { northing = b; easting = a; }
-  else return null;
-  const { lat, lng } = sweref99ToWgs84(northing, easting);
-  if (lat < 55 || lat > 70 || lng < 10 || lng > 25) return null; // utanför Sverige → förkasta
-  return { lat, lng };
-}
-
 export async function POST(request: NextRequest) {
   try {
-    // Auth-gate: trakt-importen skriver markägardata (objekt + kartbilder-
-    // bucketen) — bara inloggad admin får köra den. Tidigare var routen
-    // helt öppen och skrev via anon-klient.
+    // Auth-gate: trakt-importen skriver markägardata — bara inloggad admin får köra den.
     const supabase = await skapaInloggadKlient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) {
@@ -109,19 +82,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Kräver admin' }, { status: 403 });
     }
 
-    // Filen ligger redan i trakt-inbox — klienten laddade upp den via en signerad URL
-    // (se /api/import-trakt/upload-url). Vi får bara sökvägen + period som JSON, så requesten
-    // är några hundra byte och slår aldrig i Vercels ~4,5 MB body-gräns (den gamla
-    // multipart-vägen dog tyst för filer > ~4,5 MB innan koden ens kördes).
+    // Filen ligger i trakt-inbox (klienten laddade upp via signerad URL). Vi får bara sökväg +
+    // period som JSON, så requesten slår aldrig i Vercels ~4,5 MB body-gräns.
     const { sokvag, ar: arRaw, manad: manadRaw } = await request.json();
     const ar = parseInt(arRaw);
     const manad = parseInt(manadRaw);
-
     if (!sokvag || typeof sokvag !== 'string') {
       return NextResponse.json({ error: 'sokvag saknas' }, { status: 400 });
     }
 
-    // Hämta råfilen ur den privata trakt-inbox-bucketen (bara service-role kommer åt den).
     const service = skapaServiceKlient();
     const { data: blob, error: dlErr } = await service.storage.from('trakt-inbox').download(sokvag);
     if (dlErr || !blob) {
@@ -130,322 +99,145 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
-
-    // Packa upp behållaren (.zip eller .envz — båda är zip-behållare)
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
 
-    // Hitta PDF-filer. _TD.pdf = traktdirektiv (text extraheras härifrån + sparas som
-    // dokument). Övrig pdf (om den finns) = stämplingslängd. Tolka INTE innehållet.
-    // Läs varje PDF-entry till en STABIL byte-snapshot EN gång — samma bytes återanvänds
-    // sedan av både textutläsningen och uppladdningen (se .slice() vid unpdf nedan).
-    let pdfBytes: Uint8Array | null = null;          // traktdirektivet
-    let pdfFilename = '';
-    let stampPdfBytes: Uint8Array | null = null;     // stämplingslängd (övrig pdf)
-    let stampPdfFilename = '';
-    for (const [filename, entry] of Object.entries(zip.files)) {
-      if (entry.dir || !filename.toLowerCase().endsWith('.pdf')) continue;
-      const bytes = new Uint8Array(await entry.async('arraybuffer'));
-      if (/_TD\.pdf$/i.test(filename)) { pdfBytes = bytes; pdfFilename = filename; }
-      else { stampPdfBytes = bytes; stampPdfFilename = filename; }
-    }
-    // Fallback: ingen _TD-fil men det finns en pdf → behandla den som traktdirektiv
-    if (!pdfBytes && stampPdfBytes) {
-      pdfBytes = stampPdfBytes; pdfFilename = stampPdfFilename;
-      stampPdfBytes = null; stampPdfFilename = '';
+    const varningar: string[] = [];
+
+    // Envz (StanForD Envelope) eller vanlig zip? packaUppEnvz -> null om ingen .env (= zip).
+    const envz = await packaUppEnvz(arrayBuffer);
+
+    // Samla PDF:er + (zip) kartbild-filer + (envz) object-info.
+    const pdfer: { namn: string; bytes: Uint8Array }[] = [];
+    let jpgEntry: JSZip.JSZipObject | null = null;
+    let jpgFilename = '';
+    let jgwEntry: JSZip.JSZipObject | null = null;
+    let bilagor: Map<string, Buffer> | null = null;
+    let objektinfoXml: string | null = null;
+    let ogiXml: string | null = null;
+
+    if (envz) {
+      varningar.push(...envz.varningar);
+      bilagor = envz.bilagor;
+      ogiXml = envz.ogiXml;
+      for (const [namn, buf] of Array.from(bilagor)) {
+        if (/\.pdf$/i.test(namn)) pdfer.push({ namn, bytes: new Uint8Array(buf) });
+        else if (/object-info\.xml$/i.test(namn)) objektinfoXml = buf.toString('utf-8');
+      }
+    } else {
+      for (const [filename, entry] of Object.entries(zip.files)) {
+        if (entry.dir) continue;
+        const l = filename.toLowerCase();
+        if (l.endsWith('.pdf')) pdfer.push({ namn: filename, bytes: new Uint8Array(await entry.async('arraybuffer')) });
+        else if (l.endsWith('.jpg')) { jpgEntry = entry; jpgFilename = filename; }
+        else if (l.endsWith('.jgw')) { jgwEntry = entry; }
+      }
     }
 
-    if (!pdfBytes) {
-      return NextResponse.json({ error: 'Ingen PDF i ZIP' }, { status: 400 });
+    // Envz-fält + Executor-gate.
+    let envzUttag: ReturnType<typeof parseObjektInfo> | null = null;
+    if (envz && objektinfoXml) {
+      envzUttag = parseObjektInfo(objektinfoXml, ogiXml);
+      varningar.push(...envzUttag.varningar);
+      if (!executorGodkand(envzUttag.executor)) {
+        return NextResponse.json(
+          { error: `Executor "${envzUttag.executor ?? 'saknas'}" matchar inte ${forvantadExecutorOrgnr()} — annan entreprenörs leverans, inget objekt skapat.` },
+          { status: 403 }
+        );
+      }
+    } else if (envz && !objektinfoXml) {
+      varningar.push('envz saknar object-info.xml — bara TD-fält används.');
     }
 
-    // Hämta traktnr från filnamnet (t.ex. "886788_TD.pdf" -> "886788")
-    const filenameMatch = pdfFilename.match(/(\d{6})_TD\.pdf/i);
-    const traktnrFromFilename = filenameMatch ? filenameMatch[1] : '';
+    // Klassificera dokument (suffix-regler, arrayer, ingen fallback).
+    const klass = klassificeraDokument(pdfer, envzUttag?.info);
+    varningar.push(...klass.varningar);
+    if (!klass.traktdirektiv) {
+      return NextResponse.json({ error: 'Inget traktdirektiv (_TD.pdf) i filen — importen gissar inte.' }, { status: 400 });
+    }
 
-    // Extrahera text med unpdf
+    // Traktnr ur TD-filnamnet (t.ex. "886465_TD.pdf" -> "886465").
+    const tdNamn = klass.traktdirektiv.namn.split('/').pop() || klass.traktdirektiv.namn;
+    const tdFilMatch = tdNamn.match(/(\d{6})_TD\.pdf/i);
+    const traktnrFromFilename = tdFilMatch ? tdFilMatch[1] : '';
+
+    // TD-text -> fält (samma parser för envz och zip).
     let text = '';
     try {
       const { extractText } = await import('unpdf');
-      // unpdf/PDF.js DETACHAR bufferten den får → ge en engångskopia så att pdfBytes
-      // överlever till PDF-uppladdningen nedan (annars "detached ArrayBuffer" vid upload).
-      const result = await extractText(pdfBytes.slice(), { mergePages: true });
-      text = result.text || '';
+      text = (await extractText(klass.traktdirektiv.bytes.slice(), { mergePages: true })).text || '';
     } catch (e) {
       console.error('PDF extraction failed:', e);
       return NextResponse.json({ error: 'Kunde inte läsa PDF' }, { status: 500 });
     }
+    const td = parseTraktdirektivText(text, traktnrFromFilename);
 
-    console.log('=== PDF TEXT (first 2000 chars) ===');
-    console.log(text.substring(0, 2000));
+    // Merge: TD som bas, envz vinner ENDAST där envz har ett värde.
+    const tdRecord: Record<string, any> = {
+      namn: td.namn, traktnr: td.traktnr, vo_nummer: td.vo_nummer,
+      markagare: td.markagare, markagare_epost: td.markagare_epost, markagare_tel: td.markagare_tel,
+      inkopare: td.inkopare, inkopare_tel: td.inkopare_tel,
+      cert: td.cert, typ: td.typ, volym: td.volym, areal: td.areal,
+      grot: td.grot, anteckningar: td.anteckningar, sortiment: td.sortiment,
+      larmkoordinat_lat: td.larmkoordinat?.lat, larmkoordinat_lng: td.larmkoordinat?.lng,
+    };
+    const falt = envzUttag ? mergeFalt(tdRecord, envzUttag.falt) : tdRecord;
 
-    // === PARSNING ===
-
-    // Namn - efter "Traktdirektiv -"
-    let namn = '';
-    const namnMatch = text.match(/Traktdirektiv\s*[-–]\s*([A-Za-zÅÄÖåäö0-9\s]+?)(?=\s*Traktnr|\n)/i);
-    if (namnMatch) {
-      namn = namnMatch[1].trim();
-    }
-    if (!namn || namn.length > 50) {
-      // Försök hitta namn på annat sätt
-      const lines = text.split('\n');
-      for (const line of lines) {
-        if (line.includes('Traktdirektiv') && line.includes('-')) {
-          const parts = line.split(/[-–]/);
-          if (parts.length > 1) {
-            namn = parts[1].trim().substring(0, 50);
-            break;
-          }
-        }
-      }
-    }
-    console.log('namn:', namn);
-
-    // Traktnr
-    let traktnr = traktnrFromFilename;
-    if (!traktnr) {
-      const traktMatch = text.match(/(\d{6})/);
-      traktnr = traktMatch ? traktMatch[1] : '';
-    }
-    console.log('traktnr:', traktnr);
-
-    // VO-nummer - 8 siffror (börjar med 11) efter "Virkesorder"
-    let vo_nummer = '';
-    const voMatch = text.match(/Virkesorder[\s\S]{0,100}?(11\d{6})/i);
-    if (voMatch) {
-      vo_nummer = voMatch[1];
-    }
-    console.log('vo_nummer:', vo_nummer);
-
-    // === KONTAKTPERSONER ===
-    // PDF-struktur: "Inköpare VIDA MARCUS GIDSTAM aramolund@gmail.com Jan-Erik Gustafsson 070-640 55 84 070-2327410"
-
-    // Markägare - namn i VERSALER efter "VIDA"
-    let markagare = '';
-    const markagareMatch = text.match(/VIDA\s+([A-ZÅÄÖ][A-ZÅÄÖ]+(?:\s+[A-ZÅÄÖ]+)+)/);
-    if (markagareMatch) {
-      markagare = markagareMatch[1].trim()
-        .split(/\s+/)
-        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-        .join(' ');
-    }
-    console.log('=== KONTAKT DEBUG ===');
-    console.log('markagare:', markagare);
-
-    // E-post - första e-postadressen (markägarens)
-    const epostMatch = text.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,})/);
-    const markagare_epost = epostMatch ? epostMatch[1] : '';
-    console.log('markagare_epost:', markagare_epost);
-
-    // Inköpare - namn efter e-post (förnamn efternamn med normal stil)
-    let inkopare = '';
-    const inkopareMatch = text.match(/@[a-zA-Z0-9._-]+\.[a-z]+\s+([A-ZÅÄÖ][a-zåäö]+(?:-[A-ZÅÄÖ][a-zåäö]+)?\s+[A-ZÅÄÖ][a-zåäö]+)/);
-    if (inkopareMatch) {
-      inkopare = inkopareMatch[1].trim();
-    }
-    console.log('inkopare:', inkopare);
-
-    // Telefonnummer - alla 07X-nummer
-    const allaTelefoner = text.match(/07\d[-\s]?\d{3}[-\s]?\d{2}[-\s]?\d{2}/g) || [];
-    const renaTelefoner = allaTelefoner.map(t => t.replace(/[\s-]/g, ''));
-    console.log('alla telefoner:', allaTelefoner);
-
-    // Markägarens telefon = första numret som INTE är 0702327410
-    const markagare_tel = renaTelefoner.find(t => t !== '0702327410') || '';
-    // Inköparens telefon = alltid 0702327410 för VIDA
-    const inkopare_tel = renaTelefoner.find(t => t === '0702327410') || '';
-    console.log('markagare_tel:', markagare_tel);
-    console.log('inkopare_tel:', inkopare_tel);
-
-    // Cert - leta efter orden i texten
-    let cert = 'Ej certifierad';
-    if (text.includes('FSC PEFC') || (text.includes('FSC') && text.includes('PEFC'))) {
-      cert = 'FSC PEFC';
-    } else if (text.includes('FSC')) {
-      cert = 'FSC';
-    } else if (text.includes('PEFC')) {
-      cert = 'PEFC';
-    }
-    console.log('cert:', cert);
-
-    // Typ
-    const typ = /[Ff]öryngringsavverkning/.test(text) ? 'slutavverkning'
-      : /[Gg]allring/.test(text) ? 'gallring' : 'slutavverkning';
-    console.log('typ:', typ);
-
-    // Volym
-    let volym = 0;
-    const volymMatch = text.match(/(\d{3,5})\s*m3fub/i) || text.match(/Total[\s\S]{0,100}?(\d{3,5})\s*\n/);
-    if (volymMatch) {
-      volym = parseInt(volymMatch[1]);
-    }
-    console.log('volym:', volym);
-
-    // Areal
-    let areal: number | null = null;
-    const arealMatch = text.match(/Total\s+(\d+[,.]?\d*)\s/);
-    if (arealMatch) {
-      areal = parseFloat(arealMatch[1].replace(',', '.'));
-    }
-    console.log('areal:', areal);
-
-    // Koordinater
+    // Geometri (envz) + kartpin. Pin = bbox-centrum för traktgränsen; nödlösning = larmkoordinat.
+    let geoFeatures: any[] = [];
     let lat: number | null = null;
     let lng: number | null = null;
-    const nordMatch = text.match(/(\d{7})\s+(\d{6})/);
-    if (nordMatch) {
-      const coords = sweref99ToWgs84(parseInt(nordMatch[1]), parseInt(nordMatch[2]));
-      lat = coords.lat;
-      lng = coords.lng;
+    if (envz && bilagor) {
+      const geo = await packaGeometri(bilagor);
+      varningar.push(...geo.varningar);
+      geoFeatures = geo.features;
+      const c = bboxCentrum(geo.features, 'traktgräns');
+      if (c) { lat = c.lat; lng = c.lng; }
+      else if (falt.larmkoordinat_lat != null) { lat = falt.larmkoordinat_lat; lng = falt.larmkoordinat_lng; }
+    } else {
+      // Zip: generisk koordinat ur TD-texten (oförändrat beteende).
+      lat = td.lat; lng = td.lng;
     }
-    console.log('koordinater:', lat, lng);
 
-    // Larmkoordinat — ENDAST via "Larmkoordinat:"-etiketten (ingen blind fallback till lat/lng
-    // ovan). Saknas etiketten → förblir ej satt. Vida ritar från kontoret → bekraftad=false.
-    const larm = parseLarmkoordinatFromTd(text);
-    console.log('larmkoordinat:', larm);
+    const traktnr = String(falt.traktnr || td.traktnr || Date.now());
 
-    // GROT - leta efter exakt "GROT-anpassa avverkningen" följt av Ja eller Nej
-    let grot = false;
-    const grotMatch = text.match(/GROT-anpassa avverkningen\s+(Ja|Nej)/i);
-    if (grotMatch) {
-      grot = grotMatch[1].toLowerCase() === 'ja';
-    }
-    console.log('GROT match:', grotMatch?.[0]);
-    console.log('grot:', grot);
-
-    // Anteckningar - all text efter "Anteckningar:" fram till "Sida"
-    let anteckningar = '';
-    const antMatch = text.match(/Anteckningar:\s*([\s\S]+?)(?=\s*Sida\s+\d|$)/i);
-    if (antMatch) {
-      anteckningar = antMatch[1].trim().substring(0, 500); // Max 500 tecken
-    }
-    console.log('=== ANTECKNINGAR DEBUG ===');
-    console.log('anteckningar:', anteckningar);
-
-    // Sortiment - format måste matcha appen: "Grupp · Typ"
-    const sortiment: string[] = [];
-    if (/Tallsågtimmer/i.test(text)) sortiment.push('Tall timmer · Urshult');
-    if (/Gransågtimmer/i.test(text)) sortiment.push('Gran timmer · Urshult');
-    if (/Tallkubb/i.test(text)) sortiment.push('Kubb · Tall');
-    if (/Grankubb/i.test(text)) sortiment.push('Kubb · Gran');
-    if (/Barrmassa/i.test(text)) sortiment.push('Massa · Barr');
-    if (/Björkmassa/i.test(text)) sortiment.push('Massa · Björk');
-    if (/Bränsle/i.test(text)) sortiment.push('Energi · Bränsleved');
-    console.log('sortiment:', sortiment);
-
-    // === KARTBILD ===
-    console.log('=== KARTBILD DEBUG ===');
+    // === KARTBILD (BARA zip — envz har TK-PDF, inte georef JPG). Bounds-blocket oförändrat. ===
     let kartbild_url: string | null = null;
     let kartbild_bounds: number[][] | null = null;
-
-    // Lista alla filer i ZIP
-    const allFiles = Object.keys(zip.files);
-    console.log('Filer i ZIP:', allFiles);
-
-    // Hitta .jpg och .jgw filer
-    let jpgEntry: JSZip.JSZipObject | null = null;
-    let jpgFilename = '';
-    let jgwEntry: JSZip.JSZipObject | null = null;
-    let jgwFilename = '';
-
-    for (const [filename, entry] of Object.entries(zip.files)) {
-      if (filename.toLowerCase().endsWith('.jpg') && !entry.dir) {
-        jpgEntry = entry;
-        jpgFilename = filename;
-        console.log('Hittade JPG:', filename);
-      }
-      if (filename.toLowerCase().endsWith('.jgw') && !entry.dir) {
-        jgwEntry = entry;
-        jgwFilename = filename;
-        console.log('Hittade JGW:', filename);
-      }
-    }
-
-    if (!jpgEntry) console.log('VARNING: Ingen .jpg hittades');
-    if (!jgwEntry) console.log('VARNING: Ingen .jgw hittades');
-
-    if (jpgEntry) {
+    if (!envz && jpgEntry) {
       try {
-        console.log('Läser JPG:', jpgFilename);
-
-        // Läs JPG-data
         const jpgData = new Uint8Array(await jpgEntry.async('arraybuffer'));
-        console.log('JPG storlek:', jpgData.length, 'bytes');
-
-        // Ladda upp till Supabase Storage (alltid, oavsett om bounds kan beräknas)
-        const storagePath = `${traktnr || Date.now()}.jpg`;
-        console.log('Försöker ladda upp till:', storagePath);
-
-        const { data: uploadData, error: uploadError } = await supabase.storage
+        const storagePath = `${traktnr}.jpg`;
+        const { error: uploadError } = await supabase.storage
           .from('kartbilder')
-          .upload(storagePath, jpgData, {
-            contentType: 'image/jpeg',
-            upsert: true
-          });
-
-        console.log('Upload result:', { uploadData, uploadError });
-
+          .upload(storagePath, jpgData, { contentType: 'image/jpeg', upsert: true });
         if (uploadError) {
-          console.error('Upload error details:', JSON.stringify(uploadError, null, 2));
+          console.error('Kartbild upload error:', uploadError);
         } else {
-          // Bucketen är PRIVAT — lagra PATH, aldrig URL. Läsning signerar
-          // via lib/kartfiler.ts (createSignedUrl).
+          // Bucketen är PRIVAT — lagra PATH, aldrig URL. Läsning signerar via lib/kartfiler.ts.
           kartbild_url = storagePath;
-          console.log('Kartbild path:', kartbild_url);
         }
-
-        // Beräkna bounds om JGW finns och JPEG-dimensioner kan läsas
         if (jgwEntry) {
           const dimensions = getJpegDimensions(jpgData);
-          console.log('Dimensioner:', dimensions);
-
           const jgwText = await jgwEntry.async('string');
           const jgwLines = jgwText.trim().split(/\r?\n/);
-          console.log('JGW:', jgwLines);
-
           const parseJgwValue = (s: string) => parseFloat(s.replace(',', '.'));
-
           if (dimensions && jgwLines.length >= 6) {
             const pixelSizeX = parseJgwValue(jgwLines[0]);
             const pixelSizeY = parseJgwValue(jgwLines[3]);
             const pixelCenterX = parseJgwValue(jgwLines[4]);
             const pixelCenterY = parseJgwValue(jgwLines[5]);
-
-            console.log('=== JGW RÅVÄRDEN ===');
-            console.log('pixelSizeX:', pixelSizeX, '(meter/pixel X)');
-            console.log('pixelSizeY:', pixelSizeY, '(meter/pixel Y, ska vara negativ)');
-            console.log('pixelCenterX:', pixelCenterX, '(easting)');
-            console.log('pixelCenterY:', pixelCenterY, '(northing)');
-            console.log('Bildstorlek:', dimensions.width, 'x', dimensions.height, 'px');
-
             // JGW anger pixel-center, justera till pixel-kant (övre vänstra hörnet)
             const upperLeftX = pixelCenterX - pixelSizeX / 2;
             const upperLeftY = pixelCenterY - pixelSizeY / 2;
-
-            // Beräkna bounds i SWEREF99 TM
             const lowerRightX = upperLeftX + (dimensions.width * pixelSizeX);
             const lowerRightY = upperLeftY + (dimensions.height * pixelSizeY);
-
-            console.log('=== SWEREF99 BOUNDS (efter pixel-kant justering) ===');
-            console.log('upperLeft  (NW):', upperLeftX, upperLeftY);
-            console.log('lowerRight (SE):', lowerRightX, lowerRightY);
-
             const upperLeft = sweref99ToWgs84(upperLeftY, upperLeftX);
             const lowerRight = sweref99ToWgs84(lowerRightY, lowerRightX);
-
-            console.log('=== WGS84 BOUNDS ===');
-            console.log('upperLeft  (NW): lat', upperLeft.lat, 'lng', upperLeft.lng);
-            console.log('lowerRight (SE): lat', lowerRight.lat, 'lng', lowerRight.lng);
-
             kartbild_bounds = [
               [lowerRight.lat, upperLeft.lng], // Southwest corner
               [upperLeft.lat, lowerRight.lng]  // Northeast corner
             ];
-            console.log('kartbild_bounds (SW, NE):', JSON.stringify(kartbild_bounds));
-          } else {
-            console.log('VARNING: Kunde inte beräkna bounds (dimensions:', dimensions, ', jgwLines:', jgwLines.length, ')');
           }
         }
       } catch (e) {
@@ -453,65 +245,70 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // === DOKUMENT (PDF:er) — spara filerna i 'kartbilder'-bucketen (samma mönster som
-    // kartbild_url). Tolka INTE innehållet; format varierar mellan leverantörer.
-    // Bucketen är PRIVAT (PDF:erna bär markägares namn/telefon/e-post) —
-    // vi lagrar PATHS och läsning signerar via lib/kartfiler.ts.
-    let traktdirektiv_url: string | null = null;
-    let stamplingslangd_url: string | null = null;
-    const laddaUppPdf = async (bytes: Uint8Array | null, suffix: string): Promise<string | null> => {
+    // === DOKUMENT — spara paths i privata kartbilder-bucketen. Kända typer -> egna kolumner,
+    // okända -> ovriga_dokument med originalnamnet bevarat. ===
+    const laddaUppPdf = async (bytes: Uint8Array | null, path: string): Promise<string | null> => {
       if (!bytes) return null;
-      const path = `${traktnr || Date.now()}_${suffix}.pdf`;
       const { error: pdfErr } = await supabase.storage.from('kartbilder')
         .upload(path, bytes, { contentType: 'application/pdf', upsert: true });
-      if (pdfErr) { console.error(`PDF-uppladdning (${suffix}) misslyckades:`, pdfErr); return null; }
+      if (pdfErr) { console.error(`PDF-uppladdning (${path}) misslyckades:`, pdfErr); return null; }
       return path;
     };
-    traktdirektiv_url = await laddaUppPdf(pdfBytes, 'traktdirektiv');           // _TD.pdf
-    stamplingslangd_url = await laddaUppPdf(stampPdfBytes, 'stamplingslangd');  // övrig pdf
+    const traktdirektiv_url = await laddaUppPdf(klass.traktdirektiv.bytes, `${traktnr}_traktdirektiv.pdf`);
+    const traktkarta_url = await laddaUppPdf(klass.traktkarta?.bytes ?? null, `${traktnr}_traktkarta.pdf`);
+    const stamplingslangd_url = await laddaUppPdf(klass.stamplingslangd?.bytes ?? null, `${traktnr}_stamplingslangd.pdf`);
+    const valtlapp_url = await laddaUppPdf(klass.valtlapp?.bytes ?? null, `${traktnr}_valtlapp.pdf`);
+    const ovriga_dokument: { namn: string; path: string }[] = [];
+    for (let i = 0; i < klass.ovriga.length; i++) {
+      const o = klass.ovriga[i];
+      const path = await laddaUppPdf(o.bytes, `${traktnr}_ovrigt_${i}.pdf`);
+      if (path) ovriga_dokument.push({ namn: o.namn, path }); // originalnamn bevarat + synligt
+    }
 
-    const bolag = 'Vida';
+    const harLarm = falt.larmkoordinat_lat != null && falt.larmkoordinat_lng != null;
 
-    // Skapa data-objekt
-    const data = {
-      vo_nummer: vo_nummer || null,
-      traktnr: traktnr || null,
-      namn: namn || 'Okänt objekt',
-      bolag,
-      inkopare: inkopare || null,
-      inkopare_tel: inkopare_tel || null,
-      markagare: markagare || null,
-      markagare_tel: markagare_tel || null,
-      markagare_epost: markagare_epost || null,
-      cert: cert || null,
-      typ,
-      atgard: typ === 'slutavverkning' ? 'Au' : 'Gallring',
-      volym,
-      areal,
-      grot,
+    const data: Record<string, any> = {
+      vo_nummer: falt.vo_nummer || null,
+      traktnr: falt.traktnr || null,
+      namn: falt.namn || 'Okänt objekt',
+      bolag: falt.bolag || 'Vida',
+      inkopare: falt.inkopare || null,
+      inkopare_tel: falt.inkopare_tel || null,
+      markagare: falt.markagare || null,
+      markagare_tel: falt.markagare_tel || null,
+      markagare_epost: falt.markagare_epost || null,
+      cert: falt.cert || null,
+      typ: falt.typ,
+      atgard: falt.typ === 'slutavverkning' ? 'Au' : 'Gallring',
+      volym: falt.volym,
+      areal: falt.areal ?? null,
+      avverkningsform: falt.avverkningsform || null,
+      region: falt.region || null,
+      grot: falt.grot,
       lat,
       lng,
-      larmkoordinat_lat: larm ? larm.lat : null,
-      larmkoordinat_lng: larm ? larm.lng : null,
-      larmkoordinat_kalla: larm ? 'td' : null,
-      larmkoordinat_bekraftad: larm ? false : null,
-      sortiment: sortiment.length > 0 ? sortiment : null,
-      anteckningar: anteckningar || null,
+      larmkoordinat_lat: harLarm ? falt.larmkoordinat_lat : null,
+      larmkoordinat_lng: harLarm ? falt.larmkoordinat_lng : null,
+      larmkoordinat_kalla: harLarm ? (envz ? 'envz' : 'td') : null,
+      larmkoordinat_bekraftad: harLarm ? false : null,
+      sortiment: (falt.sortiment && falt.sortiment.length > 0) ? falt.sortiment : null,
+      anteckningar: falt.anteckningar || null,
       kartbild_url,
       kartbild_bounds,
       traktdirektiv_url,
       stamplingslangd_url,
+      traktkarta_url,
+      valtlapp_url,
+      ovriga_dokument: ovriga_dokument.length > 0 ? ovriga_dokument : null,
+      import_varningar: varningar.length > 0 ? varningar : null,
       ar,
       manad,
       ordning: 1,
-      // status utelämnas → DB-default 'planerad' (objekt_status_check tillåter inte 'oplanerad')
-      kalla: 'traktdirektiv'
+      // status utelämnas → DB-default 'planerad'. lat/lng skrivs bara vid INSERT (nya objekt);
+      // omimport av samma objekt ger 23505 -> 409, så manuellt flyttade pinnar överlever.
+      kalla: envz ? 'envz' : 'traktdirektiv',
     };
 
-    console.log('=== DATA TO SAVE ===');
-    console.log(JSON.stringify(data, null, 2));
-
-    // Spara till Supabase
     const { data: saved, error } = await supabase
       .from('objekt')
       .insert(data)
@@ -526,7 +323,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, objekt: saved });
+    // Geometri -> objekt_geometri (service-role: RLS tillåter bara authenticated SELECT).
+    if (geoFeatures.length > 0 && saved?.id) {
+      const { error: geoErr } = await service.from('objekt_geometri').insert({
+        objekt_id: saved.id,
+        geometri: { type: 'FeatureCollection', features: geoFeatures },
+        kalla: 'envz',
+      });
+      if (geoErr) console.error('objekt_geometri insert misslyckades:', geoErr);
+    }
+
+    return NextResponse.json({ success: true, objekt: saved, varningar });
 
   } catch (err: any) {
     console.error('Import error:', err);

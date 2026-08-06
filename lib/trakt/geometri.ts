@@ -61,6 +61,31 @@ async function lasLager(shpBuf: Buffer, dbfBuf: Buffer | undefined, encoding: st
   return ut;
 }
 
+// Bounding box-centrum (deterministiskt, inget bibliotek) över features av en viss typ.
+// Kartpinen sätts till bbox-mitten av traktgränsen — inte areaviktad centroid; för en pin
+// räcker det gott och är stabilt. null om inga features av typen finns.
+export function bboxCentrum(features: any[], typ = 'traktgräns'): { lat: number; lng: number } | null {
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity, n = 0;
+  const scan = (c: any): void => {
+    if (typeof c[0] === 'number') {
+      const lng = c[0], lat = c[1];
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      n++;
+    } else {
+      for (const x of c) scan(x);
+    }
+  };
+  for (const f of features) {
+    if (typ && f.properties?._typ !== typ) continue;
+    if (f.geometry?.coordinates) scan(f.geometry.coordinates);
+  }
+  if (n === 0) return null;
+  return { lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 };
+}
+
 export async function packaGeometri(bilagor: Map<string, Buffer>): Promise<GeoResultat> {
   const varningar: string[] = [];
   const features: any[] = [];

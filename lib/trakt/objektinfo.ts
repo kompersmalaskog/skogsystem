@@ -69,8 +69,8 @@ export interface EnvzFalt {
   volym?: number;           // <Target>
   bolag?: string;           // <Requestor>, normaliserad
   region?: string;          // <Region> (ny kolumn)
-  lat?: number;             // larmkoordinat: <Coord-X>=northing, <Coord-Y>=easting, EPSG:3006
-  lng?: number;
+  larmkoordinat_lat?: number; // <Coord-X>=northing, <Coord-Y>=easting, EPSG:3006 (ej kartpin lat/lng)
+  larmkoordinat_lng?: number;
   inkopare?: string;        // objectProperties/property "Name" (signatur-parentes strippad)
   cert?: string;            // OGI ForestCertification (flera element -> join)
   avverkningsform?: string; // OGI LoggingFormDescription (ny kolumn)
@@ -124,8 +124,8 @@ export function parseObjektInfo(objectInfoXml: string, ogiXml: string | null): E
     if (Number.isFinite(northing) && Number.isFinite(easting)) {
       const { lat, lng } = sweref99ToWgs84(northing, easting);
       if (lat >= 55 && lat <= 70 && lng >= 10 && lng <= 25) {
-        falt.lat = lat;
-        falt.lng = lng;
+        falt.larmkoordinat_lat = lat;
+        falt.larmkoordinat_lng = lng;
       } else {
         varningar.push(`Larmkoordinat utanför Sverige (lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)}) — utelämnas.`);
       }
