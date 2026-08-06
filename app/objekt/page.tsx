@@ -23,6 +23,22 @@ const cap = (s: string) => (s || '').split(' ').map(w =>
   (w.length <= 3 && w === w.toUpperCase()) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
 ).join(' ');
 
+// Tre prickar per objekt: finns/saknas. "Karta" = kartbild_url ELLER traktkarta_url (två
+// format av samma sak).
+//
+// MEDVETET INGEN "Produktion"-prick än — och återinför INTE en status-proxy. Den självklara
+// källan (objekt.status) LJUGER: status sätts manuellt i en rullgardin, så i prod står 36
+// objekt som pågående/avslutat men bara 7 har en HPR-fil kopplad. En status-prick hade mätt
+// att någon KLICKAT, inte att data kommit in — precis den sortens tysta fel resten av
+// systemet byggts för att undvika. Riktig data (hpr_filer/fakt_produktion per vo) vore ärlig
+// men grå på 36/43 objekt, vilket ser trasigt ut medan appen byggs. Lägg till pricken när
+// planeringsobjekt↔maskindata-kopplingen är lagad — då betyder den något från dag ett.
+const DOK_PRICKAR = (obj: any): { namn: string; finns: boolean }[] => [
+  { namn: 'Traktdirektiv', finns: !!obj.traktdirektiv_url },
+  { namn: 'Karta', finns: !!(obj.kartbild_url || obj.traktkarta_url) },
+  { namn: 'Stämplingslängd', finns: !!obj.stamplingslangd_url },
+];
+
 // Läs-rad för traktfakta (lugn text, ej input)
 function Las({ label, value, color }: { label: string; value?: string | number | null; color?: string }) {
   return (
@@ -109,7 +125,11 @@ function ObjektPageInner() {
 
   // Rätta-läge per traktinfo-sektion (null = läs), och dokument-URL:er för knapparna
   const [rattaSektion, setRattaSektion] = useState<string | null>(null);
-  const [dokUrls, setDokUrls] = useState<{ td: string | null; sl: string | null }>({ td: null, sl: null });
+  const [dokUrls, setDokUrls] = useState<{ td: string | null; sl: string | null; tk: string | null; vl: string | null }>({ td: null, sl: null, tk: null, vl: null });
+  const [ovrigaDok, setOvrigaDok] = useState<{ namn: string; path: string }[]>([]);
+  const [importVarningar, setImportVarningar] = useState<string[]>([]);
+  const [varningarOppna, setVarningarOppna] = useState(false);
+  const [prickInfo, setPrickInfo] = useState<string | null>(null); // vilken listrad visar prick-detalj (tap)
 
   const [sparadeBolag, setSparadeBolag] = useState(['Vida', 'Södra', 'ATA', 'JGA', 'Rönås', 'Privat']);
   const [sparadeMaskiner, setSparadeMaskiner] = useState(['PONSSE Scorpion Giant 8W', 'Wisent 2015', 'Elephant King AF', 'Rottne']);
@@ -266,7 +286,10 @@ function ObjektPageInner() {
       sortiment: obj.sortiment || [], anteckningar: obj.anteckningar || '',
       ar: obj.ar || year, manad: obj.manad || 0, ordning: obj.ordning || 1, status: obj.status || 'planerad'
     });
-    setDokUrls({ td: obj.traktdirektiv_url || null, sl: obj.stamplingslangd_url || null });
+    setDokUrls({ td: obj.traktdirektiv_url || null, sl: obj.stamplingslangd_url || null, tk: obj.traktkarta_url || null, vl: obj.valtlapp_url || null });
+    setOvrigaDok(Array.isArray(obj.ovriga_dokument) ? obj.ovriga_dokument : []);
+    setImportVarningar(Array.isArray(obj.import_varningar) ? obj.import_varningar : []);
+    setVarningarOppna(false);
     setRattaSektion(null);
     setEditingId(obj.id);
     setImportStatus('');
@@ -565,6 +588,20 @@ function ObjektPageInner() {
                   <div style={{ fontSize: '16px', fontWeight: '500', color: '#fff', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
                   <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cap(obj.bolag)}{obj.atgard && ` · ${obj.atgard}`}</div>
                 </div>
+                {prickInfo === obj.id ? (
+                  <div onClick={e => { e.stopPropagation(); setPrickInfo(null); }}
+                    style={{ fontSize: '10px', color: 'rgba(255,255,255,0.55)', flexShrink: 0, maxWidth: '120px', textAlign: 'right', lineHeight: 1.25 }}>
+                    {(() => { const s = DOK_PRICKAR(obj).filter(p => !p.finns); return s.length ? 'Saknas: ' + s.map(p => p.namn).join(', ') : 'Allt finns'; })()}
+                  </div>
+                ) : (
+                  <div onClick={e => { e.stopPropagation(); setPrickInfo(obj.id); }}
+                    title={DOK_PRICKAR(obj).map(p => `${p.namn}: ${p.finns ? '✓' : '✗'}`).join('  ·  ')}
+                    style={{ display: 'flex', gap: '4px', flexShrink: 0, padding: '6px 2px', cursor: 'pointer' }}>
+                    {DOK_PRICKAR(obj).map(p => (
+                      <span key={p.namn} style={{ width: 7, height: 7, borderRadius: '50%', background: p.finns ? '#22c55e' : 'rgba(255,255,255,0.15)' }} />
+                    ))}
+                  </div>
+                )}
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', flexShrink: 0 }}>
                   <span style={{ fontSize: '16px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>{obj.volym}</span>
                   <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>m³fub</span>
@@ -631,6 +668,21 @@ function ObjektPageInner() {
                 <div style={{ fontSize: '16px', fontWeight: '500', color: '#fff', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
                 <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cap(obj.bolag)}{obj.atgard && ` · ${obj.atgard}`}</div>
               </div>
+              {/* Fyra prickar: traktdirektiv · karta · stämplingslängd · produktion */}
+              {prickInfo === obj.id ? (
+                <div onClick={e => { e.stopPropagation(); setPrickInfo(null); }}
+                  style={{ fontSize: '10px', color: 'rgba(255,255,255,0.55)', flexShrink: 0, maxWidth: '120px', textAlign: 'right', lineHeight: 1.25 }}>
+                  {(() => { const s = DOK_PRICKAR(obj).filter(p => !p.finns); return s.length ? 'Saknas: ' + s.map(p => p.namn).join(', ') : 'Allt finns'; })()}
+                </div>
+              ) : (
+                <div onClick={e => { e.stopPropagation(); setPrickInfo(obj.id); }}
+                  title={DOK_PRICKAR(obj).map(p => `${p.namn}: ${p.finns ? '✓' : '✗'}`).join('  ·  ')}
+                  style={{ display: 'flex', gap: '4px', flexShrink: 0, padding: '6px 2px', cursor: 'pointer' }}>
+                  {DOK_PRICKAR(obj).map(p => (
+                    <span key={p.namn} style={{ width: 7, height: 7, borderRadius: '50%', background: p.finns ? '#22c55e' : 'rgba(255,255,255,0.15)' }} />
+                  ))}
+                </div>
+              )}
               {/* Volym + enhet + chevron, direkt efter namnet */}
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', flexShrink: 0 }}>
                 <span style={{ fontSize: '16px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>{obj.volym}</span>
@@ -661,11 +713,11 @@ function ObjektPageInner() {
             )}
 
             {/* Dokumentknappar — kompakta typfärgade pillar (ikon + text), bara om url finns */}
-            {editingId && (dokUrls.td || dokUrls.sl) && (() => {
+            {editingId && (dokUrls.td || dokUrls.sl || dokUrls.tk || dokUrls.vl || ovrigaDok.length > 0) && (() => {
               const dokFarg = form.typ === 'slut' ? '#BA7515' : '#3f9457'; // dämpade typtoner (matchande dämpning)
               const ikonStil = { width: '14px', height: '14px', flexShrink: 0 } as React.CSSProperties;
-              const pill = (url: string, etikett: string, ikon: React.ReactNode) => (
-                <a href="#" target="_blank" rel="noopener noreferrer"
+              const pill = (url: string, etikett: string, ikon: React.ReactNode, key?: string) => (
+                <a key={key} href="#" target="_blank" rel="noopener noreferrer"
                   onClick={async (e) => {
                     e.preventDefault();
                     // Privat bucket — signera läs-URL vid klick (TTL 1h)
@@ -686,13 +738,46 @@ function ObjektPageInner() {
                   <rect x="8" y="2" width="8" height="4" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" />
                 </svg>
               );
+              const mapIcon = (
+                <svg style={ikonStil} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" /><line x1="8" y1="2" x2="8" y2="18" /><line x1="16" y1="6" x2="16" y2="22" />
+                </svg>
+              );
               return (
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
                   {dokUrls.td && pill(dokUrls.td, 'Traktdirektiv', fileTextIcon)}
+                  {dokUrls.tk && pill(dokUrls.tk, 'Traktkarta (PDF)', mapIcon)}
                   {dokUrls.sl && pill(dokUrls.sl, 'Stämplingslängd', clipboardIcon)}
+                  {dokUrls.vl && pill(dokUrls.vl, 'Vältlappar', clipboardIcon)}
+                  {ovrigaDok.map((d, i) => pill(d.path, d.namn, fileTextIcon, `ov${i}`))}
                 </div>
               );
             })()}
+
+            {/* Importvarningar — diskret gul markering med antal, fälls ut. */}
+            {editingId && importVarningar.length > 0 && (
+              <div style={{ marginBottom: '20px' }}>
+                <button onClick={() => setVarningarOppna(o => !o)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 12px', borderRadius: '9px',
+                    background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.35)', color: '#eab308',
+                    fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}>
+                  <svg style={{ width: 14, height: 14, flexShrink: 0 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                  {importVarningar.length} {importVarningar.length === 1 ? 'sak att kolla' : 'saker att kolla'}
+                  <span style={{ opacity: 0.6, fontSize: 11, transform: varningarOppna ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>▾</span>
+                </button>
+                {varningarOppna && (
+                  <ul style={{ margin: '10px 0 0', padding: '0 0 0 4px', listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {importVarningar.map((v, i) => (
+                      <li key={i} style={{ fontSize: '12px', color: 'rgba(234,179,8,0.85)', lineHeight: 1.4, display: 'flex', gap: '6px' }}>
+                        <span style={{ opacity: 0.6 }}>•</span><span>{v}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {importStatus && (
               <div style={{ textAlign: 'center', padding: '10px', marginBottom: '16px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
