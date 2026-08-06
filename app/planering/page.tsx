@@ -314,6 +314,52 @@ const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
 type KvittRad = { checked_ids: string[]; kvitterat_av_id: string | null; kvitterat_av_namn: string | null; kvitterat_at: string | null };
 const EMPTY_KVITT: KvittRad = { checked_ids: [], kvitterat_av_id: null, kvitterat_av_namn: null, kvitterat_at: null };
 
+// Rotations-kontroll för pilar — LIGGER I KORTET, rör aldrig kartan (löser drag-vs-pan-krocken).
+// Ratt (dra runt cirkeln → pilen pekar dit fingret är, snäpp 15°) + ⟲/⟳-knappar för finjustering.
+// Skriver till 'angle' via onAngle (fältet både rendering och arrows-source läser: angle ?? rotation).
+// commit=false under drag (live), commit=true vid släpp/knapp (spara till DB).
+function ArrowRotationControl({ angle, color, onAngle }: { angle: number; color: string; onAngle: (a: number, commit: boolean) => void }) {
+  const ref = useRef<any>(null);
+  const dragging = useRef(false);
+  const snap = (a: number) => (((Math.round(a / 15) * 15) % 360) + 360) % 360;
+  const fromPointer = (clientX: number, clientY: number) => {
+    const el = ref.current; if (!el) return angle;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const a = Math.atan2(clientX - cx, -(clientY - cy)) * 180 / Math.PI;
+    return snap(a);
+  };
+  const down = (e: any) => { dragging.current = true; try { e.currentTarget.setPointerCapture(e.pointerId); } catch {} onAngle(fromPointer(e.clientX, e.clientY), false); };
+  const move = (e: any) => { if (!dragging.current) return; onAngle(fromPointer(e.clientX, e.clientY), false); };
+  const up = (e: any) => { if (!dragging.current) return; dragging.current = false; onAngle(fromPointer(e.clientX, e.clientY), true); };
+  const A = ((angle % 360) + 360) % 360;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+      <svg ref={ref} width={148} height={148} viewBox="0 0 100 100"
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+        style={{ touchAction: 'none', cursor: 'grab' }}>
+        <circle cx={50} cy={50} r={44} fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.15)" strokeWidth={1.5} />
+        {[0, 45, 90, 135, 180, 225, 270, 315].map(t => {
+          const rad = t * Math.PI / 180;
+          return <line key={t} x1={50 + Math.sin(rad) * 44} y1={50 - Math.cos(rad) * 44} x2={50 + Math.sin(rad) * 38} y2={50 - Math.cos(rad) * 38} stroke="rgba(255,255,255,0.25)" strokeWidth={t % 90 === 0 ? 2 : 1} />;
+        })}
+        <g transform={`rotate(${A} 50 50)`}>
+          <line x1={50} y1={50} x2={50} y2={18} stroke={color} strokeWidth={4} strokeLinecap="round" />
+          <polygon points="50,9 43,25 57,25" fill={color} />
+          <circle cx={50} cy={50} r={4.5} fill={color} />
+        </g>
+      </svg>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+        <button type="button" aria-label="Vrid vänster 15 grader" onClick={() => onAngle(snap(A - 15), true)}
+          style={{ width: 46, height: 46, borderRadius: 23, border: 'none', background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>⟲</button>
+        <span style={{ fontSize: 17, fontWeight: 700, color: '#fff', minWidth: 56, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{Math.round(A)}°</span>
+        <button type="button" aria-label="Vrid höger 15 grader" onClick={() => onAngle(snap(A + 15), true)}
+          style={{ width: 46, height: 46, borderRadius: 23, border: 'none', background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>⟳</button>
+      </div>
+    </div>
+  );
+}
+
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
@@ -11486,26 +11532,8 @@ export default function PlannerPage() {
             );
           })()}
           
-          {/* Rotationsindikator */}
-          {rotatingArrow && (() => {
-            const arrow = markers.find(m => m.id === rotatingArrow);
-            if (!arrow) return null;
-            const sp = svgToScreen(arrow.x, arrow.y);
-            if (!sp) return null;
-            return (
-              <g>
-                <circle cx={sp.x} cy={sp.y} r={60} fill="none" stroke={colors.blue} strokeWidth={2} strokeDasharray="8,4" opacity={0.5} />
-                <line
-                  x1={sp.x} y1={sp.y}
-                  x2={sp.x + Math.sin((arrow.rotation || 0) * Math.PI / 180) * 55}
-                  y2={sp.y - Math.cos((arrow.rotation || 0) * Math.PI / 180) * 55}
-                  stroke={colors.blue} strokeWidth={3} strokeLinecap="round"
-                />
-                <circle cx={sp.x} cy={sp.y} r={6} fill={colors.blue} />
-              </g>
-            );
-          })()}
-          
+          {/* (Rotations-indikatorn på kartan borttagen — rotation sker nu i pil-kortet, ej på kartan) */}
+
           {/* Ritmarkör - visar var linjen ritas */}
           {isDrawing && drawCursor && (
             <g>
@@ -12118,30 +12146,7 @@ export default function PlannerPage() {
         </div>
       )}
       
-      {/* === ROTERA-INDIKATOR === */}
-      {rotatingArrow && (
-        <div style={{
-          position: 'absolute',
-          top: '120px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: colors.blue,
-          color: '#fff',
-          padding: '12px 24px',
-          borderRadius: '16px',
-          fontSize: '13px',
-          fontWeight: '600',
-          zIndex: 150,
-          animation: 'fadeIn 0.2s ease',
-
-          textAlign: 'center',
-        }}>
-          <div style={{ fontSize: '24px', marginBottom: '4px' }}>
-            {Math.round(((markers.find(m => m.id === rotatingArrow)?.rotation || 0) % 360 + 360) % 360)}°
-          </div>
-          <div style={{ fontSize: '13px', opacity: 0.8 }}>Dra runt pilen • Släpp för att spara</div>
-        </div>
-      )}
+      {/* (ROTERA-INDIKATOR "Dra runt pilen" borttagen — rotation sker nu i pil-kortet med ratt + ⟲/⟳) */}
 
       {/* === MARKERING MENY (popup) === */}
       {markerMenuOpen && (() => {
@@ -12531,6 +12536,22 @@ export default function PlannerPage() {
               );
             })()}
 
+            {/* Pil-rotation: ratt + ⟲/⟳ I KORTET (rör aldrig kartan). Skriver 'angle' → live på
+                kartan + omedelbar DB-upsert vid commit. Ersätter det gamla dra-på-kartan-sättet. */}
+            {marker.isArrow && (
+              <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ fontSize: '13px', color: '#8e8e93', textAlign: 'center', marginBottom: '12px' }}>Vrid pilen dit den ska peka</div>
+                <ArrowRotationControl
+                  angle={(marker as any).angle ?? marker.rotation ?? 0}
+                  color={getMarkerBgColor()}
+                  onAngle={(a, commit) => {
+                    setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, angle: a } : m));
+                    if (commit) saveMarkerToDb({ ...marker, angle: a } as any);
+                  }}
+                />
+              </div>
+            )}
+
             {/* Åtgärder */}
             <div style={{
               display: 'flex',
@@ -12540,28 +12561,7 @@ export default function PlannerPage() {
               paddingTop: '20px',
               borderTop: '1px solid rgba(255,255,255,0.08)',
             }}>
-              {/* Rotera - bara för pilar */}
-              {marker.isArrow && (
-                <button
-                  onClick={() => startRotatingArrow(marker.id, marker.x, marker.y)}
-                  style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '24px',
-                    border: 'none',
-                    background: 'rgba(255,255,255,0.08)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2">
-                    <path d="M23 4v6h-6M1 20v-6h6" />
-                    <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-                  </svg>
-                </button>
-              )}
+              {/* (Rotera-knappen borttagen — rotation sker nu via ratten/knapparna ovan i kortet) */}
               
               {/* Förläng - bara för linjer */}
               {marker.isLine && (
