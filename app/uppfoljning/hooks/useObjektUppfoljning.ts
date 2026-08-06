@@ -51,6 +51,13 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           supabase.from('dim_maskin').select('maskin_id, maskin_typ'),
         ]);
 
+        // Sanity-guard: dessa fetchar är opaginerade (per objekt_id — typiskt < 500 rader).
+        // Exakt 1 000 rader = PostgREST-taket träffat, data trunkerat.
+        if ((tidRes.data?.length ?? 0)     === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_tid', ids)
+        if ((prodRes.data?.length ?? 0)    === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_produktion', ids)
+        if ((avbrottRes.data?.length ?? 0) === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_avbrott', ids)
+        if ((lassRes.data?.length ?? 0)    === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_lass', stId)
+
         let avbrottRows: any[] = avbrottRes.data || [];
 
         // If objekt_id query missed avbrott for a machine, fetch by maskin_id as fallback

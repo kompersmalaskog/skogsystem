@@ -58,6 +58,23 @@ function fN(n: number, d = 1): string {
   return n.toLocaleString('sv-SE', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
+// Paginerar fakt_produktion mot PostgREST 1 000-raderstaket.
+// Scorpion Å 2026 = 2 897 rader — utan paginering returneras bara jan–4 apr.
+async function hämtaFaktProd(cols: string, start: string, end: string): Promise<ProdRow[]> {
+  const PAGE = 1000
+  let rows: ProdRow[] = [], off = 0
+  while (true) {
+    const { data } = await supabase.from('fakt_produktion').select(cols)
+      .gte('datum', start).lte('datum', end)
+      .range(off, off + PAGE - 1)
+    const batch = (data || []) as ProdRow[]
+    rows = rows.concat(batch)
+    if (batch.length < PAGE) break
+    off += PAGE
+  }
+  return rows
+}
+
 function isoWeek(d: Date): { year: number; week: number } {
   const u = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const day = u.getUTCDay() || 7;
@@ -394,23 +411,29 @@ export default function Maskinvy2Page() {
     const curr = dateRange(periodType, year, week, month, quarter);
     const prev = prevRange(periodType, year, week, month, quarter);
 
-    const [tc, tp, pc, pp, mr, or_, py] = await Promise.all([
+    // fakt_produktion pagineras via hämtaFaktProd (se kommentar ovan).
+    // fakt_tid max ~260 rader/år — ej paginerat, sanity-guard nedan.
+    const [tc, tp, mr, or_, pc, pp, py] = await Promise.all([
       supabase.from('fakt_tid').select(tidCols).gte('datum', curr.start).lte('datum', curr.end),
       supabase.from('fakt_tid').select(tidCols).gte('datum', prev.start).lte('datum', prev.end),
-      supabase.from('fakt_produktion').select(prodCols).gte('datum', curr.start).lte('datum', curr.end),
-      supabase.from('fakt_produktion').select(prodCols).gte('datum', prev.start).lte('datum', prev.end),
       supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ'),
       supabase.from('dim_operator').select('operator_id,operator_namn,operator_key'),
-      supabase.from('fakt_produktion').select(prodCols).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
+      hämtaFaktProd(prodCols, curr.start, curr.end),
+      hämtaFaktProd(prodCols, prev.start, prev.end),
+      hämtaFaktProd(prodCols, `${year}-01-01`, `${year}-12-31`),
     ]);
+
+    // Sanity-guard: fakt_tid är ej paginerat — exakt 1 000 rader är alltid trunkering.
+    if ((tc.data?.length ?? 0) === 1000) console.warn(`[maskinvy2] 1000-rader: fakt_tid curr ${curr.start}–${curr.end}`)
+    if ((tp.data?.length ?? 0) === 1000) console.warn(`[maskinvy2] 1000-rader: fakt_tid prev ${prev.start}–${prev.end}`)
 
     setTidCurr((tc.data || []) as TidRow[]);
     setTidPrev((tp.data || []) as TidRow[]);
-    setProdCurr((pc.data || []) as ProdRow[]);
-    setProdPrev((pp.data || []) as ProdRow[]);
     setMaskiner((mr.data || []) as Maskin[]);
     setOperatorer((or_.data || []) as Operator[]);
-    setProdYear((py.data || []) as ProdRow[]);
+    setProdCurr(pc);
+    setProdPrev(pp);
+    setProdYear(py);
     setLoading(false);
   }, [periodType, year, week, month, quarter]);
 
