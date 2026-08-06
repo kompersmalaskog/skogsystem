@@ -253,20 +253,24 @@ export async function fetchAll(
   operatorId?: string,
 ): Promise<any[]> {
   const rpcName = MASKINVY_RPC[table]
-  if (rpcName) {
-    const { data } = await supabase.rpc(rpcName, {
-      p_maskin_ids:  ids,
-      p_datum_start: start,
-      p_datum_slut:  end,
-    })
-    let rows: any[] = data || []
-    if (operatorId) rows = rows.filter(r => r.operator_id === operatorId)
-    return rows
-  }
-  // Övriga tabeller — ingen RLS-blockering, direkt SELECT med pagination.
   const PAGE = 1000
   let rows: any[] = []
   let off = 0
+  if (rpcName) {
+    // RPC-tabeller kringgår RLS — pagineras via .range() precis som direktfrågor.
+    // Utan .range() returnerar PostgREST max 1 000 rader (Scorpion Å 2026 = 2 897).
+    const params = { p_maskin_ids: ids, p_datum_start: start, p_datum_slut: end }
+    while (true) {
+      const { data } = await (supabase.rpc(rpcName, params) as any).range(off, off + PAGE - 1)
+      const batch: any[] = data || []
+      rows = rows.concat(batch)
+      if (batch.length < PAGE) break
+      off += PAGE
+    }
+    if (operatorId) rows = rows.filter(r => r.operator_id === operatorId)
+    return rows
+  }
+  // Övriga tabeller — direkt SELECT med pagination.
   while (true) {
     let q = supabase.from(table)
       .select(sel)
@@ -274,7 +278,7 @@ export async function fetchAll(
       .gte('datum', start).lte('datum', end)
     if (operatorId) q = q.eq('operator_id', operatorId)
     const { data } = await q.range(off, off + PAGE - 1)
-    const batch = data || []
+    const batch: any[] = data || []
     rows = rows.concat(batch)
     if (batch.length < PAGE) break
     off += PAGE
