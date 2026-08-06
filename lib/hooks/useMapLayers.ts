@@ -78,6 +78,13 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   // HPR-högar
   produktionshogar: false,
   grothogar: false,
+  // Trakt-geometri (envz-import). Default PÅ — finns geometri ska den synas. Knapparna är
+  // datadrivna (visas bara när lagret faktiskt har data), så PÅ-default stör inte de 42
+  // objekt som saknar geometri. korFara forcas dessutom PÅ när ett objekt öppnas (se
+  // page.tsx) — kraftledning ligger där och får aldrig vara sparad släckt.
+  traktGrans: true,
+  hansyn: true,
+  korFara: true,
 }
 
 /**

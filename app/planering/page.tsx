@@ -833,6 +833,7 @@ export default function PlannerPage() {
 
   // === MapLibre state ===
   const [mapLibreReady, setMapLibreReady] = useState(false);
+  const [geoTyper, setGeoTyper] = useState<Set<string>>(new Set()); // vilka _typ trakt-geometrin har → datadrivna lagerknappar
 
   // MapLibre map style config (stable constant)
   const mapStyleConfig = useRef({
@@ -1247,6 +1248,27 @@ export default function PlannerPage() {
         'text-halo-width': 1,
       },
     });
+
+    // === Trakt-geometri (envz: objekt_geometri, GeoJSON i WGS84) ===
+    // EN källa, filtrerade lager per _typ. Data pumpas in av effekten [valtObjekt?.id] nedan,
+    // synlighet av toggle-effekten. Alla börjar 'none'. Lagren läggs sist -> ovanpå VIDA-
+    // kartbilden (som infogas under zone-/line-lagren) så geometrin syns på kartbilden.
+    map.addSource('trakt-geo-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    const FLB = ['downcase', ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]] as any;
+    // Traktgräns — grön fylld yta + kontur (MultiPolygon: ALLA delytor ritas)
+    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.12 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'line-color': '#22c55e', 'line-width': 2.5 }, layout: { visibility: 'none' } });
+    // Hänsynsytor — blå fylld yta + kontur
+    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': '#3b82f6', 'line-width': 1.5 }, layout: { visibility: 'none' } });
+    // Kör & fara — basväg (brun HELDRAGEN, tjock) vs kraftledning (röd STRECKAD, tunnare).
+    // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
+    map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': '#a16207', 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
+    map.addLayer({ id: 'trakt-kraftledning-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], paint: { 'line-color': '#ef4444', 'line-width': 3, 'line-dasharray': [2, 1.5] }, layout: { visibility: 'none' } });
+    // Kör & fara — punkter (larmkoordinat = röd/fara, avlägg = gul). Etikett: EXTRA_LABE
+    // (avläggsnr) för avlägg, annars FLBESKR (t.ex. "Larmkoordinat").
+    map.addLayer({ id: 'trakt-punkt-circle', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'punkt'], paint: { 'circle-radius': 6, 'circle-color': ['case', ['in', 'larm', FLB], '#ef4444', '#eab308'], 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'punkt'], layout: { 'text-field': ['case', ['in', 'avläg', FLB], ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], '']], ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -2904,6 +2926,70 @@ export default function PlannerPage() {
     if (map.getLayer('grot-shadow')) map.setLayoutProperty('grot-shadow', 'visibility', vis);
     if (map.getLayer('grot-label')) map.setLayoutProperty('grot-label', 'visibility', vis);
   }, [overlays.grothogar, mapLibreReady]);
+
+  // === Trakt-geometri: hämta objekt_geometri, pumpa in + zooma till geometrins utsträckning ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource('trakt-geo-source') as any;
+    if (!src) return;
+    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); return; }
+    let avbruten = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('objekt_geometri').select('geometri').eq('objekt_id', valtObjekt.id).maybeSingle();
+      if (avbruten) return;
+      const fc: any = (data as any)?.geometri;
+      if (error || !fc || !Array.isArray(fc.features) || fc.features.length === 0) {
+        src.setData({ type: 'FeatureCollection', features: [] });
+        setGeoTyper(new Set());
+        return;
+      }
+      src.setData(fc);
+      // Vilka _typ finns faktiskt (driver knapparna — iterera över det som kom, aldrig anta).
+      const typer = new Set<string>();
+      for (const f of fc.features) { const t = f?.properties?._typ; if (t) typer.add(t); }
+      setGeoTyper(typer);
+      // Zooma till geometrins utsträckning (inte till pinen) — bbox över alla features.
+      let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+      const scan = (c: any): void => {
+        if (typeof c[0] === 'number') {
+          if (c[0] < minLng) minLng = c[0]; if (c[0] > maxLng) maxLng = c[0];
+          if (c[1] < minLat) minLat = c[1]; if (c[1] > maxLat) maxLat = c[1];
+        } else { for (const x of c) scan(x); }
+      };
+      for (const f of fc.features) if (f?.geometry?.coordinates) scan(f.geometry.coordinates);
+      if (Number.isFinite(minLng)) {
+        try { map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 600, maxZoom: 16 }); } catch {}
+      }
+    })();
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // === Trakt-geometri: toggle synlighet per lagerknapp ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const set = (id: string, on: boolean) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); };
+    set('trakt-gr-fill', !!overlays.traktGrans);
+    set('trakt-gr-line', !!overlays.traktGrans);
+    set('trakt-hansyn-fill', !!overlays.hansyn);
+    set('trakt-hansyn-line', !!overlays.hansyn);
+    // Kör & fara: basväg + kraftledning + punkter (avlägg/larm) i samma lager.
+    set('trakt-basvag-line', !!overlays.korFara);
+    set('trakt-kraftledning-line', !!overlays.korFara);
+    set('trakt-punkt-circle', !!overlays.korFara);
+    set('trakt-punkt-label', !!overlays.korFara);
+  }, [overlays.traktGrans, overlays.hansyn, overlays.korFara, mapLibreReady, geoTyper]);
+
+  // === Kör & fara får aldrig vara sparad släckt ===
+  // Lagret bär kraftledningen (fara, inte hänsyn — släcker man Hänsyn ska den inte försvinna).
+  // Den kan släckas i stunden men forcas PÅ när ett objekt öppnas, så den överlever aldrig
+  // släckt mellan objekt/sessioner via localStorage.
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    setOverlays(prev => prev.korFara ? prev : ({ ...prev, korFara: true }));
+  }, [valtObjekt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === Produktionshögar: Klick → multi-select (varje tryck) ===
   useEffect(() => {
@@ -13607,6 +13693,10 @@ export default function PlannerPage() {
               </div>
               {[
                 { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
+                // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
+                ...(geoTyper.has('traktgräns') ? [{ id: 'traktGrans', name: 'Traktgräns', desc: 'Trakthandlingens gräns', enabled: true }] : []),
+                ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsyn', desc: 'Hänsynsytor att spara', enabled: true }] : []),
+                ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
                 { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
