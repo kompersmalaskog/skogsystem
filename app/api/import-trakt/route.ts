@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import JSZip from 'jszip';
 import proj4 from 'proj4';
+
+export const runtime = 'nodejs'; // JSZip + unpdf behöver Node-runtime, inte edge
 
 // Klient med ANVÄNDARENS session (cookies) — inte en naken anon-klient.
 // Uppladdningarna till kartbilder-bucketen går då genom storage-policyerna
@@ -18,6 +21,19 @@ async function skapaInloggadKlient() {
         setAll() { /* svar från API-route sätter inga cookies */ },
       },
     }
+  );
+}
+
+// Service-role-klient för att LÄSA den privata trakt-inbox-bucketen. Klienten laddar upp
+// råfilen dit via en signerad URL (aldrig genom denna route — se /api/import-trakt/upload-url),
+// och här hämtar vi ner den. trakt-inbox har inga anon/authenticated-policies, så bara
+// service-role kommer åt den. Används ENBART till nedladdningen; objekt + kartbilder skrivs
+// fortsatt med den inloggade admin-klienten.
+function skapaServiceKlient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
   );
 }
 
@@ -93,17 +109,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Kräver admin' }, { status: 403 });
     }
 
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const ar = parseInt(formData.get('ar') as string);
-    const manad = parseInt(formData.get('manad') as string);
+    // Filen ligger redan i trakt-inbox — klienten laddade upp den via en signerad URL
+    // (se /api/import-trakt/upload-url). Vi får bara sökvägen + period som JSON, så requesten
+    // är några hundra byte och slår aldrig i Vercels ~4,5 MB body-gräns (den gamla
+    // multipart-vägen dog tyst för filer > ~4,5 MB innan koden ens kördes).
+    const { sokvag, ar: arRaw, manad: manadRaw } = await request.json();
+    const ar = parseInt(arRaw);
+    const manad = parseInt(manadRaw);
 
-    if (!file) {
-      return NextResponse.json({ error: 'Ingen fil' }, { status: 400 });
+    if (!sokvag || typeof sokvag !== 'string') {
+      return NextResponse.json({ error: 'sokvag saknas' }, { status: 400 });
     }
 
-    // Packa upp ZIP
-    const arrayBuffer = await file.arrayBuffer();
+    // Hämta råfilen ur den privata trakt-inbox-bucketen (bara service-role kommer åt den).
+    const service = skapaServiceKlient();
+    const { data: blob, error: dlErr } = await service.storage.from('trakt-inbox').download(sokvag);
+    if (dlErr || !blob) {
+      return NextResponse.json(
+        { error: `Kunde inte hämta filen ur trakt-inbox: ${dlErr?.message ?? 'saknas'}` },
+        { status: 404 }
+      );
+    }
+
+    // Packa upp behållaren (.zip eller .envz — båda är zip-behållare)
+    const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
 
     // Hitta PDF-filer. _TD.pdf = traktdirektiv (text extraheras härifrån + sparas som
