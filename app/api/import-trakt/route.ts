@@ -293,6 +293,8 @@ export async function POST(request: NextRequest) {
       larmkoordinat_bekraftad: harLarm ? false : null,
       sortiment: (falt.sortiment && falt.sortiment.length > 0) ? falt.sortiment : null,
       anteckningar: falt.anteckningar || null,
+      // Checklist rått (frågor + svarsalternativ + alarm-flagga). Larm-tolkning: egen uppgift.
+      checklist_items: (envzUttag && envzUttag.checklist.length > 0) ? envzUttag.checklist : null,
       kartbild_url,
       kartbild_bounds,
       traktdirektiv_url,
