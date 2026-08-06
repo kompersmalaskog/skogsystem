@@ -52,6 +52,35 @@ function forsta(obj: any, nyckel: string): string | undefined {
   return undefined;
 }
 const tomTillUndef = (s: string | undefined) => (s && s.trim() !== '' ? s.trim() : undefined);
+const somArray = (v: any): any[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
+
+export interface ChecklistPost {
+  sektion?: string;   // formSection/rootQuestion.title
+  fraga?: string;     // followUpQuestion.title
+  svarsalternativ: { text?: string; larmar: boolean }[]; // option[] med @_alarm
+}
+
+// questionForm: varje formSection har EN rootQuestion (sektionsrubrik) + N followUpQuestion
+// (de riktiga frågorna), var och en med option[] som bär @_alarm. Rubrikerna är inte frågorna
+// — plattar till en post per followUpQuestion med sin sektion och sina svarsalternativ (rått,
+// men strukturerat så alarm-flaggan bevaras). Larm-tolkningen (agera på larmar) görs senare.
+function parseChecklist(oi: any): ChecklistPost[] {
+  const ut: ChecklistPost[] = [];
+  for (const sek of samlaDjupt(oi, 'formSection').flat(Infinity)) {
+    const sektion = textOf(somArray(sek?.rootQuestion)[0]?.title);
+    for (const fq of somArray(sek?.followUpQuestion)) {
+      ut.push({
+        sektion,
+        fraga: textOf(fq?.title),
+        svarsalternativ: somArray(fq?.option).map((o: any) => ({
+          text: textOf(o),
+          larmar: String(o?.['@_alarm']) === 'true',
+        })),
+      });
+    }
+  }
+  return ut;
+}
 
 // typ har bara gemener i prod ('slutavverkning' | 'gallring'). Purpose gemeniseras och måste
 // matcha en känd kategori — okänt värde skrivs INTE (hittar inte på en ny kategori).
@@ -80,8 +109,7 @@ export interface EnvzUttag {
   falt: EnvzFalt;
   executor?: string;   // <Executor> org.nr — för Executor-gaten, lagras inte
   info?: string;       // <Info> — omappad tills vi ser en ifylld (886465 har tom Info)
-  checklist: any[];    // <questionForm> rootQuestions rått -> objekt.checklist_items (jsonb).
-                       // Larm-tolkning (vilka svar som larmar) modelleras i egen uppgift senare.
+  checklist: ChecklistPost[]; // en post per followUpQuestion -> objekt.checklist_items (jsonb)
   varningar: string[];
 }
 
@@ -157,9 +185,7 @@ export function parseObjektInfo(objectInfoXml: string, ogiXml: string | null): E
     falt.avverkningsform = forsta(ogi, 'LoggingFormDescription');
   }
 
-  // Checklist: questionForm rootQuestions rått (frågor + svarsalternativ + alarm-flagga) ->
-  // objekt.checklist_items. Tolkning av vilka svar som larmar görs i egen uppgift senare.
-  const checklist = samlaDjupt(oi, 'rootQuestion').flat(Infinity);
+  const checklist = parseChecklist(oi);
 
   return { falt, executor, info, checklist, varningar };
 }
