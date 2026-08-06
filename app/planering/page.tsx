@@ -870,6 +870,29 @@ export default function PlannerPage() {
     map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
+    // på EN BLICK utan att tappa. Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
+    map.addLayer({
+      id: 'zone-label',
+      type: 'symbol',
+      source: 'zones-source',
+      filter: ['==', ['get', 'zoneType'], 'wet'],
+      layout: {
+        'text-field': 'RISA',
+        'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22],
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+        'symbol-placement': 'point',
+        'text-anchor': 'center',
+        'text-letter-spacing': 0.08,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.7)',
+        'text-halo-width': 1.8,
+      },
+    });
 
     // === Line layers per type ===
     const lineTypeDefs = [
@@ -6715,7 +6738,7 @@ export default function PlannerPage() {
     if (!pos || pos.lat == null || pos.lon == null) return;
     const ZONE_TYPES = ['wet', 'steep', 'noentry'];
     const ZONE_LABELS: Record<string, { label: string; color: string }> = {
-      wet:     { label: 'Du är i blöt zon',  color: '#0a84ff' },
+      wet:     { label: 'RISA',               color: '#0a84ff' },
       steep:   { label: 'Du är i brant zon', color: '#ff453a' },
       noentry: { label: 'EJ TILLTRÄDE',      color: '#ff453a' },
     };
@@ -10156,9 +10179,12 @@ export default function PlannerPage() {
             <div style={{ fontSize: '17px', fontWeight: '700', color: korvyZoneAlert.color }}>
               {korvyZoneAlert.label}
             </div>
-            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>
-              Försvinner när du lämnar zonen
-            </div>
+            {/* RISA (wet) = BARA ordet, inget förklarande brus. Övriga zon-typer behåller hjälptexten. */}
+            {korvyZoneAlert.zoneType !== 'wet' && (
+              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>
+                Försvinner när du lämnar zonen
+              </div>
+            )}
           </div>
         </div>
       )}
