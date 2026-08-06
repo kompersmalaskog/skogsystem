@@ -153,7 +153,10 @@ async function fetchPaged(
     const { data } = await supabase.rpc(rpcName, {
       p_maskin_ids: ids, p_datum_start: datum, p_datum_slut: datum,
     })
-    return data || []
+    const rows = data || []
+    // Dag-filtrerat — bör aldrig nå 1 000. Varning om det händer.
+    if (rows.length === 1000) console.warn(`[IdagNy] 1000-rader: ${rpcName} datum=${datum}`)
+    return rows
   }
   const PAGE = 1000
   let rows: any[] = [], off = 0
