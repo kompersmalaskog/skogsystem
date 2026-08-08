@@ -23,6 +23,33 @@ const cap = (s: string) => (s || '').split(' ').map(w =>
   (w.length <= 3 && w === w.toUpperCase()) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
 ).join(' ');
 
+// Svensk talformatering (komma-decimal).
+const fmtSv = (n: number, dec: number) =>
+  n.toLocaleString('sv-SE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+
+// Hänsynsandel + basvägslängd ur objekt_geometri (SHAPE.STAr/STLe finns i attributen).
+// Returnerar null-fält där data saknas — ett objekt utan hänsynsytor har OKÄND hänsyn, inte
+// noll, så då visas ingenting. Kraftledningens längd räknas ej (irrelevant för planering).
+function beraknaGeoMetrik(fc: any): { hansynProc: number | null; hansynHa: number | null; basvagM: number | null } {
+  const tom = { hansynProc: null, hansynHa: null, basvagM: null };
+  if (!fc || !Array.isArray(fc.features)) return tom;
+  const num = (v: any) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+  let hansynA = 0, traktA = 0, basvag = 0;
+  for (const f of fc.features) {
+    const p = f?.properties || {};
+    const areaK = Object.keys(p).find((k) => /star/i.test(k)); // "SHAPE.STAr"
+    const lenK = Object.keys(p).find((k) => /stle/i.test(k));  // "SHAPE.STLe"
+    if (p._typ === 'hänsynsyta' && areaK) hansynA += num(p[areaK]);
+    else if (p._typ === 'traktgräns' && areaK) traktA += num(p[areaK]);
+    else if (p._typ === 'linje' && lenK && !/kraftled/i.test(String(p.FLBESKR || ''))) basvag += num(p[lenK]);
+  }
+  return {
+    hansynProc: hansynA > 0 && traktA > 0 ? (hansynA / traktA) * 100 : null,
+    hansynHa: hansynA > 0 && traktA > 0 ? hansynA / 10000 : null,
+    basvagM: basvag > 0 ? basvag : null,
+  };
+}
+
 // Tre prickar per objekt: finns/saknas. "Karta" = kartbild_url ELLER traktkarta_url (två
 // format av samma sak).
 //
@@ -100,6 +127,20 @@ function ObjektPageInner() {
     fetchData();
   }, []);
 
+  // Hämta geometri för det öppnade objektet och räkna hänsynsandel + basvägslängd. Egen query
+  // (en till, på en vy som redan gör flera) — siffrorna behövs där jobbet förbereds, intill
+  // areal/volym, inte bakom kartan.
+  useEffect(() => {
+    if (!editingId) { setGeoMetrik({ hansynProc: null, hansynHa: null, basvagM: null }); return; }
+    let avbruten = false;
+    (async () => {
+      const { data } = await supabase.from('objekt_geometri').select('geometri').eq('objekt_id', editingId).maybeSingle();
+      if (avbruten) return;
+      setGeoMetrik(beraknaGeoMetrik((data as any)?.geometri));
+    })();
+    return () => { avbruten = true; };
+  }, [editingId]);
+
   // Beställningar för vald månad — riktiga bestallningar-tabellen (samma källa som helikoptervyn)
   const [bestallningar, setBestallningar] = useState<any[]>([]);
   useEffect(() => {
@@ -130,6 +171,7 @@ function ObjektPageInner() {
   const [importVarningar, setImportVarningar] = useState<string[]>([]);
   const [varningarOppna, setVarningarOppna] = useState(false);
   const [prickInfo, setPrickInfo] = useState<string | null>(null); // vilken listrad visar prick-detalj (tap)
+  const [geoMetrik, setGeoMetrik] = useState<{ hansynProc: number | null; hansynHa: number | null; basvagM: number | null }>({ hansynProc: null, hansynHa: null, basvagM: null });
 
   const [sparadeBolag, setSparadeBolag] = useState(['Vida', 'Södra', 'ATA', 'JGA', 'Rönås', 'Privat']);
   const [sparadeMaskiner, setSparadeMaskiner] = useState(['PONSSE Scorpion Giant 8W', 'Wisent 2015', 'Elephant King AF', 'Rottne']);
@@ -879,6 +921,14 @@ function ObjektPageInner() {
                   <Las label="ÅTGÄRD" value={form.atgard} />
                   <Las label="VOLYM" value={form.volym ? `${form.volym} m³fub` : ''} />
                   <Las label="AREAL" value={form.areal ? `${form.areal} ha` : ''} />
+                  {/* Ur trakt-geometrin (envz). Saknas data → raden visas inte alls
+                      (okänd hänsyn ≠ noll hänsyn). */}
+                  {geoMetrik.hansynProc != null && (
+                    <Las label="HÄNSYN" value={`${fmtSv(geoMetrik.hansynProc, 1)} % (${fmtSv(geoMetrik.hansynHa as number, 2)} ha)`} />
+                  )}
+                  {geoMetrik.basvagM != null && (
+                    <Las label="BASVÄG" value={`${Math.round(geoMetrik.basvagM)} m`} />
+                  )}
                   <Las label="GROT" value={form.grot ? 'Ja' : 'Nej'} />
                   <Las label="SORTIMENT" value={form.sortiment.join(', ')} />
                   <button onClick={() => setRattaSektion('grund')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: '2px 0' }}>Rätta</button>
