@@ -1279,10 +1279,11 @@ export default function PlannerPage() {
     // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
     map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': '#a16207', 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
     map.addLayer({ id: 'trakt-kraftledning-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], paint: { 'line-color': '#ef4444', 'line-width': 3, 'line-dasharray': [2, 1.5] }, layout: { visibility: 'none' } });
-    // Kör & fara — punkter (larmkoordinat = röd/fara, avlägg = gul). Etikett: EXTRA_LABE
-    // (avläggsnr) för avlägg, annars FLBESKR (t.ex. "Larmkoordinat").
-    map.addLayer({ id: 'trakt-punkt-circle', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'punkt'], paint: { 'circle-radius': 6, 'circle-color': ['case', ['in', 'larm', FLB], '#ef4444', '#eab308'], 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'punkt'], layout: { 'text-field': ['case', ['in', 'avläg', FLB], ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], '']], ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
+    // Kör & fara — punkter, ENDAST avlägg (gula, blå-nära "arbete"-ton). Larmkoordinaten ritas
+    // av det befintliga larm-pin-lagret (rött, överst) — vi ritar INTE en dubblett här, därför
+    // filtrerar vi bort larm (['!', ['in','larm',FLB]]). Etikett = EXTRA_LABE (avläggsnr).
+    map.addLayer({ id: 'trakt-punkt-circle', type: 'circle', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], paint: { 'circle-radius': 6, 'circle-color': '#eab308', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -4087,7 +4088,10 @@ export default function PlannerPage() {
     };
   }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen, currentDrawCoords, larmPlacering]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // === Larmkoordinat-märke: dödcentrerad blå prick + vitt kors — mitten på koordinaten ===
+  // === Larmkoordinat-märke: dödcentrerad RÖD prick + vitt kors — mitten på koordinaten ===
+  // Röd = akut (larm), blå är reserverat för arbete. Ligger ÖVERST i z-ordningen (moveLayer
+  // nedan) så inget arbetslager kan dölja den vid en olycka — ingen ska behöva zooma för att
+  // skilja larmet från ett avlägg intill.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -4105,7 +4109,7 @@ export default function PlannerPage() {
           ctx.beginPath();
           ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
           ctx.fill();
-          ctx.fillStyle = '#0a84ff';   // blå prick
+          ctx.fillStyle = '#ff3b30';   // röd prick (akut)
           ctx.beginPath();
           ctx.arc(cx, cy, r, 0, Math.PI * 2);
           ctx.fill();
@@ -4143,6 +4147,9 @@ export default function PlannerPage() {
           paint: { 'circle-radius': 22, 'circle-color': 'rgba(0,0,0,0)' },
         });
       }
+      // Larmet ÖVERST — akut, får aldrig döljas av trakt-geometrin eller andra arbetslager.
+      if (map.getLayer('larm-pin-hit')) map.moveLayer('larm-pin-hit');
+      if (map.getLayer('larm-pin')) map.moveLayer('larm-pin');
     } catch (e) { console.error('[Larm-pin] setup-fel:', e); }
   }, [mapLibreReady]);
 
