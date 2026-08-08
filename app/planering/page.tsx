@@ -360,6 +360,20 @@ function ArrowRotationControl({ angle, color, onAngle }: { angle: number; color:
   );
 }
 
+// iOS installerad PWA (hemskärm-app) kräver en RIKTIG användargest för geolocation-prompten —
+// samma familj som DeviceOrientation-kompassen (#313). Auto-anrop vid mount avfärdas TYST (ingen
+// dialog, ingen Plats-rad). Detektera så vi kan dröja auto-anropet tills föraren tryckt "Aktivera
+// plats". Desktop och Safari-flik har inte kravet → returnerar false där (auto funkar).
+function isIOSStandalonePWA(): boolean {
+  try {
+    if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const iOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
+    const standalone = (navigator as any).standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    return iOS && !!standalone;
+  } catch { return false; }
+}
+
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
@@ -2209,6 +2223,9 @@ export default function PlannerPage() {
   // GPS-status som SURFAS till UI (aldrig sväljs) + tidsstämpel på senaste fix.
   const [gpsStatus, setGpsStatus] = useState<{ kind: 'searching' | 'ok' | 'error'; code?: number; at: number } | null>(null);
   const [gpsFixAt, setGpsFixAt] = useState<number | null>(null);
+  // Minns att föraren aktiverat plats (localStorage) → GPS auto-startar nästa gång appen öppnas,
+  // precis som "Aktivera kompass". På iOS standalone gejtar detta det passiva mount-anropet nedan.
+  const [platsAktiverad, setPlatsAktiverad] = useState<boolean>(() => { try { return typeof localStorage !== 'undefined' && localStorage.getItem('gps-aktiverad') === '1'; } catch { return false; } });
 
   // === PASSIV GPS-WATCHER (sätter currentPosition automatiskt vid mount) ===
   // Befintliga toggleTracking/startGpsTracking startar SINA EGNA watchers för
@@ -2217,6 +2234,10 @@ export default function PlannerPage() {
   // Matchar /gps-test-mönstret som bevisat fungerar på telefon.
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return;
+    // iOS STANDALONE-GEJT: hoppa över detta icke-gest-anrop tills föraren tryckt "Aktivera plats"
+    // (annars avfärdar iOS tyst UTAN prompt → ingen Plats-rad, ingen GPS). Har hen redan aktiverat
+    // (localStorage) är tillståndet beviljat → auto-start OK. Desktop/Safari-flik: kör alltid.
+    if (isIOSStandalonePWA() && !platsAktiverad) return;
     // Snabb första prick: hämta en (ev. cachad) position DIREKT vid mount så pricken syns
     // omedelbart efter en reload/remount istället för att vänta på watchens första fix.
     navigator.geolocation.getCurrentPosition(
@@ -2240,7 +2261,7 @@ export default function PlannerPage() {
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
     );
     return () => { try { navigator.geolocation.clearWatch(id); } catch {} };
-  }, []);
+  }, [platsAktiverad]); // re-kör när föraren aktiverat → startar watchen
 
   // === ROBUST GPS-HÄMTNING (Körvy + "Försök igen") ===
   // Hög noggrannhet först; MISSLYCKAS den (tät skog) → falla tillbaka på lägre noggrannhet
@@ -2258,6 +2279,10 @@ export default function PlannerPage() {
       setGpsAccuracy(pos.coords.accuracy);
       setGpsFixAt(Date.now());
       setGpsStatus({ kind: 'ok', at: Date.now() });
+      // Första lyckade fixen (via gest-knappen på iOS) → tillståndet är beviljat. Minns det så GPS
+      // auto-startar nästa gång appen öppnas (localStorage) och passiva watchen startar (state).
+      try { localStorage.setItem('gps-aktiverad', '1'); } catch {}
+      setPlatsAktiverad(true);
       console.log('[GPS] fix, noggrannhet', Math.round(pos.coords.accuracy), 'm');
     };
     // 1) Hög noggrannhet, tålmodig timeout
@@ -2278,6 +2303,14 @@ export default function PlannerPage() {
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
     );
   }, []);
+
+  // "Aktivera plats"-gesten: anropar getCurrentPosition SYNKRONT i onClick → iOS visar plats-dialogen
+  // (auto-anrop vid mount gör det INTE på standalone). onOk minns valet (localStorage + state) →
+  // banner släcks, passiva watchen startar, GPS auto-startar nästa gång.
+  const aktiveraPlats = useCallback(() => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(8);
+    acquireGpsWithFallback();
+  }, [acquireGpsWithFallback]);
 
   // Varje gång en position kommer in (även från passiva watchern) → uppdatera ålder + status.
   useEffect(() => {
@@ -10320,6 +10353,40 @@ export default function PlannerPage() {
           </div>
         </div>
       )}
+
+      {/* === AKTIVERA PLATS (iOS installerad PWA) — prominent, ej begravd i körvyns fel-ruta ===
+          iOS standalone ger ingen GPS-prompt utan gest. Visa en tydlig knapp när plats inte
+          aktiverats och position saknas → tryck → getCurrentPosition i gesten → iOS-dialog. Nekad
+          → ärlig "gå till Inställningar", aldrig tyst död. (Desktop/Safari: isIOSStandalonePWA=false
+          → banner visas aldrig, auto funkar.) */}
+      {isIOSStandalonePWA() && !platsAktiverad && !currentPosition && !briefingMode && (() => {
+        const nekad = gpsStatus?.kind === 'error' && gpsStatus.code === 1;
+        const soker = gpsStatus?.kind === 'searching';
+        return (
+          <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 64px)', left: 12, right: 12, zIndex: 400,
+            background: nekad ? 'rgba(28,28,30,0.97)' : '#0a84ff', color: '#fff', borderRadius: 14, padding: '12px 16px',
+            display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+            border: nekad ? '1px solid rgba(255,159,10,0.5)' : 'none' }}>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 28, flexShrink: 0, color: nekad ? '#FF9F0A' : '#fff' }}>
+              {nekad ? 'location_off' : 'location_on'}
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{nekad ? 'Plats nekad' : 'Aktivera plats'}</div>
+              <div style={{ fontSize: 12, opacity: 0.9, lineHeight: 1.35, marginTop: 1 }}>
+                {nekad
+                  ? 'Tillåt plats för Kompersmåla i telefonens Inställningar → så fungerar körvy och mätning'
+                  : 'Appen behöver din GPS för körvy, fällningsradie och mätning'}
+              </div>
+            </div>
+            {!nekad && (
+              <button type="button" onClick={aktiveraPlats} disabled={soker}
+                style={{ flexShrink: 0, padding: '10px 16px', borderRadius: 11, border: 'none', background: '#fff', color: '#0a84ff', fontSize: 14, fontWeight: 700, cursor: soker ? 'default' : 'pointer', opacity: soker ? 0.7 : 1, fontFamily: 'inherit' }}>
+                {soker ? 'Söker…' : 'Aktivera'}
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* === KÖRVY: GPS-STATUS — surfar fel (aldrig tyst), senast uppdaterad, Försök igen === */}
       {korvyActive && (() => {

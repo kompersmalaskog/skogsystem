@@ -177,23 +177,55 @@ function ObjektPageInner() {
     setMonth(m); setYear(y);
   };
 
+  const MAX_MB = 25; // samma tak som trakt-inbox-bucketen + servern
   const handleZipImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setImportStatus('Läser traktdirektiv...');
+    // Storlekskontroll FÖRST — begripligt fel i stället för det tysta plattformsfel den gamla
+    // multipart-vägen gav när filen översteg Vercels body-gräns.
+    if (file.size > MAX_MB * 1024 * 1024) {
+      setImportStatus(`Filen är för stor (${(file.size / 1e6).toFixed(1)} MB). Max ${MAX_MB} MB.`);
+      setTimeout(() => setImportStatus(''), 5000);
+      e.target.value = '';
+      return;
+    }
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('ar', year.toString());
-      formData.append('manad', (month + 1).toString());
+      // 1. Hämta en signerad uppladdnings-URL till trakt-inbox (server-side, admin-gated).
+      setImportStatus('Förbereder uppladdning...');
+      const urlRes = await fetch('/api/import-trakt/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filnamn: file.name, storlek: file.size }),
+      });
+      const urlData = await urlRes.json();
+      if (!urlRes.ok) {
+        setImportStatus(`Fel: ${urlData.error || 'Kunde inte förbereda uppladdning'}`);
+        setTimeout(() => setImportStatus(''), 4000);
+        e.target.value = '';
+        return;
+      }
 
+      // 2. Ladda upp råfilen DIREKT till storage via token:en (kringgår routens body-gräns).
+      setImportStatus('Laddar upp traktfil...');
+      const { error: upErr } = await supabase.storage
+        .from('trakt-inbox')
+        .uploadToSignedUrl(urlData.sokvag, urlData.token, file);
+      if (upErr) {
+        setImportStatus(`Fel: uppladdning misslyckades (${upErr.message})`);
+        setTimeout(() => setImportStatus(''), 4000);
+        e.target.value = '';
+        return;
+      }
+
+      // 3. Importera från storage — liten JSON-request (några hundra byte).
+      setImportStatus('Läser traktfil...');
       const res = await fetch('/api/import-trakt', {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sokvag: urlData.sokvag, ar: year, manad: month + 1 }),
       });
-
       const data = await res.json();
 
       if (!res.ok) {
@@ -203,6 +235,7 @@ function ObjektPageInner() {
           setImportStatus(`Fel: ${data.error || 'Import misslyckades'}`);
         }
         setTimeout(() => setImportStatus(''), 4000);
+        e.target.value = '';
         return;
       }
 
@@ -551,7 +584,7 @@ function ObjektPageInner() {
         <input
           type="file"
           id="zip-import"
-          accept=".zip"
+          accept=".envz,.zip"
           onChange={handleZipImport}
           style={{ display: 'none' }}
         />
@@ -565,7 +598,7 @@ function ObjektPageInner() {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
             boxSizing: 'border-box'
           }}>
-          {importStatus || 'Importera traktdirektiv (.zip)'}
+          {importStatus || 'Importera traktfil (.envz/.zip)'}
         </label>
       </div>
 
