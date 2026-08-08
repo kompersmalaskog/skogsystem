@@ -847,6 +847,8 @@ export default function PlannerPage() {
 
   // === MapLibre state ===
   const [mapLibreReady, setMapLibreReady] = useState(false);
+  const [geoTyper, setGeoTyper] = useState<Set<string>>(new Set()); // vilka _typ trakt-geometrin har → datadrivna lagerknappar
+  const [traktGeo, setTraktGeo] = useState<any>(null); // hela FeatureCollection för valt objekt → snabbpanelen räknar faror/hänsyn/basväg ur den
 
   // MapLibre map style config (stable constant)
   const mapStyleConfig = useRef({
@@ -1261,6 +1263,28 @@ export default function PlannerPage() {
         'text-halo-width': 1,
       },
     });
+
+    // === Trakt-geometri (envz: objekt_geometri, GeoJSON i WGS84) ===
+    // EN källa, filtrerade lager per _typ. Data pumpas in av effekten [valtObjekt?.id] nedan,
+    // synlighet av toggle-effekten. Alla börjar 'none'. Lagren läggs sist -> ovanpå VIDA-
+    // kartbilden (som infogas under zone-/line-lagren) så geometrin syns på kartbilden.
+    map.addSource('trakt-geo-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    const FLB = ['downcase', ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]] as any;
+    // Traktgräns — grön fylld yta + kontur (MultiPolygon: ALLA delytor ritas)
+    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.12 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'line-color': '#22c55e', 'line-width': 2.5 }, layout: { visibility: 'none' } });
+    // Hänsynsytor — blå fylld yta + kontur
+    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': '#3b82f6', 'line-width': 1.5 }, layout: { visibility: 'none' } });
+    // Kör & fara — basväg (brun HELDRAGEN, tjock) vs kraftledning (röd STRECKAD, tunnare).
+    // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
+    map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': '#a16207', 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
+    map.addLayer({ id: 'trakt-kraftledning-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], paint: { 'line-color': '#ef4444', 'line-width': 3, 'line-dasharray': [2, 1.5] }, layout: { visibility: 'none' } });
+    // Kör & fara — punkter, ENDAST avlägg (gula, blå-nära "arbete"-ton). Larmkoordinaten ritas
+    // av det befintliga larm-pin-lagret (rött, överst) — vi ritar INTE en dubblett här, därför
+    // filtrerar vi bort larm (['!', ['in','larm',FLB]]). Etikett = EXTRA_LABE (avläggsnr).
+    map.addLayer({ id: 'trakt-punkt-circle', type: 'circle', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], paint: { 'circle-radius': 6, 'circle-color': '#eab308', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -2938,6 +2962,72 @@ export default function PlannerPage() {
     if (map.getLayer('grot-label')) map.setLayoutProperty('grot-label', 'visibility', vis);
   }, [overlays.grothogar, mapLibreReady]);
 
+  // === Trakt-geometri: hämta objekt_geometri, pumpa in + zooma till geometrins utsträckning ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource('trakt-geo-source') as any;
+    if (!src) return;
+    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setTraktGeo(null); return; }
+    let avbruten = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('objekt_geometri').select('geometri').eq('objekt_id', valtObjekt.id).maybeSingle();
+      if (avbruten) return;
+      const fc: any = (data as any)?.geometri;
+      if (error || !fc || !Array.isArray(fc.features) || fc.features.length === 0) {
+        src.setData({ type: 'FeatureCollection', features: [] });
+        setGeoTyper(new Set());
+        setTraktGeo(null);
+        return;
+      }
+      src.setData(fc);
+      setTraktGeo(fc);
+      // Vilka _typ finns faktiskt (driver knapparna — iterera över det som kom, aldrig anta).
+      const typer = new Set<string>();
+      for (const f of fc.features) { const t = f?.properties?._typ; if (t) typer.add(t); }
+      setGeoTyper(typer);
+      // Zooma till geometrins utsträckning (inte till pinen) — bbox över alla features.
+      let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+      const scan = (c: any): void => {
+        if (typeof c[0] === 'number') {
+          if (c[0] < minLng) minLng = c[0]; if (c[0] > maxLng) maxLng = c[0];
+          if (c[1] < minLat) minLat = c[1]; if (c[1] > maxLat) maxLat = c[1];
+        } else { for (const x of c) scan(x); }
+      };
+      for (const f of fc.features) if (f?.geometry?.coordinates) scan(f.geometry.coordinates);
+      if (Number.isFinite(minLng)) {
+        try { map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 600, maxZoom: 16 }); } catch {}
+      }
+    })();
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // === Trakt-geometri: toggle synlighet per lagerknapp ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const set = (id: string, on: boolean) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); };
+    set('trakt-gr-fill', !!overlays.traktGrans);
+    set('trakt-gr-line', !!overlays.traktGrans);
+    set('trakt-hansyn-fill', !!overlays.hansyn);
+    set('trakt-hansyn-line', !!overlays.hansyn);
+    // Kör & fara: basväg + kraftledning + punkter (avlägg/larm) i samma lager.
+    set('trakt-basvag-line', !!overlays.korFara);
+    set('trakt-kraftledning-line', !!overlays.korFara);
+    set('trakt-punkt-circle', !!overlays.korFara);
+    set('trakt-punkt-label', !!overlays.korFara);
+  }, [overlays.traktGrans, overlays.hansyn, overlays.korFara, mapLibreReady, geoTyper]);
+
+  // === Kör & fara får aldrig vara sparad släckt ===
+  // Lagret bär kraftledningen (fara, inte hänsyn — släcker man Hänsyn ska den inte försvinna).
+  // Den kan släckas i stunden men forcas PÅ när ett objekt öppnas, så den överlever aldrig
+  // släckt mellan objekt/sessioner via localStorage.
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    setOverlays(prev => prev.korFara ? prev : ({ ...prev, korFara: true }));
+  }, [valtObjekt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // === Produktionshögar: Klick → multi-select (varje tryck) ===
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -4001,7 +4091,10 @@ export default function PlannerPage() {
     };
   }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen, currentDrawCoords, larmPlacering]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // === Larmkoordinat-märke: dödcentrerad blå prick + vitt kors — mitten på koordinaten ===
+  // === Larmkoordinat-märke: dödcentrerad RÖD prick + vitt kors — mitten på koordinaten ===
+  // Röd = akut (larm), blå är reserverat för arbete. Ligger ÖVERST i z-ordningen (moveLayer
+  // nedan) så inget arbetslager kan dölja den vid en olycka — ingen ska behöva zooma för att
+  // skilja larmet från ett avlägg intill.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -4019,7 +4112,7 @@ export default function PlannerPage() {
           ctx.beginPath();
           ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
           ctx.fill();
-          ctx.fillStyle = '#0a84ff';   // blå prick
+          ctx.fillStyle = '#ff3b30';   // röd prick (akut)
           ctx.beginPath();
           ctx.arc(cx, cy, r, 0, Math.PI * 2);
           ctx.fill();
@@ -4057,6 +4150,9 @@ export default function PlannerPage() {
           paint: { 'circle-radius': 22, 'circle-color': 'rgba(0,0,0,0)' },
         });
       }
+      // Larmet ÖVERST — akut, får aldrig döljas av trakt-geometrin eller andra arbetslager.
+      if (map.getLayer('larm-pin-hit')) map.moveLayer('larm-pin-hit');
+      if (map.getLayer('larm-pin')) map.moveLayer('larm-pin');
     } catch (e) { console.error('[Larm-pin] setup-fel:', e); }
   }, [mapLibreReady]);
 
@@ -9977,7 +10073,7 @@ export default function PlannerPage() {
         // Kontorets dokument (TD + stämplingslängd) ligger i privat bucket → signeras vid klick och
         // renderas i in-app PDF-läsvyn (PdfLasare), aldrig window.open/nedladdning som slänger ut
         // föraren ur den installerade appen. Rad visas bara om url finns.
-        const harDok = !!(valtObjekt.traktdirektiv_url || valtObjekt.stamplingslangd_url);
+        const harDok = !!(valtObjekt.traktdirektiv_url || valtObjekt.stamplingslangd_url || valtObjekt.traktkarta_url);
         const dokRad = (etikett: string, url: string) => (
           <button type="button" key={etikett} className="btn-press" onClick={async () => { const s = await signeraKartfil(url); if (s) setPdfDok({ url: s, titel: etikett }); }}
             style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -9988,7 +10084,47 @@ export default function PlannerPage() {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6" /><path d="M10 14 21 3" /></svg>
           </button>
         );
-        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr || harDok;
+        // Rad i "På trakten" — etikett vänster, värde höger.
+        const ptRad = (etikett: string, varde: string) => (
+          <div key={etikett} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+            <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)', flexShrink: 0 }}>{etikett}</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', textAlign: 'right' }}>{varde}</span>
+          </div>
+        );
+        // Faror — farolinjer ur geometrin. Basväg är körning (ej fara); allt ANNAT på linje-
+        // lagret listas som fara automatiskt (VIDA kan skicka nya faror där — visa hellre än tyst).
+        const faroLinjer = (() => {
+          const namn = new Set<string>();
+          for (const f of (traktGeo?.features || [])) {
+            if (f?.properties?._typ === 'linje') {
+              const b = String(f.properties.FLBESKR || '').trim();
+              if (b && !/basväg/i.test(b)) namn.add(b);
+            }
+          }
+          return Array.from(namn);
+        })();
+        // På trakten — hänsynsandel + basvägslängd ur geometrin (SHAPE.STAr/STLe).
+        const paTrakten = (() => {
+          const antal = (v: any) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+          const svN = (n: number, d: number) => n.toLocaleString('sv-SE', { minimumFractionDigits: d, maximumFractionDigits: d });
+          let hansynA = 0, traktA = 0, basvag = 0, hAntal = 0; const hBeskr = new Set<string>();
+          for (const f of (traktGeo?.features || [])) {
+            const p = f?.properties || {};
+            const aK = Object.keys(p).find((k) => /star/i.test(k));
+            const lK = Object.keys(p).find((k) => /stle/i.test(k));
+            if (p._typ === 'hänsynsyta' && aK) { hansynA += antal(p[aK]); hAntal++; if (p.FLBESKR) hBeskr.add(String(p.FLBESKR).trim()); }
+            else if (p._typ === 'traktgräns' && aK) traktA += antal(p[aK]);
+            else if (p._typ === 'linje' && lK && /basväg/i.test(String(p.FLBESKR || ''))) basvag += antal(p[lK]);
+          }
+          const hansyn = hansynA > 0 && traktA > 0
+            ? `${svN(hansynA / traktA * 100, 1)} % (${svN(hansynA / 10000, 2)} ha) · ${hAntal} ${hAntal === 1 ? 'yta' : 'ytor'}${hBeskr.size === 1 ? ' · ' + Array.from(hBeskr)[0] : ''}`
+            : null;
+          return { hansyn, basvag: basvag > 0 ? `${Math.round(basvag)} m` : null };
+        })();
+        const certTxt = (valtObjekt.cert || '').trim() || null;
+        const grotTxt = valtObjekt.grot == null ? null : (valtObjekt.grot ? 'Ja' : 'Nej');
+        const harPaTrakten = !!(certTxt || paTrakten.hansyn || paTrakten.basvag || grotTxt);
+        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr || harDok || faroLinjer.length || harPaTrakten;
 
         return (
           <>
@@ -10008,6 +10144,35 @@ export default function PlannerPage() {
                 <button type="button" onClick={stang} aria-label="Stäng" style={{ width: 34, height: 34, borderRadius: 17, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 16, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit' }}>✕</button>
               </div>
 
+              {/* FAROR — överst, före allt annat. "Vad är farligt." Röd lista över farolinjer. */}
+              {faroLinjer.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#ff6b60', marginBottom: 8 }}>Faror</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {faroLinjer.map((namn, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.4)', borderRadius: 12, padding: '11px 13px' }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff3b30" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+                        <span style={{ fontSize: 14.5, fontWeight: 600, color: '#ff6b60' }}>{namn} på trakten</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* PÅ TRAKTEN — "var kör jag / vad ska jag spara". Cert hör ihop med hänsynsraden:
+                  certet säger kravet, hänsynsprocenten vad som är planerat. Rad döljs när data saknas. */}
+              {harPaTrakten && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>På trakten</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7, background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '12px 14px' }}>
+                    {certTxt && ptRad('Certifiering', certTxt)}
+                    {paTrakten.hansyn && ptRad('Hänsyn', paTrakten.hansyn)}
+                    {paTrakten.basvag && ptRad('Basväg', paTrakten.basvag)}
+                    {grotTxt && ptRad('GROT', grotTxt)}
+                  </div>
+                </div>
+              )}
+
               {vida && (
                 <div style={{ marginBottom: 14, background: 'rgba(10,132,255,0.08)', border: '1px solid rgba(10,132,255,0.3)', borderRadius: 14, padding: '13px 15px' }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#4da3ff', marginBottom: 7 }}>Direktiv från Vida</div>
@@ -10025,6 +10190,7 @@ export default function PlannerPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {valtObjekt.traktdirektiv_url && dokRad('Traktdirektiv', valtObjekt.traktdirektiv_url)}
                     {valtObjekt.stamplingslangd_url && dokRad('Stämplingslängd', valtObjekt.stamplingslangd_url)}
+                    {valtObjekt.traktkarta_url && dokRad('Traktkarta', valtObjekt.traktkarta_url)}
                   </div>
                 </div>
               )}
@@ -10094,7 +10260,7 @@ export default function PlannerPage() {
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{larmLat.toFixed(5)}, {larmLng.toFixed(5)}</div>
-                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen — satt vid rekning' : 'Källa ej angiven'}</div>
+                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen — satt vid rekning' : infoLarmKalla === 'envz' ? 'Från traktfil (envz)' : 'Källa ej angiven'}</div>
                       </div>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 6 L15 12 L9 18" /></svg>
                     </div>
@@ -13674,6 +13840,10 @@ export default function PlannerPage() {
               </div>
               {[
                 { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
+                // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
+                ...(geoTyper.has('traktgräns') ? [{ id: 'traktGrans', name: 'Traktgräns', desc: 'Trakthandlingens gräns', enabled: true }] : []),
+                ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsyn', desc: 'Hänsynsytor att spara', enabled: true }] : []),
+                ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
                 { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
@@ -18165,7 +18335,7 @@ export default function PlannerPage() {
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(10,132,255,0.1)', border: '1px solid rgba(10,132,255,0.25)', marginBottom: '14px' }}>
                         <div>
                           <div style={{ fontSize: '13px', color: '#fff', fontFamily: 'monospace' }}>{_lat.toFixed(5)}, {_lng.toFixed(5)}</div>
-                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen (satt vid rekning)' : 'Källa ej angiven'}</div>
+                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen (satt vid rekning)' : infoLarmKalla === 'envz' ? 'Från traktfil (envz)' : 'Källa ej angiven'}</div>
                         </div>
                         <button onClick={() => { setInfoLarmLat(''); setInfoLarmLng(''); setInfoLarmKalla(null); setInfoLarmBekraftad(false); }} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#8e8e93', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>Rensa</button>
                       </div>
