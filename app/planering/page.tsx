@@ -848,6 +848,7 @@ export default function PlannerPage() {
   // === MapLibre state ===
   const [mapLibreReady, setMapLibreReady] = useState(false);
   const [geoTyper, setGeoTyper] = useState<Set<string>>(new Set()); // vilka _typ trakt-geometrin har → datadrivna lagerknappar
+  const [traktGeo, setTraktGeo] = useState<any>(null); // hela FeatureCollection för valt objekt → snabbpanelen räknar faror/hänsyn/basväg ur den
 
   // MapLibre map style config (stable constant)
   const mapStyleConfig = useRef({
@@ -2967,7 +2968,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const src = map.getSource('trakt-geo-source') as any;
     if (!src) return;
-    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); return; }
+    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setTraktGeo(null); return; }
     let avbruten = false;
     (async () => {
       const { data, error } = await supabase
@@ -2977,9 +2978,11 @@ export default function PlannerPage() {
       if (error || !fc || !Array.isArray(fc.features) || fc.features.length === 0) {
         src.setData({ type: 'FeatureCollection', features: [] });
         setGeoTyper(new Set());
+        setTraktGeo(null);
         return;
       }
       src.setData(fc);
+      setTraktGeo(fc);
       // Vilka _typ finns faktiskt (driver knapparna — iterera över det som kom, aldrig anta).
       const typer = new Set<string>();
       for (const f of fc.features) { const t = f?.properties?._typ; if (t) typer.add(t); }
@@ -10070,7 +10073,7 @@ export default function PlannerPage() {
         // Kontorets dokument (TD + stämplingslängd) ligger i privat bucket → signeras vid klick och
         // renderas i in-app PDF-läsvyn (PdfLasare), aldrig window.open/nedladdning som slänger ut
         // föraren ur den installerade appen. Rad visas bara om url finns.
-        const harDok = !!(valtObjekt.traktdirektiv_url || valtObjekt.stamplingslangd_url);
+        const harDok = !!(valtObjekt.traktdirektiv_url || valtObjekt.stamplingslangd_url || valtObjekt.traktkarta_url);
         const dokRad = (etikett: string, url: string) => (
           <button type="button" key={etikett} className="btn-press" onClick={async () => { const s = await signeraKartfil(url); if (s) setPdfDok({ url: s, titel: etikett }); }}
             style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -10081,7 +10084,47 @@ export default function PlannerPage() {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6" /><path d="M10 14 21 3" /></svg>
           </button>
         );
-        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr || harDok;
+        // Rad i "På trakten" — etikett vänster, värde höger.
+        const ptRad = (etikett: string, varde: string) => (
+          <div key={etikett} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+            <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)', flexShrink: 0 }}>{etikett}</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', textAlign: 'right' }}>{varde}</span>
+          </div>
+        );
+        // Faror — farolinjer ur geometrin. Basväg är körning (ej fara); allt ANNAT på linje-
+        // lagret listas som fara automatiskt (VIDA kan skicka nya faror där — visa hellre än tyst).
+        const faroLinjer = (() => {
+          const namn = new Set<string>();
+          for (const f of (traktGeo?.features || [])) {
+            if (f?.properties?._typ === 'linje') {
+              const b = String(f.properties.FLBESKR || '').trim();
+              if (b && !/basväg/i.test(b)) namn.add(b);
+            }
+          }
+          return Array.from(namn);
+        })();
+        // På trakten — hänsynsandel + basvägslängd ur geometrin (SHAPE.STAr/STLe).
+        const paTrakten = (() => {
+          const antal = (v: any) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+          const svN = (n: number, d: number) => n.toLocaleString('sv-SE', { minimumFractionDigits: d, maximumFractionDigits: d });
+          let hansynA = 0, traktA = 0, basvag = 0, hAntal = 0; const hBeskr = new Set<string>();
+          for (const f of (traktGeo?.features || [])) {
+            const p = f?.properties || {};
+            const aK = Object.keys(p).find((k) => /star/i.test(k));
+            const lK = Object.keys(p).find((k) => /stle/i.test(k));
+            if (p._typ === 'hänsynsyta' && aK) { hansynA += antal(p[aK]); hAntal++; if (p.FLBESKR) hBeskr.add(String(p.FLBESKR).trim()); }
+            else if (p._typ === 'traktgräns' && aK) traktA += antal(p[aK]);
+            else if (p._typ === 'linje' && lK && /basväg/i.test(String(p.FLBESKR || ''))) basvag += antal(p[lK]);
+          }
+          const hansyn = hansynA > 0 && traktA > 0
+            ? `${svN(hansynA / traktA * 100, 1)} % (${svN(hansynA / 10000, 2)} ha) · ${hAntal} ${hAntal === 1 ? 'yta' : 'ytor'}${hBeskr.size === 1 ? ' · ' + Array.from(hBeskr)[0] : ''}`
+            : null;
+          return { hansyn, basvag: basvag > 0 ? `${Math.round(basvag)} m` : null };
+        })();
+        const certTxt = (valtObjekt.cert || '').trim() || null;
+        const grotTxt = valtObjekt.grot == null ? null : (valtObjekt.grot ? 'Ja' : 'Nej');
+        const harPaTrakten = !!(certTxt || paTrakten.hansyn || paTrakten.basvag || grotTxt);
+        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr || harDok || faroLinjer.length || harPaTrakten;
 
         return (
           <>
@@ -10101,6 +10144,35 @@ export default function PlannerPage() {
                 <button type="button" onClick={stang} aria-label="Stäng" style={{ width: 34, height: 34, borderRadius: 17, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 16, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit' }}>✕</button>
               </div>
 
+              {/* FAROR — överst, före allt annat. "Vad är farligt." Röd lista över farolinjer. */}
+              {faroLinjer.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#ff6b60', marginBottom: 8 }}>Faror</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {faroLinjer.map((namn, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.4)', borderRadius: 12, padding: '11px 13px' }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff3b30" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+                        <span style={{ fontSize: 14.5, fontWeight: 600, color: '#ff6b60' }}>{namn} på trakten</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* PÅ TRAKTEN — "var kör jag / vad ska jag spara". Cert hör ihop med hänsynsraden:
+                  certet säger kravet, hänsynsprocenten vad som är planerat. Rad döljs när data saknas. */}
+              {harPaTrakten && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>På trakten</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7, background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '12px 14px' }}>
+                    {certTxt && ptRad('Certifiering', certTxt)}
+                    {paTrakten.hansyn && ptRad('Hänsyn', paTrakten.hansyn)}
+                    {paTrakten.basvag && ptRad('Basväg', paTrakten.basvag)}
+                    {grotTxt && ptRad('GROT', grotTxt)}
+                  </div>
+                </div>
+              )}
+
               {vida && (
                 <div style={{ marginBottom: 14, background: 'rgba(10,132,255,0.08)', border: '1px solid rgba(10,132,255,0.3)', borderRadius: 14, padding: '13px 15px' }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#4da3ff', marginBottom: 7 }}>Direktiv från Vida</div>
@@ -10118,6 +10190,7 @@ export default function PlannerPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {valtObjekt.traktdirektiv_url && dokRad('Traktdirektiv', valtObjekt.traktdirektiv_url)}
                     {valtObjekt.stamplingslangd_url && dokRad('Stämplingslängd', valtObjekt.stamplingslangd_url)}
+                    {valtObjekt.traktkarta_url && dokRad('Traktkarta', valtObjekt.traktkarta_url)}
                   </div>
                 </div>
               )}
@@ -10187,7 +10260,7 @@ export default function PlannerPage() {
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{larmLat.toFixed(5)}, {larmLng.toFixed(5)}</div>
-                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen — satt vid rekning' : 'Källa ej angiven'}</div>
+                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen — satt vid rekning' : infoLarmKalla === 'envz' ? 'Från traktfil (envz)' : 'Källa ej angiven'}</div>
                       </div>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 6 L15 12 L9 18" /></svg>
                     </div>
@@ -18262,7 +18335,7 @@ export default function PlannerPage() {
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(10,132,255,0.1)', border: '1px solid rgba(10,132,255,0.25)', marginBottom: '14px' }}>
                         <div>
                           <div style={{ fontSize: '13px', color: '#fff', fontFamily: 'monospace' }}>{_lat.toFixed(5)}, {_lng.toFixed(5)}</div>
-                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen (satt vid rekning)' : 'Källa ej angiven'}</div>
+                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{infoLarmKalla === 'td' ? 'Från traktdirektivet' : infoLarmKalla === 'egen' ? 'Egen (satt vid rekning)' : infoLarmKalla === 'envz' ? 'Från traktfil (envz)' : 'Källa ej angiven'}</div>
                         </div>
                         <button onClick={() => { setInfoLarmLat(''); setInfoLarmLng(''); setInfoLarmKalla(null); setInfoLarmBekraftad(false); }} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#8e8e93', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>Rensa</button>
                       </div>
