@@ -6156,8 +6156,11 @@ export default function PlannerPage() {
       // Raster' / 'Lantmäteriet' om föraren vill toggla på dem manuellt.
       // Bas-karta: Karta (LM dämpad) eller Topokarta (LM full färg) — växlas i toggeln.
       const SHOW = new Set<string>([korvyBasKarta === 'lm' ? 'lm-layer' : 'terrain-layer']);
-      // Våra ritade data + immersion-layers
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-'];
+      // Våra ritade data + immersion-layers. 'zone-' (singular) = de PLATTA zon-lagren
+      // (zone-fill/zone-outline/zone-label) — MÅSTE vara med annars döljs zonerna i körvy. Förr
+      // visades zoner i körvy bara via 'zones-korvy-*-extrusion' (3D-pelaren, nu borttagen); utan
+      // 'zone-' i whitelisten försvann den platta zonen (RISA syntes i planering men ej i körvy).
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-'];
       for (const l of allLayers) {
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
@@ -6433,31 +6436,11 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Körvy] mainroad-glow:', e); }
     }
 
-    // 2) Zon-extrusioner (wet/steep/culture)
-    const zoneExtrudes = [
-      { id: 'zones-korvy-wet-extrusion',     filterValue: 'wet',     color: '#0a84ff', height: 3 },
-      { id: 'zones-korvy-steep-extrusion',   filterValue: 'steep',   color: '#ff453a', height: 3 },
-      { id: 'zones-korvy-culture-extrusion', filterValue: 'culture', color: '#ff9f0a', height: 1 },
-    ];
-    for (const z of zoneExtrudes) {
-      if (!map.getLayer(z.id)) {
-        try {
-          map.addLayer({
-            id: z.id,
-            type: 'fill-extrusion',
-            source: 'zones-source',
-            filter: ['==', ['get', 'zoneType'], z.filterValue],
-            paint: {
-              'fill-extrusion-color': z.color,
-              'fill-extrusion-opacity': 0.5,
-              'fill-extrusion-height': z.height,
-              'fill-extrusion-base': 0,
-            },
-            layout: { 'visibility': 'none' },
-          });
-        } catch (e) { console.error('[Körvy] zone-extrusion', z.id, e); }
-      }
-    }
+    // 2) Zon-extrusioner BORTTAGNA för ALLA zon-typer (wet/steep/culture). Zoner ska vara PLATTA
+    // färgade ytor som markerar OMRÅDEN — inte 3D-pelare som reser sig (såg ut som objekt; Martin:
+    // "det är inte bra"). Alla zoner renderas nu bara via de platta zone-fill/zone-outline-lagren
+    // (+ ev. etikett). Pelaren var pre-existerande — avslöjades när RISA gjorde blöt-zonen använd;
+    // samma latenta skavank fanns för brant/kultur så fort de används → fixade alla tre på en gång.
 
     // 3) Markör-extrusion togs bort 2026-05 — Körvy 2D är Apple-platt nu.
     // 3D-pelare bor bara i Cesium-vyn (/korvy → CesiumScene.tsx).
@@ -6670,7 +6653,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const vis = korvyActive ? 'visible' : 'none';
-    const layers = ['lines-korvy-mainroad-glow', 'zones-korvy-wet-extrusion', 'zones-korvy-steep-extrusion', 'zones-korvy-culture-extrusion', 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
+    const layers = ['lines-korvy-mainroad-glow', 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
     for (const id of layers) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
     }
