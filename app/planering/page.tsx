@@ -4170,29 +4170,13 @@ export default function PlannerPage() {
             'icon-anchor': 'center',
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
-            // Etikett "Larm" OVANFÖR pinnen (avläggets "01-1" ligger UNDER sin markör). Höjdled,
-            // inte sidled — sidled kolliderade när punkterna sammanföll (~3 m). Nu kan de aldrig
-            // överlappa hur nära punkterna än ligger. text-optional -> pinnen ritas även om texten trängs.
-            //
-            // Offset räknas från punktens CENTRUM. Avläggsfyrkantens överkant ligger ~26.6px * icon-size
-            // (0.9→1.15) = ~24px (z14) → ~31px (z17) upp. text-size (10→12) växer proportionellt med
-            // fyrkanten i z14–z17, så ett FAST -3.8 em (= -38px→-46px) ger konstant ~14–15px luft OVAN
-            // fyrkanten vid båda ytterzoomarna. -2.0 hamnade innanför överkanten och läste som avläggets.
-            'text-field': 'Larm',
-            'text-font': ['Open Sans Bold'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 0, 14, 10, 17, 12],
-            'text-anchor': 'bottom',
-            'text-offset': [0, -3.8],
-            'text-allow-overlap': true,
-            'text-optional': true,
-          },
-          paint: {
-            // Mörk röd text + VIT halo (samma läsbarhet som avläggets, inverterad) — röd = akut
-            // men aldrig svag. Röd text med mörk halo på ljus karta blev det svagaste ordet på
-            // kartan; det viktigaste ska inte vara det svagaste.
-            'text-color': '#c8102e',
-            'text-halo-color': '#ffffff',
-            'text-halo-width': 2,
+            // INGEN text-etikett — med flit. Röd pin + vitt kryss är den universella nödsymbolen och
+            // förklarar sig själv överallt. En "Larm"-text måste offsetas från larmpunkten, men avlägget
+            // ligger ~3 m bort och SEPARERAR vid hög zoom -> varje offset (fast px eller em) drev in
+            // etiketten i avläggsfyrkanten så den pekade på fel markör. MapLibres text-offset är dessutom
+            // alltid i em (spårar text-size), så den kan aldrig hållas pixel-konstant mot en granne som
+            // skalar på icon-size. Hellre ingen etikett än en som ibland pekar fel. (Avläggets nummer
+            // 01-1 behåller sin etikett — det går inte att gissa ur symbolen; se trakt-punkt-label.)
           },
         });
       }
