@@ -1271,20 +1271,50 @@ export default function PlannerPage() {
     map.addSource('trakt-geo-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     const FLB = ['downcase', ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]] as any;
     // Traktgräns — grön fylld yta + kontur (MultiPolygon: ALLA delytor ritas)
-    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.12 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'line-color': '#22c55e', 'line-width': 2.5 }, layout: { visibility: 'none' } });
+    // VIDA:s egen färg (_farg, satt vid import) om den finns, annars appens fallback.
+    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#22c55e'], 'fill-opacity': 0.12 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#22c55e'], 'line-width': 2.5 }, layout: { visibility: 'none' } });
     // Hänsynsytor — blå fylld yta + kontur
-    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': '#3b82f6', 'line-width': 1.5 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'line-width': 1.5 }, layout: { visibility: 'none' } });
     // Kör & fara — basväg (brun HELDRAGEN, tjock) vs kraftledning (röd STRECKAD, tunnare).
     // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
-    map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': '#a16207', 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
+    map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#a16207'], 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
+    // UNDANTAG: kraftledning använder INTE _farg. VIDA:s TColor för TYP 37 är SVART (rgb(0,0,0)),
+    // och ett svart streck på gråskalig bakgrund i solljus är oläsbart — och det är den enda
+    // linjen som kan döda någon. Alltid röd streckad. Ändra inte till _farg.
     map.addLayer({ id: 'trakt-kraftledning-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], paint: { 'line-color': '#ef4444', 'line-width': 3, 'line-dasharray': [2, 1.5] }, layout: { visibility: 'none' } });
     // Kör & fara — punkter, ENDAST avlägg (gula, blå-nära "arbete"-ton). Larmkoordinaten ritas
     // av det befintliga larm-pin-lagret (rött, överst) — vi ritar INTE en dubblett här, därför
     // filtrerar vi bort larm (['!', ['in','larm',FLB]]). Etikett = EXTRA_LABE (avläggsnr).
-    map.addLayer({ id: 'trakt-punkt-circle', type: 'circle', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], paint: { 'circle-radius': 6, 'circle-color': '#eab308', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
+    // UNDANTAG: avlägg använder INTE _farg. VIDA:s TColor för TYP 35 är beige (rgb(212,208,200))
+    // som knappt syns mot kartan — behåll appens gula. Ändra inte till _farg.
+    //
+    // Avlägget (dit virket ska) ligger ofta nästan ovanpå larmkoordinaten (dit ambulansen ska) —
+    // i VIDA:s data bara ~3 m isär. De MÅSTE gå att skilja i stress. Därför:
+    //  - EGEN FORM: gul FYRKANT (larmet är en rund pin) — skiljs åt även färgblind/i solljus.
+    //  - STÖRRE än larmpinnen så en gul ring sticker ut runt om när de sammanfaller.
+    //  - Z-ordning: larm-pin moveLayer:as överst separat; avlägget ritas under men syns i kanten.
+    // Ikonen byggs här (bredvid lagret) så bilden garanterat finns när lagret refererar den.
+    if (!map.hasImage('avlagg-icon')) {
+      const S = 72;
+      const cnv = document.createElement('canvas');
+      cnv.width = S; cnv.height = S;
+      const c = cnv.getContext('2d');
+      if (c) {
+        const sida = S * 0.60, x = (S - sida) / 2;
+        c.fillStyle = '#1a1a1a';                 // mörk kant (kontur mot all bakgrund)
+        c.fillRect(x - 5, x - 5, sida + 10, sida + 10);
+        c.fillStyle = '#eab308';                 // samma gula som förr (avlägg)
+        c.fillRect(x, x, sida, sida);
+        const img = canvasToMapLibreImage(cnv);
+        if (img && !map.hasImage('avlagg-icon')) map.addImage('avlagg-icon', img);
+      }
+    }
+    map.addLayer({ id: 'trakt-punkt-circle', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'icon-image': 'avlagg-icon', 'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 14, 0.9, 17, 1.15], 'icon-anchor': 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' } });
+    // Etikett UNDER avläggsmarkören (larmets "Larm" ligger OVANFÖR sin pin). Höjdseparation gör
+    // att "01-1" och "Larm" aldrig krockar när avlägg och larm sammanfaller — de växer åt var sitt håll.
+    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 2.0], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-optional': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -4140,6 +4170,13 @@ export default function PlannerPage() {
             'icon-anchor': 'center',
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
+            // INGEN text-etikett — med flit. Röd pin + vitt kryss är den universella nödsymbolen och
+            // förklarar sig själv överallt. En "Larm"-text måste offsetas från larmpunkten, men avlägget
+            // ligger ~3 m bort och SEPARERAR vid hög zoom -> varje offset (fast px eller em) drev in
+            // etiketten i avläggsfyrkanten så den pekade på fel markör. MapLibres text-offset är dessutom
+            // alltid i em (spårar text-size), så den kan aldrig hållas pixel-konstant mot en granne som
+            // skalar på icon-size. Hellre ingen etikett än en som ibland pekar fel. (Avläggets nummer
+            // 01-1 behåller sin etikett — det går inte att gissa ur symbolen; se trakt-punkt-label.)
           },
         });
       }

@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
     let lat: number | null = null;
     let lng: number | null = null;
     if (envz && bilagor) {
-      const geo = await packaGeometri(bilagor);
+      const geo = await packaGeometri(bilagor, ogiXml);
       varningar.push(...geo.varningar);
       geoFeatures = geo.features;
       const c = bboxCentrum(geo.features, 'traktgräns');
@@ -274,9 +274,13 @@ export async function POST(request: NextRequest) {
       bolag: falt.bolag || 'Vida',
       inkopare: falt.inkopare || null,
       inkopare_tel: falt.inkopare_tel || null,
-      markagare: falt.markagare || null,
-      markagare_tel: falt.markagare_tel || null,
-      markagare_epost: falt.markagare_epost || null,
+      inkopare_epost: falt.inkopare_epost || null,          // OGI LoggingOrganisation (ny)
+      markagare: falt.markagare || null,                    // TD-parsern (OGI ForestOwner = VIDA-kontakt, lagras EJ)
+      markagare_adress: falt.markagare_adress || null,      // kolumn finns; fylls EJ ur OGI (manuellt/TD senare)
+      markagare_tel: falt.markagare_tel || null,            // TD-parsern
+      markagare_epost: falt.markagare_epost || null,        // TD-parsern
+      fastighetsbeteckning: falt.fastighetsbeteckning || null, // OGI RealEstateIDObject (ny)
+      kontraktsnummer: falt.kontraktsnummer || null,        // OGI ContractNumber (ny)
       cert: falt.cert || null,
       typ: falt.typ,
       atgard: falt.typ === 'slutavverkning' ? 'Au' : 'Gallring',
