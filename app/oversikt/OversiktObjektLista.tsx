@@ -211,11 +211,23 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
 }
 
 type SortKey = 'namn' | 'vol' | 'status';
+type GroupMode = 'lista' | 'maskin';
+
+// Åtgärd → traktyp. Martins mappning: Au/Rp/Lrk = Slutavverkning, Gallring = Gallring.
+// Saknad/okänd åtgärd faller tillbaka på objektets typ-fält.
+const SLUTAVV_ATGARDER = new Set(['au', 'rp', 'lrk']);
+function klassaObjektTyp(o: OversiktObjekt): 'slutavverkning' | 'gallring' {
+  const a = (o.atgard || '').trim().toLowerCase();
+  if (SLUTAVV_ATGARDER.has(a)) return 'slutavverkning';
+  if (a === 'gallring') return 'gallring';
+  return o.typ === 'slutavverkning' ? 'slutavverkning' : 'gallring';
+}
 
 export default function OversiktObjektLista({ objekt, prodMap }: Props) {
   const [sel, setSel] = useState<string | null>(null);
-  const [lf, setLf] = useState<{ b: string; s: string }>({ b: 'alla', s: 'alla' });
+  const [lf, setLf] = useState<{ b: string; s: string; t: string }>({ b: 'alla', s: 'alla', t: 'alla' });
   const [ls, setLs] = useState<SortKey>('status');
+  const [groupMode, setGroupMode] = useState<GroupMode>('lista');
   const [showHist, setShowHist] = useState(false);
 
   const bolag = [...new Set(objekt.map(o => o.bolag).filter(Boolean))] as string[];
@@ -224,6 +236,7 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
   let li = objekt
     .filter(o => showHist || o.status !== 'klar')
     .filter(o => lf.b === 'alla' || o.bolag === lf.b)
+    .filter(o => lf.t === 'alla' || klassaObjektTyp(o) === lf.t)
     .filter(o => {
       if (lf.s === 'alla') return true;
       if (lf.s === 'pagaende') return o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning';
@@ -238,10 +251,104 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
     li = [...li].sort((a, b) => (a.namn || '').localeCompare(b.namn || '', 'sv'));
   }
 
+  // Per maskin: objektet listas under BÅDE sin skördare och sin skotare (Martins val:
+  // objektets egna fält skordare_maskin/skotare_maskin). Räknas i båda summorna.
+  const grupper: { maskin: string; objekt: OversiktObjekt[]; volym: number }[] = [];
+  if (groupMode === 'maskin') {
+    const map = new Map<string, OversiktObjekt[]>();
+    const utan: OversiktObjekt[] = [];
+    for (const o of li) {
+      const unika = Array.from(new Set([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]));
+      if (unika.length === 0) { utan.push(o); continue; }
+      for (const m of unika) {
+        if (!map.has(m)) map.set(m, []);
+        map.get(m)!.push(o);
+      }
+    }
+    for (const m of Array.from(map.keys()).sort((a, b) => a.localeCompare(b, 'sv'))) {
+      const objs = map.get(m)!;
+      grupper.push({ maskin: m, objekt: objs, volym: objs.reduce((s, o) => s + (o.volym || 0), 0) });
+    }
+    if (utan.length > 0) {
+      grupper.push({ maskin: 'Ej tilldelad maskin', objekt: utan, volym: utan.reduce((s, o) => s + (o.volym || 0), 0) });
+    }
+  }
+
+  const renderKort = (o: OversiktObjekt) => {
+    const st = ST[o.status] || ST.planerad;
+    const tf = TF[o.typ] || C.yellow;
+    const prod = prodMap[o.id];
+    const skP = pc(prod?.skordareVol || 0, o.volym || 0);
+    const stP = pc(prod?.skotareVol || 0, o.volym || 0);
+
+    return (
+      <div key={o.id} onClick={() => setSel(o.id)} style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '14px 14px', minHeight: 44,
+        background: C.cardGrad, border: `1px solid ${C.border}`,
+        borderRadius: 12, marginBottom: 8,
+        cursor: 'pointer',
+      }}>
+        {/* Left color bar */}
+        <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: tf, opacity: 0.4 }} />
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{o.namn}</span>
+            {o.grot === true && (
+              <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 20, background: C.gd, color: C.green, whiteSpace: 'nowrap', flexShrink: 0 }}>GROT</span>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: C.t3, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {o.bolag || '–'} · {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')} · {o.areal || '–'} ha{o.terrang ? ` · ${o.terrang}` : ''}
+          </div>
+        </div>
+        {/* Volume + status */}
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>
+            {formatVolym(o.volym || 0)}
+            <span style={{ fontSize: 11, fontWeight: 400, color: C.t3 }}> m³</span>
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 500, color: st.c, padding: '2px 8px', background: st.bg, borderRadius: 20 }}>
+            {st.l}
+          </span>
+        </div>
+        {/* Mini rings */}
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+          <Ring v={skP} color={tf} />
+          <Ring v={stP} color={tf} />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ height: '100%', overflowY: 'auto', padding: '0 16px 80px', fontFamily: ff }}>
       {/* Sticky filters — 44px touch targets */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.bg, padding: '14px 0 10px' }}>
+        {/* Vy-växling + traktyp */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          {/* Per maskin / Lista */}
+          <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 20, padding: 3, border: `1px solid ${C.border}`, boxShadow: C.shadowSm }}>
+            {([{ k: 'lista' as const, l: 'Lista' }, { k: 'maskin' as const, l: 'Per maskin' }]).map(g => (
+              <button key={g.k} onClick={() => setGroupMode(g.k)} style={{
+                padding: '8px 12px', minHeight: 36, background: groupMode === g.k ? 'rgba(255,255,255,0.1)' : 'transparent',
+                color: groupMode === g.k ? C.t1 : C.t3, border: 'none', borderRadius: 20, fontSize: 12,
+                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+              }}>{g.l}</button>
+            ))}
+          </div>
+          {/* Traktyp — Slutavverkning / Gallring */}
+          <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 20, padding: 3, border: `1px solid ${C.border}`, boxShadow: C.shadowSm }}>
+            {([{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavv.' }, { k: 'gallring', l: 'Gallring' }]).map(t => (
+              <button key={t.k} onClick={() => setLf(f => ({ ...f, t: t.k }))} style={{
+                padding: '8px 12px', minHeight: 36, background: lf.t === t.k ? 'rgba(255,255,255,0.1)' : 'transparent',
+                color: lf.t === t.k ? C.t1 : C.t3, border: 'none', borderRadius: 20, fontSize: 12,
+                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+              }}>{t.l}</button>
+            ))}
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
           {/* Status filter */}
           <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 20, padding: 3, border: `1px solid ${C.border}`, boxShadow: C.shadowSm }}>
@@ -291,51 +398,22 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
         </div>
       </div>
 
-      {/* List */}
-      {li.map(o => {
-        const st = ST[o.status] || ST.planerad;
-        const tf = TF[o.typ] || C.yellow;
-        const prod = prodMap[o.id];
-        const skP = pc(prod?.skordareVol || 0, o.volym || 0);
-        const stP = pc(prod?.skotareVol || 0, o.volym || 0);
-
-        return (
-          <div key={o.id} onClick={() => setSel(o.id)} style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            padding: '14px 14px', minHeight: 44,
-            background: C.cardGrad, border: `1px solid ${C.border}`,
-            borderRadius: 12, marginBottom: 8,
-            cursor: 'pointer',
-          }}>
-            {/* Left color bar */}
-            <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: tf, opacity: 0.4 }} />
-            {/* Info */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
-                {o.namn}
+      {/* List — platt eller grupperad per maskin */}
+      {groupMode === 'lista'
+        ? li.map(renderKort)
+        : grupper.length === 0
+          ? <div style={{ fontSize: 13, color: C.t3, padding: '20px 4px' }}>Inga objekt.</div>
+          : grupper.map(g => (
+              <div key={g.maskin} style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '8px 4px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: C.t1 }}>{g.maskin}</span>
+                  <span style={{ fontSize: 12, color: C.t3 }}>
+                    {g.objekt.length} objekt · {g.volym.toLocaleString('sv-SE')} m³
+                  </span>
+                </div>
+                {g.objekt.map(renderKort)}
               </div>
-              <div style={{ fontSize: 12, color: C.t3, marginTop: 3 }}>
-                {o.bolag || '–'} · {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')} · {o.areal || '–'} ha
-              </div>
-            </div>
-            {/* Volume + status */}
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>
-                {formatVolym(o.volym || 0)}
-                <span style={{ fontSize: 11, fontWeight: 400, color: C.t3 }}> m³</span>
-              </div>
-              <span style={{ fontSize: 11, fontWeight: 500, color: st.c, padding: '2px 8px', background: st.bg, borderRadius: 20 }}>
-                {st.l}
-              </span>
-            </div>
-            {/* Mini rings */}
-            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-              <Ring v={skP} color={tf} />
-              <Ring v={stP} color={tf} />
-            </div>
-          </div>
-        );
-      })}
+            ))}
 
       {/* Detail panel */}
       {selectedObj && (

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import OversiktMaskiner from './OversiktMaskiner';
 import OversiktKarta from './OversiktKarta';
 import OversiktGrot from './OversiktGrot';
+import OversiktObjektLista from './OversiktObjektLista';
 import { Maskin, MaskinKoItem, OversiktObjekt, TabId, C } from './oversikt-types';
 import { globalCss, ff } from './oversikt-styles';
 
@@ -12,12 +13,13 @@ const OBJEKT_SELECT = `id, namn, vo_nummer, typ, atgard, status, volym, areal, l
   barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text,
   skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt,
   transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar,
-  faktisk_slut, grot_status, grot_volym, grot_anteckning, grot_deadline, trakt_data`;
+  faktisk_slut, grot, grot_status, grot_volym, grot_anteckning, grot_deadline, trakt_data`;
 
 const tabs: { id: TabId; label: string; icon: string }[] = [
   { id: 'maskiner', label: 'Maskiner', icon: 'precision_manufacturing' },
   { id: 'karta', label: 'Karta', icon: 'map' },
   { id: 'grot', label: 'GROT', icon: 'forest' },
+  { id: 'objekt', label: 'Objekt', icon: 'format_list_bulleted' },
 ];
 
 // Aggregated production per objekt_id: { skordareVol, skotareVol }
@@ -168,6 +170,17 @@ export default function OversiktPage() {
               supabase={supabase}
               onRefresh={refreshObjekt}
             />
+          </div>
+          <div style={{
+            position: 'absolute', inset: 0, overflow: 'auto',
+            opacity: activeTab === 'objekt' ? 1 : 0,
+            pointerEvents: activeTab === 'objekt' ? 'auto' : 'none',
+            zIndex: activeTab === 'objekt' ? 1 : 0,
+            transition: 'opacity 180ms ease-out',
+            overscrollBehavior: 'contain',
+            WebkitOverflowScrolling: 'touch',
+          }}>
+            <OversiktObjektLista objekt={objekt} prodMap={prodMap} />
           </div>
         </div>
       )}

@@ -93,7 +93,7 @@ export interface OversiktObjekt {
   };
 }
 
-export type TabId = 'karta' | 'maskiner' | 'grot';
+export type TabId = 'karta' | 'maskiner' | 'grot' | 'objekt';
 
 /* Design tokens — Apple iOS dark mode (flat) */
 export const C = {
