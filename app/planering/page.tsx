@@ -1289,8 +1289,32 @@ export default function PlannerPage() {
     // filtrerar vi bort larm (['!', ['in','larm',FLB]]). Etikett = EXTRA_LABE (avläggsnr).
     // UNDANTAG: avlägg använder INTE _farg. VIDA:s TColor för TYP 35 är beige (rgb(212,208,200))
     // som knappt syns mot kartan — behåll appens gula. Ändra inte till _farg.
-    map.addLayer({ id: 'trakt-punkt-circle', type: 'circle', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], paint: { 'circle-radius': 6, 'circle-color': '#eab308', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
+    //
+    // Avlägget (dit virket ska) ligger ofta nästan ovanpå larmkoordinaten (dit ambulansen ska) —
+    // i VIDA:s data bara ~3 m isär. De MÅSTE gå att skilja i stress. Därför:
+    //  - EGEN FORM: gul FYRKANT (larmet är en rund pin) — skiljs åt även färgblind/i solljus.
+    //  - STÖRRE än larmpinnen så en gul ring sticker ut runt om när de sammanfaller.
+    //  - Z-ordning: larm-pin moveLayer:as överst separat; avlägget ritas under men syns i kanten.
+    // Ikonen byggs här (bredvid lagret) så bilden garanterat finns när lagret refererar den.
+    if (!map.hasImage('avlagg-icon')) {
+      const S = 72;
+      const cnv = document.createElement('canvas');
+      cnv.width = S; cnv.height = S;
+      const c = cnv.getContext('2d');
+      if (c) {
+        const sida = S * 0.60, x = (S - sida) / 2;
+        c.fillStyle = '#1a1a1a';                 // mörk kant (kontur mot all bakgrund)
+        c.fillRect(x - 5, x - 5, sida + 10, sida + 10);
+        c.fillStyle = '#eab308';                 // samma gula som förr (avlägg)
+        c.fillRect(x, x, sida, sida);
+        const img = canvasToMapLibreImage(cnv);
+        if (img && !map.hasImage('avlagg-icon')) map.addImage('avlagg-icon', img);
+      }
+    }
+    map.addLayer({ id: 'trakt-punkt-circle', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'icon-image': 'avlagg-icon', 'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 14, 0.9, 17, 1.15], 'icon-anchor': 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' } });
+    // Etikett till HÖGER om avläggsmarkören (larmets "Larm" ligger till vänster) — inte under,
+    // så "01-1" hör ihop med avlägget och inte råkar läsas som larmpinnens text.
+    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [1.1, 0], 'text-anchor': 'left', 'text-allow-overlap': true, 'text-optional': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -4146,6 +4170,20 @@ export default function PlannerPage() {
             'icon-anchor': 'center',
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
+            // Etikett "Larm" till VÄNSTER (avläggets "01-1" ligger till höger) så det syns vilken
+            // som är vilken när de ligger nära. text-optional -> pinnen ritas även om texten trängs.
+            'text-field': 'Larm',
+            'text-font': ['Open Sans Bold'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 12, 0, 14, 10, 17, 12],
+            'text-anchor': 'right',
+            'text-offset': [-1.3, 0],
+            'text-allow-overlap': true,
+            'text-optional': true,
+          },
+          paint: {
+            'text-color': '#ff3b30',
+            'text-halo-color': 'rgba(0,0,0,0.85)',
+            'text-halo-width': 1.5,
           },
         });
       }
