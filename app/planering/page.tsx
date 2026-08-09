@@ -1271,18 +1271,24 @@ export default function PlannerPage() {
     map.addSource('trakt-geo-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     const FLB = ['downcase', ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]] as any;
     // Traktgräns — grön fylld yta + kontur (MultiPolygon: ALLA delytor ritas)
-    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.12 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'line-color': '#22c55e', 'line-width': 2.5 }, layout: { visibility: 'none' } });
+    // VIDA:s egen färg (_farg, satt vid import) om den finns, annars appens fallback.
+    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#22c55e'], 'fill-opacity': 0.12 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#22c55e'], 'line-width': 2.5 }, layout: { visibility: 'none' } });
     // Hänsynsytor — blå fylld yta + kontur
-    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': '#3b82f6', 'line-width': 1.5 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'line-width': 1.5 }, layout: { visibility: 'none' } });
     // Kör & fara — basväg (brun HELDRAGEN, tjock) vs kraftledning (röd STRECKAD, tunnare).
     // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
-    map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': '#a16207', 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
+    map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#a16207'], 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
+    // UNDANTAG: kraftledning använder INTE _farg. VIDA:s TColor för TYP 37 är SVART (rgb(0,0,0)),
+    // och ett svart streck på gråskalig bakgrund i solljus är oläsbart — och det är den enda
+    // linjen som kan döda någon. Alltid röd streckad. Ändra inte till _farg.
     map.addLayer({ id: 'trakt-kraftledning-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], paint: { 'line-color': '#ef4444', 'line-width': 3, 'line-dasharray': [2, 1.5] }, layout: { visibility: 'none' } });
     // Kör & fara — punkter, ENDAST avlägg (gula, blå-nära "arbete"-ton). Larmkoordinaten ritas
     // av det befintliga larm-pin-lagret (rött, överst) — vi ritar INTE en dubblett här, därför
     // filtrerar vi bort larm (['!', ['in','larm',FLB]]). Etikett = EXTRA_LABE (avläggsnr).
+    // UNDANTAG: avlägg använder INTE _farg. VIDA:s TColor för TYP 35 är beige (rgb(212,208,200))
+    // som knappt syns mot kartan — behåll appens gula. Ändra inte till _farg.
     map.addLayer({ id: 'trakt-punkt-circle', type: 'circle', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], paint: { 'circle-radius': 6, 'circle-color': '#eab308', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
 

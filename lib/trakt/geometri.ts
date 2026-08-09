@@ -1,5 +1,6 @@
 import * as shapefile from 'shapefile';
 import proj4 from 'proj4';
+import { XMLParser } from 'fast-xml-parser';
 
 // Geometrin ur en envz: shapefiler (.shp/.dbf/.prj/.cpg) i SWEREF99 TM (EPSG:3006) ->
 // GeoJSON i WGS84. Vi ITERERAR över de lager som faktiskt kom — antar aldrig en fast lista.
@@ -86,11 +87,52 @@ export function bboxCentrum(features: any[], typ = 'traktgräns'): { lat: number
   return { lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 };
 }
 
-export async function packaGeometri(bilagor: Map<string, Buffer>): Promise<GeoResultat> {
+// === VIDA:s färger ur OGI:s formatdefinitioner ===
+// FormatColor är Delphi TColor (0x00BBGGRR), INTE RGB: r=v&255, g=(v>>8)&255, b=(v>>16)&255.
+// (Läser man som RGB blir basvägen blå i stället för röd.) En TYP kan ha FLERA defs — en per
+// geometrityp: FormatFillStyle => yta, FormatLineStyle (utan fill) => linje, FormatFont/övrigt
+// => symbol/punkt. Vi lagrar färg per (FormatID, geometrityp) så featuren kan matchas mot RÄTT
+// def utifrån sin egen geometri — aldrig en annan geometrityps färg.
+const _fmtParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false, trimValues: true });
+const _fmtText = (v: any): string | undefined => (v == null ? undefined : typeof v === 'object' ? v['#text'] : v);
+function tColorTillRgb(v: string): string {
+  const n = parseInt(v, 10);
+  return `rgb(${n & 255},${(n >> 8) & 255},${(n >> 16) & 255})`;
+}
+type FargPerTyp = { area?: string; line?: string; symbol?: string };
+function parseFormatFarger(ogiXml: string): Map<string, FargPerTyp> {
+  const karta = new Map<string, FargPerTyp>();
+  let ogi: any;
+  try { ogi = _fmtParser.parse(ogiXml); } catch { return karta; }
+  const defs: any[] = [];
+  (function walk(o: any) {
+    if (o && typeof o === 'object') {
+      if (o.FormatID != null && o.FormatColor != null) defs.push(o);
+      for (const k of Object.keys(o)) walk(o[k]);
+    }
+  })(ogi);
+  for (const d of defs) {
+    const id = String(_fmtText(d.FormatID) ?? '').trim();
+    const fargRaw = _fmtText(d.FormatColor);
+    if (!id || fargRaw == null) continue;
+    const styleTyp: keyof FargPerTyp =
+      d.FormatFillStyle != null ? 'area'
+      : d.FormatLineStyle != null ? 'line'
+      : 'symbol'; // FormatFont eller enbart FormatColor (punkt)
+    const rad = karta.get(id) ?? {};
+    if (rad[styleTyp] == null) rad[styleTyp] = tColorTillRgb(String(fargRaw)); // första vinner
+    karta.set(id, rad);
+  }
+  return karta;
+}
+
+export async function packaGeometri(bilagor: Map<string, Buffer>, ogiXml?: string | null): Promise<GeoResultat> {
   const varningar: string[] = [];
   const features: any[] = [];
   const lager: GeoLager[] = [];
   let larmpunkt: { lat: number; lng: number } | null = null;
+  const farger = ogiXml ? parseFormatFarger(ogiXml) : null;
+  const varnadeFarg = new Set<string>(); // dedupa "saknar färg-def"-varningar per (TYP, geometrityp)
 
   const shpNamn = Array.from(bilagor.keys()).filter((n) => /\.shp$/i.test(n));
 
@@ -127,13 +169,30 @@ export async function packaGeometri(bilagor: Map<string, Buffer>): Promise<GeoRe
 
     for (const f of raa) {
       const geometri = tillWgs84(f.geometry);
-      features.push({
-        type: 'Feature',
-        // TRAKT_ID/FLBESKR/EXTRA_LABE/ANTECKNING m.m. bevaras som attribut. TRAKT_ID är VIDA:s
-        // interna id — sparas som data, blir ALDRIG en objektidentitet.
-        properties: { ...f.properties, _lager: bas, _typ: typ },
-        geometry: geometri,
-      });
+      // TRAKT_ID/FLBESKR/EXTRA_LABE/ANTECKNING m.m. bevaras som attribut. TRAKT_ID är VIDA:s
+      // interna id — sparas som data, blir ALDRIG en objektidentitet.
+      const props: any = { ...f.properties, _lager: bas, _typ: typ };
+      // VIDA:s egen färg (_farg) via TYP -> FormatID, matchad mot featurens GEOMETRITYP (generell
+      // regel: yta->fill-def, linje->line-def, punkt->symbol/color-def). Saknar TYP:en en def för
+      // sin geometrityp använder vi INTE en annan defs färg — featuren går utan _farg (vyn faller
+      // tillbaka på appens egna färger) och vi loggar det. Fel färg är sämre än ingen färg.
+      if (farger) {
+        const gt = String(geometri?.type || '');
+        const styleTyp: keyof FargPerTyp | null = /Polygon/i.test(gt) ? 'area' : /LineString/i.test(gt) ? 'line' : /Point/i.test(gt) ? 'symbol' : null;
+        const fid = props.TYP != null && String(props.TYP).trim() !== '' ? String(props.TYP).trim() : null;
+        if (fid && styleTyp) {
+          const farg = farger.get(fid)?.[styleTyp];
+          if (farg) props._farg = farg;
+          else {
+            const nyckel = `${fid}:${styleTyp}`;
+            if (!varnadeFarg.has(nyckel)) {
+              varnadeFarg.add(nyckel);
+              varningar.push(`TYP ${fid} (${props.FLBESKR ?? '?'}) saknar färg-def för ${styleTyp} — appens egen färg används.`);
+            }
+          }
+        }
+      }
+      features.push({ type: 'Feature', properties: props, geometry: geometri });
       if (/^L_TILLAGGSPUNKTER$/i.test(bas) && /larmkoordinat/i.test(String(f.properties?.FLBESKR ?? ''))) {
         const c = geometri?.coordinates;
         if (Array.isArray(c) && typeof c[0] === 'number') larmpunkt = { lat: c[1], lng: c[0] };

@@ -101,6 +101,10 @@ export interface EnvzFalt {
   larmkoordinat_lat?: number; // <Coord-X>=northing, <Coord-Y>=easting, EPSG:3006 (ej kartpin lat/lng)
   larmkoordinat_lng?: number;
   inkopare?: string;        // objectProperties/property "Name" (signatur-parentes strippad)
+  inkopare_epost?: string;  // OGI LoggingOrganisation/ContactInformation Email (ny kolumn)
+  // markägare LAGRAS INTE ur OGI — TD-parsern har den riktiga (se OGI-blocket nedan).
+  fastighetsbeteckning?: string; // OGI RealEstateIDObject (ny kolumn)
+  kontraktsnummer?: string; // OGI ContractNumber (ny kolumn)
   cert?: string;            // OGI ForestCertification (flera element -> join)
   avverkningsform?: string; // OGI LoggingFormDescription (ny kolumn)
 }
@@ -183,6 +187,30 @@ export function parseObjektInfo(objectInfoXml: string, ogiXml: string | null): E
       .filter((s): s is string => !!s && s.trim() !== '');
     if (certer.length) falt.cert = certer.join(' ');
     falt.avverkningsform = forsta(ogi, 'LoggingFormDescription');
+
+    // ForestOwner (markägare) parsas MEN LAGRAS INTE. VIDA fyller ForestOwner med sin egen
+    // handläggare — t.ex. "URBAN EK", urban.ek@vida.se (en @vida.se-adress; ringer man den når
+    // man VIDA, inte markägaren), och samma fastighet återkommer på olika trakter. TD-parsern
+    // har den RIKTIGA markägaren (privatpersoner med egna mejl, verifierat på 20 objekt i prod)
+    // och får ALDRIG skrivas över med en VIDA-kontakt. Vi loggar ForestOwner i import_varningar
+    // så vi MÄRKER om VIDA börjar fylla riktiga markägare i framtiden — i stället för att sluta
+    // titta. OBS även: ForestOwner OCH LoggingOrganisation har båda FirstName/LastName/Email —
+    // en djupsök på 'FirstName' ger fel person; scopa hårt.
+    const fo = samlaDjupt(ogi, 'ForestOwner').flat(Infinity)[0];
+    if (fo && typeof fo === 'object') {
+      const namn = [textOf(samlaDjupt(fo, 'FirstName').flat(Infinity)[0]), textOf(samlaDjupt(fo, 'LastName').flat(Infinity)[0])]
+        .filter((s) => s && String(s).trim() !== '').join(' ').trim();
+      const epost = tomTillUndef(textOf(samlaDjupt(fo, 'Email').flat(Infinity)[0]));
+      if (namn) varningar.push(`OGI ForestOwner: ${namn}${epost ? ` (${epost})` : ''} — VIDA-kontakt, ej lagrad som markägare.`);
+    }
+    // LAGRAS (otvetydigt rätt, skiljer per trakt): inköpar-mejl, fastighet, kontrakt.
+    const lo = samlaDjupt(ogi, 'LoggingOrganisation').flat(Infinity)[0];
+    if (lo && typeof lo === 'object') {
+      const ci = samlaDjupt(lo, 'ContactInformation').flat(Infinity)[0];
+      if (ci && typeof ci === 'object') falt.inkopare_epost = tomTillUndef(textOf(samlaDjupt(ci, 'Email').flat(Infinity)[0]));
+    }
+    falt.fastighetsbeteckning = forsta(ogi, 'RealEstateIDObject');
+    falt.kontraktsnummer = forsta(ogi, 'ContractNumber');
   }
 
   const checklist = parseChecklist(oi);
