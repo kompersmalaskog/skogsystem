@@ -1312,9 +1312,9 @@ export default function PlannerPage() {
       }
     }
     map.addLayer({ id: 'trakt-punkt-circle', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'icon-image': 'avlagg-icon', 'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 14, 0.9, 17, 1.15], 'icon-anchor': 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' } });
-    // Etikett till HÖGER om avläggsmarkören (larmets "Larm" ligger till vänster) — inte under,
-    // så "01-1" hör ihop med avlägget och inte råkar läsas som larmpinnens text.
-    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [1.1, 0], 'text-anchor': 'left', 'text-allow-overlap': true, 'text-optional': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
+    // Etikett UNDER avläggsmarkören (larmets "Larm" ligger OVANFÖR sin pin). Höjdseparation gör
+    // att "01-1" och "Larm" aldrig krockar när avlägg och larm sammanfaller — de växer åt var sitt håll.
+    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 2.0], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-optional': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -4170,20 +4170,24 @@ export default function PlannerPage() {
             'icon-anchor': 'center',
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
-            // Etikett "Larm" till VÄNSTER (avläggets "01-1" ligger till höger) så det syns vilken
-            // som är vilken när de ligger nära. text-optional -> pinnen ritas även om texten trängs.
+            // Etikett "Larm" OVANFÖR pinnen (avläggets "01-1" ligger UNDER sin markör). Höjdled,
+            // inte sidled — sidled kolliderade när punkterna sammanföll (~3 m). Nu kan de aldrig
+            // överlappa hur nära punkterna än ligger. text-optional -> pinnen ritas även om texten trängs.
             'text-field': 'Larm',
             'text-font': ['Open Sans Bold'],
             'text-size': ['interpolate', ['linear'], ['zoom'], 12, 0, 14, 10, 17, 12],
-            'text-anchor': 'right',
-            'text-offset': [-1.3, 0],
+            'text-anchor': 'bottom',
+            'text-offset': [0, -2.0],
             'text-allow-overlap': true,
             'text-optional': true,
           },
           paint: {
-            'text-color': '#ff3b30',
-            'text-halo-color': 'rgba(0,0,0,0.85)',
-            'text-halo-width': 1.5,
+            // Mörk röd text + VIT halo (samma läsbarhet som avläggets, inverterad) — röd = akut
+            // men aldrig svag. Röd text med mörk halo på ljus karta blev det svagaste ordet på
+            // kartan; det viktigaste ska inte vara det svagaste.
+            'text-color': '#c8102e',
+            'text-halo-color': '#ffffff',
+            'text-halo-width': 2,
           },
         });
       }
