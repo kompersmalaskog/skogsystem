@@ -11,25 +11,6 @@ interface Props {
   prodMap: Record<string, ProdAgg>;
 }
 
-function Ring({ v, color, sz = 36 }: { v: number; color: string; sz?: number }) {
-  const r = (sz - 4) / 2;
-  const ci = 2 * Math.PI * r;
-  const o = ci - (v / 100) * ci;
-  return (
-    <div style={{ position: 'relative', width: sz, height: sz }}>
-      <svg width={sz} height={sz} style={{ transform: 'rotate(-90deg)', position: 'absolute' }}>
-        <circle cx={sz / 2} cy={sz / 2} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={2.5} />
-        <circle cx={sz / 2} cy={sz / 2} r={r} fill="none" stroke={color} strokeWidth={2.5}
-          strokeDasharray={ci} strokeDashoffset={o} strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 0.5s ease' }} />
-      </svg>
-      <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: v ? C.t2 : C.t4 }}>
-        {v || '–'}
-      </span>
-    </div>
-  );
-}
-
 function Tag({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
   return (
     <span style={{
@@ -211,7 +192,9 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
 }
 
 type SortKey = 'namn' | 'vol' | 'status';
-type GroupMode = 'lista' | 'maskin';
+type StatusBucket = 'planera' | 'pagar' | 'klar';
+type StatusFilter = 'alla' | StatusBucket;
+type TypFilter = 'alla' | 'slutavverkning' | 'gallring';
 
 // Åtgärd → traktyp. Martins mappning: Au/Rp/Lrk = Slutavverkning, Gallring = Gallring.
 // Saknad/okänd åtgärd faller tillbaka på objektets typ-fält.
@@ -223,38 +206,154 @@ function klassaObjektTyp(o: OversiktObjekt): 'slutavverkning' | 'gallring' {
   return o.typ === 'slutavverkning' ? 'slutavverkning' : 'gallring';
 }
 
+// Status → tre hinkar. planera = ej startad (oplanerad/planerad/importerad + okänt),
+// pagar = pågående, klar = avslutad/klar.
+function statusBucket(status: string): StatusBucket {
+  if (status === 'pagaende' || status === 'skordning' || status === 'skotning') return 'pagar';
+  if (status === 'avslutat' || status === 'klar') return 'klar';
+  return 'planera';
+}
+const BUCKET_FARG: Record<StatusBucket, string> = { planera: C.yellow, pagar: C.green, klar: C.t3 };
+
+// Kort maskin-namn för radtaggen (t.ex. "PONSSE Scorpion Giant 8W" → "Scorpion").
+function kortMaskin(namn: string): string {
+  const s = namn.toLowerCase();
+  if (s.includes('scorpion')) return 'Scorpion';
+  if (s.includes('wisent')) return 'Wisent';
+  if (s.includes('elephant')) return 'Elephant';
+  if (s.includes('bison')) return 'Bison';
+  if (s.includes('buffalo')) return 'Buffalo';
+  if (s.includes('rottne') || s.includes('h8e')) return 'Rottne';
+  const first = namn.trim().split(/\s+/)[0] || namn;
+  return first.length > 12 ? first.slice(0, 12) : first;
+}
+
+// Segmenterad kontroll (används i reglage-panelen).
+function SegRow({ val, set, opts }: { val: string; set: (v: string) => void; opts: { k: string; l: string }[] }) {
+  return (
+    <div style={{ display: 'flex', gap: 3, background: '#111', borderRadius: 10, padding: 3, border: `1px solid ${C.border}` }}>
+      {opts.map(o => (
+        <button key={o.k} onClick={() => set(o.k)} style={{
+          flex: 1, padding: '9px 8px', minHeight: 40,
+          background: val === o.k ? 'rgba(255,255,255,0.1)' : 'transparent',
+          color: val === o.k ? C.t1 : C.t3, border: 'none', borderRadius: 8,
+          fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
+        }}>{o.l}</button>
+      ))}
+    </div>
+  );
+}
+
+// Reglage-panel (bottensheet) — bolag, traktyp, sortering, gruppera per maskin.
+function FilterPanel({ bolag, bolagF, setBolagF, typF, setTypF, sortK, setSortK, groupMaskin, setGroupMaskin, onClose }: {
+  bolag: string[];
+  bolagF: string; setBolagF: (v: string) => void;
+  typF: TypFilter; setTypF: (v: TypFilter) => void;
+  sortK: SortKey; setSortK: (v: SortKey) => void;
+  groupMaskin: boolean; setGroupMaskin: (v: boolean) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
+      <div onClick={e => e.stopPropagation()} style={{
+        position: 'relative', width: '100%', maxWidth: 500, maxHeight: '85vh',
+        background: C.cardGrad, borderRadius: '16px 16px 0 0',
+        border: `1px solid ${C.border}`, borderBottom: 'none',
+        overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '0 20px 28px',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 6px' }}>
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.15)' }} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <span style={{ fontSize: 18, fontWeight: 700 }}>Filter &amp; vy</span>
+          <button onClick={onClose} aria-label="Stäng" style={{ background: 'none', border: 'none', color: C.t3, cursor: 'pointer', display: 'flex', padding: 4 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 24 }}>close</span>
+          </button>
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }}>Sortering</div>
+          <SegRow val={sortK} set={v => setSortK(v as SortKey)} opts={[{ k: 'status', l: 'Status' }, { k: 'namn', l: 'A–Ö' }, { k: 'vol', l: 'Volym' }]} />
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }}>Traktyp</div>
+          <SegRow val={typF} set={v => setTypF(v as TypFilter)} opts={[{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavv.' }, { k: 'gallring', l: 'Gallring' }]} />
+        </div>
+
+        {bolag.length > 1 && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }}>Bolag</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {['alla', ...bolag].map(b => (
+                <button key={b} onClick={() => setBolagF(b)} style={{
+                  padding: '9px 14px', minHeight: 40, borderRadius: 10,
+                  background: bolagF === b ? 'rgba(255,255,255,0.1)' : 'transparent',
+                  color: bolagF === b ? C.t1 : C.t3, border: `1px solid ${bolagF === b ? C.borderStrong : C.border}`,
+                  fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+                }}>{b === 'alla' ? 'Alla bolag' : b}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginBottom: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }}>Vy</div>
+          <button onClick={() => setGroupMaskin(!groupMaskin)} style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '13px 16px', minHeight: 48, borderRadius: 12,
+            background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`,
+            color: C.t1, fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+          }}>
+            <span>Gruppera per maskin</span>
+            <span style={{ width: 44, height: 26, borderRadius: 13, background: groupMaskin ? C.green : 'rgba(255,255,255,0.15)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+              <span style={{ position: 'absolute', top: 2, left: groupMaskin ? 20 : 2, width: 22, height: 22, borderRadius: 11, background: '#fff', transition: 'left 0.2s' }} />
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OversiktObjektLista({ objekt, prodMap }: Props) {
   const [sel, setSel] = useState<string | null>(null);
-  const [lf, setLf] = useState<{ b: string; s: string; t: string }>({ b: 'alla', s: 'alla', t: 'alla' });
-  const [ls, setLs] = useState<SortKey>('status');
-  const [groupMode, setGroupMode] = useState<GroupMode>('lista');
-  const [showHist, setShowHist] = useState(false);
+  const [statusF, setStatusF] = useState<StatusFilter>('alla');
+  const [panelOpen, setPanelOpen] = useState(false);
+  // Avancerat — bakom reglage-ikonen
+  const [bolagF, setBolagF] = useState('alla');
+  const [typF, setTypF] = useState<TypFilter>('alla');
+  const [sortK, setSortK] = useState<SortKey>('status');
+  const [groupMaskin, setGroupMaskin] = useState(false);
 
-  const bolag = [...new Set(objekt.map(o => o.bolag).filter(Boolean))] as string[];
+  const bolagLista = Array.from(new Set(objekt.map(o => o.bolag).filter(Boolean))) as string[];
   const selectedObj = sel ? objekt.find(o => o.id === sel) : null;
 
-  let li = objekt
-    .filter(o => showHist || o.status !== 'klar')
-    .filter(o => lf.b === 'alla' || o.bolag === lf.b)
-    .filter(o => lf.t === 'alla' || klassaObjektTyp(o) === lf.t)
-    .filter(o => {
-      if (lf.s === 'alla') return true;
-      if (lf.s === 'pagaende') return o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning';
-      return o.status === lf.s;
-    });
+  // Aktiva = att planera + pågår (rubriksumma, oberoende av valt filter).
+  const aktiva = objekt.filter(o => statusBucket(o.status) !== 'klar');
+  const aktivaVol = aktiva.reduce((s, o) => s + (o.volym || 0), 0);
 
-  if (ls === 'vol') li = [...li].sort((a, b) => (b.volym || 0) - (a.volym || 0));
-  else if (ls === 'status') {
-    const order: Record<string, number> = { pagaende: 0, skordning: 0, skotning: 1, planerad: 2, importerad: 3, klar: 4 };
-    li = [...li].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+  // Status-filter: "Alla" = aktiva (att planera + pågår); "Klar" = avslutade.
+  let li = objekt.filter(o => {
+    const b = statusBucket(o.status);
+    return statusF === 'alla' ? b !== 'klar' : b === statusF;
+  });
+  li = li.filter(o => bolagF === 'alla' || o.bolag === bolagF);
+  li = li.filter(o => typF === 'alla' || klassaObjektTyp(o) === typF);
+
+  if (sortK === 'vol') li = [...li].sort((a, b) => (b.volym || 0) - (a.volym || 0));
+  else if (sortK === 'status') {
+    const order: Record<StatusBucket, number> = { pagar: 0, planera: 1, klar: 2 };
+    li = [...li].sort((a, b) => (order[statusBucket(a.status)] - order[statusBucket(b.status)]) || (a.namn || '').localeCompare(b.namn || '', 'sv'));
   } else {
     li = [...li].sort((a, b) => (a.namn || '').localeCompare(b.namn || '', 'sv'));
   }
 
-  // Per maskin: objektet listas under BÅDE sin skördare och sin skotare (Martins val:
-  // objektets egna fält skordare_maskin/skotare_maskin). Räknas i båda summorna.
+  // Gruppera per maskin (bakom reglage): objektet listas under BÅDE sin skördare och
+  // sin skotare (objektets egna fält). Bara i detta läge — grundvyn = en rad per objekt.
   const grupper: { maskin: string; objekt: OversiktObjekt[]; volym: number }[] = [];
-  if (groupMode === 'maskin') {
+  if (groupMaskin) {
     const map = new Map<string, OversiktObjekt[]>();
     const utan: OversiktObjekt[] = [];
     for (const o of li) {
@@ -269,155 +368,120 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
       const objs = map.get(m)!;
       grupper.push({ maskin: m, objekt: objs, volym: objs.reduce((s, o) => s + (o.volym || 0), 0) });
     }
-    if (utan.length > 0) {
-      grupper.push({ maskin: 'Ej tilldelad maskin', objekt: utan, volym: utan.reduce((s, o) => s + (o.volym || 0), 0) });
-    }
+    if (utan.length > 0) grupper.push({ maskin: 'Ej tilldelad maskin', objekt: utan, volym: utan.reduce((s, o) => s + (o.volym || 0), 0) });
   }
 
-  const renderKort = (o: OversiktObjekt) => {
-    const st = ST[o.status] || ST.planerad;
-    const tf = TF[o.typ] || C.yellow;
-    const prod = prodMap[o.id];
-    const skP = pc(prod?.skordareVol || 0, o.volym || 0);
-    const stP = pc(prod?.skotareVol || 0, o.volym || 0);
+  const avanceratAktivt = bolagF !== 'alla' || typF !== 'alla' || sortK !== 'status' || groupMaskin;
 
+  const renderKort = (o: OversiktObjekt) => {
+    const bucket = statusBucket(o.status);
+    const maskiner = Array.from(new Set(
+      ([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]).map(kortMaskin)
+    ));
     return (
       <div key={o.id} onClick={() => setSel(o.id)} style={{
         display: 'flex', alignItems: 'center', gap: 12,
-        padding: '14px 14px', minHeight: 44,
+        padding: '13px 14px', minHeight: 44,
         background: C.cardGrad, border: `1px solid ${C.border}`,
-        borderRadius: 12, marginBottom: 8,
-        cursor: 'pointer',
+        borderRadius: 14, marginBottom: 8, cursor: 'pointer',
       }}>
-        {/* Left color bar */}
-        <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: tf, opacity: 0.4 }} />
-        {/* Info */}
+        {/* Status-prick */}
+        <div style={{ width: 10, height: 10, borderRadius: 5, background: BUCKET_FARG[bucket], flexShrink: 0 }} />
+        {/* Innehåll */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{o.namn}</span>
-            {o.grot === true && (
-              <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 20, background: C.gd, color: C.green, whiteSpace: 'nowrap', flexShrink: 0 }}>GROT</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{o.namn}</span>
+            {bucket === 'planera' && (
+              <span style={{ fontSize: 12, fontWeight: 500, color: C.yellow, flexShrink: 0 }}>Att planera</span>
             )}
           </div>
-          <div style={{ fontSize: 12, color: C.t3, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {o.bolag || '–'} · {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')} · {o.areal || '–'} ha{o.terrang ? ` · ${o.terrang}` : ''}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+            <span style={{ fontSize: 12.5, color: C.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+              {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')}{o.areal ? ` · ${o.areal} ha` : ''}{o.terrang ? ` · ${o.terrang}` : ''}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+              {maskiner.map(m => (
+                <span key={m} style={{ fontSize: 10.5, fontWeight: 500, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>{m}</span>
+              ))}
+              {o.grot === true && (
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: C.green, background: C.gd, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>GROT</span>
+              )}
+            </div>
           </div>
         </div>
-        {/* Volume + status */}
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>
-            {formatVolym(o.volym || 0)}
-            <span style={{ fontSize: 11, fontWeight: 400, color: C.t3 }}> m³</span>
-          </div>
-          <span style={{ fontSize: 11, fontWeight: 500, color: st.c, padding: '2px 8px', background: st.bg, borderRadius: 20 }}>
-            {st.l}
-          </span>
-        </div>
-        {/* Mini rings */}
-        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-          <Ring v={skP} color={tf} />
-          <Ring v={stP} color={tf} />
-        </div>
+        {/* Chevron */}
+        <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t4, flexShrink: 0 }}>chevron_right</span>
       </div>
     );
   };
 
   return (
     <div style={{ height: '100%', overflowY: 'auto', padding: '0 16px 80px', fontFamily: ff }}>
-      {/* Sticky filters — 44px touch targets */}
+      {/* Rubriksumma + reglage + status-filter (sticky) */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.bg, padding: '14px 0 10px' }}>
-        {/* Vy-växling + traktyp */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-          {/* Per maskin / Lista */}
-          <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 20, padding: 3, border: `1px solid ${C.border}`, boxShadow: C.shadowSm }}>
-            {([{ k: 'lista' as const, l: 'Lista' }, { k: 'maskin' as const, l: 'Per maskin' }]).map(g => (
-              <button key={g.k} onClick={() => setGroupMode(g.k)} style={{
-                padding: '8px 12px', minHeight: 36, background: groupMode === g.k ? 'rgba(255,255,255,0.1)' : 'transparent',
-                color: groupMode === g.k ? C.t1 : C.t3, border: 'none', borderRadius: 20, fontSize: 12,
-                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-              }}>{g.l}</button>
-            ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: C.t3 }}>
+            {aktiva.length} aktiva · {aktivaVol.toLocaleString('sv-SE')} m³
           </div>
-          {/* Traktyp — Slutavverkning / Gallring */}
-          <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 20, padding: 3, border: `1px solid ${C.border}`, boxShadow: C.shadowSm }}>
-            {([{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavv.' }, { k: 'gallring', l: 'Gallring' }]).map(t => (
-              <button key={t.k} onClick={() => setLf(f => ({ ...f, t: t.k }))} style={{
-                padding: '8px 12px', minHeight: 36, background: lf.t === t.k ? 'rgba(255,255,255,0.1)' : 'transparent',
-                color: lf.t === t.k ? C.t1 : C.t3, border: 'none', borderRadius: 20, fontSize: 12,
-                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-              }}>{t.l}</button>
-            ))}
-          </div>
+          <button onClick={() => setPanelOpen(true)} aria-label="Filter och vy" style={{
+            position: 'relative', width: 40, height: 40, borderRadius: 12,
+            background: avanceratAktivt ? 'rgba(255,255,255,0.1)' : 'transparent',
+            border: `1px solid ${avanceratAktivt ? C.borderStrong : C.border}`,
+            color: avanceratAktivt ? C.t1 : C.t3, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>tune</span>
+            {avanceratAktivt && <span style={{ position: 'absolute', top: 6, right: 6, width: 7, height: 7, borderRadius: 4, background: C.blue }} />}
+          </button>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-          {/* Status filter */}
-          <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 20, padding: 3, border: `1px solid ${C.border}`, boxShadow: C.shadowSm }}>
-            {[
-              { k: 'alla', l: 'Alla' },
-              { k: 'pagaende', l: 'Pågående' },
-              { k: 'planerad', l: 'Planerad' },
-              { k: 'importerad', l: 'Import.' },
-              { k: 'klar', l: 'Klar' },
-            ].map(s => (
-              <button key={s.k} onClick={() => { setLf(f => ({ ...f, s: s.k })); if (s.k === 'klar') setShowHist(true); }} style={{
-                padding: '8px 12px', minHeight: 36, background: lf.s === s.k ? 'rgba(255,255,255,0.1)' : 'transparent',
-                color: lf.s === s.k ? C.t1 : C.t3, border: 'none', borderRadius: 20, fontSize: 12,
-                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-              }}>{s.l}</button>
-            ))}
-          </div>
-          {/* Sort */}
-          <div style={{ display: 'flex', gap: 3, marginLeft: 'auto', background: C.cardGrad, borderRadius: 20, padding: 3, border: `1px solid ${C.border}`, boxShadow: C.shadowSm }}>
-            {([
-              { k: 'namn' as const, l: 'A–Ö' },
-              { k: 'vol' as const, l: 'm³' },
-              { k: 'status' as const, l: 'Status' },
-            ]).map(s => (
-              <button key={s.k} onClick={() => setLs(s.k)} style={{
-                padding: '8px 10px', minHeight: 36, background: ls === s.k ? 'rgba(255,255,255,0.1)' : 'transparent',
-                color: ls === s.k ? C.t1 : C.t3, border: 'none', borderRadius: 20, fontSize: 12,
-                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-              }}>{s.l}</button>
-            ))}
-          </div>
-        </div>
-        {/* Bolag filter (if multiple) */}
-        {bolag.length > 1 && (
-          <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
-            {['alla', ...bolag].map(b => (
-              <button key={b} onClick={() => setLf(f => ({ ...f, b }))} style={{
-                padding: '6px 12px', minHeight: 32, background: lf.b === b ? 'rgba(255,255,255,0.1)' : 'transparent',
-                color: lf.b === b ? C.t1 : C.t3, border: 'none', borderRadius: 20, fontSize: 12,
-                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-              }}>{b === 'alla' ? 'Alla bolag' : b}</button>
-            ))}
-          </div>
-        )}
-        <div style={{ fontSize: 12, color: C.t3 }}>
-          {li.length} objekt · {li.reduce((s, o) => s + (o.volym || 0), 0).toLocaleString('sv-SE')} m³
+        <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 12, padding: 3, border: `1px solid ${C.border}` }}>
+          {([
+            { k: 'alla' as const, l: 'Alla' },
+            { k: 'planera' as const, l: 'Att planera' },
+            { k: 'pagar' as const, l: 'Pågår' },
+            { k: 'klar' as const, l: 'Klar' },
+          ]).map(s => (
+            <button key={s.k} onClick={() => setStatusF(s.k)} style={{
+              flex: 1, padding: '9px 8px', minHeight: 38,
+              background: statusF === s.k ? 'rgba(255,255,255,0.1)' : 'transparent',
+              color: statusF === s.k ? C.t1 : C.t3, border: 'none', borderRadius: 10,
+              fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
+            }}>{s.l}</button>
+          ))}
         </div>
       </div>
 
-      {/* List — platt eller grupperad per maskin */}
-      {groupMode === 'lista'
-        ? li.map(renderKort)
-        : grupper.length === 0
-          ? <div style={{ fontSize: 13, color: C.t3, padding: '20px 4px' }}>Inga objekt.</div>
-          : grupper.map(g => (
-              <div key={g.maskin} style={{ marginBottom: 14 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '8px 4px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: C.t1 }}>{g.maskin}</span>
-                  <span style={{ fontSize: 12, color: C.t3 }}>
-                    {g.objekt.length} objekt · {g.volym.toLocaleString('sv-SE')} m³
-                  </span>
-                </div>
-                {g.objekt.map(renderKort)}
-              </div>
-            ))}
+      {/* Lista — en rad per objekt; per maskin bara som läge bakom reglaget */}
+      {li.length === 0 ? (
+        <div style={{ fontSize: 13, color: C.t3, padding: '28px 4px', textAlign: 'center' }}>Inga objekt.</div>
+      ) : groupMaskin ? (
+        grupper.map(g => (
+          <div key={g.maskin} style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '8px 4px' }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{g.maskin}</span>
+              <span style={{ fontSize: 12, color: C.t3 }}>{g.objekt.length} objekt · {g.volym.toLocaleString('sv-SE')} m³</span>
+            </div>
+            {g.objekt.map(renderKort)}
+          </div>
+        ))
+      ) : (
+        li.map(renderKort)
+      )}
 
-      {/* Detail panel */}
+      {/* Detalj-ark (befintligt) */}
       {selectedObj && (
         <ObjektDetalj obj={selectedObj} prodMap={prodMap} onClose={() => setSel(null)} />
+      )}
+
+      {/* Reglage-panel */}
+      {panelOpen && (
+        <FilterPanel
+          bolag={bolagLista} bolagF={bolagF} setBolagF={setBolagF}
+          typF={typF} setTypF={setTypF}
+          sortK={sortK} setSortK={setSortK}
+          groupMaskin={groupMaskin} setGroupMaskin={setGroupMaskin}
+          onClose={() => setPanelOpen(false)}
+        />
       )}
     </div>
   );
