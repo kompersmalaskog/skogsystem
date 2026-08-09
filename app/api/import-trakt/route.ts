@@ -306,36 +306,92 @@ export async function POST(request: NextRequest) {
       ar,
       manad,
       ordning: 1,
-      // status utelämnas → DB-default 'planerad'. lat/lng skrivs bara vid INSERT (nya objekt);
-      // omimport av samma objekt ger 23505 -> 409, så manuellt flyttade pinnar överlever.
+      // status utelämnas → DB-default 'planerad' vid INSERT. Vid omimport (UPDATE) skrivs
+      // varken status, lat/lng, anteckningar eller planeringsfälten över — se SKYDDADE nedan.
       kalla: envz ? 'envz' : 'traktdirektiv',
     };
 
-    const { data: saved, error } = await supabase
-      .from('objekt')
-      .insert(data)
-      .select()
-      .single();
+    // === Omimport-med-merge: matcha på vo_nummer (enda unika constraint, objekt_vo_nummer_key).
+    // Ingen fallback på traktnr (ej unikt, tomt på hälften av raderna). Saknar envz vo_nummer
+    // eller finns ingen rad med det -> INSERT. vo_nummer kan vara icke-numeriskt ("P-1012") ->
+    // jämför som sträng. ===
+    let befintlig: { id: string; larmkoordinat_kalla: string | null } | null = null;
+    if (falt.vo_nummer) {
+      const { data: rader } = await supabase
+        .from('objekt')
+        .select('id, larmkoordinat_kalla')
+        .eq('vo_nummer', String(falt.vo_nummer))
+        .limit(1);
+      befintlig = rader && rader[0] ? (rader[0] as any) : null;
+    }
 
-    if (error) {
-      console.error('Supabase error:', error);
-      if (error.code === '23505') {
-        return NextResponse.json({ error: 'Objektet finns redan' }, { status: 409 });
+    let saved: any = null;
+
+    if (befintlig) {
+      // === UPDATE (omimport) — bevara det användaren äger ===
+      // SKYDDADE: kolumner som ALDRIG skrivs vid omimport. envz äger dem inte. Listan kommer
+      // växa — lägg nya manuella fält HÄR, inte som spridda specialfall.
+      //   lat, lng            manuellt flyttade kartpinnar
+      //   anteckningar        användartext (redigeras i /objekt)
+      //   ar, manad, ordning  planering (envz har dem inte ändå — skydda ändå explicit)
+      //   status              planeringsstatus (sätts av planeringsvyn)
+      //   larmkoordinat_*     villkorat nedan (bevaras helt om kalla='egen')
+      const SKYDDADE = ['lat', 'lng', 'anteckningar', 'ar', 'manad', 'ordning', 'status'];
+
+      // Larmkoordinat satt på plats ('egen') slår alltid en kontorsräknad koordinat -> rör
+      // varken lat/lng/kalla/bekraftad. Logga att envz hade ett värde som inte skrevs.
+      const bevaraLarm = befintlig.larmkoordinat_kalla === 'egen';
+      if (bevaraLarm && harLarm) {
+        varningar.push('Larmkoordinat bevarad (satt på plats, kalla=egen) — envz hade ett värde som inte skrevs över.');
       }
-      return NextResponse.json({ error: error.message }, { status: 500 });
+
+      const patch: Record<string, any> = {};
+      for (const [k, v] of Object.entries(data)) {
+        if (SKYDDADE.includes(k)) continue;                                  // aldrig vid omimport
+        if (k.startsWith('larmkoordinat_') && bevaraLarm) continue;          // 'egen' -> orört
+        if (v === null || v === undefined) continue;                         // nollar aldrig befintligt värde
+        if (typeof v === 'string' && v.trim() === '') continue;
+        patch[k] = v;
+      }
+      patch.import_varningar = varningar.length > 0 ? varningar : null;       // varningar refreshas alltid
+
+      const { data: upd, error: updErr } = await supabase
+        .from('objekt').update(patch).eq('id', befintlig.id).select().single();
+      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+      saved = upd;
+
+      // Geometrin är importerad (inga manuella ändringar) -> ersätt helt: radera + skriv ny.
+      await service.from('objekt_geometri').delete().eq('objekt_id', befintlig.id);
+      if (geoFeatures.length > 0) {
+        const { error: geoErr } = await service.from('objekt_geometri').insert({
+          objekt_id: befintlig.id,
+          geometri: { type: 'FeatureCollection', features: geoFeatures },
+          kalla: 'envz',
+        });
+        if (geoErr) console.error('objekt_geometri insert (omimport) misslyckades:', geoErr);
+      }
+    } else {
+      // === INSERT (nytt objekt) — hela data, inkl. lat/lng/anteckningar ===
+      const { data: ins, error } = await supabase.from('objekt').insert(data).select().single();
+      if (error) {
+        console.error('Supabase error:', error);
+        if (error.code === '23505') {
+          return NextResponse.json({ error: 'Objektet finns redan' }, { status: 409 });
+        }
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      saved = ins;
+      if (geoFeatures.length > 0 && saved?.id) {
+        const { error: geoErr } = await service.from('objekt_geometri').insert({
+          objekt_id: saved.id,
+          geometri: { type: 'FeatureCollection', features: geoFeatures },
+          kalla: 'envz',
+        });
+        if (geoErr) console.error('objekt_geometri insert misslyckades:', geoErr);
+      }
     }
 
-    // Geometri -> objekt_geometri (service-role: RLS tillåter bara authenticated SELECT).
-    if (geoFeatures.length > 0 && saved?.id) {
-      const { error: geoErr } = await service.from('objekt_geometri').insert({
-        objekt_id: saved.id,
-        geometri: { type: 'FeatureCollection', features: geoFeatures },
-        kalla: 'envz',
-      });
-      if (geoErr) console.error('objekt_geometri insert misslyckades:', geoErr);
-    }
-
-    return NextResponse.json({ success: true, objekt: saved, varningar });
+    return NextResponse.json({ success: true, objekt: saved, uppdaterad: !!befintlig, varningar });
 
   } catch (err: any) {
     console.error('Import error:', err);
