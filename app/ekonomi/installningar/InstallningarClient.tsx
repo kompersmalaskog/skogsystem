@@ -13,6 +13,8 @@ type MaskinRad = {
   // Verklig värdeminskning (dim_maskin, INTE timpris-versionerad):
   // tomt inköpspris = ingen värdeminskning räknas (ärligt, ingen 0-gissning)
   inkopspris: Num; avskrivning_procent: Num;
+  inkopsar: Num;                 // året maskinen köptes — position i kurvan
+  sald: boolean; sald_datum: string;  // avyttrad = ingen värdeminskning framåt
 };
 type AcordRad = {
   id?: string; medelstam: Num; pris_total: Num; pris_skordare: Num; pris_skotare: Num;
@@ -163,7 +165,7 @@ export default function InstallningarClient() {
       supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_flyttkostnad').select('id, km_fran, km_till, fast_kr, timpris_trailer_kr, beskrivning, giltig_fran, giltig_till').is('giltig_till', null).order('km_fran'),
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
-      supabase.from('dim_maskin').select('maskin_id, modell, inkopspris, avskrivning_procent').order('modell'),
+      supabase.from('dim_maskin').select('maskin_id, modell, inkopspris, avskrivning_procent, inkopsar, sald, sald_datum').order('modell'),
       supabase.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod'),
       supabase.from('fortnox_invoice_rows')
         .select('id, document_number, invoice_date, description, total, matched_objekt_id, manual_objekt_id')
@@ -183,6 +185,9 @@ export default function InstallningarClient() {
       id: m.id, maskin_id: m.maskin_id, maskin_namn: m.maskin_namn || '', timpris: m.timpris, giltig_fran: m.giltig_fran,
       inkopspris: dimMap[m.maskin_id]?.inkopspris ?? '',
       avskrivning_procent: dimMap[m.maskin_id]?.avskrivning_procent ?? 20,
+      inkopsar: dimMap[m.maskin_id]?.inkopsar ?? '',
+      sald: !!dimMap[m.maskin_id]?.sald,
+      sald_datum: dimMap[m.maskin_id]?.sald_datum || '',
     })));
     setAcord((aRes.data || []).map((a: any) => ({ id: a.id, medelstam: a.medelstam, pris_total: a.pris_total, pris_skordare: a.pris_skordare, pris_skotare: a.pris_skotare, giltig_fran: a.giltig_fran })));
     const avRow = (avRes.data || [])[0];
@@ -268,7 +273,7 @@ export default function InstallningarClient() {
 
   // ── Maskin ──
   const updateMaskin = (idx: number, p: Partial<MaskinRad>) => setMaskiner(prev => prev.map((m, i) => i === idx ? { ...m, ...p, dirty: true } : m));
-  const addMaskin = () => setMaskiner(prev => [...prev, { maskin_id: '', maskin_namn: '', timpris: '', inkopspris: '', avskrivning_procent: 20, giltig_fran: null, isNew: true, dirty: true }]);
+  const addMaskin = () => setMaskiner(prev => [...prev, { maskin_id: '', maskin_namn: '', timpris: '', inkopspris: '', avskrivning_procent: 20, inkopsar: '', sald: false, sald_datum: '', giltig_fran: null, isNew: true, dirty: true }]);
   const saveMaskin = async (idx: number) => {
     const row = maskiner[idx];
     if (!row.maskin_id.trim() || !row.maskin_namn.trim() || row.timpris === '' || Number(row.timpris) <= 0) { flashMsg('Fyll i maskin-ID, namn och ett pris > 0'); return; }
@@ -282,17 +287,23 @@ export default function InstallningarClient() {
     // rader, därför verifierat sparande med värde-återläsning, aldrig tyst).
     const villInkop = numOrNull(row.inkopspris);
     const villProcent = row.avskrivning_procent === '' ? 20 : Number(row.avskrivning_procent);
+    const villInkopsar = numOrNull(row.inkopsar);
+    if (villInkopsar != null && (!Number.isInteger(villInkopsar) || villInkopsar < 1900 || villInkopsar > 2100)) {
+      setSavingMaskin(null); flashMsg('Inköpsår ska vara ett årtal, t.ex. 2019'); return;
+    }
+    const villSaldDatum = row.sald && row.sald_datum ? row.sald_datum : null;
     const dimRes = await uppdateraVerifierat(
       supabase, 'dim_maskin',
-      { inkopspris: villInkop, avskrivning_procent: villProcent },
+      { inkopspris: villInkop, avskrivning_procent: villProcent, inkopsar: villInkopsar, sald: row.sald, sald_datum: villSaldDatum },
       { maskin_id: row.maskin_id.trim() },
-      'maskin_id, inkopspris, avskrivning_procent',
+      'maskin_id, inkopspris, avskrivning_procent, inkopsar, sald, sald_datum',
     );
     setSavingMaskin(null);
     if (!dimRes.ok) { flashMsg(`Timpris sparat, men värdeminskning: ${dimRes.fel}`); return; }
     const r0: any = dimRes.rows[0];
     const landat = (v: any) => (v == null ? null : Number(v));
-    if (landat(r0.inkopspris) !== villInkop || landat(r0.avskrivning_procent) !== villProcent) {
+    if (landat(r0.inkopspris) !== villInkop || landat(r0.avskrivning_procent) !== villProcent
+        || landat(r0.inkopsar) !== villInkopsar || !!r0.sald !== row.sald || (r0.sald_datum || null) !== villSaldDatum) {
       flashMsg('Värdeminskning: värdet landade inte i dim_maskin — kontrollera behörighet'); return;
     }
     flashMsg(`Sparat: ${row.maskin_namn}`);
@@ -602,8 +613,10 @@ export default function InstallningarClient() {
                     </button>
                   </div>
                   {/* Verklig värdeminskning (kalkyl, ej bokförd avskrivning).
-                      Tomt inköpspris = ingen värdeminskning räknas för maskinen. */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+                      Tomt inköpspris = ingen värdeminskning räknas för maskinen.
+                      Inköpsåret ger positionen i den degressiva kurvan; en såld
+                      maskin bär ingen värdeminskning från och med säljåret. */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 6 }}>
                     <div>
                       <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>Inköpspris kr</div>
                       <NumInput value={m.inkopspris} onChange={v => updateMaskin(idx, { inkopspris: v })} placeholder="tomt = räknas ej" />
@@ -612,6 +625,20 @@ export default function InstallningarClient() {
                       <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>Avskrivning %/år</div>
                       <NumInput value={m.avskrivning_procent} onChange={v => updateMaskin(idx, { avskrivning_procent: v })} placeholder="20" />
                     </div>
+                    <div>
+                      <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>Inköpsår</div>
+                      <NumInput value={m.inkopsar} onChange={v => updateMaskin(idx, { inkopsar: v })} placeholder="t.ex. 2019" />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: m.sald ? 'rgba(240,178,76,0.9)' : '#7a7a72', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={m.sald} onChange={e => updateMaskin(idx, { sald: e.target.checked })} />
+                      Såld
+                    </label>
+                    {m.sald && (
+                      <input type="date" value={m.sald_datum} onChange={e => updateMaskin(idx, { sald_datum: e.target.value })}
+                        style={{ ...s.input, width: 150 }} />
+                    )}
                   </div>
                   <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
                     {datePillFor(m.giltig_fran)}
