@@ -71,6 +71,86 @@ export async function routeKm(
   return { km: Math.round(haversine(req.fromLat, req.fromLng, req.toLat, req.toLng) * 1.4), source: "fallback" };
 }
 
+/**
+ * Varifrån en objekt-koordinat kom, i prioritetsordning:
+ *  "maskin" = dim_objekt (maskin-GPS, mest precist när det finns)
+ *  "objekt" = objekt.lat/lng (planerings-/egen koordinat) via vo_nummer
+ *  "larm"   = objekt.larmkoordinat_lat/lng via vo_nummer (sista utväg)
+ *  null     = ingen koordinat alls → km går inte att beräkna ("fyll i själv")
+ */
+export type KoordKalla = "maskin" | "objekt" | "larm" | null;
+
+export interface ObjektKoord {
+  lat: number | null;
+  lng: number | null;
+  kalla: KoordKalla;
+  object_name?: string | null;
+  skogsagare?: string | null;
+  huvudtyp?: string | null;
+}
+
+/**
+ * Slår upp koordinat per objekt_id med FALLBACK-kedja: maskin-GPS (dim_objekt)
+ * → objektets egen koordinat (objekt.lat/lng) → larmkoordinat, allt via
+ * arbetsdag.objekt_id = dim_objekt.objekt_id = objekt.vo_nummer. Tidigare lästes
+ * bara dim_objekt, så skotarobjekt utan maskin-GPS gav TYST 0 km trots att
+ * objektet hade en koordinat i objekt-tabellen. Returnerar även vilken källa
+ * som användes så UI:t kan yta det ("från maskinens position" / "objektets
+ * koordinat"). Saknas allt → kalla=null (aldrig tyst 0). objekt-uppslaget
+ * begränsas till NUMERISKA vo_nummer (kolumnen är numerisk — icke-numeriska
+ * maskin-lokala objekt_id skulle annars ge cast-fel på hela frågan).
+ */
+export async function hamtaObjektKoordinater(
+  supabase: any,
+  objektIds: string[],
+): Promise<Record<string, ObjektKoord>> {
+  const map: Record<string, ObjektKoord> = {};
+  const ids = Array.from(new Set(objektIds.filter(Boolean).map(String)));
+  if (ids.length === 0) return map;
+
+  const numeriska = ids.filter((id) => /^\d+$/.test(id));
+  const [dimRes, objRes] = await Promise.all([
+    supabase.from("dim_objekt")
+      .select("objekt_id, object_name, skogsagare, huvudtyp, latitude, longitude")
+      .in("objekt_id", ids),
+    numeriska.length
+      ? supabase.from("objekt")
+          .select("vo_nummer, lat, lng, larmkoordinat_lat, larmkoordinat_lng")
+          .in("vo_nummer", numeriska)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const dimById: Record<string, any> = {};
+  for (const d of dimRes.data || []) dimById[String(d.objekt_id)] = d;
+  const objByVo: Record<string, any> = {};
+  for (const o of objRes.data || []) {
+    const k = String(o.vo_nummer);
+    // Vid flera objekt-rader per vo_nummer: föredra en med koordinat.
+    if (!objByVo[k] || (objByVo[k].lat == null && o.lat != null)) objByVo[k] = o;
+  }
+
+  for (const id of ids) {
+    const d = dimById[id];
+    const o = objByVo[id];
+    let lat: number | null = null, lng: number | null = null;
+    let kalla: KoordKalla = null;
+    if (d && d.latitude != null && d.longitude != null) {
+      lat = Number(d.latitude); lng = Number(d.longitude); kalla = "maskin";
+    } else if (o && o.lat != null && o.lng != null) {
+      lat = Number(o.lat); lng = Number(o.lng); kalla = "objekt";
+    } else if (o && o.larmkoordinat_lat != null && o.larmkoordinat_lng != null) {
+      lat = Number(o.larmkoordinat_lat); lng = Number(o.larmkoordinat_lng); kalla = "larm";
+    }
+    map[id] = {
+      lat, lng, kalla,
+      object_name: d?.object_name ?? null,
+      skogsagare: d?.skogsagare ?? null,
+      huvudtyp: d?.huvudtyp ?? null,
+    };
+  }
+  return map;
+}
+
 /** Ett segment i en körkedja: från-etikett → till-etikett = X km. */
 export interface Segment {
   fromLabel: string;

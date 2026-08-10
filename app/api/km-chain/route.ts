@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { bygKedjaKm, Point } from "@/lib/routing";
+import { bygKedjaKm, Point, hamtaObjektKoordinater, KoordKalla } from "@/lib/routing";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 
 /**
@@ -41,17 +41,16 @@ export async function GET(req: NextRequest) {
     }
 
     const objektIds = Array.from(new Set(rader.filter(r => r.objekt_id).map(r => r.objekt_id as string)));
-    const objMap: Record<string, { lat: number|null; lng: number|null; namn: string }> = {};
-    if (objektIds.length > 0) {
-      const { data: objekt } = await supabase
-        .from("dim_objekt")
-        .select("objekt_id, object_name, skogsagare, huvudtyp, latitude, longitude")
-        .in("objekt_id", objektIds);
-      for (const o of objekt || []) {
-        const n = (o.object_name || "").trim();
-        const raw = n && !/^\d{10,}$/.test(n) ? n : ([o.skogsagare, o.huvudtyp].filter(Boolean).join(" · ") || o.objekt_id);
-        objMap[o.objekt_id] = { lat: o.latitude, lng: o.longitude, namn: formatObjektNamn(raw) };
-      }
+    // Koordinat med FALLBACK: maskin-GPS (dim_objekt) → objekt.lat/lng →
+    // larmkoordinat, via vo_nummer. Tidigare bara dim_objekt → skotarobjekt
+    // utan maskin-GPS gav tyst 0 km trots att objektet hade koordinat.
+    const koordMap = await hamtaObjektKoordinater(supabase, objektIds);
+    const objMap: Record<string, { lat: number|null; lng: number|null; namn: string; kalla: KoordKalla }> = {};
+    for (const id of objektIds) {
+      const k = koordMap[id];
+      const n = (k?.object_name || "").trim();
+      const raw = n && !/^\d{10,}$/.test(n) ? n : ([k?.skogsagare, k?.huvudtyp].filter(Boolean).join(" · ") || id);
+      objMap[id] = { lat: k?.lat ?? null, lng: k?.lng ?? null, namn: formatObjektNamn(raw), kalla: k?.kalla ?? null };
     }
 
     // Unik sekvens av objekt i tidsordning (samma objekt i rad räknas en gång)
@@ -81,7 +80,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       datum,
       sekvens,
-      objektKoord: Object.fromEntries(Object.entries(objMap).map(([k,v]) => [k, { lat: v.lat, lng: v.lng, namn: v.namn }])),
+      objektKoord: Object.fromEntries(Object.entries(objMap).map(([k,v]) => [k, { lat: v.lat, lng: v.lng, namn: v.namn, kalla: v.kalla }])),
       segments,
       totalKm,
       orsAnrop,

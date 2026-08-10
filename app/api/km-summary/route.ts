@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { bygKedjaKm, Point } from "@/lib/routing";
+import { bygKedjaKm, Point, hamtaObjektKoordinater, KoordKalla } from "@/lib/routing";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 
 /**
@@ -47,15 +47,13 @@ export async function GET(req: NextRequest) {
     const rader = (arbRes.data || []) as any[];
     const frikm = avtalRes.data?.km_grans_per_dag ?? 60;
 
-    // Slå upp alla objekt-koordinater
+    // Slå upp alla objekt-koordinater med FALLBACK: maskin-GPS (dim_objekt) →
+    // objekt.lat/lng → larmkoordinat, via vo_nummer. Tidigare bara dim_objekt →
+    // skotarobjekt utan maskin-GPS gav tyst 0 km (utebliven ersättning).
     const objektIds = Array.from(new Set(rader.filter(r => r.objekt_id).map(r => r.objekt_id as string)));
-    const objMap: Record<string, { lat:number|null; lng:number|null }> = {};
-    if (objektIds.length > 0) {
-      const { data: objekt } = await supabase
-        .from("dim_objekt").select("objekt_id, latitude, longitude")
-        .in("objekt_id", objektIds);
-      for (const o of objekt || []) objMap[o.objekt_id] = { lat: o.latitude, lng: o.longitude };
-    }
+    const koordMap = await hamtaObjektKoordinater(supabase, objektIds);
+    const objMap: Record<string, { lat:number|null; lng:number|null; kalla: KoordKalla }> = {};
+    for (const id of objektIds) objMap[id] = { lat: koordMap[id]?.lat ?? null, lng: koordMap[id]?.lng ?? null, kalla: koordMap[id]?.kalla ?? null };
 
     // Gruppera rader per datum
     const perDatum = new Map<string, any[]>();

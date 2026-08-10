@@ -573,6 +573,9 @@ export default function Arbetsrapport() {
   // går km inte att beräkna alls. Föraren ska se skillnaden.
   const [redKmKälla, setRedKmKälla] = useState<'beraknad'|'fallback'|null>(null);
   const [redKmSaknarKoord, setRedKmSaknarKoord] = useState(false);
+  // Varifrån objektets koordinat kom (för ärlig källmärkning): maskin-GPS,
+  // objektets egen koordinat eller larmkoordinat.
+  const [redKmKoordKälla, setRedKmKoordKälla] = useState<'maskin'|'objekt'|'larm'|null>(null);
   const [redAnl,   setRedAnl]   = useState("");
   const [redVy,    setRedVy]    = useState("översikt");
   const [redDagar, setRedDagar] = useState<Record<string, {start:string;slut:string;rast:number;km:number;anl:string}>>({});
@@ -835,6 +838,7 @@ export default function Arbetsrapport() {
     setRedKmBerakning(null);
     setRedKmKälla(null);
     setRedKmSaknarKoord(false);
+    setRedKmKoordKälla(null);
     let cancelled = false;
     fetch(`/api/km-chain?medarbetare_id=${encodeURIComponent(medarbetare.id)}&datum=${redDag.datum}`)
       .then(r => r.json())
@@ -849,6 +853,15 @@ export default function Arbetsrapport() {
         const koord = j.objektKoord || {};
         const saknarKoord = sekvens.some((oid: string) => koord[oid]?.lat == null || koord[oid]?.lng == null);
         setRedKmSaknarKoord(saknarKoord);
+        // Varifrån koordinaten kom — visa den SVAGASTE källan som användes
+        // (larm > objekt > maskin) så etiketten är ärlig när minst ett ben
+        // föll tillbaka på larmkoordinaten.
+        const källor = sekvens.map((oid: string) => koord[oid]?.kalla).filter(Boolean);
+        setRedKmKoordKälla(
+          källor.includes('larm') ? 'larm'
+          : källor.includes('objekt') ? 'objekt'
+          : källor.includes('maskin') ? 'maskin' : null
+        );
         // Källa: 'fallback' om NÅGOT segment är fågelvägen (haversine), annars
         // 'beraknad' (route_cache/ORS = riktig vägberäkning). Tom kedja = null.
         setRedKmKälla(segs.length === 0 ? null
@@ -4860,9 +4873,15 @@ export default function Arbetsrapport() {
                       ⚠ Osäker uppskattning (fågelvägen × 1,4) — ingen vägberäkning. Kontrollera.
                     </p>
                   );
-                  if (redKmKälla === 'beraknad') return (
-                    <p style={{ margin:"8px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat vägavstånd</p>
-                  );
+                  if (redKmKälla === 'beraknad') {
+                    const frn = redKmKoordKälla === 'maskin' ? ' — från maskinens position'
+                      : redKmKoordKälla === 'objekt' ? ' — från objektets koordinat'
+                      : redKmKoordKälla === 'larm' ? ' — från objektets larmkoordinat'
+                      : '';
+                    return (
+                      <p style={{ margin:"8px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat vägavstånd{frn}</p>
+                    );
+                  }
                   return null;
                 })()}
                 {över>0&&(
