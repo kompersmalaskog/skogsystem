@@ -93,7 +93,7 @@ export interface OversiktObjekt {
   };
 }
 
-export type TabId = 'karta' | 'maskiner' | 'grot';
+export type TabId = 'karta' | 'maskiner' | 'grot' | 'objekt';
 
 /* Design tokens — Apple iOS dark mode (flat) */
 export const C = {
@@ -146,6 +146,17 @@ export const STATUS_AKTIV = ['pagaende', 'skordning', 'skotning'];
 /** True om status saknar färdig form/färg och ska renderas med kontur-fallback. */
 export function isOkandStatus(status: string): boolean {
   return !(status in ST);
+}
+
+/** DELAD status→visning för Objekt-fliken — lista OCH detaljvy läser SAMMA här,
+    så de aldrig säger olika. DB-status oförändrad, bara visning.
+    key = filterhink · ord = etikett · farg = färg · bg = tonad bakgrund. */
+export type StatusHink = 'planera' | 'kora' | 'pagar' | 'klar';
+export function statusVisning(status: string): { key: StatusHink; ord: string; farg: string; bg: string } {
+  if (STATUS_AKTIV.includes(status)) return { key: 'pagar', ord: 'Pågår', farg: C.green, bg: C.gd };                     // pagaende/skordning/skotning
+  if (STATUS_AVSLUTADE.includes(status)) return { key: 'klar', ord: 'Klar', farg: C.t3, bg: 'rgba(142,142,147,0.12)' };  // avslutat/klar
+  if (status === 'planerad') return { key: 'kora', ord: 'Att köra', farg: C.blue, bg: C.bd };                            // färdigplanerad = redo att köras
+  return { key: 'planera', ord: 'Att planera', farg: C.yellow, bg: C.yd };                                              // oplanerad/importerad/okänd
 }
 
 export const TF: Record<string, string> = {

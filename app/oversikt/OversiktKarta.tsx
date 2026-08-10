@@ -7,6 +7,10 @@ import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTA
 import { ff } from './oversikt-styles';
 import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotDeadlineDays } from './oversikt-utils';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
+import {
+  FARA_SUBTYPER, HANSYN_SUBTYPER, SUB_LABEL, prettifySub, markeringSub, classifyMarkering,
+  type MarkLevel, type FaraNiva,
+} from './markeringar';
 
 /* ── Animated count-up hook ── */
 function useCountUp(target: number, duration = 1.2, active = true): number {
@@ -561,40 +565,9 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
 /* ── Route colors per machine ── */
 const RC = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#ec4899', '#06b6d4'];
 
-/* ── Faror & hänsyn (Beslut 6) — klassning av planering_markeringar ──
-   Semantiken ligger i data: type/zoneType/lineType/arrowType (se brief). */
-const FARA_SUBTYPER = new Set(['powerline', 'warning']);
-const HANSYN_SUBTYPER = new Set([
-  'eternitytree', 'naturecorner', 'protected', 'fornlamning',
-  'culture', 'culturemonument', 'highstump',
-]);
-const SUB_LABEL: Record<string, string> = {
-  // Faror
-  powerline: 'Kraftledning', warning: 'Varning',
-  // Hänsyn
-  eternitytree: 'Eternitträd', naturecorner: 'Naturhörn', protected: 'Skyddat område',
-  fornlamning: 'Fornlämning', culture: 'Kulturmiljö', culturemonument: 'Kulturminne',
-  highstump: 'Högstubbe',
-  // Övrigt — punkter
-  manualfelling: 'Manuell fällning', steep: 'Brant', culturestump: 'Kulturstubbe',
-  bridge: 'Bro', landing: 'Avlägg', corduroy: 'Kavelbro', ditch: 'Dike',
-  windfall: 'Vindfälle', brashpile: 'Rishög', road: 'Väg', trail: 'Stig',
-  // Övrigt — zoner
-  wet: 'Blöt mark', noentry: 'Kör ej',
-  // Övrigt — linjer
-  boundary: 'Traktgräns', mainRoad: 'Basväg', nature: 'Naturvärde', stickvag: 'Stickväg',
-  backRoadRed: 'Basväg', backRoadYellow: 'Basväg', backRoadBlue: 'Basväg',
-  sideRoadRed: 'Stickväg', sideRoadYellow: 'Stickväg', sideRoadBlue: 'Stickväg',
-  // Övrigt — pilar
-  fellingdirection: 'Fällriktning', drivedirection: 'Körriktning',
-};
-/* Sista utväg när vi saknar en svensk etikett — så inget filtreras bort tyst. */
-function prettifySub(sub: string): string {
-  const s = sub.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-export type FaraNiva = 'fara' | 'hansyn';               // markör/banner-nivå
-export type MarkLevel = 'fara' | 'hansyn' | 'ovrigt';   // alla markeringar i kortlistan
+/* ── Faror & hänsyn (Beslut 6) — klassning/humanisering av planering_markeringar ──
+   Flyttad till delade ./markeringar (importeras ovan) så Karta-fliken och
+   Objekt-fliken visar samma etiketter/gruppering. ObjWarnings är kartspecifik. */
 export interface ObjWarnings { level: FaraNiva | null; items: { label: string; level: MarkLevel; comment?: string }[]; }
 interface MarkeringRow { objekt_id: string | null; typ: string | null; data: any; }
 
@@ -608,16 +581,6 @@ interface Medarbetare { id: string; namn: string | null; roll: string | null; ma
    så kartan blir tom istället för att falla tillbaka på "visa alla" (fail-closed). */
 const FORARE_UTAN_MASKIN = '__forare_utan_maskin__';
 
-function markeringSub(data: any): string | null {
-  if (!data || typeof data !== 'object') return null;
-  return data.type || data.zoneType || data.lineType || data.arrowType || null;
-}
-function classifyMarkering(data: any): MarkLevel {
-  const sub = markeringSub(data);
-  if (sub && FARA_SUBTYPER.has(sub)) return 'fara';
-  if (sub && HANSYN_SUBTYPER.has(sub)) return 'hansyn';
-  return 'ovrigt';   // visa allt — inget filtreras bort tyst
-}
 
 /* ── Marker badges (Beslut 2): köordning, GROT-hörn, fara/hänsyn ── */
 type MarkerBadge =
