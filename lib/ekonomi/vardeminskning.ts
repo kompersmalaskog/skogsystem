@@ -20,21 +20,35 @@ export const AVSKRIVNING_PROCENT_FORVAL = 20;
 export type MaskinVardeminskning = {
   inkopspris?: number | null;
   avskrivning_procent?: number | null;
-  inkopsar?: number | null;      // året maskinen köptes/togs i drift
+  inkopsdatum?: string | null;   // ISO YYYY-MM-DD, dag alltid 01 (månadsupplösning)
   sald?: boolean | null;
   sald_datum?: string | null;    // ISO-datum (YYYY-MM-DD)
 };
 
 /**
  * Maskinens position i avskrivningskurvan för år `forAr`:
- * ålder = forAr − inkopsar (clampad ≥ 1). Köpt 2019 → ålder 7 i 2026 →
+ * ålder = forAr − inköpsår (clampad ≥ 1). Köpt 2019 → ålder 7 i 2026 →
  * sjunde årets avskrivning = pris × (1−p)^6 × p. Okänt eller orimligt
  * inköpsår → 1 (försiktigt: högsta årskostnaden, ingen dold nedräkning).
  */
-export function maskinAlderAr(inkopsar: number | null | undefined, forAr: number): number {
-  const ar = Number(inkopsar);
+export function maskinAlderAr(inkopsdatum: string | null | undefined, forAr: number): number {
+  const ar = inkopsdatum ? Number(String(inkopsdatum).slice(0, 4)) : NaN;
   if (!Number.isInteger(ar) || ar < 1900 || ar >= forAr) return 1;
   return forAr - ar;
+}
+
+/**
+ * Pro rata på köpåret: en maskin köpt i juli har bara slitits ~halva året —
+ * (13 − månad)/12 av årets värdeminskning (juli → 6/12, januari → 12/12).
+ * Alla år därefter, och okänd månad, → 1 (helt år).
+ */
+export function andelAvKopAret(inkopsdatum: string | null | undefined, forAr: number): number {
+  const str = String(inkopsdatum || '');
+  const ar = Number(str.slice(0, 4));
+  const man = Number(str.slice(5, 7));
+  if (!Number.isInteger(ar) || ar !== forAr) return 1;
+  if (!Number.isInteger(man) || man < 1 || man > 12) return 1;
+  return (13 - man) / 12;
 }
 
 /**
@@ -60,8 +74,8 @@ export function vardeminskningPerAr(m: MaskinVardeminskning, forAr: number = new
   if (!(pris > 0)) return null;
   if (arSaldForAr(m, forAr)) return null;
   const p = (Number(m.avskrivning_procent) > 0 ? Number(m.avskrivning_procent) : AVSKRIVNING_PROCENT_FORVAL) / 100;
-  const alder = maskinAlderAr(m.inkopsar, forAr);
-  return pris * Math.pow(1 - p, alder - 1) * p;
+  const alder = maskinAlderAr(m.inkopsdatum, forAr);
+  return pris * Math.pow(1 - p, alder - 1) * p * andelAvKopAret(m.inkopsdatum, forAr);
 }
 
 /**

@@ -13,7 +13,7 @@ type MaskinRad = {
   // Verklig värdeminskning (dim_maskin, INTE timpris-versionerad):
   // tomt inköpspris = ingen värdeminskning räknas (ärligt, ingen 0-gissning)
   inkopspris: Num; avskrivning_procent: Num;
-  inkopsar: Num;                 // året maskinen köptes — position i kurvan
+  inkopsmanad: string;           // 'YYYY-MM' — köpmånad, position i kurvan + pro rata
   sald: boolean; sald_datum: string;  // avyttrad = ingen värdeminskning framåt
 };
 type AcordRad = {
@@ -86,6 +86,40 @@ function synkDel(label: string, iso: string | null) {
   }
   return <span>{label} {datum}</span>;
 }
+
+// ── Styles ── (modulnivå: statiska, inga state-beroenden)
+const s: Record<string, CSSProperties> = {
+  page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 130, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" },
+  header: { padding: '16px 16px 0' },
+  sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 28, padding: '0 4px' },
+  sectionBlurb: { fontSize: 11, color: '#7a7a72', padding: '0 4px', marginBottom: 10, marginTop: -4 },
+  card: { background: '#1a1a18', borderRadius: 14, padding: 16 },
+  input: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 10px', color: '#e8e8e4', fontSize: 13, fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' },
+  btnDark: { background: '#000', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' },
+  btnGhost: { background: 'rgba(255,255,255,0.03)', color: '#bfcab9', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 10, padding: '10px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', width: '100%', marginTop: 10 },
+  btnRemove: { background: 'transparent', color: '#7a7a72', border: 'none', cursor: 'pointer', padding: '4px 8px', fontSize: 18, lineHeight: 1 },
+  pill: { display: 'inline-block', fontSize: 10, color: '#7a7a72', padding: '2px 8px', background: 'rgba(255,255,255,0.04)', borderRadius: 999, fontWeight: 600, letterSpacing: 0.3 },
+  th: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.6, color: '#7a7a72', textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid rgba(255,255,255,0.07)' },
+  tdCell: { padding: '6px 6px' },
+  inputNum: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
+  saveRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, gap: 12 },
+  dateNote: { fontSize: 11, color: '#7a7a72' },
+};
+
+// MODULNIVÅ, inte inne i komponenten: en inline-definierad komponent får ny
+// typreferens varje render → React remountar inputen på varje tangenttryck
+// och fokus tappas efter varje siffra (inköpsår-buggen — drabbade ALLA
+// NumInput-fält). En komponent som används som <NumInput /> måste ha stabil
+// referens; rena render-hjälpare som anropas som funktioner är ofarliga.
+const NumInput = ({ value, onChange, step, placeholder }: { value: Num; onChange: (v: Num) => void; step?: string; placeholder?: string }) => (
+  <input
+    style={{ ...s.input, ...s.inputNum }}
+    type="number" step={step || '1'} inputMode={step ? 'decimal' : 'numeric'}
+    value={value}
+    onChange={e => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+    placeholder={placeholder}
+  />
+);
 
 // Fortnox-synkstatus (fortnox_sync_state via /api/fortnox/sync-status).
 // 'fel' = kunde inte läsas — visas, aldrig tyst (en död statusläsning är
@@ -165,7 +199,7 @@ export default function InstallningarClient() {
       supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_flyttkostnad').select('id, km_fran, km_till, fast_kr, timpris_trailer_kr, beskrivning, giltig_fran, giltig_till').is('giltig_till', null).order('km_fran'),
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
-      supabase.from('dim_maskin').select('maskin_id, modell, inkopspris, avskrivning_procent, inkopsar, sald, sald_datum').order('modell'),
+      supabase.from('dim_maskin').select('maskin_id, modell, inkopspris, avskrivning_procent, inkopsdatum, sald, sald_datum').order('modell'),
       supabase.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod'),
       supabase.from('fortnox_invoice_rows')
         .select('id, document_number, invoice_date, description, total, matched_objekt_id, manual_objekt_id')
@@ -185,7 +219,7 @@ export default function InstallningarClient() {
       id: m.id, maskin_id: m.maskin_id, maskin_namn: m.maskin_namn || '', timpris: m.timpris, giltig_fran: m.giltig_fran,
       inkopspris: dimMap[m.maskin_id]?.inkopspris ?? '',
       avskrivning_procent: dimMap[m.maskin_id]?.avskrivning_procent ?? 20,
-      inkopsar: dimMap[m.maskin_id]?.inkopsar ?? '',
+      inkopsmanad: (dimMap[m.maskin_id]?.inkopsdatum || '').slice(0, 7),
       sald: !!dimMap[m.maskin_id]?.sald,
       sald_datum: dimMap[m.maskin_id]?.sald_datum || '',
     })));
@@ -273,7 +307,7 @@ export default function InstallningarClient() {
 
   // ── Maskin ──
   const updateMaskin = (idx: number, p: Partial<MaskinRad>) => setMaskiner(prev => prev.map((m, i) => i === idx ? { ...m, ...p, dirty: true } : m));
-  const addMaskin = () => setMaskiner(prev => [...prev, { maskin_id: '', maskin_namn: '', timpris: '', inkopspris: '', avskrivning_procent: 20, inkopsar: '', sald: false, sald_datum: '', giltig_fran: null, isNew: true, dirty: true }]);
+  const addMaskin = () => setMaskiner(prev => [...prev, { maskin_id: '', maskin_namn: '', timpris: '', inkopspris: '', avskrivning_procent: 20, inkopsmanad: '', sald: false, sald_datum: '', giltig_fran: null, isNew: true, dirty: true }]);
   const saveMaskin = async (idx: number) => {
     const row = maskiner[idx];
     if (!row.maskin_id.trim() || !row.maskin_namn.trim() || row.timpris === '' || Number(row.timpris) <= 0) { flashMsg('Fyll i maskin-ID, namn och ett pris > 0'); return; }
@@ -287,23 +321,27 @@ export default function InstallningarClient() {
     // rader, därför verifierat sparande med värde-återläsning, aldrig tyst).
     const villInkop = numOrNull(row.inkopspris);
     const villProcent = row.avskrivning_procent === '' ? 20 : Number(row.avskrivning_procent);
-    const villInkopsar = numOrNull(row.inkopsar);
-    if (villInkopsar != null && (!Number.isInteger(villInkopsar) || villInkopsar < 1900 || villInkopsar > 2100)) {
-      setSavingMaskin(null); flashMsg('Inköpsår ska vara ett årtal, t.ex. 2019'); return;
+    // Köpmånad 'YYYY-MM' → date med dag 01. Rimlighetskoll på året.
+    const villInkopsdatum = row.inkopsmanad ? `${row.inkopsmanad}-01` : null;
+    if (villInkopsdatum != null) {
+      const ar = Number(row.inkopsmanad.slice(0, 4));
+      if (!/^\d{4}-\d{2}$/.test(row.inkopsmanad) || ar < 1900 || ar > 2100) {
+        setSavingMaskin(null); flashMsg('Inköpsmånad ska vara år och månad, t.ex. 2019-06'); return;
+      }
     }
     const villSaldDatum = row.sald && row.sald_datum ? row.sald_datum : null;
     const dimRes = await uppdateraVerifierat(
       supabase, 'dim_maskin',
-      { inkopspris: villInkop, avskrivning_procent: villProcent, inkopsar: villInkopsar, sald: row.sald, sald_datum: villSaldDatum },
+      { inkopspris: villInkop, avskrivning_procent: villProcent, inkopsdatum: villInkopsdatum, sald: row.sald, sald_datum: villSaldDatum },
       { maskin_id: row.maskin_id.trim() },
-      'maskin_id, inkopspris, avskrivning_procent, inkopsar, sald, sald_datum',
+      'maskin_id, inkopspris, avskrivning_procent, inkopsdatum, sald, sald_datum',
     );
     setSavingMaskin(null);
     if (!dimRes.ok) { flashMsg(`Timpris sparat, men värdeminskning: ${dimRes.fel}`); return; }
     const r0: any = dimRes.rows[0];
     const landat = (v: any) => (v == null ? null : Number(v));
     if (landat(r0.inkopspris) !== villInkop || landat(r0.avskrivning_procent) !== villProcent
-        || landat(r0.inkopsar) !== villInkopsar || !!r0.sald !== row.sald || (r0.sald_datum || null) !== villSaldDatum) {
+        || (r0.inkopsdatum || null) !== villInkopsdatum || !!r0.sald !== row.sald || (r0.sald_datum || null) !== villSaldDatum) {
       flashMsg('Värdeminskning: värdet landade inte i dim_maskin — kontrollera behörighet'); return;
     }
     flashMsg(`Sparat: ${row.maskin_namn}`);
@@ -515,35 +553,6 @@ export default function InstallningarClient() {
     await fetchData();
   };
 
-  // ── Styles ──
-  const s: Record<string, CSSProperties> = {
-    page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 130, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" },
-    header: { padding: '16px 16px 0' },
-    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 28, padding: '0 4px' },
-    sectionBlurb: { fontSize: 11, color: '#7a7a72', padding: '0 4px', marginBottom: 10, marginTop: -4 },
-    card: { background: '#1a1a18', borderRadius: 14, padding: 16 },
-    input: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 10px', color: '#e8e8e4', fontSize: 13, fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' },
-    btnDark: { background: '#000', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' },
-    btnGhost: { background: 'rgba(255,255,255,0.03)', color: '#bfcab9', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 10, padding: '10px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', width: '100%', marginTop: 10 },
-    btnRemove: { background: 'transparent', color: '#7a7a72', border: 'none', cursor: 'pointer', padding: '4px 8px', fontSize: 18, lineHeight: 1 },
-    pill: { display: 'inline-block', fontSize: 10, color: '#7a7a72', padding: '2px 8px', background: 'rgba(255,255,255,0.04)', borderRadius: 999, fontWeight: 600, letterSpacing: 0.3 },
-    th: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.6, color: '#7a7a72', textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid rgba(255,255,255,0.07)' },
-    tdCell: { padding: '6px 6px' },
-    inputNum: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
-    saveRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, gap: 12 },
-    dateNote: { fontSize: 11, color: '#7a7a72' },
-  };
-
-  const NumInput = ({ value, onChange, step, placeholder }: { value: Num; onChange: (v: Num) => void; step?: string; placeholder?: string }) => (
-    <input
-      style={{ ...s.input, ...s.inputNum }}
-      type="number" step={step || '1'} inputMode={step ? 'decimal' : 'numeric'}
-      value={value}
-      onChange={e => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-      placeholder={placeholder}
-    />
-  );
-
   const datePillFor = (d: string | null) => <span style={s.pill as CSSProperties}>Gäller från {formatDate(d)}</span>;
 
   const saveAllFooter = (rows: { giltig_fran: string | null }[], saving: boolean, onSave: () => void) => (
@@ -626,8 +635,10 @@ export default function InstallningarClient() {
                       <NumInput value={m.avskrivning_procent} onChange={v => updateMaskin(idx, { avskrivning_procent: v })} placeholder="20" />
                     </div>
                     <div>
-                      <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>Inköpsår</div>
-                      <NumInput value={m.inkopsar} onChange={v => updateMaskin(idx, { inkopsar: v })} placeholder="t.ex. 2019" />
+                      <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>Inköpt (år + månad)</div>
+                      {/* Native månadsväljare — pro rata på köpåret kräver månaden */}
+                      <input type="month" value={m.inkopsmanad} onChange={e => updateMaskin(idx, { inkopsmanad: e.target.value })}
+                        style={{ ...s.input, colorScheme: 'dark' } as CSSProperties} />
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
