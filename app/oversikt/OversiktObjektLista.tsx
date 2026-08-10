@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { OversiktObjekt, C, ST, TF } from './oversikt-types';
+import { OversiktObjekt, C, TF, statusVisning, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, pc } from './oversikt-utils';
 import type { ProdAgg } from './page';
@@ -25,7 +25,7 @@ function Tag({ children, warn }: { children: React.ReactNode; warn?: boolean }) 
 /** Detail panel — slide-in bottom sheet */
 function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap: Record<string, ProdAgg>; onClose: () => void }) {
   const tf = TF[obj.typ] || C.yellow;
-  const st = ST[obj.status] || ST.planerad;
+  const sv = statusVisning(obj.status);
   const prod = prodMap[obj.id];
   const skVol = prod?.skordareVol || 0;
   const stVol = prod?.skotareVol || 0;
@@ -40,38 +40,40 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
   if (obj.info_anteckningar) noteringar.push(obj.info_anteckningar);
 
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }}>{title}</div>
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>{title}</div>
       {children}
     </div>
   );
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-      onClick={onClose}>
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
-      <div onClick={e => e.stopPropagation()} style={{
-        position: 'relative', width: '100%', maxWidth: 500, maxHeight: '85vh',
-        background: C.cardGrad, borderRadius: '12px 12px 0 0',
-        borderLeft: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`, borderTop: `1px solid ${C.border}`, borderBottom: 'none',
-        overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 100, background: C.bg,
+      display: 'flex', flexDirection: 'column', fontFamily: ff,
+    }}>
+      {/* Nav-bar: tillbaka-pil + namn — täcker hela skärmen inkl. flik-baren */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+        padding: 'max(10px, env(safe-area-inset-top)) 12px 10px',
+        borderBottom: `1px solid ${C.border}`, background: C.bg,
       }}>
-        {/* Top accent line */}
-        <div style={{ height: 3, background: `linear-gradient(90deg, ${tf}, transparent)` }} />
+        <button onClick={onClose} aria-label="Tillbaka" style={{
+          width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: 'none',
+          border: 'none', color: C.t1, cursor: 'pointer', fontFamily: ff,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 26 }}>arrow_back</span>
+        </button>
+        <span style={{ fontSize: 17, fontWeight: 600, color: C.t1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{obj.namn}</span>
+      </div>
 
-        {/* Drag handle */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 6px' }}>
-          <div style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.15)' }} />
-        </div>
-
-        <div style={{ padding: '0 20px 24px' }}>
-          {/* Header */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-              <span style={{ fontSize: 20, fontWeight: 700 }}>{obj.namn}</span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: st.c, padding: '3px 10px', background: st.bg, borderRadius: 20 }}>{st.l}</span>
-            </div>
-            <div style={{ fontSize: 13, color: C.t3 }}>
+      {/* Innehåll — scrollar, med luft */}
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div style={{ maxWidth: 640, margin: '0 auto', padding: '20px 20px 48px' }}>
+          {/* Status + metadata */}
+          <div style={{ marginBottom: 28 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: sv.farg, padding: '4px 12px', background: sv.bg, borderRadius: 20 }}>{sv.ord}</span>
+            <div style={{ fontSize: 14, color: C.t3, marginTop: 12 }}>
               {obj.bolag || '–'} · {obj.atgard || (obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring')} · {obj.areal || '–'} ha
               {obj.vo_nummer ? ` · ${obj.vo_nummer}` : ''}
             </div>
@@ -192,7 +194,7 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
 }
 
 type SortKey = 'namn' | 'vol' | 'status';
-type StatusBucket = 'planera' | 'pagar' | 'klar';
+type StatusBucket = StatusHink;   // 'planera' | 'kora' | 'pagar' | 'klar'
 type StatusFilter = 'alla' | StatusBucket;
 type TypFilter = 'alla' | 'slutavverkning' | 'gallring';
 
@@ -206,14 +208,12 @@ function klassaObjektTyp(o: OversiktObjekt): 'slutavverkning' | 'gallring' {
   return o.typ === 'slutavverkning' ? 'slutavverkning' : 'gallring';
 }
 
-// Status → tre hinkar. planera = ej startad (oplanerad/planerad/importerad + okänt),
-// pagar = pågående, klar = avslutad/klar.
+// Filterhink via den DELADE mappningen (oversikt-types.statusVisning) — EN källa
+// för både lista och detaljvy. planerad=kora, oplanerad=planera, pagaende=pagar,
+// avslutat=klar. (Färg/ord hämtas också från statusVisning — ingen dubbel-sanning.)
 function statusBucket(status: string): StatusBucket {
-  if (status === 'pagaende' || status === 'skordning' || status === 'skotning') return 'pagar';
-  if (status === 'avslutat' || status === 'klar') return 'klar';
-  return 'planera';
+  return statusVisning(status).key;
 }
-const BUCKET_FARG: Record<StatusBucket, string> = { planera: C.yellow, pagar: C.green, klar: C.t3 };
 
 // Kort maskin-namn för radtaggen (t.ex. "PONSSE Scorpion Giant 8W" → "Scorpion").
 function kortMaskin(namn: string): string {
@@ -334,17 +334,30 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
   const aktiva = objekt.filter(o => statusBucket(o.status) !== 'klar');
   const aktivaVol = aktiva.reduce((s, o) => s + (o.volym || 0), 0);
 
-  // Status-filter: "Alla" = aktiva (att planera + pågår); "Klar" = avslutade.
+  // Dynamiska filtersegment: 'Alla' + bara de hinkar som FINNS bland objekten
+  // (inga oplanerade idag → inget tomt 'Att planera'-segment). Fast ordning.
+  const hinkarFinns = new Set(objekt.map(o => statusBucket(o.status)));
+  const HINK_ORDNING: { k: StatusBucket; l: string }[] = [
+    { k: 'planera', l: 'Att planera' },
+    { k: 'kora', l: 'Att köra' },
+    { k: 'pagar', l: 'Pågår' },
+    { k: 'klar', l: 'Klar' },
+  ];
+  const segment: { k: StatusFilter; l: string }[] = [{ k: 'alla', l: 'Alla' }, ...HINK_ORDNING.filter(s => hinkarFinns.has(s.k))];
+  // Valt segment tömt (hinken försvann) → fall tillbaka på 'Alla'.
+  const statusFEff: StatusFilter = segment.some(s => s.k === statusF) ? statusF : 'alla';
+
+  // Status-filter: "Alla" = aktiva (ej klar); annars = vald hink.
   let li = objekt.filter(o => {
     const b = statusBucket(o.status);
-    return statusF === 'alla' ? b !== 'klar' : b === statusF;
+    return statusFEff === 'alla' ? b !== 'klar' : b === statusFEff;
   });
   li = li.filter(o => bolagF === 'alla' || o.bolag === bolagF);
   li = li.filter(o => typF === 'alla' || klassaObjektTyp(o) === typF);
 
   if (sortK === 'vol') li = [...li].sort((a, b) => (b.volym || 0) - (a.volym || 0));
   else if (sortK === 'status') {
-    const order: Record<StatusBucket, number> = { pagar: 0, planera: 1, klar: 2 };
+    const order: Record<StatusBucket, number> = { pagar: 0, kora: 1, planera: 2, klar: 3 };
     li = [...li].sort((a, b) => (order[statusBucket(a.status)] - order[statusBucket(b.status)]) || (a.namn || '').localeCompare(b.namn || '', 'sv'));
   } else {
     li = [...li].sort((a, b) => (a.namn || '').localeCompare(b.namn || '', 'sv'));
@@ -374,7 +387,7 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
   const avanceratAktivt = bolagF !== 'alla' || typF !== 'alla' || sortK !== 'status' || groupMaskin;
 
   const renderKort = (o: OversiktObjekt) => {
-    const bucket = statusBucket(o.status);
+    const sv = statusVisning(o.status);
     const maskiner = Array.from(new Set(
       ([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]).map(kortMaskin)
     ));
@@ -385,15 +398,13 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
         background: C.cardGrad, border: `1px solid ${C.border}`,
         borderRadius: 14, marginBottom: 8, cursor: 'pointer',
       }}>
-        {/* Status-prick */}
-        <div style={{ width: 10, height: 10, borderRadius: 5, background: BUCKET_FARG[bucket], flexShrink: 0 }} />
+        {/* Status-prick — färg ur delad statusVisning */}
+        <div style={{ width: 10, height: 10, borderRadius: 5, background: sv.farg, flexShrink: 0 }} />
         {/* Innehåll */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{o.namn}</span>
-            {bucket === 'planera' && (
-              <span style={{ fontSize: 12, fontWeight: 500, color: C.yellow, flexShrink: 0 }}>Att planera</span>
-            )}
+            <span style={{ fontSize: 12, fontWeight: 500, color: sv.farg, flexShrink: 0 }}>{sv.ord}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
             <span style={{ fontSize: 12.5, color: C.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
@@ -435,16 +446,11 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
           </button>
         </div>
         <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 12, padding: 3, border: `1px solid ${C.border}` }}>
-          {([
-            { k: 'alla' as const, l: 'Alla' },
-            { k: 'planera' as const, l: 'Att planera' },
-            { k: 'pagar' as const, l: 'Pågår' },
-            { k: 'klar' as const, l: 'Klar' },
-          ]).map(s => (
+          {segment.map(s => (
             <button key={s.k} onClick={() => setStatusF(s.k)} style={{
               flex: 1, padding: '9px 8px', minHeight: 38,
-              background: statusF === s.k ? 'rgba(255,255,255,0.1)' : 'transparent',
-              color: statusF === s.k ? C.t1 : C.t3, border: 'none', borderRadius: 10,
+              background: statusFEff === s.k ? 'rgba(255,255,255,0.1)' : 'transparent',
+              color: statusFEff === s.k ? C.t1 : C.t3, border: 'none', borderRadius: 10,
               fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
             }}>{s.l}</button>
           ))}
