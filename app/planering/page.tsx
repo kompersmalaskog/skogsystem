@@ -168,6 +168,8 @@ interface Marker {
   lat?: number;
   angle?: number;
   path?: Point[];
+  nummer?: number;      // basväg (mainRoad): automatiskt löpnummer — stabilt, återanvänds aldrig
+  risaPath?: Point[];   // basväg: delsträcka (SVG-punkter) som ska risas — ritas blå + geofence i körvy
   comment?: string;
   antal?: number; // miljöhänsyn: bara eternitytree/highstump — hur många träd/stubbar punkten representerar
   photoData?: string;
@@ -1004,6 +1006,29 @@ export default function PlannerPage() {
           layout: { 'line-cap': 'round', 'line-join': 'round' }
         });
       }
+    });
+
+    // === Basväg RISA-delsträcka: blå (samma #3b82f6 som RISA-zonen) ovanpå vägen. ===
+    // Prefix 'line-' → med i körvyns KEEP_PREFIX-whitelist, syns alltså i körvyn.
+    map.addLayer({
+      id: 'line-mainroad-risa', type: 'line', source: 'lines-source',
+      filter: ['==', ['get', 'isRisa'], true],
+      paint: { 'line-color': '#3b82f6', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 11, 3, 13, 4, 15, 6, 17, 7] as any },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    });
+    // === Basväg-etikett: nummer (+ längd i planering) mitt på vägen (symbol-placement 'line-center'). ===
+    map.addLayer({
+      id: 'line-mainroad-label', type: 'symbol', source: 'lines-source',
+      filter: ['==', ['get', 'lineType'], 'mainRoad'],
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 15, 14, 17, 17] as any,
+        'symbol-placement': 'line-center',
+        'text-allow-overlap': false,
+        'text-padding': 4,
+      },
+      paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 },
     });
 
     // === Fotspår-ikon för stig/led (symbol-placement: 'line') ===
@@ -2213,6 +2238,11 @@ export default function PlannerPage() {
   const [measurePath, setMeasurePath] = useState<Point[]>([]); // (vestigial — gamla skärmkoord-systemet)
   const [isMeasuring, setIsMeasuring] = useState(false);
 
+  // === RISA-DEL på basväg (två-tapp) ===
+  const [risaMarkMode, setRisaMarkMode] = useState(false);                  // aktivt två-tapp-läge
+  const [risaMarkRoadId, setRisaMarkRoadId] = useState<string | number | null>(null); // vald basväg
+  const [risaTaps, setRisaTaps] = useState<[number, number][]>([]);         // uppsamlade tapp (lng/lat)
+
   // Spegla "ritar/placerar just nu" i upptagenRef → refetchMarkers ser aktuellt läge utan att ligga i
   // deps. MÅSTE stå här (efter measureAreaMode m.fl. deklarerats ovan) — låg tidigare ~rad 477 vilket
   // gav TDZ ("Cannot access before initialization") eftersom deps-arrayen läser dessa consts vid render.
@@ -2223,8 +2253,8 @@ export default function PlannerPage() {
   useEffect(() => {
     upptagenRef.current = isDrawing || currentDrawCoords.length > 0 || isDrawMode || isZoneMode
       || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode
-      || markerMenuOpen != null || editingMarker != null;
-  }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode, markerMenuOpen, editingMarker]);
+      || markerMenuOpen != null || editingMarker != null || risaMarkMode;
+  }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode, markerMenuOpen, editingMarker, risaMarkMode]);
 
   // Geo-mätning: committad path i lng/lat (sanning för siffran), live-drag i ref (ingen re-render
   // per punkt), och ett ref till siffer-etiketten för live-uppdatering under drag.
@@ -4710,7 +4740,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
 
     const onLineClick = (e: any) => {
-      if (isDrawMode || isZoneMode) return;
+      if (isDrawMode || isZoneMode || risaMarkMode) return;
       if (e.features && e.features.length > 0) {
         const featureId = e.features[0].properties.id;
         const marker = markers.find(m => String(m.id) === String(featureId));
@@ -4726,7 +4756,7 @@ export default function PlannerPage() {
     };
 
     const onZoneClick = (e: any) => {
-      if (isDrawMode || isZoneMode) return;
+      if (isDrawMode || isZoneMode || risaMarkMode) return;
       if (e.features && e.features.length > 0) {
         const featureId = e.features[0].properties.id;
         const marker = markers.find(m => String(m.id) === String(featureId));
@@ -4756,7 +4786,7 @@ export default function PlannerPage() {
       map.off('mouseenter', 'zone-fill', onEnter);
       map.off('mouseleave', 'zone-fill', onLeave);
     };
-  }, [mapLibreReady, isDrawMode, isZoneMode, markers, markerMenuOpen, stickvagMode, snitselKarta]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapLibreReady, isDrawMode, isZoneMode, markers, markerMenuOpen, stickvagMode, snitselKarta, risaMarkMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Centrera på GPS-position
   const centerOnMe = () => {
@@ -5911,11 +5941,27 @@ export default function PlannerPage() {
             if (d <= 200) { nearby = true; break; }
           }
         }
+        // Basväg: nummer + längd-etikett. Planering "2 · 340 m", körvy bara "2" (längden skulle göda
+        // hyttvyn). Längden räknas dynamiskt (samma haversine som mätverktyget) → rätt även efter redigering.
+        let label = '';
+        if (m.lineType === 'mainRoad' && typeof m.nummer === 'number') {
+          label = korvyActive ? String(m.nummer) : `${m.nummer} · ${formatLength(pathMeters(coords as [number, number][]))}`;
+        }
         features.push({
           type: 'Feature',
-          properties: { lineType: m.lineType, id: m.id, nearby },
+          properties: { lineType: m.lineType, id: m.id, nearby, label },
           geometry: { type: 'LineString', coordinates: coords },
         });
+        // RISA-delsträcka på basväg → egen blå feature (isRisa) ovanpå vägen. Ingen lineType → matchar
+        // inte de vanliga väglagren, bara det blå risa-lagret.
+        if (m.lineType === 'mainRoad' && m.risaPath && m.risaPath.length >= 2) {
+          const rc = m.risaPath.map((p: any) => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat]; });
+          features.push({
+            type: 'Feature',
+            properties: { isRisa: true, id: m.id },
+            geometry: { type: 'LineString', coordinates: rc },
+          });
+        }
       });
       src.setData({ type: 'FeatureCollection', features });
       if (features.length > 0) {
@@ -5924,6 +5970,27 @@ export default function PlannerPage() {
       }
     } catch (e) { /* source not ready */ }
   }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition]);
+
+  // 1b) Basväg-NUMRERING: varje mainRoad utan `nummer` får ett stabilt löpnummer i skapelseordning
+  // (via id). Backfill av de befintliga + nytt när en basväg ritas. Numret sparas på markören (JSONB)
+  // → ingen migration. Redan numrerade rörs ALDRIG → "Basväg 2" förblir samma väg. Deterministiskt
+  // (maxNumrerat + id-rang) → idempotent även om en refetch skulle råka läsa tillbaka onumrerat.
+  useEffect(() => {
+    if (!markersLoaded || !valtObjekt?.id) return;
+    const mainRoads = markers.filter((m: any) => m.isLine && m.lineType === 'mainRoad');
+    const onumrerade = mainRoads.filter((m: any) => typeof m.nummer !== 'number');
+    if (onumrerade.length === 0) return;
+    const maxN = mainRoads.reduce((mx: number, m: any) => typeof m.nummer === 'number' ? Math.max(mx, m.nummer) : mx, 0);
+    const ordning = [...onumrerade].sort((a: any, b: any) => Number(a.id) - Number(b.id));
+    const nya = new Map<string, number>();
+    ordning.forEach((m: any, i: number) => nya.set(String(m.id), maxN + i + 1));
+    setMarkers((prev: any[]) => prev.map((m: any) => {
+      const n = nya.get(String(m.id));
+      return (n != null && typeof m.nummer !== 'number') ? { ...m, nummer: n } : m;
+    }));
+    ordning.forEach((m: any) => saveMarkerToDb({ ...m, nummer: nya.get(String(m.id))! }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markers, markersLoaded, valtObjekt?.id]);
 
   // 2) Synka zoner → MapLibre zones-source
   useEffect(() => {
@@ -6959,6 +7026,26 @@ export default function PlannerPage() {
         }
       } catch { /* ogiltig polygon */ }
     }
+    // RISA-delsträcka på basväg: samma varning som wet-zonen, men LÄNGS en linje (min-avstånd < tröskel).
+    // Återbrukar korvyZoneAlert + kort + vibration. markerId 'risa-<id>' skiljer från zon-larmen.
+    if (!inside) {
+      const nuvarandeRisaId = korvyZoneAlert?.markerId?.startsWith('risa-') ? korvyZoneAlert.markerId : null;
+      for (const m of markers) {
+        if (m.lineType !== 'mainRoad' || !m.risaPath || m.risaPath.length < 2) continue;
+        const pts = m.risaPath.map((p: any) => svgToLatLon(p.x, p.y));
+        let minD = Infinity;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const d = pointToSegmentDistance(pos.lat, pos.lon, pts[i].lat, pts[i].lon, pts[i + 1].lat, pts[i + 1].lon);
+          if (d < minD) minD = d;
+        }
+        // Hysteres: IN vid 12 m, lämna först vid 16 m → ingen flimrande om-buzz vid kanten (Stefan trimmar).
+        const trosk = (nuvarandeRisaId === 'risa-' + m.id) ? 16 : 12;
+        if (minD <= trosk) {
+          inside = { markerId: 'risa-' + m.id, zoneType: 'wet', label: 'RISA', color: '#0a84ff' };
+          break;
+        }
+      }
+    }
     if (inside) {
       // Trigger ny varning bara om annan zon (eller ingen tidigare)
       if (!korvyZoneAlert || korvyZoneAlert.markerId !== inside.markerId) {
@@ -7965,7 +8052,23 @@ export default function PlannerPage() {
     
     return { distance: minDist * scale, closestPoint }; // Konvertera pixlar till meter
   };
-  
+
+  // Projicera en punkt på en path (SVG-space) → segment-index, t (0..1), projicerad punkt + avstånd.
+  // Behövs för att skära ut RISA-delsträckan mellan två tapp längs basvägen.
+  const projectPointOnPath = (pt: Point, path: Point[]): { seg: number; t: number; point: Point; dist: number } => {
+    let best = { seg: 0, t: 0, point: path[0] || { x: 0, y: 0 }, dist: Infinity };
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i], b = path[i + 1];
+      const abx = b.x - a.x, aby = b.y - a.y;
+      const len2 = abx * abx + aby * aby;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((pt.x - a.x) * abx + (pt.y - a.y) * aby) / len2));
+      const cx = a.x + t * abx, cy = a.y + t * aby;
+      const d = Math.hypot(pt.x - cx, pt.y - cy);
+      if (d < best.dist) best = { seg: i, t, point: { x: cx, y: cy }, dist: d };
+    }
+    return best;
+  };
+
   // Alla snitslade stickvägar (backvägar/traktgräns exkluderade).
   const stickvagLinjer = (): Marker[] => markers.filter(m =>
     m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '') && m.path && m.path.length > 1);
@@ -9318,6 +9421,48 @@ export default function PlannerPage() {
     setActiveCategory(null);
   };
 
+  // === RISA-DEL på basväg: starta två-tapp / avbryt / committa / ta bort ===
+  const startaRisaMarkering = (roadId: string | number) => {
+    setRisaMarkRoadId(roadId);
+    setRisaTaps([]);
+    setRisaMarkMode(true);
+    setMarkerMenuOpen(null);
+  };
+  const avbrytRisaMarkering = () => {
+    setRisaMarkMode(false);
+    setRisaMarkRoadId(null);
+    setRisaTaps([]);
+  };
+  // Två tapp (lng/lat) → projicera på den valda basvägen, skär ut delsträckan, spara som risaPath.
+  const committaRisaDel = (tapA: [number, number], tapB: [number, number]) => {
+    const road = markers.find(m => String(m.id) === String(risaMarkRoadId));
+    if (!road || !road.path || road.path.length < 2) { avbrytRisaMarkering(); return; }
+    const path = road.path;
+    const pA = projectPointOnPath(latLonToSvg(tapA[1], tapA[0]), path);
+    const pB = projectPointOnPath(latLonToSvg(tapB[1], tapB[0]), path);
+    // Ordna längs linjen (lågt segment/t först)
+    let lo = pA, hi = pB;
+    if (lo.seg > hi.seg || (lo.seg === hi.seg && lo.t > hi.t)) { lo = pB; hi = pA; }
+    const sub: Point[] = [lo.point];
+    for (let i = lo.seg + 1; i <= hi.seg; i++) sub.push(path[i]);
+    sub.push(hi.point);
+    if (sub.length < 2) { avbrytRisaMarkering(); return; }
+    saveToHistory([...markers]);
+    const uppdaterad = { ...road, risaPath: sub };
+    setMarkers(prev => prev.map(m => String(m.id) === String(road.id) ? uppdaterad : m));
+    saveMarkerToDb(uppdaterad);
+    avbrytRisaMarkering();
+  };
+  const taBortRisaDel = (roadId: string | number) => {
+    const road = markers.find(m => String(m.id) === String(roadId));
+    if (!road) return;
+    saveToHistory([...markers]);
+    const utan: any = { ...road };
+    delete utan.risaPath;
+    setMarkers(prev => prev.map(m => String(m.id) === String(roadId) ? (utan as Marker) : m));
+    saveMarkerToDb(utan as Marker);
+  };
+
   // Mät via KLICK (geo): varje tap sätter en punkt. MapLibres 'click' fyrar BARA vid ett tap
   // (tryck+släpp utan rörelse) — aldrig under en drag-panorering. Därför får dragPan vara PÅ:
   // ett tap sätter punkt, ett drag panorerar kartan (så man kan flytta sig mellan punkter och
@@ -9338,6 +9483,31 @@ export default function PlannerPage() {
       if (map.doubleClickZoom) map.doubleClickZoom.enable();
     };
   }, [measureMode, measureAreaMode, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // RISA-DEL via KLICK: två tapp (start + slut) längs den valda basvägen. Samma tap-mönster som
+  // mätverktyget — MapLibres 'click' fyrar bara vid tap (utan drag), så drag panorerar fortfarande.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !risaMarkMode) return;
+    const onClick = (e: any) => {
+      const ll = e?.lngLat;
+      if (!ll) return;
+      setRisaTaps(prev => (prev.length >= 2 ? prev : [...prev, [ll.lng, ll.lat] as [number, number]]));
+    };
+    map.on('click', onClick);
+    map.doubleClickZoom.disable();
+    return () => {
+      map.off('click', onClick);
+      if (map.doubleClickZoom) map.doubleClickZoom.enable();
+    };
+  }, [risaMarkMode, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // När två tapp finns → committa RISA-delen. Egen effekt (ny render) → committaRisaDel läser
+  // aktuella markers, inte en stale closure.
+  useEffect(() => {
+    if (risaMarkMode && risaTaps.length >= 2) committaRisaDel(risaTaps[0], risaTaps[1]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [risaTaps, risaMarkMode]);
 
   // Rita mät-geometrin (linje/yta + punkter) från measureGeo. Effektiv yta = aktivt yt-läge
   // ELLER en låst yt-mätning (efter Klar är measureAreaMode av men måttet ska stå kvar).
@@ -12402,6 +12572,21 @@ export default function PlannerPage() {
       {/* (ROTERA-INDIKATOR "Dra runt pilen" borttagen — rotation sker nu i pil-kortet med ratt + ⟲/⟳) */}
 
       {/* === MARKERING MENY (popup) === */}
+      {/* RISA-DEL: instruktionsbanner (två tapp längs basvägen) */}
+      {risaMarkMode && (
+        <div style={{
+          position: 'fixed', top: 'calc(env(safe-area-inset-top) + 70px)', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 350, background: 'rgba(0,0,0,0.88)', border: '1px solid rgba(59,130,246,0.6)',
+          borderRadius: '14px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', maxWidth: '92vw',
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#3b82f6' }}>water_drop</span>
+          <div style={{ fontSize: '14px', color: '#fff' }}>
+            {risaTaps.length === 0 ? 'Tryck där risningen börjar på basvägen' : 'Tryck där risningen slutar'}
+          </div>
+          <button onClick={avbrytRisaMarkering} style={{ background: 'rgba(255,255,255,0.12)', border: 'none', color: '#fff', borderRadius: '10px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
+        </div>
+      )}
+
       {markerMenuOpen && (() => {
         const marker = markers.find(m => m.id === markerMenuOpen);
         if (!marker) return null;
@@ -12475,7 +12660,18 @@ export default function PlannerPage() {
                 </div>
                 <span style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>{getMarkerName()}</span>
               </div>
-              
+
+              {/* Basväg: nummer + längd (+ ev. RISA-del) */}
+              {marker.isLine && marker.lineType === 'mainRoad' && (() => {
+                const coords = (marker.path || []).map((p: any) => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat] as [number, number]; });
+                return (
+                  <div style={{ fontSize: '15px', color: '#8e8e93', textAlign: 'center', marginBottom: '16px' }}>
+                    {typeof marker.nummer === 'number' ? `Basväg ${marker.nummer}` : 'Basväg'} · {formatLength(pathMeters(coords))}
+                    {marker.risaPath && marker.risaPath.length >= 2 && <span style={{ color: '#3b82f6', fontWeight: 600 }}> · RISA-del</span>}
+                  </div>
+                );
+              })()}
+
               {/* Foto - klickbart för fullskärm */}
               {marker.photoData && (
                 <div style={{
@@ -13033,6 +13229,23 @@ export default function PlannerPage() {
                   </button>
                 );
               })()}
+
+              {/* RISA-del på basväg — markera (två tapp) eller ta bort */}
+              {marker.isLine && marker.lineType === 'mainRoad' && (
+                <button
+                  onClick={() => { if (marker.risaPath && marker.risaPath.length >= 2) { taBortRisaDel(marker.id); setMarkerMenuOpen(null); } else { startaRisaMarkering(marker.id); } }}
+                  title={(marker.risaPath && marker.risaPath.length >= 2) ? 'Ta bort RISA-del' : 'Markera RISA-del'}
+                  style={{
+                    width: '48px', height: '48px', borderRadius: '24px', border: 'none',
+                    background: 'rgba(59,130,246,0.18)', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill={(marker.risaPath && marker.risaPath.length >= 2) ? '#3b82f6' : 'none'} stroke="#3b82f6" strokeWidth="2">
+                    <path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z" />
+                  </svg>
+                </button>
+              )}
 
               {/* Radera */}
               <button
