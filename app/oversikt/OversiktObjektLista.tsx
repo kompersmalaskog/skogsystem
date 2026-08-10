@@ -14,16 +14,35 @@ interface Props {
   prodMap: Record<string, ProdAgg>;
 }
 
-function Tag({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
+function Tag({ children, warn, color, bg }: { children: React.ReactNode; warn?: boolean; color?: string; bg?: string }) {
   return (
     <span style={{
       fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap',
-      color: warn ? C.yellow : C.t2,
-      background: warn ? C.yd : 'rgba(255,255,255,0.04)',
+      color: color ?? (warn ? C.yellow : C.t2),
+      background: bg ?? (warn ? C.yd : 'rgba(255,255,255,0.04)'),
       border: `1px solid ${C.border}`,
     }}>{children}</span>
   );
 }
+
+/** Notering intill sitt sammanhang — fetstilt etikett + text (aldrig en samlad hög). */
+function NoteLine({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 13, color: C.t2, marginTop: 8, lineHeight: 1.5 }}>
+      <span style={{ color: C.t3, fontWeight: 600 }}>{label}: </span>{children}
+    </div>
+  );
+}
+
+/* Humanisering av bärighet/terräng → alltid "[egenskap] [vad]", aldrig rå gemener-kod.
+   Okänt värde → kapitaliseras. Svår mark (dålig bärighet / brant terräng) → lätt orange. */
+const BARIGHET_LABEL: Record<string, string> = { bra: 'Bra bärighet', medel: 'Medel bärighet', dalig: 'Dålig bärighet' };
+const TERRANG_LABEL: Record<string, string> = { flackt: 'Flack terräng', kuperat: 'Kuperad terräng', brant: 'Brant terräng' };
+function kapitalisera(s: string): string { const t = s.trim(); return t.charAt(0).toUpperCase() + t.slice(1); }
+function barighetLabel(v: string): string { return BARIGHET_LABEL[v.trim().toLowerCase()] || kapitalisera(v); }
+function terrangLabel(v: string): string { return TERRANG_LABEL[v.trim().toLowerCase()] || kapitalisera(v); }
+function barighetSvar(v: string): boolean { return v.trim().toLowerCase() === 'dalig'; }
+function terrangSvar(v: string): boolean { return v.trim().toLowerCase() === 'brant'; }
 
 /** Rubrik-sektion i detaljvyn. */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -117,17 +136,30 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
   const ovrigt = aggregeraMark(hansynMarks.filter((m) => hansynNiva(m.sub) === 'ovrigt'));
 
   const harTrailer = obj.transport_trailer_in === true || obj.transport_trailer_in === false;
-  const forutComments: string[] = [];
-  if (obj.transport_kommentar) forutComments.push(obj.transport_kommentar);
-  for (const f of forutAgg) forutComments.push(...f.comments);
+  const forutMarkComments: string[] = [];       // kommentarer på körnäts-markeringar (bro etc.)
+  for (const f of forutAgg) forutMarkComments.push(...f.comments);
   const harForut = !!(obj.barighet || obj.terrang || harTrailer || forutAgg.length > 0 || obj.transport_kommentar);
   const harHansyn = faror.length > 0 || hansyn.length > 0 || ovrigt.length > 0;
 
-  // transport_kommentar visas under Förutsättningar → inte dubbelt i Noteringar.
+  // Kontextuella noteringar visas INTILL sitt sammanhang (Förutsättningar/Maskiner) — samla
+  // dem så den allmänna Noteringar-sektionen aldrig upprepar samma text (ingen text två ggr).
+  const placeradText = new Set<string>();
+  for (const t of [obj.transport_kommentar, obj.skordare_manuell_fallning_text, obj.markagare_ved_text, obj.grot_anteckning]) {
+    if (t && t.trim()) placeradText.add(t.trim());
+  }
+  const maskinerHarInnehall = !!(
+    obj.skordare_maskin || obj.skotare_maskin || obj.skotare_lastreder_breddat || obj.skotare_ris_direkt ||
+    obj.skordare_manuell_fallning || obj.markagare_ska_ha_ved ||
+    obj.skordare_manuell_fallning_text || obj.markagare_ved_text || obj.grot_anteckning
+  );
+
+  // Allmän Noteringar = bara anteckningar/info_anteckningar med text som inte redan visas i
+  // sitt sammanhang (och inte dubblerar varandra).
   const noteringar: string[] = [];
-  if (obj.skordare_manuell_fallning_text) noteringar.push(obj.skordare_manuell_fallning_text);
-  if (obj.markagare_ved_text) noteringar.push(obj.markagare_ved_text);
-  if (obj.info_anteckningar) noteringar.push(obj.info_anteckningar);
+  for (const t of [obj.anteckningar, obj.info_anteckningar]) {
+    const v = (t || '').trim();
+    if (v && !placeradText.has(v) && !noteringar.includes(v)) noteringar.push(v);
+  }
 
   if (typeof document === 'undefined') return null;
   return createPortal(
@@ -211,13 +243,14 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
           {harForut && (
             <Section title="Förutsättningar">
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {obj.barighet && <Tag>{obj.barighet}</Tag>}
-                {obj.terrang && <Tag>{obj.terrang}</Tag>}
+                {obj.barighet && <Tag color={barighetSvar(obj.barighet) ? C.orange : undefined} bg={barighetSvar(obj.barighet) ? C.od : undefined}>{barighetLabel(obj.barighet)}</Tag>}
+                {obj.terrang && <Tag color={terrangSvar(obj.terrang) ? C.orange : undefined} bg={terrangSvar(obj.terrang) ? C.od : undefined}>{terrangLabel(obj.terrang)}</Tag>}
                 {obj.transport_trailer_in === true && <Tag>Trailer in</Tag>}
                 {obj.transport_trailer_in === false && <Tag warn>Ej trailer</Tag>}
                 {forutAgg.map((f) => <MarkChip key={f.label} label={f.label} count={f.count} color={C.t2} bg="rgba(255,255,255,0.04)" />)}
               </div>
-              {forutComments.map((c, i) => (
+              {obj.transport_kommentar && <NoteLine label="Transport">{obj.transport_kommentar}</NoteLine>}
+              {forutMarkComments.map((c, i) => (
                 <div key={i} style={{ fontSize: 13, color: C.t2, marginTop: 8, lineHeight: 1.5 }}>{c}</div>
               ))}
             </Section>
@@ -285,19 +318,26 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
             </Section>
           )}
 
-          {/* Maskin-info */}
-          {(obj.skordare_maskin || obj.skotare_maskin) && (
+          {/* Maskiner & metod — kontextuella noteringar intill sin egen flagga */}
+          {maskinerHarInnehall && (
             <Section title="Maskiner">
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                {obj.skordare_maskin && <Tag>{obj.skordare_maskin}{obj.skordare_band ? ` · Band ${obj.skordare_band_par || ''}p` : ''}</Tag>}
-                {obj.skotare_maskin && <Tag>{obj.skotare_maskin}{obj.skotare_band ? ` · Band ${obj.skotare_band_par || ''}p` : ''}</Tag>}
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {obj.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
-                {obj.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
-                {obj.skordare_manuell_fallning && <Tag warn>Manuell fällning</Tag>}
-                {obj.markagare_ska_ha_ved && <Tag>Ved åt markägare</Tag>}
-              </div>
+              {(obj.skordare_maskin || obj.skotare_maskin) && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {obj.skordare_maskin && <Tag>{obj.skordare_maskin}{obj.skordare_band ? ` · Band ${obj.skordare_band_par || ''}p` : ''}</Tag>}
+                  {obj.skotare_maskin && <Tag>{obj.skotare_maskin}{obj.skotare_band ? ` · Band ${obj.skotare_band_par || ''}p` : ''}</Tag>}
+                </div>
+              )}
+              {(obj.skotare_lastreder_breddat || obj.skotare_ris_direkt || obj.skordare_manuell_fallning || obj.markagare_ska_ha_ved) && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {obj.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
+                  {obj.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
+                  {obj.skordare_manuell_fallning && <Tag warn>Manuell fällning</Tag>}
+                  {obj.markagare_ska_ha_ved && <Tag>Ved åt markägare</Tag>}
+                </div>
+              )}
+              {obj.skordare_manuell_fallning_text && <NoteLine label="Manuell fällning">{obj.skordare_manuell_fallning_text}</NoteLine>}
+              {obj.markagare_ved_text && <NoteLine label="Ved åt markägare">{obj.markagare_ved_text}</NoteLine>}
+              {obj.grot_anteckning && <NoteLine label="GROT">{obj.grot_anteckning}</NoteLine>}
             </Section>
           )}
 
