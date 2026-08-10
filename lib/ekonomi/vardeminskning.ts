@@ -10,42 +10,71 @@
 // uppskattning, inte mätt eller bokfört) — samma färgregel som övriga
 // manuella/uppskattade värden i ekonomisektionen.
 //
-// Inparametrarna bor i dim_maskin (inkopspris, avskrivning_procent) och
-// sätts i /ekonomi/installningar. inkopspris NULL/0 → null tillbaka:
-// ingen värdeminskning räknas för maskinen (ärligt, aldrig en 0-gissning).
+// Inparametrarna bor i dim_maskin (inkopspris, avskrivning_procent,
+// inkopsar, sald, sald_datum) och sätts i /ekonomi/installningar.
+// inkopspris NULL/0 → null tillbaka: ingen värdeminskning räknas för
+// maskinen (ärligt, aldrig en 0-gissning).
 
 export const AVSKRIVNING_PROCENT_FORVAL = 20;
 
+export type MaskinVardeminskning = {
+  inkopspris?: number | null;
+  avskrivning_procent?: number | null;
+  inkopsar?: number | null;      // året maskinen köptes/togs i drift
+  sald?: boolean | null;
+  sald_datum?: string | null;    // ISO-datum (YYYY-MM-DD)
+};
+
 /**
- * Årets värdeminskning i kr, degressivt: procent av kvarvarande värde.
- * 5 000 000 kr, 20 %: år 1 = 1 000 000, år 2 = 800 000, år 3 = 640 000 …
- * `alderAr` är 1-baserat (år 1 = första året). Okänd ålder → år 1
- * (försiktigt: högsta årskostnaden, ingen dold nedräkning).
+ * Maskinens position i avskrivningskurvan för år `forAr`:
+ * ålder = forAr − inkopsar (clampad ≥ 1). Köpt 2019 → ålder 7 i 2026 →
+ * sjunde årets avskrivning = pris × (1−p)^6 × p. Okänt eller orimligt
+ * inköpsår → 1 (försiktigt: högsta årskostnaden, ingen dold nedräkning).
  */
-export function vardeminskningPerAr(
-  inkopspris: number | null | undefined,
-  procent?: number | null,
-  alderAr: number = 1,
-): number | null {
-  const pris = Number(inkopspris);
+export function maskinAlderAr(inkopsar: number | null | undefined, forAr: number): number {
+  const ar = Number(inkopsar);
+  if (!Number.isInteger(ar) || ar < 1900 || ar >= forAr) return 1;
+  return forAr - ar;
+}
+
+/**
+ * Är maskinen såld ur driften för år `forAr`? Från och med säljåret bär
+ * den ingen värdeminskning (försiktigt — ingen dubbelkostnad mellan oss
+ * och köparen); åren FÖRE säljåret räknas som vanligt (historik).
+ * sald=true utan datum = såld nu → ingen värdeminskning från innevarande år.
+ */
+export function arSaldForAr(m: MaskinVardeminskning, forAr: number, nuAr: number = new Date().getFullYear()): boolean {
+  if (!m.sald) return false;
+  const saldAr = m.sald_datum ? Number(String(m.sald_datum).slice(0, 4)) : NaN;
+  if (!Number.isInteger(saldAr)) return forAr >= nuAr;
+  return forAr >= saldAr;
+}
+
+/**
+ * Årets värdeminskning i kr för år `forAr` (default innevarande år),
+ * degressivt: procent av kvarvarande värde vid maskinens ålder det året.
+ * null när inköpspris saknas eller maskinen är såld för det året.
+ */
+export function vardeminskningPerAr(m: MaskinVardeminskning, forAr: number = new Date().getFullYear()): number | null {
+  const pris = Number(m.inkopspris);
   if (!(pris > 0)) return null;
-  const p = (Number(procent) > 0 ? Number(procent) : AVSKRIVNING_PROCENT_FORVAL) / 100;
-  const n = Math.max(1, Math.floor(alderAr));
-  return pris * Math.pow(1 - p, n - 1) * p;
+  if (arSaldForAr(m, forAr)) return null;
+  const p = (Number(m.avskrivning_procent) > 0 ? Number(m.avskrivning_procent) : AVSKRIVNING_PROCENT_FORVAL) / 100;
+  const alder = maskinAlderAr(m.inkopsar, forAr);
+  return pris * Math.pow(1 - p, alder - 1) * p;
 }
 
 /**
  * Värdeminskning i kr per G15-timme: årets värdeminskning delat på
- * maskinens G15-timmar samma period. null när inköpspris saknas eller
- * timmarna är 0 (kr/0h är inte ett tal — visas som streck, aldrig 0).
+ * maskinens G15-timmar samma period. null när inköpspris saknas, maskinen
+ * är såld, eller timmarna är 0 (kr/0h är inte ett tal — visas som streck).
  */
 export function vardeminskningPerG15h(
-  inkopspris: number | null | undefined,
-  procent: number | null | undefined,
+  m: MaskinVardeminskning,
   arstimmar: number,
-  alderAr: number = 1,
+  forAr: number = new Date().getFullYear(),
 ): number | null {
-  const perAr = vardeminskningPerAr(inkopspris, procent, alderAr);
+  const perAr = vardeminskningPerAr(m, forAr);
   if (perAr == null || !(arstimmar > 0)) return null;
   return perAr / arstimmar;
 }
