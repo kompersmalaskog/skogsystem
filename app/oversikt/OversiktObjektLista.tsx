@@ -1,9 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { OversiktObjekt, C, TF, statusVisning, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, pc } from './oversikt-utils';
+import { supabase } from '@/lib/supabase';
+import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
 import type { ProdAgg } from './page';
 
 interface Props {
@@ -22,47 +25,129 @@ function Tag({ children, warn }: { children: React.ReactNode; warn?: boolean }) 
   );
 }
 
-/** Detail panel — slide-in bottom sheet */
+/** Rubrik-sektion i detaljvyn. */
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+/** Färgad markerings-chip (aggregerad, med ×N vid flera). */
+function MarkChip({ label, count, color, bg }: { label: string; count: number; color: string; bg: string }) {
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap',
+      color, background: bg, border: `1px solid ${C.border}`,
+    }}>{label}{count > 1 ? ` ×${count}` : ''}</span>
+  );
+}
+
+/* Markeringar som beskriver maskinernas FÖRUTSÄTTNINGAR (körnät/logistik på trakten) —
+   inte hänsyn. Allt annat grupperas som hänsyn (samma humanisering som Karta-fliken). */
+const FORUT_SUBTYPER = new Set([
+  'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue',
+  'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag',
+  'drivedirection', 'landing', 'turningpoint', 'bridge', 'corduroy',
+]);
+type MarkItem = { sub: string | null; label: string; comment: string };
+/* Hänsyn-nivå för detaljvyn — samma fara/hänsyn/övrigt som Karta-fliken, men blött (wet)
+   räknas som hänsyn här (Martins indelning: blött hör till hänsynen). */
+function hansynNiva(sub: string | null): 'fara' | 'hansyn' | 'ovrigt' {
+  if (sub && FARA_SUBTYPER.has(sub)) return 'fara';
+  if (sub && (HANSYN_SUBTYPER.has(sub) || sub === 'wet')) return 'hansyn';
+  return 'ovrigt';
+}
+/* Slå ihop identiska etiketter → { label, count, comments }. */
+function aggregeraMark(list: MarkItem[]): { label: string; count: number; comments: string[] }[] {
+  const map = new Map<string, { label: string; count: number; comments: string[] }>();
+  for (const m of list) {
+    if (!map.has(m.label)) map.set(m.label, { label: m.label, count: 0, comments: [] });
+    const e = map.get(m.label)!;
+    e.count++;
+    if (m.comment) e.comments.push(m.comment);
+  }
+  return Array.from(map.values());
+}
+
+/** Detalj — helsida (portalas till <body> så den täcker TopBar; hemknappen ersätts av tillbaka-pil). */
 function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap: Record<string, ProdAgg>; onClose: () => void }) {
   const tf = TF[obj.typ] || C.yellow;
   const sv = statusVisning(obj.status);
   const prod = prodMap[obj.id];
   const skVol = prod?.skordareVol || 0;
   const stVol = prod?.skotareVol || 0;
+  const harProd = skVol > 0;              // riktig produktionsdata (skarp källa kommer i Steg 2)
   const skP = pc(skVol, obj.volym || 0);
   const stP = pc(stVol, obj.volym || 0);
   const ber = obj.trakt_data?.beraknad;
 
+  // Markeringar för DETTA objekt — hämtas lat (bara när ett objekt öppnats).
+  const [marks, setMarks] = useState<MarkItem[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('planering_markeringar').select('data').eq('objekt_id', obj.id);
+      if (cancelled) return;
+      const list: MarkItem[] = (data || []).map((r: any) => {
+        const sub = markeringSub(r.data);
+        const comment = (r.data && typeof r.data === 'object' && typeof r.data.comment === 'string')
+          ? r.data.comment.trim() : '';
+        return { sub, label: sub ? subLabel(sub) : 'Markering', comment };
+      }).filter((m) => m.sub || m.comment);
+      setMarks(list);
+    })();
+    return () => { cancelled = true; };
+  }, [obj.id]);
+
+  // Hemknappen (TopBar) döljs medan helsidan är öppen → tillbaka-pilen ersätter huset.
+  useEffect(() => {
+    document.body.setAttribute('data-hide-home', '');
+    return () => { document.body.removeAttribute('data-hide-home'); };
+  }, []);
+
+  // Dela upp markeringarna: förutsättningar (körnät/logistik) vs hänsyn (allt annat).
+  const forutAgg = aggregeraMark(marks.filter((m) => m.sub && FORUT_SUBTYPER.has(m.sub)));
+  const hansynMarks = marks.filter((m) => !(m.sub && FORUT_SUBTYPER.has(m.sub)));
+  const faror = aggregeraMark(hansynMarks.filter((m) => hansynNiva(m.sub) === 'fara'));
+  const hansyn = aggregeraMark(hansynMarks.filter((m) => hansynNiva(m.sub) === 'hansyn'));
+  const ovrigt = aggregeraMark(hansynMarks.filter((m) => hansynNiva(m.sub) === 'ovrigt'));
+
+  const harTrailer = obj.transport_trailer_in === true || obj.transport_trailer_in === false;
+  const forutComments: string[] = [];
+  if (obj.transport_kommentar) forutComments.push(obj.transport_kommentar);
+  for (const f of forutAgg) forutComments.push(...f.comments);
+  const harForut = !!(obj.barighet || obj.terrang || harTrailer || forutAgg.length > 0 || obj.transport_kommentar);
+  const harHansyn = faror.length > 0 || hansyn.length > 0 || ovrigt.length > 0;
+
+  // transport_kommentar visas under Förutsättningar → inte dubbelt i Noteringar.
   const noteringar: string[] = [];
-  if (obj.transport_kommentar) noteringar.push(obj.transport_kommentar);
   if (obj.skordare_manuell_fallning_text) noteringar.push(obj.skordare_manuell_fallning_text);
   if (obj.markagare_ved_text) noteringar.push(obj.markagare_ved_text);
   if (obj.info_anteckningar) noteringar.push(obj.info_anteckningar);
 
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div style={{ marginBottom: 28 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>{title}</div>
-      {children}
-    </div>
-  );
-
-  return (
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 100, background: C.bg,
-      display: 'flex', flexDirection: 'column', fontFamily: ff,
+      position: 'fixed', inset: 0, zIndex: 1100, background: C.bg,
+      display: 'flex', flexDirection: 'column', fontFamily: ff, color: C.t1,
     }}>
-      {/* Nav-bar: tillbaka-pil + namn — täcker hela skärmen inkl. flik-baren */}
+      {/* Nav-bar: tillbaka-pil där huset annars ligger (överst vänster) + namn */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-        padding: 'max(10px, env(safe-area-inset-top)) 12px 10px',
+        display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+        height: 'calc(56px + env(safe-area-inset-top))', paddingTop: 'env(safe-area-inset-top)',
+        paddingLeft: 12, paddingRight: 12,
         borderBottom: `1px solid ${C.border}`, background: C.bg,
       }}>
         <button onClick={onClose} aria-label="Tillbaka" style={{
-          width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: 'none',
-          border: 'none', color: C.t1, cursor: 'pointer', fontFamily: ff,
+          width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+          background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: ff,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 26 }}>arrow_back</span>
+          <span className="material-symbols-outlined" style={{ fontSize: 22 }}>arrow_back</span>
         </button>
         <span style={{ fontSize: 17, fontWeight: 600, color: C.t1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{obj.namn}</span>
       </div>
@@ -79,20 +164,22 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
             </div>
           </div>
 
-          {/* Volym + Produktion */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+          {/* Volym + Produktion — Skördat-rutan bara vid riktig produktion (aldrig 0/0%) */}
+          <div style={{ display: 'grid', gridTemplateColumns: harProd ? '1fr 1fr' : '1fr', gap: 10, marginBottom: harProd ? 20 : 28 }}>
             <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(obj.volym || 0)}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
               <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Planerad volym</div>
             </div>
-            <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(skVol))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
-              <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Skördat ({skP}%)</div>
-            </div>
+            {harProd && (
+              <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(skVol))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
+                <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Skördat ({skP}%)</div>
+              </div>
+            )}
           </div>
 
-          {/* Progress bars */}
-          {(skVol > 0 || stVol > 0) && (
+          {/* Progress bars — bara vid riktig produktion */}
+          {harProd && (
             <div style={{ marginBottom: 20 }}>
               {[{ l: 'Skördare', p: skP }, { l: 'Skotare', p: stP }].map((r, i) => (
                 <div key={i} style={{ marginBottom: 8 }}>
@@ -120,17 +207,59 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
             </div>
           )}
 
-          {/* Väg & Transport — only if relevant */}
-          {(obj.transport_trailer_in !== undefined || obj.transport_kommentar || obj.barighet || obj.terrang) && (
-            <Section title="Väg & Transport">
+          {/* Förutsättningar — maskinernas villkor på trakten (bärighet/terräng/trailer + körnät) */}
+          {harForut && (
+            <Section title="Förutsättningar">
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {obj.barighet && <Tag>{obj.barighet}</Tag>}
                 {obj.terrang && <Tag>{obj.terrang}</Tag>}
                 {obj.transport_trailer_in === true && <Tag>Trailer in</Tag>}
                 {obj.transport_trailer_in === false && <Tag warn>Ej trailer</Tag>}
+                {forutAgg.map((f) => <MarkChip key={f.label} label={f.label} count={f.count} color={C.t2} bg="rgba(255,255,255,0.04)" />)}
               </div>
-              {obj.transport_kommentar && (
-                <div style={{ fontSize: 13, color: C.t2, marginTop: 8, lineHeight: 1.5 }}>{obj.transport_kommentar}</div>
+              {forutComments.map((c, i) => (
+                <div key={i} style={{ fontSize: 13, color: C.t2, marginTop: 8, lineHeight: 1.5 }}>{c}</div>
+              ))}
+            </Section>
+          )}
+
+          {/* Hänsyn — samma gruppering/humanisering som Karta-fliken (faror högst) */}
+          {harHansyn && (
+            <Section title="Hänsyn">
+              {faror.length > 0 && (
+                <div style={{ marginBottom: (hansyn.length || ovrigt.length) ? 12 : 0 }}>
+                  {faror.map((f, i) => (
+                    <div key={i} style={{ background: C.rd, border: '1px solid rgba(255,69,58,0.15)', borderRadius: 10, padding: '10px 12px', marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 4, background: C.red, flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: C.red }}>{f.label}{f.count > 1 ? ` ×${f.count}` : ''}</span>
+                      </div>
+                      {f.comments.map((c, ci) => (
+                        <div key={ci} style={{ fontSize: 12.5, color: C.t1, lineHeight: 1.45, marginTop: 3, paddingLeft: 14 }}>{c}</div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {hansyn.length > 0 && (
+                <div style={{ marginBottom: ovrigt.length ? 12 : 0 }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {hansyn.map((h) => <MarkChip key={h.label} label={h.label} count={h.count} color={C.orange} bg={C.od} />)}
+                  </div>
+                  {hansyn.flatMap((h) => h.comments).map((c, i) => (
+                    <div key={i} style={{ fontSize: 13, color: C.t2, marginTop: 8, lineHeight: 1.5 }}>{c}</div>
+                  ))}
+                </div>
+              )}
+              {ovrigt.length > 0 && (
+                <div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {ovrigt.map((o) => <MarkChip key={o.label} label={o.label} count={o.count} color={C.t2} bg="rgba(255,255,255,0.04)" />)}
+                  </div>
+                  {ovrigt.flatMap((o) => o.comments).map((c, i) => (
+                    <div key={i} style={{ fontSize: 13, color: C.t2, marginTop: 8, lineHeight: 1.5 }}>{c}</div>
+                  ))}
+                </div>
               )}
             </Section>
           )}
@@ -189,7 +318,8 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
