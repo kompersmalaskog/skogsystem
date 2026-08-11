@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { OversiktObjekt, C, statusVisning, type StatusHink } from './oversikt-types';
+import { OversiktObjekt, C, statusVisning, STATUS_AVSLUTADE, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym } from './oversikt-utils';
 import { supabase } from '@/lib/supabase';
@@ -92,10 +92,16 @@ function aggregeraMark(list: MarkItem[]): { label: string; count: number; commen
 function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: SkordAgg; onClose: () => void }) {
   const sv = statusVisning(obj.status);
   const skordat = skord?.skordat || 0;          // m³fub
-  const skotat = skord?.skotat || 0;            // m³fub (null → 0 för backen-räkningen)
-  const paBacken = Math.max(0, skordat - skotat);   // virke som väntar på utkörning
-  const skotP = skordat > 0 ? Math.min(100, Math.round((skotat / skordat) * 100)) : 0;  // andel utkört (grå stapel)
   const harSkord = skordat > 0;                 // ingen skörd-rad → göm hela produktionsblocket (aldrig 0)
+  // Skotat: null = ingen skotdata registrerad (≠ 0). Aktivt objekt utan rad = skotaren har inte
+  // börjat (ärligt 0); AVSLUTAT utan rad = okänt → visa "ej registrerad", ingen procent, ingen backen.
+  const skotatVal = skord?.skotat ?? null;      // number | null
+  const skotatKand = skotatVal != null || !STATUS_AVSLUTADE.includes(obj.status);
+  const skotatEff = skotatVal ?? 0;             // aktiv-null → 0
+  // Procent utkört = skotat/skördat*100 (enda ärliga procentmåttet, båda m³fub). Kapas EJ (>100 = klart).
+  const skotP = skotatKand && skordat > 0 ? Math.round((skotatEff / skordat) * 100) : null;
+  const utkort = skotP != null && skotP >= 98;  // mätskillnad kan ge >100 → visa "Utkört", inte "102%"
+  const paBacken = Math.max(0, skordat - skotatEff);
   const ber = obj.trakt_data?.beraknad;
 
   // Markeringar för DETTA objekt — hämtas lat (bara när ett objekt öppnats).
@@ -200,14 +206,25 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
               </div>
               <div style={{ fontSize: 13, color: C.t3, marginTop: 3 }}>Skördat{skord?.sista ? ` · ${skord.sista}` : ''}</div>
 
-              {/* Grå stapel — hur mycket som är utkört (skotat / skördat) */}
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden', marginTop: 16 }}>
-                <div style={{ width: `${skotP}%`, height: '100%', background: 'rgba(255,255,255,0.32)', borderRadius: 3, transition: 'width 0.5s' }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
-                <span style={{ fontSize: 12.5, color: C.t3 }}>Skotat {formatVolym(Math.round(skotat))} m³fub</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: C.t2 }}>{formatVolym(Math.round(paBacken))} m³fub på backen</span>
-              </div>
+              {skotP != null ? (
+                <>
+                  {/* Skotarens framdrift — det enda ärliga procentmåttet (skotat/skördat, båda m³fub) */}
+                  <div style={{ fontSize: 15, fontWeight: 700, color: C.t1, marginTop: 16, marginBottom: 7 }}>
+                    {utkort ? 'Utkört' : `${skotP}% utkört`}
+                  </div>
+                  {/* Grå stapel fylld till andel utkört */}
+                  <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${Math.min(skotP, 100)}%`, height: '100%', background: 'rgba(255,255,255,0.32)', borderRadius: 3, transition: 'width 0.5s' }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
+                    <span style={{ fontSize: 12.5, color: C.t3 }}>Skotat {formatVolym(Math.round(skotatEff))} m³fub</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: C.t2 }}>{formatVolym(Math.round(paBacken))} m³fub på backen</span>
+                  </div>
+                </>
+              ) : (
+                /* Avslutat utan skotdata → okänt. Visa inte 0%/på backen (vi vet inte), bara statusen. */
+                <div style={{ fontSize: 13, color: C.t3, marginTop: 14 }}>Skotning ej registrerad</div>
+              )}
             </div>
           )}
 
@@ -545,11 +562,14 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     const maskiner = Array.from(new Set(
       ([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]).map(kortMaskin)
     ));
-    // Diskret "på backen"-markering: skördat − skotat (virke som väntar på utkörning).
-    // Bara där det finns skördat OCH oskotat kvar — aldrig tomt/0.
+    // Diskret "på backen"-markering: virke som väntar på utkörning (skördat − skotat).
+    // Avslutat utan skotdata = okänt → visa inte (skilj null från 0). Bara där oskotat kvar.
     const kortSkord = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
-    const kortBacken = kortSkord ? Math.max(0, (kortSkord.skordat || 0) - (kortSkord.skotat || 0)) : 0;
-    const visaBacken = (kortSkord?.skordat || 0) > 0 && kortBacken > 0;
+    const kortSkordat = kortSkord?.skordat || 0;
+    const kortSkotatVal = kortSkord?.skotat ?? null;
+    const kortKand = kortSkotatVal != null || !STATUS_AVSLUTADE.includes(o.status);
+    const kortBacken = Math.max(0, kortSkordat - (kortSkotatVal ?? 0));
+    const visaBacken = kortSkordat > 0 && kortKand && kortBacken > 0;
     return (
       <div key={o.id} onClick={() => setSel(o.id)} style={{
         display: 'flex', alignItems: 'center', gap: 12,

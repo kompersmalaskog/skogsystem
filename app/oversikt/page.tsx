@@ -32,9 +32,9 @@ export interface ProdAgg {
 // (vy_uppf_lass_per_objekt). NYCKEL = vo_nummer (vyernas objekt_id-kolumn innehåller
 // vo-nummer, inte objekt.id). "På backen" = skördat − skotat räknas i vyn.
 export interface SkordAgg {
-  skordat: number;        // m³fub
-  skotat: number;         // m³fub
-  sista: string | null;   // sista skörddatum
+  skordat: number;              // m³fub
+  skotat: number | null;        // m³fub — null = ingen skotdata registrerad (≠ 0)
+  sista: string | null;         // sista skörddatum
 }
 
 /** Fetch all rows with pagination (Supabase default limit is 1000) */
@@ -120,16 +120,17 @@ export default function OversiktPage() {
     setProdMap(map);
 
     // Produktion per objekt (m³fub) — nyckel = vo_nummer (matchas mot objekt.vo_nummer).
+    // skotat startar som null (ingen rad = okänt, ≠ 0); sätts bara när en lass-rad finns.
     const skmap: Record<string, SkordAgg> = {};
     for (const r of skordRows) {
       if (!r.objekt_id) continue;
-      skmap[String(r.objekt_id)] = { skordat: r.volym_m3sub || 0, skotat: 0, sista: r.sista_datum || null };
+      skmap[String(r.objekt_id)] = { skordat: r.volym_m3sub || 0, skotat: null, sista: r.sista_datum || null };
     }
     for (const r of skotRows) {
       if (!r.objekt_id) continue;
       const k = String(r.objekt_id);
-      if (!skmap[k]) skmap[k] = { skordat: 0, skotat: 0, sista: null };
-      skmap[k].skotat = r.volym_m3sub || 0;
+      if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null };
+      skmap[k].skotat = r.volym_m3sub || 0;   // rad finns → känd skotad volym
     }
     setSkordMap(skmap);
   };
