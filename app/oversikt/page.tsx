@@ -28,6 +28,14 @@ export interface ProdAgg {
   skotareVol: number;
 }
 
+// Skördad produktion per objekt — vy_uppf_prod_per_objekt. NYCKEL = vo_nummer
+// (vyns objekt_id-kolumn innehåller vo-nummer, inte objekt.id).
+export interface SkordAgg {
+  volym: number;
+  stammar: number;
+  sista: string | null;
+}
+
 /** Fetch all rows with pagination (Supabase default limit is 1000) */
 async function fetchAllRows<T>(query: () => any): Promise<T[]> {
   const PAGE = 1000;
@@ -49,6 +57,7 @@ export default function OversiktPage() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [maskinKo, setMaskinKo] = useState<MaskinKoItem[]>([]);
   const [prodMap, setProdMap] = useState<Record<string, ProdAgg>>({});
+  const [skordMap, setSkordMap] = useState<Record<string, SkordAgg>>({});
   const [grotAnpassad, setGrotAnpassad] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
@@ -79,12 +88,16 @@ export default function OversiktPage() {
     }
 
     // Production data — paginated, can be large
-    const [prodRows, lassRows] = await Promise.all([
+    const [prodRows, lassRows, skordRows] = await Promise.all([
       fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
         () => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub')
       ),
       fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
         () => supabase.from('fakt_lass').select('objekt_id, volym_m3sub')
+      ),
+      // Skördad volym per objekt — aggregatvy (redan summerad, en rad per objekt_id=vo_nummer).
+      fetchAllRows<{ objekt_id: string; volym_m3sub: number; stammar: number; sista_datum: string }>(
+        () => supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub, stammar, sista_datum').order('objekt_id')
       ),
     ]);
 
@@ -100,6 +113,14 @@ export default function OversiktPage() {
       map[r.objekt_id].skotareVol += r.volym_m3sub || 0;
     }
     setProdMap(map);
+
+    // Skördad volym — nyckel = vo_nummer (matchas mot objekt.vo_nummer i listan/detaljen).
+    const skmap: Record<string, SkordAgg> = {};
+    for (const r of skordRows) {
+      if (!r.objekt_id) continue;
+      skmap[String(r.objekt_id)] = { volym: r.volym_m3sub || 0, stammar: r.stammar || 0, sista: r.sista_datum || null };
+    }
+    setSkordMap(skmap);
   };
 
   useEffect(() => { fetchAll(); }, []);
@@ -180,7 +201,7 @@ export default function OversiktPage() {
             overscrollBehavior: 'contain',
             WebkitOverflowScrolling: 'touch',
           }}>
-            <OversiktObjektLista objekt={objekt} prodMap={prodMap} />
+            <OversiktObjektLista objekt={objekt} skordMap={skordMap} />
           </div>
         </div>
       )}

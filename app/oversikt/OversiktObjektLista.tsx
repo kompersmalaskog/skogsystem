@@ -4,14 +4,20 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { OversiktObjekt, C, TF, statusVisning, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { formatVolym, pc } from './oversikt-utils';
+import { formatVolym } from './oversikt-utils';
 import { supabase } from '@/lib/supabase';
 import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
-import type { ProdAgg } from './page';
+import type { SkordAgg } from './page';
 
 interface Props {
   objekt: OversiktObjekt[];
-  prodMap: Record<string, ProdAgg>;
+  skordMap: Record<string, SkordAgg>;   // nyckel = vo_nummer
+}
+
+/** Planerad volym = laserskattningen i trakt_data.volym (fallback obj.volym). Samma källa
+    överallt så Planerad-rutan och skördat-nämnaren alltid stämmer. */
+function planeradVolym(o: OversiktObjekt): number {
+  return o.trakt_data?.volym ?? o.volym ?? 0;
 }
 
 function Tag({ children, warn, color, bg }: { children: React.ReactNode; warn?: boolean; color?: string; bg?: string }) {
@@ -92,15 +98,14 @@ function aggregeraMark(list: MarkItem[]): { label: string; count: number; commen
 }
 
 /** Detalj — helsida (portalas till <body> så den täcker TopBar; hemknappen ersätts av tillbaka-pil). */
-function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap: Record<string, ProdAgg>; onClose: () => void }) {
+function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: SkordAgg; onClose: () => void }) {
   const tf = TF[obj.typ] || C.yellow;
   const sv = statusVisning(obj.status);
-  const prod = prodMap[obj.id];
-  const skVol = prod?.skordareVol || 0;
-  const stVol = prod?.skotareVol || 0;
-  const harProd = skVol > 0;              // riktig produktionsdata (skarp källa kommer i Steg 2)
-  const skP = pc(skVol, obj.volym || 0);
-  const stP = pc(stVol, obj.volym || 0);
+  const planeradVol = planeradVolym(obj);       // Y — laserskattning, samma i båda rutorna
+  const skordVol = skord?.volym || 0;           // X — riktig skördad volym (vy_uppf_prod_per_objekt)
+  const harSkord = skordVol > 0;                // ingen matchande rad / 0 → göm rutan (aldrig 0/0%)
+  // Ärlig procent — kapas ALDRIG vid 100 (skördat kan överstiga laserskattningen).
+  const skordP = planeradVol > 0 ? Math.round((skordVol / planeradVol) * 100) : null;
   const ber = obj.trakt_data?.beraknad;
 
   // Markeringar för DETTA objekt — hämtas lat (bara när ett objekt öppnats).
@@ -196,34 +201,28 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
             </div>
           </div>
 
-          {/* Volym + Produktion — Skördat-rutan bara vid riktig produktion (aldrig 0/0%) */}
-          <div style={{ display: 'grid', gridTemplateColumns: harProd ? '1fr 1fr' : '1fr', gap: 10, marginBottom: harProd ? 20 : 28 }}>
+          {/* Volym + Produktion — Skördat-rutan bara när det finns riktig skördad volym (aldrig 0/0%) */}
+          <div style={{ display: 'grid', gridTemplateColumns: harSkord ? '1fr 1fr' : '1fr', gap: 10, marginBottom: harSkord ? 12 : 28 }}>
             <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(obj.volym || 0)}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
+              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(planeradVol))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
               <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Planerad volym</div>
             </div>
-            {harProd && (
+            {harSkord && (
               <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(skVol))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
-                <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Skördat ({skP}%)</div>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(skordVol))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
+                <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>
+                  {skordP !== null ? `av ${formatVolym(Math.round(planeradVol))} m³ skördat · ${skordP}%` : 'Skördat'}
+                </div>
               </div>
             )}
           </div>
 
-          {/* Progress bars — bara vid riktig produktion */}
-          {harProd && (
+          {/* Framsteg — tunn stapel, fylld av verklig skördad andel (procenten ovan visar >100 ärligt) */}
+          {harSkord && skordP !== null && (
             <div style={{ marginBottom: 20 }}>
-              {[{ l: 'Skördare', p: skP }, { l: 'Skotare', p: stP }].map((r, i) => (
-                <div key={i} style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: C.t3 }}>{r.l}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>{r.p}%</span>
-                  </div>
-                  <div style={{ height: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ width: `${r.p}%`, height: '100%', background: tf, borderRadius: 2, transition: 'width 0.5s' }} />
-                  </div>
-                </div>
-              ))}
+              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.min(skordP, 100)}%`, height: '100%', background: tf, borderRadius: 3, transition: 'width 0.5s' }} />
+              </div>
             </div>
           )}
 
@@ -487,7 +486,7 @@ function FilterPanel({ bolag, bolagF, setBolagF, typF, setTypF, sortK, setSortK,
   );
 }
 
-export default function OversiktObjektLista({ objekt, prodMap }: Props) {
+export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   const [sel, setSel] = useState<string | null>(null);
   const [statusF, setStatusF] = useState<StatusFilter>('alla');
   const [panelOpen, setPanelOpen] = useState(false);
@@ -561,6 +560,12 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
     const maskiner = Array.from(new Set(
       ([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]).map(kortMaskin)
     ));
+    // Framsteg: verklig skördad andel (X/Y) — bara där skördat finns, aldrig tomt/0.
+    const tf = TF[o.typ] || C.yellow;
+    const kortSkordVol = (o.vo_nummer ? skordMap[o.vo_nummer]?.volym : 0) || 0;
+    const kortPlanVol = planeradVolym(o);
+    const visaFramsteg = kortSkordVol > 0 && kortPlanVol > 0;
+    const framstegP = visaFramsteg ? Math.round((kortSkordVol / kortPlanVol) * 100) : 0;
     return (
       <div key={o.id} onClick={() => setSel(o.id)} style={{
         display: 'flex', alignItems: 'center', gap: 12,
@@ -589,6 +594,15 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
               )}
             </div>
           </div>
+          {/* Diskret framsteg — fylld av verklig skördad andel, bara där skördat finns */}
+          {visaFramsteg && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.min(framstegP, 100)}%`, height: '100%', background: tf, borderRadius: 2 }} />
+              </div>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t3, flexShrink: 0 }}>{framstegP}%</span>
+            </div>
+          )}
         </div>
         {/* Chevron */}
         <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t4, flexShrink: 0 }}>chevron_right</span>
@@ -646,7 +660,11 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
 
       {/* Detalj-ark (befintligt) */}
       {selectedObj && (
-        <ObjektDetalj obj={selectedObj} prodMap={prodMap} onClose={() => setSel(null)} />
+        <ObjektDetalj
+          obj={selectedObj}
+          skord={selectedObj.vo_nummer ? skordMap[selectedObj.vo_nummer] : undefined}
+          onClose={() => setSel(null)}
+        />
       )}
 
       {/* Reglage-panel */}
