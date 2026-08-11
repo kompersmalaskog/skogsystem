@@ -2,25 +2,24 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { OversiktObjekt, C, TF, statusVisning, type StatusHink } from './oversikt-types';
+import { OversiktObjekt, C, statusVisning, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { formatVolym, pc } from './oversikt-utils';
+import { formatVolym } from './oversikt-utils';
 import { supabase } from '@/lib/supabase';
 import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
-import type { ProdAgg } from './page';
+import type { SkordAgg } from './page';
 
 interface Props {
   objekt: OversiktObjekt[];
-  prodMap: Record<string, ProdAgg>;
+  skordMap: Record<string, SkordAgg>;   // nyckel = vo_nummer
 }
 
-function Tag({ children, warn, color, bg }: { children: React.ReactNode; warn?: boolean; color?: string; bg?: string }) {
+/** Neutral grå tagg. Färgdisciplin: bara fara (röd) och hänsyn (orange) får färg — allt annat grått. */
+function Tag({ children }: { children: React.ReactNode }) {
   return (
     <span style={{
       fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap',
-      color: color ?? (warn ? C.yellow : C.t2),
-      background: bg ?? (warn ? C.yd : 'rgba(255,255,255,0.04)'),
-      border: `1px solid ${C.border}`,
+      color: C.t2, background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`,
     }}>{children}</span>
   );
 }
@@ -35,19 +34,17 @@ function NoteLine({ label, children }: { label: string; children: React.ReactNod
 }
 
 /* Humanisering av bärighet/terräng → alltid "[egenskap] [vad]", aldrig rå gemener-kod.
-   Okänt värde → kapitaliseras. Svår mark (dålig bärighet / brant terräng) → lätt orange. */
+   Okänt värde → kapitaliseras. Alltid grått (färg sparas för fara/hänsyn). */
 const BARIGHET_LABEL: Record<string, string> = { bra: 'Bra bärighet', medel: 'Medel bärighet', dalig: 'Dålig bärighet' };
 const TERRANG_LABEL: Record<string, string> = { flackt: 'Flack terräng', kuperat: 'Kuperad terräng', brant: 'Brant terräng' };
 function kapitalisera(s: string): string { const t = s.trim(); return t.charAt(0).toUpperCase() + t.slice(1); }
 function barighetLabel(v: string): string { return BARIGHET_LABEL[v.trim().toLowerCase()] || kapitalisera(v); }
 function terrangLabel(v: string): string { return TERRANG_LABEL[v.trim().toLowerCase()] || kapitalisera(v); }
-function barighetSvar(v: string): boolean { return v.trim().toLowerCase() === 'dalig'; }
-function terrangSvar(v: string): boolean { return v.trim().toLowerCase() === 'brant'; }
 
 /** Rubrik-sektion i detaljvyn. */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 28 }}>
+    <div style={{ marginBottom: 34 }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>{title}</div>
       {children}
     </div>
@@ -92,15 +89,13 @@ function aggregeraMark(list: MarkItem[]): { label: string; count: number; commen
 }
 
 /** Detalj — helsida (portalas till <body> så den täcker TopBar; hemknappen ersätts av tillbaka-pil). */
-function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap: Record<string, ProdAgg>; onClose: () => void }) {
-  const tf = TF[obj.typ] || C.yellow;
+function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: SkordAgg; onClose: () => void }) {
   const sv = statusVisning(obj.status);
-  const prod = prodMap[obj.id];
-  const skVol = prod?.skordareVol || 0;
-  const stVol = prod?.skotareVol || 0;
-  const harProd = skVol > 0;              // riktig produktionsdata (skarp källa kommer i Steg 2)
-  const skP = pc(skVol, obj.volym || 0);
-  const stP = pc(stVol, obj.volym || 0);
+  const skordat = skord?.skordat || 0;          // m³fub
+  const skotat = skord?.skotat || 0;            // m³fub (null → 0 för backen-räkningen)
+  const paBacken = Math.max(0, skordat - skotat);   // virke som väntar på utkörning
+  const skotP = skordat > 0 ? Math.min(100, Math.round((skotat / skordat) * 100)) : 0;  // andel utkört (grå stapel)
+  const harSkord = skordat > 0;                 // ingen skörd-rad → göm hela produktionsblocket (aldrig 0)
   const ber = obj.trakt_data?.beraknad;
 
   // Markeringar för DETTA objekt — hämtas lat (bara när ett objekt öppnats).
@@ -196,34 +191,23 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
             </div>
           </div>
 
-          {/* Volym + Produktion — Skördat-rutan bara vid riktig produktion (aldrig 0/0%) */}
-          <div style={{ display: 'grid', gridTemplateColumns: harProd ? '1fr 1fr' : '1fr', gap: 10, marginBottom: harProd ? 20 : 28 }}>
-            <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(obj.volym || 0)}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
-              <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Planerad volym</div>
-            </div>
-            {harProd && (
-              <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(skVol))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
-                <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Skördat ({skP}%)</div>
+          {/* Produktions-flöde (m³fub) — ETT kort: skördat = huvudtal, grå stapel = andel utkört,
+              "på backen" faller ut. Neutralt grått (ett tal, ingen status). Göms om ingen skörd (aldrig 0). */}
+          {harSkord && (
+            <div style={{ background: C.cardGrad, borderRadius: 14, padding: 16, border: `1px solid ${C.border}`, marginBottom: 34 }}>
+              <div style={{ fontSize: 28, fontWeight: 700, color: C.t1, letterSpacing: '-0.02em' }}>
+                {formatVolym(Math.round(skordat))}<span style={{ fontSize: 14, fontWeight: 400, color: C.t3 }}> m³fub</span>
               </div>
-            )}
-          </div>
+              <div style={{ fontSize: 13, color: C.t3, marginTop: 3 }}>Skördat{skord?.sista ? ` · ${skord.sista}` : ''}</div>
 
-          {/* Progress bars — bara vid riktig produktion */}
-          {harProd && (
-            <div style={{ marginBottom: 20 }}>
-              {[{ l: 'Skördare', p: skP }, { l: 'Skotare', p: stP }].map((r, i) => (
-                <div key={i} style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: C.t3 }}>{r.l}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>{r.p}%</span>
-                  </div>
-                  <div style={{ height: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ width: `${r.p}%`, height: '100%', background: tf, borderRadius: 2, transition: 'width 0.5s' }} />
-                  </div>
-                </div>
-              ))}
+              {/* Grå stapel — hur mycket som är utkört (skotat / skördat) */}
+              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden', marginTop: 16 }}>
+                <div style={{ width: `${skotP}%`, height: '100%', background: 'rgba(255,255,255,0.32)', borderRadius: 3, transition: 'width 0.5s' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
+                <span style={{ fontSize: 12.5, color: C.t3 }}>Skotat {formatVolym(Math.round(skotat))} m³fub</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.t2 }}>{formatVolym(Math.round(paBacken))} m³fub på backen</span>
+              </div>
             </div>
           )}
 
@@ -243,10 +227,10 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
           {harForut && (
             <Section title="Förutsättningar">
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {obj.barighet && <Tag color={barighetSvar(obj.barighet) ? C.orange : undefined} bg={barighetSvar(obj.barighet) ? C.od : undefined}>{barighetLabel(obj.barighet)}</Tag>}
-                {obj.terrang && <Tag color={terrangSvar(obj.terrang) ? C.orange : undefined} bg={terrangSvar(obj.terrang) ? C.od : undefined}>{terrangLabel(obj.terrang)}</Tag>}
+                {obj.barighet && <Tag>{barighetLabel(obj.barighet)}</Tag>}
+                {obj.terrang && <Tag>{terrangLabel(obj.terrang)}</Tag>}
                 {obj.transport_trailer_in === true && <Tag>Trailer in</Tag>}
-                {obj.transport_trailer_in === false && <Tag warn>Ej trailer</Tag>}
+                {obj.transport_trailer_in === false && <Tag>Ej trailer</Tag>}
                 {forutAgg.map((f) => <MarkChip key={f.label} label={f.label} count={f.count} color={C.t2} bg="rgba(255,255,255,0.04)" />)}
               </div>
               {obj.transport_kommentar && <NoteLine label="Transport">{obj.transport_kommentar}</NoteLine>}
@@ -331,7 +315,7 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {obj.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
                   {obj.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
-                  {obj.skordare_manuell_fallning && <Tag warn>Manuell fällning</Tag>}
+                  {obj.skordare_manuell_fallning && <Tag>Manuell fällning</Tag>}
                   {obj.markagare_ska_ha_ved && <Tag>Ved åt markägare</Tag>}
                 </div>
               )}
@@ -487,7 +471,7 @@ function FilterPanel({ bolag, bolagF, setBolagF, typF, setTypF, sortK, setSortK,
   );
 }
 
-export default function OversiktObjektLista({ objekt, prodMap }: Props) {
+export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   const [sel, setSel] = useState<string | null>(null);
   const [statusF, setStatusF] = useState<StatusFilter>('alla');
   const [panelOpen, setPanelOpen] = useState(false);
@@ -561,6 +545,11 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
     const maskiner = Array.from(new Set(
       ([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]).map(kortMaskin)
     ));
+    // Diskret "på backen"-markering: skördat − skotat (virke som väntar på utkörning).
+    // Bara där det finns skördat OCH oskotat kvar — aldrig tomt/0.
+    const kortSkord = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
+    const kortBacken = kortSkord ? Math.max(0, (kortSkord.skordat || 0) - (kortSkord.skotat || 0)) : 0;
+    const visaBacken = (kortSkord?.skordat || 0) > 0 && kortBacken > 0;
     return (
       <div key={o.id} onClick={() => setSel(o.id)} style={{
         display: 'flex', alignItems: 'center', gap: 12,
@@ -589,6 +578,14 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
               )}
             </div>
           </div>
+          {/* Diskret "på backen"-markering — grått (ett tal, ingen status); bara där oskotat finns */}
+          {visaBacken && (
+            <div style={{ marginTop: 6 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+                {formatVolym(Math.round(kortBacken))} m³fub på backen
+              </span>
+            </div>
+          )}
         </div>
         {/* Chevron */}
         <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t4, flexShrink: 0 }}>chevron_right</span>
@@ -646,7 +643,11 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
 
       {/* Detalj-ark (befintligt) */}
       {selectedObj && (
-        <ObjektDetalj obj={selectedObj} prodMap={prodMap} onClose={() => setSel(null)} />
+        <ObjektDetalj
+          obj={selectedObj}
+          skord={selectedObj.vo_nummer ? skordMap[selectedObj.vo_nummer] : undefined}
+          onClose={() => setSel(null)}
+        />
       )}
 
       {/* Reglage-panel */}

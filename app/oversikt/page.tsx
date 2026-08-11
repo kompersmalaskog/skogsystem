@@ -28,6 +28,15 @@ export interface ProdAgg {
   skotareVol: number;
 }
 
+// Produktion per objekt (m³fub) — skördat (vy_uppf_prod_per_objekt) + skotat
+// (vy_uppf_lass_per_objekt). NYCKEL = vo_nummer (vyernas objekt_id-kolumn innehåller
+// vo-nummer, inte objekt.id). "På backen" = skördat − skotat räknas i vyn.
+export interface SkordAgg {
+  skordat: number;        // m³fub
+  skotat: number;         // m³fub
+  sista: string | null;   // sista skörddatum
+}
+
 /** Fetch all rows with pagination (Supabase default limit is 1000) */
 async function fetchAllRows<T>(query: () => any): Promise<T[]> {
   const PAGE = 1000;
@@ -49,6 +58,7 @@ export default function OversiktPage() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [maskinKo, setMaskinKo] = useState<MaskinKoItem[]>([]);
   const [prodMap, setProdMap] = useState<Record<string, ProdAgg>>({});
+  const [skordMap, setSkordMap] = useState<Record<string, SkordAgg>>({});
   const [grotAnpassad, setGrotAnpassad] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
@@ -79,12 +89,20 @@ export default function OversiktPage() {
     }
 
     // Production data — paginated, can be large
-    const [prodRows, lassRows] = await Promise.all([
+    const [prodRows, lassRows, skordRows, skotRows] = await Promise.all([
       fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
         () => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub')
       ),
       fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
         () => supabase.from('fakt_lass').select('objekt_id, volym_m3sub')
+      ),
+      // Skördat per objekt (m³fub) — aggregatvy, en rad per objekt_id=vo_nummer.
+      fetchAllRows<{ objekt_id: string; volym_m3sub: number; sista_datum: string }>(
+        () => supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub, sista_datum').order('objekt_id')
+      ),
+      // Skotat per objekt (m³fub) — aggregatvy, en rad per objekt_id=vo_nummer.
+      fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
+        () => supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub').order('objekt_id')
       ),
     ]);
 
@@ -100,6 +118,20 @@ export default function OversiktPage() {
       map[r.objekt_id].skotareVol += r.volym_m3sub || 0;
     }
     setProdMap(map);
+
+    // Produktion per objekt (m³fub) — nyckel = vo_nummer (matchas mot objekt.vo_nummer).
+    const skmap: Record<string, SkordAgg> = {};
+    for (const r of skordRows) {
+      if (!r.objekt_id) continue;
+      skmap[String(r.objekt_id)] = { skordat: r.volym_m3sub || 0, skotat: 0, sista: r.sista_datum || null };
+    }
+    for (const r of skotRows) {
+      if (!r.objekt_id) continue;
+      const k = String(r.objekt_id);
+      if (!skmap[k]) skmap[k] = { skordat: 0, skotat: 0, sista: null };
+      skmap[k].skotat = r.volym_m3sub || 0;
+    }
+    setSkordMap(skmap);
   };
 
   useEffect(() => { fetchAll(); }, []);
@@ -180,7 +212,7 @@ export default function OversiktPage() {
             overscrollBehavior: 'contain',
             WebkitOverflowScrolling: 'touch',
           }}>
-            <OversiktObjektLista objekt={objekt} prodMap={prodMap} />
+            <OversiktObjektLista objekt={objekt} skordMap={skordMap} />
           </div>
         </div>
       )}
