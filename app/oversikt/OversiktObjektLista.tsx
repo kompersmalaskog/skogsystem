@@ -14,12 +14,6 @@ interface Props {
   skordMap: Record<string, SkordAgg>;   // nyckel = vo_nummer
 }
 
-/** Planerad volym = laserskattningen i trakt_data.volym (fallback obj.volym). Samma källa
-    överallt så Planerad-rutan och skördat-nämnaren alltid stämmer. */
-function planeradVolym(o: OversiktObjekt): number {
-  return o.trakt_data?.volym ?? o.volym ?? 0;
-}
-
 /** Neutral grå tagg. Färgdisciplin: bara fara (röd) och hänsyn (orange) får färg — allt annat grått. */
 function Tag({ children }: { children: React.ReactNode }) {
   return (
@@ -97,7 +91,6 @@ function aggregeraMark(list: MarkItem[]): { label: string; count: number; commen
 /** Detalj — helsida (portalas till <body> så den täcker TopBar; hemknappen ersätts av tillbaka-pil). */
 function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: SkordAgg; onClose: () => void }) {
   const sv = statusVisning(obj.status);
-  const planeradVol = planeradVolym(obj);       // laserskattning (m³pb) — ENDAST referens, aldrig jämförelse
   const skordat = skord?.skordat || 0;          // m³fub
   const skotat = skord?.skotat || 0;            // m³fub (null → 0 för backen-räkningen)
   const paBacken = Math.max(0, skordat - skotat);   // virke som väntar på utkörning
@@ -215,13 +208,6 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
                 <span style={{ fontSize: 12.5, color: C.t3 }}>Skotat {formatVolym(Math.round(skotat))} m³fub</span>
                 <span style={{ fontSize: 13, fontWeight: 600, color: C.t2 }}>{formatVolym(Math.round(paBacken))} m³fub på backen</span>
               </div>
-            </div>
-          )}
-
-          {/* Laserskattning — diskret grå referensrad (m³pb, på bark), aldrig i flödet */}
-          {planeradVol > 0 && (
-            <div style={{ fontSize: 13, color: C.t3, marginBottom: 34 }}>
-              <span style={{ fontWeight: 600 }}>Laserskattning</span> ~{formatVolym(Math.round(planeradVol))} m³pb
             </div>
           )}
 
