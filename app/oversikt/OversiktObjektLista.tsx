@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { OversiktObjekt, C, TF, statusVisning, type StatusHink } from './oversikt-types';
+import { OversiktObjekt, C, statusVisning, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym } from './oversikt-utils';
 import { supabase } from '@/lib/supabase';
@@ -99,13 +99,12 @@ function aggregeraMark(list: MarkItem[]): { label: string; count: number; commen
 
 /** Detalj — helsida (portalas till <body> så den täcker TopBar; hemknappen ersätts av tillbaka-pil). */
 function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: SkordAgg; onClose: () => void }) {
-  const tf = TF[obj.typ] || C.yellow;
   const sv = statusVisning(obj.status);
-  const planeradVol = planeradVolym(obj);       // Y — laserskattning, samma i båda rutorna
-  const skordVol = skord?.volym || 0;           // X — riktig skördad volym (vy_uppf_prod_per_objekt)
-  const harSkord = skordVol > 0;                // ingen matchande rad / 0 → göm rutan (aldrig 0/0%)
-  // Ärlig procent — kapas ALDRIG vid 100 (skördat kan överstiga laserskattningen).
-  const skordP = planeradVol > 0 ? Math.round((skordVol / planeradVol) * 100) : null;
+  const planeradVol = planeradVolym(obj);       // laserskattning (m³pb) — ENDAST referens, aldrig jämförelse
+  const skordat = skord?.skordat || 0;          // m³fub
+  const skotat = skord?.skotat || 0;            // m³fub (null → 0 för backen-räkningen)
+  const paBacken = Math.max(0, skordat - skotat);   // virke som väntar på utkörning
+  const harSkord = skordat > 0;                 // ingen skörd-rad → göm hela produktionsblocket (aldrig 0)
   const ber = obj.trakt_data?.beraknad;
 
   // Markeringar för DETTA objekt — hämtas lat (bara när ett objekt öppnats).
@@ -201,28 +200,32 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
             </div>
           </div>
 
-          {/* Volym + Produktion — Skördat-rutan bara när det finns riktig skördad volym (aldrig 0/0%) */}
-          <div style={{ display: 'grid', gridTemplateColumns: harSkord ? '1fr 1fr' : '1fr', gap: 10, marginBottom: harSkord ? 12 : 28 }}>
-            <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(planeradVol))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
-              <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Planerad volym</div>
-            </div>
-            {harSkord && (
-              <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(skordVol))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
-                <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>
-                  {skordP !== null ? `av ${formatVolym(Math.round(planeradVol))} m³ skördat · ${skordP}%` : 'Skördat'}
+          {/* Produktion (m³fub) — produktion mot produktion, aldrig procent mot laserskattning.
+              Göms helt om ingen skörd finns (aldrig 0). */}
+          {harSkord && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{formatVolym(Math.round(skordat))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³fub</span></div>
+                  <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Skördat{skord?.sista ? ` · ${skord.sista}` : ''}</div>
+                </div>
+                <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{formatVolym(Math.round(skotat))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³fub</span></div>
+                  <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Skotat</div>
                 </div>
               </div>
-            )}
-          </div>
-
-          {/* Framsteg — tunn stapel, fylld av verklig skördad andel (procenten ovan visar >100 ärligt) */}
-          {harSkord && skordP !== null && (
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ width: `${Math.min(skordP, 100)}%`, height: '100%', background: tf, borderRadius: 3, transition: 'width 0.5s' }} />
+              {/* På backen — framlyft (det operativt viktiga: virke som väntar på utkörning) */}
+              <div style={{ background: C.bd, border: '1px solid rgba(10,132,255,0.22)', borderRadius: 12, padding: '14px 16px' }}>
+                <div style={{ fontSize: 26, fontWeight: 700, color: C.t1 }}>{formatVolym(Math.round(paBacken))}<span style={{ fontSize: 14, fontWeight: 400, color: C.t3 }}> m³fub</span></div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.blue, marginTop: 4 }}>På backen<span style={{ color: C.t3, fontWeight: 400 }}> · väntar på utkörning</span></div>
               </div>
+            </div>
+          )}
+
+          {/* Laserskattning — referens (m³pb, på bark), aldrig ihopblandad med skördat (m³fub) */}
+          {planeradVol > 0 && (
+            <div style={{ fontSize: 13, color: C.t3, marginBottom: 20 }}>
+              <span style={{ fontWeight: 600 }}>Laserskattning</span> ~{formatVolym(Math.round(planeradVol))} m³pb
             </div>
           )}
 
@@ -560,12 +563,11 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     const maskiner = Array.from(new Set(
       ([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]).map(kortMaskin)
     ));
-    // Framsteg: verklig skördad andel (X/Y) — bara där skördat finns, aldrig tomt/0.
-    const tf = TF[o.typ] || C.yellow;
-    const kortSkordVol = (o.vo_nummer ? skordMap[o.vo_nummer]?.volym : 0) || 0;
-    const kortPlanVol = planeradVolym(o);
-    const visaFramsteg = kortSkordVol > 0 && kortPlanVol > 0;
-    const framstegP = visaFramsteg ? Math.round((kortSkordVol / kortPlanVol) * 100) : 0;
+    // Diskret "på backen"-markering: skördat − skotat (virke som väntar på utkörning).
+    // Bara där det finns skördat OCH oskotat kvar — aldrig tomt/0.
+    const kortSkord = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
+    const kortBacken = kortSkord ? Math.max(0, (kortSkord.skordat || 0) - (kortSkord.skotat || 0)) : 0;
+    const visaBacken = (kortSkord?.skordat || 0) > 0 && kortBacken > 0;
     return (
       <div key={o.id} onClick={() => setSel(o.id)} style={{
         display: 'flex', alignItems: 'center', gap: 12,
@@ -594,13 +596,12 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
               )}
             </div>
           </div>
-          {/* Diskret framsteg — fylld av verklig skördad andel, bara där skördat finns */}
-          {visaFramsteg && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-              <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' }}>
-                <div style={{ width: `${Math.min(framstegP, 100)}%`, height: '100%', background: tf, borderRadius: 2 }} />
-              </div>
-              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t3, flexShrink: 0 }}>{framstegP}%</span>
+          {/* Diskret "på backen"-markering — virke som väntar på utkörning, bara där det finns */}
+          {visaBacken && (
+            <div style={{ marginTop: 6 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.blue, background: C.bd, padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+                {formatVolym(Math.round(kortBacken))} m³fub på backen
+              </span>
             </div>
           )}
         </div>
