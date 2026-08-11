@@ -12,12 +12,14 @@
 // neutrala/dämpade — ALDRIG bärnsten (bärnsten = preliminärt i sektionen).
 
 import { useEffect, useState, useCallback } from 'react';
-import { type PeriodType, getPeriodDates, getPeriodLabel } from '@/lib/ekonomi/period';
+import { supabase } from '@/lib/supabase';
+import { g15Sek } from '@/lib/g15';
+import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
 import {
   EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad, SektionsTitel,
   Laddar, FelRuta, Tomt, GRON, ROD, BARNSTEN,
 } from '../delade/mall';
-import { vardeminskningPerAr, type MaskinVardeminskning } from '@/lib/ekonomi/vardeminskning';
+import { vardeminskningPeriod, type MaskinVardeminskning } from '@/lib/ekonomi/vardeminskning';
 
 type Kostnader = { drivmedel: number; drift_service: number; loner: number; avskrivning: number; ovrigt: number; total: number };
 
@@ -74,13 +76,41 @@ export default function ResultatClient() {
   const [antalRader, setAntalRader] = useState(0);   // ärligt tomt: 0 bokförda rader ≠ 0 kr vinst
   const [ccOpen, setCcOpen] = useState(false);       // per kostnadsställe-sektionen uppfälld
   const [infoOpen, setInfoOpen] = useState(false);
+  // Periodens G15-timmar per maskin (fakt_tid via g15Sek) — grunden för
+  // värdeminskningen: kr/G15-tim × faktiskt körda timmar. null = kunde inte
+  // läsas (ärligt: då visas ingen värdeminskning, aldrig en gissad nolla).
+  const [g15PerMaskin, setG15PerMaskin] = useState<Record<string, number> | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
-      const r = await fetch(`/api/fortnox/result-per-costcenter?fromdate=${start}&todate=${end}`, { cache: 'no-store' });
+      // Fortnox-rapporten + periodens G15-timmar parallellt. Timmarna får
+      // inte fälla hela vyn — fel där ger g15PerMaskin=null (värdeminskning
+      // visas inte) medan bokföringen renderas som vanligt.
+      const [r, g15Res] = await Promise.all([
+        fetch(`/api/fortnox/result-per-costcenter?fromdate=${start}&todate=${end}`, { cache: 'no-store' }),
+        (async () => {
+          try {
+            const rows = await fetchAllRows((from, to) =>
+              supabase.from('fakt_tid')
+                .select('maskin_id, processing_sek, terrain_sek, other_work_sek')
+                .gte('datum', start).lte('datum', end)
+                .range(from, to)
+            );
+            const agg: Record<string, number> = {};
+            for (const rad of rows) {
+              agg[rad.maskin_id] = (agg[rad.maskin_id] || 0)
+                + g15Sek(rad.processing_sek, rad.terrain_sek, rad.other_work_sek) / 3600;
+            }
+            return agg;
+          } catch {
+            return null;
+          }
+        })(),
+      ]);
+      setG15PerMaskin(g15Res);
       const body = await r.json();
       if (!r.ok || !body.ok) {
         setMaskiner([]);
@@ -117,15 +147,16 @@ export default function ResultatClient() {
   const barnstenFarg = `rgba(${BARNSTEN},0.9)`;
 
   // ── Verklig värdeminskning (KALKYL — alltid bärnsten, aldrig som en
-  // Fortnox-siffra). Årets belopp ur helpern (degressiv + pro rata köpåret),
-  // periodiserat platt: månad = 1/12, kvartal = 1/4, år = helt. Sålda
-  // maskiner får null av helpern → ingen rad.
+  // Fortnox-siffra). Ponsse-modellen: kr/G15-tim × maskinens FAKTISKA
+  // G15-timmar i perioden — självjusterande och självperiodiserande.
+  // Sålda maskiner och saknat kr/tim får null av helpern → ingen rad.
+  // g15PerMaskin === null (kunde inte läsas) → ingen värdeminskning visas,
+  // aldrig en gissad nolla.
   const { start: periodStart } = getPeriodDates(period, periodOffset);
   const forAr = Number(periodStart.slice(0, 4));
-  const periodAndel = period === 'M' ? 1 / 12 : period === 'K' ? 1 / 4 : 1;
   const vmForMaskin = (m: MaskinResult): number | null => {
-    const perAr = vardeminskningPerAr(m.vardeminskning_grund || {}, forAr);
-    return perAr == null ? null : perAr * periodAndel;
+    if (g15PerMaskin == null) return null;
+    return vardeminskningPeriod(m.vardeminskning_grund || {}, g15PerMaskin[m.maskin_id] || 0, forAr);
   };
   const sumVm = maskiner.reduce((s2, m) => s2 + (vmForMaskin(m) || 0), 0);
   // Dubbelräkningsvakt: bokförs 78xx (vid bokslut) mäter den SAMMA sak som
@@ -323,7 +354,7 @@ export default function ResultatClient() {
               </div>
               <div>
                 <div style={{ ...sheetH, color: barnstenFarg }}>Verklig värdeminskning — kalkyl</div>
-                Bokförd avskrivning (78xx) är skattestyrd och bokas vid bokslut — en maskin kan stå nedskriven till nästan noll fast den är värd miljoner. Värdeminskningen här är vår egen kalkyl: maskinens avskrivningsprocent (förval 20 %) degressivt per år på verkligt inköpspris (pro rata köpåret), utslagen jämnt över årets perioder — tillgänglig hela året, inte bara efter bokslut. Den visas alltid i bärnsten och blandas aldrig in i de bokförda talen. &quot;Efter verklig värdeminskning&quot; = bokfört resultat minus kalkylen — den sanna ägarekonomin. Sålda maskiner bär ingen värdeminskning framåt. Skulle bokförd avskrivning (78xx) dyka upp i en period varnar vyn — de två mäter samma sak och får aldrig räknas ihop.
+                Bokförd avskrivning (78xx) är skattestyrd och bokas vid bokslut — en maskin kan stå nedskriven till nästan noll fast den är värd miljoner. Värdeminskningen här är vår egen kalkyl med maskinsäljarens modell: kr per G15-timme (skördare ~300–500, skotare ~250–350 första ~4000 h; sätts per maskin i Inställningar) × maskinens faktiskt körda G15-timmar i perioden. Självjusterande — mer körning betyder mer slitage, en stillastående maskin kostar inget. Den visas alltid i bärnsten och blandas aldrig in i de bokförda talen. &quot;Efter verklig värdeminskning&quot; = bokfört resultat minus kalkylen — den sanna ägarekonomin. Sålda maskiner bär ingen värdeminskning framåt. Skulle bokförd avskrivning (78xx) dyka upp i en period varnar vyn — de två mäter samma sak och får aldrig räknas ihop.
               </div>
             </div>
             <button onClick={() => setInfoOpen(false)} style={{
