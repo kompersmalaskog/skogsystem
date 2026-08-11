@@ -310,7 +310,9 @@ function maskinModell(m: DimMaskin | undefined | null): string {
 
 // Linjetyper som ritas som stängda polygoner.
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
-const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
+// Polygon-linjetyper: ritas punkt-för-punkt, sluts automatiskt (sista punkt == första) och
+// behåller råa hörn (ingen smoothing). EN källa — allt polygon-beteende gate:as mot detta set.
+const POLYGON_LINE_TYPES = new Set<string>(['boundary', 'nature']);
 
 // STEG 6a-3: en rad i objekt_kvittering (per objekt + roll). kvitterat_at satt = låst kvitto.
 type KvittRad = { checked_ids: string[]; kvitterat_av_id: string | null; kvitterat_av_namn: string | null; kvitterat_at: string | null };
@@ -4063,7 +4065,7 @@ export default function PlannerPage() {
           const snapDist = Math.sqrt((firstScreen.x - lastScreen.x) ** 2 + (firstScreen.y - lastScreen.y) ** 2);
           if (snapDist < 15) {
             const closed = [...simplified.slice(0, -1), simplified[0]];
-            if (isDrawMode) finishLineFromCoords(drawType === 'boundary' ? closed : smoothCoords(closed, 2, true));
+            if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
             if (isZoneMode) finishZoneFromCoords(smoothCoords(closed, 2, true));
             return;
           }
@@ -4086,7 +4088,7 @@ export default function PlannerPage() {
           const closeDist = Math.sqrt(ddx * ddx + ddy * ddy);
           if (closeDist < 15) {
             const closed = [...currentDrawCoords, currentDrawCoords[0]];
-            if (isDrawMode) finishLineFromCoords(drawType === 'boundary' ? closed : smoothCoords(closed, 2, true));
+            if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
             if (isZoneMode) finishZoneFromCoords(smoothCoords(closed, 2, true));
             return;
           }
@@ -4105,10 +4107,10 @@ export default function PlannerPage() {
         if (shouldClose) {
           const closed = [...currentDrawCoords, currentDrawCoords[0]];
           // Boundary: skarpa hörn (ingen smoothing). Zoner: mjuka kurvor.
-          finalCoords = (isDrawMode && drawType === 'boundary') ? closed : smoothCoords(closed, 2, true);
+          finalCoords = (isDrawMode && POLYGON_LINE_TYPES.has(drawType || '')) ? closed : smoothCoords(closed, 2, true);
         } else {
-          // Öppna linjer: smootha om inte boundary
-          finalCoords = (drawType !== 'boundary' && currentDrawCoords.length >= 3) ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
+          // Öppna linjer: smootha om inte polygon-typ
+          finalCoords = (!POLYGON_LINE_TYPES.has(drawType || '') && currentDrawCoords.length >= 3) ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
         }
         if (isDrawMode) finishLineFromCoords(finalCoords);
         if (isZoneMode) finishZoneFromCoords(finalCoords);
@@ -9030,11 +9032,11 @@ export default function PlannerPage() {
       let finalCoords = [...currentDrawCoords];
       if (shouldClose && finalCoords.length >= 3) {
         finalCoords.push(finalCoords[0]);
-        // Boundary: skarpa hörn (ingen smoothing)
-        if (drawType !== 'boundary') {
+        // Polygon-typer (boundary/nature): skarpa hörn (ingen smoothing)
+        if (!POLYGON_LINE_TYPES.has(drawType)) {
           finalCoords = smoothCoords(finalCoords, 2, true);
         }
-      } else if (drawType !== 'boundary' && finalCoords.length >= 3) {
+      } else if (!POLYGON_LINE_TYPES.has(drawType) && finalCoords.length >= 3) {
         finalCoords = smoothCoords(finalCoords, 2, false);
       }
       finishLineFromCoords(finalCoords);
