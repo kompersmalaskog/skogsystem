@@ -20,13 +20,12 @@ function planeradVolym(o: OversiktObjekt): number {
   return o.trakt_data?.volym ?? o.volym ?? 0;
 }
 
-function Tag({ children, warn, color, bg }: { children: React.ReactNode; warn?: boolean; color?: string; bg?: string }) {
+/** Neutral grå tagg. Färgdisciplin: bara fara (röd) och hänsyn (orange) får färg — allt annat grått. */
+function Tag({ children }: { children: React.ReactNode }) {
   return (
     <span style={{
       fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap',
-      color: color ?? (warn ? C.yellow : C.t2),
-      background: bg ?? (warn ? C.yd : 'rgba(255,255,255,0.04)'),
-      border: `1px solid ${C.border}`,
+      color: C.t2, background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`,
     }}>{children}</span>
   );
 }
@@ -41,19 +40,17 @@ function NoteLine({ label, children }: { label: string; children: React.ReactNod
 }
 
 /* Humanisering av bärighet/terräng → alltid "[egenskap] [vad]", aldrig rå gemener-kod.
-   Okänt värde → kapitaliseras. Svår mark (dålig bärighet / brant terräng) → lätt orange. */
+   Okänt värde → kapitaliseras. Alltid grått (färg sparas för fara/hänsyn). */
 const BARIGHET_LABEL: Record<string, string> = { bra: 'Bra bärighet', medel: 'Medel bärighet', dalig: 'Dålig bärighet' };
 const TERRANG_LABEL: Record<string, string> = { flackt: 'Flack terräng', kuperat: 'Kuperad terräng', brant: 'Brant terräng' };
 function kapitalisera(s: string): string { const t = s.trim(); return t.charAt(0).toUpperCase() + t.slice(1); }
 function barighetLabel(v: string): string { return BARIGHET_LABEL[v.trim().toLowerCase()] || kapitalisera(v); }
 function terrangLabel(v: string): string { return TERRANG_LABEL[v.trim().toLowerCase()] || kapitalisera(v); }
-function barighetSvar(v: string): boolean { return v.trim().toLowerCase() === 'dalig'; }
-function terrangSvar(v: string): boolean { return v.trim().toLowerCase() === 'brant'; }
 
 /** Rubrik-sektion i detaljvyn. */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 28 }}>
+    <div style={{ marginBottom: 34 }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>{title}</div>
       {children}
     </div>
@@ -104,6 +101,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
   const skordat = skord?.skordat || 0;          // m³fub
   const skotat = skord?.skotat || 0;            // m³fub (null → 0 för backen-räkningen)
   const paBacken = Math.max(0, skordat - skotat);   // virke som väntar på utkörning
+  const skotP = skordat > 0 ? Math.min(100, Math.round((skotat / skordat) * 100)) : 0;  // andel utkört (grå stapel)
   const harSkord = skordat > 0;                 // ingen skörd-rad → göm hela produktionsblocket (aldrig 0)
   const ber = obj.trakt_data?.beraknad;
 
@@ -200,31 +198,29 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
             </div>
           </div>
 
-          {/* Produktion (m³fub) — produktion mot produktion, aldrig procent mot laserskattning.
-              Göms helt om ingen skörd finns (aldrig 0). */}
+          {/* Produktions-flöde (m³fub) — ETT kort: skördat = huvudtal, grå stapel = andel utkört,
+              "på backen" faller ut. Neutralt grått (ett tal, ingen status). Göms om ingen skörd (aldrig 0). */}
           {harSkord && (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 22, fontWeight: 700 }}>{formatVolym(Math.round(skordat))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³fub</span></div>
-                  <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Skördat{skord?.sista ? ` · ${skord.sista}` : ''}</div>
-                </div>
-                <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 22, fontWeight: 700 }}>{formatVolym(Math.round(skotat))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³fub</span></div>
-                  <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Skotat</div>
-                </div>
+            <div style={{ background: C.cardGrad, borderRadius: 14, padding: 16, border: `1px solid ${C.border}`, marginBottom: 34 }}>
+              <div style={{ fontSize: 28, fontWeight: 700, color: C.t1, letterSpacing: '-0.02em' }}>
+                {formatVolym(Math.round(skordat))}<span style={{ fontSize: 14, fontWeight: 400, color: C.t3 }}> m³fub</span>
               </div>
-              {/* På backen — framlyft (det operativt viktiga: virke som väntar på utkörning) */}
-              <div style={{ background: C.bd, border: '1px solid rgba(10,132,255,0.22)', borderRadius: 12, padding: '14px 16px' }}>
-                <div style={{ fontSize: 26, fontWeight: 700, color: C.t1 }}>{formatVolym(Math.round(paBacken))}<span style={{ fontSize: 14, fontWeight: 400, color: C.t3 }}> m³fub</span></div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: C.blue, marginTop: 4 }}>På backen<span style={{ color: C.t3, fontWeight: 400 }}> · väntar på utkörning</span></div>
+              <div style={{ fontSize: 13, color: C.t3, marginTop: 3 }}>Skördat{skord?.sista ? ` · ${skord.sista}` : ''}</div>
+
+              {/* Grå stapel — hur mycket som är utkört (skotat / skördat) */}
+              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden', marginTop: 16 }}>
+                <div style={{ width: `${skotP}%`, height: '100%', background: 'rgba(255,255,255,0.32)', borderRadius: 3, transition: 'width 0.5s' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
+                <span style={{ fontSize: 12.5, color: C.t3 }}>Skotat {formatVolym(Math.round(skotat))} m³fub</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.t2 }}>{formatVolym(Math.round(paBacken))} m³fub på backen</span>
               </div>
             </div>
           )}
 
-          {/* Laserskattning — referens (m³pb, på bark), aldrig ihopblandad med skördat (m³fub) */}
+          {/* Laserskattning — diskret grå referensrad (m³pb, på bark), aldrig i flödet */}
           {planeradVol > 0 && (
-            <div style={{ fontSize: 13, color: C.t3, marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: C.t3, marginBottom: 34 }}>
               <span style={{ fontWeight: 600 }}>Laserskattning</span> ~{formatVolym(Math.round(planeradVol))} m³pb
             </div>
           )}
@@ -245,10 +241,10 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
           {harForut && (
             <Section title="Förutsättningar">
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {obj.barighet && <Tag color={barighetSvar(obj.barighet) ? C.orange : undefined} bg={barighetSvar(obj.barighet) ? C.od : undefined}>{barighetLabel(obj.barighet)}</Tag>}
-                {obj.terrang && <Tag color={terrangSvar(obj.terrang) ? C.orange : undefined} bg={terrangSvar(obj.terrang) ? C.od : undefined}>{terrangLabel(obj.terrang)}</Tag>}
+                {obj.barighet && <Tag>{barighetLabel(obj.barighet)}</Tag>}
+                {obj.terrang && <Tag>{terrangLabel(obj.terrang)}</Tag>}
                 {obj.transport_trailer_in === true && <Tag>Trailer in</Tag>}
-                {obj.transport_trailer_in === false && <Tag warn>Ej trailer</Tag>}
+                {obj.transport_trailer_in === false && <Tag>Ej trailer</Tag>}
                 {forutAgg.map((f) => <MarkChip key={f.label} label={f.label} count={f.count} color={C.t2} bg="rgba(255,255,255,0.04)" />)}
               </div>
               {obj.transport_kommentar && <NoteLine label="Transport">{obj.transport_kommentar}</NoteLine>}
@@ -333,7 +329,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {obj.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
                   {obj.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
-                  {obj.skordare_manuell_fallning && <Tag warn>Manuell fällning</Tag>}
+                  {obj.skordare_manuell_fallning && <Tag>Manuell fällning</Tag>}
                   {obj.markagare_ska_ha_ved && <Tag>Ved åt markägare</Tag>}
                 </div>
               )}
@@ -596,10 +592,10 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
               )}
             </div>
           </div>
-          {/* Diskret "på backen"-markering — virke som väntar på utkörning, bara där det finns */}
+          {/* Diskret "på backen"-markering — grått (ett tal, ingen status); bara där oskotat finns */}
           {visaBacken && (
             <div style={{ marginTop: 6 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.blue, background: C.bd, padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
                 {formatVolym(Math.round(kortBacken))} m³fub på backen
               </span>
             </div>
