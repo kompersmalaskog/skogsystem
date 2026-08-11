@@ -176,20 +176,20 @@ const nuKlock5 = () => {
 };
 
 /* ── Extra-aktiviteter ── */
-type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'flytt'|'annat'|'utbildning'|'ledig';
+type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'flytt'|'annat'|'utbildning'|'brandkontroll';
 const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debDefault: boolean }[] = [
-  { typ:'rotben',      label:'Kapa rotben',         icon:'content_cut',     debDefault:false },
-  { typ:'reservdelar', label:'Hämta reservdelar',   icon:'build',           debDefault:false },
-  { typ:'service',     label:'Service',             icon:'engineering',     debDefault:false },
-  { typ:'utbildning',  label:'Utbildning',          icon:'school',          debDefault:false },
-  { typ:'markagare',   label:'Markägarmöte',        icon:'handshake',       debDefault:true  },
-  { typ:'flytt',       label:'Flytt av maskin',     icon:'local_shipping',  debDefault:true  },
-  { typ:'ledig',       label:'Ledig',               icon:'home',            debDefault:false },
-  { typ:'mote',        label:'Möte',                icon:'groups',          debDefault:false },
-  { typ:'annat',       label:'Annat',               icon:'more_horiz',      debDefault:false },
+  { typ:'rotben',       label:'Kapa rotben',        icon:'content_cut',          debDefault:false },
+  { typ:'reservdelar',  label:'Hämta reservdelar',  icon:'build',                debDefault:false },
+  { typ:'service',      label:'Service',            icon:'engineering',          debDefault:false },
+  { typ:'utbildning',   label:'Utbildning',         icon:'school',               debDefault:false },
+  { typ:'markagare',    label:'Markägarmöte',       icon:'handshake',            debDefault:true  },
+  { typ:'flytt',        label:'Flytt av maskin',    icon:'local_shipping',       debDefault:true  },
+  { typ:'brandkontroll',label:'Brandkontroll',      icon:'local_fire_department',debDefault:false },
+  { typ:'mote',         label:'Möte',               icon:'groups',               debDefault:false },
+  { typ:'annat',        label:'Annat',              icon:'more_horiz',           debDefault:false },
 ];
 /** Typer som visas i "Starta extra arbete"-vyn (morgon + kväll). */
-const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','utbildning','markagare','flytt','ledig','annat'];
+const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','utbildning','markagare','flytt','brandkontroll','annat'];
 const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
 const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';
 
