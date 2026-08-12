@@ -314,6 +314,16 @@ function maskinModell(m: DimMaskin | undefined | null): string {
 // behåller råa hörn (ingen smoothing). EN källa — allt polygon-beteende gate:as mot detta set.
 const POLYGON_LINE_TYPES = new Set<string>(['boundary', 'nature']);
 
+// Kort sortimentsnamn för skotningspanelen: "Björk Massa: BjörkmavFall_V3" → "Björk massa".
+// Strippar apt-namnet (efter ':') och gemenar sortimentstypen — ren härledning ur befintlig
+// sträng, ingen ny mappning. (Övr_löv/Unclassified härleds som de är.)
+function kortSortiment(raw: string): string {
+  const utanApt = (raw || '').split(':')[0].trim();
+  const ord = utanApt.split(/\s+/).filter(Boolean);
+  if (ord.length <= 1) return utanApt;
+  return ord[0] + ' ' + ord.slice(1).map(w => w.toLowerCase()).join(' ');
+}
+
 // STEG 6a-3: en rad i objekt_kvittering (per objekt + roll). kvitterat_at satt = låst kvitto.
 type KvittRad = { checked_ids: string[]; kvitterat_av_id: string | null; kvitterat_av_namn: string | null; kvitterat_at: string | null };
 const EMPTY_KVITT: KvittRad = { checked_ids: [], kvitterat_av_id: null, kvitterat_av_namn: null, kvitterat_at: null };
@@ -15077,46 +15087,52 @@ export default function PlannerPage() {
                   </div>
                   {kvarData.length === 0 ? (
                     <div style={{ fontSize: '13px', color: '#8e8e93', textAlign: 'center', padding: '20px 0' }}>
-                      Ingen skotningsdata för detta objekt
+                      Ingen produktion ännu
                     </div>
-                  ) : (<>
-                    {kvarData.map((d, i) => {
-                      const pct = d.total > 0 ? (d.uttag / d.total) * 100 : 0;
-                      const done = d.kvar <= 0;
-                      return (
-                        <div key={i} style={{ marginBottom: '10px', opacity: done ? 0.35 : 1 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                            <span style={{ color: '#fff', textDecoration: done ? 'line-through' : 'none' }}>{d.sortiment}</span>
-                            <span style={{ color: done ? 'rgba(255,255,255,0.3)' : d.kvar < d.total * 0.2 ? '#f59e0b' : '#fff', fontWeight: '600' }}>
-                              {done ? '0' : d.kvar.toFixed(1)} m³
-                            </span>
-                          </div>
-                          <div style={{ height: '10px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                            <div style={{
-                              height: '100%', borderRadius: '5px',
-                              width: `${Math.min(100, pct)}%`,
-                              background: d.color,
-                              transition: 'width 0.5s ease',
-                            }} />
-                          </div>
+                  ) : (() => {
+                    // ENDAST presentation — kvarData-beräkningen är oförändrad.
+                    const totalKvar = kvarData.reduce((s, d) => s + Math.max(0, d.kvar), 0);
+                    const totalUtskotat = kvarData.reduce((s, d) => s + Math.max(0, d.uttag), 0);
+                    const totalTotal = kvarData.reduce((s, d) => s + Math.max(0, d.total), 0);
+                    const progressPct = totalTotal > 0 ? (totalUtskotat / totalTotal) * 100 : 0;
+                    // Dölj sortiment som aldrig fanns (kvar=0 OCH uttag=0). Störst kvar överst
+                    // → utkörda (kvar<=0) hamnar sist.
+                    const rader = kvarData
+                      .filter(d => d.uttag > 0 || d.kvar > 0)
+                      .sort((a, b) => b.kvar - a.kvar);
+                    return (<>
+                      {/* Svaret överst: totalt kvar, stort */}
+                      <div style={{ fontSize: '34px', fontWeight: 700, color: '#fff', lineHeight: 1.05 }}>
+                        {totalKvar.toFixed(1)}<span style={{ fontSize: '17px', fontWeight: 500, color: '#8e8e93' }}> m³</span>
+                      </div>
+                      <div style={{ fontSize: '14px', color: '#8e8e93', marginTop: '2px' }}>kvar att skota</div>
+                      <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '12px' }}>
+                        Totalt utskotat <span style={{ color: '#1d9e75', fontWeight: 600 }}>{totalUtskotat.toFixed(1)} m³</span>
+                      </div>
+                      {/* En förloppslinje (utskotat/totalt) — ersätter de per-sortiment-staplarna */}
+                      <div style={{ height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', marginTop: '8px' }}>
+                        <div style={{ height: '100%', borderRadius: '4px', width: `${Math.min(100, progressPct)}%`, background: '#1d9e75', transition: 'width 0.5s ease' }} />
+                      </div>
+                      {/* Per sortiment — kortnamn, störst kvar överst, utkörda dämpade med "Utkört" */}
+                      {rader.length > 0 && (
+                        <div style={{ marginTop: '18px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                          {rader.map((d, i) => {
+                            const utkort = d.kvar <= 0 && d.uttag > 0;
+                            return (
+                              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '14px', padding: '7px 0', opacity: utkort ? 0.5 : 1 }}>
+                                <span style={{ color: '#fff' }}>{kortSortiment(d.sortiment)}</span>
+                                {utkort ? (
+                                  <span style={{ color: '#1d9e75', fontWeight: 600, fontSize: '13px' }}>Utkört</span>
+                                ) : (
+                                  <span style={{ color: d.kvar < d.total * 0.2 ? '#f59e0b' : '#fff', fontWeight: 600 }}>{d.kvar.toFixed(1)} m³</span>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
-                    <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                        <span style={{ color: '#8e8e93' }}>Totalt utskotat</span>
-                        <span style={{ fontWeight: '600', color: '#1d9e75' }}>
-                          {kvarData.reduce((s, d) => s + Math.max(0, d.uttag), 0).toFixed(1)} m³
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                        <span style={{ color: '#8e8e93' }}>Totalt kvar</span>
-                        <span style={{ fontWeight: '700', color: '#0a84ff' }}>
-                          {kvarData.reduce((s, d) => s + Math.max(0, d.kvar), 0).toFixed(1)} m³
-                        </span>
-                      </div>
-                    </div>
-                  </>)}
+                      )}
+                    </>);
+                  })()}
                 </div>
                 {sistaUttag && (
                   <button
