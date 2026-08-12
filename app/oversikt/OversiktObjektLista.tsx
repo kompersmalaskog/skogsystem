@@ -242,7 +242,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
           )}
 
           {/* Var skördaren kört — HPR-stammar på karta (egen sektion; renderar inget om data saknas) */}
-          <SkordarKarta vo={obj.vo_nummer} />
+          <SkordarKarta vo={obj.vo_nummer} objektId={obj.id} />
 
           {/* Förutsättningar — maskinernas villkor på trakten (bärighet/terräng/trailer + körnät) */}
           {harForut && (
