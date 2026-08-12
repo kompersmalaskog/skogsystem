@@ -704,8 +704,32 @@ export default function MaskinflyttClient() {
       start_lng: start?.lng ?? null,
       start_kalla: start?.kalla ?? null,
     }).select(FLYTTDAG_FALT)
-    if (error || !data?.length) {
-      setSparFel(`Kunde inte starta dagen: ${error?.message || 'inga rader sparades'}`)
+    if (error) {
+      // 23505 = det partiella unika indexet flyttdag_en_oppen_per_vin: cron:en
+      // (eller en annan flik) hann öppna en runda för bilen samtidigt. Ta över
+      // den i stället för fel — race:t som gav dubbelrundan 10 aug.
+      if ((error as { code?: string }).code === '23505' && lastbilVin) {
+        const { data: vinnare } = await supabase.from('flyttdag')
+          .select(FLYTTDAG_FALT).is('sluttid', null).eq('vin', lastbilVin)
+          .order('starttid', { ascending: false }).limit(1)
+        if (vinnare?.length) {
+          const dv = vinnare[0] as Flyttdag
+          await supabase.from('flyttdag').update({
+            forare: medarb?.namn ?? null, medarbetare_id: medarb?.id ?? null, auto_skapad: false,
+          }).eq('id', dv.id)
+          setDag(dv)
+          const { count } = await supabase.from('maskin_flytt')
+            .select('id', { count: 'exact', head: true })
+            .eq('flyttdag_id', dv.id).not('sluttid', 'is', null).eq('avbruten', false)
+          setDagFlyttAntal(count ?? 0)
+          return dv
+        }
+      }
+      setSparFel(`Kunde inte starta dagen: ${error.message}`)
+      return null
+    }
+    if (!data?.length) {
+      setSparFel('Kunde inte starta dagen: inga rader sparades')
       return null
     }
     const d = data[0] as Flyttdag
