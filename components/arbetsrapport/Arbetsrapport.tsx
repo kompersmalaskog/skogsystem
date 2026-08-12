@@ -2265,7 +2265,7 @@ export default function Arbetsrapport() {
                 {harMaskinPass && (
                   <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
                     {sammanRad("Körning", `${totKm} km`, öppnaKm)}
-                    {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
+                    {milPåbörjade > 0 && sammanRad("Reseersättning", `${milPåbörjade} påbörjade mil`)}
                   </div>
                 )}
                 {/* Extra tid-rader för idag — klickbara för att redigera typ/objekt/deb/kommentar.
@@ -2311,7 +2311,7 @@ export default function Arbetsrapport() {
                 <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
                   <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>Traktamente</span>
                   <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-                    <span style={{ color:"#fff",...TYPE.bodyList,...TNUM }}>{trak?.summa ? `${trak.summa} kr` : "Inget"}</span>
+                    <span style={{ color:"#fff",...TYPE.bodyList }}>{trak?.summa ? "Heldag" : "Inget"}</span>
                     <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:trakÖppen?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
                   </div>
                 </div>
@@ -2660,7 +2660,7 @@ export default function Arbetsrapport() {
                   <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{ny} km</span>
                 </div>
                 {över > 0
-                  ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#30d158",fontWeight:500 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                  ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#30d158",fontWeight:500 }}>Reseersättning: {över} km över {frikm} km = {mil} påbörjade mil</p>
                   : <p style={{ margin:"8px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
                 }
               </div>
@@ -4286,19 +4286,14 @@ export default function Arbetsrapport() {
             ["Gäller","1 apr 2025 – 31 mar 2027"],
           ]},
           {rubrik:"Övertid",rader:[
-            ["Övertidsersättning",`${gsAvtal?.overtid_vardag_kr??54.94} kr/tim`],
             ["Max övertid",`${gsAvtal?.max_overtid_ar??250} tim/år`],
           ]},
-          {rubrik:"OB-ersättning",rader:[
-            ["Mån-fre kväll/natt (17-06:30)",`${gsAvtal?.ob_kvall_kr??43.77} kr/tim`],
-            ["Nattarbete (00-05)",`${gsAvtal?.ob_natt_kr??56.82} kr/tim`],
-            ["Lördag",`${gsAvtal?.ob_lordag_kr??68.95} kr/tim`],
-            ["Söndag",`${gsAvtal?.ob_sondag_kr??103.38} kr/tim`],
-          ]},
+          // Kr-satser (övertid, OB, färdmedel, färdtid) borttagna — satser ägs av
+          // lönesystemet/Fortnox, inte appen. Färdmedelsersättningen (27,50 kr/mil)
+          // skickades dessutom aldrig i exporten = ett löfte systemet inte höll.
+          // Km-gränsen är en MÄNGD (km/dag) och står kvar.
           {rubrik:"Färdmedel & färdtid",rader:[
-            ["Färdmedelsersättning",`${gsAvtal?.km_ersattning_kr??27.50} kr/mil`],
             ["Km-gräns",`${gsAvtal?.km_grans_per_dag??60} km/dag`],
-            ["Färdtidsersättning (>60 km)",`${gsAvtal?.fardtid_kr??10.49} kr/mil`],
           ]},
           {rubrik:"ATK",rader:[
             ["Avsättning",`${gsAvtal?.atk_procent??3.62}% (uttagsår ${gsAvtal?.atk_period??'2025-2026'})`],
@@ -4306,10 +4301,8 @@ export default function Arbetsrapport() {
             ["Ledig tid",`${gsAvtal?.atk_ledig_tim??65.2} tim/år`],
             ["Pension-tillägg","+20%"],
           ]},
-          {rubrik:"Traktamente",rader:[
-            ["Heldag",`${gsAvtal?.traktamente_hel_kr??300} kr`],
-            ["Halvdag",`${gsAvtal?.traktamente_halv_kr??150} kr`],
-          ]},
+          // Traktamente-belopp (kr) borttagna — beloppen ägs av lönesystemet.
+          // Föraren markerar hel/halvdag i dagsvyn; kronorna räknas i Fortnox.
           {rubrik:"Sjuklön",rader:[
             ["Ersättning","80% av lön efter karens"],
           ]},
@@ -4553,7 +4546,7 @@ export default function Arbetsrapport() {
             )}
             {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
               return över>0
-                ? <p style={{ margin:"8px 0 0",...TYPE.meta,color:C.green,...TNUM }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                ? <p style={{ margin:"8px 0 0",...TYPE.meta,color:C.green,...TNUM }}>Reseersättning: {över} km över {frikm} km = {mil} påbörjade mil</p>
                 : <p style={{ margin:"8px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
             })()}
           </div>
@@ -4795,7 +4788,7 @@ export default function Arbetsrapport() {
               {redDag.trak&&(
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
                   <span style={{ fontSize:16,color:"#fff" }}>Traktamente</span>
-                  <span style={{ fontSize:16,fontWeight:600,color:"#fff" }}>{gsAvtal?.traktamente_hel_kr ?? 300} kr</span>
+                  <span style={{ fontSize:16,fontWeight:600,color:"#fff" }}>Heldag</span>
                 </div>
               )}
             </Card>
@@ -4919,11 +4912,11 @@ export default function Arbetsrapport() {
                 {över>0&&(
                   <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:10,paddingTop:10 }}>
                     <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
-                      <span style={{ color:"#fff",...TYPE.meta }}>Färdtidsersättning</span>
-                      <span style={{ color:"#fff",...TYPE.bodyList }}>{kr.toFixed(2).replace('.',',')} kr</span>
+                      <span style={{ color:"#fff",...TYPE.meta }}>Reseersättning</span>
+                      <span style={{ color:"#fff",...TYPE.bodyList }}>{mil} påbörjade mil</span>
                     </div>
                     <p style={{ margin:"2px 0 0",fontSize:12,color:"#fff" }}>
-                      {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr
+                      {över} km över {frikm} km
                     </p>
                   </div>
                 )}
@@ -5149,7 +5142,7 @@ export default function Arbetsrapport() {
                     <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{ny} km</span>
                   </div>
                   {över > 0
-                    ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#30d158",fontWeight:500 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                    ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#30d158",fontWeight:500 }}>Reseersättning: {över} km över {frikm} km = {mil} påbörjade mil</p>
                     : <p style={{ margin:"8px 0 0",fontSize:13,color:"#fff" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
                   }
                 </div>
