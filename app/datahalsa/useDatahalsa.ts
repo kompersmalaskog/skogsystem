@@ -120,6 +120,14 @@ export type SynkAvvikelseRad = {
   forklaring: string | null   // aktivitet i klartext om föraren förklarat, annars null
   status: 'oforklarad' | 'forklarad' | 'hoppad'
 }
+// Objekt utan koordinat → km kan inte beräknas → tyst 0 i löneunderlaget. Fångas
+// den dagen dagen registreras i stället för veckor senare (Oskars Rössmåla stod
+// på 0 i nio dagar). Plus dubblerad trakt: samma objektnr på flera vo-nummer —
+// grundfelet bakom Oskar (koordinaten satt bara på det gamla vo:t 11077137, inte
+// på det rätta 11240372).
+export type KoordlosDag = { medarbetare: string; datum: string; objekt_id: string; objektnamn: string }
+export type DupTrakt = { objektnr: string; vo: { objekt_id: string; objektnamn: string; harKoord: boolean }[] }
+export type KoordinatLarmData = { koordlosa: KoordlosDag[]; dupTrakt: DupTrakt[] }
 
 export type Sektion<T> = {
   laddar: boolean
@@ -141,6 +149,7 @@ export type Datahalsa = {
   importFel: Sektion<ImportFelRad[]> & { tabellSaknas: boolean }
   ledighetKollision: Sektion<LedighetKollision[]>
   synkAvvikelser: Sektion<SynkAvvikelseRad[]>
+  koordinatLarm: Sektion<KoordinatLarmData>
   besked: Besked
 }
 
@@ -171,6 +180,9 @@ export function useDatahalsa(): Datahalsa {
     { laddar: true, fel: null, data: null, tabellSaknas: false })
   const [ledighetKollision, setLedighetKollision] = useState<Sektion<LedighetKollision[]>>({ laddar: true, fel: null, data: null })
   const [synkAvvikelser, setSynkAvvikelser] = useState<Sektion<SynkAvvikelseRad[]>>({ laddar: true, fel: null, data: null })
+    })()
+
+  const [koordinatLarm, setKoordinatLarm] = useState<Sektion<KoordinatLarmData>>({ laddar: true, fel: null, data: null })
 
   useEffect(() => {
     let avbruten = false
@@ -415,12 +427,93 @@ export function useDatahalsa(): Datahalsa {
       setSynkAvvikelser({ laddar: false, fel: null, data: rader })
     })()
 
+    // ── 6. Objekt utan koordinat (km kan ej beräknas) + dubblerad trakt ──
+    // Koordinatkälla i samma ordning som km-fallbacken (lib/routing.ts): dim_objekt
+    // → objekt.lat/lng → objekt.larmkoordinat. Saknas alla tre kan km inte
+    // beräknas och dagen blir tyst 0 i lönen.
+    ;(async () => {
+      const sidor = async (tabell: string, kol: string, ordercol: string) => {
+        const rows: any[] = []; let fran = 0
+        while (true) {
+          const { data, error } = await supabase.from(tabell).select(kol)
+            .order(ordercol, { ascending: true }).range(fran, fran + 999)
+          if (error) return { rows: [] as any[], fel: error.message }
+          rows.push(...(data || []))
+          if (!data || data.length < 1000) break
+          fran += 1000
+        }
+        return { rows, fel: null as string | null }
+      }
+      const cutoff = new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 10)
+      const [dimR, objR, medR, arbR] = await Promise.all([
+        sidor('dim_objekt', 'objekt_id, object_name, objektnr, latitude, longitude', 'objekt_id'),
+        sidor('objekt', 'vo_nummer, lat, lng, larmkoordinat_lat, larmkoordinat_lng', 'vo_nummer'),
+        supabase.from('medarbetare').select('id, namn'),
+        supabase.from('arbetsdag').select('medarbetare_id, datum, objekt_id')
+          .gte('datum', cutoff).order('datum', { ascending: false }),
+      ])
+      if (avbruten) return
+      const fel = dimR.fel || objR.fel || medR.error?.message || arbR.error?.message || null
+      if (fel) { setKoordinatLarm({ laddar: false, fel, data: null }); return }
+
+      const dimById = new Map<string, any>(dimR.rows.map((d: any) => [String(d.objekt_id), d]))
+      const objByVo = new Map<string, any>(objR.rows.map((o: any) => [String(o.vo_nummer), o]))
+      const medById = new Map<string, string>((medR.data || []).map((m: any) => [m.id, m.namn]))
+      const harKoord = (oid: string): boolean => {
+        const d = dimById.get(String(oid))
+        if (d && d.latitude != null && d.longitude != null) return true
+        const o = objByVo.get(String(oid))
+        if (o && ((o.lat != null && o.lng != null) || (o.larmkoordinat_lat != null && o.larmkoordinat_lng != null))) return true
+        return false
+      }
+
+      // Koordinatlösa arbetsdagar senaste 60 d — en rad per (förare, datum, objekt)
+      const koordlosa: KoordlosDag[] = []
+      const seen = new Set<string>()
+      for (const a of (arbR.data || []) as any[]) {
+        if (!a.objekt_id || harKoord(a.objekt_id)) continue
+        const nyckel = `${a.medarbetare_id}|${a.datum}|${a.objekt_id}`
+        if (seen.has(nyckel)) continue
+        seen.add(nyckel)
+        koordlosa.push({
+          medarbetare: medById.get(a.medarbetare_id) || String(a.medarbetare_id).slice(0, 8) || '?',
+          datum: String(a.datum),
+          objekt_id: String(a.objekt_id),
+          objektnamn: (dimById.get(String(a.objekt_id))?.object_name || '').trim() || '(okänt objekt)',
+        })
+      }
+      koordlosa.sort((x, y) => y.datum.localeCompare(x.datum))
+
+      // Dubblerad trakt: samma objektnr på flera objekt_id (vo-nummer)
+      const pernr = new Map<string, string[]>()
+      for (const d of dimR.rows as any[]) {
+        if (!d.objektnr) continue
+        const arr = pernr.get(String(d.objektnr)) || []
+        if (!arr.includes(String(d.objekt_id))) arr.push(String(d.objekt_id))
+        pernr.set(String(d.objektnr), arr)
+      }
+      const dupTrakt: DupTrakt[] = []
+      pernr.forEach((vos, nr) => {
+        if (vos.length < 2) return
+        dupTrakt.push({
+          objektnr: nr,
+          vo: vos.map(oid => ({
+            objekt_id: oid,
+            objektnamn: (dimById.get(oid)?.object_name || '').trim() || oid,
+            harKoord: harKoord(oid),
+          })),
+        })
+      })
+
+      setKoordinatLarm({ laddar: false, fel: null, data: { koordlosa, dupTrakt } })
+    })()
+
     return () => { avbruten = true }
   }, [])
 
   // ── Beskedet — EN sammanvägning, samma överallt. Leverans (maskintystnad)
   //    matar ALDRIG beskedet: semester ser ut som fel. ──
-  const laddar = filer.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar || ledighetKollision.laddar || synkAvvikelser.laddar
+  const laddar = filer.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar || ledighetKollision.laddar || synkAvvikelser.laddar || koordinatLarm.laddar
   let besked: Besked
   if (laddar) {
     besked = { niva: 'laddar', rubrik: 'Kontrollerar …', punkter: [] }
@@ -447,6 +540,16 @@ export function useDatahalsa(): Datahalsa {
       .filter(r => importFelKlass(r) === 'akta' && Date.now() - new Date(r.tid).getTime() < 86400_000).length
     if (farskaAktaImportFel > 0)
       punkter.push(`${farskaAktaImportFel} tabellskrivfel senaste dygnet — data tappades vid import`)
+    // Koordinatlarm: flägga FÄRSKA fall (senaste 7 d) i beskedet så en ny dag på
+    // koordinatlöst objekt syns direkt; hela 60-dagarslistan bor i kortet.
+    if (koordinatLarm.data) {
+      const cutoff7 = new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10)
+      const farska = koordinatLarm.data.koordlosa.filter(k => k.datum >= cutoff7).length
+      if (farska > 0)
+        punkter.push(`${farska} arbetsdag(ar) senaste veckan på objekt utan koordinat — km kan inte beräknas`)
+      if (koordinatLarm.data.dupTrakt.length > 0)
+        punkter.push(`${koordinatLarm.data.dupTrakt.length} trakt(er) på flera vo-nummer — koordinat kan tappas vid vo-byte`)
+    }
 
     if ((ledighetKollision.data?.length ?? 0) > 0)
       punkter.push(`${ledighetKollision.data!.length} dag(ar) med godkänd ledighet OCH registrerat arbete — granska (semester uttagen fast dagen jobbades)`)
@@ -455,7 +558,7 @@ export function useDatahalsa(): Datahalsa {
     if (synkOforklarade > 0)
       punkter.push(`${synkOforklarade} oförklarad(e) tidsavvikelse(r) — bekräftad tid som skiljer sig från maskinen, granska före lön`)
 
-    const kundeInteLasa = [filer.fel, invarianter.fel, gapCheck.fel, importFel.fel, ledighetKollision.fel, synkAvvikelser.fel].some(Boolean)
+    const kundeInteLasa = [filer.fel, invarianter.fel, gapCheck.fel, importFel.fel, ledighetKollision.fel, synkAvvikelser.fel, koordinatLarm.fel].some(Boolean)
     if (punkter.length > 0) {
       besked = { niva: 'rod', rubrik: `${punkter.length} sak${punkter.length > 1 ? 'er' : ''} att titta på`, punkter }
     } else if (kundeInteLasa) {
@@ -471,5 +574,5 @@ export function useDatahalsa(): Datahalsa {
     }
   }
 
-  return { filer, leverans, invarianter, gapCheck, importFel, ledighetKollision, synkAvvikelser, besked }
+  return { filer, leverans, invarianter, gapCheck, importFel, ledighetKollision, synkAvvikelser, koordinatLarm, besked }
 }

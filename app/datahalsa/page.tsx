@@ -110,7 +110,7 @@ function levLage(m: LeveransRad): LevLage {
 }
 
 export default function DatahalsaPage() {
-  const { filer, leverans, invarianter, gapCheck, importFel, ledighetKollision, synkAvvikelser, besked } = useDatahalsa()
+  const { filer, leverans, invarianter, gapCheck, importFel, ledighetKollision, synkAvvikelser, koordinatLarm, besked } = useDatahalsa()
   const [visaFel, setVisaFel] = useState(false)
 
   // Kvittering "förväntat tyst" per maskin — client-lokal (ingen migration),
@@ -445,6 +445,55 @@ export default function DatahalsaPage() {
             Bekräftade dagar fryses; om maskindatan sedan skiljer sig registreras avvikelsen här.
             Lönen betalar den bekräftade tiden, så en oförklarad avvikelse är betald tid ingen
             granskat. Sorterat på störst skillnad i arbetad tid. Alla visas, oavsett förarens tröskel.
+          </div>
+        </Kort>
+
+        {/* ── Objekt utan koordinat (km kan ej beräknas) + dubblerad trakt ── */}
+        <Kort rubrik="OBJEKT UTAN KOORDINAT" laddar={koordinatLarm.laddar} fel={koordinatLarm.fel}>
+          {koordinatLarm.data && (koordinatLarm.data.koordlosa.length > 0 || koordinatLarm.data.dupTrakt.length > 0) ? (
+            <>
+              {koordinatLarm.data.dupTrakt.length > 0 && (
+                <div style={{ marginBottom: koordinatLarm.data.koordlosa.length > 0 ? 14 : 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.gul, marginBottom: 6 }}>
+                    Samma trakt på flera vo-nummer — koordinat kan tappas vid vo-byte
+                  </div>
+                  {koordinatLarm.data.dupTrakt.map(t => (
+                    <div key={t.objektnr} style={{ padding: '7px 0', borderTop: `0.5px solid ${C.divider}`, fontSize: 14 }}>
+                      <div style={{ color: C.text }}>Objektnr {t.objektnr}</div>
+                      {t.vo.map(v => (
+                        <div key={v.objekt_id} style={{ fontSize: 13, color: C.muted, display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
+                          <span>vo {v.objekt_id} · {v.objektnamn}</span>
+                          <span style={{ color: v.harKoord ? C.gron : C.rod, flexShrink: 0 }}>
+                            {v.harKoord ? 'koordinat ✓' : 'saknar koordinat'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {koordinatLarm.data.koordlosa.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.rod, marginBottom: 2 }}>
+                    {koordinatLarm.data.koordlosa.length} arbetsdag(ar) senaste 60 dagarna på objekt utan koordinat — km blir tyst 0
+                  </div>
+                  {koordinatLarm.data.koordlosa.map((k, i) => (
+                    <Rad key={`${k.medarbetare}-${k.datum}-${k.objekt_id}-${i}`}
+                         vanster={<span>{k.datum} · {k.medarbetare}</span>}
+                         hoger={<span style={{ color: C.muted }}>{k.objektnamn} <span style={{ color: C.dim }}>({k.objekt_id})</span></span>}
+                         hogerFarg={C.muted} />
+                  ))}
+                </>
+              )}
+            </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: C.text }}>
+              <Prick farg={C.gron} /> Alla objekt med arbetsdagar (60 d) har koordinat
+            </div>
+          )}
+          <div style={{ paddingTop: 10, fontSize: 11, color: C.dim }}>
+            Koordinatkälla: dim_objekt → objekt.lat/lng → larmkoordinat. Saknas alla
+            tre kan vägavståndet (km) inte beräknas och dagen blir 0 i löneunderlaget.
           </div>
         </Kort>
 
