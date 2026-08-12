@@ -150,12 +150,13 @@ export async function GET() {
   let oppen_runda: {
     id: string; starttid: string | null; live_km: number | null
     maskin: { namn: string; lage: 'flaket' | 'lossad' } | null
+    pa_vag_hem: boolean; km_kvar: number | null
   } | null = null
   let parkerad: { plats: string; sedan: string | null } | null = null
 
   if (oppen_runda_id) {
     const { data: rd } = await db.from('flyttdag')
-      .select('starttid, start_odometer_m').eq('id', oppen_runda_id).maybeSingle()
+      .select('starttid, start_odometer_m, hemresa_start_tid').eq('id', oppen_runda_id).maybeSingle()
     const startOdo = tal(rd?.start_odometer_m)
     // Live-km = senaste odometer − rundans start (mätt, aldrig interpolerat)
     const live_km = (startOdo != null && matare_km != null)
@@ -175,7 +176,14 @@ export async function GET() {
       }
       maskin = { namn, lage: f.sluttid ? 'lossad' : 'flaket' }
     }
-    oppen_runda = { id: oppen_runda_id, starttid: rd?.starttid ?? null, live_km, maskin }
+    // På väg hem: "Kör hem" tryckt (hemresa_start_tid satt) men rundan inte stängd.
+    // ~km kvar = nuvarande position → hemmabas, grovt (× 1.4). Bara på väg hem.
+    const pa_vag_hem = rd?.hemresa_start_tid != null
+    let km_kvar: number | null = null
+    if (pa_vag_hem && bas.lat != null && bas.lng != null && position) {
+      km_kvar = Math.round(haversine(position.lat, position.lng, bas.lat, bas.lng) * 1.4)
+    }
+    oppen_runda = { id: oppen_runda_id, starttid: rd?.starttid ?? null, live_km, maskin, pa_vag_hem, km_kvar }
   } else if (bas.lat != null && bas.lng != null && position) {
     const iRadie = (la: number, ln: number) => haversine(la, ln, bas.lat!, bas.lng!) <= bas.radie_km
     const fart = tal(snap.wheelBasedSpeed ?? snap.gnssPosition?.speed)
