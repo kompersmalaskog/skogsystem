@@ -2209,8 +2209,9 @@ export default function PlannerPage() {
   const [skotningSparat, setSkotningSparat] = useState(false);
   const skotningCoordsRef = useRef<[number, number][]>([]);
   const skotningScreenCoordsRef = useRef<[number, number][]>([]);
-  const skotningActiveRef = useRef(false);
   const skotningCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [skotningPunkter, setSkotningPunkter] = useState(0); // antal satta hörn (tryck-per-punkt) → styr "Klar"-knappen
+  const skotningFinalizeRef = useRef<(() => void) | null>(null); // effektens slut-ringen-funktion, anropas av "Klar"
   const [skotningReload, setSkotningReload] = useState(0);
   const [kvarData, setKvarData] = useState<{ sortiment: string; total: number; uttag: number; kvar: number; color: string }[]>([]);
   // Ångra senaste uttag: bump:as BARA vid ångra → loadHogar kör om (högarna kommer tillbaka). ALDRIG
@@ -4347,6 +4348,11 @@ export default function PlannerPage() {
     ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
     skotningCanvasRef.current = overlay;
 
+    // Tryck-per-punkt: börja alltid från tomt (ackumulera hörn över flera tryck)
+    skotningCoordsRef.current = [];
+    skotningScreenCoordsRef.current = [];
+    setSkotningPunkter(0);
+
     const screenToLngLatSk = (clientX: number, clientY: number): [number, number] => {
       const rect = mapCanvas.getBoundingClientRect();
       const pt = map.unproject([clientX - rect.left, clientY - rect.top]);
@@ -4367,108 +4373,75 @@ export default function PlannerPage() {
       return inside;
     };
 
-    // Rita polygon + finger-indikator på canvas
-    const drawOverlay = (fingerX?: number, fingerY?: number) => {
+    // Rita polygon + hörn-punkter på canvas (tryck-per-punkt)
+    const drawOverlay = () => {
       const w = overlay.width / (window.devicePixelRatio || 1);
       const h = overlay.height / (window.devicePixelRatio || 1);
       ctx.clearRect(0, 0, w, h);
 
       const screenPts = skotningScreenCoordsRef.current;
-      if (screenPts.length < 2) {
-        // Rita bara finger-indikator
-        if (fingerX !== undefined && fingerY !== undefined) {
-          const rect = mapCanvas.getBoundingClientRect();
-          const fx = fingerX - rect.left, fy = fingerY - rect.top;
-          ctx.beginPath();
-          ctx.arc(fx, fy, 18, 0, 2 * Math.PI);
-          ctx.strokeStyle = 'rgba(29,158,117,0.6)';
-          ctx.lineWidth = 3;
-          ctx.stroke();
-        }
-        return;
-      }
-
+      if (screenPts.length === 0) return;
       const rect = mapCanvas.getBoundingClientRect();
 
-      // Fylld polygon
-      ctx.beginPath();
-      ctx.moveTo(screenPts[0][0] - rect.left, screenPts[0][1] - rect.top);
-      for (let i = 1; i < screenPts.length; i++) {
-        ctx.lineTo(screenPts[i][0] - rect.left, screenPts[i][1] - rect.top);
-      }
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(29,158,117,0.2)';
-      ctx.fill();
-
-      // Kantlinje
-      ctx.beginPath();
-      ctx.moveTo(screenPts[0][0] - rect.left, screenPts[0][1] - rect.top);
-      for (let i = 1; i < screenPts.length; i++) {
-        ctx.lineTo(screenPts[i][0] - rect.left, screenPts[i][1] - rect.top);
-      }
-      ctx.closePath();
-      ctx.strokeStyle = '#1d9e75';
-      ctx.lineWidth = 3;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.stroke();
-
-      // Streckad linje från sista punkt till start
-      ctx.beginPath();
-      const last = screenPts[screenPts.length - 1];
-      const first = screenPts[0];
-      ctx.moveTo(last[0] - rect.left, last[1] - rect.top);
-      ctx.lineTo(first[0] - rect.left, first[1] - rect.top);
-      ctx.setLineDash([6, 6]);
-      ctx.strokeStyle = '#1d9e75';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Finger-indikator
-      if (fingerX !== undefined && fingerY !== undefined) {
-        const fx = fingerX - rect.left, fy = fingerY - rect.top;
+      if (screenPts.length >= 2) {
+        // Kantlinje (raka segment mellan tryck) + fyllning bara när ringen kan slutas (≥3)
         ctx.beginPath();
-        ctx.arc(fx, fy, 18, 0, 2 * Math.PI);
-        ctx.strokeStyle = 'rgba(29,158,117,0.6)';
+        ctx.moveTo(screenPts[0][0] - rect.left, screenPts[0][1] - rect.top);
+        for (let i = 1; i < screenPts.length; i++) {
+          ctx.lineTo(screenPts[i][0] - rect.left, screenPts[i][1] - rect.top);
+        }
+        if (screenPts.length >= 3) {
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(29,158,117,0.2)';
+          ctx.fill();
+        }
+        ctx.strokeStyle = '#1d9e75';
         ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        // Streckad stäng-linje (sista → första punkt)
+        const last = screenPts[screenPts.length - 1];
+        const first = screenPts[0];
+        ctx.beginPath();
+        ctx.moveTo(last[0] - rect.left, last[1] - rect.top);
+        ctx.lineTo(first[0] - rect.left, first[1] - rect.top);
+        ctx.setLineDash([6, 6]);
+        ctx.strokeStyle = '#1d9e75';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Hörn-punkter — första hörnet får en yttre ring som stäng-mål när ringen kan slutas
+      for (let i = 0; i < screenPts.length; i++) {
+        const vx = screenPts[i][0] - rect.left, vy = screenPts[i][1] - rect.top;
+        const isFirst = i === 0;
+        if (isFirst && screenPts.length >= 3) {
+          ctx.beginPath();
+          ctx.arc(vx, vy, 13, 0, 2 * Math.PI);
+          ctx.strokeStyle = 'rgba(29,158,117,0.5)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.arc(vx, vy, isFirst ? 7 : 5, 0, 2 * Math.PI);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.strokeStyle = '#1d9e75';
+        ctx.lineWidth = isFirst ? 3 : 2;
         ctx.stroke();
       }
     };
 
-    let lastX = 0, lastY = 0;
+    let downX = 0, downY = 0, lastX = 0, lastY = 0, moved = false, pressing = false;
 
-    const onDown = (e: MouseEvent | TouchEvent) => {
-      if ('button' in e && e.button !== 0) return;
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      lastX = clientX;
-      lastY = clientY;
-      skotningActiveRef.current = true;
-      const coord = screenToLngLatSk(clientX, clientY);
-      skotningCoordsRef.current = [coord];
-      skotningScreenCoordsRef.current = [[clientX, clientY]];
-      drawOverlay(clientX, clientY);
-    };
-
-    const onMove = (e: MouseEvent | TouchEvent) => {
-      if (!skotningActiveRef.current) return;
-      if ('buttons' in e && e.buttons === 0) return;
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      const dx = clientX - lastX, dy = clientY - lastY;
-      if (dx * dx + dy * dy < 225) return; // 15px tröskel (225 = 15²)
-      lastX = clientX;
-      lastY = clientY;
-      const coord = screenToLngLatSk(clientX, clientY);
-      skotningCoordsRef.current.push(coord);
-      skotningScreenCoordsRef.current.push([clientX, clientY]);
-      drawOverlay(clientX, clientY);
-    };
-
-    const onUp = () => {
-      if (!skotningActiveRef.current) return;
-      skotningActiveRef.current = false;
+    // Slut ringen: bygg polygon, identifiera högar, öppna panelen.
+    // (Hög-kalkyl + panel oförändrade — bara flyttade hit från onUp så "Klar" kan anropa dem.)
+    const finalizeSkotning = () => {
+      const coords = [...skotningCoordsRef.current];
+      if (coords.length < 3) return; // behöver minst 3 hörn — behåll ritläget
 
       // Ta bort canvas overlay
       if (skotningCanvasRef.current && skotningCanvasRef.current.parentNode) {
@@ -4480,11 +4453,9 @@ export default function PlannerPage() {
       map.scrollZoom.enable();
       if (map.touchZoomRotate) map.touchZoomRotate.enable();
 
-      const coords = [...skotningCoordsRef.current];
       skotningCoordsRef.current = [];
       skotningScreenCoordsRef.current = [];
-
-      if (coords.length < 3) return;
+      setSkotningPunkter(0);
 
       // Close polygon
       const polygon = [...coords, coords[0]];
@@ -4577,6 +4548,44 @@ export default function PlannerPage() {
       setSkotningPanel(true);
       setSkotningSparat(false);
     };
+    skotningFinalizeRef.current = finalizeSkotning; // "Klar"-knappen i mode-bannern anropar denna
+
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if ('button' in e && e.button !== 0) return;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      downX = clientX; downY = clientY; lastX = clientX; lastY = clientY;
+      moved = false;
+      pressing = true;
+    };
+
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      if (!pressing) return;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      lastX = clientX; lastY = clientY;
+      // Rörelse > 5px ⇒ det var ett drag (inte ett tryck) → ritar inte
+      if (Math.abs(clientX - downX) > 5 || Math.abs(clientY - downY) > 5) moved = true;
+    };
+
+    const onUp = () => {
+      if (!pressing) return;
+      pressing = false;
+      if (moved) { moved = false; return; } // drag ritar inte i detta läge
+
+      const screenPts = skotningScreenCoordsRef.current;
+      // Tryck nära första hörnet (≥3 hörn satta) → slut ringen
+      if (screenPts.length >= 3) {
+        const dx = screenPts[0][0] - lastX, dy = screenPts[0][1] - lastY;
+        if (dx * dx + dy * dy < 225) { finalizeSkotning(); return; } // 15px (225 = 15²)
+      }
+      // Annars: sätt ett nytt hörn
+      const coord = screenToLngLatSk(lastX, lastY);
+      skotningCoordsRef.current.push(coord);
+      skotningScreenCoordsRef.current.push([lastX, lastY]);
+      setSkotningPunkter(skotningCoordsRef.current.length);
+      drawOverlay();
+    };
 
     mapCanvas.addEventListener('mousedown', onDown);
     mapCanvas.addEventListener('mousemove', onMove);
@@ -4603,6 +4612,7 @@ export default function PlannerPage() {
       if (map.dragPan) map.dragPan.enable();
       if (map.scrollZoom) map.scrollZoom.enable();
       if (map.touchZoomRotate) map.touchZoomRotate.enable();
+      skotningFinalizeRef.current = null;
       // Cleanup canvas
       if (skotningCanvasRef.current && skotningCanvasRef.current.parentNode) {
         skotningCanvasRef.current.parentNode.removeChild(skotningCanvasRef.current);
@@ -10061,7 +10071,7 @@ export default function PlannerPage() {
   })();
 
   // Aktivt verktygsläge (mode-banner). En mode i taget.
-  const activeMode: { label: string; onExit: () => void; exitLabel: string } | null =
+  const activeMode: { label: string; onExit: () => void; exitLabel: string; onDone?: () => void; doneLabel?: string } | null =
     isDrawMode ? {
       label: drawType === 'boundary' ? 'Ritar traktgräns'
         : drawType === 'trail' ? 'Ritar stig'
@@ -10093,6 +10103,9 @@ export default function PlannerPage() {
         }
       },
       exitLabel: 'Avsluta',
+      // "Klar" sluter ringen (visas när ≥3 hörn satts) — samma som tryck nära första hörnet
+      onDone: skotningPunkter >= 3 ? () => { if (navigator.vibrate) navigator.vibrate(12); skotningFinalizeRef.current?.(); } : undefined,
+      doneLabel: 'Klar',
     } : null;
 
   return (
@@ -10642,6 +10655,27 @@ export default function PlannerPage() {
           <span style={{ flex: 1, fontSize: '15px', fontWeight: '600', lineHeight: 1.3 }}>
             {activeMode.label}
           </span>
+          {activeMode.onDone && (
+            <button
+              type="button"
+              onClick={() => { activeMode.onDone?.(); }}
+              aria-label={`${activeMode.doneLabel || 'Klar'} — slut ytan`}
+              style={{
+                minHeight: 40,
+                padding: '8px 18px',
+                borderRadius: 10,
+                border: 'none',
+                background: '#fff',
+                color: '#0a84ff',
+                fontSize: '13px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {activeMode.doneLabel || 'Klar'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => { if (navigator.vibrate) navigator.vibrate(12); activeMode.onExit(); }}
