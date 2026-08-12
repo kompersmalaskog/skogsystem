@@ -2841,6 +2841,8 @@ export default function PlannerPage() {
   // Nästa-kö (3 närmaste framåt) + akut varning
   type NextItem = { id: string; type: string; comment?: string; dist: number; color: string; bearing: number };
   const [korvyNextItems, setKorvyNextItems] = useState<NextItem[]>([]);
+  // TEMP DEBUG (fällningsradie) — throttle-ref för gles DB-logg (max 1 rad/30 s). Tas bort i senare PR.
+  const fallningsLoggRef = useRef(0);
   type AcuteWarning = { id: string; type: string; comment?: string; dist: number; color: string; photoData?: string; audioData?: string; expireAt: number };
   const [korvyAcuteWarning, setKorvyAcuteWarning] = useState<AcuteWarning | null>(null);
   const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());
@@ -6942,6 +6944,16 @@ export default function PlannerPage() {
       const faraInom = (korvyNextItems[0]?.dist ?? Infinity) <= FALLNINGSRADIE_M;
       if (map.getLayer('gps-radie-line')) {
         map.setPaintProperty('gps-radie-line', 'line-opacity', faraInom ? 0.75 : 0);
+      }
+      // === TEMP DEBUG (fällningsradie) — tas bort i senare PR ===
+      // Logga glest (max 1 rad/30 s) EXAKT det värde som styr varningen: samma korvyNextItems[0].dist
+      // och samma faraInom (rad 6942) — ingen andra kopia av villkoret. Fire-and-forget, ritar inget.
+      const nu = Date.now();
+      if (valtObjekt?.id && nu - fallningsLoggRef.current >= 30000) {
+        fallningsLoggRef.current = nu;
+        supabase.from('fallningsradie_debug_logg')
+          .insert({ objekt_id: valtObjekt.id, narmaste_symbol_avstand_m: korvyNextItems[0]?.dist ?? null, varning_visades: faraInom })
+          .then(({ error }) => { if (error) console.error('[FallningsDebug] logg-fel:', error); });
       }
     } catch (e) { console.error('[Körvy] gps-radie update:', e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
