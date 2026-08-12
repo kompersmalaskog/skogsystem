@@ -39,6 +39,9 @@ function svgToLatLon(x: number, y: number, c: Origo): Punkt {
 export default function SkordarKarta({ vo, objektId }: { vo?: string | null; objektId?: string | null }) {
   // null = laddar; { punkter, grans } = klart. punkter=[] → ingen sektion.
   const [data, setData] = useState<{ punkter: Punkt[]; grans: Linje[] } | null>(null);
+  // Vet vi att det finns en HPR-fil (snabb koll före den tunga stam-hämtningen)? Då reserverar vi
+  // kartans plats direkt med ett skelett → ingen 280px-hopp när kartan sen dyker in.
+  const [hasFil, setHasFil] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -55,6 +58,7 @@ export default function SkordarKarta({ vo, objektId }: { vo?: string | null; obj
           .order('fil_datum', { ascending: false, nullsFirst: false });
         const fil = (filer ?? []).find((f: any) => String(f.objekt_nyckel ?? '').split(':')[1] === v);
         if (fil) {
+          if (!cancelled) setHasFil(true);   // fil finns → reservera kartplats medan stammar laddas
           let offset = 0;
           while (true) {
             const { data: d, error } = await supabase
@@ -184,7 +188,20 @@ export default function SkordarKarta({ vo, objektId }: { vo?: string | null; obj
     return () => { try { map.remove(); } catch { /* noop */ } mapRef.current = null; };
   }, [mapReady, harPunkter, data]);
 
-  if (data == null || data.punkter.length === 0) return null;
+  // Klart utan stammar → ingen sektion (aldrig tom).
+  if (data != null && data.punkter.length === 0) return null;
+  // Laddar: reservera kartans plats med ett skelett SÅ SNART vi vet att en fil finns → ingen 280px-hopp.
+  if (data == null) {
+    if (!hasFil) return null;
+    return (
+      <div style={{ marginBottom: 34 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>Var skördaren kört</div>
+        <div style={{ height: 280, borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 12, color: C.t4 }}>Laddar karta…</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ marginBottom: 34 }}>
