@@ -38,6 +38,17 @@ type ExtraTidInput = {
   minuter: number | null;
 };
 
+// Godkänd ledighet ur ledighet_ansokningar. PRIMÄR frånvarokälla (arbetsdag.dagtyp
+// är i praktiken oanvänd — 0 semester/vab i datan). Expanderas start–slut till
+// datum i arbetsperioden. "Arbete vinner": en frånvarodag som samtidigt har ett
+// arbetspass (arbetad_min > 0) räknas som ARBETE, inte frånvaro (undviker
+// dubbelräkning + speglar verkligheten).
+type LedighetInput = {
+  typ: string;          // 'semester' | 'sjuk' | 'vab' | 'ledig'
+  startdatum: string;   // YYYY-MM-DD
+  slutdatum: string;    // YYYY-MM-DD
+};
+
 type MaskinTypMap = Record<string, "skordare" | "skotare">;
 
 export type FortnoxRad = {
@@ -64,6 +75,10 @@ export type ExportSammanfattning = {
   valtlappar_veckor: number;
   kor_mil: number;
   obekraftade: number;
+  // Godkänd frånvaro i arbetsperioden (efter "arbete vinner"). Läggs ALDRIG som
+  // lönerad — Fortnox-löneart för frånvaro är ej fastställd; visas för granskning
+  // och sätts manuellt. En rad per typ.
+  franvaro: { typ: string; dagar: number; datum: string[] }[];
 };
 
 function isoVecka(d: Date): number {
@@ -96,6 +111,7 @@ export function beräknaExport(
   maskinTypMap: MaskinTypMap,
   loneperiod: string,  // YYYY-MM — löneperioden (en månad efter arbetstiden)
   extraTid: ExtraTidInput[] = [],  // extra tid i ARBETSPERIODEN för medarbetaren
+  ledigheter: LedighetInput[] = [],  // godkänd ledighet (frånvaro) för medarbetaren
 ): ExportSammanfattning {
   const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
@@ -230,6 +246,43 @@ export function beräknaExport(
     varningar.push(`${obekraftade} av ${antalArbetsdagar} dagar är ej bekräftade.`);
   }
 
+  // ── FRÅNVARO ur godkänd ledighet (primär källa) ──
+  // Expandera varje ledighet start–slut till datum, begränsa till ARBETSPERIODENS
+  // månad, och tillämpa "arbete vinner": en dag med arbetspass (arbetad_min > 0)
+  // räknas som arbete, inte frånvaro. Läggs ALDRIG som lönerad (löneart okänd) —
+  // ytas som franvaro + varning för manuell hantering.
+  const arbperiod = arbetsperiodFrånLöneperiod(loneperiod); // YYYY-MM
+  const arbetadeDatum = new Set(dagar.filter(d => (d.arbetad_min || 0) > 0).map(d => d.datum));
+  const dagtypPerDatum = new Map(dagar.map(d => [d.datum, (d.dagtyp || '').toLowerCase()]));
+  const franvaroPerTyp = new Map<string, string[]>();
+  for (const l of ledigheter) {
+    if (!l.startdatum || !l.slutdatum) continue;
+    const start = new Date(l.startdatum + "T00:00:00");
+    const slut = new Date(l.slutdatum + "T00:00:00");
+    for (let d = new Date(start); d <= slut; d.setDate(d.getDate() + 1)) {
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (!iso.startsWith(arbperiod)) continue;      // bara arbetsperiodens månad
+      if (arbetadeDatum.has(iso)) continue;          // arbete vinner
+      const typ = (l.typ || 'ledig').toLowerCase();
+      const arr = franvaroPerTyp.get(typ) || [];
+      if (!arr.includes(iso)) arr.push(iso);
+      franvaroPerTyp.set(typ, arr);
+      // Motsägelse: dagen bär en ANNAN frånvaro-dagtyp i arbetsdag (t.ex. sjuk
+      // ur Frånvaro-knappen) än ledighetens typ — ytas, aldrig tyst.
+      const adTyp = dagtypPerDatum.get(iso);
+      if (adTyp && FRANVARO.has(adTyp) && adTyp !== typ) {
+        varningar.push(`Dag ${iso}: arbetsdag säger '${adTyp}' men ledighet säger '${typ}' — granska.`);
+      }
+    }
+  }
+  const franvaro = Array.from(franvaroPerTyp.entries())
+    .map(([typ, datum]) => ({ typ, dagar: datum.length, datum: datum.sort() }))
+    .sort((a, b) => b.dagar - a.dagar);
+  for (const f of franvaro) {
+    const spann = f.datum.length > 1 ? `${f.datum[0]}…${f.datum[f.datum.length - 1]}` : f.datum[0];
+    varningar.push(`Frånvaro (${f.typ}): ${f.dagar} dag(ar) ${spann} — löneart för Fortnox ej fastställd; läggs INTE som lönerad, sätt manuellt innan sändning.`);
+  }
+
   return {
     medarbetare_id: medarbetareId,
     namn,
@@ -246,5 +299,6 @@ export function beräknaExport(
     valtlappar_veckor: vältVeckor,
     kor_mil: totalMil,
     obekraftade,
+    franvaro,
   };
 }

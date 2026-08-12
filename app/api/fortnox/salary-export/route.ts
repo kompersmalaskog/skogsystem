@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const arbSlut = sistaDagenIManaden(aÅ, aM); // LOKALT — toISOString tappade sista dagen i UTC+2
 
     // Ladda data
-    const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes] = await Promise.all([
+    const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes] = await Promise.all([
       supabase.from("medarbetare").select("id, namn").order("namn"),
       supabase.from("arbetsdag")
         .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp")
@@ -48,6 +48,13 @@ export async function POST(req: NextRequest) {
       supabase.from("fortnox_export_logg")
         .select("medarbetare_id, status")
         .eq("period", period),
+      // Godkänd ledighet som ÖVERLAPPAR arbetsperioden (start <= arbSlut och
+      // slut >= arbStart). Primär frånvarokälla; loneberakning tillämpar
+      // "arbete vinner" + begränsar till arbetsperiodens månad.
+      supabase.from("ledighet_ansokningar")
+        .select("medarbetare_id, typ, startdatum, slutdatum, status")
+        .eq("status", "godkänd")
+        .lte("startdatum", arbSlut).gte("slutdatum", arbStart),
     ]);
 
     if (medRes.error) throw medRes.error;
@@ -93,6 +100,15 @@ export async function POST(req: NextRequest) {
       extraPerMed.get(e.medarbetare_id)!.push({ datum: e.datum, minuter: e.minuter });
     }
 
+    // Gruppera godkänd ledighet per medarbetare (medarbetare_id bär identiteten —
+    // anvandare_id är fritext och används aldrig för koppling)
+    const ledPerMed = new Map<string, { typ: string; startdatum: string; slutdatum: string }[]>();
+    for (const l of (ledRes.data || [])) {
+      if (!l.medarbetare_id) continue;
+      if (!ledPerMed.has(l.medarbetare_id)) ledPerMed.set(l.medarbetare_id, []);
+      ledPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum });
+    }
+
     // Beräkna per medarbetare
     const medarbetare = (medRes.data || []) as { id: string; namn: string }[];
     const resultat: (ExportSammanfattning & { status: string })[] = [];
@@ -101,12 +117,14 @@ export async function POST(req: NextRequest) {
       if (filterIds && !filterIds.includes(med.id)) continue;
       const dagar = dagPerMed.get(med.id) || [];
       const extra = extraPerMed.get(med.id) || [];
+      const ledigheter = ledPerMed.get(med.id) || [];
       // Extra-only-månad (arbete utan ett enda maskinpass) ska också med —
-      // det är arbetstid; beräkningen varnar då om ordinarie-effekten
-      if (dagar.length === 0 && extra.length === 0) continue;
+      // det är arbetstid; beräkningen varnar då om ordinarie-effekten. Även en
+      // ren frånvaromånad (bara ledighet) ska med så frånvaron syns.
+      if (dagar.length === 0 && extra.length === 0 && ledigheter.length === 0) continue;
 
       const anstNr = anstMap[med.id] || "";
-      const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra); // period = löneperiod
+      const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter); // period = löneperiod
 
       let status = "utkast";
       if (redanSkickad.has(med.id)) status = "skickat";
