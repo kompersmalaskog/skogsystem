@@ -110,7 +110,7 @@ function levLage(m: LeveransRad): LevLage {
 }
 
 export default function DatahalsaPage() {
-  const { filer, leverans, invarianter, gapCheck, importFel, besked } = useDatahalsa()
+  const { filer, leverans, invarianter, gapCheck, importFel, ledighetKollision, besked } = useDatahalsa()
   const [visaFel, setVisaFel] = useState(false)
 
   // Kvittering "förväntat tyst" per maskin — client-lokal (ingen migration),
@@ -377,6 +377,32 @@ export default function DatahalsaPage() {
               Ingen körning registrerad ännu — första skrivs söndag 20:00.
             </div>
           )}
+        </Kort>
+
+        {/* ── Godkänd ledighet på dag med registrerat arbete ── */}
+        <Kort rubrik="LEDIGHET PÅ ARBETSDAG" laddar={ledighetKollision.laddar} fel={ledighetKollision.fel}>
+          {ledighetKollision.data && ledighetKollision.data.length > 0 ? (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.gul, marginBottom: 2 }}>
+                {ledighetKollision.data.length} dag(ar) med godkänd ledighet OCH registrerat arbete — granska
+              </div>
+              {ledighetKollision.data.map((k, i) => (
+                <Rad key={`${k.medarbetare}-${k.datum}-${i}`}
+                     vanster={<span>{k.datum} · {k.medarbetare}</span>}
+                     hoger={<span style={{ color: C.muted }}>{k.typ} · {Math.round(k.arbetad_min / 60 * 10) / 10} h arbetat</span>}
+                     hogerFarg={C.muted} />
+              ))}
+            </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: C.text }}>
+              <Prick farg={C.gron} /> Ingen godkänd ledighet krockar med en arbetsdag
+            </div>
+          )}
+          <div style={{ paddingTop: 10, fontSize: 11, color: C.dim }}>
+            "Arbete vinner" i visning och lön, men en uttagen semesterdag som samtidigt
+            jobbades är en avvikelse — antingen ska semestern inte förbrukas eller så är
+            ansökan fel. Ingen automatisk rättning; kontrollera manuellt.
+          </div>
         </Kort>
 
       </main>

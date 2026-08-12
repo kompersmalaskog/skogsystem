@@ -102,6 +102,13 @@ export function importFelKlass(r: ImportFelRad): 'ofarligt' | 'akta' {
   return 'akta'
 }
 
+// Godkänd ledighet på en dag med registrerat arbete (arbetad_min > 0). Systemet
+// löser det via "arbete vinner" i visning/lön — men en godkänd semesterdag som
+// samtidigt är en full arbetsdag ÄR en avvikelse (antingen ska semestern inte
+// förbrukas, eller så är ansökan fel). Ytas här så ingen ställer frågan tyst.
+// Ingen automatisk rättning.
+export type LedighetKollision = { medarbetare: string; datum: string; typ: string; arbetad_min: number }
+
 export type Sektion<T> = {
   laddar: boolean
   fel: string | null             // 'kunde inte läsa'-tillstånd — aldrig tyst tomt
@@ -120,6 +127,7 @@ export type Datahalsa = {
   invarianter: Sektion<InvarianterData>
   gapCheck: Sektion<GapCheckData | null> & { tabellSaknas: boolean }
   importFel: Sektion<ImportFelRad[]> & { tabellSaknas: boolean }
+  ledighetKollision: Sektion<LedighetKollision[]>
   besked: Besked
 }
 
@@ -148,6 +156,7 @@ export function useDatahalsa(): Datahalsa {
     { laddar: true, fel: null, data: null, tabellSaknas: false })
   const [importFel, setImportFel] = useState<Sektion<ImportFelRad[]> & { tabellSaknas: boolean }>(
     { laddar: true, fel: null, data: null, tabellSaknas: false })
+  const [ledighetKollision, setLedighetKollision] = useState<Sektion<LedighetKollision[]>>({ laddar: true, fel: null, data: null })
 
   useEffect(() => {
     let avbruten = false
@@ -326,12 +335,45 @@ export function useDatahalsa(): Datahalsa {
       setImportFel({ laddar: false, fel: null, tabellSaknas: false, data: (data ?? []) as ImportFelRad[] })
     })()
 
+    // ── Godkänd ledighet på dag med registrerat arbete (kollision) ──
+    // Läser ledighet_ansokningar (godkänd) + arbetsdag med arbete, expanderar
+    // ledigheten till datum och matchar. Bara ytning, ingen rättning.
+    ;(async () => {
+      const [ledR, arbR, medR] = await Promise.all([
+        supabase.from('ledighet_ansokningar').select('medarbetare_id, typ, startdatum, slutdatum').eq('status', 'godkänd'),
+        supabase.from('arbetsdag').select('medarbetare_id, datum, arbetad_min').gt('arbetad_min', 0),
+        supabase.from('medarbetare').select('id, namn'),
+      ])
+      if (avbruten) return
+      const fel = ledR.error?.message || arbR.error?.message || medR.error?.message || null
+      if (fel) { setLedighetKollision({ laddar: false, fel, data: null }); return }
+      const medById = new Map<string, string>((medR.data || []).map((m: any) => [m.id, m.namn]))
+      const arb = new Map<string, number>()
+      for (const a of (arbR.data || []) as any[]) arb.set(`${a.medarbetare_id}|${a.datum}`, a.arbetad_min || 0)
+      const koll: LedighetKollision[] = []
+      for (const l of (ledR.data || []) as any[]) {
+        if (!l.startdatum || !l.slutdatum) continue
+        const start = new Date(l.startdatum + 'T00:00:00')
+        const slut = new Date(l.slutdatum + 'T00:00:00')
+        for (let dt = new Date(start); dt <= slut; dt.setDate(dt.getDate() + 1)) {
+          const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+          const min = arb.get(`${l.medarbetare_id}|${iso}`)
+          if (min && min > 0) koll.push({
+            medarbetare: medById.get(l.medarbetare_id) || String(l.medarbetare_id).slice(0, 8),
+            datum: iso, typ: l.typ || 'ledig', arbetad_min: min,
+          })
+        }
+      }
+      koll.sort((a, b) => b.datum.localeCompare(a.datum))
+      setLedighetKollision({ laddar: false, fel: null, data: koll })
+    })()
+
     return () => { avbruten = true }
   }, [])
 
   // ── Beskedet — EN sammanvägning, samma överallt. Leverans (maskintystnad)
   //    matar ALDRIG beskedet: semester ser ut som fel. ──
-  const laddar = filer.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar
+  const laddar = filer.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar || ledighetKollision.laddar
   let besked: Besked
   if (laddar) {
     besked = { niva: 'laddar', rubrik: 'Kontrollerar …', punkter: [] }
@@ -359,7 +401,10 @@ export function useDatahalsa(): Datahalsa {
     if (farskaAktaImportFel > 0)
       punkter.push(`${farskaAktaImportFel} tabellskrivfel senaste dygnet — data tappades vid import`)
 
-    const kundeInteLasa = [filer.fel, invarianter.fel, gapCheck.fel, importFel.fel].some(Boolean)
+    if ((ledighetKollision.data?.length ?? 0) > 0)
+      punkter.push(`${ledighetKollision.data!.length} dag(ar) med godkänd ledighet OCH registrerat arbete — granska (semester uttagen fast dagen jobbades)`)
+
+    const kundeInteLasa = [filer.fel, invarianter.fel, gapCheck.fel, importFel.fel, ledighetKollision.fel].some(Boolean)
     if (punkter.length > 0) {
       besked = { niva: 'rod', rubrik: `${punkter.length} sak${punkter.length > 1 ? 'er' : ''} att titta på`, punkter }
     } else if (kundeInteLasa) {
@@ -375,5 +420,5 @@ export function useDatahalsa(): Datahalsa {
     }
   }
 
-  return { filer, leverans, invarianter, gapCheck, importFel, besked }
+  return { filer, leverans, invarianter, gapCheck, importFel, ledighetKollision, besked }
 }

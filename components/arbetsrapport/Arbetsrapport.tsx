@@ -603,6 +603,10 @@ export default function Arbetsrapport() {
   const [kalÅr, setKalÅr] = useState(new Date().getFullYear());
   const [kalMånad, setKalMånad] = useState(new Date().getMonth());
   const [dagData, setDagData] = useState<Record<string, any>>({});
+  // Godkänd ledighet expanderad till datum (datum -> typ). Frånvaro visas i
+  // kalendern så en ledig dag inte ser ut som en tom dag (ledighet_ansokningar
+  // är helt frånkopplad från arbetsdag). "Arbete vinner" avgörs vid render.
+  const [ledighetDagar, setLedighetDagar] = useState<Record<string, string>>({});
 
   // temp states för ändra tid/km
   const [tS,setTS]=useState("06:12"),[tE,setTE]=useState("16:45"),[tR,setTR]=useState(30);
@@ -987,6 +991,34 @@ export default function Arbetsrapport() {
         setKmSummary({ totalKm: j.totalKm, ersattningsKm: j.ersattningsKm });
       })
       .catch(() => {});
+    return () => { cancelled = true; };
+  }, [steg, medarbetare?.id, kalÅr, kalMånad]);
+
+  // Godkänd ledighet för månaden → expandera start–slut till datum-map.
+  // status='godkänd' (med ä) — bara beviljad frånvaro visas, aldrig väntande.
+  useEffect(() => {
+    if (steg !== "kalender" || !medarbetare?.id) return;
+    const förstadag = ymdLokal(new Date(kalÅr, kalMånad, 1));
+    const sistadag = ymdLokal(new Date(kalÅr, kalMånad + 1, 0));
+    let cancelled = false;
+    supabase.from('ledighet_ansokningar')
+      .select('typ, startdatum, slutdatum')
+      .eq('medarbetare_id', medarbetare.id)
+      .eq('status', 'godkänd')
+      .lte('startdatum', sistadag).gte('slutdatum', förstadag)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const karta: Record<string, string> = {};
+        for (const l of (data || [])) {
+          const start = new Date(l.startdatum + 'T00:00:00');
+          const slut = new Date(l.slutdatum + 'T00:00:00');
+          for (let dt = new Date(start); dt <= slut; dt.setDate(dt.getDate() + 1)) {
+            const iso = ymdLokal(dt);
+            if (iso >= förstadag && iso <= sistadag) karta[iso] = (l.typ || 'ledig');
+          }
+        }
+        setLedighetDagar(karta);
+      });
     return () => { cancelled = true; };
   }, [steg, medarbetare?.id, kalÅr, kalMånad]);
 
@@ -5391,11 +5423,17 @@ export default function Arbetsrapport() {
                 const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
                 const helgNamn = rödaDagar[k] || '';
                 const harExtra = (extraDagData[datum]||[]).length > 0;
+                // Ledig dag: godkänd ledighet OCH inget arbete/frånvaro-prick och
+                // ingen extra tid ("arbete vinner"). Egen visuell klass (ton +
+                // typ-etikett), aldrig en ny prickfärg.
+                const ledTyp = ledighetDagar[datum];
+                const ärLedig = !!ledTyp && !dotFärg[s] && !harExtra;
+                const ledEtikett = !ärLedig ? '' : ledTyp==='semester'?'Sem':ledTyp==='sjuk'?'Sjuk':ledTyp==='vab'?'VAB':'Ledig';
 
                 return (
                   <div key={i}
                     onClick={()=>öppnaRedigera(datum)}
-                    style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",padding:"8px 0" }}>
+                    style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",padding:"8px 0",...(ärLedig?{background:"rgba(120,124,150,0.18)",borderRadius:10}:{}) }}>
                     {/* Ring: idag=blå, redigerad=gul, idag har prioritet */}
                     {isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #0a84ff",borderRadius:"50%" }} />}
                     {erRedigerad && !isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #ffd60a",borderRadius:"50%" }} />}
@@ -5408,6 +5446,8 @@ export default function Arbetsrapport() {
                     }}>{d}</span>
                     {/* Helgdag namn */}
                     {helgNamn && <span style={{ fontSize:8,color:s==="röd"?"#ff453a":"#8e8e93",marginTop:1,lineHeight:1.2,maxWidth:44,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{helgNamn}</span>}
+                    {/* Ledig dag: typ i klartext (Sem/Sjuk/VAB/Ledig) — annat visuellt språk än prickarna */}
+                    {ärLedig && <span style={{ fontSize:9,fontWeight:600,color:"#b6b9cc",marginTop:2,lineHeight:1,letterSpacing:0.2 }}>{ledEtikett}</span>}
                     {/* Status dot: bekräftad=grön, saknas=orange, + blå punkt för extra tid.
                         Visas även på helgdagar — helgtexten döljer inte pricken. */}
                     {(dotFärg[s]||harExtra)?(
@@ -5441,6 +5481,10 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:12,height:12,borderRadius:"50%",background:"#0A84FF" }} />
                 <span style={{ ...TYPE.meta,color:"#fff" }}>Extra tid</span>
+              </div>
+              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+                <div style={{ width:20,height:20,borderRadius:6,background:"rgba(120,124,150,0.28)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:600,color:"#b6b9cc" }}>Sem</div>
+                <span style={{ ...TYPE.meta,color:"#fff" }}>Ledig (semester / sjuk / VAB)</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:20,height:20,border:"2px solid #ffd60a",borderRadius:"50%" }} />
