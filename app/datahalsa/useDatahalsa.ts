@@ -180,8 +180,6 @@ export function useDatahalsa(): Datahalsa {
     { laddar: true, fel: null, data: null, tabellSaknas: false })
   const [ledighetKollision, setLedighetKollision] = useState<Sektion<LedighetKollision[]>>({ laddar: true, fel: null, data: null })
   const [synkAvvikelser, setSynkAvvikelser] = useState<Sektion<SynkAvvikelseRad[]>>({ laddar: true, fel: null, data: null })
-    })()
-
   const [koordinatLarm, setKoordinatLarm] = useState<Sektion<KoordinatLarmData>>({ laddar: true, fel: null, data: null })
 
   useEffect(() => {
@@ -445,15 +443,16 @@ export function useDatahalsa(): Datahalsa {
         return { rows, fel: null as string | null }
       }
       const cutoff = new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 10)
-      const [dimR, objR, medR, arbR] = await Promise.all([
-        sidor('dim_objekt', 'objekt_id, object_name, objektnr, latitude, longitude', 'objekt_id'),
+      const [dimR, objR, medR, arbR, aoR] = await Promise.all([
+        sidor('dim_objekt', 'objekt_id, object_name, objektnr, latitude, longitude, kraver_koordinat', 'objekt_id'),
         sidor('objekt', 'vo_nummer, lat, lng, larmkoordinat_lat, larmkoordinat_lng', 'vo_nummer'),
         supabase.from('medarbetare').select('id, namn'),
-        supabase.from('arbetsdag').select('medarbetare_id, datum, objekt_id')
+        supabase.from('arbetsdag').select('id, medarbetare_id, datum, objekt_id')
           .gte('datum', cutoff).order('datum', { ascending: false }),
+        sidor('arbetsdag_objekt', 'arbetsdag_id, objekt_id', 'arbetsdag_id'),
       ])
       if (avbruten) return
-      const fel = dimR.fel || objR.fel || medR.error?.message || arbR.error?.message || null
+      const fel = dimR.fel || objR.fel || medR.error?.message || arbR.error?.message || aoR.fel || null
       if (fel) { setKoordinatLarm({ laddar: false, fel, data: null }); return }
 
       const dimById = new Map<string, any>(dimR.rows.map((d: any) => [String(d.objekt_id), d]))
@@ -466,20 +465,44 @@ export function useDatahalsa(): Datahalsa {
         if (o && ((o.lat != null && o.lng != null) || (o.larmkoordinat_lat != null && o.larmkoordinat_lng != null))) return true
         return false
       }
+      // Alla objekt per arbetsdag ur arbetsdag_objekt (flyttdagar har flera).
+      const aoByAd = new Map<string, string[]>()
+      for (const r of aoR.rows as any[]) {
+        if (!r.arbetsdag_id || !r.objekt_id) continue
+        const arr = aoByAd.get(r.arbetsdag_id) || []
+        arr.push(String(r.objekt_id)); aoByAd.set(r.arbetsdag_id, arr)
+      }
 
-      // Koordinatlösa arbetsdagar senaste 60 d — en rad per (förare, datum, objekt)
+      // Flyttobjekt m.fl. som inte är en fysisk arbetsplats markeras för hand med
+      // dim_objekt.kraver_koordinat = false. De hoppas över helt när dagen värderas
+      // — de bär ingen koordinat att rätta. Default är true (NULL ⇒ kräver koordinat)
+      // så ett nytt platslöst objekt larmar EN gång; sedan lägger Martin in koordinat
+      // eller sätter flaggan false, och larmet blir självunderhållande.
+      const kraverKoord = (oid: string): boolean => dimById.get(String(oid))?.kraver_koordinat !== false
+
+      // Larma BARA när INGET av dagens KVARVARANDE objekt har koordinat. Dagens objekt =
+      // arbetsdag_objekt (alla) UNION arbetsdag.objekt_id (fallback för dagar utan
+      // rader där), minus de som inte kräver koordinat. Har dagen minst ett objekt
+      // med resolverbar koordinat är allt bra. En dag som BARA består av flytt (allt
+      // bortfiltrerat) ger inget larm — det finns inget att rätta. En rad/(förare,datum).
       const koordlosa: KoordlosDag[] = []
       const seen = new Set<string>()
       for (const a of (arbR.data || []) as any[]) {
-        if (!a.objekt_id || harKoord(a.objekt_id)) continue
-        const nyckel = `${a.medarbetare_id}|${a.datum}|${a.objekt_id}`
+        const objektSet = Array.from(new Set([
+          ...(aoByAd.get(a.id) || []),
+          ...(a.objekt_id ? [String(a.objekt_id)] : []),
+        ])).filter(oid => kraverKoord(oid))   // släng flytt/ej-plats
+        if (objektSet.length === 0) continue                  // ingen relevant objektkoppling
+        if (objektSet.some(oid => harKoord(oid))) continue     // minst ett med koordinat → ok
+        const nyckel = `${a.medarbetare_id}|${a.datum}`
         if (seen.has(nyckel)) continue
         seen.add(nyckel)
+        const rep = objektSet[0]
         koordlosa.push({
           medarbetare: medById.get(a.medarbetare_id) || String(a.medarbetare_id).slice(0, 8) || '?',
           datum: String(a.datum),
-          objekt_id: String(a.objekt_id),
-          objektnamn: (dimById.get(String(a.objekt_id))?.object_name || '').trim() || '(okänt objekt)',
+          objekt_id: rep,
+          objektnamn: (dimById.get(rep)?.object_name || '').trim() || '(okänt objekt)',
         })
       }
       koordlosa.sort((x, y) => y.datum.localeCompare(x.datum))
