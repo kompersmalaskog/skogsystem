@@ -41,6 +41,11 @@ const TERRANG_LABEL: Record<string, string> = { flackt: 'Flack terräng', kupera
 function kapitalisera(s: string): string { const t = s.trim(); return t.charAt(0).toUpperCase() + t.slice(1); }
 function barighetLabel(v: string): string { return BARIGHET_LABEL[v.trim().toLowerCase()] || kapitalisera(v); }
 function terrangLabel(v: string): string { return TERRANG_LABEL[v.trim().toLowerCase()] || kapitalisera(v); }
+/* Restriktion-namn ur traktanalysen → människospråk: strö bort registri-koden i slutet,
+   t.ex. "Vägmärke (L1955:7217)" → "Vägmärke", "Kemisk industri (L1955:7079)" → "Kemisk industri". */
+function humaniseraRestr(name: string): string {
+  return (name || '').replace(/\s*\([^)]*\d[^)]*\)\s*$/, '').trim() || (name || '').trim();
+}
 
 /** Rubrik-sektion i detaljvyn. */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -48,6 +53,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <div style={{ marginBottom: 34 }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>{title}</div>
       {children}
+    </div>
+  );
+}
+
+/** Subtil platshållare medan markeringsberoende sektioner laddas — reserverar plats så sidan inte hoppar. */
+function DetaljSkeleton() {
+  const blk = (w: string, h: number, mt = 0) => (
+    <div style={{ width: w, height: h, borderRadius: 8, background: 'rgba(255,255,255,0.04)', marginTop: mt }} />
+  );
+  return (
+    <div aria-hidden="true">
+      {blk('38%', 14)}
+      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>{blk('88px', 28)}{blk('72px', 28)}{blk('80px', 28)}</div>
+      <div style={{ height: 34 }} />
+      {blk('30%', 14)}
+      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>{blk('100px', 28)}{blk('70px', 28)}</div>
     </div>
   );
 }
@@ -105,8 +126,11 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
   const paBacken = Math.max(0, skordat - skotatEff);
   const ber = obj.trakt_data?.beraknad;
 
-  // Markeringar för DETTA objekt — hämtas lat (bara när ett objekt öppnats).
+  // Markeringar för DETTA objekt — hämtas lat (bara när ett objekt öppnats). marksLaddat
+  // gör att markeringsberoende sektioner (Förutsättningar/Hänsyn/…) visas SAMLAT när datan finns,
+  // i stället för att poppa in en och en → ingen layout-shift.
   const [marks, setMarks] = useState<MarkItem[]>([]);
+  const [marksLaddat, setMarksLaddat] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -120,6 +144,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
         return { sub, label: sub ? subLabel(sub) : 'Markering', comment };
       }).filter((m) => m.sub || m.comment);
       setMarks(list);
+      setMarksLaddat(true);
     })();
     return () => { cancelled = true; };
   }, [obj.id]);
@@ -133,8 +158,13 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
   // Dela upp markeringarna: förutsättningar (körnät/logistik) vs hänsyn (allt annat).
   const forutAgg = aggregeraMark(marks.filter((m) => m.sub && FORUT_SUBTYPER.has(m.sub)));
   const hansynMarks = marks.filter((m) => !(m.sub && FORUT_SUBTYPER.has(m.sub)));
+  // Restriktioner (naturreservat, vägmärke, kemisk industri …) ur traktanalysen är HÄNSYN, inte
+  // fara → humaniserade orange chips i Hänsyn-sektionen (ingen egen röd sektion; rött = verklig fara).
+  const restrItems: MarkItem[] = (ber?.restriktioner || []).map((r) => ({
+    sub: null, label: humaniseraRestr(r.name), comment: (r.warning || '').trim(),
+  }));
   const faror = aggregeraMark(hansynMarks.filter((m) => hansynNiva(m.sub) === 'fara'));
-  const hansyn = aggregeraMark(hansynMarks.filter((m) => hansynNiva(m.sub) === 'hansyn'));
+  const hansyn = aggregeraMark([...hansynMarks.filter((m) => hansynNiva(m.sub) === 'hansyn'), ...restrItems]);
   const ovrigt = aggregeraMark(hansynMarks.filter((m) => hansynNiva(m.sub) === 'ovrigt'));
 
   const harTrailer = obj.transport_trailer_in === true || obj.transport_trailer_in === false;
@@ -193,8 +223,12 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
           <div style={{ marginBottom: 28 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: sv.farg, padding: '4px 12px', background: sv.bg, borderRadius: 20 }}>{sv.ord}</span>
             <div style={{ fontSize: 14, color: C.t3, marginTop: 12 }}>
-              {obj.bolag || '–'} · {obj.atgard || (obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring')} · {obj.areal || '–'} ha
-              {obj.vo_nummer ? ` · ${obj.vo_nummer}` : ''}
+              {[
+                obj.bolag,
+                obj.atgard || (obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'),
+                obj.areal ? `${obj.areal} ha` : null,
+                obj.vo_nummer,
+              ].filter(Boolean).join(' · ')}
             </div>
           </div>
 
@@ -229,21 +263,13 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
             </div>
           )}
 
-          {/* Restriktioner — only if present */}
-          {ber?.restriktioner && ber.restriktioner.length > 0 && (
-            <div style={{ background: C.rd, border: `1px solid rgba(255,69,58,0.15)`, borderRadius: 12, padding: '14px 16px', marginBottom: 20 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: C.red, marginBottom: 8 }}>Restriktioner</div>
-              {ber.restriktioner.map((r, i) => (
-                <div key={i} style={{ fontSize: 12, color: C.t1, marginBottom: 4 }}>
-                  {r.name}{r.warning ? <span style={{ color: C.red }}> — {r.warning}</span> : ''}
-                </div>
-              ))}
-            </div>
-          )}
-
           {/* Var skördaren kört — HPR-stammar på karta (egen sektion; renderar inget om data saknas) */}
           <SkordarKarta vo={obj.vo_nummer} objektId={obj.id} />
 
+          {/* Markeringsberoende + kontakt/maskiner/noteringar visas SAMLAT när markeringarna laddats
+              (skelett medan de laddas) → ingen sektions-pop / layout-shift. */}
+          {marksLaddat ? (
+          <>
           {/* Förutsättningar — maskinernas villkor på trakten (bärighet/terräng/trailer + körnät) */}
           {harForut && (
             <Section title="Förutsättningar">
@@ -302,21 +328,21 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
             </Section>
           )}
 
-          {/* Kontakt — only if present */}
-          {(obj.kontakt_namn || obj.markagare || obj.kontakt_telefon) && (
+          {/* Kontakt (markägare) — namn + klickbart nummer (tel-länken pekar nu på markagare_tel) */}
+          {(obj.markagare || obj.markagare_tel) && (
             <Section title="Kontakt">
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{obj.kontakt_namn || obj.markagare || '–'}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{obj.markagare || 'Markägare'}</div>
                 </div>
-                {obj.kontakt_telefon && (
-                  <a href={`tel:${obj.kontakt_telefon}`} onClick={e => e.stopPropagation()}
+                {obj.markagare_tel && (
+                  <a href={`tel:${obj.markagare_tel}`} onClick={e => e.stopPropagation()}
                     style={{
                       fontSize: 13, color: '#5b8fff', textDecoration: 'none', fontWeight: 500,
                       padding: '8px 16px', background: 'rgba(91,143,255,0.1)', borderRadius: 14,
                       minHeight: 44, display: 'flex', alignItems: 'center',
                     }}>
-                    {obj.kontakt_telefon}
+                    {obj.markagare_tel}
                   </a>
                 )}
               </div>
@@ -354,12 +380,9 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
               ))}
             </Section>
           )}
-
-          {/* Tillträde — only if present */}
-          {obj.ovrigt_info && (
-            <Section title="Tillträde">
-              <div style={{ fontSize: 13, color: C.t2, lineHeight: 1.5 }}>{obj.ovrigt_info}</div>
-            </Section>
+          </>
+          ) : (
+            <DetaljSkeleton />
           )}
         </div>
       </div>
@@ -505,9 +528,8 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   const bolagLista = Array.from(new Set(objekt.map(o => o.bolag).filter(Boolean))) as string[];
   const selectedObj = sel ? objekt.find(o => o.id === sel) : null;
 
-  // Aktiva = att planera + pågår (rubriksumma, oberoende av valt filter).
+  // Aktiva = att planera + pågår (rubrikräkning, oberoende av valt filter).
   const aktiva = objekt.filter(o => statusBucket(o.status) !== 'klar');
-  const aktivaVol = aktiva.reduce((s, o) => s + (o.volym || 0), 0);
 
   // Dynamiska filtersegment: 'Alla' + bara de hinkar som FINNS bland objekten
   // (inga oplanerade idag → inget tomt 'Att planera'-segment). Fast ordning.
@@ -591,14 +613,14 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
             <span style={{ fontSize: 12.5, color: C.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-              {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')}{o.areal ? ` · ${o.areal} ha` : ''}{o.terrang ? ` · ${o.terrang}` : ''}
+              {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')}{o.areal ? ` · ${o.areal} ha` : ''}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
               {maskiner.map(m => (
                 <span key={m} style={{ fontSize: 10.5, fontWeight: 500, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>{m}</span>
               ))}
               {o.grot === true && (
-                <span style={{ fontSize: 10.5, fontWeight: 600, color: C.green, background: C.gd, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>GROT</span>
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>GROT</span>
               )}
             </div>
           </div>
@@ -623,7 +645,7 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.bg, padding: '14px 0 10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
           <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: C.t3 }}>
-            {aktiva.length} aktiva · {aktivaVol.toLocaleString('sv-SE')} m³
+            {aktiva.length} aktiva
           </div>
           <button onClick={() => setPanelOpen(true)} aria-label="Filter och vy" style={{
             position: 'relative', width: 40, height: 40, borderRadius: 12,
