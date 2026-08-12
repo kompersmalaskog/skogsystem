@@ -34,6 +34,21 @@ interface Bestallning {
   volym: number
 }
 
+interface OversiktRad {    // helikopter_oversikt: beställd, kalenderbas per bolag+typ+månad
+  bolag: string | null
+  typ: string              // gemener: 'slutavverkning' | 'gallring'
+  bestallning: number
+  avverkat: number
+  utskotat: number
+}
+
+interface OvrigtRad {      // helikopter_oversikt_ovrigt: produktion/skotning UTAN matchande beställning
+  bolag: string | null
+  typ: string
+  avverkat: number
+  utskotat: number
+}
+
 interface DimMaskin {
   maskin_id: string
   modell: string | null
@@ -162,6 +177,11 @@ function normalizeBolag(b: string | null): string {
   return b.trim()
 }
 
+// helikopter_oversikt(_ovrigt).typ är gemener; översätt till spårets visningsnamn.
+function oversiktTypNamn(t: string): 'Slutavverkning' | 'Gallring' | null {
+  return t === 'slutavverkning' ? 'Slutavverkning' : t === 'gallring' ? 'Gallring' : null
+}
+
 function maskinModell(m: DimMaskin | undefined | null): string {
   return m?.modell || m?.maskin_id || 'Maskin'
 }
@@ -266,6 +286,8 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
 export default function HelikopterV2Page() {
   const [data, setData] = useState<ObjektRow[]>([])
   const [bestallningar, setBestallningar] = useState<Bestallning[]>([])
+  const [oversikt, setOversikt] = useState<OversiktRad[]>([])       // helikopter_oversikt (beställd, kalenderbas)
+  const [ovrigtData, setOvrigtData] = useState<OvrigtRad[]>([])     // helikopter_oversikt_ovrigt (ej beställt)
   const [objektAlla, setObjektAlla] = useState<{
     id: string; namn: string | null; vo_nummer: string | null;
     ar: number | null; manad: number | null; status: string | null; typ: string | null;
@@ -293,7 +315,7 @@ export default function HelikopterV2Page() {
   const load = useCallback(async () => {
     try {
       // Läs via inloggad session-klient (inte hårdkodad anon-nyckel).
-      const [hv, best, dimo, obj, dimm, stopp, stoppMaskin, utfall] = await Promise.all([
+      const [hv, best, dimo, obj, dimm, stopp, stoppMaskin, utfall, oversiktRes, ovrigtRes] = await Promise.all([
         supabase.from('helikopter_vy').select('*'),
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
         supabase.from('dim_objekt').select('objekt_id,object_name,maskin_id,vo_nummer,huvudtyp,atgard,skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto'),
@@ -302,6 +324,8 @@ export default function HelikopterV2Page() {
         supabase.from('stopp').select('id,fran_datum,till_datum,orsak'),
         supabase.from('stopp_maskin').select('stopp_id,maskin_id'),
         supabase.from('vy_objekt_utfall').select('*'),
+        supabase.from('helikopter_oversikt').select('bolag,typ,bestallning,avverkat,utskotat').eq('ar', ar).eq('manad', manad),
+        supabase.from('helikopter_oversikt_ovrigt').select('bolag,typ,avverkat,utskotat').eq('ar', ar).eq('manad', manad),
       ])
       // Härled huvudtyp där den saknas (maskin-regel + vo-match) — fas 1, ingen DB-ändring.
       const maskinById = new Map<string, string>((dimo.data || []).map((d: any) => [d.objekt_id, d.maskin_id]))
@@ -317,6 +341,8 @@ export default function HelikopterV2Page() {
         })))
       }
       if (best.data) setBestallningar(best.data)
+      setOversikt((oversiktRes.data || []) as OversiktRad[])
+      setOvrigtData((ovrigtRes.data || []) as OvrigtRad[])
       setObjektAlla(obj.data || [])
       if (dimm.data) setDimMaskiner(dimm.data as DimMaskin[])
       // Stopp: tabellen `maskinstopp` finns inte — joina stopp (datum/orsak) med stopp_maskin (vilka maskiner).
@@ -368,20 +394,22 @@ export default function HelikopterV2Page() {
     bestallningar.filter(b => b.typ === 'gallring').reduce((s, b) => s + (b.volym || 0), 0),
   [bestallningar])
 
-  // Skördat/skotat per spår. huvudtyp är redan härledd i load(), så 'Okänt' = verkligt oklassat.
+  // Skördat/skotat per spår — kalenderbas ur helikopter_oversikt (produktions-/lassdatum
+  // i vald månad, per huvudtyp), ej objektets livstidsvolym på skördemånaden.
   const sparData = useMemo(() => {
     const agg: Record<'Slutavverkning' | 'Gallring' | 'Okänt', { skordat: number; skotat: number }> = {
       Slutavverkning: { skordat: 0, skotat: 0 },
       Gallring: { skordat: 0, skotat: 0 },
       'Okänt': { skordat: 0, skotat: 0 },
     }
-    for (const o of manadData) {
-      const t = (o.huvudtyp === 'Slutavverkning' || o.huvudtyp === 'Gallring') ? o.huvudtyp : 'Okänt'
-      agg[t].skordat += o.skordat_m3 || 0
-      agg[t].skotat += o.skotat_m3 || 0
+    for (const r of oversikt) {
+      const t = oversiktTypNamn(r.typ)
+      if (!t) continue
+      agg[t].skordat += r.avverkat || 0
+      agg[t].skotat += r.utskotat || 0
     }
     return agg
-  }, [manadData])
+  }, [oversikt])
 
   const workdaysInfo = useMemo(() => {
     const totalDays = new Date(ar, manad, 0).getDate()
@@ -397,9 +425,11 @@ export default function HelikopterV2Page() {
     return { total, passed }
   }, [ar, manad])
 
-  const totalSkotat = useMemo(() => manadData.reduce((s, o) => s + (o.skotat_m3 || 0), 0), [manadData])
-  const totalSkordat = useMemo(() => manadData.reduce((s, o) => s + (o.skordat_m3 || 0), 0), [manadData])
-  const totalOskotat = useMemo(() => manadData.reduce((s, o) => s + (o.oskotat_m3 || 0), 0), [manadData])
+  // Månadssummor — kalenderbas ur helikopter_oversikt (beställd produktion i månaden).
+  const totalSkotat = useMemo(() => oversikt.reduce((s, r) => s + (r.utskotat || 0), 0), [oversikt])
+  const totalSkordat = useMemo(() => oversikt.reduce((s, r) => s + (r.avverkat || 0), 0), [oversikt])
+  // Månadsnetto (skördat − skotat i månaden), ej livstids-backlog (den bärs av Utfall/helikopter_vy).
+  const totalOskotat = useMemo(() => totalSkordat - totalSkotat, [totalSkordat, totalSkotat])
 
   const manadsmal = useMemo(() => {
     const totalBest = slutBest + gallBest
@@ -444,6 +474,10 @@ export default function HelikopterV2Page() {
   }
 
   // Export (CSV + dela) — tucked away i meny, inte på förstaskärmen.
+  // OBS: CSV:n står på ANNAN bas än fliken ovan — per-objekt ur helikopter_vy
+  // (livstidsvolym på skördemånaden), medan fliken visar kalenderbas per månad
+  // ur helikopter_oversikt. Den fotar alltså inte exakt mot månadssummorna.
+  // TODO (följdjobb): rikta om CSV:n till per-objekt-per-månad (kalenderbas).
   const buildCsv = () => {
     const header = ['Objekt', 'VO-nummer', 'Bolag', 'Huvudtyp', 'Skogsägare', 'Inköpare', 'Skördat_m3fub', 'Skotat_m3fub', 'Oskotat_m3fub', 'Skördare_klar', 'Skotare_start']
     const escape = (v: any) => {
@@ -483,7 +517,7 @@ export default function HelikopterV2Page() {
 
   // Checklista-signaler för tom-vyn — oberoende, ingen hård-gejtning.
   const harBestallning = slutBest + gallBest > 0
-  const harProduktion = manadData.length > 0
+  const harProduktion = manadData.length > 0 || oversikt.length > 0 || ovrigtData.length > 0
   const plAntal = useMemo(
     () => objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'planerad' || o.status === 'pagaende')).length,
     [objektAlla, ar, manad]
@@ -494,38 +528,38 @@ export default function HelikopterV2Page() {
     { n: 3, titel: 'Följ upp', klar: false, vantar: true, under: 'Väntar på produktion', href: null as string | null, lank: null as string | null },
   ]
 
-  // Beställning + skördat + skotat per bolag, per spår. Skördat/skotat = SUM ur helikopter_vy per
-  // vyns bolag-fält — ren summering av taggade objekt, INGEN gissning. Otaggad produktion
-  // (bolag null/tomt → 'Okänt') samlas i 'Övrigt'. Bara bestallningar + helikopter_vy.
+  // Beställning + skördat + skotat per bolag, per spår — kalenderbas.
+  // Beställda rader: helikopter_oversikt (lovat = vyns bestallning, en rad per beställning).
+  // Övrigt: helikopter_oversikt_ovrigt (produktion/skotning UTAN matchande beställning),
+  // summerad per typ till {skordat, skotat}. Ingen gissning, ingen tyst borttagning.
   const bolagRader = useMemo(() => {
-    const lovatAcc: Record<'Slutavverkning' | 'Gallring', Record<string, number>> = { Slutavverkning: {}, Gallring: {} }
-    for (const b of bestallningar) {
-      const typ = b.typ === 'slutavverkning' ? 'Slutavverkning' : b.typ === 'gallring' ? 'Gallring' : null
+    const acc: Record<'Slutavverkning' | 'Gallring', Record<string, { lovat: number; skordat: number; skotat: number }>> = { Slutavverkning: {}, Gallring: {} }
+    for (const r of oversikt) {
+      const typ = oversiktTypNamn(r.typ)
       if (!typ) continue
-      lovatAcc[typ][normalizeBolag(b.bolag)] = (lovatAcc[typ][normalizeBolag(b.bolag)] || 0) + (b.volym || 0)
+      const namn = normalizeBolag(r.bolag)
+      if (!acc[typ][namn]) acc[typ][namn] = { lovat: 0, skordat: 0, skotat: 0 }
+      acc[typ][namn].lovat += r.bestallning || 0
+      acc[typ][namn].skordat += r.avverkat || 0
+      acc[typ][namn].skotat += r.utskotat || 0
     }
-    const prodAcc: Record<'Slutavverkning' | 'Gallring', Record<string, { skordat: number; skotat: number }>> = { Slutavverkning: {}, Gallring: {} }
-    for (const o of manadData) {
-      const typ = (o.huvudtyp === 'Slutavverkning' || o.huvudtyp === 'Gallring') ? o.huvudtyp : null
+    const ovrigtAcc: Record<'Slutavverkning' | 'Gallring', { skordat: number; skotat: number }> = { Slutavverkning: { skordat: 0, skotat: 0 }, Gallring: { skordat: 0, skotat: 0 } }
+    for (const r of ovrigtData) {
+      const typ = oversiktTypNamn(r.typ)
       if (!typ) continue
-      const namn = normalizeBolag(o.bolag) // null/tomt → 'Okänt' → Övrigt
-      if (!prodAcc[typ][namn]) prodAcc[typ][namn] = { skordat: 0, skotat: 0 }
-      prodAcc[typ][namn].skordat += o.skordat_m3 || 0
-      prodAcc[typ][namn].skotat += o.skotat_m3 || 0
+      ovrigtAcc[typ].skordat += r.avverkat || 0
+      ovrigtAcc[typ].skotat += r.utskotat || 0
     }
     const bygg = (typ: 'Slutavverkning' | 'Gallring') => {
-      const namn = new Set<string>([...Object.keys(lovatAcc[typ]), ...Object.keys(prodAcc[typ])])
-      namn.delete('Okänt') // otaggad produktion hamnar i Övrigt-raden
-      const rader = Array.from(namn).map(bolag => {
-        const lovat = lovatAcc[typ][bolag] || 0
-        const p = prodAcc[typ][bolag] || { skordat: 0, skotat: 0 }
+      const rader = Object.entries(acc[typ]).map(([bolag, p]) => ({
+        bolag, lovat: p.lovat, skordat: p.skordat, skotat: p.skotat,
         // Klar först när ALLT är framme: både skördat OCH skotat ≥ beställt.
-        return { bolag, lovat, skordat: p.skordat, skotat: p.skotat, klar: lovat > 0 && p.skordat >= lovat && p.skotat >= lovat }
-      }).sort((a, b) => (b.lovat - a.lovat) || (b.skordat - a.skordat)) // störst beställning först
-      return { rader, ovrigt: prodAcc[typ]['Okänt'] ? prodAcc[typ]['Okänt'].skordat : 0 }
+        klar: p.lovat > 0 && p.skordat >= p.lovat && p.skotat >= p.lovat,
+      })).sort((a, b) => (b.lovat - a.lovat) || (b.skordat - a.skordat)) // störst beställning först
+      return { rader, ovrigt: ovrigtAcc[typ] }
     }
     return { Slutavverkning: bygg('Slutavverkning'), Gallring: bygg('Gallring') }
-  }, [bestallningar, manadData])
+  }, [oversikt, ovrigtData])
 
   // === KAPACITET (framåt): hinner maskinerna med månadens objekt — RÄKNAD kapacitet (dagar × 8) ===
   const kapacitet = useMemo(() => {
@@ -814,7 +848,7 @@ export default function HelikopterV2Page() {
                       Klar-bock när BÅDE skördat OCH skotat ≥ beställt. */}
                   {oppetSpar === rad.typ && (() => {
                     const { rader, ovrigt } = bolagRader[rad.typ]
-                    if (rader.length === 0 && ovrigt === 0) {
+                    if (rader.length === 0 && ovrigt.skordat === 0 && ovrigt.skotat === 0) {
                       return <div style={{ paddingBottom: 14 }}><div style={{ padding: '6px 0 6px 30px', fontSize: 13, color: muted }}>Ingen beställning lagd för {rad.typ.toLowerCase()}.</div></div>
                     }
                     return (
@@ -874,14 +908,14 @@ export default function HelikopterV2Page() {
                             </div>
                           )
                         })}
-                        {ovrigt > 0 && (
-                          /* Otaggat — svagare än kundraderna: en påminnelse, inte en kund */
+                        {(ovrigt.skordat > 0 || ovrigt.skotat > 0) && (
+                          /* Ej beställt — kalenderbas ur helikopter_oversikt_ovrigt; svagare än kundraderna */
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, padding: '2px 0 2px 30px', fontSize: 12, color: 'rgba(255,255,255,0.28)' }}>
-                            <span>Övrigt · otaggat</span>
-                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(ovrigt).toLocaleString('sv-SE')} m³fub</span>
+                            <span>Övrigt · ej beställt</span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(ovrigt.skordat).toLocaleString('sv-SE')} skördat · {Math.round(ovrigt.skotat).toLocaleString('sv-SE')} skotat m³fub</span>
                           </div>
                         )}
-                        {rader.length === 1 && ovrigt === 0 && rad.best > 0 && (
+                        {rader.length === 1 && ovrigt.skordat === 0 && ovrigt.skotat === 0 && rad.best > 0 && (
                           <div style={{ padding: '4px 0 2px 30px', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>Fler bolag visas när deras beställning läggs in</div>
                         )}
                       </div>
