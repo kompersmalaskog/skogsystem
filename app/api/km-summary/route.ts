@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { bygKedjaKm, Point, hamtaObjektKoordinater, KoordKalla } from "@/lib/routing";
+import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 
 /**
@@ -65,6 +66,7 @@ export async function GET(req: NextRequest) {
     const MAX_ORS = 5;
     let totalKm = 0;
     let ersattningsKm = 0;
+    let ersattningsMil = 0; // påbörjade mil (delad lib) — samma mängd som lönen
     let orsAnrop = 0;
     const berakningar: { datum:string; km:number; source:string; segments:number }[] = [];
 
@@ -130,6 +132,7 @@ export async function GET(req: NextRequest) {
 
       totalKm += dagensKm;
       ersattningsKm += Math.max(0, dagensKm - frikm);
+      ersattningsMil += ersattningsMilDag(dagensKm, frikm);
       berakningar.push({ datum, km: dagensKm, source, segments: segCount });
     }
 
@@ -137,6 +140,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       totalKm: Math.round(totalKm),
       ersattningsKm: Math.round(ersattningsKm),
+      ersattningsMil,
       orsAnrop,
       dagar: perDatum.size,
       berakningar,
