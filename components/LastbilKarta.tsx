@@ -16,12 +16,13 @@ type Punkt = { lat: number; lng: number }
 type Segment = { coords: [number, number][]; matchad: boolean }
 
 export default function LastbilKarta({
-  position, segment, punkter, height = 260,
+  position, segment, punkter, height = 260, puls = false,
 }: {
   position: Punkt | null
   segment: Segment[]
   punkter: Punkt[]
   height?: number
+  puls?: boolean   // pulserande ring på positionsmarkören när bilen rullar
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -39,6 +40,18 @@ export default function LastbilKarta({
       link.rel = 'stylesheet'
       link.href = 'https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.css'
       document.head.appendChild(link)
+    }
+    if (!document.getElementById('lastbil-marker-css')) {
+      const s = document.createElement('style')
+      s.id = 'lastbil-marker-css'
+      s.textContent = `
+        .lb-marker{position:relative;width:16px;height:16px}
+        .lb-marker .lb-dot{position:absolute;inset:2px;border-radius:50%;background:#ff9f0a;border:2px solid #0d0d0f;box-sizing:border-box}
+        .lb-marker .lb-ring{position:absolute;inset:0;border-radius:50%;border:2px solid #ff9f0a;opacity:0;transform-origin:center}
+        .lb-marker.puls .lb-ring{animation:lb-ping 1.9s ease-out infinite}
+        @keyframes lb-ping{0%{transform:scale(.5);opacity:.85}100%{transform:scale(2.6);opacity:0}}
+        @media (prefers-reduced-motion: reduce){.lb-marker.puls .lb-ring{animation:none}}`
+      document.head.appendChild(s)
     }
 
     const start = position ?? punkter[0] ?? { lat: 56.55, lng: 14.74 } // fallback: verksamhetens trakt
@@ -107,20 +120,25 @@ export default function LastbilKarta({
     if (!klarRef.current || !mapRef.current) return
     import('maplibre-gl').then(rita)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [position?.lat, position?.lng, segment, punkter])
+  }, [position?.lat, position?.lng, segment, punkter, puls])
 
   function rita(mlbre: any) {
     const map = mapRef.current
     if (!map || !klarRef.current) return
 
-    // Markör
+    // Markör (custom element → kan pulsera när bilen rullar)
     if (position) {
       if (!markorRef.current) {
-        markorRef.current = new mlbre.Marker({ color: '#ff9f0a' })
+        const el = document.createElement('div')
+        el.className = 'lb-marker'
+        el.innerHTML = '<span class="lb-ring"></span><span class="lb-dot"></span>'
+        markorRef.current = new mlbre.Marker({ element: el, anchor: 'center' })
           .setLngLat([position.lng, position.lat]).addTo(map)
       } else {
         markorRef.current.setLngLat([position.lng, position.lat])
       }
+      const el = markorRef.current.getElement?.()
+      if (el) el.classList.toggle('puls', !!puls)
     } else if (markorRef.current) {
       markorRef.current.remove(); markorRef.current = null
     }

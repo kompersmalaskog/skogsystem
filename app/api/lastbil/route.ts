@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
+import { haversine } from '@/utils/geo'
 
 // Överblick för Lastbilsvyn (/lastbil). Läser BARA — allt kommer ur det cron:en
 // redan sparar: lastbil_logg (position + radata.rfms = hela råa vehiclestatus-
@@ -70,7 +71,7 @@ export async function GET() {
   const saknas: string[] = []
 
   // Aktiv lastbil (ett fordon idag; vin styr all filtrering)
-  const { data: bilar } = await db.from('lastbil').select('vin, namn').eq('aktiv', true).limit(1)
+  const { data: bilar } = await db.from('lastbil').select('vin, namn, hemmabas_lat, hemmabas_lng, hemmabas_radie_m').eq('aktiv', true).limit(1)
   const vin: string | null = bilar?.[0]?.vin ?? null
   if (!vin) {
     return NextResponse.json({ ok: true, harData: false, position: null, tank: null, halsa: null,
@@ -141,6 +142,57 @@ export async function GET() {
   const oppen_runda_id: string | null = oppna?.[0]?.id ?? null
   const runda_pagar = oppen_runda_id != null
 
+  // ── Läge: kör (öppen runda + ev. maskin på flaket) / parkerad på hemmabasen ──
+  const bas = {
+    lat: tal(bilar?.[0]?.hemmabas_lat), lng: tal(bilar?.[0]?.hemmabas_lng),
+    radie_km: (tal(bilar?.[0]?.hemmabas_radie_m) ?? 300) / 1000,
+  }
+  let oppen_runda: {
+    id: string; starttid: string | null; live_km: number | null
+    maskin: { namn: string; lage: 'flaket' | 'lossad' } | null
+  } | null = null
+  let parkerad: { plats: string; sedan: string | null } | null = null
+
+  if (oppen_runda_id) {
+    const { data: rd } = await db.from('flyttdag')
+      .select('starttid, start_odometer_m').eq('id', oppen_runda_id).maybeSingle()
+    const startOdo = tal(rd?.start_odometer_m)
+    // Live-km = senaste odometer − rundans start (mätt, aldrig interpolerat)
+    const live_km = (startOdo != null && matare_km != null)
+      ? Math.max(0, Math.round(matare_km - startOdo / 1000)) : null
+    // Senaste flytt i rundan → maskin på flaket (sluttid null) eller lossad (sluttid satt)
+    const { data: mf } = await db.from('maskin_flytt')
+      .select('maskin_id, extern_maskin, sluttid').eq('flyttdag_id', oppen_runda_id).eq('avbruten', false)
+      .order('starttid', { ascending: false }).limit(1)
+    let maskin: { namn: string; lage: 'flaket' | 'lossad' } | null = null
+    const f = mf?.[0]
+    if (f) {
+      let namn: string = f.extern_maskin || f.maskin_id || 'Maskin'
+      if (f.maskin_id) {
+        const { data: dm } = await db.from('dim_maskin')
+          .select('visningsnamn, modell').eq('maskin_id', f.maskin_id).maybeSingle()
+        namn = dm?.visningsnamn || dm?.modell || f.maskin_id
+      }
+      maskin = { namn, lage: f.sluttid ? 'lossad' : 'flaket' }
+    }
+    oppen_runda = { id: oppen_runda_id, starttid: rd?.starttid ?? null, live_km, maskin }
+  } else if (bas.lat != null && bas.lng != null && position) {
+    const iRadie = (la: number, ln: number) => haversine(la, ln, bas.lat!, bas.lng!) <= bas.radie_km
+    const fart = tal(snap.wheelBasedSpeed ?? snap.gnssPosition?.speed)
+    const stilla = fart == null || fart <= 2
+    if (iRadie(position.lat, position.lng) && stilla) {
+      // Parkerad sedan = första punkten i den pågående hemma-sviten (walk baklänges)
+      const { data: pk } = await db.from('lastbil_logg')
+        .select('tidpunkt, lat, lng').eq('vin', vin).order('tidpunkt', { ascending: false }).limit(80)
+      let sedan: string | null = position.tidpunkt
+      for (const p of (pk ?? [])) {
+        if (p.lat != null && p.lng != null && iRadie(Number(p.lat), Number(p.lng))) sedan = p.tidpunkt
+        else break
+      }
+      parkerad = { plats: 'LBC', sedan }
+    }
+  }
+
   // ── Vad har den gjort: senaste ~10 rundor ──
   const { data: fdag } = await db.from('flyttdag')
     .select('id, starttid, sluttid, status, matare_km, bransle_l')
@@ -168,6 +220,6 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true, harData: true, vin, namn: bilar?.[0]?.namn ?? null,
-    position, tank, halsa, spar_idag, runda_pagar, oppen_runda_id, rundor, saknas,
+    position, tank, halsa, spar_idag, runda_pagar, oppen_runda_id, oppen_runda, parkerad, rundor, saknas,
   })
 }
