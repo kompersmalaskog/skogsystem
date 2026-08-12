@@ -248,21 +248,18 @@ export default function SammanstallningClient() {
     synligaRundor.filter(d => d.status !== 'pagaende' && d.sluttid != null && (flyttPerDag.get(d.id)?.length || 0) >= 1),
     [synligaRundor, flyttPerDag])
 
-  // Gruppera rundorna per datum (nyast först); rundorna ligger under datumet
-  const datumGrupper = useMemo(() => {
-    const grupp = new Map<string, DagRad[]>()
-    for (const d of synligaRundor) {
-      const dat = new Date(d.starttid).toLocaleDateString('sv-SE')
-      if (!grupp.has(dat)) grupp.set(dat, [])
-      grupp.get(dat)!.push(d)
-    }
-    return Array.from(grupp.values()).map(rundor => ({
-      nyckel: new Date(rundor[0].starttid).toLocaleDateString('sv-SE'),
-      label: new Date(rundor[0].starttid).toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' }),
-      rundor,
-      matareKm: rundor.reduce((s, r) => s + (r.matare_km ?? 0), 0),  // lastbilens totala mätta km den dagen (inkl övrig)
-    }))
-  }, [synligaRundor])
+  // Flytt-dagar (huvudsaken) nyast först; övrig körning summeras separat i EN rad
+  // så listan inte dränks i auto/säkerhetsnäts-rundor.
+  const flyttDagar = useMemo(() =>
+    [...kordagar].sort((a, b) => b.starttid.localeCompare(a.starttid)), [kordagar])
+  const ovrigaRundor = useMemo(() =>
+    synligaRundor.filter(d => d.status !== 'pagaende' && d.sluttid != null && (flyttPerDag.get(d.id)?.length || 0) === 0),
+    [synligaRundor, flyttPerDag])
+  const ovrigSumma = useMemo(() => ({
+    antal: ovrigaRundor.length,
+    km: Math.round(ovrigaRundor.reduce((s, d) => s + (d.matare_km ?? 0), 0)),
+    liter: Math.round(ovrigaRundor.reduce((s, d) => s + (d.bransle_l ?? 0), 0)),
+  }), [ovrigaRundor])
 
   // Fakturerbart = Σ flytt_km för ALLA fakturerbara flyttar (kunduppdrag ingår,
   // fakturerbara oavsett sträcka) — allt vi kan ta betalt för.
@@ -445,7 +442,7 @@ export default function SammanstallningClient() {
           <>
             {/* Summering: ett stort tal — periodens totala km */}
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 18px 16px', marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: C.t3, fontWeight: 700, letterSpacing: 0.3 }}>HELA KÖRNINGEN</div>
+              <div style={{ fontSize: 12, color: C.t3, fontWeight: 700, letterSpacing: 0.3 }}>FLYTTDAGAR</div>
               <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1, marginTop: 4 }}>{dagSumma.km} km</div>
               <div style={{ fontSize: 14, color: C.t3, marginTop: 4 }}>
                 {dagSumma.flyttar} {dagSumma.flyttar === 1 ? 'flytt' : 'flyttar'} · {dagSumma.dagar} {dagSumma.dagar === 1 ? 'kördag' : 'kördagar'} · {fmtTid(dagSumma.tidMatt)}
@@ -456,23 +453,10 @@ export default function SammanstallningClient() {
               {fakturerbarBadge(fakturerbartKm)}
             </div>
 
-            {datumGrupper.length === 0 ? tomLage('Inga flyttar den här perioden.') : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {datumGrupper.map(grupp => (
-                  <div key={grupp.nyckel}>
-                    {/* Datumrubrik: veckodag + datum · N rundor · X km (mätare) */}
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, margin: '0 2px 8px' }}>
-                      <div style={{ fontSize: 15, fontWeight: 800 }}>
-                        {grupp.label}
-                        <span style={{ color: C.t3, fontWeight: 600 }}> · {grupp.rundor.length} {grupp.rundor.length === 1 ? 'runda' : 'rundor'}</span>
-                      </div>
-                      {grupp.matareKm > 0 && (
-                        <div style={{ fontSize: 13, color: C.t3, whiteSpace: 'nowrap' }}>{grupp.matareKm.toLocaleString('sv-SE')} km (mätare)</div>
-                      )}
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {grupp.rundor.map(d => {
+            {flyttDagar.length === 0 && ovrigSumma.antal === 0 ? tomLage('Inga körningar den här perioden.') : (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: ovrigSumma.antal > 0 ? 16 : 0 }}>
+                {flyttDagar.map(d => {
                   const pagaende = d.status === 'pagaende' || d.sluttid == null
                   const auto = d.status === 'auto_avslutad'
                   const ovrig = d.status === 'ovrig_korning'
@@ -503,7 +487,7 @@ export default function SammanstallningClient() {
                             {natstangd && <span style={{ color: C.orange, fontWeight: 600 }}> · Auto-stängd</span>}
                           </div>
                           <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
-                            {klockslag}{d.forare && ` · ${d.forare}`}
+                            {new Date(d.starttid).toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' })} · {klockslag}{d.forare && ` · ${d.forare}`}
                           </div>
                         </div>
                         <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -572,10 +556,17 @@ export default function SammanstallningClient() {
                     </div>
                   )
                 })}
+                </div>
+                {ovrigSumma.antal > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: `1px dashed ${C.border}`, color: C.t3 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 20 }}>more_horiz</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.t2 }}>Övrig körning</div>
+                      <div style={{ fontSize: 12, marginTop: 1 }}>{ovrigSumma.antal} {ovrigSumma.antal === 1 ? 'runda' : 'rundor'} · {ovrigSumma.km.toLocaleString('sv-SE')} km{ovrigSumma.liter > 0 ? ` · ${ovrigSumma.liter} l` : ''}</div>
                     </div>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </>
         )}
@@ -593,8 +584,10 @@ export default function SammanstallningClient() {
                   <span style={{ color: C.t3 }}> (exkl {flyttSumma.utanTid} utan tid)</span>
                 )}
               </div>
-              <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>{flyttSumma.fakturerbara} fakturerbara</div>
-              {fakturerbarBadge(flyttSumma.fakturerbarKm)}
+              <div style={{ fontSize: 13, color: flyttSumma.fakturerbara === 0 && flyttSumma.antal > 0 ? C.orange : C.t3, marginTop: 2 }}>
+                {flyttSumma.fakturerbara === 0 && flyttSumma.antal > 0 ? 'Inga över 3 mil — inget fakturerbart än' : `${flyttSumma.fakturerbara} fakturerbara`}
+              </div>
+              {flyttSumma.fakturerbarKm > 0 && fakturerbarBadge(flyttSumma.fakturerbarKm)}
               {flyttSumma.perTyp.length > 0 && (
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12, fontSize: 12, color: C.t3 }}>
                   {flyttSumma.perTyp.map(r => (
