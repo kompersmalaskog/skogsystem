@@ -89,7 +89,7 @@ export default function OversiktPage() {
     }
 
     // Production data — paginated, can be large
-    const [prodRows, lassRows, skordRows, skotRows] = await Promise.all([
+    const [prodRows, lassRows, skordRows, skotRows, manuellRows] = await Promise.all([
       fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
         () => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub')
       ),
@@ -103,6 +103,11 @@ export default function OversiktPage() {
       // Skotat per objekt (m³fub) — aggregatvy, en rad per objekt_id=vo_nummer.
       fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
         () => supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub').order('objekt_id')
+      ),
+      // Manuellt registrerad skotad volym (skotare_objekt_manuell, maskin_id IS NULL) — TRUMFAR
+      // lass när satt (även = 0), samma regel som uppföljningen. objekt_id = vo_nummer (som lass-vyn).
+      fetchAllRows<{ objekt_id: string; volym_m3: number | null }>(
+        () => supabase.from('skotare_objekt_manuell').select('objekt_id, volym_m3').is('maskin_id', null).order('objekt_id')
       ),
     ]);
 
@@ -130,7 +135,21 @@ export default function OversiktPage() {
       if (!r.objekt_id) continue;
       const k = String(r.objekt_id);
       if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null };
-      skmap[k].skotat = r.volym_m3sub || 0;   // rad finns → känd skotad volym
+      skmap[k].skotat = r.volym_m3sub || 0;   // lass-rad → känd skotad volym
+    }
+    // Manuell skotad volym TRUMFAR lass när den är SATT (även = 0). Max över ev. flera rader
+    // per objekt, precis som uppföljningen (useUppfoljningList) — den mänskliga registreringen
+    // vinner över ofullständig/saknad lassdata. null (ingen manuell rad) rör inte skotat.
+    const manuellByVo: Record<string, number> = {};
+    for (const r of manuellRows) {
+      if (!r.objekt_id || r.volym_m3 == null) continue;   // volym_m3 måste vara satt
+      const k = String(r.objekt_id);
+      const v = Number(r.volym_m3) || 0;
+      manuellByVo[k] = k in manuellByVo ? Math.max(manuellByVo[k], v) : v;
+    }
+    for (const k of Object.keys(manuellByVo)) {
+      if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null };
+      skmap[k].skotat = manuellByVo[k];   // trumfar lass/null (manuell registrering vinner)
     }
     setSkordMap(skmap);
   };
