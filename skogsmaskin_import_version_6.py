@@ -320,6 +320,21 @@ def nullif_empty(s):
         return None
     return s
 
+def normalize_bolag(b):
+    """Kanoniskt bolagsnamn ur XML:ns BusinessName. Speglar frontendens normalizeBolag
+    (app/helikopter-v2): trimmar och slår ihop kända skiftlägesvarianter så att
+    dim_objekt.bolag matchar bestallningar.bolag och helikoptervyerna (som joinar
+    bolag skiftlägeskänsligt). Utan detta blir 'VIDA' och 'Vida' skilda bolag och
+    beställd produktion räknas fel. Tom sträng lämnas tom — 'Okänt' är en
+    visningsetikett i frontend, aldrig ett DB-värde."""
+    t = (b or '').strip()
+    low = t.lower()
+    if low == 'vida':
+        return 'Vida'
+    if low == 'ata':
+        return 'ATA'
+    return t
+
 def make_objekt_id(vo_nummer: str, maskin_id: str, obj_key: str) -> str:
     """Bygg objekt_id: använd vo_nummer om det är numeriskt, annars maskin_id_obj_key"""
     if vo_nummer and vo_nummer.strip().isdigit():
@@ -662,7 +677,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             'object_name': obj_name,
             'vo_nummer': vo_nummer,
             'objektnr': objektnr,
-            'bolag': bolag,
+            'bolag': normalize_bolag(bolag),
             'areal_ha': safe_float(get_text(obj_def, 'ObjectArea', ns)),
             'maskin_id': maskin_id,
             'skogsagare': skogsagare,
@@ -1340,7 +1355,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             'vo_nummer': vo_nummer,
             'maskin_id': maskin_id,
             'skogsagare': skogsagare,
-            'bolag': bolag,
+            'bolag': normalize_bolag(bolag),
             'avverkningsform': avverkningsform,
             'certifiering': certifiering,
             'start_date': start_date,
@@ -2374,7 +2389,7 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
             'object_name': object_name,
             'vo_nummer': vo_nummer,
             'objektnr': objektnr,
-            'bolag': bolag,
+            'bolag': normalize_bolag(bolag),
             'maskin_id': maskin_id,
             'skogsagare': skogsagare,
             'saljare': saljare,
