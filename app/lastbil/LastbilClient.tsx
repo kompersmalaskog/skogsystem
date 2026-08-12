@@ -25,7 +25,7 @@ type Data = {
   tank: { diesel_pct: number | null; adblue_pct: number | null; rackvidd_km: number | null } | null
   halsa: { har_lampor: boolean; lampor: { kod: string; namn: string; state: string }[]; service_km: number | null; matare_km: number | null; motortimmar: number | null } | null
   runda_pagar: boolean; oppen_runda_id: string | null
-  oppen_runda: { id: string; starttid: string | null; live_km: number | null; maskin: { namn: string; lage: 'flaket' | 'lossad' } | null } | null
+  oppen_runda: { id: string; starttid: string | null; live_km: number | null; maskin: { namn: string; lage: 'flaket' | 'lossad' } | null; pa_vag_hem: boolean; km_kvar: number | null } | null
   parkerad: { plats: string; sedan: string | null } | null
   rundor: Runda[]; saknas: string[]
 }
@@ -230,14 +230,16 @@ function StatusHero({ avvik, oppen, park, alder_min, namn }: {
   }
   if (oppen) {
     const m = oppen.maskin
-    const mittrad = m
-      ? (m.lage === 'lossad'
-        ? <div style={{ ...flaketRad, color: C.green }}>✓ <b style={{ color: C.green }}>{m.namn}</b> lossad</div>
-        : <div style={flaketRad}>🚚 <b style={{ color: '#fff' }}>{m.namn}</b> på flaket</div>)
-      : <div style={{ ...flaketRad, color: C.t3 }}>Övrig körning · ingen maskin</div>
+    const mittrad = oppen.pa_vag_hem
+      ? <div style={{ ...flaketRad, color: '#8ab4ff' }}>🏠 På väg hem{oppen.km_kvar != null ? <span style={{ color: C.t3, fontWeight: 400 }}> · ~{oppen.km_kvar} km kvar</span> : null}</div>
+      : m
+        ? (m.lage === 'lossad'
+          ? <div style={{ ...flaketRad, color: C.green }}>✓ <b style={{ color: C.green }}>{m.namn}</b> lossad</div>
+          : <div style={flaketRad}>🚚 <b style={{ color: '#fff' }}>{m.namn}</b> på flaket</div>)
+        : <div style={{ ...flaketRad, color: C.t3 }}>Övrig körning · ingen maskin</div>
     return (
       <HeroSkal kant="rgba(59,130,246,0.30)" bak="rgba(59,130,246,0.10)" punktFarg={C.blue} puls>
-        <div style={livePill}><span style={{ width: 7, height: 7, borderRadius: '50%', background: C.blue }} />KÖR NU</div>
+        <div style={livePill}><span style={{ width: 7, height: 7, borderRadius: '50%', background: C.blue }} />{oppen.pa_vag_hem ? 'PÅ VÄG HEM' : 'KÖR NU'}</div>
         {mittrad}
         <div style={{ fontSize: 33, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: '#fff' }}>
           {oppen.live_km != null ? `${oppen.live_km} km` : '—'}
