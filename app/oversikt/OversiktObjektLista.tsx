@@ -8,6 +8,7 @@ import { formatVolym } from './oversikt-utils';
 import { supabase } from '@/lib/supabase';
 import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
 import type { SkordAgg } from './page';
+import SkordarKarta from './SkordarKarta';
 
 interface Props {
   objekt: OversiktObjekt[];
@@ -239,6 +240,9 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
               ))}
             </div>
           )}
+
+          {/* Var skördaren kört — HPR-stammar på karta (egen sektion; renderar inget om data saknas) */}
+          <SkordarKarta vo={obj.vo_nummer} />
 
           {/* Förutsättningar — maskinernas villkor på trakten (bärighet/terräng/trailer + körnät) */}
           {harForut && (
