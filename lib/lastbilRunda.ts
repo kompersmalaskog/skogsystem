@@ -59,7 +59,7 @@ export async function koraRundlogik(db: Db): Promise<RundRapport> {
 
     // Öppen runda för bilen — auto ELLER manuell (vin null). Dubbelskydds-guard.
     const { data: oppna } = await db.from('flyttdag')
-      .select('id, auto_skapad, start_odometer_m, start_odometer_tid, starttid')
+      .select('id, auto_skapad, start_odometer_m, start_odometer_tid, starttid, hemresa_start_tid, hemresa_start_odometer_m')
       .is('sluttid', null).or(`vin.eq.${vin},vin.is.null`)
       .order('starttid', { ascending: false }).limit(1)
     const oppen = oppna?.[0] ?? null
@@ -135,17 +135,34 @@ export async function koraRundlogik(db: Db): Promise<RundRapport> {
       .eq('flyttdag_id', oppen.id).eq('avbruten', false).not('sluttid', 'is', null)
     const status = (count ?? 0) > 0 ? 'avslutad' : 'ovrig_korning'
 
+    // ── Hemresan MÄTT ur loggen — nätet fångar glömda "Framme på LBC" ──
+    // (a) föraren tryckte "Kör hem" men glömde "Framme": mät hemresa_start → ankomst.
+    // (b) inget tryck alls: sista benet in i radien (punkten före hemma-sviten) → ankomst.
+    let hemKm: number | null = null
+    let tidHemMin: number | null = null
+    if (oppen.hemresa_start_odometer_m != null) {
+      hemKm = Math.round(((ankomst.odometer_m - oppen.hemresa_start_odometer_m) / 1000) * 10) / 10
+      if (oppen.hemresa_start_tid) tidHemMin = Math.round((Date.parse(ankomst.tidpunkt) - Date.parse(oppen.hemresa_start_tid)) / 60000)
+    } else if (ankomstIdx > 0) {
+      const avfardHem = punkter[ankomstIdx - 1]
+      hemKm = Math.round(((ankomst.odometer_m - avfardHem.odometer_m) / 1000) * 10) / 10
+      tidHemMin = Math.round((Date.parse(ankomst.tidpunkt) - Date.parse(avfardHem.tidpunkt)) / 60000)
+    }
+    if (hemKm != null && hemKm < 0) hemKm = null                       // trasig data → hellre tomt
+    if (tidHemMin != null && (tidHemMin < 0 || tidHemMin > 960)) tidHemMin = null
+
     const raMin = Math.round((Date.parse(ankomst.tidpunkt) - Date.parse(oppen.starttid)) / 60000)
     const { error } = await db.from('flyttdag').update({
       sluttid: ankomst.tidpunkt,
       slut_lat: bas.lat, slut_lng: bas.lng,
       slut_odometer_m: ankomst.odometer_m, slut_odometer_tid: ankomst.tidpunkt,
       matare_km: matareKm, bransle_l: bransleL,
+      hem_km: hemKm, tid_hem_min: tidHemMin, hemresa_matt: true,
       total_tid_min: raMin >= 0 && raMin <= 960 ? raMin : null,
       auto_avslutad_av: avslutAv, status,
     }).eq('id', oppen.id)
     if (error) return { atgard: 'fel', detalj: `stäng: ${error.message}` }
-    return { atgard: 'stangde', rundaId: oppen.id, detalj: { sakerhetsnat: manuell, status, matareKm, bransleL } }
+    return { atgard: 'stangde', rundaId: oppen.id, detalj: { sakerhetsnat: manuell, status, matareKm, bransleL, hemKm } }
   } catch (e: any) {
     return { atgard: 'fel', detalj: String(e?.message || e) }
   }

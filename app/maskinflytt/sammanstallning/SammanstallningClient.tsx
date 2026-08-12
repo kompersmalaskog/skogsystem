@@ -65,6 +65,7 @@ interface DagRad {
   odometer_stale: boolean | null
   status: string
   auto_avslutad_av: string | null    // 'cron' = auto-tröskel, 'cron_sakerhetsnat' = bortglömd "Kör hem"
+  hemresa_matt: boolean | null       // true = hem_km mätt via odometer (ej ORS-gissad)
 }
 
 const TYP_ETIKETT: Record<string, string> = {
@@ -167,7 +168,7 @@ export default function SammanstallningClient() {
           .lt('starttid', period.slut.toISOString())
           .order('starttid', { ascending: false })),
         medAbortRetry(() => supabase.from('flyttdag')
-          .select('id, forare, starttid, sluttid, tillkorning_km, hem_km, tid_hem_min, total_km, total_tid_min, matare_km, bransle_l, odometer_stale, status, auto_avslutad_av')
+          .select('id, forare, starttid, sluttid, tillkorning_km, hem_km, tid_hem_min, total_km, total_tid_min, matare_km, bransle_l, odometer_stale, status, auto_avslutad_av, hemresa_matt')
           .gte('starttid', period.start.toISOString())
           .lt('starttid', period.slut.toISOString())
           .order('starttid', { ascending: false })),
@@ -311,7 +312,7 @@ export default function SammanstallningClient() {
   function benRad(d: DagRad): string | null {
     const delar: string[] = []
     if (d.tillkorning_km != null && d.tillkorning_km > 0) delar.push(`Tillkörning ${d.tillkorning_km} km`)
-    if (d.hem_km != null && d.hem_km > 0) delar.push(`Hemresa ~${d.hem_km} km`)
+    if (d.hem_km != null && d.hem_km > 0) delar.push(`Hemresa ${d.hemresa_matt ? '' : '~'}${d.hem_km} km`)
     return delar.length ? delar.join(' · ') : null
   }
 
@@ -346,7 +347,7 @@ export default function SammanstallningClient() {
   }
 
   function exportDagCsv() {
-    const rubrik = ['Datum', 'Förare', 'Flyttar', 'Tillkörning km', 'Hemresa km (beräknad)', 'Total km', 'Tid min (mätt, exkl. hemresa)', 'Status']
+    const rubrik = ['Datum', 'Förare', 'Flyttar', 'Tillkörning km', 'Hemresa km', 'Total km', 'Tid min (mätt, exkl. hemresa)', 'Status']
     const rader = kordagar.map(d => [
       new Date(d.starttid).toLocaleDateString('sv-SE'),
       d.forare || '',

@@ -96,9 +96,11 @@ interface Flyttdag {
   start_odometer_m: number | null
   start_odometer_tid: string | null
   odometer_stale: boolean | null
+  hemresa_start_tid: string | null
+  hemresa_start_odometer_m: number | null
 }
 
-const FLYTTDAG_FALT = 'id, starttid, start_lat, start_lng, start_kalla, tillkorning_km, start_odometer_m, start_odometer_tid, odometer_stale'
+const FLYTTDAG_FALT = 'id, starttid, start_lat, start_lng, start_kalla, tillkorning_km, start_odometer_m, start_odometer_tid, odometer_stale, hemresa_start_tid, hemresa_start_odometer_m'
 
 /** Lastbilens odometer just nu via /api/scania/odometer (nycklar server-side).
  *  Scania får ALDRIG blockera — fel/timeout ger null och dagen sparas utan
@@ -353,6 +355,7 @@ export default function MaskinflyttClient() {
   const [dagFlyttAntal, setDagFlyttAntal] = useState(0)
   const [forraB, setForraB] = useState<{ lat: number; lng: number } | null>(null) // senaste flyttens slutpunkt
   const [dagNotis, setDagNotis] = useState<string | null>(null)
+  const [hemKmKvar, setHemKmKvar] = useState<number | null>(null)   // ~km kvar hem vid "Kör hem"
 
   // Flyttens tillstånd
   const [maskin, setMaskin] = useState<Maskin | null>(null)
@@ -425,7 +428,7 @@ export default function MaskinflyttClient() {
   const [dagResultat, setDagResultat] = useState<{
     antalFlyttar: number; tillkorningKm: number | null
     flyttKmSumma: number; mellankorningKmSumma: number
-    hemKm: number | null; tidHemMin: number | null
+    hemKm: number | null; tidHemMin: number | null; hemMatt: boolean
     totalKm: number; totalTidMin: number | null; dagOgiltig: boolean
     fakturerbarKm: number; fakturerbarAntal: number
     matareKm: number | null; odometerStale: boolean
@@ -1091,8 +1094,36 @@ export default function MaskinflyttClient() {
     setSteg('maskin')
   }
 
-  // ── "Kör hem — avsluta dagen" ──
+  // ── "Kör hem" — startar hemresan (stänger INTE rundan; den mäts vid "Framme") ──
   async function korHem() {
+    const d = dagRef.current
+    if (!d || sparar) return
+    setSparar(true); setSparFel(null)
+    const odo = await hamtaOdometer()   // färsk odometer vid avfärd hem
+    const { data, error } = await supabase.from('flyttdag').update({
+      hemresa_start_tid: new Date().toISOString(),
+      hemresa_start_odometer_m: odo?.odometer_m ?? null,
+    }).eq('id', d.id).select('id, hemresa_start_tid, hemresa_start_odometer_m')
+    if (error || !data?.length) {
+      setSparar(false); setSparFel(`Kunde inte starta hemresan: ${error?.message || 'inga rader sparades'}`); return
+    }
+    setDag(prev => prev ? { ...prev, hemresa_start_tid: data[0].hemresa_start_tid, hemresa_start_odometer_m: data[0].hemresa_start_odometer_m } : prev)
+    // ~km kvar hem: senaste loggposition → förarens hembas, grov skattning (× 1.4)
+    setHemKmKvar(null)
+    if (lastbilVin && medarb?.hem_lat != null && medarb?.hem_lng != null) {
+      const { data: pos } = await supabase.from('lastbil_logg')
+        .select('lat, lng').eq('vin', lastbilVin).order('tidpunkt', { ascending: false }).limit(1)
+      const p = pos?.[0]
+      if (p?.lat != null && p?.lng != null) {
+        setHemKmKvar(Math.round(haversine(Number(p.lat), Number(p.lng), medarb.hem_lat, medarb.hem_lng) * 1.4))
+      }
+    }
+    setSparar(false)
+    nastaFlytt()   // tillbaka till listan → "På väg hem"-banner med "Framme på LBC"
+  }
+
+  // ── "Framme på LBC" — stänger dagen med MÄTT hemresa (odometer-diff + tid) ──
+  async function framme() {
     const d = dagRef.current
     if (!d || sparar) return
     setSparar(true); setSparFel(null)
@@ -1114,13 +1145,9 @@ export default function MaskinflyttClient() {
     // Namn till sammanfattningens rader — en läsning per tabell, inga N+1
     const objektIds = Array.from(new Set((fl || []).flatMap(f => [f.fran_objekt_id, f.till_objekt_id]).filter(Boolean))) as string[]
     const platsIds = Array.from(new Set((fl || []).flatMap(f => [f.fran_plats_id, f.till_plats_id]).filter(Boolean))) as string[]
-    const [objNamn, platsNamn, hem, slutOdo, dagFarsk] = await Promise.all([
+    const [objNamn, platsNamn, slutOdo, dagFarsk] = await Promise.all([
       objektIds.length ? supabase.from('objekt').select('id, namn').in('id', objektIds) : Promise.resolve({ data: [] as any[] }),
       platsIds.length ? supabase.from('flyttplats').select('id, namn').in('id', platsIds) : Promise.resolve({ data: [] as any[] }),
-      // Hemresa: bara med hembas OCH en känd slutpunkt — annars ärligt tomt
-      medarb?.hem_lat != null && medarb?.hem_lng != null && sistaB
-        ? korRutt(sistaB, { lat: medarb.hem_lat, lng: medarb.hem_lng }, true)
-        : Promise.resolve(null),
       // Lastbilens odometer nu (slut) + färsk start-avläsning från dagen
       hamtaOdometer(),
       supabase.from('flyttdag').select('start_odometer_m, start_odometer_tid, odometer_stale').eq('id', d.id).single(),
@@ -1169,14 +1196,37 @@ export default function MaskinflyttClient() {
     const nu = new Date()
     const raMin = Math.round((nu.getTime() - new Date(d.starttid).getTime()) / 60000)
     const dagOgiltig = raMin < 0 || raMin > MAX_DAG_MIN
-    const totalKm = (d.tillkorning_km ?? 0) + flyttKmSumma + mellanSumma + (hem?.km ?? 0)
+
+    // ── Hemresan MÄTT: framme-odometer − hemresa_start_odometer, tid = nu − start ──
+    let hemKm: number | null = null
+    let hemMin: number | null = null
+    let hemresaMatt = false
+    const hemStartOdo = d.hemresa_start_odometer_m
+    if (hemStartOdo != null && slutOdoM != null) {
+      hemKm = Math.round(((slutOdoM - hemStartOdo) / 1000) * 10) / 10
+      hemresaMatt = true
+    }
+    if (d.hemresa_start_tid) {
+      const hm = Math.round((nu.getTime() - Date.parse(d.hemresa_start_tid)) / 60000)
+      if (hm >= 0 && hm <= MAX_DAG_MIN) hemMin = hm
+    }
+    // Fallback om hemresa_start saknas (äldre öppen runda utan "Kör hem"-tryck):
+    // ORS-gissning, märks EJ som mätt.
+    if (hemKm == null && medarb?.hem_lat != null && medarb?.hem_lng != null && sistaB) {
+      const est = await korRutt(sistaB, { lat: medarb.hem_lat, lng: medarb.hem_lng }, true)
+      hemKm = est?.km ?? null
+      if (hemMin == null) hemMin = est?.minutes ?? null
+      hemresaMatt = false
+    }
+    const totalKm = (d.tillkorning_km ?? 0) + flyttKmSumma + mellanSumma + (hemKm ?? 0)
 
     const { data, error } = await supabase.from('flyttdag').update({
       sluttid: nu.toISOString(),
       slut_lat: medarb?.hem_lat ?? null,
       slut_lng: medarb?.hem_lng ?? null,
-      hem_km: hem?.km ?? null,
-      tid_hem_min: hem?.minutes ?? null,
+      hem_km: hemKm,
+      tid_hem_min: hemMin,
+      hemresa_matt: hemresaMatt,
       total_km: totalKm,
       total_tid_min: dagOgiltig ? null : raMin,
       slut_odometer_m: slutOdoM,
@@ -1191,11 +1241,12 @@ export default function MaskinflyttClient() {
       setSparFel(`Kunde inte avsluta dagen: ${error?.message || 'inga rader sparades'}`)
       return
     }
+    setHemKmKvar(null)
     setDagResultat({
       antalFlyttar: fl?.length ?? 0,
       tillkorningKm: d.tillkorning_km,
       flyttKmSumma, mellankorningKmSumma: mellanSumma,
-      hemKm: hem?.km ?? null, tidHemMin: hem?.minutes ?? null,
+      hemKm, tidHemMin: hemMin, hemMatt: hemresaMatt,
       totalKm, totalTidMin: dagOgiltig ? null : raMin, dagOgiltig,
       fakturerbarKm: (fl || []).reduce((s, f) => s + (f.fakturerbar ? (f.flytt_km ?? 0) : 0), 0),
       fakturerbarAntal: (fl || []).filter(f => f.fakturerbar).length,
@@ -1277,7 +1328,7 @@ export default function MaskinflyttClient() {
         .select('id', { count: 'exact', head: true })
         .eq('flyttdag_id', f.flyttdag_id).eq('avbruten', false).not('sluttid', 'is', null)
       if ((count ?? 0) === 0) {
-        setDagNotis('Flytten avbröts och rundan har inga flyttar kvar. Tryck "Kör hem — avsluta" för att stänga rundan (annars stängs den automatiskt när bilen är tillbaka på basen).')
+        setDagNotis('Flytten avbröts och rundan har inga flyttar kvar. Tryck "Kör hem" och sedan "Framme på LBC" för att stänga rundan (annars stängs den automatiskt när bilen är tillbaka på basen).')
       }
     }
   }
@@ -1495,26 +1546,47 @@ export default function MaskinflyttClient() {
               </div>
             )}
 
-            {/* Pågående dag (utan pågående flytt) */}
-            {!laddar && dag && pagaende.length === 0 && (
-              <div style={{
-                background: 'rgba(59,130,246,0.10)', border: '1px solid rgba(59,130,246,0.35)',
-                borderRadius: 14, padding: 14, marginBottom: 16,
-              }}>
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-                  Dag pågår — {dagFlyttAntal} {dagFlyttAntal === 1 ? 'flytt' : 'flyttar'}
-                  <span style={{ color: C.t3, fontWeight: 400 }}> · startad {new Date(dag.starttid).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}</span>
+            {/* Pågående dag (utan pågående flytt) — "Dag pågår" ELLER "På väg hem" */}
+            {!laddar && dag && pagaende.length === 0 && (() => {
+              const paVagHem = !!dag.hemresa_start_tid
+              return (
+                <div style={{
+                  background: paVagHem ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.10)',
+                  border: '1px solid rgba(59,130,246,0.35)', borderRadius: 14, padding: 14, marginBottom: 16,
+                }}>
+                  {paVagHem ? (
+                    <>
+                      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>
+                        🏠 På väg hem{hemKmKvar != null ? <span style={{ color: C.t3, fontWeight: 400 }}> · ~{hemKmKvar} km kvar</span> : null}
+                      </div>
+                      <div style={{ fontSize: 13, color: C.t3, marginBottom: 10 }}>
+                        Tryck när du är framme på basen — då mäts hemresan (km och tid). Glömmer du, stängs dagen automatiskt när bilen står stilla hemma.
+                      </div>
+                      <button onClick={framme} disabled={sparar} style={{
+                        width: '100%', background: C.blue, color: '#fff', border: 'none',
+                        borderRadius: 10, padding: '13px 0', fontSize: 15, fontWeight: 800, cursor: 'pointer', fontFamily: ff,
+                        opacity: sparar ? 0.5 : 1,
+                      }}>{sparar ? 'Avslutar …' : 'Framme på LBC'}</button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+                        Dag pågår — {dagFlyttAntal} {dagFlyttAntal === 1 ? 'flytt' : 'flyttar'}
+                        <span style={{ color: C.t3, fontWeight: 400 }}> · startad {new Date(dag.starttid).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <div style={{ fontSize: 13, color: C.t3, marginBottom: 10 }}>
+                        Välj maskin nedan för nästa flytt, eller kör hem.
+                      </div>
+                      <button onClick={korHem} disabled={sparar} style={{
+                        width: '100%', background: 'transparent', color: C.blue, border: '1px solid rgba(59,130,246,0.5)',
+                        borderRadius: 10, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: ff,
+                        opacity: sparar ? 0.5 : 1,
+                      }}>{sparar ? 'Startar …' : 'Kör hem'}</button>
+                    </>
+                  )}
                 </div>
-                <div style={{ fontSize: 13, color: C.t3, marginBottom: 10 }}>
-                  Välj maskin nedan för nästa flytt, eller avsluta dagen.
-                </div>
-                <button onClick={korHem} disabled={sparar} style={{
-                  width: '100%', background: 'transparent', color: C.blue, border: '1px solid rgba(59,130,246,0.5)',
-                  borderRadius: 10, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: ff,
-                  opacity: sparar ? 0.5 : 1,
-                }}>{sparar ? 'Avslutar …' : 'Kör hem — avsluta dagen'}</button>
-              </div>
-            )}
+              )
+            })()}
 
             {/* Pågående flytt-banner */}
             {!laddar && pagaende.map(f => {
@@ -1998,7 +2070,7 @@ export default function MaskinflyttClient() {
               ...storKnapp(C.blue, '#fff'),
               opacity: sparar ? 0.4 : 1,
             }}>
-              {sparar ? 'Avslutar …' : 'Kör hem — avsluta'}
+              {sparar ? 'Startar …' : 'Kör hem'}
             </button>
             <Link href="/" style={{
               display: 'block', textAlign: 'center', marginTop: 14, color: C.t3,
@@ -2075,7 +2147,7 @@ export default function MaskinflyttClient() {
             <div style={{ fontSize: 13, color: C.t3, marginBottom: 16, lineHeight: 1.6 }}>
               Tillkörning {dagResultat.tillkorningKm != null ? `${dagResultat.tillkorningKm} km` : 'ej räknad'}
               {' · '}
-              Hemresa {dagResultat.hemKm != null ? `${dagResultat.hemKm} km (beräknad)` : 'ej räknad'}
+              Hemresa {dagResultat.hemKm != null ? `${dagResultat.hemKm} km${dagResultat.hemMatt ? '' : ' (beräknad)'}` : 'ej räknad'}
               {dagResultat.mellankorningKmSumma > 0 && ` · Mellankörning ${dagResultat.mellankorningKmSumma} km`}
             </div>
 
