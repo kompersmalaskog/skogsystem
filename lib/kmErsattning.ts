@@ -11,9 +11,13 @@
 // är REDAN tur+retur = km_morgon + km_kvall) och hårdkodade gränsen 60 i stället
 // för avtalets km_grans_per_dag. Samma mönster som datumLokal.ts löste för TZ.
 //
-// AVRUNDNING: GS-avtalet ersätter per PÅBÖRJAD mil. Regeln tillämpas PER DAG
-// (en dags resa är en resa) och summeras — inte på månadstotalen. Avgörs HÄR,
-// gäller alla tre.
+// AVRUNDNING (⚠ EJ AVTALSVERIFIERAD ÄNNU): "påbörjad mil" tillämpas PER DAG
+// (ceil per dag, summeras) — inte på månadssumman. Skillnaden är verklig: en dag
+// med 2 km över gränsen blir en hel mil (Stefan juli = 17 mil per dag vs 16 på
+// månadssumman). Regeln kommer från en MIGRATIONSKOMMENTAR ("ersättning per
+// påbörjad mil"), INTE ur avtalstexten — Martin stämmer av per dag vs månad med
+// löneansvarig. Byt HÄR om svaret blir månadssumma (ändra ersattningsMilDag →
+// summera km först, ceil sedan) så följer alla tre konsumenterna med. EN plats.
 // ─────────────────────────────────────────────────────────────
 
 export const KM_GRANS_DEFAULT = 60; // fri pendling km/dag om gs_avtal.km_grans_per_dag saknas
