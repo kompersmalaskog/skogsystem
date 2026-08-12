@@ -2203,6 +2203,11 @@ export default function PlannerPage() {
   const skotningCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [skotningReload, setSkotningReload] = useState(0);
   const [kvarData, setKvarData] = useState<{ sortiment: string; total: number; uttag: number; kvar: number; color: string }[]>([]);
+  // Ångra senaste uttag: bump:as BARA vid ångra → loadHogar kör om (högarna kommer tillbaka). ALDRIG
+  // vid spara (då gör save-handlern en lokal kartuppdatering; en om-körning skulle ta tillbaka högarna).
+  const [hogarReload, setHogarReload] = useState(0);
+  // Senaste "Spara uttag"-batchen på objektet (grupperad på identisk registrerad_at) → knappens etikett + delete-nyckel.
+  const [sistaUttag, setSistaUttag] = useState<{ count: number; volym: number; registrerad_at: string } | null>(null);
   const hogarFeaturesRef = useRef<any[]>([]);
   const grotFeaturesRef = useRef<any[]>([]);
   const generatePieIconRef = useRef<((sortimentData: Record<string, number>, size: number) => ImageData) | null>(null);
@@ -3780,9 +3785,10 @@ export default function PlannerPage() {
     };
 
     loadHogar();
-  }, [valtObjekt?.id, overlays.produktionshogar, overlays.grothogar, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [valtObjekt?.id, overlays.produktionshogar, overlays.grothogar, mapLibreReady, hogarReload]); // eslint-disable-line react-hooks/exhaustive-deps
   // OBS: skotningReload borttagen från deps — save-handlers gör lokal uppdatering av kartan,
-  // loadHogar ska INTE köras om efter sparande (det skriver över den lokala uppdateringen och högar "kommer tillbaka")
+  // loadHogar ska INTE köras om efter sparande (det skriver över den lokala uppdateringen och högar "kommer tillbaka").
+  // hogarReload däremot bump:as BARA vid ångra — då VILL vi köra om så de ångrade högarna kommer tillbaka.
 
   // === Supabase realtime: skotning_uttag ===
   useEffect(() => {
@@ -3795,6 +3801,17 @@ export default function PlannerPage() {
         filter: `objekt_id=eq.${valtObjekt.id}`,
       }, () => {
         setSkotningReload(prev => prev + 1);
+      })
+      // DELETE (ångra på annan enhet): OFILTRERAD — en DELETE-händelse bär som standard bara radens
+      // PK (id), inte objekt_id, så ett objekt_id-filter skulle släppa den. Omräkningen är ändå
+      // objekt-scoped (loadHogar/kvarData läser bara valt objekt), så en extra reload är ofarlig.
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'skotning_uttag',
+      }, () => {
+        setSkotningReload(prev => prev + 1);
+        setHogarReload(prev => prev + 1);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -3858,6 +3875,45 @@ export default function PlannerPage() {
     };
     load();
   }, [valtObjekt?.id, skotningReload]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // === Ångra senaste uttag: ladda senaste batchen (grupp = identisk registrerad_at) ===
+  useEffect(() => {
+    if (!valtObjekt?.id) { setSistaUttag(null); return; }
+    let avbruten = false;
+    (async () => {
+      const { data: senasteRad } = await supabase
+        .from('skotning_uttag').select('registrerad_at')
+        .eq('objekt_id', valtObjekt.id)
+        .order('registrerad_at', { ascending: false }).limit(1);
+      if (avbruten) return;
+      if (!senasteRad || senasteRad.length === 0) { setSistaUttag(null); return; }
+      const senaste = senasteRad[0].registrerad_at;
+      const { data: batch } = await supabase
+        .from('skotning_uttag').select('volym')
+        .eq('objekt_id', valtObjekt.id).eq('registrerad_at', senaste);
+      if (avbruten) return;
+      const rader = batch || [];
+      setSistaUttag({ count: rader.length, volym: rader.reduce((s, r) => s + (r.volym || 0), 0), registrerad_at: senaste });
+    })();
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, skotningReload]);
+
+  // Ångra senaste uttag: radera EXAKT den senaste batchen (samma registrerad_at, inte fler). .select()
+  // → få tillbaka de raderade raderna: 0 rader (RLS-blockerad delete = 204 utan effekt, samma tysta
+  // fel som gjorde spara-buggen osynlig) blir ett SYNLIGT fel, aldrig en tyst grön bekräftelse.
+  const angraSenasteUttag = async () => {
+    if (!valtObjekt?.id || !sistaUttag) return;
+    const { data: borttagna, error } = await supabase
+      .from('skotning_uttag').delete()
+      .eq('objekt_id', valtObjekt.id)
+      .eq('registrerad_at', sistaUttag.registrerad_at)
+      .select();
+    if (error) { console.error('[Ångra uttag] delete-fel:', error); alert('Kunde inte ångra: ' + error.message); return; }
+    if (!borttagna || borttagna.length === 0) { alert('Kunde inte ångra — ingen rad togs bort (saknad behörighet?).'); return; }
+    if (navigator.vibrate) navigator.vibrate(50);
+    setHogarReload(prev => prev + 1);      // kartan: de ångrade högarna kommer tillbaka (loadHogar kör om)
+    setSkotningReload(prev => prev + 1);   // kvar-panelen + sistaUttag räknas om
+  };
 
   // === MapLibre: Ritverktyg (freehand + klick) + symbolplacering ===
   useEffect(() => {
@@ -15062,6 +15118,21 @@ export default function PlannerPage() {
                     </div>
                   </>)}
                 </div>
+                {sistaUttag && (
+                  <button
+                    onClick={angraSenasteUttag}
+                    style={{
+                      width: '100%', marginTop: '10px', padding: '13px 14px',
+                      borderRadius: '12px', border: '1px solid rgba(245,158,11,0.4)',
+                      background: 'rgba(245,158,11,0.12)', color: '#f59e0b',
+                      fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontFamily: 'inherit',
+                    }}
+                  >
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 L4 9 L9 4" /><path d="M4 9 h11 a5 5 0 0 1 5 5 a5 5 0 0 1 -5 5 h-4" /></svg>
+                    Ångra uttag ({sistaUttag.count} {sistaUttag.count === 1 ? 'hög' : 'högar'}, {sistaUttag.volym.toFixed(1)} m³)
+                  </button>
+                )}
               </div>
             )}
 
