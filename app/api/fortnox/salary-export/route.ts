@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const arbSlut = sistaDagenIManaden(aÅ, aM); // LOKALT — toISOString tappade sista dagen i UTC+2
 
     // Ladda data
-    const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes] = await Promise.all([
+    const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes] = await Promise.all([
       supabase.from("medarbetare").select("id, namn").order("namn"),
       supabase.from("arbetsdag")
         .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp")
@@ -55,6 +55,10 @@ export async function POST(req: NextRequest) {
         .select("medarbetare_id, typ, startdatum, slutdatum, status")
         .eq("status", "godkänd")
         .lte("startdatum", arbSlut).gte("slutdatum", arbStart),
+      // Fri pendling km/dag — samma fält som appen (km_grans_per_dag), aldrig
+      // hårdkodad 60. Fortnox äger kr/mil-satsen, vi skickar bara mil-antalet.
+      supabase.from("gs_avtal").select("km_grans_per_dag")
+        .order("giltigt_fran", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
     if (medRes.error) throw medRes.error;
@@ -109,6 +113,9 @@ export async function POST(req: NextRequest) {
       ledPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum });
     }
 
+    // Fri pendling km/dag ur avtalet (fallback 60) — matas in i beräkningen
+    const kmGrans = avtalRes.data?.km_grans_per_dag ?? 60;
+
     // Beräkna per medarbetare
     const medarbetare = (medRes.data || []) as { id: string; namn: string }[];
     const resultat: (ExportSammanfattning & { status: string })[] = [];
@@ -124,7 +131,7 @@ export async function POST(req: NextRequest) {
       if (dagar.length === 0 && extra.length === 0 && ledigheter.length === 0) continue;
 
       const anstNr = anstMap[med.id] || "";
-      const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter); // period = löneperiod
+      const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans); // period = löneperiod
 
       let status = "utkast";
       if (redanSkickad.has(med.id)) status = "skickat";

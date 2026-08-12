@@ -21,6 +21,8 @@
  *   En rad per månad med Date = löneperiodens första dag.
  */
 
+import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
+
 type ArbetsdagInput = {
   datum: string;        // YYYY-MM-DD
   arbetad_min: number;
@@ -112,6 +114,7 @@ export function beräknaExport(
   loneperiod: string,  // YYYY-MM — löneperioden (en månad efter arbetstiden)
   extraTid: ExtraTidInput[] = [],  // extra tid i ARBETSPERIODEN för medarbetaren
   ledigheter: LedighetInput[] = [],  // godkänd ledighet (frånvaro) för medarbetaren
+  kmGrans: number = KM_GRANS_DEFAULT,  // gs_avtal.km_grans_per_dag (fri pendling km/dag)
 ): ExportSammanfattning {
   const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
@@ -227,17 +230,17 @@ export function beräknaExport(
     });
   }
 
-  // ── 5. KÖRERSÄTTNING (kod 821): mil över 60 km/dag ──
+  // ── 5. KÖRERSÄTTNING (kod 821): påbörjade mil över gränsen ──
+  // Delad lib (lib/kmErsattning) — SAMMA mängd som kalendern + per-dag-vyn.
+  // Appen skickar bara ANTAL mil; Fortnox äger kr/mil-satsen. (Tidigare *2 tog
+  // bort — km_totalt är redan tur+retur, så det dubblade fel. Gränsen kommer nu
+  // från gs_avtal.km_grans_per_dag, ej hårdkodad 60.)
   let totalMil = 0;
-  for (const d of produktionsDagar) {
-    const km = d.km_totalt || 0;
-    if (km > 60) totalMil += (km - 60) * 2 / 10;
-  }
-  totalMil = Math.round(totalMil * 100) / 100;
+  for (const d of produktionsDagar) totalMil += ersattningsMilDag(d.km_totalt, kmGrans);
   if (totalMil > 0) {
     rader.push({
-      EmployeeId: eid, SalaryCode: "821", Number: totalMil.toFixed(2),
-      Date: loneperiodStart, beskrivning: `Färdtidsersättning: ${totalMil} mil`,
+      EmployeeId: eid, SalaryCode: "821", Number: totalMil.toFixed(0),
+      Date: loneperiodStart, beskrivning: `Reseersättning: ${totalMil} påbörjade mil (över ${kmGrans} km/dag)`,
     });
   }
 

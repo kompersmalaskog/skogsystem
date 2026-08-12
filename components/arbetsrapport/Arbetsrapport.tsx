@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag, arbetadTidInklExtra } from "@/lib/arbetstid";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
+import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { ymdLokal } from "@/lib/datumLokal";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
@@ -675,7 +676,7 @@ export default function Arbetsrapport() {
   // 'tom' = anropet lyckades men medarbetaren saknar lönesystem-koppling (404)
   // — inte samma sak som 'error' (nätverk/Fortnox nere/timeout).
   const [fortnoxSaldoStatus, setFortnoxSaldoStatus] = useState<'idle'|'loading'|'ok'|'tom'|'error'>('idle');
-  const [kmSummary, setKmSummary] = useState<{totalKm:number;ersattningsKm:number}|null>(null);
+  const [kmSummary, setKmSummary] = useState<{totalKm:number;ersattningsKm:number;ersattningsMil:number}|null>(null);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
@@ -988,7 +989,7 @@ export default function Arbetsrapport() {
       .then(r => r.json())
       .then(j => {
         if (cancelled || !j?.ok) return;
-        setKmSummary({ totalKm: j.totalKm, ersattningsKm: j.ersattningsKm });
+        setKmSummary({ totalKm: j.totalKm, ersattningsKm: j.ersattningsKm, ersattningsMil: j.ersattningsMil ?? 0 });
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -1265,7 +1266,7 @@ export default function Arbetsrapport() {
   const arbMin = Math.max(0,tim(start,slut)-rast);
   const totKm  = (kmM?.km||0)+(kmK?.km||0);
   const ersKm  = Math.max(0,totKm-frikm);                          // km över gränsen
-  const milPåbörjade = ersKm>0 ? Math.ceil(ersKm/10) : 0;          // påbörjade mil
+  const milPåbörjade = ersattningsMilDag(totKm, frikm);            // påbörjade mil (delad lib)
   const ersKr  = Math.round(milPåbörjade*fardtidPerMil*100)/100;   // färdtidsersättning kr
   const totEx  = extra.reduce((a,e)=>a+e.min,0);
   const totMin = arbMin+totEx;
@@ -5290,6 +5291,7 @@ export default function Arbetsrapport() {
     // km hämtas från /api/km-summary som fyller ut saknade DB-värden via ORS
     const totalKm = kmSummary?.totalKm ?? 0;
     const ersKm   = kmSummary?.ersattningsKm ?? 0;
+    const ersMil  = kmSummary?.ersattningsMil ?? 0; // påbörjade mil = samma mängd som exporten
 
     const statusFärg=(d)=>{
       const k=dagKey(d);
@@ -5384,7 +5386,7 @@ export default function Arbetsrapport() {
                 )}
                 {[
                   ["Körning",`${totalKm.toLocaleString('sv-SE')} km`],
-                  ["Km med ersättning",`${ersKm.toLocaleString('sv-SE')} km`],
+                  ["Reseersättning",`${ersMil} påbörjade mil`],
                 ].map(([label,val])=>(
                   <div key={label as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0" }}>
                     <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{label}</span>
