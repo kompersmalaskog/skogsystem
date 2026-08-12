@@ -575,12 +575,18 @@ export default function MaskinflyttClient() {
     }).eq('id', d.id).select('id')
   }
 
-  // ── Objektlistan (aktiva trakter ur objekt-tabellen — dim_objekt är ALDRIG valbar) ──
+  // ── Objektlistan (ur objekt-tabellen — dim_objekt är ALDRIG valbar) ──
+  //    ALLA statusar laddas: objektets status är avverkningens läge, inte
+  //    platsens existens. En maskin står kvar fysiskt även på en avslutad
+  //    trakt (skördaren rapporterade klart innan flytten kördes / skotaren
+  //    hämtar sista virket). Filtrera ALDRIG bort avslutade här — då tappar
+  //    både "Lassat av"-matchningen och destinationssöket trakten maskinen
+  //    faktiskt hämtas från. Destinationslistan (PlatsValjare) visar aktiva
+  //    först och gömmer avslutade bakom sök i stället.
   const laddaObjekt = useCallback(async () => {
     setObjektFel(null)
     const { data, error } = await supabase.from('objekt')
       .select(OBJEKT_FALT)
-      .in('status', ['planerad', 'pagaende'])
       .order('namn')
     if (error) { setObjektFel(`Kunde inte läsa objekt: ${error.message}`); return }
     setObjektLista(data || [])
@@ -2316,21 +2322,27 @@ function PlatsValjare({ sok, setSok, objekt, objektFel, omLaddaOm, platser, onVa
   onValjPlats: (pl: Flyttplats) => void
   onNyPlats: () => void
 }) {
+  const arAktiv = (s?: string | null) => s === 'pagaende' || s === 'planerad'
   const rader = useMemo(() => {
     const t = sok.trim().toLowerCase()
+    // Avslutade trakter göms i default-läget men går ATT HITTA via sök — ibland
+    // flyttas maskiner till avslutade trakter (skotaren hämtar sista virket).
     const o = (objekt || [])
+      .filter(x => (t ? true : arAktiv(x.status)))
       .filter(x => !t || x.namn.toLowerCase().includes(t) || (x.vo_nummer || '').toLowerCase().includes(t))
-      .map(x => ({ sortNamn: x.namn, nod: 'objekt' as const, o: x }))
+      .map(x => ({ sortNamn: x.namn, nod: 'objekt' as const, o: x, avslutad: !arAktiv(x.status) }))
     const p = platser
       .filter(x => x.aktiv && (!t || x.namn.toLowerCase().includes(t)))
-      .map(x => ({ sortNamn: x.namn, nod: 'plats' as const, pl: x }))
-    return [...o, ...p].sort((a, b) => a.sortNamn.localeCompare(b.sortNamn, 'sv'))
+      .map(x => ({ sortNamn: x.namn, nod: 'plats' as const, pl: x, avslutad: false }))
+    // Aktiva/platser först, avslutade sist; inom grupp alfabetiskt.
+    return [...o, ...p].sort((a, b) =>
+      a.avslutad === b.avslutad ? a.sortNamn.localeCompare(b.sortNamn, 'sv') : (a.avslutad ? 1 : -1))
   }, [objekt, platser, sok])
 
   return (
     <>
       <input
-        value={sok} onChange={e => setSok(e.target.value)} placeholder="Sök objekt eller plats …"
+        value={sok} onChange={e => setSok(e.target.value)} placeholder="Sök objekt eller plats (även avslutade) …"
         style={{
           width: '100%', boxSizing: 'border-box', background: C.card, border: `1px solid ${C.border}`,
           borderRadius: 12, padding: '12px 14px', fontSize: 15, color: C.t1, fontFamily: ff,
@@ -2360,11 +2372,12 @@ function PlatsValjare({ sok, setSok, objekt, objektFel, omLaddaOm, platser, onVa
             display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
             background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
             padding: '14px 14px', cursor: 'pointer', fontFamily: ff, color: C.t1, width: '100%',
+            opacity: r.avslutad ? 0.62 : 1,
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>{r.o.namn}</div>
               <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>
-                {r.o.vo_nummer || '—'} · {r.o.status === 'pagaende' ? 'Pågående' : 'Planerad'}
+                {r.o.vo_nummer || '—'} · {r.avslutad ? 'Avslutad' : r.o.status === 'pagaende' ? 'Pågående' : 'Planerad'}
               </div>
             </div>
             <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.t3 }}>chevron_right</span>
