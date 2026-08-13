@@ -131,6 +131,10 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
   // i stället för att poppa in en och en → ingen layout-shift.
   const [marks, setMarks] = useState<MarkItem[]>([]);
   const [marksLaddat, setMarksLaddat] = useState(false);
+  // Helsidan glider in från höger + tonar (samma taktkänsla som flik-fadet). Stängning spelar
+  // ut-animationen först, sedan avmonterar föräldern (setSel(null)) → ingen hård pop åt något håll.
+  const [closing, setClosing] = useState(false);
+  const stang = () => { if (closing) return; setClosing(true); window.setTimeout(onClose, 180); };
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -198,6 +202,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
     <div style={{
       position: 'fixed', inset: 0, zIndex: 1100, background: C.bg,
       display: 'flex', flexDirection: 'column', fontFamily: ff, color: C.t1,
+      animation: closing ? 'detaljOut 180ms ease-in forwards' : 'detaljIn 200ms ease-out',
     }}>
       {/* Nav-bar: tillbaka-pil där huset annars ligger (överst vänster) + namn */}
       <div style={{
@@ -206,7 +211,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
         paddingLeft: 12, paddingRight: 12,
         borderBottom: `1px solid ${C.border}`, background: C.bg,
       }}>
-        <button onClick={onClose} aria-label="Tillbaka" style={{
+        <button onClick={stang} aria-label="Tillbaka" style={{
           width: 36, height: 36, borderRadius: 10, flexShrink: 0,
           background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: ff,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -231,6 +236,28 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
               ].filter(Boolean).join(' · ')}
             </div>
           </div>
+
+          {/* Kontakt (markägare) — mest handlingsbara raden → direkt under status/metadata högst upp,
+              namn + klickbart nummer (tel-länken pekar på markagare_tel). Beror ej på markeringar → utanför skelettet. */}
+          {(obj.markagare || obj.markagare_tel) && (
+            <Section title="Kontakt">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{obj.markagare || 'Markägare'}</div>
+                </div>
+                {obj.markagare_tel && (
+                  <a href={`tel:${obj.markagare_tel}`} onClick={e => e.stopPropagation()}
+                    style={{
+                      fontSize: 13, color: '#5b8fff', textDecoration: 'none', fontWeight: 500,
+                      padding: '8px 16px', background: 'rgba(91,143,255,0.1)', borderRadius: 14,
+                      minHeight: 44, display: 'flex', alignItems: 'center',
+                    }}>
+                    {obj.markagare_tel}
+                  </a>
+                )}
+              </div>
+            </Section>
+          )}
 
           {/* Produktions-flöde (m³fub) — ETT kort: skördat = huvudtal, grå stapel = andel utkört,
               "på backen" faller ut. Neutralt grått (ett tal, ingen status). Göms om ingen skörd (aldrig 0). */}
@@ -325,27 +352,6 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
                   ))}
                 </div>
               )}
-            </Section>
-          )}
-
-          {/* Kontakt (markägare) — namn + klickbart nummer (tel-länken pekar nu på markagare_tel) */}
-          {(obj.markagare || obj.markagare_tel) && (
-            <Section title="Kontakt">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{obj.markagare || 'Markägare'}</div>
-                </div>
-                {obj.markagare_tel && (
-                  <a href={`tel:${obj.markagare_tel}`} onClick={e => e.stopPropagation()}
-                    style={{
-                      fontSize: 13, color: '#5b8fff', textDecoration: 'none', fontWeight: 500,
-                      padding: '8px 16px', background: 'rgba(91,143,255,0.1)', borderRadius: 14,
-                      minHeight: 44, display: 'flex', alignItems: 'center',
-                    }}>
-                    {obj.markagare_tel}
-                  </a>
-                )}
-              </div>
             </Section>
           )}
 
@@ -530,6 +536,15 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
 
   // Aktiva = att planera + pågår (rubrikräkning, oberoende av valt filter).
   const aktiva = objekt.filter(o => statusBucket(o.status) !== 'klar');
+  // Total volym "på backen" (skördat − skotat) över aktiva objekt — samma m³fub-data som redan
+  // finns i skordMap, bara summerad (ingen ny hämtning). Aktiva är aldrig avslutade → skotat null
+  // räknas som 0 (ärligt: skotaren har inte börjat). Visas i rubriken bara när > 0.
+  const totalBacken = aktiva.reduce((sum, o) => {
+    const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
+    if (!s || !s.skordat) return sum;
+    return sum + Math.max(0, s.skordat - (s.skotat ?? 0));
+  }, 0);
+  const backenRund = Math.round(totalBacken);
 
   // Dynamiska filtersegment: 'Alla' + bara de hinkar som FINNS bland objekten
   // (inga oplanerade idag → inget tomt 'Att planera'-segment). Fast ordning.
@@ -582,6 +597,13 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   }
 
   const avanceratAktivt = bolagF !== 'alla' || typF !== 'alla' || sortK !== 'status' || groupMaskin;
+  // Namnge det aktiva läget intill reglage-ikonen → man ser VAD som är aktivt (inte bara ATT något
+  // är det) utan att öppna panelen. Gruppering byter hela vyn → det ordet räcker; annars filter/sortering.
+  const aktivtLage = groupMaskin ? 'Per maskin' : [
+    typF !== 'alla' ? (typF === 'slutavverkning' ? 'Slutavv.' : 'Gallring') : null,
+    bolagF !== 'alla' ? bolagF : null,
+    sortK !== 'status' ? (sortK === 'vol' ? 'Volym' : 'A–Ö') : null,
+  ].filter(Boolean).join(' · ');
 
   const renderKort = (o: OversiktObjekt) => {
     const sv = statusVisning(o.status);
@@ -644,18 +666,23 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
       {/* Rubriksumma + reglage + status-filter (sticky) */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.bg, padding: '14px 0 10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-          <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: C.t3 }}>
-            {aktiva.length} aktiva
+          <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: C.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {aktiva.length} aktiva{backenRund > 0 ? ` · ${formatVolym(backenRund)} m³fub på backen` : ''}
           </div>
+          {avanceratAktivt && aktivtLage && (
+            <span style={{
+              fontSize: 11.5, fontWeight: 500, color: C.t2, flexShrink: 0,
+              maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{aktivtLage}</span>
+          )}
           <button onClick={() => setPanelOpen(true)} aria-label="Filter och vy" style={{
-            position: 'relative', width: 40, height: 40, borderRadius: 12,
+            width: 40, height: 40, borderRadius: 12,
             background: avanceratAktivt ? 'rgba(255,255,255,0.1)' : 'transparent',
             border: `1px solid ${avanceratAktivt ? C.borderStrong : C.border}`,
             color: avanceratAktivt ? C.t1 : C.t3, cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>tune</span>
-            {avanceratAktivt && <span style={{ position: 'absolute', top: 6, right: 6, width: 7, height: 7, borderRadius: 4, background: C.blue }} />}
           </button>
         </div>
         <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 12, padding: 3, border: `1px solid ${C.border}` }}>
