@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { bygKedjaKm, Point, hamtaObjektKoordinater, KoordKalla } from "@/lib/routing";
+import { routeKm, hamtaObjektKoordinater, dagensPlatser, KoordKalla } from "@/lib/routing";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 
@@ -48,10 +48,26 @@ export async function GET(req: NextRequest) {
     const rader = (arbRes.data || []) as any[];
     const frikm = avtalRes.data?.km_grans_per_dag ?? 60;
 
-    // Slå upp alla objekt-koordinater med FALLBACK: maskin-GPS (dim_objekt) →
-    // objekt.lat/lng → larmkoordinat, via vo_nummer. Tidigare bara dim_objekt →
-    // skotarobjekt utan maskin-GPS gav tyst 0 km (utebliven ersättning).
-    const objektIds = Array.from(new Set(rader.filter(r => r.objekt_id).map(r => r.objekt_id as string)));
+    // Dagens objekt ur arbetsdag_objekt (ordning) — flyttdagar har flera. Faller
+    // tillbaka på arbetsdag.objekt_id via dagensPlatser() när rader saknas.
+    const arbIds = rader.map(r => r.id).filter(Boolean);
+    const aoRes = arbIds.length
+      ? await supabase.from("arbetsdag_objekt").select("arbetsdag_id, objekt_id, ordning").in("arbetsdag_id", arbIds)
+      : { data: [] as any[] };
+    const aoByArbetsdag = new Map<string, { objekt_id: string | null; ordning: number | null }[]>();
+    for (const r of (aoRes.data || []) as any[]) {
+      if (!aoByArbetsdag.has(r.arbetsdag_id)) aoByArbetsdag.set(r.arbetsdag_id, []);
+      aoByArbetsdag.get(r.arbetsdag_id)!.push({ objekt_id: r.objekt_id, ordning: r.ordning });
+    }
+
+    // Slå upp alla objekt-koordinater (UNIONEN av arbetsdag + arbetsdag_objekt)
+    // med FALLBACK: maskin-GPS (dim_objekt) → objekt.lat/lng → larmkoordinat, via
+    // vo_nummer. Tidigare bara dim_objekt → skotarobjekt utan maskin-GPS gav tyst
+    // 0 km (utebliven ersättning).
+    const objektIds = Array.from(new Set([
+      ...rader.filter(r => r.objekt_id).map(r => r.objekt_id as string),
+      ...(aoRes.data || []).filter((r: any) => r.objekt_id).map((r: any) => r.objekt_id as string),
+    ]));
     const koordMap = await hamtaObjektKoordinater(supabase, objektIds);
     const objMap: Record<string, { lat:number|null; lng:number|null; kalla: KoordKalla }> = {};
     for (const id of objektIds) objMap[id] = { lat: koordMap[id]?.lat ?? null, lng: koordMap[id]?.lng ?? null, kalla: koordMap[id]?.kalla ?? null };
@@ -88,37 +104,41 @@ export async function GET(req: NextRequest) {
       if (dbSumma > 0) {
         dagensKm = dbSumma;
       } else if (hemLat != null && hemLng != null) {
-        // Bygg unik objektsekvens (samma objekt i följd räknas en gång)
-        const sekvens: string[] = [];
-        for (const r of dagRader) {
-          if (!r.objekt_id) continue;
-          if (sekvens[sekvens.length - 1] !== r.objekt_id) sekvens.push(r.objekt_id);
-        }
-        if (sekvens.length > 0) {
-          const hem: Point = { lat: Number(hemLat), lng: Number(hemLng), label: "Hem" };
-          const punkter: (Point | null)[] = [hem];
-          for (const oid of sekvens) {
-            const o = objMap[oid];
-            punkter.push(o?.lat != null && o?.lng != null ? { lat: Number(o.lat), lng: Number(o.lng), label: oid } : null);
-          }
-          punkter.push(hem);
-          const budget = Math.max(0, MAX_ORS - orsAnrop);
-          const chain = await bygKedjaKm(supabase, punkter, budget);
-          orsAnrop += chain.orsAnrop;
-          dagensKm = chain.totalKm;
-          segCount = chain.segments.length;
-          source = chain.segments.length > 0 ? chain.segments[chain.segments.length - 1].source : "chain";
+        // Modell B (dagensPlatser = enda modelldefinitionen): dagens platser i
+        // ordning ur arbetsdag_objekt ∪ arbetsdag.objekt_id, flytt/service
+        // (kraver_koordinat=false) och koordinatlösa objekt bortfiltrerade.
+        const aoRader = dagRader.flatMap((r: any) => aoByArbetsdag.get(r.id) || []);
+        const fallbackSekvens = dagRader.map((r: any) => r.objekt_id as string | null);
+        const platser = dagensPlatser(aoRader, fallbackSekvens, koordMap);
 
-          // Spara tillbaka för 1-objekt-1-rad-dagar så nästa request läser DB.
-          // BARA riktiga vägberäkningar (cache/ors) fryses in — en fallback
-          // (haversine × 1,4) är en osäker uppskattning som inte ska bli en
-          // persisterad "sanning"; den räknas om varje gång i stället.
-          const bådaÄkta = chain.segments.every(s => s.source !== "fallback");
-          if (sekvens.length === 1 && dagRader.length === 1 && chain.segments.length === 2 && bådaÄkta) {
+        if (platser.length > 0) {
+          const first = objMap[platser[0]];
+          const last = objMap[platser[platser.length - 1]];
+          const hL = Number(hemLat), hN = Number(hemLng);
+          // Endast pendlingsbenen lagras/ersätts: hem→första + sista→hem. Aldrig
+          // mellan-objekt-körning — den har ingen kolumn och är inte pendling.
+          // km_totalt får aldrig bli något annat än km_morgon + km_kvall.
+          const mRes = await routeKm(supabase, { fromLat: hL, fromLng: hN, toLat: Number(first.lat), toLng: Number(first.lng) }, orsAnrop < MAX_ORS);
+          if (mRes.source === "ors") orsAnrop++;
+          const kRes = await routeKm(supabase, { fromLat: Number(last.lat), fromLng: Number(last.lng), toLat: hL, toLng: hN }, orsAnrop < MAX_ORS);
+          if (kRes.source === "ors") orsAnrop++;
+
+          const km_morgon = mRes.km;
+          const km_kvall = kRes.km;
+          dagensKm = km_morgon + km_kvall;
+          segCount = 2;
+          source = (mRes.source === "fallback" || kRes.source === "fallback") ? "fallback" : kRes.source;
+
+          // Write-back — OFÖRÄNDRAT beteende: bara triviala single-plats/single-
+          // rad 0-dagar, bägge ben äkta rutt (cache/ors, ej haversine-fallback),
+          // dubbellåst med .or(). Ingen ny skrivväg — samma villkor som förr,
+          // uttryckt över modell B:s morgon/kväll i stället för chain-segmenten.
+          const bådaÄkta = mRes.source !== "fallback" && kRes.source !== "fallback";
+          if (platser.length === 1 && dagRader.length === 1 && bådaÄkta) {
             const r0 = dagRader[0];
             if ((Number(r0.km_morgon) || 0) === 0 && (Number(r0.km_kvall) || 0) === 0 && (Number(r0.km_totalt) || 0) === 0 && r0.id) {
               await supabase.from("arbetsdag")
-                .update({ km_morgon: chain.segments[0].km, km_kvall: chain.segments[1].km })
+                .update({ km_morgon, km_kvall })
                 .eq("id", r0.id)
                 .or("km_morgon.is.null,km_morgon.eq.0");
             }

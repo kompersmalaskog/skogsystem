@@ -87,6 +87,10 @@ export interface ObjektKoord {
   object_name?: string | null;
   skogsagare?: string | null;
   huvudtyp?: string | null;
+  // kraver_koordinat = false → platsen är en flytt/service-punkt som inte ska
+  // räknas som ett arbetsställe när dagens km bestäms. null/true = vanligt objekt
+  // (kräver koordinat). Läses ur dim_objekt; dagensPlatser() filtrerar på den.
+  kraver_koordinat?: boolean | null;
 }
 
 /**
@@ -111,7 +115,7 @@ export async function hamtaObjektKoordinater(
   const numeriska = ids.filter((id) => /^\d+$/.test(id));
   const [dimRes, objRes] = await Promise.all([
     supabase.from("dim_objekt")
-      .select("objekt_id, object_name, skogsagare, huvudtyp, latitude, longitude")
+      .select("objekt_id, object_name, skogsagare, huvudtyp, latitude, longitude, kraver_koordinat")
       .in("objekt_id", ids),
     numeriska.length
       ? supabase.from("objekt")
@@ -146,9 +150,70 @@ export async function hamtaObjektKoordinater(
       object_name: d?.object_name ?? null,
       skogsagare: d?.skogsagare ?? null,
       huvudtyp: d?.huvudtyp ?? null,
+      kraver_koordinat: d?.kraver_koordinat ?? null,
     };
   }
   return map;
+}
+
+/**
+ * DEN ENDA modelldefinitionen för "vilka platser en arbetsdag består av, i
+ * ordning" (Modell B). Delas av km-chain, km-summary OCH backfillen så att
+ * appen och lönen aldrig kan räkna olika — samma mönster som lib/kmErsattning.ts
+ * (en mängd, en källa). Innan detta hade km-vyerna sin egen objekt-sekvens
+ * (arbetsdag.objekt_id ensam) medan backfillen använde arbetsdag_objekt — samma
+ * kolumn hade fått värden ur två modeller utan att någon kunde se skillnaden.
+ *
+ * Regel:
+ *  - Objektlistan = arbetsdag_objekt i `ordning` (flyttdagar har flera rader).
+ *  - Saknas rader i arbetsdag_objekt för dagen → fallback till dagens
+ *    arbetsdag.objekt_id-sekvens (fallbackSekvens).
+ *  - Konsekutiva dubbletter räknas en gång (samma objekt i rad = en plats).
+ *  - Filtrera bort platser som (a) saknar koordinat i koordMap, eller (b) har
+ *    kraver_koordinat = false (flytt/service — inte ett arbetsställe).
+ *
+ * Returnerar objekt_id i ordning. Första = morgonens mål (hem→första), sista =
+ * kvällens (sista→hem). Tom lista = dagen kan inte platsbestämmas (hör i
+ * koordinatlarmet, inte i km-beräkningen). Ren funktion — ingen I/O, så samma
+ * anrop kan verifieras rad-för-rad utan DB.
+ */
+export function dagensPlatser(
+  aoRader: { objekt_id: string | null; ordning: number | null }[],
+  fallbackSekvens: (string | null | undefined)[],
+  koordMap: Record<string, ObjektKoord>,
+): string[] {
+  // Behåll bara platser med koordinat OCH kraver_koordinat !== false
+  return dagensObjektOrdnat(aoRader, fallbackSekvens).filter((oid) => {
+    const k = koordMap[oid];
+    return !!k && k.lat != null && k.lng != null && k.kraver_koordinat !== false;
+  });
+}
+
+/**
+ * Dagens objekt i ordning, konsekutiv-dedupat men OFILTRERAT (koordinat/kraver
+ * bedöms inte). Delas av dagensPlatser() så ordningsregeln bara finns på ETT
+ * ställe, och exponeras separat så en vy kan svara på "vad bestod dagen av?"
+ * även för objekt som saknar koordinat (t.ex. för ett ärligt "saknar koordinat"-
+ * besked i stället för att tyst utelämna dem).
+ */
+export function dagensObjektOrdnat(
+  aoRader: { objekt_id: string | null; ordning: number | null }[],
+  fallbackSekvens: (string | null | undefined)[],
+): string[] {
+  const ordnad = aoRader.length
+    ? [...aoRader]
+        .sort((a, b) => (a.ordning ?? 0) - (b.ordning ?? 0))
+        .map((r) => r.objekt_id)
+    : fallbackSekvens;
+
+  const ids = ordnad
+    .map((x) => (x == null ? null : String(x)))
+    .filter((x): x is string => !!x);
+
+  // Konsekutiv dedup (samma objekt i rad → en plats)
+  const unik: string[] = [];
+  for (const oid of ids) if (unik[unik.length - 1] !== oid) unik.push(oid);
+  return unik;
 }
 
 /** Ett segment i en körkedja: från-etikett → till-etikett = X km. */
