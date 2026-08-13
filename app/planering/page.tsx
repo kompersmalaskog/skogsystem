@@ -2207,8 +2207,7 @@ export default function PlannerPage() {
   const [skotningAntalHogar, setSkotningAntalHogar] = useState(0);
   const [skotningChecked, setSkotningChecked] = useState<Record<number, boolean>>({});
   const [skotningSparat, setSkotningSparat] = useState(false);
-  const skotningCoordsRef = useRef<[number, number][]>([]);
-  const skotningScreenCoordsRef = useRef<[number, number][]>([]);
+  const skotningCoordsRef = useRef<[number, number][]>([]); // hörn i GEO (lat/lng) — sanningen; skärm projiceras varje frame
   const skotningCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [skotningPunkter, setSkotningPunkter] = useState(0); // antal satta hörn (tryck-per-punkt) → styr "Klar"-knappen
   const skotningFinalizeRef = useRef<(() => void) | null>(null); // effektens slut-ringen-funktion, anropas av "Klar"
@@ -4350,7 +4349,6 @@ export default function PlannerPage() {
 
     // Tryck-per-punkt: börja alltid från tomt (ackumulera hörn över flera tryck)
     skotningCoordsRef.current = [];
-    skotningScreenCoordsRef.current = [];
     setSkotningPunkter(0);
 
     const screenToLngLatSk = (clientX: number, clientY: number): [number, number] => {
@@ -4373,24 +4371,24 @@ export default function PlannerPage() {
       return inside;
     };
 
-    // Rita polygon + hörn-punkter på canvas (tryck-per-punkt)
+    // Rita polygon + hörn-punkter på canvas (tryck-per-punkt).
+    // Projicerar GEO → container-pixlar VARJE anrop (körs på 'move') så hörnen
+    // sitter fast i marken, inte i glaset, när man zoomar/panorerar mitt i ritningen.
     const drawOverlay = () => {
       const w = overlay.width / (window.devicePixelRatio || 1);
       const h = overlay.height / (window.devicePixelRatio || 1);
       ctx.clearRect(0, 0, w, h);
 
-      const screenPts = skotningScreenCoordsRef.current;
-      if (screenPts.length === 0) return;
-      const rect = mapCanvas.getBoundingClientRect();
+      const geo = skotningCoordsRef.current;
+      if (geo.length === 0) return;
+      const pts = geo.map(g => { const p = map.project(g as any); return [p.x, p.y] as [number, number]; });
 
-      if (screenPts.length >= 2) {
+      if (pts.length >= 2) {
         // Kantlinje (raka segment mellan tryck) + fyllning bara när ringen kan slutas (≥3)
         ctx.beginPath();
-        ctx.moveTo(screenPts[0][0] - rect.left, screenPts[0][1] - rect.top);
-        for (let i = 1; i < screenPts.length; i++) {
-          ctx.lineTo(screenPts[i][0] - rect.left, screenPts[i][1] - rect.top);
-        }
-        if (screenPts.length >= 3) {
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        if (pts.length >= 3) {
           ctx.closePath();
           ctx.fillStyle = 'rgba(29,158,117,0.2)';
           ctx.fill();
@@ -4402,11 +4400,11 @@ export default function PlannerPage() {
         ctx.stroke();
 
         // Streckad stäng-linje (sista → första punkt)
-        const last = screenPts[screenPts.length - 1];
-        const first = screenPts[0];
+        const last = pts[pts.length - 1];
+        const first = pts[0];
         ctx.beginPath();
-        ctx.moveTo(last[0] - rect.left, last[1] - rect.top);
-        ctx.lineTo(first[0] - rect.left, first[1] - rect.top);
+        ctx.moveTo(last[0], last[1]);
+        ctx.lineTo(first[0], first[1]);
         ctx.setLineDash([6, 6]);
         ctx.strokeStyle = '#1d9e75';
         ctx.lineWidth = 2;
@@ -4415,10 +4413,10 @@ export default function PlannerPage() {
       }
 
       // Hörn-punkter — första hörnet får en yttre ring som stäng-mål när ringen kan slutas
-      for (let i = 0; i < screenPts.length; i++) {
-        const vx = screenPts[i][0] - rect.left, vy = screenPts[i][1] - rect.top;
+      for (let i = 0; i < pts.length; i++) {
+        const vx = pts[i][0], vy = pts[i][1];
         const isFirst = i === 0;
-        if (isFirst && screenPts.length >= 3) {
+        if (isFirst && pts.length >= 3) {
           ctx.beginPath();
           ctx.arc(vx, vy, 13, 0, 2 * Math.PI);
           ctx.strokeStyle = 'rgba(29,158,117,0.5)';
@@ -4454,7 +4452,6 @@ export default function PlannerPage() {
       if (map.touchZoomRotate) map.touchZoomRotate.enable();
 
       skotningCoordsRef.current = [];
-      skotningScreenCoordsRef.current = [];
       setSkotningPunkter(0);
 
       // Close polygon
@@ -4571,18 +4568,20 @@ export default function PlannerPage() {
     const onUp = () => {
       if (!pressing) return;
       pressing = false;
-      if (moved) { moved = false; return; } // drag ritar inte i detta läge
+      if (moved) { moved = false; return; } // drag = panorering, ritar inte
 
-      const screenPts = skotningScreenCoordsRef.current;
-      // Tryck nära första hörnet (≥3 hörn satta) → slut ringen
-      if (screenPts.length >= 3) {
-        const dx = screenPts[0][0] - lastX, dy = screenPts[0][1] - lastY;
+      const geo = skotningCoordsRef.current;
+      // Tryck nära första hörnet (≥3 hörn satta) → slut ringen.
+      // Projicera första GEO-hörnet till nuvarande skärmläge (funkar även efter zoom/pan).
+      if (geo.length >= 3) {
+        const rect = mapCanvas.getBoundingClientRect();
+        const fp = map.project(geo[0] as any);
+        const dx = fp.x - (lastX - rect.left), dy = fp.y - (lastY - rect.top);
         if (dx * dx + dy * dy < 225) { finalizeSkotning(); return; } // 15px (225 = 15²)
       }
-      // Annars: sätt ett nytt hörn
+      // Annars: sätt ett nytt hörn — unprojicera DIREKT till GEO (sanningen lagras i marken)
       const coord = screenToLngLatSk(lastX, lastY);
       skotningCoordsRef.current.push(coord);
-      skotningScreenCoordsRef.current.push([lastX, lastY]);
       setSkotningPunkter(skotningCoordsRef.current.length);
       drawOverlay();
     };
@@ -4594,11 +4593,13 @@ export default function PlannerPage() {
     mapCanvas.addEventListener('touchmove', onMove, { passive: true });
     document.addEventListener('touchend', onUp);
 
-    // Lås kartan under ritning
-    map.dragPan.disable();
-    map.scrollZoom.disable();
-    if (map.touchZoomRotate) map.touchZoomRotate.disable();
+    // Rita om (omprojicera hörnen från GEO) medan kartan rör sig → polygonen sitter fast i marken
+    map.on('move', drawOverlay);
 
+    // Kartan är INTE låst — man ska kunna zooma/panorera mitt i ritningen (drag = pan, tryck = hörn).
+    // Crosshair sätts på CANVAS-elementet (inte bara containern) så varken delade cursor-effekten
+    // eller MapLibres .maplibregl-interactive{cursor:grab} tar över och ger hand-pekare.
+    mapCanvas.style.setProperty('cursor', 'crosshair', 'important');
     map.getCanvasContainer().style.setProperty('cursor', 'crosshair', 'important');
 
     return () => {
@@ -4608,6 +4609,8 @@ export default function PlannerPage() {
       mapCanvas.removeEventListener('touchstart', onDown);
       mapCanvas.removeEventListener('touchmove', onMove);
       document.removeEventListener('touchend', onUp);
+      map.off('move', drawOverlay);
+      mapCanvas.style.removeProperty('cursor');
       map.getCanvasContainer().style.removeProperty('cursor');
       if (map.dragPan) map.dragPan.enable();
       if (map.scrollZoom) map.scrollZoom.enable();
@@ -11384,9 +11387,7 @@ export default function PlannerPage() {
                         const dashSrc = map.getSource('skotning-dash-source') as any;
                         if (dashSrc) dashSrc.setData({ type: 'FeatureCollection', features: [] });
                       } catch { /* */ }
-                      map.dragPan.disable();
-                      map.scrollZoom.disable();
-                      if (map.touchZoomRotate) map.touchZoomRotate.disable();
+                      // Kartan låses INTE — zoom/pan mitt i ritningen ska funka (hörnen omprojiceras).
                     }
                   } },
                 ],
