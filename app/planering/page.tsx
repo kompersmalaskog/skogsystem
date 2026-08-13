@@ -4822,6 +4822,10 @@ export default function PlannerPage() {
 
     const onLineClick = (e: any) => {
       if (isDrawMode || isZoneMode || risaMarkMode) return;
+      // Prioritet symbol > zon > linje: ligger trycket också på en symbol/pil/zon → avstå (den vinner).
+      // Symbolen är liten och avsiktligt placerad; linjen träffas av misstag längs hela sin sträckning.
+      const overLine = ['markers-hit', 'arrows-hit', 'zone-fill'].filter(l => map.getLayer(l));
+      if (overLine.length && map.queryRenderedFeatures(e.point, { layers: overLine }).length > 0) return;
       if (e.features && e.features.length > 0) {
         const featureId = e.features[0].properties.id;
         const marker = markers.find(m => String(m.id) === String(featureId));
@@ -4838,6 +4842,9 @@ export default function PlannerPage() {
 
     const onZoneClick = (e: any) => {
       if (isDrawMode || isZoneMode || risaMarkMode) return;
+      // Prioritet symbol > zon: ligger trycket också på en symbol/pil → avstå (symbolen vinner).
+      const overZone = ['markers-hit', 'arrows-hit'].filter(l => map.getLayer(l));
+      if (overZone.length && map.queryRenderedFeatures(e.point, { layers: overZone }).length > 0) return;
       if (e.features && e.features.length > 0) {
         const featureId = e.features[0].properties.id;
         const marker = markers.find(m => String(m.id) === String(featureId));
