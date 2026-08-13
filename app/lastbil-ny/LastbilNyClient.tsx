@@ -9,23 +9,22 @@ import { medAbortRetry } from '@/lib/supabaseRetry'
 /*
   Lastbilen — karta-först-hubben (Mellanvägen). DOLD prototyp-rutt /lastbil-ny.
 
-  Zero Layer: vyn ÄR fullskärmskartan med bilen. Allt annat flyter ovanpå.
-   • Hero överst (flytande, färg = läge).
-   • FAST fakturerbart-tal (period ≠ dag) — står alltid stilla, gömmer sig aldrig.
-   • Tidslinje nederst: periodens rundor som segment; dra/tryck → kartan byter
-     spår + ben-vyn reser sig. Perioder Dag/Vecka/Månad/Kvartal/År.
-   • Kontextkort (tanka/service) bara när relevanta.
-   • Bilen-ark (tank/hälsa/service/diesel) + Mer-ark (demo/förarfilter/CSV/flyttlogg).
+  EXAKT TRE lager i viloläget — inget mer får flyta ovanpå kartan:
+   1. HERO överst — läge + bilens tank/hälsa som underrad. Tryck → Bilen-arket.
+      Kontextlägen (tanka/service/avvikelse) TAR hero-platsen, aldrig ett fjärde kort.
+   2. KARTAN — ren: bara position + spår.
+   3. ETT kort nederst — periodchips (topprad) + Mer (hörn) + FAST fakturerbart-rad
+      + tidslinje. Vald runda expanderar ben-vyn INUTI samma kort.
 
-  Data: /api/lastbil (hero, position, tank, hälsa, öppen runda, parkerad),
+  Data: /api/lastbil (hero/position/tank/hälsa/öppen runda/parkerad),
   /api/lastbil/forbrukning (diesel/månad), /api/lastbil/spar?runda= (spår per runda),
-  och Supabase direkt (maskin_flytt + flyttdag per period) — exakt som Flyttloggen.
-  Läser BARA. Ingen kod skriver något.
+  Supabase direkt (maskin_flytt + flyttdag per period) — exakt som Flyttloggen.
+  Läser BARA.
 */
 
 const C = {
   bg: '#09090b', card: '#131315', card2: '#17171a', border: 'rgba(255,255,255,0.06)',
-  glas: 'rgba(15,16,18,0.82)', glasKant: 'rgba(255,255,255,0.10)',
+  glas: 'rgba(15,16,18,0.86)', glasKant: 'rgba(255,255,255,0.10)',
   t1: '#fafafa', t2: 'rgba(255,255,255,0.72)', t3: 'rgba(255,255,255,0.45)', t4: 'rgba(255,255,255,0.30)',
   green: '#22c55e', blue: '#3b82f6', orange: '#ff9f0a', red: '#ff453a',
 }
@@ -66,6 +65,7 @@ type DagRad = {
 }
 type PeriodTyp = 'dag' | 'vecka' | 'manad' | 'kvartal' | 'ar'
 type Demo = 'normal' | 'kor' | 'tanka' | 'service'
+type EventRad = { dag: DagRad; flyttar: FlyttRad[]; typ: 'flytt' | 'ovrig' | 'pagar'; km: number | null }
 
 /* ── Formattering ── */
 const MANAD = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
@@ -126,8 +126,7 @@ function periodIntervall(typ: PeriodTyp, offset: number): { start: Date; slut: D
   if (typ === 'dag') {
     const start = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate() + offset)
     const slut = new Date(start); slut.setDate(slut.getDate() + 1)
-    const idag = offset === 0
-    return { start, slut, etikett: idag ? 'Idag' : `${DAG[start.getDay()]} ${start.getDate()} ${MANAD[start.getMonth()]}` }
+    return { start, slut, etikett: offset === 0 ? 'Idag' : `${DAG[start.getDay()]} ${start.getDate()} ${MANAD[start.getMonth()]}` }
   }
   if (typ === 'vecka') {
     const d = new Date(nu)
@@ -291,8 +290,7 @@ export default function LastbilNyClient() {
     return m
   }, [flyttar])
 
-  // Tidslinjens händelser = synliga rundor i perioden (flytt-runda eller övrig körning)
-  const events = useMemo(() => (dagar || [])
+  const events: EventRad[] = useMemo(() => (dagar || [])
     .filter(d => (forareFilter === 'alla' || d.forare === forareFilter) &&
       ((flyttPerDag.get(d.id)?.length || 0) >= 1 || (d.status === 'ovrig_korning' && d.sluttid != null) || d.sluttid == null))
     .map(d => {
@@ -302,7 +300,6 @@ export default function LastbilNyClient() {
     })
     .sort((a, b) => a.dag.starttid.localeCompare(b.dag.starttid)), [dagar, flyttPerDag, forareFilter])
 
-  // Fakturerbart (period, respekterar förarfilter) — Σ flytt_km för fakturerbara avslutade flyttar
   const slutfordaFlyttar = useMemo(() => (flyttar || []).filter(f =>
     !f.avbruten && f.sluttid && (forareFilter === 'alla' || f.forare === forareFilter)), [flyttar, forareFilter])
   const fakt = useMemo(() => {
@@ -318,17 +315,13 @@ export default function LastbilNyClient() {
   const forareLista = useMemo(() => Array.from(new Set([
     ...(flyttar || []).map(f => f.forare), ...(dagar || []).map(d => d.forare)].filter(Boolean))) as string[], [flyttar, dagar])
 
-  /* ── Läge: demo styr över härlett ── */
-  const heroLage = useMemo(() => harledHeroLage(data, demo), [data, demo])
-  const kontext = useMemo(() => harledKontext(data, demo, forbr), [data, demo, forbr])
+  const heroLage = useMemo(() => harledHero(data, demo), [data, demo])
 
   const kartSegment = kartData?.segment ?? []
   const kartPunkter = kartData?.punkter ?? []
   const rullar = (!!data?.oppen_runda && !valdEvent) || demo === 'kor'
-  const benOppen = !!valdEvent && !!events.find(e => e.dag.id === valdEvent)
-  const fitPadding = { top: 176, bottom: benOppen ? 380 : 220, left: 30, right: 30 }
-
   const valtEvent = events.find(e => e.dag.id === valdEvent) || null
+  const fitPadding = { top: 150, bottom: valtEvent ? 430 : 250, left: 28, right: 28 }
 
   /* CSV (period) */
   function csvFlyttar() {
@@ -354,102 +347,84 @@ export default function LastbilNyClient() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: C.bg, fontFamily: ff, color: C.t1, overflow: 'hidden' }}>
-      {/* KARTA — fyller allt */}
-      <LastbilKarta
-        variant="full" position={data?.position ?? null}
-        segment={kartSegment} punkter={kartPunkter} puls={rullar} fitPadding={fitPadding}
-      />
+      {/* Lager 2 — KARTAN (ren) */}
+      <LastbilKarta variant="full" position={data?.position ?? null} segment={kartSegment} punkter={kartPunkter} puls={rullar} fitPadding={fitPadding} />
 
-      {/* Toppgradient för läsbarhet */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 200, background: 'linear-gradient(180deg, rgba(9,9,11,0.72), rgba(9,9,11,0))', pointerEvents: 'none', zIndex: 1 }} />
+      {/* Toppgradient för läsbarhet (ej ett lager — bara dis) */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 160, background: 'linear-gradient(180deg, rgba(9,9,11,0.66), rgba(9,9,11,0))', pointerEvents: 'none', zIndex: 1 }} />
 
-      {/* ── Topprad: hem + Bilen-pill + Mer ── */}
-      <div style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 10px)', left: 12, right: 12, zIndex: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Link href="/" style={rundKnapp} aria-label="Hem">
-          <img src="/home-icon.png" alt="" style={{ width: 26, height: 26, borderRadius: 6, objectFit: 'cover' }} />
-        </Link>
-        <div style={{ flex: 1 }} />
-        {data?.tank && <BilenPill tank={data.tank} halsa={data.halsa} onClick={() => setBilenOppen(true)} />}
-        <button onClick={() => setMerOppen(true)} style={rundKnapp} aria-label="Mer">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill={C.t2}><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
-        </button>
+      {/* Lager 1 — HERO */}
+      <div style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 10px)', left: 12, right: 12, zIndex: 6 }}>
+        {laddar && !data ? <StatusRam><span style={{ color: C.t2 }}>Läser lastbilsdata …</span></StatusRam>
+          : fel ? <StatusRam kant={C.red}><div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}><span>{fel}</span><button onClick={() => { setLaddar(true); las() }} style={knappStil}>Försök igen</button></div></StatusRam>
+          : data && !data.harData ? <StatusRam><span style={{ color: C.t2 }}>Ingen data från lastbilen än.</span></StatusRam>
+          : data ? <Hero lage={heroLage} onOppna={() => setBilenOppen(true)} /> : null}
       </div>
 
-      {/* ── Hero (flytande) ── */}
-      <div style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 56px)', left: 12, right: 12, zIndex: 6 }}>
-        {laddar && !data ? <FloatKort><span style={{ color: C.t2 }}>Läser lastbilsdata …</span></FloatKort>
-          : fel ? <FloatKort kant={C.red}><div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}><span>{fel}</span><button onClick={() => { setLaddar(true); las() }} style={knappStil}>Försök igen</button></div></FloatKort>
-          : data && !data.harData ? <FloatKort><span style={{ color: C.t2 }}>Ingen data från lastbilen än.</span></FloatKort>
-          : data ? <Hero lage={heroLage} demo={demo !== 'normal'} /> : null}
-      </div>
-
-      {/* ── Fakturerbart (fast) + kontextkort ── */}
+      {/* Lager 3 — ETT nederkort (chips + Mer + fakturerbart + tidslinje + ben) */}
       {data?.harData && (
-        <div style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 152px)', left: 12, right: 12, zIndex: 5, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {periodTyp !== 'dag' && <FakturerbartPill fakt={fakt} etikett={period.etikett} laddar={flyttar === null} />}
-          {kontext.map((k, i) => <KontextKort key={i} k={k} />)}
-        </div>
-      )}
-
-      {/* ── Tidslinje (nederst) ── */}
-      {data?.harData && (
-        <Tidslinje
+        <BottomKort
           periodTyp={periodTyp} setPeriodTyp={(t) => { setPeriodTyp(t); setOffset(0) }}
-          offset={offset} setOffset={setOffset} etikett={period.etikett}
-          period={period} events={events} laddar={flyttar === null}
+          offset={offset} setOffset={setOffset} etikett={period.etikett} period={period}
+          fakt={fakt} visaFakt={periodTyp !== 'dag'} laddarFakt={flyttar === null}
+          events={events} laddarEvents={flyttar === null}
           vald={valdEvent} onValj={(id) => setValdEvent(v => v === id ? null : id)}
-          sparLaddar={sparLaddar}
+          valtEvent={valtEvent} sparLaddar={sparLaddar}
+          namnForMaskin={namnForMaskin} namnForAnde={namnForAnde}
+          onMer={() => setMerOppen(true)}
         />
       )}
 
-      {/* ── Ben-kort (vid vald runda) ── */}
-      {valtEvent && (
-        <BenKort event={valtEvent} namnForMaskin={namnForMaskin} namnForAnde={namnForAnde}
-          onStang={() => setValdEvent(null)} sparLaddar={sparLaddar} />
-      )}
-
-      {/* ── Bilen-ark ── */}
+      {/* Ark: Bilen (öppnas via hero-tryck) */}
       {bilenOppen && data && (
         <Ark titel="Bilen" onStang={() => setBilenOppen(false)}>
           <BilenInnehall tank={data.tank} halsa={data.halsa} forbr={forbr} ix={manIx} setIx={setManIx} />
         </Ark>
       )}
 
-      {/* ── Mer-ark ── */}
+      {/* Ark: Mer (öppnas via kortets hörn) */}
       {merOppen && (
         <Ark titel="Mer" onStang={() => setMerOppen(false)}>
-          <MerInnehall
-            demo={demo} setDemo={setDemo}
+          <MerInnehall demo={demo} setDemo={setDemo}
             forareLista={forareLista} forareFilter={forareFilter} setForareFilter={setForareFilter}
             onCsvFlyttar={csvFlyttar} onCsvDagar={csvDagar}
-            periodEtikett={period.etikett} harFlyttar={(events.length > 0)}
-          />
+            periodEtikett={period.etikett} harFlyttar={events.length > 0} />
         </Ark>
       )}
     </div>
   )
 }
 
-/* ══════════ Läge-härledning ══════════ */
+/* ══════════ Läge-härledning (hero rymmer tank/hälsa; avvikelse TAR platsen) ══════════ */
 type HeroLage =
-  | { sort: 'avvik'; niva: 'rod'; rubrik: string; under: string }
+  | { sort: 'takeover'; farg: 'rod' | 'orange' | 'bla'; rubrik: string; under: string }
   | { sort: 'kor'; pill: string; mitt: React.ReactNode; stort: string; under: string }
-  | { sort: 'park'; plats: string; sedan: string | null }
+  | { sort: 'park'; rubrik: string; under: string }
   | { sort: 'neutral'; rubrik: string; under: string }
 
-function harledHeroLage(data: Data | null, demo: Demo): HeroLage {
-  if (demo === 'kor') {
-    return { sort: 'kor', pill: 'KÖR NU', mitt: <span style={{ color: '#fff', fontWeight: 600 }}>🚚 Scorpion på flaket</span>, stort: '18 km', under: 'Avfärd 08:12 · demo-läge' }
-  }
+function tankSub(data: Data): string {
+  const d = data.tank?.diesel_pct
+  const lampor = data.halsa?.lampor ?? []
+  const parts: string[] = []
+  if (data.halsa?.har_lampor) parts.push(lampor.length === 0 ? 'allt friskt' : `${lampor.length} varning${lampor.length > 1 ? 'ar' : ''}`)
+  if (d != null) parts.push(`Diesel ${Math.round(d)} %`)
+  return parts.join(' · ')
+}
+function harledHero(data: Data | null, demo: Demo): HeroLage {
+  if (demo === 'kor') return { sort: 'kor', pill: 'KÖR NU', mitt: <span style={{ color: '#fff', fontWeight: 600 }}>🚚 Scorpion på flaket</span>, stort: '18 km', under: 'Avfärd 08:12 · demo' }
+  if (demo === 'tanka') return { sort: 'takeover', farg: 'orange', rubrik: 'Tanka snart · 16 %', under: '~150 km kvar · demo' }
+  if (demo === 'service') return { sort: 'takeover', farg: 'bla', rubrik: 'Service närmar sig', under: 'Om 420 km · demo' }
   if (data?.harData) {
-    // Röd nivå tar hero:n (lampor lyser / kritisk diesel)
     const lampor = data.halsa?.lampor ?? []
-    if (demo === 'normal' && lampor.length > 0) return { sort: 'avvik', niva: 'rod', rubrik: lampor.length === 1 ? `${lampor[0].namn} lyser` : `${lampor.length} varningslampor lyser`, under: 'Kontrollera bilen' }
-    const d = data.tank?.diesel_pct, r = data.tank?.rackvidd_km
-    if (demo === 'normal' && d != null && d < 15) return { sort: 'avvik', niva: 'rod', rubrik: `Diesel ${Math.round(d)} % — tanka nu`, under: r != null ? `Räckvidd ${r} km` : 'Låg nivå' }
-    // Kör (öppen runda)
+    if (lampor.length > 0) return { sort: 'takeover', farg: 'rod', rubrik: lampor.length === 1 ? `${lampor[0].namn} lyser` : `${lampor.length} varningslampor lyser`, under: 'Kontrollera bilen' }
+    const d = data.tank?.diesel_pct, r = data.tank?.rackvidd_km, a = data.tank?.adblue_pct
+    if (d != null && d < 15) return { sort: 'takeover', farg: 'rod', rubrik: `Diesel ${Math.round(d)} % — tanka nu`, under: r != null ? `Räckvidd ${r} km` : 'Låg nivå' }
+    if (d != null && d < 25) return { sort: 'takeover', farg: 'orange', rubrik: `Tanka snart · ${Math.round(d)} %`, under: r != null ? `Räckvidd ${r} km` : 'Planera tankning' }
+    if (r != null && r < 150) return { sort: 'takeover', farg: 'orange', rubrik: 'Tanka snart', under: `Räckvidd ${r} km` }
+    if (a != null && a < 20) return { sort: 'takeover', farg: 'orange', rubrik: `AdBlue ${Math.round(a)} %`, under: 'Fyll på snart' }
+    if (data.halsa?.service_km != null && data.halsa.service_km < 1500) return { sort: 'takeover', farg: 'bla', rubrik: 'Service närmar sig', under: `Om ${data.halsa.service_km.toLocaleString('sv-SE')} km` }
     const o = data.oppen_runda
-    if (demo === 'normal' && o) {
+    if (o) {
       const m = o.maskin
       const mitt = o.pa_vag_hem
         ? <span style={{ color: '#8ab4ff', fontWeight: 600 }}>🏠 På väg hem{o.km_kvar != null ? <span style={{ color: C.t3, fontWeight: 400 }}> · ~{o.km_kvar} km kvar</span> : null}</span>
@@ -457,128 +432,90 @@ function harledHeroLage(data: Data | null, demo: Demo): HeroLage {
           ? <span style={{ color: C.green, fontWeight: 600 }}>✓ {m.namn} lossad</span>
           : <span style={{ color: '#fff', fontWeight: 600 }}>🚚 {m.namn} på flaket</span>)
           : <span style={{ color: C.t3, fontWeight: 600 }}>Övrig körning</span>
-      return { sort: 'kor', pill: o.pa_vag_hem ? 'PÅ VÄG HEM' : 'KÖR NU', mitt, stort: o.live_km != null ? `${o.live_km} km` : '—', under: `${o.starttid ? `Avfärd ${fmtKlocka(o.starttid)} · ` : ''}senast sedd ${fmtAlder(data.position?.alder_min ?? null)}` }
+      return { sort: 'kor', pill: o.pa_vag_hem ? 'PÅ VÄG HEM' : 'KÖR NU', mitt, stort: o.live_km != null ? `${o.live_km} km` : '—', under: `${o.starttid ? `Avfärd ${fmtKlocka(o.starttid)} · ` : ''}${tankSub(data)}` }
     }
-    // Parkerad
-    if (data.parkerad) return { sort: 'park', plats: data.parkerad.plats, sedan: data.parkerad.sedan }
+    if (data.parkerad) return { sort: 'park', rubrik: `Parkerad på ${data.parkerad.plats}`, under: `${data.parkerad.sedan ? `${fmtSedan(data.parkerad.sedan)} · ` : ''}${tankSub(data)}` }
+    return { sort: 'neutral', rubrik: data.namn ? `Scania ${data.namn}` : 'Lastbilen', under: `Senast sedd ${fmtAlder(data.position?.alder_min ?? null)} · ${tankSub(data)}` }
   }
-  return { sort: 'neutral', rubrik: data?.namn ? `Scania ${data.namn}` : 'Lastbilen', under: `Senast sedd ${fmtAlder(data?.position?.alder_min ?? null)}` }
+  return { sort: 'neutral', rubrik: 'Lastbilen', under: 'Läser …' }
 }
 
-type Kontext = { niva: 'orange' | 'bla'; ikon: 'diesel' | 'service'; rubrik: string; under: string; demo?: boolean }
-function harledKontext(data: Data | null, demo: Demo, _forbr: ManadF[] | null): Kontext[] {
-  if (demo === 'tanka') return [{ niva: 'orange', ikon: 'diesel', rubrik: 'Tanka snart', under: '16 % · ~150 km kvar', demo: true }]
-  if (demo === 'service') return [{ niva: 'bla', ikon: 'service', rubrik: 'Service närmar sig', under: 'Om 420 km · boka verkstad', demo: true }]
-  if (demo !== 'normal' || !data?.harData) return []
-  const ut: Kontext[] = []
-  const d = data.tank?.diesel_pct, r = data.tank?.rackvidd_km, a = data.tank?.adblue_pct
-  // Orange-nivå (röd ligger i hero:n)
-  if (d != null && d >= 15 && d < 25) ut.push({ niva: 'orange', ikon: 'diesel', rubrik: 'Tanka snart', under: r != null ? `Diesel ${Math.round(d)} % · räckvidd ${r} km` : `Diesel ${Math.round(d)} %` })
-  else if (r != null && r < 150) ut.push({ niva: 'orange', ikon: 'diesel', rubrik: 'Tanka snart', under: `Räckvidd ${r} km` })
-  if (a != null && a < 20) ut.push({ niva: 'orange', ikon: 'diesel', rubrik: `AdBlue ${Math.round(a)} %`, under: 'Fyll på snart' })
-  if (data.halsa?.service_km != null && data.halsa.service_km < 1500) ut.push({ niva: 'bla', ikon: 'service', rubrik: 'Service närmar sig', under: `Om ${data.halsa.service_km.toLocaleString('sv-SE')} km` })
-  return ut
-}
+/* ══════════ Hero (tappbar → Bilen; innehåller hemknapp) ══════════ */
+function Hero({ lage, onOppna }: { lage: HeroLage; onOppna: () => void }) {
+  let kant = C.glasKant, bak: string | null = null, punkt = C.t3, puls = false
+  if (lage.sort === 'takeover') {
+    const map = { rod: C.red, orange: C.orange, bla: '#3b82f6' } as const
+    punkt = map[lage.farg]; kant = punkt
+    bak = lage.farg === 'rod' ? 'rgba(255,69,58,0.15)' : lage.farg === 'orange' ? 'rgba(255,159,10,0.14)' : 'rgba(59,130,246,0.14)'
+    puls = lage.farg !== 'bla'
+  } else if (lage.sort === 'kor') { kant = 'rgba(59,130,246,0.4)'; bak = 'rgba(59,130,246,0.13)'; punkt = C.blue; puls = true }
+  else if (lage.sort === 'park') { kant = 'rgba(34,197,94,0.32)'; bak = 'rgba(34,197,94,0.1)'; punkt = C.green }
 
-/* ══════════ Hero ══════════ */
-function Hero({ lage, demo }: { lage: HeroLage; demo: boolean }) {
-  if (lage.sort === 'avvik') return (
-    <FloatKort kant={C.red} bak="rgba(255,69,58,0.14)" punkt={C.red} puls demo={demo}>
-      <h1 style={{ ...heroH, color: '#fff' }}>{lage.rubrik}</h1><div style={heroSub}>{lage.under}</div>
-    </FloatKort>
-  )
-  if (lage.sort === 'kor') return (
-    <FloatKort kant="rgba(59,130,246,0.4)" bak="rgba(59,130,246,0.13)" punkt={C.blue} puls demo={demo}>
-      <div style={livePill}><span style={{ width: 7, height: 7, borderRadius: '50%', background: C.blue }} />{lage.pill}</div>
-      <div style={{ fontSize: 13, margin: '3px 0 5px' }}>{lage.mitt}</div>
-      <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: '#fff' }}>{lage.stort}</div>
-      <div style={heroSub}>{lage.under}</div>
-    </FloatKort>
-  )
-  if (lage.sort === 'park') return (
-    <FloatKort kant="rgba(34,197,94,0.32)" bak="rgba(34,197,94,0.1)" punkt={C.green} demo={demo}>
-      <h1 style={heroH}>Parkerad på {lage.plats}</h1>
-      <div style={heroSub}>{lage.sedan ? `${fmtSedan(lage.sedan)} · ` : ''}allt friskt</div>
-    </FloatKort>
-  )
-  return (
-    <FloatKort punkt={C.t3} demo={demo}>
-      <h1 style={{ ...heroH, fontSize: 19 }}>{lage.rubrik}</h1><div style={heroSub}>{lage.under}</div>
-    </FloatKort>
-  )
-}
-function FloatKort({ children, kant, bak, punkt, puls, demo }: { children: React.ReactNode; kant?: string; bak?: string; punkt?: string; puls?: boolean; demo?: boolean }) {
   return (
     <div style={{
-      background: bak ? `linear-gradient(180deg, ${bak}, rgba(0,0,0,0) 78%), ${C.glas}` : C.glas,
-      border: `1px solid ${kant || C.glasKant}`, borderRadius: 18, padding: '14px 15px',
+      background: bak ? `linear-gradient(180deg, ${bak}, rgba(0,0,0,0) 82%), ${C.glas}` : C.glas,
+      border: `1px solid ${kant}`, borderRadius: 18, padding: '12px 12px 12px 14px',
       backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-      display: 'flex', gap: 12, alignItems: 'flex-start', position: 'relative',
+      display: 'flex', gap: 11, alignItems: 'center',
     }}>
-      {punkt && (
-        <span style={{ position: 'relative', width: 12, height: 12, borderRadius: '50%', background: punkt, flex: 'none', marginTop: 5 }}>
-          {puls && <span className="lbny-puls" style={{ position: 'absolute', inset: -5, borderRadius: '50%', border: `2px solid ${punkt}` }} />}
-        </span>
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
-      {demo && <span style={demoBadge}>DEMO</span>}
+      <Link href="/" aria-label="Hem" style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', textDecoration: 'none' }}>
+        <img src="/home-icon.png" alt="" style={{ width: 24, height: 24, borderRadius: 6, objectFit: 'cover' }} />
+      </Link>
+      <span style={{ position: 'relative', width: 11, height: 11, borderRadius: '50%', background: punkt, flex: 'none' }}>
+        {puls && <span className="lbny-puls" style={{ position: 'absolute', inset: -5, borderRadius: '50%', border: `2px solid ${punkt}` }} />}
+      </span>
+      <button onClick={onOppna} aria-label="Öppna Bilen" style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: C.t1, fontFamily: ff }}>
+        {lage.sort === 'kor' ? (
+          <>
+            <div style={livePill}><span style={{ width: 6, height: 6, borderRadius: '50%', background: C.blue }} />{lage.pill}</div>
+            <div style={{ fontSize: 13, margin: '2px 0 3px' }}>{lage.mitt}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: '#fff' }}>{lage.stort}</span>
+              <span style={{ fontSize: 12, color: C.t3 }}>{lage.under}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.12, color: lage.sort === 'takeover' ? '#fff' : C.t1 }}>{lage.rubrik}</div>
+            <div style={{ fontSize: 12.5, color: C.t3, marginTop: 3 }}>{lage.under}</div>
+          </>
+        )}
+      </button>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t4} strokeWidth="2" style={{ flex: 'none' }}><path d="M9 6l6 6-6 6" /></svg>
       <style>{`.lbny-puls{animation:lbnyp 1.9s ease-out infinite}@keyframes lbnyp{0%{transform:scale(.6);opacity:.85}100%{transform:scale(2);opacity:0}}@media(prefers-reduced-motion:reduce){.lbny-puls{animation:none}}`}</style>
     </div>
   )
 }
-
-/* ══════════ Fakturerbart-pill (fast) ══════════ */
-function FakturerbartPill({ fakt, etikett, laddar }: { fakt: { km: number; antalFakt: number; antal: number; totalKm: number }; etikett: string; laddar: boolean }) {
-  const inga = fakt.antalFakt === 0
+function StatusRam({ children, kant }: { children: React.ReactNode; kant?: string }) {
   return (
-    <div style={{ background: C.glas, border: `1px solid ${inga ? 'rgba(255,159,10,0.3)' : 'rgba(34,197,94,0.3)'}`, borderRadius: 16, padding: '12px 15px', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' }}>
-      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.02em', color: C.t3 }}>Fakturerbart · {etikett}</div>
-      <div style={{ fontSize: 27, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.05, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>
-        {laddar ? '…' : `${fakt.km.toLocaleString('sv-SE')} km`}
-      </div>
-      {!laddar && (
-        <div style={{ fontSize: 12, marginTop: 3, color: inga && fakt.antal > 0 ? C.orange : C.t3, fontVariantNumeric: 'tabular-nums' }}>
-          {inga && fakt.antal > 0 ? `Inga fakturerbara ännu · ${fakt.antal} flyttar · ${fakt.totalKm} km`
-            : fakt.antal === 0 ? 'Inga flyttar i perioden'
-            : `${fakt.antalFakt} fakturerbara · ${fakt.antal} flyttar totalt`}
-        </div>
-      )}
+    <div style={{ background: C.glas, border: `1px solid ${kant || C.glasKant}`, borderRadius: 18, padding: '14px 15px', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', display: 'flex', gap: 12, alignItems: 'center' }}>
+      <Link href="/" aria-label="Hem" style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', textDecoration: 'none' }}>
+        <img src="/home-icon.png" alt="" style={{ width: 24, height: 24, borderRadius: 6, objectFit: 'cover' }} />
+      </Link>
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
     </div>
   )
 }
 
-/* ══════════ Kontextkort ══════════ */
-function KontextKort({ k }: { k: Kontext }) {
-  const farg = k.niva === 'orange' ? C.orange : '#8ab4ff'
-  return (
-    <div style={{ background: C.glas, border: `1px solid ${k.niva === 'orange' ? 'rgba(255,159,10,0.32)' : 'rgba(59,130,246,0.32)'}`, borderRadius: 15, padding: '11px 14px', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
-      <span style={{ width: 32, height: 32, borderRadius: 10, background: k.niva === 'orange' ? 'rgba(255,159,10,0.16)' : 'rgba(59,130,246,0.16)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
-        {k.ikon === 'diesel'
-          ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={farg} strokeWidth="2"><path d="M3 22h12V4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z" /><path d="M15 9h3l3 3v7a2 2 0 0 1-2 2h-1" /></svg>
-          : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={farg} strokeWidth="2"><path d="M14 7l-1.5-1.5a2 2 0 0 0-3 0L3 12l4 4 6.5-6.5a2 2 0 0 0 0-3z" /><path d="M14 7l5 5" /></svg>}
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: farg }}>{k.rubrik}</div>
-        <div style={{ fontSize: 12, color: C.t3, marginTop: 1 }}>{k.under}</div>
-      </div>
-      {k.demo && <span style={demoBadge}>DEMO</span>}
-    </div>
-  )
-}
-
-/* ══════════ Tidslinje ══════════ */
-function Tidslinje({ periodTyp, setPeriodTyp, offset, setOffset, etikett, period, events, laddar, vald, onValj, sparLaddar }: {
+/* ══════════ Lager 3 — nederkortet ══════════ */
+function BottomKort({
+  periodTyp, setPeriodTyp, offset, setOffset, etikett, period,
+  fakt, visaFakt, laddarFakt, events, laddarEvents, vald, onValj, valtEvent, sparLaddar, namnForMaskin, namnForAnde, onMer,
+}: {
   periodTyp: PeriodTyp; setPeriodTyp: (t: PeriodTyp) => void; offset: number; setOffset: (n: number) => void
-  etikett: string; period: { start: Date; slut: Date }; events: any[]; laddar: boolean
-  vald: string | null; onValj: (id: string) => void; sparLaddar: boolean
+  etikett: string; period: { start: Date; slut: Date }
+  fakt: { km: number; antalFakt: number; antal: number; totalKm: number }; visaFakt: boolean; laddarFakt: boolean
+  events: EventRad[]; laddarEvents: boolean; vald: string | null; onValj: (id: string) => void
+  valtEvent: EventRad | null; sparLaddar: boolean
+  namnForMaskin: (id: string | null, e: string | null) => string; namnForAnde: (o: string | null, p: string | null) => string | null
+  onMer: () => void
 }) {
   const axisRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState(false)
   const span = period.slut.getTime() - period.start.getTime()
-  const posOf = (iso: string) => Math.max(0.02, Math.min(0.97, (new Date(iso).getTime() - period.start.getTime()) / span))
-
-  function nearest(rel: number): any | null {
-    let best: any = null, bd = 9
+  const posOf = (iso: string) => Math.max(0.03, Math.min(0.97, (new Date(iso).getTime() - period.start.getTime()) / span))
+  function nearest(rel: number): EventRad | null {
+    let best: EventRad | null = null, bd = 9
     for (const e of events) { const c = posOf(e.dag.starttid); const dd = Math.abs(c - rel); if (dd < bd) { bd = dd; best = e } }
     return best
   }
@@ -588,70 +525,91 @@ function Tidslinje({ periodTyp, setPeriodTyp, offset, setOffset, etikett, period
     const rel = Math.max(0, Math.min(1, (clientX - r.left) / r.width))
     const e = nearest(rel); if (e && e.dag.id !== vald) onValj(e.dag.id)
   }
+  const inga = fakt.antalFakt === 0
 
   return (
-    <div style={{ position: 'absolute', left: 12, right: 12, bottom: 'calc(env(safe-area-inset-bottom) + 12px)', zIndex: 7, background: C.glas, border: `1px solid ${C.glasKant}`, borderRadius: 20, padding: '11px 13px 13px', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
-      {/* Period-chips */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-        {PERIODER.map(p => (
-          <button key={p.typ} onClick={() => setPeriodTyp(p.typ)} style={{
-            flex: 1, textAlign: 'center', fontSize: 11.5, fontWeight: 700, padding: '5px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontFamily: ff,
-            color: periodTyp === p.typ ? '#fff' : C.t4, background: periodTyp === p.typ ? 'rgba(255,255,255,0.11)' : 'transparent',
-          }}>{p.kort}</button>
-        ))}
+    <div style={{ position: 'absolute', left: 12, right: 12, bottom: 'calc(env(safe-area-inset-bottom) + 12px)', zIndex: 5, background: C.glas, border: `1px solid ${C.glasKant}`, borderRadius: 22, padding: '12px 14px 14px', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}>
+      {/* Topprad: periodchips + Mer (hörn) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 3, flex: 1, minWidth: 0 }}>
+          {PERIODER.map(p => (
+            <button key={p.typ} onClick={() => setPeriodTyp(p.typ)} style={{
+              flex: 1, textAlign: 'center', fontSize: 11, fontWeight: 700, padding: '5px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: ff,
+              color: periodTyp === p.typ ? '#fff' : C.t4, background: periodTyp === p.typ ? 'rgba(255,255,255,0.11)' : 'transparent',
+            }}>{p.kort}</button>
+          ))}
+        </div>
+        <button onClick={onMer} aria-label="Mer" style={{ width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,0.06)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flex: 'none' }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill={C.t2}><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
+        </button>
       </div>
-      {/* Period-navigering */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <button onClick={() => setOffset(offset - 1)} style={pilKnapp(false)} aria-label="Föregående">‹</button>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.t2 }}>{etikett}</span>
-        <button onClick={() => setOffset(offset + 1)} disabled={offset >= 0} style={pilKnapp(offset >= 0)} aria-label="Nästa">›</button>
+
+      {/* FAST fakturerbart-rad + period-nav (förankrad, alltid synlig) */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10, margin: '12px 0 4px' }}>
+        <div style={{ minWidth: 0 }}>
+          {visaFakt ? (
+            <>
+              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.t3 }}>Fakturerbart</div>
+              <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>{laddarFakt ? '…' : `${fakt.km.toLocaleString('sv-SE')} km`}</div>
+              {!laddarFakt && <div style={{ fontSize: 11.5, marginTop: 2, color: inga && fakt.antal > 0 ? C.orange : C.t3, fontVariantNumeric: 'tabular-nums' }}>
+                {inga && fakt.antal > 0 ? `Inga fakturerbara ännu · ${fakt.antal} flyttar · ${fakt.totalKm} km` : fakt.antal === 0 ? 'Inga flyttar i perioden' : `${fakt.antalFakt} fakturerbara · ${fakt.antal} flyttar`}
+              </div>}
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: C.t3 }}>{laddarEvents ? 'Läser rundor …' : `${events.length} ${events.length === 1 ? 'runda' : 'rundor'}`}</div>
+          )}
+        </div>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flex: 'none' }}>
+          <button onClick={() => setOffset(offset - 1)} style={pilKnapp(false)} aria-label="Föregående">‹</button>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.t2, whiteSpace: 'nowrap' }}>{etikett}</span>
+          <button onClick={() => setOffset(offset + 1)} disabled={offset >= 0} style={pilKnapp(offset >= 0)} aria-label="Nästa">›</button>
+        </div>
       </div>
-      {/* Axel */}
+
+      {/* Tidslinje */}
       <div ref={axisRef} onPointerDown={e => { setDrag(true); (e.target as HTMLElement).setPointerCapture?.(e.pointerId); onMove(e.clientX) }}
         onPointerMove={e => { if (drag) onMove(e.clientX) }} onPointerUp={() => setDrag(false)} onPointerCancel={() => setDrag(false)}
-        style={{ position: 'relative', height: 34, cursor: drag ? 'grabbing' : 'grab', touchAction: 'none' }}>
-        <div style={{ position: 'absolute', top: 15, left: 0, right: 0, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.07)' }} />
-        {laddar ? <div style={{ position: 'absolute', top: 10, left: 0, fontSize: 11, color: C.t4 }}>Läser rundor …</div>
-          : events.length === 0 ? <div style={{ position: 'absolute', top: 9, left: 0, right: 0, textAlign: 'center', fontSize: 11, color: C.t4 }}>Inga rundor i perioden</div>
+        style={{ position: 'relative', height: 30, marginTop: 8, cursor: drag ? 'grabbing' : 'grab', touchAction: 'none' }}>
+        <div style={{ position: 'absolute', top: 13, left: 0, right: 0, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.07)' }} />
+        {laddarEvents ? <div style={{ position: 'absolute', top: 8, left: 0, fontSize: 11, color: C.t4 }}>Läser rundor …</div>
+          : events.length === 0 ? <div style={{ position: 'absolute', top: 7, left: 0, right: 0, textAlign: 'center', fontSize: 11, color: C.t4 }}>Inga rundor i perioden</div>
           : events.map(e => {
             const x = posOf(e.dag.starttid) * 100
             const sel = e.dag.id === vald
             const fl = e.typ === 'flytt'
             return (
               <button key={e.dag.id} onClick={ev => { ev.stopPropagation(); onValj(e.dag.id) }} aria-label={`Runda ${fmtDatum(e.dag.starttid)}`}
-                style={{ position: 'absolute', top: 15 - (sel ? 3 : 0), left: `${x}%`, transform: 'translateX(-50%)', width: sel ? 15 : 11, height: sel ? 11 : 5, borderRadius: sel ? '50%' : 3, border: 'none', padding: 0, cursor: 'pointer',
+                style={{ position: 'absolute', top: 13 - (sel ? 3 : 0), left: `${x}%`, transform: 'translateX(-50%)', width: sel ? 14 : 11, height: sel ? 11 : 5, borderRadius: sel ? '50%' : 3, border: 'none', padding: 0, cursor: 'pointer',
                   background: e.typ === 'pagar' ? C.green : fl ? C.blue : 'rgba(150,160,168,0.55)', boxShadow: sel ? '0 0 0 3px rgba(255,255,255,0.14)' : 'none' }} />
             )
           })}
-        {/* Etiketter start/slut */}
-        <div style={{ position: 'absolute', bottom: -4, left: 0, fontSize: 9.5, color: C.t4 }}>{new Date(period.start).getDate()}/{new Date(period.start).getMonth() + 1}</div>
-        <div style={{ position: 'absolute', bottom: -4, right: 0, fontSize: 9.5, color: C.t4 }}>{new Date(period.slut.getTime() - 86400000).getDate()}/{new Date(period.slut.getTime() - 86400000).getMonth() + 1}</div>
       </div>
-      <div style={{ textAlign: 'center', fontSize: 10.5, color: C.t4, marginTop: 9 }}>
-        {sparLaddar ? 'Hämtar och matchar spår …' : 'Dra på axeln → kartan visar spåret · tryck en runda → ben-vyn'}
-      </div>
+
+      {/* Ben-vy INUTI kortet (vid vald runda) — annars hint */}
+      {valtEvent
+        ? <BenBlock event={valtEvent} namnForMaskin={namnForMaskin} namnForAnde={namnForAnde} onStang={() => vald && onValj(vald)} sparLaddar={sparLaddar} />
+        : <div style={{ textAlign: 'center', fontSize: 10.5, color: C.t4, marginTop: 9 }}>{sparLaddar ? 'Hämtar och matchar spår …' : events.length > 0 ? 'Dra på axeln → kartan visar spåret · tryck en runda' : 'Perioden är tom'}</div>}
     </div>
   )
 }
 
-/* ══════════ Ben-kort ══════════ */
-function BenKort({ event, namnForMaskin, namnForAnde, onStang, sparLaddar }: {
-  event: any; namnForMaskin: (id: string | null, e: string | null) => string
+/* ── Ben-block (del av nederkortet) ── */
+function BenBlock({ event, namnForMaskin, namnForAnde, onStang, sparLaddar }: {
+  event: EventRad; namnForMaskin: (id: string | null, e: string | null) => string
   namnForAnde: (o: string | null, p: string | null) => string | null; onStang: () => void; sparLaddar: boolean
 }) {
-  const d: DagRad = event.dag
-  const flyttar: FlyttRad[] = event.flyttar
+  const d = event.dag
   const kmTot = d.matare_km ?? d.total_km
   return (
-    <div style={{ position: 'absolute', left: 12, right: 12, bottom: 'calc(env(safe-area-inset-bottom) + 176px)', zIndex: 9, background: 'rgba(16,17,19,0.96)', border: `1px solid ${C.glasKant}`, borderRadius: 20, padding: '15px 16px 16px', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', boxShadow: '0 -12px 40px rgba(0,0,0,0.5)', maxHeight: '42vh', overflowY: 'auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+    <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10, maxHeight: '34vh', overflowY: 'auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{fmtDatum(d.starttid)}{d.starttid ? ` · ${fmtKlocka(d.starttid)}` : ''}</div>
-          <div style={{ fontSize: 12, color: C.t3, marginTop: 1 }}>{event.typ === 'flytt' ? `${flyttar.length} ${flyttar.length === 1 ? 'flytt' : 'flyttar'}` : 'Övrig körning'}{d.forare ? ` · ${d.forare}` : ''}</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{fmtDatum(d.starttid)}{d.starttid ? ` · ${fmtKlocka(d.starttid)}` : ''}</div>
+          <div style={{ fontSize: 12, color: C.t3, marginTop: 1 }}>{event.typ === 'flytt' ? `${event.flyttar.length} ${event.flyttar.length === 1 ? 'flytt' : 'flyttar'}` : 'Övrig körning'}{d.forare ? ` · ${d.forare}` : ''}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 20, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{kmTot != null ? `${kmTot.toLocaleString('sv-SE')} km` : '—'}</div>
+            <div style={{ fontSize: 18, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{kmTot != null ? `${kmTot.toLocaleString('sv-SE')} km` : '—'}</div>
             {d.bransle_l != null && <div style={{ fontSize: 11, color: C.t3 }}>{d.bransle_l.toLocaleString('sv-SE')} l</div>}
           </div>
           <button onClick={onStang} style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,0.08)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flex: 'none' }} aria-label="Stäng">
@@ -659,26 +617,20 @@ function BenKort({ event, namnForMaskin, namnForAnde, onStang, sparLaddar }: {
           </button>
         </div>
       </div>
-
-      <div style={{ marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         {d.tillkorning_km != null && d.tillkorning_km > 0 && <Leg farg={C.t3} txt="Hemifrån till första maskin" km={`${d.tillkorning_km} km`} />}
-        {flyttar.map(f => (
+        {event.flyttar.map(f => (
           <div key={f.id}>
-            <Leg farg={C.blue} txt={`${namnForAnde(f.fran_objekt_id, f.fran_plats_id) || 'Hämtställe'} → ${namnForAnde(f.till_objekt_id, f.till_plats_id) || 'Lämnställe'}`}
-              km={f.flytt_km != null ? `${f.flytt_km} km` : '—'} fet />
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '1px 0 4px 19px', fontSize: 11, color: C.t3 }}>
+            <Leg farg={C.blue} txt={`${namnForAnde(f.fran_objekt_id, f.fran_plats_id) || 'Hämtställe'} → ${namnForAnde(f.till_objekt_id, f.till_plats_id) || 'Lämnställe'}`} km={f.flytt_km != null ? `${f.flytt_km} km` : '—'} fet />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '1px 0 4px 19px', fontSize: 11, color: C.t3, flexWrap: 'wrap' }}>
               <span>{namnForMaskin(f.maskin_id, f.extern_maskin)} · {TYP_ETIKETT[f.flytt_typ || 'produktion']}{f.kund ? ` · ${f.kund}` : ''}</span>
               {f.tid_flytt_min != null && <span>· {fmtTid(f.tid_flytt_min)}</span>}
-              {f.fakturerbar
-                ? <span style={{ color: C.green, fontWeight: 700 }}>· Fakturerbar</span>
-                : <span style={{ color: C.t4 }}>· Ej fakt.</span>}
+              {f.fakturerbar ? <span style={{ color: C.green, fontWeight: 700 }}>· Fakturerbar</span> : <span style={{ color: C.t4 }}>· Ej fakt.</span>}
             </div>
           </div>
         ))}
         {d.hem_km != null && d.hem_km > 0 && <Leg farg={C.green} txt={`Hemresa${d.hemresa_matt ? '' : ' (~beräknad)'}`} km={`${d.hemresa_matt ? '' : '~'}${d.hem_km} km`} />}
-        {event.typ !== 'flytt' && (d.tillkorning_km == null && d.hem_km == null) && (
-          <div style={{ fontSize: 12.5, color: C.t3 }}>{sparLaddar ? 'Hämtar spår …' : 'Spåret ritas på kartan.'}</div>
-        )}
+        {event.typ !== 'flytt' && d.tillkorning_km == null && d.hem_km == null && <div style={{ fontSize: 12.5, color: C.t3 }}>{sparLaddar ? 'Hämtar spår …' : 'Spåret ritas på kartan.'}</div>}
       </div>
     </div>
   )
@@ -693,32 +645,17 @@ function Leg({ farg, txt, km, fet }: { farg: string; txt: string; km: string; fe
   )
 }
 
-/* ══════════ Bilen-pill + ark ══════════ */
-function BilenPill({ tank, halsa, onClick }: { tank: Data['tank']; halsa: Data['halsa']; onClick: () => void }) {
-  const d = tank?.diesel_pct
-  const lampor = halsa?.lampor ?? []
-  const halsaFarg = lampor.length ? C.red : C.green
-  const lag = (d != null && d < 25)
-  return (
-    <button onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, height: 38, padding: '0 13px', borderRadius: 19, background: C.glas, border: `1px solid ${C.glasKant}`, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', cursor: 'pointer', color: C.t1, fontFamily: ff }}>
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={lag ? C.orange : C.t2} strokeWidth="2"><path d="M3 22h12V4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z" /><path d="M15 9h3l3 3v7a2 2 0 0 1-2 2h-1" /></svg>
-      <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: lag ? C.orange : C.t1 }}>{d != null ? `${Math.round(d)} %` : '—'}</span>
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: halsaFarg }} />
-    </button>
-  )
-}
+/* ══════════ Bilen-ark ══════════ */
 function BilenInnehall({ tank, halsa, forbr, ix, setIx }: { tank: Data['tank']; halsa: Data['halsa']; forbr: ManadF[] | null; ix: number; setIx: (n: number) => void }) {
   const lampor = halsa?.lampor ?? []
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Tank */}
       <div style={arkKort}>
         <div style={arkRubrik}>Kan jag köra?</div>
         <BRad namn="Diesel" v={tank?.diesel_pct} enhet=" %" lag={tank?.diesel_pct != null && tank.diesel_pct < 25} />
         <BRad namn="AdBlue" v={tank?.adblue_pct} enhet=" %" lag={tank?.adblue_pct != null && tank.adblue_pct < 20} />
         <BRad namn="Räckvidd" v={tank?.rackvidd_km} enhet=" km" lag={tank?.rackvidd_km != null && tank.rackvidd_km < 150} sista />
       </div>
-      {/* Hälsa */}
       <div style={arkKort}>
         <div style={arkRubrik}>Mår den bra?</div>
         {!halsa?.har_lampor ? <div style={{ fontSize: 14, color: C.t3 }}>Varningslampor saknas i datan</div>
@@ -732,7 +669,6 @@ function BilenInnehall({ tank, halsa, forbr, ix, setIx }: { tank: Data['tank']; 
           <span>Motortimmar {halsa?.motortimmar != null ? `${halsa.motortimmar.toLocaleString('sv-SE')} h` : '—'}</span>
         </div>
       </div>
-      {/* Förbrukning */}
       <VadDrarDen forbr={forbr} ix={ix} setIx={setIx} />
     </div>
   )
@@ -767,7 +703,6 @@ function VadDrarDen({ forbr, ix, setIx }: { forbr: ManadF[] | null; ix: number; 
       <div style={{ fontSize: 13, color: C.t3, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{m.mil.toLocaleString('sv-SE')} mil · {m.diesel_l.toLocaleString('sv-SE')} l diesel</div>
       <div style={{ display: 'flex', gap: 10, padding: '9px 2px', borderTop: `1px solid ${C.border}`, color: C.t3, fontSize: 13, marginTop: 8 }}><span style={{ flex: 1 }}>Flyttar</span><span style={{ color: C.t2, fontVariantNumeric: 'tabular-nums' }}>{m.flytt.mil.toLocaleString('sv-SE')} mil · {m.flytt.diesel_l} l{m.flytt.l_per_mil != null ? ` · ${m.flytt.l_per_mil.toLocaleString('sv-SE')} l/mil` : ''}</span></div>
       <div style={{ display: 'flex', gap: 10, padding: '9px 2px', borderTop: `1px solid ${C.border}`, color: C.t3, fontSize: 13 }}><span style={{ flex: 1 }}>Övrig körning</span><span style={{ color: C.t2, fontVariantNumeric: 'tabular-nums' }}>{m.ovrig.mil.toLocaleString('sv-SE')} mil · {m.ovrig.diesel_l} l{m.ovrig.l_per_mil != null ? ` · ${m.ovrig.l_per_mil.toLocaleString('sv-SE')} l/mil` : ''}</span></div>
-      {/* Trend */}
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.t3, margin: '14px 0 4px' }}>l/mil — trend bakåt</div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 84, padding: '6px 4px 0' }}>
         {trend.map(t => {
@@ -795,16 +730,14 @@ function MerInnehall({ demo, setDemo, forareLista, forareFilter, setForareFilter
   const demoVal: { v: Demo; t: string }[] = [{ v: 'normal', t: 'Normal' }, { v: 'kor', t: 'Kör' }, { v: 'tanka', t: 'Låg tank' }, { v: 'service', t: 'Service' }]
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Demo */}
       <div>
-        <div style={arkRubrik}>Demo-lägen <span style={{ color: C.t4, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· förhandsvisar lägen mot testdata</span></div>
+        <div style={arkRubrik}>Demo-lägen <span style={{ color: C.t4, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· förhandsvisar hero-lägen mot testdata</span></div>
         <div style={{ display: 'flex', gap: 6, background: 'rgba(118,118,128,0.24)', borderRadius: 10, padding: 3 }}>
           {demoVal.map(d => (
             <button key={d.v} onClick={() => setDemo(d.v)} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: ff, color: demo === d.v ? '#fff' : C.t2, background: demo === d.v ? '#636366' : 'transparent' }}>{d.t}</button>
           ))}
         </div>
       </div>
-      {/* Förarfilter */}
       {forareLista.length > 0 && (
         <div>
           <div style={arkRubrik}>Förare</div>
@@ -814,7 +747,6 @@ function MerInnehall({ demo, setDemo, forareLista, forareFilter, setForareFilter
           </div>
         </div>
       )}
-      {/* CSV */}
       <div>
         <div style={arkRubrik}>Exportera · {periodEtikett}</div>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -822,7 +754,6 @@ function MerInnehall({ demo, setDemo, forareLista, forareFilter, setForareFilter
           <button onClick={onCsvDagar} disabled={!harFlyttar} style={{ ...merKnapp, opacity: harFlyttar ? 1 : 0.4 }}>Dagar (CSV)</button>
         </div>
       </div>
-      {/* Länk */}
       <Link href="/maskinflytt/sammanstallning" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', textDecoration: 'none', color: C.blue, fontSize: 14, fontWeight: 600, padding: '4px 2px' }}>
         Detaljerad flyttlogg — alla filter
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="2"><path d="M9 6l6 6-6 6" /></svg>
@@ -852,11 +783,7 @@ function Ark({ titel, children, onStang }: { titel: string; children: React.Reac
 }
 
 /* ── Stilar ── */
-const heroH: React.CSSProperties = { margin: 0, fontSize: 21, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.13 }
-const heroSub: React.CSSProperties = { fontSize: 13, color: C.t3, marginTop: 5 }
-const livePill: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: C.blue, marginBottom: 4 }
-const demoBadge: React.CSSProperties = { position: 'absolute', top: 8, right: 10, fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: C.t3, background: 'rgba(255,255,255,0.08)', borderRadius: 6, padding: '2px 6px' }
-const rundKnapp: React.CSSProperties = { width: 38, height: 38, borderRadius: 12, background: C.glas, border: `1px solid ${C.glasKant}`, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', textDecoration: 'none', flex: 'none' }
+const livePill: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em', color: C.blue }
 const knappStil: React.CSSProperties = { background: C.blue, color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: ff }
 const arkKort: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14 }
 const arkRubrik: React.CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.t3, marginBottom: 10 }
