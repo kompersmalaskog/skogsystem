@@ -4860,12 +4860,15 @@ export default function Arbetsrapport() {
                 <p style={{ ...secHead }}>Körning</p>
 
                 {harFlerObjekt ? (
-                  // Multi-objekt: visa varje segment som egen rad
+                  // Multi-objekt: visa varje segment som egen rad. Mellan-objekt-
+                  // benen ("Flytt") märks — föraren körde dem, men de ingår INTE i
+                  // ersättningen (modell B ersätter bara pendling hem↔arbete).
                   segs.map((s, i) => {
+                    const flytt = i !== 0 && i !== segs.length-1;
                     const label = i === 0            ? `Morgon (→ ${s.toLabel})`
                                 : i === segs.length-1 ? `Kväll (${s.fromLabel} →)`
                                 :                       `Flytt (${s.fromLabel} → ${s.toLabel})`;
-                    return rad(label, `${s.km} km`, false, öppnaKmSheet);
+                    return rad(label + (flytt ? " (ingår ej i ersättning)" : ""), `${s.km} km`, false, öppnaKmSheet);
                   })
                 ) : segs.length === 2 ? (
                   // 1-objekt via chain: segment[0] = morgon, segment[1] = kväll
@@ -4881,7 +4884,7 @@ export default function Arbetsrapport() {
                 )}
 
                 <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10 }}>
-                  {rad("Totalt", `${redKm} km`, true, öppnaKmSheet)}
+                  {rad("Ersättningsgrundande", `${redKm} km`, true, öppnaKmSheet)}
                 </div>
                 {(()=>{
                   // Källmärkning — visa ärligt vad siffran ÄR:
