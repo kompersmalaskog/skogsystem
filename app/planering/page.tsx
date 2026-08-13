@@ -4597,10 +4597,9 @@ export default function PlannerPage() {
     map.on('move', drawOverlay);
 
     // Kartan är INTE låst — man ska kunna zooma/panorera mitt i ritningen (drag = pan, tryck = hörn).
-    // Crosshair sätts på CANVAS-elementet (inte bara containern) så varken delade cursor-effekten
-    // eller MapLibres .maplibregl-interactive{cursor:grab} tar över och ger hand-pekare.
-    mapCanvas.style.setProperty('cursor', 'crosshair', 'important');
-    map.getCanvasContainer().style.setProperty('cursor', 'crosshair', 'important');
+    // Crosshair via CSS-klass med stylesheet-!important (se <style>): vinner över MapLibres inline
+    // grab-cursor och kan INTE skrivas över per-event av drag-handlers. Håller kryss hela läget.
+    map.getCanvasContainer().classList.add('skotning-rita');
 
     return () => {
       mapCanvas.removeEventListener('mousedown', onDown);
@@ -4610,8 +4609,7 @@ export default function PlannerPage() {
       mapCanvas.removeEventListener('touchmove', onMove);
       document.removeEventListener('touchend', onUp);
       map.off('move', drawOverlay);
-      mapCanvas.style.removeProperty('cursor');
-      map.getCanvasContainer().style.removeProperty('cursor');
+      map.getCanvasContainer().classList.remove('skotning-rita');
       if (map.dragPan) map.dragPan.enable();
       if (map.scrollZoom) map.scrollZoom.enable();
       if (map.touchZoomRotate) map.touchZoomRotate.enable();
@@ -10134,6 +10132,11 @@ export default function PlannerPage() {
         .press-dim:active { filter: brightness(0.88); }
         .btn-press { transition: transform 0.1s ease; }
         .btn-press:active { transform: scale(0.96); }
+        /* Markera utkört-ritläge: crosshair via stylesheet-!important så den vinner över
+           MapLibres inline cursor (.maplibregl-interactive{cursor:grab} + drag-handlers),
+           utan att jaga varje event MapLibre rör cursorn på. */
+        .maplibregl-canvas-container.skotning-rita,
+        .maplibregl-canvas-container.skotning-rita .maplibregl-canvas { cursor: crosshair !important; }
       `}</style>
 
       {/* === MINIMAL HEADER === */}
