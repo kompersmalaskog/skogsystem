@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { bygKedjaKm, Point, hamtaObjektKoordinater, KoordKalla } from "@/lib/routing";
+import { bygKedjaKm, Point, hamtaObjektKoordinater, dagensPlatser, dagensObjektOrdnat, KoordKalla } from "@/lib/routing";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 
 /**
@@ -40,7 +40,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Hemkoordinater saknas för medarbetaren." }, { status: 400 });
     }
 
-    const objektIds = Array.from(new Set(rader.filter(r => r.objekt_id).map(r => r.objekt_id as string)));
+    // Dagens objekt ur arbetsdag_objekt (ordning) — flyttdagar har flera. Faller
+    // tillbaka på arbetsdag.objekt_id via dagensPlatser() om rader saknas.
+    const arbIds = rader.map(r => r.id).filter(Boolean);
+    const aoRes = arbIds.length
+      ? await supabase.from("arbetsdag_objekt")
+          .select("objekt_id, ordning").in("arbetsdag_id", arbIds)
+      : { data: [] as any[] };
+    const aoRader = (aoRes.data || []) as { objekt_id: string | null; ordning: number | null }[];
+
+    // Koordinat-uppslag över UNIONEN av objekt i arbetsdag + arbetsdag_objekt.
+    const objektIds = Array.from(new Set([
+      ...rader.filter(r => r.objekt_id).map(r => r.objekt_id as string),
+      ...aoRader.filter(r => r.objekt_id).map(r => r.objekt_id as string),
+    ]));
     // Koordinat med FALLBACK: maskin-GPS (dim_objekt) → objekt.lat/lng →
     // larmkoordinat, via vo_nummer. Tidigare bara dim_objekt → skotarobjekt
     // utan maskin-GPS gav tyst 0 km trots att objektet hade koordinat.
@@ -53,36 +66,50 @@ export async function GET(req: NextRequest) {
       objMap[id] = { lat: k?.lat ?? null, lng: k?.lng ?? null, namn: formatObjektNamn(raw), kalla: k?.kalla ?? null };
     }
 
-    // Unik sekvens av objekt i tidsordning (samma objekt i rad räknas en gång)
-    const sekvens: string[] = [];
-    for (const r of rader) {
-      if (!r.objekt_id) continue;
-      if (sekvens[sekvens.length - 1] !== r.objekt_id) sekvens.push(r.objekt_id);
-    }
+    // Modell B (dagensPlatser = enda modelldefinitionen): dagens platser i
+    // ordning, med flytt/service (kraver_koordinat=false) och koordinatlösa
+    // objekt bortfiltrerade. Alla kvarvarande har koordinat → inga null i kedjan.
+    const fallbackSekvens = rader.map(r => r.objekt_id as string | null);
+    const platser = dagensPlatser(aoRader, fallbackSekvens, koordMap);
+
+    // Ärligt "saknar koordinat"-besked: fanns det ett objekt som KRÄVER
+    // koordinat (kraver_koordinat !== false) men saknar den? Flytt/service
+    // (kraver=false) räknas aldrig som saknad — samma regel som koordinatlarmet.
+    const dagensObjekt = dagensObjektOrdnat(aoRader, fallbackSekvens);
+    const saknarKoord = dagensObjekt.some(oid => {
+      const k = koordMap[oid];
+      return (!k || k.lat == null || k.lng == null) && (k?.kraver_koordinat !== false);
+    });
 
     const hem: Point = { lat: Number(hemLat), lng: Number(hemLng), label: "Hem" };
     const punkter: (Point | null)[] = [hem];
-    for (const oid of sekvens) {
+    for (const oid of platser) {
       const o = objMap[oid];
-      if (o?.lat != null && o?.lng != null) {
-        punkter.push({ lat: Number(o.lat), lng: Number(o.lng), label: o.namn });
-      } else {
-        console.warn("[km-chain] objekt saknar koord, hoppar över", oid);
-        // Lägg null så bygKedjaKm hoppar över båda angränsande segment
-        punkter.push(null);
-      }
+      punkter.push({ lat: Number(o.lat), lng: Number(o.lng), label: o?.namn || oid });
     }
     punkter.push(hem);
 
     const { segments, totalKm, orsAnrop } = await bygKedjaKm(supabase, punkter, 5);
 
+    // Modell B: det LAGRADE och ersättningsgrundande talet är morgon + kväll
+    // (hem→första + sista→hem) — aldrig mellan-objekt-benen. `totalKm` nedan är
+    // kedjans VISUELLA dagsrutt; på en flyttdag med flera platser är den ≥
+    // km_morgon+km_kvall eftersom den även räknar körningen mellan objekten.
+    const km_morgon = segments.length ? segments[0].km : 0;
+    const km_kvall = segments.length ? segments[segments.length - 1].km : 0;
+    const kmErsattningsgrund = km_morgon + km_kvall;
+
     return NextResponse.json({
       ok: true,
       datum,
-      sekvens,
+      platser,
+      saknarKoord,         // dagen har objekt som kräver koordinat men saknar den
       objektKoord: Object.fromEntries(Object.entries(objMap).map(([k,v]) => [k, { lat: v.lat, lng: v.lng, namn: v.namn, kalla: v.kalla }])),
       segments,
-      totalKm,
+      totalKm,             // visuell dagsrutt (kan innehålla mellan-objekt-ben)
+      km_morgon,           // hem → första platsen
+      km_kvall,            // sista platsen → hem
+      kmErsattningsgrund,  // km_morgon + km_kvall = det som lagras/ersätts
       orsAnrop,
     });
   } catch (e: any) {

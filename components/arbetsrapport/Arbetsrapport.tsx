@@ -851,17 +851,21 @@ export default function Arbetsrapport() {
         if (cancelled || !j?.ok) return;
         const segs = j.segments || [];
         setRedKmChain(segs);
-        setRedKmBerakning(j.totalKm);
-        // Något objekt i dagens sekvens utan koordinat → km kan inte beräknas.
-        // km-chain hoppar då över de segmenten, så totalen blir missvisande.
-        const sekvens: string[] = j.sekvens || [];
+        // Modell B: det ersättningsgrundande talet = morgon + kväll (hem→första
+        // + sista→hem), aldrig kedjans fulla dagsrutt (som på en flyttdag även
+        // räknar körningen mellan objekten). km_totalt får aldrig bli något
+        // annat än km_morgon + km_kvall.
+        setRedKmBerakning(j.kmErsattningsgrund ?? null);
+        // km-chain avgör ärligt om dagen har ett objekt som KRÄVER koordinat men
+        // saknar den (flytt/service med kraver_koordinat=false räknas inte som
+        // saknad) — samma regel som koordinatlarmet.
+        const platser: string[] = j.platser || [];
         const koord = j.objektKoord || {};
-        const saknarKoord = sekvens.some((oid: string) => koord[oid]?.lat == null || koord[oid]?.lng == null);
-        setRedKmSaknarKoord(saknarKoord);
+        setRedKmSaknarKoord(!!j.saknarKoord);
         // Varifrån koordinaten kom — visa den SVAGASTE källan som användes
         // (larm > objekt > maskin) så etiketten är ärlig när minst ett ben
         // föll tillbaka på larmkoordinaten.
-        const källor = sekvens.map((oid: string) => koord[oid]?.kalla).filter(Boolean);
+        const källor = platser.map((oid: string) => koord[oid]?.kalla).filter(Boolean);
         setRedKmKoordKälla(
           källor.includes('larm') ? 'larm'
           : källor.includes('objekt') ? 'objekt'
@@ -871,7 +875,7 @@ export default function Arbetsrapport() {
         // 'beraknad' (route_cache/ORS = riktig vägberäkning). Tom kedja = null.
         setRedKmKälla(segs.length === 0 ? null
           : segs.some((s: any) => s.source === 'fallback') ? 'fallback' : 'beraknad');
-        setRedKm(prev => prev === 0 ? j.totalKm : prev);
+        setRedKm(prev => prev === 0 ? (j.kmErsattningsgrund ?? 0) : prev);
       })
       .catch(() => {});
     return () => { cancelled = true; };
