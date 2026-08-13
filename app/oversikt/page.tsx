@@ -53,7 +53,8 @@ async function fetchAllRows<T>(query: () => any): Promise<T[]> {
 }
 
 export default function OversiktPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('karta');
+  // Default = Objekt (uppgiftslistan "vad ska jag göra idag") — kartan är ett tryck bort.
+  const [activeTab, setActiveTab] = useState<TabId>('objekt');
   const [objekt, setObjekt] = useState<OversiktObjekt[]>([]);
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [maskinKo, setMaskinKo] = useState<MaskinKoItem[]>([]);
