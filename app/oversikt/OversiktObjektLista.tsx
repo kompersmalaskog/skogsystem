@@ -521,6 +521,14 @@ function FilterPanel({ bolag, bolagF, setBolagF, typF, setTypF, sortK, setSortK,
   );
 }
 
+/* Fara-markör i listan: ett objekt "har fara" om det bär >=1 markering med en fara-subtyp
+   (samma FARA_SUBTYPER som ObjektDetalj/Karta — EN källa). Byggs som PostgREST-or över de fyra
+   semantik-fälten markeringSub läser (type/zoneType/lineType/arrowType). Frågan scopas ALLTID per
+   objekt_id (billig, som ObjektDetalj) → aldrig bulk-detoast av alla stora path-JSONB (statement-timeout). */
+const FARA_OR_FILTER = ['type', 'zoneType', 'lineType', 'arrowType']
+  .map((f) => `data->>${f}.in.(${Array.from(FARA_SUBTYPER).join(',')})`)
+  .join(',');
+
 export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   const [sel, setSel] = useState<string | null>(null);
   const [statusF, setStatusF] = useState<StatusFilter>('alla');
@@ -530,6 +538,9 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   const [typF, setTypF] = useState<TypFilter>('alla');
   const [sortK, setSortK] = useState<SortKey>('status');
   const [groupMaskin, setGroupMaskin] = useState(false);
+  // Fara-status per objekt (röd markör) — lazy, cachead. Hämtas scoped per objekt_id (aldrig bulk →
+  // aldrig timeout på stora markerings-JSONB). Saknad nyckel = ej hämtad än (tom reserverad slot).
+  const [faraCache, setFaraCache] = useState<Record<string, boolean>>({});
 
   const bolagLista = Array.from(new Set(objekt.map(o => o.bolag).filter(Boolean))) as string[];
   const selectedObj = sel ? objekt.find(o => o.id === sel) : null;
@@ -605,8 +616,36 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     sortK !== 'status' ? (sortK === 'vol' ? 'Volym' : 'A–Ö') : null,
   ].filter(Boolean).join(' · ');
 
+  // Lazy fara-hämtning för de SYNLIGA korten (scoped per objekt_id, cachead). Kör om synliga ids
+  // ändras (filter/sortering byter set); redan kända objekt hoppas över. Fel → cachas ej (retry senare).
+  const synligaIds = li.map((o) => o.id);
+  const synligaNyckel = [...synligaIds].sort().join(',');
+  useEffect(() => {
+    const behovs = synligaIds.filter((id) => !(id in faraCache));
+    if (behovs.length === 0) return;
+    let avbruten = false;
+    (async () => {
+      const par = await Promise.all(behovs.map(async (id) => {
+        const { data, error } = await supabase
+          .from('planering_markeringar').select('objekt_id').eq('objekt_id', id).or(FARA_OR_FILTER).limit(1);
+        if (error) return null;                         // okänt → cachea inte, försök igen senare
+        return [id, !!(data && data.length)] as [string, boolean];
+      }));
+      if (avbruten) return;
+      const giltiga = par.filter(Boolean) as [string, boolean][];
+      if (giltiga.length) setFaraCache((prev) => {
+        const n = { ...prev };
+        for (const [id, f] of giltiga) n[id] = f;
+        return n;
+      });
+    })();
+    return () => { avbruten = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [synligaNyckel]);
+
   const renderKort = (o: OversiktObjekt) => {
     const sv = statusVisning(o.status);
+    const harFara = faraCache[o.id] === true;   // röd fara-markör (lazy, cachead)
     const maskiner = Array.from(new Set(
       ([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]).map(kortMaskin)
     ));
@@ -631,6 +670,14 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{o.namn}</span>
+            {/* Fara-markör — röd (färgdisciplin: rött = fara). Fast 16px-slot ALLTID reserverad så den
+                lazy-laddade statusen aldrig ger layout-shift; ikonen visas bara vid >=1 fara-markering. */}
+            <span style={{ width: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {harFara && (
+                <span className="material-symbols-outlined" aria-label="Fara"
+                  style={{ fontSize: 16, color: C.red, fontVariationSettings: "'FILL' 1" }}>warning</span>
+              )}
+            </span>
             <span style={{ fontSize: 12, fontWeight: 500, color: sv.farg, flexShrink: 0 }}>{sv.ord}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
