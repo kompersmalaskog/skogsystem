@@ -17,12 +17,15 @@ type Segment = { coords: [number, number][]; matchad: boolean }
 
 export default function LastbilKarta({
   position, segment, punkter, height = 260, puls = false,
+  variant = 'box', fitPadding,
 }: {
   position: Punkt | null
   segment: Segment[]
   punkter: Punkt[]
   height?: number
   puls?: boolean   // pulserande ring på positionsmarkören när bilen rullar
+  variant?: 'box' | 'full'  // 'full' = fyller container (inset:0), utan ram/rundning — karta-först-hubben
+  fitPadding?: number | { top: number; bottom: number; left: number; right: number }
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -159,17 +162,17 @@ export default function LastbilKarta({
         (acc, c) => acc.extend(c),
         new mlbre.LngLatBounds(koord[0], koord[0]),
       )
-      map.fitBounds(b, { padding: 36, maxZoom: 14, duration: 400 })
+      map.fitBounds(b, { padding: fitPadding ?? 36, maxZoom: 14, duration: 400 })
     } else if (koord.length === 1) {
       map.easeTo({ center: koord[0], zoom: 12, duration: 400 })
     }
   }
 
   return (
-    <div ref={boxRef} style={{
-      height, borderRadius: 14, overflow: 'hidden',
-      border: '1px solid rgba(255,255,255,0.06)', background: '#131315',
-    }} />
+    <div ref={boxRef} style={variant === 'full'
+      ? { position: 'absolute', inset: 0, height: '100%', overflow: 'hidden', background: '#131315' }
+      : { height, borderRadius: 14, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)', background: '#131315' }
+    } />
   )
 }
 

@@ -55,6 +55,8 @@ export default function TopBar() {
   if (isHome) return null
   // Planeringsvyn har egen minimal header (hem + objekt-pill + nödprick)
   if (pathname === '/planering') return null
+  // Lastbils-hubben (prototyp) är en fullskärmskarta med egen flytande hero
+  if (pathname === '/lastbil-ny') return null
 
   return (
     <header style={{
