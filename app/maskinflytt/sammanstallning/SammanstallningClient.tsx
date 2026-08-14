@@ -269,7 +269,8 @@ export default function SammanstallningClient() {
     .reduce((s, f) => s + (f.flytt_km ?? 0), 0), [flyttar, forareFilter])
 
   const dagSumma = useMemo(() => ({
-    km: kordagar.reduce((s, d) => s + (d.total_km ?? 0), 0),
+    // Rundans verkliga körsträcka: mätare (Scania) när den finns, annars rutt-summan.
+    km: kordagar.reduce((s, d) => s + (d.matare_km ?? d.total_km ?? 0), 0),
     dagar: kordagar.length,
     flyttar: kordagar.reduce((s, d) => s + (flyttPerDag.get(d.id)?.length || 0), 0),
     tidMatt: kordagar.reduce((s, d) => s + (d.total_tid_min ?? 0), 0),
@@ -303,28 +304,6 @@ export default function SammanstallningClient() {
     uppdatera(ny)
   }
 
-  /** Dagens ben som EN sekundär rad. Nollben och saknade ben utelämnas —
-   *  "~0 km" skrivs aldrig ut. ~ markerar den beräknade hemresan. Tiden ligger
-   *  på själva radhuvudet, så den upprepas inte här. */
-  function benRad(d: DagRad): string | null {
-    const delar: string[] = []
-    if (d.tillkorning_km != null && d.tillkorning_km > 0) delar.push(`Tillkörning ${d.tillkorning_km} km`)
-    if (d.hem_km != null && d.hem_km > 0) delar.push(`Hemresa ${d.hemresa_matt ? '' : '~'}${d.hem_km} km`)
-    return delar.length ? delar.join(' · ') : null
-  }
-
-  /** Lastbilens mätvärden för rundan: "Mätare 63,4 km · 28,1 l · 4,4 l/mil". */
-  function matarRad(d: DagRad): string | null {
-    const delar: string[] = []
-    if (d.matare_km != null) delar.push(`Mätare ${d.odometer_stale ? '~' : ''}${d.matare_km.toLocaleString('sv-SE')} km`)
-    if (d.bransle_l != null) delar.push(`${d.bransle_l.toLocaleString('sv-SE')} l`)
-    if (d.matare_km != null && d.matare_km > 0 && d.bransle_l != null) {
-      const lPerMil = Math.round((d.bransle_l / (d.matare_km / 10)) * 10) / 10
-      delar.push(`${lPerMil.toLocaleString('sv-SE')} l/mil`)
-    }
-    return delar.length ? delar.join(' · ') : null
-  }
-
   function exportFlyttCsv() {
     const rubrik = ['Datum', 'Maskin', 'Typ', 'Kund', 'Förare', 'Från', 'Till', 'Mellankörning km', 'Flytt km', 'Flyttid min (mätt)', 'Fakturerbar']
     const rader = slutforda.map(f => [
@@ -344,7 +323,7 @@ export default function SammanstallningClient() {
   }
 
   function exportDagCsv() {
-    const rubrik = ['Datum', 'Förare', 'Flyttar', 'Tillkörning km', 'Hemresa km', 'Total km', 'Tid min (mätt, exkl. hemresa)', 'Status']
+    const rubrik = ['Datum', 'Förare', 'Flyttar', 'Tillkörning km', 'Hemresa km', 'Rutt km', 'Mätare km', 'Tid min (mätt)', 'Status']
     const rader = kordagar.map(d => [
       new Date(d.starttid).toLocaleDateString('sv-SE'),
       d.forare || '',
@@ -352,6 +331,7 @@ export default function SammanstallningClient() {
       d.tillkorning_km ?? '',
       d.hem_km ?? '',
       d.total_km ?? '',
+      d.matare_km ?? '',
       d.total_tid_min != null ? Math.round(d.total_tid_min) : '',
       d.auto_avslutad_av === 'cron_sakerhetsnat' ? 'Auto-stängd (säkerhetsnät)'
         : d.status === 'auto_avslutad' ? 'Auto-avslutad' : 'Avslutad',
@@ -457,19 +437,23 @@ export default function SammanstallningClient() {
               <>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: ovrigSumma.antal > 0 ? 16 : 0 }}>
                 {flyttDagar.map(d => {
-                  const pagaende = d.status === 'pagaende' || d.sluttid == null
+                  // kordagar innehåller BARA avslutade flytt-rundor (status ≠ pagaende,
+                  // sluttid satt, ≥1 flytt) → 'övrig'/'pågår' kan aldrig inträffa här.
                   const auto = d.status === 'auto_avslutad'
-                  const ovrig = d.status === 'ovrig_korning'
                   const natstangd = d.auto_avslutad_av === 'cron_sakerhetsnat'   // bortglömd "Kör hem"
                   const oppen = oppnaDagar.has(d.id)
                   const dagFlyttar = flyttPerDag.get(d.id) || []
-                  const ben = benRad(d)
-                  const matar = matarRad(d)
+                  // Kolumnens tal = rundans verkliga körsträcka: mätare (Scania) när den
+                  // finns, annars rutt-summan (gamla rundor). Källan märks alltid.
+                  const kmPrimar = d.matare_km ?? d.total_km
+                  const kmKalla = d.matare_km != null ? 'mätare' : 'rutt'
+                  const lPerMil = (d.matare_km != null && d.matare_km > 0 && d.bransle_l != null)
+                    ? Math.round((d.bransle_l / (d.matare_km / 10)) * 10) / 10 : null
                   const klockslag = new Date(d.starttid).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })
                   return (
                     <div key={d.id} style={{
                       background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
-                      opacity: pagaende || auto || ovrig ? 0.62 : 1,
+                      opacity: auto ? 0.62 : 1,
                     }}>
                       {/* Kollapsad rad: ett tal (rundans km) högerställt */}
                       <button onClick={() => toggle(oppnaDagar, setOppnaDagar, d.id)} style={{
@@ -481,9 +465,8 @@ export default function SammanstallningClient() {
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 15, fontWeight: 700 }}>
-                            {ovrig ? 'Övrig körning' : `${dagFlyttar.length} ${dagFlyttar.length === 1 ? 'flytt' : 'flyttar'}`}
-                            {pagaende && <span style={{ color: C.blue, fontWeight: 600 }}> · Pågår</span>}
-                            {auto && <span style={{ color: C.orange, fontWeight: 600 }}> · Auto-avslutad</span>}
+                            {dagFlyttar.length} {dagFlyttar.length === 1 ? 'flytt' : 'flyttar'}
+                            {auto && !natstangd && <span style={{ color: C.orange, fontWeight: 600 }}> · Auto-avslutad</span>}
                             {natstangd && <span style={{ color: C.orange, fontWeight: 600 }}> · Auto-stängd</span>}
                           </div>
                           <div style={{ fontSize: 13, color: C.t3, marginTop: 2 }}>
@@ -491,19 +474,18 @@ export default function SammanstallningClient() {
                           </div>
                         </div>
                         <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {/* Övrig körning har ingen rutt-total → mätaren är talet */}
                           <div style={{ fontSize: 17, fontWeight: 800 }}>
-                            {ovrig
-                              ? (d.matare_km != null ? `${d.matare_km.toLocaleString('sv-SE')} km` : '—')
-                              : (d.total_km != null ? `${d.total_km} km` : '—')}
+                            {kmPrimar != null ? `${kmPrimar.toLocaleString('sv-SE')} km` : '—'}
                           </div>
-                          {d.total_tid_min != null && (
-                            <div style={{ fontSize: 12, color: C.t3, marginTop: 1 }}>{fmtTid(d.total_tid_min)}</div>
-                          )}
+                          <div style={{ fontSize: 11, color: C.t3, marginTop: 1 }}>
+                            {kmPrimar != null ? kmKalla : ''}
+                            {d.total_tid_min != null ? `${kmPrimar != null ? ' · ' : ''}${fmtTid(d.total_tid_min)}` : ''}
+                          </div>
                         </div>
                       </button>
 
-                      {/* Expanderat på plats: flyttarna + ben + lastbilens mätvärden */}
+                      {/* Expanderat: rundans ben i ordning (hem → maskin · lasset per flytt →
+                          avlägg · → hem, mätt) + rutt vs mätare-jämförelse. */}
                       {oppen && (
                         <div style={{ padding: '0 14px 12px 44px' }}>
                           {natstangd && (
@@ -512,11 +494,18 @@ export default function SammanstallningClient() {
                               <span>Stängdes automatiskt efter 2 h stilla på basen — &quot;Kör hem&quot; trycktes aldrig.</span>
                             </div>
                           )}
+                          {/* Till maskinen (hem → första maskin) */}
+                          {d.tillkorning_km != null && d.tillkorning_km > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `1px solid ${C.border}`, fontSize: 13, color: C.t2 }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 17, color: C.t3 }}>home</span>
+                              <span style={{ flex: 1 }}>Till maskinen</span>
+                              <span style={{ fontWeight: 700, color: C.t1 }}>{d.tillkorning_km} km</span>
+                            </div>
+                          )}
+                          {/* Med lasset — en rad per flytt (maskin, från → till, km, tid, fakturerbar) */}
                           {dagFlyttar.map(f => (
-                            <div key={f.id} style={{
-                              display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0',
-                              borderTop: `1px solid ${C.border}`,
-                            }}>
+                            <div key={f.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderTop: `1px solid ${C.border}` }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 17, color: C.blue, alignSelf: 'center' }}>local_shipping</span>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 14, fontWeight: 600 }}>
                                   {namnForMaskin(f.maskin_id, f.extern_maskin)}
@@ -544,11 +533,21 @@ export default function SammanstallningClient() {
                               </div>
                             </div>
                           ))}
-                          {/* Ben + lastbilens mätvärden (mätare · liter · l/mil) */}
-                          {(ben || matar) && (
+                          {/* Hem — mätt på nya rundor (#380), "(beräknad)" bara på gamla */}
+                          {d.hem_km != null && d.hem_km > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `1px solid ${C.border}`, fontSize: 13, color: C.t2 }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 17, color: C.t3 }}>home</span>
+                              <span style={{ flex: 1 }}>Hem{!d.hemresa_matt && <span style={{ color: C.t3 }}> (beräknad)</span>}</span>
+                              <span style={{ fontWeight: 700, color: C.t1 }}>{d.hem_km} km</span>
+                            </div>
+                          )}
+                          {/* Två mätningar av rundan, båda synliga: rutt (app) vs mätare (Scania) + bränsle */}
+                          {(d.total_km != null || d.matare_km != null || d.bransle_l != null) && (
                             <div style={{ fontSize: 12, color: C.t3, paddingTop: 10, borderTop: `1px solid ${C.border}`, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                              {ben && <span>{ben}</span>}
-                              {matar && <span>{matar}</span>}
+                              {d.total_km != null && <span>Rutt {d.total_km.toLocaleString('sv-SE')} km</span>}
+                              {d.matare_km != null && <span>Mätare {d.odometer_stale ? '~' : ''}{d.matare_km.toLocaleString('sv-SE')} km</span>}
+                              {d.bransle_l != null && <span>{d.bransle_l.toLocaleString('sv-SE')} l</span>}
+                              {lPerMil != null && <span>{lPerMil.toLocaleString('sv-SE')} l/mil</span>}
                             </div>
                           )}
                         </div>
