@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
+import { gpsGuardAccepts } from '@/lib/gps-guard'
 import { signeraKartfil } from '@/lib/kartfiler'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
@@ -2428,6 +2429,7 @@ export default function PlannerPage() {
   const gpsMapPositionRef = useRef<Point>({ x: 200, y: 300 });
   const gpsPathRef = useRef<Point[]>([]);
   const gpsHistoryRef = useRef<Point[]>([]); // Senaste 20 positioner för medelvärde
+  const lastAcceptedGpsRef = useRef<{ lat: number; lon: number; ts: number } | null>(null); // GPS-vaktens referens (rå lat/lon/ts)
   const lastConfirmedPosRef = useRef<Point>({ x: 200, y: 300 }); // Sista bekräftade position (efter minDistance-filter)
 
   // GPS-spår persistens (Supabase)
@@ -8299,6 +8301,7 @@ export default function PlannerPage() {
     gpsLineTypeRef.current = lineType;
     setGpsPath([]);
     gpsPathRef.current = [];
+    lastAcceptedGpsRef.current = null; // GPS-vakten börjar om per spår
     // Behåll gpsStartPos om vi redan har en (från continueWithColor)
     if (!gpsStartPos) {
       setGpsStartPos(null);
@@ -8350,6 +8353,7 @@ export default function PlannerPage() {
         setGpsPath([firstPoint]);
         lastConfirmedPosRef.current = firstPoint;
         gpsHistoryRef.current = [firstPoint];
+        lastAcceptedGpsRef.current = { lat: (currentPosition as any).lat, lon: (currentPosition as any).lon, ts: Date.now() }; // seed vakten (currentPosition = {lat,lon} i runtime)
       }
       // GPS körs redan, vänta på första positionen i befintlig callback
       return;
@@ -8385,6 +8389,15 @@ export default function PlannerPage() {
           if (gpsLineTypeRef.current && !gpsPausedRef.current) {
             trackingPathRef.current = [...trackingPathRef.current, { lat: newPos.lat, lon: newPos.lon, ts: Date.now() }];
           }
+        }
+
+        // === GPS-VAKT (delad för ALLA GPS-linjetyper): kasta bruspunkter/orimliga hopp här,
+        // FÖRE det glidande medlet (gpsHistoryRef) + pathen → en avvisad punkt påverkar aldrig
+        // smoothedPos. Avvisad punkt uppdaterar INTE referensen → självläker när Δt växer. ===
+        {
+          const cand = { lat: newPos.lat, lon: newPos.lon, ts: pos.timestamp, accuracy };
+          if (!gpsGuardAccepts(cand, lastAcceptedGpsRef.current)) return;
+          lastAcceptedGpsRef.current = { lat: newPos.lat, lon: newPos.lon, ts: pos.timestamp };
         }
 
         // Första punkten - sätt startposition
@@ -8516,6 +8529,7 @@ export default function PlannerPage() {
     gpsLineTypeRef.current = null;
     setGpsPath([]);
     gpsPathRef.current = [];
+    lastAcceptedGpsRef.current = null;
     setGpsStartPos(null);
     setGpsPaused(false);
     gpsPausedRef.current = false;
