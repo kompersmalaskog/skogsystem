@@ -8,7 +8,7 @@ export function formatVolym(v: number): string {
    KLAR   = manuell registrering finns (användarens avslut, trumf-källan) ELLER skotat >= 98% av
             skördat (filvägen — samma tröskel som "Utkört").
    IGÅNG  = lass finns men inte klart. `fersk` (senaste lass ≤ FERSK_DGR) = någon jobbar där NU
-            (grön ring/rad); en igång-post med gammalt sista-lass visas grå med datumet (ärligt).
+            (grön markör-bock/rad); en igång-post med gammalt sista-lass visas grå med datumet (ärligt).
    VÄNTAR = skördat finns, inga lass, ingen manuell (virke på backen, ingen börjat).
    null   = inget skördat än → inget skotar-tillstånd. Trösklarna är justerbara parametrar. */
 export type SkotarState = 'klar' | 'igang' | 'vantar';
