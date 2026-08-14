@@ -7,9 +7,6 @@ import { createClient } from '@supabase/supabase-js'
 // Ren diesel (AdBlue har ingen litermätare → redovisas inte som förbrukning).
 // Summerar flyttdag per månad, delat på flytt (avslutad m. maskin) vs övrig
 // körning. Login-gatead, läser via service-role. Kraschar aldrig.
-//
-// OBS: dubbelrundor (samma vin/starttid) dubbelräknas tills datarättningen
-// landat — samma reservation som resten av vyn; rättas i separat PR.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
