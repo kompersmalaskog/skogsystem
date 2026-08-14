@@ -649,6 +649,19 @@ export default function PlannerPage() {
     if (error) console.error('Ta bort markering fel:', error);
   }, [valtObjekt?.id]);
 
+  // Numrera om: UPDATE-only av en befintlig rads data (ALDRIG upsert). En UPDATE på ett borttaget
+  // marker_id träffar 0 rader → kan omöjligt återuppliva en raderad väg. Stänger kapplöpningen
+  // (renumber som råkar läsa en stale rad kan ändå inte inserta tillbaka den).
+  const updateMarkerDataInDb = useCallback(async (marker: Marker) => {
+    if (!valtObjekt?.id) return;
+    const { error } = await supabase
+      .from('planering_markeringar')
+      .update({ data: marker })
+      .eq('objekt_id', valtObjekt.id)
+      .eq('marker_id', String(marker.id));
+    if (error) console.error('Numrera om (update) fel:', error);
+  }, [valtObjekt?.id]);
+
   // Synka markers till Supabase vid ändringar (debounced)
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
@@ -6122,7 +6135,9 @@ export default function PlannerPage() {
   // + kort läser därifrån), bara ändrade rader sparas. Nästa nya väg får N+1 automatiskt via
   // numrerings-effektens maxN ovan (den räknar maxN ur befintliga nummer → N+1).
   const numreraOmBasvagar = () => {
-    const mainRoads = markers.filter((m: any) => m.isLine && m.lineType === 'mainRoad');
+    // Läs AKTUELLT state (markersRef), aldrig `markers`-closuren — en nyss raderad väg får inte
+    // finnas kvar i snapshot:en och råka få ett nummer + skrivas tillbaka.
+    const mainRoads = markersRef.current.filter((m: any) => m.isLine && m.lineType === 'mainRoad');
     if (mainRoads.length === 0) return;
     const ordning = [...mainRoads].sort((a: any, b: any) => {
       const an = typeof a.nummer === 'number' ? a.nummer : Infinity;
@@ -6137,7 +6152,8 @@ export default function PlannerPage() {
       const n = nya.get(String(m.id));
       return n != null ? { ...m, nummer: n } : m;
     }));
-    changed.forEach((m: any) => saveMarkerToDb({ ...m, nummer: nya.get(String(m.id))! }));
+    // UPDATE-only (aldrig upsert) → kan aldrig återuppliva en raderad väg, även vid kapplöpning.
+    changed.forEach((m: any) => updateMarkerDataInDb({ ...m, nummer: nya.get(String(m.id))! }));
     if (navigator.vibrate) navigator.vibrate(30);
   };
 
