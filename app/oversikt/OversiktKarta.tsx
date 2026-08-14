@@ -541,8 +541,9 @@ const BARIGHET_LBL: Record<string, string> = { bra: 'Bra bärighet', god: 'Bra b
 /* ── "Härnäst närmast"-ark (planerarens beslutsstöd) — den valda maskinens Att köra-objekt
    rankade på körväg från maskinens riktiga position. Ärlig färskhet, faktor-chips, aldrig
    auto-omordning: ordningen sätts fortfarande manuellt i Maskiner-fliken. ── */
-function MaskinRuttSheet({ maskinNamn, plats, laddar, rankad, rankLaddar, objektById, warningsByObj, onSelect }: {
+function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rankLaddar, objektById, warningsByObj, onSelect }: {
   maskinNamn: string | null;
+  pagaendeNamn: string | null;
   plats: PlatsForslag | undefined;
   laddar: boolean;
   rankad: { id: string; km: number; source: string }[];
@@ -552,14 +553,16 @@ function MaskinRuttSheet({ maskinNamn, plats, laddar, rankad, rankLaddar, objekt
   onSelect: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const harPos = !!plats?.koordinat;
   const gammal = plats?.osaker === 'gammal';
-  // Färskhets-rad — aldrig tyst: söker / okänd / ~N dgr (osäker) / relativ tid
-  const farskhet = laddar && !plats ? 'Söker maskinens position…'
-    : !harPos ? 'Position okänd — kan ej ranka på avstånd'
+  // Ett PÅGÅENDE (grönt) objekt ÄR maskinens position → rankas därifrån (grön rubrik, ingen kugg).
+  // Annars senastePlats som förut. Origo finns när något av dem finns; annars manuellt val.
+  const harOrigin = !!pagaendeNamn || !!plats?.koordinat;
+  const farskhet = pagaendeNamn ? `Från pågående: ${pagaendeNamn}`
+    : laddar && !plats ? 'Söker maskinens position…'
+    : !plats?.koordinat ? 'Position okänd — kan ej ranka på avstånd'
     : gammal ? `Position ~${plats!.tidpunkt ? dagarSedan(plats!.tidpunkt) : '?'} dgr sedan — osäker start`
     : `Position ${plats!.tidpunkt ? relativTid(plats!.tidpunkt) : '—'}`;
-  const farskColor = !harPos ? C.t3 : gammal ? C.orange : C.t3;
+  const farskColor = pagaendeNamn ? C.green : gammal ? C.orange : C.t3;
   const kmLbl = (km: number, source: string) => `${source === 'cache' || source === 'ors' ? '' : '~'}${km < 1 ? '<1' : km} km`;
 
   return (
@@ -580,11 +583,11 @@ function MaskinRuttSheet({ maskinNamn, plats, laddar, rankad, rankLaddar, objekt
       <div style={{ padding: SP.lg, paddingTop: SP.md }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: SP.md }}>
           <span style={T.label}>HÄRNÄST NÄRMAST{maskinNamn ? ` · ${maskinNamn}` : ''}</span>
-          {harPos && <span style={{ ...T.caption, color: C.t3 }}>{rankad.length} att köra</span>}
+          {harOrigin && <span style={{ ...T.caption, color: C.t3 }}>{rankad.length} att köra</span>}
         </div>
         <div style={{ ...T.caption, color: farskColor, marginTop: 2 }}>{farskhet}</div>
 
-        {!harPos ? (
+        {!harOrigin ? (
           <div style={{ ...T.caption, color: C.t3, marginTop: SP.md, lineHeight: 1.5 }}>
             Välj nästa trakt manuellt — avståndsrankning kräver en känd maskinposition.
           </div>
@@ -1052,13 +1055,29 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     return out;
   }, [maskinFilter, maskinKo, objekt]);
 
+  /* ── Pågående (grönt) objekt för den filtrerade maskinen = där den JOBBAR NU. Finns det → det
+     ÄR maskinens position (visa INGET kugghjul; det gröna objektet är sanningen) och rankingen
+     utgår därifrån (där flytten faktiskt startar). Saknas → ruttplanerings-läge: kugg på
+     senastePlats + ranka därifrån. Undviker dubbel "här är maskinen"-signal. ── */
+  const pagaende = useMemo(() => {
+    if (!maskinFilter) return null;
+    for (const k of maskinKo.filter(k => k.maskin_id === maskinFilter)) {
+      const o = objekt.find(x => x.id === k.objekt_id);
+      if (o && STATUS_AKTIV.includes(o.status) && o.lat != null && o.lng != null) return o;
+    }
+    return null;
+  }, [maskinFilter, maskinKo, objekt]);
+
   /* ── Rankning på VERKLIG körväg från maskinens position → cachad ORS via /api/routing
      (aldrig publika OSRM-demon — den dör på N sekventiella anrop). Haversine-försortera,
      OSRM:a topp-N; övriga faller till haversine. Rankar ALDRIG från en okänd/orimlig position. ── */
   const [rankad, setRankad] = useState<{ id: string; km: number; source: string }[]>([]);
   const [rankLaddar, setRankLaddar] = useState(false);
   useEffect(() => {
-    const origin = maskinFilter ? maskinPlatser.get(maskinFilter)?.koordinat : null;
+    // Origo: pågående objekts koordinat (där flytten startar) om det finns, annars senastePlats.
+    const origin = pagaende && pagaende.lat != null && pagaende.lng != null
+      ? { lat: pagaende.lat, lng: pagaende.lng }
+      : (maskinFilter ? maskinPlatser.get(maskinFilter)?.koordinat ?? null : null);
     if (!maskinFilter || !origin || kandidater.length === 0) { setRankad([]); setRankLaddar(false); return; }
     let cancelled = false;
     setRankLaddar(true);
@@ -1081,7 +1100,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       setRankLaddar(false);
     })();
     return () => { cancelled = true; };
-  }, [maskinFilter, maskinPlatser, kandidater]);
+  }, [maskinFilter, maskinPlatser, kandidater, pagaende]);
 
   const selectedObj = selectedId ? objekt.find(o => o.id === selectedId) : null;
   const handleMarkerClick = useCallback((id: string) => {
@@ -1458,7 +1477,8 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       .map(id => objekt.find(o => o.id === id))
       .filter((o): o is OversiktObjekt => !!o && o.lat != null && o.lng != null)
       .map(o => [o.lng!, o.lat!]);
-    const mp = maskinPlatser.get(maskinFilter)?.koordinat;
+    // Pågående-objektet fitts redan via visIds (dess markör visas). Utan pågående: ta med kuggen.
+    const mp = pagaende ? null : maskinPlatser.get(maskinFilter)?.koordinat;
     if (mp) pts.push([mp.lng, mp.lat]);
     if (pts.length === 0) return;
     if (pts.length === 1) {
@@ -1468,7 +1488,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       pts.forEach(p => b.extend(p));
       mapRef.current.fitBounds(b, { padding: 80, maxZoom: 14, duration: 600 });
     }
-  }, [maskinFilter, visIds, objekt, mapStyleLoaded, maskinPlatser]);
+  }, [maskinFilter, visIds, objekt, mapStyleLoaded, maskinPlatser, pagaende]);
 
   /* ── Update marker content (selection, badges, status) ── */
   useEffect(() => {
@@ -1492,6 +1512,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     if (!mapRef.current || !mapReady) return;
     if (maskinMarkerRef.current) { maskinMarkerRef.current.remove(); maskinMarkerRef.current = null; }
     if (!maskinFilter || showGrot) return;
+    if (pagaende) return;   // grönt pågående objekt ÄR maskinens position → inget kugghjul (dubbel signal bort)
     const plats = maskinPlatser.get(maskinFilter);
     if (!plats || !plats.koordinat) return;
     const m = maskiner.find(x => x.maskin_id === maskinFilter);
@@ -1502,7 +1523,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
       .setLngLat([plats.koordinat.lng, plats.koordinat.lat]).addTo(mapRef.current);
     maskinMarkerRef.current = marker;
-  }, [maskinFilter, maskinPlatser, maskiner, mapReady, showGrot]);
+  }, [maskinFilter, maskinPlatser, maskiner, mapReady, showGrot, pagaende]);
 
   /* ── GROT markers: sync ── */
   useEffect(() => {
@@ -1713,6 +1734,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       {!driverMode && maskinFilter && !selectedObj && !selectedGrotObj && !showGrot && (
         <MaskinRuttSheet
           maskinNamn={(() => { const m = maskiner.find(x => x.maskin_id === maskinFilter); return m ? getMaskinDisplayName(m) : maskinFilter; })()}
+          pagaendeNamn={pagaende?.namn ?? null}
           plats={maskinPlatser.get(maskinFilter)}
           laddar={platserLaddar}
           rankad={rankad}
