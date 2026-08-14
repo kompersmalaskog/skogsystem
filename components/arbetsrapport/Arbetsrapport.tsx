@@ -4713,6 +4713,7 @@ export default function Arbetsrapport() {
             const delta = confArb - momArb;
             if (delta < SYNK_AVVIKELSE_TROSKEL_MIN) return null;
             const avvMin = Math.max(0, synkMin ?? delta);
+            const avvDatum = (() => { const _p = String(rd.datum || "").split("-"); return _p.length === 3 ? `${+_p[2]} ${månNamnKort[+_p[1]-1]}` : String(rd.datum || ""); })();
             const stegBtn = { width:38,height:38,borderRadius:19,border:"none",background:"rgba(255,255,255,0.08)",color:"#fff",fontSize:22,cursor:"pointer",fontFamily:"inherit" } as const;
             const vibrera = () => { if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80); };
             const kvittera = async (aktivitet: string | null) => {
@@ -4745,7 +4746,7 @@ export default function Arbetsrapport() {
               <Card style={{ padding:"16px 20px",border:"1px solid rgba(255,214,10,0.35)",marginBottom:16 }}>
                 <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
                   <span className="material-symbols-outlined" style={{ fontSize:20,color:"#ffd60a" }}>schedule</span>
-                  <span style={{ ...secHead,color:"#fff" }}>Maskintiden skiljer sig</span>
+                  <span style={{ ...secHead,color:"#fff" }}>Maskintiden skiljer sig · {avvDatum}</span>
                 </div>
                 <div style={{ display:"flex",gap:12,marginBottom:14 }}>
                   <div style={{ flex:1 }}>
