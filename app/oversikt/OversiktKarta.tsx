@@ -11,6 +11,9 @@ import {
   FARA_SUBTYPER, HANSYN_SUBTYPER, SUB_LABEL, prettifySub, markeringSub, classifyMarkering,
   type MarkLevel, type FaraNiva,
 } from './markeringar';
+// Maskinens RIKTIGA senaste position (flytt/produktion/GPS-fix, med ärlighets-spärrar) —
+// ersätter "första objektet i kön = maskinen". Delas med maskinflytt (ej planeringsfil).
+import { hamtaSenastePlatser, relativTid, dagarSedan, type PlatsForslag } from '../maskinflytt/senastePlats';
 
 /* ── Animated count-up hook ── */
 function useCountUp(target: number, duration = 1.2, active = true): number {
@@ -523,6 +526,114 @@ function DriverSheet({ queue, maskinNamn, prodMap, warningsByObj, onSelect }: {
   );
 }
 
+/* ── Faktor-chip i listan (INTE på kartan — den förblir lugn). Grå som default;
+   orange bara vid varsamhet ("Dålig bärighet"), aldrig röd (rött = fara). ── */
+function chipStyle(orange: boolean): React.CSSProperties {
+  return {
+    fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
+    color: orange ? C.orange : 'rgba(255,255,255,0.7)',
+    background: orange ? C.od : 'rgba(255,255,255,0.06)',
+    border: `1px solid ${orange ? `${C.orange}40` : C.border}`,
+  };
+}
+const BARIGHET_LBL: Record<string, string> = { bra: 'Bra bärighet', god: 'Bra bärighet', medel: 'Medel bärighet', normal: 'Medel bärighet', dalig: 'Dålig bärighet', 'dålig': 'Dålig bärighet' };
+
+/* ── "Härnäst närmast"-ark (planerarens beslutsstöd) — den valda maskinens Att köra-objekt
+   rankade på körväg från maskinens riktiga position. Ärlig färskhet, faktor-chips, aldrig
+   auto-omordning: ordningen sätts fortfarande manuellt i Maskiner-fliken. ── */
+function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rankLaddar, objektById, warningsByObj, onSelect }: {
+  maskinNamn: string | null;
+  pagaendeNamn: string | null;
+  plats: PlatsForslag | undefined;
+  laddar: boolean;
+  rankad: { id: string; km: number; source: string }[];
+  rankLaddar: boolean;
+  objektById: (id: string) => OversiktObjekt | undefined;
+  warningsByObj: Record<string, ObjWarnings>;
+  onSelect: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const gammal = plats?.osaker === 'gammal';
+  // Ett PÅGÅENDE (grönt) objekt ÄR maskinens position → rankas därifrån (grön rubrik, ingen kugg).
+  // Annars senastePlats som förut. Origo finns när något av dem finns; annars manuellt val.
+  const harOrigin = !!pagaendeNamn || !!plats?.koordinat;
+  const farskhet = pagaendeNamn ? `Från pågående: ${pagaendeNamn}`
+    : laddar && !plats ? 'Söker maskinens position…'
+    : !plats?.koordinat ? 'Position okänd — kan ej ranka på avstånd'
+    : gammal ? `Position ~${plats!.tidpunkt ? dagarSedan(plats!.tidpunkt) : '?'} dgr sedan — osäker start`
+    : `Position ${plats!.tidpunkt ? relativTid(plats!.tidpunkt) : '—'}`;
+  const farskColor = pagaendeNamn ? C.green : gammal ? C.orange : C.t3;
+  const kmLbl = (km: number, source: string) => `${source === 'cache' || source === 'ors' ? '' : '~'}${km < 1 ? '<1' : km} km`;
+
+  return (
+    <motion.div
+      onClick={(e) => e.stopPropagation()}
+      initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+      style={{
+        position: 'absolute', bottom: 16, left: '50%', x: '-50%',
+        width: 420, maxWidth: 'calc(100% - 24px)',
+        background: C.surface3, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+        borderRadius: 16, border: `1px solid ${C.border}`, zIndex: 20, overflow: 'hidden',
+      }}
+    >
+      <div onClick={() => setExpanded(e => !e)} style={{ padding: `${SP.sm}px 0 0`, display: 'flex', justifyContent: 'center', cursor: 'pointer' }}>
+        <div style={{ width: 36, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.2)' }} />
+      </div>
+      <div style={{ padding: SP.lg, paddingTop: SP.md }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: SP.md }}>
+          <span style={T.label}>HÄRNÄST NÄRMAST{maskinNamn ? ` · ${maskinNamn}` : ''}</span>
+          {harOrigin && <span style={{ ...T.caption, color: C.t3 }}>{rankad.length} att köra</span>}
+        </div>
+        <div style={{ ...T.caption, color: farskColor, marginTop: 2 }}>{farskhet}</div>
+
+        {!harOrigin ? (
+          <div style={{ ...T.caption, color: C.t3, marginTop: SP.md, lineHeight: 1.5 }}>
+            Välj nästa trakt manuellt — avståndsrankning kräver en känd maskinposition.
+          </div>
+        ) : (
+          <div style={{ marginTop: SP.md, maxHeight: expanded ? '46vh' : 0, overflowY: 'auto', transition: 'max-height 0.25s' }}>
+            {rankLaddar && rankad.length === 0 && <div style={{ ...T.caption, color: C.t3, padding: `${SP.sm}px 0` }}>Räknar körväg…</div>}
+            {rankad.map((r, i) => {
+              const o = objektById(r.id);
+              if (!o) return null;
+              const st = ST[o.status] || ST.oplanerad;
+              const w = warningsByObj[o.id];
+              const barLbl = o.barighet ? (BARIGHET_LBL[o.barighet.trim().toLowerCase()] || o.barighet) : null;
+              const barOrange = !!o.barighet && /^d[aå]lig/i.test(o.barighet.trim());
+              const gi = grotDeadlineInfo(o.grot_deadline);
+              return (
+                <button key={o.id} onClick={(e) => { e.stopPropagation(); onSelect(o.id); }} style={{
+                  display: 'flex', alignItems: 'center', gap: SP.md, width: '100%', textAlign: 'left',
+                  padding: `${SP.md}px ${SP.xs}px`, background: 'transparent', border: 'none',
+                  borderTop: i === 0 ? 'none' : `1px solid ${C.border}`, cursor: 'pointer', fontFamily: ff,
+                }}>
+                  <div style={{ width: 62, flexShrink: 0, textAlign: 'right' }}>
+                    <div style={{ ...T.h2, fontSize: 18 }}>{kmLbl(r.km, r.source)}</div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ ...T.body, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</div>
+                    {(barLbl || gi.label || o.transport_trailer_in === true) && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 3 }}>
+                        {barLbl && <span style={chipStyle(barOrange)}>{barLbl}</span>}
+                        {gi.label && <span style={{ ...chipStyle(false), color: gi.color, borderColor: `${gi.color}55` }}>GROT {gi.label}</span>}
+                        {o.transport_trailer_in === true && <span style={chipStyle(false)}>Trailer in</span>}
+                      </div>
+                    )}
+                  </div>
+                  {w?.level === 'fara' && <span style={{ width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderBottom: `10px solid ${C.red}`, flexShrink: 0 }} />}
+                  <span style={{ ...T.caption, color: st.c, flexShrink: 0 }}>{st.l}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div style={{ ...T.caption, color: C.t4, marginTop: SP.md }}>Ordningen sätts i Maskiner-fliken — listan är beslutsstöd, inte beslut.</div>
+      </div>
+    </motion.div>
+  );
+}
+
 /* ── Build GROT diamond marker — egen brun/orange/röd symbol, DEADLINE-styrd ──
    Brun = ingen/avlägsen deadline · orange = närmar sig · röd = nära/passerad. */
 function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
@@ -558,6 +669,31 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
   lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
   w.appendChild(lbl);
 
+  w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+  return w;
+}
+
+/* ── Maskin-markör (kugghjul) på maskinens RIKTIGA position (senastePlats) ──
+   Vit rundad fyrkant + kugghjul + puls, namn + färskhet under. Färskhet dämpad grå;
+   gammal position = orange (varsamhet), aldrig röd (rött = fara). Egen markör — ritas
+   aldrig mer på "första objektet i kön". */
+function buildMaskinMarkerEl(namn: string, farskhet: string | null, gammal: boolean, onClick: () => void): HTMLDivElement {
+  const dotSize = 34, hitSize = 40;
+  const w = document.createElement('div');
+  w.className = 'ovk-maskin-marker';
+  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible`;
+  const pulse = document.createElement('div');
+  pulse.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 12}px;height:${dotSize + 12}px;margin-left:-${(dotSize + 12) / 2}px;margin-top:-${(dotSize + 12) / 2}px;border-radius:11px;border:2px solid rgba(255,255,255,0.5);animation:pulseMarker 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
+  w.appendChild(pulse);
+  const dot = document.createElement('div');
+  dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(255,255,255,0.25),0 2px 8px rgba(0,0,0,.4)`;
+  dot.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
+  w.appendChild(dot);
+  const lbl = document.createElement('div');
+  lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
+  const frisk = farskhet ? `<div style="font-size:10.5px;font-weight:600;color:${gammal ? C.orange : 'rgba(255,255,255,0.6)'};font-family:${ff};margin-top:2px">${farskhet}</div>` : '';
+  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${namn}</div>${frisk}`;
+  w.appendChild(lbl);
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
   return w;
 }
@@ -725,6 +861,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   const markersMapRef = useRef<Map<string, any>>(new Map());
   const distMarkersRef = useRef<any[]>([]);
   const grotMarkersRef = useRef<Map<string, any>>(new Map());
+  const maskinMarkerRef = useRef<any>(null);   // kugghjulet på maskinens riktiga position
   const [mapReady, setMapReady] = useState(false);
   const [mapStyleLoaded, setMapStyleLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -751,6 +888,22 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     );
     return () => navigator.geolocation.clearWatch(id);
   }, []);
+
+  // Maskinernas senast kända position (senastePlats.ts). Objekt-nivå men alltid tillgänglig,
+  // med inbyggda spärrar (orimlig koord → null, >30 dgr → osaker:'gammal'). Används för
+  // kugghjuls-markören OCH som origo när "Att köra" rankas på körväg.
+  const [maskinPlatser, setMaskinPlatser] = useState<Map<string, PlatsForslag>>(new Map());
+  const [platserLaddar, setPlatserLaddar] = useState(true);
+  useEffect(() => {
+    const ids = Array.from(new Set(maskiner.map(m => m.maskin_id).filter(Boolean))) as string[];
+    if (!ids.length) return;
+    let cancelled = false;
+    setPlatserLaddar(true);
+    hamtaSenastePlatser(ids)
+      .then(({ platser }) => { if (!cancelled) { setMaskinPlatser(platser); setPlatserLaddar(false); } })
+      .catch(() => { if (!cancelled) setPlatserLaddar(false); });
+    return () => { cancelled = true; };
+  }, [maskiner]);
 
   /* ── Self-fetch: berikade objekt + maskin_ko (live-källor) ── */
   const refetchObjekt = useCallback(async () => {
@@ -888,6 +1041,67 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       .filter((o): o is OversiktObjekt => !!o);
   }, [driverMaskinId, maskinKo, objekt]);
 
+  /* ── "Härnäst närmast": den valda maskinens Att köra-objekt (i kön, blå status), med koordinat ── */
+  const kandidater = useMemo(() => {
+    if (!maskinFilter) return [];
+    const seen = new Set<string>();
+    const out: OversiktObjekt[] = [];
+    for (const k of maskinKo.filter(k => k.maskin_id === maskinFilter)) {
+      if (seen.has(k.objekt_id)) continue;
+      seen.add(k.objekt_id);
+      const o = objekt.find(x => x.id === k.objekt_id);
+      if (o && (o.status === 'planerad' || o.status === 'importerad') && o.lat != null && o.lng != null) out.push(o);
+    }
+    return out;
+  }, [maskinFilter, maskinKo, objekt]);
+
+  /* ── Pågående (grönt) objekt för den filtrerade maskinen = där den JOBBAR NU. Finns det → det
+     ÄR maskinens position (visa INGET kugghjul; det gröna objektet är sanningen) och rankingen
+     utgår därifrån (där flytten faktiskt startar). Saknas → ruttplanerings-läge: kugg på
+     senastePlats + ranka därifrån. Undviker dubbel "här är maskinen"-signal. ── */
+  const pagaende = useMemo(() => {
+    if (!maskinFilter) return null;
+    for (const k of maskinKo.filter(k => k.maskin_id === maskinFilter)) {
+      const o = objekt.find(x => x.id === k.objekt_id);
+      if (o && STATUS_AKTIV.includes(o.status) && o.lat != null && o.lng != null) return o;
+    }
+    return null;
+  }, [maskinFilter, maskinKo, objekt]);
+
+  /* ── Rankning på VERKLIG körväg från maskinens position → cachad ORS via /api/routing
+     (aldrig publika OSRM-demon — den dör på N sekventiella anrop). Haversine-försortera,
+     OSRM:a topp-N; övriga faller till haversine. Rankar ALDRIG från en okänd/orimlig position. ── */
+  const [rankad, setRankad] = useState<{ id: string; km: number; source: string }[]>([]);
+  const [rankLaddar, setRankLaddar] = useState(false);
+  useEffect(() => {
+    // Origo: pågående objekts koordinat (där flytten startar) om det finns, annars senastePlats.
+    const origin = pagaende && pagaende.lat != null && pagaende.lng != null
+      ? { lat: pagaende.lat, lng: pagaende.lng }
+      : (maskinFilter ? maskinPlatser.get(maskinFilter)?.koordinat ?? null : null);
+    if (!maskinFilter || !origin || kandidater.length === 0) { setRankad([]); setRankLaddar(false); return; }
+    let cancelled = false;
+    setRankLaddar(true);
+    (async () => {
+      const TOPN = 12;
+      const withHav = kandidater
+        .map(o => ({ o, hav: haversineKm(origin.lat, origin.lng, o.lat!, o.lng!) }))
+        .sort((a, b) => a.hav - b.hav);
+      const res = await Promise.all(withHav.map(async ({ o, hav }, i) => {
+        if (i >= TOPN) return { id: o.id, km: Math.round(hav * 1.3), source: 'haversine' };
+        try {
+          const r = await fetch(`/api/routing?fromLat=${origin.lat}&fromLng=${origin.lng}&toLat=${o.lat}&toLng=${o.lng}`);
+          const j = await r.json();
+          return { id: o.id, km: typeof j.km === 'number' ? j.km : Math.round(hav * 1.4), source: j.source || 'fallback' };
+        } catch { return { id: o.id, km: Math.round(hav * 1.4), source: 'fallback' }; }
+      }));
+      if (cancelled) return;
+      res.sort((a, b) => a.km - b.km);
+      setRankad(res);
+      setRankLaddar(false);
+    })();
+    return () => { cancelled = true; };
+  }, [maskinFilter, maskinPlatser, kandidater, pagaende]);
+
   const selectedObj = selectedId ? objekt.find(o => o.id === selectedId) : null;
   const handleMarkerClick = useCallback((id: string) => {
     setSelectedId(prev => prev === id ? null : id);
@@ -920,19 +1134,19 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       koItems.forEach(k => {
         const o = objekt.find(x => x.id === k.objekt_id);
         if (!o || o.lat == null || o.lng == null) return;
+        // Bara pågående + planerade är RUTTSTOPP. Hoppa över avslutade/oplanerade (rå maskin_ko kan
+        // ha kvar en avslutad trakt på ordning 0) — de blir aldrig rutt-linje/nummer/total-km, bara
+        // ev. klar-bock via vanliga status-markören. Ren visning; maskin_ko-datan rörs INTE.
+        if (markerStatusColor(o.status) === MARKER_GRAY) return;
         const isAct = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning';
         validObjs.push({ id: o.id, lng: o.lng, lat: o.lat, isAct });
       });
 
-      validObjs.forEach((vo, idx) => {
+      // Maskinen ritas numera som EGEN markör på sin riktiga position (senastePlats),
+      // inte som "första objektet i kön" → ALLA köobjekt numreras 1..N.
+      validObjs.forEach((vo) => {
         lineCoords.push([vo.lng, vo.lat]);
-        if (idx === 0) {
-          // First = machine position (kugghjul, no number)
-          firstObjId = vo.id;
-        } else {
-          // Rest = numbered 1, 2, 3...
-          numbered[vo.id] = num; num++;
-        }
+        numbered[vo.id] = num; num++;
       });
 
       if (lineCoords.length === 0) return null;
@@ -1000,7 +1214,9 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
           console.warn(`[Karta] Objekt ${k.objekt_id} saknas på kartan — finns i objekt-tabell: ${inObjekt}, har koordinater: ${o ? `lat=${o.lat} lng=${o.lng}` : 'N/A'}`);
         });
       }
-      list = list.filter(o => ids.has(o.id));
+      // Respektera "Avslutade"-filtret även i maskinkön: en avslutad köpost (t.ex. klar trakt kvar
+      // på ordning 0) syns som klar-bock bara när filtret är på — aldrig som ruttstopp.
+      list = list.filter(o => ids.has(o.id) && (showDone || !STATUS_AVSLUTADE.includes(o.status)));
     } else {
       // Beslut 5: inget objekt döljs tyst. Visa alla status (oplanerad/okänd = kontur,
       // avslutat = nedtonad + bock). "Avslutade"-toggeln är ett UTTRYCKLIGT filter.
@@ -1034,7 +1250,6 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     form: 'circle' | 'machine'; shape: 'circle' | 'square'; status: string; badges: MarkerBadge[]; opts: MarkerOpts;
   } => {
     const isMachine = machinePositions.has(obj.id);
-    const isActive = STATUS_AKTIV.includes(obj.status);
 
     const badges: MarkerBadge[] = [];
     const qn = queueNums[obj.id];
@@ -1044,11 +1259,9 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     const w = warningsByObj[obj.id];
     if (w?.items?.some(i => i.level === 'fara')) badges.push({ kind: 'warning', level: 'fara' });
 
+    // Maskinnamnet bärs nu av den egna kugghjuls-markören (riktig position, senastePlats) —
+    // ingen redundant maskin-etikett ovanpå objekten längre (undviker dubbel-etikett vid kuggen).
     const sublabels: string[] = [];
-    if (maskinFilter && isActive) {
-      const m = maskiner.find(x => x.maskin_id === maskinFilter);
-      if (m) sublabels.push(getMaskinDisplayName(m));
-    }
 
     return {
       form: isMachine ? 'machine' : 'circle',
@@ -1262,21 +1475,26 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     });
   }, [visIds, mapReady, objekt, markerArgs]);
 
-  /* ── Auto-fit bounds when machine filter changes ── */
+  /* ── Auto-fit bounds when machine filter changes — inkludera maskinens position
+     så kuggen ALLTID syns när en maskin väljs (även när kön är tom / positionen gammal). ── */
   useEffect(() => {
     if (!mapRef.current || !mapStyleLoaded || !maskinFilter) return;
-    const points = visIds
+    const pts: [number, number][] = visIds
       .map(id => objekt.find(o => o.id === id))
-      .filter((o): o is OversiktObjekt => !!o && o.lat != null && o.lng != null);
-    if (points.length === 0) return;
-    if (points.length === 1) {
-      mapRef.current.flyTo({ center: [points[0].lng!, points[0].lat!], zoom: 13, duration: 600 });
+      .filter((o): o is OversiktObjekt => !!o && o.lat != null && o.lng != null)
+      .map(o => [o.lng!, o.lat!]);
+    // Pågående-objektet fitts redan via visIds (dess markör visas). Utan pågående: ta med kuggen.
+    const mp = pagaende ? null : maskinPlatser.get(maskinFilter)?.koordinat;
+    if (mp) pts.push([mp.lng, mp.lat]);
+    if (pts.length === 0) return;
+    if (pts.length === 1) {
+      mapRef.current.flyTo({ center: pts[0], zoom: 13, duration: 600 });
     } else {
       const b = new window.maplibregl.LngLatBounds();
-      points.forEach(o => b.extend([o.lng!, o.lat!]));
+      pts.forEach(p => b.extend(p));
       mapRef.current.fitBounds(b, { padding: 80, maxZoom: 14, duration: 600 });
     }
-  }, [maskinFilter, visIds, objekt, mapStyleLoaded]);
+  }, [maskinFilter, visIds, objekt, mapStyleLoaded, maskinPlatser, pagaende]);
 
   /* ── Update marker content (selection, badges, status) ── */
   useEffect(() => {
@@ -1293,6 +1511,25 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       el.style.opacity = STATUS_AVSLUTADE.includes(o.status) ? '0.55' : '1';
     });
   }, [selectedId, objekt, mapReady, markerArgs]);
+
+  /* ── Maskin-markör (kugghjul) på maskinens RIKTIGA position (senastePlats) ──
+     Ingen/orimlig position → ingen kugg (ärligt; "Härnäst närmast"-arket säger "okänd"). */
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    if (maskinMarkerRef.current) { maskinMarkerRef.current.remove(); maskinMarkerRef.current = null; }
+    if (!maskinFilter || showGrot) return;
+    if (pagaende) return;   // grönt pågående objekt ÄR maskinens position → inget kugghjul (dubbel signal bort)
+    const plats = maskinPlatser.get(maskinFilter);
+    if (!plats || !plats.koordinat) return;
+    const m = maskiner.find(x => x.maskin_id === maskinFilter);
+    const namn = m ? getMaskinDisplayName(m) : maskinFilter;
+    const gammal = plats.osaker === 'gammal';
+    const frisk = plats.tidpunkt ? (gammal ? `~${dagarSedan(plats.tidpunkt)} dgr sedan` : relativTid(plats.tidpunkt)) : null;
+    const el = buildMaskinMarkerEl(namn, frisk, gammal, () => {});
+    const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([plats.koordinat.lng, plats.koordinat.lat]).addTo(mapRef.current);
+    maskinMarkerRef.current = marker;
+  }, [maskinFilter, maskinPlatser, maskiner, mapReady, showGrot, pagaende]);
 
   /* ── GROT markers: sync ── */
   useEffect(() => {
@@ -1494,6 +1731,21 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
           queue={driverQueue}
           maskinNamn={(() => { const m = maskiner.find(x => x.maskin_id === driverMaskinId); return m ? getMaskinDisplayName(m) : (driverMaskinId ?? null); })()}
           prodMap={prodMap}
+          warningsByObj={warningsByObj}
+          onSelect={(id) => setSelectedId(id)}
+        />
+      )}
+
+      {/* "Härnäst närmast" — planerarens beslutsstöd när en maskin är vald (ej förarläge/GROT/öppet kort) */}
+      {!driverMode && maskinFilter && !selectedObj && !selectedGrotObj && !showGrot && (
+        <MaskinRuttSheet
+          maskinNamn={(() => { const m = maskiner.find(x => x.maskin_id === maskinFilter); return m ? getMaskinDisplayName(m) : maskinFilter; })()}
+          pagaendeNamn={pagaende?.namn ?? null}
+          plats={maskinPlatser.get(maskinFilter)}
+          laddar={platserLaddar}
+          rankad={rankad}
+          rankLaddar={rankLaddar}
+          objektById={(id) => objekt.find(o => o.id === id)}
           warningsByObj={warningsByObj}
           onSelect={(id) => setSelectedId(id)}
         />
