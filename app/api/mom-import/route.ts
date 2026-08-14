@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
 
     const { data: skyddadeRader } = await supabase
       .from('arbetsdag')
-      .select('id, medarbetare_id, datum, start_tid, slut_tid, rast_min, maskin_id, redigerad, bekraftad')
+      .select('id, medarbetare_id, datum, start_tid, slut_tid, rast_min, maskin_id, redigerad, bekraftad, synk_avvikelse')
       .in('datum', datumSet)
       .in('medarbetare_id', medarbetareIds)
       .or('redigerad.eq.true,bekraftad.eq.true');
@@ -272,6 +272,15 @@ export async function POST(req: NextRequest) {
       const dSlut = Math.abs((tidMin(momSlut) ?? 0) - (tidMin(skyddad.slut_tid) ?? 0));
       const dRast = Math.abs(momRast - (skyddad.rast_min || 0));
       const avviker = dStart > 1 || dSlut > 1 || dRast > 1;
+
+      // Kvittens-respekt: har föraren redan valt "behåll mina" mot EXAKT det
+      // här MOM-läget, rör vi inte fältet (annars skrev synken över hans beslut
+      // varje natt). Bara om MOM ändrats SEDAN kvittensen flaggar vi på nytt.
+      const bef = skyddad.synk_avvikelse;
+      if (bef && bef.val === 'behall_mina'
+          && bef.mom_start === momStart && bef.mom_slut === momSlut && bef.mom_rast_min === momRast) {
+        continue;
+      }
       const { error: avvErr } = await supabase
         .from('arbetsdag')
         .update({

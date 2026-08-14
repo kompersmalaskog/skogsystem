@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes] = await Promise.all([
       supabase.from("medarbetare").select("id, namn").order("namn"),
       supabase.from("arbetsdag")
-        .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp")
+        .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp, synk_avvikelse")
         .gte("datum", arbStart).lte("datum", arbSlut),
       // Extra tid = arbete när maskinen var av — arbetstid rakt av,
       // ska in i timlön/övertid (arbetad_min ser den inte)
@@ -63,6 +63,27 @@ export async function POST(req: NextRequest) {
 
     if (medRes.error) throw medRes.error;
     if (arbRes.error) throw arbRes.error;
+
+    // Ohanterade synk-avvikelser: bekraftade dagar vars maskintider byggts om
+    // till andra varden an de bekraftade, och foraren har inte kvitterat annu.
+    // VARNAR (blockerar ej) infor lonekorning — talet ar redan i den bekraftade
+    // arbetad_min, sa en ohanterad avvikelse = betald tid ingen granskat.
+    const _namnMap = new Map((medRes.data || []).map((m: any) => [m.id, m.namn]));
+    const _tMin = (t: any) => { const m = String(t || "").match(/(\d{2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : 0; };
+    const synkAvvikelser = ((arbRes.data || []) as any[])
+      .filter(d => d.synk_avvikelse && !d.synk_avvikelse.kvitterad)
+      .map(d => {
+        const av = d.synk_avvikelse;
+        const conf = (_tMin(av.bekraftad_slut) - _tMin(av.bekraftad_start)) - (av.bekraftad_rast_min || 0);
+        const mom = (_tMin(av.mom_slut) - _tMin(av.mom_start)) - (av.mom_rast_min || 0);
+        return {
+          medarbetare: _namnMap.get(d.medarbetare_id) || d.medarbetare_id,
+          datum: d.datum, diff_min: conf - mom,
+          bekraftat: `${av.bekraftad_start}-${av.bekraftad_slut} rast ${av.bekraftad_rast_min}`,
+          maskinen: `${av.mom_start}-${av.mom_slut} rast ${av.mom_rast_min}`,
+        };
+      })
+      .sort((a, b) => b.diff_min - a.diff_min);
     if (extraRes.error) throw extraRes.error;
 
     // Maskintyp-map
@@ -148,6 +169,7 @@ export async function POST(req: NextRequest) {
         arbetsperiod,
         medarbetare: resultat,
         totalt_rader: resultat.reduce((s, r) => s + r.rader.length, 0),
+        synkAvvikelser,
       });
     }
 
@@ -211,6 +233,7 @@ export async function POST(req: NextRequest) {
         rader: r.rader.length,
         status: redanSkickad.has(r.medarbetare_id) ? "skickat" : (r.anstallningsnummer ? "skickat" : "fel"),
       })),
+      synkAvvikelser,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, meddelande: e.message || String(e) }, { status: 500 });
