@@ -313,6 +313,9 @@ function maskinModell(m: DimMaskin | undefined | null): string {
 // Polygon-linjetyper: ritas punkt-för-punkt, sluts automatiskt (sista punkt == första) och
 // behåller råa hörn (ingen smoothing). EN källa — allt polygon-beteende gate:as mot detta set.
 const POLYGON_LINE_TYPES = new Set<string>(['boundary', 'nature']);
+// Öppna linjer (INTE polygoner → ingen autostängning) som ändå ritas med RÅA hörn, ingen smoothing.
+// Stenmur: raka murstycken mellan hörn. Skilt från POLYGON_LINE_TYPES så stonewall inte blir polygon.
+const RAW_POINT_LINE_TYPES = new Set<string>(['stonewall']);
 
 // Kort sortimentsnamn för skotningspanelen: "Björk Massa: BjörkmavFall_V3" → "Björk massa".
 // Strippar apt-namnet (efter ':') och gemenar sortimentstypen — ren härledning ur befintlig
@@ -983,8 +986,24 @@ export default function PlannerPage() {
       { id: 'nature', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
       { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
       { id: 'trail', color: LEGEND.vit, dashed: true },
+      { id: 'stonewall', color: '#5f5e5a', stonewall: true },
     ];
     lineTypeDefs.forEach((lt: any) => {
+      // Stenmur: eget block-streckat utseende (butt-cap, grå), skilt från generiska loopen.
+      // Enda gråa linjen på kartan. Färgen växlas i körvy-effekten (ljust #5f5e5a ↔ körvy #B4B2A9).
+      if (lt.id === 'stonewall') {
+        map.addLayer({
+          id: 'line-stonewall-base', type: 'line', source: 'lines-source',
+          filter: ['==', ['get', 'lineType'], 'stonewall'],
+          paint: {
+            'line-color': '#5f5e5a',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 6, 15, 7, 17, 9],
+            'line-dasharray': [2, 0.85], // ~12/5 px vid ~6px bredd → läser som stenar på rad
+          },
+          layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        });
+        return;
+      }
       const isBoundary = lt.id === 'boundary';
       const isTrail = lt.id === 'trail';
       const isMainRoad = lt.id === 'mainRoad';
@@ -4177,8 +4196,8 @@ export default function PlannerPage() {
           // Boundary: skarpa hörn (ingen smoothing). Zoner: mjuka kurvor.
           finalCoords = (isDrawMode && POLYGON_LINE_TYPES.has(drawType || '')) ? closed : smoothCoords(closed, 2, true);
         } else {
-          // Öppna linjer: smootha om inte polygon-typ
-          finalCoords = (!POLYGON_LINE_TYPES.has(drawType || '') && currentDrawCoords.length >= 3) ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
+          // Öppna linjer: smootha om inte polygon-typ ELLER rå-punkt-typ (stenmur = raka murstycken)
+          finalCoords = (!POLYGON_LINE_TYPES.has(drawType || '') && !RAW_POINT_LINE_TYPES.has(drawType || '') && currentDrawCoords.length >= 3) ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
         }
         if (isDrawMode) finishLineFromCoords(finalCoords);
         if (isZoneMode) finishZoneFromCoords(finalCoords);
@@ -5889,6 +5908,9 @@ export default function PlannerPage() {
     { id: 'nature', name: 'Naturvård', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
     { id: 'ditch', name: 'Dike', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
     { id: 'trail', name: 'Stig/Led', color: LEGEND.vit, striped: false, dashed: true },
+    // Stenmur: biotopskyddad hänsynslinje. Grå (enda gråa linjen). `color` = picker-swatch +
+    // live-preview (mellangrå, syns i mörk meny OCH på ljus karta); kart-färgen sätts i lineTypeDefs.
+    { id: 'stonewall', name: 'Stenmur', color: '#8a8884', striped: false, dashed: true },
   ];
 
   const zoneTypes = [
@@ -7188,6 +7210,10 @@ export default function PlannerPage() {
       }
       if (map.getLayer('lines-korvy-emphasis')) {
         map.setLayoutProperty('lines-korvy-emphasis', 'visibility', korvyActive ? 'visible' : 'none');
+      }
+      // Stenmur: ljusare grå i mörk körvy (#B4B2A9) så den inte drunknar, mörkgrå (#5f5e5a) i ljust läge.
+      if (map.getLayer('line-stonewall-base')) {
+        map.setPaintProperty('line-stonewall-base', 'line-color', korvyActive ? '#B4B2A9' : '#5f5e5a');
       }
     } catch { /* layer not ready */ }
   }, [korvyActive, mapLibreReady]);
@@ -9132,7 +9158,7 @@ export default function PlannerPage() {
         if (!POLYGON_LINE_TYPES.has(drawType)) {
           finalCoords = smoothCoords(finalCoords, 2, true);
         }
-      } else if (!POLYGON_LINE_TYPES.has(drawType) && finalCoords.length >= 3) {
+      } else if (!POLYGON_LINE_TYPES.has(drawType) && !RAW_POINT_LINE_TYPES.has(drawType) && finalCoords.length >= 3) {
         finalCoords = smoothCoords(finalCoords, 2, false);
       }
       finishLineFromCoords(finalCoords);
