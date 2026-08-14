@@ -741,6 +741,24 @@ export default function PlannerPage() {
     };
   }, []);
 
+  // === B: realtime DELETE på planering_markeringar → propagera raderingen till öppna sessioner ===
+  // Stänger fönstret där en radering i annan flik/enhet/DB annars aldrig når en öppen session.
+  // OBS (bevisat med probe): realtime DELETE-payloaden bär BARA serial-PK:n `id` — INTE marker_id/
+  // objekt_id, ÄVEN med REPLICA IDENTITY FULL (realtime levererar bara PK i `old`). Därför går det
+  // varken att server-filtrera på objekt_id eller mappa payloaden till en marker_id. Vi använder
+  // #372-mönstret: OFILTRERAD DELETE-lyssnare → refetcha objektet (throttlad 5 s, skjuts upp om
+  // osparat) → DB-sanningen släpper den raderade markören ur minnet. Med A (dirty-only) kan den
+  // dessutom aldrig skrivas tillbaka i mellantiden.
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    const channel = supabase.channel('markers-delete-' + valtObjekt.id)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'planering_markeringar' }, () => {
+        refetchMarkers(false);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [valtObjekt?.id, refetchMarkers]);
+
   // === AVLÄGG: Ladda sparad data från Supabase ===
   const avlaggLoadedRef = useRef(false);
   useEffect(() => {
