@@ -177,11 +177,12 @@ const nuKlock5 = () => {
 };
 
 /* ── Extra-aktiviteter ── */
-type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'flytt'|'annat'|'utbildning'|'brandkontroll';
+type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'flytt'|'annat'|'utbildning'|'brandkontroll'|'reparation';
 const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debDefault: boolean }[] = [
   { typ:'rotben',       label:'Kapa rotben',        icon:'content_cut',          debDefault:false },
   { typ:'reservdelar',  label:'Hämta reservdelar',  icon:'build',                debDefault:false },
   { typ:'service',      label:'Service',            icon:'engineering',          debDefault:false },
+  { typ:'reparation',   label:'Reparation',         icon:'handyman',             debDefault:false },
   { typ:'utbildning',   label:'Utbildning',         icon:'school',               debDefault:false },
   { typ:'markagare',    label:'Markägarmöte',       icon:'handshake',            debDefault:true  },
   { typ:'flytt',        label:'Flytt av maskin',    icon:'local_shipping',       debDefault:true  },
@@ -190,7 +191,10 @@ const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debDefault:
   { typ:'annat',        label:'Annat',              icon:'more_horiz',           debDefault:false },
 ];
 /** Typer som visas i "Starta extra arbete"-vyn (morgon + kväll). */
-const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','utbildning','markagare','flytt','brandkontroll','annat'];
+const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','reparation','utbildning','markagare','flytt','brandkontroll','annat'];
+/** Visningstroskel for synk-avvikelsen: fraga foraren bara nar skillnaden i
+ * arbetad tid >= detta (min). Admin ser alla oavsett. En plats. */
+const SYNK_AVVIKELSE_TROSKEL_MIN = 30;
 const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
 const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';
 
@@ -579,6 +583,7 @@ export default function Arbetsrapport() {
   const [redKmKoordKälla, setRedKmKoordKälla] = useState<'maskin'|'objekt'|'larm'|null>(null);
   const [redAnl,   setRedAnl]   = useState("");
   const [redVy,    setRedVy]    = useState("översikt");
+  const [synkMin,  setSynkMin]  = useState<number|null>(null); // justerbar min i synk-avvikelsekortet
   const [redDagar, setRedDagar] = useState<Record<string, {start:string;slut:string;rast:number;km:number;anl:string}>>({});
   // Godkänd-status per period (YYYY-MM -> status) — hämtas från loneunderlag
   // så "Godkänd" överlever omladdning; inte en sessionsflagga.
@@ -4695,6 +4700,88 @@ export default function Arbetsrapport() {
           };
           return (<>
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
+          {(() => {
+            // Maskintiden skiljer sig fran det foraren bekraftade (synk_avvikelse).
+            // Fragar bara nar skillnaden i ARBETAD tid >= troskeln. Forarens tider
+            // andras ALDRIG av kortet - han valjer VAD tiden som inte var maskin var,
+            // vilket blir en extra_tid-post. Kvittensen bor i jsonb-faltet.
+            const rd: any = redDag;
+            const a = rd?.synk_avvikelse;
+            if (!a || a.kvitterad) return null;
+            const confArb = Math.max(0, tim(a.bekraftad_start, a.bekraftad_slut) - (a.bekraftad_rast_min || 0));
+            const momArb  = Math.max(0, tim(a.mom_start, a.mom_slut) - (a.mom_rast_min || 0));
+            const delta = confArb - momArb;
+            if (delta < SYNK_AVVIKELSE_TROSKEL_MIN) return null;
+            const avvMin = Math.max(0, synkMin ?? delta);
+            const avvDatum = (() => { const _p = String(rd.datum || "").split("-"); return _p.length === 3 ? `${+_p[2]} ${månNamnKort[+_p[1]-1]}` : String(rd.datum || ""); })();
+            const stegBtn = { width:38,height:38,borderRadius:19,border:"none",background:"rgba(255,255,255,0.08)",color:"#fff",fontSize:22,cursor:"pointer",fontFamily:"inherit" } as const;
+            const vibrera = () => { if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80); };
+            const kvittera = async (aktivitet: string | null) => {
+              let extra_tid_id: string | null = null;
+              if (aktivitet) {
+                const { data, error } = await supabase.from('extra_tid').insert({
+                  medarbetare_id: medarbetare.id, datum: rd.datum,
+                  minuter: avvMin, aktivitet_typ: aktivitet, kalla: 'under_dagen',
+                }).select().single();
+                if (error || !data) { alert(SPARA_FEL); return; }
+                extra_tid_id = data.id;
+                setExtraTidData(d => [data, ...d]);
+              }
+              const nyAvv = { ...a, kvitterad: new Date().toISOString(), val: 'behall_mina', aktivitet: aktivitet, extra_tid_id };
+              const res = await uppdateraVerifierat(supabase, 'arbetsdag', { synk_avvikelse: nyAvv }, { id: rd.id });
+              if (!res.ok) { alert(res.fel); return; }
+              setRedDag((d:any) => ({ ...d, synk_avvikelse: nyAvv }));
+              setSynkMin(null); vibrera();
+            };
+            const uppdateraTider = async () => {
+              const res = await uppdateraVerifierat(supabase, 'arbetsdag',
+                { start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null },
+                { id: rd.id });
+              if (!res.ok) { alert(res.fel); return; }
+              setRedDag((d:any) => ({ ...d, start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null }));
+              setDagData(dd => ({ ...dd, [rd.datum]: { ...(dd[rd.datum]||{}), start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null } }));
+              setSynkMin(null); vibrera();
+            };
+            return (
+              <Card style={{ padding:"16px 20px",border:"1px solid rgba(255,214,10,0.35)",marginBottom:16 }}>
+                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:20,color:"#ffd60a" }}>schedule</span>
+                  <span style={{ ...secHead,color:"#fff" }}>Maskintiden skiljer sig · {avvDatum}</span>
+                </div>
+                <div style={{ display:"flex",gap:12,marginBottom:14 }}>
+                  <div style={{ flex:1 }}>
+                    <p style={{ margin:"0 0 3px",fontSize:12,color:"#8e8e93" }}>Du sa</p>
+                    <p style={{ margin:0,fontSize:14,color:"#fff",...TNUM }}>{a.bekraftad_start}-{a.bekraftad_slut}, {a.bekraftad_rast_min} min rast</p>
+                    <p style={{ margin:"3px 0 0",fontSize:14,fontWeight:700,color:"#30d158",...TNUM }}>{fmt(confArb)}</p>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <p style={{ margin:"0 0 3px",fontSize:12,color:"#8e8e93" }}>Maskinen sager</p>
+                    <p style={{ margin:0,fontSize:14,color:"#fff",...TNUM }}>{a.mom_start}-{a.mom_slut}, {a.mom_rast_min} min rast</p>
+                    <p style={{ margin:"3px 0 0",fontSize:14,fontWeight:700,color:"#8e8e93",...TNUM }}>{fmt(momArb)}</p>
+                  </div>
+                </div>
+                <p style={{ margin:"0 0 12px",fontSize:15,color:"#fff" }}>{fmt(delta)} var inte maskintid. Vad var det?</p>
+                <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:18,marginBottom:14 }}>
+                  <button onClick={()=>setSynkMin(Math.max(0,avvMin-10))} style={stegBtn}>-</button>
+                  <span style={{ fontSize:20,fontWeight:700,color:"#fff",minWidth:110,textAlign:"center",...TNUM }}>{fmt(avvMin)}</span>
+                  <button onClick={()=>setSynkMin(avvMin+10)} style={stegBtn}>+</button>
+                </div>
+                <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:14 }}>
+                  {EXTRA_ARBETE_TYPER.map(t => {
+                    const akt = AKTIVITETER.find(x=>x.typ===t)!;
+                    return (
+                      <button key={t} onClick={()=>kvittera(t)}
+                        style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 12px",background:"rgba(255,255,255,0.06)",border:"none",borderRadius:10,color:"#fff",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>
+                        <span className="material-symbols-outlined" style={{ fontSize:18 }}>{akt.icon}</span>{akt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={uppdateraTider} style={{ ...btn.secondary,marginBottom:8 }}>Uppdatera till maskinens tider</button>
+                <button onClick={()=>kvittera(null)} style={{ width:"100%",padding:12,background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Hoppa over</button>
+              </Card>
+            );
+          })()}
           {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0&&!harExtra?(
             <Card style={{ padding:"24px 20px",textAlign:"center" as const }}>
               {/* Ärligt tomt: varken maskinpass eller loggad extra-tid. */}
@@ -5422,6 +5509,10 @@ export default function Arbetsrapport() {
                 const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
                 const helgNamn = rödaDagar[k] || '';
                 const harExtra = (extraDagData[datum]||[]).length > 0;
+                // Ohanterad synk-avvikelse (bekraftad dag vars maskintider byggts
+                // om) → amber prick, upptackbart utan att oppna dagen.
+                const _sh = historik.find((x:any)=>x.datum===datum);
+                const synkOhanterad = !!_sh?.synk_avvikelse && !_sh.synk_avvikelse.kvitterad;
                 // Ledig dag: godkänd ledighet OCH inget arbete/frånvaro-prick och
                 // ingen extra tid ("arbete vinner"). Egen visuell klass (ton +
                 // typ-etikett), aldrig en ny prickfärg.
@@ -5449,13 +5540,16 @@ export default function Arbetsrapport() {
                     {ärLedig && <span style={{ fontSize:9,fontWeight:600,color:"#b6b9cc",marginTop:2,lineHeight:1,letterSpacing:0.2 }}>{ledEtikett}</span>}
                     {/* Status dot: bekräftad=grön, saknas=orange, + blå punkt för extra tid.
                         Visas även på helgdagar — helgtexten döljer inte pricken. */}
-                    {(dotFärg[s]||harExtra)?(
+                    {(dotFärg[s]||harExtra||synkOhanterad)?(
                       <div style={{ display:"flex",gap:3,marginTop:4 }}>
                         {dotFärg[s]&&(
                           <div style={{ width:4,height:4,borderRadius:"50%",background:dotFärg[s] }}/>
                         )}
                         {harExtra&&(
                           <div style={{ width:4,height:4,borderRadius:"50%",background:extraPrickFärg }}/>
+                        )}
+                        {synkOhanterad&&(
+                          <div style={{ width:4,height:4,borderRadius:"50%",background:"#ffd60a" }}/>
                         )}
                       </div>
                     ):null}
