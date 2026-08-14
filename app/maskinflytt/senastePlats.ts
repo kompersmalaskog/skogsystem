@@ -23,7 +23,7 @@ export const VERKSAMHET = { lat: 56.50, lng: 14.72 }
 export const MAX_AVSTAND_KM = 150
 export const FARSK_DAGAR = 30
 
-export type PlatsKalla = 'flytt' | 'produktion' | 'manuell'
+export type PlatsKalla = 'flytt' | 'produktion' | 'manuell' | 'position'
 export type PlatsOsakerhet = 'gammal' | 'koordinat_orimlig'
 
 export interface PlatsForslag {
@@ -125,12 +125,20 @@ export async function hamtaSenastePlatser(
   const platser = new Map<string, PlatsForslag>()
   if (maskinIds.length === 0) return { platser, fel: null }
 
-  const [flyttRes, ...tidRes] = await Promise.all([
+  // maskin_position = en direkt GPS-fix (skrivs vid flytt-avslut för egen maskin). Idag
+  // oläst; tas in här som en TREDJE signal — men vinner bara när den är strikt färskare
+  // (se loopen nedan), så flyttens/produktionens objekt-identitet är orörd på lika dag.
+  const [flyttRes, posRes, ...tidRes] = await Promise.all([
     supabase.from('maskin_flytt')
       .select('maskin_id, sluttid, till_objekt_id, till_plats_id, till_lat, till_lng')
       .in('maskin_id', maskinIds)
       .not('sluttid', 'is', null).eq('avbruten', false)
       .order('sluttid', { ascending: false })
+      .limit(200),
+    supabase.from('maskin_position')
+      .select('maskin_id, lat, lng, tidpunkt')
+      .in('maskin_id', maskinIds)
+      .order('tidpunkt', { ascending: false })
       .limit(200),
     ...maskinIds.map(id => supabase.from('fakt_tid')
       .select('datum, objekt_id, processing_sek, terrain_sek')
@@ -139,9 +147,17 @@ export async function hamtaSenastePlatser(
       .limit(20)),
   ])
 
-  const fel = [flyttRes.error, ...tidRes.map(r => r.error)].find(Boolean)
-  if (fel && !flyttRes.data && tidRes.every(r => !r.data)) {
+  const fel = [flyttRes.error, posRes.error, ...tidRes.map(r => r.error)].find(Boolean)
+  if (fel && !flyttRes.data && !posRes.data && tidRes.every(r => !r.data)) {
     return { platser, fel: `Kunde inte slå upp maskinernas platser: ${fel.message}` }
+  }
+
+  // Senaste GPS-fix per maskin (listan redan sorterad fallande på tidpunkt)
+  const senastePos = new Map<string, { lat: number; lng: number; tidpunkt: string }>()
+  for (const r of posRes.data || []) {
+    if (r.maskin_id && r.lat != null && r.lng != null && !senastePos.has(r.maskin_id)) {
+      senastePos.set(r.maskin_id, { lat: r.lat, lng: r.lng, tidpunkt: r.tidpunkt })
+    }
   }
 
   // Senaste avslutade flytt per maskin (listan är redan sorterad fallande)
@@ -198,6 +214,24 @@ export async function hamtaSenastePlatser(
   for (const maskinId of maskinIds) {
     const f = sensteFlytt.get(maskinId)
     const p = senasteProd.get(maskinId)
+    const mp = senastePos.get(maskinId)
+
+    // maskin_position vinner BARA när den är STRIKT färskare än både flytt och produktion.
+    // På lika dag behåller flytten/objektet sin identitet (maskinflytt-förfyllningen är
+    // därmed oförändrad); positionen aktiveras bara som en genuint nyare punkt.
+    const mpDag = mp ? dagAv(mp.tidpunkt) : null
+    const posVinner = mp && (!f || mpDag! > dagAv(f.sluttid)) && (!p || mpDag! > p.datum)
+    if (posVinner) {
+      platser.set(maskinId, tillampaSparrar({
+        namn: 'Senast uppmätt läge',
+        koordinat: { lat: mp.lat, lng: mp.lng },
+        objektId: null,
+        platsId: null,
+        tidpunkt: mp.tidpunkt,
+        kalla: 'position',
+      }))
+      continue
+    }
 
     // Lika dag → flytten vinner: det är där lastbilen faktiskt ställde maskinen
     const flyttVinner = f && (!p || dagAv(f.sluttid) >= p.datum)
