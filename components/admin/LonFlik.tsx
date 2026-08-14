@@ -4,6 +4,8 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { C, secHead, Card, btnPrimary, btnSecondary, ChevronRight } from "./design";
+import { synkAvvikelser, aktEtikett } from "@/lib/synkAvvikelse";
+import { ledighetKollisioner } from "@/lib/ledighetKollision";
 import LonesystemUnderflik from "./LonesystemUnderflik";
 import AtkUnderflik from "./AtkUnderflik";
 import VilobrottUnderflik from "./VilobrottUnderflik";
@@ -126,6 +128,8 @@ function Loneunderlag() {
   const [visaBekräftelse, setVisaBekräftelse] = useState(false);
   const [skickar, setSkickar] = useState(false);
   const [exportResultat, setExportResultat] = useState<any>(null);
+  const [ledigheter, setLedigheter] = useState<any[]>([]);
+  const [synkAlla, setSynkAlla] = useState<any[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,7 +141,7 @@ function Loneunderlag() {
         const [å, m] = period.split("-").map(Number);
         const periodSlut = sistaDagenIManaden(å, m); // sista dagen i månaden (LOKALT — toISOString tappade den i UTC+2)
 
-        const [medRes, arbRes, exRes, avtRes] = await Promise.all([
+        const [medRes, arbRes, exRes, avtRes, ledRes, synkRes] = await Promise.all([
           supabase.from("medarbetare").select("id, namn").order("namn"),
           supabase.from("arbetsdag")
             .select("medarbetare_id, datum, arbetad_min, km_morgon, km_kvall, km_totalt, traktamente, bekraftad, dagtyp")
@@ -146,6 +150,8 @@ function Loneunderlag() {
             .select("medarbetare_id, datum, minuter")
             .gte("datum", periodStart).lte("datum", periodSlut),
           supabase.from("gs_avtal").select("*").order("giltigt_fran", { ascending: false }).limit(1).single(),
+          supabase.from("ledighet_ansokningar").select("medarbetare_id, typ, startdatum, slutdatum").eq("status", "godkänd"),
+          supabase.from("arbetsdag").select("medarbetare_id, datum, synk_avvikelse").not("synk_avvikelse", "is", null),
         ]);
 
         if (cancelled) return;
@@ -156,6 +162,8 @@ function Loneunderlag() {
         setArbetsdagar(arbRes.data || []);
         setExtraTid(exRes.data || []);
         setAvtal(avtRes.data || null);
+        setLedigheter(ledRes.data || []);
+        setSynkAlla(synkRes.data || []);
       } catch (e: any) {
         if (!cancelled) setFel(e.message || String(e));
       } finally {
@@ -278,6 +286,66 @@ function Loneunderlag() {
           }}
         >›</button>
       </Card>
+
+      {!laddar && !fel && (() => {
+        // Tva kontroller INNAN export: tidsavvikelser (bekraftad tid som skiljer
+        // sig fran maskinen) och godkand ledighet pa en arbetsdag. Delade libbar
+        // (lib/synkAvvikelse, lib/ledighetKollision) - samma sanning som
+        // loneexportens varning, aldrig tva svar om samma dag.
+        const namn = new Map<string, string>(medarbetare.map(m => [m.id, m.namn] as [string, string]));
+        const alla = synkAvvikelser(synkAlla);
+        const iPeriod = alla.filter(r => r.datum.startsWith(period));
+        const oforkPeriod = iPeriod.filter(r => r.status === 'oforklarad');
+        const perMan = new Map<string, number>();
+        for (const r of alla) if (r.status === 'oforklarad' && !r.datum.startsWith(period)) perMan.set(r.datum.slice(0, 7), (perMan.get(r.datum.slice(0, 7)) || 0) + 1);
+        const utanforChips = Array.from(perMan.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+        const ledP = ledighetKollisioner(ledigheter, arbetsdagar);
+        const statusFarg = (st: string) => st === 'oforklarad' ? C.orange : st === 'forklarad' ? C.green : C.label;
+        const fmtH = (min: number) => { const h = Math.floor(min / 60), mm = min % 60; return mm ? `${h} tim ${mm} min` : `${h} tim`; };
+        const chip = (mn: string, n: number, sz: 'stor' | 'liten') => (
+          <button key={mn} onClick={() => setPeriod(mn)} style={{ background: 'rgba(255,159,10,0.12)', border: 'none', borderRadius: 8, padding: sz === 'stor' ? '4px 10px' : '2px 8px', color: C.orange, fontSize: sz === 'stor' ? 13 : 12, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize' }}>{månadsLabel(mn)}: {n}</button>
+        );
+        return (
+          <>
+            {oforkPeriod.length > 0 ? (
+              <Card>
+                <p style={{ ...secHead, marginTop: 0, color: C.orange }}>{oforkPeriod.length} oförklarad{oforkPeriod.length === 1 ? '' : 'e'} tidsavvikelse{oforkPeriod.length === 1 ? '' : 'r'} — granska före export</p>
+                {iPeriod.map((r, i) => (
+                  <div key={`${r.medarbetare_id}-${r.datum}-${i}`} style={{ padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text }}>
+                      <span>{r.datum} · {namn.get(r.medarbetare_id) || r.medarbetare_id}</span>
+                      <span style={{ color: statusFarg(r.status), fontWeight: 600 }}>{r.deltaMin} min</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: C.label, marginTop: 2 }}>Du sa {r.bekraftad_start}–{r.bekraftad_slut}, {r.bekraftad_rast_min} min rast · maskinen {r.mom_start}–{r.mom_slut}, {r.mom_rast_min} min rast</div>
+                    <div style={{ fontSize: 12, color: statusFarg(r.status), marginTop: 2 }}>{r.status === 'oforklarad' ? 'Oförklarad' : r.status === 'forklarad' ? `Förklarad: ${aktEtikett(r.aktivitet)}` : 'Kvitterad utan förklaring'}</div>
+                  </div>
+                ))}
+                {utanforChips.length > 0 && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}`, fontSize: 13, color: C.label, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                    <span>Fler oförklarade:</span>{utanforChips.map(([mn, n]) => chip(mn, n, 'stor'))}
+                  </div>
+                )}
+              </Card>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, fontSize: 13, color: C.label, padding: '2px 4px 0' }}>
+                <span style={{ color: C.green }}>✓</span> Inga oförklarade tidsavvikelser i {månadsLabel(period)}
+                {utanforChips.map(([mn, n]) => chip(mn, n, 'liten'))}
+              </div>
+            )}
+            {ledP.length > 0 && (
+              <Card>
+                <p style={{ ...secHead, marginTop: 0, color: C.orange }}>{ledP.length} dag{ledP.length === 1 ? '' : 'ar'} med godkänd ledighet OCH registrerat arbete</p>
+                {ledP.map((k, i) => (
+                  <div key={`${k.medarbetare_id}-${k.datum}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
+                    <span>{k.datum} · {namn.get(k.medarbetare_id) || k.medarbetare_id}</span>
+                    <span style={{ color: C.label }}>{k.typ} · {fmtH(k.arbetad_min)}</span>
+                  </div>
+                ))}
+              </Card>
+            )}
+          </>
+        );
+      })()}
 
       {laddar ? (
         <Card><p style={{ margin: 0, color: C.label, fontSize: 14 }}>Laddar…</p></Card>

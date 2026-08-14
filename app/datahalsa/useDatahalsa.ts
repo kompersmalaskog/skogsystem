@@ -102,24 +102,6 @@ export function importFelKlass(r: ImportFelRad): 'ofarligt' | 'akta' {
   return 'akta'
 }
 
-// Godkänd ledighet på en dag med registrerat arbete (arbetad_min > 0). Systemet
-// löser det via "arbete vinner" i visning/lön — men en godkänd semesterdag som
-// samtidigt är en full arbetsdag ÄR en avvikelse (antingen ska semestern inte
-// förbrukas, eller så är ansökan fel). Ytas här så ingen ställer frågan tyst.
-// Ingen automatisk rättning.
-export type LedighetKollision = { medarbetare: string; datum: string; typ: string; arbetad_min: number }
-
-// Synk-avvikelse: en bekräftad dag vars maskintider byggts om till andra värden än
-// de föraren skrev under på (mom-import 5d). Lönen betalar den BEKRÄFTADE tiden, så
-// en OFÖRKLARAD avvikelse = betald tid ingen granskat. Läses direkt ur
-// arbetsdag.synk_avvikelse (inte via salary-export — olika livscykler). Admin ser
-// ALLA oavsett förarens visningströskel.
-export type SynkAvvikelseRad = {
-  medarbetare: string; datum: string; deltaMin: number
-  bekraftat: string; maskinen: string
-  forklaring: string | null   // aktivitet i klartext om föraren förklarat, annars null
-  status: 'oforklarad' | 'forklarad' | 'hoppad'
-}
 // Objekt utan koordinat → km kan inte beräknas → tyst 0 i löneunderlaget. Fångas
 // den dagen dagen registreras i stället för veckor senare (Oskars Rössmåla stod
 // på 0 i nio dagar). Plus dubblerad trakt: samma objektnr på flera vo-nummer —
@@ -147,8 +129,6 @@ export type Datahalsa = {
   invarianter: Sektion<InvarianterData>
   gapCheck: Sektion<GapCheckData | null> & { tabellSaknas: boolean }
   importFel: Sektion<ImportFelRad[]> & { tabellSaknas: boolean }
-  ledighetKollision: Sektion<LedighetKollision[]>
-  synkAvvikelser: Sektion<SynkAvvikelseRad[]>
   koordinatLarm: Sektion<KoordinatLarmData>
   besked: Besked
 }
@@ -178,8 +158,6 @@ export function useDatahalsa(): Datahalsa {
     { laddar: true, fel: null, data: null, tabellSaknas: false })
   const [importFel, setImportFel] = useState<Sektion<ImportFelRad[]> & { tabellSaknas: boolean }>(
     { laddar: true, fel: null, data: null, tabellSaknas: false })
-  const [ledighetKollision, setLedighetKollision] = useState<Sektion<LedighetKollision[]>>({ laddar: true, fel: null, data: null })
-  const [synkAvvikelser, setSynkAvvikelser] = useState<Sektion<SynkAvvikelseRad[]>>({ laddar: true, fel: null, data: null })
   const [koordinatLarm, setKoordinatLarm] = useState<Sektion<KoordinatLarmData>>({ laddar: true, fel: null, data: null })
 
   useEffect(() => {
@@ -359,72 +337,6 @@ export function useDatahalsa(): Datahalsa {
       setImportFel({ laddar: false, fel: null, tabellSaknas: false, data: (data ?? []) as ImportFelRad[] })
     })()
 
-    // ── Godkänd ledighet på dag med registrerat arbete (kollision) ──
-    // Läser ledighet_ansokningar (godkänd) + arbetsdag med arbete, expanderar
-    // ledigheten till datum och matchar. Bara ytning, ingen rättning.
-    ;(async () => {
-      const [ledR, arbR, medR] = await Promise.all([
-        supabase.from('ledighet_ansokningar').select('medarbetare_id, typ, startdatum, slutdatum').eq('status', 'godkänd'),
-        supabase.from('arbetsdag').select('medarbetare_id, datum, arbetad_min').gt('arbetad_min', 0),
-        supabase.from('medarbetare').select('id, namn'),
-      ])
-      if (avbruten) return
-      const fel = ledR.error?.message || arbR.error?.message || medR.error?.message || null
-      if (fel) { setLedighetKollision({ laddar: false, fel, data: null }); return }
-      const medById = new Map<string, string>((medR.data || []).map((m: any) => [m.id, m.namn]))
-      const arb = new Map<string, number>()
-      for (const a of (arbR.data || []) as any[]) arb.set(`${a.medarbetare_id}|${a.datum}`, a.arbetad_min || 0)
-      const koll: LedighetKollision[] = []
-      for (const l of (ledR.data || []) as any[]) {
-        if (!l.startdatum || !l.slutdatum) continue
-        const start = new Date(l.startdatum + 'T00:00:00')
-        const slut = new Date(l.slutdatum + 'T00:00:00')
-        for (let dt = new Date(start); dt <= slut; dt.setDate(dt.getDate() + 1)) {
-          const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
-          const min = arb.get(`${l.medarbetare_id}|${iso}`)
-          if (min && min > 0) koll.push({
-            medarbetare: medById.get(l.medarbetare_id) || String(l.medarbetare_id).slice(0, 8),
-            datum: iso, typ: l.typ || 'ledig', arbetad_min: min,
-          })
-        }
-      }
-      koll.sort((a, b) => b.datum.localeCompare(a.datum))
-      setLedighetKollision({ laddar: false, fel: null, data: koll })
-    })()
-
-    // ── Synk-avvikelser: bekräftade dagar vars maskintider byggts om (5d) ──
-    // Alla synk_avvikelse != null, sorterat på Δarbetad_min. Skiljer OFÖRKLARAD
-    // (kvitterad IS NULL) från FÖRKLARAD (förarens aktivitet-svar) och HOPPAD.
-    ;(async () => {
-      const [aR, mR] = await Promise.all([
-        supabase.from('arbetsdag').select('medarbetare_id, datum, synk_avvikelse').not('synk_avvikelse', 'is', null),
-        supabase.from('medarbetare').select('id, namn'),
-      ])
-      if (avbruten) return
-      const fel = aR.error?.message || mR.error?.message || null
-      if (fel) { setSynkAvvikelser({ laddar: false, fel, data: null }); return }
-      const namn = new Map<string, string>((mR.data || []).map((m: any) => [m.id, m.namn]))
-      const AKT: Record<string, string> = { reservdelar: 'Hämta reservdelar', service: 'Service', reparation: 'Reparation', utbildning: 'Utbildning', markagare: 'Markägarmöte', flytt: 'Flytt av maskin', brandkontroll: 'Brandkontroll', mote: 'Möte', rotben: 'Kapa rotben', annat: 'Annat' }
-      const tMin = (t: any) => { const m = String(t || '').match(/(\d{2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : 0 }
-      const rader: SynkAvvikelseRad[] = []
-      for (const d of (aR.data || []) as any[]) {
-        const a = d.synk_avvikelse; if (!a) continue
-        const conf = (tMin(a.bekraftad_slut) - tMin(a.bekraftad_start)) - (a.bekraftad_rast_min || 0)
-        const mom = (tMin(a.mom_slut) - tMin(a.mom_start)) - (a.mom_rast_min || 0)
-        const status: SynkAvvikelseRad['status'] = !a.kvitterad ? 'oforklarad' : (a.aktivitet ? 'forklarad' : 'hoppad')
-        rader.push({
-          medarbetare: namn.get(d.medarbetare_id) || String(d.medarbetare_id).slice(0, 8),
-          datum: String(d.datum), deltaMin: conf - mom,
-          bekraftat: `${a.bekraftad_start}–${a.bekraftad_slut}, ${a.bekraftad_rast_min} min rast`,
-          maskinen: `${a.mom_start}–${a.mom_slut}, ${a.mom_rast_min} min rast`,
-          forklaring: a.aktivitet ? (AKT[a.aktivitet] || a.aktivitet) : null,
-          status,
-        })
-      }
-      rader.sort((x, y) => y.deltaMin - x.deltaMin)
-      setSynkAvvikelser({ laddar: false, fel: null, data: rader })
-    })()
-
     // ── 6. Objekt utan koordinat (km kan ej beräknas) + dubblerad trakt ──
     // Koordinatkälla i samma ordning som km-fallbacken (lib/routing.ts): dim_objekt
     // → objekt.lat/lng → objekt.larmkoordinat. Saknas alla tre kan km inte
@@ -536,7 +448,7 @@ export function useDatahalsa(): Datahalsa {
 
   // ── Beskedet — EN sammanvägning, samma överallt. Leverans (maskintystnad)
   //    matar ALDRIG beskedet: semester ser ut som fel. ──
-  const laddar = filer.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar || ledighetKollision.laddar || synkAvvikelser.laddar || koordinatLarm.laddar
+  const laddar = filer.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar || koordinatLarm.laddar
   let besked: Besked
   if (laddar) {
     besked = { niva: 'laddar', rubrik: 'Kontrollerar …', punkter: [] }
@@ -574,14 +486,7 @@ export function useDatahalsa(): Datahalsa {
         punkter.push(`${koordinatLarm.data.dupTrakt.length} trakt(er) på flera vo-nummer — koordinat kan tappas vid vo-byte`)
     }
 
-    if ((ledighetKollision.data?.length ?? 0) > 0)
-      punkter.push(`${ledighetKollision.data!.length} dag(ar) med godkänd ledighet OCH registrerat arbete — granska (semester uttagen fast dagen jobbades)`)
-
-    const synkOforklarade = (synkAvvikelser.data ?? []).filter(r => r.status === 'oforklarad').length
-    if (synkOforklarade > 0)
-      punkter.push(`${synkOforklarade} oförklarad(e) tidsavvikelse(r) — bekräftad tid som skiljer sig från maskinen, granska före lön`)
-
-    const kundeInteLasa = [filer.fel, invarianter.fel, gapCheck.fel, importFel.fel, ledighetKollision.fel, synkAvvikelser.fel, koordinatLarm.fel].some(Boolean)
+    const kundeInteLasa = [filer.fel, invarianter.fel, gapCheck.fel, importFel.fel, koordinatLarm.fel].some(Boolean)
     if (punkter.length > 0) {
       besked = { niva: 'rod', rubrik: `${punkter.length} sak${punkter.length > 1 ? 'er' : ''} att titta på`, punkter }
     } else if (kundeInteLasa) {
@@ -597,5 +502,5 @@ export function useDatahalsa(): Datahalsa {
     }
   }
 
-  return { filer, leverans, invarianter, gapCheck, importFel, ledighetKollision, synkAvvikelser, koordinatLarm, besked }
+  return { filer, leverans, invarianter, gapCheck, importFel, koordinatLarm, besked }
 }
