@@ -4,11 +4,12 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { OversiktObjekt, C, statusVisning, STATUS_AVSLUTADE, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { formatVolym } from './oversikt-utils';
+import { formatVolym, skotarTillstand } from './oversikt-utils';
 import { supabase } from '@/lib/supabase';
 import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
 import type { SkordAgg } from './page';
 import SkordarKarta from './SkordarKarta';
+import SkotarRad from './SkotarRad';
 
 interface Props {
   objekt: OversiktObjekt[];
@@ -114,6 +115,8 @@ function aggregeraMark(list: MarkItem[]): { label: string; count: number; commen
 function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: SkordAgg; onClose: () => void }) {
   const sv = statusVisning(obj.status);
   const skordat = skord?.skordat || 0;          // m³fub
+  // Skotarens tillstånd (klar/igång/väntar) härlett symmetriskt med skördarens status.
+  const skotarInfo = skotarTillstand(skordat, skord?.skotat ?? null, skord?.harManuell ?? false, skord?.lassSista ?? null);
   const harSkord = skordat > 0;                 // ingen skörd-rad → göm hela produktionsblocket (aldrig 0)
   // Skotat: null = ingen skotdata registrerad (≠ 0). Aktivt objekt utan rad = skotaren har inte
   // börjat (ärligt 0); AVSLUTAT utan rad = okänt → visa "ej registrerad", ingen procent, ingen backen.
@@ -235,6 +238,8 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
                 obj.vo_nummer,
               ].filter(Boolean).join(' · ')}
             </div>
+            {/* Skotarens tillstånd — en rad under status (grön bara vid aktiv igång) */}
+            {skotarInfo && <SkotarRad info={skotarInfo} style={{ marginTop: 10 }} />}
           </div>
 
           {/* Kontakt (markägare) — mest handlingsbara raden → direkt under status/metadata högst upp,
@@ -545,8 +550,19 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   const bolagLista = Array.from(new Set(objekt.map(o => o.bolag).filter(Boolean))) as string[];
   const selectedObj = sel ? objekt.find(o => o.id === sel) : null;
 
-  // Aktiva = att planera + pågår (rubrikräkning, oberoende av valt filter).
-  const aktiva = objekt.filter(o => statusBucket(o.status) !== 'klar');
+  // Effektiv status-hink: skotaren KÖR (färsk igång) på ett annars avslutat objekt räknas som PÅGÅR,
+  // inte Klar — så "Pågår" fångar BÅDA maskinerna (skördare pågående ELLER skotare igång). Härlett ur
+  // samma skordMap som redan finns (ingen ny hämtning, inga nya fält). Klar = helt klar (båda maskinerna).
+  const effektivHink = (o: OversiktObjekt): StatusBucket => {
+    const b = statusBucket(o.status);
+    if (b !== 'klar') return b;
+    const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
+    const info = s ? skotarTillstand(s.skordat, s.skotat, s.harManuell, s.lassSista) : null;
+    return info?.state === 'igang' && info.fersk ? 'pagar' : 'klar';
+  };
+
+  // Aktiva = att planera + att köra + pågår (rubrikräkning, oberoende av valt filter).
+  const aktiva = objekt.filter(o => effektivHink(o) !== 'klar');
   // Total volym "på backen" (skördat − skotat) över aktiva objekt — samma m³fub-data som redan
   // finns i skordMap, bara summerad (ingen ny hämtning). Aktiva är aldrig avslutade → skotat null
   // räknas som 0 (ärligt: skotaren har inte börjat). Visas i rubriken bara när > 0.
@@ -559,7 +575,7 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
 
   // Dynamiska filtersegment: 'Alla' + bara de hinkar som FINNS bland objekten
   // (inga oplanerade idag → inget tomt 'Att planera'-segment). Fast ordning.
-  const hinkarFinns = new Set(objekt.map(o => statusBucket(o.status)));
+  const hinkarFinns = new Set(objekt.map(o => effektivHink(o)));
   const HINK_ORDNING: { k: StatusBucket; l: string }[] = [
     { k: 'planera', l: 'Att planera' },
     { k: 'kora', l: 'Att köra' },
@@ -570,9 +586,9 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   // Valt segment tömt (hinken försvann) → fall tillbaka på 'Alla'.
   const statusFEff: StatusFilter = segment.some(s => s.k === statusF) ? statusF : 'alla';
 
-  // Status-filter: "Alla" = aktiva (ej klar); annars = vald hink.
+  // Status-filter: "Alla" = aktiva (ej klar); annars = vald hink. Effektiv hink → skotare-igång fångas i Pågår.
   let li = objekt.filter(o => {
-    const b = statusBucket(o.status);
+    const b = effektivHink(o);
     return statusFEff === 'alla' ? b !== 'klar' : b === statusFEff;
   });
   li = li.filter(o => bolagF === 'alla' || o.bolag === bolagF);
@@ -581,7 +597,7 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   if (sortK === 'vol') li = [...li].sort((a, b) => (b.volym || 0) - (a.volym || 0));
   else if (sortK === 'status') {
     const order: Record<StatusBucket, number> = { pagar: 0, kora: 1, planera: 2, klar: 3 };
-    li = [...li].sort((a, b) => (order[statusBucket(a.status)] - order[statusBucket(b.status)]) || (a.namn || '').localeCompare(b.namn || '', 'sv'));
+    li = [...li].sort((a, b) => (order[effektivHink(a)] - order[effektivHink(b)]) || (a.namn || '').localeCompare(b.namn || '', 'sv'));
   } else {
     li = [...li].sort((a, b) => (a.namn || '').localeCompare(b.namn || '', 'sv'));
   }
@@ -656,7 +672,11 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     const kortSkotatVal = kortSkord?.skotat ?? null;
     const kortKand = kortSkotatVal != null || !STATUS_AVSLUTADE.includes(o.status);
     const kortBacken = Math.max(0, kortSkordat - (kortSkotatVal ?? 0));
-    const visaBacken = kortSkordat > 0 && kortKand && kortBacken > 0;
+    // Skotarens tillstånd (samma härledning som kartan/detaljen). Grön "Skotare igång"-rad på kortet när
+    // skotaren kör här nu → förklarar varför ett klart-skördat objekt (t.ex. Jätsbygd) ligger i Pågår.
+    const kortSkotar = skotarTillstand(kortSkordat, kortSkotatVal, kortSkord?.harManuell ?? false, kortSkord?.lassSista ?? null);
+    const kortIgang = kortSkotar?.state === 'igang';
+    const visaBacken = kortSkordat > 0 && kortKand && kortBacken > 0 && !kortIgang;   // igång-raden visar redan "kvar" → ingen dubbel chip
     return (
       <div key={o.id} onClick={() => setSel(o.id)} style={{
         display: 'flex', alignItems: 'center', gap: 12,
@@ -701,6 +721,8 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
               </span>
             </div>
           )}
+          {/* Skotaren kör här nu — grön rad (samma härledda tillstånd) → visar varför ett klart-skördat objekt ligger i Pågår */}
+          {kortIgang && kortSkotar && <SkotarRad info={kortSkotar} style={{ marginTop: 6 }} />}
         </div>
         {/* Chevron */}
         <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t4, flexShrink: 0 }}>chevron_right</span>
