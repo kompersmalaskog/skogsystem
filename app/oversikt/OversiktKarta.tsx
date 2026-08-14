@@ -1134,6 +1134,10 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       koItems.forEach(k => {
         const o = objekt.find(x => x.id === k.objekt_id);
         if (!o || o.lat == null || o.lng == null) return;
+        // Bara pågående + planerade är RUTTSTOPP. Hoppa över avslutade/oplanerade (rå maskin_ko kan
+        // ha kvar en avslutad trakt på ordning 0) — de blir aldrig rutt-linje/nummer/total-km, bara
+        // ev. klar-bock via vanliga status-markören. Ren visning; maskin_ko-datan rörs INTE.
+        if (markerStatusColor(o.status) === MARKER_GRAY) return;
         const isAct = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning';
         validObjs.push({ id: o.id, lng: o.lng, lat: o.lat, isAct });
       });
@@ -1210,7 +1214,9 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
           console.warn(`[Karta] Objekt ${k.objekt_id} saknas på kartan — finns i objekt-tabell: ${inObjekt}, har koordinater: ${o ? `lat=${o.lat} lng=${o.lng}` : 'N/A'}`);
         });
       }
-      list = list.filter(o => ids.has(o.id));
+      // Respektera "Avslutade"-filtret även i maskinkön: en avslutad köpost (t.ex. klar trakt kvar
+      // på ordning 0) syns som klar-bock bara när filtret är på — aldrig som ruttstopp.
+      list = list.filter(o => ids.has(o.id) && (showDone || !STATUS_AVSLUTADE.includes(o.status)));
     } else {
       // Beslut 5: inget objekt döljs tyst. Visa alla status (oplanerad/okänd = kontur,
       // avslutat = nedtonad + bock). "Avslutade"-toggeln är ett UTTRYCKLIGT filter.
