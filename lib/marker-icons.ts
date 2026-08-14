@@ -38,6 +38,8 @@ export const markerIconDefs: MarkerIconDef[] = [
   { id: 'manualfelling',   bg: '#ff453a', outline: '#ffffff' },
   { id: 'warning',         bg: '#ff453a', outline: '#ffffff' },
   { id: 'steep',           bg: '#ff453a', outline: '#ffffff' },
+  // felling-outside (lila — träd att avverka utanför traktgränsen; enda lila symbolen)
+  { id: 'felloutside',     bg: '#534AB7', outline: '#ffffff' },
   // info (mörk grå)
   { id: 'highstump',       bg: '#1c1c1e', outline: '#ffffff' },
   { id: 'landing',         bg: '#1c1c1e', outline: '#ffffff' },
@@ -74,6 +76,9 @@ export const iconSvgPaths: Record<string, string> = {
   'steep': '<path d="M3 20 L12 5 L21 20 Z" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="7" y1="16" x2="17" y2="16" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="12" x2="15" y2="12" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
   'trail': '<ellipse cx="6" cy="19" rx="2.2" ry="3.5" fill="#fff"/><ellipse cx="4.5" cy="14.5" rx="0.9" ry="1.1" fill="#fff"/><ellipse cx="5.8" cy="14" rx="0.8" ry="1" fill="#fff"/><ellipse cx="7" cy="14.2" rx="0.7" ry="0.9" fill="#fff"/><ellipse cx="8" cy="14.8" rx="0.6" ry="0.8" fill="#fff"/><ellipse cx="14" cy="12" rx="2.2" ry="3.5" fill="#fff"/><ellipse cx="12.5" cy="7.5" rx="0.9" ry="1.1" fill="#fff"/><ellipse cx="13.8" cy="7" rx="0.8" ry="1" fill="#fff"/><ellipse cx="15" cy="7.2" rx="0.7" ry="0.9" fill="#fff"/><ellipse cx="16" cy="7.8" rx="0.6" ry="0.8" fill="#fff"/><ellipse cx="20" cy="5" rx="1.8" ry="2.8" fill="#fff"/><ellipse cx="18.8" cy="1.8" rx="0.7" ry="0.8" fill="#fff"/><ellipse cx="19.8" cy="1.5" rx="0.6" ry="0.7" fill="#fff"/>',
   'warning': '<path d="M12 3 L22 21 L2 21 Z" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="9" x2="12" y2="14" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="17" r="1.2" fill="#fff"/>',
+  // Träd att avverka: STUBBE (rektangel på marklinje) — bred GLIPA — kapad brant lutande stam med krona.
+  // Stubbe och trädet hänger INTE ihop; glipan är avsiktligt bred så den syns i kartstorlek.
+  'felloutside': '<line x1="2" y1="21" x2="12" y2="21" stroke="#fff" stroke-width="2" stroke-linecap="round"/><rect x="3.5" y="18.3" width="5.5" height="2.7" stroke="#fff" stroke-width="2" fill="none"/><line x1="7" y1="13" x2="17" y2="5" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/><circle cx="18.6" cy="4.2" r="3" stroke="#fff" stroke-width="2" fill="none"/>',
   'default': '<circle cx="12" cy="12" r="4" fill="#fff"/>',
 }
 

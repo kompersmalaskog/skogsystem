@@ -5613,6 +5613,15 @@ export default function PlannerPage() {
           <path d="M11 11 L13 6 Q19 3 18 8 Q20 10 17 12 L13 10 Z" fill={color} stroke={color} strokeWidth="1" strokeLinejoin="round" />
         </svg>
       ),
+      // Träd att avverka: stubbe + bred glipa + kapad brant lutande stam med krona (samma glyf som kartan)
+      'felloutside': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="2" y1="21" x2="12" y2="21" />
+          <rect x="3.5" y="18.3" width="5.5" height="2.7" />
+          <line x1="7" y1="13" x2="17" y2="5" strokeWidth="2.8" />
+          <circle cx="18.6" cy="4.2" r="3" />
+        </svg>
+      ),
       // INFRASTRUKTUR
       'powerline': (
         <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
@@ -5828,6 +5837,7 @@ export default function PlannerPage() {
     const orangeIcons = ['culturemonument', 'culturestump'];
     if (greenIcons.includes(symbolId)) return LEGEND.naturvard;
     if (orangeIcons.includes(symbolId)) return LEGEND.kultur;
+    if (symbolId === 'felloutside') return '#534AB7'; // lila — träd att avverka utanför gränsen
     return 'rgba(0,0,0,0.6)';
   };
 
@@ -5836,6 +5846,7 @@ export default function PlannerPage() {
     const orangeIcons = ['culturemonument', 'culturestump'];
     if (greenIcons.includes(symbolId)) return LEGEND.naturvardKant;
     if (orangeIcons.includes(symbolId)) return LEGEND.gul;
+    if (symbolId === 'felloutside') return '#7F77DD'; // ljusare lila kant
     return 'rgba(255,255,255,0.15)';
   };
 
@@ -5864,6 +5875,7 @@ export default function PlannerPage() {
         { id: 'brashpile', name: 'Rishög' },
         { id: 'windfall', name: 'Vindfälle' },
         { id: 'manualfelling', name: 'Manuell fällning' },
+        { id: 'felloutside', name: 'Träd att avverka' },
       ]
     },
     {
@@ -6288,6 +6300,7 @@ export default function PlannerPage() {
     if (['corduroy', 'brashpile', 'road', 'trail', 'manualfelling', 'highstump'].includes(type)) return '#8e8e93';       // grå (mark)
     if (['culturemonument', 'culturestump', 'eternitytree', 'naturecorner', 'warning', 'powerline'].includes(type)) return '#ff9f0a'; // orange (kultur/varning)
     if (['steep', 'windfall'].includes(type)) return '#ff453a';                                                          // röd (brant/farligt)
+    if (type === 'felloutside') return '#7F77DD';                                                                        // lila (träd att avverka) — ljusare i mörk körvy
     return '#8e8e93';
   };
   // Helper: flytta lat/lng dist meter i bearing-riktning (Tesla-stil offset 50m bakom användaren)
