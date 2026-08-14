@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 import { beräknaExport, arbetsperiodFrånLöneperiod } from "@/lib/lonesystem/loneberakning";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
+import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
 
 /**
  * POST /api/fortnox/salary-export
@@ -69,20 +70,17 @@ export async function POST(req: NextRequest) {
     // VARNAR (blockerar ej) infor lonekorning — talet ar redan i den bekraftade
     // arbetad_min, sa en ohanterad avvikelse = betald tid ingen granskat.
     const _namnMap = new Map((medRes.data || []).map((m: any) => [m.id, m.namn]));
-    const _tMin = (t: any) => { const m = String(t || "").match(/(\d{2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : 0; };
-    const synkAvvikelser = ((arbRes.data || []) as any[])
-      .filter(d => d.synk_avvikelse && !d.synk_avvikelse.kvitterad)
-      .map(d => {
-        const av = d.synk_avvikelse;
-        const conf = (_tMin(av.bekraftad_slut) - _tMin(av.bekraftad_start)) - (av.bekraftad_rast_min || 0);
-        const mom = (_tMin(av.mom_slut) - _tMin(av.mom_start)) - (av.mom_rast_min || 0);
-        return {
-          medarbetare: _namnMap.get(d.medarbetare_id) || d.medarbetare_id,
-          datum: d.datum, diff_min: conf - mom,
-          bekraftat: `${av.bekraftad_start}-${av.bekraftad_slut} rast ${av.bekraftad_rast_min}`,
-          maskinen: `${av.mom_start}-${av.mom_slut} rast ${av.mom_rast_min}`,
-        };
-      })
+    // Delad lib (lib/synkAvvikelse) — SAMMA beräkning som Lön-flikens kort, så
+    // varningen och kortet aldrig kan säga olika om samma dag. Filtrera till
+    // ohanterade (oforklarad) och formatera exakt som förr (identiskt utfall).
+    const synkAvvikelser = beraknaSynkAvvikelser((arbRes.data || []) as any[])
+      .filter(r => r.status === 'oforklarad')
+      .map(r => ({
+        medarbetare: _namnMap.get(r.medarbetare_id) || r.medarbetare_id,
+        datum: r.datum, diff_min: r.deltaMin,
+        bekraftat: `${r.bekraftad_start}-${r.bekraftad_slut} rast ${r.bekraftad_rast_min}`,
+        maskinen: `${r.mom_start}-${r.mom_slut} rast ${r.mom_rast_min}`,
+      }))
       .sort((a, b) => b.diff_min - a.diff_min);
     if (extraRes.error) throw extraRes.error;
 

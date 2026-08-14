@@ -110,7 +110,7 @@ function levLage(m: LeveransRad): LevLage {
 }
 
 export default function DatahalsaPage() {
-  const { filer, leverans, invarianter, gapCheck, importFel, ledighetKollision, synkAvvikelser, koordinatLarm, besked } = useDatahalsa()
+  const { filer, leverans, invarianter, gapCheck, importFel, koordinatLarm, besked } = useDatahalsa()
   const [visaFel, setVisaFel] = useState(false)
 
   // Kvittering "förväntat tyst" per maskin — client-lokal (ingen migration),
@@ -377,75 +377,6 @@ export default function DatahalsaPage() {
               Ingen körning registrerad ännu — första skrivs söndag 20:00.
             </div>
           )}
-        </Kort>
-
-        {/* ── Godkänd ledighet på dag med registrerat arbete ── */}
-        <Kort rubrik="LEDIGHET PÅ ARBETSDAG" laddar={ledighetKollision.laddar} fel={ledighetKollision.fel}>
-          {ledighetKollision.data && ledighetKollision.data.length > 0 ? (
-            <>
-              <div style={{ fontSize: 12, fontWeight: 600, color: C.gul, marginBottom: 2 }}>
-                {ledighetKollision.data.length} dag(ar) med godkänd ledighet OCH registrerat arbete — granska
-              </div>
-              {ledighetKollision.data.map((k, i) => (
-                <Rad key={`${k.medarbetare}-${k.datum}-${i}`}
-                     vanster={<span>{k.datum} · {k.medarbetare}</span>}
-                     hoger={<span style={{ color: C.muted }}>{k.typ} · {Math.round(k.arbetad_min / 60 * 10) / 10} h arbetat</span>}
-                     hogerFarg={C.muted} />
-              ))}
-            </>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: C.text }}>
-              <Prick farg={C.gron} /> Ingen godkänd ledighet krockar med en arbetsdag
-            </div>
-          )}
-          <div style={{ paddingTop: 10, fontSize: 11, color: C.dim }}>
-            "Arbete vinner" i visning och lön, men en uttagen semesterdag som samtidigt
-            jobbades är en avvikelse — antingen ska semestern inte förbrukas eller så är
-            ansökan fel. Ingen automatisk rättning; kontrollera manuellt.
-          </div>
-        </Kort>
-
-        {/* ── Tidsavvikelser: bekräftad tid som skiljer sig från maskinen ── */}
-        <Kort rubrik="TIDSAVVIKELSER — GRANSKA FÖRE LÖN" laddar={synkAvvikelser.laddar} fel={synkAvvikelser.fel}>
-          {synkAvvikelser.data && synkAvvikelser.data.length > 0 ? (
-            <>
-              {(() => {
-                const oforklarade = synkAvvikelser.data.filter(r => r.status === 'oforklarad').length
-                return (
-                  <div style={{ fontSize: 12, fontWeight: 600, color: oforklarade > 0 ? C.gul : C.gron, marginBottom: 8 }}>
-                    {oforklarade > 0
-                      ? `${oforklarade} oförklarad(e) — bekräftad tid ingen granskat`
-                      : 'Alla avvikelser förklarade'}
-                  </div>
-                )
-              })()}
-              {synkAvvikelser.data.map((r, i) => {
-                const farg = r.status === 'oforklarad' ? C.gul : r.status === 'forklarad' ? C.gron : C.muted
-                const etikett = r.status === 'oforklarad' ? 'Oförklarad'
-                  : r.status === 'forklarad' ? `Förklarad: ${r.forklaring}`
-                  : 'Kvitterad utan förklaring'
-                return (
-                  <div key={`${r.medarbetare}-${r.datum}-${i}`} style={{ padding: '9px 0', borderTop: `0.5px solid ${C.divider}` }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 14, color: C.text }}>
-                      <span>{r.datum} · {r.medarbetare}</span>
-                      <span style={{ fontVariantNumeric: 'tabular-nums', color: farg, fontWeight: 600 }}>{r.deltaMin} min</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>Du sa {r.bekraftat} · maskinen {r.maskinen}</div>
-                    <div style={{ fontSize: 12, color: farg, marginTop: 2 }}>{etikett}</div>
-                  </div>
-                )
-              })}
-            </>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: C.text }}>
-              <Prick farg={C.gron} /> Inga tidsavvikelser
-            </div>
-          )}
-          <div style={{ paddingTop: 10, fontSize: 11, color: C.dim }}>
-            Bekräftade dagar fryses; om maskindatan sedan skiljer sig registreras avvikelsen här.
-            Lönen betalar den bekräftade tiden, så en oförklarad avvikelse är betald tid ingen
-            granskat. Sorterat på störst skillnad i arbetad tid. Alla visas, oavsett förarens tröskel.
-          </div>
         </Kort>
 
         {/* ── Objekt utan koordinat (km kan ej beräknas) + dubblerad trakt ── */}
