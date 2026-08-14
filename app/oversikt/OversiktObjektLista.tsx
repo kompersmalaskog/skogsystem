@@ -4,11 +4,12 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { OversiktObjekt, C, statusVisning, STATUS_AVSLUTADE, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { formatVolym } from './oversikt-utils';
+import { formatVolym, skotarTillstand } from './oversikt-utils';
 import { supabase } from '@/lib/supabase';
 import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
 import type { SkordAgg } from './page';
 import SkordarKarta from './SkordarKarta';
+import SkotarRad from './SkotarRad';
 
 interface Props {
   objekt: OversiktObjekt[];
@@ -114,6 +115,8 @@ function aggregeraMark(list: MarkItem[]): { label: string; count: number; commen
 function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: SkordAgg; onClose: () => void }) {
   const sv = statusVisning(obj.status);
   const skordat = skord?.skordat || 0;          // m³fub
+  // Skotarens tillstånd (klar/igång/väntar) härlett symmetriskt med skördarens status.
+  const skotarInfo = skotarTillstand(skordat, skord?.skotat ?? null, skord?.harManuell ?? false, skord?.lassSista ?? null);
   const harSkord = skordat > 0;                 // ingen skörd-rad → göm hela produktionsblocket (aldrig 0)
   // Skotat: null = ingen skotdata registrerad (≠ 0). Aktivt objekt utan rad = skotaren har inte
   // börjat (ärligt 0); AVSLUTAT utan rad = okänt → visa "ej registrerad", ingen procent, ingen backen.
@@ -235,6 +238,8 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
                 obj.vo_nummer,
               ].filter(Boolean).join(' · ')}
             </div>
+            {/* Skotarens tillstånd — en rad under status (grön bara vid aktiv igång) */}
+            {skotarInfo && <SkotarRad info={skotarInfo} style={{ marginTop: 10 }} />}
           </div>
 
           {/* Kontakt (markägare) — mest handlingsbara raden → direkt under status/metadata högst upp,

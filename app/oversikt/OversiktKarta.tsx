@@ -5,12 +5,14 @@ import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotDeadlineDays } from './oversikt-utils';
+import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotDeadlineDays, skotarTillstand, type SkotarInfo } from './oversikt-utils';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
 import {
   FARA_SUBTYPER, HANSYN_SUBTYPER, SUB_LABEL, prettifySub, markeringSub, classifyMarkering,
   type MarkLevel, type FaraNiva,
 } from './markeringar';
+import SkotarRad from './SkotarRad';
+import type { SkordAgg } from './page';
 // Maskinens RIKTIGA senaste position (flytt/produktion/GPS-fix, med ärlighets-spärrar) —
 // ersätter "första objektet i kön = maskinen". Delas med maskinflytt (ej planeringsfil).
 import { hamtaSenastePlatser, relativTid, dagarSedan, type PlatsForslag } from '../maskinflytt/senastePlats';
@@ -58,6 +60,7 @@ interface Props {
   maskiner: Maskin[];
   maskinKo: MaskinKoItem[];
   prodMap: Record<string, ProdAgg>;
+  skordMap: Record<string, SkordAgg>;   // vo-nyckel — för skotar-tillståndet (ring + ObjCard-rad)
 }
 
 /* ── Haversine distance in km (with decimals) ── */
@@ -183,11 +186,12 @@ function grotDeadlineInfo(deadline: string | null): { color: string; label: stri
    1 Titel+status · 2 typ·areal·volym · 3 Avstånd+Köplats · 4 Fara (enda röda) ·
    5 Markägare+Ring/Sms · 6 Navigera hit · 7 Visa mer (Hänsyn·Restriktioner·Trädslag·Logistik).
    Saknas data i en sektion: utelämna tyst eller visa "–", aldrig egen layout per objekt. */
-function ObjCard({ obj, warnings, koPlats, devicePos }: {
+function ObjCard({ obj, warnings, koPlats, devicePos, skotar }: {
   obj: OversiktObjekt;
   warnings?: ObjWarnings;
   koPlats?: { pos: number; total: number };
   devicePos?: { lat: number; lng: number } | null;
+  skotar?: SkotarInfo | null;
 }) {
   const o = obj;
   const [expanded, setExpanded] = useState(false);
@@ -263,6 +267,9 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
             background: st.bg, ...T.caption, fontWeight: 600, color: st.c,
           }}>{st.l}</div>
         </div>
+
+        {/* Skotarens tillstånd — en rad under status (grön bara vid aktiv igång) */}
+        {skotar && <SkotarRad info={skotar} style={{ marginBottom: SP.lg }} />}
 
         {/* GROT — deadline/anteckning högst upp, i grot-färg (samma fulla kort) */}
         {grotRel && (
@@ -728,6 +735,7 @@ interface MarkerOpts {
   label: string;
   volym?: number | null;
   sublabels?: string[];   // visas ovanför markören (maskinnamn/chips)
+  skotarAktiv?: boolean;  // skotaren jobbar där NU (färsk lass) → grön aktivitets-ring
   onClick: () => void;
 }
 
@@ -752,7 +760,7 @@ function buildMarkerEl(
   badges: MarkerBadge[],
   opts: MarkerOpts,
 ): HTMLDivElement {
-  const { isSelected, label, volym, sublabels, onClick } = opts;
+  const { isSelected, label, volym, sublabels, onClick, skotarAktiv } = opts;
   const known = status in ST;
   const isActive = STATUS_AKTIV.includes(status);
   const isDone = STATUS_AVSLUTADE.includes(status);
@@ -767,7 +775,9 @@ function buildMarkerEl(
   const w = document.createElement('div');
   w.className = 'ovk-marker';
   w.dataset.objektId = label;
-  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isDone ? '0.55' : '1'}`;
+  // Avslutat dimmas till 0.55 — MEN inte om skotaren är aktiv där (då är det inte "klart, inget
+  // händer"; markören + gröna ringen ska synas i full styrka).
+  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isDone && !skotarAktiv ? '0.55' : '1'}`;
 
   // Puls — ENDAST aktiva objekt. Ringen följer markörformen.
   if (isActive && form === 'circle') {
@@ -777,6 +787,15 @@ function buildMarkerEl(
     const glow = document.createElement('div');
     glow.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 10}px;height:${dotSize + 10}px;margin-left:-${(dotSize + 10) / 2}px;margin-top:-${(dotSize + 10) / 2}px;border-radius:50%;background:radial-gradient(circle,${sc}30 0%,transparent 70%);pointer-events:none;animation:glowPulse 3s ease-in-out infinite`;
     w.appendChild(glow);
+  }
+
+  // Skotar-aktivitet: diskret GRÖN ring runt markören (även på grå klar-bock) — markörfärgen säger
+  // vad objektet ÄR, ringen att skotaren JOBBAR där NU. Skild från skördarens puls-ring (gles glöd-puls).
+  if (skotarAktiv) {
+    const rz = dotSize + 8;
+    const sring = document.createElement('div');
+    sring.style.cssText = `position:absolute;left:50%;top:50%;width:${rz}px;height:${rz}px;margin-left:-${rz / 2}px;margin-top:-${rz / 2}px;border-radius:${radiusFor(rz)};border:2px solid ${C.green};box-shadow:0 0 8px ${C.green}88;animation:glowPulse 2.4s ease-in-out infinite;pointer-events:none`;
+    w.appendChild(sring);
   }
 
   const dot = document.createElement('div');
@@ -845,7 +864,7 @@ function buildMarkerEl(
 }
 
 /* ════════════════════════════════════════════════════════════════ */
-export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskiner, maskinKo: propMaskinKo, prodMap }: Props) {
+export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskiner, maskinKo: propMaskinKo, prodMap, skordMap }: Props) {
   // Self-fetch: OversiktKarta äger sin egen data så förarvyn kan berika objekt
   // (kolumner som page.tsx:OBJEKT_SELECT saknar), läsa inloggad medarbetare och
   // köra realtime — utan att röra page.tsx (parallellt spår arbetar där).
@@ -1246,10 +1265,21 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   const selectedGrotObj = selectedGrotId ? objekt.find(o => o.id === selectedGrotId) : null;
 
   /* ── Helper: bygg argument till buildMarkerEl (form, status, badges, opts) ── */
+  /* ── Skotar-tillstånd per objekt (grön aktivitets-ring + ObjCard-rad) — nyckel vo_nummer ── */
+  const skotarByObj = useMemo(() => {
+    const m: Record<string, SkotarInfo | null> = {};
+    for (const o of objekt) {
+      const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
+      m[o.id] = s ? skotarTillstand(s.skordat, s.skotat, s.harManuell, s.lassSista) : null;
+    }
+    return m;
+  }, [objekt, skordMap]);
+
   const markerArgs = useCallback((obj: OversiktObjekt): {
     form: 'circle' | 'machine'; shape: 'circle' | 'square'; status: string; badges: MarkerBadge[]; opts: MarkerOpts;
   } => {
     const isMachine = machinePositions.has(obj.id);
+    const sk = skotarByObj[obj.id];   // skotar-tillstånd → grön ring bara vid AKTIV (färsk) igång
 
     const badges: MarkerBadge[] = [];
     const qn = queueNums[obj.id];
@@ -1273,10 +1303,11 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         label: obj.namn,
         volym: obj.volym,
         sublabels,
+        skotarAktiv: sk?.state === 'igang' && sk.fersk,
         onClick: () => handleMarkerClick(obj.id),
       },
     };
-  }, [machinePositions, queueNums, warningsByObj, maskinFilter, maskiner, selectedId, handleMarkerClick]);
+  }, [machinePositions, queueNums, warningsByObj, maskinFilter, maskiner, selectedId, handleMarkerClick, skotarByObj]);
 
   /* ── Load MapLibre CDN ── */
   useEffect(() => {
@@ -1508,7 +1539,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       // Replace children only — preserve MapLibre's transform on the wrapper
       while (el.lastChild) el.removeChild(el.lastChild);
       while (newEl.firstChild) el.appendChild(newEl.firstChild);
-      el.style.opacity = STATUS_AVSLUTADE.includes(o.status) ? '0.55' : '1';
+      el.style.opacity = STATUS_AVSLUTADE.includes(o.status) && !a.opts.skotarAktiv ? '0.55' : '1';
     });
   }, [selectedId, objekt, mapReady, markerArgs]);
 
@@ -1721,9 +1752,10 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
           warnings={warningsByObj[selectedObj.id]}
           koPlats={koPlatsByObj[selectedObj.id]}
           devicePos={devicePos}
+          skotar={skotarByObj[selectedObj.id]}
         />
       )}
-      {selectedGrotObj && <ObjCard obj={selectedGrotObj} warnings={warningsByObj[selectedGrotObj.id]} koPlats={koPlatsByObj[selectedGrotObj.id]} devicePos={devicePos} />}
+      {selectedGrotObj && <ObjCard obj={selectedGrotObj} warnings={warningsByObj[selectedGrotObj.id]} koPlats={koPlatsByObj[selectedGrotObj.id]} devicePos={devicePos} skotar={skotarByObj[selectedGrotObj.id]} />}
 
       {/* Förar-sheet (Beslut 1) — bara i förarläge när inget kort är öppet */}
       {driverMode && !selectedObj && !selectedGrotObj && (

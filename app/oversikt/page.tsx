@@ -33,8 +33,10 @@ export interface ProdAgg {
 // vo-nummer, inte objekt.id). "På backen" = skördat − skotat räknas i vyn.
 export interface SkordAgg {
   skordat: number;              // m³fub
-  skotat: number | null;        // m³fub — null = ingen skotdata registrerad (≠ 0)
+  skotat: number | null;        // m³fub — null = ingen skotdata registrerad (≠ 0). Manuell trumfar lass.
   sista: string | null;         // sista skörddatum
+  lassSista: string | null;     // sista LASS-datum (skotarens aktivitet) — för skotar-tillståndet
+  harManuell: boolean;          // finns en manuell skotregistrering? (= användarens avslut → skotare KLAR)
 }
 
 /** Fetch all rows with pagination (Supabase default limit is 1000) */
@@ -102,8 +104,8 @@ export default function OversiktPage() {
         () => supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub, sista_datum').order('objekt_id')
       ),
       // Skotat per objekt (m³fub) — aggregatvy, en rad per objekt_id=vo_nummer.
-      fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
-        () => supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub').order('objekt_id')
+      fetchAllRows<{ objekt_id: string; volym_m3sub: number; sista_datum: string | null }>(
+        () => supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, sista_datum').order('objekt_id')
       ),
       // Manuellt registrerad skotad volym (skotare_objekt_manuell, maskin_id IS NULL) — TRUMFAR
       // lass när satt (även = 0), samma regel som uppföljningen. objekt_id = vo_nummer (som lass-vyn).
@@ -130,13 +132,14 @@ export default function OversiktPage() {
     const skmap: Record<string, SkordAgg> = {};
     for (const r of skordRows) {
       if (!r.objekt_id) continue;
-      skmap[String(r.objekt_id)] = { skordat: r.volym_m3sub || 0, skotat: null, sista: r.sista_datum || null };
+      skmap[String(r.objekt_id)] = { skordat: r.volym_m3sub || 0, skotat: null, sista: r.sista_datum || null, lassSista: null, harManuell: false };
     }
     for (const r of skotRows) {
       if (!r.objekt_id) continue;
       const k = String(r.objekt_id);
-      if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null };
+      if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null, lassSista: null, harManuell: false };
       skmap[k].skotat = r.volym_m3sub || 0;   // lass-rad → känd skotad volym
+      skmap[k].lassSista = r.sista_datum || null;   // sista lass-datum → skotar-aktivitet/färskhet
     }
     // Manuell skotad volym TRUMFAR lass när den är SATT (även = 0). Max över ev. flera rader
     // per objekt, precis som uppföljningen (useUppfoljningList) — den mänskliga registreringen
@@ -149,8 +152,9 @@ export default function OversiktPage() {
       manuellByVo[k] = k in manuellByVo ? Math.max(manuellByVo[k], v) : v;
     }
     for (const k of Object.keys(manuellByVo)) {
-      if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null };
+      if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null, lassSista: null, harManuell: false };
       skmap[k].skotat = manuellByVo[k];   // trumfar lass/null (manuell registrering vinner)
+      skmap[k].harManuell = true;         // manuell registrering = användarens avslut → skotare KLAR
     }
     setSkordMap(skmap);
   };
@@ -189,7 +193,7 @@ export default function OversiktPage() {
             zIndex: activeTab === 'karta' ? 1 : 0,
             transition: 'opacity 180ms ease-out',
           }}>
-            <OversiktKarta objekt={objekt} maskiner={maskiner} maskinKo={maskinKo} prodMap={prodMap} />
+            <OversiktKarta objekt={objekt} maskiner={maskiner} maskinKo={maskinKo} prodMap={prodMap} skordMap={skordMap} />
           </div>
           <div style={{
             position: 'absolute', inset: 0, overflow: 'auto',

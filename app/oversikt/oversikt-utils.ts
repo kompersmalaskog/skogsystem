@@ -4,6 +4,56 @@ export function formatVolym(v: number): string {
   return v.toLocaleString('sv-SE');
 }
 
+/* ── Skotarens tillstånd, HÄRLETT ur befintlig data (inga nya fält/knappar) ──
+   KLAR   = manuell registrering finns (användarens avslut, trumf-källan) ELLER skotat >= 98% av
+            skördat (filvägen — samma tröskel som "Utkört").
+   IGÅNG  = lass finns men inte klart. `fersk` (senaste lass ≤ FERSK_DGR) = någon jobbar där NU
+            (grön ring/rad); en igång-post med gammalt sista-lass visas grå med datumet (ärligt).
+   VÄNTAR = skördat finns, inga lass, ingen manuell (virke på backen, ingen börjat).
+   null   = inget skördat än → inget skotar-tillstånd. Trösklarna är justerbara parametrar. */
+export type SkotarState = 'klar' | 'igang' | 'vantar';
+export interface SkotarInfo { state: SkotarState; kvar: number; sista: string | null; fersk: boolean; }
+export const SKOTAR_KLAR_ANDEL = 0.98;   // skotat/skördat-tröskel för "klar" (filvägen)
+export const SKOTAR_FERSK_DGR = 3;       // senaste lass inom så här många dgr = aktiv (grön)
+
+export function skotarTillstand(
+  skordat: number,
+  skotat: number | null,
+  harManuell: boolean,
+  lassSista: string | null,
+): SkotarInfo | null {
+  if (!skordat || skordat <= 0) return null;   // inget skördat → inget skotar-tillstånd
+  if (harManuell || (skotat != null && skotat >= SKOTAR_KLAR_ANDEL * skordat)) {
+    return { state: 'klar', kvar: 0, sista: lassSista, fersk: false };
+  }
+  const kvar = Math.max(0, skordat - (skotat ?? 0));
+  if (skotat != null && skotat > 0) {   // lass finns men inte klart → igång
+    const d = lassSista ? dagarSedanLokal(lassSista) : null;
+    return { state: 'igang', kvar, sista: lassSista, fersk: d != null && d <= SKOTAR_FERSK_DGR };
+  }
+  return { state: 'vantar', kvar, sista: null, fersk: false };   // inga lass, ingen manuell → på backen
+}
+
+/** Hela dagar sedan ett datum/timestamp, i LOKAL tid (undviker UTC-off-by-one på date-only). */
+function dagarSedanLokal(datum: string): number {
+  const d = new Date(datum.length <= 10 ? `${datum}T00:00:00` : datum);
+  const then = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const nu = new Date();
+  const idag = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate());
+  return Math.round((idag.getTime() - then.getTime()) / 86400000);
+}
+
+/** Kort relativ dag: "idag" / "igår" / "för N dgr sedan" / "D mån". */
+export function relativDag(datum: string | null): string {
+  if (!datum) return '';
+  const dgr = dagarSedanLokal(datum);
+  if (dgr <= 0) return 'idag';
+  if (dgr === 1) return 'igår';
+  if (dgr < 7) return `för ${dgr} dgr sedan`;
+  const d = new Date(datum.length <= 10 ? `${datum}T00:00:00` : datum);
+  return d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+}
+
 export function pc(v: number, t: number): number {
   return t ? Math.min(100, Math.round(v / t * 100)) : 0;
 }
