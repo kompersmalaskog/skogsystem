@@ -583,6 +583,7 @@ export default function Arbetsrapport() {
   const [redKmKoordKälla, setRedKmKoordKälla] = useState<'maskin'|'objekt'|'larm'|null>(null);
   const [redAnl,   setRedAnl]   = useState("");
   const [redVy,    setRedVy]    = useState("översikt");
+  const [sparadKvittens, setSparadKvittens] = useState(false); // diskret "Sparat"-kvittens i redigera-vyn
   const [synkMin,  setSynkMin]  = useState<number|null>(null); // justerbar min i synk-avvikelsekortet
   const [redDagar, setRedDagar] = useState<Record<string, {start:string;slut:string;rast:number;km:number;anl:string}>>({});
   // Godkänd-status per period (YYYY-MM -> status) — hämtas från loneunderlag
@@ -1446,6 +1447,7 @@ export default function Arbetsrapport() {
     setRedAnl("");
     setRedObjektId(d2?.objekt_id || null);
     setRedMaskinId(d2?.maskin_id || null);
+    setSparadKvittens(false);
     setRedVy("översikt");
     setSteg("redigera");
   };
@@ -5085,7 +5087,22 @@ export default function Arbetsrapport() {
                       }, { onConflict: 'medarbetare_id,datum' });
                       if (!res.ok) throw new Error(res.fel);
                       setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
-                      setSteg("kalender");
+                      // STANNA i vyn: spegla de sparade värdena i redDag/dagData så
+                      // harÄndrat blir false → samma knappplats visar nu "Bekräfta
+                      // dagen". Rätta → spara → bekräfta, utan att lämna dagen.
+                      // redigerad förblir true (både rättad OCH underskriven).
+                      const sparad = {
+                        start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
+                        km_morgon: kmMorg, km_kvall: kmKvall, km_totalt: kmMorg + kmKvall,
+                        objekt_id: redObjektId || (redDag as any).objekt_id || null,
+                        maskin_id: redMaskinId || (redDag as any).maskin_id || null,
+                        redigerad: true,
+                      };
+                      setRedDag((d:any) => ({ ...d, ...sparad }));
+                      setDagData(dd => ({ ...dd, [(redDag as any).datum]: { ...(dd[(redDag as any).datum]||{}), ...sparad } }));
+                      setSparadKvittens(true);
+                      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+                      setTimeout(() => setSparadKvittens(false), 4000);
                     } catch(e) {
                       alert("Kunde inte spara — kontrollera anslutningen.");
                     }
@@ -5098,6 +5115,12 @@ export default function Arbetsrapport() {
             // passet är avslutat (eller saknas). Pågående pass visar väntetext.
             if (kanBekrafta) {
               return (<>
+                {sparadKvittens && (
+                  <div style={{ ...TYPE.meta, color:"#30d158", textAlign:"center", marginBottom:10, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:18 }}>check_circle</span>
+                    Sparat — tryck Bekräfta för att skriva under
+                  </div>
+                )}
                 <button
                   style={{ width:"100%",padding:"18px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}
                   onClick={async ()=>{
