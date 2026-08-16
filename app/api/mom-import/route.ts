@@ -273,11 +273,13 @@ export async function POST(req: NextRequest) {
       const dRast = Math.abs(momRast - (skyddad.rast_min || 0));
       const avviker = dStart > 1 || dSlut > 1 || dRast > 1;
 
-      // Kvittens-respekt: har föraren redan valt "behåll mina" mot EXAKT det
+      // Kvittens-respekt: har föraren redan KVITTERAT avvikelsen mot EXAKT det
       // här MOM-läget, rör vi inte fältet (annars skrev synken över hans beslut
-      // varje natt). Bara om MOM ändrats SEDAN kvittensen flaggar vi på nytt.
+      // varje natt). Gäller alla kvittens-former — behall_mina, markt_segment
+      // (tid märkt som dagsegment) och hoppad. Bara om MOM ändrats SEDAN
+      // kvittensen flaggar vi på nytt.
       const bef = skyddad.synk_avvikelse;
-      if (bef && bef.val === 'behall_mina'
+      if (bef && bef.kvitterad
           && bef.mom_start === momStart && bef.mom_slut === momSlut && bef.mom_rast_min === momRast) {
         continue;
       }
