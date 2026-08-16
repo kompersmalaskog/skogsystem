@@ -10231,7 +10231,7 @@ export default function PlannerPage() {
       onExit: () => setIsMeasuring(false),
       exitLabel: 'Avsluta',
     } : (skotningDrawing && !skotningPanel) ? {
-      label: 'Ny produktionshög',
+      label: 'Markera utkört',
       onExit: () => {
         setSkotningDrawing(false);
         const map = mapInstanceRef.current;
@@ -11513,7 +11513,7 @@ export default function PlannerPage() {
                 title: 'SKOTARE',
                 items: [
                   { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
-                  { label: 'Ny produktionshög', icon: 'edit', action: () => {
+                  { label: 'Markera utkört', icon: 'edit', action: () => {
                     const map = mapInstanceRef.current;
                     setSkotningDrawing(true);
                     setSkotningPolygon(null);
