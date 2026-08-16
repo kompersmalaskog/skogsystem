@@ -467,6 +467,10 @@ export default function PlannerPage() {
   // Markör-id:n som redan finns i DB (laddade + nya). Vaktas av spar-effekten längre ner så
   // en nyss utsatt markör persisteras direkt, och laddade markörer inte om-sparas i onödan.
   const persistedMarkerIdsRef = useRef<Set<string>>(new Set());
+  // DIRTY-TRACKING (A): senast PERSISTERADE JSON per markör-id. Synken/flushen skriver BARA markörer
+  // vars JSON skiljer sig från denna (lokalt ändrade/nya) — aldrig hela minnet blint. Så en markör som
+  // raderats av någon annan (annan flik/enhet/DB) och bara ligger orörd i minnet återinsätts ALDRIG.
+  const persistedSnapshotRef = useRef<Map<string, string>>(new Map());
   // Vilket objekt nuvarande `markers`-array faktiskt tillhör (sätts när load landar). Under
   // en LÅNGSAM laddning (dålig täckning i fält) hinner valtObjekt bytas medan `markers` ännu
   // är förra traktens — då gäller markersObjektIdRef ≠ valtObjekt.id och alla tre write-vägar
@@ -528,6 +532,7 @@ export default function PlannerPage() {
         // arrayen som DETTA objekt. Då kan föraren rita nytt som sparas HIT — DB-raderna är
         // orörda (upsert mergar) → inget tappas, och föraren fastnar aldrig i "kan inte spara".
         persistedMarkerIdsRef.current = new Set();
+        persistedSnapshotRef.current = new Map();
         markersObjektIdRef.current = valtObjekt.id;
         setMarkers([]);
       } else {
@@ -537,6 +542,7 @@ export default function PlannerPage() {
         // Seeda "redan sparad"-vakten så laddade markörer inte triggar en onödig om-save i
         // den omedelbara spar-effekten nedan (tom trakt → tom Set → inget att spara/skriva).
         persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id)));
+        persistedSnapshotRef.current = new Map(laddade.map(m => [String(m.id), JSON.stringify(m)]));
         // Markera att `markers` nu tillhör detta objekt → låser upp write-vägarna för det.
         markersObjektIdRef.current = valtObjekt.id;
         setMarkers(laddade);
@@ -601,6 +607,7 @@ export default function PlannerPage() {
       // Inget osparat kvar (ej upptagen) → DB-sanningen innehåller egna edits + andras. Ersätt tryggt.
       const laddade = (data || []).map((row: any) => row.data as Marker);
       persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id)));
+      persistedSnapshotRef.current = new Map(laddade.map(m => [String(m.id), JSON.stringify(m)]));
       setMarkers(laddade);
       setMarkersUppdateradAt(Date.now());
     } finally {
@@ -658,8 +665,14 @@ export default function PlannerPage() {
       syncTimeoutRef.current = null;   // debouncen har fyrat → inte längre "pending"
       sparPagarRef.current = true;     // men upserten pågår → refetch väntar tills DB har edits
       try {
-        // Upsert alla nuvarande markers
-        const rows = markers.map(m => ({
+        // DIRTY-ONLY (A): skriv BARA markörer vars JSON skiljer sig från senast persisterade — aldrig
+        // hela minnet blint. En markör som raderats externt och bara ligger orörd i minnet är INTE dirty
+        // → skrivs aldrig → kan inte återuppstå.
+        // ACCEPTERAT KANTFALL (edit vs delete): redigeras en markör lokalt SAMTIDIGT som den raderas i en
+        // annan session är den "dirty" här och återuppstår via denna upsert. Det är en äkta konflikt där
+        // båda utfall är försvarbara — vi väljer att LOKAL EDIT VINNER. Detta är avsiktligt, inte en miss.
+        const dirty = markers.filter(m => persistedSnapshotRef.current.get(String(m.id)) !== JSON.stringify(m));
+        const rows = dirty.map(m => ({
           objekt_id: valtObjekt.id,
           marker_id: String(m.id),
           typ: getMarkerTyp(m),
@@ -670,6 +683,7 @@ export default function PlannerPage() {
             .from('planering_markeringar')
             .upsert(rows, { onConflict: 'objekt_id,marker_id' });
           if (error) console.error('Sync markers fel:', error);
+          else dirty.forEach(m => persistedSnapshotRef.current.set(String(m.id), JSON.stringify(m)));
         }
       } finally {
         sparPagarRef.current = false;
@@ -691,6 +705,7 @@ export default function PlannerPage() {
       const id = String(m.id);
       if (!persistedMarkerIdsRef.current.has(id)) {
         persistedMarkerIdsRef.current.add(id);
+        persistedSnapshotRef.current.set(id, JSON.stringify(m)); // seed dirty-snapshot → synken re-skriver inte den nya
         saveMarkerToDb(m);
       }
     }
@@ -709,7 +724,11 @@ export default function PlannerPage() {
       if (document.visibilityState !== 'hidden') return;
       const { markers: ms, objektId, loaded } = flushDataRef.current;
       if (!objektId || !loaded || ms.length === 0 || markersObjektIdRef.current !== objektId) return;
-      const rows = ms.map(m => ({ objekt_id: objektId, marker_id: String(m.id), typ: getMarkerTyp(m), data: m }));
+      // DIRTY-ONLY (A), samma som synken: flusha bara lokalt ändrade/nya markörer, aldrig hela minnet
+      // → en externt raderad, orörd markör återinsätts inte vid bakgrundning. (Edit-vs-delete: edit vinner.)
+      const dirty = ms.filter(m => persistedSnapshotRef.current.get(String(m.id)) !== JSON.stringify(m));
+      if (dirty.length === 0) return;
+      const rows = dirty.map(m => ({ objekt_id: objektId, marker_id: String(m.id), typ: getMarkerTyp(m), data: m }));
       supabase.from('planering_markeringar')
         .upsert(rows, { onConflict: 'objekt_id,marker_id' })
         .then(({ error }) => { if (error) console.error('[Flush] markörer fel:', error); });
@@ -721,6 +740,24 @@ export default function PlannerPage() {
       window.removeEventListener('pagehide', flush);
     };
   }, []);
+
+  // === B: realtime DELETE på planering_markeringar → propagera raderingen till öppna sessioner ===
+  // Stänger fönstret där en radering i annan flik/enhet/DB annars aldrig når en öppen session.
+  // OBS (bevisat med probe): realtime DELETE-payloaden bär BARA serial-PK:n `id` — INTE marker_id/
+  // objekt_id, ÄVEN med REPLICA IDENTITY FULL (realtime levererar bara PK i `old`). Därför går det
+  // varken att server-filtrera på objekt_id eller mappa payloaden till en marker_id. Vi använder
+  // #372-mönstret: OFILTRERAD DELETE-lyssnare → refetcha objektet (throttlad 5 s, skjuts upp om
+  // osparat) → DB-sanningen släpper den raderade markören ur minnet. Med A (dirty-only) kan den
+  // dessutom aldrig skrivas tillbaka i mellantiden.
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    const channel = supabase.channel('markers-delete-' + valtObjekt.id)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'planering_markeringar' }, () => {
+        refetchMarkers(false);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [valtObjekt?.id, refetchMarkers]);
 
   // === AVLÄGG: Ladda sparad data från Supabase ===
   const avlaggLoadedRef = useRef(false);
