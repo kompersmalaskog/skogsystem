@@ -11,6 +11,7 @@ import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import type { VilaTrosklar } from "@/lib/vilobrott";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
+import { harledGap, valideraSegment } from "@/lib/dagsegment";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -197,6 +198,7 @@ const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','reparation'
 const SYNK_AVVIKELSE_TROSKEL_MIN = 30;
 const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
 const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';
+const segInput: CSSProperties = { width:"100%",boxSizing:"border-box",padding:"12px 14px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:10,color:"#fff",fontSize:16,fontFamily:"inherit" };
 
 /** Sekunder mellan start_tid (HH:MM eller HH:MM:SS) och nu. Returnerar 0 om start saknas. */
 const sekDiff = (start: string|null|undefined): number => {
@@ -625,6 +627,12 @@ export default function Arbetsrapport() {
 
   // historik redigering
   const [redDag,setRedDag]=useState(null);
+  // Dagsegment — tid MÄRKT inom en inloggad dag (brandvakt, markägare), redan
+  // betald, annoteras bara för fakturering. SKILD från extra_tid (som lönen adderar).
+  const [dagSegment, setDagSegment] = useState<any[]>([]);
+  const [segÖppen, setSegÖppen] = useState(false);
+  const [segForm, setSegForm] = useState<null | { start: string; slut: string; typ: AktivitetTyp; deb: boolean; kommentar: string; fromSynk?: boolean }>(null);
+  const [segFel, setSegFel] = useState<string | null>(null);
 
   // Väder
   const [vader, setVader] = useState<{
@@ -1436,6 +1444,71 @@ export default function Arbetsrapport() {
   // "glömde bekräfta"-bannern, och extra-tid-dagar routades i stället till
   // en avskalad tidslinje utan redigering/bekräfta — inkonsekvensen som var
   // buggen. Nu ser varje dag likadan ut.
+  // ── Dagsegment: ladda, öppna formulär, spara, ta bort ──
+  const laddaDagSegment = async (datum: string) => {
+    if (!medarbetare?.id) { setDagSegment([]); return; }
+    const { data } = await supabase.from('arbetsdag_segment')
+      .select('*').eq('medarbetare_id', medarbetare.id).eq('datum', datum)
+      .order('start_tid', { ascending: true });
+    setDagSegment(data || []);
+  };
+  const öppnaSegForm = (opts?: { gap?: { start: string; slut: string }; typ?: AktivitetTyp; fromSynk?: boolean }) => {
+    const typ = opts?.typ || 'markagare';
+    const rd: any = redDag;
+    setSegFel(null); setSegÖppen(true);
+    setSegForm({
+      start: opts?.gap?.start || rd?.start_tid?.slice(0,5) || "08:00",
+      slut:  opts?.gap?.slut  || rd?.slut_tid?.slice(0,5)  || "17:00",
+      typ,
+      deb: AKTIVITETER.find(a=>a.typ===typ)?.debDefault ?? false,
+      kommentar: "",
+      fromSynk: opts?.fromSynk,
+    });
+  };
+  const sparaSegment = async () => {
+    const rd: any = redDag;
+    if (!segForm || !medarbetare?.id || !rd) return;
+    const v = valideraSegment(
+      { start: segForm.start, slut: segForm.slut },
+      { start_tid: rd.start_tid || null, slut_tid: rd.slut_tid || null },
+      dagSegment.map((x:any) => ({ start_tid: x.start_tid, slut_tid: x.slut_tid })),
+    );
+    if (!v.ok) { setSegFel(v.fel); return; }
+    const { data, error } = await supabase.from('arbetsdag_segment').insert({
+      medarbetare_id: medarbetare.id, datum: rd.datum,
+      start_tid: segForm.start, slut_tid: segForm.slut,
+      aktivitet_typ: segForm.typ, debiterbar: segForm.deb,
+      kommentar: segForm.kommentar?.trim() || null,
+      kalla: segForm.fromSynk ? 'synk' : 'forare',
+    }).select().single();
+    if (error || !data) {
+      setSegFel((error as any)?.code === '23P01' ? 'Perioden överlappar en du redan märkt.' : SPARA_FEL);
+      return;
+    }
+    const nyaSegment = [...dagSegment, data].sort((x:any,y:any)=>(x.start_tid||'').localeCompare(y.start_tid||''));
+    setDagSegment(nyaSegment);
+    // Kom det från synk-kortet: kvittera avvikelsen (behåll klassificeringen,
+    // INGEN extra_tid — tiden är redan betald). Kvarstår ett odäckt gap
+    // (maskinen gick igång mitt på dagen igen) → lämna okvitterad så kortet
+    // visar nästa gap.
+    if (segForm.fromSynk && rd.synk_avvikelse && !rd.synk_avvikelse.kvitterad) {
+      const kvarGap = harledGap(rd.synk_avvikelse).filter(g =>
+        !nyaSegment.some((x:any) => x.start_tid.slice(0,5) < g.slut && g.start < x.slut_tid.slice(0,5)));
+      if (kvarGap.length === 0) {
+        const nyAvv = { ...rd.synk_avvikelse, kvitterad: new Date().toISOString(), val: 'markt_segment', aktivitet: segForm.typ, segment_id: data.id };
+        const res = await uppdateraVerifierat(supabase, 'arbetsdag', { synk_avvikelse: nyAvv }, { id: rd.id });
+        if (res.ok) setRedDag((d:any) => ({ ...d, synk_avvikelse: nyAvv }));
+      }
+    }
+    setSegForm(null); setSegFel(null);
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+  };
+  const taBortSegment = async (id: string) => {
+    const { error } = await supabase.from('arbetsdag_segment').delete().eq('id', id);
+    if (error) { alert('Kunde inte ta bort perioden.'); return; }
+    setDagSegment(d => d.filter((x:any) => x.id !== id));
+  };
+
   const öppnaRedigera = (datum: string) => {
     const d2 = dagData[datum];
     setRedDag({ ...(d2 || {}), datum });
@@ -1448,6 +1521,8 @@ export default function Arbetsrapport() {
     setRedObjektId(d2?.objekt_id || null);
     setRedMaskinId(d2?.maskin_id || null);
     setSparadKvittens(false);
+    setSegÖppen(false); setSegForm(null); setSegFel(null);
+    laddaDagSegment(datum);
     setRedVy("översikt");
     setSteg("redigera");
   };
@@ -4710,30 +4785,18 @@ export default function Arbetsrapport() {
             const rd: any = redDag;
             const a = rd?.synk_avvikelse;
             if (!a || a.kvitterad) return null;
+            if (segForm?.fromSynk) return null; // synk-formuläret öppet — göm kortet
             const confArb = Math.max(0, tim(a.bekraftad_start, a.bekraftad_slut) - (a.bekraftad_rast_min || 0));
             const momArb  = Math.max(0, tim(a.mom_start, a.mom_slut) - (a.mom_rast_min || 0));
             const delta = confArb - momArb;
             if (delta < SYNK_AVVIKELSE_TROSKEL_MIN) return null;
-            const avvMin = Math.max(0, synkMin ?? delta);
             const avvDatum = (() => { const _p = String(rd.datum || "").split("-"); return _p.length === 3 ? `${+_p[2]} ${månNamnKort[+_p[1]-1]}` : String(rd.datum || ""); })();
-            const stegBtn = { width:38,height:38,borderRadius:19,border:"none",background:"rgba(255,255,255,0.08)",color:"#fff",fontSize:22,cursor:"pointer",fontFamily:"inherit" } as const;
             const vibrera = () => { if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80); };
-            const kvittera = async (aktivitet: string | null) => {
-              let extra_tid_id: string | null = null;
-              if (aktivitet) {
-                const { data, error } = await supabase.from('extra_tid').insert({
-                  medarbetare_id: medarbetare.id, datum: rd.datum,
-                  minuter: avvMin, aktivitet_typ: aktivitet, kalla: 'under_dagen',
-                }).select().single();
-                if (error || !data) { alert(SPARA_FEL); return; }
-                extra_tid_id = data.id;
-                setExtraTidData(d => [data, ...d]);
-              }
-              const nyAvv = { ...a, kvitterad: new Date().toISOString(), val: 'behall_mina', aktivitet: aktivitet, extra_tid_id };
+            const hoppaÖver = async () => {
+              const nyAvv = { ...a, kvitterad: new Date().toISOString(), val: 'hoppad', aktivitet: null };
               const res = await uppdateraVerifierat(supabase, 'arbetsdag', { synk_avvikelse: nyAvv }, { id: rd.id });
               if (!res.ok) { alert(res.fel); return; }
-              setRedDag((d:any) => ({ ...d, synk_avvikelse: nyAvv }));
-              setSynkMin(null); vibrera();
+              setRedDag((d:any) => ({ ...d, synk_avvikelse: nyAvv })); vibrera();
             };
             const uppdateraTider = async () => {
               const res = await uppdateraVerifierat(supabase, 'arbetsdag',
@@ -4744,6 +4807,12 @@ export default function Arbetsrapport() {
               setDagData(dd => ({ ...dd, [rd.datum]: { ...(dd[rd.datum]||{}), start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null } }));
               setSynkMin(null); vibrera();
             };
+            // Var icke-maskintiden fanns — härlett ur avvikelsen (gap före/efter
+            // maskinpasset via delade libben). Redan täckta gap (segment finns)
+            // filtreras bort så kortet driver dig till nästa omärkta period.
+            const gaps = harledGap(a).filter(g =>
+              !dagSegment.some((x:any) => x.start_tid.slice(0,5) < g.slut && g.start < x.slut_tid.slice(0,5)));
+            const nästaGap = gaps[0];
             return (
               <Card style={{ padding:"16px 20px",border:"1px solid rgba(255,214,10,0.35)",marginBottom:16 }}>
                 <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
@@ -4762,25 +4831,29 @@ export default function Arbetsrapport() {
                     <p style={{ margin:"3px 0 0",fontSize:14,fontWeight:700,color:"#8e8e93",...TNUM }}>{fmt(momArb)}</p>
                   </div>
                 </div>
-                <p style={{ margin:"0 0 12px",fontSize:15,color:"#fff" }}>{fmt(delta)} var inte maskintid. Vad var det?</p>
-                <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:18,marginBottom:14 }}>
-                  <button onClick={()=>setSynkMin(Math.max(0,avvMin-10))} style={stegBtn}>-</button>
-                  <span style={{ fontSize:20,fontWeight:700,color:"#fff",minWidth:110,textAlign:"center",...TNUM }}>{fmt(avvMin)}</span>
-                  <button onClick={()=>setSynkMin(avvMin+10)} style={stegBtn}>+</button>
-                </div>
-                <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:14 }}>
-                  {EXTRA_ARBETE_TYPER.map(t => {
-                    const akt = AKTIVITETER.find(x=>x.typ===t)!;
-                    return (
-                      <button key={t} onClick={()=>kvittera(t)}
-                        style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 12px",background:"rgba(255,255,255,0.06)",border:"none",borderRadius:10,color:"#fff",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>
-                        <span className="material-symbols-outlined" style={{ fontSize:18 }}>{akt.icon}</span>{akt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <button onClick={uppdateraTider} style={{ ...btn.secondary,marginBottom:8 }}>Uppdatera till maskinens tider</button>
-                <button onClick={()=>kvittera(null)} style={{ width:"100%",padding:12,background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Hoppa over</button>
+                {nästaGap ? (<>
+                  <p style={{ margin:"0 0 4px",fontSize:15,color:"#fff" }}>
+                    Du var inloggad <b style={TNUM}>{nästaGap.start}–{nästaGap.slut}</b> ({fmt(nästaGap.minuter)}) utan att maskinen gick.
+                  </p>
+                  <p style={{ margin:"0 0 12px",fontSize:13,color:"#8e8e93" }}>
+                    Tiden är redan betald — märk vad du gjorde så den kan faktureras. Väljer du en aktivitet öppnas perioden ifylld.
+                  </p>
+                  <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:14 }}>
+                    {EXTRA_ARBETE_TYPER.map(t => {
+                      const akt = AKTIVITETER.find(x=>x.typ===t)!;
+                      return (
+                        <button key={t} onClick={()=>öppnaSegForm({ gap: nästaGap, typ: t, fromSynk: true })}
+                          style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 12px",background:"rgba(255,255,255,0.06)",border:"none",borderRadius:10,color:"#fff",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>
+                          <span className="material-symbols-outlined" style={{ fontSize:18 }}>{akt.icon}</span>{akt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>) : (
+                  <p style={{ margin:"0 0 12px",fontSize:15,color:"#fff" }}>{fmt(delta)} var inte maskintid.</p>
+                )}
+                <button onClick={uppdateraTider} style={{ ...btn.secondary,marginBottom:8 }}>Det var fel — använd maskinens tider</button>
+                <button onClick={hoppaÖver} style={{ width:"100%",padding:12,background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
               </Card>
             );
           })()}
@@ -4886,6 +4959,78 @@ export default function Arbetsrapport() {
                 </div>
               )}
             </Card>
+          )}
+
+          {/* Dagsegment — "Var du iväg en del av dagen?" Tid MÄRKT inom den
+              inloggade dagen (redan betald), annoteras för fakturering. Skild
+              från Loggad tid (extra_tid, som lönen adderar). Default hopfälld. */}
+          {redDag && (harData || dagSegment.length > 0) && (
+            <div style={{ marginTop:16 }}>
+              <Card style={{ padding:"4px 20px" }}>
+                <div onClick={()=>setSegÖppen(o=>!o)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",cursor:"pointer",borderBottom: segÖppen||dagSegment.length>0 ? `1px solid ${C.line}` : "none" }}>
+                  <span style={{ fontSize:16,color:"#fff" }}>Var du iväg en del av dagen?</span>
+                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                    {dagSegment.length>0 && <span style={{ fontSize:14,color:C.orange }}>{dagSegment.length} st</span>}
+                    <span className="material-symbols-outlined" style={{ fontSize:20,color:"rgba(255,255,255,0.35)",transform: segÖppen?"rotate(90deg)":"none",transition:"transform .15s" }}>chevron_right</span>
+                  </div>
+                </div>
+
+                {dagSegment.map((sg:any, i:number) => (
+                  <div key={sg.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom: (i<dagSegment.length-1||segÖppen) ? `1px solid ${C.line}` : "none",gap:10 }}>
+                    <div style={{ minWidth:0 }}>
+                      <span style={{ fontSize:15,color:"#fff" }}>{aktLabel(sg.aktivitet_typ)}</span>
+                      {sg.debiterbar && <span style={{ marginLeft:8,fontSize:12,color:"#30d158" }}>faktureras</span>}
+                      {sg.kalla==='synk' && <span style={{ marginLeft:8,fontSize:12,color:"#8e8e93" }}>via maskinavvikelse</span>}
+                      <div style={{ fontSize:13,color:"#8e8e93",...TNUM }}>{(sg.start_tid||'').slice(0,5)}–{(sg.slut_tid||'').slice(0,5)}{sg.kommentar?` · ${sg.kommentar}`:''}</div>
+                    </div>
+                    <button onClick={()=>taBortSegment(sg.id)} style={{ background:"none",border:"none",color:"#8e8e93",cursor:"pointer",padding:6,fontFamily:"inherit",flexShrink:0 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize:20 }}>delete</span>
+                    </button>
+                  </div>
+                ))}
+
+                {segÖppen && (segForm ? (
+                  <div style={{ padding:"14px 0 16px" }}>
+                    <div style={{ display:"flex",gap:10,marginBottom:12 }}>
+                      <label style={{ flex:1 }}>
+                        <span style={{ display:"block",fontSize:12,color:"#8e8e93",marginBottom:4 }}>Från</span>
+                        <input type="time" step={300} value={segForm.start} onChange={e=>setSegForm(f=>f?{...f,start:e.target.value}:f)} style={segInput} />
+                      </label>
+                      <label style={{ flex:1 }}>
+                        <span style={{ display:"block",fontSize:12,color:"#8e8e93",marginBottom:4 }}>Till</span>
+                        <input type="time" step={300} value={segForm.slut} onChange={e=>setSegForm(f=>f?{...f,slut:e.target.value}:f)} style={segInput} />
+                      </label>
+                    </div>
+                    <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:12 }}>
+                      {EXTRA_ARBETE_TYPER.map(t => {
+                        const akt = AKTIVITETER.find(x=>x.typ===t)!;
+                        const vald = segForm!.typ === t;
+                        return (
+                          <button key={t} onClick={()=>setSegForm(f=>f?{...f,typ:t,deb:akt.debDefault}:f)}
+                            style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 12px",background: vald?"rgba(255,159,10,0.18)":"rgba(255,255,255,0.06)",border: vald?"1px solid rgba(255,159,10,0.5)":"1px solid transparent",borderRadius:10,color:"#fff",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>
+                            <span className="material-symbols-outlined" style={{ fontSize:18 }}>{akt.icon}</span>{akt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div onClick={()=>setSegForm(f=>f?{...f,deb:!f.deb}:f)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",cursor:"pointer" }}>
+                      <span style={{ fontSize:15,color:"#fff" }}>Ska faktureras</span>
+                      <span className="material-symbols-outlined" style={{ fontSize:26,color: segForm.deb?"#30d158":"#48484a" }}>{segForm.deb?"toggle_on":"toggle_off"}</span>
+                    </div>
+                    <input value={segForm.kommentar} onChange={e=>setSegForm(f=>f?{...f,kommentar:e.target.value}:f)} placeholder="Kommentar (valfritt)" style={{ ...segInput,marginTop:8 }} />
+                    {segFel && <p style={{ margin:"10px 0 0",fontSize:13,color:"#ff453a" }}>{segFel}</p>}
+                    <div style={{ display:"flex",gap:10,marginTop:14 }}>
+                      <button onClick={()=>{ setSegForm(null); setSegFel(null); }} style={{ ...btn.secondary,flex:1,marginTop:0 }}>Avbryt</button>
+                      <button onClick={sparaSegment} style={{ flex:1,padding:"14px",background:C.orange,color:"#fff",border:"none",borderRadius:12,fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>Spara period</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={()=>öppnaSegForm()} style={{ display:"flex",alignItems:"center",gap:8,width:"100%",padding:"14px 0",background:"none",border:"none",color:C.orange,fontSize:15,cursor:"pointer",fontFamily:"inherit" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:20 }}>add</span>Lägg till period
+                  </button>
+                ))}
+              </Card>
+            </div>
           )}
 
           {/* Loggad tid — extra_tid-poster för dagen */}
