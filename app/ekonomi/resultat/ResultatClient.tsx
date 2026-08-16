@@ -12,11 +12,14 @@
 // neutrala/dämpade — ALDRIG bärnsten (bärnsten = preliminärt i sektionen).
 
 import { useEffect, useState, useCallback } from 'react';
-import { type PeriodType, getPeriodDates, getPeriodLabel } from '@/lib/ekonomi/period';
+import { supabase } from '@/lib/supabase';
+import { g15Sek } from '@/lib/g15';
+import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
 import {
   EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad, SektionsTitel,
-  Laddar, FelRuta, Tomt, GRON, ROD,
+  Laddar, FelRuta, Tomt, GRON, ROD, BARNSTEN,
 } from '../delade/mall';
+import { vardeminskningPeriod, type MaskinVardeminskning } from '@/lib/ekonomi/vardeminskning';
 
 type Kostnader = { drivmedel: number; drift_service: number; loner: number; avskrivning: number; ovrigt: number; total: number };
 
@@ -31,6 +34,7 @@ type MaskinResult = {
   intakter?: number;
   kostnader?: Kostnader;
   resultat?: number;
+  vardeminskning_grund?: MaskinVardeminskning;  // rådata — helpern räknar
 };
 
 type Sammanfattning = {
@@ -72,13 +76,41 @@ export default function ResultatClient() {
   const [antalRader, setAntalRader] = useState(0);   // ärligt tomt: 0 bokförda rader ≠ 0 kr vinst
   const [ccOpen, setCcOpen] = useState(false);       // per kostnadsställe-sektionen uppfälld
   const [infoOpen, setInfoOpen] = useState(false);
+  // Periodens G15-timmar per maskin (fakt_tid via g15Sek) — grunden för
+  // värdeminskningen: kr/G15-tim × faktiskt körda timmar. null = kunde inte
+  // läsas (ärligt: då visas ingen värdeminskning, aldrig en gissad nolla).
+  const [g15PerMaskin, setG15PerMaskin] = useState<Record<string, number> | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
-      const r = await fetch(`/api/fortnox/result-per-costcenter?fromdate=${start}&todate=${end}`, { cache: 'no-store' });
+      // Fortnox-rapporten + periodens G15-timmar parallellt. Timmarna får
+      // inte fälla hela vyn — fel där ger g15PerMaskin=null (värdeminskning
+      // visas inte) medan bokföringen renderas som vanligt.
+      const [r, g15Res] = await Promise.all([
+        fetch(`/api/fortnox/result-per-costcenter?fromdate=${start}&todate=${end}`, { cache: 'no-store' }),
+        (async () => {
+          try {
+            const rows = await fetchAllRows((from, to) =>
+              supabase.from('fakt_tid')
+                .select('maskin_id, processing_sek, terrain_sek, other_work_sek')
+                .gte('datum', start).lte('datum', end)
+                .range(from, to)
+            );
+            const agg: Record<string, number> = {};
+            for (const rad of rows) {
+              agg[rad.maskin_id] = (agg[rad.maskin_id] || 0)
+                + g15Sek(rad.processing_sek, rad.terrain_sek, rad.other_work_sek) / 3600;
+            }
+            return agg;
+          } catch {
+            return null;
+          }
+        })(),
+      ]);
+      setG15PerMaskin(g15Res);
       const body = await r.json();
       if (!r.ok || !body.ok) {
         setMaskiner([]);
@@ -112,14 +144,36 @@ export default function ResultatClient() {
   const utanKostAktiv = utanKost != null && (utanKost.intakter !== 0 || utanKost.kostnader.total !== 0);
   const ccAntal = maskiner.length + ovriga.length + (utanKostAktiv ? 1 : 0);
   const sheetH = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 } as const;
+  const barnstenFarg = `rgba(${BARNSTEN},0.9)`;
+
+  // ── Verklig värdeminskning (KALKYL — alltid bärnsten, aldrig som en
+  // Fortnox-siffra). Ponsse-modellen: kr/G15-tim × maskinens FAKTISKA
+  // G15-timmar i perioden — självjusterande och självperiodiserande.
+  // Sålda maskiner och saknat kr/tim får null av helpern → ingen rad.
+  // g15PerMaskin === null (kunde inte läsas) → ingen värdeminskning visas,
+  // aldrig en gissad nolla.
+  const { start: periodStart } = getPeriodDates(period, periodOffset);
+  const forAr = Number(periodStart.slice(0, 4));
+  const vmForMaskin = (m: MaskinResult): number | null => {
+    if (g15PerMaskin == null) return null;
+    return vardeminskningPeriod(m.vardeminskning_grund || {}, g15PerMaskin[m.maskin_id] || 0, forAr);
+  };
+  const sumVm = maskiner.reduce((s2, m) => s2 + (vmForMaskin(m) || 0), 0);
+  // Dubbelräkningsvakt: bokförs 78xx (vid bokslut) mäter den SAMMA sak som
+  // kalkylen — båda samtidigt vore dubbel kostnad. Varna, räkna aldrig ihop.
+  const dubbelRisk = sumVm > 0 && tot != null && Math.abs(tot.kostnader.avskrivning) > 0.5;
 
   // En rad i per kostnadsställe-uppfällningen — maskin, övrigt CC eller utan CC
-  const ccRad = (key: string, rubrik: React.ReactNode, koder: string | null, intakter: number, kostnader: number, resultat: number, sista: boolean) => (
+  const ccRad = (key: string, rubrik: React.ReactNode, koder: string | null, intakter: number, kostnader: number, resultat: number, vmPeriod: number | null, sista: boolean) => (
     <ListRad key={key}
       rubrik={<>{rubrik}{koder && <span style={{ color: '#7a7a72', fontWeight: 400 }}> · {koder}</span>}</>}
-      detalj={`intäkt ${formatKr(intakter)} · kostnad ${formatKr(kostnader)}`}
+      detalj={<>
+        intäkt {formatKr(intakter)} · kostnad {formatKr(kostnader)}
+        {vmPeriod != null && <span style={{ color: barnstenFarg }}> · värdeminskning {formatKr(vmPeriod)} (kalkyl)</span>}
+      </>}
       tal={fmtSign(resultat)}
       talFarg={resFarg(resultat)}
+      undertal={vmPeriod != null ? <span style={{ color: barnstenFarg }}>{fmtSign(resultat - vmPeriod)} efter värdem.</span> : undefined}
       sista={sista}
     />
   );
@@ -156,16 +210,25 @@ export default function ResultatClient() {
 
       {!loading && !error && harData && tot && (
         <div style={{ padding: '0 16px' }}>
-          {/* Hero — bokförd vinst, signerat tal → grönt/rött */}
+          {/* Hero — BOKFÖRT resultat (Fortnox). Under: den sanna ägar-
+              ekonomin efter verklig värdeminskning — tydligt skild rad,
+              kalkyl-ordet i bärnsten så den aldrig läses som bokförd. */}
           <Hero
-            etikett={tot.resultat >= 0 ? 'Vinst' : 'Förlust'}
+            etikett={tot.resultat >= 0 ? 'Vinst (bokfört)' : 'Förlust (bokfört)'}
             varde={`${fmtSign(tot.resultat)} kr`}
             vardeFarg={resFarg(tot.resultat)}
-            under={
+            under={<>
               <div style={{ fontSize: 13, color: '#bfcab9', marginTop: 10 }}>
                 Intäkt {formatKr(tot.intakter)} · Kostnad {formatKr(tot.kostnader.total)}
               </div>
-            }
+              {sumVm > 0 && (
+                <div style={{ fontSize: 15, marginTop: 10, fontVariantNumeric: 'tabular-nums' }}>
+                  <span style={{ color: resFarg(tot.resultat - sumVm) }}>{fmtSign(tot.resultat - sumVm)} kr</span>
+                  <span style={{ color: '#7a7a72' }}> efter verklig värdeminskning</span>
+                  <span style={{ color: barnstenFarg }}> · kalkyl</span>
+                </div>
+              )}
+            </>}
           />
           <MetaRad delar={[{ text: 'bokfört ur Fortnox — inte samma tal som Översiktens "vi körde in"' }]} />
 
@@ -181,11 +244,26 @@ export default function ResultatClient() {
                   rubrik={namn}
                   tal={formatKr(v)}
                   stapelAndel={andel}
-                  sista={i === KATEGORIER.length - 1}
+                  sista={i === KATEGORIER.length - 1 && !(sumVm > 0)}
                 />
               );
             })}
+            {/* Värdeminskningen är en KALKYL — bärnsten rakt igenom, ingen
+                stapel (den ingår inte i den bokförda totalen ovan) */}
+            {sumVm > 0 && (
+              <ListRad
+                rubrik={<>Värdeminskning<span style={{ color: barnstenFarg, fontWeight: 400, fontSize: 11 }}> · kalkyl, ej bokförd</span></>}
+                tal={formatKr(sumVm)}
+                talFarg={barnstenFarg}
+                sista
+              />
+            )}
           </Lista>
+          {dubbelRisk && (
+            <div style={{ fontSize: 11, color: barnstenFarg, marginTop: 10, padding: '0 4px', textAlign: 'center', lineHeight: 1.5 }}>
+              Bokförd avskrivning (78xx) finns i perioden — den och värdeminskningen (kalkyl) mäter samma sak. Räkna inte båda.
+            </div>
+          )}
 
           {/* Per kostnadsställe — kollapsad sektion, samma mönster som
               Mot ackords "Per maskin". Maskiner + övriga CC + utan CC. */}
@@ -207,6 +285,7 @@ export default function ResultatClient() {
                     m.intakter || 0,
                     m.kostnader?.total || 0,
                     m.resultat || 0,
+                    vmForMaskin(m),
                     i === maskiner.length - 1 && ovriga.length === 0 && !utanKostAktiv,
                   ))}
                   {ovriga.map((o, i) => ccRad(
@@ -216,6 +295,7 @@ export default function ResultatClient() {
                     o.intakter,
                     o.kostnader.total,
                     o.resultat,
+                    null,
                     i === ovriga.length - 1 && !utanKostAktiv,
                   ))}
                   {utanKostAktiv && utanKost && ccRad(
@@ -225,6 +305,7 @@ export default function ResultatClient() {
                     utanKost.intakter,
                     utanKost.kostnader.total,
                     utanKost.resultat,
+                    null,
                     true,
                   )}
                 </div>
@@ -270,6 +351,10 @@ export default function ResultatClient() {
               <div>
                 <div style={sheetH}>Bara månad och uppåt</div>
                 Kostnader bokförs inte per dag — en dags- eller veckovinst vore brus, inte fakta.
+              </div>
+              <div>
+                <div style={{ ...sheetH, color: barnstenFarg }}>Verklig värdeminskning — kalkyl</div>
+                Bokförd avskrivning (78xx) är skattestyrd och bokas vid bokslut — en maskin kan stå nedskriven till nästan noll fast den är värd miljoner. Värdeminskningen här är vår egen kalkyl med maskinsäljarens modell: kr per G15-timme (skördare ~300–500, skotare ~250–350 första ~4000 h; sätts per maskin i Inställningar) × maskinens faktiskt körda G15-timmar i perioden. Självjusterande — mer körning betyder mer slitage, en stillastående maskin kostar inget. Den visas alltid i bärnsten och blandas aldrig in i de bokförda talen. &quot;Efter verklig värdeminskning&quot; = bokfört resultat minus kalkylen — den sanna ägarekonomin. Sålda maskiner bär ingen värdeminskning framåt. Skulle bokförd avskrivning (78xx) dyka upp i en period varnar vyn — de två mäter samma sak och får aldrig räknas ihop.
               </div>
             </div>
             <button onClick={() => setInfoOpen(false)} style={{

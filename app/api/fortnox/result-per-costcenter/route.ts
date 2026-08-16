@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
     const supabase = serverSupabase();
     const [mapRes, maskinRes, ccRes, syncRes] = await Promise.all([
       supabase.from("maskin_kostnadsstalle").select("maskin_id, kostnadsstalle_kod"),
-      supabase.from("dim_maskin").select("maskin_id, modell, maskin_typ"),
+      supabase.from("dim_maskin").select("maskin_id, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum"),
       // Fortnox costcenters är liten och statisk — vi kan kalla den direkt.
       (async () => {
         try {
@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
       supabase.from("fortnox_sync_state").select("*").eq("id", 1).maybeSingle(),
     ]);
     const mappningar: { maskin_id: string; kostnadsstalle_kod: string }[] = mapRes.data || [];
-    const maskinMap: Record<string, { modell: string | null; maskin_typ: string | null }> = {};
+    const maskinMap: Record<string, any> = {};
     for (const m of (maskinRes.data || [])) maskinMap[m.maskin_id] = m;
     const costCenters: { Code: string; Description?: string; Active?: boolean }[] = ccRes.data || [];
     const sync = syncRes.data;
@@ -176,6 +176,14 @@ export async function GET(req: NextRequest) {
         maskin_id: maskinId,
         maskin_namn: maskinInfo?.modell || maskinId,
         maskin_typ: maskinInfo?.maskin_typ || null,
+        // Rådata för verklig värdeminskning (KALKYL, ej bokförd) — klienten
+        // räknar kr/G15-tim × periodens G15-timmar via
+        // lib/ekonomi/vardeminskning.ts, EN delad plats.
+        vardeminskning_grund: {
+          vardeminskning_kr_per_g15h: maskinInfo?.vardeminskning_kr_per_g15h ?? null,
+          sald: maskinInfo?.sald ?? null,
+          sald_datum: maskinInfo?.sald_datum ?? null,
+        },
         // Bevara primär-fältet för bakåtkompat — första CC:n
         kostnadsstalle: kostnadsstallen[0],
         kostnadsstallen, // hela listan för UI-chips
