@@ -656,6 +656,19 @@ export default function PlannerPage() {
     if (error) console.error('Ta bort markering fel:', error);
   }, [valtObjekt?.id]);
 
+  // Numrera om: UPDATE-only av en befintlig rads data (ALDRIG upsert). En UPDATE på ett borttaget
+  // marker_id träffar 0 rader → kan omöjligt återuppliva en raderad väg. Stänger kapplöpningen
+  // (renumber som råkar läsa en stale rad kan ändå inte inserta tillbaka den).
+  const updateMarkerDataInDb = useCallback(async (marker: Marker) => {
+    if (!valtObjekt?.id) return;
+    const { error } = await supabase
+      .from('planering_markeringar')
+      .update({ data: marker })
+      .eq('objekt_id', valtObjekt.id)
+      .eq('marker_id', String(marker.id));
+    if (error) console.error('Numrera om (update) fel:', error);
+  }, [valtObjekt?.id]);
+
   // Synka markers till Supabase vid ändringar (debounced)
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
@@ -6152,6 +6165,34 @@ export default function PlannerPage() {
     ordning.forEach((m: any) => saveMarkerToDb({ ...m, nummer: nya.get(String(m.id))! }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markers, markersLoaded, valtObjekt?.id]);
+
+  // MANUELL omnumrering av basvägar (aldrig automatisk — radering lämnar FORTSATT luckor).
+  // Numrerar om ALLA basvägar på objektet till tät följd 1..N, i ordning efter NUVARANDE nummer
+  // (lägst först — inte skapelsedatum/geografi). EN sanning: markers-state uppdateras (kartetikett
+  // + kort läser därifrån), bara ändrade rader sparas. Nästa nya väg får N+1 automatiskt via
+  // numrerings-effektens maxN ovan (den räknar maxN ur befintliga nummer → N+1).
+  const numreraOmBasvagar = () => {
+    // Läs AKTUELLT state (markersRef), aldrig `markers`-closuren — en nyss raderad väg får inte
+    // finnas kvar i snapshot:en och råka få ett nummer + skrivas tillbaka.
+    const mainRoads = markersRef.current.filter((m: any) => m.isLine && m.lineType === 'mainRoad');
+    if (mainRoads.length === 0) return;
+    const ordning = [...mainRoads].sort((a: any, b: any) => {
+      const an = typeof a.nummer === 'number' ? a.nummer : Infinity;
+      const bn = typeof b.nummer === 'number' ? b.nummer : Infinity;
+      return an !== bn ? an - bn : Number(a.id) - Number(b.id); // onumrerade sist (id-rang)
+    });
+    if (!window.confirm(`Numrera om ${mainRoads.length} basvägar? Nummer som redan kommunicerats (t.ex. till förare) kommer att ändras.`)) return;
+    const nya = new Map<string, number>();
+    ordning.forEach((m: any, i: number) => nya.set(String(m.id), i + 1));
+    const changed = ordning.filter((m: any) => m.nummer !== nya.get(String(m.id)));
+    setMarkers((prev: any[]) => prev.map((m: any) => {
+      const n = nya.get(String(m.id));
+      return n != null ? { ...m, nummer: n } : m;
+    }));
+    // UPDATE-only (aldrig upsert) → kan aldrig återuppliva en raderad väg, även vid kapplöpning.
+    changed.forEach((m: any) => updateMarkerDataInDb({ ...m, nummer: nya.get(String(m.id))! }));
+    if (navigator.vibrate) navigator.vibrate(30);
+  };
 
   // 2) Synka zoner → MapLibre zones-source
   useEffect(() => {
@@ -12886,6 +12927,23 @@ export default function PlannerPage() {
                   </div>
                 );
               })()}
+
+              {/* Numrera om alla basvägar — MANUELL (radering lämnar fortsatt luckor). Global åtgärd; bekräftas. */}
+              {marker.isLine && marker.lineType === 'mainRoad' && (
+                <button
+                  type="button"
+                  onClick={numreraOmBasvagar}
+                  className="btn-press"
+                  style={{
+                    display: 'block', margin: '0 auto 16px', padding: '8px 16px',
+                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '10px', color: '#fff', fontSize: '13px', fontWeight: '600',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  Numrera om basvägar
+                </button>
+              )}
 
               {/* Foto - klickbart för fullskärm */}
               {marker.photoData && (
