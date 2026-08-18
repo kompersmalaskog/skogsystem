@@ -9745,16 +9745,15 @@ export default function PlannerPage() {
     const mal = alla.find(m => String(m.id) === String(mergePrompt.malId));
     if (!ny || !mal || !ny.path || !mal.path || ny.path.length < 2 || mal.path.length < 2) { setMergePrompt(null); return; }
 
-    const numOf = (x: Marker) => (typeof x.nummer === 'number' ? x.nummer : Infinity);
-    const overlevare = numOf(mal) <= numOf(ny) ? mal : ny;
-    const absorberad = overlevare === mal ? ny : mal;
-    // Vilken ände av var väg som är skarven (mergePrompt.nyEnd/malEnd gäller ny/mal).
-    const skarvEnd = (road: Marker): 'start' | 'slut' => (String(road.id) === String(ny.id) ? mergePrompt.nyEnd : mergePrompt.malEnd);
+    // Överlevaren är ALLTID den befintliga vägen (mal) — dess nummer är förarens adress ("kör 3 först").
+    // Den nyritade (ny) absorberas. En ny basväg får alltid det HÖGSTA numret (maxN+1) → mal ≤ ny.
+    const overlevare = mal;
+    const absorberad = ny;
 
-    // Orientera överlevaren så skarven ligger SIST, absorberad så skarven ligger FÖRST → sammanhängande path.
+    // Orientera: överlevarens skarv-ände SIST, absorberadens skarv-ände FÖRST → sammanhängande path.
     // Hörnen flyttas ALDRIG (bara ordning) → RISA-koordinater (absoluta SVG-punkter) förblir identiska.
-    const oPath: Point[] = skarvEnd(overlevare) === 'slut' ? [...(overlevare.path as Point[])] : [...(overlevare.path as Point[])].reverse();
-    const aPath: Point[] = skarvEnd(absorberad) === 'start' ? [...(absorberad.path as Point[])] : [...(absorberad.path as Point[])].reverse();
+    const oPath: Point[] = mergePrompt.malEnd === 'slut' ? [...(mal.path as Point[])] : [...(mal.path as Point[])].reverse();
+    const aPath: Point[] = mergePrompt.nyEnd === 'start' ? [...(ny.path as Point[])] : [...(ny.path as Point[])].reverse();
 
     // Bygg path. Hoppa BARA absorberadens första punkt om den ~sammanfaller med överlevarens sista
     // (< 0.5 m) → ingen dubblerad skarvpunkt. Annars behåll ≤18 m-bryggan → sammanhängande utan hopp.
@@ -9765,12 +9764,23 @@ export default function PlannerPage() {
       merged.push(pt);
     }
 
-    const kommentarer = [overlevare.comment, absorberad.comment].filter(Boolean) as string[];
-    // RISA följer orört med (koordinatbaserat — inga hörn flyttas). Dual-RISA når aldrig hit (blockeras i kortet).
-    const risa = (overlevare.risaPath && overlevare.risaPath.length >= 2) ? overlevare.risaPath
-               : (absorberad.risaPath && absorberad.risaPath.length >= 2) ? absorberad.risaPath : undefined;
+    // NUMMER: behåll det LÄGSTA och sätt det EXPLICIT. Källor: mergePrompt.malNummer (fångat vid detektion,
+    // tillförlitligt) + mal.nummer + ny.nummer. Utan explicit sättning kunde en stale/onumrerad överlevare
+    // i markersRef (t.ex. om en refetch hann läsa tillbaka vägen INNAN numreringseffekten hade skrivit dess
+    // nummer till DB) göra sammanslagen onumrerad → numreringseffekten (rad ~6150) delade då ut maxN+1
+    // (buggen: nr 4 blev 6, numret är förarens adress). Explicit nummer → effekten ser den numrerad, rör den ej.
+    const nrKandidater = [mal.nummer, mergePrompt.malNummer, ny.nummer].filter((n): n is number => typeof n === 'number');
+    const behalletNummer = nrKandidater.length ? Math.min(...nrKandidater) : undefined;
 
+    const kommentarer = [mal.comment, ny.comment].filter(Boolean) as string[];
+    // RISA följer orört med (koordinatbaserat — inga hörn flyttas). Dual-RISA når aldrig hit (blockeras i kortet).
+    const risa = (mal.risaPath && mal.risaPath.length >= 2) ? mal.risaPath
+               : (ny.risaPath && ny.risaPath.length >= 2) ? ny.risaPath : undefined;
+
+    // Behåll ALLA överlevarens fält (id, tillstånd, gpsRecorded, roadCheck …). Ändra BARA det mergen avser:
+    // path (ihopsydd), nummer (lägsta, explicit), comment (join), risaPath (bevarad).
     const sammanslagen: Marker = { ...overlevare, path: merged };
+    if (typeof behalletNummer === 'number') sammanslagen.nummer = behalletNummer;
     if (kommentarer.length) sammanslagen.comment = kommentarer.join('\n'); else delete (sammanslagen as any).comment;
     if (risa) sammanslagen.risaPath = risa; else delete (sammanslagen as any).risaPath;
 
