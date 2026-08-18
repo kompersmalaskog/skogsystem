@@ -550,22 +550,23 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   const bolagLista = Array.from(new Set(objekt.map(o => o.bolag).filter(Boolean))) as string[];
   const selectedObj = sel ? objekt.find(o => o.id === sel) : null;
 
-  // Effektiv status-hink: skotaren KÖR (färsk igång) på ett annars avslutat objekt räknas som PÅGÅR,
-  // inte Klar — så "Pågår" fångar BÅDA maskinerna (skördare pågående ELLER skotare igång). Härlett ur
-  // samma skordMap som redan finns (ingen ny hämtning, inga nya fält). Klar = helt klar (båda maskinerna).
+  // Effektiv status-hink — ett jobb är inte klart förrän virket är ute. Ett annars avslutat objekt
+  // räknas som PÅGÅR så länge skotaren har jobb kvar: skotare IGÅNG (kör) ELLER VÄNTAR (skördat finns,
+  // virke på backen, ingen/ej klar skotning). KLAR = helt klart (skotat ≈ skördat eller manuell reg).
+  // Härlett ur samma skordMap som redan finns (ingen ny hämtning, inga nya fält).
   const effektivHink = (o: OversiktObjekt): StatusBucket => {
     const b = statusBucket(o.status);
     if (b !== 'klar') return b;
     const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
     const info = s ? skotarTillstand(s.skordat, s.skotat, s.harManuell, s.lassSista) : null;
-    return info?.state === 'igang' && info.fersk ? 'pagar' : 'klar';
+    return info && (info.state === 'igang' || info.state === 'vantar') ? 'pagar' : 'klar';
   };
 
   // Aktiva = att planera + att köra + pågår (rubrikräkning, oberoende av valt filter).
   const aktiva = objekt.filter(o => effektivHink(o) !== 'klar');
-  // Total volym "på backen" (skördat − skotat) över aktiva objekt — samma m³fub-data som redan
-  // finns i skordMap, bara summerad (ingen ny hämtning). Aktiva är aldrig avslutade → skotat null
-  // räknas som 0 (ärligt: skotaren har inte börjat). Visas i rubriken bara när > 0.
+  // Total volym "på backen" (skördat − skotat) över aktiva objekt — samma m³fub-data som redan finns
+  // i skordMap, bara summerad (ingen ny hämtning). Aktiva inkluderar nu väntar-objekt (avslutad status
+  // men virke på backen); skotat null räknas som 0 (ärligt: skotaren har inte börjat). Visas när > 0.
   const totalBacken = aktiva.reduce((sum, o) => {
     const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
     if (!s || !s.skordat) return sum;
@@ -586,10 +587,11 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   // Valt segment tömt (hinken försvann) → fall tillbaka på 'Alla'.
   const statusFEff: StatusFilter = segment.some(s => s.k === statusF) ? statusF : 'alla';
 
-  // Status-filter: "Alla" = aktiva (ej klar); annars = vald hink. Effektiv hink → skotare-igång fångas i Pågår.
+  // Status-filter: "Alla" = ALLA objekt (aktiva först, klara sist via status-sorteringen), oberoende av
+  // kartans Avslutade-toggle; annars = vald hink. Effektiv hink → skotare igång/väntar fångas i Pågår.
   let li = objekt.filter(o => {
     const b = effektivHink(o);
-    return statusFEff === 'alla' ? b !== 'klar' : b === statusFEff;
+    return statusFEff === 'alla' ? true : b === statusFEff;
   });
   li = li.filter(o => bolagF === 'alla' || o.bolag === bolagF);
   li = li.filter(o => typF === 'alla' || klassaObjektTyp(o) === typF);
@@ -676,7 +678,9 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     // skotaren kör här nu → förklarar varför ett klart-skördat objekt (t.ex. Jätsbygd) ligger i Pågår.
     const kortSkotar = skotarTillstand(kortSkordat, kortSkotatVal, kortSkord?.harManuell ?? false, kortSkord?.lassSista ?? null);
     const kortIgang = kortSkotar?.state === 'igang';
-    const visaBacken = kortSkordat > 0 && kortKand && kortBacken > 0 && !kortIgang;   // igång-raden visar redan "kvar" → ingen dubbel chip
+    const kortVantar = kortSkotar?.state === 'vantar';
+    const kortPaBacken = kortIgang || kortVantar;   // skotar-raden bär fasen (igång / väntar · X på backen)
+    const visaBacken = kortSkordat > 0 && kortKand && kortBacken > 0 && !kortPaBacken;   // skotar-raden visar redan "kvar"
     return (
       <div key={o.id} onClick={() => setSel(o.id)} style={{
         display: 'flex', alignItems: 'center', gap: 12,
@@ -721,8 +725,9 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
               </span>
             </div>
           )}
-          {/* Skotaren kör här nu — grön rad (samma härledda tillstånd) → visar varför ett klart-skördat objekt ligger i Pågår */}
-          {kortIgang && kortSkotar && <SkotarRad info={kortSkotar} style={{ marginTop: 6 }} />}
+          {/* Skotarens fas — grön "igång" (kör nu) eller grå "väntar · X på backen"; visar varför ett
+              klart-skördat objekt ligger i Pågår (virket är inte ute än). */}
+          {kortPaBacken && kortSkotar && <SkotarRad info={kortSkotar} style={{ marginTop: 6 }} />}
         </div>
         {/* Chevron */}
         <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t4, flexShrink: 0 }}>chevron_right</span>
