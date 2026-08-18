@@ -162,9 +162,25 @@ def normalize_maskin_id(maskin_id: str, tillverkare: str = '') -> str:
         return f"R{maskin_id}"
     return maskin_id
 
+# ── Historiska vo-byten ───────────────────────────
+# En trakt kan få ett NYTT vo efter en dags körning; gamla vo:t ligger kvar i de äldre
+# filernas innehåll. Utan remap återskapar en re-import av de gamla filerna produktionen
+# under gamla vo:t = ett dubbelräknat spöke i uppföljningen (nya kumulativa filer bär redan
+# nya vo:t, så dedup slår ihop det som ska finnas). MÅSTE hållas identisk i båda importörerna.
+VO_REMAP = {
+    '11077137': '11240372',  # Rössmåla Ga 2026 — vo-byte efter 2026-08-05 (utrett + migrerat 2026-08-18)
+}
+
+
+def remap_vo(vo_nummer):
+    """Mappa historiskt utbytt vo → gällande vo (annars oförändrat)."""
+    return VO_REMAP.get((vo_nummer or '').strip(), (vo_nummer or '').strip())
+
+
 def make_objekt_id(vo_nummer: str, maskin_id: str, obj_key: str) -> str:
-    if vo_nummer and vo_nummer.strip().isdigit():
-        return vo_nummer.strip()
+    vo = remap_vo(vo_nummer)
+    if vo.isdigit():
+        return vo
     return f"{maskin_id}_{obj_key}"
 
 
@@ -172,7 +188,7 @@ def make_objekt_nyckel(maskin_id: str, vo_nummer: str, obj_key: str) -> Optional
     """Stabil kompositnyckel per objekt för snapshot-dedup (oberoende av objekt-tabellen).
     Format: '<maskin_id>:<numeriskt vo_nummer>'  annars  '<maskin_id>:k<ObjectKey>'.
     Kompositen (maskin_id:) undviker krock mellan maskiner/objekt på korta vo-nummer."""
-    vo = (vo_nummer or '').strip()
+    vo = remap_vo(vo_nummer)
     ok = (obj_key or '').strip()
     ident = vo if vo.isdigit() else (f"k{ok}" if ok else None)
     if not maskin_id or ident is None:
