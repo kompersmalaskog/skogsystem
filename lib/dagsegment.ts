@@ -31,6 +31,38 @@ export function harledGap(a: {
   return gaps.sort((x, y) => y.minuter - x.minuter)
 }
 
+/** Varaktighet i minuter (för extra_tid.minuter). */
+export function periodMin(start: string, slut: string): number {
+  return tMin(slut) - tMin(start)
+}
+
+export type PeriodLage = 'inne' | 'utanfor_fore' | 'utanfor_efter' | 'korsar' | 'ingen_pass'
+
+/**
+ * Var ligger perioden relativt dagens fönster (= den REDAN betalda tiden,
+ * redDag.start_tid–slut_tid)?
+ *   inne         → helt inom fönstret → redan betald → märks som segment
+ *   utanfor_fore → helt före fönstret → ej betald → extra_tid (kalla 'morgon')
+ *   utanfor_efter→ helt efter fönstret → ej betald → extra_tid (kalla 'kvall')
+ *   korsar       → ligger halvt i, halvt utanför → dela upp själv (delas ALDRIG tyst)
+ *   ingen_pass   → dagen saknar fönster → behandlas som extra_tid
+ * Samma regel driver både manuella formuläret och synk-omriktningen: en synk-
+ * härledd period ligger per definition inom bekräftad tid → 'inne' → segment.
+ */
+export function klassificeraPeriod(
+  seg: { start: string; slut: string },
+  pass: { start_tid: string | null; slut_tid: string | null },
+): PeriodLage {
+  const s = tMin(seg.start), e = tMin(seg.slut)
+  const ps = pass.start_tid ? tMin(pass.start_tid) : null
+  const pe = pass.slut_tid ? tMin(pass.slut_tid) : null
+  if (ps == null || pe == null) return 'ingen_pass'
+  if (s >= ps && e <= pe) return 'inne'
+  if (e <= ps) return 'utanfor_fore'
+  if (s >= pe) return 'utanfor_efter'
+  return 'korsar'
+}
+
 export type SegmentValidering = { ok: true } | { ok: false; fel: string }
 
 /**
