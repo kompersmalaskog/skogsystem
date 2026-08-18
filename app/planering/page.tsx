@@ -9793,11 +9793,20 @@ export default function PlannerPage() {
     persistedSnapshotRef.current.delete(String(absorberad.id));
     persistedMarkerIdsRef.current.delete(String(absorberad.id));
     setMergePrompt(null);
-    // Persistera i RÄTT ordning: COMMIT:a mergen (UPDATE-only, skapar aldrig rad) FÖRE raderingen. Annars
-    // kan realtime-DELETE→refetch (B-lyssnaren) läsa DB efter B raderats men FÖRE UPDATE landat → tappa
-    // mergen ur minnet. Await stänger den kapplöpningen.
-    await updateMarkerDataInDb(sammanslagen);
-    deleteMarkerFromDb(absorberad.id);
+    // Persistera i RÄTT ordning: COMMIT:a mergen (UPDATE-only, skapar aldrig rad) FÖRE raderingen. Håll
+    // dessutom sparPagarRef sant UNDER HELA skrivningen (update + delete). Raderingen triggar en realtime-
+    // DELETE → refetchMarkers, och vid en SNABB följd av merger kan en sådan (uppskjuten) refetch annars
+    // fyra MITT i denna merge, läsa ett MELLANLÄGE i DB (överlevaren ännu ej uppdaterad / absorberad ännu
+    // ej raderad) och REPLACE:a hela det lokala minnet med det → fel vägnummer på skärmen tills omladdning,
+    // fast DB till slut blev rätt. sparPagarRef sant → refetchen SKJUTS UPP tills mergen skrivit klart och
+    // läser då den färdiga DB-sanningen. Await på båda skrivningarna så flaggan släpps först när allt landat.
+    sparPagarRef.current = true;
+    try {
+      await updateMarkerDataInDb(sammanslagen);
+      await deleteMarkerFromDb(absorberad.id);
+    } finally {
+      sparPagarRef.current = false;
+    }
   };
 
   // DETEKTOR: en sessions-NY basväg vars ändpunkt hamnar nära en befintlig basvägs ändpunkt → fråga.
