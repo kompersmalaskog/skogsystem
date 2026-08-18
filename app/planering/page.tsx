@@ -318,6 +318,11 @@ const POLYGON_LINE_TYPES = new Set<string>(['boundary', 'nature']);
 // Stenmur: raka murstycken mellan hörn. Skilt från POLYGON_LINE_TYPES så stonewall inte blir polygon.
 const RAW_POINT_LINE_TYPES = new Set<string>(['stonewall']);
 
+// Basväg-merge: max ändpunkt-till-ändpunkt-avstånd (haversine, METER — aldrig skärmenheter) för att
+// ERBJUDA en sammanslagning. Bara ändpunkt mot ändpunkt räknas (en ände nära en annan vägs MITT är en
+// korsning, inte en fortsättning → ingen fråga). En källa, ett ställe.
+const MERGE_ANDPUNKT_M = 18;
+
 // Kort sortimentsnamn för skotningspanelen: "Björk Massa: BjörkmavFall_V3" → "Björk massa".
 // Strippar apt-namnet (efter ':') och gemenar sortimentstypen — ren härledning ur befintlig
 // sträng, ingen ny mappning. (Övr_löv/Unclassified härleds som de är.)
@@ -471,6 +476,12 @@ export default function PlannerPage() {
   // vars JSON skiljer sig från denna (lokalt ändrade/nya) — aldrig hela minnet blint. Så en markör som
   // raderats av någon annan (annan flik/enhet/DB) och bara ligger orörd i minnet återinsätts ALDRIG.
   const persistedSnapshotRef = useRef<Map<string, string>>(new Map());
+  // BASVÄG-MERGE: fråga (systemet föreslår, föraren godkänner) när en nyss sparad basväg får en ändpunkt
+  // nära en befintlig basvägs ändpunkt. `dualRisa` → blockera-kort istället (modellen rymmer en risaPath).
+  const [mergePrompt, setMergePrompt] = useState<{ nyId: string | number; malId: string | number; malNummer?: number; nyEnd: 'start' | 'slut'; malEnd: 'start' | 'slut'; dualRisa: boolean } | null>(null);
+  // Basvägs-id:n som redan prövats för merge. SEEDAS vid varje load/refetch med hela minnet → bara
+  // sessions-NYA vägar (ritade/GPS efter load) prövas; laddade vägar frågar aldrig.
+  const mergeCheckedIdsRef = useRef<Set<string>>(new Set());
   // Vilket objekt nuvarande `markers`-array faktiskt tillhör (sätts när load landar). Under
   // en LÅNGSAM laddning (dålig täckning i fält) hinner valtObjekt bytas medan `markers` ännu
   // är förra traktens — då gäller markersObjektIdRef ≠ valtObjekt.id och alla tre write-vägar
@@ -533,6 +544,7 @@ export default function PlannerPage() {
         // orörda (upsert mergar) → inget tappas, och föraren fastnar aldrig i "kan inte spara".
         persistedMarkerIdsRef.current = new Set();
         persistedSnapshotRef.current = new Map();
+        mergeCheckedIdsRef.current = new Set();
         markersObjektIdRef.current = valtObjekt.id;
         setMarkers([]);
       } else {
@@ -543,6 +555,8 @@ export default function PlannerPage() {
         // den omedelbara spar-effekten nedan (tom trakt → tom Set → inget att spara/skriva).
         persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id)));
         persistedSnapshotRef.current = new Map(laddade.map(m => [String(m.id), JSON.stringify(m)]));
+        // Laddade basvägar ska aldrig utlösa merge-fråga → märk alla som redan prövade.
+        mergeCheckedIdsRef.current = new Set(laddade.map(m => String(m.id)));
         // Markera att `markers` nu tillhör detta objekt → låser upp write-vägarna för det.
         markersObjektIdRef.current = valtObjekt.id;
         setMarkers(laddade);
@@ -608,6 +622,8 @@ export default function PlannerPage() {
       const laddade = (data || []).map((row: any) => row.data as Marker);
       persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id)));
       persistedSnapshotRef.current = new Map(laddade.map(m => [String(m.id), JSON.stringify(m)]));
+      // Efter refetch är DB-sanningen laddad → alla vägar "redan prövade", ingen merge-fråga på laddat.
+      mergeCheckedIdsRef.current = new Set(laddade.map(m => String(m.id)));
       setMarkers(laddade);
       setMarkersUppdateradAt(Date.now());
     } finally {
@@ -9692,6 +9708,118 @@ export default function PlannerPage() {
     saveMarkerToDb(utan as Marker);
   };
 
+  // === BASVÄG-MERGE: slå ihop två basvägar till EN (systemet frågar, föraren godkänner) ===
+  // Ändpunkterna på en basväg i lat/lon (via svgToLatLon) — bara för närhetsmätningen i METER (haversine).
+  const basvagEndarLL = (road: Marker) => {
+    const p = road.path as Point[];
+    return { start: svgToLatLon(p[0].x, p[0].y), slut: svgToLatLon(p[p.length - 1].x, p[p.length - 1].y) };
+  };
+  // Hitta en ANNAN basväg vars ändpunkt ligger inom MERGE_ANDPUNKT_M från nyVag:s ändpunkt. BARA
+  // ändpunkt mot ändpunkt (en ände nära en annan vägs MITT är en korsning → ingen träff). Närmaste paret vinner.
+  const hittaMergeKandidat = (nyVag: Marker, alla: Marker[]): { road: Marker; nyEnd: 'start' | 'slut'; malEnd: 'start' | 'slut'; dist: number } | null => {
+    if (!nyVag.path || nyVag.path.length < 2) return null;
+    const ny = basvagEndarLL(nyVag);
+    const nyEndar: Array<['start' | 'slut', { lat: number; lon: number }]> = [['start', ny.start], ['slut', ny.slut]];
+    let best: { road: Marker; nyEnd: 'start' | 'slut'; malEnd: 'start' | 'slut'; dist: number } | null = null;
+    for (const o of alla) {
+      if (String(o.id) === String(nyVag.id)) continue;
+      if (!(o.isLine && o.lineType === 'mainRoad' && o.path && o.path.length >= 2)) continue;
+      const oe = basvagEndarLL(o);
+      const oEndar: Array<['start' | 'slut', { lat: number; lon: number }]> = [['start', oe.start], ['slut', oe.slut]];
+      for (const [ne, np] of nyEndar) {
+        for (const [me, mp] of oEndar) {
+          const d = haversineM(np.lat, np.lon, mp.lat, mp.lon);
+          if (d <= MERGE_ANDPUNKT_M && (best === null || d < best.dist)) best = { road: o, nyEnd: ne, malEnd: me, dist: d };
+        }
+      }
+    }
+    return best;
+  };
+  // JA → förena. Överlevaren behåller LÄGSTA numret (odefinierat = +∞, så en numrerad väg vinner),
+  // uppdateras UPDATE-only (skapar aldrig en rad). Den absorberade raderas ordinarie (dirty-only-synken
+  // + realtime-DELETE gör raderingen resurrection-säker). En merge SKAPAR ingenting — den förenar två.
+  const utforMerge = async () => {
+    if (!mergePrompt) return;
+    const alla = markersRef.current;
+    const ny = alla.find(m => String(m.id) === String(mergePrompt.nyId));
+    const mal = alla.find(m => String(m.id) === String(mergePrompt.malId));
+    if (!ny || !mal || !ny.path || !mal.path || ny.path.length < 2 || mal.path.length < 2) { setMergePrompt(null); return; }
+
+    // Överlevaren är ALLTID den befintliga vägen (mal) — dess nummer är förarens adress ("kör 3 först").
+    // Den nyritade (ny) absorberas. En ny basväg får alltid det HÖGSTA numret (maxN+1) → mal ≤ ny.
+    const overlevare = mal;
+    const absorberad = ny;
+
+    // Orientera: överlevarens skarv-ände SIST, absorberadens skarv-ände FÖRST → sammanhängande path.
+    // Hörnen flyttas ALDRIG (bara ordning) → RISA-koordinater (absoluta SVG-punkter) förblir identiska.
+    const oPath: Point[] = mergePrompt.malEnd === 'slut' ? [...(mal.path as Point[])] : [...(mal.path as Point[])].reverse();
+    const aPath: Point[] = mergePrompt.nyEnd === 'start' ? [...(ny.path as Point[])] : [...(ny.path as Point[])].reverse();
+
+    // Bygg path. Hoppa BARA absorberadens första punkt om den ~sammanfaller med överlevarens sista
+    // (< 0.5 m) → ingen dubblerad skarvpunkt. Annars behåll ≤18 m-bryggan → sammanhängande utan hopp.
+    const merged: Point[] = [...oPath];
+    for (const pt of aPath) {
+      const last = merged[merged.length - 1];
+      if (Math.hypot(pt.x - last.x, pt.y - last.y) * scale < 0.5) continue;
+      merged.push(pt);
+    }
+
+    // NUMMER: behåll det LÄGSTA och sätt det EXPLICIT. Källor: mergePrompt.malNummer (fångat vid detektion,
+    // tillförlitligt) + mal.nummer + ny.nummer. Utan explicit sättning kunde en stale/onumrerad överlevare
+    // i markersRef (t.ex. om en refetch hann läsa tillbaka vägen INNAN numreringseffekten hade skrivit dess
+    // nummer till DB) göra sammanslagen onumrerad → numreringseffekten (rad ~6150) delade då ut maxN+1
+    // (buggen: nr 4 blev 6, numret är förarens adress). Explicit nummer → effekten ser den numrerad, rör den ej.
+    const nrKandidater = [mal.nummer, mergePrompt.malNummer, ny.nummer].filter((n): n is number => typeof n === 'number');
+    const behalletNummer = nrKandidater.length ? Math.min(...nrKandidater) : undefined;
+
+    const kommentarer = [mal.comment, ny.comment].filter(Boolean) as string[];
+    // RISA följer orört med (koordinatbaserat — inga hörn flyttas). Dual-RISA når aldrig hit (blockeras i kortet).
+    const risa = (mal.risaPath && mal.risaPath.length >= 2) ? mal.risaPath
+               : (ny.risaPath && ny.risaPath.length >= 2) ? ny.risaPath : undefined;
+
+    // Behåll ALLA överlevarens fält (id, tillstånd, gpsRecorded, roadCheck …). Ändra BARA det mergen avser:
+    // path (ihopsydd), nummer (lägsta, explicit), comment (join), risaPath (bevarad).
+    const sammanslagen: Marker = { ...overlevare, path: merged };
+    if (typeof behalletNummer === 'number') sammanslagen.nummer = behalletNummer;
+    if (kommentarer.length) sammanslagen.comment = kommentarer.join('\n'); else delete (sammanslagen as any).comment;
+    if (risa) sammanslagen.risaPath = risa; else delete (sammanslagen as any).risaPath;
+
+    saveToHistory([...markersRef.current]);
+    setMarkers(prev => prev
+      .filter(m => String(m.id) !== String(absorberad.id))
+      .map(m => String(m.id) === String(overlevare.id) ? sammanslagen : m));
+    // Snapshots FÖRST → dirty-only-synken ser överlevaren som ren och absorberad som borta → skriver inget.
+    persistedSnapshotRef.current.set(String(overlevare.id), JSON.stringify(sammanslagen));
+    persistedSnapshotRef.current.delete(String(absorberad.id));
+    persistedMarkerIdsRef.current.delete(String(absorberad.id));
+    setMergePrompt(null);
+    // Persistera i RÄTT ordning: COMMIT:a mergen (UPDATE-only, skapar aldrig rad) FÖRE raderingen. Annars
+    // kan realtime-DELETE→refetch (B-lyssnaren) läsa DB efter B raderats men FÖRE UPDATE landat → tappa
+    // mergen ur minnet. Await stänger den kapplöpningen.
+    await updateMarkerDataInDb(sammanslagen);
+    deleteMarkerFromDb(absorberad.id);
+  };
+
+  // DETEKTOR: en sessions-NY basväg vars ändpunkt hamnar nära en befintlig basvägs ändpunkt → fråga.
+  // Seedad vid load/refetch → bara vägar ritade/GPS:ade efter load prövas. En väg prövas EN gång (oavsett svar).
+  useEffect(() => {
+    if (!markersLoaded || !valtObjekt?.id) return;
+    if (mergePrompt) return; // en fråga i taget
+    for (const m of markers) {
+      const id = String(m.id);
+      if (mergeCheckedIdsRef.current.has(id)) continue;
+      mergeCheckedIdsRef.current.add(id);
+      if (!(m.isLine && m.lineType === 'mainRoad' && m.path && m.path.length >= 2)) continue;
+      const kand = hittaMergeKandidat(m, markers);
+      if (kand) {
+        const dual = !!(m.risaPath && m.risaPath.length >= 2 && kand.road.risaPath && kand.road.risaPath.length >= 2);
+        setMergePrompt({ nyId: m.id, malId: kand.road.id, malNummer: kand.road.nummer, nyEnd: kand.nyEnd, malEnd: kand.malEnd, dualRisa: dual });
+        break;
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markers, markersLoaded, valtObjekt?.id, mergePrompt]);
+
   // Mät via KLICK (geo): varje tap sätter en punkt. MapLibres 'click' fyrar BARA vid ett tap
   // (tryck+släpp utan rörelse) — aldrig under en drag-panorering. Därför får dragPan vara PÅ:
   // ett tap sätter punkt, ett drag panorerar kartan (så man kan flytta sig mellan punkter och
@@ -12842,6 +12970,46 @@ export default function PlannerPage() {
           <button onClick={avbrytRisaMarkering} style={{ background: 'rgba(255,255,255,0.12)', border: 'none', color: '#fff', borderRadius: '10px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
         </div>
       )}
+
+      {/* BASVÄG-MERGE: app-eget bekräftelsekort (aldrig window.confirm — blockeras tyst i inbäddade lägen).
+          Systemet föreslår, föraren godkänner. Dual-RISA → blockera-variant istället för Ja/Nej. */}
+      {mergePrompt && (() => {
+        const mp = mergePrompt;
+        const nStr = typeof mp.malNummer === 'number' ? `basväg ${mp.malNummer}` : 'den befintliga basvägen';
+        return (
+          <>
+            <div onClick={() => setMergePrompt(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 690 }} />
+            <div style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+              width: 'min(420px, 92vw)', zIndex: 700,
+              background: '#101012', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20,
+              boxShadow: '0 18px 50px rgba(0,0,0,0.6)', padding: '20px 20px 18px',
+              fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
+            }}>
+              {mp.dualRisa ? (
+                <>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Kan inte slå ihop</div>
+                  <div style={{ fontSize: 14.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.7)', marginBottom: 18 }}>
+                    Både den nya vägen och {nStr} har en RISA-del. Ta bort en RISA-del först, slå ihop vägarna, och märk om risningen.
+                  </div>
+                  <button onClick={() => setMergePrompt(null)} style={{ width: '100%', minHeight: 48, borderRadius: 13, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 16, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>OK</button>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Bygga ihop med {nStr}?</div>
+                  <div style={{ fontSize: 14.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.7)', marginBottom: 18 }}>
+                    Den nya vägen slutar tätt intill {nStr}. Slå ihop dem till en enda väg{typeof mp.malNummer === 'number' ? ` — numret ${mp.malNummer} behålls, det andra tas bort` : ''}.
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button onClick={() => setMergePrompt(null)} style={{ flex: 1, minHeight: 48, borderRadius: 13, border: '1px solid rgba(255,255,255,0.14)', background: 'transparent', color: '#fff', fontSize: 15.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Nej, behåll separata</button>
+                    <button onClick={utforMerge} style={{ flex: 1, minHeight: 48, borderRadius: 13, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 15.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Ja, slå ihop</button>
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {markerMenuOpen && (() => {
         const marker = markers.find(m => m.id === markerMenuOpen);
