@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { routeKm, hamtaObjektKoordinater, dagensPlatser, KoordKalla } from "@/lib/routing";
+import { berakaDagKm, persisteraDagKm, hamtaObjektKoordinater } from "@/lib/routing";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     const [medRes, arbRes, avtalRes] = await Promise.all([
       supabase.from("medarbetare").select("hem_lat, hem_lng").eq("id", medId).maybeSingle(),
       supabase.from("arbetsdag")
-        .select("id, datum, start_tid, km_morgon, km_kvall, km_totalt, objekt_id")
+        .select("id, datum, start_tid, km_morgon, km_kvall, km_totalt, objekt_id, redigerad, km_kalla")
         .eq("medarbetare_id", medId)
         .gte("datum", fromDate).lte("datum", toDate),
       supabase.from("gs_avtal").select("km_grans_per_dag")
@@ -69,8 +69,6 @@ export async function GET(req: NextRequest) {
       ...(aoRes.data || []).filter((r: any) => r.objekt_id).map((r: any) => r.objekt_id as string),
     ]));
     const koordMap = await hamtaObjektKoordinater(supabase, objektIds);
-    const objMap: Record<string, { lat:number|null; lng:number|null; kalla: KoordKalla }> = {};
-    for (const id of objektIds) objMap[id] = { lat: koordMap[id]?.lat ?? null, lng: koordMap[id]?.lng ?? null, kalla: koordMap[id]?.kalla ?? null };
 
     // Gruppera rader per datum
     const perDatum = new Map<string, any[]>();
@@ -104,44 +102,21 @@ export async function GET(req: NextRequest) {
       if (dbSumma > 0) {
         dagensKm = dbSumma;
       } else if (hemLat != null && hemLng != null) {
-        // Modell B (dagensPlatser = enda modelldefinitionen): dagens platser i
-        // ordning ur arbetsdag_objekt ∪ arbetsdag.objekt_id, flytt/service
-        // (kraver_koordinat=false) och koordinatlösa objekt bortfiltrerade.
+        // Modell B via DELADE berakaDagKm — exakt samma beräkning som nattjobbet
+        // och bekräftelse-öppningen (dagensPlatser + routeKm; pendlingsben
+        // hem→första + sista→hem, mellan-objekt-körning räknas aldrig).
         const aoRader = dagRader.flatMap((r: any) => aoByArbetsdag.get(r.id) || []);
         const fallbackSekvens = dagRader.map((r: any) => r.objekt_id as string | null);
-        const platser = dagensPlatser(aoRader, fallbackSekvens, koordMap);
-
-        if (platser.length > 0) {
-          const first = objMap[platser[0]];
-          const last = objMap[platser[platser.length - 1]];
-          const hL = Number(hemLat), hN = Number(hemLng);
-          // Endast pendlingsbenen lagras/ersätts: hem→första + sista→hem. Aldrig
-          // mellan-objekt-körning — den har ingen kolumn och är inte pendling.
-          // km_totalt får aldrig bli något annat än km_morgon + km_kvall.
-          const mRes = await routeKm(supabase, { fromLat: hL, fromLng: hN, toLat: Number(first.lat), toLng: Number(first.lng) }, orsAnrop < MAX_ORS);
-          if (mRes.source === "ors") orsAnrop++;
-          const kRes = await routeKm(supabase, { fromLat: Number(last.lat), fromLng: Number(last.lng), toLat: hL, toLng: hN }, orsAnrop < MAX_ORS);
-          if (kRes.source === "ors") orsAnrop++;
-
-          const km_morgon = mRes.km;
-          const km_kvall = kRes.km;
-          dagensKm = km_morgon + km_kvall;
+        const ber = await berakaDagKm(supabase, { aoRader, fallbackObjektId: fallbackSekvens, koordMap, hemLat, hemLng, allowOrs: orsAnrop < MAX_ORS });
+        orsAnrop += ber?.orsAnrop ?? 0;
+        if (ber) {
+          dagensKm = ber.km_morgon + ber.km_kvall;
           segCount = 2;
-          source = (mRes.source === "fallback" || kRes.source === "fallback") ? "fallback" : kRes.source;
-
-          // Write-back — OFÖRÄNDRAT beteende: bara triviala single-plats/single-
-          // rad 0-dagar, bägge ben äkta rutt (cache/ors, ej haversine-fallback),
-          // dubbellåst med .or(). Ingen ny skrivväg — samma villkor som förr,
-          // uttryckt över modell B:s morgon/kväll i stället för chain-segmenten.
-          const bådaÄkta = mRes.source !== "fallback" && kRes.source !== "fallback";
-          if (platser.length === 1 && dagRader.length === 1 && bådaÄkta) {
-            const r0 = dagRader[0];
-            if ((Number(r0.km_morgon) || 0) === 0 && (Number(r0.km_kvall) || 0) === 0 && (Number(r0.km_totalt) || 0) === 0 && r0.id) {
-              await supabase.from("arbetsdag")
-                .update({ km_morgon, km_kvall })
-                .eq("id", r0.id)
-                .or("km_morgon.is.null,km_morgon.eq.0");
-            }
+          source = ber.källa;
+          // Persistera via DELADE persisteraDagKm (km_kalla='auto', full vakt,
+          // verifierad skrivning). Enkel-rad-dag: skriv till raden när vakten håller.
+          if (dagRader.length === 1) {
+            await persisteraDagKm(supabase, dagRader[0], ber);
           }
         } else {
           source = "inga_objekt";

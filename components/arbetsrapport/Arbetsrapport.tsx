@@ -817,34 +817,36 @@ export default function Arbetsrapport() {
     // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
 
-  // Automatisk km-beräkning (hem → trakt) när kvällsvyn öppnas. Hämtar
-  // vägavstånd från /api/routing (ORS + cache, fallback haversine×1.4).
-  // Fyller kmM/kmK bara om föraren inte redan skrivit in ett värde manuellt.
+  // km-beräkning när kvällsvyn öppnas → /api/km/berakna-dag (DELADE helpern:
+  // dagensPlatser + full koordinat-fallback + samma vakt som nattjobbet). Ersätter
+  // den tidigare direkta /api/routing-vägen (enbart obj.lat/lng, ingen fallback-
+  // kedja) — EN beräkningsmodell för alla ytor. Persisterar km direkt så det finns
+  // vid bekräftelse, inte "dagen efter". Best-effort: fel visas aldrig som hårt fel.
   useEffect(() => {
     if (steg !== "kväll") return;
-    if (!medarbetare) return;
+    if (!medarbetare?.id) return;
     const idagKey = new Date().toISOString().split('T')[0];
-    const objId = valtObjektId || dagData[idagKey]?.objekt_id;
-    const obj = objektLista.find(o => o.id === objId);
-    const hLat = medarbetare.hem_lat, hLng = medarbetare.hem_lng;
-    const oLat = obj?.lat, oLng = obj?.lng;
-    if (hLat == null || hLng == null || oLat == null || oLng == null) {
-      console.warn('km-beräkning: koordinater saknas', { hLat, hLng, oLat, oLng, objId });
-      setKmBerakning(null);
-      return;
-    }
     let cancelled = false;
     (async () => {
-      const res = await hämtaVägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
-      if (cancelled || !res) return;
-      const { km, source } = res;
-      const totalTurRetur = km * 2;
-      setKmBerakning(totalTurRetur);
-      if (kmM == null) setKmM({ km });
-      if (kmK == null) setKmK({ km });
+      try {
+        const r = await fetch('/api/km/berakna-dag', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ medarbetare_id: medarbetare.id, datum: idagKey }),
+        });
+        const j = await r.json();
+        if (cancelled) return;
+        if (j?.status === 'skrev') {
+          setKmBerakning((j.km_morgon || 0) + (j.km_kvall || 0));
+          if (kmM == null) setKmM({ km: j.km_morgon });
+          if (kmK == null) setKmK({ km: j.km_kvall });
+        } else {
+          // hoppad (km redan satt / forare / ingen koordinat) → ingen auto-gissning
+          setKmBerakning(null);
+        }
+      } catch { if (!cancelled) setKmBerakning(null); }
     })();
     return () => { cancelled = true; };
-  }, [steg, medarbetare?.id, medarbetare?.hem_lat, medarbetare?.hem_lng, valtObjektId, dagData, objektLista]);
+  }, [steg, medarbetare?.id, valtObjektId, dagData]);
 
   // Hämta km-kedja för en specifik dag när kalenderns redigera-vy öppnas.
   // /api/km-chain bygger hem → obj1 → obj2 → ... → hem från arbetsdag-raderna
@@ -859,6 +861,20 @@ export default function Arbetsrapport() {
     setRedKmSaknarKoord(false);
     setRedKmKoordKälla(null);
     let cancelled = false;
+    // Persistera km vid ÖPPNING (DELADE helpern) så en oberäknad 0-km-dag fylls
+    // direkt — inte "dagen efter när någon öppnar kalendern". Best-effort;
+    // uppdaterar fälten om något skrevs (annars hoppad: redigerad/forare/km satt).
+    const rDatum: string = (redDag as any).datum;
+    fetch('/api/km/berakna-dag', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ medarbetare_id: medarbetare.id, datum: rDatum }),
+    }).then(r => r.json()).then(j => {
+      if (cancelled || j?.status !== 'skrev') return;
+      const tot = (j.km_morgon || 0) + (j.km_kvall || 0);
+      setRedKm(tot);
+      setRedDag((d:any) => d ? { ...d, km_morgon: j.km_morgon, km_kvall: j.km_kvall, km_totalt: tot, km_kalla: 'auto' } : d);
+      setDagData(dd => ({ ...dd, [rDatum]: { ...(dd[rDatum]||{}), km_morgon: j.km_morgon, km_kvall: j.km_kvall, km_totalt: tot, km_kalla: 'auto' } }));
+    }).catch(() => {});
     fetch(`/api/km-chain?medarbetare_id=${encodeURIComponent(medarbetare.id)}&datum=${redDag.datum}`)
       .then(r => r.json())
       .then(j => {
@@ -2794,7 +2810,9 @@ export default function Arbetsrapport() {
                   onClick={async ()=>{
                     if (dagData[idagKey]?.id) {
                       const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
-                      const payload: any = { km_morgon: tMK, km_kvall: tKK };
+                      // km_kalla='forare': föraren har satt km själv → helpern/
+                      // nattjobbet rör den ALDRIG igen, inte ens om den är 0.
+                      const payload: any = { km_morgon: tMK, km_kvall: tKK, km_kalla: 'forare' };
                       if (bryterBekräftelse) payload.bekraftad = false;
                       const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: dagData[idagKey].id });
                       if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar
@@ -5514,7 +5532,8 @@ export default function Arbetsrapport() {
                       // Bryter bekräftelse vid ändring.
                       if (redDag?.id) {
                         const bryterBekräftelse = !!redDag?.bekraftad;
-                        const payload: any = { km_morgon: redTmpKmM, km_kvall: redTmpKmK, redigerad: true, redigerad_tid: new Date().toISOString() };
+                        // km_kalla='forare': föraren äger km-värdet (inkl. medveten 0).
+                        const payload: any = { km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_kalla: 'forare', redigerad: true, redigerad_tid: new Date().toISOString() };
                         if (bryterBekräftelse) { payload.bekraftad = false; payload.bekraftad_tid = null; }
                         const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: redDag.id });
                         if (!res.ok) {
