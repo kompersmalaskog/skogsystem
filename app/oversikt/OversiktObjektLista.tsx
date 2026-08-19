@@ -604,25 +604,40 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     li = [...li].sort((a, b) => (a.namn || '').localeCompare(b.namn || '', 'sv'));
   }
 
-  // Gruppera per maskin (bakom reglage): objektet listas under BÅDE sin skördare och
-  // sin skotare (objektets egna fält). Bara i detta läge — grundvyn = en rad per objekt.
-  const grupper: { maskin: string; objekt: OversiktObjekt[]; volym: number }[] = [];
-  if (groupMaskin) {
+  // Gruppera per maskin — SAMMA källa och gruppering som uppföljningens "På backen · per maskin":
+  // objektet läggs under sin SKOTARE (tilldeladSkotare: lassdata → dim_objekt.tilldelad_skotare →
+  // Ej tilldelad), härledd i page.tsx (skordMap) precis som useUppfoljningList — de två vyerna får
+  // ALDRIG gruppera olika. Pågår = arbetslistan ("vad ska varje skotare hämta") → grupperat som
+  // default; reglaget slår på samma gruppering i övriga segment. På-backen-summa = Σ(skördat − skotat).
+  const backenForObj = (o: OversiktObjekt): number => {
+    const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
+    return Math.max(0, (s?.skordat || 0) - (s?.skotat ?? 0));
+  };
+  const grupperaPerMaskin = statusFEff === 'pagar' || groupMaskin;
+  const grupper: { maskin: string | null; objekt: OversiktObjekt[]; backen: number }[] = [];
+  if (grupperaPerMaskin) {
     const map = new Map<string, OversiktObjekt[]>();
-    const utan: OversiktObjekt[] = [];
     for (const o of li) {
-      const unika = Array.from(new Set([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]));
-      if (unika.length === 0) { utan.push(o); continue; }
-      for (const m of unika) {
-        if (!map.has(m)) map.set(m, []);
-        map.get(m)!.push(o);
-      }
+      const key = (o.vo_nummer ? skordMap[o.vo_nummer]?.tilldeladSkotare : null) || '\uFFFFej';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(o);
     }
-    for (const m of Array.from(map.keys()).sort((a, b) => a.localeCompare(b, 'sv'))) {
-      const objs = map.get(m)!;
-      grupper.push({ maskin: m, objekt: objs, volym: objs.reduce((s, o) => s + (o.volym || 0), 0) });
+    for (const [key, objs] of map.entries()) {
+      grupper.push({
+        maskin: key === '\uFFFFej' ? null : key,
+        objekt: objs.slice().sort((a, b) => {
+          const ba = backenForObj(a) > 0, bb = backenForObj(b) > 0;
+          if (ba !== bb) return ba ? -1 : 1;                       // objekt med virke på backen först
+          const sa = a.vo_nummer ? skordMap[a.vo_nummer]?.sista : null;
+          const sb = b.vo_nummer ? skordMap[b.vo_nummer]?.sista : null;
+          if (sa && sb && sa !== sb) return sa.localeCompare(sb);  // äldst skörd först (längst liggetid)
+          return backenForObj(b) - backenForObj(a);
+        }),
+        backen: objs.reduce((s, o) => s + backenForObj(o), 0),
+      });
     }
-    if (utan.length > 0) grupper.push({ maskin: 'Ej tilldelad maskin', objekt: utan, volym: utan.reduce((s, o) => s + (o.volym || 0), 0) });
+    // Mest på backen överst; Ej tilldelad alltid sist (samma ordning som uppföljningen).
+    grupper.sort((a, b) => (a.maskin === null ? 1 : b.maskin === null ? -1 : b.backen - a.backen));
   }
 
   const avanceratAktivt = bolagF !== 'alla' || typF !== 'alla' || sortK !== 'status' || groupMaskin;
@@ -771,15 +786,18 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
         </div>
       </div>
 
-      {/* Lista — en rad per objekt; per maskin bara som läge bakom reglaget */}
+      {/* Lista — Pågår grupperas per skotare (arbetslistan); annars en rad per objekt (reglaget kan
+          slå på samma gruppering i övriga segment). Grupprubrik = maskin + på-backen-summa. */}
       {li.length === 0 ? (
         <div style={{ fontSize: 13, color: C.t3, padding: '28px 4px', textAlign: 'center' }}>Inga objekt.</div>
-      ) : groupMaskin ? (
+      ) : grupperaPerMaskin ? (
         grupper.map(g => (
-          <div key={g.maskin} style={{ marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '8px 4px' }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{g.maskin}</span>
-              <span style={{ fontSize: 12, color: C.t3 }}>{g.objekt.length} objekt · {g.volym.toLocaleString('sv-SE')} m³</span>
+          <div key={g.maskin || 'ej'} style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '8px 4px 6px' }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: g.maskin ? C.t1 : C.orange }}>{g.maskin || 'Ej tilldelad'}</span>
+              {g.backen > 0 && (
+                <span style={{ fontSize: 12, color: C.t3, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatVolym(Math.round(g.backen))} m³fub på backen</span>
+              )}
             </div>
             {g.objekt.map(renderKort)}
           </div>
