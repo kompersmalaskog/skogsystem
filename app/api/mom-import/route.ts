@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     // 2. Hämta fakt_skift-rader
     let query = supabase
       .from('fakt_skift')
-      .select('datum, maskin_id, operator_id, inloggning_tid, utloggning_tid, langd_sek')
+      .select('datum, maskin_id, operator_id, inloggning_tid, maskin_inloggning_tid, utloggning_tid, langd_sek')
       .order('datum', { ascending: false });
 
     if (filterDatum) {
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
 
     const { data: skyddadeRader } = await supabase
       .from('arbetsdag')
-      .select('id, medarbetare_id, datum, start_tid, slut_tid, rast_min, maskin_id, redigerad, bekraftad, synk_avvikelse')
+      .select('id, medarbetare_id, datum, start_tid, slut_tid, rast_min, maskin_id, redigerad, bekraftad, synk_avvikelse, tidigarelagd_start')
       .in('datum', datumSet)
       .in('medarbetare_id', medarbetareIds)
       .or('redigerad.eq.true,bekraftad.eq.true');
@@ -153,6 +153,9 @@ export async function POST(req: NextRequest) {
       datum: string;
       maskin_id: string;
       earliestStart: string;
+      // Maskinens egen login (OperatorLoginTime) för det skift som satte
+      // earliestStart. Jämförs mot angiven start för att flagga tidigarelagd_start.
+      earliestMaskinLogin: string | null;
       latestEnd: string;
       totalSek: number;
     };
@@ -174,13 +177,19 @@ export async function POST(req: NextRequest) {
           datum: s.datum,
           maskin_id: s.maskin_id,
           earliestStart: s.inloggning_tid,
+          earliestMaskinLogin: s.maskin_inloggning_tid || null,
           latestEnd: s.utloggning_tid,
           totalSek: 0,
         };
       }
 
       const agg = dagMap[key];
-      if (s.inloggning_tid < agg.earliestStart) agg.earliestStart = s.inloggning_tid;
+      // Följ maskin-loginen med det skift som äger earliestStart (så gapet mäts
+      // mot rätt sessions login, inte dagens minsta login).
+      if (s.inloggning_tid < agg.earliestStart) {
+        agg.earliestStart = s.inloggning_tid;
+        agg.earliestMaskinLogin = s.maskin_inloggning_tid || null;
+      }
       if (s.utloggning_tid > agg.latestEnd) agg.latestEnd = s.utloggning_tid;
       agg.totalSek += s.langd_sek || 0;
     }
@@ -260,6 +269,26 @@ export async function POST(req: NextRequest) {
       const m = (t || '').match(/(\d{2}):(\d{2})/);
       return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : null;
     };
+
+    // tidigarelagd_start: föraren angav en start som ligger > 30 min FÖRE maskinens
+    // egen login (OperatorLoginTime). Uppföljning, inte korrigering — arbetsdagens
+    // start ändras aldrig. Normal morgonrutin (login före/vid angiven start) ger
+    // negativt/litet gap → null. Tröskeln delas med synk-kortet (30 min).
+    const TIDIGARELAGD_TROSKEL_MIN = 30;
+    const byggTidigarelagd = (agg: DagAgg) => {
+      const angiven = tidMin(agg.earliestStart);
+      const maskin = tidMin(agg.earliestMaskinLogin);
+      if (angiven == null || maskin == null) return null;
+      const gap = maskin - angiven; // maskin loggade in EFTER angiven start
+      if (gap <= TIDIGARELAGD_TROSKEL_MIN) return null;
+      return {
+        angiven_start: hhmm(agg.earliestStart),
+        maskin_start: hhmm(agg.earliestMaskinLogin!),
+        gap_min: gap,
+        upptackt: new Date().toISOString(),
+      };
+    };
+
     for (const skyddad of (skyddadeRader || [])) {
       if (!skyddad.bekraftad || skyddad.redigerad) continue; // bara bekräftade, oredigerade
       const key = `${skyddad.medarbetare_id}_${skyddad.datum}`;
@@ -298,6 +327,26 @@ export async function POST(req: NextRequest) {
         })
         .eq('id', skyddad.id);
       if (avvErr) console.warn('synk_avvikelse kunde inte skrivas (migration ej körd?):', avvErr.message);
+    }
+
+    // 5e. tidigarelagd_start för SKYDDADE dagar (bekräftade). Redigerade dagar
+    // äger föraren redan → hoppas. Skrivs som eget fält (rör aldrig start_tid).
+    // Kvittens-respekt: har föraren redan kvitterat gapet mot SAMMA maskin_start
+    // (markt_segment/hoppad) rör vi det inte — annars skriver synken över hans
+    // beslut varje natt. Ändras maskin_start flaggar vi på nytt; försvinner gapet
+    // nollas fältet.
+    for (const skyddad of (skyddadeRader || [])) {
+      if (skyddad.redigerad) continue;
+      const agg = dagMap[`${skyddad.medarbetare_id}_${skyddad.datum}`];
+      if (!agg) continue;
+      const ny = byggTidigarelagd(agg);
+      const bef = skyddad.tidigarelagd_start;
+      if (bef && bef.kvitterad && ny && bef.maskin_start === ny.maskin_start) continue;
+      const { error: tlErr } = await supabase
+        .from('arbetsdag')
+        .update({ tidigarelagd_start: ny })
+        .eq('id', skyddad.id);
+      if (tlErr) console.warn('tidigarelagd_start kunde inte skrivas (migration ej körd?):', tlErr.message);
     }
 
     // 5e. Läk maskinlösa skyddade dagar. Bekräftelsen (bekraftaDagen) skrev
@@ -354,6 +403,8 @@ export async function POST(req: NextRequest) {
         maskin_id: agg.maskin_id,
         objekt_id: objektMap[rastKey] || null,
         bekraftad: false,
+        // Färska dagar: sätt tidigarelagd_start direkt (ingen kvittens ännu).
+        tidigarelagd_start: byggTidigarelagd(agg),
       };
     });
 

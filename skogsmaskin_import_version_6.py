@@ -737,7 +737,26 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                 })
     
     logger.info(f"  GPS-punkter: {len(data['gps_spar'])}")
-    
+
+    # === MASKININLOGGNING (OperatorLoginTime) ===
+    # Maskinens EGEN login-registrering, vid sidan av skiftets angivna start.
+    # Läses in som eget fält (maskin_inloggning_tid) och ändrar ALDRIG
+    # inloggning_tid (som styr arbetsdag/lön). Tidigaste login per (operator,
+    # datum) = dagens maskinstart. Gör synligt när en förare angav en TIDIGARE
+    # start än maskinen registrerade — uppföljning, inte korrigering.
+    maskin_login = {}  # (operator_id, date) -> tidigaste login-datetime
+    for login_time in find_all_elements(machine, 'OperatorLoginTime', ns):
+        _lk = get_text(login_time, 'OperatorKey', ns)
+        _ldt = parse_datetime(get_text(login_time, 'MonitoringStartTime', ns))
+        if not _ldt:
+            continue
+        _loid = op_id_for_key(_lk, 'maskin_login')
+        if not _loid:
+            continue
+        _mk = (_loid, _ldt.date())
+        if _mk not in maskin_login or _ldt < maskin_login[_mk]:
+            maskin_login[_mk] = _ldt
+
     # === SKIFT (inloggning + utloggning) ===
     for shift_def in find_all_elements(machine, 'OperatorShiftDefinition', ns):
         op_key = get_text(shift_def, 'OperatorKey', ns)
@@ -785,6 +804,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             'maskin_id': maskin_id,
             'operator_id': skift_op_id,
             'inloggning_tid': start_dt,
+            'maskin_inloggning_tid': maskin_login.get((op_id_for_key(op_key, 'skift'), start_dt.date())) if start_dt else None,
             'utloggning_tid': end_dt,
             'langd_sek': langd_sek,
             'gps_lat': login_lat,
@@ -1253,6 +1273,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                 'maskin_id': maskin_id,
                 'operator_id': op_id,
                 'inloggning_tid': earliest,
+                'maskin_inloggning_tid': maskin_login.get((op_id, datum)),
                 'utloggning_tid': utloggning,
                 'langd_sek': total_sek,
                 'gps_lat': None,
