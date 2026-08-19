@@ -2,7 +2,7 @@
 // Inga sidoeffekter, ingen fetch, ingen React.
 
 import type { UppfoljningData, Maskin, Forare, AvbrottRad, DieselDag } from '../UppfoljningVy';
-import { G15_GRANS_SEK } from '@/lib/g15';
+import { G15_GRANS_SEK, g15Sek } from '@/lib/g15';
 import { type ObjektTyp } from '@/lib/objekt/typ';
 
 // ── Typer ─────────────────────────────────────────────────────────────────
@@ -80,6 +80,16 @@ export interface BuildUppfoljningDataInput {
   dimTradslag: any[];
   dimOperators: any[];
   dimMaskin: any[];
+  // Steg 2a — skotare per maskin + omlastning. Additivt; default [].
+  // Manuellt skotarlager (skotare_objekt_manuell) för de visade objekten:
+  // egna rader (objekt_id = detta objekt) + tillskrivna omlastningsrader
+  // (avser_objekt_id = detta objekt). GROT-markörer (maskin_id NULL) redan
+  // bortfiltrerade i hooken.
+  skotareManuellRows?: any[];
+  // fakt_lass / fakt_tid för de omlastningsobjekt vars arbete TILLSKRIVS ett
+  // visat objekt (via avser_objekt_id). Grupperas per (objekt_id, maskin_id).
+  omlLassRows?: any[];
+  omlTidRows?: any[];
 }
 
 // ── Privat helper (parar med fmtDate i page.tsx) ─────────────────────────
@@ -235,9 +245,21 @@ export function buildForare(rows: any[], operatorMap: Map<string, string>): { ak
 // ── Huvudtransform ────────────────────────────────────────────────────────
 export function buildUppfoljningData(input: BuildUppfoljningDataInput): UppfoljningData {
   const { obj, tidRows, prodRows, sortRows, lassRows, lassSortRows, avbrottRows, dimSort, dimTradslag, dimOperators, dimMaskin } = input;
+  const skotareManuellRows = input.skotareManuellRows || [];
+  const omlLassRows = input.omlLassRows || [];
+  const omlTidRows = input.omlTidRows || [];
 
   const sortMap = new Map<string, string>();
   dimSort.forEach((s: any) => { if (s.namn) sortMap.set(s.sortiment_id, s.namn); });
+
+  // Maskinnamn: visningsnamn || modell || maskin_id (samma regel som resten av appen).
+  const maskinNamnMap = new Map<string, string>();
+  dimMaskin.forEach((m: any) => {
+    if (!m.maskin_id) return;
+    const namn = (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell || m.maskin_id;
+    maskinNamnMap.set(m.maskin_id, namn);
+  });
+  const maskinNamn = (mid: string) => maskinNamnMap.get(mid) || mid;
 
   const tradslagMap = new Map<string, string>();
   dimTradslag.forEach((t: any) => { if (t.namn) tradslagMap.set(t.tradslag_id, t.namn); });
@@ -382,9 +404,103 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   const totalDiesel = Math.round(skTid.dieselTot) + Math.round(stTid.dieselTot);
   const totalDieselPerM3 = obj.volymSkordare > 0 ? Math.round((totalDiesel / obj.volymSkordare) * 100) / 100 : 0;
 
+  // ── Steg 2a: Skotare PER MASKIN + omlastning ─────────────────────────────
+  // Skotad total räknas per OBJEKT_ID (aldrig per VO). En skotare vars manuella
+  // rad på DETTA objekt har ar_omlastning=true bidrar med 0 till skotad total
+  // (arbetet visas separat, räknas ej). Effektiv volym = manuell volym_m3 om
+  // satt, annars mätt fakt_lass — manuellt ERSÄTTER, adderar aldrig.
+  const thisObjIds = new Set([skId, stId].filter(Boolean) as string[]);
+
+  // Detta objekts fakt_lass grupperat per maskin_id (maskin_id NULL = grot, skip).
+  const lassPerMaskin = new Map<string, { volym: number; antalLass: number }>();
+  lassRows.forEach((l: any) => {
+    const mid = l.maskin_id;
+    if (!mid) return;
+    const prev = lassPerMaskin.get(mid) || { volym: 0, antalLass: 0 };
+    prev.volym += l.volym_m3sub || 0;
+    prev.antalLass += 1;
+    lassPerMaskin.set(mid, prev);
+  });
+
+  // G15-sekunder per skotarmaskin ur detta objekts tidrader.
+  const g15SekPerMaskin = new Map<string, number>();
+  stTidRows.forEach((r: any) => {
+    const mid = r.maskin_id;
+    if (!mid) return;
+    g15SekPerMaskin.set(mid, (g15SekPerMaskin.get(mid) || 0) + g15Sek(r.processing_sek, r.terrain_sek, r.other_work_sek));
+  });
+
+  // Egna manuella rader (objekt_id = detta objekt), per maskin_id.
+  const egnaManuellPerMaskin = new Map<string, any>();
+  skotareManuellRows.forEach((r: any) => {
+    if (r.maskin_id && thisObjIds.has(r.objekt_id)) egnaManuellPerMaskin.set(r.maskin_id, r);
+  });
+
+  const skotarMaskinIds = new Set<string>();
+  lassPerMaskin.forEach((_v, k) => skotarMaskinIds.add(k));
+  egnaManuellPerMaskin.forEach((_v, k) => skotarMaskinIds.add(k));
+  const skotarePerMaskin = Array.from(skotarMaskinIds).map(mid => {
+    const lass = lassPerMaskin.get(mid);
+    const man = egnaManuellPerMaskin.get(mid);
+    const harManuellVol = man && man.volym_m3 != null;
+    const harManuellG15 = man && man.g15_timmar != null;
+    const volym = harManuellVol ? Number(man.volym_m3) : (lass?.volym || 0);
+    const g15 = harManuellG15 ? Number(man.g15_timmar) : (g15SekPerMaskin.get(mid) || 0) / 3600;
+    return {
+      maskinId: mid,
+      namn: maskinNamn(mid),
+      volym: Math.round(volym),
+      antalLass: lass?.antalLass || 0,
+      g15: Math.round(g15 * 10) / 10,
+      arOmlastning: !!(man && man.ar_omlastning),
+      kalla: (harManuellVol || harManuellG15 ? 'manuell' : 'mätt') as 'mätt' | 'manuell',
+    };
+  }).sort((a, b) => b.volym - a.volym);
+
+  // Tillskriven omlastning: manuella rader vars avser_objekt_id = detta objekt
+  // OCH ar_omlastning=true. Arbetet ligger under radens objekt_id (annat objekt).
+  const omlastningArbete = skotareManuellRows
+    .filter((r: any) => r.ar_omlastning && r.maskin_id && r.avser_objekt_id && thisObjIds.has(r.avser_objekt_id))
+    .map((r: any) => {
+      const franObjektId: string = r.objekt_id;
+      const mid: string = r.maskin_id;
+      let volym = 0, antalLass = 0, g15sek = 0;
+      omlLassRows.forEach((l: any) => {
+        if (l.objekt_id === franObjektId && l.maskin_id === mid) {
+          volym += l.volym_m3sub || 0;
+          antalLass += 1;
+        }
+      });
+      omlTidRows.forEach((t: any) => {
+        if (t.objekt_id === franObjektId && t.maskin_id === mid) {
+          g15sek += g15Sek(t.processing_sek, t.terrain_sek, t.other_work_sek);
+        }
+      });
+      // Manuellt ERSÄTTER mätt även för omlastningsradens egen volym/tid.
+      const volEff = r.volym_m3 != null ? Number(r.volym_m3) : volym;
+      const g15Eff = r.g15_timmar != null ? Number(r.g15_timmar) : g15sek / 3600;
+      return {
+        maskinId: mid,
+        namn: maskinNamn(mid),
+        volym: Math.round(volEff),
+        antalLass,
+        g15: Math.round(g15Eff * 10) / 10,
+        franObjektId,
+      };
+    })
+    .sort((a, b) => b.volym - a.volym);
+
+  // Skotad total (EXKL omlastning) = summa effektiv volym för icke-omlastnings-
+  // skotare. Faller tillbaka på obj.volymSkotare när inget per-maskin-lager finns
+  // (bevarar befintlig enkel-skotare-/manuell-volym-logik, t.ex. filfria JD810E).
+  const skotatExklOml = skotarePerMaskin
+    .filter(s => !s.arOmlastning)
+    .reduce((sum, s) => sum + s.volym, 0);
+  const nyttSkotat = skotarePerMaskin.length > 0 ? skotatExklOml : Math.round(obj.volymSkotare);
+
   // Kvar i skogen
   const volSk = obj.volymSkordare;
-  const volSt = obj.volymSkotare;
+  const volSt = nyttSkotat;
   const framkort = volSk > 0 ? Math.round((volSt / volSk) * 100) : 0;
   const kvarPct = Math.max(0, 100 - framkort);
 
@@ -433,6 +549,8 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     objektId: obj.skotareObjektId || obj.skordareObjektId || obj.vo_nummer || null,
     skordat: Math.round(volSk),
     skotat: Math.round(volSt),
+    skotarePerMaskin,
+    omlastningArbete,
     kvarPct,
     egenSkotning: obj.egenSkotning,
     grotSkotning: obj.grotSkotning,
@@ -524,7 +642,7 @@ export function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
   return {
     objektNamn: obj.namn,
     objektId: obj.skotareObjektId || obj.skordareObjektId || obj.vo_nummer || null,
-    skordat: 0, skotat: 0, kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning,
+    skordat: 0, skotat: 0, skotarePerMaskin: [], omlastningArbete: [], kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning,
     externSkotning: obj.externSkotning, externForetag: obj.externForetag, externPrisTyp: obj.externPrisTyp, externPris: obj.externPris, externAntal: obj.externAntal,
     maskiner: [],
     typ: obj.typ, areal: obj.areal, agare: obj.agare, status: obj.status,

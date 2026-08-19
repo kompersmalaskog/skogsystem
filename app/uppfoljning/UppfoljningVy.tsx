@@ -43,6 +43,12 @@ export interface UppfoljningData {
   senastUppdaterad?: string;
   skordat: number;
   skotat: number;
+  // Steg 2a — skotare per maskin på detta objekt (fakt_lass grupperat + manuellt
+  // lager). arOmlastning=true bidrar med 0 till skotad total (visas som arbete).
+  skotarePerMaskin?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; arOmlastning: boolean; kalla: 'mätt' | 'manuell' }[];
+  // Tillskriven omlastning: annat objekts skotararbete som räknas UNDER detta
+  // objekt (via avser_objekt_id), men bidrar med 0 till skotad total.
+  omlastningArbete?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; franObjektId: string }[];
   kvarPct: number;
   egenSkotning?: boolean;
   grotSkotning?: boolean;
@@ -407,6 +413,66 @@ function Maskinkort({ data }: { data: UppfoljningData }) {
         )}
       </div>
     </section>
+  );
+}
+
+// ── Skotare på objektet (per maskin + omlastning) ─────────────────────────
+// Steg 2a. En rad per skotarmaskin som kört PÅ objektet + separata rader för
+// tillskriven omlastning (annat objekts arbete som räknas hit). Omlastning
+// dämpas och märks — den bidrar med 0 till skotad total.
+function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
+  const list = data.skotarePerMaskin || [];
+  const oml = data.omlastningArbete || [];
+  if (list.length === 0 && oml.length === 0) return null;
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+
+  const Rad = ({ namn, volym, meta, color, dampad }: { namn: string; volym: number; meta: string; color: string; dampad?: boolean }) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '12px 16px', opacity: dampad ? 0.5 : 1 }}>
+      <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0, alignSelf: 'center' }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, color: '#fff', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{namn}</div>
+        <div style={{ fontSize: 11, color: V6_GREY, marginTop: 2 }}>{meta}</div>
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+        {sv(volym)} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
+        {list.map((s, i) => {
+          const bitar = [
+            s.antalLass > 0 ? `${s.antalLass} lass` : 'inga lass',
+            s.g15 > 0 ? `${s.g15.toFixed(1)} G15h` : null,
+            s.kalla === 'manuell' ? 'manuellt' : null,
+            s.arOmlastning ? 'omlastning — räknas ej i skotad total' : null,
+          ].filter(Boolean);
+          return (
+            <div key={s.maskinId} style={{ borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
+              <Rad namn={s.namn} volym={s.volym} meta={bitar.join(' · ')} color={V6_ST} dampad={s.arOmlastning} />
+            </div>
+          );
+        })}
+      </div>
+      {oml.length > 0 && (
+        <div style={{ background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
+          {oml.map((o, i) => {
+            const bitar = [
+              `${o.antalLass} lass`,
+              o.g15 > 0 ? `${o.g15.toFixed(1)} G15h` : null,
+              'omlastning — räknas ej i skotad total',
+            ].filter(Boolean);
+            return (
+              <div key={`${o.maskinId}|${o.franObjektId}`} style={{ borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
+                <Rad namn={o.namn} volym={o.volym} meta={bitar.join(' · ')} color={V6_GREY2} dampad />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -891,6 +957,19 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   // ÄRLIGHET: en maskin utan data får inget påhittat värde — den utelämnas.
   const sv = (n: number) => n.toLocaleString('sv-SE');
 
+  // Steg 2a: visa skotar-per-maskin-sektionen bara när den tillför något utöver
+  // skotarkortet — flera skotare, en omlastningsrad, eller en egen skotare som
+  // är omlastning (förklarar då varför skotad total kan vara 0).
+  const skotareLista = data.skotarePerMaskin || [];
+  const omlLista = data.omlastningArbete || [];
+  const visaSkotare = omlLista.length > 0 || skotareLista.length > 1 || skotareLista.some(s => s.arOmlastning);
+  const skotareVarde = (() => {
+    const antal = skotareLista.length + omlLista.length;
+    if (antal === 0) return null;
+    const oml = omlLista.length > 0 || skotareLista.some(s => s.arOmlastning) ? ' · omlastning' : '';
+    return `${antal} ${antal === 1 ? 'maskin' : 'maskiner'}${oml}`;
+  })();
+
   const prodVarde = (() => {
     const sk = data.skordareM3G15h > 0 ? data.skordareM3G15h : null;
     const st = data.skotareM3G15h > 0 ? data.skotareM3G15h : null;
@@ -962,6 +1041,11 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
       )}
 
       <div style={{ marginTop: 8 }}>
+        {!risjobb && visaSkotare && (
+          <Collapse title="Skotare på objektet" varde={skotareVarde} defaultOpen>
+            <SkotarePaObjektet data={data} />
+          </Collapse>
+        )}
         {!risjobb && hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={data} /></Collapse>}
         {!risjobb && hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={data} /></Collapse>}
         {!risjobb && hasTradslagSort && (
