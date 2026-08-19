@@ -5260,6 +5260,12 @@ export default function PlannerPage() {
 
   // Hjälpare: alla TMA-resultat som har vägar (för rendering)
   const tmaWithRoads = Object.entries(tmaResults).filter(([, r]) => r.status === 'done' && r.roads.length > 0);
+  // TMA-vägdatans hälsa för AKTUELL trakts boundaries → styr det ärliga beskedet (aldrig tyst tomhet):
+  // 'error' = alla Overpass-instanser föll → "Vägdata kunde inte hämtas"; 'loading' = kollen pågår.
+  // 'done' med 0 vägar = trakten ligger genuint inte vid allmän väg (inget besked, korrekt tomt).
+  const tmaBoundaryIds = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1).map(m => String(m.id));
+  const tmaDataFel = tmaBoundaryIds.some(id => tmaResults[id]?.status === 'error');
+  const tmaDataLaddar = !tmaDataFel && tmaBoundaryIds.some(id => tmaResults[id]?.status === 'loading');
 
   // Trigga TMA-kontroll per boundary individuellt
   useEffect(() => {
@@ -8105,12 +8111,13 @@ export default function PlannerPage() {
 
       console.log('[TMA] Bounding box:', { minLat, maxLat, minLon, maxLon });
 
-      // Hämta ALLA vägar inom bounding box (ofiltrerat för debug)
-      const query = `[out:json][timeout:15];way(${minLat},${minLon},${maxLat},${maxLon})["highway"];out body geom;`;
-      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-      console.log('[TMA] Overpass URL:', url);
+      // Hämta ALLA highway-vägar i bbox:en via EGEN proxy (/api/tma-roads) — same-origin löser CORS,
+      // och proxyn faller över flera Overpass-instanser (overpass-api.de svarar numera 406/utan ACAO →
+      // ett direkt klientanrop dog tyst). Rå Overpass-JSON tillbaka → parsningen nedan (vägklass-filter,
+      // 50 m-nearbyGeom, avstånd) är OFÖRÄNDRAD.
+      const url = `/api/tma-roads?minLat=${minLat}&minLon=${minLon}&maxLat=${maxLat}&maxLon=${maxLon}`;
       const response = await fetch(url);
-      console.log('[TMA] Overpass response status:', response.status);
+      console.log('[TMA] tma-roads status:', response.status, '| instans:', response.headers.get('X-Overpass-Instance') || '(cache/–)');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
@@ -12975,6 +12982,28 @@ export default function PlannerPage() {
             {risaTaps.length === 0 ? 'Tryck där risningen börjar på basvägen' : 'Tryck där risningen slutar'}
           </div>
           <button onClick={avbrytRisaMarkering} style={{ background: 'rgba(255,255,255,0.12)', border: 'none', color: '#fff', borderRadius: '10px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
+        </div>
+      )}
+
+      {/* TMA-VÄGDATA: ärligt besked så en trakt VID allmän väg aldrig visar tom karta — antingen ritas
+          den röda linjen, eller står det att kollen pågår / inte kunde hämtas. Aldrig tyst tomhet.
+          Fel = rött (samma ärliga mönster som roadChecken/kartrutefelet); laddar = diskret. */}
+      {(tmaDataFel || tmaDataLaddar) && (
+        <div style={{
+          position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 340, background: tmaDataFel ? 'rgba(40,10,10,0.92)' : 'rgba(0,0,0,0.82)',
+          border: `1px solid ${tmaDataFel ? 'rgba(255,69,58,0.7)' : 'rgba(255,255,255,0.18)'}`,
+          borderRadius: 12, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 10, maxWidth: '92vw',
+          fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
+        }}>
+          {tmaDataFel ? (
+            <>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff453a" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              <span style={{ fontSize: 13.5, color: '#fff', fontWeight: 600 }}>Vägdata kunde inte hämtas</span>
+            </>
+          ) : (
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>Kollar vägdata…</span>
+          )}
         </div>
       )}
 
