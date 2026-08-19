@@ -426,54 +426,59 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
   if (list.length === 0 && oml.length === 0) return null;
   const sv = (n: number) => n.toLocaleString('sv-SE');
 
-  const Rad = ({ namn, volym, meta, color, dampad }: { namn: string; volym: number; meta: string; color: string; dampad?: boolean }) => (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '12px 16px', opacity: dampad ? 0.5 : 1 }}>
-      <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0, alignSelf: 'center' }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, color: '#fff', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{namn}</div>
-        <div style={{ fontSize: 11, color: V6_GREY, marginTop: 2 }}>{meta}</div>
-      </div>
-      <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-        {sv(volym)} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
-      </div>
-    </div>
-  );
+  // Jämbördiga skotarkort: Wisent (skotning) och omlastning har SAMMA storlek,
+  // ljusstyrka och layout. Skillnaden = en tydlig "Omlastning"-badge + texten
+  // "volymen räknas ej i skotad total" (ärlighetssignalen), ALDRIG nedtoning.
+  type Kortdata = { key: string; namn: string; volym: number; meta: string; omlastning: boolean };
+  const kort: Kortdata[] = [
+    ...list.map((s): Kortdata => ({
+      key: s.maskinId, namn: s.namn, volym: s.volym, omlastning: s.arOmlastning,
+      meta: [
+        s.antalLass > 0 ? `${s.antalLass} lass` : 'inga lass',
+        s.g15 > 0 ? `${s.g15.toFixed(1)} G15h` : null,
+        s.kalla === 'manuell' ? 'manuellt' : null,
+        s.arOmlastning ? 'volymen räknas ej i skotad total' : null,
+      ].filter(Boolean).join(' · '),
+    })),
+    ...oml.map((o): Kortdata => ({
+      key: `oml|${o.maskinId}|${o.franObjektId}`, namn: o.namn, volym: o.volym, omlastning: true,
+      meta: [
+        `${o.antalLass} lass`,
+        o.g15 > 0 ? `${o.g15.toFixed(1)} G15h` : null,
+        o.g0 > 0 && o.g0 !== o.g15 ? `${o.g0.toFixed(1)} G0h` : null,
+        o.diesel > 0 ? `${o.diesel.toLocaleString('sv-SE')} L` : null,
+        'volymen räknas ej i skotad total',
+      ].filter(Boolean).join(' · '),
+    })),
+  ];
 
   return (
-    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ padding: '0 24px 16px' }}>
       <div style={{ background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
-        {list.map((s, i) => {
-          const bitar = [
-            s.antalLass > 0 ? `${s.antalLass} lass` : 'inga lass',
-            s.g15 > 0 ? `${s.g15.toFixed(1)} G15h` : null,
-            s.kalla === 'manuell' ? 'manuellt' : null,
-            s.arOmlastning ? 'omlastning — räknas ej i skotad total' : null,
-          ].filter(Boolean);
-          return (
-            <div key={s.maskinId} style={{ borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
-              <Rad namn={s.namn} volym={s.volym} meta={bitar.join(' · ')} color={V6_ST} dampad={s.arOmlastning} />
-            </div>
-          );
-        })}
-      </div>
-      {oml.length > 0 && (
-        <div style={{ background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
-          {oml.map((o, i) => {
-            const bitar = [
-              `${o.antalLass} lass`,
-              o.g15 > 0 ? `${o.g15.toFixed(1)} G15h` : null,
-              o.g0 > 0 && o.g0 !== o.g15 ? `${o.g0.toFixed(1)} G0h` : null,
-              o.diesel > 0 ? `${o.diesel.toLocaleString('sv-SE')} L` : null,
-              'omlastning — volymen räknas ej i skotad total',
-            ].filter(Boolean);
-            return (
-              <div key={`${o.maskinId}|${o.franObjektId}`} style={{ borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
-                <Rad namn={o.namn} volym={o.volym} meta={bitar.join(' · ')} color={V6_GREY2} dampad />
+        {kort.map((k, i) => (
+          <div key={k.key} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px',
+            borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none',
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST, flexShrink: 0, marginTop: 6 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14, color: '#fff', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
+                {k.omlastning && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#ffb340', background: 'rgba(255,159,10,0.15)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap', letterSpacing: 0.3 }}>OMLASTNING</span>
+                )}
               </div>
-            );
-          })}
-        </div>
-      )}
+              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 3 }}>{k.meta}</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                {sv(k.volym)} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+              </div>
+              {k.omlastning && <div style={{ fontSize: 9, color: '#ffb340', marginTop: 2, whiteSpace: 'nowrap' }}>ej i total</div>}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
