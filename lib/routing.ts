@@ -345,18 +345,24 @@ export async function persisteraDagKm(
   if (ber.källa === "fallback") return { status: "hoppad", orsak: "ingen vägberäkning (ORS-fel) — persisterar aldrig haversine-gissning" };
   if (ber.km_morgon > MAX_BEN_KM || ber.km_kvall > MAX_BEN_KM) return { status: "hoppad", orsak: `ben > ${MAX_BEN_KM} km (${ber.km_morgon}/${ber.km_kvall}) — trolig felkoordinat` };
   // Vakten (km 0/null, redigerad=false, km_kalla ≠ 'forare') har redan körts på
-  // den FÄRSKA raden ovan — helpern läser rad direkt före denna skrivning, så
-  // race-fönstret är försumbart (nattjobbet är enkeltrådat; bekräftelse-öppningen
-  // läser+skriver i samma anrop). En .or()-filter på update+select får supabase-js
-  // att bygga en trasig fråga ("column … does not exist"), därför inget DB-WHERE
-  // utöver id. .select() kvar → verifierad skrivning (0 rader = fel, aldrig tyst).
+  // den FÄRSKA raden ovan. En .or()-filter på update+select får supabase-js att
+  // bygga en trasig fråga ("column … does not exist"), därför inget DB-WHERE
+  // utöver id. VERIFIERAD SKRIVNING: .select() på km-fälten ger PostgREST:s
+  // RETURNING = radens tillstånd EFTER uppdateringen. Vi rapporterar 'skrev'
+  // ENDAST om (a) en rad kom tillbaka OCH (b) de återlästa värdena faktiskt är
+  // det vi skrev. En update som träffar 0 rader ger tom data → 'hoppad', aldrig
+  // tyst "skrev". Returnerar de ÅTERLÄSTA värdena, inte de tänkta.
   const { data, error } = await supabase.from("arbetsdag")
     .update({ km_morgon: ber.km_morgon, km_kvall: ber.km_kvall, km_kalla: "auto" })
     .eq("id", rad.id)
-    .select("id");
+    .select("id, km_morgon, km_kvall, km_kalla");
   if (error) return { status: "hoppad", orsak: `skrivfel: ${error.message}` };
-  if (!data || data.length === 0) return { status: "hoppad", orsak: "raden fanns inte vid skrivning" };
-  return { status: "skrev", km_morgon: ber.km_morgon, km_kvall: ber.km_kvall, källa: ber.källa };
+  if (!data || data.length === 0) return { status: "hoppad", orsak: "update träffade 0 rader (raden fanns inte)" };
+  const w: any = data[0];
+  if (Number(w.km_morgon) !== ber.km_morgon || Number(w.km_kvall) !== ber.km_kvall || w.km_kalla !== "auto") {
+    return { status: "hoppad", orsak: `återläsning matchar inte skrivningen (db ${w.km_morgon}/${w.km_kvall}/${w.km_kalla})` };
+  }
+  return { status: "skrev", km_morgon: Number(w.km_morgon), km_kvall: Number(w.km_kvall), källa: ber.källa };
 }
 
 /**
