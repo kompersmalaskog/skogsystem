@@ -48,7 +48,7 @@ export interface UppfoljningData {
   skotarePerMaskin?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; arOmlastning: boolean; kalla: 'mätt' | 'manuell' }[];
   // Tillskriven omlastning: annat objekts skotararbete som räknas UNDER detta
   // objekt (via avser_objekt_id), men bidrar med 0 till skotad total.
-  omlastningArbete?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; franObjektId: string }[];
+  omlastningArbete?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; g0: number; diesel: number; franObjektId: string }[];
   kvarPct: number;
   egenSkotning?: boolean;
   grotSkotning?: boolean;
@@ -462,7 +462,9 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
             const bitar = [
               `${o.antalLass} lass`,
               o.g15 > 0 ? `${o.g15.toFixed(1)} G15h` : null,
-              'omlastning — räknas ej i skotad total',
+              o.g0 > 0 && o.g0 !== o.g15 ? `${o.g0.toFixed(1)} G0h` : null,
+              o.diesel > 0 ? `${o.diesel.toLocaleString('sv-SE')} L` : null,
+              'omlastning — volymen räknas ej i skotad total',
             ].filter(Boolean);
             return (
               <div key={`${o.maskinId}|${o.franObjektId}`} style={{ borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>

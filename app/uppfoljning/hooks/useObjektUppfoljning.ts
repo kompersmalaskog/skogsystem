@@ -130,7 +130,7 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
             ? supabase.from('fakt_lass').select('objekt_id, maskin_id, volym_m3sub').in('objekt_id', omlObjektIds)
             : Promise.resolve({ data: [] as any[] }),
           omlObjektIds.length > 0
-            ? supabase.from('fakt_tid').select('objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek').in('objekt_id', omlObjektIds)
+            ? supabase.from('fakt_tid').select('objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek, bransle_liter, kort_stopp_sek').in('objekt_id', omlObjektIds)
             : Promise.resolve({ data: [] as any[] }),
         ]);
 

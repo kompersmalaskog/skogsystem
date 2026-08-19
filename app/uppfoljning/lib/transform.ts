@@ -464,7 +464,10 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     .map((r: any) => {
       const franObjektId: string = r.objekt_id;
       const mid: string = r.maskin_id;
-      let volym = 0, antalLass = 0, g15sek = 0;
+      // FYSISK drift följer med som ARBETE (Martin): G15, G0, diesel, lass är
+      // maskinens SANNA verklighet — den brände diesel och tog tid när den
+      // omlastade. BARA volymen mot skotad total nollas, aldrig arbetet.
+      let volym = 0, antalLass = 0, g15sek = 0, dieselL = 0, kortStoppSek = 0;
       omlLassRows.forEach((l: any) => {
         if (l.objekt_id === franObjektId && l.maskin_id === mid) {
           volym += l.volym_m3sub || 0;
@@ -474,17 +477,23 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
       omlTidRows.forEach((t: any) => {
         if (t.objekt_id === franObjektId && t.maskin_id === mid) {
           g15sek += g15Sek(t.processing_sek, t.terrain_sek, t.other_work_sek);
+          dieselL += t.bransle_liter || 0;
+          kortStoppSek += t.kort_stopp_sek || 0;
         }
       });
       // Manuellt ERSÄTTER mätt även för omlastningsradens egen volym/tid.
       const volEff = r.volym_m3 != null ? Number(r.volym_m3) : volym;
       const g15Eff = r.g15_timmar != null ? Number(r.g15_timmar) : g15sek / 3600;
+      // G0 = G15 − korta stopp (skotare har kort_stopp ≈ 0 → G0 ≈ G15).
+      const g0Eff = Math.max(0, g15Eff - kortStoppSek / 3600);
       return {
         maskinId: mid,
         namn: maskinNamn(mid),
         volym: Math.round(volEff),
         antalLass,
         g15: Math.round(g15Eff * 10) / 10,
+        g0: Math.round(g0Eff * 10) / 10,
+        diesel: Math.round(dieselL),
         franObjektId,
       };
     })
