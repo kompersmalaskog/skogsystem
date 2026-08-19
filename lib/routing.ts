@@ -263,3 +263,132 @@ export async function bygKedjaKm(
 
   return { segments, totalKm, orsAnrop };
 }
+
+// ─────────────────────────────────────────────────────────────
+// KM-PERSISTENS — delad beräkning + vaktad skrivning. Tre anropspunkter delar
+// dessa: km-summary (månadsvyn), nattjobbet (cron) och bekräftelse-öppningen
+// (/api/km/berakna-dag). EN modell → app, lön och nattjobb kan aldrig räkna olika.
+// ─────────────────────────────────────────────────────────────
+
+/** Ett ben (hem→objekt, enkel väg) längre än så räknas som en trolig FELAKTIG
+ *  KOORDINAT och persisteras inte (dagen loggas som hoppad). Skyddsnät mot
+ *  felkoordinat — INTE mot bortaarbete: Daniel kör 73 km i snitt, Max har haft
+ *  130. Boende på plats (noll km är rätt) skiljs via arbetsdag.km_kalla='forare',
+ *  aldrig via avstånd. Gränsen får därför aldrig ligga lägre. */
+export const MAX_BEN_KM = 250;
+
+export interface DagKmBerakning {
+  km_morgon: number;
+  km_kvall: number;
+  källa: RouteResult["source"]; // "cache" | "ors" | "fallback"
+  orsAnrop: number;
+}
+
+/**
+ * Beräknar dagens pendlingskm (hem→första objektet + sista→hem) via Modell B
+ * (dagensPlatser — enda modelldefinitionen). Ren beräkning: ingen vakt, ingen
+ * skrivning. Returnerar null när dagen inte kan platsbestämmas (inget objekt med
+ * koordinat) eller hem-koordinat saknas. Delas av km-summary (visning) och
+ * persist-helpern så visning och skrivning aldrig räknar olika.
+ */
+export async function berakaDagKm(
+  supabase: any,
+  p: {
+    aoRader: { objekt_id: string | null; ordning: number | null }[];
+    fallbackObjektId: (string | null | undefined)[];
+    koordMap: Record<string, ObjektKoord>;
+    hemLat: number | null; hemLng: number | null;
+    allowOrs: boolean;
+  },
+): Promise<DagKmBerakning | null> {
+  if (p.hemLat == null || p.hemLng == null) return null;
+  const platser = dagensPlatser(p.aoRader, p.fallbackObjektId, p.koordMap);
+  if (platser.length === 0) return null;
+  const first = p.koordMap[platser[0]];
+  const last = p.koordMap[platser[platser.length - 1]];
+  const hL = Number(p.hemLat), hN = Number(p.hemLng);
+  let orsAnrop = 0;
+  // Endast pendlingsbenen (hem→första, sista→hem). Aldrig mellan-objekt-körning —
+  // den har ingen kolumn och är inte pendling. km_totalt = morgon + kväll.
+  const mRes = await routeKm(supabase, { fromLat: hL, fromLng: hN, toLat: Number(first.lat), toLng: Number(first.lng) }, p.allowOrs);
+  if (mRes.source === "ors") orsAnrop++;
+  const kRes = await routeKm(supabase, { fromLat: Number(last.lat), fromLng: Number(last.lng), toLat: hL, toLng: hN }, p.allowOrs);
+  if (kRes.source === "ors") orsAnrop++;
+  const källa = (mRes.source === "fallback" || kRes.source === "fallback") ? "fallback" : kRes.source;
+  return { km_morgon: mRes.km, km_kvall: kRes.km, källa, orsAnrop };
+}
+
+export type PersistResultat =
+  | { status: "skrev"; km_morgon: number; km_kvall: number; källa: string }
+  | { status: "hoppad"; orsak: string };
+
+/**
+ * VAKT + verifierad skrivning av en beräknad dag. Skriver BARA km_morgon/km_kvall
+ * + km_kalla='auto', och bara när ALLA håller:
+ *   · alla km-fält 0/null (skriver aldrig över befintlig km)
+ *   · redigerad = false (föraren äger dagen)
+ *   · km_kalla ≠ 'forare' (medveten uppgift, inkl. medveten 0 — oförstörbar)
+ *   · källa ≠ fallback (persisterar aldrig en haversine-gissning)
+ *   · båda benen ≤ MAX_BEN_KM (trolig felkoordinat annars)
+ * Race-skydd i WHERE (km fortfarande 0, km_kalla inte forare) + verifierad via
+ * .select() (0 rader = någon hann emellan → hoppad, aldrig tyst "skrev").
+ */
+export async function persisteraDagKm(
+  supabase: any,
+  rad: { id: string; km_morgon: any; km_kvall: any; km_totalt: any; redigerad: boolean | null; km_kalla: string | null },
+  ber: DagKmBerakning,
+): Promise<PersistResultat> {
+  const noll = (v: any) => v == null || Number(v) === 0;
+  if (!(noll(rad.km_morgon) && noll(rad.km_kvall) && noll(rad.km_totalt))) return { status: "hoppad", orsak: "km redan satt" };
+  if (rad.redigerad) return { status: "hoppad", orsak: "redigerad — föraren äger dagen" };
+  if (rad.km_kalla === "forare") return { status: "hoppad", orsak: "km_kalla='forare' — medveten uppgift" };
+  if (ber.källa === "fallback") return { status: "hoppad", orsak: "ingen vägberäkning (ORS-fel) — persisterar aldrig haversine-gissning" };
+  if (ber.km_morgon > MAX_BEN_KM || ber.km_kvall > MAX_BEN_KM) return { status: "hoppad", orsak: `ben > ${MAX_BEN_KM} km (${ber.km_morgon}/${ber.km_kvall}) — trolig felkoordinat` };
+  // Vakten (km 0/null, redigerad=false, km_kalla ≠ 'forare') har redan körts på
+  // den FÄRSKA raden ovan. En .or()-filter på update+select får supabase-js att
+  // bygga en trasig fråga ("column … does not exist"), därför inget DB-WHERE
+  // utöver id. VERIFIERAD SKRIVNING: .select() på km-fälten ger PostgREST:s
+  // RETURNING = radens tillstånd EFTER uppdateringen. Vi rapporterar 'skrev'
+  // ENDAST om (a) en rad kom tillbaka OCH (b) de återlästa värdena faktiskt är
+  // det vi skrev. En update som träffar 0 rader ger tom data → 'hoppad', aldrig
+  // tyst "skrev". Returnerar de ÅTERLÄSTA värdena, inte de tänkta.
+  const { data, error } = await supabase.from("arbetsdag")
+    .update({ km_morgon: ber.km_morgon, km_kvall: ber.km_kvall, km_kalla: "auto" })
+    .eq("id", rad.id)
+    .select("id, km_morgon, km_kvall, km_kalla");
+  if (error) return { status: "hoppad", orsak: `skrivfel: ${error.message}` };
+  if (!data || data.length === 0) return { status: "hoppad", orsak: "update träffade 0 rader (raden fanns inte)" };
+  const w: any = data[0];
+  if (Number(w.km_morgon) !== ber.km_morgon || Number(w.km_kvall) !== ber.km_kvall || w.km_kalla !== "auto") {
+    return { status: "hoppad", orsak: `återläsning matchar inte skrivningen (db ${w.km_morgon}/${w.km_kvall}/${w.km_kalla})` };
+  }
+  return { status: "skrev", km_morgon: Number(w.km_morgon), km_kvall: Number(w.km_kvall), källa: ber.källa };
+}
+
+/**
+ * Beräkna + persistera dagens km i ett svep. Tidig vakt (innan ORS-anrop) på de
+ * villkor som inte kräver beräkning, så vi inte bränner ORS på dagar som ändå
+ * inte får skrivas. Delas av nattjobbet och bekräftelse-öppningen.
+ */
+export async function beraknaOchPersisteraDagKm(
+  supabase: any,
+  p: {
+    rad: { id: string; km_morgon: any; km_kvall: any; km_totalt: any; redigerad: boolean | null; km_kalla: string | null; objekt_id: string | null };
+    aoRader: { objekt_id: string | null; ordning: number | null }[];
+    koordMap: Record<string, ObjektKoord>;
+    hemLat: number | null; hemLng: number | null;
+    allowOrs: boolean;
+  },
+): Promise<PersistResultat & { orsAnrop: number }> {
+  const noll = (v: any) => v == null || Number(v) === 0;
+  if (!(noll(p.rad.km_morgon) && noll(p.rad.km_kvall) && noll(p.rad.km_totalt))) return { status: "hoppad", orsak: "km redan satt", orsAnrop: 0 };
+  if (p.rad.redigerad) return { status: "hoppad", orsak: "redigerad — föraren äger dagen", orsAnrop: 0 };
+  if (p.rad.km_kalla === "forare") return { status: "hoppad", orsak: "km_kalla='forare' — medveten uppgift", orsAnrop: 0 };
+  const ber = await berakaDagKm(supabase, {
+    aoRader: p.aoRader, fallbackObjektId: [p.rad.objekt_id], koordMap: p.koordMap,
+    hemLat: p.hemLat, hemLng: p.hemLng, allowOrs: p.allowOrs,
+  });
+  if (!ber) return { status: "hoppad", orsak: p.hemLat == null ? "saknar hemadress-koordinat" : "inget objekt med koordinat", orsAnrop: 0 };
+  const res = await persisteraDagKm(supabase, p.rad, ber);
+  return { ...res, orsAnrop: ber.orsAnrop };
+}

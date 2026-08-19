@@ -19,6 +19,10 @@
     {
       "path": "/api/import-trakt/stada",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/km/nattjobb",
+      "schedule": "0 1 * * *"
     }
   ]
 }
