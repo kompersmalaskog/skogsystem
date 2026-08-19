@@ -22,6 +22,7 @@ const pageNames: Record<string, string> = {
   '/maskin-service': 'Maskinservice',
   '/datahalsa': 'Datahälsa',
   '/utbildning': 'Utbildning',
+  '/egenkontroll': 'Egenkontroll',
   '/fordonsoversikt': 'Fordonsöversikt',
   '/maskinflytt': 'Maskinflytt',
   '/maskinflytt/sammanstallning': 'Flyttlogg',
@@ -36,7 +37,10 @@ export default function TopBar() {
   const pathname = usePathname()
   const isHome = pathname === '/'
   const pageName = pageNames[pathname]
-    || (pathname.startsWith('/maskin-service/') ? 'Maskinservice'
+    // Rundvyn ligger på /egenkontroll/<objekt-uuid> — utan detta hade titeln
+    // blivit "Egenkontroll/9cd47e9c-…" via fallbacken längst ner.
+    || (pathname.startsWith('/egenkontroll/') ? 'Egenkontroll'
+    : pathname.startsWith('/maskin-service/') ? 'Maskinservice'
     : pathname.startsWith('/admin/markagarrapport') ? 'Markägarrapport'
     : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
 

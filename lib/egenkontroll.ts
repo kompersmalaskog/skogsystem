@@ -84,16 +84,46 @@ export type GenereraResultat = {
   antalPunkter: number;
 };
 
-export type GenereraOptions = {
+export type KlientOptions = {
   /**
    * Klient att kora mot. Utelamnad -> den delade webblasarklienten, och da
-   * kravs en inloggad session (se rattighetsnoten nedan). Skript och tester
-   * skickar in en egen klient.
+   * kravs en inloggad session (se rattighetsnoten vid kravSession). Skript
+   * och tester skickar in en egen klient.
    */
   klient?: SupabaseClient;
+};
+
+export type GenereraOptions = KlientOptions & {
   /** Skrivs till egenkontroll.utford_av. Utelamnad -> sessionens e-post. */
   utfordAv?: string | null;
 };
+
+/**
+ * Loser ut klienten och kraver en session nar den delade anvands.
+ *
+ * RATTIGHETER: policyn pa egenkontroll-tabellerna ar FOR ALL TO authenticated.
+ * Den delade klienten anvander den publika anon-NYCKELN, men ROLLEN kommer ur
+ * sessionens JWT - en inloggad planerare far authenticated och slapps igenom.
+ * Utan session blir rollen anon, och da returnerar SELECT tomt UTAN fel. Ett
+ * tomt svar gar da inte att skilja fran "det finns inget att visa": listan
+ * skulle se tom ut i stallet for att saga att inloggningen slutat galla, och
+ * genereringen skulle tro att ingen runda finns och forsoka skapa en dubblett.
+ * Darfor kravs sessionen explicit har. Tomt far aldrig betyda tva saker.
+ */
+async function kravSession(
+  options: KlientOptions,
+): Promise<{ klient: SupabaseClient; epost: string | null }> {
+  if (options.klient) return { klient: options.klient, epost: null };
+
+  const klient = (await import('./supabase')).supabase;
+  const { data } = await klient.auth.getUser();
+  if (!data?.user) {
+    throw new Error(
+      'Du är inte inloggad längre. Logga in igen för att se egenkontrollerna.',
+    );
+  }
+  return { klient, epost: data.user.email ?? data.user.id };
+}
 
 // ---------------------------------------------------------------------------
 // Vilka markeringar blir punkter
@@ -280,34 +310,15 @@ function satRubriker<T extends { huvuddel: string; antal: number | null }>(
  * Skapar - eller returnerar - en pagaende egenkontroll for ett objekt och
  * fyller den med planpunkter ur objektets markeringar.
  *
- * RATTIGHETER: policyn pa egenkontroll-tabellerna ar FOR ALL TO authenticated.
- * Den delade klienten anvander den publika anon-NYCKELN, men ROLLEN kommer ur
- * sessionens JWT - en inloggad planerare far authenticated och slapps igenom.
- * Utan session blir rollen anon, och da returnerar SELECT tomt UTAN fel. Det
- * tomma svaret gar inte att skilja fran "ingen pagaende runda finns", vilket
- * skulle fa oss att forsoka skapa en dubblett. Darfor kravs sessionen explicit
- * nedan: tomt far aldrig betyda tva saker.
+ * Rundan skapas bara nar detta anropas - aldrig av att en vy oppnas.
+ * Rattigheter: se kravSession.
  */
 export async function generateEgenkontroll(
   objektId: string,
   options: GenereraOptions = {},
 ): Promise<GenereraResultat> {
-  const anvanderDeladKlient = !options.klient;
-  const klient = options.klient ?? (await import('./supabase')).supabase;
-
-  let utfordAv = options.utfordAv ?? null;
-
-  if (anvanderDeladKlient) {
-    const { data: sessionData } = await klient.auth.getUser();
-    if (!sessionData?.user) {
-      throw new Error(
-        'Egenkontroll kräver inloggning: tabellerna släpper bara in rollen ' +
-          'authenticated. Utan session blir läsningen tyst tom och en dubblett ' +
-          'skulle kunna skapas.',
-      );
-    }
-    if (utfordAv === null) utfordAv = sessionData.user.email ?? sessionData.user.id;
-  }
+  const { klient, epost } = await kravSession(options);
+  const utfordAv = options.utfordAv ?? epost;
 
   // --- 1. Objektet -------------------------------------------------------
   // Kolumnlistan maste vara EN strangliteral - slas den ihop med + kan
@@ -459,4 +470,255 @@ async function skapaPlanpunkter(
   if (punktFel) throw new Error(`Kunde inte skapa punkterna: ${punktFel.message}`);
 
   return rader.length;
+}
+
+// ---------------------------------------------------------------------------
+// Lasning for vyerna
+// ---------------------------------------------------------------------------
+
+/** Tillatna svar pa en planpunkt. Databasens CHECK: del='plan' -> ok/avvikelse. */
+export type PlanStatus = 'ok' | 'avvikelse';
+
+export type EgenkontrollPunkt = {
+  id: string;
+  egenkontroll_id: string;
+  ordning: number;
+  del: string;
+  grupp: string | null;
+  kalla: string;
+  markering_id: string | null;
+  markering_marker_id: string | null;
+  punkt_typ: string | null;
+  rubrik: string;
+  antal_planerat: number | null;
+  geometri_snapshot: Record<string, unknown> | null;
+  status: string | null;
+  avvikelse_typ: string | null;
+  kommentar: string | null;
+  besvarad: string | null;
+};
+
+export type RundStatus = 'ej_startad' | 'pagaende' | 'klar';
+
+export type VantandeRad = {
+  objekt_id: string;
+  namn: string;
+  /** Kant avslutsdatum (ISO). Objekt utan datum kommer aldrig hit - se hamtaVantande. */
+  avslutat: string;
+  rundstatus: RundStatus;
+  egenkontroll_id: string | null;
+  antalPunkter: number;
+  antalBesvarade: number;
+  antalAvvikelser: number;
+  klarDatum: string | null;
+};
+
+export type VantandeOversikt = {
+  /** Vantande forst (aldst overst), darefter klara. */
+  rader: VantandeRad[];
+  /** Antalet som faktiskt vantar - badgens och rubrikens siffra. */
+  antalVantande: number;
+  /**
+   * Avslutade objekt UTAN kant avslutsdatum. De listas inte och raknas inte,
+   * men antalet returneras sa att listan kan saga varfor de saknas i stallet
+   * for att tyst utelamna dem.
+   */
+  antalUtanDatum: number;
+};
+
+/** Foredrar en pagaende runda, annars den senast startade. */
+function valjRunda(rundor: Egenkontroll[]): Egenkontroll | null {
+  const pagaende = rundor.find((r) => r.status === 'pagaende');
+  if (pagaende) return pagaende;
+  const sorterade = [...rundor].sort((a, b) => (a.startad < b.startad ? 1 : -1));
+  return sorterade[0] ?? null;
+}
+
+/**
+ * Objekt som vantar pa egenkontroll.
+ *
+ * Vantande = status 'avslutat' OCH kant avslutsdatum, utan en runda som ar
+ * 'klar'. En pagaende runda raknas som vantande.
+ *
+ * Objekt UTAN avslutsdatum listas inte: avslutad_timestamp ar ett nytt falt
+ * och de datumlosa ar historik fran innan rutinen fanns. En siffra som raknar
+ * med dem blir brus i stallet for en utlosare. De nas fortfarande fran
+ * objektet, och antalet returneras sa att listan kan saga att de finns.
+ */
+export async function hamtaVantande(
+  options: KlientOptions = {},
+): Promise<VantandeOversikt> {
+  const { klient } = await kravSession(options);
+
+  const { data: objektRader, error: objektFel } = await klient
+    .from('objekt')
+    .select('id, namn, avslutad_timestamp, faktisk_slut')
+    .eq('status', 'avslutat')
+    .order('id', { ascending: true });
+
+  if (objektFel) throw new Error(`Kunde inte läsa objekten: ${objektFel.message}`);
+
+  const alla = (objektRader ?? []) as unknown as {
+    id: string;
+    namn: string | null;
+    avslutad_timestamp: string | null;
+    faktisk_slut: string | null;
+  }[];
+
+  const medDatum = alla.flatMap((o) => {
+    const avslutat = o.avslutad_timestamp ?? o.faktisk_slut;
+    return avslutat ? [{ ...o, avslutat }] : [];
+  });
+  const antalUtanDatum = alla.length - medDatum.length;
+
+  if (medDatum.length === 0) {
+    return { rader: [], antalVantande: 0, antalUtanDatum };
+  }
+
+  const { data: rundRader, error: rundFel } = await klient
+    .from('egenkontroll')
+    .select('*')
+    .in('objekt_id', medDatum.map((o) => o.id))
+    .order('startad', { ascending: false });
+
+  if (rundFel) throw new Error(`Kunde inte läsa egenkontrollerna: ${rundFel.message}`);
+  const rundor = (rundRader ?? []) as unknown as Egenkontroll[];
+
+  // Punktraknarna aggregeras i JS - PostgREST har ingen GROUP BY. Volymen ar
+  // liten (en runda per objekt, tiotals punkter) sa det kostar ingenting.
+  let punkter: { egenkontroll_id: string; status: string | null }[] = [];
+  if (rundor.length > 0) {
+    const { data: punktRader, error: punktFel } = await klient
+      .from('egenkontroll_punkt')
+      .select('egenkontroll_id, status')
+      .in('egenkontroll_id', rundor.map((r) => r.id))
+      .order('id', { ascending: true });
+    if (punktFel) throw new Error(`Kunde inte läsa punkterna: ${punktFel.message}`);
+    punkter = (punktRader ?? []) as unknown as typeof punkter;
+  }
+
+  const rader: VantandeRad[] = medDatum.map((o) => {
+    const runda = valjRunda(rundor.filter((r) => r.objekt_id === o.id));
+    const egna = runda ? punkter.filter((p) => p.egenkontroll_id === runda.id) : [];
+    return {
+      objekt_id: o.id,
+      namn: o.namn ?? 'Objekt utan namn',
+      avslutat: o.avslutat,
+      rundstatus: !runda ? 'ej_startad' : runda.status === 'klar' ? 'klar' : 'pagaende',
+      egenkontroll_id: runda?.id ?? null,
+      antalPunkter: egna.length,
+      antalBesvarade: egna.filter((p) => p.status !== null).length,
+      antalAvvikelser: egna.filter((p) => p.status === 'avvikelse').length,
+      klarDatum: runda?.klar ?? null,
+    };
+  });
+
+  // Vantande forst, aldst overst (langst vantetid). Klara sist.
+  rader.sort((a, b) => {
+    const aKlar = a.rundstatus === 'klar' ? 1 : 0;
+    const bKlar = b.rundstatus === 'klar' ? 1 : 0;
+    if (aKlar !== bKlar) return aKlar - bKlar;
+    return a.avslutat < b.avslutat ? -1 : a.avslutat > b.avslutat ? 1 : 0;
+  });
+
+  return {
+    rader,
+    antalVantande: rader.filter((r) => r.rundstatus !== 'klar').length,
+    antalUtanDatum,
+  };
+}
+
+export type RundVy = {
+  objektNamn: string;
+  objektStatus: string | null;
+  /** null = ingen runda startad an. */
+  egenkontroll: Egenkontroll | null;
+  punkter: EgenkontrollPunkt[];
+};
+
+/** Hamtar objektets runda med punkter. Skapar ALDRIG nagot. */
+export async function hamtaRunda(
+  objektId: string,
+  options: KlientOptions = {},
+): Promise<RundVy> {
+  const { klient } = await kravSession(options);
+
+  const { data: objekt, error: objektFel } = await klient
+    .from('objekt')
+    .select('id, namn, status')
+    .eq('id', objektId)
+    .maybeSingle();
+
+  if (objektFel) throw new Error(`Kunde inte läsa objektet: ${objektFel.message}`);
+  if (!objekt) throw new Error(`Objektet finns inte: ${objektId}`);
+
+  const { data: rundRader, error: rundFel } = await klient
+    .from('egenkontroll')
+    .select('*')
+    .eq('objekt_id', objektId)
+    .order('startad', { ascending: false });
+
+  if (rundFel) throw new Error(`Kunde inte läsa egenkontrollen: ${rundFel.message}`);
+
+  const runda = valjRunda((rundRader ?? []) as unknown as Egenkontroll[]);
+  const bas = {
+    objektNamn: (objekt.namn as string) ?? 'Objekt utan namn',
+    objektStatus: (objekt.status as string) ?? null,
+  };
+  if (!runda) return { ...bas, egenkontroll: null, punkter: [] };
+
+  // .order() kravs for stabil ordning - utan ORDER BY ar radordningen inte
+  // garanterad och punkterna skulle kunna byta plats mellan laddningar.
+  const { data: punktRader, error: punktFel } = await klient
+    .from('egenkontroll_punkt')
+    .select('*')
+    .eq('egenkontroll_id', runda.id)
+    .order('ordning', { ascending: true });
+
+  if (punktFel) throw new Error(`Kunde inte läsa punkterna: ${punktFel.message}`);
+
+  return {
+    ...bas,
+    egenkontroll: runda,
+    punkter: (punktRader ?? []) as unknown as EgenkontrollPunkt[],
+  };
+}
+
+/**
+ * Svarar pa en planpunkt.
+ *
+ * UPDATE-only, aldrig upsert - samma monster som updateMarkerDataInDb. En
+ * UPDATE mot ett borttaget id traffar 0 rader och kan omojligt aterskapa en
+ * punkt som stadats bort.
+ *
+ * Svaret las TILLBAKA och jamfors med det som skickades. Att rakna rader
+ * racker inte: RLS kan gora en update till en tyst nolltraff, och da ska
+ * anroparen fa ett fel i stallet for en knapp som ser ut att ha svarat.
+ */
+export async function svaraPaPunkt(
+  punktId: string,
+  status: PlanStatus,
+  options: KlientOptions = {},
+): Promise<EgenkontrollPunkt> {
+  const { klient } = await kravSession(options);
+
+  const { data, error } = await klient
+    .from('egenkontroll_punkt')
+    .update({ status, besvarad: new Date().toISOString() })
+    .eq('id', punktId)
+    .eq('del', 'plan') // CHECK:en tillater ok/avvikelse bara for del='plan'
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Kunde inte spara svaret: ${error.message}`);
+  if (!data) {
+    throw new Error('Svaret sparades inte — punkten hittades inte. Ladda om sidan.');
+  }
+  const sparad = data as unknown as EgenkontrollPunkt;
+  if (sparad.status !== status) {
+    throw new Error(
+      `Svaret sparades inte som väntat (blev "${sparad.status ?? 'tomt'}"). Ladda om sidan.`,
+    );
+  }
+  return sparad;
 }
