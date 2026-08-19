@@ -479,6 +479,14 @@ export default function PlannerPage() {
   // BASVÄG-MERGE: fråga (systemet föreslår, föraren godkänner) när en nyss sparad basväg får en ändpunkt
   // nära en befintlig basvägs ändpunkt. `dualRisa` → blockera-kort istället (modellen rymmer en risaPath).
   const [mergePrompt, setMergePrompt] = useState<{ nyId: string | number; malId: string | number; malNummer?: number; nyEnd: 'start' | 'slut'; malEnd: 'start' | 'slut'; dualRisa: boolean } | null>(null);
+  // APP-EGEN DIALOG — ersätter window.confirm()/alert() som blockeras TYST i inbäddade browsermiljöer
+  // (bevisat 14/8: Numrera om-confirm syntes aldrig → tolkades som Avbryt; alert-felen kan tystas likadant).
+  // Samma mönster som merge-kortet (#406), renderas alltid i DOM:en → miljön kan inte tysta det.
+  //   bekräftelse: message + [Avbryt] [OK], onOk körs BARA på OK (backdrop/Avbryt = avbryt).
+  //   besked/fel:  message + [OK], måste ses och stängas (fel kan aldrig tystas).
+  const [appDialog, setAppDialog] = useState<{ message: string; okLabel: string; cancelLabel?: string; onOk?: () => void } | null>(null);
+  const visaBekraftelse = (message: string, onOk: () => void) => setAppDialog({ message, okLabel: 'OK', cancelLabel: 'Avbryt', onOk });
+  const visaBesked = (message: string) => setAppDialog({ message, okLabel: 'OK' });
   // Basvägs-id:n som redan prövats för merge. SEEDAS vid varje load/refetch med hela minnet → bara
   // sessions-NYA vägar (ritade/GPS efter load) prövas; laddade vägar frågar aldrig.
   const mergeCheckedIdsRef = useRef<Set<string>>(new Set());
@@ -4003,8 +4011,8 @@ export default function PlannerPage() {
       .eq('objekt_id', valtObjekt.id)
       .eq('registrerad_at', sistaUttag.registrerad_at)
       .select();
-    if (error) { console.error('[Ångra uttag] delete-fel:', error); alert('Kunde inte ångra: ' + error.message); return; }
-    if (!borttagna || borttagna.length === 0) { alert('Kunde inte ångra — ingen rad togs bort (saknad behörighet?).'); return; }
+    if (error) { console.error('[Ångra uttag] delete-fel:', error); visaBesked('Kunde inte ångra: ' + error.message); return; }
+    if (!borttagna || borttagna.length === 0) { visaBesked('Kunde inte ångra — ingen rad togs bort (saknad behörighet?).'); return; }
     if (navigator.vibrate) navigator.vibrate(50);
     setHogarReload(prev => prev + 1);      // kartan: de ångrade högarna kommer tillbaka (loadHogar kör om)
     setSkotningReload(prev => prev + 1);   // kvar-panelen + sistaUttag räknas om
@@ -6195,17 +6203,19 @@ export default function PlannerPage() {
       const bn = typeof b.nummer === 'number' ? b.nummer : Infinity;
       return an !== bn ? an - bn : Number(a.id) - Number(b.id); // onumrerade sist (id-rang)
     });
-    if (!window.confirm(`Numrera om ${mainRoads.length} basvägar? Nummer som redan kommunicerats (t.ex. till förare) kommer att ändras.`)) return;
-    const nya = new Map<string, number>();
-    ordning.forEach((m: any, i: number) => nya.set(String(m.id), i + 1));
-    const changed = ordning.filter((m: any) => m.nummer !== nya.get(String(m.id)));
-    setMarkers((prev: any[]) => prev.map((m: any) => {
-      const n = nya.get(String(m.id));
-      return n != null ? { ...m, nummer: n } : m;
-    }));
-    // UPDATE-only (aldrig upsert) → kan aldrig återuppliva en raderad väg, även vid kapplöpning.
-    changed.forEach((m: any) => updateMarkerDataInDb({ ...m, nummer: nya.get(String(m.id))! }));
-    if (navigator.vibrate) navigator.vibrate(30);
+    // window.confirm() → app-eget bekräftelsekort (samma text). OK kör omnumreringen, Avbryt/backdrop avbryter.
+    visaBekraftelse(`Numrera om ${mainRoads.length} basvägar? Nummer som redan kommunicerats (t.ex. till förare) kommer att ändras.`, () => {
+      const nya = new Map<string, number>();
+      ordning.forEach((m: any, i: number) => nya.set(String(m.id), i + 1));
+      const changed = ordning.filter((m: any) => m.nummer !== nya.get(String(m.id)));
+      setMarkers((prev: any[]) => prev.map((m: any) => {
+        const n = nya.get(String(m.id));
+        return n != null ? { ...m, nummer: n } : m;
+      }));
+      // UPDATE-only (aldrig upsert) → kan aldrig återuppliva en raderad väg, även vid kapplöpning.
+      changed.forEach((m: any) => updateMarkerDataInDb({ ...m, nummer: nya.get(String(m.id))! }));
+      if (navigator.vibrate) navigator.vibrate(30);
+    });
   };
 
   // 2) Synka zoner → MapLibre zones-source
@@ -8375,7 +8385,7 @@ export default function PlannerPage() {
   
   const startGpsTracking = (lineType) => {
     if (!('geolocation' in navigator)) {
-      alert('GPS stöds inte i denna enhet');
+      visaBesked('GPS stöds inte i denna enhet');
       return;
     }
     
@@ -12966,6 +12976,29 @@ export default function PlannerPage() {
           </div>
           <button onClick={avbrytRisaMarkering} style={{ background: 'rgba(255,255,255,0.12)', border: 'none', color: '#fff', borderRadius: '10px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
         </div>
+      )}
+
+      {/* APP-EGEN DIALOG — bekräftelse (Avbryt/OK) + besked/fel (OK). Ersätter window.confirm()/alert()
+          som tystas i inbäddade lägen. Backdrop/Avbryt = avbryt (kör aldrig onOk); OK stänger och kör onOk. */}
+      {appDialog && (
+        <>
+          <div onClick={() => setAppDialog(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 710 }} />
+          <div role="dialog" aria-modal="true" style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+            width: 'min(420px, 92vw)', zIndex: 720,
+            background: '#101012', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20,
+            boxShadow: '0 18px 50px rgba(0,0,0,0.6)', padding: '20px 20px 18px',
+            fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
+          }}>
+            <div style={{ fontSize: 15.5, lineHeight: 1.5, color: '#fff', marginBottom: 18, whiteSpace: 'pre-wrap' }}>{appDialog.message}</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              {appDialog.cancelLabel && (
+                <button onClick={() => setAppDialog(null)} style={{ flex: 1, minHeight: 48, borderRadius: 13, border: '1px solid rgba(255,255,255,0.14)', background: 'transparent', color: '#fff', fontSize: 15.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{appDialog.cancelLabel}</button>
+              )}
+              <button onClick={() => { const cb = appDialog.onOk; setAppDialog(null); cb?.(); }} style={{ flex: 1, minHeight: 48, borderRadius: 13, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 15.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>{appDialog.okLabel}</button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* BASVÄG-MERGE: app-eget bekräftelsekort (aldrig window.confirm — blockeras tyst i inbäddade lägen).
@@ -20067,7 +20100,7 @@ export default function PlannerPage() {
                       const { error } = await supabase.from('skotning_uttag').insert(rows);
                       if (error) {
                         console.error('[MultiSelect] Sparfel:', error);
-                        alert('Kunde inte spara: ' + error.message);
+                        visaBesked('Kunde inte spara: ' + error.message);
                       } else {
                         setMultiSelectSparat(true);
                         if (navigator.vibrate) navigator.vibrate(50);
@@ -20433,7 +20466,7 @@ export default function PlannerPage() {
                     const { error } = await supabase.from('skotning_uttag').insert(rows);
                     if (error) {
                       console.error('[Skotning] Sparfel:', error);
-                      alert('Kunde inte spara: ' + error.message);
+                      visaBesked('Kunde inte spara: ' + error.message);
                     } else {
                       setSkotningSparat(true);
                       if (navigator.vibrate) navigator.vibrate(50);
