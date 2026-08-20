@@ -45,8 +45,10 @@ export interface UppfoljningData {
   skordat: number;
   skotat: number;
   // Steg 2a — skotare per maskin på detta objekt (fakt_lass grupperat + manuellt
-  // lager). arOmlastning=true bidrar med 0 till skotad total (visas som arbete).
-  skotarePerMaskin?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; arOmlastning: boolean; kalla: 'mätt' | 'manuell' }[];
+  // lager). Två-volyms-modellen: `egen` räknas mot skotad total, `omlastning`
+  // aldrig. `volym` = egen (bakåtkompatibelt). arOmlastning=true ⇒ ren
+  // omlastningsmaskin (egen 0). En blandad maskin har egen > 0 OCH omlastning > 0.
+  skotarePerMaskin?: { maskinId: string; namn: string; volym: number; egen: number; omlastning: number; antalLass: number; g15: number; arOmlastning: boolean; kalla: 'mätt' | 'manuell' }[];
   // Tillskriven omlastning: annat objekts skotararbete som räknas UNDER detta
   // objekt (via avser_objekt_id), men bidrar med 0 till skotad total.
   omlastningArbete?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; g0: number; diesel: number; franObjektId: string }[];
@@ -442,6 +444,9 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
         s.g15 > 0 ? `${s.g15.toFixed(1)} G15h` : null,
         s.kalla === 'manuell' ? 'manuellt' : null,
         s.arOmlastning ? 'volymen räknas ej i skotad total' : null,
+        // Blandad maskin: egen räknas (visas som volym), men den körde ÄVEN
+        // omlastning — visa den separat, tydligt märkt att den inte räknas.
+        !s.arOmlastning && s.omlastning > 0 ? `+ ${sv(s.omlastning)} m³ omlastning · räknas ej` : null,
       ].filter(Boolean).join(' · '),
     })),
     ...oml.map((o): Kortdata => ({

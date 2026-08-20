@@ -4,6 +4,7 @@
 import type { UppfoljningData, Maskin, Forare, AvbrottRad, DieselDag } from '../UppfoljningVy';
 import { G15_GRANS_SEK, g15Sek } from '@/lib/g15';
 import { type ObjektTyp } from '@/lib/objekt/typ';
+import { resolveSkotareVolym } from '@/lib/uppfoljning/skotarVolym';
 
 // ── Typer ─────────────────────────────────────────────────────────────────
 export interface UppfoljningObjekt {
@@ -550,28 +551,38 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   const skotarePerMaskin = Array.from(skotarMaskinIds).map(mid => {
     const lass = lassPerMaskin.get(mid);
     const man = egnaManuellPerMaskin.get(mid);
-    const harManuellVol = man && man.volym_m3 != null;
+    const matt = lass?.volym || 0;
+    // Två-volyms-regeln: egen räknas mot totalen, omlastning aldrig. En blandad
+    // maskin kan ha bådadera på samma objekt. Manuellt ERSÄTTER mätt.
+    const { egen, omlastning } = resolveSkotareVolym(man, matt);
+    const harManuellVol = !!man && (man.volym_egen_skotning != null || man.volym_omlastning != null || man.volym_m3 != null);
     const harManuellG15 = man && man.g15_timmar != null;
-    const volym = harManuellVol ? Number(man.volym_m3) : (lass?.volym || 0);
     const g15 = harManuellG15 ? Number(man.g15_timmar) : (g15SekPerMaskin.get(mid) || 0) / 3600;
+    // Ren omlastningsmaskin = egen 0 men omlastning > 0 (badge + "räknas ej").
+    const arOmlastning = egen === 0 && omlastning > 0;
     return {
       maskinId: mid,
       namn: maskinNamn(mid),
-      volym: Math.round(volym),
+      // volym = egen (den räknade volymen) — bakåtkompatibelt fält.
+      volym: Math.round(egen),
+      egen: Math.round(egen),
+      omlastning: Math.round(omlastning),
       antalLass: lass?.antalLass || 0,
       g15: Math.round(g15 * 10) / 10,
-      arOmlastning: !!(man && man.ar_omlastning),
+      arOmlastning,
       kalla: (harManuellVol || harManuellG15 ? 'manuell' : 'mätt') as 'mätt' | 'manuell',
     };
   }).sort((a, b) => b.volym - a.volym);
 
   // Tillskriven omlastning: manuella rader vars avser_objekt_id = detta objekt
-  // OCH ar_omlastning=true. Arbetet ligger under radens objekt_id (annat objekt).
+  // OCH som har en omlastningsvolym enligt regeln (> 0). Arbetet ligger under
+  // radens objekt_id (annat objekt). Regeln avgör — inte bara ar_omlastning-
+  // flaggan — så en blandad maskin med volym_omlastning tillskrivs också hit.
   const omlastningArbete = skotareManuellRows
-    .filter((r: any) => r.ar_omlastning && r.maskin_id && r.avser_objekt_id && thisObjIds.has(r.avser_objekt_id))
     .map((r: any) => {
       const franObjektId: string = r.objekt_id;
       const mid: string = r.maskin_id;
+      if (!mid || !r.avser_objekt_id || !thisObjIds.has(r.avser_objekt_id)) return null;
       // FYSISK drift följer med som ARBETE (Martin): G15, G0, diesel, lass är
       // maskinens SANNA verklighet — den brände diesel och tog tid när den
       // omlastade. BARA volymen mot skotad total nollas, aldrig arbetet.
@@ -589,8 +600,12 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
           kortStoppSek += t.kort_stopp_sek || 0;
         }
       });
-      // Manuellt ERSÄTTER mätt även för omlastningsradens egen volym/tid.
-      const volEff = r.volym_m3 != null ? Number(r.volym_m3) : volym;
+      // Regeln avgör omlastningsvolymen (volym_omlastning ?? legacy/mätt). En rad
+      // utan omlastning (t.ex. ren egen skotning som råkar peka avser_objekt_id)
+      // tillskrivs inte hit.
+      const { omlastning } = resolveSkotareVolym(r, volym);
+      if (omlastning <= 0) return null;
+      const volEff = omlastning;
       const g15Eff = r.g15_timmar != null ? Number(r.g15_timmar) : g15sek / 3600;
       // G0 = G15 − korta stopp (skotare har kort_stopp ≈ 0 → G0 ≈ G15).
       const g0Eff = Math.max(0, g15Eff - kortStoppSek / 3600);
@@ -605,6 +620,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
         franObjektId,
       };
     })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => b.volym - a.volym);
 
   // ── Steg 2b: skotareMaskiner — en post per skotarmaskin med HELA det platta
@@ -615,23 +631,34 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   //      tid-/lassrader; arOmlastning=true (volymen räknas ej i skotad total).
   const skotareMaskinerA: SkotareMaskinStat[] = Array.from(skotarMaskinIds).map(mid => {
     const man = egnaManuellPerMaskin.get(mid);
+    const matt = lassPerMaskin.get(mid)?.volym || 0;
+    // Kortets skotat = egen (den räknade volymen). Manuellt ERSÄTTER mätt; utan
+    // manuell rad används mätt direkt (volymManuell=null → byggSkotareMaskinStat
+    // faller på volMatt). arOmlastning = ren omlastningsmaskin (egen 0, oml > 0).
+    const { egen, omlastning } = resolveSkotareVolym(man, matt);
+    const harManuellVol = !!man && (man.volym_egen_skotning != null || man.volym_omlastning != null || man.volym_m3 != null);
     return byggSkotareMaskinStat({
       maskinId: mid,
       namn: maskinNamn(mid),
       modell: maskinModell(mid),
-      arOmlastning: !!(man && man.ar_omlastning),
+      arOmlastning: egen === 0 && omlastning > 0,
       tidRows: stTidRows.filter((r: any) => r.maskin_id === mid),
       lassRows: lassRows.filter((l: any) => l.maskin_id === mid),
-      volymManuell: man && man.volym_m3 != null ? Number(man.volym_m3) : null,
+      volymManuell: harManuellVol ? egen : null,
       g15Manuell: man && man.g15_timmar != null ? Number(man.g15_timmar) : null,
     });
   }).sort((a, b) => b.skotat - a.skotat);
 
   const skotareMaskinerB: SkotareMaskinStat[] = skotareManuellRows
-    .filter((r: any) => r.ar_omlastning && r.maskin_id && r.avser_objekt_id && thisObjIds.has(r.avser_objekt_id))
     .map((r: any) => {
       const franObjektId: string = r.objekt_id;
       const mid: string = r.maskin_id;
+      if (!mid || !r.avser_objekt_id || !thisObjIds.has(r.avser_objekt_id)) return null;
+      const matt = omlLassRows
+        .filter((l: any) => l.objekt_id === franObjektId && l.maskin_id === mid)
+        .reduce((s: number, l: any) => s + (l.volym_m3sub || 0), 0);
+      const { omlastning } = resolveSkotareVolym(r, matt);
+      if (omlastning <= 0) return null;
       return byggSkotareMaskinStat({
         maskinId: mid,
         namn: maskinNamn(mid),
@@ -639,21 +666,20 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
         arOmlastning: true,
         tidRows: omlTidRows.filter((t: any) => t.objekt_id === franObjektId && t.maskin_id === mid),
         lassRows: omlLassRows.filter((l: any) => l.objekt_id === franObjektId && l.maskin_id === mid),
-        volymManuell: r.volym_m3 != null ? Number(r.volym_m3) : null,
+        volymManuell: omlastning,
         g15Manuell: r.g15_timmar != null ? Number(r.g15_timmar) : null,
       });
     })
+    .filter((x): x is SkotareMaskinStat => x !== null)
     .sort((a, b) => b.skotat - a.skotat);
 
   // Riktiga skotare först, omlastning sist (matchar väljarens ordning).
   const skotareMaskiner: SkotareMaskinStat[] = [...skotareMaskinerA, ...skotareMaskinerB];
 
-  // Skotad total (EXKL omlastning) = summa effektiv volym för icke-omlastnings-
-  // skotare. Faller tillbaka på obj.volymSkotare när inget per-maskin-lager finns
-  // (bevarar befintlig enkel-skotare-/manuell-volym-logik, t.ex. filfria JD810E).
-  const skotatExklOml = skotarePerMaskin
-    .filter(s => !s.arOmlastning)
-    .reduce((sum, s) => sum + s.volym, 0);
+  // Skotad total per objekt_id = SUM(egen) över objektets maskiner. Omlastning
+  // (arOmlastning ⇒ egen 0) räknas ALDRIG med. Faller tillbaka på obj.volymSkotare
+  // när inget per-maskin-lager finns (filfria JD810E via whole-object-raden).
+  const skotatExklOml = skotarePerMaskin.reduce((sum, s) => sum + s.egen, 0);
   const nyttSkotat = skotarePerMaskin.length > 0 ? skotatExklOml : Math.round(obj.volymSkotare);
 
   // Kvar i skogen

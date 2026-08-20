@@ -18,7 +18,10 @@ export type SkotareInsats = {
   mattG15: number          // timmar ur fakt_tid (g15Sek/3600)
   // Manuellt (skotare_objekt_manuell, hela-objektet-raden: datum_fran IS NULL)
   radId: number | null
-  manuellVolym: number | null
+  // Två-volyms-modellen: egen skotning räknas mot skotad total, omlastning aldrig.
+  manuellEgen: number | null      // volym_egen_skotning (räknas)
+  manuellOmlastning: number | null // volym_omlastning (räknas ej)
+  manuellVolym: number | null      // volym_m3 (LEGACY, read-fallback)
   manuellG15: number | null
   arOmlastning: boolean
   avserObjektId: string | null
@@ -51,7 +54,7 @@ export function useSkotareLass(objektId: string | null): SkotareLassResultat {
         // maskin_id=null-rader tillhör grot-hämtat-automatiken (objekt-nivå,
         // datum_fran null) — de är INTE per-maskin-insatser, exkludera dem.
         supabase.from('skotare_objekt_manuell')
-          .select('id, maskin_id, volym_m3, g15_timmar, ar_omlastning, avser_objekt_id, notering')
+          .select('id, maskin_id, volym_egen_skotning, volym_omlastning, volym_m3, g15_timmar, ar_omlastning, avser_objekt_id, notering')
           .eq('objekt_id', objektId).is('datum_fran', null).not('maskin_id', 'is', null),
         supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
       ])
@@ -82,8 +85,10 @@ export function useSkotareLass(objektId: string | null): SkotareLassResultat {
 
       // Maskiner att visa: de med lass ELLER en manuell rad (skotardata).
       // Skördarens fakt_tid på objektet ignoreras (den har varken lass eller manuell rad).
-      const ids = new Set<string>([...lassMap.keys(), ...manMap.keys()])
-      const lista: SkotareInsats[] = [...ids].map((id) => {
+      const ids = new Set<string>()
+      lassMap.forEach((_v, k) => ids.add(k))
+      manMap.forEach((_v, k) => ids.add(k))
+      const lista: SkotareInsats[] = Array.from(ids).map((id) => {
         const l = lassMap.get(id); const man = manMap.get(id)
         return {
           maskinId: id,
@@ -92,6 +97,8 @@ export function useSkotareLass(objektId: string | null): SkotareLassResultat {
           mattAntalLass: l?.n ?? 0,
           mattG15: (tidMap.get(id) || 0) / 3600,
           radId: man?.id ?? null,
+          manuellEgen: man?.volym_egen_skotning ?? null,
+          manuellOmlastning: man?.volym_omlastning ?? null,
           manuellVolym: man?.volym_m3 ?? null,
           manuellG15: man?.g15_timmar ?? null,
           arOmlastning: !!man?.ar_omlastning,

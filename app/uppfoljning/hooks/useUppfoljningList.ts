@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
 import { harledTyp } from '@/lib/objekt/typ';
 import { type UppfoljningObjekt } from '../lib/transform';
+import { resolveSkotareVolym } from '@/lib/uppfoljning/skotarVolym';
 
 // ── URL-identifierare för ett objekt ─────────────────────────────────────
 // Används av både listsidan (för router.push) och detaljsidan (för find).
@@ -60,7 +61,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         // vägen trunkerades tyst vid PostgREST 1000-radstaket och gav dessutom
         // icke-deterministiska summor när importen skrev under paginering.
         // prod-vyns maskiner = skördare (producerar), lass-vyns = skotare.
-        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes] = await Promise.all([
+        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes, skotarePerMaskinRes] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
           supabase.from('objekt').select('vo_nummer, markagare, areal, typ'),
@@ -68,11 +69,17 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, antal_lass, sista_datum, maskin_ids'),
           supabase.from('grot_koppling').select('risjobb_objekt_id, avverknings_objekt_id'),
           hamtaExkluderadeObjektId(),
-          supabase.from('skotare_objekt_manuell').select('objekt_id, volym_m3, g15_timmar').is('maskin_id', null),
+          supabase.from('skotare_objekt_manuell').select('objekt_id, volym_egen_skotning, volym_m3, g15_timmar').is('maskin_id', null),
+          // Per-maskin manuella rader (två-volyms-modellen) — för att räkna egen
+          // per objekt_id och EXKLUDERA omlastning ur listans skotade volym.
+          // GROT-markörer (maskin_id NULL) skippas.
+          supabase.from('skotare_objekt_manuell')
+            .select('objekt_id, maskin_id, volym_egen_skotning, volym_omlastning, volym_m3, ar_omlastning')
+            .is('datum_fran', null).not('maskin_id', 'is', null),
         ]);
 
         // Ett fel på någon källa får ALDRIG se ut som tom lista.
-        const forstaFel = dimObjektRes.error || dimMaskinRes.error || objektTblRes.error || prodRes.error || lassRes.error || kopplingRes.error || skotareManuellRes.error;
+        const forstaFel = dimObjektRes.error || dimMaskinRes.error || objektTblRes.error || prodRes.error || lassRes.error || kopplingRes.error || skotareManuellRes.error || skotarePerMaskinRes.error;
         if (forstaFel) throw forstaFel;
 
         const dimObjekt: any[] = dimObjektRes.data || [];
@@ -84,10 +91,56 @@ export function useUppfoljningList(): UseUppfoljningListResult {
 
         const maskinMap = new Map<string, any>();
         dimMaskin.forEach(m => maskinMap.set(m.maskin_id, m));
-        const skotareManuellMap = new Map<string, { volym_m3: number | null; g15_timmar: number | null }>();
+        // Whole-object manuell (maskin_id NULL) — egen-volymen är volym_egen_skotning
+        // (nya kolumnen) med volym_m3 som legacy-fallback.
+        const skotareManuellMap = new Map<string, { volym: number | null; g15_timmar: number | null }>();
         for (const r of (skotareManuellRes.data || [])) {
-          skotareManuellMap.set(r.objekt_id, { volym_m3: r.volym_m3, g15_timmar: r.g15_timmar });
+          const egen = r.volym_egen_skotning != null ? r.volym_egen_skotning : r.volym_m3;
+          skotareManuellMap.set(r.objekt_id, { volym: egen, g15_timmar: r.g15_timmar });
         }
+
+        // Per-maskin manuella rader grupperade per objekt_id → maskin_id. Används
+        // för att räkna EGEN (räknas) och exkludera OMLASTNING per objekt_id.
+        const perMaskinManuell = new Map<string, Map<string, any>>();
+        for (const r of (skotarePerMaskinRes.data || [])) {
+          if (!r.objekt_id || !r.maskin_id) continue;
+          let inner = perMaskinManuell.get(r.objekt_id);
+          if (!inner) { inner = new Map(); perMaskinManuell.set(r.objekt_id, inner); }
+          inner.set(r.maskin_id, r);
+        }
+        // Bara objekt som HAR per-maskin-korrigeringar behöver per-(objekt,maskin)-
+        // mätt (liten, riktad hämtning — aldrig hela råa fakt_lass). Övriga objekt
+        // = mätt total ur vyn (ingen omlastning att exkludera).
+        const korrObjIds = Array.from(perMaskinManuell.keys());
+        const lassPerObjMaskin = new Map<string, Map<string, number>>();
+        if (korrObjIds.length > 0) {
+          const { data: korrLass, error: korrErr } = await supabase
+            .from('fakt_lass').select('objekt_id, maskin_id, volym_m3sub').in('objekt_id', korrObjIds);
+          if (korrErr) throw korrErr;
+          for (const l of (korrLass || [])) {
+            if (!l.objekt_id || !l.maskin_id) continue;
+            let inner = lassPerObjMaskin.get(l.objekt_id);
+            if (!inner) { inner = new Map(); lassPerObjMaskin.set(l.objekt_id, inner); }
+            inner.set(l.maskin_id, (inner.get(l.maskin_id) || 0) + (Number(l.volym_m3sub) || 0));
+          }
+        }
+        // Egen volym (räknas, exkl. omlastning) för ett objekt_id. Utan per-maskin-
+        // korrigeringar = mätt total ur vyn. Med korrigeringar = SUM(egen) över
+        // maskinerna enligt resolutionsregeln — identiskt med uppföljning-detaljen.
+        const egenForObjekt = (objektId: string, viewMatt: number): number => {
+          const rows = perMaskinManuell.get(objektId);
+          if (!rows) return viewMatt;
+          const lassMap = lassPerObjMaskin.get(objektId) || new Map<string, number>();
+          const maskinIds = new Set<string>();
+          lassMap.forEach((_v, k) => maskinIds.add(k));
+          rows.forEach((_v, k) => maskinIds.add(k));
+          let egen = 0;
+          maskinIds.forEach((mid) => {
+            const matt = lassMap.get(mid) || 0;
+            egen += resolveSkotareVolym(rows.get(mid) || null, matt).egen;
+          });
+          return egen;
+        };
 
         const objektInfo = new Map<string, { agare: string; areal: number; typ: string }>();
         objektTbl.forEach(o => {
@@ -214,13 +267,16 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             if (p) { skVol += p.vol; skStammar += p.stammar; }
           }
 
+          // stVol = SUM över objektets objekt_id av EGEN (räknas, exkl. omlastning),
+          // ALDRIG summerad per VO. Per-objekt_id-semantik: varje objekt_id löses
+          // för sig (mätt total, minus omlastning via per-maskin-korrigeringar).
           let stVol = 0, stCount = 0;
           const seenStObjIds = new Set<string>();
           for (const e of skotareEntries) {
             if (seenStObjIds.has(e.objekt_id)) continue;
             seenStObjIds.add(e.objekt_id);
             const l = lassAgg.get(e.objekt_id);
-            if (l) { stVol += l.vol; stCount += l.count; }
+            if (l) { stVol += egenForObjekt(e.objekt_id, l.vol); stCount += l.count; }
           }
           // Manuellt angiven skotad volym (skotare_objekt_manuell.volym_m3, maskin_id IS NULL)
           // TRUMFAR lass-summan — skotaren registrerar inte alltid lass, och en
@@ -228,7 +284,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           // fältet är SATT (även = 0: "0 skotat, bekräftat" vinner över lass).
           // Källan följer med till UI:t så det alltid syns att den är manuell.
           const manuellRader = entries
-            .map((e: any) => skotareManuellMap.get(e.objekt_id)?.volym_m3)
+            .map((e: any) => skotareManuellMap.get(e.objekt_id)?.volym)
             .filter((v: any) => v != null)
             .map((v: any) => Number(v) || 0);
           const skotatArManuell = manuellRader.length > 0;
@@ -248,7 +304,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
               if (seenFb.has(e.objekt_id)) continue;
               seenFb.add(e.objekt_id);
               const l = lassAgg.get(e.objekt_id);
-              if (l) { stVol += l.vol; stCount += l.count; }
+              if (l) { stVol += egenForObjekt(e.objekt_id, l.vol); stCount += l.count; }
             }
           }
 
