@@ -1,0 +1,32 @@
+-- Ta bort acord_flyttkostnad — flyttpriset ägs av Fortnox, inte av appen.
+--
+-- VARJE PRIS HAR EXAKT EN ÄGARE, OCH ÄGAREN ÄR DEN SOM HAR UNDERLAGET.
+-- Ackordspriset är en funktion av mätvärden bara appen har (medelstam,
+-- traktstorlek, skotningsavstånd) → appen äger det. Flytt är ett fast
+-- artikelpris utan appberoende underlag → Fortnox äger det, artikel 5
+-- "Flytt av maskin", 1 500 kr/st, fakturerat per MASKIN (2 st = 3 000 kr).
+-- Samma pris får aldrig finnas på båda ställena: acord_flyttkostnad
+-- dubblerade artikel 5 och kunde tyst avvika från den.
+--
+-- Appen räknar alltså ANTALET maskiner som flyttats (ur maskin_flytt) och
+-- lämnar à-priset tomt med källan "Fortnox" i fakturaunderlaget. Aldrig
+-- visa ett tal appen inte äger.
+--
+-- FÖRE DENNA MIGRATION måste UI:t vara ur drift, annars kraschar
+-- /ekonomi/installningar mellan drop och deploy. Se PR:ens ändring i
+-- app/ekonomi/installningar/InstallningarClient.tsx (sektion "Flyttkostnad"
+-- borttagen). Deploya koden FÖRST, kör migrationen sedan — borttagningar
+-- går i motsatt ordning mot tillägg.
+--
+-- INNEHÅLLET SOM FÖRSVINNER (2 rader, båda giltig_fran 2026-04-21,
+-- giltig_till NULL — bevarat här så värdena inte går förlorade):
+--   km_fran 0,  km_till 30,   fast_kr 3000,  "Fast: skörd + skotare"
+--   km_fran 30, km_till NULL, timpris_trailer_kr 1350, "Trailer kr/tim över 30 km"
+-- Observera att 3 000 kr för "skörd + skotare" är samma belopp som Fortnox
+-- fakturerar som 2 × 1 500 — det är dubbleringen, inte en annan tjänst.
+--
+-- Inga FK, vyer eller triggers pekar på tabellen (verifierat mot prod
+-- 2026-08-20). De två RLS-policyerna acord_flyttkostnad_select och
+-- acord_flyttkostnad_admin_write försvinner med tabellen.
+
+DROP TABLE IF EXISTS acord_flyttkostnad;
