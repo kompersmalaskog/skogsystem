@@ -127,10 +127,10 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
             ? hamtaAllt((a, b) => supabase.from('fakt_lass').select('objekt_id, volym_m3sub').eq('maskin_id', stMidFb).gte('datum', refFran).range(a, b))
             : Promise.resolve([] as any[]),
           omlObjektIds.length > 0
-            ? supabase.from('fakt_lass').select('objekt_id, maskin_id, volym_m3sub').in('objekt_id', omlObjektIds)
+            ? supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub, korstracka_m').in('objekt_id', omlObjektIds)
             : Promise.resolve({ data: [] as any[] }),
           omlObjektIds.length > 0
-            ? supabase.from('fakt_tid').select('objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek, bransle_liter, kort_stopp_sek').in('objekt_id', omlObjektIds)
+            ? supabase.from('fakt_tid').select('objekt_id, maskin_id, datum, processing_sek, terrain_sek, other_work_sek, bransle_liter, kort_stopp_sek').in('objekt_id', omlObjektIds)
             : Promise.resolve({ data: [] as any[] }),
         ]);
 
