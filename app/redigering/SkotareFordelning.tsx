@@ -18,25 +18,37 @@ const C = {
   blue: '#0a84ff', orange: '#ff9f0a', red: '#ff453a', green: '#30d158', input: '#2a2a2c',
 }
 
-type Utkast = { volym: string; g15: string; omlastning: boolean; avser: string | null }
+// Ett skotarrad-utkast. Normal skotare: bara `egen` (Utkört). Blandad: `egen` (egen skotning,
+// räknas) + `omlastning` (räknas ALDRIG mot objektets skotade total) + `avser` (riktigt objekt).
+type Utkast = { egen: string; omlastning: string; g15: string; blandad: boolean; avser: string | null }
 
 function tillUtkast(i: SkotareInsats): Utkast {
+  // Nya fält (volym_egen_skotning/volym_omlastning) primärt; fall tillbaka på legacy volym_m3 +
+  // ar_omlastning så gamla rader visas rätt (ren volym = egen; gammal omlastningsrad = omlastning).
+  const egenV = i.manuellEgen != null ? i.manuellEgen
+    : (!i.arOmlastning && i.manuellVolym != null ? i.manuellVolym : null)
+  const omlV = i.manuellOmlastning != null ? i.manuellOmlastning
+    : (i.arOmlastning && i.manuellVolym != null ? i.manuellVolym : null)
+  const blandad = i.arOmlastning || i.manuellOmlastning != null
   return {
-    volym: i.manuellVolym != null ? String(i.manuellVolym) : '',
+    egen: egenV != null ? String(egenV) : '',
+    omlastning: omlV != null ? String(omlV) : '',
     g15: i.manuellG15 != null ? String(i.manuellG15) : '',
-    omlastning: i.arOmlastning,
+    blandad,
     avser: i.avserObjektId,
   }
 }
+const TOM_UTKAST: Utkast = { egen: '', omlastning: '', g15: '', blandad: false, avser: null }
 const num = (s: string): number | null => {
   const t = s.trim().replace(',', '.'); if (t === '') return null
   const n = Number(t); return Number.isFinite(n) ? n : null
 }
-// Effektiv volym för totalen: manuell ersätter mätt; omlastning bidrar med 0.
+// Egen (räknad) volym för totalen/kontrollen: ifylld egen ersätter mätt; tomt på en normal
+// skotare = använd mätt; tomt på blandad = 0 (allt är omlastning). Omlastning räknas ALDRIG.
 function effektivVolym(i: SkotareInsats, u: Utkast): number {
-  if (u.omlastning) return 0
-  const man = num(u.volym)
-  return man != null ? man : i.mattVolym
+  const e = num(u.egen)
+  if (e != null) return e
+  return u.blandad ? 0 : i.mattVolym
 }
 
 export default function SkotareFordelning({
@@ -58,15 +70,16 @@ export default function SkotareFordelning({
   const allaInsatser = useMemo(() => [...insatser, ...extra], [insatser, extra])
 
   const satt = (id: string, patch: Partial<Utkast>) =>
-    setUtkast((prev) => ({ ...prev, [id]: { ...(prev[id] || { volym: '', g15: '', omlastning: false, avser: null }), ...patch } }))
+    setUtkast((prev) => ({ ...prev, [id]: { ...(prev[id] || TOM_UTKAST), ...patch } }))
 
   const laggTill = (m: { maskin_id: string; namn: string }) => {
     if (utkast[m.maskin_id]) return
     setExtra((e) => [...e, {
       maskinId: m.maskin_id, namn: m.namn, mattVolym: 0, mattAntalLass: 0, mattG15: 0,
-      radId: null, manuellVolym: null, manuellG15: null, arOmlastning: false, avserObjektId: null, notering: null,
+      radId: null, manuellVolym: null, manuellEgen: null, manuellOmlastning: null, manuellG15: null,
+      arOmlastning: false, avserObjektId: null, notering: null,
     }])
-    satt(m.maskin_id, { volym: '', g15: '', omlastning: false, avser: null })
+    satt(m.maskin_id, { ...TOM_UTKAST })
   }
 
   // Summan exkl. omlastning — mjuk varning om den överstiger avverkat
@@ -79,7 +92,8 @@ export default function SkotareFordelning({
   const dirty = (i: SkotareInsats): boolean => {
     const u = utkast[i.maskinId]; if (!u) return false
     const o = tillUtkast(i)
-    return u.volym !== o.volym || u.g15 !== o.g15 || u.omlastning !== o.omlastning || (u.avser || null) !== (o.avser || null)
+    return u.egen !== o.egen || u.omlastning !== o.omlastning || u.g15 !== o.g15
+      || u.blandad !== o.blandad || (u.avser || null) !== (o.avser || null)
   }
   const nagotDirty = allaInsatser.some(dirty)
 
@@ -88,11 +102,16 @@ export default function SkotareFordelning({
     try {
       for (const i of allaInsatser) {
         const u = utkast[i.maskinId]; if (!u || !dirty(i)) continue
+        const egen = num(u.egen)
+        const oml = u.blandad ? num(u.omlastning) : null
         const payload: any = {
           objekt_id: objektId, maskin_id: i.maskinId, datum_fran: null,
-          volym_m3: num(u.volym), g15_timmar: num(u.g15),
-          ar_omlastning: u.omlastning,
-          avser_objekt_id: u.omlastning ? (u.avser || null) : null,
+          volym_egen_skotning: egen,        // räknas mot objektets skotade total
+          volym_omlastning: oml,            // räknas ALDRIG mot total (arbete)
+          volym_m3: egen,                   // legacy-synk: räknad (egen) volym för äldre läsare
+          g15_timmar: num(u.g15),
+          ar_omlastning: u.blandad,
+          avser_objekt_id: u.blandad ? (u.avser || null) : null,
         }
         // Verifierat sparande: läs tillbaka radantal. 0 utan error = RLS/behörighet.
         const q = i.radId
@@ -125,7 +144,7 @@ export default function SkotareFordelning({
       ) : allaInsatser.map((i) => {
         const u = utkast[i.maskinId] || tillUtkast(i)
         return (
-          <div key={i.maskinId} style={{ background: C.row, borderRadius: 12, padding: 12, marginBottom: 10, opacity: u.omlastning ? 0.85 : 1 }}>
+          <div key={i.maskinId} style={{ background: C.row, borderRadius: 12, padding: 12, marginBottom: 10, opacity: u.blandad ? 0.92 : 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
               <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{i.namn}</span>
               <span style={{ fontSize: 12, color: C.faint }}>
@@ -133,21 +152,43 @@ export default function SkotareFordelning({
               </span>
             </div>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Falt label="Volym (m³)" value={u.volym} placeholder={i.mattVolym ? String(Math.round(i.mattVolym)) : '0'}
-                onChange={(v) => satt(i.maskinId, { volym: v })} />
-              <Falt label="G15 (tim)" value={u.g15} placeholder={i.mattG15 ? i.mattG15.toFixed(1) : '0'}
-                onChange={(v) => satt(i.maskinId, { g15: v })} />
-            </div>
-            <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>Tomt = använd mätt. Ifyllt värde ersätter (adderar aldrig).</div>
+            {!u.blandad ? (
+              <>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Falt label="Utkört (m³)" value={u.egen} placeholder={i.mattVolym ? String(Math.round(i.mattVolym)) : '0'}
+                    onChange={(v) => satt(i.maskinId, { egen: v })} />
+                  <Falt label="G15 (tim)" value={u.g15} placeholder={i.mattG15 ? i.mattG15.toFixed(1) : '0'}
+                    onChange={(v) => satt(i.maskinId, { g15: v })} />
+                </div>
+                <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>Tomt = använd mätt. Ifyllt värde ersätter (adderar aldrig).</div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Falt label="Egen skotning (m³)" accent={C.green} value={u.egen}
+                    placeholder={i.mattVolym ? String(Math.round(i.mattVolym)) : '0'}
+                    onChange={(v) => satt(i.maskinId, { egen: v })} />
+                  <Falt label="Omlastning (m³)" accent={C.orange} value={u.omlastning}
+                    placeholder="0"
+                    onChange={(v) => satt(i.maskinId, { omlastning: v })} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <Falt label="G15 (tim)" value={u.g15} placeholder={i.mattG15 ? i.mattG15.toFixed(1) : '0'}
+                    onChange={(v) => satt(i.maskinId, { g15: v })} />
+                  <div style={{ flex: 1 }} />
+                </div>
+                <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>
+                  Egen skotning räknas mot objektets skotade total. Omlastningsvolymen räknas som arbete — aldrig mot total.
+                </div>
+              </>
+            )}
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, cursor: 'pointer' }}>
-              <input type="checkbox" checked={u.omlastning} onChange={(e) => satt(i.maskinId, { omlastning: e.target.checked })} />
-              <span style={{ fontSize: 14, color: u.omlastning ? C.orange : C.text }}>Omlastning</span>
-              {u.omlastning && <span style={{ fontSize: 11, color: C.faint }}>räknas som arbete, ej mot objektets skotade total</span>}
+              <input type="checkbox" checked={u.blandad} onChange={(e) => satt(i.maskinId, { blandad: e.target.checked })} />
+              <span style={{ fontSize: 14, color: u.blandad ? C.orange : C.text }}>Blandad — egen skotning + omlastning</span>
             </label>
 
-            {u.omlastning && (
+            {u.blandad && (
               <AvserObjektValjare value={u.avser} onChange={(id) => satt(i.maskinId, { avser: id })} />
             )}
           </div>
@@ -186,10 +227,10 @@ export default function SkotareFordelning({
   )
 }
 
-function Falt({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (v: string) => void }) {
+function Falt({ label, value, placeholder, onChange, accent }: { label: string; value: string; placeholder: string; onChange: (v: string) => void; accent?: string }) {
   return (
     <div style={{ flex: 1 }}>
-      <label style={{ display: 'block', fontSize: 11, color: C.dim, marginBottom: 4 }}>{label}</label>
+      <label style={{ display: 'block', fontSize: 11, color: accent || C.dim, marginBottom: 4, fontWeight: accent ? 600 : 400 }}>{label}</label>
       <input inputMode="decimal" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)}
         style={{ width: '100%', height: 40, background: C.input, border: `1px solid ${C.line}`, borderRadius: 10, padding: '0 12px', color: '#fff', fontSize: 15, outline: 'none', boxSizing: 'border-box' }} />
     </div>

@@ -18,7 +18,9 @@ export type SkotareInsats = {
   mattG15: number          // timmar ur fakt_tid (g15Sek/3600)
   // Manuellt (skotare_objekt_manuell, hela-objektet-raden: datum_fran IS NULL)
   radId: number | null
-  manuellVolym: number | null
+  manuellVolym: number | null       // legacy volym_m3 (läs-fallback)
+  manuellEgen: number | null        // volym_egen_skotning (räknas mot total)
+  manuellOmlastning: number | null  // volym_omlastning (räknas ALDRIG mot total)
   manuellG15: number | null
   arOmlastning: boolean
   avserObjektId: string | null
@@ -51,7 +53,7 @@ export function useSkotareLass(objektId: string | null): SkotareLassResultat {
         // maskin_id=null-rader tillhör grot-hämtat-automatiken (objekt-nivå,
         // datum_fran null) — de är INTE per-maskin-insatser, exkludera dem.
         supabase.from('skotare_objekt_manuell')
-          .select('id, maskin_id, volym_m3, g15_timmar, ar_omlastning, avser_objekt_id, notering')
+          .select('id, maskin_id, volym_m3, volym_egen_skotning, volym_omlastning, g15_timmar, ar_omlastning, avser_objekt_id, notering')
           .eq('objekt_id', objektId).is('datum_fran', null).not('maskin_id', 'is', null),
         supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
       ])
@@ -93,6 +95,8 @@ export function useSkotareLass(objektId: string | null): SkotareLassResultat {
           mattG15: (tidMap.get(id) || 0) / 3600,
           radId: man?.id ?? null,
           manuellVolym: man?.volym_m3 ?? null,
+          manuellEgen: man?.volym_egen_skotning ?? null,
+          manuellOmlastning: man?.volym_omlastning ?? null,
           manuellG15: man?.g15_timmar ?? null,
           arOmlastning: !!man?.ar_omlastning,
           avserObjektId: man?.avser_objekt_id ?? null,

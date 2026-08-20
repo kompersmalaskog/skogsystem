@@ -4,6 +4,7 @@
 import type { UppfoljningData, Maskin, Forare, AvbrottRad, DieselDag } from '../UppfoljningVy';
 import { G15_GRANS_SEK, g15Sek } from '@/lib/g15';
 import { type ObjektTyp } from '@/lib/objekt/typ';
+import { objektSkotat, resolveSkotareVolym, type SkotareManuellRad } from '@/lib/skotat';
 
 // ── Typer ─────────────────────────────────────────────────────────────────
 export interface UppfoljningObjekt {
@@ -549,18 +550,23 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   egnaManuellPerMaskin.forEach((_v, k) => skotarMaskinIds.add(k));
   const skotarePerMaskin = Array.from(skotarMaskinIds).map(mid => {
     const lass = lassPerMaskin.get(mid);
-    const man = egnaManuellPerMaskin.get(mid);
-    const harManuellVol = man && man.volym_m3 != null;
-    const harManuellG15 = man && man.g15_timmar != null;
-    const volym = harManuellVol ? Number(man.volym_m3) : (lass?.volym || 0);
-    const g15 = harManuellG15 ? Number(man.g15_timmar) : (g15SekPerMaskin.get(mid) || 0) / 3600;
+    const man: any = egnaManuellPerMaskin.get(mid) || null; // rå rad (har även g15_timmar)
+    const matt = lass?.volym || 0;
+    // EN-regeln (lib/skotat): dela upp maskinens volym i egen (räknas) + omlastning (räknas ej).
+    const { egen, omlastning } = resolveSkotareVolym(man as SkotareManuellRad | null, matt);
+    const harManuellVol = !!(man && (man.volym_egen_skotning != null || man.volym_omlastning != null || man.volym_m3 != null));
+    const harManuellG15 = !!(man && man.g15_timmar != null);
+    // Omlastnings-visning: explicit flagga, eller ren omlastning (egen=0, omlastning>0).
+    const arOmlastning = !!(man && man.ar_omlastning) || (omlastning > 0 && egen === 0);
+    const g15 = harManuellG15 ? Number(man!.g15_timmar) : (g15SekPerMaskin.get(mid) || 0) / 3600;
     return {
       maskinId: mid,
       namn: maskinNamn(mid),
-      volym: Math.round(volym),
+      // Omlastningsmaskin visar sin omlastningsvolym (märks "ej i total"), annars egen skotning.
+      volym: Math.round(arOmlastning ? omlastning : egen),
       antalLass: lass?.antalLass || 0,
       g15: Math.round(g15 * 10) / 10,
-      arOmlastning: !!(man && man.ar_omlastning),
+      arOmlastning,
       kalla: (harManuellVol || harManuellG15 ? 'manuell' : 'mätt') as 'mätt' | 'manuell',
     };
   }).sort((a, b) => b.volym - a.volym);
@@ -648,13 +654,26 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   // Riktiga skotare först, omlastning sist (matchar väljarens ordning).
   const skotareMaskiner: SkotareMaskinStat[] = [...skotareMaskinerA, ...skotareMaskinerB];
 
-  // Skotad total (EXKL omlastning) = summa effektiv volym för icke-omlastnings-
-  // skotare. Faller tillbaka på obj.volymSkotare när inget per-maskin-lager finns
-  // (bevarar befintlig enkel-skotare-/manuell-volym-logik, t.ex. filfria JD810E).
-  const skotatExklOml = skotarePerMaskin
-    .filter(s => !s.arOmlastning)
-    .reduce((sum, s) => sum + s.volym, 0);
-  const nyttSkotat = skotarePerMaskin.length > 0 ? skotatExklOml : Math.round(obj.volymSkotare);
+  // Skotad total = DELADE regeln (lib/skotat.objektSkotat), IDENTISK med listan (useUppfoljningList)
+  // och översikten — aldrig en egen summering här. Bygg samma indata som listan:
+  //  • lassPerMaskin ur RÅ fakt_lass (maskin_id NULL → sentinel, bevaras som i listan),
+  //  • manuellRadPerMaskin ur egna manuella rader (rå),
+  //  • manuellObjektNiva: objekt-nivå-raden (maskin_id NULL) filtreras bort i hooken, men
+  //    obj.volymSkotare bär redan listans värde och när skotatArManuell gäller trumfar det allt.
+  const lassPMForTotal = new Map<string, number>();
+  lassRows.forEach((l: any) => {
+    const mid = l.maskin_id || '__ingen__';
+    lassPMForTotal.set(mid, (lassPMForTotal.get(mid) || 0) + (l.volym_m3sub || 0));
+  });
+  const manRadPMForTotal = new Map<string, SkotareManuellRad>();
+  egnaManuellPerMaskin.forEach((r: any, mid: string) => manRadPMForTotal.set(mid, r as SkotareManuellRad));
+  const nyttSkotat = (lassPMForTotal.size > 0 || manRadPMForTotal.size > 0 || obj.skotatArManuell)
+    ? Math.round(objektSkotat({
+        lassPerMaskin: lassPMForTotal,
+        manuellRadPerMaskin: manRadPMForTotal,
+        manuellObjektNiva: obj.skotatArManuell ? obj.volymSkotare : null,
+      }).skotat)
+    : Math.round(obj.volymSkotare);
 
   // Kvar i skogen
   const volSk = obj.volymSkordare;

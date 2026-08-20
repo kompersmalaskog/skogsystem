@@ -8,7 +8,7 @@ import OversiktGrot from './OversiktGrot';
 import OversiktObjektLista from './OversiktObjektLista';
 import { Maskin, MaskinKoItem, OversiktObjekt, TabId, C } from './oversikt-types';
 import { globalCss, ff } from './oversikt-styles';
-import { objektSkotat } from '@/lib/skotat';
+import { objektSkotat, type SkotareManuellRad } from '@/lib/skotat';
 
 const OBJEKT_SELECT = `id, namn, vo_nummer, typ, atgard, status, volym, areal, lat, lng, ar, manad, bolag, markagare, markagare_tel,
   barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text,
@@ -120,9 +120,9 @@ export default function OversiktPage() {
         () => supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, sista_datum, maskin_ids').order('objekt_id')
       ),
       // Manuell skotad volym (skotare_objekt_manuell). maskin_id IS NULL = objekt-nivå (trumfar allt);
-      // maskin_id SATT = utförd skotning per maskin (trumfar den maskinens lass). Se lib/skotat.
-      fetchAllRows<{ objekt_id: string; maskin_id: string | null; volym_m3: number | null }>(
-        () => supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_m3').order('objekt_id')
+      // maskin_id SATT = utförd skotning per maskin (egen/omlastning via EN-regeln). Se lib/skotat.
+      fetchAllRows<{ objekt_id: string; maskin_id: string | null; volym_m3: number | null; volym_egen_skotning: number | null; volym_omlastning: number | null; ar_omlastning: boolean | null }>(
+        () => supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_m3, volym_egen_skotning, volym_omlastning, ar_omlastning').order('objekt_id')
       ),
       // Planerad skotare per objekt (dim_objekt.tilldelad_skotare) — grupperar objektet under sin
       // skotare redan innan första lasset, precis som uppföljningen.
@@ -174,21 +174,28 @@ export default function OversiktPage() {
     // SATT = utförd skotning per maskin (trumfar den maskinens lass). Skotat = null om varken lass eller
     // manuell finns (okänt, ≠ 0). harManuell (= KLAR-force) sätts BARA av objekt-nivå-raden.
     const manNivaByVo: Record<string, number> = {};
-    const manPerMaskinByVo: Record<string, Map<string, number>> = {};
+    const manPerMaskinByVo: Record<string, Map<string, SkotareManuellRad>> = {};
     for (const r of manuellRows) {
-      if (!r.objekt_id || r.volym_m3 == null) continue;
+      if (!r.objekt_id) continue;
       const k = String(r.objekt_id);
-      const v = Number(r.volym_m3) || 0;
-      if (r.maskin_id == null) manNivaByVo[k] = k in manNivaByVo ? Math.max(manNivaByVo[k], v) : v;
-      else { if (!manPerMaskinByVo[k]) manPerMaskinByVo[k] = new Map(); manPerMaskinByVo[k].set(r.maskin_id, (manPerMaskinByVo[k].get(r.maskin_id) || 0) + v); }
+      if (r.maskin_id == null) {
+        // Objekt-nivå-avslut (trumfar allt). volym_m3 = källan; hoppa tomma rader.
+        if (r.volym_m3 == null) continue;
+        const v = Number(r.volym_m3) || 0;
+        manNivaByVo[k] = k in manNivaByVo ? Math.max(manNivaByVo[k], v) : v;
+      } else {
+        // Per-maskin: rå rad → EN-regeln (lib/skotat) delar upp i egen/omlastning.
+        if (!manPerMaskinByVo[k]) manPerMaskinByVo[k] = new Map();
+        manPerMaskinByVo[k].set(r.maskin_id, r as SkotareManuellRad);
+      }
     }
     for (const k of new Set([...Object.keys(skmap), ...Object.keys(manNivaByVo), ...Object.keys(manPerMaskinByVo)])) {
       if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null, lassSista: null, harManuell: false };
       const lassPM = lassPerMaskinByVo[k] || new Map<string, number>();
-      const manPM = manPerMaskinByVo[k] || new Map<string, number>();
+      const manPM = manPerMaskinByVo[k] || new Map<string, SkotareManuellRad>();
       const manNiva = k in manNivaByVo ? manNivaByVo[k] : null;
       if (lassPM.size > 0 || manPM.size > 0 || manNiva != null) {
-        const res = objektSkotat({ lassPerMaskin: lassPM, manuellPerMaskin: manPM, manuellObjektNiva: manNiva });
+        const res = objektSkotat({ lassPerMaskin: lassPM, manuellRadPerMaskin: manPM, manuellObjektNiva: manNiva });
         skmap[k].skotat = res.skotat;
         skmap[k].harManuell = res.harManuellAvslut;   // bara objekt-nivå-manuell = KLAR-force
       }
