@@ -21,6 +21,7 @@ import {
   hamtaRunda,
   generateEgenkontroll,
   svaraPaPunkt,
+  avslutaRunda,
   utforandeUnderrad,
   GRUPPER,
   type RundVy,
@@ -28,7 +29,7 @@ import {
   type PunktDel,
   type PunktStatus,
 } from '@/lib/egenkontroll';
-import { avvikelseText } from '../format';
+import { avvikelseText, kortDatum } from '../format';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
 // rott slutar folk satta det, och da far vi "Godkant" pa allt och verktyget ar
@@ -131,10 +132,13 @@ function SvarsKnapp({
 function PunktKort({
   punkt,
   sparar,
+  last,
   onSvara,
 }: {
   punkt: EgenkontrollPunkt;
   sparar: boolean;
+  /** Rundan ar avslutad - punkten visas men gar inte att andra. */
+  last: boolean;
   onSvara: (status: PunktStatus) => void;
 }) {
   const etikett = statusEtikett(punkt.status);
@@ -155,23 +159,59 @@ function PunktKort({
           fontSize: 13,
           color: etikett.farg,
           fontWeight: 600,
-          margin: '2px 0 10px',
+          margin: last ? '2px 0 0' : '2px 0 10px',
         }}
       >
         {sparar ? 'Sparar…' : etikett.text}
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {alternativ.map((a) => (
-          <SvarsKnapp
-            key={a.status}
-            etikett={a.etikett}
-            aktiv={punkt.status === a.status}
-            farg={a.farg}
-            sparar={sparar}
-            onClick={() => onSvara(a.status)}
-          />
-        ))}
-      </div>
+      {/* TVA PLUS EN. "Kan bli battre" ar dubbelt sa lang etikett som "OK" och
+          far egen full bredd - tre i bredd kroper traffytan under 44 pt for en
+          tumme med handske. Del 1 har tva alternativ och far en enda rad. */}
+      {!last && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {alternativ.slice(0, 2).map((a) => (
+              <SvarsKnapp
+                key={a.status}
+                etikett={a.etikett}
+                aktiv={punkt.status === a.status}
+                farg={a.farg}
+                sparar={sparar}
+                onClick={() => onSvara(a.status)}
+              />
+            ))}
+          </div>
+          {alternativ.slice(2).map((a) => (
+            <div key={a.status} style={{ display: 'flex' }}>
+              <SvarsKnapp
+                etikett={a.etikett}
+                aktiv={punkt.status === a.status}
+                farg={a.farg}
+                sparar={sparar}
+                onClick={() => onSvara(a.status)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Rad i avslutsdialogen. Siffran ar hogerstalld sa tre rader gar att skanna. */
+function Sammanfattningsrad({
+  etikett,
+  varde,
+  farg,
+}: {
+  etikett: string;
+  varde: string;
+  farg?: string;
+}) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16 }}>
+      <span style={{ color: T.t2 }}>{etikett}</span>
+      <span style={{ fontWeight: 600, color: farg ?? T.t1 }}>{varde}</span>
     </div>
   );
 }
@@ -186,6 +226,8 @@ export default function EgenkontrollRundaPage() {
   const [startar, setStartar] = useState(false);
   const [sparStatus, setSparStatus] = useState<Record<string, boolean>>({});
   const [sparFel, setSparFel] = useState<string | null>(null);
+  const [visaAvslutsdialog, setVisaAvslutsdialog] = useState(false);
+  const [avslutar, setAvslutar] = useState(false);
 
   const ladda = useCallback(async () => {
     setLaddar(true);
@@ -237,6 +279,22 @@ export default function EgenkontrollRundaPage() {
     }
   };
 
+  const avsluta = async () => {
+    if (!vy?.egenkontroll) return;
+    setAvslutar(true);
+    setSparFel(null);
+    try {
+      await avslutaRunda(vy.egenkontroll.id);
+      setVisaAvslutsdialog(false);
+      await ladda(); // las om fran DB - skarmen visar det som faktiskt star dar
+    } catch (e) {
+      setVisaAvslutsdialog(false);
+      setSparFel(e instanceof Error ? e.message : 'Kunde inte avsluta rundan.');
+    } finally {
+      setAvslutar(false);
+    }
+  };
+
   const planpunkter = useMemo(
     () => (vy?.punkter ?? []).filter((p) => p.del === 'plan'),
     [vy?.punkter],
@@ -252,6 +310,15 @@ export default function EgenkontrollRundaPage() {
   const antalAvvikelser = planpunkter.filter((p) => p.status === 'avvikelse').length;
   const antalUtforande = utforandepunkter.length;
   const besvaradeUtforande = utforandepunkter.filter((p) => p.status !== null).length;
+
+  // Avslutet raknar BADA delarna. Kvar-talet ar det som faktiskt aterstar,
+  // aldrig en gissning - det star pa knappen sa man vet hur langt man har kvar
+  // utan att blada.
+  const allaPunkter = vy?.punkter ?? [];
+  const kvar = allaPunkter.filter((p) => p.status === null).length;
+  const antalBattre = allaPunkter.filter((p) => p.status === 'battre').length;
+  const rundanKlar = vy?.egenkontroll?.status === 'klar';
+  const kanAvsluta = !!vy?.egenkontroll && !rundanKlar && allaPunkter.length > 0 && kvar === 0;
 
   return (
     <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff }}>
@@ -363,6 +430,7 @@ export default function EgenkontrollRundaPage() {
                           key={p.id}
                           punkt={p}
                           sparar={!!sparStatus[p.id]}
+                          last={rundanKlar}
                           onSvara={(status) => svara(p, status)}
                         />
                       ))}
@@ -385,15 +453,149 @@ export default function EgenkontrollRundaPage() {
                           key={p.id}
                           punkt={p}
                           sparar={!!sparStatus[p.id]}
+                          last={rundanKlar}
                           onSvara={(status) => svara(p, status)}
                         />
                       ))}
                     </div>
                   </div>
                 )}
+
+                {/* Avslutet. En klar runda visar ingen knapp alls - den ska
+                    kannas last, inte som en knapp man inte far trycka pa. */}
+                {rundanKlar ? (
+                  <div
+                    style={{
+                      marginTop: 28,
+                      background: T.group,
+                      borderRadius: 12,
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: 10, height: 10, borderRadius: 5,
+                        background: T.green, flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ fontSize: 15 }}>
+                      Avslutad {vy.egenkontroll.klar ? kortDatum(vy.egenkontroll.klar) : 'datum saknas'}
+                      {' — '}
+                      {avvikelseText(antalAvvikelser)}
+                    </span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setVisaAvslutsdialog(true)}
+                    disabled={!kanAvsluta}
+                    style={{
+                      marginTop: 28,
+                      width: '100%',
+                      minHeight: 52,
+                      borderRadius: 12,
+                      border: 'none',
+                      background: kanAvsluta ? T.green : T.groupHi,
+                      color: kanAvsluta ? '#000' : T.t2,
+                      fontSize: 17,
+                      fontWeight: 700,
+                      fontFamily: T.ff,
+                    }}
+                  >
+                    {kanAvsluta
+                      ? 'Avsluta rundan'
+                      : `Avsluta rundan — ${kvar} kvar`}
+                  </button>
+                )}
               </>
             )}
           </>
+        )}
+
+        {/* APP-EGEN DIALOG - aldrig confirm(). Den blockeras tyst i inbaddade
+            lagen, och ett tyst blockerat confirm() betyder att avslutet bara
+            "inte hander" utan att nagon forstar varfor.
+            Sammanfattningen sager vad som sparas INNAN det sparas: efterat gar
+            rundan inte att andra i appen. */}
+        {visaAvslutsdialog && vy?.egenkontroll && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Avsluta rundan"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.6)',
+              zIndex: 1100,
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+            }}
+            onClick={() => { if (!avslutar) setVisaAvslutsdialog(false); }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: T.group,
+                borderRadius: '16px 16px 0 0',
+                padding: '20px 16px calc(20px + env(safe-area-inset-bottom))',
+                width: '100%',
+                maxWidth: 480,
+                fontFamily: T.ff,
+              }}
+            >
+              <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>
+                Avsluta rundan?
+              </div>
+              <div style={{ fontSize: 15, color: T.t2, lineHeight: 1.5, marginBottom: 14 }}>
+                Detta sparas som egenkontrollens dokument. Efteråt går rundan inte
+                att ändra i appen.
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 18 }}>
+                <Sammanfattningsrad etikett="Punkter" varde={`${allaPunkter.length}`} />
+                <Sammanfattningsrad
+                  etikett="Avvikelser"
+                  varde={`${antalAvvikelser}`}
+                  farg={antalAvvikelser > 0 ? T.red : undefined}
+                />
+                <Sammanfattningsrad
+                  etikett="Kan bli bättre"
+                  varde={`${antalBattre}`}
+                  farg={antalBattre > 0 ? GUL : undefined}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button
+                  onClick={avsluta}
+                  disabled={avslutar}
+                  style={{
+                    width: '100%', minHeight: 52, borderRadius: 12, border: 'none',
+                    background: T.green, color: '#000', fontSize: 17, fontWeight: 700,
+                    fontFamily: T.ff, opacity: avslutar ? 0.5 : 1,
+                  }}
+                >
+                  {avslutar ? 'Avslutar…' : 'Avsluta rundan'}
+                </button>
+                <button
+                  onClick={() => setVisaAvslutsdialog(false)}
+                  disabled={avslutar}
+                  style={{
+                    width: '100%', minHeight: 52, borderRadius: 12,
+                    border: '1.5px solid rgba(255,255,255,0.14)',
+                    background: 'transparent', color: T.t1, fontSize: 17, fontWeight: 600,
+                    fontFamily: T.ff,
+                  }}
+                >
+                  Gå tillbaka
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* App-egen felruta - aldrig alert(), den blockeras tyst i inbaddade lagen. */}
