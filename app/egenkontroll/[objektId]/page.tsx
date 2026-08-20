@@ -6,6 +6,10 @@
 // av att vyn oppnas. Att bara titta pa ett objekt far inte lamna spar i
 // databasen, och det partiella unika indexet gor en oavsiktlig runda dyr:
 // den blockerar varje nytt forsok tills nagon stadar bort den.
+//
+// TVA DELAR. Del 1 = planpunkterna, kontroll MOT PLANEN, svaras OK/Avvikelse.
+// Del 2 = Utforandet, hantverket, svaras Bra/Godkant/Kan bli battre. De far
+// aldrig dela svarsskala: "Kan bli battre" ar ingen avvikelse.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -17,23 +21,48 @@ import {
   hamtaRunda,
   generateEgenkontroll,
   svaraPaPunkt,
+  utforandeUnderrad,
   GRUPPER,
   type RundVy,
   type EgenkontrollPunkt,
-  type PlanStatus,
+  type PunktDel,
+  type PunktStatus,
 } from '@/lib/egenkontroll';
 import { avvikelseText } from '../format';
 
-/** Status i TEXT. Fargen nedan upprepar detta - den bar aldrig ensam. */
+// GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
+// rott slutar folk satta det, och da far vi "Godkant" pa allt och verktyget ar
+// dott. Rott ar reserverat for avvikelser mot planen i Del 1.
+// #FFD60A ar samma gult som datahalsobannern pa startsidan; T.orange betyder
+// redan "gar ut snart" pa utbildningssidorna.
+const GUL = '#FFD60A';
+
+/** Status i TEXT. Fargen upprepar bara det som redan star - den bar aldrig ensam. */
 const STATUS_TEXT: Record<string, { text: string; farg: string }> = {
   ok: { text: 'OK', farg: T.green },
   avvikelse: { text: 'Avvikelse', farg: T.red },
+  bra: { text: 'Bra', farg: T.green },
+  godkant: { text: 'Godkänt', farg: T.blue },
+  battre: { text: 'Kan bli bättre', farg: GUL },
 };
 
 function statusEtikett(status: string | null): { text: string; farg: string } {
   if (status && STATUS_TEXT[status]) return STATUS_TEXT[status];
   return { text: 'Obesvarad', farg: T.t2 };
 }
+
+/** Knapparna per del. Aldrig fler an dessa - tre val ar redan gransen i hytt. */
+const SVARSALTERNATIV: Record<PunktDel, { status: PunktStatus; etikett: string; farg: string }[]> = {
+  plan: [
+    { status: 'ok', etikett: 'OK', farg: T.green },
+    { status: 'avvikelse', etikett: 'Avvikelse', farg: T.red },
+  ],
+  utforande: [
+    { status: 'bra', etikett: 'Bra', farg: T.green },
+    { status: 'godkant', etikett: 'Godkänt', farg: T.blue },
+    { status: 'battre', etikett: 'Kan bli bättre', farg: GUL },
+  ],
+};
 
 /**
  * Grupp och sedan ordning. Presentationsordning valjs HAR, i vyn - ordning
@@ -92,6 +121,61 @@ function SvarsKnapp({
   );
 }
 
+/**
+ * Kortet. Storleken ar bekraftad i falt - andra den inte.
+ *
+ * Planerarens kommentar star under rubriken, mindre och nedtonad, utan
+ * etikett. Saknas den ritas ingenting alls - ingen tom rad, ingen
+ * platshallare som lurar ogat att leta.
+ */
+function PunktKort({
+  punkt,
+  sparar,
+  onSvara,
+}: {
+  punkt: EgenkontrollPunkt;
+  sparar: boolean;
+  onSvara: (status: PunktStatus) => void;
+}) {
+  const etikett = statusEtikett(punkt.status);
+  const underrad = punkt.del === 'utforande' ? utforandeUnderrad(punkt.punkt_typ) : null;
+  const hjalptext = punkt.plan_kommentar ?? underrad;
+  const alternativ = SVARSALTERNATIV[punkt.del as PunktDel] ?? SVARSALTERNATIV.plan;
+
+  return (
+    <div style={{ background: T.group, borderRadius: 12, padding: '12px 14px' }}>
+      <div style={{ fontSize: 16, fontWeight: 500 }}>{punkt.rubrik}</div>
+      {hjalptext && (
+        <div style={{ fontSize: 14, color: T.t2, lineHeight: 1.4, marginTop: 3 }}>
+          {hjalptext}
+        </div>
+      )}
+      <div
+        style={{
+          fontSize: 13,
+          color: etikett.farg,
+          fontWeight: 600,
+          margin: '2px 0 10px',
+        }}
+      >
+        {sparar ? 'Sparar…' : etikett.text}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {alternativ.map((a) => (
+          <SvarsKnapp
+            key={a.status}
+            etikett={a.etikett}
+            aktiv={punkt.status === a.status}
+            farg={a.farg}
+            sparar={sparar}
+            onClick={() => onSvara(a.status)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function EgenkontrollRundaPage() {
   const params = useParams<{ objektId: string }>();
   const objektId = params.objektId;
@@ -133,13 +217,14 @@ export default function EgenkontrollRundaPage() {
     }
   };
 
-  const svara = async (punkt: EgenkontrollPunkt, status: PlanStatus) => {
+  const svara = async (punkt: EgenkontrollPunkt, status: PunktStatus) => {
     // Trycket pa redan valt svar ar en no-op: ingen skrivning, ingen blink.
     if (punkt.status === status) return;
     setSparStatus((s) => ({ ...s, [punkt.id]: true }));
     setSparFel(null);
     try {
-      const sparad = await svaraPaPunkt(punkt.id, status);
+      // Delen skickas med sa en punkt inte kan fa fel statusklass.
+      const sparad = await svaraPaPunkt(punkt.id, status, punkt.del as PunktDel);
       // Ersatt raden med den som DB faktiskt returnerade - skarmen visar det
       // som star i databasen, aldrig det vi hoppades skriva.
       setVy((v) =>
@@ -152,10 +237,21 @@ export default function EgenkontrollRundaPage() {
     }
   };
 
-  const grupper = useMemo(() => gruppera(vy?.punkter ?? []), [vy?.punkter]);
-  const antalPunkter = vy?.punkter.length ?? 0;
-  const antalBesvarade = vy?.punkter.filter((p) => p.status !== null).length ?? 0;
-  const antalAvvikelser = vy?.punkter.filter((p) => p.status === 'avvikelse').length ?? 0;
+  const planpunkter = useMemo(
+    () => (vy?.punkter ?? []).filter((p) => p.del === 'plan'),
+    [vy?.punkter],
+  );
+  const utforandepunkter = useMemo(
+    () => (vy?.punkter ?? []).filter((p) => p.del === 'utforande').sort((a, b) => a.ordning - b.ordning),
+    [vy?.punkter],
+  );
+
+  const grupper = useMemo(() => gruppera(planpunkter), [planpunkter]);
+  const antalPlan = planpunkter.length;
+  const besvaradePlan = planpunkter.filter((p) => p.status !== null).length;
+  const antalAvvikelser = planpunkter.filter((p) => p.status === 'avvikelse').length;
+  const antalUtforande = utforandepunkter.length;
+  const besvaradeUtforande = utforandepunkter.filter((p) => p.status !== null).length;
 
   return (
     <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff }}>
@@ -216,7 +312,7 @@ export default function EgenkontrollRundaPage() {
                 <p style={{ fontSize: 15, color: T.t2, lineHeight: 1.5, margin: '0 0 20px' }}>
                   Ingen egenkontroll är startad. När du startar skapas checklistan
                   ur objektets planering — hänsyn, kulturlämningar, basvägar och
-                  avlägg som planerades.
+                  avlägg som planerades — plus punkterna om själva utförandet.
                 </p>
                 <button
                   onClick={starta}
@@ -240,16 +336,16 @@ export default function EgenkontrollRundaPage() {
             ) : (
               <>
                 <div style={{ fontSize: 22, fontWeight: 600, margin: '2px 0 2px' }}>
-                  {antalBesvarade} av {antalPunkter} klara
+                  {besvaradePlan} av {antalPlan} klara
                 </div>
                 <p style={{ fontSize: 15, color: antalAvvikelser > 0 ? T.red : T.t2, margin: '0 0 8px' }}>
                   {avvikelseText(antalAvvikelser)}
                 </p>
 
-                {antalPunkter === 0 && (
+                {antalPlan === 0 && (
                   <div style={{ background: T.group, borderRadius: 12, padding: 16, marginTop: 12 }}>
                     <div style={{ fontSize: 15, marginBottom: 6 }}>
-                      Rundan är startad men har inga punkter.
+                      Rundan har inga punkter mot planen.
                     </div>
                     <div style={{ fontSize: 14, color: T.t2, lineHeight: 1.45 }}>
                       Objektet saknade markeringar som blir kontrollpunkter — hänsyn,
@@ -262,47 +358,39 @@ export default function EgenkontrollRundaPage() {
                   <div key={grupp}>
                     <SectionHeader>{grupp}</SectionHeader>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {punkter.map((p) => {
-                        const etikett = statusEtikett(p.status);
-                        const sparar = !!sparStatus[p.id];
-                        return (
-                          <div
-                            key={p.id}
-                            style={{ background: T.group, borderRadius: 12, padding: '12px 14px' }}
-                          >
-                            <div style={{ fontSize: 16, fontWeight: 500 }}>{p.rubrik}</div>
-                            <div
-                              style={{
-                                fontSize: 13,
-                                color: etikett.farg,
-                                fontWeight: 600,
-                                margin: '2px 0 10px',
-                              }}
-                            >
-                              {sparar ? 'Sparar…' : etikett.text}
-                            </div>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                              <SvarsKnapp
-                                etikett="OK"
-                                aktiv={p.status === 'ok'}
-                                farg={T.green}
-                                sparar={sparar}
-                                onClick={() => svara(p, 'ok')}
-                              />
-                              <SvarsKnapp
-                                etikett="Avvikelse"
-                                aktiv={p.status === 'avvikelse'}
-                                farg={T.red}
-                                sparar={sparar}
-                                onClick={() => svara(p, 'avvikelse')}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {punkter.map((p) => (
+                        <PunktKort
+                          key={p.id}
+                          punkt={p}
+                          sparar={!!sparStatus[p.id]}
+                          onSvara={(status) => svara(p, status)}
+                        />
+                      ))}
                     </div>
                   </div>
                 ))}
+
+                {/* Del 2. Doljs HELT nar rundan saknar utforandepunkter - en
+                    runda som startades fore denna PR far dem aldrig, sa det
+                    finns ingenting att forklara sig ur. */}
+                {antalUtforande > 0 && (
+                  <div>
+                    <SectionHeader>Utförandet</SectionHeader>
+                    <div style={{ fontSize: 15, color: T.t2, padding: '0 16px 8px' }}>
+                      {besvaradeUtforande} av {antalUtforande}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {utforandepunkter.map((p) => (
+                        <PunktKort
+                          key={p.id}
+                          punkt={p}
+                          sparar={!!sparStatus[p.id]}
+                          onSvara={(status) => svara(p, status)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </>
