@@ -6,6 +6,31 @@
  * Redirect URI: /api/fortnox/callback (matchar Fortnox-portalens konfiguration).
  *
  * Dokumentation: https://www.fortnox.se/developer/authentication-oauth2/
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * PRISER: FORTNOX ÄGER DEM. APPEN VISAR DEM, LAGRAR DEM ALDRIG.
+ *
+ * Varje pris har exakt en ägare, och ägaren är den som har underlaget.
+ * Ackordspriset (medelstam, traktstorlek, skotningsavstånd) räknar appen ur
+ * acord_*-tabellerna. Fasta artikelpriser — flytt av maskin, manuell fällning
+ * — äger Fortnox artikelregister. Höjs artikel 5 från 1 500 till 1 600 i
+ * Fortnox ska underlaget visa 1 600 nästa gång det öppnas, utan att någon
+ * rör appen.
+ *
+ * DÄRFÖR: hämta à-pris härifrån vid visning. Cacha i minnet under anropet om
+ * det behövs, aldrig i databasen.
+ *
+ * VARNING — fortnox_invoice_rows.price ÄR INTE EN PRISLISTA.
+ * Den tabellen innehåller 572 rader historiska fakturapriser från synken.
+ * De ser ut som en prislista och är det inte: de är vad som fakturerades då,
+ * inte vad som gäller nu. Läser man à-pris därifrån har man återskapat
+ * acord_flyttkostnad (borttagen i #423) utan att skapa en tabell — en egen
+ * priskopia som inte vet om Fortnox ändras.
+ *
+ * Tabellen har EN legitim användning: att visa vad som faktiskt skickades på
+ * en redan skickad faktura. Då är den Fortnox egen post över dokumentet, inte
+ * appens kopia av ett pris.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
 import type { ExternEmployee } from "./types";
@@ -14,10 +39,17 @@ const FORTNOX_AUTH_URL  = "https://apps.fortnox.se/oauth-v1/auth";
 const FORTNOX_TOKEN_URL = "https://apps.fortnox.se/oauth-v1/token";
 const FORTNOX_API_BASE  = "https://api.fortnox.se/3";
 // Space-separerad lista. Utökades från "salary" till även covering
-// companyinformation/customer/invoice/payment/bookkeeping/costcenter/project.
-// Användare måste re-auktorisera (starta /api/fortnox/auth) efter deploy
-// så att Fortnox ger ut en ny access_token med samtliga scopes.
-const SCOPE = "salary companyinformation customer invoice payment bookkeeping costcenter project";
+// companyinformation/customer/invoice/payment/bookkeeping/costcenter/project,
+// och därefter med article + price (fakturaunderlagets à-prisvisning:
+// GET /3/articles/{nr} kräver "article", GET /3/prices/{lista}/{nr} kräver
+// "price").
+//
+// ⚠️ Fortnox delar ut scopes VID AUKTORISERING. Att lägga till en scope här
+// gör ingenting förrän någon kör /api/fortnox/auth på nytt och godkänner —
+// den befintliga access_token behåller sina gamla scopes tills dess, och
+// artikelanrop svarar 403. Efter varje utökning av den här raden: deploya
+// först, re-auktorisera sedan.
+const SCOPE = "salary companyinformation customer invoice payment bookkeeping costcenter project article price";
 
 function getCredentials() {
   const clientId = process.env.FORTNOX_CLIENT_ID;
