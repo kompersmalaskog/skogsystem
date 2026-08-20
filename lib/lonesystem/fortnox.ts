@@ -115,6 +115,36 @@ export class FortnoxClient {
     return res.json() as Promise<T>;
   }
 
+  /**
+   * Hämtar en kund. Till skillnad från fetchApi KASTAR den inte på HTTP-fel —
+   * anroparen måste kunna skilja "kunden finns inte" (404) från "scopen
+   * saknas" (403) från "Fortnox svarade inte", eftersom de leder till helt
+   * olika åtgärder. Ett gemensamt fel gör de två första osynliga.
+   */
+  async getCustomer(kundnr: string): Promise<
+    | { ok: true; customer: Record<string, any> }
+    | { ok: false; status: number; text: string }
+  > {
+    let res: Response;
+    try {
+      res = await fetch(`${FORTNOX_API_BASE}/customers/${encodeURIComponent(kundnr)}`, {
+        headers: {
+          "Authorization": `Bearer ${this.accessToken}`,
+          "Accept": "application/json",
+        },
+      });
+    } catch (e: any) {
+      return { ok: false, status: 0, text: e?.message || String(e) };
+    }
+    const text = await res.text();
+    if (!res.ok) return { ok: false, status: res.status, text };
+    try {
+      return { ok: true, customer: JSON.parse(text)?.Customer || {} };
+    } catch {
+      return { ok: false, status: res.status, text: `Kunde inte tolka svaret: ${text.slice(0, 200)}` };
+    }
+  }
+
   async testConnection(): Promise<{ ok: boolean; meddelande: string; employees?: ExternEmployee[] }> {
     try {
       const data = await this.fetchApi<any>("/employees?limit=3");
