@@ -8,6 +8,7 @@ import { hamtaAckordgrundAuto, type AckordgrundAuto } from '@/lib/ekonomi/ackord
 import { useMatchning } from './hooks/useMatchning'
 import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkordning, skordareForvantasEj, skotareForvantasEj } from './hooks/useFildata'
 import MatchningsVy from './MatchningsVy'
+import SkotareFordelning from './SkotareFordelning'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
@@ -2321,6 +2322,8 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
         </div>
         <AvslutForslagRuta obj={obj} set={set} field="skotning_avslutad" autoField="skotning_avslutad_auto" label="skotning" forslag={forslag} />
       </div>
+      {/* Skotare-fördelning (steg 1) — fristående komponent, per-maskin lass/omlastning */}
+      <SkotareFordelning objektId={obj.objekt_id} avverkatVolym={skordatTotal || 0} />
     </IosGroup>
   )
 }
