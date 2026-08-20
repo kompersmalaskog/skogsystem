@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useDatahalsa } from './datahalsa/useDatahalsa'
+import { hamtaVantande } from '@/lib/egenkontroll'
 
 function getDatum() {
   const now = new Date()
@@ -24,6 +25,7 @@ const productionApps = [
 ]
 
 const adminApps = [
+  { href: '/egenkontroll', label: 'Egenkontroll', icon: 'fact_check' },
   { href: '/arbetsrapport', label: 'Arbetsrapport', icon: 'description' },
   { href: '/planering', label: 'Planering', icon: 'event_note' },
   { href: '/objekt', label: 'Objekt', icon: 'layers' },
@@ -76,19 +78,50 @@ function DatahalsaBanner() {
   )
 }
 
-function AppIcon({ href, label, icon, variant }: { href: string; label: string; icon: string; variant: 'production' | 'admin' }) {
+// ── Räknarmärke ──────────────────────────────────────────────────────────
+// APPENS FÖRSTA BADGE — mönstret är nytt, inte etablerat. Ingen annan ikon
+// på startsidan bär en siffra idag. Innan nästa vy får ett märke: fundera på
+// om siffran faktiskt utlöser en handling. Är den bara stor och konstant blir
+// den brus, och då slutar alla märken att betyda något.
+//
+// Noll visas ALDRIG som "0" — märket försvinner helt och ikonen står kvar.
+// aria-label bär samma besked i text, så siffran inte bara är en färgfläck.
+function Raknarmarke({ antal, label }: { antal: number; label: string }) {
+  return (
+    <span
+      role="status"
+      aria-label={`${antal} ${label}`}
+      style={{
+        position: 'absolute', top: -5, right: -5,
+        minWidth: 21, height: 21, padding: '0 6px',
+        borderRadius: 11, boxSizing: 'border-box',
+        background: '#ff453a', color: '#fff',
+        fontSize: 12, fontWeight: 700, lineHeight: '21px', textAlign: 'center',
+        border: '2px solid #0d0d0f', // ringen lyfter märket från ikonen bakom
+      }}
+    >
+      {antal > 99 ? '99+' : antal}
+    </span>
+  )
+}
+
+function AppIcon({ href, label, icon, variant, badge, badgeLabel }: { href: string; label: string; icon: string; variant: 'production' | 'admin'; badge?: number; badgeLabel?: string }) {
   const bgColor = variant === 'production' ? '#30d158' : '#0a84ff'
 
   return (
     <Link href={href} className="app-link" style={{ textDecoration: 'none' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
         <div style={{
+          position: 'relative',
           width: 56, height: 56, borderRadius: 12,
           background: bgColor,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           transition: 'transform 150ms ease',
         }}>
           <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#fff' }}>{icon}</span>
+          {badge != null && badge > 0 && (
+            <Raknarmarke antal={badge} label={badgeLabel ?? label} />
+          )}
         </div>
         <span style={{
           fontSize: 11, fontWeight: 500, color: '#fff',
@@ -106,6 +139,9 @@ function AppIcon({ href, label, icon, variant }: { href: string; label: string; 
 export default function HomeClient() {
   const [datum, setDatum] = useState('')
   const [roll, setRoll] = useState<string | null>(null)
+  // null = vet inte än (laddar, eller kunde inte läsas). Märket visas först
+  // när siffran är känd — ett märke som gissar är värre än inget märke.
+  const [vantandeEgenkontroll, setVantandeEgenkontroll] = useState<number | null>(null)
 
   useEffect(() => {
     setDatum(getDatum())
@@ -114,6 +150,11 @@ export default function HomeClient() {
       supabase.from('medarbetare').select('roll').eq('epost', user.email).single()
         .then(({ data }) => { if (data?.roll) setRoll(data.roll) })
     })
+    // SAMMA funktion som listvyn använder ⇒ siffran på ikonen och talet överst
+    // i listan kan aldrig säga olika saker.
+    hamtaVantande()
+      .then(({ antalVantande }) => setVantandeEgenkontroll(antalVantande))
+      .catch(() => setVantandeEgenkontroll(null))
   }, [])
 
   const synligaAdminApps = (roll === 'chef' || roll === 'admin')
@@ -163,7 +204,13 @@ export default function HomeClient() {
             gap: '24px 16px',
           }}>
             {productionApps.map(app => (
-              <AppIcon key={app.href} {...app} variant="production" />
+              <AppIcon
+                key={app.href}
+                {...app}
+                variant="production"
+                badge={app.href === '/egenkontroll' ? vantandeEgenkontroll ?? undefined : undefined}
+                badgeLabel="objekt väntar på egenkontroll"
+              />
             ))}
           </div>
         </div>
