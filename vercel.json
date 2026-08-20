@@ -23,6 +23,10 @@
     {
       "path": "/api/km/nattjobb",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/vagdata-cron",
+      "schedule": "0 * * * *"
     }
   ]
 }

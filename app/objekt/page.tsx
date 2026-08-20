@@ -106,6 +106,11 @@ function ObjektPageInner() {
 
 
   const [objekt, setObjekt] = useState<any[]>([]);
+  // TMA-vägdata (cache-först): status per objekt så planeraren ser vilka trakter som har väggeometri
+  // och vilka som väntar/misslyckats — tyst väntan är samma fel i ny kostym.
+  const [vagdataMap, setVagdataMap] = useState<Record<string, { status: string; hamtad_at: string | null }>>({});
+  const [vagdataOpen, setVagdataOpen] = useState(false);
+  const [vagdataKor, setVagdataKor] = useState<string[]>([]); // objekt_id som just nu körs om
 
   const fetchData = async () => {
     const { data, error } = await supabase
@@ -123,8 +128,28 @@ function ObjektPageInner() {
     setObjekt(data || []);
   };
 
+  const fetchVagdata = async () => {
+    const { data, error } = await supabase.from('objekt_vagdata').select('objekt_id, status, hamtad_at');
+    if (error) { console.error('Vägdata-status fel:', error); return; }
+    const m: Record<string, { status: string; hamtad_at: string | null }> = {};
+    (data || []).forEach((r: any) => { m[r.objekt_id] = { status: r.status, hamtad_at: r.hamtad_at }; });
+    setVagdataMap(m);
+  };
+
+  // Kör om hämtningen för ETT objekt (planerarens omkörningsknapp) → server-side, aldrig i förarens väg.
+  const korOmVagdata = async (objektId: string) => {
+    setVagdataKor(prev => [...prev, objektId]);
+    setVagdataMap(prev => ({ ...prev, [objektId]: { status: 'pagar', hamtad_at: prev[objektId]?.hamtad_at ?? null } }));
+    try {
+      await fetch(`/api/vagdata-hamta?objekt_id=${objektId}`, { method: 'POST' });
+    } catch (e) { console.error('Kör om vägdata fel:', e); }
+    await fetchVagdata();
+    setVagdataKor(prev => prev.filter(id => id !== objektId));
+  };
+
   useEffect(() => {
     fetchData();
+    fetchVagdata();
   }, []);
 
   // Hämta geometri för det öppnade objektet och räkna hänsynsandel + basvägslängd. Egen query
@@ -643,6 +668,50 @@ function ObjektPageInner() {
           {importStatus || 'Importera traktfil (.envz/.zip)'}
         </label>
       </div>
+
+      {/* TMA-vägdata (cache-först): planerarens statuslista — vilka trakter har väggeometri, vilka väntar/
+          misslyckats, med omkörningsknapp. Tyst väntan är samma fel i ny kostym → statusen syns här. */}
+      {objekt.length > 0 && (() => {
+        const status = (o: any) => vagdataMap[o.id]?.status || 'saknas';
+        const arVantar = (s: string) => s === 'saknas' || s === 'vantar' || s === 'pagar';
+        const okAntal = objekt.filter(o => status(o) === 'ok').length;
+        const vantarObj = objekt.filter(o => arVantar(status(o)));
+        const felObj = objekt.filter(o => status(o) === 'misslyckad');
+        const attVisa = [...felObj, ...vantarObj]; // fel överst (behöver åtgärd), sen väntande
+        return (
+          <div style={{ marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: vagdataOpen ? '10px' : '0' }}>
+            <button onClick={() => setVagdataOpen(v => !v)} style={{ width: '100%', padding: '12px 2px', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Vägdata (TMA)</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 12, color: '#34c759' }}>{okAntal} ✓</span>
+                {vantarObj.length > 0 && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{vantarObj.length} väntar</span>}
+                {felObj.length > 0 && <span style={{ fontSize: 12, color: '#ff453a' }}>{felObj.length} fel</span>}
+                <span style={{ transform: vagdataOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', opacity: 0.3, fontSize: 11 }}>▼</span>
+              </span>
+            </button>
+            {vagdataOpen && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 4 }}>
+                {attVisa.length === 0 && <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', padding: '6px 2px' }}>Alla trakter har vägdata.</div>}
+                {attVisa.map(o => {
+                  const s = status(o);
+                  const kor = vagdataKor.includes(o.id) || s === 'pagar';
+                  const fel = s === 'misslyckad';
+                  return (
+                    <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: fel ? '1px solid rgba(255,69,58,0.35)' : '1px solid transparent' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: fel ? '#ff453a' : 'rgba(255,255,255,0.35)' }} />
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.namn || o.vo_nummer || o.id}</span>
+                      <span style={{ fontSize: 12, color: fel ? '#ff453a' : 'rgba(255,255,255,0.45)', flexShrink: 0 }}>{kor ? 'hämtar…' : fel ? 'kunde inte hämtas' : 'väntar'}</span>
+                      <button onClick={() => korOmVagdata(o.id)} disabled={kor} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 8, border: 'none', background: kor ? 'rgba(255,255,255,0.08)' : '#0a84ff', color: '#fff', fontSize: 12, fontWeight: 600, cursor: kor ? 'default' : 'pointer', fontFamily: 'inherit', minHeight: 32 }}>
+                        {kor ? '…' : 'Hämta'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Ej planerad — skyddsnät: periodlösa objekt (ar/manad = null). Hopfällbar; default hopfälld vid > 3. */}
       {oplanerade.length > 0 && (() => {
