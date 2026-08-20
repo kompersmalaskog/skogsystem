@@ -13,11 +13,16 @@ import { useEffect, useState } from 'react';
 import { T } from '@/lib/utbildning';
 import {
   hamtaRunda,
+  hamtaFoton,
   utforandeUnderrad,
+  AVVIKELSE_ETIKETT,
   GRUPPER,
   type EgenkontrollPunkt,
   type Egenkontroll,
+  type EgenkontrollFoto,
+  type AvvikelseTyp,
 } from '@/lib/egenkontroll';
+import { signeraFoto } from '@/lib/egenkontrollfoto';
 
 const GUL = '#FFD60A';
 
@@ -43,11 +48,15 @@ function typEtikett(typ: string): string {
   return typ === 'gallring' ? 'Gallring' : 'Slutavverkning';
 }
 
-function Rad({ punkt }: { punkt: EgenkontrollPunkt }) {
+function Rad({ punkt, fotoUrler }: { punkt: EgenkontrollPunkt; fotoUrler: string[] }) {
   const etikett = STATUS_TEXT[punkt.status ?? ''] ?? { text: 'Obesvarad', farg: T.t2 };
   const underrad =
     punkt.plan_kommentar ??
     (punkt.del === 'utforande' ? utforandeUnderrad(punkt.punkt_typ) : null);
+  const typ = punkt.avvikelse_typ
+    ? AVVIKELSE_ETIKETT[punkt.avvikelse_typ as AvvikelseTyp] ?? punkt.avvikelse_typ
+    : null;
+  const harPosition = punkt.lat != null && punkt.lng != null;
 
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '7px 0' }}>
@@ -56,6 +65,33 @@ function Rad({ punkt }: { punkt: EgenkontrollPunkt }) {
         {underrad && (
           <div style={{ fontSize: 13, color: T.t2, lineHeight: 1.4, marginTop: 2 }}>
             {underrad}
+          </div>
+        )}
+        {/* Typen i text - det markagaren ska kunna lasa utan att tolka farger. */}
+        {typ && (
+          <div style={{ fontSize: 13, color: T.red, fontWeight: 600, marginTop: 2 }}>{typ}</div>
+        )}
+        {punkt.kommentar && (
+          <div style={{ fontSize: 13, color: T.t2, lineHeight: 1.4, marginTop: 2 }}>
+            {punkt.kommentar}
+          </div>
+        )}
+        {harPosition && (
+          <div style={{ fontSize: 12, color: T.t2, marginTop: 2 }}>
+            {punkt.lat!.toFixed(4)}, {punkt.lng!.toFixed(4)}
+          </div>
+        )}
+        {fotoUrler.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+            {fotoUrler.map((url) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={url}
+                src={url}
+                alt=""
+                style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover' }}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -112,6 +148,7 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
   const [punkter, setPunkter] = useState<EgenkontrollPunkt[]>([]);
   const [laddat, setLaddat] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
+  const [fotoPerPunkt, setFotoPerPunkt] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     let avbruten = false;
@@ -121,6 +158,26 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
         if (avbruten) return;
         setRunda(vy.egenkontroll);
         setPunkter(vy.punkter);
+
+        // Bilderna signeras med TTL, aldrig publik lank. Kan en bild inte
+        // signeras utelamnas den - ett arligt tomt tillstand slar en trasig
+        // bildikon (samma linje som lib/kartfiler.ts).
+        if (vy.egenkontroll) {
+          const foton = await hamtaFoton(vy.egenkontroll.id);
+          const par = await Promise.all(
+            foton.map(async (f: EgenkontrollFoto) => ({
+              punktId: f.punkt_id,
+              url: await signeraFoto(f.sokvag),
+            })),
+          );
+          if (avbruten) return;
+          const karta: Record<string, string[]> = {};
+          for (const q of par) {
+            if (!q.punktId || !q.url) continue;
+            (karta[q.punktId] ??= []).push(q.url);
+          }
+          setFotoPerPunkt(karta);
+        }
       } catch (e) {
         if (avbruten) return;
         // Ett fel far aldrig se ut som "ingen egenkontroll gjord" - da tror
@@ -196,7 +253,7 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
               key={p.id}
               style={{ borderTop: i === 0 ? 'none' : `1px solid ${T.sep}` }}
             >
-              <Rad punkt={p} />
+              <Rad punkt={p} fotoUrler={fotoPerPunkt[p.id] ?? []} />
             </div>
           ))}
         </div>
