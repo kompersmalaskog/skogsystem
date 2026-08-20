@@ -7,6 +7,7 @@ import { C, secHead, Card, btnPrimary, btnSecondary, ChevronRight } from "./desi
 import { synkAvvikelser, aktEtikett } from "@/lib/synkAvvikelse";
 import { ledighetKollisioner } from "@/lib/ledighetKollision";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
+import { obMonster, oenighetsMorgnar, obObesvarade } from "@/lib/ob";
 import LonesystemUnderflik from "./LonesystemUnderflik";
 import AtkUnderflik from "./AtkUnderflik";
 import VilobrottUnderflik from "./VilobrottUnderflik";
@@ -132,6 +133,7 @@ function Loneunderlag() {
   const [ledigheter, setLedigheter] = useState<any[]>([]);
   const [synkAlla, setSynkAlla] = useState<any[]>([]);
   const [tidigarelagdAlla, setTidigarelagdAlla] = useState<any[]>([]);
+  const [obAlla, setObAlla] = useState<any[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,7 +145,7 @@ function Loneunderlag() {
         const [å, m] = period.split("-").map(Number);
         const periodSlut = sistaDagenIManaden(å, m); // sista dagen i månaden (LOKALT — toISOString tappade den i UTC+2)
 
-        const [medRes, arbRes, exRes, avtRes, ledRes, synkRes, tlRes] = await Promise.all([
+        const [medRes, arbRes, exRes, avtRes, ledRes, synkRes, tlRes, obRes] = await Promise.all([
           supabase.from("medarbetare").select("id, namn").order("namn"),
           supabase.from("arbetsdag")
             .select("medarbetare_id, datum, arbetad_min, km_morgon, km_kvall, km_totalt, traktamente, bekraftad, dagtyp")
@@ -157,6 +159,10 @@ function Loneunderlag() {
           supabase.from("arbetsdag").select("medarbetare_id, datum, tidigarelagd_start")
             .not("tidigarelagd_start", "is", null)
             .gte("datum", periodStart).lte("datum", periodSlut),
+          // Brandrisk-OB: tidiga starter (< 05:30). lib/ob filtrerar vardag + räknar OB.
+          supabase.from("arbetsdag").select("medarbetare_id, datum, start_tid, brandrisk_beordrad")
+            .gte("datum", periodStart).lte("datum", periodSlut)
+            .lt("start_tid", "05:30:00"),
         ]);
 
         if (cancelled) return;
@@ -170,6 +176,7 @@ function Loneunderlag() {
         setLedigheter(ledRes.data || []);
         setSynkAlla(synkRes.data || []);
         setTidigarelagdAlla(tlRes.data || []);
+        setObAlla(obRes.data || []);
       } catch (e: any) {
         if (!cancelled) setFel(e.message || String(e));
       } finally {
@@ -307,6 +314,9 @@ function Loneunderlag() {
         const utanforChips = Array.from(perMan.entries()).sort((a, b) => b[0].localeCompare(a[0]));
         const ledP = ledighetKollisioner(ledigheter, arbetsdagar);
         const tlMon = tidigarelagdMonster(tidigarelagdAlla);
+        const obMon = obMonster(obAlla);
+        const obOenighet = oenighetsMorgnar(obAlla);
+        const obObes = obObesvarade(obAlla);
         const statusFarg = (st: string) => st === 'oforklarad' ? C.orange : st === 'forklarad' ? C.green : C.label;
         const fmtH = (min: number) => { const h = Math.floor(min / 60), mm = min % 60; return mm ? `${h} tim ${mm} min` : `${h} tim`; };
         const chip = (mn: string, n: number, sz: 'stor' | 'liten') => (
@@ -358,6 +368,41 @@ function Loneunderlag() {
                   <div key={m.medarbetare_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
                     <span>{namn.get(m.medarbetare_id) || m.medarbetare_id}</span>
                     <span style={{ color: m.dagar >= 10 ? C.orange : C.label, fontWeight: m.dagar >= 10 ? 600 : 400 }}>{m.dagar} dag{m.dagar === 1 ? '' : 'ar'} · {fmtH(m.summaMin)}</span>
+                  </div>
+                ))}
+              </Card>
+            )}
+            {obMon.length > 0 && (
+              <Card>
+                <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Brandrisk-OB · {månadsLabel(period)}</p>
+                <p style={{ margin: '0 0 8px', fontSize: 12, color: C.label }}>Beordrad tidig start (brandrisk) → OB från start till 06:30. Förarens svar är underlaget, ditt beslut styr — timmar, aldrig kronor.</p>
+                {obMon.map((m, i) => (
+                  <div key={m.medarbetare_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
+                    <span>{namn.get(m.medarbetare_id) || m.medarbetare_id}</span>
+                    <span style={{ color: C.orange, fontWeight: 600 }}>{m.dagar} dag{m.dagar === 1 ? '' : 'ar'} · {fmtH(m.summaMin)} OB</span>
+                  </div>
+                ))}
+                {obObes.length > 0 && (
+                  <p style={{ margin: '10px 0 0', paddingTop: 10, borderTop: `1px solid ${C.line}`, fontSize: 12, color: C.label }}>
+                    {obObes.length} obesvarad{obObes.length === 1 ? '' : 'e'} tidig start väntar på svar — visas för föraren när han öppnar dagen.
+                  </p>
+                )}
+              </Card>
+            )}
+            {obOenighet.length > 0 && (
+              <Card>
+                <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Förare svarar olika samma morgon</p>
+                <p style={{ margin: '0 0 8px', fontSize: 12, color: C.label }}>Inte ett fel — bara morgnar där tidiga förare svarat olika på brandriskfrågan. Någon kan ha missförstått.</p>
+                {obOenighet.map((o, i) => (
+                  <div key={o.datum} style={{ padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
+                    <div style={{ fontSize: 14, color: C.text, marginBottom: 3 }}>{o.datum}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                      {o.svar.map(s => (
+                        <span key={s.medarbetare_id} style={{ fontSize: 12, color: s.brandrisk_beordrad ? C.green : C.label }}>
+                          {namn.get(s.medarbetare_id) || s.medarbetare_id} {(s.start_tid || '').slice(0, 5)} · {s.brandrisk_beordrad ? 'Ja' : 'Nej'}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </Card>

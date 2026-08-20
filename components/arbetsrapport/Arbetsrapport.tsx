@@ -12,6 +12,7 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import type { VilaTrosklar } from "@/lib/vilobrott";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib/dagsegment";
+import { skaFragaBrandrisk, obMinuter, fmtOb } from "@/lib/ob";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -4969,6 +4970,36 @@ export default function Arbetsrapport() {
               </Card>
             );
           })()}
+          {(() => {
+            // Brandrisk-OB: OB betalas BARA vid brandrisk-beordrad tidig start.
+            // Frågan visas bara vardag + start < 05:30 + obesvarad (skaFragaBrandrisk).
+            // Stefans normala 05:45–06:05 slipper därför bruset. Blockerar aldrig
+            // bekräftelsen — svarar han inte förblir det obesvarat (null).
+            const rd: any = redDag;
+            if (!rd?.id) return null;
+            const dag = { datum: rd.datum, start_tid: rd.start_tid, brandrisk_beordrad: rd.brandrisk_beordrad ?? null };
+            if (!skaFragaBrandrisk(dag)) return null;
+            const svara = async (val: boolean) => {
+              const res = await uppdateraVerifierat(supabase, 'arbetsdag', { brandrisk_beordrad: val }, { id: rd.id });
+              if (!res.ok) { alert(res.fel); return; }
+              setRedDag((d:any) => ({ ...d, brandrisk_beordrad: val }));
+              setDagData(dd => ({ ...dd, [rd.datum]: { ...(dd[rd.datum]||{}), brandrisk_beordrad: val } }));
+              if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+            };
+            return (
+              <Card style={{ padding:"16px 20px",border:"1px solid rgba(255,214,10,0.35)",marginBottom:16 }}>
+                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:10 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:20,color:"#ffd60a" }}>local_fire_department</span>
+                  <span style={{ ...secHead,color:"#fff" }}>Tidig start · {(rd.start_tid||'').slice(0,5)}</span>
+                </div>
+                <p style={{ margin:"0 0 14px",fontSize:15,color:"#fff" }}>Började du tidigt på grund av brandrisk?</p>
+                <div style={{ display:"flex",gap:10 }}>
+                  <button onClick={()=>svara(true)} style={{ flex:1,padding:14,background:C.orange,color:"#fff",border:"none",borderRadius:12,fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>Ja</button>
+                  <button onClick={()=>svara(false)} style={{ flex:1,padding:14,background:"rgba(255,255,255,0.08)",color:"#fff",border:"none",borderRadius:12,fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Nej</button>
+                </div>
+              </Card>
+            );
+          })()}
           {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0&&!harExtra?(
             <Card style={{ padding:"24px 20px",textAlign:"center" as const }}>
               {/* Ärligt tomt: varken maskinpass eller loggad extra-tid. */}
@@ -5014,6 +5045,13 @@ export default function Arbetsrapport() {
                   <span className="material-symbols-outlined" style={{ fontSize:14,color:"rgba(255,255,255,0.25)",verticalAlign:"-2px",marginLeft:2 }}>chevron_right</span>
                 </p>
                 <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Rast = tid markerad som Meal break i maskinen</p>
+                {(()=>{
+                  // Brandrisk-OB: han ska SE att svaret gav något — timmarna, aldrig kronor.
+                  const obMin = obMinuter({ datum: (redDag as any)?.datum, start_tid: (redDag as any)?.start_tid, brandrisk_beordrad: (redDag as any)?.brandrisk_beordrad ?? null });
+                  return obMin > 0 ? (
+                    <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#ffd60a",...TNUM }}>Brandrisk · {fmtOb(obMin)} OB</p>
+                  ) : null;
+                })()}
                 {(()=>{
                   const exMinDag = extraTidForDag.reduce((a:number,e:any) => a + (e.minuter||0), 0);
                   return exMinDag > 0 ? (
