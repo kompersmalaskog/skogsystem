@@ -5261,6 +5261,31 @@ export default function PlannerPage() {
   // Hjälpare: alla TMA-resultat som har vägar (för rendering)
   const tmaWithRoads = Object.entries(tmaResults).filter(([, r]) => r.status === 'done' && r.roads.length > 0);
 
+  // === CACHE-FÖRST TMA-VÄGDATA: läs objekt_vagdata (fylld server-side av hämtaren) istället för live-anrop ===
+  const [objektVagdata, setObjektVagdata] = useState<{ geometri: any; status: string } | null>(null);
+  const objektVagdataRef = useRef<{ geometri: any; status: string } | null>(null);
+  useEffect(() => { objektVagdataRef.current = objektVagdata; }, [objektVagdata]);
+  useEffect(() => {
+    if (!valtObjekt?.id) { setObjektVagdata(null); return; }
+    let avbruten = false;
+    (async () => {
+      const { data } = await supabase.from('objekt_vagdata').select('geometri, status').eq('objekt_id', valtObjekt.id).maybeSingle();
+      if (avbruten) return;
+      setObjektVagdata(data ? { geometri: data.geometri, status: data.status } : { geometri: null, status: 'saknas' });
+      tmaCheckedRef.current = {}; // ny cache laddad → tvinga om-koll av boundaries mot den (checkBoundaryTma läser cachen)
+    })();
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id]);
+  // Bannerläge (ärligt, aldrig tyst tomhet). STALE-MEN-SANN: finns geometri vinner DATAN — linjen ritas
+  // även om senaste hämtningen föll (vägen har inte flyttat sig); status visas då diskret.
+  const harBoundaries = markers.some(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1);
+  const harCachadVagdata = !!(objektVagdata?.geometri?.elements?.length);
+  const vagdataBanner: 'ingen' | 'hamtas' | 'misslyckad' | 'stale' =
+    !harBoundaries ? 'ingen'
+    : harCachadVagdata ? (objektVagdata?.status === 'misslyckad' ? 'stale' : 'ingen')
+    : objektVagdata?.status === 'misslyckad' ? 'misslyckad'
+    : 'hamtas';
+
   // Trigga TMA-kontroll per boundary individuellt
   useEffect(() => {
     const boundaryMarkers = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1);
@@ -5305,7 +5330,8 @@ export default function PlannerPage() {
         fetchSmhiWeather(wLat, wLon);
       }
     }
-  }, [markers]);
+    // objektVagdata med → när cachen laddas (efter boundaries) körs kollen om mot den (tmaCheckedRef nollas).
+  }, [markers, objektVagdata]);
 
   // === TRAKTANALYS: Trigga automatisk analys per boundary ===
   const runTractAnalysis = async (boundaryId: string, path: Point[]) => {
@@ -8091,29 +8117,11 @@ export default function PlannerPage() {
         return { status: 'done', roads: [], message: 'Inga traktgränser att kontrollera' };
       }
 
-      // Beräkna bounding box med 100m marginal
-      let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-      for (const p of samplePoints) {
-        minLat = Math.min(minLat, p.lat);
-        maxLat = Math.max(maxLat, p.lat);
-        minLon = Math.min(minLon, p.lon);
-        maxLon = Math.max(maxLon, p.lon);
-      }
-      // 100m marginal ≈ 0.001° lat, 0.002° lon vid ~57°N
-      minLat -= 0.001; maxLat += 0.001;
-      minLon -= 0.002; maxLon += 0.002;
-
-      console.log('[TMA] Bounding box:', { minLat, maxLat, minLon, maxLon });
-
-      // Hämta ALLA vägar inom bounding box (ofiltrerat för debug)
-      const query = `[out:json][timeout:15];way(${minLat},${minLon},${maxLat},${maxLon})["highway"];out body geom;`;
-      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-      console.log('[TMA] Overpass URL:', url);
-      const response = await fetch(url);
-      console.log('[TMA] Overpass response status:', response.status);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-
+      // CACHE-FÖRST: läs objektets cachade väggeometri (fylld server-side av hämtaren, lib/vagdata)
+      // istället för ett live-anrop. Formen är Overpass-elements-KONTRAKTET → parsningen + nearbyGeom +
+      // rendering nedan är OFÖRÄNDRADE. Saknas cache → tom lista (bannern berättar ärligt: hämtas / kunde
+      // inte hämtas). Säkerhetsunderlaget hänger aldrig mer på en flakig extern tjänst i förarens väg.
+      const data = objektVagdataRef.current?.geometri || { elements: [] };
       const allWays = (data.elements || []).filter((e: any) => e.type === 'way');
       console.log('[TMA] === ALLA VÄGAR FRÅN OVERPASS (' + allWays.length + ' st) ===');
       allWays.forEach((w: any, i: number) => {
@@ -12975,6 +12983,31 @@ export default function PlannerPage() {
             {risaTaps.length === 0 ? 'Tryck där risningen börjar på basvägen' : 'Tryck där risningen slutar'}
           </div>
           <button onClick={avbrytRisaMarkering} style={{ background: 'rgba(255,255,255,0.12)', border: 'none', color: '#fff', borderRadius: '10px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
+        </div>
+      )}
+
+      {/* TMA-VÄGDATA (cache-först): ärligt besked så en trakt VID allmän väg aldrig visar tom karta —
+          antingen ritas röda linjen ur cachen, eller står det att hämtningen pågår / inte kunde hämtas.
+          STALE-MEN-SANN: finns geometri vinner datan (linjen ritas), status visas då diskret. Aldrig tyst tomhet.
+          Markup återbrukad från #417 (skarpt verifierad). */}
+      {vagdataBanner !== 'ingen' && (
+        <div style={{
+          position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 340, background: vagdataBanner === 'misslyckad' ? 'rgba(40,10,10,0.92)' : 'rgba(0,0,0,0.82)',
+          border: `1px solid ${vagdataBanner === 'misslyckad' ? 'rgba(255,69,58,0.7)' : 'rgba(255,255,255,0.18)'}`,
+          borderRadius: 12, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 10, maxWidth: '92vw',
+          fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
+        }}>
+          {vagdataBanner === 'misslyckad' ? (
+            <>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff453a" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              <span style={{ fontSize: 13.5, color: '#fff', fontWeight: 600 }}>Vägdata kunde inte hämtas</span>
+            </>
+          ) : vagdataBanner === 'stale' ? (
+            <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.6)' }}>Vägdata ej uppdaterad — visar senast kända</span>
+          ) : (
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>Vägdata hämtas…</span>
+          )}
         </div>
       )}
 
