@@ -1,10 +1,15 @@
 import { queryOverpass, OverpassAllFailedError } from '@/lib/overpass';
+import { hamtaNvdbVagar } from '@/lib/nvdb';
 
 // Server-side hämtare för TMA-vägdata (cache-först). Läser objektets centrumkoordinat, hämtar all
 // väggeometri i en bbox runt det, NORMALISERAR till Overpass-"elements"-form och upsertar
 // objekt_vagdata med status. ALDRIG i förarens väg — anropas av /api/vagdata-hamta (manuell/
-// omkörning) och /api/vagdata-cron (svep). Källan är just nu Overpass (reserv); NVDB kopplas in
-// som primär när nyckeln finns — då normaliserar NVDB-grenen till SAMMA elements-form → PR 2 rörs ej.
+// omkörning) och /api/vagdata-cron (svep).
+//
+// KÄLLA: NVDB (Trafikverket) är PRIMÄR — svensk myndighetskälla, gratis nyckel, ingen datacenter-IP-
+// blockering. Overpass är RESERV som används bara när NVDB failar (API-fel) eller nyckel saknas. Båda
+// normaliseras till SAMMA elements-kontrakt → konsumentsidan (checkBoundaryTma) rörs inte. kalla-fältet
+// säger ärligt 'nvdb' respektive 'overpass'.
 
 const BBOX_KM = 2; // radie runt objektcentrum. Superset — klientens 50 m-filter smalnar mot boundaryn.
 
@@ -51,17 +56,37 @@ export async function hamtaOchLagraVagdata(supabase: any, objektId: string): Pro
   const query = `[out:json][timeout:15];way(${bbox.minLat},${bbox.minLon},${bbox.maxLat},${bbox.maxLon})["highway"];out body geom;`;
 
   try {
-    const { data, instance } = await queryOverpass(query);
-    const elements = Array.isArray(data?.elements) ? data.elements : [];
+    let elements: any[]; let kalla: 'nvdb' | 'overpass'; let instans: string;
+
+    // 1) NVDB primär. API-fel fångas → faller till reserven (aldrig hela hämtningen på ett NVDB-fel).
+    //    Tomt NVDB-svar (0 numrerade vägar) är ett GILTIGT äkta-tomt → faller INTE till reserven.
+    let nvdb: { elements: any[] } | null = null;
+    try {
+      nvdb = await hamtaNvdbVagar(bbox);
+    } catch (nvdbErr) {
+      console.error('[Vägdata] NVDB-fel, faller till Overpass-reserv:', nvdbErr instanceof Error ? nvdbErr.message : nvdbErr);
+      nvdb = null;
+    }
+
+    if (nvdb) {
+      elements = nvdb.elements; kalla = 'nvdb'; instans = 'trafikverket-nvdb';
+    } else {
+      // 2) Overpass-reserv (bara utan nyckel eller vid NVDB-fel). Kastar OverpassAllFailedError → nedan.
+      const r = await queryOverpass(query);
+      elements = Array.isArray(r.data?.elements) ? r.data.elements : [];
+      kalla = 'overpass'; instans = r.instance;
+    }
+
     const antalVagar = elements.filter((e: any) => e?.type === 'way').length;
-    // KONTRAKT: lagra elements-formen → checkBoundaryTma (PR 2) läser data.elements oförändrat.
+    // KONTRAKT: lagra elements-formen → checkBoundaryTma läser data.elements oförändrat, oavsett källa.
     await supabase.from('objekt_vagdata').upsert(
-      { objekt_id: objektId, geometri: { elements }, kalla: 'overpass', status: 'ok', hamtad_at: nu(), bbox, fel: null, updated_at: nu() },
+      { objekt_id: objektId, geometri: { elements }, kalla, status: 'ok', hamtad_at: nu(), bbox, fel: null, updated_at: nu() },
       { onConflict: 'objekt_id' },
     );
-    return { status: 'ok', kalla: 'overpass', instans: instance, antalVagar, bbox };
+    return { status: 'ok', kalla, instans, antalVagar, bbox };
   } catch (e: unknown) {
-    // Alla instanser föll → 'misslyckad' (INTE krasch). Cronen retryar vid nästa svep (tålmodigt).
+    // NVDB failade OCH Overpass-reserven föll (alla instanser) → 'misslyckad' (INTE krasch).
+    // Cronen retryar vid nästa svep (tålmodigt). status berättar sanningen, geometri lämnas orörd.
     const fel = e instanceof OverpassAllFailedError ? e.detail : (e instanceof Error ? e.message : 'fetch failed');
     return skrivMisslyckad(supabase, objektId, fel, bbox);
   }
