@@ -1062,10 +1062,8 @@ export async function svaraMedAvvikelse(
 /**
  * Skriver fotoraden. Anropas SIST, nar bilden ligger i bucketen.
  *
- * OBS: databasens trigger egenkontroll_punkt_last skyddar bara punkterna.
- * Det finns ingen motsvarande sparr pa egenkontroll_foto, sa kontrollen mot
- * en klar runda ligger har - se kravOppenRunda. Det ar ett klientlas, inte
- * ett databaslas, och det ar rapporterat som sadant.
+ * En klar runda ar last i TRE lager - se kravOppenRunda. Kontrollen har ar
+ * det oversta av dem och ger bara beskedet; laset ligger i databasen.
  */
 export async function laggTillFoto(
   foto: {
@@ -1149,9 +1147,22 @@ export async function hamtaFoton(
 /**
  * Vagrar om punktens runda ar klar.
  *
- * For punkt-UPDATE ar detta bara ett begripligt besked - laset ar triggern.
- * For egenkontroll_foto-INSERT ar det daremot ENDA sparren, eftersom triggern
- * inte tacker den tabellen.
+ * EN KLAR RUNDA AR LAST I TRE LAGER. Denna funktion ar det oversta och det
+ * svagaste - den finns for att anvandaren ska fa ett begripligt besked i
+ * stallet for ett ravt check_violation. Den ar INTE laset:
+ *
+ *   1. klientsparr (har)              - begripligt besked
+ *   2. trigger egenkontroll_punkt_last - laser punktraderna
+ *      trigger egenkontroll_foto_last  - laser fotoraderna (aven DELETE)
+ *   3. storage-policy pa egenkontroll-foto - laser sjalva FILERNA, for
+ *      insert och delete
+ *
+ * SOKVAGEN AR LASBARANDE. Storage-policyn laser forsta mappnivan i filnamnet
+ * som rundans id: (storage.foldername(name))[1] jamfors mot egenkontroll.status.
+ * Sokvagen MASTE darfor forbli {egenkontroll_id}/{punkt_id}-{timestamp}.jpg.
+ * En till synes kosmetisk andring av formatet oppnar laset TYST - filerna gar
+ * da att byta ut pa en klar runda utan att nagot larmar. Byt aldrig format
+ * utan att andra policyn i samma andetag.
  */
 async function kravOppenRunda(klient: SupabaseClient, punktId: string): Promise<void> {
   const { data } = await klient

@@ -88,7 +88,17 @@ function tillBlob(canvas: HTMLCanvasElement, kvalitet: number): Promise<Blob> {
 }
 
 /**
- * Sokvag i bucketen. Rundans id ar forsta mappniva - se filhuvudet.
+ * Sokvag i bucketen: {egenkontroll_id}/{punkt_id}-{timestamp}.jpg
+ *
+ * FORMATET AR LASBARANDE - ANDRA DET INTE. Storage-policyn pa bucketen laser
+ * forsta mappnivan som rundans id, (storage.foldername(name))[1], och jamfor
+ * mot egenkontroll.status for att blockera insert och delete pa en klar runda.
+ * Flyttas eller byter forsta niva betydelse slutar policyn traffa, och da gar
+ * bilderna att byta ut pa en avslutad runda utan att nagot larmar. Ett
+ * dokument dar bilden kan bytas ar inte last - bilden ar det markagaren
+ * tittar pa. Byt aldrig format utan att andra policyn i samma andetag.
+ *
+ * Rundans id forst gor ocksa att en runda gar att stada bort som en enhet.
  * Tidsstampeln gor att ett omtag inte skriver over foregaende bild.
  */
 export function byggSokvag(egenkontrollId: string, punktId: string): string {
