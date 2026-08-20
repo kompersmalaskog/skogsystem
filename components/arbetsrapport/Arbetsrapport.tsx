@@ -12,6 +12,7 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import type { VilaTrosklar } from "@/lib/vilobrott";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib/dagsegment";
+import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -594,6 +595,7 @@ export default function Arbetsrapport() {
   const [lönBekräfta, setLönBekräfta] = useState(false);
   const [lönOffset, setLönOffset] = useState(0);
   const [lönVy, setLönVy] = useState<'översikt'|'detaljer'>('översikt');
+  const [obRetroÖppen, setObRetroÖppen] = useState(false); // tysta retroaktiv-raden i månadsvyn
   const [sparatToast, setSparatToast] = useState(false);
   const [igårKopierat, setIgårKopierat] = useState(false);
   const [pamOpen, setPamOpen] = useState<null | 'obekraftad' | 'pagaende' | 'dagligTid'>(null);
@@ -2477,6 +2479,42 @@ export default function Arbetsrapport() {
                   </div>
                 )}
               </div>
+              {/* Brandrisk-OB — frågan VID BEKRÄFTELSEN (där föraren godkänner sin dag).
+                  Villkor: vardag + start < 05:30 + obesvarad. Blockerar ALDRIG bekräftelsen
+                  — trycker han Bekräfta utan att svara förblir det null. Svarar han ja visas
+                  utfallet ("Brandrisk · X tim OB") i samma ögonblick. */}
+              {(() => {
+                const dag = { datum: idagKey, start_tid: idagArb?.start_tid, brandrisk_beordrad: idagArb?.brandrisk_beordrad ?? null };
+                const fråga = skaFragaBrandrisk(dag);
+                const obMin = obMinuter(dag);
+                if (!fråga && obMin <= 0) return null;
+                const svara = async (val: boolean) => {
+                  if (!idagArb?.id) return;
+                  const res = await uppdateraVerifierat(supabase, 'arbetsdag', { brandrisk_beordrad: val }, { id: idagArb.id });
+                  if (!res.ok) { alert(res.fel); return; }
+                  setDagData(d => ({ ...d, [idagKey]: { ...(d[idagKey]||{}), brandrisk_beordrad: val } }));
+                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+                };
+                if (fråga) return (
+                  <div style={{ marginTop:16,padding:"14px 16px",border:"1px solid rgba(255,214,10,0.35)",borderRadius:12 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:8 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize:20,color:"#ffd60a" }}>local_fire_department</span>
+                      <span style={{ ...TYPE.meta,color:"#fff",fontWeight:600 }}>Tidig start · {(idagArb?.start_tid||'').slice(0,5)}</span>
+                    </div>
+                    <p style={{ margin:"0 0 12px",fontSize:15,color:"#fff" }}>Började du tidigt på grund av brandrisk?</p>
+                    <div style={{ display:"flex",gap:10 }}>
+                      <button onClick={()=>svara(true)} style={{ flex:1,padding:12,background:C.orange,color:"#fff",border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>Ja</button>
+                      <button onClick={()=>svara(false)} style={{ flex:1,padding:12,background:"rgba(255,255,255,0.08)",color:"#fff",border:"none",borderRadius:10,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Nej</button>
+                    </div>
+                  </div>
+                );
+                return (
+                  <div style={{ marginTop:16,display:"flex",alignItems:"center",gap:8,color:"#ffd60a",fontSize:14 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:18 }}>local_fire_department</span>
+                    <span style={TNUM}>Brandrisk · {fmtOb(obMin)} OB</span>
+                  </div>
+                );
+              })()}
               {/* Primärknapp: Bekräfta / Bekräfta igen / Ändra rapport — bara för maskinpass */}
               {harMaskinPass && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
                 <button onClick={()=>setVisaTiderSheet(false)}
@@ -3771,6 +3809,22 @@ export default function Arbetsrapport() {
     const trakDagar = månadsHistorik.filter(d => d.traktamente).length;
     const redigeringar = Object.entries(redDagar);
 
+    // Brandrisk-OB: månadens summa (timmar, aldrig kronor) + tyst retroaktiv-rad
+    // för obesvarade tidiga vardagsmorgnar. Obesvarade läses ur årsData (hela året)
+    // så gamla dagar utanför 60-dagars-historiken också fångas — ingen nag, bara
+    // en rad som ligger kvar med ja/nej direkt i listan tills den besvaras.
+    const obTotalMin = månadsHistorik.reduce((a, d) => a + obMinuter({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: d.brandrisk_beordrad ?? null }), 0);
+    const obObesDagar = (årsData || []).filter((d: any) => d.datum && d.brandrisk_beordrad == null && arTidigVardag({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: null }))
+      .sort((a: any, b: any) => b.datum.localeCompare(a.datum));
+    const svaraBrandriskRetro = async (d: any, val: boolean) => {
+      if (!d.id) return;
+      const res = await uppdateraVerifierat(supabase, 'arbetsdag', { brandrisk_beordrad: val }, { id: d.id });
+      if (!res.ok) { alert(res.fel); return; }
+      setÅrsData(a => a.map((x: any) => x.datum === d.datum ? { ...x, brandrisk_beordrad: val } : x));
+      setHistorik(h => h.map((x: any) => x.datum === d.datum ? { ...x, brandrisk_beordrad: val } : x));
+      setDagData(dd => ({ ...dd, [d.datum]: { ...(dd[d.datum] || {}), brandrisk_beordrad: val } }));
+    };
+
     // Frånvaro per dagtyp (rad visas bara om typen förekommer)
     const FRANVARO_TYPER: [string,string][] = [['sjuk','Sjukfrånvaro'],['vab','VAB'],['semester','Semester'],['atk','ATK']];
     const frånvaroRader = FRANVARO_TYPER
@@ -3912,6 +3966,34 @@ export default function Arbetsrapport() {
           </header>
 
           <main style={{ paddingTop:80,paddingBottom:128,padding:"80px 16px 128px",maxWidth:640,margin:"0 auto" }}>
+
+            {/* Tyst retroaktiv-rad: tidiga vardagsmorgnar som saknar brandrisk-svar.
+                Ingen popup, ingen upprepning — ligger kvar tills de besvaras (ja/nej
+                direkt i listan). Gamla vårdagar kan ignoreras; raden gnäller inte. */}
+            {obObesDagar.length > 0 && (
+              <section style={{ marginBottom:24 }}>
+                <div onClick={()=>setObRetroÖppen(o=>!o)} style={{ background:"rgba(255,214,10,0.06)",border:"1px solid rgba(255,214,10,0.25)",borderRadius:12,padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:20,color:"#ffd60a" }}>local_fire_department</span>
+                    <span style={{ fontSize:15,color:"#fff" }}>{obObesDagar.length} tidig{obObesDagar.length===1?' dag':'a dagar'} väntar på brandrisk-svar</span>
+                  </div>
+                  <span className="material-symbols-outlined" style={{ fontSize:20,color:"rgba(255,255,255,0.4)",transform:obRetroÖppen?"rotate(90deg)":"none",transition:"transform .15s" }}>chevron_right</span>
+                </div>
+                {obRetroÖppen && (
+                  <div style={{ marginTop:8,background:"#1c1c1e",borderRadius:12,padding:"4px 16px" }}>
+                    {obObesDagar.map((d:any, i:number) => (
+                      <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:i<obObesDagar.length-1?"1px solid rgba(255,255,255,0.08)":"none",gap:10 }}>
+                        <span style={{ fontSize:14,color:"#fff",...TNUM }}>{d.datum} · {(d.start_tid||'').slice(0,5)}</span>
+                        <div style={{ display:"flex",gap:8 }}>
+                          <button onClick={()=>svaraBrandriskRetro(d,true)} style={{ padding:"6px 16px",background:C.orange,color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Ja</button>
+                          <button onClick={()=>svaraBrandriskRetro(d,false)} style={{ padding:"6px 16px",background:"rgba(255,255,255,0.08)",color:"#fff",border:"none",borderRadius:8,fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Nej</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* Timmar per vecka — veckan som hjälte, staplar visar dagsrytmen */}
             <section style={{ marginBottom:32 }}>
@@ -4125,6 +4207,7 @@ export default function Arbetsrapport() {
               ["Bekräftade dagar", `${bekräftadeDagar} av ${arbetsdagar}`, obekräftadeDagar > 0 ? C.orange : C.green],
               ["Körning", `${totalKm.toLocaleString('sv-SE')} km`, "#fff"],
               ["Traktamente", `${trakDagar} ${trakDagar === 1 ? 'dag' : 'dagar'}`, "#fff"],
+              ...(obTotalMin > 0 ? [["Brandrisk-OB", fmtOb(obTotalMin), "#ffd60a"] as [string,string,string]] : []),
               ...frånvaroRader.map(([label, n]) => [label, `${n} ${n === 1 ? 'dag' : 'dagar'}`, "#fff"] as [string,string,string]),
             ] as [string,string,string][]).map(([l,v,färg],i,arr)=>(
               <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i < arr.length-1 ? "1px solid rgba(255,255,255,0.08)" : "none" }}>
