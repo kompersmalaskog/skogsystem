@@ -4,10 +4,9 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { C, secHead, Card, btnPrimary, btnSecondary, ChevronRight } from "./design";
-import { synkAvvikelser, aktEtikett } from "@/lib/synkAvvikelse";
-import { ledighetKollisioner } from "@/lib/ledighetKollision";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
-import { obMonster, oenighetsMorgnar, obObesvarade } from "@/lib/ob";
+// Tidsavvikelser, ledighetskollision, OB och oenighet bor nu i granskningsvyn
+// (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
 import LonesystemUnderflik from "./LonesystemUnderflik";
 import AtkUnderflik from "./AtkUnderflik";
 import VilobrottUnderflik from "./VilobrottUnderflik";
@@ -130,10 +129,7 @@ function Loneunderlag() {
   const [visaBekräftelse, setVisaBekräftelse] = useState(false);
   const [skickar, setSkickar] = useState(false);
   const [exportResultat, setExportResultat] = useState<any>(null);
-  const [ledigheter, setLedigheter] = useState<any[]>([]);
-  const [synkAlla, setSynkAlla] = useState<any[]>([]);
   const [tidigarelagdAlla, setTidigarelagdAlla] = useState<any[]>([]);
-  const [obAlla, setObAlla] = useState<any[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,7 +141,7 @@ function Loneunderlag() {
         const [å, m] = period.split("-").map(Number);
         const periodSlut = sistaDagenIManaden(å, m); // sista dagen i månaden (LOKALT — toISOString tappade den i UTC+2)
 
-        const [medRes, arbRes, exRes, avtRes, ledRes, synkRes, tlRes, obRes] = await Promise.all([
+        const [medRes, arbRes, exRes, avtRes, tlRes] = await Promise.all([
           supabase.from("medarbetare").select("id, namn").order("namn"),
           supabase.from("arbetsdag")
             .select("medarbetare_id, datum, arbetad_min, km_morgon, km_kvall, km_totalt, traktamente, bekraftad, dagtyp")
@@ -154,15 +150,10 @@ function Loneunderlag() {
             .select("medarbetare_id, datum, minuter")
             .gte("datum", periodStart).lte("datum", periodSlut),
           supabase.from("gs_avtal").select("*").order("giltigt_fran", { ascending: false }).limit(1).single(),
-          supabase.from("ledighet_ansokningar").select("medarbetare_id, typ, startdatum, slutdatum").eq("status", "godkänd"),
-          supabase.from("arbetsdag").select("medarbetare_id, datum, synk_avvikelse").not("synk_avvikelse", "is", null),
+          // "Maskinstart senare än angiven" — eget kort, ingår ej i löneunderlaget
           supabase.from("arbetsdag").select("medarbetare_id, datum, tidigarelagd_start")
             .not("tidigarelagd_start", "is", null)
             .gte("datum", periodStart).lte("datum", periodSlut),
-          // Brandrisk-OB: tidiga starter (< 05:30). lib/ob filtrerar vardag + räknar OB.
-          supabase.from("arbetsdag").select("medarbetare_id, datum, start_tid, brandrisk_beordrad")
-            .gte("datum", periodStart).lte("datum", periodSlut)
-            .lt("start_tid", "05:30:00"),
         ]);
 
         if (cancelled) return;
@@ -173,14 +164,34 @@ function Loneunderlag() {
         setArbetsdagar(arbRes.data || []);
         setExtraTid(exRes.data || []);
         setAvtal(avtRes.data || null);
-        setLedigheter(ledRes.data || []);
-        setSynkAlla(synkRes.data || []);
         setTidigarelagdAlla(tlRes.data || []);
-        setObAlla(obRes.data || []);
       } catch (e: any) {
         if (!cancelled) setFel(e.message || String(e));
       } finally {
         if (!cancelled) setLaddar(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [period]);
+
+  // Granskningsvyn auto-laddar löneunderlaget (dry_run = EXAKT det exporten skickar,
+  // per konstruktion — samma resultat itereras vid skarp sändning). Martin ser hela
+  // underlaget direkt när månaden byts, utan att trycka Förhandsgranska först.
+  useEffect(() => {
+    let cancelled = false;
+    setFortnoxLaddar(true); setFortnoxData(null); setExportResultat(null);
+    (async () => {
+      try {
+        const res = await fetch("/api/fortnox/salary-export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ period, dry_run: true }),
+        });
+        if (!cancelled) setFortnoxData(await res.json());
+      } catch (e: any) {
+        if (!cancelled) setFortnoxData({ ok: false, meddelande: e.message });
+      } finally {
+        if (!cancelled) setFortnoxLaddar(false);
       }
     })();
     return () => { cancelled = true; };
@@ -301,113 +312,25 @@ function Loneunderlag() {
       </Card>
 
       {!laddar && !fel && (() => {
-        // Tva kontroller INNAN export: tidsavvikelser (bekraftad tid som skiljer
-        // sig fran maskinen) och godkand ledighet pa en arbetsdag. Delade libbar
-        // (lib/synkAvvikelse, lib/ledighetKollision) - samma sanning som
-        // loneexportens varning, aldrig tva svar om samma dag.
+        // "Maskinstart senare än angiven" — eget uppföljningskort, INGÅR EJ i
+        // löneunderlaget (angiven tid styr lönen). Tidsavvikelser, ledighet, OB och
+        // oenighet flyttades till granskningsvyn nedan (FortnoxExportSektion), som
+        // hämtar dem ur dry_run-svaret — samma kodväg som exporten, aldrig två svar.
         const namn = new Map<string, string>(medarbetare.map(m => [m.id, m.namn] as [string, string]));
-        const alla = synkAvvikelser(synkAlla);
-        const iPeriod = alla.filter(r => r.datum.startsWith(period));
-        const oforkPeriod = iPeriod.filter(r => r.status === 'oforklarad');
-        const perMan = new Map<string, number>();
-        for (const r of alla) if (r.status === 'oforklarad' && !r.datum.startsWith(period)) perMan.set(r.datum.slice(0, 7), (perMan.get(r.datum.slice(0, 7)) || 0) + 1);
-        const utanforChips = Array.from(perMan.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-        const ledP = ledighetKollisioner(ledigheter, arbetsdagar);
         const tlMon = tidigarelagdMonster(tidigarelagdAlla);
-        const obMon = obMonster(obAlla);
-        const obOenighet = oenighetsMorgnar(obAlla);
-        const obObes = obObesvarade(obAlla);
-        const statusFarg = (st: string) => st === 'oforklarad' ? C.orange : st === 'forklarad' ? C.green : C.label;
         const fmtH = (min: number) => { const h = Math.floor(min / 60), mm = min % 60; return mm ? `${h} tim ${mm} min` : `${h} tim`; };
-        const chip = (mn: string, n: number, sz: 'stor' | 'liten') => (
-          <button key={mn} onClick={() => setPeriod(mn)} style={{ background: 'rgba(255,159,10,0.12)', border: 'none', borderRadius: 8, padding: sz === 'stor' ? '4px 10px' : '2px 8px', color: C.orange, fontSize: sz === 'stor' ? 13 : 12, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize' }}>{månadsLabel(mn)}: {n}</button>
-        );
+        if (tlMon.length === 0) return null;
         return (
-          <>
-            {oforkPeriod.length > 0 ? (
-              <Card>
-                <p style={{ ...secHead, marginTop: 0, color: C.orange }}>{oforkPeriod.length} oförklarad{oforkPeriod.length === 1 ? '' : 'e'} tidsavvikelse{oforkPeriod.length === 1 ? '' : 'r'} — granska före export</p>
-                {iPeriod.map((r, i) => (
-                  <div key={`${r.medarbetare_id}-${r.datum}-${i}`} style={{ padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text }}>
-                      <span>{r.datum} · {namn.get(r.medarbetare_id) || r.medarbetare_id}</span>
-                      <span style={{ color: statusFarg(r.status), fontWeight: 600 }}>{r.deltaMin} min</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: C.label, marginTop: 2 }}>Du sa {r.bekraftad_start}–{r.bekraftad_slut}, {r.bekraftad_rast_min} min rast · maskinen {r.mom_start}–{r.mom_slut}, {r.mom_rast_min} min rast</div>
-                    <div style={{ fontSize: 12, color: statusFarg(r.status), marginTop: 2 }}>{r.status === 'oforklarad' ? 'Oförklarad' : r.status === 'forklarad' ? `Förklarad: ${aktEtikett(r.aktivitet)}` : 'Kvitterad utan förklaring'}</div>
-                  </div>
-                ))}
-                {utanforChips.length > 0 && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}`, fontSize: 13, color: C.label, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                    <span>Fler oförklarade:</span>{utanforChips.map(([mn, n]) => chip(mn, n, 'stor'))}
-                  </div>
-                )}
-              </Card>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, fontSize: 13, color: C.label, padding: '2px 4px 0' }}>
-                <span style={{ color: C.green }}>✓</span> Inga oförklarade tidsavvikelser i {månadsLabel(period)}
-                {utanforChips.map(([mn, n]) => chip(mn, n, 'liten'))}
+          <Card>
+            <p style={{ ...secHead, marginTop: 0 }}>Maskinstart senare än angiven · {månadsLabel(period)}</p>
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: C.label }}>Dagar där föraren angav en start mer än 30 min före maskinens login. Mönster, inte enskilda dagar — angiven tid styr fortsatt lönen.</p>
+            {tlMon.map((m, i) => (
+              <div key={m.medarbetare_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
+                <span>{namn.get(m.medarbetare_id) || m.medarbetare_id}</span>
+                <span style={{ color: m.dagar >= 10 ? C.orange : C.label, fontWeight: m.dagar >= 10 ? 600 : 400 }}>{m.dagar} dag{m.dagar === 1 ? '' : 'ar'} · {fmtH(m.summaMin)}</span>
               </div>
-            )}
-            {ledP.length > 0 && (
-              <Card>
-                <p style={{ ...secHead, marginTop: 0, color: C.orange }}>{ledP.length} dag{ledP.length === 1 ? '' : 'ar'} med godkänd ledighet OCH registrerat arbete</p>
-                {ledP.map((k, i) => (
-                  <div key={`${k.medarbetare_id}-${k.datum}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
-                    <span>{k.datum} · {namn.get(k.medarbetare_id) || k.medarbetare_id}</span>
-                    <span style={{ color: C.label }}>{k.typ} · {fmtH(k.arbetad_min)}</span>
-                  </div>
-                ))}
-              </Card>
-            )}
-            {tlMon.length > 0 && (
-              <Card>
-                <p style={{ ...secHead, marginTop: 0 }}>Maskinstart senare än angiven · {månadsLabel(period)}</p>
-                <p style={{ margin: '0 0 8px', fontSize: 12, color: C.label }}>Dagar där föraren angav en start mer än 30 min före maskinens login. Mönster, inte enskilda dagar — angiven tid styr fortsatt lönen.</p>
-                {tlMon.map((m, i) => (
-                  <div key={m.medarbetare_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
-                    <span>{namn.get(m.medarbetare_id) || m.medarbetare_id}</span>
-                    <span style={{ color: m.dagar >= 10 ? C.orange : C.label, fontWeight: m.dagar >= 10 ? 600 : 400 }}>{m.dagar} dag{m.dagar === 1 ? '' : 'ar'} · {fmtH(m.summaMin)}</span>
-                  </div>
-                ))}
-              </Card>
-            )}
-            {obMon.length > 0 && (
-              <Card>
-                <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Brandrisk-OB · {månadsLabel(period)}</p>
-                <p style={{ margin: '0 0 8px', fontSize: 12, color: C.label }}>Beordrad tidig start (brandrisk) → OB från start till 06:30. Förarens svar är underlaget, ditt beslut styr — timmar, aldrig kronor.</p>
-                {obMon.map((m, i) => (
-                  <div key={m.medarbetare_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
-                    <span>{namn.get(m.medarbetare_id) || m.medarbetare_id}</span>
-                    <span style={{ color: C.orange, fontWeight: 600 }}>{m.dagar} dag{m.dagar === 1 ? '' : 'ar'} · {fmtH(m.summaMin)} OB</span>
-                  </div>
-                ))}
-                {obObes.length > 0 && (
-                  <p style={{ margin: '10px 0 0', paddingTop: 10, borderTop: `1px solid ${C.line}`, fontSize: 12, color: C.label }}>
-                    {obObes.length} obesvarad{obObes.length === 1 ? '' : 'e'} tidig start väntar på svar — visas för föraren när han öppnar dagen.
-                  </p>
-                )}
-              </Card>
-            )}
-            {obOenighet.length > 0 && (
-              <Card>
-                <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Förare svarar olika samma morgon</p>
-                <p style={{ margin: '0 0 8px', fontSize: 12, color: C.label }}>Inte ett fel — bara morgnar där tidiga förare svarat olika på brandriskfrågan. Någon kan ha missförstått.</p>
-                {obOenighet.map((o, i) => (
-                  <div key={o.datum} style={{ padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
-                    <div style={{ fontSize: 14, color: C.text, marginBottom: 3 }}>{o.datum}</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      {o.svar.map(s => (
-                        <span key={s.medarbetare_id} style={{ fontSize: 12, color: s.brandrisk_beordrad ? C.green : C.label }}>
-                          {namn.get(s.medarbetare_id) || s.medarbetare_id} {(s.start_tid || '').slice(0, 5)} · {s.brandrisk_beordrad ? 'Ja' : 'Nej'}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </Card>
-            )}
-          </>
+            ))}
+          </Card>
         );
       })()}
 
@@ -681,6 +604,13 @@ const LONEART_LABELS: Record<string, string> = {
   "1435": "Övertid skördare", "1436": "Övertid skotare",
 };
 
+// Enhet per löneart — MÄNGDER, inte kronor (Fortnox äger satsen). Antalet i
+// Number tolkas alltså som: timmar / veckor / påbörjade mil.
+const LONEART_ENHET: Record<string, string> = {
+  "11": "tim", "1354": "tim", "1355": "tim", "1435": "tim", "1436": "tim",
+  "136": "veckor", "821": "mil",
+};
+
 function FortnoxExportSektion({
   period, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, exportResultat,
 }: {
@@ -695,12 +625,13 @@ function FortnoxExportSektion({
     return (
       <Card>
         <p style={{ margin: "0 0 12px", fontSize: 13, color: C.label }}>
-          Löneperiod {månadsLabel(period)} = arbetstid föregående månad.
-          Beräkna lönerader och förhandsgranska innan du skickar till Fortnox.
+          {fortnoxLaddar
+            ? `Läser löneunderlag för ${månadsLabel(period)}…`
+            : `Löneperiod ${månadsLabel(period)} = arbetstid föregående månad.`}
         </p>
-        <button onClick={onFörhandsgranska} disabled={fortnoxLaddar} style={{ ...btnSecondary, opacity: fortnoxLaddar ? 0.5 : 1 }}>
-          {fortnoxLaddar ? "Beräknar…" : "Förhandsgranska Fortnox-export"}
-        </button>
+        {!fortnoxLaddar && (
+          <button onClick={onFörhandsgranska} style={btnSecondary}>Läs löneunderlag</button>
+        )}
       </Card>
     );
   }
@@ -743,51 +674,123 @@ function FortnoxExportSektion({
         <p style={{ margin: 0, fontSize: 13, color: C.blue }}>
           Löneperiod <strong>{månadsLabel(period)}</strong> — arbetstid <strong>{arbetsperiodLabel}</strong>
         </p>
+        <p style={{ margin: "6px 0 0", fontSize: 12, color: C.label }}>
+          {medarbetare.length} medarbetare · {fortnoxData.totalt_rader} lönerader. Mängder (timmar, veckor, mil) — aldrig kronor. Fortnox äger satserna.
+        </p>
       </Card>
 
-      {/* Per medarbetare — Fortnox-rader */}
+      {/* Att bekräfta med löneansvarig — två påståenden att godkänna, inte öppna
+          frågor. Martin kan visa skärmen och få ja/nej. */}
+      <Card style={{ padding: "12px 18px", background: "rgba(255,159,10,0.06)", border: "1px solid rgba(255,159,10,0.2)" }}>
+        <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Att bekräfta med löneansvarig</p>
+        <div style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: `1px solid ${C.line}` }}>
+          <span style={{ color: C.orange }}>▸</span>
+          <p style={{ margin: 0, fontSize: 13, color: C.text }}>
+            <strong>Reseersättning</strong> skickas som <strong>en rad</strong> (löneart 821, antal påbörjade mil). Ska den delas i två lönearter — färdtid (10,49) + bilersättning (27,50)? <span style={{ color: C.label }}>Godkänn en rad, eller be om två.</span>
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, padding: "6px 0 0" }}>
+          <span style={{ color: C.orange }}>▸</span>
+          <p style={{ margin: 0, fontSize: 13, color: C.text }}>
+            <strong>Avrundning</strong>: påbörjad mil beräknas <strong>per dag</strong> och summeras över månaden. Ska avrundningen ske på månadssumman istället? <span style={{ color: C.label }}>Godkänn per dag, eller be om månadssumma.</span>
+          </p>
+        </div>
+      </Card>
+
+      {/* Granskningsvy — per medarbetare: vad som GÅR till Fortnox (löneart, mängd,
+          enhet) och vad som PÅVERKAR RIKTIGHETEN men inte går med. Allt ur dry_run-
+          svaret = exakt samma kodväg som exporten. */}
       <Card style={{ padding: 0 }}>
-        {medarbetare.map((m: any, mi: number) => (
-          <div key={mi} style={{
-            padding: "14px 18px",
-            borderBottom: mi === medarbetare.length - 1 ? "none" : `1px solid ${C.line}`,
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{m.namn}</span>
-              <StatusBadge status={m.status} />
-            </div>
-            {!m.anstallningsnummer && (
-              <p style={{ margin: "0 0 6px", fontSize: 11, color: C.red }}>⚠ Anställningsnummer saknas</p>
-            )}
-            {m.varningar?.length > 0 && (
-              <div style={{ marginBottom: 6 }}>
-                {m.varningar.slice(0, 3).map((v: string, i: number) => (
-                  <p key={i} style={{ margin: 0, fontSize: 11, color: C.orange }}>{v}</p>
-                ))}
-                {m.varningar.length > 3 && <p style={{ margin: 0, fontSize: 11, color: C.label }}>…och {m.varningar.length - 3} till</p>}
+        {medarbetare.map((m: any, mi: number) => {
+          const rader = m.rader || [];
+          const synk = m.synk || [];
+          const ledK = m.ledighetskollision || [];
+          const maskinLuckor = m.maskin_utan_typ || [];
+          const ob = m.ob || { timmar: 0, dagar: 0, obesvarade: 0 };
+          // "saknar typ" visas som strukturerad rad — filtrera bort ur textvarningarna
+          // så samma sak inte står två gånger.
+          const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ/i.test(v));
+          const oen = (fortnoxData.oenighet || []).filter((o: any) => o.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id));
+          const harRiktighet = maskinLuckor.length > 0 || synk.length > 0 || ledK.length > 0 ||
+            (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0;
+          const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
+          return (
+            <div key={mi} style={{
+              padding: "14px 18px",
+              borderBottom: mi === medarbetare.length - 1 ? "none" : `1px solid ${C.line}`,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{m.namn}</span>
+                <StatusBadge status={m.status} />
               </div>
-            )}
-            <div style={{ fontSize: 12, color: C.label, display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {m.arbetsdagar > 0 && <span>{m.arbetsdagar}d × 8h = {m.ordinarie_h}h ord.</span>}
-              {m.timlon_h > 0 && <span>Timlön: {m.timlon_h}h</span>}
-              {(m.premielon_skordare_h > 0 || m.premielon_skotare_h > 0) && (
-                <span>Premie: {m.premielon_skordare_h > 0 ? `${m.premielon_skordare_h}h skö` : ""}{m.premielon_skordare_h > 0 && m.premielon_skotare_h > 0 ? " + " : ""}{m.premielon_skotare_h > 0 ? `${m.premielon_skotare_h}h sko` : ""}</span>
+              {!m.anstallningsnummer && (
+                <p style={{ margin: "0 0 8px", fontSize: 12, color: C.red }}>⚠ Anställningsnummer saknas — går inte att skicka</p>
               )}
-              {m.overtid_h > 0 && <span style={{ color: C.orange }}>ÖT: {m.overtid_h}h</span>}
-              {m.valtlappar_veckor > 0 && <span>Vält: {m.valtlappar_veckor}v</span>}
-              {m.kor_mil > 0 && <span>Kör: {m.kor_mil} mil</span>}
-            </div>
-            {/* Detaljerade rader */}
-            <div style={{ marginTop: 6 }}>
-              {(m.rader || []).map((r: any, ri: number) => (
-                <div key={ri} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0", color: C.label }}>
-                  <span>{LONEART_LABELS[r.SalaryCode] || r.SalaryCode} ({r.SalaryCode})</span>
-                  <span style={{ color: C.text, fontWeight: 500 }}>{r.Number}</span>
+
+              {/* SEKTION 1 — Går till Fortnox */}
+              <p style={{ margin: "0 0 4px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: C.green }}>Går till Fortnox</p>
+              {rader.length > 0 ? (
+                <div>
+                  {rader.map((r: any, ri: number) => (
+                    <div key={ri} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, padding: "3px 0", gap: 10 }}>
+                      <span style={{ color: C.text }}>{LONEART_LABELS[r.SalaryCode] || r.SalaryCode} <span style={{ color: C.label, fontSize: 11 }}>({r.SalaryCode})</span></span>
+                      <span style={{ color: C.text, fontWeight: 600, whiteSpace: "nowrap" }}>{r.Number} <span style={{ color: C.label, fontWeight: 400, fontSize: 12 }}>{LONEART_ENHET[r.SalaryCode] || ""}</span></span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <p style={{ margin: "0 0 2px", fontSize: 12, color: C.label }}>Inga lönerader denna period.</p>
+              )}
+
+              {/* SEKTION 2 — Påverkar riktigheten men går inte med */}
+              {harRiktighet && (
+                <>
+                  <p style={{ margin: "12px 0 4px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: C.orange }}>Påverkar riktigheten — går inte med</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {maskinLuckor.map((mid: string) => (
+                      <p key={mid} style={{ margin: 0, fontSize: 12, color: C.red }}>
+                        Maskin <strong>{mid}</strong> saknar typ i maskinregistret → premielön beräknas inte. Lägg in maskinen (skördare/skotare) för att få med premien.
+                      </p>
+                    ))}
+                    {synk.map((s: any, si: number) => (
+                      <p key={`syn-${si}`} style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                        {s.datum}: <strong>{s.diff_min} min</strong> oförklarad tidsavvikelse — du sa {s.bekraftat}, maskinen {s.maskinen}.
+                      </p>
+                    ))}
+                    {ledK.map((k: any, ki: number) => (
+                      <p key={`led-${ki}`} style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                        {k.datum}: godkänd ledighet ({k.typ}) OCH {fmtMin(k.arbetad_min)} registrerat arbete.
+                      </p>
+                    ))}
+                    {(m.obekraftade || 0) > 0 && (
+                      <p style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                        <strong>{m.obekraftade}</strong> obekräftad{m.obekraftade === 1 ? "" : "e"} arbetsdag{m.obekraftade === 1 ? "" : "ar"} — tiden är med i underlaget men ingen har granskat den.
+                      </p>
+                    )}
+                    {ob.timmar > 0 && (
+                      <p style={{ margin: 0, fontSize: 12, color: C.blue }}>
+                        Brandrisk-OB: <strong>{ob.timmar} tim</strong> ({ob.dagar} dag{ob.dagar === 1 ? "" : "ar"}) — <em>löneart ej fastställd</em>, läggs inte som lönerad.
+                      </p>
+                    )}
+                    {ob.obesvarade > 0 && (
+                      <p style={{ margin: 0, fontSize: 12, color: C.label }}>
+                        {ob.obesvarade} obesvarad{ob.obesvarade === 1 ? "" : "e"} tidig start väntar på förarens brandrisk-svar.
+                      </p>
+                    )}
+                    {oen.map((o: any) => (
+                      <p key={`oen-${o.datum}`} style={{ margin: 0, fontSize: 12, color: C.label }}>
+                        {o.datum}: förare svarar olika på brandriskfrågan — {o.svar.map((s: any) => `${s.namn} ${s.brandrisk_beordrad ? "ja" : "nej"}`).join(", ")}.
+                      </p>
+                    ))}
+                    {ovrigaVarn.map((v: string, vi: number) => (
+                      <p key={`v-${vi}`} style={{ margin: 0, fontSize: 12, color: C.label }}>{v}</p>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </Card>
 
       {/* Knappar */}
