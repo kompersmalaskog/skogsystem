@@ -3,6 +3,7 @@
 
 import type { UppfoljningData, Maskin, Forare, AvbrottRad, DieselDag } from '../UppfoljningVy';
 import { G15_GRANS_SEK, g15Sek } from '@/lib/g15';
+import { skotningsavstandM } from '@/lib/skotningsavstand';
 import { type ObjektTyp } from '@/lib/objekt/typ';
 
 // ── Typer ─────────────────────────────────────────────────────────────────
@@ -472,11 +473,13 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   }) : [];
 
   // Lass
-  let totalLassVol = 0, totalKor = 0;
+  // Summan är SKOTNINGSAVSTÅND (enkelriktat), inte körd sträcka — raden nedan
+  // heter skotningsavstand och visas som "skotningsavstånd" i UppfoljningVy.
+  let totalLassVol = 0, totalSkotAvst = 0;
   const lassPerDagMap = new Map<string, { lass: number; m3: number }>();
   lassRows.forEach((l: any) => {
     totalLassVol += l.volym_m3sub || 0;
-    totalKor += l.korstracka_m || 0;
+    totalSkotAvst += skotningsavstandM(l.korstracka_m);
     if (l.datum) {
       const prev = lassPerDagMap.get(l.datum) || { lass: 0, m3: 0 };
       prev.lass += 1;
@@ -495,7 +498,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   const skotareG15hEff = skotareTidManuell ? skotarG15Manuell : stTid.g15;
   const lassPerG15 = skotareG15hEff > 0 ? Math.round((antalLass / skotareG15hEff) * 100) / 100 : 0;
   const m3PerG15St = skotareG15hEff > 0 ? Math.round((obj.volymSkotare / skotareG15hEff) * 10) / 10 : 0;
-  const avstand = antalLass > 0 ? Math.round(totalKor / antalLass) : 0;
+  const avstand = antalLass > 0 ? Math.round(totalSkotAvst / antalLass) : 0;
   const lassPerDag = Array.from(lassPerDagMap.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([d, v]) => {
