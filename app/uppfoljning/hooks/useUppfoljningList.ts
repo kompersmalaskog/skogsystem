@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
 import { harledTyp } from '@/lib/objekt/typ';
 import { type UppfoljningObjekt } from '../lib/transform';
+import { objektSkotat } from '@/lib/skotat';
 
 // ── URL-identifierare för ett objekt ─────────────────────────────────────
 // Används av både listsidan (för router.push) och detaljsidan (för find).
@@ -34,6 +35,18 @@ function getMachineLabel(maskin: any): string {
   if (!maskin) return '';
   return [maskin.tillverkare, maskin.modell].filter(Boolean).join(' ');
 }
+// Paginerad hämtning (PostgREST-taket är 1000 rader) — fakt_lass är rå och kan överstiga det.
+async function hamtaAlla<T>(bygg: () => any): Promise<T[]> {
+  const PAGE = 1000; const out: T[] = []; let from = 0;
+  while (true) {
+    const { data, error } = await bygg().range(from, from + PAGE - 1);
+    if (error) throw error;
+    out.push(...((data as T[]) || []));
+    if (!data || data.length < PAGE) break;
+    from += PAGE;
+  }
+  return out;
+}
 
 
 export interface UseUppfoljningListResult {
@@ -60,7 +73,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         // vägen trunkerades tyst vid PostgREST 1000-radstaket och gav dessutom
         // icke-deterministiska summor när importen skrev under paginering.
         // prod-vyns maskiner = skördare (producerar), lass-vyns = skotare.
-        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes] = await Promise.all([
+        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes, faktLassRows] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
           supabase.from('objekt').select('vo_nummer, markagare, areal, typ'),
@@ -68,7 +81,10 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, antal_lass, sista_datum, maskin_ids'),
           supabase.from('grot_koppling').select('risjobb_objekt_id, avverknings_objekt_id'),
           hamtaExkluderadeObjektId(),
-          supabase.from('skotare_objekt_manuell').select('objekt_id, volym_m3, g15_timmar').is('maskin_id', null),
+          // ALLA manuell-rader (inte bara maskin_id NULL): maskin_id SATT = utförd skotning per maskin.
+          supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_m3, g15_timmar'),
+          // Per-maskin lass (rå, paginerad) — för den delade skotat-regeln (lib/skotat).
+          hamtaAlla<{ objekt_id: string; maskin_id: string | null; volym_m3sub: number | null }>(() => supabase.from('fakt_lass').select('objekt_id, maskin_id, volym_m3sub').order('objekt_id')),
         ]);
 
         // Ett fel på någon källa får ALDRIG se ut som tom lista.
@@ -85,8 +101,25 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         const maskinMap = new Map<string, any>();
         dimMaskin.forEach(m => maskinMap.set(m.maskin_id, m));
         const skotareManuellMap = new Map<string, { volym_m3: number | null; g15_timmar: number | null }>();
+        const manPerMaskinById = new Map<string, Map<string, number>>();
         for (const r of (skotareManuellRes.data || [])) {
-          skotareManuellMap.set(r.objekt_id, { volym_m3: r.volym_m3, g15_timmar: r.g15_timmar });
+          if (r.maskin_id == null) {
+            skotareManuellMap.set(r.objekt_id, { volym_m3: r.volym_m3, g15_timmar: r.g15_timmar });   // objekt-nivå → trumfar allt
+          } else if (r.volym_m3 != null) {
+            if (!manPerMaskinById.has(r.objekt_id)) manPerMaskinById.set(r.objekt_id, new Map());
+            const mm = manPerMaskinById.get(r.objekt_id)!;
+            mm.set(r.maskin_id, (mm.get(r.maskin_id) || 0) + Number(r.volym_m3));   // utförd skotning per maskin
+          }
+        }
+        // Per-maskin lass (fakt_lass) för den delade skotat-regeln (lib/skotat): manuell per maskin trumfar
+        // DEN maskinens lass. Lass utan maskin_id under sentinel (bevaras, kan aldrig trumfas).
+        const lassPerMaskinById = new Map<string, Map<string, number>>();
+        for (const r of faktLassRows) {
+          if (!r.objekt_id) continue;
+          const mid = r.maskin_id || '__ingen__';
+          if (!lassPerMaskinById.has(r.objekt_id)) lassPerMaskinById.set(r.objekt_id, new Map());
+          const mm = lassPerMaskinById.get(r.objekt_id)!;
+          mm.set(mid, (mm.get(mid) || 0) + (Number(r.volym_m3sub) || 0));
         }
 
         const objektInfo = new Map<string, { agare: string; areal: number; typ: string }>();
@@ -252,6 +285,18 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             }
           }
 
+          // Skotad volym enligt den DELADE regeln (lib/skotat): objekt-nivå-manuell trumfar allt; annars
+          // per maskin — manuell för maskin X (utförd skotning, t.ex. filfri JD810E) trumfar maskin X:s
+          // lass, aldrig dubbelräkna samma maskin. Ersätter "objekt-nivå-manuell ELLER lass-total".
+          const aggLassPM = new Map<string, number>();
+          const seenLassObj = new Set<string>();
+          const laggLass = (oid: string) => { if (seenLassObj.has(oid)) return; seenLassObj.add(oid); const mm = lassPerMaskinById.get(oid); if (mm) for (const [mid, v] of mm) aggLassPM.set(mid, (aggLassPM.get(mid) || 0) + v); };
+          for (const e of skotareEntries) laggLass(e.objekt_id);
+          if (aggLassPM.size === 0) for (const e of skordareEntries) laggLass(e.objekt_id);
+          const aggManPM = new Map<string, number>();
+          for (const e of entries) { const mm = manPerMaskinById.get(e.objekt_id); if (mm) for (const [mid, v] of mm) aggManPM.set(mid, (aggManPM.get(mid) || 0) + v); }
+          const volymSkotareEff = objektSkotat({ lassPerMaskin: aggLassPM, manuellPerMaskin: aggManPM, manuellObjektNiva: skotatArManuell ? manuellVolym : null }).skotat;
+
           const skStart = skordareEntry?.start_date || null;
           const skSlut = skordareEntry?.end_date || skordareEntry?.skordning_avslutad || null;
           const stStart = skotareEntry?.start_date || null;
@@ -334,7 +379,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             skotareSlut: stSlut,
             skotareObjektId: skotareEntry?.objekt_id || null,
             skotareModellMaskinId: stMaskinId || null,
-            volymSkotare: skotatArManuell ? manuellVolym : stVol,
+            volymSkotare: volymSkotareEff,
             skotatArManuell,
             skotarG15Manuell,
             sistaAvverkning,

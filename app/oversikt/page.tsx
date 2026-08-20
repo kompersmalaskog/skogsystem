@@ -8,6 +8,7 @@ import OversiktGrot from './OversiktGrot';
 import OversiktObjektLista from './OversiktObjektLista';
 import { Maskin, MaskinKoItem, OversiktObjekt, TabId, C } from './oversikt-types';
 import { globalCss, ff } from './oversikt-styles';
+import { objektSkotat } from '@/lib/skotat';
 
 const OBJEKT_SELECT = `id, namn, vo_nummer, typ, atgard, status, volym, areal, lat, lng, ar, manad, bolag, markagare, markagare_tel,
   barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text,
@@ -37,6 +38,12 @@ export interface SkordAgg {
   sista: string | null;         // sista skörddatum
   lassSista: string | null;     // sista LASS-datum (skotarens aktivitet) — för skotar-tillståndet
   harManuell: boolean;          // finns en manuell skotregistrering? (= användarens avslut → skotare KLAR)
+  // Skotargruppering — SAMMA härledning som uppföljningen (useUppfoljningList): lassdata (hård) →
+  // dim_objekt.tilldelad_skotare (planerad) → null. Sätts för alla vo:n i fetchAll (valfria = null tills dess).
+  tilldeladSkotare?: string | null;                              // skotarens maskinnamn (grupperingsetikett)
+  skotareKalla?: 'lass' | 'tilldelad' | null;                    // varifrån namnet kom
+  skotareAvvikelse?: { lass: string; tilldelad: string } | null; // lassdata ≠ planerad skotare (ärlig)
+  egenSkotning?: boolean;   // dim_objekt.egen_skotning — säljaren/markägaren skotar själv → ur på-backen
 }
 
 /** Fetch all rows with pagination (Supabase default limit is 1000) */
@@ -53,6 +60,9 @@ async function fetchAllRows<T>(query: () => any): Promise<T[]> {
   }
   return all;
 }
+
+// Maskinnamn = tillverkare + modell (identiskt med uppföljningens getMachineLabel) — grupperingsetikett.
+function getMachineLabel(m: any): string { return m ? [m.tillverkare, m.modell].filter(Boolean).join(' ') : ''; }
 
 export default function OversiktPage() {
   // Default = Objekt (uppgiftslistan "vad ska jag göra idag") — kartan är ett tryck bort.
@@ -92,25 +102,32 @@ export default function OversiktPage() {
     }
 
     // Production data — paginated, can be large
-    const [prodRows, lassRows, skordRows, skotRows, manuellRows] = await Promise.all([
+    const [prodRows, lassRows, skordRows, skotRows, manuellRows, tilldeladRows] = await Promise.all([
       fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
-        () => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub')
+        () => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub').order('objekt_id')
       ),
-      fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
-        () => supabase.from('fakt_lass').select('objekt_id, volym_m3sub')
+      // .order() KRAVS - utan stabil sortering tappar .range()-pagineringen rader over 1000-radsgransen
+      // (fakt_lass > 1000 rader) -> skotat under-raknas (se project_postgrest_paginering_order).
+      fetchAllRows<{ objekt_id: string; volym_m3sub: number; maskin_id: string | null }>(
+        () => supabase.from('fakt_lass').select('objekt_id, volym_m3sub, maskin_id').order('objekt_id')
       ),
       // Skördat per objekt (m³fub) — aggregatvy, en rad per objekt_id=vo_nummer.
       fetchAllRows<{ objekt_id: string; volym_m3sub: number; sista_datum: string }>(
         () => supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub, sista_datum').order('objekt_id')
       ),
-      // Skotat per objekt (m³fub) — aggregatvy, en rad per objekt_id=vo_nummer.
-      fetchAllRows<{ objekt_id: string; volym_m3sub: number; sista_datum: string | null }>(
-        () => supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, sista_datum').order('objekt_id')
+      // Skotat per objekt (m³fub) — aggregatvy, en rad per objekt_id=vo_nummer. maskin_ids = skotarmaskin(er).
+      fetchAllRows<{ objekt_id: string; volym_m3sub: number; sista_datum: string | null; maskin_ids: string[] | null }>(
+        () => supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, sista_datum, maskin_ids').order('objekt_id')
       ),
-      // Manuellt registrerad skotad volym (skotare_objekt_manuell, maskin_id IS NULL) — TRUMFAR
-      // lass när satt (även = 0), samma regel som uppföljningen. objekt_id = vo_nummer (som lass-vyn).
-      fetchAllRows<{ objekt_id: string; volym_m3: number | null }>(
-        () => supabase.from('skotare_objekt_manuell').select('objekt_id, volym_m3').is('maskin_id', null).order('objekt_id')
+      // Manuell skotad volym (skotare_objekt_manuell). maskin_id IS NULL = objekt-nivå (trumfar allt);
+      // maskin_id SATT = utförd skotning per maskin (trumfar den maskinens lass). Se lib/skotat.
+      fetchAllRows<{ objekt_id: string; maskin_id: string | null; volym_m3: number | null }>(
+        () => supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_m3').order('objekt_id')
+      ),
+      // Planerad skotare per objekt (dim_objekt.tilldelad_skotare) — grupperar objektet under sin
+      // skotare redan innan första lasset, precis som uppföljningen.
+      fetchAllRows<{ vo_nummer: string; tilldelad_skotare: string | null; egen_skotning: boolean | null }>(
+        () => supabase.from('dim_objekt').select('vo_nummer, tilldelad_skotare, egen_skotning').order('vo_nummer')
       ),
     ]);
 
@@ -134,27 +151,71 @@ export default function OversiktPage() {
       if (!r.objekt_id) continue;
       skmap[String(r.objekt_id)] = { skordat: r.volym_m3sub || 0, skotat: null, sista: r.sista_datum || null, lassSista: null, harManuell: false };
     }
+    // Per-maskin lass (fakt_lass) — skotat-regeln (lib/skotat) kräver att manuell per maskin kan trumfa
+    // DEN maskinens lass, aldrig dubbelräkna. Σ per maskin = vy_uppf_lass-totalen (verifierat). Lass utan
+    // maskin_id läggs under en sentinel så totalen bevaras (kan aldrig trumfas av per-maskin-manuell).
+    const lassPerMaskinByVo: Record<string, Map<string, number>> = {};
+    for (const r of lassRows) {
+      if (!r.objekt_id) continue;
+      const k = String(r.objekt_id);
+      const mid = r.maskin_id || '__ingen__';
+      if (!lassPerMaskinByVo[k]) lassPerMaskinByVo[k] = new Map();
+      lassPerMaskinByVo[k].set(mid, (lassPerMaskinByVo[k].get(mid) || 0) + (r.volym_m3sub || 0));
+    }
+    const lassMaskinByVo: Record<string, string | null> = {};
     for (const r of skotRows) {
       if (!r.objekt_id) continue;
       const k = String(r.objekt_id);
       if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null, lassSista: null, harManuell: false };
-      skmap[k].skotat = r.volym_m3sub || 0;   // lass-rad → känd skotad volym
       skmap[k].lassSista = r.sista_datum || null;   // sista lass-datum → skotar-aktivitet/färskhet
+      lassMaskinByVo[k] = (r.maskin_ids || []).filter(Boolean)[0] || null;   // skotarmaskin ur lassdatan (hård)
     }
-    // Manuell skotad volym TRUMFAR lass när den är SATT (även = 0). Max över ev. flera rader
-    // per objekt, precis som uppföljningen (useUppfoljningList) — den mänskliga registreringen
-    // vinner över ofullständig/saknad lassdata. null (ingen manuell rad) rör inte skotat.
-    const manuellByVo: Record<string, number> = {};
+    // Manuell skotad volym (lib/skotat): maskin_id NULL = objekt-nivå-avslut (trumfar allt); maskin_id
+    // SATT = utförd skotning per maskin (trumfar den maskinens lass). Skotat = null om varken lass eller
+    // manuell finns (okänt, ≠ 0). harManuell (= KLAR-force) sätts BARA av objekt-nivå-raden.
+    const manNivaByVo: Record<string, number> = {};
+    const manPerMaskinByVo: Record<string, Map<string, number>> = {};
     for (const r of manuellRows) {
-      if (!r.objekt_id || r.volym_m3 == null) continue;   // volym_m3 måste vara satt
+      if (!r.objekt_id || r.volym_m3 == null) continue;
       const k = String(r.objekt_id);
       const v = Number(r.volym_m3) || 0;
-      manuellByVo[k] = k in manuellByVo ? Math.max(manuellByVo[k], v) : v;
+      if (r.maskin_id == null) manNivaByVo[k] = k in manNivaByVo ? Math.max(manNivaByVo[k], v) : v;
+      else { if (!manPerMaskinByVo[k]) manPerMaskinByVo[k] = new Map(); manPerMaskinByVo[k].set(r.maskin_id, (manPerMaskinByVo[k].get(r.maskin_id) || 0) + v); }
     }
-    for (const k of Object.keys(manuellByVo)) {
+    for (const k of new Set([...Object.keys(skmap), ...Object.keys(manNivaByVo), ...Object.keys(manPerMaskinByVo)])) {
       if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null, lassSista: null, harManuell: false };
-      skmap[k].skotat = manuellByVo[k];   // trumfar lass/null (manuell registrering vinner)
-      skmap[k].harManuell = true;         // manuell registrering = användarens avslut → skotare KLAR
+      const lassPM = lassPerMaskinByVo[k] || new Map<string, number>();
+      const manPM = manPerMaskinByVo[k] || new Map<string, number>();
+      const manNiva = k in manNivaByVo ? manNivaByVo[k] : null;
+      if (lassPM.size > 0 || manPM.size > 0 || manNiva != null) {
+        const res = objektSkotat({ lassPerMaskin: lassPM, manuellPerMaskin: manPM, manuellObjektNiva: manNiva });
+        skmap[k].skotat = res.skotat;
+        skmap[k].harManuell = res.harManuellAvslut;   // bara objekt-nivå-manuell = KLAR-force
+      }
+    }
+
+    // ── tilldeladSkotare per vo — SAMMA prioritet som uppföljningen (useUppfoljningList rad 285-304):
+    //    lassdatan (hård) → dim_objekt.tilldelad_skotare (planerad) → null. Grupperar objektet under
+    //    skotaren redan innan första lasset. De två vyerna får ALDRIG gruppera olika. ──
+    const maskinMap = new Map<string, any>();
+    for (const m of (maskinerRes.data || [])) maskinMap.set(m.maskin_id, m);
+    const tilldByVo: Record<string, string> = {};
+    const egenByVo = new Set<string>();
+    for (const r of tilldeladRows) {
+      if (r.vo_nummer && r.egen_skotning === true) egenByVo.add(r.vo_nummer);   // egen skotning (säljaren skotar själv)
+      if (!r.vo_nummer || !r.tilldelad_skotare) continue;
+      if (!(r.vo_nummer in tilldByVo)) tilldByVo[r.vo_nummer] = r.tilldelad_skotare;   // första icke-null per vo
+    }
+    for (const k of new Set([...Object.keys(skmap), ...Object.keys(tilldByVo), ...egenByVo])) {
+      if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null, lassSista: null, harManuell: false };
+      skmap[k].egenSkotning = egenByVo.has(k);
+      const lassId = lassMaskinByVo[k] || null;
+      const tilldId = tilldByVo[k] || null;
+      const namnLass = lassId ? getMachineLabel(maskinMap.get(lassId)) : '';
+      const namnTilld = tilldId ? getMachineLabel(maskinMap.get(tilldId)) : '';
+      skmap[k].skotareKalla = namnLass ? 'lass' : namnTilld ? 'tilldelad' : null;
+      skmap[k].tilldeladSkotare = namnLass || namnTilld || null;
+      skmap[k].skotareAvvikelse = (lassId && tilldId && lassId !== tilldId && namnLass && namnTilld) ? { lass: namnLass, tilldelad: namnTilld } : null;
     }
     setSkordMap(skmap);
   };

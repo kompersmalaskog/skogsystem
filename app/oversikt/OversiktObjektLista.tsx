@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { OversiktObjekt, C, statusVisning, STATUS_AVSLUTADE, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, skotarTillstand } from './oversikt-utils';
+import { paBackenKvar } from '@/lib/skotat';
 import { supabase } from '@/lib/supabase';
 import ObjektEgenkontroll from './ObjektEgenkontroll';
 import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
@@ -116,8 +117,9 @@ function aggregeraMark(list: MarkItem[]): { label: string; count: number; commen
 function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: SkordAgg; onClose: () => void }) {
   const sv = statusVisning(obj.status);
   const skordat = skord?.skordat || 0;          // m³fub
-  // Skotarens tillstånd (klar/igång/väntar) härlett symmetriskt med skördarens status.
-  const skotarInfo = skotarTillstand(skordat, skord?.skotat ?? null, skord?.harManuell ?? false, skord?.lassSista ?? null);
+  const egen = skord?.egenSkotning === true;    // säljaren/markägaren skotar själv → inte vårt skotararbete
+  // Skotarens tillstånd (klar/igång/väntar) härlett symmetriskt med skördarens status. Egen skotning → inget.
+  const skotarInfo = egen ? null : skotarTillstand(skordat, skord?.skotat ?? null, skord?.harManuell ?? false, skord?.lassSista ?? null);
   const harSkord = skordat > 0;                 // ingen skörd-rad → göm hela produktionsblocket (aldrig 0)
   // Skotat: null = ingen skotdata registrerad (≠ 0). Aktivt objekt utan rad = skotaren har inte
   // börjat (ärligt 0); AVSLUTAT utan rad = okänt → visa "ej registrerad", ingen procent, ingen backen.
@@ -127,7 +129,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
   // Procent utkört = skotat/skördat*100 (enda ärliga procentmåttet, båda m³fub). Kapas EJ (>100 = klart).
   const skotP = skotatKand && skordat > 0 ? Math.round((skotatEff / skordat) * 100) : null;
   const utkort = skotP != null && skotP >= 98;  // mätskillnad kan ge >100 → visa "Utkört", inte "102%"
-  const paBacken = Math.max(0, skordat - skotatEff);
+  const paBacken = paBackenKvar(skordat, skotatEff, egen);
   const ber = obj.trakt_data?.beraknad;
 
   // Markeringar för DETTA objekt — hämtas lat (bara när ett objekt öppnats). marksLaddat
@@ -241,6 +243,10 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
             </div>
             {/* Skotarens tillstånd — en rad under status (grön bara vid aktiv igång) */}
             {skotarInfo && <SkotarRad info={skotarInfo} style={{ marginTop: 10 }} />}
+            {/* Egen skotning — säljaren/markägaren skotar själv (inte vårt jobb, ingen på-backen). Grå chip. */}
+            {egen && (
+              <div style={{ marginTop: 10, display: 'inline-block', fontSize: 12.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '4px 12px', borderRadius: 20 }}>Egen skotning</div>
+            )}
           </div>
 
           {/* Kontakt (markägare) — mest handlingsbara raden → direkt under status/metadata högst upp,
@@ -274,7 +280,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
               </div>
               <div style={{ fontSize: 13, color: C.t3, marginTop: 3 }}>Skördat{skord?.sista ? ` · ${skord.sista}` : ''}</div>
 
-              {skotP != null ? (
+              {egen ? null : skotP != null ? (
                 <>
                   {/* Skotarens framdrift — det enda ärliga procentmåttet (skotat/skördat, båda m³fub) */}
                   <div style={{ fontSize: 15, fontWeight: 700, color: C.t1, marginTop: 16, marginBottom: 7 }}>
@@ -558,26 +564,28 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   const bolagLista = Array.from(new Set(objekt.map(o => o.bolag).filter(Boolean))) as string[];
   const selectedObj = sel ? objekt.find(o => o.id === sel) : null;
 
-  // Effektiv status-hink: skotaren KÖR (färsk igång) på ett annars avslutat objekt räknas som PÅGÅR,
-  // inte Klar — så "Pågår" fångar BÅDA maskinerna (skördare pågående ELLER skotare igång). Härlett ur
-  // samma skordMap som redan finns (ingen ny hämtning, inga nya fält). Klar = helt klar (båda maskinerna).
+  // Effektiv status-hink — ett jobb är inte klart förrän virket är ute. Ett annars avslutat objekt
+  // räknas som PÅGÅR så länge skotaren har jobb kvar: skotare IGÅNG (kör) ELLER VÄNTAR (skördat finns,
+  // virke på backen, ingen/ej klar skotning). KLAR = helt klart (skotat ≈ skördat eller manuell reg).
+  // Härlett ur samma skordMap som redan finns (ingen ny hämtning, inga nya fält).
   const effektivHink = (o: OversiktObjekt): StatusBucket => {
     const b = statusBucket(o.status);
     if (b !== 'klar') return b;
     const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
+    if (s?.egenSkotning) return 'klar';   // egen skotning (säljaren skotar själv) → inte VÅRT väntande arbete
     const info = s ? skotarTillstand(s.skordat, s.skotat, s.harManuell, s.lassSista) : null;
-    return info?.state === 'igang' && info.fersk ? 'pagar' : 'klar';
+    return info && (info.state === 'igang' || info.state === 'vantar') ? 'pagar' : 'klar';
   };
 
   // Aktiva = att planera + att köra + pågår (rubrikräkning, oberoende av valt filter).
   const aktiva = objekt.filter(o => effektivHink(o) !== 'klar');
-  // Total volym "på backen" (skördat − skotat) över aktiva objekt — samma m³fub-data som redan
-  // finns i skordMap, bara summerad (ingen ny hämtning). Aktiva är aldrig avslutade → skotat null
-  // räknas som 0 (ärligt: skotaren har inte börjat). Visas i rubriken bara när > 0.
+  // Total volym "på backen" (skördat − skotat) över aktiva objekt — samma m³fub-data som redan finns
+  // i skordMap, bara summerad (ingen ny hämtning). Aktiva inkluderar nu väntar-objekt (avslutad status
+  // men virke på backen); skotat null räknas som 0 (ärligt: skotaren har inte börjat). Visas när > 0.
   const totalBacken = aktiva.reduce((sum, o) => {
     const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
     if (!s || !s.skordat) return sum;
-    return sum + Math.max(0, s.skordat - (s.skotat ?? 0));
+    return sum + paBackenKvar(s.skordat, s.skotat, s.egenSkotning || false);
   }, 0);
   const backenRund = Math.round(totalBacken);
 
@@ -594,10 +602,11 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   // Valt segment tömt (hinken försvann) → fall tillbaka på 'Alla'.
   const statusFEff: StatusFilter = segment.some(s => s.k === statusF) ? statusF : 'alla';
 
-  // Status-filter: "Alla" = aktiva (ej klar); annars = vald hink. Effektiv hink → skotare-igång fångas i Pågår.
+  // Status-filter: "Alla" = ALLA objekt (aktiva först, klara sist via status-sorteringen), oberoende av
+  // kartans Avslutade-toggle; annars = vald hink. Effektiv hink → skotare igång/väntar fångas i Pågår.
   let li = objekt.filter(o => {
     const b = effektivHink(o);
-    return statusFEff === 'alla' ? b !== 'klar' : b === statusFEff;
+    return statusFEff === 'alla' ? true : b === statusFEff;
   });
   li = li.filter(o => bolagF === 'alla' || o.bolag === bolagF);
   li = li.filter(o => typF === 'alla' || klassaObjektTyp(o) === typF);
@@ -610,25 +619,40 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     li = [...li].sort((a, b) => (a.namn || '').localeCompare(b.namn || '', 'sv'));
   }
 
-  // Gruppera per maskin (bakom reglage): objektet listas under BÅDE sin skördare och
-  // sin skotare (objektets egna fält). Bara i detta läge — grundvyn = en rad per objekt.
-  const grupper: { maskin: string; objekt: OversiktObjekt[]; volym: number }[] = [];
-  if (groupMaskin) {
+  // Gruppera per maskin — SAMMA källa och gruppering som uppföljningens "På backen · per maskin":
+  // objektet läggs under sin SKOTARE (tilldeladSkotare: lassdata → dim_objekt.tilldelad_skotare →
+  // Ej tilldelad), härledd i page.tsx (skordMap) precis som useUppfoljningList — de två vyerna får
+  // ALDRIG gruppera olika. Pågår = arbetslistan ("vad ska varje skotare hämta") → grupperat som
+  // default; reglaget slår på samma gruppering i övriga segment. På-backen-summa = Σ(skördat − skotat).
+  const backenForObj = (o: OversiktObjekt): number => {
+    const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
+    return paBackenKvar(s?.skordat || 0, s?.skotat ?? null, s?.egenSkotning || false);
+  };
+  const grupperaPerMaskin = statusFEff === 'pagar' || groupMaskin;
+  const grupper: { maskin: string | null; objekt: OversiktObjekt[]; backen: number }[] = [];
+  if (grupperaPerMaskin) {
     const map = new Map<string, OversiktObjekt[]>();
-    const utan: OversiktObjekt[] = [];
     for (const o of li) {
-      const unika = Array.from(new Set([o.skordare_maskin, o.skotare_maskin].filter(Boolean) as string[]));
-      if (unika.length === 0) { utan.push(o); continue; }
-      for (const m of unika) {
-        if (!map.has(m)) map.set(m, []);
-        map.get(m)!.push(o);
-      }
+      const key = (o.vo_nummer ? skordMap[o.vo_nummer]?.tilldeladSkotare : null) || '\uFFFFej';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(o);
     }
-    for (const m of Array.from(map.keys()).sort((a, b) => a.localeCompare(b, 'sv'))) {
-      const objs = map.get(m)!;
-      grupper.push({ maskin: m, objekt: objs, volym: objs.reduce((s, o) => s + (o.volym || 0), 0) });
+    for (const [key, objs] of map.entries()) {
+      grupper.push({
+        maskin: key === '\uFFFFej' ? null : key,
+        objekt: objs.slice().sort((a, b) => {
+          const ba = backenForObj(a) > 0, bb = backenForObj(b) > 0;
+          if (ba !== bb) return ba ? -1 : 1;                       // objekt med virke på backen först
+          const sa = a.vo_nummer ? skordMap[a.vo_nummer]?.sista : null;
+          const sb = b.vo_nummer ? skordMap[b.vo_nummer]?.sista : null;
+          if (sa && sb && sa !== sb) return sa.localeCompare(sb);  // äldst skörd först (längst liggetid)
+          return backenForObj(b) - backenForObj(a);
+        }),
+        backen: objs.reduce((s, o) => s + backenForObj(o), 0),
+      });
     }
-    if (utan.length > 0) grupper.push({ maskin: 'Ej tilldelad maskin', objekt: utan, volym: utan.reduce((s, o) => s + (o.volym || 0), 0) });
+    // Mest på backen överst; Ej tilldelad alltid sist (samma ordning som uppföljningen).
+    grupper.sort((a, b) => (a.maskin === null ? 1 : b.maskin === null ? -1 : b.backen - a.backen));
   }
 
   const avanceratAktivt = bolagF !== 'alla' || typF !== 'alla' || sortK !== 'status' || groupMaskin;
@@ -678,13 +702,17 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     const kortSkord = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
     const kortSkordat = kortSkord?.skordat || 0;
     const kortSkotatVal = kortSkord?.skotat ?? null;
+    const kortEgen = kortSkord?.egenSkotning === true;   // säljaren skotar själv → inte VÅRT väntande arbete
     const kortKand = kortSkotatVal != null || !STATUS_AVSLUTADE.includes(o.status);
-    const kortBacken = Math.max(0, kortSkordat - (kortSkotatVal ?? 0));
+    const kortBacken = paBackenKvar(kortSkordat, kortSkotatVal, kortEgen);
     // Skotarens tillstånd (samma härledning som kartan/detaljen). Grön "Skotare igång"-rad på kortet när
     // skotaren kör här nu → förklarar varför ett klart-skördat objekt (t.ex. Jätsbygd) ligger i Pågår.
-    const kortSkotar = skotarTillstand(kortSkordat, kortSkotatVal, kortSkord?.harManuell ?? false, kortSkord?.lassSista ?? null);
+    // Egen skotning → inget skotar-tillstånd (vi skotar inte); 'Egen skotning'-chip visas istället.
+    const kortSkotar = kortEgen ? null : skotarTillstand(kortSkordat, kortSkotatVal, kortSkord?.harManuell ?? false, kortSkord?.lassSista ?? null);
     const kortIgang = kortSkotar?.state === 'igang';
-    const visaBacken = kortSkordat > 0 && kortKand && kortBacken > 0 && !kortIgang;   // igång-raden visar redan "kvar" → ingen dubbel chip
+    const kortVantar = kortSkotar?.state === 'vantar';
+    const kortPaBacken = kortIgang || kortVantar;   // skotar-raden bär fasen (igång / väntar · X på backen)
+    const visaBacken = kortSkordat > 0 && kortKand && kortBacken > 0 && !kortPaBacken;   // skotar-raden visar redan "kvar"
     return (
       <div key={o.id} onClick={() => setSel(o.id)} style={{
         display: 'flex', alignItems: 'center', gap: 12,
@@ -729,8 +757,15 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
               </span>
             </div>
           )}
-          {/* Skotaren kör här nu — grön rad (samma härledda tillstånd) → visar varför ett klart-skördat objekt ligger i Pågår */}
-          {kortIgang && kortSkotar && <SkotarRad info={kortSkotar} style={{ marginTop: 6 }} />}
+          {/* Skotarens fas — grön "igång" (kör nu) eller grå "väntar · X på backen"; visar varför ett
+              klart-skördat objekt ligger i Pågår (virket är inte ute än). */}
+          {kortPaBacken && kortSkotar && <SkotarRad info={kortSkotar} style={{ marginTop: 6 }} />}
+          {/* Egen skotning — säljaren/markägaren skotar själv. Grå chip (inte vårt jobb, ingen på-backen). */}
+          {kortEgen && (
+            <div style={{ marginTop: 6 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>Egen skotning</span>
+            </div>
+          )}
         </div>
         {/* Chevron */}
         <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t4, flexShrink: 0 }}>chevron_right</span>
@@ -774,15 +809,18 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
         </div>
       </div>
 
-      {/* Lista — en rad per objekt; per maskin bara som läge bakom reglaget */}
+      {/* Lista — Pågår grupperas per skotare (arbetslistan); annars en rad per objekt (reglaget kan
+          slå på samma gruppering i övriga segment). Grupprubrik = maskin + på-backen-summa. */}
       {li.length === 0 ? (
         <div style={{ fontSize: 13, color: C.t3, padding: '28px 4px', textAlign: 'center' }}>Inga objekt.</div>
-      ) : groupMaskin ? (
+      ) : grupperaPerMaskin ? (
         grupper.map(g => (
-          <div key={g.maskin} style={{ marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '8px 4px' }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{g.maskin}</span>
-              <span style={{ fontSize: 12, color: C.t3 }}>{g.objekt.length} objekt · {g.volym.toLocaleString('sv-SE')} m³</span>
+          <div key={g.maskin || 'ej'} style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '8px 4px 6px' }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: g.maskin ? C.t1 : C.orange }}>{g.maskin || 'Ej tilldelad'}</span>
+              {g.backen > 0 && (
+                <span style={{ fontSize: 12, color: C.t3, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatVolym(Math.round(g.backen))} m³fub på backen</span>
+              )}
             </div>
             {g.objekt.map(renderKort)}
           </div>

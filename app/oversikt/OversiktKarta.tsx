@@ -736,6 +736,7 @@ interface MarkerOpts {
   volym?: number | null;
   sublabels?: string[];   // visas ovanför markören (maskinnamn/chips)
   skotarAktiv?: boolean;  // skotaren jobbar där NU (färsk lass) → grön markör med bock (även på annars grå klar-bock)
+  skotarVantar?: boolean; // virke KVAR på backen (väntar el. avstannad igång) → grå markör UTAN bock, visas som default
   onClick: () => void;
 }
 
@@ -760,17 +761,20 @@ function buildMarkerEl(
   badges: MarkerBadge[],
   opts: MarkerOpts,
 ): HTMLDivElement {
-  const { isSelected, label, volym, sublabels, onClick, skotarAktiv } = opts;
+  const { isSelected, label, volym, sublabels, onClick, skotarAktiv, skotarVantar } = opts;
   const known = status in ST;
   const isActive = STATUS_AKTIV.includes(status);
   const isDone = STATUS_AVSLUTADE.includes(status);
   // Skördat klart men skotaren KÖR där nu (färsk lass) → grön bock: grön = här jobbas det,
   // bock = skördat klart. Egen nivå mellan "grön (skördaren kör)" och "grå bock (helt klart)".
   const skotarKor = isDone && !!skotarAktiv;
+  // Skördat klart men virke KVAR på backen (ingen aktiv maskin) → grå UTAN bock (bock = virket ute).
+  // Väntande arbete, inte historia: visas som default, full styrka, normal storlek.
+  const skotarVantarDone = isDone && !!skotarVantar && !skotarAktiv;
   const isContour = status === 'oplanerad' || !known;
   const sc = markerStatusColor(status); // markörfärg = BARA status (grå/blå/grön)
 
-  const dotSize = isSelected ? 36 : form === 'machine' ? 34 : isActive ? 32 : skotarKor ? 30 : isDone ? 20 : 28;
+  const dotSize = isSelected ? 36 : form === 'machine' ? 34 : isActive ? 32 : skotarKor ? 30 : skotarVantarDone ? 28 : isDone ? 20 : 28;
   const hitSize = 40; // konstant så MapLibre-ankaret aldrig hoppar
   // Form = typ: rundad fyrkant = slutavverkning, cirkel = gallring.
   const radiusFor = (sz: number) => (shape === 'square' ? `${Math.max(4, Math.round(sz * 0.28))}px` : '50%');
@@ -780,7 +784,7 @@ function buildMarkerEl(
   w.dataset.objektId = label;
   // Avslutat dimmas till 0.55 — MEN inte om skotaren är aktiv där (då är det inte "klart, inget
   // händer"; markören + gröna ringen ska synas i full styrka).
-  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isDone && !skotarAktiv ? '0.55' : '1'}`;
+  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isDone && !skotarAktiv && !skotarVantar ? '0.55' : '1'}`;
 
   // Puls — ENDAST aktiva objekt. Ringen följer markörformen.
   if (isActive && form === 'circle') {
@@ -800,6 +804,10 @@ function buildMarkerEl(
     w.appendChild(pulse);
     dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(255,255,255,0.25),0 2px 8px rgba(0,0,0,.4)`;
     dot.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
+  } else if (skotarVantarDone) {
+    // Väntar: skördat klart men virke KVAR på backen (ingen/ej klar skotning). Grå (skördaren är klar)
+    // UTAN bock (bock = virket ute) — väntande arbete, inte historia. Fylld + full styrka, syns som default.
+    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:${radiusFor(dotSize)};background:${sc};border:2px solid rgba(255,255,255,0.85);box-shadow:${isSelected ? `0 0 16px ${sc}66` : '0 2px 8px rgba(0,0,0,.5)'}`;
   } else if (isDone) {
     // Bock = skördat klart. GRÅ = helt klart (inget händer) · GRÖN = skotaren KÖR där nu (färsk lass) —
     // en dold aktiv arbetsplats som annars såg färdig ut. Grön fyllning + tydligare kant/glow, aldrig nedtonad.
@@ -850,7 +858,7 @@ function buildMarkerEl(
   const lbl = document.createElement('div');
   lbl.className = isActive ? 'ovk-lbl ovk-lbl-active' : 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
-  const clr = (isDone && !skotarAktiv) ? '#8e8e93' : '#fff';
+  const clr = (isDone && !skotarAktiv && !skotarVantar) ? '#8e8e93' : '#fff';
   const volLabel = volym ? ` (${Math.round(volym)} m³)` : '';
   lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${label}${volLabel}</div>`;
   w.appendChild(lbl);
@@ -882,7 +890,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedGrotId, setSelectedGrotId] = useState<string | null>(null);
   const [filt, setFilt] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
-  const [showDone, setShowDone] = useState(false); // Avslutade AV som default — grå bockar är historia; skotare-aktiva objekt visas ändå (se visIds/markören)
+  const [showDone, setShowDone] = useState(false); // Avslutade AV som default — grå BOCKAR (helt klart) är historia; väntar/igång-objekt (virke på backen) visas ändå (se visIds/markören)
   const [showGrot, setShowGrot] = useState(false);
   const [maskinFilter, setMaskinFilter] = useState<string | null>(null);
   const [showMaskinDrop, setShowMaskinDrop] = useState(false);
@@ -1214,15 +1222,15 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     const m: Record<string, SkotarInfo | null> = {};
     for (const o of objekt) {
       const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
-      m[o.id] = s ? skotarTillstand(s.skordat, s.skotat, s.harManuell, s.lassSista) : null;
+      m[o.id] = s && !s.egenSkotning ? skotarTillstand(s.skordat, s.skotat, s.harManuell, s.lassSista) : null;   // egen skotning → inget skotar-tillstånd (ej väntar-markör)
     }
     return m;
   }, [objekt, skordMap]);
 
   /* ── Visible object IDs ── */
   const visIds = useMemo(() => {
-    // Skotaren KÖR där nu (färsk igång) = aktiv arbetsplats → Avslutade-filtret döljer den ALDRIG.
-    const aktivSkotare = (o: OversiktObjekt) => { const s = skotarByObj[o.id]; return s?.state === 'igang' && s.fersk; };
+    // Virke KVAR på backen (skotare igång ELLER väntar) = väntande arbete → Avslutade-filtret döljer det ALDRIG.
+    const skotarPaBacken = (o: OversiktObjekt) => { const s = skotarByObj[o.id]; return s?.state === 'igang' || s?.state === 'vantar'; };
     // GROT-lagret på → grot är det man tittar på: dölj vanliga statusmarkörer så
     // GROT-diamanterna inte staplas ovanpå dem (endast diamanterna visas då).
     if (showGrot) return [];
@@ -1245,11 +1253,11 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       // Respektera "Avslutade"-filtret även i maskinkön: en avslutad köpost (t.ex. klar trakt kvar
       // på ordning 0) syns som klar-bock bara när filtret är på — MEN en färsk skotare-igång-plats
       // syns alltid (grön+bock), aldrig som ruttstopp.
-      list = list.filter(o => ids.has(o.id) && (showDone || !STATUS_AVSLUTADE.includes(o.status) || aktivSkotare(o)));
+      list = list.filter(o => ids.has(o.id) && (showDone || !STATUS_AVSLUTADE.includes(o.status) || skotarPaBacken(o)));
     } else {
       // Avslutade AV som default: grå bockar (helt klart) döljs — de är historia. MEN objekt där
       // skotaren KÖR nu (färsk igång) visas ALLTID (grön+bock); filtret döljer det färdiga, aldrig det aktiva.
-      if (!showDone) list = list.filter(o => !STATUS_AVSLUTADE.includes(o.status) || aktivSkotare(o));
+      if (!showDone) list = list.filter(o => !STATUS_AVSLUTADE.includes(o.status) || skotarPaBacken(o));
       if (filt !== 'alla') {
         list = list.filter(o => {
           if (filt === 'slutavverkning') return o.typ === 'slutavverkning' || o.typ === 'slut';
@@ -1304,6 +1312,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         volym: obj.volym,
         sublabels,
         skotarAktiv: sk?.state === 'igang' && sk.fersk,
+        skotarVantar: sk?.state === 'vantar' || (sk?.state === 'igang' && !sk.fersk),
         onClick: () => handleMarkerClick(obj.id),
       },
     };
@@ -1539,7 +1548,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       // Replace children only — preserve MapLibre's transform on the wrapper
       while (el.lastChild) el.removeChild(el.lastChild);
       while (newEl.firstChild) el.appendChild(newEl.firstChild);
-      el.style.opacity = STATUS_AVSLUTADE.includes(o.status) && !a.opts.skotarAktiv ? '0.55' : '1';
+      el.style.opacity = STATUS_AVSLUTADE.includes(o.status) && !a.opts.skotarAktiv && !a.opts.skotarVantar ? '0.55' : '1';
     });
   }, [selectedId, objekt, mapReady, markerArgs]);
 
