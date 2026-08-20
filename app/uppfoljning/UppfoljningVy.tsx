@@ -972,6 +972,7 @@ function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[];
     <section style={{ padding: '0 24px 16px' }}>
       <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: '0 0 8px 2px' }}>Skotare — välj maskin</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button onClick={() => onValj('alla')} style={knapp(vald === 'alla')}>Alla</button>
         {maskiner.map(m => {
           const aktiv = vald === m.maskinId;
           return (
@@ -983,10 +984,62 @@ function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[];
             </button>
           );
         })}
-        <button onClick={() => onValj('alla')} style={knapp(vald === 'alla')}>Alla</button>
       </div>
     </section>
   );
+}
+
+// "Alla"-aggregatet: skotad VOLYM = summa av icke-omlastningsmaskiner (data.skotat,
+// oförändrat). Men TID/DIESEL/LASS/per-dag summeras över ALLA skotarmaskiner INKL
+// omlastning — Elephants G15/diesel/lass är fysiskt arbete ("det brändes ju diesel").
+// Kvoterna räknas om konsekvent ur totalerna. Skördarfält lämnas orörda.
+function byggAllaSkotare(data: UppfoljningData, skM: SkotareMaskinStat[]): UppfoljningData {
+  let totG15 = 0, totG0 = 0, totTomgang = 0, totKorta = 0, totRast = 0, totDiesel = 0, totLass = 0;
+  const dieselMap = new Map<string, number>();
+  const lassMap = new Map<string, { lass: number; m3: number }>();
+  skM.forEach(m => {
+    totG15 += m.skotareG15h; totG0 += m.skotareG0; totTomgang += m.skotareTomgang;
+    totKorta += m.skotareKortaStopp; totRast += m.skotareRast;
+    totDiesel += m.skotareL; totLass += m.antalLass;
+    m.dieselSkotare.forEach(d => dieselMap.set(d.datum, (dieselMap.get(d.datum) || 0) + d.liter));
+    m.lassPerDag.forEach(d => {
+      const prev = lassMap.get(d.datum) || { lass: 0, m3: 0 };
+      prev.lass += d.lass; prev.m3 += (d.m3 || 0);
+      lassMap.set(d.datum, prev);
+    });
+  });
+  // 'd/m'-strängar sorteras kronologiskt (månad först, dag sedan).
+  const dmSort = (a: string, b: string) => {
+    const [ad, am] = a.split('/').map(Number); const [bd, bm] = b.split('/').map(Number);
+    return am - bm || ad - bd;
+  };
+  const dieselSkotare: DieselDag[] = Array.from(dieselMap.entries())
+    .sort(([a], [b]) => dmSort(a, b)).map(([datum, liter]) => ({ datum, liter }));
+  const lassPerDag = Array.from(lassMap.entries())
+    .sort(([a], [b]) => dmSort(a, b)).map(([datum, v]) => ({ datum, lass: v.lass, m3: v.m3 }));
+
+  const skotat = data.skotat; // = summa icke-omlastningsvolym (1344), oförändrat
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const totalDiesel = (data.skordareL || 0) + totDiesel;
+  return {
+    ...data,
+    skotareG15h: r1(totG15),
+    skotareG0: r1(totG0),
+    skotareTomgang: r1(totTomgang),
+    skotareKortaStopp: r1(totKorta),
+    skotareRast: r1(totRast),
+    skotareL: Math.round(totDiesel),
+    skotareM3G15h: totG15 > 0 ? r1(skotat / totG15) : 0,
+    skotareLassG15h: totG15 > 0 ? r2(totLass / totG15) : 0,
+    skotareSnittlass: totLass > 0 ? r1(skotat / totLass) : 0,
+    skotareL_M3: skotat > 0 ? r2(totDiesel / skotat) : 0,
+    skotareL_G15h: totG15 > 0 ? r2(totDiesel / totG15) : 0,
+    dieselSkotare,
+    lassPerDag,
+    dieselTotalt: totalDiesel,
+    dieselPerM3: data.skordat > 0 ? r2(totalDiesel / data.skordat) : 0,
+  };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
@@ -1035,7 +1088,7 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
     skotareLastDate: valdMaskin.skotareLastDate,
     dieselTotalt: (data.skordareL || 0) + valdMaskin.skotareL,
     dieselPerM3: data.skordat > 0 ? Math.round((((data.skordareL || 0) + valdMaskin.skotareL) / data.skordat) * 100) / 100 : 0,
-  } : data;
+  } : (visaSkotareVal ? byggAllaSkotare(data, skM) : data);
 
   // Steg 2a: visa skotar-per-maskin-sektionen bara när den tillför något utöver
   // skotarkortet — flera skotare, en omlastningsrad, eller en egen skotare som

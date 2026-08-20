@@ -100,6 +100,7 @@ export interface SkotareMaskinStat {
   namn: string;
   arOmlastning: boolean;
   skotat: number;
+  antalLass: number;
   skotareG15h: number;
   skotareG0: number;
   skotareTomgang: number;
@@ -240,6 +241,7 @@ function byggSkotareMaskinStat(p: {
     namn: p.namn,
     arOmlastning: p.arOmlastning,
     skotat: Math.round(volym),
+    antalLass,
     skotareG15h: g15,
     skotareG0: g0,
     skotareTomgang: Math.round(tid.tomgang * 10) / 10,
