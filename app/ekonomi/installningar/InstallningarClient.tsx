@@ -29,7 +29,6 @@ type TerrangRad = {
   giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
 };
 type SortConfig = { id?: string; grundantal: Num; kr_per_extra_sortiment: Num; giltig_fran: string | null };
-type FlyttRad = { id?: string; km_fran: Num; km_till: Num; fast_kr: Num; timpris_trailer_kr: Num; beskrivning: string; giltig_fran: string | null };
 type OvrigtRad = {
   id?: string; nyckel: string; beskrivning: string; varde: Num; enhet: string;
   giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
@@ -160,7 +159,6 @@ export default function InstallningarClient() {
   const [trakt, setTrakt] = useState<TraktRad[]>([]);
   const [terrang, setTerrang] = useState<TerrangRad[]>([]);
   const [sortiment, setSortiment] = useState<SortConfig>({ grundantal: '', kr_per_extra_sortiment: '', giltig_fran: null });
-  const [flytt, setFlytt] = useState<FlyttRad[]>([]);
   const [ovrigt, setOvrigt] = useState<OvrigtRad[]>([]);
   const [mappningar, setMappningar] = useState<Mappning[]>([]);
   const [maskinOptLista, setMaskinOptLista] = useState<Maskinopt[]>([]);
@@ -182,7 +180,6 @@ export default function InstallningarClient() {
   const [savingTrakt, setSavingTrakt] = useState(false);
   const [savingTerrang, setSavingTerrang] = useState<string | null>(null);
   const [savingSort, setSavingSort] = useState(false);
-  const [savingFlytt, setSavingFlytt] = useState(false);
   const [savingOvrigt, setSavingOvrigt] = useState<string | null>(null);
 
   const flashMsg = (text: string) => {
@@ -192,14 +189,13 @@ export default function InstallningarClient() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [mRes, aRes, avRes, trRes, teRes, soRes, flRes, ovRes, dimMaskinRes, ksRes, omappadRes, objektValRes, sortGruppRes] = await Promise.all([
+    const [mRes, aRes, avRes, trRes, teRes, soRes, ovRes, dimMaskinRes, ksRes, omappadRes, objektValRes, sortGruppRes] = await Promise.all([
       supabase.from('maskin_timpris').select('id, maskin_id, maskin_namn, timpris, giltig_fran, giltig_till').is('giltig_till', null).order('maskin_namn'),
       supabase.from('acord_priser').select('id, medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till').is('giltig_till', null).order('medelstam'),
       supabase.from('acord_skotningsavstand').select('id, grundavstand_m, kr_per_100m, giltig_fran, giltig_till').is('giltig_till', null).not('grundavstand_m', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_traktstorlek').select('id, fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
       supabase.from('acord_terrang').select('id, namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('namn'),
       supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
-      supabase.from('acord_flyttkostnad').select('id, km_fran, km_till, fast_kr, timpris_trailer_kr, beskrivning, giltig_fran, giltig_till').is('giltig_till', null).order('km_fran'),
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
       supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum').order('modell'),
       supabase.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod'),
@@ -237,7 +233,6 @@ export default function InstallningarClient() {
     setSortiment(soRow
       ? { id: soRow.id, grundantal: soRow.grundantal, kr_per_extra_sortiment: soRow.kr_per_extra_sortiment, giltig_fran: soRow.giltig_fran }
       : { grundantal: 6, kr_per_extra_sortiment: 2, giltig_fran: null });
-    setFlytt((flRes.data || []).map((a: any) => ({ id: a.id, km_fran: a.km_fran, km_till: a.km_till ?? '', fast_kr: a.fast_kr ?? '', timpris_trailer_kr: a.timpris_trailer_kr ?? '', beskrivning: a.beskrivning || '', giltig_fran: a.giltig_fran })));
     setOvrigt((ovRes.data || []).map((a: any) => ({ id: a.id, nyckel: a.nyckel, beskrivning: a.beskrivning || '', varde: a.varde, enhet: a.enhet || '', giltig_fran: a.giltig_fran })));
 
     // Kostnadsställe-mappning (flera CC per maskin tillåtna) — hämtas via
@@ -442,27 +437,6 @@ export default function InstallningarClient() {
     setSavingSort(false);
     if (insErr) { flashMsg(`Fel: ${insErr.message}`); return; }
     flashMsg('Sortiment sparat');
-    await fetchData();
-  };
-
-  // ── Flyttkostnad ──
-  const updateFlytt = (idx: number, p: Partial<FlyttRad>) => setFlytt(prev => prev.map((a, i) => i === idx ? { ...a, ...p } : a));
-  const removeFlytt = (idx: number) => setFlytt(prev => prev.filter((_, i) => i !== idx));
-  const addFlytt = () => setFlytt(prev => [...prev, { km_fran: '', km_till: '', fast_kr: '', timpris_trailer_kr: '', beskrivning: '', giltig_fran: null }]);
-  const saveAllFlytt = async () => {
-    for (const r of flytt) {
-      if (r.km_fran === '') { flashMsg('Flyttkostnad: km från krävs'); return; }
-      if (r.fast_kr === '' && r.timpris_trailer_kr === '') { flashMsg('Flyttkostnad: fyll i antingen fast pris eller timpris'); return; }
-    }
-    setSavingFlytt(true);
-    const err = await saveAllBracket('acord_flyttkostnad', flytt, r => ({
-      km_fran: Number(r.km_fran), km_till: numOrNull(r.km_till),
-      fast_kr: numOrNull(r.fast_kr), timpris_trailer_kr: numOrNull(r.timpris_trailer_kr),
-      beskrivning: r.beskrivning || null,
-    }));
-    setSavingFlytt(false);
-    if (err) { flashMsg(`Fel: ${err.message}`); return; }
-    flashMsg('Flyttkostnad sparad');
     await fetchData();
   };
 
@@ -822,40 +796,7 @@ export default function InstallningarClient() {
             )}
           </div>
 
-          {/* 7. Flyttkostnad */}
-          <div style={s.sectionTitle as CSSProperties}>Flyttkostnad</div>
-          <div style={s.sectionBlurb as CSSProperties}>Fast belopp eller trailer-timpris per km-intervall.</div>
-          <div style={{ ...s.card, padding: '4px 14px 14px' } as CSSProperties}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>
-                <th style={s.th as CSSProperties}>Km från</th>
-                <th style={s.th as CSSProperties}>Km till — tom = ∞</th>
-                <th style={{ ...s.th, textAlign: 'right' } as CSSProperties}>Fast kr</th>
-                <th style={{ ...s.th, textAlign: 'right' } as CSSProperties}>Timpris kr</th>
-                <th style={s.th as CSSProperties}>Beskrivning</th>
-                <th style={s.th as CSSProperties}></th>
-              </tr></thead>
-              <tbody>
-                {flytt.map((r, idx) => (
-                  <tr key={r.id || `ny-${idx}`}>
-                    <td style={s.tdCell}><NumInput value={r.km_fran} onChange={v => updateFlytt(idx, { km_fran: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={r.km_till} onChange={v => updateFlytt(idx, { km_till: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={r.fast_kr} onChange={v => updateFlytt(idx, { fast_kr: v })} step="0.01" /></td>
-                    <td style={s.tdCell}><NumInput value={r.timpris_trailer_kr} onChange={v => updateFlytt(idx, { timpris_trailer_kr: v })} step="0.01" /></td>
-                    <td style={s.tdCell}>
-                      <input style={s.input} value={r.beskrivning} onChange={e => updateFlytt(idx, { beskrivning: e.target.value })} placeholder="Valfri beskrivning" />
-                    </td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}><button style={s.btnRemove as CSSProperties} onClick={() => removeFlytt(idx)}>×</button></td>
-                  </tr>
-                ))}
-                {flytt.length === 0 && <tr><td colSpan={6} style={{ color: '#7a7a72', fontSize: 12, padding: '12px 6px', textAlign: 'center' }}>Inga rader.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          <button style={s.btnGhost as CSSProperties} onClick={addFlytt}>+ Lägg till flytt-rad</button>
-          {saveAllFooter(flytt, savingFlytt, saveAllFlytt)}
-
-          {/* 8. Övrigt */}
+          {/* 7. Övrigt */}
           <div style={s.sectionTitle as CSSProperties}>Övrigt (enskilda tillägg & konstanter)</div>
           <div style={s.sectionBlurb as CSSProperties}>3m massaved, kvalitetssäkring, dieselklausul m.m. Spara per rad.</div>
           <div style={s.card}>
