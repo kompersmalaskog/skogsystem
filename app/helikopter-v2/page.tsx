@@ -564,7 +564,9 @@ export default function HelikopterV2Page() {
   // === KAPACITET (framåt): hinner maskinerna med månadens objekt — RÄKNAD kapacitet (dagar × 8) ===
   const kapacitet = useMemo(() => {
     const idag = new Date().toISOString().slice(0, 10)
-    const monthObjekt = objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'planerad' || o.status === 'pagaende'))
+    // Inkl. 'avslutat' — avslutade objekt var del av månadens plan och ska synas som klara (RAD 1 + lista),
+    // inte sållas bort tyst. RAD 2 (kvar) exkluderar dem via klar-flaggan nedan.
+    const monthObjekt = objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'planerad' || o.status === 'pagaende' || o.status === 'avslutat'))
     const aktiv = (m: DimMaskin) => !m.aktiv_till || m.aktiv_till >= idag
     const kapMaskiner = dimMaskiner.filter(m => (m.maskin_typ === 'Harvester' || m.maskin_typ === 'Forwarder') && aktiv(m) && !m.extramaskin)
     const extraMaskiner = dimMaskiner.filter(m => m.extramaskin && aktiv(m))
@@ -596,7 +598,8 @@ export default function HelikopterV2Page() {
       const namn = o.namn || o.vo_nummer || 'Objekt'
       const avslut = o.vo_nummer ? avslutByVo[String(o.vo_nummer).trim()] : undefined
       for (const roll of ['skordare', 'skotare'] as const) {
-        const klar = roll === 'skordare' ? !!avslut?.skord : !!avslut?.skot // avslutad för DEN rollen
+        // Klar för DEN rollen: objektet helstängt (status='avslutat') ELLER rollens avslutdatum satt (dim_objekt).
+        const klar = o.status === 'avslutat' || (roll === 'skordare' ? !!avslut?.skord : !!avslut?.skot)
         const utforare = roll === 'skordare' ? o.skordare_utforare : o.skotare_utforare
         const maskinId = roll === 'skordare' ? o.skordare_maskin_id : o.skotare_maskin_id
         if (utforare === 'egen' || utforare === 'extern') {
@@ -986,7 +989,7 @@ export default function HelikopterV2Page() {
                   {maskiner.map(r => {
                     const luftFarg = rubrik === 'Skotare' ? '#0a84ff' : '#30d158' // skotare i eget blått
                     const flaskFarg = '#d08a3e' // kort/över = dämpad orange, aldrig rött
-                    const tom = r.planAntal === 0 && r.hal === 0
+                    const tom = r.objekt.length === 0 // äkta tomt = inga objekt alls (klara utan prognos ska ändå synas)
                     const klara = r.objekt.filter(o => o.klar)
                     const kvarObj = r.objekt.filter(o => !o.klar)
                     // En stapel-rad: timmar mot kapacitet, svart golvstreck när man ligger över.
