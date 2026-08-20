@@ -56,7 +56,7 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           // IS NULL). Rader som RÖR detta objekt (egna) eller som TILLSKRIVS det
           // (omlastning, avser_objekt_id). GROT-markörer (maskin_id NULL) skippas.
           supabase.from('skotare_objekt_manuell')
-            .select('id, objekt_id, maskin_id, datum_fran, volym_m3, g15_timmar, ar_omlastning, avser_objekt_id')
+            .select('id, objekt_id, maskin_id, datum_fran, volym_m3, volym_egen_skotning, volym_omlastning, g15_timmar, ar_omlastning, avser_objekt_id')
             .is('datum_fran', null)
             .not('maskin_id', 'is', null)
             .or(`objekt_id.in.(${idList}),avser_objekt_id.in.(${idList})`),

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
 import { harledTyp } from '@/lib/objekt/typ';
 import { type UppfoljningObjekt } from '../lib/transform';
-import { objektSkotat } from '@/lib/skotat';
+import { objektSkotat, type SkotareManuellRad } from '@/lib/skotat';
 
 // ── URL-identifierare för ett objekt ─────────────────────────────────────
 // Används av både listsidan (för router.push) och detaljsidan (för find).
@@ -82,7 +82,8 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           supabase.from('grot_koppling').select('risjobb_objekt_id, avverknings_objekt_id'),
           hamtaExkluderadeObjektId(),
           // ALLA manuell-rader (inte bara maskin_id NULL): maskin_id SATT = utförd skotning per maskin.
-          supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_m3, g15_timmar'),
+          // Nya fält (volym_egen_skotning/volym_omlastning) driver EN-regeln (lib/skotat); volym_m3 = läs-fallback.
+          supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_m3, g15_timmar, volym_egen_skotning, volym_omlastning, ar_omlastning'),
           // Per-maskin lass (rå, paginerad) — för den delade skotat-regeln (lib/skotat).
           hamtaAlla<{ objekt_id: string; maskin_id: string | null; volym_m3sub: number | null }>(() => supabase.from('fakt_lass').select('objekt_id, maskin_id, volym_m3sub').order('objekt_id')),
         ]);
@@ -101,14 +102,14 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         const maskinMap = new Map<string, any>();
         dimMaskin.forEach(m => maskinMap.set(m.maskin_id, m));
         const skotareManuellMap = new Map<string, { volym_m3: number | null; g15_timmar: number | null }>();
-        const manPerMaskinById = new Map<string, Map<string, number>>();
+        // Per (objekt, maskin) → RÅ rad. EN-regeln (lib/skotat) delar upp i egen/omlastning.
+        const manPerMaskinById = new Map<string, Map<string, SkotareManuellRad>>();
         for (const r of (skotareManuellRes.data || [])) {
           if (r.maskin_id == null) {
             skotareManuellMap.set(r.objekt_id, { volym_m3: r.volym_m3, g15_timmar: r.g15_timmar });   // objekt-nivå → trumfar allt
-          } else if (r.volym_m3 != null) {
+          } else {
             if (!manPerMaskinById.has(r.objekt_id)) manPerMaskinById.set(r.objekt_id, new Map());
-            const mm = manPerMaskinById.get(r.objekt_id)!;
-            mm.set(r.maskin_id, (mm.get(r.maskin_id) || 0) + Number(r.volym_m3));   // utförd skotning per maskin
+            manPerMaskinById.get(r.objekt_id)!.set(r.maskin_id, r as SkotareManuellRad);   // utförd skotning per maskin (rå rad)
           }
         }
         // Per-maskin lass (fakt_lass) för den delade skotat-regeln (lib/skotat): manuell per maskin trumfar
@@ -293,9 +294,9 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           const laggLass = (oid: string) => { if (seenLassObj.has(oid)) return; seenLassObj.add(oid); const mm = lassPerMaskinById.get(oid); if (mm) for (const [mid, v] of mm) aggLassPM.set(mid, (aggLassPM.get(mid) || 0) + v); };
           for (const e of skotareEntries) laggLass(e.objekt_id);
           if (aggLassPM.size === 0) for (const e of skordareEntries) laggLass(e.objekt_id);
-          const aggManPM = new Map<string, number>();
-          for (const e of entries) { const mm = manPerMaskinById.get(e.objekt_id); if (mm) for (const [mid, v] of mm) aggManPM.set(mid, (aggManPM.get(mid) || 0) + v); }
-          const volymSkotareEff = objektSkotat({ lassPerMaskin: aggLassPM, manuellPerMaskin: aggManPM, manuellObjektNiva: skotatArManuell ? manuellVolym : null }).skotat;
+          const aggManPM = new Map<string, SkotareManuellRad>();
+          for (const e of entries) { const mm = manPerMaskinById.get(e.objekt_id); if (mm) for (const [mid, rad] of mm) aggManPM.set(mid, rad); }
+          const volymSkotareEff = objektSkotat({ lassPerMaskin: aggLassPM, manuellRadPerMaskin: aggManPM, manuellObjektNiva: skotatArManuell ? manuellVolym : null }).skotat;
 
           const skStart = skordareEntry?.start_date || null;
           const skSlut = skordareEntry?.end_date || skordareEntry?.skordning_avslutad || null;
