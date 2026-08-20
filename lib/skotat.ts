@@ -41,3 +41,12 @@ export function objektSkotat(i: SkotatInput): SkotatResult {
   }
   return { skotat, harManuellAvslut: false };
 }
+
+
+// Virke KVAR på backen = vårt väntande skotararbete. Egen skotning (säljaren/markägaren skotar
+// själv) → det är INTE vårt jobb → aldrig på vår backe (0). Delad av båda vyerna så egen_skotning
+// exkluderas identiskt ur alla på-backen-summor (header, per-maskin, uppföljningens lista).
+export function paBackenKvar(skordat: number, skotat: number | null, egenSkotning: boolean): number {
+  if (egenSkotning) return 0;
+  return Math.max(0, skordat - (skotat ?? 0));
+}

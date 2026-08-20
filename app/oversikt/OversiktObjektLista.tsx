@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { OversiktObjekt, C, statusVisning, STATUS_AVSLUTADE, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, skotarTillstand } from './oversikt-utils';
+import { paBackenKvar } from '@/lib/skotat';
 import { supabase } from '@/lib/supabase';
 import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
 import type { SkordAgg } from './page';
@@ -115,8 +116,9 @@ function aggregeraMark(list: MarkItem[]): { label: string; count: number; commen
 function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: SkordAgg; onClose: () => void }) {
   const sv = statusVisning(obj.status);
   const skordat = skord?.skordat || 0;          // m³fub
-  // Skotarens tillstånd (klar/igång/väntar) härlett symmetriskt med skördarens status.
-  const skotarInfo = skotarTillstand(skordat, skord?.skotat ?? null, skord?.harManuell ?? false, skord?.lassSista ?? null);
+  const egen = skord?.egenSkotning === true;    // säljaren/markägaren skotar själv → inte vårt skotararbete
+  // Skotarens tillstånd (klar/igång/väntar) härlett symmetriskt med skördarens status. Egen skotning → inget.
+  const skotarInfo = egen ? null : skotarTillstand(skordat, skord?.skotat ?? null, skord?.harManuell ?? false, skord?.lassSista ?? null);
   const harSkord = skordat > 0;                 // ingen skörd-rad → göm hela produktionsblocket (aldrig 0)
   // Skotat: null = ingen skotdata registrerad (≠ 0). Aktivt objekt utan rad = skotaren har inte
   // börjat (ärligt 0); AVSLUTAT utan rad = okänt → visa "ej registrerad", ingen procent, ingen backen.
@@ -126,7 +128,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
   // Procent utkört = skotat/skördat*100 (enda ärliga procentmåttet, båda m³fub). Kapas EJ (>100 = klart).
   const skotP = skotatKand && skordat > 0 ? Math.round((skotatEff / skordat) * 100) : null;
   const utkort = skotP != null && skotP >= 98;  // mätskillnad kan ge >100 → visa "Utkört", inte "102%"
-  const paBacken = Math.max(0, skordat - skotatEff);
+  const paBacken = paBackenKvar(skordat, skotatEff, egen);
   const ber = obj.trakt_data?.beraknad;
 
   // Markeringar för DETTA objekt — hämtas lat (bara när ett objekt öppnats). marksLaddat
@@ -240,6 +242,10 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
             </div>
             {/* Skotarens tillstånd — en rad under status (grön bara vid aktiv igång) */}
             {skotarInfo && <SkotarRad info={skotarInfo} style={{ marginTop: 10 }} />}
+            {/* Egen skotning — säljaren/markägaren skotar själv (inte vårt jobb, ingen på-backen). Grå chip. */}
+            {egen && (
+              <div style={{ marginTop: 10, display: 'inline-block', fontSize: 12.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '4px 12px', borderRadius: 20 }}>Egen skotning</div>
+            )}
           </div>
 
           {/* Kontakt (markägare) — mest handlingsbara raden → direkt under status/metadata högst upp,
@@ -273,7 +279,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
               </div>
               <div style={{ fontSize: 13, color: C.t3, marginTop: 3 }}>Skördat{skord?.sista ? ` · ${skord.sista}` : ''}</div>
 
-              {skotP != null ? (
+              {egen ? null : skotP != null ? (
                 <>
                   {/* Skotarens framdrift — det enda ärliga procentmåttet (skotat/skördat, båda m³fub) */}
                   <div style={{ fontSize: 15, fontWeight: 700, color: C.t1, marginTop: 16, marginBottom: 7 }}>
@@ -558,6 +564,7 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     const b = statusBucket(o.status);
     if (b !== 'klar') return b;
     const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
+    if (s?.egenSkotning) return 'klar';   // egen skotning (säljaren skotar själv) → inte VÅRT väntande arbete
     const info = s ? skotarTillstand(s.skordat, s.skotat, s.harManuell, s.lassSista) : null;
     return info && (info.state === 'igang' || info.state === 'vantar') ? 'pagar' : 'klar';
   };
@@ -570,7 +577,7 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   const totalBacken = aktiva.reduce((sum, o) => {
     const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
     if (!s || !s.skordat) return sum;
-    return sum + Math.max(0, s.skordat - (s.skotat ?? 0));
+    return sum + paBackenKvar(s.skordat, s.skotat, s.egenSkotning || false);
   }, 0);
   const backenRund = Math.round(totalBacken);
 
@@ -611,7 +618,7 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
   // default; reglaget slår på samma gruppering i övriga segment. På-backen-summa = Σ(skördat − skotat).
   const backenForObj = (o: OversiktObjekt): number => {
     const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
-    return Math.max(0, (s?.skordat || 0) - (s?.skotat ?? 0));
+    return paBackenKvar(s?.skordat || 0, s?.skotat ?? null, s?.egenSkotning || false);
   };
   const grupperaPerMaskin = statusFEff === 'pagar' || groupMaskin;
   const grupper: { maskin: string | null; objekt: OversiktObjekt[]; backen: number }[] = [];
@@ -687,11 +694,13 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     const kortSkord = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
     const kortSkordat = kortSkord?.skordat || 0;
     const kortSkotatVal = kortSkord?.skotat ?? null;
+    const kortEgen = kortSkord?.egenSkotning === true;   // säljaren skotar själv → inte VÅRT väntande arbete
     const kortKand = kortSkotatVal != null || !STATUS_AVSLUTADE.includes(o.status);
-    const kortBacken = Math.max(0, kortSkordat - (kortSkotatVal ?? 0));
+    const kortBacken = paBackenKvar(kortSkordat, kortSkotatVal, kortEgen);
     // Skotarens tillstånd (samma härledning som kartan/detaljen). Grön "Skotare igång"-rad på kortet när
     // skotaren kör här nu → förklarar varför ett klart-skördat objekt (t.ex. Jätsbygd) ligger i Pågår.
-    const kortSkotar = skotarTillstand(kortSkordat, kortSkotatVal, kortSkord?.harManuell ?? false, kortSkord?.lassSista ?? null);
+    // Egen skotning → inget skotar-tillstånd (vi skotar inte); 'Egen skotning'-chip visas istället.
+    const kortSkotar = kortEgen ? null : skotarTillstand(kortSkordat, kortSkotatVal, kortSkord?.harManuell ?? false, kortSkord?.lassSista ?? null);
     const kortIgang = kortSkotar?.state === 'igang';
     const kortVantar = kortSkotar?.state === 'vantar';
     const kortPaBacken = kortIgang || kortVantar;   // skotar-raden bär fasen (igång / väntar · X på backen)
@@ -743,6 +752,12 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
           {/* Skotarens fas — grön "igång" (kör nu) eller grå "väntar · X på backen"; visar varför ett
               klart-skördat objekt ligger i Pågår (virket är inte ute än). */}
           {kortPaBacken && kortSkotar && <SkotarRad info={kortSkotar} style={{ marginTop: 6 }} />}
+          {/* Egen skotning — säljaren/markägaren skotar själv. Grå chip (inte vårt jobb, ingen på-backen). */}
+          {kortEgen && (
+            <div style={{ marginTop: 6 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>Egen skotning</span>
+            </div>
+          )}
         </div>
         {/* Chevron */}
         <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t4, flexShrink: 0 }}>chevron_right</span>

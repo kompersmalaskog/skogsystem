@@ -6,6 +6,7 @@ import { type UppfoljningObjekt } from './lib/transform';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
 import { typKort, arRisjobb } from '@/lib/objekt/typ';
+import { paBackenKvar } from '@/lib/skotat';
 
 /* ── Design tokens (V6) ── */
 const V6_GREY = '#8e8e93';
@@ -32,7 +33,8 @@ function fmtDate(d: string | null): string {
 }
 
 function kvarM3(o: UppfoljningObjekt): number {
-  return Math.max(0, o.volymSkordare - o.volymSkotare);
+  // Egen skotning (säljaren skotar själv) → virket är inte VÅRT väntande arbete (ur alla på-backen-summor).
+  return paBackenKvar(o.volymSkordare, o.volymSkotare, o.egenSkotning === true);
 }
 
 type Sektion = 'skordare' | 'oskotat' | 'ovrigt' | 'avslutade';
@@ -53,7 +55,7 @@ function sektionAv(o: UppfoljningObjekt): Sektion {
   const skordareAktiv = !!(o.skordareLastDate && o.skordareLastDate >= seven);
   if (skordareAktiv && !o.skotningAvslutad) return 'skordare';
   if (o.skotningAvslutad) return 'avslutade';
-  if (o.externSkotning) return 'ovrigt';
+  if (o.externSkotning || o.egenSkotning) return 'ovrigt';   // extern/egen skotning = inte VÅR oskotade backe
   if (kvarM3(o) > 0) {
     if (o.antalLass > 0) return 'oskotat';
     // 0 lass: efter brytdatum = genuint oskotat (skotaren ej börjat än);
@@ -67,6 +69,7 @@ function sektionAv(o: UppfoljningObjekt): Sektion {
 // utskrivet VARFÖR det ligger här och vad som väntas.
 function ovrigtText(o: UppfoljningObjekt): string {
   if (o.externSkotning) return 'Skotas externt';
+  if (o.egenSkotning) return 'Egen skotning — säljaren skotar själv';
   // Risjobb skördar aldrig — deras volym är skotarens RAPPORTERADE lass.
   // "Ingen produktionsdata" vore fel: riset ÄR hämtat och mängden känd.
   if (o.grotSkotning) {

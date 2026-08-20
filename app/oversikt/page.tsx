@@ -43,6 +43,7 @@ export interface SkordAgg {
   tilldeladSkotare?: string | null;                              // skotarens maskinnamn (grupperingsetikett)
   skotareKalla?: 'lass' | 'tilldelad' | null;                    // varifrån namnet kom
   skotareAvvikelse?: { lass: string; tilldelad: string } | null; // lassdata ≠ planerad skotare (ärlig)
+  egenSkotning?: boolean;   // dim_objekt.egen_skotning — säljaren/markägaren skotar själv → ur på-backen
 }
 
 /** Fetch all rows with pagination (Supabase default limit is 1000) */
@@ -125,8 +126,8 @@ export default function OversiktPage() {
       ),
       // Planerad skotare per objekt (dim_objekt.tilldelad_skotare) — grupperar objektet under sin
       // skotare redan innan första lasset, precis som uppföljningen.
-      fetchAllRows<{ vo_nummer: string; tilldelad_skotare: string | null }>(
-        () => supabase.from('dim_objekt').select('vo_nummer, tilldelad_skotare').order('vo_nummer')
+      fetchAllRows<{ vo_nummer: string; tilldelad_skotare: string | null; egen_skotning: boolean | null }>(
+        () => supabase.from('dim_objekt').select('vo_nummer, tilldelad_skotare, egen_skotning').order('vo_nummer')
       ),
     ]);
 
@@ -199,12 +200,15 @@ export default function OversiktPage() {
     const maskinMap = new Map<string, any>();
     for (const m of (maskinerRes.data || [])) maskinMap.set(m.maskin_id, m);
     const tilldByVo: Record<string, string> = {};
+    const egenByVo = new Set<string>();
     for (const r of tilldeladRows) {
+      if (r.vo_nummer && r.egen_skotning === true) egenByVo.add(r.vo_nummer);   // egen skotning (säljaren skotar själv)
       if (!r.vo_nummer || !r.tilldelad_skotare) continue;
       if (!(r.vo_nummer in tilldByVo)) tilldByVo[r.vo_nummer] = r.tilldelad_skotare;   // första icke-null per vo
     }
-    for (const k of new Set([...Object.keys(skmap), ...Object.keys(tilldByVo)])) {
+    for (const k of new Set([...Object.keys(skmap), ...Object.keys(tilldByVo), ...egenByVo])) {
       if (!skmap[k]) skmap[k] = { skordat: 0, skotat: null, sista: null, lassSista: null, harManuell: false };
+      skmap[k].egenSkotning = egenByVo.has(k);
       const lassId = lassMaskinByVo[k] || null;
       const tilldId = tilldByVo[k] || null;
       const namnLass = lassId ? getMachineLabel(maskinMap.get(lassId)) : '';

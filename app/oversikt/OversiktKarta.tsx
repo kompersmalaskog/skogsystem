@@ -1222,7 +1222,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     const m: Record<string, SkotarInfo | null> = {};
     for (const o of objekt) {
       const s = o.vo_nummer ? skordMap[o.vo_nummer] : undefined;
-      m[o.id] = s ? skotarTillstand(s.skordat, s.skotat, s.harManuell, s.lassSista) : null;
+      m[o.id] = s && !s.egenSkotning ? skotarTillstand(s.skordat, s.skotat, s.harManuell, s.lassSista) : null;   // egen skotning → inget skotar-tillstånd (ej väntar-markör)
     }
     return m;
   }, [objekt, skordMap]);
