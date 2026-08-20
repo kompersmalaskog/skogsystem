@@ -6,6 +6,7 @@ import { OversiktObjekt, C, statusVisning, STATUS_AVSLUTADE, type StatusHink } f
 import { ff } from './oversikt-styles';
 import { formatVolym, skotarTillstand } from './oversikt-utils';
 import { supabase } from '@/lib/supabase';
+import ObjektEgenkontroll from './ObjektEgenkontroll';
 import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
 import type { SkordAgg } from './page';
 import SkordarKarta from './SkordarKarta';
@@ -359,6 +360,13 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
               )}
             </Section>
           )}
+
+          {/* Egenkontroll — efterkontrollen av precis det som står i Hänsyn ovanför.
+              Planerad hänsyn där, utfallet här. Egen fil: dokumentet ägs av
+              ObjektEgenkontroll, den här filen rör bara raden. */}
+          <Section title="Egenkontroll">
+            <ObjektEgenkontroll objektId={obj.id} />
+          </Section>
 
           {/* Maskiner & metod — kontextuella noteringar intill sin egen flagga */}
           {maskinerHarInnehall && (

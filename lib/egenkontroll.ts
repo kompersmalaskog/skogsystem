@@ -860,6 +860,20 @@ export async function svaraPaPunkt(
 
   const { klient } = await kravSession(options);
 
+  // En klar runda ar last. LASET ar databastriggern egenkontroll_punkt_last -
+  // den avvisar skrivningen oavsett vad som star har. Kontrollen nedan finns
+  // bara for att ge ett begripligt besked i stallet for ett ravt check_violation,
+  // och far aldrig forvaxlas med sjalva laset.
+  const { data: agare } = await klient
+    .from('egenkontroll_punkt')
+    .select('egenkontroll:egenkontroll_id (status)')
+    .eq('id', punktId)
+    .maybeSingle();
+  const rundstatus = (agare as { egenkontroll?: { status?: string } } | null)?.egenkontroll?.status;
+  if (rundstatus === 'klar') {
+    throw new Error('Rundan är avslutad och går inte att ändra.');
+  }
+
   const { data, error } = await klient
     .from('egenkontroll_punkt')
     .update({ status, besvarad: new Date().toISOString() })
@@ -877,6 +891,77 @@ export async function svaraPaPunkt(
     throw new Error(
       `Svaret sparades inte som väntat (blev "${sparad.status ?? 'tomt'}"). Ladda om sidan.`,
     );
+  }
+  return sparad;
+}
+
+/**
+ * Avslutar rundan: status='klar' + klar=now().
+ *
+ * LASET LIGGER I DATABASEN. Triggern egenkontroll_punkt_last avvisar INSERT
+ * och UPDATE pa punkter vars runda ar 'klar'. Kontrollen har uppe finns for
+ * att ge ett begripligt besked i stallet for ett ravt databasfel - den ar
+ * inte laset och ska inte forvaxlas med det.
+ *
+ * Alla punkter maste vara besvarade. Antalet som aterstar rapporteras i felet
+ * sa anroparen kan saga det rakt ut i stallet for "gick inte".
+ *
+ * .eq('status','pagaende') gor avslutet idempotent mot dubbeltryck: ett andra
+ * anrop traffar 0 rader i stallet for att skriva om klar-tidsstampeln.
+ */
+export async function avslutaRunda(
+  egenkontrollId: string,
+  options: KlientOptions = {},
+): Promise<Egenkontroll> {
+  const { klient } = await kravSession(options);
+
+  // .order() for stabil lasning; vi behover bara status men laser id ocksa
+  // sa raknandet inte kan trassla ihop sig med en tom tabell.
+  const { data: punktRader, error: punktFel } = await klient
+    .from('egenkontroll_punkt')
+    .select('id, status')
+    .eq('egenkontroll_id', egenkontrollId)
+    .order('ordning', { ascending: true });
+
+  if (punktFel) throw new Error(`Kunde inte läsa punkterna: ${punktFel.message}`);
+
+  const punkter = (punktRader ?? []) as unknown as { id: string; status: string | null }[];
+  const kvar = punkter.filter((p) => p.status === null).length;
+  if (kvar > 0) {
+    throw new Error(
+      kvar === 1
+        ? '1 punkt är obesvarad. Svara på den innan du avslutar.'
+        : `${kvar} punkter är obesvarade. Svara på alla innan du avslutar.`,
+    );
+  }
+
+  const { data, error } = await klient
+    .from('egenkontroll')
+    .update({ status: 'klar', klar: new Date().toISOString() })
+    .eq('id', egenkontrollId)
+    .eq('status', 'pagaende')
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Kunde inte avsluta rundan: ${error.message}`);
+  if (!data) {
+    // 0 rader: nagon annan hann avsluta, eller rundan var redan klar. Las om
+    // och beratta vilket - "gick inte" duger inte som besked.
+    const { data: nuvarande } = await klient
+      .from('egenkontroll')
+      .select('status')
+      .eq('id', egenkontrollId)
+      .maybeSingle();
+    if ((nuvarande as { status?: string } | null)?.status === 'klar') {
+      throw new Error('Rundan är redan avslutad. Ladda om sidan.');
+    }
+    throw new Error('Rundan kunde inte avslutas — den hittades inte. Ladda om sidan.');
+  }
+
+  const sparad = data as unknown as Egenkontroll;
+  // Las tillbaka VARDET, inte antalet rader.
+  if (sparad.status !== 'klar' || !sparad.klar) {
+    throw new Error('Rundan sparades inte som avslutad. Ladda om sidan.');
   }
   return sparad;
 }
