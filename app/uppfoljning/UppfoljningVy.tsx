@@ -6,6 +6,7 @@ import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
 import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
+import type { SkotareMaskinStat } from './lib/transform';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -43,6 +44,15 @@ export interface UppfoljningData {
   senastUppdaterad?: string;
   skordat: number;
   skotat: number;
+  // Steg 2a — skotare per maskin på detta objekt (fakt_lass grupperat + manuellt
+  // lager). arOmlastning=true bidrar med 0 till skotad total (visas som arbete).
+  skotarePerMaskin?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; arOmlastning: boolean; kalla: 'mätt' | 'manuell' }[];
+  // Tillskriven omlastning: annat objekts skotararbete som räknas UNDER detta
+  // objekt (via avser_objekt_id), men bidrar med 0 till skotad total.
+  omlastningArbete?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; g0: number; diesel: number; franObjektId: string }[];
+  // Steg 2b — en post per skotarmaskin (inkl. tillskriven omlastning) med hela
+  // det platta skotarfält-settet. Maskinväljaren överstyr `data` med en post.
+  skotareMaskiner?: SkotareMaskinStat[];
   kvarPct: number;
   egenSkotning?: boolean;
   grotSkotning?: boolean;
@@ -365,7 +375,7 @@ function Kallhyggen({ objektId }: { objektId?: string | null }) {
   );
 }
 
-function Maskinkort({ data }: { data: UppfoljningData }) {
+function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotareOmlastning?: boolean }) {
   const idag = new Date().toISOString().slice(0, 10);
   // "kör idag" bara när senaste aktiviteten faktiskt är IDAG — läget i
   // övrigt bor i våning 1 (statusraden), korten upprepar det inte.
@@ -401,12 +411,79 @@ function Maskinkort({ data }: { data: UppfoljningData }) {
             statusOrd={statusOrd(data.skotareSlut, data.skotareLastDate)}
             primary={Math.round(data.skotat)}
             primaryUnit="m³"
-            primaryLabel={data.skotatArManuell ? 'utkört (manuellt angivet)' : 'utkört'}
+            primaryLabel={skotareOmlastning ? 'omlastning · räknas ej i skotad total' : (data.skotatArManuell ? 'utkört (manuellt angivet)' : 'utkört')}
             snitt={stSnitt}
           />
         )}
       </div>
     </section>
+  );
+}
+
+// ── Skotare på objektet (per maskin + omlastning) ─────────────────────────
+// Steg 2a. En rad per skotarmaskin som kört PÅ objektet + separata rader för
+// tillskriven omlastning (annat objekts arbete som räknas hit). Omlastning
+// dämpas och märks — den bidrar med 0 till skotad total.
+function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
+  const list = data.skotarePerMaskin || [];
+  const oml = data.omlastningArbete || [];
+  if (list.length === 0 && oml.length === 0) return null;
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+
+  // Jämbördiga skotarkort: Wisent (skotning) och omlastning har SAMMA storlek,
+  // ljusstyrka och layout. Skillnaden = en tydlig "Omlastning"-badge + texten
+  // "volymen räknas ej i skotad total" (ärlighetssignalen), ALDRIG nedtoning.
+  type Kortdata = { key: string; namn: string; volym: number; meta: string; omlastning: boolean };
+  const kort: Kortdata[] = [
+    ...list.map((s): Kortdata => ({
+      key: s.maskinId, namn: s.namn, volym: s.volym, omlastning: s.arOmlastning,
+      meta: [
+        s.antalLass > 0 ? `${s.antalLass} lass` : 'inga lass',
+        s.g15 > 0 ? `${s.g15.toFixed(1)} G15h` : null,
+        s.kalla === 'manuell' ? 'manuellt' : null,
+        s.arOmlastning ? 'volymen räknas ej i skotad total' : null,
+      ].filter(Boolean).join(' · '),
+    })),
+    ...oml.map((o): Kortdata => ({
+      key: `oml|${o.maskinId}|${o.franObjektId}`, namn: o.namn, volym: o.volym, omlastning: true,
+      meta: [
+        `${o.antalLass} lass`,
+        o.g15 > 0 ? `${o.g15.toFixed(1)} G15h` : null,
+        o.g0 > 0 && o.g0 !== o.g15 ? `${o.g0.toFixed(1)} G0h` : null,
+        o.diesel > 0 ? `${o.diesel.toLocaleString('sv-SE')} L` : null,
+        'volymen räknas ej i skotad total',
+      ].filter(Boolean).join(' · '),
+    })),
+  ];
+
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
+        {kort.map((k, i) => (
+          <div key={k.key} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px',
+            borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none',
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST, flexShrink: 0, marginTop: 6 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14, color: '#fff', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
+                {k.omlastning && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#ffb340', background: 'rgba(255,159,10,0.15)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap', letterSpacing: 0.3 }}>OMLASTNING</span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 3 }}>{k.meta}</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                {sv(k.volym)} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+              </div>
+              {k.omlastning && <div style={{ fontSize: 9, color: '#ffb340', marginTop: 2, whiteSpace: 'nowrap' }}>ej i total</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -878,6 +955,93 @@ function Nav({ onBack }: { onBack?: () => void }) {
   );
 }
 
+// ── Skotarväljare ─────────────────────────────────────────────────────────
+// Visas BARA när objektet har 2+ skotarmaskiner (inkl. tillskriven omlastning).
+// Väljer man en maskin visar alla skotarkort nedan DEN maskinens siffror, full
+// storlek. "Alla" = objektets aggregat (omlastningsvolym alltid exkluderad ur
+// skotad total). Omlastningsmaskiner får en liten bärnstensgul OML-markör.
+function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[]; vald: string; onValj: (id: string) => void }) {
+  const knapp = (aktiv: boolean): React.CSSProperties => ({
+    padding: '7px 13px', borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: V6_FF,
+    cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6,
+    border: aktiv ? '1px solid transparent' : `1px solid ${V6_SEP}`,
+    background: aktiv ? V6_ST : 'transparent',
+    color: aktiv ? '#1a1205' : '#fff',
+  });
+  return (
+    <section style={{ padding: '0 24px 16px' }}>
+      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: '0 0 8px 2px' }}>Skotare — välj maskin</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button onClick={() => onValj('alla')} style={knapp(vald === 'alla')}>Alla</button>
+        {maskiner.map(m => {
+          const aktiv = vald === m.maskinId;
+          return (
+            <button key={m.maskinId} onClick={() => onValj(m.maskinId)} style={knapp(aktiv)}>
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{m.namn}</span>
+              {m.arOmlastning && (
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3, color: aktiv ? '#5a3d00' : '#ffb340', background: aktiv ? 'rgba(0,0,0,0.14)' : 'rgba(255,159,10,0.15)', padding: '1px 5px', borderRadius: 5 }}>OML</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// "Alla"-aggregatet: skotad VOLYM = summa av icke-omlastningsmaskiner (data.skotat,
+// oförändrat). Men TID/DIESEL/LASS/per-dag summeras över ALLA skotarmaskiner INKL
+// omlastning — Elephants G15/diesel/lass är fysiskt arbete ("det brändes ju diesel").
+// Kvoterna räknas om konsekvent ur totalerna. Skördarfält lämnas orörda.
+function byggAllaSkotare(data: UppfoljningData, skM: SkotareMaskinStat[]): UppfoljningData {
+  let totG15 = 0, totG0 = 0, totTomgang = 0, totKorta = 0, totRast = 0, totDiesel = 0, totLass = 0;
+  const dieselMap = new Map<string, number>();
+  const lassMap = new Map<string, { lass: number; m3: number }>();
+  skM.forEach(m => {
+    totG15 += m.skotareG15h; totG0 += m.skotareG0; totTomgang += m.skotareTomgang;
+    totKorta += m.skotareKortaStopp; totRast += m.skotareRast;
+    totDiesel += m.skotareL; totLass += m.antalLass;
+    m.dieselSkotare.forEach(d => dieselMap.set(d.datum, (dieselMap.get(d.datum) || 0) + d.liter));
+    m.lassPerDag.forEach(d => {
+      const prev = lassMap.get(d.datum) || { lass: 0, m3: 0 };
+      prev.lass += d.lass; prev.m3 += (d.m3 || 0);
+      lassMap.set(d.datum, prev);
+    });
+  });
+  // 'd/m'-strängar sorteras kronologiskt (månad först, dag sedan).
+  const dmSort = (a: string, b: string) => {
+    const [ad, am] = a.split('/').map(Number); const [bd, bm] = b.split('/').map(Number);
+    return am - bm || ad - bd;
+  };
+  const dieselSkotare: DieselDag[] = Array.from(dieselMap.entries())
+    .sort(([a], [b]) => dmSort(a, b)).map(([datum, liter]) => ({ datum, liter }));
+  const lassPerDag = Array.from(lassMap.entries())
+    .sort(([a], [b]) => dmSort(a, b)).map(([datum, v]) => ({ datum, lass: v.lass, m3: v.m3 }));
+
+  const skotat = data.skotat; // = summa icke-omlastningsvolym (1344), oförändrat
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const totalDiesel = (data.skordareL || 0) + totDiesel;
+  return {
+    ...data,
+    skotareG15h: r1(totG15),
+    skotareG0: r1(totG0),
+    skotareTomgang: r1(totTomgang),
+    skotareKortaStopp: r1(totKorta),
+    skotareRast: r1(totRast),
+    skotareL: Math.round(totDiesel),
+    skotareM3G15h: totG15 > 0 ? r1(skotat / totG15) : 0,
+    skotareLassG15h: totG15 > 0 ? r2(totLass / totG15) : 0,
+    skotareSnittlass: totLass > 0 ? r1(skotat / totLass) : 0,
+    skotareL_M3: skotat > 0 ? r2(totDiesel / skotat) : 0,
+    skotareL_G15h: totG15 > 0 ? r2(totDiesel / totG15) : 0,
+    dieselSkotare,
+    lassPerDag,
+    dieselTotalt: totalDiesel,
+    dieselPerM3: data.skordat > 0 ? r2(totalDiesel / data.skordat) : 0,
+  };
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData; onBack?: () => void }) {
   const hasAvbrott = (data.avbrottSkordare?.length || 0) > 0 || (data.avbrottSkotare?.length || 0) > 0;
@@ -891,10 +1055,58 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   // ÄRLIGHET: en maskin utan data får inget påhittat värde — den utelämnas.
   const sv = (n: number) => n.toLocaleString('sv-SE');
 
+  // ── Steg 2b: maskinväljare ────────────────────────────────────────────────
+  // Väljaren visas BARA vid 2+ skotarmaskiner (inkl. tillskriven omlastning).
+  const skM = data.skotareMaskiner || [];
+  const [valdSkotare, setValdSkotare] = useState<string>('alla');
+  useEffect(() => { setValdSkotare('alla'); }, [data.objektId]);
+  const valdMaskin = valdSkotare !== 'alla' ? skM.find(m => m.maskinId === valdSkotare) : undefined;
+  const valdOml = !!valdMaskin?.arOmlastning;
+  const visaSkotareVal = !risjobb && skM.length >= 2;
+  // visadData = data oförändrat på "Alla"; annars överstyr ENDAST de platta
+  // skotarfälten med vald maskins värden (skördarfält + allt annat orört).
+  // dieselTotalt/dieselPerM3 räknas om ur skördar-L + vald maskins L så
+  // Diesel-kortets fördelningsstapel förblir koherent. Den aggregerade skotade
+  // totalen (Headline/StatusRad läser `data`) förblir exkl. omlastning.
+  const visadData: UppfoljningData = valdMaskin ? {
+    ...data,
+    skotat: valdMaskin.skotat,
+    skotareG15h: valdMaskin.skotareG15h,
+    skotareG0: valdMaskin.skotareG0,
+    skotareTomgang: valdMaskin.skotareTomgang,
+    skotareKortaStopp: valdMaskin.skotareKortaStopp,
+    skotareRast: valdMaskin.skotareRast,
+    skotareM3G15h: valdMaskin.skotareM3G15h,
+    skotareLassG15h: valdMaskin.skotareLassG15h,
+    skotareSnittlass: valdMaskin.skotareSnittlass,
+    skotareL: valdMaskin.skotareL,
+    skotareL_M3: valdMaskin.skotareL_M3,
+    skotareL_G15h: valdMaskin.skotareL_G15h,
+    dieselSkotare: valdMaskin.dieselSkotare,
+    lassPerDag: valdMaskin.lassPerDag,
+    skotareModell: valdMaskin.skotareModell,
+    skotareLastDate: valdMaskin.skotareLastDate,
+    dieselTotalt: (data.skordareL || 0) + valdMaskin.skotareL,
+    dieselPerM3: data.skordat > 0 ? Math.round((((data.skordareL || 0) + valdMaskin.skotareL) / data.skordat) * 100) / 100 : 0,
+  } : (visaSkotareVal ? byggAllaSkotare(data, skM) : data);
+
+  // Steg 2a: visa skotar-per-maskin-sektionen bara när den tillför något utöver
+  // skotarkortet — flera skotare, en omlastningsrad, eller en egen skotare som
+  // är omlastning (förklarar då varför skotad total kan vara 0).
+  const skotareLista = data.skotarePerMaskin || [];
+  const omlLista = data.omlastningArbete || [];
+  const visaSkotare = omlLista.length > 0 || skotareLista.length > 1 || skotareLista.some(s => s.arOmlastning);
+  const skotareVarde = (() => {
+    const antal = skotareLista.length + omlLista.length;
+    if (antal === 0) return null;
+    const oml = omlLista.length > 0 || skotareLista.some(s => s.arOmlastning) ? ' · omlastning' : '';
+    return `${antal} ${antal === 1 ? 'maskin' : 'maskiner'}${oml}`;
+  })();
+
   const prodVarde = (() => {
-    const sk = data.skordareM3G15h > 0 ? data.skordareM3G15h : null;
-    const st = data.skotareM3G15h > 0 ? data.skotareM3G15h : null;
-    const man = data.skotareTidManuell ? ' · manuellt' : '';
+    const sk = visadData.skordareM3G15h > 0 ? visadData.skordareM3G15h : null;
+    const st = visadData.skotareM3G15h > 0 ? visadData.skotareM3G15h : null;
+    const man = visadData.skotareTidManuell ? ' · manuellt' : '';
     if (sk != null && st != null) return `Skördare ${sv(sk)} · Skotare ${sv(st)}${man}`;
     if (sk != null) return `${sv(sk)} m³/G15h`;
     if (st != null) return `${sv(st)} m³/G15h${man}`;
@@ -902,9 +1114,9 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   })();
 
   const perDagVarde = (() => {
-    const skDagar = data.prodSkordarePerDag || [];
+    const skDagar = visadData.prodSkordarePerDag || [];
     const skSnitt = skDagar.length > 0 ? Math.round(skDagar.reduce((a, b) => a + b.m3, 0) / skDagar.length) : null;
-    const stDagar = (data.lassPerDag || []).filter(d => typeof d.m3 === 'number' && d.m3 > 0);
+    const stDagar = (visadData.lassPerDag || []).filter(d => typeof d.m3 === 'number' && d.m3 > 0);
     const stSnitt = stDagar.length > 0 ? Math.round(stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length) : null;
     if (skSnitt != null && stSnitt != null) return `Skördare ${sv(skSnitt)} · Skotare ${sv(stSnitt)}`;
     if (skSnitt != null) return `snitt ${sv(skSnitt)} m³/dag`;
@@ -918,13 +1130,13 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   })();
 
   const tidDieselVarde = (() => {
-    const skG15 = data.skordareG15h > 0 ? data.skordareG15h : null;
-    const stG15 = data.skotareG15h > 0 ? data.skotareG15h : null;
+    const skG15 = visadData.skordareG15h > 0 ? visadData.skordareG15h : null;
+    const stG15 = visadData.skotareG15h > 0 ? visadData.skotareG15h : null;
     let g15Del: string | null = null;
     if (skG15 != null && stG15 != null) g15Del = `Skördare ${sv(skG15)} · Skotare ${sv(stG15)} G15h`;
     else if (skG15 != null) g15Del = `${sv(skG15)} G15h`;
     else if (stG15 != null) g15Del = `${sv(stG15)} G15h`;
-    const lm3Del = data.dieselPerM3 > 0 ? `${sv(data.dieselPerM3)} L/m³` : null;
+    const lm3Del = visadData.dieselPerM3 > 0 ? `${sv(visadData.dieselPerM3)} L/m³` : null;
     const delar = [g15Del, lm3Del].filter(Boolean);
     return delar.length > 0 ? delar.join(' · ') : null;
   })();
@@ -958,12 +1170,20 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
           <Kallhyggen objektId={data.objektId} />
         </>
       ) : (
-        <Maskinkort data={data} />
+        <>
+          {visaSkotareVal && <SkotareVal maskiner={skM} vald={valdSkotare} onValj={setValdSkotare} />}
+          <Maskinkort data={visadData} skotareOmlastning={valdOml} />
+        </>
       )}
 
       <div style={{ marginTop: 8 }}>
-        {!risjobb && hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={data} /></Collapse>}
-        {!risjobb && hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={data} /></Collapse>}
+        {!risjobb && visaSkotare && (
+          <Collapse title="Skotare på objektet" varde={skotareVarde} defaultOpen>
+            <SkotarePaObjektet data={data} />
+          </Collapse>
+        )}
+        {!risjobb && hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={visadData} /></Collapse>}
+        {!risjobb && hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={visadData} /></Collapse>}
         {!risjobb && hasTradslagSort && (
           <Collapse title="Trädslag & sortiment" varde={tradslagVarde}>
             <Tradslag tradslag={data.tradslag} />
@@ -972,8 +1192,8 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
         )}
         {hasTidDiesel && (
           <Collapse title="Tid & diesel" varde={tidDieselVarde}>
-            <Tid data={data} />
-            <Diesel data={data} />
+            <Tid data={visadData} />
+            <Diesel data={visadData} />
           </Collapse>
         )}
         {hasAvbrott && <Collapse title="Avbrott" varde={avbrottVarde}><Avbrott data={data} /></Collapse>}

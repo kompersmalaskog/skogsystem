@@ -38,17 +38,28 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           return;
         }
 
-        const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes, dimMaskinRes] = await Promise.all([
+        // PostgREST or()-lista: citerade objekt_id-värden (text-id, ev. med _).
+        const idList = ids.map(id => `"${String(id).replace(/"/g, '')}"`).join(',');
+
+        const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes, dimMaskinRes, manuellRes] = await Promise.all([
           supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
           supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, processtyp, tradslag_id, datum').in('objekt_id', ids),
           supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
           supabase.from('dim_sortiment').select('sortiment_id, namn'),
           supabase.from('dim_tradslag').select('tradslag_id, namn'),
           supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids),
-          stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sub, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
+          stId ? supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
           stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
           supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
-          supabase.from('dim_maskin').select('maskin_id, maskin_typ'),
+          supabase.from('dim_maskin').select('maskin_id, maskin_typ, visningsnamn, modell'),
+          // Manuellt skotarlager per (objekt, maskin) — hela objektet (datum_fran
+          // IS NULL). Rader som RÖR detta objekt (egna) eller som TILLSKRIVS det
+          // (omlastning, avser_objekt_id). GROT-markörer (maskin_id NULL) skippas.
+          supabase.from('skotare_objekt_manuell')
+            .select('id, objekt_id, maskin_id, datum_fran, volym_m3, g15_timmar, ar_omlastning, avser_objekt_id')
+            .is('datum_fran', null)
+            .not('maskin_id', 'is', null)
+            .or(`objekt_id.in.(${idList}),avser_objekt_id.in.(${idList})`),
         ]);
 
         // Sanity-guard: dessa fetchar är opaginerade (per objekt_id — typiskt < 500 rader).
@@ -94,7 +105,18 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           }
           return alla;
         };
-        const [refTid, refProdVolym, refLassVolym] = await Promise.all([
+        // Tillskriven omlastning: manuella rader vars avser_objekt_id pekar på ett
+        // av de visade objekten OCH ar_omlastning=true. Arbetet ligger fysiskt
+        // under den RADENS objekt_id (t.ex. A130743_7) — hämta det objektets
+        // lass + tid så transformen kan räkna maskinens volym/lass/G15.
+        const manuellRows: any[] = manuellRes.data || [];
+        const omlObjektIds = Array.from(new Set(
+          manuellRows
+            .filter((r: any) => r.ar_omlastning && r.avser_objekt_id && ids.includes(r.avser_objekt_id) && r.objekt_id)
+            .map((r: any) => r.objekt_id as string)
+        ));
+
+        const [refTid, refProdVolym, refLassVolym, omlLassRes, omlTidRes] = await Promise.all([
           refMaskiner.length > 0
             ? hamtaAllt((a, b) => supabase.from('fakt_tid').select('objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, bransle_liter').in('maskin_id', refMaskiner).gte('datum', refFran).range(a, b))
             : Promise.resolve([] as any[]),
@@ -104,6 +126,12 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           stMidFb
             ? hamtaAllt((a, b) => supabase.from('fakt_lass').select('objekt_id, volym_m3sub').eq('maskin_id', stMidFb).gte('datum', refFran).range(a, b))
             : Promise.resolve([] as any[]),
+          omlObjektIds.length > 0
+            ? supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub, korstracka_m').in('objekt_id', omlObjektIds)
+            : Promise.resolve({ data: [] as any[] }),
+          omlObjektIds.length > 0
+            ? supabase.from('fakt_tid').select('objekt_id, maskin_id, datum, processing_sek, terrain_sek, other_work_sek, bransle_liter, kort_stopp_sek').in('objekt_id', omlObjektIds)
+            : Promise.resolve({ data: [] as any[] }),
         ]);
 
         if (cancelled) return;
@@ -120,6 +148,9 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           dimTradslag: dimTradslagRes.data || [],
           dimOperators: dimOperatorRes.data || [],
           dimMaskin: dimMaskinRes.data || [],
+          skotareManuellRows: manuellRows,
+          omlLassRows: omlLassRes?.data || [],
+          omlTidRows: omlTidRes?.data || [],
         });
         setData({
           ...bas,
