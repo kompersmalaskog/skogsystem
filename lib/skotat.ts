@@ -1,3 +1,11 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// ÄGARSKAP: skotat-regeln ägs av uppföljning/skotare-sessionen. Ska en annan
+// session (t.ex. #412-spåret) ändra hur skotad volym räknas — resolveSkotareVolym,
+// objektSkotat eller paBackenKvar — koordineras det HIT först, aldrig parallellt.
+// Två parallella skotat-implementationer (#412 vs #435) uppstod en gång och fick
+// förenas i #437; den här filen är den ENDA sanningen efter det.
+// ─────────────────────────────────────────────────────────────────────────────
+//
 // Objektets skotade volym — EN regel, delad av uppföljningens LISTA (useUppfoljningList),
 // uppföljningens DETALJ (transform.ts) och översikten (OversiktPage.skordMap). Ändra bara
 // HÄR, aldrig i en vy för sig — de tre vyerna får ALDRIG räkna skotat olika.
