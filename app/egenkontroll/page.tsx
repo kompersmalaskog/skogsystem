@@ -18,7 +18,7 @@ import SectionHeader from '@/components/SectionHeader';
 import PageContainer from '@/components/PageContainer';
 import { T } from '@/lib/utbildning';
 import { hamtaVantande, type VantandeOversikt, type VantandeRad } from '@/lib/egenkontroll';
-import { kortDatum, dagarSedan, avvikelseText } from './format';
+import { kortDatum, dagarSedan, anmarkningsText } from './format';
 
 /**
  * Andra raden per objekt. Sager tillstandet i TEXT - fargpricken bredvid
@@ -30,7 +30,7 @@ function underrad(rad: VantandeRad): string {
   }
   if (rad.rundstatus === 'klar') {
     const nar = rad.klarDatum ? kortDatum(rad.klarDatum) : 'datum saknas';
-    return `Klar ${nar} — ${avvikelseText(rad.antalAvvikelser)}`;
+    return `Klar ${nar} — ${anmarkningsText(rad.antalAvvikelser, rad.antalBattre)}`;
   }
   return `Avslutat ${kortDatum(rad.avslutat)} — ${dagarSedan(rad.avslutat)}`;
 }

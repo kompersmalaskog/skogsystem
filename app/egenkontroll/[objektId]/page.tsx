@@ -23,13 +23,19 @@ import {
   svaraPaPunkt,
   avslutaRunda,
   utforandeUnderrad,
+  hamtaFoton,
+  AVVIKELSE_ETIKETT,
   GRUPPER,
   type RundVy,
   type EgenkontrollPunkt,
   type PunktDel,
   type PunktStatus,
+  type AvvikelseTyp,
+  type EgenkontrollFoto,
 } from '@/lib/egenkontroll';
-import { avvikelseText, kortDatum } from '../format';
+import { signeraFoto } from '@/lib/egenkontrollfoto';
+import AvvikelseSheet, { type SheetLage } from '../AvvikelseSheet';
+import { anmarkningsText, kortDatum } from '../format';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
 // rott slutar folk satta det, och da far vi "Godkant" pa allt och verktyget ar
@@ -133,13 +139,18 @@ function PunktKort({
   punkt,
   sparar,
   last,
+  fotoUrler,
   onSvara,
+  onOppnaSheet,
 }: {
   punkt: EgenkontrollPunkt;
   sparar: boolean;
   /** Rundan ar avslutad - punkten visas men gar inte att andra. */
   last: boolean;
+  /** Signerade URL:er for punktens bilder. Tom = inga, eller kunde ej signeras. */
+  fotoUrler: string[];
   onSvara: (status: PunktStatus) => void;
+  onOppnaSheet: (lage: SheetLage) => void;
 }) {
   const etikett = statusEtikett(punkt.status);
   const underrad = punkt.del === 'utforande' ? utforandeUnderrad(punkt.punkt_typ) : null;
@@ -159,11 +170,39 @@ function PunktKort({
           fontSize: 13,
           color: etikett.farg,
           fontWeight: 600,
-          margin: last ? '2px 0 0' : '2px 0 10px',
+          margin: '2px 0 0',
         }}
       >
         {sparar ? 'Sparar…' : etikett.text}
+        {/* Typen i TEXT bredvid statusen - fargen bar aldrig ensam. */}
+        {punkt.avvikelse_typ && (
+          <span style={{ color: T.t2, fontWeight: 400 }}>
+            {' · '}{AVVIKELSE_ETIKETT[punkt.avvikelse_typ as AvvikelseTyp] ?? punkt.avvikelse_typ}
+          </span>
+        )}
       </div>
+
+      {punkt.kommentar && (
+        <div style={{ fontSize: 13, color: T.t2, lineHeight: 1.4, marginTop: 3 }}>
+          {punkt.kommentar}
+        </div>
+      )}
+
+      {fotoUrler.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+          {fotoUrler.map((url) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={url}
+              src={url}
+              alt=""
+              style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover' }}
+            />
+          ))}
+        </div>
+      )}
+
+      <div style={{ height: last ? 0 : 10 }} />
       {/* TVA PLUS EN. "Kan bli battre" ar dubbelt sa lang etikett som "OK" och
           far egen full bredd - tre i bredd kroper traffytan under 44 pt for en
           tumme med handske. Del 1 har tva alternativ och far en enda rad. */}
@@ -177,7 +216,11 @@ function PunktKort({
                 aktiv={punkt.status === a.status}
                 farg={a.farg}
                 sparar={sparar}
-                onClick={() => onSvara(a.status)}
+                // Avvikelse skrivs ALDRIG rakt av - den behover typ, foto och
+                // position, och det samlas i formularet.
+                onClick={() =>
+                  a.status === 'avvikelse' ? onOppnaSheet('avvikelse') : onSvara(a.status)
+                }
               />
             ))}
           </div>
@@ -192,6 +235,24 @@ function PunktKort({
               />
             </div>
           ))}
+
+          {/* Foto pa utforandepunkter oavsett gradering. En bild pa en rishog
+              som ligger ratt ar lika mycket vard som en pa ett spar som gatt
+              fel - det ar den man kan visa nasta forare. */}
+          {punkt.del === 'utforande' && (
+            <button
+              onClick={() => onOppnaSheet('foto')}
+              disabled={sparar}
+              style={{
+                minHeight: 44, borderRadius: 10,
+                border: '1.5px solid rgba(255,255,255,0.14)',
+                background: 'transparent', color: T.t2,
+                fontSize: 15, fontWeight: 600, fontFamily: T.ff,
+              }}
+            >
+              {fotoUrler.length > 0 ? 'Lägg till fler foton' : 'Lägg till foto'}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -227,6 +288,10 @@ export default function EgenkontrollRundaPage() {
   const [sparStatus, setSparStatus] = useState<Record<string, boolean>>({});
   const [sparFel, setSparFel] = useState<string | null>(null);
   const [visaAvslutsdialog, setVisaAvslutsdialog] = useState(false);
+  // Signerade URL:er per punkt. Misslyckad signering ger INGEN post - kortet
+  // visar da ingen miniatyr i stallet for en trasig bildikon.
+  const [fotoPerPunkt, setFotoPerPunkt] = useState<Record<string, string[]>>({});
+  const [sheet, setSheet] = useState<{ lage: SheetLage; punkt: EgenkontrollPunkt } | null>(null);
   const [avslutar, setAvslutar] = useState(false);
 
   const ladda = useCallback(async () => {
@@ -245,6 +310,35 @@ export default function EgenkontrollRundaPage() {
   useEffect(() => {
     ladda();
   }, [ladda]);
+
+  // Bilderna signeras efterat, separat fran rundan: en misslyckad signering
+  // ska aldrig gora att punkterna inte gar att besvara.
+  const rundaId = vy?.egenkontroll?.id;
+  useEffect(() => {
+    if (!rundaId) { setFotoPerPunkt({}); return; }
+    let avbruten = false;
+    (async () => {
+      try {
+        const foton = await hamtaFoton(rundaId);
+        const par = await Promise.all(
+          foton.map(async (f: EgenkontrollFoto) => ({
+            punktId: f.punkt_id,
+            url: await signeraFoto(f.sokvag),
+          })),
+        );
+        if (avbruten) return;
+        const karta: Record<string, string[]> = {};
+        for (const p of par) {
+          if (!p.punktId || !p.url) continue; // osignerbar bild hoppas over tyst i kortet
+          (karta[p.punktId] ??= []).push(p.url);
+        }
+        setFotoPerPunkt(karta);
+      } catch {
+        if (!avbruten) setFotoPerPunkt({});
+      }
+    })();
+    return () => { avbruten = true; };
+  }, [rundaId]);
 
   const starta = async () => {
     setStartar(true);
@@ -405,8 +499,8 @@ export default function EgenkontrollRundaPage() {
                 <div style={{ fontSize: 22, fontWeight: 600, margin: '2px 0 2px' }}>
                   {besvaradePlan} av {antalPlan} klara
                 </div>
-                <p style={{ fontSize: 15, color: antalAvvikelser > 0 ? T.red : T.t2, margin: '0 0 8px' }}>
-                  {avvikelseText(antalAvvikelser)}
+                <p style={{ fontSize: 15, color: antalAvvikelser > 0 ? T.red : antalBattre > 0 ? GUL : T.t2, margin: '0 0 8px' }}>
+                  {anmarkningsText(antalAvvikelser, antalBattre)}
                 </p>
 
                 {antalPlan === 0 && (
@@ -431,7 +525,9 @@ export default function EgenkontrollRundaPage() {
                           punkt={p}
                           sparar={!!sparStatus[p.id]}
                           last={rundanKlar}
+                          fotoUrler={fotoPerPunkt[p.id] ?? []}
                           onSvara={(status) => svara(p, status)}
+                          onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
                         />
                       ))}
                     </div>
@@ -454,7 +550,9 @@ export default function EgenkontrollRundaPage() {
                           punkt={p}
                           sparar={!!sparStatus[p.id]}
                           last={rundanKlar}
+                          fotoUrler={fotoPerPunkt[p.id] ?? []}
                           onSvara={(status) => svara(p, status)}
+                          onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
                         />
                       ))}
                     </div>
@@ -485,7 +583,7 @@ export default function EgenkontrollRundaPage() {
                     <span style={{ fontSize: 15 }}>
                       Avslutad {vy.egenkontroll.klar ? kortDatum(vy.egenkontroll.klar) : 'datum saknas'}
                       {' — '}
-                      {avvikelseText(antalAvvikelser)}
+                      {anmarkningsText(antalAvvikelser, antalBattre)}
                     </span>
                   </div>
                 ) : (
@@ -513,6 +611,16 @@ export default function EgenkontrollRundaPage() {
               </>
             )}
           </>
+        )}
+
+        {sheet && vy?.egenkontroll && (
+          <AvvikelseSheet
+            lage={sheet.lage}
+            punkt={sheet.punkt}
+            egenkontrollId={vy.egenkontroll.id}
+            onStang={() => setSheet(null)}
+            onSparad={() => { setSheet(null); ladda(); }}
+          />
         )}
 
         {/* APP-EGEN DIALOG - aldrig confirm(). Den blockeras tyst i inbaddade

@@ -645,6 +645,9 @@ export type EgenkontrollPunkt = {
   status: string | null;
   avvikelse_typ: string | null;
   kommentar: string | null;
+  /** Positionen dar avvikelsen registrerades. Kvitto, aldrig inmatning. */
+  lat: number | null;
+  lng: number | null;
   besvarad: string | null;
 };
 
@@ -660,6 +663,8 @@ export type VantandeRad = {
   antalPunkter: number;
   antalBesvarade: number;
   antalAvvikelser: number;
+  /** "kan bli battre" pa utforandepunkter - ingen avvikelse, men en anmarkning. */
+  antalBattre: number;
   klarDatum: string | null;
 };
 
@@ -759,6 +764,7 @@ export async function hamtaVantande(
       antalPunkter: egna.length,
       antalBesvarade: egna.filter((p) => p.status !== null).length,
       antalAvvikelser: egna.filter((p) => p.status === 'avvikelse').length,
+      antalBattre: egna.filter((p) => p.status === 'battre').length,
       klarDatum: runda?.klar ?? null,
     };
   });
@@ -876,7 +882,15 @@ export async function svaraPaPunkt(
 
   const { data, error } = await klient
     .from('egenkontroll_punkt')
-    .update({ status, besvarad: new Date().toISOString() })
+    // avvikelse_typ MASTE nollas nar svaret inte langre ar 'avvikelse' -
+    // constraintet avvikelsetyp_kraver_avvikelse tillater typen bara ihop med
+    // status='avvikelse', sa bytet avvikelse -> ok hade annars kastat 23514 pa
+    // en punkt som redan bar en typ. Angra sig ska alltid ga.
+    .update({
+      status,
+      avvikelse_typ: status === 'avvikelse' ? undefined : null,
+      besvarad: new Date().toISOString(),
+    })
     .eq('id', punktId)
     .eq('del', del)
     .select('*')
@@ -964,4 +978,200 @@ export async function avslutaRunda(
     throw new Error('Rundan sparades inte som avslutad. Ladda om sidan.');
   }
   return sparad;
+}
+
+// ---------------------------------------------------------------------------
+// Avvikelsen: typ, foto, position, kommentar
+// ---------------------------------------------------------------------------
+
+/** CHECK egenkontroll_punkt_avvikelse_typ_check. Exakt fyra - fler blir lista. */
+export const AVVIKELSE_TYPER = ['korspar', 'stubbhojd', 'hansyn_skadad', 'annat'] as const;
+export type AvvikelseTyp = (typeof AVVIKELSE_TYPER)[number];
+
+export const AVVIKELSE_ETIKETT: Record<AvvikelseTyp, string> = {
+  korspar: 'Körspår',
+  stubbhojd: 'Stubbhöjd',
+  hansyn_skadad: 'Hänsyn skadad',
+  annat: 'Annat',
+};
+
+export type EgenkontrollFoto = {
+  id: string;
+  egenkontroll_id: string;
+  punkt_id: string | null;
+  provyta_id: string | null;
+  sokvag: string;
+  lat: number | null;
+  lng: number | null;
+  tagen: string | null;
+  skapad: string;
+};
+
+export type AvvikelseUppgifter = {
+  typ: AvvikelseTyp;
+  kommentar?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+};
+
+/**
+ * Svarar "avvikelse" med typ, kommentar och position i EN skrivning.
+ *
+ * SPARORDNING: fotot ska redan vara uppe nar detta anropas. Punkten skrivs
+ * sist, nar sokvagen finns - annars kan en avvikelse bli liggande utan bild
+ * och det ar just det som inte far hanta.
+ *
+ * Laser tillbaka VARDET, som svaraPaPunkt.
+ */
+export async function svaraMedAvvikelse(
+  punktId: string,
+  uppgifter: AvvikelseUppgifter,
+  options: KlientOptions = {},
+): Promise<EgenkontrollPunkt> {
+  if (!AVVIKELSE_TYPER.includes(uppgifter.typ)) {
+    throw new Error(`"${uppgifter.typ}" är ingen giltig avvikelsetyp.`);
+  }
+  const { klient } = await kravSession(options);
+  await kravOppenRunda(klient, punktId);
+
+  const { data, error } = await klient
+    .from('egenkontroll_punkt')
+    .update({
+      status: 'avvikelse',
+      avvikelse_typ: uppgifter.typ,
+      kommentar: tomtEllerNull(uppgifter.kommentar),
+      lat: uppgifter.lat ?? null,
+      lng: uppgifter.lng ?? null,
+      besvarad: new Date().toISOString(),
+    })
+    .eq('id', punktId)
+    .eq('del', 'plan') // avvikelse hor bara till Del 1
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Kunde inte spara avvikelsen: ${error.message}`);
+  if (!data) throw new Error('Avvikelsen sparades inte — punkten hittades inte. Ladda om sidan.');
+
+  const sparad = data as unknown as EgenkontrollPunkt;
+  if (sparad.status !== 'avvikelse' || sparad.avvikelse_typ !== uppgifter.typ) {
+    throw new Error('Avvikelsen sparades inte som väntat. Ladda om sidan.');
+  }
+  return sparad;
+}
+
+/**
+ * Skriver fotoraden. Anropas SIST, nar bilden ligger i bucketen.
+ *
+ * En klar runda ar last i TRE lager - se kravOppenRunda. Kontrollen har ar
+ * det oversta av dem och ger bara beskedet; laset ligger i databasen.
+ */
+export async function laggTillFoto(
+  foto: {
+    egenkontrollId: string;
+    punktId: string;
+    sokvag: string;
+    lat?: number | null;
+    lng?: number | null;
+    tagen?: string | null;
+  },
+  options: KlientOptions = {},
+): Promise<EgenkontrollFoto> {
+  const { klient } = await kravSession(options);
+  await kravOppenRunda(klient, foto.punktId);
+
+  const { data, error } = await klient
+    .from('egenkontroll_foto')
+    .insert({
+      egenkontroll_id: foto.egenkontrollId,
+      punkt_id: foto.punktId,
+      sokvag: foto.sokvag,
+      lat: foto.lat ?? null,
+      lng: foto.lng ?? null,
+      tagen: foto.tagen ?? new Date().toISOString(),
+    })
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Bilden sparades inte: ${error.message}`);
+  if (!data) throw new Error('Bilden sparades inte — raden kunde inte läsas tillbaka.');
+  return data as unknown as EgenkontrollFoto;
+}
+
+/**
+ * Besiktarens egen anteckning pa punkten.
+ *
+ * Skrivs till kolumnen kommentar - ALDRIG plan_kommentar, som ar planerarens
+ * text fran planeringen och ska overleva orord.
+ */
+export async function sparaPunktKommentar(
+  punktId: string,
+  kommentar: string | null,
+  options: KlientOptions = {},
+): Promise<EgenkontrollPunkt> {
+  const { klient } = await kravSession(options);
+  await kravOppenRunda(klient, punktId);
+
+  const varde = tomtEllerNull(kommentar);
+  const { data, error } = await klient
+    .from('egenkontroll_punkt')
+    .update({ kommentar: varde })
+    .eq('id', punktId)
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Kunde inte spara kommentaren: ${error.message}`);
+  if (!data) throw new Error('Kommentaren sparades inte — punkten hittades inte.');
+  const sparad = data as unknown as EgenkontrollPunkt;
+  if (sparad.kommentar !== varde) {
+    throw new Error('Kommentaren sparades inte som väntat. Ladda om sidan.');
+  }
+  return sparad;
+}
+
+/** Foton for en runda, aldst forst. */
+export async function hamtaFoton(
+  egenkontrollId: string,
+  options: KlientOptions = {},
+): Promise<EgenkontrollFoto[]> {
+  const { klient } = await kravSession(options);
+  const { data, error } = await klient
+    .from('egenkontroll_foto')
+    .select('*')
+    .eq('egenkontroll_id', egenkontrollId)
+    .order('skapad', { ascending: true });
+
+  if (error) throw new Error(`Kunde inte läsa bilderna: ${error.message}`);
+  return (data ?? []) as unknown as EgenkontrollFoto[];
+}
+
+/**
+ * Vagrar om punktens runda ar klar.
+ *
+ * EN KLAR RUNDA AR LAST I TRE LAGER. Denna funktion ar det oversta och det
+ * svagaste - den finns for att anvandaren ska fa ett begripligt besked i
+ * stallet for ett ravt check_violation. Den ar INTE laset:
+ *
+ *   1. klientsparr (har)              - begripligt besked
+ *   2. trigger egenkontroll_punkt_last - laser punktraderna
+ *      trigger egenkontroll_foto_last  - laser fotoraderna (aven DELETE)
+ *   3. storage-policy pa egenkontroll-foto - laser sjalva FILERNA, for
+ *      insert och delete
+ *
+ * SOKVAGEN AR LASBARANDE. Storage-policyn laser forsta mappnivan i filnamnet
+ * som rundans id: (storage.foldername(name))[1] jamfors mot egenkontroll.status.
+ * Sokvagen MASTE darfor forbli {egenkontroll_id}/{punkt_id}-{timestamp}.jpg.
+ * En till synes kosmetisk andring av formatet oppnar laset TYST - filerna gar
+ * da att byta ut pa en klar runda utan att nagot larmar. Byt aldrig format
+ * utan att andra policyn i samma andetag.
+ */
+async function kravOppenRunda(klient: SupabaseClient, punktId: string): Promise<void> {
+  const { data } = await klient
+    .from('egenkontroll_punkt')
+    .select('egenkontroll:egenkontroll_id (status)')
+    .eq('id', punktId)
+    .maybeSingle();
+  const status = (data as { egenkontroll?: { status?: string } } | null)?.egenkontroll?.status;
+  if (status === 'klar') {
+    throw new Error('Rundan är avslutad och går inte att ändra.');
+  }
 }

@@ -39,8 +39,23 @@ export function dagarSedan(iso: string): string {
   return `${dagar} dagar sedan`;
 }
 
-/** "inga avvikelser" / "1 avvikelse" / "2 avvikelser". */
-export function avvikelseText(antal: number): string {
-  if (antal === 0) return 'inga avvikelser';
-  return `${antal} ${antal === 1 ? 'avvikelse' : 'avvikelser'}`;
+/**
+ * Hela sanningen om en runda, inte halva.
+ *
+ * "inga avvikelser" ensamt ar sant men ofullstandigt nar en punkt star pa
+ * "kan bli battre" - da later rundan anmarkningsfri fast den inte ar det.
+ * Bada talen far darfor plats i samma rad.
+ *
+ *   2 avvikelser
+ *   inga avvikelser — 1 kan bli bättre
+ *   2 avvikelser — 1 kan bli bättre
+ *   inga anmärkningar
+ */
+export function anmarkningsText(avvikelser: number, battre: number): string {
+  if (avvikelser === 0 && battre === 0) return 'inga anmärkningar';
+  const a = avvikelser === 0
+    ? 'inga avvikelser'
+    : `${avvikelser} ${avvikelser === 1 ? 'avvikelse' : 'avvikelser'}`;
+  if (battre === 0) return a;
+  return `${a} — ${battre} kan bli bättre`;
 }
