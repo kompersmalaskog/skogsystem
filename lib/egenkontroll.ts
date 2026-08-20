@@ -82,6 +82,9 @@ export type GenereraResultat = {
   nyskapad: boolean;
   /** Antal punkter som skapades nu. 0 nar en befintlig runda returnerades. */
   antalPunkter: number;
+  /** Uppdelat pa del. Utforandepunkterna kommer alltid med pa en ny runda. */
+  antalPlanpunkter: number;
+  antalUtforandepunkter: number;
 };
 
 export type KlientOptions = {
@@ -136,6 +139,12 @@ async function kravSession(
 // Notera att wet finns i BADA listorna med olika rubrik. Fem wet-symboler och
 // sex wet-zoner betyder samma sak i falt; planeraren har bara ritat dem olika.
 // Att kontrollera den ena och inte den andra vore godtyckligt.
+//
+// ATT EN MARKERING BAR KOMMENTAR GOR DEN INTE TILL EN KONTROLLPUNKT. Nitton
+// markeringar pa uteslutna typer har kommentar - warning, manualfelling,
+// brashpile, pilar, steep, trail, ditch. De ar instruktioner till foraren FORE
+// och UNDER avverkningen, inte nagot att kontrollera efterat. Deras text foljer
+// darfor inte med, och det ar avsiktligt.
 
 type PunktMall = { rubrik: string; grupp: Grupp };
 
@@ -148,6 +157,10 @@ const SYMBOL_PUNKTER: Record<string, PunktMall> = {
   bridge: { rubrik: 'Överfart', grupp: 'Väg och avlägg' },
   corduroy: { rubrik: 'Kavelbro', grupp: 'Väg och avlägg' },
   landing: { rubrik: 'Avlägg', grupp: 'Väg och avlägg' },
+  // Vandplats for lastbilen: fysisk infrastruktur pa marken som kan vara
+  // sonderkord eller ovaxt efterat - samma familj som landing, bridge och
+  // corduroy. Lag utanfor listan i PR 1 av forbiseende, inte av beslut.
+  turningpoint: { rubrik: 'Vändplats', grupp: 'Väg och avlägg' },
   wet: { rubrik: 'Blöt fläck', grupp: 'Mark och vatten' },
 };
 
@@ -164,6 +177,70 @@ const ZON_PUNKTER: Record<string, PunktMall> = {
   culture: { rubrik: 'Kulturmiljö', grupp: 'Kulturlämning' },
   wet: { rubrik: 'Blöt zon', grupp: 'Mark och vatten' },
 };
+
+// ---------------------------------------------------------------------------
+// Del 2: Utforandet
+// ---------------------------------------------------------------------------
+//
+// Fasta punkter som ALLTID foljer med, oavsett hur planeringen ser ut. Pa ett
+// tunt planerat objekt ar de hela egenkontrollen - darfor far de aldrig hanga
+// pa att det finns markeringar.
+//
+// Katalogen bor HAR och inte i databasen: underraden ar en fast etikett, inte
+// en uppgift om objektet. rubrik snapshottas som vanligt vid genereringen, sa
+// en runda behaller sin text aven om katalogen skrivs om senare.
+
+type UtforandeMall = {
+  /** Skrivs till punkt_typ. Stabil nyckel - byt aldrig pa en befintlig. */
+  slug: string;
+  rubrik: string;
+  underrad?: string;
+};
+
+const UTFORANDE_GEMENSAMMA: UtforandeMall[] = [
+  { slug: 'risning_basvag', rubrik: 'Risning av basväg' },
+  { slug: 'rishogar', rubrik: 'Rishögar', underrad: 'Placering och åtkomst' },
+  { slug: 'korspar', rubrik: 'Körspår' },
+  { slug: 'avlagg', rubrik: 'Avlägg' },
+  { slug: 'upplagg_avverkning', rubrik: 'Upplägg av avverkningen' },
+  { slug: 'stubbhojder', rubrik: 'Stubbhöjder' },
+];
+
+const UTFORANDE_GALLRING: UtforandeMall[] = [
+  { slug: 'val_av_stammar', rubrik: 'Val av stammar' },
+  { slug: 'tradslagsblandning_kvar', rubrik: 'Trädslagsblandning kvar' },
+];
+
+const UTFORANDE_SLUTAVVERKNING: UtforandeMall[] = [
+  { slug: 'frotrad_eller_skarm', rubrik: 'Fröträd eller skärm' },
+  { slug: 'kantzon_mot_vatten', rubrik: 'Kantzon mot vatten' },
+  { slug: 'hyggesrester_mot_markberedning', rubrik: 'Hyggesrester mot markberedning' },
+];
+
+/** Utforandepunkterna for en avverkningstyp, i den ordning de ska gas. */
+export function utforandeKatalog(objektTyp: ObjektTyp): UtforandeMall[] {
+  return [
+    ...UTFORANDE_GEMENSAMMA,
+    ...(objektTyp === 'gallring' ? UTFORANDE_GALLRING : UTFORANDE_SLUTAVVERKNING),
+  ];
+}
+
+/**
+ * Underraden till en utforandepunkt, uppslagen pa punkt_typ.
+ *
+ * Fast etikett - darfor kod och inte en kolumn. Okand slug ger null i stallet
+ * for att kasta: en runda som skapats med en aldre katalog ska fortfarande ga
+ * att besvara, bara utan underrad.
+ */
+export function utforandeUnderrad(punktTyp: string | null): string | null {
+  if (!punktTyp) return null;
+  const alla = [
+    ...UTFORANDE_GEMENSAMMA,
+    ...UTFORANDE_GALLRING,
+    ...UTFORANDE_SLUTAVVERKNING,
+  ];
+  return alla.find((m) => m.slug === punktTyp)?.underrad ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Hjalpare
@@ -185,6 +262,13 @@ function tomtTillNull(varde: unknown): string | null {
   const text = String(varde).trim();
   if (text === '' || text === '0') return null;
   return text;
+}
+
+/** Trimmad text, eller null om det inte star nagot. Tom strang ar ingen uppgift. */
+function tomtEllerNull(varde: unknown): string | null {
+  if (typeof varde !== 'string') return null;
+  const text = varde.trim();
+  return text === '' ? null : text;
 }
 
 function taltEllerNull(varde: unknown): number | null {
@@ -346,7 +430,7 @@ export async function generateEgenkontroll(
   // --- 2. Finns redan en pagaende runda? ---------------------------------
   const befintlig = await hamtaPagaende(klient, objektId);
   if (befintlig) {
-    return { egenkontroll: befintlig, nyskapad: false, antalPunkter: 0 };
+    return { egenkontroll: befintlig, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0 };
   }
 
   // --- 3. Skapa rundan ---------------------------------------------------
@@ -371,7 +455,7 @@ export async function generateEgenkontroll(
     if (skapaFel.code === '23505') {
       const kapplopningsvinnare = await hamtaPagaende(klient, objektId);
       if (kapplopningsvinnare) {
-        return { egenkontroll: kapplopningsvinnare, nyskapad: false, antalPunkter: 0 };
+        return { egenkontroll: kapplopningsvinnare, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0 };
       }
     }
     throw new Error(`Kunde inte skapa egenkontrollen: ${skapaFel.message}`);
@@ -380,8 +464,14 @@ export async function generateEgenkontroll(
 
   // --- 4. Punkterna ------------------------------------------------------
   try {
-    const antalPunkter = await skapaPlanpunkter(klient, skapad.id, objektId);
-    return { egenkontroll: skapad as Egenkontroll, nyskapad: true, antalPunkter };
+    const { plan, utforande } = await skapaPunkter(klient, skapad.id, objektId, objektTyp);
+    return {
+      egenkontroll: skapad as Egenkontroll,
+      nyskapad: true,
+      antalPunkter: plan + utforande,
+      antalPlanpunkter: plan,
+      antalUtforandepunkter: utforande,
+    };
   } catch (fel) {
     // Rundan finns men punkterna kom inte in. Lamnar vi den kvar blockerar den
     // tomma rundan varje nytt forsok (det partiella indexet slapper bara in en
@@ -408,12 +498,8 @@ async function hamtaPagaende(
   return (data as Egenkontroll) ?? null;
 }
 
-/** Laser markeringarna, klassar dem och skriver punkterna. Returnerar antalet. */
-async function skapaPlanpunkter(
-  klient: SupabaseClient,
-  egenkontrollId: string,
-  objektId: string,
-): Promise<number> {
+/** Laser markeringarna, klassar dem och bygger planraderna. Skriver inget. */
+async function byggPlanrader(klient: SupabaseClient, objektId: string) {
   // .order() kravs for stabil ordning - utan den ar radordningen inte garanterad
   // och ordning/numrering skulle kunna variera mellan tva korningar.
   const { data: markeringar, error } = await klient
@@ -449,11 +535,8 @@ async function skapaPlanpunkter(
   });
 
   const medRubrik = satRubriker(kandidater);
-  if (medRubrik.length === 0) return 0;
 
-  const rader = medRubrik.map((p, i) => ({
-    egenkontroll_id: egenkontrollId,
-    ordning: i + 1,
+  return medRubrik.map((p) => ({
     del: 'plan',
     kalla: 'markering',
     grupp: p.grupp,
@@ -463,21 +546,86 @@ async function skapaPlanpunkter(
     rubrik: p.rubrik,
     antal_planerat: p.antal,
     geometri_snapshot: byggGeometri(p.rad),
+    // Planerarens egen text om vad som ska kontrolleras. SNAPSHOTTAS, las
+    // aldrig live - punkten ska overleva att markeringen raderas, precis som
+    // rubriken. Tom strang ar ingen kommentar.
+    plan_kommentar: tomtEllerNull((p.rad.data ?? {}).comment),
     status: null, // obesvarad
   }));
+}
 
-  const { error: punktFel } = await klient.from('egenkontroll_punkt').insert(rader);
-  if (punktFel) throw new Error(`Kunde inte skapa punkterna: ${punktFel.message}`);
+/**
+ * Utforandepunkterna. Ligger ALLTID med - de hanger inte pa planeringen.
+ *
+ * grupp = null: skiljelinjen mot planpunkterna gar vid `del`, inte vid grupp.
+ * En gruppsträng har hade latsats vara i samma serie som Naturvard och
+ * Kulturlamning, vilket den inte ar.
+ */
+function byggUtforanderader(objektTyp: ObjektTyp) {
+  return utforandeKatalog(objektTyp).map((mall) => ({
+    del: 'utforande',
+    kalla: 'fast',
+    grupp: null,
+    markering_id: null,
+    markering_marker_id: null,
+    punkt_typ: mall.slug,
+    rubrik: mall.rubrik,
+    antal_planerat: null,
+    geometri_snapshot: null,
+    plan_kommentar: null,
+    status: null,
+  }));
+}
 
-  return rader.length;
+/**
+ * Skriver bada delarna i EN insert med lopande ordning.
+ *
+ * Gemensam numrering kravs av unique (egenkontroll_id, ordning), och en enda
+ * insert gor att en runda aldrig kan bli halvfylld - antingen far den alla
+ * sina punkter eller ingen alls.
+ */
+async function skapaPunkter(
+  klient: SupabaseClient,
+  egenkontrollId: string,
+  objektId: string,
+  objektTyp: ObjektTyp,
+): Promise<{ plan: number; utforande: number }> {
+  const planrader = await byggPlanrader(klient, objektId);
+  const utforanderader = byggUtforanderader(objektTyp);
+
+  const rader = [...planrader, ...utforanderader].map((r, i) => ({
+    ...r,
+    egenkontroll_id: egenkontrollId,
+    ordning: i + 1,
+  }));
+  if (rader.length === 0) return { plan: 0, utforande: 0 };
+
+  const { error } = await klient.from('egenkontroll_punkt').insert(rader);
+  if (error) throw new Error(`Kunde inte skapa punkterna: ${error.message}`);
+
+  return { plan: planrader.length, utforande: utforanderader.length };
 }
 
 // ---------------------------------------------------------------------------
 // Lasning for vyerna
 // ---------------------------------------------------------------------------
 
-/** Tillatna svar pa en planpunkt. Databasens CHECK: del='plan' -> ok/avvikelse. */
+// Svarsalternativen per del. Speglar databasens CHECK status_hor_till_del.
+//
+// UTFORANDET ANVANDER ALDRIG 'avvikelse'. "Kan bli battre" ar inte ett brott
+// mot nagot - ingen har gjort fel. Blandas de ihop far vi "Godkant" pa allt,
+// och da ar verktyget dott. Avvikelse hor bara till Del 1, mot planen.
+/** Tillatna svar pa en planpunkt. CHECK: del='plan' -> ok/avvikelse. */
 export type PlanStatus = 'ok' | 'avvikelse';
+/** Tillatna svar pa en utforandepunkt. CHECK: del='utforande'. */
+export type UtforandeStatus = 'bra' | 'godkant' | 'battre';
+export type PunktDel = 'plan' | 'utforande';
+export type PunktStatus = PlanStatus | UtforandeStatus;
+
+const TILLATNA_SVAR: Record<PunktDel, readonly string[]> = {
+  plan: ['ok', 'avvikelse'],
+  utforande: ['bra', 'godkant', 'battre'],
+};
 
 export type EgenkontrollPunkt = {
   id: string;
@@ -492,6 +640,8 @@ export type EgenkontrollPunkt = {
   rubrik: string;
   antal_planerat: number | null;
   geometri_snapshot: Record<string, unknown> | null;
+  /** Snapshot av planerarens comment pa markeringen. Skilj fran kommentar. */
+  plan_kommentar: string | null;
   status: string | null;
   avvikelse_typ: string | null;
   kommentar: string | null;
@@ -697,16 +847,24 @@ export async function hamtaRunda(
  */
 export async function svaraPaPunkt(
   punktId: string,
-  status: PlanStatus,
+  status: PunktStatus,
+  del: PunktDel,
   options: KlientOptions = {},
 ): Promise<EgenkontrollPunkt> {
+  // Fanga fel statusklass HAR i stallet for att lata databasen kasta 23514.
+  // Anroparen sager vilken del svaret galler, och .eq('del', del) nedan gor
+  // att en punkt inte kan fa fel klass ens om ett id skulle peka fel.
+  if (!TILLATNA_SVAR[del].includes(status)) {
+    throw new Error(`"${status}" är inget giltigt svar på en ${del}-punkt.`);
+  }
+
   const { klient } = await kravSession(options);
 
   const { data, error } = await klient
     .from('egenkontroll_punkt')
     .update({ status, besvarad: new Date().toISOString() })
     .eq('id', punktId)
-    .eq('del', 'plan') // CHECK:en tillater ok/avvikelse bara for del='plan'
+    .eq('del', del)
     .select('*')
     .maybeSingle();
 
