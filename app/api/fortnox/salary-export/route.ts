@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
-import { beräknaExport, arbetsperiodFrånLöneperiod } from "@/lib/lonesystem/loneberakning";
+import { beräknaExport, arbetsperiodFrånLöneperiod, type ExportSammanfattning } from "@/lib/lonesystem/loneberakning";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
+import { ledighetKollisioner } from "@/lib/ledighetKollision";
+import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
 
 /**
  * POST /api/fortnox/salary-export
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
     const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes] = await Promise.all([
       supabase.from("medarbetare").select("id, namn").order("namn"),
       supabase.from("arbetsdag")
-        .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp, synk_avvikelse")
+        .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp, synk_avvikelse, start_tid, brandrisk_beordrad")
         .gte("datum", arbStart).lte("datum", arbSlut),
       // Extra tid = arbete när maskinen var av — arbetstid rakt av,
       // ska in i timlön/övertid (arbetad_min ser den inte)
@@ -76,6 +78,7 @@ export async function POST(req: NextRequest) {
     const synkAvvikelser = beraknaSynkAvvikelser((arbRes.data || []) as any[])
       .filter(r => r.status === 'oforklarad')
       .map(r => ({
+        medarbetare_id: r.medarbetare_id,
         medarbetare: _namnMap.get(r.medarbetare_id) || r.medarbetare_id,
         datum: r.datum, diff_min: r.deltaMin,
         bekraftat: `${r.bekraftad_start}-${r.bekraftad_slut} rast ${r.bekraftad_rast_min}`,
@@ -83,6 +86,20 @@ export async function POST(req: NextRequest) {
       }))
       .sort((a, b) => b.diff_min - a.diff_min);
     if (extraRes.error) throw extraRes.error;
+
+    // Ledighet + registrerat arbete samma dag (delad lib — samma sanning som
+    // Lön-flikens kort). Grupperas per medarbetare för granskningsvyn.
+    const ledKollAlla = ledighetKollisioner((ledRes.data || []) as any[], (arbRes.data || []) as any[]);
+    const ledKollMap = new Map<string, typeof ledKollAlla>();
+    for (const k of ledKollAlla) {
+      if (!ledKollMap.has(k.medarbetare_id)) ledKollMap.set(k.medarbetare_id, []);
+      ledKollMap.get(k.medarbetare_id)!.push(k);
+    }
+    // Brandrisk-oenighet: morgnar där tidiga förare svarat olika (namn på ytan).
+    const oenighet = oenighetsMorgnar((arbRes.data || []) as any[]).map(o => ({
+      datum: o.datum,
+      svar: o.svar.map(s => ({ ...s, namn: _namnMap.get(s.medarbetare_id) || s.medarbetare_id })),
+    }));
 
     // Maskintyp-map
     const maskinTypMap: Record<string, "skordare" | "skotare"> = {};
@@ -138,6 +155,12 @@ export async function POST(req: NextRequest) {
     // Beräkna per medarbetare
     const medarbetare = (medRes.data || []) as { id: string; namn: string }[];
     const resultat: (ExportSammanfattning & { status: string })[] = [];
+    // Granskningsdata som INTE går till Fortnox men syns i granskningsvyn:
+    // OB-timmar (löneart ej fastställd) + maskiner som saknar typ (tyst borttagen
+    // premie). Byggs per medarbetare, slås ihop i dry_run-svaret — den skarpa
+    // sändningen rör dem aldrig.
+    const obMap = new Map<string, { timmar: number; dagar: number; obesvarade: number }>();
+    const maskinUtanTypMap = new Map<string, string[]>();
 
     for (const med of medarbetare) {
       if (filterIds && !filterIds.includes(med.id)) continue;
@@ -156,18 +179,44 @@ export async function POST(req: NextRequest) {
       if (redanSkickad.has(med.id)) status = "skickat";
 
       resultat.push({ ...export_, status });
+
+      // OB (lib/ob) — härledd, aldrig lagrad, aldrig en Fortnox-rad
+      let obMin = 0, obDagar = 0, obObes = 0;
+      for (const d of dagar as any[]) {
+        const m = obMinuter(d);
+        if (m > 0) { obMin += m; obDagar++; }
+        if (d.brandrisk_beordrad == null && arTidigVardag(d)) obObes++;
+      }
+      obMap.set(med.id, { timmar: Math.round((obMin / 60) * 100) / 100, dagar: obDagar, obesvarade: obObes });
+
+      // Maskiner utan typ i registret → ingen premie beräknas (Daniel-fallet).
+      // Non-null maskin_id som inte finns i maskinTypMap = saknad eller otypad.
+      const utanTyp = Array.from(new Set(
+        (dagar as any[]).map(d => d.maskin_id).filter((mid: any) => mid && !maskinTypMap[mid])
+      )) as string[];
+      if (utanTyp.length) maskinUtanTypMap.set(med.id, utanTyp);
     }
 
-    // Dry run — returnera beräkningar utan att skicka
+    // Dry run — returnera beräkningar utan att skicka. Berikar varje medarbetare
+    // med granskningsdata (OB, maskin-luckor, tidsavvikelser, ledighetskollision)
+    // så granskningsvyn har allt på ett ställe utan en parallell beräkning.
     if (dryRun) {
+      const berikad = resultat.map(r => ({
+        ...r,
+        ob: obMap.get(r.medarbetare_id) || { timmar: 0, dagar: 0, obesvarade: 0 },
+        maskin_utan_typ: maskinUtanTypMap.get(r.medarbetare_id) || [],
+        synk: synkAvvikelser.filter(s => s.medarbetare_id === r.medarbetare_id),
+        ledighetskollision: ledKollMap.get(r.medarbetare_id) || [],
+      }));
       return NextResponse.json({
         ok: true,
         dry_run: true,
         period,
         arbetsperiod,
-        medarbetare: resultat,
+        medarbetare: berikad,
         totalt_rader: resultat.reduce((s, r) => s + r.rader.length, 0),
         synkAvvikelser,
+        oenighet,
       });
     }
 
