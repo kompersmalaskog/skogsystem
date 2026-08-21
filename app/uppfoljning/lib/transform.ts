@@ -18,6 +18,9 @@ export interface UppfoljningObjekt {
   skordareStart: string | null;
   skordareSlut: string | null;
   skordareObjektId: string | null;
+  // Alla skördar-objekt_id i VO-gruppen (delat VO → flera). Detaljen räknar/
+  // hämtar över HELA gruppen så den blir IDENTISK med listan. Saknas → [skordareObjektId].
+  skordareObjektIds?: string[];
   skordareModellMaskinId: string | null;
   volymSkordare: number;
   stammar: number;
@@ -25,6 +28,9 @@ export interface UppfoljningObjekt {
   skotareStart: string | null;
   skotareSlut: string | null;
   skotareObjektId: string | null;
+  // Alla skotar-objekt_id i VO-gruppen (delat VO → flera skotare, t.ex. Wisent på
+  // 11217392 + Elephant King på A130743_7). Saknas → [skotareObjektId].
+  skotareObjektIds?: string[];
   skotareModellMaskinId: string | null;
   volymSkotare: number;
   skotatArManuell: boolean;
@@ -390,16 +396,22 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
 
   const skId = obj.skordareObjektId;
   const stId = obj.skotareObjektId;
-  // When skördare and skotare share the same objekt_id, filter by machine type
-  const shared = skId && stId && skId === stId;
-  // For shared objekt: keep only harvesters for skördare, only forwarders for skotare
-  const skTidRows = skId ? tidRows.filter((r: any) => r.objekt_id === skId && (!shared || !forwarderIds.has(r.maskin_id))) : [];
-  const stTidRows = stId ? tidRows.filter((r: any) => r.objekt_id === stId && (!shared || !harvesterIds.has(r.maskin_id))) : [];
+  // VO-grupp: delat VO → flera objekt_id. Detaljen räknar över HELA gruppen (samma
+  // mängd som listan i useUppfoljningList) så lista==detalj. Fallback till det
+  // enskilda objektet när arrayerna saknas (äldre anropare / tomt objekt).
+  const skIds = new Set<string>(obj.skordareObjektIds?.length ? obj.skordareObjektIds : (skId ? [skId] : []));
+  const stIds = new Set<string>(obj.skotareObjektIds?.length ? obj.skotareObjektIds : (stId ? [stId] : []));
+  // Shared = något objekt_id hostar BÅDE skördare och skotare (t.ex. 11217392 med
+  // Scorpion + Wisent) → typ-splitten nedan behövs för att inte blanda maskintyper.
+  const shared = [...skIds].some(id => stIds.has(id));
+  // För shared objekt: behåll bara skördare för skördar-settet, bara skotare för skotar-settet.
+  const skTidRows = tidRows.filter((r: any) => skIds.has(r.objekt_id) && (!shared || !forwarderIds.has(r.maskin_id)));
+  const stTidRows = tidRows.filter((r: any) => stIds.has(r.objekt_id) && (!shared || !harvesterIds.has(r.maskin_id)));
   const skTid = buildTid(skTidRows);
   const stTid = buildTid(stTidRows);
 
   // Production aggregation — exclude forwarders when shared objekt_id
-  const skProd = skId ? prodRows.filter((r: any) => r.objekt_id === skId && (!shared || !forwarderIds.has(r.maskin_id))) : [];
+  const skProd = prodRows.filter((r: any) => skIds.has(r.objekt_id) && (!shared || !forwarderIds.has(r.maskin_id)));
   let totalStammar = 0, totalVol = 0;
   skProd.forEach((p: any) => {
     totalStammar += p.stammar || 0;
@@ -441,7 +453,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
       sortAgg.set(namn, (sortAgg.get(namn) || 0) + (r.volym_m3sub || 0));
     });
   } else {
-    const skSort = skId ? sortRows.filter((r: any) => r.objekt_id === skId) : [];
+    const skSort = sortRows.filter((r: any) => skIds.has(r.objekt_id));
     skSort.forEach((r: any) => {
       const namn = sortMap.get(r.sortiment_id) || r.sortiment_id || 'Övrigt';
       sortAgg.set(namn, (sortAgg.get(namn) || 0) + (r.volym_m3sub || 0));
@@ -459,17 +471,17 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     if (!datum || !start) return false;
     return datum >= start && (!slut || datum <= slut);
   };
-  const skAvbrott = skId ? avbrottRows.filter((r: any) => {
+  const skAvbrott = skIds.size > 0 ? avbrottRows.filter((r: any) => {
     if (harvesterIds.has(r.maskin_id)) {
-      return r.objekt_id === skId || skDatumSet.has(r.datum) || inDateRange(r.datum, obj.skordareStart, obj.skordareSlut);
+      return skIds.has(r.objekt_id) || skDatumSet.has(r.datum) || inDateRange(r.datum, obj.skordareStart, obj.skordareSlut);
     }
-    return r.objekt_id === skId && !shared;
+    return skIds.has(r.objekt_id) && !shared;
   }) : [];
-  const stAvbrott = stId ? avbrottRows.filter((r: any) => {
+  const stAvbrott = stIds.size > 0 ? avbrottRows.filter((r: any) => {
     if (forwarderIds.has(r.maskin_id)) {
-      return r.objekt_id === stId || stDatumSet.has(r.datum) || inDateRange(r.datum, obj.skotareStart, obj.skotareSlut);
+      return stIds.has(r.objekt_id) || stDatumSet.has(r.datum) || inDateRange(r.datum, obj.skotareStart, obj.skotareSlut);
     }
-    return r.objekt_id === stId && !shared;
+    return stIds.has(r.objekt_id) && !shared;
   }) : [];
 
   // Lass
@@ -518,7 +530,9 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   // rad på DETTA objekt har ar_omlastning=true bidrar med 0 till skotad total
   // (arbetet visas separat, räknas ej). Effektiv volym = manuell volym_m3 om
   // satt, annars mätt fakt_lass — manuellt ERSÄTTER, adderar aldrig.
-  const thisObjIds = new Set([skId, stId].filter(Boolean) as string[]);
+  // Hela VO-gruppens objekt_id — så egna manuella rader (t.ex. Elephant Kings rad
+  // på dess hem-objekt A130743_7) och omlastnings-avser fångas över hela gruppen.
+  const thisObjIds = new Set<string>([...skIds, ...stIds]);
 
   // Detta objekts fakt_lass grupperat per maskin_id (maskin_id NULL = grot, skip).
   const lassPerMaskin = new Map<string, { volym: number; antalLass: number }>();
