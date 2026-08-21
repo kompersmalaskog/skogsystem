@@ -784,9 +784,18 @@ export async function hamtaVantande(
   };
 }
 
+/** Objektets kartuppgifter. bounds kravs for att placera MARKERINGAR, inte position. */
+export type KartObjekt = {
+  lat: number | null;
+  lng: number | null;
+  kartbild_url: string | null;
+  kartbild_bounds: unknown;
+};
+
 export type RundVy = {
   objektNamn: string;
   objektStatus: string | null;
+  kartObjekt: KartObjekt;
   /** null = ingen runda startad an. */
   egenkontroll: Egenkontroll | null;
   punkter: EgenkontrollPunkt[];
@@ -801,7 +810,7 @@ export async function hamtaRunda(
 
   const { data: objekt, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, status')
+    .select('id, namn, status, lat, lng, kartbild_url, kartbild_bounds')
     .eq('id', objektId)
     .maybeSingle();
 
@@ -817,9 +826,16 @@ export async function hamtaRunda(
   if (rundFel) throw new Error(`Kunde inte läsa egenkontrollen: ${rundFel.message}`);
 
   const runda = valjRunda((rundRader ?? []) as unknown as Egenkontroll[]);
+  const o = objekt as unknown as Record<string, unknown>;
   const bas = {
-    objektNamn: (objekt.namn as string) ?? 'Objekt utan namn',
-    objektStatus: (objekt.status as string) ?? null,
+    objektNamn: (o.namn as string) ?? 'Objekt utan namn',
+    objektStatus: (o.status as string) ?? null,
+    kartObjekt: {
+      lat: (o.lat as number) ?? null,
+      lng: (o.lng as number) ?? null,
+      kartbild_url: (o.kartbild_url as string) ?? null,
+      kartbild_bounds: o.kartbild_bounds ?? null,
+    },
   };
   if (!runda) return { ...bas, egenkontroll: null, punkter: [] };
 
@@ -1126,6 +1142,28 @@ export async function sparaPunktKommentar(
     throw new Error('Kommentaren sparades inte som väntat. Ladda om sidan.');
   }
   return sparad;
+}
+
+/**
+ * Markeringarna som KONTEXT pa kartan - grans, diken, pilar.
+ *
+ * Detta ar orientering, inte dokumentets innehall. Kontrollpunkternas geometri
+ * kommer ALLTID ur geometri_snapshot; den har funktionen ar det underordnade
+ * lagret under dem och far aldrig anvandas for att rita en kontrollpunkt.
+ */
+export async function hamtaKontextmarkeringar(
+  objektId: string,
+  options: KlientOptions = {},
+): Promise<{ data: unknown }[]> {
+  const { klient } = await kravSession(options);
+  const { data, error } = await klient
+    .from('planering_markeringar')
+    .select('data')
+    .eq('objekt_id', objektId)
+    .order('marker_id', { ascending: true });
+
+  if (error) throw new Error(`Kunde inte läsa markeringarna: ${error.message}`);
+  return (data ?? []) as unknown as { data: unknown }[];
 }
 
 /** Foton for en runda, aldst forst. */

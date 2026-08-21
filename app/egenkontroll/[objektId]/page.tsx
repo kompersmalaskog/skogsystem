@@ -24,6 +24,7 @@ import {
   avslutaRunda,
   utforandeUnderrad,
   hamtaFoton,
+  hamtaKontextmarkeringar,
   AVVIKELSE_ETIKETT,
   GRUPPER,
   type RundVy,
@@ -35,6 +36,7 @@ import {
 } from '@/lib/egenkontroll';
 import { signeraFoto } from '@/lib/egenkontrollfoto';
 import AvvikelseSheet, { type SheetLage } from '../AvvikelseSheet';
+import RundKarta from '../RundKarta';
 import { anmarkningsText, kortDatum } from '../format';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
@@ -140,8 +142,10 @@ function PunktKort({
   sparar,
   last,
   fotoUrler,
+  vald,
   onSvara,
   onOppnaSheet,
+  onValj,
 }: {
   punkt: EgenkontrollPunkt;
   sparar: boolean;
@@ -149,8 +153,12 @@ function PunktKort({
   last: boolean;
   /** Signerade URL:er for punktens bilder. Tom = inga, eller kunde ej signeras. */
   fotoUrler: string[];
+  /** Markerad pa kartan just nu. */
+  vald: boolean;
   onSvara: (status: PunktStatus) => void;
   onOppnaSheet: (lage: SheetLage) => void;
+  /** null = punkten ar ingen plats (kalla='fast') och gar inte att centrera. */
+  onValj: (() => void) | null;
 }) {
   const etikett = statusEtikett(punkt.status);
   const underrad = punkt.del === 'utforande' ? utforandeUnderrad(punkt.punkt_typ) : null;
@@ -158,8 +166,34 @@ function PunktKort({
   const alternativ = SVARSALTERNATIV[punkt.del as PunktDel] ?? SVARSALTERNATIV.plan;
 
   return (
-    <div style={{ background: T.group, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ fontSize: 16, fontWeight: 500 }}>{punkt.rubrik}</div>
+    <div
+      style={{
+        background: T.group,
+        borderRadius: 12,
+        padding: '12px 14px',
+        // Vald punkt ramas in - samma besked som den vita glorian pa kartan.
+        outline: vald ? `2px solid ${T.blue}` : 'none',
+        outlineOffset: -2,
+      }}
+    >
+      {onValj ? (
+        <button
+          onClick={onValj}
+          aria-pressed={vald}
+          style={{
+            display: 'block', width: '100%', textAlign: 'left', minHeight: 44,
+            border: 'none', background: 'transparent', padding: 0,
+            color: T.t1, fontSize: 16, fontWeight: 500, fontFamily: T.ff,
+          }}
+        >
+          {punkt.rubrik}
+          <span style={{ color: T.blue, fontSize: 13, fontWeight: 600, marginLeft: 8 }}>
+            {vald ? 'visas på kartan' : 'visa'}
+          </span>
+        </button>
+      ) : (
+        <div style={{ fontSize: 16, fontWeight: 500 }}>{punkt.rubrik}</div>
+      )}
       {hjalptext && (
         <div style={{ fontSize: 14, color: T.t2, lineHeight: 1.4, marginTop: 3 }}>
           {hjalptext}
@@ -292,6 +326,9 @@ export default function EgenkontrollRundaPage() {
   // visar da ingen miniatyr i stallet for en trasig bildikon.
   const [fotoPerPunkt, setFotoPerPunkt] = useState<Record<string, string[]>>({});
   const [sheet, setSheet] = useState<{ lage: SheetLage; punkt: EgenkontrollPunkt } | null>(null);
+  const [valdPunktId, setValdPunktId] = useState<string | null>(null);
+  // Kontextlagret - orientering, aldrig dokumentets innehall.
+  const [kontext, setKontext] = useState<{ data: any }[]>([]);
   const [avslutar, setAvslutar] = useState(false);
 
   const ladda = useCallback(async () => {
@@ -310,6 +347,16 @@ export default function EgenkontrollRundaPage() {
   useEffect(() => {
     ladda();
   }, [ladda]);
+
+  // Kontextmarkeringarna hamtas separat: gar de inte att lasa ska kartan anda
+  // rita kontrollpunkterna, som ar det dokumentet handlar om.
+  useEffect(() => {
+    let avbruten = false;
+    hamtaKontextmarkeringar(objektId)
+      .then((m) => { if (!avbruten) setKontext(m as { data: any }[]); })
+      .catch(() => { if (!avbruten) setKontext([]); });
+    return () => { avbruten = true; };
+  }, [objektId]);
 
   // Bilderna signeras efterat, separat fran rundan: en misslyckad signering
   // ska aldrig gora att punkterna inte gar att besvara.
@@ -468,6 +515,25 @@ export default function EgenkontrollRundaPage() {
               {vy.objektNamn}
             </h1>
 
+            {/* Kartan ligger kvar synlig medan listan scrollas. Sticky, inte
+                fixed - den ska folja med i flodet och inte lagga sig over
+                nagot. 180 px ar en tredjedel av skarmen och ett medvetet pris. */}
+            {vy.egenkontroll && (
+              <div
+                style={{
+                  position: 'sticky', top: 'calc(56px + env(safe-area-inset-top))',
+                  zIndex: 5, background: T.bg, paddingTop: 8,
+                }}
+              >
+                <RundKarta
+                  objekt={vy.kartObjekt}
+                  punkter={vy.punkter}
+                  kontext={kontext}
+                  valdPunktId={valdPunktId}
+                />
+              </div>
+            )}
+
             {!vy.egenkontroll ? (
               <>
                 <p style={{ fontSize: 15, color: T.t2, lineHeight: 1.5, margin: '0 0 20px' }}>
@@ -526,8 +592,10 @@ export default function EgenkontrollRundaPage() {
                           sparar={!!sparStatus[p.id]}
                           last={rundanKlar}
                           fotoUrler={fotoPerPunkt[p.id] ?? []}
+                          vald={valdPunktId === p.id}
                           onSvara={(status) => svara(p, status)}
                           onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
+                          onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
                         />
                       ))}
                     </div>
@@ -551,8 +619,10 @@ export default function EgenkontrollRundaPage() {
                           sparar={!!sparStatus[p.id]}
                           last={rundanKlar}
                           fotoUrler={fotoPerPunkt[p.id] ?? []}
+                          vald={valdPunktId === p.id}
                           onSvara={(status) => svara(p, status)}
                           onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
+                          onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
                         />
                       ))}
                     </div>
