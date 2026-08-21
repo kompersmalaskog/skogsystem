@@ -85,6 +85,7 @@ export type GenereraResultat = {
   /** Uppdelat pa del. Utforandepunkterna kommer alltid med pa en ny runda. */
   antalPlanpunkter: number;
   antalUtforandepunkter: number;
+  antalMatningspunkter: number;
 };
 
 export type KlientOptions = {
@@ -409,7 +410,7 @@ export async function generateEgenkontroll(
   // supabase-js inte harleda radtypen och allt nedan blir GenericStringError.
   const { data: objektRad, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, typ, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
+    .select('id, namn, typ, avslutad_timestamp, faktisk_slut, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
     .eq('id', objektId)
     .maybeSingle();
 
@@ -430,7 +431,7 @@ export async function generateEgenkontroll(
   // --- 2. Finns redan en pagaende runda? ---------------------------------
   const befintlig = await hamtaPagaende(klient, objektId);
   if (befintlig) {
-    return { egenkontroll: befintlig, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0 };
+    return { egenkontroll: befintlig, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0, antalMatningspunkter: 0 };
   }
 
   // --- 3. Skapa rundan ---------------------------------------------------
@@ -455,7 +456,7 @@ export async function generateEgenkontroll(
     if (skapaFel.code === '23505') {
       const kapplopningsvinnare = await hamtaPagaende(klient, objektId);
       if (kapplopningsvinnare) {
-        return { egenkontroll: kapplopningsvinnare, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0 };
+        return { egenkontroll: kapplopningsvinnare, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0, antalMatningspunkter: 0 };
       }
     }
     throw new Error(`Kunde inte skapa egenkontrollen: ${skapaFel.message}`);
@@ -464,13 +465,16 @@ export async function generateEgenkontroll(
 
   // --- 4. Punkterna ------------------------------------------------------
   try {
-    const { plan, utforande } = await skapaPunkter(klient, skapad.id, objektId, objektTyp);
+    const { plan, utforande, matning } = await skapaPunkter(
+      klient, skapad.id, objektId, objektTyp, objekt as { avslutad_timestamp?: string | null; faktisk_slut?: string | null },
+    );
     return {
       egenkontroll: skapad as Egenkontroll,
       nyskapad: true,
-      antalPunkter: plan + utforande,
+      antalPunkter: plan + utforande + matning,
       antalPlanpunkter: plan,
       antalUtforandepunkter: utforande,
+      antalMatningspunkter: matning,
     };
   } catch (fel) {
     // Rundan finns men punkterna kom inte in. Lamnar vi den kvar blockerar den
@@ -577,6 +581,64 @@ function byggUtforanderader(objektTyp: ObjektTyp) {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Del 3: Matningar
+// ---------------------------------------------------------------------------
+
+/** Godkand tackningsgrad pa stubbehandling. Skrivs ut i vyn - inget att minnas. */
+export const KRAVNIVA_STUBBEHANDLING = 85;
+
+/** Behandlingssasong: maj till och med september. */
+const STUBBE_MANAD_FRAN = 5;
+const STUBBE_MANAD_TILL = 9;
+
+/**
+ * Ska objektet fa stubbehandlingspunkten?
+ *
+ * SASONGSVILLKORET AR BYGGT. Stubbehandling mot rotrota kravs under
+ * behandlingssasong; avslutas trakten utanfor maj-september skapas punkten
+ * inte alls.
+ *
+ * TRADSLAGSVILLKORET AR AVSIKTLIGT UTELAMNAT - INTE GLOMT. Kravet galler gran
+ * och tall, men tradslag ligger i hpr_stammar och nas via dim_objekt_id, som ar
+ * NULL pa SAMTLIGA objekt i egenkontroll-listan (verifierat 2026-08-21, 12 av
+ * 12). Ett villkor som inte gar att utvardera far inte byggas som om det gick -
+ * da hade punkten tyst uteblivit pa alla objekt. Lagg till det HAR nar
+ * dim_objekt_id ar ifylld.
+ */
+export function harStubbehandling(objekt: {
+  avslutad_timestamp?: string | null;
+  faktisk_slut?: string | null;
+}): boolean {
+  const iso = objekt.avslutad_timestamp ?? objekt.faktisk_slut;
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  const manad = d.getMonth() + 1;
+  return manad >= STUBBE_MANAD_FRAN && manad <= STUBBE_MANAD_TILL;
+}
+
+/** Matningspunkterna. I dag bara stubbehandling; provytor kommer senare. */
+function byggMatningsrader(objekt: {
+  avslutad_timestamp?: string | null;
+  faktisk_slut?: string | null;
+}) {
+  if (!harStubbehandling(objekt)) return [];
+  return [{
+    del: 'matning',
+    kalla: 'fast',
+    grupp: null,
+    markering_id: null,
+    markering_marker_id: null,
+    punkt_typ: 'stubbehandling',
+    rubrik: 'Stubbehandling',
+    antal_planerat: null,
+    geometri_snapshot: null,
+    plan_kommentar: null,
+    status: null,
+  }];
+}
+
 /**
  * Skriver bada delarna i EN insert med lopande ordning.
  *
@@ -589,21 +651,27 @@ async function skapaPunkter(
   egenkontrollId: string,
   objektId: string,
   objektTyp: ObjektTyp,
-): Promise<{ plan: number; utforande: number }> {
+  objekt: { avslutad_timestamp?: string | null; faktisk_slut?: string | null },
+): Promise<{ plan: number; utforande: number; matning: number }> {
   const planrader = await byggPlanrader(klient, objektId);
   const utforanderader = byggUtforanderader(objektTyp);
+  const matningsrader = byggMatningsrader(objekt);
 
-  const rader = [...planrader, ...utforanderader].map((r, i) => ({
+  const rader = [...planrader, ...utforanderader, ...matningsrader].map((r, i) => ({
     ...r,
     egenkontroll_id: egenkontrollId,
     ordning: i + 1,
   }));
-  if (rader.length === 0) return { plan: 0, utforande: 0 };
+  if (rader.length === 0) return { plan: 0, utforande: 0, matning: 0 };
 
   const { error } = await klient.from('egenkontroll_punkt').insert(rader);
   if (error) throw new Error(`Kunde inte skapa punkterna: ${error.message}`);
 
-  return { plan: planrader.length, utforande: utforanderader.length };
+  return {
+    plan: planrader.length,
+    utforande: utforanderader.length,
+    matning: matningsrader.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -645,6 +713,10 @@ export type EgenkontrollPunkt = {
   status: string | null;
   avvikelse_typ: string | null;
   kommentar: string | null;
+  /** Fargsegmenteringens forslag. Lamnas NULL - se sparaStubbe. */
+  varde_foreslaget: number | null;
+  /** Sammanfattning av matningen, t.ex. medeltackningsgrad. Inte kallan. */
+  varde_bekraftat: number | null;
   /** Positionen dar avvikelsen registrerades. Kvitto, aldrig inmatning. */
   lat: number | null;
   lng: number | null;
@@ -1017,6 +1089,8 @@ export type EgenkontrollFoto = {
   punkt_id: string | null;
   provyta_id: string | null;
   sokvag: string;
+  /** Tackningsgrad for EN stubbe. Bilden ar beviset for sitt eget varde. */
+  tackningsgrad: number | null;
   lat: number | null;
   lng: number | null;
   tagen: string | null;
@@ -1212,4 +1286,109 @@ async function kravOppenRunda(klient: SupabaseClient, punktId: string): Promise<
   if (status === 'klar') {
     throw new Error('Rundan är avslutad och går inte att ändra.');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Stubbehandling
+// ---------------------------------------------------------------------------
+
+/** Avrundning till narmaste 5. Steget ar medvetet grovt - se StubbeSheet. */
+export function tillNarmaste5(varde: number): number {
+  return Math.round(varde / 5) * 5;
+}
+
+/** Domen. Texten sager samma sak som fargen - fargen bar aldrig ensam. */
+export function stubbeDom(tackningsgrad: number): { status: 'ok' | 'battre'; text: string } {
+  return tackningsgrad >= KRAVNIVA_STUBBEHANDLING
+    ? { status: 'ok', text: 'Uppfyller kravnivån' }
+    : { status: 'battre', text: 'Under kravnivån' };
+}
+
+export type StubbeResultat = {
+  punkt: EgenkontrollPunkt;
+  /** Medelvardet som skrevs till varde_bekraftat, avrundat till narmaste 5. */
+  medel: number;
+  antalStubbar: number;
+};
+
+/**
+ * Sparar EN stubbe: fotorad med sitt eget varde, sedan punktens sammanfattning.
+ *
+ * SPARORDNING som i PR 5 - bilden ska redan ligga i bucketen nar detta anropas.
+ * Fotoraden skrivs forst (den ar kallan), darefter raknas medelvardet om ur
+ * SAMTLIGA stubbfoton pa punkten och skrivs till varde_bekraftat.
+ *
+ * varde_bekraftat ar en SAMMANFATTNING, inte kallan. varde_foreslaget lamnas
+ * orort (NULL) - den ar reserverad for fargsegmenteringens forslag, och fylls
+ * den med det manuella vardet forlorar vi mojligheten att jamfora forslag mot
+ * bekraftelse.
+ *
+ * Medelvardet raknas om fran grunden varje gang i stallet for att raknas
+ * inkrementellt: da kan punkten aldrig glida ifran sina foton.
+ */
+export async function sparaStubbe(
+  args: {
+    egenkontrollId: string;
+    punktId: string;
+    sokvag: string;
+    tackningsgrad: number;
+    lat?: number | null;
+    lng?: number | null;
+  },
+  options: KlientOptions = {},
+): Promise<StubbeResultat> {
+  if (!Number.isFinite(args.tackningsgrad) || args.tackningsgrad < 0 || args.tackningsgrad > 100) {
+    throw new Error('Täckningsgraden måste vara mellan 0 och 100 procent.');
+  }
+  const { klient } = await kravSession(options);
+  await kravOppenRunda(klient, args.punktId);
+
+  // 1. Fotoraden - bilden och dess varde pa samma rad.
+  const { error: fotoFel } = await klient.from('egenkontroll_foto').insert({
+    egenkontroll_id: args.egenkontrollId,
+    punkt_id: args.punktId,
+    sokvag: args.sokvag,
+    tackningsgrad: args.tackningsgrad,
+    lat: args.lat ?? null,
+    lng: args.lng ?? null,
+    tagen: new Date().toISOString(),
+  });
+  if (fotoFel) throw new Error(`Stubben sparades inte: ${fotoFel.message}`);
+
+  // 2. Rakna om ur alla stubbfoton pa punkten.
+  const { data: alla, error: lasFel } = await klient
+    .from('egenkontroll_foto')
+    .select('tackningsgrad')
+    .eq('punkt_id', args.punktId)
+    .not('tackningsgrad', 'is', null)
+    .order('skapad', { ascending: true });
+  if (lasFel) throw new Error(`Kunde inte räkna om medelvärdet: ${lasFel.message}`);
+
+  const varden = ((alla ?? []) as unknown as { tackningsgrad: number }[]).map((r) =>
+    Number(r.tackningsgrad),
+  );
+  if (varden.length === 0) throw new Error('Stubben sparades men kunde inte läsas tillbaka.');
+  const medel = tillNarmaste5(varden.reduce((a, b) => a + b, 0) / varden.length);
+
+  // 3. Punktens sammanfattning.
+  const { data, error } = await klient
+    .from('egenkontroll_punkt')
+    .update({
+      status: stubbeDom(medel).status,
+      varde_bekraftat: medel,
+      besvarad: new Date().toISOString(),
+    })
+    .eq('id', args.punktId)
+    .eq('del', 'matning')
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Kunde inte spara mätningen: ${error.message}`);
+  if (!data) throw new Error('Mätningen sparades inte — punkten hittades inte. Ladda om sidan.');
+
+  const sparad = data as unknown as EgenkontrollPunkt;
+  if (Number(sparad.varde_bekraftat) !== medel) {
+    throw new Error('Mätningen sparades inte som väntat. Ladda om sidan.');
+  }
+  return { punkt: sparad, medel, antalStubbar: varden.length };
 }

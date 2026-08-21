@@ -25,6 +25,8 @@ import {
   utforandeUnderrad,
   hamtaFoton,
   hamtaKontextmarkeringar,
+  stubbeDom,
+  KRAVNIVA_STUBBEHANDLING,
   AVVIKELSE_ETIKETT,
   GRUPPER,
   type RundVy,
@@ -37,6 +39,7 @@ import {
 import { signeraFoto } from '@/lib/egenkontrollfoto';
 import AvvikelseSheet, { type SheetLage } from '../AvvikelseSheet';
 import RundKarta from '../RundKarta';
+import StubbeSheet from '../StubbeSheet';
 import { anmarkningsText, kortDatum } from '../format';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
@@ -311,6 +314,77 @@ function Sammanfattningsrad({
   );
 }
 
+/**
+ * Matningskortet. Ingen svarsskala - matningen ar ett TAL, och statusen faller
+ * ut av det. Kortstorleken foljer PunktKort, som ar bekraftad i falt.
+ */
+function MatningsKort({
+  punkt,
+  fotoUrler,
+  last,
+  onOppna,
+}: {
+  punkt: EgenkontrollPunkt;
+  fotoUrler: string[];
+  last: boolean;
+  onOppna: () => void;
+}) {
+  const varde = punkt.varde_bekraftat != null ? Number(punkt.varde_bekraftat) : null;
+  const dom = varde != null ? stubbeDom(varde) : null;
+  const domFarg = dom == null ? T.t2 : dom.status === 'ok' ? T.green : GUL;
+  const antalStubbar = fotoUrler.length;
+
+  return (
+    <div style={{ background: T.group, borderRadius: 12, padding: '12px 14px' }}>
+      <div style={{ fontSize: 16, fontWeight: 500 }}>{punkt.rubrik}</div>
+
+      {varde == null ? (
+        <div style={{ fontSize: 13, color: T.t2, fontWeight: 600, margin: '2px 0 0' }}>
+          Obesvarad
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 13, color: domFarg, fontWeight: 600, margin: '2px 0 0' }}>
+            {varde} % · {dom!.text}
+            {antalStubbar > 1 && (
+              <span style={{ color: T.t2, fontWeight: 400 }}>
+                {' · '}{antalStubbar} stubbar
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: T.t2, marginTop: 2 }}>
+            Kravnivå {KRAVNIVA_STUBBEHANDLING} %
+          </div>
+        </>
+      )}
+
+      {fotoUrler.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+          {fotoUrler.map((url) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={url} src={url} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover' }} />
+          ))}
+        </div>
+      )}
+
+      {!last && (
+        <button
+          onClick={onOppna}
+          style={{
+            marginTop: 10, width: '100%', minHeight: 44, borderRadius: 10,
+            border: `1.5px solid ${varde == null ? T.green : 'rgba(255,255,255,0.14)'}`,
+            background: varde == null ? T.green : 'transparent',
+            color: varde == null ? '#000' : T.t1,
+            fontSize: 16, fontWeight: 600, fontFamily: T.ff,
+          }}
+        >
+          {varde == null ? 'Mät stubbehandling' : 'Fler stubbar'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function EgenkontrollRundaPage() {
   const params = useParams<{ objektId: string }>();
   const objektId = params.objektId;
@@ -327,6 +401,7 @@ export default function EgenkontrollRundaPage() {
   const [fotoPerPunkt, setFotoPerPunkt] = useState<Record<string, string[]>>({});
   const [sheet, setSheet] = useState<{ lage: SheetLage; punkt: EgenkontrollPunkt } | null>(null);
   const [valdPunktId, setValdPunktId] = useState<string | null>(null);
+  const [stubbePunkt, setStubbePunkt] = useState<EgenkontrollPunkt | null>(null);
   // Kontextlagret - orientering, aldrig dokumentets innehall.
   const [kontext, setKontext] = useState<{ data: any }[]>([]);
   const [avslutar, setAvslutar] = useState(false);
@@ -444,6 +519,20 @@ export default function EgenkontrollRundaPage() {
     () => (vy?.punkter ?? []).filter((p) => p.del === 'utforande').sort((a, b) => a.ordning - b.ordning),
     [vy?.punkter],
   );
+  const matningspunkter = useMemo(
+    () => (vy?.punkter ?? []).filter((p) => p.del === 'matning').sort((a, b) => a.ordning - b.ordning),
+    [vy?.punkter],
+  );
+  // FALLBACK: en framtida del far aldrig falla bort tyst. Allt som inte ar
+  // plan/utforande/matning hamnar i en egen sektion i stallet for att
+  // forsvinna - avslutaRunda raknar den anda, och en punkt som kravs men inte
+  // syns gor rundan omojlig att avsluta.
+  const ovrigaPunkter = useMemo(
+    () => (vy?.punkter ?? [])
+      .filter((p) => !['plan', 'utforande', 'matning'].includes(p.del))
+      .sort((a, b) => a.ordning - b.ordning),
+    [vy?.punkter],
+  );
 
   const grupper = useMemo(() => gruppera(planpunkter), [planpunkter]);
   const antalPlan = planpunkter.length;
@@ -451,6 +540,8 @@ export default function EgenkontrollRundaPage() {
   const antalAvvikelser = planpunkter.filter((p) => p.status === 'avvikelse').length;
   const antalUtforande = utforandepunkter.length;
   const besvaradeUtforande = utforandepunkter.filter((p) => p.status !== null).length;
+  const antalMatning = matningspunkter.length;
+  const besvaradeMatning = matningspunkter.filter((p) => p.status !== null).length;
 
   // Avslutet raknar BADA delarna. Kvar-talet ar det som faktiskt aterstar,
   // aldrig en gissning - det star pa knappen sa man vet hur langt man har kvar
@@ -629,6 +720,52 @@ export default function EgenkontrollRundaPage() {
                   </div>
                 )}
 
+                {/* Del 3: Matningar. Ligger SIST. Rubriken star still aven nar
+                    det bara finns en punkt - fler kommer i provyte-PR:en, och
+                    en rubrik som byter namn nar innehallet vaxer ar samre an
+                    en som star kvar. */}
+                {antalMatning > 0 && (
+                  <div>
+                    <SectionHeader>Mätningar</SectionHeader>
+                    <div style={{ fontSize: 15, color: T.t2, padding: '0 16px 8px' }}>
+                      {besvaradeMatning} av {antalMatning}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {matningspunkter.map((p) => (
+                        <MatningsKort
+                          key={p.id}
+                          punkt={p}
+                          fotoUrler={fotoPerPunkt[p.id] ?? []}
+                          last={rundanKlar}
+                          onOppna={() => setStubbePunkt(p)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Fallback: okand del ska synas, inte forsvinna. */}
+                {ovrigaPunkter.length > 0 && (
+                  <div>
+                    <SectionHeader>Övrigt</SectionHeader>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {ovrigaPunkter.map((p) => (
+                        <PunktKort
+                          key={p.id}
+                          punkt={p}
+                          sparar={!!sparStatus[p.id]}
+                          last={rundanKlar}
+                          fotoUrler={fotoPerPunkt[p.id] ?? []}
+                          vald={valdPunktId === p.id}
+                          onSvara={(status) => svara(p, status)}
+                          onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
+                          onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Avslutet. En klar runda visar ingen knapp alls - den ska
                     kannas last, inte som en knapp man inte far trycka pa. */}
                 {rundanKlar ? (
@@ -681,6 +818,16 @@ export default function EgenkontrollRundaPage() {
               </>
             )}
           </>
+        )}
+
+        {stubbePunkt && vy?.egenkontroll && (
+          <StubbeSheet
+            punkt={stubbePunkt}
+            egenkontrollId={vy.egenkontroll.id}
+            antalSedanTidigare={(fotoPerPunkt[stubbePunkt.id] ?? []).length}
+            onStang={() => setStubbePunkt(null)}
+            onSparad={() => { setStubbePunkt(null); ladda(); }}
+          />
         )}
 
         {sheet && vy?.egenkontroll && (
