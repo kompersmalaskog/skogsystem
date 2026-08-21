@@ -15,6 +15,8 @@ import {
   hamtaRunda,
   hamtaFoton,
   utforandeUnderrad,
+  stubbeDom,
+  KRAVNIVA_STUBBEHANDLING,
   AVVIKELSE_ETIKETT,
   GRUPPER,
   type EgenkontrollPunkt,
@@ -49,7 +51,14 @@ function typEtikett(typ: string): string {
 }
 
 function Rad({ punkt, fotoUrler }: { punkt: EgenkontrollPunkt; fotoUrler: string[] }) {
-  const etikett = STATUS_TEXT[punkt.status ?? ''] ?? { text: 'Obesvarad', farg: T.t2 };
+  // Matningar bar ett TAL, inte en svarsetikett. Talet ar det markagaren och
+  // certifieringen laser - "Godkant" utan procent bevisar ingenting.
+  const varde = punkt.del === 'matning' && punkt.varde_bekraftat != null
+    ? Number(punkt.varde_bekraftat) : null;
+  const dom = varde != null ? stubbeDom(varde) : null;
+  const etikett = dom
+    ? { text: `${varde} % · ${dom.text}`, farg: dom.status === 'ok' ? T.green : GUL }
+    : STATUS_TEXT[punkt.status ?? ''] ?? { text: 'Obesvarad', farg: T.t2 };
   const underrad =
     punkt.plan_kommentar ??
     (punkt.del === 'utforande' ? utforandeUnderrad(punkt.punkt_typ) : null);
@@ -74,6 +83,12 @@ function Rad({ punkt, fotoUrler }: { punkt: EgenkontrollPunkt; fotoUrler: string
         {punkt.kommentar && (
           <div style={{ fontSize: 13, color: T.t2, lineHeight: 1.4, marginTop: 2 }}>
             {punkt.kommentar}
+          </div>
+        )}
+        {varde != null && (
+          <div style={{ fontSize: 12, color: T.t2, marginTop: 2 }}>
+            Kravnivå {KRAVNIVA_STUBBEHANDLING} %
+            {fotoUrler.length > 1 && ` · ${fotoUrler.length} stubbar`}
           </div>
         )}
         {harPosition && (
@@ -119,6 +134,9 @@ function Rad({ punkt, fotoUrler }: { punkt: EgenkontrollPunkt; fotoUrler: string
 function gruppera(punkter: EgenkontrollPunkt[]): { rubrik: string; punkter: EgenkontrollPunkt[] }[] {
   const plan = punkter.filter((p) => p.del === 'plan');
   const utforande = punkter.filter((p) => p.del === 'utforande');
+  const matning = punkter.filter((p) => p.del === 'matning');
+  // Fallback: en framtida del ska synas, inte forsvinna ur dokumentet.
+  const ovrigt = punkter.filter((p) => !['plan', 'utforande', 'matning'].includes(p.del));
 
   const per = new Map<string, EgenkontrollPunkt[]>();
   for (const p of plan) {
@@ -138,6 +156,18 @@ function gruppera(punkter: EgenkontrollPunkt[]): { rubrik: string; punkter: Egen
     grupper.push({
       rubrik: 'Utförandet',
       punkter: [...utforande].sort((a, b) => a.ordning - b.ordning),
+    });
+  }
+  if (matning.length > 0) {
+    grupper.push({
+      rubrik: 'Mätningar',
+      punkter: [...matning].sort((a, b) => a.ordning - b.ordning),
+    });
+  }
+  if (ovrigt.length > 0) {
+    grupper.push({
+      rubrik: 'Övrigt',
+      punkter: [...ovrigt].sort((a, b) => a.ordning - b.ordning),
     });
   }
   return grupper;
