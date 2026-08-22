@@ -19,15 +19,18 @@ import ListGroup from '@/components/ListGroup';
 import PageContainer from '@/components/PageContainer';
 import { T } from '@/lib/utbildning';
 import {
+  aktuelltAr,
   hamtaGallringar,
   fyllDiametrar,
+  summeraVisad,
+  traktarForAr,
   datumspann,
   fmtAntal,
   fmtAndel,
   fmtVolym,
-  tradslagFarg,
   type GallringRad,
 } from '@/lib/gallring';
+import { tradslagStil } from '@/lib/tradslag';
 
 /** Tillstånd för Dgv-passet. Skiljs åt så raden aldrig påstår något den inte vet. */
 type DgvLage = 'laddar' | 'klar' | 'fel';
@@ -54,12 +57,17 @@ function Tradslagsstapel({ rad }: { rad: GallringRad }) {
             key={t.namn}
             style={{
               width: `${(t.volym / total) * 100}%`,
-              background: tradslagFarg(t.namn, i),
+              background: tradslagStil(t.namn, i).fyll,
             }}
           />
         ))}
       </div>
+      {/* Basen skrivs ut. Procenten är VOLYMandelar, men kvittot från
+          maskinen visar stamandelar — samma trädslag får då två olika tal
+          (Tall 61 % mot 55 % på Hålabäck) och den som inte vet basen läser
+          det som en bugg i vyn. */}
       <div style={{ fontSize: 13, color: T.t2, marginTop: 6 }}>
+        <span style={{ color: 'rgba(235,235,245,0.45)' }}>Volymandel</span>{' '}
         {rad.tradslag.map((t) => `${t.namn} ${fmtAndel(t.volym, total)}`).join(' · ')}
       </div>
     </div>
@@ -134,6 +142,8 @@ function Rad({ rad, dgvLage }: { rad: GallringRad; dgvLage: DgvLage }) {
 
 export default function GallringListPage() {
   const [rader, setRader] = useState<GallringRad[] | null>(null);
+  const [tidigareAr, setTidigareAr] = useState(0);
+  const ar = aktuelltAr();
   const [fel, setFel] = useState<string | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [dgvLage, setDgvLage] = useState<DgvLage>('laddar');
@@ -144,7 +154,11 @@ export default function GallringListPage() {
     setDgvLage('laddar');
     let grund: GallringRad[];
     try {
-      grund = await hamtaGallringar();
+      // Årsavgränsningen sker FÖRE diameterpasset — trakter som inte visas
+      // ska inte kosta 1 000 rader ur detalj_stam att hämta.
+      const alla = await hamtaGallringar();
+      grund = traktarForAr(alla, ar);
+      setTidigareAr(alla.length - grund.length);
       setRader(grund);
     } catch (e) {
       // Laddar / fel / tomt hålls isär. Ett läsfel får aldrig se ut som "inga
@@ -164,13 +178,13 @@ export default function GallringListPage() {
       // det skrivs ut på de rader som saknar det.
       setDgvLage('fel');
     }
-  }, []);
+  }, [ar]);
 
   useEffect(() => {
     ladda();
   }, [ladda]);
 
-  const total = (rader ?? []).reduce((s, r) => s + r.volymM3fub, 0);
+  const total = summeraVisad(rader ?? []);
 
   return (
     <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff }}>
@@ -178,12 +192,16 @@ export default function GallringListPage() {
         <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: -0.6, margin: '8px 0 2px' }}>
           {laddar ? 'Laddar…' : fel ? 'Kunde inte läsa' : `${fmtVolym(total)} m³fub`}
         </h1>
+        {/* Underrubriken säger KRITERIET, inte bara antalet. "Sista uttag"
+            och inte "avslutade": avslutad betyder redan något annat i appen
+            (objekt.avslutad_timestamp, satt när någon trycker Avsluta objekt),
+            och en trakt vars sista uttag ligger i år kan fortfarande pågå. */}
         <p style={{ fontSize: 15, color: T.t2, margin: '0 0 20px' }}>
           {laddar || fel
-            ? 'Uttag ur gallringar'
-            : `Uttag ur ${fmtAntal(rader?.length ?? 0)} ${
+            ? `Uttag ur gallringar med sista uttag ${ar}`
+            : `${fmtAntal(rader?.length ?? 0)} ${
                 (rader?.length ?? 0) === 1 ? 'gallring' : 'gallringar'
-              }`}
+              } med sista uttag ${ar}`}
         </p>
 
         {laddar && (
@@ -233,10 +251,20 @@ export default function GallringListPage() {
               lineHeight: 1.5,
             }}
           >
-            Inga gallringar med uttag hittades. Listan fylls av objekt som har
-            huvudtyp <span style={{ color: T.t1 }}>Gallring</span> i objektdetaljerna
-            och minst en dags produktion importerad. Saknas en trakt du kört: kontrollera
-            huvudtypen på objektet, eller att maskinens filer kommit in.
+            {tidigareAr > 0 ? (
+              <>
+                Ingen gallring har sitt sista uttag {ar} ännu. Däremot finns{' '}
+                <span style={{ color: T.t1 }}>{fmtAntal(tidigareAr)}</span> från tidigare
+                år — de visas inte här. Så fort en gallring körs i år dyker den upp.
+              </>
+            ) : (
+              <>
+                Inga gallringar med uttag hittades. Listan fylls av objekt som har
+                huvudtyp <span style={{ color: T.t1 }}>Gallring</span> i objektdetaljerna
+                och minst en dags produktion importerad. Saknas en trakt du kört:
+                kontrollera huvudtypen på objektet, eller att maskinens filer kommit in.
+              </>
+            )}
           </div>
         )}
 
@@ -250,6 +278,16 @@ export default function GallringListPage() {
             <p style={{ fontSize: 13, color: T.t2, margin: '16px 4px 0', lineHeight: 1.5 }}>
               Volym och stammar kommer från maskinens produktionsfiler. Dgv är den
               grundytevägda medeldiametern, räknad på de stammar som har mätt diameter.
+              En trakt räknas på det år dess sista uttag ligger och bär hela sin volym
+              dit, även om den startade i december året innan.
+              {tidigareAr > 0 && (
+                <>
+                  {' '}
+                  {fmtAntal(tidigareAr)}{' '}
+                  {tidigareAr === 1 ? 'gallring' : 'gallringar'} från tidigare år visas
+                  inte.
+                </>
+              )}
             </p>
           </>
         )}

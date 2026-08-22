@@ -48,6 +48,9 @@
 import { supabase } from './supabase';
 import { fetchAllRows } from './ekonomi/period';
 import { harledTyp } from './objekt/typ';
+// Trädslagens namn och färger bor i lib/tradslag.ts — EN palett för hela
+// appen. Gallringsvyn definierar inga egna.
+import { tradslagLabel } from './tradslag';
 
 // ---------------------------------------------------------------------------
 // Typer
@@ -117,55 +120,6 @@ export type GallringDetalj = GallringRad & {
   sortiment: SortimentAndel[];
   dagar: DagUttag[];
 };
-
-// ---------------------------------------------------------------------------
-// Trädslagsnamn
-// ---------------------------------------------------------------------------
-
-// dim_tradslag bär maskinens egna namn i versaler, och samma trädslag stavas
-// olika mellan maskiner ('ÖVR_LÖV' och 'ÖVR LÖV'). Normalisera innan gruppering,
-// annars delas ett trädslag i två staplar.
-const TRADSLAG_NAMN: Record<string, string> = {
-  TALL: 'Tall',
-  GRAN: 'Gran',
-  BJORK: 'Björk',
-  BJÖRK: 'Björk',
-  OVR_LOV: 'Övrigt löv',
-  'ÖVR_LÖV': 'Övrigt löv',
-  CONTORTA: 'Contorta',
-  LARK: 'Lärk',
-  LÄRK: 'Lärk',
-  EK: 'Ek',
-  BOK: 'Bok',
-  ASP: 'Asp',
-  AL: 'Al',
-};
-
-export function tradslagLabel(ratt: string | null | undefined): string {
-  if (!ratt) return 'Okänt trädslag';
-  const nyckel = ratt.trim().toUpperCase().replace(/\s+/g, '_');
-  const traff = TRADSLAG_NAMN[nyckel];
-  if (traff) return traff;
-  const ord = nyckel.replace(/_/g, ' ').toLowerCase();
-  return ord.charAt(0).toUpperCase() + ord.slice(1);
-}
-
-/** Fast färg per trädslag. Färgen är ALDRIG ensam bärare — varje stapel har
- *  sin text bredvid sig. Färgen finns för att ögat ska hitta tillbaka till
- *  samma trädslag mellan objekt, inte för att bära informationen. */
-export const TRADSLAG_FARG: Record<string, string> = {
-  Tall: '#FF9F0A',
-  Gran: '#30D158',
-  'Björk': '#64D2FF',
-  'Övrigt löv': '#BF5AF2',
-  Contorta: '#FF6482',
-  'Lärk': '#FFD60A',
-};
-const RESERVFARGER = ['#8E8E93', '#5E5CE6', '#FF453A', '#AC8E68'];
-
-export function tradslagFarg(namn: string, i: number): string {
-  return TRADSLAG_FARG[namn] ?? RESERVFARGER[i % RESERVFARGER.length];
-}
 
 // ---------------------------------------------------------------------------
 // Diameterklasser
@@ -519,6 +473,52 @@ async function hamtaSortiment(objektIds: string[]): Promise<SortimentAndel[]> {
     per.set(fullt, s);
   }
   return Array.from(per.values()).sort((a, b) => b.volym - a.volym);
+}
+
+// ---------------------------------------------------------------------------
+// Årsavgränsning
+// ---------------------------------------------------------------------------
+
+// Listan visar ETT år. Ett huvudtal som summerar allt någonsin växer för
+// alltid och går inte att förhålla sig till.
+//
+// Regeln: en trakt hör till året då dess SISTA uttagsdatum ligger, och den
+// bär hela sin volym dit. Kompermåla Ga kördes 22 dec 2025 – 8 jan 2026 och
+// räknas alltså i sin helhet (384,1 m³fub) på 2026, inte uppdelad.
+//
+// Varför hellre så än dagexakt: rubriken MÅSTE gå att kontrollräkna mot
+// raderna. Ett dagexakt årstal (5 916,9) är sannare om man frågar "hur mycket
+// kapades under 2026", men det blir inte summan av det man ser i listan, och
+// ett huvudtal som inte går att addera sig fram till underminerar hela vyn.
+// Priset är känt och litet: 636,6 m³fub kördes i december 2025 men räknas på
+// 2026 genom de två trakter som spänner över årsskiftet.
+//
+// ORDVAL: "sista uttag", inte "avslutad". `avslutad` betyder redan något annat
+// i appen — objekt.avslutad_timestamp, satt när någon TRYCKER "Avsluta
+// objekt", och det är den flaggan egenkontrollen väntar på. En trakt vars
+// sista uttag ligger i år kan mycket väl fortfarande pågå.
+
+/** Innevarande år enligt lokal tid. Aldrig via toISOString() — den räknar i
+ *  UTC och kan ge fel år under nyårsnatten i svensk tid. */
+export function aktuelltAr(): number {
+  return new Date().getFullYear();
+}
+
+/** Summan av traktlistan, räknad på de VISADE talen.
+ *
+ *  Varje rad visas med en decimal. Summerar man råvärdena och avrundar en
+ *  gång i slutet hamnar rubriken 0,1 fel mot raderna (6 553,5 mot 6 553,6 på
+ *  2026) — små avrundningar åt samma håll adderas. Rubriken ska gå att
+ *  kontrollräkna med en miniräknare mot det som faktiskt står i listan, så
+ *  avrunda FÖRST och summera sedan. */
+export function summeraVisad(rader: GallringRad[]): number {
+  return rader.reduce((s, r) => s + Math.round(r.volymM3fub * 10) / 10, 0);
+}
+
+/** Trakterna vars sista uttagsdatum ligger i året, med hela sin volym. */
+export function traktarForAr(rader: GallringRad[], ar: number): GallringRad[] {
+  const prefix = `${ar}-`;
+  return rader.filter((r) => !!r.sistaDatum && r.sistaDatum.startsWith(prefix));
 }
 
 // ---------------------------------------------------------------------------

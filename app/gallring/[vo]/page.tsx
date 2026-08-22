@@ -34,9 +34,9 @@ import {
   fmtVolym,
   klassLabel,
   kortDatum,
-  tradslagFarg,
   type GallringDetalj,
 } from '@/lib/gallring';
+import { tradslagStil } from '@/lib/tradslag';
 
 /** Rad med etikett, stapel och värde. Stapeln är proportionell mot radens
  *  andel av den största raden — värdet i text står alltid bredvid. */
@@ -364,7 +364,7 @@ export default function GallringObjektPage() {
                     under={`${fmtAntal(t.stammar)} stammar`}
                     andel={tradslagMax > 0 ? t.volym / tradslagMax : 0}
                     varde={`${fmtVolym(t.volym)} m³fub`}
-                    farg={tradslagFarg(t.namn, i)}
+                    farg={tradslagStil(t.namn, i).fyll}
                   />
                 </div>
               ))}
