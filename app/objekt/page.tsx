@@ -87,6 +87,37 @@ const DEMO_IMPORT = {
   anteckningar: 'Fornåkrar över hela ytan.'
 };
 
+// Tunn hopfällbar rad. MODULNIVÅ (stabil komponent-identitet) så textfält inuti behåller fokus — en
+// komponent definierad INUTI ObjektPageInner får ny referens per render → React remountar den → fältet
+// tappar fokus efter varje tecken. isOpen/onToggle lyfts in som props (staten bor kvar i föräldern).
+function Rad({ title, isOpen, onToggle, children }: { title: string; isOpen: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+      <button onClick={onToggle}
+        style={{ width: '100%', padding: '14px 2px', background: 'none', border: 'none',
+          color: isOpen ? '#fff' : 'rgba(255,255,255,0.8)', fontSize: '14px', fontWeight: '500',
+          cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {title}
+        <span style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', opacity: 0.3, fontSize: '11px' }}>▼</span>
+      </button>
+      {isOpen && (
+        <div style={{ padding: '2px 2px 18px' }}>{children}</div>
+      )}
+    </div>
+  );
+}
+
+// MODULNIVÅ av samma skäl → input behåller fokus vid inskrivning.
+function InputField({ label, value, onChange, placeholder, type = 'text' }: any) {
+  return (
+    <div style={{ marginBottom: '16px' }}>
+      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>{label}</label>
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder}
+        style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '15px', color: '#fff', boxSizing: 'border-box' }} />
+    </div>
+  );
+}
+
 export default function ObjektPage() {
   return <Suspense fallback={null}><ObjektPageInner /></Suspense>;
 }
@@ -457,33 +488,6 @@ function ObjektPageInner() {
     }, [animated, value]);
     return <>{displayValue}</>;
   };
-
-  // Tunn hopfällbar rad för traktinfo — lugn lista, underordnad planeringen
-  const Rad = ({ title, id, children }: { title: string; id: string; children: React.ReactNode }) => {
-    const isOpen = expandedSection === id;
-    return (
-      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-        <button onClick={() => setExpandedSection(isOpen ? '' : id)}
-          style={{ width: '100%', padding: '14px 2px', background: 'none', border: 'none',
-            color: isOpen ? '#fff' : 'rgba(255,255,255,0.8)', fontSize: '14px', fontWeight: '500',
-            cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {title}
-          <span style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', opacity: 0.3, fontSize: '11px' }}>▼</span>
-        </button>
-        {isOpen && (
-          <div style={{ padding: '2px 2px 18px' }}>{children}</div>
-        )}
-      </div>
-    );
-  };
-
-  const InputField = ({ label, value, onChange, placeholder, type = 'text' }: any) => (
-    <div style={{ marginBottom: '16px' }}>
-      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>{label}</label>
-      <input type={type} value={value} onChange={onChange} placeholder={placeholder}
-        style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '15px', color: '#fff', boxSizing: 'border-box' }} />
-    </div>
-  );
 
   const ChipSelect = ({ items, selected, onSelect, label, editKey, onAdd, onRemove, multi = false }: any) => {
     const isEditing = editMode === editKey;
@@ -924,7 +928,7 @@ function ObjektPageInner() {
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontWeight: '700', letterSpacing: '1px', margin: '4px 0 2px' }}>TRAKTINFO FRÅN VIDA</div>
 
             {/* GRUNDDATA (läs; "Rätta" för sällsynt korrigering) */}
-            <Rad title="Grunddata" id="grund">
+            <Rad title="Grunddata" isOpen={expandedSection === 'grund'} onToggle={() => setExpandedSection(expandedSection === 'grund' ? '' : 'grund')}>
               {(!editingId || rattaSektion === 'grund') ? (
                 <>
                   <div style={{ display: 'flex', gap: '12px' }}>
@@ -975,7 +979,7 @@ function ObjektPageInner() {
             </Rad>
 
             {/* KONTAKT (läs, typfärg; tel = ring-länk) */}
-            <Rad title="Kontakt" id="kontakt">
+            <Rad title="Kontakt" isOpen={expandedSection === 'kontakt'} onToggle={() => setExpandedSection(expandedSection === 'kontakt' ? '' : 'kontakt')}>
               {(!editingId || rattaSektion === 'kontakt') ? (
                 <>
                   <InputField label="MARKÄGARE" value={form.markagare} onChange={(e: any) => setForm({ ...form, markagare: e.target.value })} />
@@ -1010,7 +1014,7 @@ function ObjektPageInner() {
             </Rad>
 
             {/* KARTA (läs; Vägbeskrivning till koordinaten) */}
-            <Rad title="Karta" id="karta">
+            <Rad title="Karta" isOpen={expandedSection === 'karta'} onToggle={() => setExpandedSection(expandedSection === 'karta' ? '' : 'karta')}>
               {(!editingId || rattaSektion === 'karta') ? (
                 <>
                   <div style={{ marginBottom: '16px' }}>
@@ -1037,14 +1041,14 @@ function ObjektPageInner() {
 
             {/* FÖRARDIREKTIV — kort körinstruktion i klartext. Visas prominent (utan tryck) i planerings-
                 vyns objektinfo, direkt efter Faror. En PDF når aldrig en förare med handskar. */}
-            <Rad title="Förardirektiv" id="forardirektiv">
+            <Rad title="Förardirektiv" isOpen={expandedSection === 'forardirektiv'} onToggle={() => setExpandedSection(expandedSection === 'forardirektiv' ? '' : 'forardirektiv')}>
               <textarea value={form.forardirektiv} onChange={e => setForm({ ...form, forardirektiv: e.target.value })} rows={2}
                 placeholder="Kort körinstruktion, t.ex. Ståndortsanpassad gallring"
                 style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff', resize: 'vertical', boxSizing: 'border-box' }} />
             </Rad>
 
             {/* ANTECKNINGAR (redigeras — egna noteringar; Vida-anteckningar landar också här) */}
-            <Rad title="Anteckningar" id="anteckningar">
+            <Rad title="Anteckningar" isOpen={expandedSection === 'anteckningar'} onToggle={() => setExpandedSection(expandedSection === 'anteckningar' ? '' : 'anteckningar')}>
               <textarea value={form.anteckningar} onChange={e => setForm({ ...form, anteckningar: e.target.value })} rows={3}
                 style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff', resize: 'vertical', boxSizing: 'border-box' }} />
             </Rad>
