@@ -362,6 +362,11 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             if (d && (!stLastDate || d > stLastDate)) stLastDate = d;
           }
 
+          // Alla objekt_id i VO-gruppen, per roll — så detaljvyn räknar/hämtar över
+          // HELA gruppen (delat VO → flera skotare) och blir identisk med listan.
+          const skordareObjektIds = Array.from(new Set(skordareEntries.map((e: any) => e.objekt_id).filter(Boolean))) as string[];
+          const skotareObjektIds = Array.from(new Set(skotareEntries.map((e: any) => e.objekt_id).filter(Boolean))) as string[];
+
           result.push({
             vo_nummer: vo,
             namn,
@@ -372,6 +377,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             skordareStart: skStart,
             skordareSlut: skSlut,
             skordareObjektId: skordareEntry?.objekt_id || null,
+            skordareObjektIds,
             skordareModellMaskinId: skMaskinId || null,
             volymSkordare: skVol,
             stammar: skStammar,
@@ -379,6 +385,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             skotareStart: stStart,
             skotareSlut: stSlut,
             skotareObjektId: skotareEntry?.objekt_id || null,
+            skotareObjektIds,
             skotareModellMaskinId: stMaskinId || null,
             volymSkotare: volymSkotareEff,
             skotatArManuell,

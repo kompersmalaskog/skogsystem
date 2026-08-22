@@ -75,7 +75,7 @@ export default function SkotareFordelning({
   const laggTill = (m: { maskin_id: string; namn: string }) => {
     if (utkast[m.maskin_id]) return
     setExtra((e) => [...e, {
-      maskinId: m.maskin_id, namn: m.namn, mattVolym: 0, mattAntalLass: 0, mattG15: 0,
+      maskinId: m.maskin_id, namn: m.namn, hemObjektId: objektId, mattVolym: 0, mattAntalLass: 0, mattG15: 0,
       radId: null, manuellVolym: null, manuellEgen: null, manuellOmlastning: null, manuellG15: null,
       arOmlastning: false, avserObjektId: null, notering: null,
     }])
@@ -105,7 +105,9 @@ export default function SkotareFordelning({
         const egen = num(u.egen)
         const oml = u.blandad ? num(u.omlastning) : null
         const payload: any = {
-          objekt_id: objektId, maskin_id: i.maskinId, datum_fran: null,
+          // Nyckla på maskinens HEM-objekt (där dess lass ligger) så raden följer
+          // sin mätta källa. Filfri/tillagd skotare → det öppnade objektet.
+          objekt_id: i.hemObjektId || objektId, maskin_id: i.maskinId, datum_fran: null,
           volym_egen_skotning: egen,        // räknas mot objektets skotade total
           volym_omlastning: oml,            // räknas ALDRIG mot total (arbete)
           volym_m3: egen,                   // legacy-synk: räknad (egen) volym för äldre läsare

@@ -28,7 +28,11 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
       setError(null);
 
       try {
-        const ids = [skId, stId].filter(Boolean) as string[];
+        // VO-grupp: delat VO → flera objekt_id. Hämta över HELA gruppen (samma
+        // mängd som listan) så detalj==lista. Fallback till enskilt objekt.
+        const skIds = (obj.skordareObjektIds?.length ? obj.skordareObjektIds : [skId].filter(Boolean)) as string[];
+        const stIds = (obj.skotareObjektIds?.length ? obj.skotareObjektIds : [stId].filter(Boolean)) as string[];
+        const ids = Array.from(new Set([...skIds, ...stIds]));
 
         if (ids.length === 0) {
           if (!cancelled) {
@@ -48,8 +52,8 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           supabase.from('dim_sortiment').select('sortiment_id, namn'),
           supabase.from('dim_tradslag').select('tradslag_id, namn'),
           supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids),
-          stId ? supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
-          stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
+          stIds.length ? supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub, korstracka_m').in('objekt_id', stIds) : Promise.resolve({ data: [] }),
+          stIds.length ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').in('objekt_id', stIds) : Promise.resolve({ data: [] }),
           supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
           supabase.from('dim_maskin').select('maskin_id, maskin_typ, visningsnamn, modell'),
           // Manuellt skotarlager per (objekt, maskin) — hela objektet (datum_fran
@@ -67,7 +71,7 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
         if ((tidRes.data?.length ?? 0)     === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_tid', ids)
         if ((prodRes.data?.length ?? 0)    === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_produktion', ids)
         if ((avbrottRes.data?.length ?? 0) === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_avbrott', ids)
-        if ((lassRes.data?.length ?? 0)    === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_lass', stId)
+        if ((lassRes.data?.length ?? 0)    === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_lass', stIds)
 
         let avbrottRows: any[] = avbrottRes.data || [];
 
