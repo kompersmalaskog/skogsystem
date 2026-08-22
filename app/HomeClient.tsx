@@ -20,6 +20,7 @@ const productionApps = [
   { href: '/maskinvy?ny=1', label: 'Maskinvy 2',  icon: 'new_releases'        },
   { href: '/starta-jobb',   label: 'Starta jobb', icon: 'power_settings_new'  },
   { href: '/oversikt', label: 'Översikt', icon: 'dashboard' },
+  { href: '/gallring', label: 'Gallring', icon: 'forest' },
   { href: '/kalibrering', label: 'Kalibrering', icon: 'straighten' },
   { href: '/maskin-service', label: 'Servicelogg', icon: 'build' },
 ]

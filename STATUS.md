@@ -447,4 +447,169 @@ tiles bli suddiga. Lantmäteriet topowebbkartan_
 nedtonad har högre zoom-kapacitet — användaren
 kan välja den vid behov om OpenTopoMap pixlar.
 
+## Gallringsvyn — steg 1 (2026-08-22)
+
+/gallring (lista) + /gallring/[vo] (trakt) byggd på
+uttagsdata som redan finns importerad. Ingen ny
+import.
+
+Gallring identifieras på dim_objekt.huvudtyp via
+lib/objekt/typ.ts. Fältet fanns redan — 37 objekt
+har huvudtyp Gallring, 25 av dem har uttag.
+
+Källorna hålls isär (lib/gallring.ts):
+- m³fub, stammar, datum, maskin, förare, trädslag
+  → fakt_produktion (MOM)
+- sortiment → fakt_sortiment (per objekt, aldrig
+  med datumfilter)
+- diameter (Dgv, histogram) → detalj_stam.dbh_mm
+
+fakt_produktion är sanningen om ANTALET stammar.
+detalj_stam har LUCKOR. Diametermåtten redovisar
+därför öppet hur många stammar de bygger på.
+Kompermåla Ga, Lars Norberg Dunshultt och
+Midingstorp gallring 2025 saknar stamrader helt och
+visar "Dgv saknas".
+
+Maskin och förare läses ur produktionen, inte ur
+dim_objekt.maskin_id — det fältet pekar ut skotaren
+A030353 på Svinhult, Hössjömåla och Bastaremåla.
+
+Verifierat mot Hålabäck gallring 2026 (VO 11219961,
+R64428, Oskar Nilsson, 21 aug 2026) genom att köra
+vyns egna funktioner mot databasen: 254 stammar,
+DBH medel 157,5 / median 155 / min 69 / max 276 mm,
+Tall 139, Gran 63, Björk 34, Övrigt löv 18 —
+samtliga exakt enligt facit. Uttag 32,685 m³fub,
+identiskt i fakt_produktion, fakt_sortiment och
+detalj_stock.
+
+### Dgv-formeln — FASTSTÄLLD 2026-08-22
+Dgv = Sum(d^3)/Sum(d^2), grundytevägd medeldiameter
+(varje träd vägs med sin egen grundyta). Det är INTE
+sqrt(Sum(d^2)/n) — den formeln är Dg, grundyte-
+medeldiametern, där alla träd väger lika.
+
+Hålabäck, 254 stammar: Dgv 178,09 mm mot Dg 162,73
+mm mot aritmetiskt medel 157,52 mm. Skillnaden är
+inte avrundning utan tre olika mått.
+
+Frågan har ställts en gång och besvarats. Ändra inte
+formeln som en "rättning" — det kräver beslut, och
+etiketten i vyn måste följa med.
+
+### Medvetet uteslutet — lägg inte till
+Stickvägsandel, gallringskvot och skattat
+kvarvarande bestånd. Alla tre bygger på att
+stickvägsträden representerar beståndet före
+gallring. Verifierat på Hålabäck att det inte
+håller för beståndsgående drivning. Areal skattas
+aldrig ur rutnät eller körspår — utan uppmätt areal
+visas inget per-hektar-tal (bara 4 av 25 trakter
+har areal i objekt.areal; dim_objekt.areal_ha står
+på 0 för samtliga).
+
+### BLOCKERARE FÖR STEG 2 — luckor i detalj_stam
+Sjöaryd: stam_key löper 489741-490139 = 399 platser,
+men bara 379 rader finns. 20 nycklar mitt i en
+löpande serie saknas. Samma mönster på nästan alla
+gallringstrakter (fakt_produktion 399 stammar mot
+detalj_stam 379, genomgående 2-10 % färre).
+
+Detta är INTE ett urval och får inte behandlas som
+ett. Hål i en löpande nyckelserie är exakt samma
+mönster som MOM-importbuggarna A och D ovan —
+sannolikt tappad data vid import. Orsaken är
+outredd.
+
+Varför det blockerar steg 2: trädpositionerna i
+steg 2 kommer ur detalj_stam. Varje saknad stam blir
+ett falskt hål i kartan — ett område ser ogallrat ut
+fast det är gallrat. Till skillnad från steg 1, där
+luckan bara gör Dgv marginellt osäker och skrivs ut
+i klartext, blir samma lucka i steg 2 en kartbild
+som ljuger. Utred luckorna INNAN steg 2 byggs.
+
+Startpunkt för utredningen: jämför stam_key-serien i
+HPR/MOM-källfilen mot detalj_stam för Sjöaryd
+(objekt_id 85893, R64101, 24 jan 2026) och se om de
+20 nycklarna finns i filen. Gör de det ligger felet
+i importen; gör de det inte ligger det i maskinens
+export.
+
+### TODO — aggregera diametrarna i databasen
+Dgv och histogrammet läser idag ~91 000 rader ur
+detalj_stam (3,3 MB, ~2,6 s på fast nät). Det är
+inte acceptabelt i hytt på mobilt nät. Listan laddas
+därför i två steg som en nödlösning, inte som en
+design.
+
+Rätt lösning: aggregera per objekt_id i databasen —
+count(*), sum(dbh_mm^2), sum(dbh_mm^3) räcker för
+Dgv (sum(d^3)/sum(d^2)), plus en klassindelning för
+histogrammet. Då blir listan ett anrop i stället för
+91, och tvåstegsladdningen kan tas bort helt.
+
+Martin fixar MCP-auktoriseringen. Ingenting skapas i
+databasen innan dess.
+
+### EGEN GREN (ej nu) — migrera inline-trädslagspaletter
+lib/tradslag.ts är nu EN palett för trädslag (gran
+grön, tall orange, björk vit, övrigt löv grå) plus
+namnregeln som slår ihop OVR_LOV och OVR LOV.
+Gallringsvyn pekar dit. Fem andra ställen gör det
+INTE och har egna färger inline:
+
+1. app/admin/markagarrapport/[objekt_id]/page.tsx
+   rad 305-307 - gran #34c759, tall #ff9500, bjork
+   #d4c5a0. VIKTIGAST: markagarrapporten gar ut till
+   KUND. En rapport dar bjorken har en farg och
+   appen en annan ser slarvig ut utat, och det ar
+   den enda av de fem som nagon utanfor foretaget
+   ser. Ta den forst.
+2. app/maskinvy/IdagNy.tsx rad 50-52 - bjork #ffd60a
+3. app/maskinvy/VolymDeepView.tsx rad 29-31 - dito
+4. app/oversikt/OversiktKarta.tsx rad 232 - gran
+   #66BB6A, tall #FFA726, bjork #FFF176, plus ek/
+   bok/contorta
+5. app/affarsuppfoljning/page.tsx rad 381 och 410 -
+   rgba-varianter, bjork BLA och ovr lov orange
+
+Samma tradslag har alltsa fyra olika farger i appen
+idag. Da slutar fargen vara en genvag for ogat och
+blir en gissning.
+
+Att tanka pa vid migreringen: kartlagren (punkt 4
+och planeringsvyns HPR-hogar) ritar mot LJUS
+bakgrund i vissa baskartor. Vit bjork behover da
+konturen ur TradslagStil.kontur - fyllningen ensam
+racker inte. Det ar darfor stilen bar bade fyll och
+kontur i stallet for en enkel farg.
+
+### Öppna punkter
+- Specialavv Uggleboda (Dgv 368 mm) och Kompersmåla
+  Lövhuggning mm (Dgv 322 mm) är körda med
+  slutavverkningsskördaren PONS20SDJAA270231 men
+  har huvudtyp Gallring. Beslut 2026-08-22: vyn ska
+  spegla dim_objekt.huvudtyp utan undantag. Är typen
+  fel rättas den i objektdetaljerna, inte i vyn.
+
+### Okulärbesiktigad 2026-08-22
+Inloggad på dev-servern, 375x812 (mobil). Listan och
+Hålabäck-vyn visar rätt siffror mot facit, konsolen
+är ren. Fyra fel hittades och rättades i samma
+omgång:
+- TopBar visade "Gallring/11219961" som sidtitel —
+  saknade post i pageNames + prefixregel.
+- Detaljvyn ritade en egen header under den fasta
+  TopBar:en = dubbel chrome. Borttagen; bakåtlänken
+  "Alla gallringar" ligger i innehållet i stället
+  och finns i alla tillstånd, även fel och tomt.
+- Punkt i stället för komma i medelstam (0.129) och
+  areal (9.17). Egen fmtDecimal med sv-SE.
+- "Tall 0 %" och "0,0 m3fub" på värden som finns men
+  avrundas till noll. Skrivs nu "<1 %" och "<0,1" —
+  en post som existerar får aldrig renderas som
+  frånvarande.
+
 Uppdatera denna fil vid varje commit.
