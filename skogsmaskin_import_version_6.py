@@ -3924,6 +3924,37 @@ def _save_hpr_tables(data: Dict):
     logger.info(f"  hpr_filer + hpr_stammar: {len(stammar)} stammar sparade")
 
 
+def rebuild_fakt_sortiment(maskin_id: str, objekt_id: str) -> Optional[Dict]:
+    """Bygg om fakt_sortiment för ETT (maskin, objekt) ur detalj_stock.
+
+    Ersätter den gamla per-fil-upserten. HPR-filerna för ett objekt är en MIX
+    av en 4000-kapad fil och små inkrementfiler — med merge-duplicates skrev
+    inkrementet ÖVER den stora filens dagssiffror istället för att läggas till.
+    detalj_stock är redan deduplicerad på (maskin_id, stem_key, log_key) och
+    bär unionen, så härledning därifrån är både korrekt och ominläsningssäker.
+
+    MÅSTE anropas EFTER att detalj_stock och detalj_stam skrivits.
+
+    Funktionen i DB rör ingenting om den härledda mängden är tom — se
+    20260822_rebuild_fakt_sortiment.sql. Returnerar None vid fel (anroparen
+    ska då flagga import-fel), annars dict med status ombyggd/hoppad."""
+    try:
+        resp = requests.post(
+            f"{SUPABASE_URL}/rest/v1/rpc/rebuild_fakt_sortiment",
+            json={'p_maskin_id': maskin_id, 'p_objekt_id': objekt_id},
+            headers=SUPABASE_HEADERS,
+            timeout=60,
+        )
+        if resp.status_code not in (200, 201):
+            logger.error(f"  rebuild_fakt_sortiment {maskin_id}/{objekt_id}: "
+                         f"{resp.status_code} - {resp.text[:200]}")
+            return None
+        return resp.json()
+    except Exception as e:
+        logger.error(f"  rebuild_fakt_sortiment {maskin_id}/{objekt_id}: {e}")
+        return None
+
+
 def save_hpr_to_supabase(data: Dict) -> bool:
     """Spara HPR-data till Supabase"""
     try:
@@ -4003,11 +4034,36 @@ def save_hpr_to_supabase(data: Dict) -> bool:
                 except Exception as e:
                     logger.warning(f"  Kunde inte uppdatera cert för {objekt_id}: {e}")
 
-        # Sortiment-summering – KRITISK
-        if data.get('sortiment_summering'):
-            if upsert_data('fakt_sortiment', data['sortiment_summering'],
-                          ['datum', 'maskin_id', 'objekt_id', 'sortiment_id']) == 0:
-                fel.append('fakt_sortiment')
+        # Sortiment-summering – KRITISK.
+        #
+        # HÄRLEDS ur detalj_stock, skrivs INTE per fil. Den gamla upserten
+        # (merge-duplicates på datum+maskin+objekt+sortiment) lät en liten
+        # inkrementfil skriva ÖVER en stor kapad fils dagssiffror istället för
+        # att läggas till dem. Mätt 2026-08-07/objekt 11217392: 459 stockar
+        # lagrade mot 2 651 verkliga. Se 20260822_rebuild_fakt_sortiment.sql.
+        #
+        # Paren tas ur data['stockar'] och inte ur sortiment_summering, för att
+        # sortiment_summering hoppar över rader vars obj_key saknas i kartan
+        # (parse_hpr_file: "if not _objekt_id: continue") — då hade objektet
+        # aldrig byggts om. Stockarna är dessutom exakt det som just skrevs.
+        if data.get('stockar'):
+            par = sorted({(s['maskin_id'], s['objekt_id']) for s in data['stockar']
+                          if s.get('maskin_id') and s.get('objekt_id')})
+            for _maskin_id, _objekt_id in par:
+                res = rebuild_fakt_sortiment(_maskin_id, _objekt_id)
+                if res is None:
+                    fel.append('fakt_sortiment')
+                elif res.get('status') == 'hoppad':
+                    # Inte ett fel: objektets stockar saknar dedupe-nyckel
+                    # (legacy före 20260507) och kan inte joinas mot stammarna.
+                    # Befintliga rader lämnas orörda — hellre gammalt än raderat.
+                    logger.warning(f"  fakt_sortiment: hoppade {_objekt_id} — "
+                                   f"inga joinbara stockar, behåller "
+                                   f"{res.get('rader_fore')} befintliga rader")
+                else:
+                    logger.info(f"  fakt_sortiment {_objekt_id}: "
+                                f"{res.get('rader_fore')} → {res.get('rader_efter')} rader, "
+                                f"{res.get('volym_fore')} → {res.get('volym_efter')} m³")
 
         # === HPR-filer och HPR-stammar ===
         if data.get('stammar'):
