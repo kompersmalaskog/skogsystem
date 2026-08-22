@@ -48,7 +48,11 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
         const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes, dimMaskinRes, manuellRes] = await Promise.all([
           supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
           supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, processtyp, tradslag_id, datum').in('objekt_id', ids),
-          supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
+          // 'antal' fanns inte — kolumnen heter 'stockar'. PostgREST svarar 400 på
+          // okänd kolumn, så HELA sortiment-fetchen föll och blev tyst tom lista.
+          // Antalet används inte här (transform läser sortiment_id + volym_m3sub),
+          // därför tas det bort istället för att döpas om.
+          supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub').in('objekt_id', ids),
           supabase.from('dim_sortiment').select('sortiment_id, namn'),
           supabase.from('dim_tradslag').select('tradslag_id, namn'),
           supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids),
@@ -72,6 +76,19 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
         if ((prodRes.data?.length ?? 0)    === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_produktion', ids)
         if ((avbrottRes.data?.length ?? 0) === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_avbrott', ids)
         if ((lassRes.data?.length ?? 0)    === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_lass', stIds)
+
+        // Ett fel får aldrig se ut som tom data. Varje `res.data || []` nedan gör
+        // en misslyckad fetch till en tom lista — det var så det felstavade
+        // 'antal' kunde ligga och tömma sortimentlistan utan att någon såg det.
+        for (const [namn, res] of Object.entries({
+          fakt_tid: tidRes, fakt_produktion: prodRes, fakt_sortiment: sortRes,
+          dim_sortiment: dimSortRes, dim_tradslag: dimTradslagRes, fakt_avbrott: avbrottRes,
+          fakt_lass: lassRes, fakt_lass_sortiment: lassSortRes,
+          dim_operator: dimOperatorRes, dim_maskin: dimMaskinRes,
+        })) {
+          const e = (res as { error?: { message?: string } })?.error;
+          if (e) console.error(`[useObjektUppfoljning] ${namn} misslyckades:`, e.message ?? e);
+        }
 
         let avbrottRows: any[] = avbrottRes.data || [];
 
