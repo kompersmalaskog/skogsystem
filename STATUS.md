@@ -553,6 +553,39 @@ histogrammet. Då blir listan ett anrop i stället för
 Martin fixar MCP-auktoriseringen. Ingenting skapas i
 databasen innan dess.
 
+### EGEN GREN (ej nu) — migrera inline-trädslagspaletter
+lib/tradslag.ts är nu EN palett för trädslag (gran
+grön, tall orange, björk vit, övrigt löv grå) plus
+namnregeln som slår ihop OVR_LOV och OVR LOV.
+Gallringsvyn pekar dit. Fem andra ställen gör det
+INTE och har egna färger inline:
+
+1. app/admin/markagarrapport/[objekt_id]/page.tsx
+   rad 305-307 - gran #34c759, tall #ff9500, bjork
+   #d4c5a0. VIKTIGAST: markagarrapporten gar ut till
+   KUND. En rapport dar bjorken har en farg och
+   appen en annan ser slarvig ut utat, och det ar
+   den enda av de fem som nagon utanfor foretaget
+   ser. Ta den forst.
+2. app/maskinvy/IdagNy.tsx rad 50-52 - bjork #ffd60a
+3. app/maskinvy/VolymDeepView.tsx rad 29-31 - dito
+4. app/oversikt/OversiktKarta.tsx rad 232 - gran
+   #66BB6A, tall #FFA726, bjork #FFF176, plus ek/
+   bok/contorta
+5. app/affarsuppfoljning/page.tsx rad 381 och 410 -
+   rgba-varianter, bjork BLA och ovr lov orange
+
+Samma tradslag har alltsa fyra olika farger i appen
+idag. Da slutar fargen vara en genvag for ogat och
+blir en gissning.
+
+Att tanka pa vid migreringen: kartlagren (punkt 4
+och planeringsvyns HPR-hogar) ritar mot LJUS
+bakgrund i vissa baskartor. Vit bjork behover da
+konturen ur TradslagStil.kontur - fyllningen ensam
+racker inte. Det ar darfor stilen bar bade fyll och
+kontur i stallet for en enkel farg.
+
 ### Öppna punkter
 - Specialavv Uggleboda (Dgv 368 mm) och Kompersmåla
   Lövhuggning mm (Dgv 322 mm) är körda med
