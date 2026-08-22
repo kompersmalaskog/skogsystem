@@ -612,4 +612,120 @@ omgång:
   en post som existerar får aldrig renderas som
   frånvarande.
 
+## Gallringskvitto — steg 1 (2026-08-22)
+
+/gallring/[vo]/kvitto — dokumentet markägaren
+far efter utford gallring. A4, @media print,
+ingen PDF-generator och inget nytt beroende.
+Anvandaren skriver ut till PDF fran webblasaren.
+
+Sidan ar LJUS medan resten av appen ar mork.
+Den ska pa vitt papper, och renderas den mork pa
+skarmen vet ingen vad de far forran det ligger i
+facket.
+
+### Grinden
+Knappen i objektvyn och sjalva dokumentet ar
+bada gejtade pa dim_objekt.skordning_avslutad.
+
+objekt.avslutad_timestamp vore det naturliga
+valet men ar satt pa NOLL av 34 gallringstrakter
+(faktisk_slut likasa) — en grind pa det faltet
+hade gomt funktionen helt. skordning_avslutad ar
+maskinens eget slutdatum ur StanForD och finns
+pa 26 av 37.
+
+Dokumentet skriver ut att det avser avslutad
+SKORDNING. Skotningen kan paga, och en markagare
+som ser virke kvar vid vag ska forsta varfor.
+
+Halabaeck har inget avslutsdatum — den startade
+21 aug och ar inte klar. Verifieringsobjektet far
+alltsa ingen knapp, och kvittosidan visar
+sparrtexten i stallet for dokument. Det ar ratt
+beteende: 254 stammar pa 9,17 ha ar 28 st/ha och
+0,58 m2/ha uttag, alltsa en dags gallring pa en
+trakt som inte ar fardig.
+
+### KRITISKT — MOM och HPR sager olika om samma trakt
+Kvittots huvudtal far ALDRIG vara summan av
+sortimenten. Sortimenten kommer ur fakt_sortiment
+(HPR), traktens uttag ur fakt_produktion (MOM).
+De ar identiska pa 1 av 25 gallringstrakter.
+
+  Halabaeck        32,7 mot 32,7   0,00 %
+  Rossmala        651,1 mot 647,9  -0,49 %
+  Steglehylte     486,9 mot 458,4  -5,85 %
+  Johan Svensson   25,6 mot  23,2  -9,36 %
+  Kompersmala L.  541,8 mot 983,6 +81,53 %  <-- !
+  Midingstorp     309,3   fakt_sortiment SAKNAS
+  Kompermala Ga   384,1   fakt_sortiment SAKNAS
+  Lars Norberg     90,7   fakt_sortiment SAKNAS
+
+Forsta bygget lat huvudtalet vara
+sortimentssumman for att kolumnen skulle addera.
+Det hade tryckt 0,0 m3fub pa Midingstorps kvitto
+— en trakt som avverkat 309 m3. Nu ar huvudtalet
+fakt_produktion (samma tal som gallringsvyn) och
+dokumentet skriver ut i klartext nar sortimenten
+inte tacker uttaget.
+
+HPR ligger systematiskt lagre, vilket luktar
+kumulativ-fil-dedupe (jfr CLAUDE.md: anvand bara
+filen med hogst stammar_count per objekt).
+Kompersmala Lovhuggning ligger 81 % for HOGT och
+ser ut som dubbelraknade kumulativa filer. Bada
+ar OUTREDDA och egen uppgift.
+
+### KVAR — grundyteblocket
+Plan fore / uttag / kvar gar inte att bygga.
+Planens ingangsvarde finns inte lagrat:
+objekt.trakt_data bar bara areal/volym/beraknad,
+och lib/skoglig-berakning.ts raknar visserligen
+grundyta m2/ha ur SLU:s laserdata (band 2) men
+resultatet lever bara i React-state i
+planeringsvyn.
+
+Beslut 2026-08-22: ny kolumn
+objekt.grundyta_fore_m2ha, fylls MANUELLT ur
+stamplingslangd eller traktdirektiv. SLU-vardet
+duger inte — det ar fran skanningsdatum, bar
+tillvaxt sedan dess och ar inte markagarens eget
+tal. Kvittots poang ar att utga fran siffran i
+hans plan som han redan accepterat.
+
+Migration + block gors i EGEN GREN. Inget skapat
+i databasen i den har sessionen.
+
+### FALLA — trakt_data.areal ar en platshallare
+objekt.trakt_data.areal ar 2 for SAMTLIGA 51
+objekt. Riktig areal ligger i objekt.areal
+(Halabaeck 9,17 ha, Rossmala 23,2 ha). Laser man
+fel falt blir varje per-hektar-tal fel med en
+faktor fyra till femton.
+
+### Saknas i schemat
+"Avdelning" finns inte som begrepp nagonstans i
+kodbasen — utelamnat ur kvittot. vo_nummer och
+kontraktsnummer bar SAMMA varde pa Halabaeck
+(11219961), sa kontraktsraden trycks bara nar den
+skiljer sig fran VO. traktnr ar 886311.
+
+### Verifierat
+Dataskiktet mot facit (Halabaeck): 254 stammar,
+Dgv 178 mm, 32,7 m3fub, stamandel Tall 55 / Gran
+25 / Bjork 13 / Ovrigt lov 7 % — samtliga exakt.
+Volymandelen 61/24/10/5 skiljer sig som den ska,
+och basen star utskriven i bada dokumenten.
+
+Renderat inloggat pa Rossmala Ga 2026: hela
+dokumentet, ratt farger (gran gron, bjork VIT med
+kontur, ovrigt lov gra, tall orange), tackningsrad
+nar sortimenten inte gar ihop, ren konsol.
+
+INTE okulargranskad: sjalva A4-layouten och
+utskriftsresultatet. Browser-panelen komponerade
+inte (innerWidth 0), sa matten gick inte att lasa.
+Behover ett oga pa print preview.
+
 Uppdatera denna fil vid varje commit.

@@ -330,6 +330,41 @@ export default function GallringObjektPage() {
               </div>
             </Grupp>
 
+            {/* Kvittot är ett dokument till markägaren och ska bara gå att
+                skapa när skördningen faktiskt är klar. Grinden läser
+                dim_objekt.skordning_avslutad — maskinens eget slutdatum ur
+                StanForD. objekt.avslutad_timestamp vore det naturliga valet
+                men är satt på NOLL av 34 gallringstrakter, så en grind på det
+                fältet hade gömt funktionen helt.
+
+                Är trakten inte klar visas ingen knapp och ingen gråad
+                platshållare — bara raden som säger varför. En avstängd knapp
+                är en fråga föraren ändå inte kan besvara. */}
+            {detalj.skordningAvslutad ? (
+              <Link
+                href={`/gallring/${encodeURIComponent(detalj.vo)}/kvitto`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: 50,
+                  marginTop: 12,
+                  borderRadius: 12,
+                  background: T.blue,
+                  color: '#fff',
+                  fontSize: 16,
+                  textDecoration: 'none',
+                }}
+              >
+                Skapa kvitto
+              </Link>
+            ) : (
+              <p style={{ fontSize: 13, color: T.t2, margin: '12px 4px 0', lineHeight: 1.5 }}>
+                Kvitto kan skapas när skördningen är avslutad. Maskinen har inte
+                rapporterat något slutdatum för den här trakten ännu.
+              </p>
+            )}
+
             <SectionHeader>Sortiment</SectionHeader>
             {detalj.sortiment.length > 0 ? (
               <Grupp>
