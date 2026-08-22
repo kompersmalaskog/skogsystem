@@ -2567,8 +2567,14 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
             if dest_key_temp:
                 dest_key = dest_key_temp
             
-            # Volym - Ponsse FPR har 3 LoadVolume utan kategori (sob, sub, pris)
-            # Ta första som sob, andra som sub
+            # Volym. Verifierat 2026-08-22 mot 60 skarpa FPR-filer (1 338
+            # volymtripplar): varje PartialLoad har loadVolumeCategory på
+            # samtliga LoadVolume — "Volume, m3sob", "Volume, m3sub" och
+            # "Solid volume of bundles ..., m3". Kategorigrenen nedan är alltså
+            # den som körs, och den läser rätt fält.
+            #
+            # (Att m3sob och m3sub innehåller samma tal i de filerna är hur
+            # maskinen rapporterar, inte något parsern gör. Rör inte det här.)
             load_volumes = [safe_float(v.text) for v in find_all_elements(partial, 'LoadVolume', ns)]
             volym_sob = 0.0
             volym_sub = 0.0
@@ -2585,12 +2591,26 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
                         elif 'm3sub' in cat:
                             volym_sub = val
                 else:
-                    # Ingen kategori: anta sob=index0, sub=index1
-                    volym_sob = load_volumes[0] if len(load_volumes) > 0 else 0.0
-                    volym_sub = load_volumes[1] if len(load_volumes) > 1 else volym_sob
+                    # Ingen kategori — ska inte hända. Gissa INTE.
+                    #
+                    # Den gamla koden tog index 0 som sob, index 1 som sub, och
+                    # vid ett enda värde skrev den samma tal i BÅDA. Det är ett
+                    # påhittat värde i en namngiven kolumn: ingen läsare kan se
+                    # att m3sub egentligen var okänd.
+                    #
+                    # Nu: sob får första värdet (lasset ska inte försvinna),
+                    # sub lämnas None = okänd. None skiljer sig från 0.0, som
+                    # skulle betyda "noll under bark" — ett annat påstående.
+                    volym_sob = load_volumes[0]
+                    volym_sub = None
+                    logger.error(
+                        f"  {filnamn}: LoadVolume utan loadVolumeCategory "
+                        f"({len(load_volumes)} värden) — m3sub lämnas okänd. "
+                        f"Maskinen exporterar i ett format parsern inte känner igen.")
                 total_volym += volym_sob
-            
-            if (volym_sob > 0 or volym_sub > 0) and product_key:
+
+            # (volym_sub or 0): fallbacken kan ge None, och None > 0 kastar.
+            if (volym_sob > 0 or (volym_sub or 0) > 0) and product_key:
                 lass_sortiment.append({
                     'sortiment_id': f"{maskin_id}_{product_key}",
                     'sortiment_namn': product_name,
@@ -4196,7 +4216,9 @@ def save_fpr_to_supabase(data: Dict) -> bool:
                 lass_data.append(lass_copy)
                 # Bygg sortiment per lass
                 for s in sortiment_list:
-                    if s.get('sortiment_id') and (s.get('volym_m3sob', 0) > 0 or s.get('volym_m3sub', 0) > 0):
+                    # (… or 0): volym_m3sub kan vara None när FPR-filen saknade
+                    # loadVolumeCategory (= okänd, inte noll). None > 0 kastar.
+                    if s.get('sortiment_id') and ((s.get('volym_m3sob') or 0) > 0 or (s.get('volym_m3sub') or 0) > 0):
                         lass_sortiment_data.append({
                             'maskin_id': lass_copy['maskin_id'],
                             'objekt_id': lass_copy['objekt_id'],
@@ -4205,7 +4227,9 @@ def save_fpr_to_supabase(data: Dict) -> bool:
                             'sortiment_id': s['sortiment_id'],
                             'sortiment_namn': s.get('sortiment_namn', ''),
                             'volym_m3sob': s.get('volym_m3sob', 0),
-                            'volym_m3sub': s.get('volym_m3sub', 0),
+                            # None bevaras — okänd volym ska stå som NULL i DB,
+                            # aldrig som 0 (vilket vore ett annat påstående).
+                            'volym_m3sub': s.get('volym_m3sub'),
                             'filnamn': lass_copy['filnamn']
                         })
             if lass_data:
