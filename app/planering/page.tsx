@@ -1022,8 +1022,15 @@ export default function PlannerPage() {
     // === Zone layers (zoom-interpolerade bredder) ===
     const zoneWidth = ['interpolate', ['linear'], ['zoom'], 10, 1.5, 13, 3, 15, 5, 17, 6] as any;
     const zoneCasingWidth = ['interpolate', ['linear'], ['zoom'], 10, 3, 13, 5, 15, 7, 17, 8] as any;
-    map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.2 } });
-    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    // Gallringszoner: kraftigare fyllning + mörkare/bredare casing än övriga zoner, så trädslags-
+    // färgen läses PÅ EN BLICK (grön grön, orange orange) och den vita löv-fyllningen inte tonas bort
+    // mot ljus karta — den mörka casingen bär skuggan/kontrasten. TRIMBARA (Martin godkänner i preview).
+    // Data-drivet på ['get','zoneType'] → alla andra zontyper (wet/steep/…) är HELT oförändrade.
+    const GALLRING_FILL_OPACITY = 0.45;
+    const zoneCasingWidthGallring = ['interpolate', ['linear'], ['zoom'], 10, 4.5, 13, 7.5, 15, 10.5, 17, 12] as any; // ~1.5× bredare
+    const gallringCase = (gallringVal: any, defaultVal: any) => ['case', ['==', ['get', 'zoneType'], 'gallring'], gallringVal, defaultVal] as any;
+    map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
+    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': gallringCase('rgba(0,0,0,0.82)', 'rgba(0,0,0,0.6)'), 'line-width': gallringCase(zoneCasingWidthGallring, zoneCasingWidth) }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
