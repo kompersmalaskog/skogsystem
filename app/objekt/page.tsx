@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { signeraKartfil } from '@/lib/kartfiler';
+import DokumentChips, { harDokument } from '@/components/DokumentChips';
 import PageContainer from '@/components/PageContainer';
 import proj4 from 'proj4';
 import { TreePine, Trees } from 'lucide-react';
@@ -86,6 +86,37 @@ const DEMO_IMPORT = {
   sortiment: ['Tall timmer · Urshult', 'Tall timmer · Vislanda', 'Gran timmer · Urshult', 'Gran timmer · Vislanda', 'Kubb · Tall', 'Kubb · Gran', 'Massa · Barr', 'Massa · Björk', 'Energi · Bränsleved'],
   anteckningar: 'Fornåkrar över hela ytan.'
 };
+
+// Tunn hopfällbar rad. MODULNIVÅ (stabil komponent-identitet) så textfält inuti behåller fokus — en
+// komponent definierad INUTI ObjektPageInner får ny referens per render → React remountar den → fältet
+// tappar fokus efter varje tecken. isOpen/onToggle lyfts in som props (staten bor kvar i föräldern).
+function Rad({ title, isOpen, onToggle, children }: { title: string; isOpen: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+      <button onClick={onToggle}
+        style={{ width: '100%', padding: '14px 2px', background: 'none', border: 'none',
+          color: isOpen ? '#fff' : 'rgba(255,255,255,0.8)', fontSize: '14px', fontWeight: '500',
+          cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {title}
+        <span style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', opacity: 0.3, fontSize: '11px' }}>▼</span>
+      </button>
+      {isOpen && (
+        <div style={{ padding: '2px 2px 18px' }}>{children}</div>
+      )}
+    </div>
+  );
+}
+
+// MODULNIVÅ av samma skäl → input behåller fokus vid inskrivning.
+function InputField({ label, value, onChange, placeholder, type = 'text' }: any) {
+  return (
+    <div style={{ marginBottom: '16px' }}>
+      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>{label}</label>
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder}
+        style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '15px', color: '#fff', boxSizing: 'border-box' }} />
+    </div>
+  );
+}
 
 export default function ObjektPage() {
   return <Suspense fallback={null}><ObjektPageInner /></Suspense>;
@@ -185,7 +216,7 @@ function ObjektPageInner() {
     inkopare: '', inkoparetel: '', markagare: '', markagaretel: '', markagareepost: '',
     cert: '', typ: 'slut', atgard: '', volym: '', areal: '', grot: false,
     maskiner: [] as string[], koordinatX: '', koordinatY: '',
-    sortiment: [] as string[], anteckningar: '',
+    sortiment: [] as string[], anteckningar: '', forardirektiv: '',
     ar: 2026, manad: 1, ordning: 1, status: 'planerad'
   });
 
@@ -351,7 +382,7 @@ function ObjektPageInner() {
       // status utelämnas medvetet → DB-default 'planerad' vid insert, oförändrad vid
       // update. Status styrs av planeringsvyn, inte detta formulär (objekt_status_check).
       lat, lng,
-      sortiment: form.sortiment, anteckningar: form.anteckningar || null,
+      sortiment: form.sortiment, anteckningar: form.anteckningar || null, forardirektiv: form.forardirektiv || null,
       // maskiner + ordning skrivs INTE härifrån — de ägs av planeringsvyn (strikt separation).
       ar: form.manad === 0 ? null : form.ar, manad: form.manad === 0 ? null : form.manad,
     };
@@ -383,7 +414,7 @@ function ObjektPageInner() {
       atgard: obj.atgard || '', volym: obj.volym?.toString() || '',
       areal: obj.areal?.toString() || '', grot: obj.grot || false,
       maskiner: obj.maskiner || [], koordinatX: obj.lat?.toString() || '', koordinatY: obj.lng?.toString() || '',
-      sortiment: obj.sortiment || [], anteckningar: obj.anteckningar || '',
+      sortiment: obj.sortiment || [], anteckningar: obj.anteckningar || '', forardirektiv: obj.forardirektiv || '',
       ar: obj.ar || year, manad: obj.manad || 0, ordning: obj.ordning || 1, status: obj.status || 'planerad'
     });
     setDokUrls({ td: obj.traktdirektiv_url || null, sl: obj.stamplingslangd_url || null, tk: obj.traktkarta_url || null, vl: obj.valtlapp_url || null });
@@ -457,33 +488,6 @@ function ObjektPageInner() {
     }, [animated, value]);
     return <>{displayValue}</>;
   };
-
-  // Tunn hopfällbar rad för traktinfo — lugn lista, underordnad planeringen
-  const Rad = ({ title, id, children }: { title: string; id: string; children: React.ReactNode }) => {
-    const isOpen = expandedSection === id;
-    return (
-      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-        <button onClick={() => setExpandedSection(isOpen ? '' : id)}
-          style={{ width: '100%', padding: '14px 2px', background: 'none', border: 'none',
-            color: isOpen ? '#fff' : 'rgba(255,255,255,0.8)', fontSize: '14px', fontWeight: '500',
-            cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {title}
-          <span style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', opacity: 0.3, fontSize: '11px' }}>▼</span>
-        </button>
-        {isOpen && (
-          <div style={{ padding: '2px 2px 18px' }}>{children}</div>
-        )}
-      </div>
-    );
-  };
-
-  const InputField = ({ label, value, onChange, placeholder, type = 'text' }: any) => (
-    <div style={{ marginBottom: '16px' }}>
-      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>{label}</label>
-      <input type={type} value={value} onChange={onChange} placeholder={placeholder}
-        style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '15px', color: '#fff', boxSizing: 'border-box' }} />
-    </div>
-  );
 
   const ChipSelect = ({ items, selected, onSelect, label, editKey, onAdd, onRemove, multi = false }: any) => {
     const isEditing = editMode === editKey;
@@ -856,47 +860,16 @@ function ObjektPageInner() {
               </div>
             )}
 
-            {/* Dokumentknappar — kompakta typfärgade pillar (ikon + text), bara om url finns */}
-            {editingId && (dokUrls.td || dokUrls.sl || dokUrls.tk || dokUrls.vl || ovrigaDok.length > 0) && (() => {
-              const dokFarg = form.typ === 'slut' ? '#BA7515' : '#3f9457'; // dämpade typtoner (matchande dämpning)
-              const ikonStil = { width: '14px', height: '14px', flexShrink: 0 } as React.CSSProperties;
-              const pill = (url: string, etikett: string, ikon: React.ReactNode, key?: string) => (
-                <a key={key} href="#" target="_blank" rel="noopener noreferrer"
-                  onClick={async (e) => {
-                    e.preventDefault();
-                    // Privat bucket — signera läs-URL vid klick (TTL 1h)
-                    const signerad = await signeraKartfil(url);
-                    if (signerad) window.open(signerad, '_blank', 'noopener,noreferrer');
-                  }}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '9px 12px', borderRadius: '9px',
-                    textDecoration: 'none', fontSize: '13px', fontWeight: 500, lineHeight: 1,
-                    background: `${dokFarg}18`, border: `1px solid ${dokFarg}40`, color: dokFarg }}>{ikon}{etikett}</a>
-              );
-              const fileTextIcon = (
-                <svg style={ikonStil} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><line x1="10" y1="9" x2="8" y2="9" />
-                </svg>
-              );
-              const clipboardIcon = (
-                <svg style={ikonStil} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" />
-                </svg>
-              );
-              const mapIcon = (
-                <svg style={ikonStil} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" /><line x1="8" y1="2" x2="8" y2="18" /><line x1="16" y1="6" x2="16" y2="22" />
-                </svg>
-              );
-              return (
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                  {dokUrls.td && pill(dokUrls.td, 'Traktdirektiv', fileTextIcon)}
-                  {dokUrls.tk && pill(dokUrls.tk, 'Traktkarta (PDF)', mapIcon)}
-                  {dokUrls.sl && pill(dokUrls.sl, 'Stämplingslängd', clipboardIcon)}
-                  {dokUrls.vl && pill(dokUrls.vl, 'Vältlappar', clipboardIcon)}
-                  {ovrigaDok.map((d, i) => pill(d.path, d.namn, fileTextIcon, `ov${i}`))}
-                </div>
-              );
-            })()}
+            {/* Dokumentknappar — delad DokumentChips (samma chips i /objekt + planeringsvyn). Öppnar i ny flik. */}
+            {editingId && harDokument({ traktdirektivUrl: dokUrls.td, traktkartaUrl: dokUrls.tk, stamplingslangdUrl: dokUrls.sl, valtlappUrl: dokUrls.vl, ovrigaDokument: ovrigaDok }) && (
+              <div style={{ marginBottom: '20px' }}>
+                <DokumentChips
+                  traktdirektivUrl={dokUrls.td} traktkartaUrl={dokUrls.tk} stamplingslangdUrl={dokUrls.sl}
+                  valtlappUrl={dokUrls.vl} ovrigaDokument={ovrigaDok} typ={form.typ}
+                  onOppna={(s) => window.open(s, '_blank', 'noopener,noreferrer')}
+                />
+              </div>
+            )}
 
             {/* Importvarningar — diskret gul markering med antal, fälls ut. */}
             {editingId && importVarningar.length > 0 && (
@@ -955,7 +928,7 @@ function ObjektPageInner() {
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontWeight: '700', letterSpacing: '1px', margin: '4px 0 2px' }}>TRAKTINFO FRÅN VIDA</div>
 
             {/* GRUNDDATA (läs; "Rätta" för sällsynt korrigering) */}
-            <Rad title="Grunddata" id="grund">
+            <Rad title="Grunddata" isOpen={expandedSection === 'grund'} onToggle={() => setExpandedSection(expandedSection === 'grund' ? '' : 'grund')}>
               {(!editingId || rattaSektion === 'grund') ? (
                 <>
                   <div style={{ display: 'flex', gap: '12px' }}>
@@ -1006,7 +979,7 @@ function ObjektPageInner() {
             </Rad>
 
             {/* KONTAKT (läs, typfärg; tel = ring-länk) */}
-            <Rad title="Kontakt" id="kontakt">
+            <Rad title="Kontakt" isOpen={expandedSection === 'kontakt'} onToggle={() => setExpandedSection(expandedSection === 'kontakt' ? '' : 'kontakt')}>
               {(!editingId || rattaSektion === 'kontakt') ? (
                 <>
                   <InputField label="MARKÄGARE" value={form.markagare} onChange={(e: any) => setForm({ ...form, markagare: e.target.value })} />
@@ -1041,7 +1014,7 @@ function ObjektPageInner() {
             </Rad>
 
             {/* KARTA (läs; Vägbeskrivning till koordinaten) */}
-            <Rad title="Karta" id="karta">
+            <Rad title="Karta" isOpen={expandedSection === 'karta'} onToggle={() => setExpandedSection(expandedSection === 'karta' ? '' : 'karta')}>
               {(!editingId || rattaSektion === 'karta') ? (
                 <>
                   <div style={{ marginBottom: '16px' }}>
@@ -1066,8 +1039,16 @@ function ObjektPageInner() {
               )}
             </Rad>
 
+            {/* FÖRARDIREKTIV — kort körinstruktion i klartext. Visas prominent (utan tryck) i planerings-
+                vyns objektinfo, direkt efter Faror. En PDF når aldrig en förare med handskar. */}
+            <Rad title="Förardirektiv" isOpen={expandedSection === 'forardirektiv'} onToggle={() => setExpandedSection(expandedSection === 'forardirektiv' ? '' : 'forardirektiv')}>
+              <textarea value={form.forardirektiv} onChange={e => setForm({ ...form, forardirektiv: e.target.value })} rows={2}
+                placeholder="Kort körinstruktion, t.ex. Ståndortsanpassad gallring"
+                style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff', resize: 'vertical', boxSizing: 'border-box' }} />
+            </Rad>
+
             {/* ANTECKNINGAR (redigeras — egna noteringar; Vida-anteckningar landar också här) */}
-            <Rad title="Anteckningar" id="anteckningar">
+            <Rad title="Anteckningar" isOpen={expandedSection === 'anteckningar'} onToggle={() => setExpandedSection(expandedSection === 'anteckningar' ? '' : 'anteckningar')}>
               <textarea value={form.anteckningar} onChange={e => setForm({ ...form, anteckningar: e.target.value })} rows={3}
                 style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff', resize: 'vertical', boxSizing: 'border-box' }} />
             </Rad>
