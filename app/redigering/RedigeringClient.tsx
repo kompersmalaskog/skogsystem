@@ -2351,10 +2351,12 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
   const harSkotarData = (info?.skotatM3 ?? 0) > 0 || (Number(obj.skotad_volym_manuell) || 0) > 0
   const ingenData = !harSkordarData && !harSkotarData
   const visaSkordare = harSkordarData || ingenData
-  // Skotare-raden syns även utan data när skotningen är avslutad eller
-  // skotarmaskinen aldrig sänder filer — uppräkningen måste vara nåbar
-  // från noll (Åkarp-fallet: skotad utan en enda lassrad)
-  const visaSkotare = harSkotarData || ingenData || !!gruppSkotningAvslutad || !!skotareSanderEj
+  // Skotare-raden syns även utan skotardata när objektet är SKÖRDAT (skotning är
+  // nästa steg → måste vara nåbar för att avsluta/registrera manuellt även när
+  // maskinen körde före filsändning, Åbogen-fallet), när skotningen är avslutad,
+  // eller när skotarmaskinen aldrig sänder filer — uppräkningen måste vara nåbar
+  // från noll (Åkarp-fallet: skotad utan en enda lassrad).
+  const visaSkotare = harSkotarData || ingenData || harSkordarData || !!gruppSkotningAvslutad || !!skotareSanderEj
 
   // Grot är ett huvudtyp-värde OCH en flagga — de synkas här så de aldrig kan
   // säga emot varandra: väljer man 'Grot' sätts risskotning=true, väljer man
