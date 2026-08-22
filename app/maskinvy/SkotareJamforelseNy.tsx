@@ -8,12 +8,13 @@ import {
 import {
   hämtaManuellRader, harManuellData, fetchAllTimeLassTid, byggVolymPerDag, sumPerDag,
 } from '@/lib/maskinvy/skotarvolym'
+import { skotningsavstandM } from '@/lib/skotningsavstand'
 
 // ─────────────────────────────────────────────────────────────
 // SkotareJamforelseNy — Wisent vs Elephant King, per avståndsklass
 // Bakom ?ny=1, flik "Jämförelse" under Skotare.
 //
-// 4 mått × 4 avståndklasser. INGEN vinnarkröning.
+// 4 mått × 5 avståndsklasser. INGEN vinnarkröning.
 //
 // G15h = (processing_sek + terrain_sek) / 3600
 // — exakt samma formel som OversiktShared.fetchData (rad 250).
@@ -33,11 +34,30 @@ const WISENT = { id: 'A030353', namn: 'Ponsse Wisent',           kort: 'Wisent',
 const EK     = { id: 'A110148', namn: 'Ponsse Elephant King AF', kort: 'EK',     color: C.purple }
 
 // ── Avståndklasser ────────────────────────────────────────────
+// Avståndsklasserna följer ACKORDSTRAPPAN: grundavstånd 200 m, sedan steg om
+// 100 m. Då ser man inte bara hur maskinen presterar på olika avstånd, utan i
+// samma indelning som betalningen — en klass är ett prissteg.
+//
+// Värdet som klassas är SKOTNINGSAVSTÅND (enkelriktat, lib/skotningsavstand),
+// inte fakt_lass.korstracka_m som är tur och retur.
+//
+// Översta klassen slår medvetet ihop två prissteg (600–900 och 900+). Skälet
+// är läsbarhet i hytt: sex kolumner ger ~54 px bredd på mobil och fyra
+// textrader i kontextraden under diagrammet, fem ger ~65 px. De ihopslagna
+// facken är de minsta (21 respektive 8 lass i augusti), och över 600 m säger
+// skillnaden mellan 700 och 1 100 m ändå lite för uppföljning. Kopplingen
+// till ackordstrappan behålls där merparten av lassen ligger.
+//
+// GRÄNSERNA BOR HÄR OCH INGEN ANNANSTANS. De är satta mot augusti 2026
+// (198 lass, fem objekt; fördelning 55/43/30/41/29) — ett rimligt utgångsläge,
+// inte en sanning. Justera dem när testperioden gett mer underlag; inget annat
+// i filen behöver röras.
 const KLASSER = [
-  { label: '0–500m',  short: '0–500',  min: 0,    max: 500      },
-  { label: '500–1km', short: '500–1k', min: 500,  max: 1000     },
-  { label: '1–2km',   short: '1–2km',  min: 1000, max: 2000     },
-  { label: '2km+',    short: '2km+',   min: 2000, max: Infinity },
+  { label: '0–200 m',   short: '0–200',   min: 0,   max: 200      },
+  { label: '200–300 m', short: '200–300', min: 200, max: 300      },
+  { label: '300–400 m', short: '300–400', min: 300, max: 400      },
+  { label: '400–600 m', short: '400–600', min: 400, max: 600      },
+  { label: '600 m+',    short: '600+',    min: 600, max: Infinity },
 ]
 const NK = KLASSER.length
 
@@ -60,7 +80,7 @@ const MATT: { id: MattId; label: string; unit: string; dec: number }[] = [
 type KlassAgg = { lass: number; volym: number }
 
 type MaskinAgg = {
-  klasser:    KlassAgg[]  // index 0–3 = KLASSER
+  klasser:    KlassAgg[]  // ett index per KLASSER
   g15h:       number      // total G15h perioden = SUM((proc+terr)/3600)
   bransle:    number      // total L
   totalVolym: number      // SUM(volym_m3sub) alla klasser
@@ -95,7 +115,7 @@ async function fetchJamforelse(
   for (const r of lassRows) {
     const a = map[r.maskin_id]; if (!a) continue
     const v  = r.volym_m3sub  || 0
-    const ki = getKlassIdx(r.korstracka_m || 0)
+    const ki = getKlassIdx(skotningsavstandM(r.korstracka_m))
     a.klasser[ki].lass++
     a.klasser[ki].volym += v
     a.totalVolym += v
@@ -763,7 +783,9 @@ export default function SkotareJamforelseNy() {
             {harManuellEk
               ? 'manuell schablon ur systemet (skotare_objekt_manuell), fördelad per dag.'
               : 'manuell schablon tills FPR-registrering är åtgärdad.'}
-            {' '}Lass och avstånd (korstracka_m) är maskinmätta och tillförlitliga.
+            {' '}Lass och körd sträcka är maskinmätta. Avståndsklasserna visar
+            skotningsavstånd — halva den körda sträckan, som maskinen mäter tur
+            och retur.
           </div>
         </div>
 
