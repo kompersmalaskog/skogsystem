@@ -15,19 +15,29 @@
 --
 -- Läget före reparation (mätt 2026-08-22):
 --   90 rader i hpr_filer
---   60 med stammar_count = 0 eller NULL
---   58 av dem har faktiska hpr_stammar — 115 968 oräknade stammar
---    2 rader har ett nollskilt men felaktigt värde
+--   58 med stammar_count = 0 men faktiska stammar — 115 968 oräknade
+--    2 med ett FÖR HÖGT värde: 4 000 respektive 429 lovade, noll faktiska
 --
--- Skriver bara där värdet faktiskt är fel. Rader utan stammar lämnas på 0 —
--- det är ett korrekt värde, inte en lucka.
+-- De två för höga är den omvända faran. Huvudimporten skriver filraden och
+-- sedan stammarna i batchar; faller en batch loggas bara en varning
+-- (_save_hpr_tables: "hpr_stammar insert batch misslyckades") och raden blir
+-- kvar med ett löfte datan inte håller. Vakten läser då existing_max = 4000
+-- för objekt 11213462 och skulle avvisa VARJE framtida fil under 4 000
+-- stammar — för ett objekt som inte har en enda stam. Ett lås, inte ett skydd.
+--
+-- Därför räknas ALLA rader om, i båda riktningarna — inte bara de som har
+-- stammar. En inner join mot hpr_stammar missar precis de två raderna, vilket
+-- den första versionen av den här migrationen gjorde.
+--
+-- Rader som verkligen saknar stammar (4 st) hamnar på 0. Det är ett korrekt
+-- värde: de skyddar inget och ska inte hindra nästa fil.
 
 UPDATE hpr_filer f
 SET stammar_count = s.faktiska
 FROM (
-  SELECT h.hpr_fil_id AS id, COUNT(*)::int AS faktiska
-  FROM hpr_stammar h
-  GROUP BY h.hpr_fil_id
+  SELECT f2.id,
+         (SELECT COUNT(*)::int FROM hpr_stammar h WHERE h.hpr_fil_id = f2.id) AS faktiska
+  FROM hpr_filer f2
 ) s
 WHERE s.id = f.id
   AND COALESCE(f.stammar_count, 0) IS DISTINCT FROM s.faktiska;
