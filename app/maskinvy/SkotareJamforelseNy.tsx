@@ -14,7 +14,7 @@ import { skotningsavstandM } from '@/lib/skotningsavstand'
 // SkotareJamforelseNy — Wisent vs Elephant King, per avståndsklass
 // Bakom ?ny=1, flik "Jämförelse" under Skotare.
 //
-// 4 mått × 6 avståndsklasser. INGEN vinnarkröning.
+// 4 mått × 5 avståndsklasser. INGEN vinnarkröning.
 //
 // G15h = (processing_sek + terrain_sek) / 3600
 // — exakt samma formel som OversiktShared.fetchData (rad 250).
@@ -41,16 +41,23 @@ const EK     = { id: 'A110148', namn: 'Ponsse Elephant King AF', kort: 'EK',    
 // Värdet som klassas är SKOTNINGSAVSTÅND (enkelriktat, lib/skotningsavstand),
 // inte fakt_lass.korstracka_m som är tur och retur.
 //
+// Översta klassen slår medvetet ihop två prissteg (600–900 och 900+). Skälet
+// är läsbarhet i hytt: sex kolumner ger ~54 px bredd på mobil och fyra
+// textrader i kontextraden under diagrammet, fem ger ~65 px. De ihopslagna
+// facken är de minsta (21 respektive 8 lass i augusti), och över 600 m säger
+// skillnaden mellan 700 och 1 100 m ändå lite för uppföljning. Kopplingen
+// till ackordstrappan behålls där merparten av lassen ligger.
+//
 // GRÄNSERNA BOR HÄR OCH INGEN ANNANSTANS. De är satta mot augusti 2026
-// (198 lass, fem objekt) — ett rimligt utgångsläge, inte en sanning. Justera
-// dem när testperioden gett mer underlag; inget annat i filen behöver röras.
+// (198 lass, fem objekt; fördelning 55/43/30/41/29) — ett rimligt utgångsläge,
+// inte en sanning. Justera dem när testperioden gett mer underlag; inget annat
+// i filen behöver röras.
 const KLASSER = [
   { label: '0–200 m',   short: '0–200',   min: 0,   max: 200      },
   { label: '200–300 m', short: '200–300', min: 200, max: 300      },
   { label: '300–400 m', short: '300–400', min: 300, max: 400      },
   { label: '400–600 m', short: '400–600', min: 400, max: 600      },
-  { label: '600–900 m', short: '600–900', min: 600, max: 900      },
-  { label: '900 m+',    short: '900+',    min: 900, max: Infinity },
+  { label: '600 m+',    short: '600+',    min: 600, max: Infinity },
 ]
 const NK = KLASSER.length
 
