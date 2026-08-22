@@ -29,7 +29,7 @@ import {
   type Origo,
 } from '@/lib/kartkoordinater';
 import { T } from '@/lib/utbildning';
-import type { EgenkontrollPunkt } from '@/lib/egenkontroll';
+import type { EgenkontrollPunkt, EgenkontrollProvyta } from '@/lib/egenkontroll';
 
 declare global {
   interface Window { maplibregl: any }
@@ -86,13 +86,18 @@ export default function RundKarta({
   objekt,
   punkter,
   kontext,
+  provytor,
   valdPunktId,
+  onPosition,
 }: {
   objekt: KartObjektData | null;
   punkter: EgenkontrollPunkt[];
   /** Ravt data ur planering_markeringar - bara orientering. */
   kontext: { data: any }[];
+  provytor: EgenkontrollProvyta[];
   valdPunktId: string | null;
+  /** Positionen delas uppat sa avstandslistan slipper en egen GPS-prenumeration. */
+  onPosition?: (p: { lat: number; lng: number; noggrannhet: number | null } | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -102,6 +107,9 @@ export default function RundKarta({
   const [positionsFel, setPositionsFel] = useState(false);
 
   const origo = useMemo(() => (objekt ? kartOrigoFranBounds(objekt) : null), [objekt]);
+  // Ref sa hamtaPosition inte behover onPosition i sitt beroende och far ny identitet.
+  const onPositionRef = useRef(onPosition);
+  onPositionRef.current = onPosition;
 
   // --- Geometrierna ---------------------------------------------------------
   const punktGeo = useMemo<Geo>(() => {
@@ -131,6 +139,26 @@ export default function RundKarta({
     return { type: 'FeatureCollection', features };
   }, [kontext, origo]);
 
+  /**
+   * Provytorna. Egen farg (bla), skild fran planens markeringar och fran
+   * statusfargerna. Matt = fylld, ej matt = ihalig ring.
+   *
+   * Ritas i FAST pixelstorlek, inte i sann skala: ytan ar 5,64 m i radie och
+   * trakten ar over en kilometer bred, sa en sannskalig cirkel vore mindre an
+   * en bildpunkt. Kartan ska hjalpa en att HITTA ytan - avstandslistan under
+   * kartan ar det man faktiskt gar efter.
+   */
+  const provyteGeo = useMemo<Geo>(() => ({
+    type: 'FeatureCollection',
+    features: provytor
+      .filter((y) => y.lat != null && y.lng != null)
+      .map((y) => ({
+        type: 'Feature',
+        properties: { nummer: y.nummer, matt: y.matt != null || y.overhoppad ? 1 : 0 },
+        geometry: { type: 'Point', coordinates: [y.lng as number, y.lat as number] },
+      })),
+  }), [provytor]);
+
   /** Avvikelsernas EGNA positioner - redan WGS84, ingen konvertering. */
   const avvikelseGeo = useMemo<Geo>(() => ({
     type: 'FeatureCollection',
@@ -147,8 +175,14 @@ export default function RundKarta({
     if (typeof navigator === 'undefined' || !navigator.geolocation) { setPositionsFel(true); return; }
     setPositionsFel(false);
     navigator.geolocation.getCurrentPosition(
-      (p) => setMinPosition([p.coords.longitude, p.coords.latitude]),
-      () => setPositionsFel(true),
+      (p) => {
+        setMinPosition([p.coords.longitude, p.coords.latitude]);
+        onPositionRef.current?.({
+          lat: p.coords.latitude, lng: p.coords.longitude,
+          noggrannhet: Number.isFinite(p.coords.accuracy) ? p.coords.accuracy : null,
+        });
+      },
+      () => { setPositionsFel(true); onPositionRef.current?.(null); },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 },
     );
   }, []);
@@ -271,6 +305,24 @@ export default function RundKarta({
         },
       });
 
+      map.addSource('ek-provytor', { type: 'geojson', data: provyteGeo });
+      map.addLayer({
+        id: 'ek-provyta-matt', type: 'circle', source: 'ek-provytor',
+        filter: ['==', ['get', 'matt'], 1],
+        paint: {
+          'circle-color': '#0A84FF', 'circle-radius': 7,
+          'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
+        },
+      });
+      map.addLayer({
+        id: 'ek-provyta-omatt', type: 'circle', source: 'ek-provytor',
+        filter: ['==', ['get', 'matt'], 0],
+        paint: {
+          'circle-color': 'rgba(10,132,255,0.15)', 'circle-radius': 7,
+          'circle-stroke-color': '#0A84FF', 'circle-stroke-width': 2,
+        },
+      });
+
       map.addSource('ek-jag', { type: 'geojson', data: TOM });
       map.addLayer({
         id: 'ek-jag', type: 'circle', source: 'ek-jag',
@@ -316,7 +368,8 @@ export default function RundKarta({
     if (!map || !laddad) return;
     map.getSource('ek-punkter')?.setData(punktGeo);
     map.getSource('ek-avvikelser')?.setData(avvikelseGeo);
-  }, [punktGeo, avvikelseGeo, laddad]);
+    map.getSource('ek-provytor')?.setData(provyteGeo);
+  }, [punktGeo, avvikelseGeo, provyteGeo, laddad]);
 
   useEffect(() => {
     const map = mapRef.current;
