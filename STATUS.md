@@ -484,6 +484,20 @@ samtliga exakt enligt facit. Uttag 32,685 m³fub,
 identiskt i fakt_produktion, fakt_sortiment och
 detalj_stock.
 
+### Dgv-formeln — FASTSTÄLLD 2026-08-22
+Dgv = Sum(d^3)/Sum(d^2), grundytevägd medeldiameter
+(varje träd vägs med sin egen grundyta). Det är INTE
+sqrt(Sum(d^2)/n) — den formeln är Dg, grundyte-
+medeldiametern, där alla träd väger lika.
+
+Hålabäck, 254 stammar: Dgv 178,09 mm mot Dg 162,73
+mm mot aritmetiskt medel 157,52 mm. Skillnaden är
+inte avrundning utan tre olika mått.
+
+Frågan har ställts en gång och besvarats. Ändra inte
+formeln som en "rättning" — det kräver beslut, och
+etiketten i vyn måste följa med.
+
 ### Medvetet uteslutet — lägg inte till
 Stickvägsandel, gallringskvot och skattat
 kvarvarande bestånd. Alla tre bygger på att
