@@ -23,6 +23,8 @@
 // id traffar 0 rader och kan omojligt aterskapa nagot.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { kartOrigoFranBounds } from './kartkoordinater';
+import { lottaProvytor, PROVYTA_RADIE_M } from './provytor';
 
 // Den delade klienten hamtas LAT (dynamisk import nedan), inte har uppe.
 // ./supabase bygger webblasarklienten redan vid import och kraver da
@@ -86,6 +88,8 @@ export type GenereraResultat = {
   antalPlanpunkter: number;
   antalUtforandepunkter: number;
   antalMatningspunkter: number;
+  /** 0 = kunde inte laggas ut (saknad areal, bounds eller traktgrans). */
+  antalProvytor: number;
 };
 
 export type KlientOptions = {
@@ -410,7 +414,7 @@ export async function generateEgenkontroll(
   // supabase-js inte harleda radtypen och allt nedan blir GenericStringError.
   const { data: objektRad, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, typ, avslutad_timestamp, faktisk_slut, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
+    .select('id, namn, typ, areal, kartbild_bounds, avslutad_timestamp, faktisk_slut, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
     .eq('id', objektId)
     .maybeSingle();
 
@@ -431,7 +435,7 @@ export async function generateEgenkontroll(
   // --- 2. Finns redan en pagaende runda? ---------------------------------
   const befintlig = await hamtaPagaende(klient, objektId);
   if (befintlig) {
-    return { egenkontroll: befintlig, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0, antalMatningspunkter: 0 };
+    return { egenkontroll: befintlig, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0, antalMatningspunkter: 0, antalProvytor: 0 };
   }
 
   // --- 3. Skapa rundan ---------------------------------------------------
@@ -456,7 +460,7 @@ export async function generateEgenkontroll(
     if (skapaFel.code === '23505') {
       const kapplopningsvinnare = await hamtaPagaende(klient, objektId);
       if (kapplopningsvinnare) {
-        return { egenkontroll: kapplopningsvinnare, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0, antalMatningspunkter: 0 };
+        return { egenkontroll: kapplopningsvinnare, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0, antalMatningspunkter: 0, antalProvytor: 0 };
       }
     }
     throw new Error(`Kunde inte skapa egenkontrollen: ${skapaFel.message}`);
@@ -465,8 +469,9 @@ export async function generateEgenkontroll(
 
   // --- 4. Punkterna ------------------------------------------------------
   try {
-    const { plan, utforande, matning } = await skapaPunkter(
-      klient, skapad.id, objektId, objektTyp, objekt as { avslutad_timestamp?: string | null; faktisk_slut?: string | null },
+    const { plan, utforande, matning, provytor } = await skapaPunkter(
+      klient, skapad.id, objektId, objektTyp,
+      objekt as { avslutad_timestamp?: string | null; faktisk_slut?: string | null; areal?: number | null; kartbild_bounds?: unknown },
     );
     return {
       egenkontroll: skapad as Egenkontroll,
@@ -475,6 +480,7 @@ export async function generateEgenkontroll(
       antalPlanpunkter: plan,
       antalUtforandepunkter: utforande,
       antalMatningspunkter: matning,
+      antalProvytor: provytor,
     };
   } catch (fel) {
     // Rundan finns men punkterna kom inte in. Lamnar vi den kvar blockerar den
@@ -651,8 +657,11 @@ async function skapaPunkter(
   egenkontrollId: string,
   objektId: string,
   objektTyp: ObjektTyp,
-  objekt: { avslutad_timestamp?: string | null; faktisk_slut?: string | null },
-): Promise<{ plan: number; utforande: number; matning: number }> {
+  objekt: {
+    avslutad_timestamp?: string | null; faktisk_slut?: string | null;
+    areal?: number | null; kartbild_bounds?: unknown;
+  },
+): Promise<{ plan: number; utforande: number; matning: number; provytor: number }> {
   const planrader = await byggPlanrader(klient, objektId);
   const utforanderader = byggUtforanderader(objektTyp);
   const matningsrader = byggMatningsrader(objekt);
@@ -662,7 +671,8 @@ async function skapaPunkter(
     egenkontroll_id: egenkontrollId,
     ordning: i + 1,
   }));
-  if (rader.length === 0) return { plan: 0, utforande: 0, matning: 0 };
+  const provytor = await skapaProvytor(klient, egenkontrollId, objektId, objektTyp, objekt);
+  if (rader.length === 0) return { plan: 0, utforande: 0, matning: 0, provytor };
 
   const { error } = await klient.from('egenkontroll_punkt').insert(rader);
   if (error) throw new Error(`Kunde inte skapa punkterna: ${error.message}`);
@@ -671,6 +681,7 @@ async function skapaPunkter(
     plan: planrader.length,
     utforande: utforanderader.length,
     matning: matningsrader.length,
+    provytor,
   };
 }
 
@@ -1028,13 +1039,27 @@ export async function avslutaRunda(
   if (punktFel) throw new Error(`Kunde inte läsa punkterna: ${punktFel.message}`);
 
   const punkter = (punktRader ?? []) as unknown as { id: string; status: string | null }[];
-  const kvar = punkter.filter((p) => p.status === null).length;
-  if (kvar > 0) {
-    throw new Error(
-      kvar === 1
-        ? '1 punkt är obesvarad. Svara på den innan du avslutar.'
-        : `${kvar} punkter är obesvarade. Svara på alla innan du avslutar.`,
-    );
+  const kvarPunkter = punkter.filter((p) => p.status === null).length;
+
+  // PROVYTORNA RAKNAS MED. En yta ska vara matt ELLER overhoppad-med-skal -
+  // annars kan rundan bli klar med noll av sju ytor gjorda, och dokumentet
+  // pastar en fullstandighet det inte har.
+  const { data: ytor, error: ytFel } = await klient
+    .from('egenkontroll_provyta')
+    .select('id, matt, overhoppad')
+    .eq('egenkontroll_id', egenkontrollId)
+    .order('nummer', { ascending: true });
+  if (ytFel) throw new Error(`Kunde inte läsa provytorna: ${ytFel.message}`);
+  const kvarYtor = ((ytor ?? []) as unknown as { matt: string | null; overhoppad: boolean }[])
+    .filter((y) => !y.overhoppad && y.matt == null).length;
+
+  if (kvarPunkter > 0 || kvarYtor > 0) {
+    // Sag vad som faktiskt aterstar, bada slagen var for sig - "8 kvar" utan
+    // att saga vad som ar kvar hjalper ingen som star i skogen.
+    const delar: string[] = [];
+    if (kvarPunkter > 0) delar.push(`${kvarPunkter} ${kvarPunkter === 1 ? 'punkt' : 'punkter'}`);
+    if (kvarYtor > 0) delar.push(`${kvarYtor} ${kvarYtor === 1 ? 'provyta' : 'provytor'}`);
+    throw new Error(`${delar.join(' och ')} återstår. Gör klart dem innan du avslutar.`);
   }
 
   const { data, error } = await klient
@@ -1391,4 +1416,242 @@ export async function sparaStubbe(
     throw new Error('Mätningen sparades inte som väntat. Ladda om sidan.');
   }
   return { punkt: sparad, medel, antalStubbar: varden.length };
+}
+
+// ---------------------------------------------------------------------------
+// Provytor
+// ---------------------------------------------------------------------------
+
+export type EgenkontrollProvyta = {
+  id: string;
+  egenkontroll_id: string;
+  nummer: number;
+  lat: number | null;
+  lng: number | null;
+  noggrannhet_m: number | null;
+  radie_m: number | null;
+  markt_i_falt: boolean;
+  matt: string | null;
+  kommentar: string | null;
+  antal_frisk: number | null;
+  antal_skadad: number | null;
+  stickvagsbredd_m: number | null;
+  stickvagsavstand_m: number | null;
+  grundyta_m2_ha: number | null;
+  overhoppad: boolean;
+  skapad: string;
+};
+
+/**
+ * Antal ytor efter areal: en per paborjade 5 ha, lagst 3, hogst 8.
+ * 31,7 ha -> 7. 18,2 ha -> 4.
+ */
+export function antalProvytor(areal: number | null | undefined): number | null {
+  if (areal == null || !Number.isFinite(areal) || areal <= 0) return null;
+  return Math.max(3, Math.min(8, Math.ceil(areal / 5)));
+}
+
+/**
+ * Lottar och skriver provytorna. Bara GALLRING - i ett gallrat bestand star
+ * tradet kvar, och det ar det som ska bedomas.
+ *
+ * Returnerar antalet ytor. 0 betyder att de inte gick att lagga ut - saknad
+ * areal, saknad kartbild_bounds (origot) eller saknad traktgrans. Vyn ska da
+ * saga det rakt ut; en tom lista utan forklaring later som att allt ar matt.
+ *
+ * LOTTAS EN GANG. generateEgenkontroll returnerar en befintlig runda utan att
+ * rora nagot, sa en andra korning kan inte lotta om. Det finns med avsikt
+ * ingen funktion som lottar om.
+ */
+async function skapaProvytor(
+  klient: SupabaseClient,
+  egenkontrollId: string,
+  objektId: string,
+  objektTyp: ObjektTyp,
+  objekt: { areal?: number | null; kartbild_bounds?: unknown },
+): Promise<number> {
+  if (objektTyp !== 'gallring') return 0;
+
+  const antal = antalProvytor(objekt.areal);
+  if (antal == null) return 0;
+
+  const origo = kartOrigoFranBounds(objekt);
+  if (!origo) return 0; // utan origo gar markeringarna inte att placera
+
+  // Traktgransen - INTE kartbild_bounds. Se lib/provytor.ts for varfor.
+  const { data, error } = await klient
+    .from('planering_markeringar')
+    .select('data')
+    .eq('objekt_id', objektId)
+    .order('marker_id', { ascending: true });
+  if (error) throw new Error(`Kunde inte läsa traktgränsen: ${error.message}`);
+
+  const paths = ((data ?? []) as unknown as { data: Record<string, unknown> | null }[])
+    .filter((m) => m.data && (m.data as Record<string, unknown>).lineType === 'boundary')
+    .map((m) => (m.data as { path?: { x: number; y: number }[] }).path)
+    .filter((p): p is { x: number; y: number }[] => Array.isArray(p) && p.length >= 3);
+
+  if (paths.length === 0) return 0;
+
+  const ytor = lottaProvytor(paths, origo, antal);
+  if (ytor.length === 0) return 0;
+
+  const { error: skrivFel } = await klient.from('egenkontroll_provyta').insert(
+    ytor.map((y) => ({
+      egenkontroll_id: egenkontrollId,
+      nummer: y.nummer,
+      lat: y.lat,
+      lng: y.lng,
+      radie_m: PROVYTA_RADIE_M,
+    })),
+  );
+  if (skrivFel) throw new Error(`Kunde inte skapa provytorna: ${skrivFel.message}`);
+  return ytor.length;
+}
+
+/** Provytorna for en runda, i nummerordning. */
+export async function hamtaProvytor(
+  egenkontrollId: string,
+  options: KlientOptions = {},
+): Promise<EgenkontrollProvyta[]> {
+  const { klient } = await kravSession(options);
+  const { data, error } = await klient
+    .from('egenkontroll_provyta')
+    .select('*')
+    .eq('egenkontroll_id', egenkontrollId)
+    .order('nummer', { ascending: true });
+  if (error) throw new Error(`Kunde inte läsa provytorna: ${error.message}`);
+  return (data ?? []) as unknown as EgenkontrollProvyta[];
+}
+
+export type ProvytaMatning = {
+  antalFrisk: number;
+  antalSkadad: number;
+  stickvagsbreddM?: number | null;
+  stickvagsavstandM?: number | null;
+  grundytaM2Ha?: number | null;
+  markessnitslad?: boolean;
+  noggrannhetM?: number | null;
+  kommentar?: string | null;
+};
+
+/**
+ * Skriver ytans matvarden. UPDATE-only.
+ *
+ * Skadeandelen lagras ALDRIG - den raknas ur de tva talen. En lagrad andel
+ * blir en andra sanning som kan glida ifran sina delar.
+ *
+ * Laset ar triggern egenkontroll_provyta_last; kontrollen har ger bara ett
+ * begripligt besked.
+ */
+export async function sparaProvyta(
+  provytaId: string,
+  m: ProvytaMatning,
+  options: KlientOptions = {},
+): Promise<EgenkontrollProvyta> {
+  if (m.antalFrisk < 0 || m.antalSkadad < 0) {
+    throw new Error('Antalet träd kan inte vara negativt.');
+  }
+  const { klient } = await kravSession(options);
+  await kravOppenRundaForProvyta(klient, provytaId);
+
+  const { data, error } = await klient
+    .from('egenkontroll_provyta')
+    .update({
+      antal_frisk: m.antalFrisk,
+      antal_skadad: m.antalSkadad,
+      stickvagsbredd_m: m.stickvagsbreddM ?? null,
+      stickvagsavstand_m: m.stickvagsavstandM ?? null,
+      grundyta_m2_ha: m.grundytaM2Ha ?? null,
+      markt_i_falt: m.markessnitslad ?? false,
+      noggrannhet_m: m.noggrannhetM ?? null,
+      kommentar: tomtEllerNull(m.kommentar),
+      overhoppad: false,
+      matt: new Date().toISOString(),
+    })
+    .eq('id', provytaId)
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Kunde inte spara provytan: ${error.message}`);
+  if (!data) throw new Error('Provytan sparades inte — den hittades inte. Ladda om sidan.');
+  const sparad = data as unknown as EgenkontrollProvyta;
+  if (sparad.antal_frisk !== m.antalFrisk || sparad.antal_skadad !== m.antalSkadad) {
+    throw new Error('Provytan sparades inte som väntat. Ladda om sidan.');
+  }
+  return sparad;
+}
+
+/**
+ * Hoppar over en yta. SKALET KRAVS - constraintet overhoppad_kraver_skal
+ * avvisar en overhoppning utan kommentar, och det ska synas i dokumentet
+ * varfor ytan inte matts.
+ */
+export async function hoppaOverProvyta(
+  provytaId: string,
+  skal: string,
+  options: KlientOptions = {},
+): Promise<EgenkontrollProvyta> {
+  const text = tomtEllerNull(skal);
+  if (!text) throw new Error('Skriv varför ytan hoppas över — det ska synas i dokumentet.');
+
+  const { klient } = await kravSession(options);
+  await kravOppenRundaForProvyta(klient, provytaId);
+
+  const { data, error } = await klient
+    .from('egenkontroll_provyta')
+    .update({ overhoppad: true, kommentar: text, matt: new Date().toISOString() })
+    .eq('id', provytaId)
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Kunde inte hoppa över ytan: ${error.message}`);
+  if (!data) throw new Error('Ytan sparades inte — den hittades inte. Ladda om sidan.');
+  return data as unknown as EgenkontrollProvyta;
+}
+
+/** Begripligt besked. Laset ar triggern egenkontroll_provyta_last. */
+async function kravOppenRundaForProvyta(klient: SupabaseClient, provytaId: string): Promise<void> {
+  const { data } = await klient
+    .from('egenkontroll_provyta')
+    .select('egenkontroll:egenkontroll_id (status)')
+    .eq('id', provytaId)
+    .maybeSingle();
+  const status = (data as { egenkontroll?: { status?: string } } | null)?.egenkontroll?.status;
+  if (status === 'klar') throw new Error('Rundan är avslutad och går inte att ändra.');
+}
+
+/**
+ * Foto pa en provyta. Constraintet foto_hor_till_en_sak kraver punkt ELLER
+ * provyta - aldrig bada. Fotolaset gar pa egenkontroll_id och tacker darfor
+ * redan provyte-bilder.
+ */
+export async function laggTillProvytaFoto(
+  foto: { egenkontrollId: string; provytaId: string; sokvag: string; lat?: number | null; lng?: number | null },
+  options: KlientOptions = {},
+): Promise<EgenkontrollFoto> {
+  const { klient } = await kravSession(options);
+  await kravOppenRundaForProvyta(klient, foto.provytaId);
+
+  const { data, error } = await klient
+    .from('egenkontroll_foto')
+    .insert({
+      egenkontroll_id: foto.egenkontrollId,
+      provyta_id: foto.provytaId,
+      sokvag: foto.sokvag,
+      lat: foto.lat ?? null,
+      lng: foto.lng ?? null,
+      tagen: new Date().toISOString(),
+    })
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Bilden sparades inte: ${error.message}`);
+  if (!data) throw new Error('Bilden sparades inte — raden kunde inte läsas tillbaka.');
+  return data as unknown as EgenkontrollFoto;
+}
+
+/** En yta ar avklarad nar den ar matt ELLER overhoppad med skal. */
+export function provytaAvklarad(y: EgenkontrollProvyta): boolean {
+  return y.overhoppad || y.matt != null;
 }
