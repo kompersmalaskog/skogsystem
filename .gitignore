@@ -77,3 +77,9 @@ verify_hqc_parser.py
 # Import-runtime-loggar (lokala per worktree, ska ej spåras)
 import_logg.txt
 hpr_import_logg.txt
+
+# Inkommande maskin- och traktfiler (rådata, ibland tiotusentals rader per fil).
+# De hör hemma i Inkommande-mappen och importflödet, aldrig i git.
+inkommande/*.envz
+inkommande/*.zip
+*.envz

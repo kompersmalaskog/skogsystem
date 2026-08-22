@@ -16,11 +16,21 @@
 // någon bygger vidare.
 //
 // fakt_produktion är sanningen om ANTALET stammar. detalj_stam är en rad per
-// enskild stam och saknar systematiskt några stycken: på Sjöaryd löper
-// stam_key 489741–490139 (399 platser) men bara 379 rader finns. Därför är
-// `stammar` alltid MOM:s tal, medan diametermåtten öppet redovisar hur många
-// stammar de faktiskt bygger på (`matta` av `stammar`). Ett objekt helt utan
-// stamrader får `diameter: null` — aldrig en uträknad siffra ur tomma händer.
+// enskild stam och har LUCKOR: på Sjöaryd löper stam_key 489741–490139 (399
+// platser) men bara 379 rader finns — 20 nycklar mitt i en löpande serie
+// saknas. Det är INTE ett urval och ska inte behandlas som ett. Hål i en
+// löpande nyckelserie är samma mönster som MOM-importbuggarna (se STATUS.md),
+// alltså sannolikt tappad data vid import — orsaken är outredd.
+//
+// Två följder:
+//  1. `stammar` är alltid MOM:s tal, aldrig antalet stamrader.
+//  2. Diametermåtten redovisar öppet hur många stammar de bygger på
+//     (`matta` av `stammar`), så en lucka syns i vyn i stället för att
+//     tyst ändra Dgv. Objekt helt utan stamrader får `diameter: null` —
+//     aldrig en uträknad siffra ur tomma händer.
+//
+// BLOCKERARE FÖR STEG 2: trädpositionerna kommer ur detalj_stam. Varje saknad
+// stam blir ett falskt hål i kartan. Luckorna måste utredas innan steg 2 byggs.
 //
 // ── VAD SOM MEDVETET SAKNAS ───────────────────────────────────────────────
 //
@@ -515,8 +525,28 @@ async function hamtaSortiment(objektIds: string[]): Promise<SortimentAndel[]> {
 // Formatering
 // ---------------------------------------------------------------------------
 
+/** Volym med en decimal. Ett värde som finns men avrundas till 0,0 skrivs
+ *  "<0,1" — annars ser en stock på 9 liter ut som ingenting alls. */
 export function fmtVolym(v: number): string {
+  if (v > 0 && v < 0.05) return '<0,1';
   return v.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+/** Decimaltal med svenskt komma. Rå JS-formatering ger punkt, och blandade
+ *  separatorer i samma vy läser sig som ett fel. */
+export function fmtDecimal(v: number, decimaler: number): string {
+  return v.toLocaleString('sv-SE', {
+    minimumFractionDigits: decimaler,
+    maximumFractionDigits: decimaler,
+  });
+}
+
+/** Andel i procent. Ett trädslag som finns men avrundas till 0 % skrivs
+ *  "<1 %" — "Tall 0 %" påstår att tallen inte finns. */
+export function fmtAndel(del: number, helhet: number): string {
+  if (helhet <= 0 || del <= 0) return '0 %';
+  const p = Math.round((del / helhet) * 100);
+  return p === 0 ? '<1 %' : `${p} %`;
 }
 
 export function fmtAntal(n: number): string {

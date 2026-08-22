@@ -465,9 +465,7 @@ Källorna hålls isär (lib/gallring.ts):
 - diameter (Dgv, histogram) → detalj_stam.dbh_mm
 
 fakt_produktion är sanningen om ANTALET stammar.
-detalj_stam saknar systematiskt några stammar per
-trakt (Sjöaryd: stam_key 489741-490139 = 399
-platser, 379 rader finns). Diametermåtten redovisar
+detalj_stam har LUCKOR. Diametermåtten redovisar
 därför öppet hur många stammar de bygger på.
 Kompermåla Ga, Lars Norberg Dunshultt och
 Midingstorp gallring 2025 saknar stamrader helt och
@@ -497,22 +495,74 @@ visas inget per-hektar-tal (bara 4 av 25 trakter
 har areal i objekt.areal; dim_objekt.areal_ha står
 på 0 för samtliga).
 
+### BLOCKERARE FÖR STEG 2 — luckor i detalj_stam
+Sjöaryd: stam_key löper 489741-490139 = 399 platser,
+men bara 379 rader finns. 20 nycklar mitt i en
+löpande serie saknas. Samma mönster på nästan alla
+gallringstrakter (fakt_produktion 399 stammar mot
+detalj_stam 379, genomgående 2-10 % färre).
+
+Detta är INTE ett urval och får inte behandlas som
+ett. Hål i en löpande nyckelserie är exakt samma
+mönster som MOM-importbuggarna A och D ovan —
+sannolikt tappad data vid import. Orsaken är
+outredd.
+
+Varför det blockerar steg 2: trädpositionerna i
+steg 2 kommer ur detalj_stam. Varje saknad stam blir
+ett falskt hål i kartan — ett område ser ogallrat ut
+fast det är gallrat. Till skillnad från steg 1, där
+luckan bara gör Dgv marginellt osäker och skrivs ut
+i klartext, blir samma lucka i steg 2 en kartbild
+som ljuger. Utred luckorna INNAN steg 2 byggs.
+
+Startpunkt för utredningen: jämför stam_key-serien i
+HPR/MOM-källfilen mot detalj_stam för Sjöaryd
+(objekt_id 85893, R64101, 24 jan 2026) och se om de
+20 nycklarna finns i filen. Gör de det ligger felet
+i importen; gör de det inte ligger det i maskinens
+export.
+
+### TODO — aggregera diametrarna i databasen
+Dgv och histogrammet läser idag ~91 000 rader ur
+detalj_stam (3,3 MB, ~2,6 s på fast nät). Det är
+inte acceptabelt i hytt på mobilt nät. Listan laddas
+därför i två steg som en nödlösning, inte som en
+design.
+
+Rätt lösning: aggregera per objekt_id i databasen —
+count(*), sum(dbh_mm^2), sum(dbh_mm^3) räcker för
+Dgv (sum(d^3)/sum(d^2)), plus en klassindelning för
+histogrammet. Då blir listan ett anrop i stället för
+91, och tvåstegsladdningen kan tas bort helt.
+
+Martin fixar MCP-auktoriseringen. Ingenting skapas i
+databasen innan dess.
+
 ### Öppna punkter
-- Dgv i listan kräver ~91 000 rader ur detalj_stam
-  (3,3 MB, ~2,6 s). Listan laddas därför i två steg
-  och skriver "Dgv beräknas..." tills andra passet
-  landat. En aggregerande DB-vy (n, Sum d2, Sum d3
-  per objekt_id) skulle göra det till ett anrop —
-  kräver Martins OK innan något skapas i databasen.
 - Specialavv Uggleboda (Dgv 368 mm) och Kompersmåla
   Lövhuggning mm (Dgv 322 mm) är körda med
   slutavverkningsskördaren PONS20SDJAA270231 men
-  har huvudtyp Gallring. Vyn visar det datan säger
-  — kontrollera huvudtypen på de två objekten.
-- Siffrorna är verifierade genom vyns egna
-  funktioner mot databasen. Den renderade sidan är
-  ännu inte okulärbesiktigad inloggad — /gallring
-  redirectar till /login som den ska, men själva
-  vyn behöver ögon på Vercel-previewn.
+  har huvudtyp Gallring. Beslut 2026-08-22: vyn ska
+  spegla dim_objekt.huvudtyp utan undantag. Är typen
+  fel rättas den i objektdetaljerna, inte i vyn.
+
+### Okulärbesiktigad 2026-08-22
+Inloggad på dev-servern, 375x812 (mobil). Listan och
+Hålabäck-vyn visar rätt siffror mot facit, konsolen
+är ren. Fyra fel hittades och rättades i samma
+omgång:
+- TopBar visade "Gallring/11219961" som sidtitel —
+  saknade post i pageNames + prefixregel.
+- Detaljvyn ritade en egen header under den fasta
+  TopBar:en = dubbel chrome. Borttagen; bakåtlänken
+  "Alla gallringar" ligger i innehållet i stället
+  och finns i alla tillstånd, även fel och tomt.
+- Punkt i stället för komma i medelstam (0.129) och
+  areal (9.17). Egen fmtDecimal med sv-SE.
+- "Tall 0 %" och "0,0 m3fub" på värden som finns men
+  avrundas till noll. Skrivs nu "<1 %" och "<0,1" —
+  en post som existerar får aldrig renderas som
+  frånvarande.
 
 Uppdatera denna fil vid varje commit.

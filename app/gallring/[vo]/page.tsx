@@ -11,14 +11,17 @@
 //   Diameter    — hur grovt gallrades det?
 //
 // Diameterfördelningen redovisar öppet hur många stammar den bygger på.
-// detalj_stam saknar systematiskt några stammar per trakt, och då ska det stå
-// i klartext under histogrammet i stället för att döljas bakom ett snyggt tal.
+// detalj_stam har luckor i sin nyckelserie — sannolikt tappad data vid import,
+// orsaken outredd (se lib/gallring.ts och STATUS.md). Saknade stammar skrivs
+// därför ut i klartext under histogrammet i stället för att döljas bakom ett
+// snyggt tal.
 //
 // Här finns MEDVETET ingen stickvägsandel, ingen gallringskvot och inget
 // skattat kvarvarande bestånd — se lib/gallring.ts för varför.
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import BottomNav from '@/components/BottomNav';
 import PageContainer from '@/components/PageContainer';
 import SectionHeader from '@/components/SectionHeader';
@@ -27,6 +30,7 @@ import {
   hamtaGallring,
   datumspann,
   fmtAntal,
+  fmtDecimal,
   fmtVolym,
   klassLabel,
   kortDatum,
@@ -173,7 +177,6 @@ function Histogram({ detalj }: { detalj: GallringDetalj }) {
 
 export default function GallringObjektPage() {
   const params = useParams<{ vo: string }>();
-  const router = useRouter();
   const vo = decodeURIComponent(String(params?.vo ?? ''));
 
   const [detalj, setDetalj] = useState<GallringDetalj | null>(null);
@@ -210,52 +213,29 @@ export default function GallringObjektPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          height: 'calc(56px + env(safe-area-inset-top))',
-          paddingTop: 'env(safe-area-inset-top)',
-          paddingInline: 12,
-          borderBottom: `1px solid ${T.sep}`,
-        }}
-      >
-        <button
-          onClick={() => router.push('/gallring')}
-          aria-label="Tillbaka till gallringar"
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 10,
-            flexShrink: 0,
-            background: 'rgba(255,255,255,0.08)',
-            border: 'none',
-            color: '#fff',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 22 }}>
-            arrow_back
-          </span>
-        </button>
-        <span
-          style={{
-            fontSize: 17,
-            fontWeight: 600,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {detalj?.namn ?? 'Gallring'}
-        </span>
-      </div>
-
       <PageContainer width="smal" style={{ paddingBottom: 120, paddingTop: 8 }}>
+        {/* TopBar (fast, i layouten) säger bara "Gallring". Vägen tillbaka till
+            listan hör hemma här, och den ska finnas även när sidan inte kunde
+            laddas — annars sitter man fast i ett felmeddelande. */}
+        <Link
+          href="/gallring"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            minHeight: 44,
+            paddingRight: 12,
+            color: T.blue,
+            textDecoration: 'none',
+            fontSize: 15,
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>
+            chevron_left
+          </span>
+          Alla gallringar
+        </Link>
+
         {laddar && (
           <div style={{ padding: '32px 16px', color: T.t2, fontSize: 15 }}>Hämtar trakten…</div>
         )}
@@ -310,7 +290,8 @@ export default function GallringObjektPage() {
 
         {!laddar && !fel && detalj && (
           <>
-            <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: -0.6, margin: '8px 0 2px' }}>
+            <div style={{ fontSize: 16, color: T.t1, marginTop: 8 }}>{detalj.namn}</div>
+            <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: -0.6, margin: '2px 0' }}>
               {fmtVolym(detalj.volymM3fub)} m³fub
             </h1>
             <p style={{ fontSize: 15, color: T.t2, margin: '0 0 20px' }}>
@@ -326,13 +307,13 @@ export default function GallringObjektPage() {
                 />
                 <Fakta
                   etikett="Medelstam"
-                  varde={`${(detalj.volymM3fub / Math.max(detalj.stammar, 1)).toFixed(3)} m³fub`}
+                  varde={`${fmtDecimal(detalj.volymM3fub / Math.max(detalj.stammar, 1), 3)} m³fub`}
                 />
                 {/* Areal skattas aldrig. Finns ingen uppmätt areal visas inget
                     per-hektar-tal alls — hellre en siffra mindre än en gissad. */}
                 {stammarPerHa !== null ? (
                   <Fakta
-                    etikett={`Stammar/ha · ${detalj.arealHa} ha`}
+                    etikett={`Stammar/ha · ${fmtDecimal(detalj.arealHa!, 2)} ha`}
                     varde={fmtAntal(Math.round(stammarPerHa))}
                   />
                 ) : (

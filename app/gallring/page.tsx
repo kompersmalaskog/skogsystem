@@ -23,6 +23,7 @@ import {
   fyllDiametrar,
   datumspann,
   fmtAntal,
+  fmtAndel,
   fmtVolym,
   tradslagFarg,
   type GallringRad,
@@ -59,9 +60,7 @@ function Tradslagsstapel({ rad }: { rad: GallringRad }) {
         ))}
       </div>
       <div style={{ fontSize: 13, color: T.t2, marginTop: 6 }}>
-        {rad.tradslag
-          .map((t) => `${t.namn} ${Math.round((t.volym / total) * 100)}%`)
-          .join(' · ')}
+        {rad.tradslag.map((t) => `${t.namn} ${fmtAndel(t.volym, total)}`).join(' · ')}
       </div>
     </div>
   );
