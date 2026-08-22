@@ -1,471 +1,322 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+// Sortimentsutfall per månad — avsedd att visas för köparen.
+//
+// DATAKÄLLA: RPC sortimentsutfall_manad, som läser vy_skordarmatt_stock
+// (detalj_stock joinad mot detalj_stam). ALDRIG fakt_sortiment — den
+// upsertas med merge-duplicates och en kapad HPR-export skriver ner en redan
+// komplett dag. Se 20260822_vy_skordarmatt_stock.sql.
+//
+// Aggregeringen sker i databasen. detalj_stock är 3,08 M rader; att hämta
+// hem den till klienten är inte ett alternativ.
+//
+// VISAS INTE HÄR, med avsikt: kronor och kr/m³ (dim_sortiment_pris är vår
+// kalkylgrund, inte köparens), interna datakvalitetsflaggor, dubblett-
+// varningar, väntetidsräknare, medelstam, areal och m³/ha. Inte heller
+// markägarnas namn eller kontaktuppgifter — de fanns i den tidigare
+// versionen av den här vyn och hör inte hemma hos en köpare.
+
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// ── Types ──
-type BolagEntry = {
-  key: string; name: string; volym: number; pct: number;
-  inkopare: InkopareEntry[];
+type Grupp = { namn: string; volym: number; andel: number };
+type Klass = { klass: string; ordning: number; volym: number };
+type Industri = { namn: string; volym: number; andel: number; klasser: Klass[] };
+type ObjektRad = {
+  nyckel: string; namn: string | null; vo_nummer: string | null;
+  volym: number; status: string; status_datum: string | null; saknar_atgard: boolean;
 };
-type InkopareEntry = {
-  namn: string; initialer: string; bolag: string; volym: number; stammar: number;
-  prod: number; antalObjekt: number;
-  perAtgard: Record<string, number>;
-  perTradslag: Record<string, number>;
-  objekt: ObjektEntry[];
-};
-type ObjektEntry = {
-  namn: string; vo_nummer: string; volym: number; stammar: number;
-  atgard: string; certifiering: string; grot: boolean;
-  skogsagare: string; kontakt_namn: string; kontakt_telefon: string;
-  timmerPct: number; massaPct: number; kubbPct: number; energiPct: number;
-  medelstam: number;
+type Utfall = {
+  manad: string; atgard: string; bolag: string;
+  total_volym: number; antal_objekt: number; stammar_i_urval: number;
+  grupper: Grupp[];
+  sagbart: { volym: number; andel: number; industrier: Industri[] };
+  objekt: ObjektRad[];
+  volym_per_atgard: { namn: string; volym: number }[];
 };
 
-type PeriodType = 'V' | 'M' | 'K' | 'A';
+const ATGARDER = ['Slutavverkning', 'Gallring', 'Grot', 'Allt'] as const;
+type Atgard = typeof ATGARDER[number];
 
-// ── Helpers ──
-function getPeriodDates(p: PeriodType, offset: number) {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  if (p === 'V') {
-    const day = now.getDay() || 7;
-    const mon = new Date(now); mon.setDate(now.getDate() - day + 1 + offset * 7);
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-    return { start: fmt(mon), end: fmt(sun) };
-  }
-  if (p === 'K') {
-    const cq = Math.floor(now.getMonth() / 3);
-    const tq = now.getFullYear() * 4 + cq + offset;
-    const y = Math.floor(tq / 4);
-    const qi = ((tq % 4) + 4) % 4;
-    const qs = new Date(y, qi * 3, 1);
-    const qe = new Date(y, qi * 3 + 3, 0);
-    return { start: fmt(qs), end: fmt(qe) };
-  }
-  if (p === 'A') {
-    const y = now.getFullYear() + offset;
-    return { start: `${y}-01-01`, end: `${y}-12-31` };
-  }
-  const ms = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-  const me = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
-  return { start: fmt(ms), end: fmt(me) };
+const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni',
+                 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
+
+/** Grupper under denna andel visas utan stapel och dämpat. */
+const SMAGRANS_PCT = 2;
+
+const nf = (n: number) => n.toLocaleString('sv-SE', { maximumFractionDigits: 0 });
+const nf1 = (n: number) => n.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+function manadEtikett(ym: string) {
+  const [y, m] = ym.split('-').map(Number);
+  return `${MANADER[m - 1]} ${y}`;
+}
+function stegaManad(ym: string, steg: number) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1 + steg, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function nuvarandeManad() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Maj', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
-function getPeriodLabel(p: PeriodType, offset: number) {
-  const { start } = getPeriodDates(p, offset);
-  const d = new Date(start);
-  if (p === 'V') {
-    const oj = new Date(d.getFullYear(), 0, 1);
-    const wn = Math.ceil(((d.getTime() - oj.getTime()) / 86400000 + oj.getDay() + 1) / 7);
-    return `V${wn} ${d.getFullYear()}`;
-  }
-  if (p === 'M') return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
-  if (p === 'K') return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
-  return `${d.getFullYear()}`;
-}
+export default function Sortimentsutfall() {
+  const [manad, setManad] = useState(nuvarandeManad);
+  const [atgard, setAtgard] = useState<Atgard>('Slutavverkning');
+  const [data, setData] = useState<Utfall | null>(null);
+  const [granser, setGranser] = useState<{ fran: string; till: string } | null>(null);
+  const [laddar, setLaddar] = useState(true);
+  const [fel, setFel] = useState<string | null>(null);
 
-async function fetchAllRows(queryFn: (from: number, to: number) => Promise<{ data: any[] | null }>): Promise<any[]> {
-  const PAGE = 1000;
-  let all: any[] = [];
-  let offset = 0;
-  while (true) {
-    const { data } = await queryFn(offset, offset + PAGE - 1);
-    const batch = data || [];
-    all = all.concat(batch);
-    if (batch.length < PAGE) break;
-    offset += PAGE;
-  }
-  return all;
-}
+  // Bakre gräns = min(detalj_stam.tidpunkt) över hela tabellen, oavsett bolag.
+  // Det är den enda punkt där datan verkligen tar slut.
+  useEffect(() => {
+    supabase.rpc('sortimentsutfall_granser').then(({ data, error }) => {
+      if (!error && data) setGranser(data as { fran: string; till: string });
+    });
+  }, []);
 
-// ── Component ──
-export default function Affarsuppfoljning() {
-  const [period, setPeriod] = useState<PeriodType>('M');
-  const [periodOffset, setPeriodOffset] = useState(0);
-  const [filterTyp, setFilterTyp] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [bolagData, setBolagData] = useState<BolagEntry[]>([]);
-  const [allInkopare, setAllInkopare] = useState<InkopareEntry[]>([]);
-  const [expandedBolag, setExpandedBolag] = useState<string | null>(null);
-  const [expandedInk, setExpandedInk] = useState<string | null>(null);
+  const hamta = useCallback(async () => {
+    setLaddar(true);
+    setFel(null);
+    const { data, error } = await supabase.rpc('sortimentsutfall_manad', {
+      p_manad: `${manad}-01`, p_atgard: atgard, p_bolag: 'Vida',
+    });
+    // Tomt får aldrig betyda två saker: ett fel är ett fel, inte noll m³.
+    if (error) { setFel(error.message); setData(null); }
+    else setData(data as Utfall);
+    setLaddar(false);
+  }, [manad, atgard]);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { start, end } = getPeriodDates(period, periodOffset);
+  useEffect(() => { hamta(); }, [hamta]);
 
-      // Per-period-volymer + stammar läses från fakt_produktion (MOM-baserad,
-      // korrekt datum-allokering per arbetsdag via MonitoringStartTime).
-      // fakt_sortiment (HPR-baserad) läses UTAN datum-filter eftersom Ponsse
-      // Scorpion inte skriver ProcessingDate per stam — datum-fältet faller
-      // tillbaka på filnamnet, vilket ger sessions-slut-datum för multi-dag-
-      // sessioner och därmed felaktiga per-period-volymer. Sortiment-fördelning
-      // är dock en egenskap av objektet (timmer/massa/kubb/energi-andelar) och
-      // är korrekt över totalen — bara datum-allokeringen är opålitlig.
-      // Se STATUS.md "REGEL FRAMÅT" för full datum-allokerings-kontrakt.
-      const [prodRows, objRes, tradslagRes, sortimentRes, dimSortRes] = await Promise.all([
-        fetchAllRows((from, to) =>
-          supabase.from('fakt_produktion')
-            .select('objekt_id, volym_m3sub, stammar, tradslag_id')
-            .gte('datum', start).lte('datum', end)
-            .range(from, to)
-        ),
-        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, bolag, inkopare, huvudtyp, atgard, certifiering, grot_anpassad, skogsagare, kontakt_namn, kontakt_telefon, timpeng'),
-        supabase.from('dim_tradslag').select('tradslag_id, namn'),
-        fetchAllRows((from, to) =>
-          supabase.from('fakt_sortiment')
-            .select('objekt_id, sortiment_id, volym_m3sub')
-            .range(from, to)
-        ),
-        supabase.from('dim_sortiment').select('sortiment_id, namn'),
-      ]);
+  const kanBakat = !granser || manad > granser.fran;
+  const kanFramat = manad < nuvarandeManad();
 
-      const objekter = objRes.data || [];
-      const dimTradslag = tradslagRes.data || [];
-      const dimSort = dimSortRes.data || [];
-
-      // Filter by huvudtyp
-      const filteredObjIds = new Set<string>();
-      const objMap: Record<string, any> = {};
-      for (const o of objekter) {
-        objMap[o.objekt_id] = o;
-        if (filterTyp) {
-          const ht = (o.huvudtyp || '').toLowerCase();
-          if (filterTyp === 'Slutavverkning' && !ht.includes('slutavverkning')) continue;
-          if (filterTyp === 'Gallring' && !ht.includes('gallring')) continue;
-        }
-        filteredObjIds.add(o.objekt_id);
-      }
-
-      // Filter prod
-      const filteredProd = prodRows.filter((r: any) => filteredObjIds.has(r.objekt_id));
-
-      // Tradslag map
-      const tsMap: Record<string, string> = {};
-      for (const t of dimTradslag) {
-        const n = (t.namn || '').toUpperCase();
-        tsMap[t.tradslag_id] = n.includes('GRAN') ? 'Gran' : n.includes('TALL') ? 'Tall' : n.includes('BJORK') || n.includes('BJÖRK') ? 'Björk' : 'Övr. löv';
-      }
-
-      // Sortiment category map
-      const sortCatMap: Record<string, string> = {};
-      for (const s of dimSort) {
-        const n = (s.namn || '').toLowerCase();
-        if (n.includes('timmer') || n.includes('såg')) sortCatMap[s.sortiment_id] = 'Timmer';
-        else if (n.includes('kubb')) sortCatMap[s.sortiment_id] = 'Kubb';
-        else if (n.includes('massa')) sortCatMap[s.sortiment_id] = 'Massa';
-        else sortCatMap[s.sortiment_id] = 'Energi';
-      }
-
-      // Sortiment per objekt
-      const sortPerObj: Record<string, Record<string, number>> = {};
-      for (const r of sortimentRes) {
-        if (!filteredObjIds.has(r.objekt_id)) continue;
-        if (!sortPerObj[r.objekt_id]) sortPerObj[r.objekt_id] = {};
-        const cat = sortCatMap[r.sortiment_id] || 'Energi';
-        sortPerObj[r.objekt_id][cat] = (sortPerObj[r.objekt_id][cat] || 0) + (r.volym_m3sub || 0);
-      }
-
-      // Aggregate per objekt
-      type ObjAgg = { vol: number; st: number; perTs: Record<string, number> };
-      const prodPerObj: Record<string, ObjAgg> = {};
-      for (const r of filteredProd) {
-        const oid = r.objekt_id || '';
-        if (!prodPerObj[oid]) prodPerObj[oid] = { vol: 0, st: 0, perTs: {} };
-        prodPerObj[oid].vol += r.volym_m3sub || 0;
-        prodPerObj[oid].st += r.stammar || 0;
-        const ts = tsMap[r.tradslag_id] || 'Övr. löv';
-        prodPerObj[oid].perTs[ts] = (prodPerObj[oid].perTs[ts] || 0) + (r.volym_m3sub || 0);
-      }
-
-      // Group per inkopare
-      type InkAgg = { namn: string; bolag: string; vol: number; st: number; perAtgard: Record<string, number>; perTs: Record<string, number>; objekt: ObjektEntry[] };
-      const inkMap: Record<string, InkAgg> = {};
-      for (const o of objekter) {
-        if (!filteredObjIds.has(o.objekt_id)) continue;
-        const pObj = prodPerObj[o.objekt_id];
-        if (!pObj || pObj.vol <= 0) continue;
-        const ink = (o.inkopare || '').trim() || 'Okänd';
-        if (!inkMap[ink]) inkMap[ink] = { namn: ink, bolag: (o.bolag || '').trim(), vol: 0, st: 0, perAtgard: {}, perTs: {}, objekt: [] };
-        const entry = inkMap[ink];
-        entry.vol += pObj.vol;
-        entry.st += pObj.st;
-        const atg = (o.atgard || '').trim() || 'Övrigt';
-        entry.perAtgard[atg] = (entry.perAtgard[atg] || 0) + pObj.vol;
-        if (o.timpeng === true) entry.perAtgard['Timpeng'] = (entry.perAtgard['Timpeng'] || 0) + pObj.vol;
-        for (const [ts, v] of Object.entries(pObj.perTs)) entry.perTs[ts] = (entry.perTs[ts] || 0) + v;
-
-        // Sortiment for this object
-        const sp = sortPerObj[o.objekt_id] || {};
-        const spTotal = Object.values(sp).reduce((s, v) => s + v, 0);
-        const medelstam = pObj.st > 0 ? pObj.vol / pObj.st : 0;
-
-        entry.objekt.push({
-          namn: o.object_name || o.vo_nummer || '',
-          vo_nummer: o.vo_nummer || '',
-          volym: Math.round(pObj.vol),
-          stammar: Math.round(pObj.st),
-          atgard: atg,
-          certifiering: o.certifiering || '',
-          grot: o.grot_anpassad === true,
-          skogsagare: o.skogsagare || '',
-          kontakt_namn: o.kontakt_namn || '',
-          kontakt_telefon: o.kontakt_telefon || '',
-          timmerPct: spTotal > 0 ? Math.round((sp['Timmer'] || 0) / spTotal * 100) : 0,
-          massaPct: spTotal > 0 ? Math.round((sp['Massa'] || 0) / spTotal * 100) : 0,
-          kubbPct: spTotal > 0 ? Math.round((sp['Kubb'] || 0) / spTotal * 100) : 0,
-          energiPct: spTotal > 0 ? Math.round((sp['Energi'] || 0) / spTotal * 100) : 0,
-          medelstam: parseFloat(medelstam.toFixed(3)),
-        });
-      }
-
-      // Build inkopare list
-      const inkList: InkopareEntry[] = Object.values(inkMap).map(ink => {
-        const words = ink.namn.split(' ');
-        const init = words.length >= 2 ? (words[0][0] + words[words.length - 1][0]).toUpperCase() : ink.namn.substring(0, 2).toUpperCase();
-        return {
-          namn: ink.namn, initialer: init, bolag: ink.bolag,
-          volym: Math.round(ink.vol), stammar: Math.round(ink.st),
-          prod: 0, antalObjekt: ink.objekt.length,
-          perAtgard: Object.fromEntries(Object.entries(ink.perAtgard).map(([k, v]) => [k, Math.round(v)])),
-          perTradslag: Object.fromEntries(Object.entries(ink.perTs).map(([k, v]) => [k, Math.round(v)])),
-          objekt: ink.objekt.sort((a, b) => b.volym - a.volym),
-        };
-      }).filter(i => i.volym > 0).sort((a, b) => b.volym - a.volym);
-
-      setAllInkopare(inkList);
-
-      // Group per bolag
-      const bolagMap = new Map<string, { name: string; vol: number; inkopare: InkopareEntry[] }>();
-      for (const ink of inkList) {
-        const bKey = (ink.bolag || 'Övrigt').toUpperCase();
-        const bName = ink.bolag || 'Övrigt';
-        if (!bolagMap.has(bKey)) bolagMap.set(bKey, { name: bName, vol: 0, inkopare: [] });
-        const b = bolagMap.get(bKey)!;
-        b.vol += ink.volym;
-        b.inkopare.push(ink);
-      }
-      const totalVol = inkList.reduce((s, i) => s + i.volym, 0);
-      const bolagList: BolagEntry[] = [...bolagMap.entries()].map(([key, b]) => ({
-        key, name: b.name, volym: b.vol,
-        pct: totalVol > 0 ? Math.round(b.vol / totalVol * 100) : 0,
-        inkopare: b.inkopare,
-      })).sort((a, b) => b.volym - a.volym);
-
-      setBolagData(bolagList);
-    } catch (err) {
-      console.error('Affärsuppföljning: fetch error', err);
-    }
-    setLoading(false);
-  }, [period, periodOffset, filterTyp]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  const totalVol = bolagData.reduce((s, b) => s + b.volym, 0);
-
-  // ── Styles ──
   const s = {
     page: { background: '#111110', minHeight: '100vh', paddingTop: 56, paddingBottom: 90, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
-    filterBar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' } as const,
-    periodRow: { display: 'flex', alignItems: 'center', gap: 8 } as const,
-    periodBtn: { border: 'none', background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '5px 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: '#7a7a72', cursor: 'pointer' } as const,
-    periodBtnActive: { background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' } as const,
-    arrow: { border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 8px' } as const,
-    label: { fontSize: 12, fontWeight: 600, color: '#e8e8e4', minWidth: 80, textAlign: 'center' as const },
-    filterChips: { display: 'flex', gap: 6 } as const,
-    chip: { border: 'none', borderRadius: 8, padding: '5px 14px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' } as const,
+    filterBar: { padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' } as const,
+    manadRow: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 10 } as const,
+    arrow: { border: 'none', background: 'none', color: '#e8e8e4', fontSize: 20, cursor: 'pointer', padding: '10px 16px', minWidth: 44, minHeight: 44, lineHeight: 1 } as const,
+    arrowAv: { color: '#3a3a38', cursor: 'default' } as const,
+    manadLabel: { fontSize: 14, fontWeight: 600, minWidth: 150, textAlign: 'center' as const },
+    chips: { display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' as const },
+    chip: { border: 'none', borderRadius: 8, padding: '10px 16px', minHeight: 44, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer' } as const,
+    chipAv: { background: 'rgba(255,255,255,0.05)', color: '#7a7a72' } as const,
+    chipPa: { background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' } as const,
+    body: { padding: '0 16px' } as const,
+    hero: { padding: '28px 0 20px', textAlign: 'center' as const },
+    heroVal: { fontFamily: "'Fraunces', serif", fontSize: 56, lineHeight: 1 } as const,
+    heroEnhet: { fontFamily: "'Fraunces', serif", fontSize: 22, color: '#7a7a72', marginLeft: 6 } as const,
+    heroUnder: { fontSize: 12, color: '#7a7a72', marginTop: 10, lineHeight: 1.5 } as const,
+    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 24 },
     card: { background: '#1a1a18', borderRadius: 14, padding: 16, marginBottom: 10 } as const,
-    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 20, padding: '0 16px' },
-    bolagRow: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' } as const,
-    prog: { height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' as const, margin: '4px 0 0' },
-    progFill: { height: '100%', borderRadius: 2 },
-    inkCard: { background: '#222220', borderRadius: 12, padding: 14, marginBottom: 8, cursor: 'pointer' } as const,
-    objCard: { background: '#111110', borderRadius: 8, padding: 12, marginTop: 8 } as const,
-    kpi: { textAlign: 'center' as const, flex: 1 },
-    kpiVal: { fontFamily: "'Fraunces', serif", fontSize: 22, lineHeight: 1 },
-    kpiLabel: { fontSize: 10, color: '#7a7a72', marginTop: 3 },
-    frow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 12 } as const,
+    rad: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 } as const,
+    prog: { height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' as const, marginTop: 8 },
+    progFill: { height: '100%', borderRadius: 2, background: 'rgba(90,255,140,0.5)' },
+    tal: { fontFamily: "'Fraunces', serif", fontSize: 20 } as const,
     muted: { color: '#7a7a72', fontSize: 11 },
-    badge: { display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
+    tomt: { background: '#1a1a18', borderRadius: 14, padding: '32px 20px', textAlign: 'center' as const, marginTop: 24 },
+    tomtRubrik: { fontSize: 14, fontWeight: 600, marginBottom: 8 } as const,
+    tomtText: { fontSize: 12, color: '#7a7a72', lineHeight: 1.6 } as const,
+    statusText: { fontSize: 11, fontWeight: 600 } as const,
   };
+
+  // Status får aldrig härledas ur volym — färgen förstärker bara texten.
+  const statusFarg: Record<string, string> = {
+    'Skotat':           'rgba(90,255,140,0.9)',
+    'Skotning pågår':   'rgba(91,143,255,0.9)',
+    'Avverkning pågår': 'rgba(255,179,64,0.9)',
+    'Ej markerad':      '#7a7a72',
+  };
+
+  const maxKlass = useMemo(() => {
+    const m: Record<string, number> = {};
+    data?.sagbart.industrier.forEach(i => {
+      m[i.namn] = Math.max(0, ...i.klasser.map(k => k.volym));
+    });
+    return m;
+  }, [data]);
+
+  const harVolym = (data?.total_volym ?? 0) > 0;
 
   return (
     <div style={s.page}>
-      {/* Filter bar */}
       <div style={s.filterBar}>
-        <div style={s.periodRow}>
-          {(['V', 'M', 'K', 'A'] as PeriodType[]).map(p => (
-            <button key={p} style={{ ...s.periodBtn, ...(period === p ? s.periodBtnActive : {}) }}
-              onClick={() => { setPeriod(p); setPeriodOffset(0); }}>{p === 'A' ? 'År' : p}</button>
-          ))}
-          <button style={s.arrow} onClick={() => setPeriodOffset(o => o - 1)}>&#8249;</button>
-          <span style={s.label}>{getPeriodLabel(period, periodOffset)}</span>
-          <button style={s.arrow} onClick={() => setPeriodOffset(o => o + 1)}>&#8250;</button>
+        <div style={s.manadRow}>
+          <button aria-label="Föregående månad" disabled={!kanBakat}
+            style={{ ...s.arrow, ...(kanBakat ? {} : s.arrowAv) }}
+            onClick={() => kanBakat && setManad(m => stegaManad(m, -1))}>‹</button>
+          <span style={s.manadLabel}>{manadEtikett(manad)}</span>
+          <button aria-label="Nästa månad" disabled={!kanFramat}
+            style={{ ...s.arrow, ...(kanFramat ? {} : s.arrowAv) }}
+            onClick={() => kanFramat && setManad(m => stegaManad(m, 1))}>›</button>
         </div>
-        <div style={s.filterChips}>
-          {['', 'Slutavverkning', 'Gallring'].map(f => (
-            <button key={f} style={{ ...s.chip, background: filterTyp === f ? 'rgba(90,255,140,0.15)' : 'rgba(255,255,255,0.05)', color: filterTyp === f ? 'rgba(90,255,140,0.9)' : '#7a7a72' }}
-              onClick={() => setFilterTyp(f)}>{f || 'Alla'}</button>
+        <div style={s.chips}>
+          {ATGARDER.map(a => (
+            <button key={a} style={{ ...s.chip, ...(atgard === a ? s.chipPa : s.chipAv) }}
+              onClick={() => setAtgard(a)}>{a}</button>
           ))}
         </div>
       </div>
 
-      {loading && <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72' }}>Laddar...</div>}
+      {laddar && <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72', fontSize: 12 }}>Hämtar {manadEtikett(manad)}…</div>}
 
-      {!loading && (
-        <div style={{ padding: '0 16px' }}>
-          {/* Total KPIs */}
-          <div style={{ display: 'flex', gap: 8, margin: '16px 0' }}>
-            <div style={{ ...s.card, flex: 1, textAlign: 'center' }}>
-              <div style={s.kpiVal}>{totalVol.toLocaleString('sv')}</div>
-              <div style={s.kpiLabel}>m³ totalt</div>
-            </div>
-            <div style={{ ...s.card, flex: 1, textAlign: 'center' }}>
-              <div style={s.kpiVal}>{bolagData.length}</div>
-              <div style={s.kpiLabel}>Bolag</div>
-            </div>
-            <div style={{ ...s.card, flex: 1, textAlign: 'center' }}>
-              <div style={s.kpiVal}>{allInkopare.length}</div>
-              <div style={s.kpiLabel}>Inköpare</div>
-            </div>
-          </div>
+      {!laddar && fel && (
+        <div style={{ ...s.tomt, margin: '24px 16px 0' }}>
+          <div style={s.tomtRubrik}>Utfallet kunde inte hämtas</div>
+          <div style={s.tomtText}>Försök igen. Står felet kvar, hör av dig — siffrorna finns, det är hämtningen som inte gick fram.</div>
+        </div>
+      )}
 
-          {/* Bolag */}
-          <div style={s.sectionTitle}>Volym per bolag</div>
-          {bolagData.map(b => (
-            <div key={b.key}>
-              <div style={s.card} onClick={() => setExpandedBolag(expandedBolag === b.key ? null : b.key)}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}>
-                    {b.name.substring(0, 4).toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{b.name}</div>
-                    <div style={s.muted}>{b.inkopare.length} inköpare</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20 }}>{b.volym.toLocaleString('sv')}</div>
-                    <div style={s.muted}>m³ · {b.pct}%</div>
-                  </div>
-                </div>
-                <div style={s.prog}><div style={{ ...s.progFill, width: `${b.pct}%`, background: 'rgba(90,255,140,0.5)' }} /></div>
+      {!laddar && !fel && data && (
+        <div style={s.body}>
+          {/* ── 1. Rubriktal ─────────────────────────────────────────── */}
+          {harVolym && (
+            <div style={s.hero}>
+              <div>
+                <span style={s.heroVal}>{nf(data.total_volym)}</span>
+                <span style={s.heroEnhet}>m³fub</span>
               </div>
+              <div style={s.heroUnder}>
+                {data.antal_objekt} objekt<br />
+                skördarmätt volym under bark
+              </div>
+            </div>
+          )}
 
-              {/* Expanded: inköpare */}
-              {expandedBolag === b.key && (
-                <div style={{ padding: '0 8px 8px' }}>
-                  {b.inkopare.map(ink => (
-                    <div key={ink.namn}>
-                      <div style={s.inkCard} onClick={() => setExpandedInk(expandedInk === ink.namn ? null : ink.namn)}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>
-                            {ink.initialer}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{ink.namn}</div>
-                            <div style={s.muted}>{ink.antalObjekt} objekt</div>
-                          </div>
-                          <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18 }}>{ink.volym.toLocaleString('sv')}</div>
-                            <div style={s.muted}>m³</div>
-                          </div>
-                        </div>
-                        {/* Tradslag bar */}
-                        <div style={{ display: 'flex', gap: 2, marginTop: 8, borderRadius: 2, overflow: 'hidden' }}>
-                          {(['Gran', 'Tall', 'Björk', 'Övr. löv'] as const).filter(ts => (ink.perTradslag[ts] || 0) > 0).map(ts => {
-                            const pct = ink.volym > 0 ? Math.round((ink.perTradslag[ts] || 0) / ink.volym * 100) : 0;
-                            const colors: Record<string, string> = { 'Gran': 'rgba(90,255,140,0.5)', 'Tall': 'rgba(255,255,255,0.2)', 'Björk': 'rgba(91,143,255,0.4)', 'Övr. löv': 'rgba(255,179,64,0.3)' };
-                            return <div key={ts} style={{ flex: pct, height: 4, background: colors[ts], borderRadius: 2 }} />;
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Expanded: objekt */}
-                      {expandedInk === ink.namn && (
-                        <div style={{ padding: '0 8px 8px' }}>
-                          {/* Atgard breakdown */}
-                          <div style={{ ...s.card, padding: 12 }}>
-                            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.6, color: '#7a7a72', marginBottom: 8 }}>Åtgärd</div>
-                            {Object.entries(ink.perAtgard).sort(([,a], [,b]) => b - a).map(([atg, vol]) => {
-                              const pct = ink.volym > 0 ? Math.round(vol / ink.volym * 100) : 0;
-                              return (
-                                <div key={atg} style={s.frow}>
-                                  <span>{atg}</span>
-                                  <div style={{ flex: 1, margin: '0 12px' }}><div style={s.prog}><div style={{ ...s.progFill, width: `${pct}%`, background: 'rgba(90,255,140,0.5)' }} /></div></div>
-                                  <span style={{ minWidth: 80, textAlign: 'right', fontSize: 11 }}>{vol.toLocaleString('sv')} m³ <span style={{ color: '#7a7a72' }}>{pct}%</span></span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {/* Tradslag breakdown */}
-                          <div style={{ ...s.card, padding: 12 }}>
-                            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.6, color: '#7a7a72', marginBottom: 8 }}>Trädslag</div>
-                            {(['Gran', 'Tall', 'Björk', 'Övr. löv'] as const).filter(ts => (ink.perTradslag[ts] || 0) > 0).map(ts => {
-                              const v = ink.perTradslag[ts] || 0;
-                              const pct = ink.volym > 0 ? Math.round(v / ink.volym * 100) : 0;
-                              const colors: Record<string, string> = { 'Gran': 'rgba(90,255,140,0.5)', 'Tall': 'rgba(255,255,255,0.2)', 'Björk': 'rgba(91,143,255,0.4)', 'Övr. löv': 'rgba(255,179,64,0.3)' };
-                              return (
-                                <div key={ts} style={s.frow}>
-                                  <span>{ts}</span>
-                                  <div style={{ flex: 1, margin: '0 12px' }}><div style={s.prog}><div style={{ ...s.progFill, width: `${pct}%`, background: colors[ts] }} /></div></div>
-                                  <span style={{ minWidth: 80, textAlign: 'right', fontSize: 11 }}>{v.toLocaleString('sv')} m³ <span style={{ color: '#7a7a72' }}>{pct}%</span></span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {/* Objekt list */}
-                          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.6, color: '#7a7a72', marginBottom: 6, marginTop: 4, padding: '0 4px' }}>Objekt</div>
-                          {ink.objekt.map(o => (
-                            <div key={o.namn + o.vo_nummer} style={s.objCard}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                                <div>
-                                  <div style={{ fontSize: 13, fontWeight: 600 }}>{o.namn}</div>
-                                  <div style={s.muted}>{o.vo_nummer ? `VO ${o.vo_nummer}` : ''} {o.atgard && <span style={{ ...s.badge, background: 'rgba(255,255,255,0.07)', color: '#7a7a72', marginLeft: 4 }}>{o.atgard}</span>}</div>
-                                </div>
-                                <div style={{ textAlign: 'right' }}>
-                                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18 }}>{o.volym.toLocaleString('sv')}</div>
-                                  <div style={s.muted}>m³</div>
-                                </div>
-                              </div>
-                              {/* Sortiment */}
-                              <div style={{ display: 'flex', gap: 2, marginBottom: 8, borderRadius: 2, overflow: 'hidden' }}>
-                                {o.timmerPct > 0 && <div style={{ flex: o.timmerPct, height: 4, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />}
-                                {o.kubbPct > 0 && <div style={{ flex: o.kubbPct, height: 4, background: 'rgba(91,143,255,0.5)', borderRadius: 2 }} />}
-                                {o.massaPct > 0 && <div style={{ flex: o.massaPct, height: 4, background: 'rgba(255,179,64,0.4)', borderRadius: 2 }} />}
-                                {o.energiPct > 0 && <div style={{ flex: o.energiPct, height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }} />}
-                              </div>
-                              <div style={{ display: 'flex', gap: 10, fontSize: 10, color: '#7a7a72', marginBottom: 8 }}>
-                                {o.timmerPct > 0 && <span>Timmer {o.timmerPct}%</span>}
-                                {o.kubbPct > 0 && <span>Kubb {o.kubbPct}%</span>}
-                                {o.massaPct > 0 && <span>Massa {o.massaPct}%</span>}
-                                {o.energiPct > 0 && <span>Energi {o.energiPct}%</span>}
-                              </div>
-                              {/* Details */}
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 11 }}>
-                                <span style={{ color: '#7a7a72' }}>Stammar: <strong style={{ color: '#e8e8e4' }}>{o.stammar.toLocaleString('sv')}</strong></span>
-                                <span style={{ color: '#7a7a72' }}>Medelstam: <strong style={{ color: '#e8e8e4' }}>{o.medelstam}</strong></span>
-                                {o.certifiering && <span style={{ color: '#7a7a72' }}>Cert: <strong style={{ color: '#e8e8e4' }}>{o.certifiering}</strong></span>}
-                                {o.grot && <span style={{ ...s.badge, background: 'rgba(90,255,140,0.1)', color: 'rgba(90,255,140,0.8)' }}>GROT</span>}
-                                {o.skogsagare && <span style={{ color: '#7a7a72' }}>Markägare: <strong style={{ color: '#e8e8e4' }}>{o.skogsagare}</strong></span>}
-                                {o.kontakt_namn && <span style={{ color: '#7a7a72' }}>{o.kontakt_namn} {o.kontakt_telefon}</span>}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+          {/* Tomt tillstånd — skiljer "inget avverkat" från "underlag saknas" */}
+          {!harVolym && (
+            <div style={s.tomt}>
+              {data.stammar_i_urval > 0 ? (
+                <>
+                  <div style={s.tomtRubrik}>Stockunderlag saknas för {manadEtikett(manad)}</div>
+                  <div style={s.tomtText}>
+                    {nf(data.stammar_i_urval)} stammar är avverkade den här månaden, men
+                    stockdatan bakom dem gick inte att läsa. Volymen är alltså inte noll —
+                    den är okänd. Underlaget kommer när stockdatan är rättad.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={s.tomtRubrik}>Ingen volym avverkad åt Vida i {manadEtikett(manad)}</div>
+                  <div style={s.tomtText}>
+                    {data.volym_per_atgard.length > 0 ? (
+                      <>Den här månaden finns {data.volym_per_atgard
+                        .map(v => `${nf1(v.volym)} m³ ${v.namn.toLowerCase()}`).join(' och ')} — byt
+                        åtgärd ovan för att se den.</>
+                    ) : (
+                      <>Bläddra till en annan månad.</>
+                    )}
+                  </div>
+                </>
               )}
             </div>
-          ))}
+          )}
 
-          {bolagData.length === 0 && !loading && (
-            <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72' }}>Ingen data för vald period</div>
+          {harVolym && (
+            <>
+              {/* ── 2. Sortimentsgrupper ─────────────────────────────── */}
+              <div style={s.sectionTitle}>Sortiment</div>
+              <div style={s.card}>
+                {data.grupper.map((g, i) => {
+                  const liten = g.andel < SMAGRANS_PCT;
+                  return (
+                    <div key={g.namn} style={{ marginTop: i === 0 ? 0 : 14 }}>
+                      <div style={s.rad}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: liten ? '#7a7a72' : '#e8e8e4' }}>{g.namn}</span>
+                        <span style={{ textAlign: 'right' }}>
+                          <span style={{ ...s.tal, fontSize: liten ? 14 : 20, color: liten ? '#7a7a72' : '#e8e8e4' }}>{nf1(g.volym)}</span>
+                          <span style={{ ...s.muted, marginLeft: 6 }}>m³ · {g.andel}%</span>
+                        </span>
+                      </div>
+                      {!liten && (
+                        <div style={s.prog}><div style={{ ...s.progFill, width: `${g.andel}%` }} /></div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── 3. Sågbart ───────────────────────────────────────── */}
+              <div style={s.sectionTitle}>Sågbart — timmer och kubb</div>
+              <div style={s.card}>
+                <div style={s.rad}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Till sågverk</span>
+                  <span style={{ textAlign: 'right' }}>
+                    <span style={s.tal}>{nf1(data.sagbart.volym)}</span>
+                    <span style={{ ...s.muted, marginLeft: 6 }}>m³ · {data.sagbart.andel}% av volymen</span>
+                  </span>
+                </div>
+              </div>
+
+              {data.sagbart.industrier.map(ind => (
+                <div key={ind.namn} style={s.card}>
+                  <div style={s.rad}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{ind.namn}</span>
+                    <span style={{ textAlign: 'right' }}>
+                      <span style={s.tal}>{nf1(ind.volym)}</span>
+                      <span style={{ ...s.muted, marginLeft: 6 }}>m³ · {ind.andel}%</span>
+                    </span>
+                  </div>
+
+                  {/* Toppdiameterklasser. Största klassen märks med både färg
+                      och text — färg är aldrig ensam informationsbärare. */}
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginTop: 16 }}>
+                    {ind.klasser.map(k => {
+                      const max = maxKlass[ind.namn] || 1;
+                      const storst = k.volym === max && max > 0;
+                      return (
+                        <div key={k.klass} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                          <div style={{ height: 48, width: '100%', display: 'flex', alignItems: 'flex-end' }}>
+                            <div style={{
+                              width: '100%',
+                              height: `${Math.max(2, (k.volym / max) * 48)}px`,
+                              borderRadius: 3,
+                              background: storst ? 'rgba(90,255,140,0.55)' : 'rgba(255,255,255,0.14)',
+                            }} />
+                          </div>
+                          <div style={{ fontSize: 10, marginTop: 6, color: storst ? '#e8e8e4' : '#7a7a72', fontWeight: storst ? 700 : 400 }}>
+                            {nf(k.volym)}
+                          </div>
+                          <div style={{ fontSize: 9, color: '#7a7a72', marginTop: 2 }}>{k.klass}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ ...s.muted, marginTop: 10 }}>
+                    Toppdiameter under bark, cm · störst andel {ind.klasser.find(k => k.volym === maxKlass[ind.namn])?.klass ?? '—'}
+                  </div>
+                </div>
+              ))}
+
+              {/* ── 4. Objektlista ───────────────────────────────────── */}
+              <div style={s.sectionTitle}>Objekt</div>
+              {data.objekt.map(o => (
+                <div key={o.nyckel} style={s.card}>
+                  <div style={s.rad}>
+                    <span style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{o.namn || o.nyckel}</div>
+                      <div style={s.muted}>
+                        {o.vo_nummer ? `VO ${o.vo_nummer}` : 'VO saknas'}
+                        {o.saknar_atgard && ' · Åtgärd ej angiven'}
+                      </div>
+                    </span>
+                    <span style={{ textAlign: 'right' }}>
+                      <div style={s.tal}>{nf1(o.volym)}</div>
+                      <div style={s.muted}>m³</div>
+                    </span>
+                  </div>
+                  <div style={{ ...s.statusText, color: statusFarg[o.status] ?? '#7a7a72', marginTop: 10 }}>
+                    {o.status}
+                    {o.status_datum && (
+                      <span style={{ color: '#7a7a72', fontWeight: 400 }}> {String(o.status_datum).slice(0, 10)}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}
