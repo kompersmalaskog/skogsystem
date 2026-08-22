@@ -1,6 +1,13 @@
 'use client';
 
-// Sortimentsutfall per månad — avsedd att visas för köparen.
+// Sortimentsutfall per månad — avsedd att VISAS FÖR köparen, inte att ge
+// köparen inloggning till.
+//
+// Innehållet är kurerat för Vidas ögon (inga kronor, inga interna flaggor,
+// inga markägaruppgifter) men sidan är inte åtkomstbegränsad. Alla tabeller
+// bakom den har select-policy med qual = true för authenticated — permissivt,
+// inte bolagsscopat. Varje inloggad användare läser alla bolag, och p_bolag
+// är ett filter, inte en gräns. Säker som rapport, inte som inloggad vy.
 //
 // DATAKÄLLA: RPC sortimentsutfall_manad, som läser vy_skordarmatt_stock
 // (detalj_stock joinad mot detalj_stam). ALDRIG fakt_sortiment — den

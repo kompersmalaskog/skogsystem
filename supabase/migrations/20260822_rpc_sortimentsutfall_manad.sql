@@ -4,10 +4,23 @@
 -- befintliga sidans fetchAllRows paginerar 1 000 rader i taget — det hade
 -- blivit ~3 000 rundturer. Aggregeringen hör hemma i databasen.
 --
--- SECURITY INVOKER (default): RLS gäller som vanligt. Samtliga inblandade
--- tabeller har <tabell>_select för authenticated med qual = true, så en
--- inloggad användare ser allt och en utloggad får tomt — vilket är rätt.
--- Ändra ALDRIG till SECURITY DEFINER utan att först gå igenom policyerna.
+-- SECURITY INVOKER (default). Ändra ALDRIG till SECURITY DEFINER.
+--
+-- OBS — funktionen är INTE åtkomstbegränsad. Samtliga inblandade tabeller har
+-- <tabell>_select för authenticated med qual = true. Det är permissivt, inte
+-- scopat: VARJE inloggad användare läser ALLA bolag, inte bara sitt eget.
+-- SECURITY INVOKER betyder alltså bara "ingen eskalering" — inte "säker".
+--
+-- p_bolag är ett FILTER, inte en behörighetsgräns. Den som kan anropa
+-- funktionen kan skicka vilket bolag som helst.
+--
+-- Konsekvens: den här vyn är säker att EXPORTERA som rapport till en köpare.
+-- Den är INTE säker att ge en köpare inloggning till. Ska Vida få egen
+-- åtkomst krävs bolagsscopad RLS först — det finns inte idag.
+--
+-- Sidoupplysning för den som auditerar: public.objekt har
+-- relrowsecurity = false med fyra vilande policies. Kontrollera alltid
+-- pg_class.relrowsecurity, aldrig bara pg_policies.
 --
 -- p_atgard: 'Slutavverkning' | 'Gallring' | 'Grot' | 'Allt'
 --   'Allt' = slutavverkning + gallring + objekt utan angiven huvudtyp.
