@@ -59,6 +59,9 @@ export default function SkotareFordelning({
   const [extra, setExtra] = useState<SkotareInsats[]>([]) // manuellt tillagda (filfria) skotare
   const [sparar, setSparar] = useState(false)
   const [sparFel, setSparFel] = useState<string | null>(null)
+  // Objekt som har en objekt-nivå-rad (maskin_id NULL) med RIKTIG volym när en
+  // per-maskin-rad sparas ovanpå → explicit ersättning krävs (aldrig tyst).
+  const [objektNivaKrock, setObjektNivaKrock] = useState<{ objektId: string; volym: number }[]>([])
 
   // Initiera utkast när datan laddats
   useEffect(() => {
@@ -125,6 +128,51 @@ export default function SkotareFordelning({
           setSparFel(`${i.namn}: sparningen nådde inga rader — troligen behörighet.`); setSparar(false); return
         }
       }
+
+      // Städa objekt-nivå-spökrader (maskin_id NULL) på objekt vi rörde — annars
+      // dubbel-G15 när en per-maskin-rad läggs ovanpå (id=119-fällan). Har NULL-
+      // raden en RIKTIG volym (objekt-nivå-avslut) rör vi den ALDRIG tyst — den
+      // flaggas för explicit ersättning nedan.
+      const rorda = Array.from(new Set(allaInsatser.filter(dirty).map((i) => i.hemObjektId || objektId)))
+      const krockar: { objektId: string; volym: number }[] = []
+      for (const oid of rorda) {
+        const { data: nullRader } = await supabase.from('skotare_objekt_manuell')
+          .select('id, volym_m3, volym_egen_skotning, g15_timmar')
+          .eq('objekt_id', oid).is('maskin_id', null).is('datum_fran', null)
+        const nr = (nullRader || [])[0] as any
+        if (!nr) continue
+        const nrVol = Number(nr.volym_m3 ?? nr.volym_egen_skotning ?? 0)
+        if (nrVol > 0) { krockar.push({ objektId: oid, volym: nrVol }); continue }
+        // Ren spökrad (bara G15) → folda in G15 i en sparad maskin-rad som saknar
+        // egen G15 (så 32h aldrig tappas), ta sedan bort raden + nolla dim_objekt-spegeln.
+        const g15 = Number(nr.g15_timmar) || 0
+        if (g15 > 0) {
+          const utanG15 = allaInsatser.find((i) => (i.hemObjektId || objektId) === oid && num((utkast[i.maskinId] || TOM_UTKAST).g15) == null)
+          if (utanG15) {
+            await supabase.from('skotare_objekt_manuell').update({ g15_timmar: g15 })
+              .eq('objekt_id', oid).eq('maskin_id', utanG15.maskinId).is('datum_fran', null)
+          }
+        }
+        await supabase.from('skotare_objekt_manuell').delete().eq('id', nr.id)
+        await supabase.from('dim_objekt').update({ skotning_g15_manuell: null }).eq('objekt_id', oid)
+      }
+      setObjektNivaKrock(krockar)
+      setSparar(false); ladda()
+    } catch (e: any) {
+      setSparFel(e?.message || String(e)); setSparar(false)
+    }
+  }
+
+  // Explicit ersättning: objekt-nivå-raden hade en riktig volym — ta bort den
+  // (+ nolla dim_objekt-spegeln) så per-maskin-fördelningen blir enda sanningen.
+  const ersattObjektNiva = async (oid: string) => {
+    setSparar(true); setSparFel(null)
+    try {
+      const { error } = await supabase.from('skotare_objekt_manuell')
+        .delete().eq('objekt_id', oid).is('maskin_id', null).is('datum_fran', null)
+      if (error) { setSparFel('Kunde inte ta bort objekt-nivå-raden: ' + error.message); setSparar(false); return }
+      await supabase.from('dim_objekt').update({ skotad_volym_manuell: null }).eq('objekt_id', oid)
+      setObjektNivaKrock((prev) => prev.filter((k) => k.objektId !== oid))
       setSparar(false); ladda()
     } catch (e: any) {
       setSparFel(e?.message || String(e)); setSparar(false)
@@ -142,7 +190,7 @@ export default function SkotareFordelning({
       </div>
 
       {allaInsatser.length === 0 ? (
-        <div style={{ fontSize: 13, color: C.faint, marginBottom: 10 }}>Inga lass registrerade på objektet ännu.</div>
+        <div style={{ fontSize: 13, color: C.faint, marginBottom: 10 }}>Ingen skotare har sänt filer än — lägg till manuellt:</div>
       ) : allaInsatser.map((i) => {
         const u = utkast[i.maskinId] || tillUtkast(i)
         return (
@@ -215,6 +263,18 @@ export default function SkotareFordelning({
           Skotad volym exkl. omlastning ({Math.round(summaExkl).toLocaleString('sv-SE')} m³) överstiger avverkat ({Math.round(avverkatVolym).toLocaleString('sv-SE')} m³). Kontrollera fördelning/omlastning — du bestämmer.
         </div>
       )}
+
+      {/* Objekt-nivå-krock: en gammal objekt-nivå-rad med RIKTIG volym finns kvar.
+          Aldrig tyst överskrivning — Martin väljer att ersätta den med per-maskin-fördelningen. */}
+      {objektNivaKrock.map((k) => (
+        <div key={k.objektId} style={{ padding: '10px 12px', background: 'rgba(255,159,10,0.1)', border: `1px solid rgba(255,159,10,0.3)`, borderRadius: 8, fontSize: 12, color: C.orange, marginBottom: 10 }}>
+          Det finns en objekt-nivå-volym ({Math.round(k.volym).toLocaleString('sv-SE')} m³) kvar utöver per-maskin-fördelningen — annars dubbelräknas skotat. Ersätt den med fördelningen ovan?
+          <button onClick={() => ersattObjektNiva(k.objektId)} disabled={sparar} style={{
+            display: 'block', marginTop: 8, background: C.orange, border: 'none', borderRadius: 8, padding: '7px 12px',
+            color: '#000', fontSize: 13, fontWeight: 600, cursor: sparar ? 'default' : 'pointer', fontFamily: 'inherit', opacity: sparar ? 0.6 : 1,
+          }}>Ersätt objekt-nivå-volymen</button>
+        </div>
+      ))}
 
       {sparFel && <div style={{ padding: '8px 12px', background: 'rgba(255,69,58,0.1)', borderRadius: 8, fontSize: 12, color: C.red, marginBottom: 10 }}>{sparFel}</div>}
 
