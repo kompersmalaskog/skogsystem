@@ -447,4 +447,72 @@ tiles bli suddiga. Lantmäteriet topowebbkartan_
 nedtonad har högre zoom-kapacitet — användaren
 kan välja den vid behov om OpenTopoMap pixlar.
 
+## Gallringsvyn — steg 1 (2026-08-22)
+
+/gallring (lista) + /gallring/[vo] (trakt) byggd på
+uttagsdata som redan finns importerad. Ingen ny
+import.
+
+Gallring identifieras på dim_objekt.huvudtyp via
+lib/objekt/typ.ts. Fältet fanns redan — 37 objekt
+har huvudtyp Gallring, 25 av dem har uttag.
+
+Källorna hålls isär (lib/gallring.ts):
+- m³fub, stammar, datum, maskin, förare, trädslag
+  → fakt_produktion (MOM)
+- sortiment → fakt_sortiment (per objekt, aldrig
+  med datumfilter)
+- diameter (Dgv, histogram) → detalj_stam.dbh_mm
+
+fakt_produktion är sanningen om ANTALET stammar.
+detalj_stam saknar systematiskt några stammar per
+trakt (Sjöaryd: stam_key 489741-490139 = 399
+platser, 379 rader finns). Diametermåtten redovisar
+därför öppet hur många stammar de bygger på.
+Kompermåla Ga, Lars Norberg Dunshultt och
+Midingstorp gallring 2025 saknar stamrader helt och
+visar "Dgv saknas".
+
+Maskin och förare läses ur produktionen, inte ur
+dim_objekt.maskin_id — det fältet pekar ut skotaren
+A030353 på Svinhult, Hössjömåla och Bastaremåla.
+
+Verifierat mot Hålabäck gallring 2026 (VO 11219961,
+R64428, Oskar Nilsson, 21 aug 2026) genom att köra
+vyns egna funktioner mot databasen: 254 stammar,
+DBH medel 157,5 / median 155 / min 69 / max 276 mm,
+Tall 139, Gran 63, Björk 34, Övrigt löv 18 —
+samtliga exakt enligt facit. Uttag 32,685 m³fub,
+identiskt i fakt_produktion, fakt_sortiment och
+detalj_stock.
+
+### Medvetet uteslutet — lägg inte till
+Stickvägsandel, gallringskvot och skattat
+kvarvarande bestånd. Alla tre bygger på att
+stickvägsträden representerar beståndet före
+gallring. Verifierat på Hålabäck att det inte
+håller för beståndsgående drivning. Areal skattas
+aldrig ur rutnät eller körspår — utan uppmätt areal
+visas inget per-hektar-tal (bara 4 av 25 trakter
+har areal i objekt.areal; dim_objekt.areal_ha står
+på 0 för samtliga).
+
+### Öppna punkter
+- Dgv i listan kräver ~91 000 rader ur detalj_stam
+  (3,3 MB, ~2,6 s). Listan laddas därför i två steg
+  och skriver "Dgv beräknas..." tills andra passet
+  landat. En aggregerande DB-vy (n, Sum d2, Sum d3
+  per objekt_id) skulle göra det till ett anrop —
+  kräver Martins OK innan något skapas i databasen.
+- Specialavv Uggleboda (Dgv 368 mm) och Kompersmåla
+  Lövhuggning mm (Dgv 322 mm) är körda med
+  slutavverkningsskördaren PONS20SDJAA270231 men
+  har huvudtyp Gallring. Vyn visar det datan säger
+  — kontrollera huvudtypen på de två objekten.
+- Siffrorna är verifierade genom vyns egna
+  funktioner mot databasen. Den renderade sidan är
+  ännu inte okulärbesiktigad inloggad — /gallring
+  redirectar till /login som den ska, men själva
+  vyn behöver ögon på Vercel-previewn.
+
 Uppdatera denna fil vid varje commit.
