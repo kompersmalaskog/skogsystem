@@ -453,9 +453,20 @@ def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
     Raderar befintliga data för objektet först (senaste filen ersätter alltid)."""
     filnamn = parsed['filnamn']
 
-    # Skapa hpr_filer-rad
+    # Skapa hpr_filer-rad.
+    #
+    # stammar_count MÅSTE sättas. Den är inte statistik — den är vakten som
+    # skogsmaskin_import_version_6._save_hpr_tables jämför mot innan den
+    # ersätter ett snapshot ("ingen nedgradering"). Lämnas den osatt blir den
+    # 0 i DB, och då passerar VILKEN fil som helst jämförelsen och raderar ett
+    # komplett snapshot. Objekt 11217392 stod med stammar_count = 0 och 4 000
+    # faktiska hpr_stammar av precis det skälet — 60 av 90 rader var oräknade.
+    stammar_med_koordinat = sum(1 for s in parsed['stammar'] if s.get('lat') and s.get('lng'))
     fil_row = {
         'filnamn': filnamn,
+        'stammar_count': len(parsed['stammar']),
+        'has_coordinates': stammar_med_koordinat > 0,
+        'stammar_med_koordinat': stammar_med_koordinat,
     }
 
     if parsed['fil_datum']:
