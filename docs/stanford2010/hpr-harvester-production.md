@@ -25,7 +25,7 @@ manuellt på begäran.
 - [★ Stammar (`<Stem>`) — huvuddata](#-stammar-stem--huvuddata)
   - [StemType — basklassen (gemensam för alla stam-varianter)](#stemtype--basklassen-gemensam-för-alla-stam-varianter)
   - [`<SingleTreeProcessedStem>` — fångas](#singletreeprocessedstem--fångas)
-  - [`<MultiTreeProcessedStem>` — IGNORERAS HELT](#multitreeprocessedstem--ignoreras-helt)
+  - [`<MultiTreeProcessedStem>` — HANTERAS](#multitreeprocessedstem--hanteras)
   - [`<SingleTreeFelledStem>` / `<MultiTreeFelledStem>` — IGNORERAS](#singletreefelledstem--multitreefelledstem--ignoreras)
 - [Stockar (`<Log>` under SingleTreeProcessedStem)](#stockar-log-under-singletreeprocessedstem)
 - [GPS-spår (`<Tracking>` / `<TrackCoordinates>`)](#gps-spår-tracking--trackcoordinates)
@@ -161,7 +161,7 @@ slutavverkningsdag har 200–500 stammar; en gallringsdag kan ha 500–2000.
 
   ⌃ choice (en av fyra):
   ├ <SingleTreeProcessedStem>...</SingleTreeProcessedStem>      <!-- ✅ fångas -->
-  ├ <MultiTreeProcessedStem>...</MultiTreeProcessedStem>        <!-- ❌ IGNORERAS -->
+  ├ <MultiTreeProcessedStem>...</MultiTreeProcessedStem>        <!-- ✅ HANTERAS -->
   ├ <SingleTreeFelledStem>...</SingleTreeFelledStem>           <!-- ❌ IGNORERAS -->
   └ <MultiTreeFelledStem>...</MultiTreeFelledStem>             <!-- ❌ IGNORERAS -->
 </Stem>
@@ -217,7 +217,7 @@ Standard-fall för slutavverkning och de flesta gallringar. En stam = en post.
 | `<ProcessingDate>` (Ponsse) | ✅ | `detalj_stam.tidpunkt` (prioriteras före Stem.HarvestDate på Ponsse) |
 | `<Coordinates>` (Ponsse, alternativ till Stem.StemCoordinates) | ✅ | Sökväg-fallback i parsern |
 
-### `<MultiTreeProcessedStem>` — IGNORERAS HELT
+### `<MultiTreeProcessedStem>` — HANTERAS
 
 ```xml
 <MultiTreeProcessedStem>
@@ -229,50 +229,55 @@ Standard-fall för slutavverkning och de flesta gallringar. En stam = en post.
 </MultiTreeProcessedStem>
 ```
 
-Parsern har:
+Flerträdshantering: skördaren griper flera klena stammar samtidigt. Vanligt i
+gallring av klen tall och gran.
+
+Parsern accepterar sedan 2026-08-23 båda formerna:
+
 ```python
-single_tree = find_element(stem, 'SingleTreeProcessedStem', ns)
-if single_tree is None:
-    continue   # ← MultiTree hoppas över, ingen rad skapas
+processed = find_element(stem, 'SingleTreeProcessedStem', ns)
+bunt_nyckel = None
+if processed is None:
+    processed = find_element(stem, 'MultiTreeProcessedStem', ns)
+    if processed is None:
+        continue
+    bunt_nyckel = get_text(processed, 'StemBunchKey', ns)
 ```
 
-**Konsekvens:** Stammar som processas i bunt (flerstamshantering — vanligt i
-gallring av klena tall/gran) skapas inte i `detalj_stam` eller `hpr_stammar`.
-Stockarna räknas inte heller. Detta är en **känd Lucka (Hög)** för gallring.
+**Varje träd i bunten har en egen `<Stem>`** med egen `StemKey`, egna
+koordinater, egen `HarvestDate`, egen `BoomPositioning` och **egen volym** —
+volymerna summerar till maskinens totala dagsproduktion, så de går in som
+separata rader i `detalj_stam` och `detalj_stock`.
 
-> **KONSEKVENSEN ÄR NU MÄTT (2026-08-23).** Luckan var känd men aldrig
-> kvantifierad. Full rapport: STATUS.md, avsnitt "IMPORTUTREDNING 2026-08-23".
->
-> Bortfallet följer andelen flerträdshantering rakt av:
->
-> | Trakt | Andel flerträd | Volymavvikelse mot MOM |
-> |---|---|---|
-> | Hålabäck | 0,0 % | 0,00 % |
-> | Rössmåla | 2,8 % | −0,49 % |
-> | Sjöaryd | 5,0 % | −0,76 % |
-> | Räveboda | 7,2 % | −1,84 % |
-> | Johan Svensson | 23,9 % | −9,36 % |
-> | Steglehylte | 24,5 % | −5,85 % |
->
-> `detalj_stam`-antalet är exakt antalet `SingleTreeProcessedStem` i filen.
-> På Sjöaryd: filen har 399 unika `StemKey` utan luckor, MOM säger
-> `NumberOfHarvestedStems` = 399, och filens totalvolym 25,5315 m³sub matchar
-> MOM:s 25,5300. De 20 som saknas i `detalj_stam` är exakt de 20 med
-> `MultiTreeProcessedStem`.
->
-> Omfattning: 56 av 58 slutavverkningstrakter avviker också — detta är inte
-> ett gallringsproblem.
->
-> Inför en fix: volymen är **per träd** (summering ger MOM:s total, ingen
-> dubbelräkning), men DBH är **delad inom bunten**, och flerträd skriver
-> `logVolumeCategory="m3subEstimated"` där enträd skriver `"m3sub"`.
->
-> `IGNORERAS HELT` gäller fortfarande — parsern är oförändrad. Uppdatera det
-> här avsnittet när fixen är gjord.
+**Diametern delas inom bunten.** `DBH` mäts en gång för hela greppet och står
+identisk på alla träd i den. `StemBunchKey` lagras därför i
+`detalj_stam.stam_bunt_nyckel` så att diameterstatistik kan vikta bunten som
+**en** mätning i stället för två eller tre. `NULL` = enträdshanterad, alltså en
+individuell mätning. Nyckeln börjar om per fil — gruppera alltid på
+`(maskin_id, objekt_id, stam_bunt_nyckel)`.
 
-Notera att MOM-parsern hanterar MTH (`processtyp = 'MTH'`) korrekt på
-`fakt_produktion`-nivå (volymtotaler), så maskinens TOTALA dagsproduktion
-är riktig — men per-stam-detaljer i HPR försvinner.
+**Volymkategorin skiljer sig:** enträd skriver `logVolumeCategory="m3sub"`,
+flerträd `"m3subEstimated"`. Parserns delsträngsmatchning (`'m3sub' in cat`)
+fångar båda — verifierat, inte antaget.
+
+> **HISTORIK.** Elementet hoppades tidigare över tyst
+> (`if single_tree is None: continue`), vilket tappade upp till 24,5 % av
+> stammarna på hårt flerträdade gallringstrakter. Bortfallet följde andelen
+> flerträdshantering rakt av: 0 % flerträd gav 0,00 % avvikelse mot MOM,
+> 24 % gav −9,4 %. Full utredning: STATUS.md, "IMPORTUTREDNING 2026-08-23".
+>
+> Fixen är verifierad mot skarpa filer: Johan Svensson Brändeborg 641 stammar
+> / 25,583 m³sub och Steglehylte 10 393 / 486,861 — båda lika med MOM. Hålabäck
+> (noll flerträd) står oförändrad på 254 / 32,685.
+>
+> **Historiska rader är fortfarande ofullständiga.** Koden lagar inte data som
+> redan är importerad — en omimport krävs.
+
+**HQC-parsern är ett medvetet undantag.** `parse_hqc_file` accepterar
+fortfarande bara `SingleTreeProcessedStem`. Kontrollstammar klavas individuellt,
+så flerträd förekommer inte där (629 filer, 1039 kontrollstammar, noll
+träffar), och buntdelad DBH i `fakt_kalibrering` skulle krympa
+standardavvikelsen artificiellt i kvalitetsregelverket mot Vida.
 
 ### `<SingleTreeFelledStem>` / `<MultiTreeFelledStem>` — IGNORERAS
 
