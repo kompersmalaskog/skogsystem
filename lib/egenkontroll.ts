@@ -24,7 +24,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { kartOrigoFranBounds } from './kartkoordinater';
-import { lottaProvytor, PROVYTA_RADIE_M } from './provytor';
+import { lottaProvytor, PROVYTA_RADIE_M, type LatLng } from './provytor';
 
 // Den delade klienten hamtas LAT (dynamisk import nedan), inte har uppe.
 // ./supabase bygger webblasarklienten redan vid import och kraver da
@@ -414,7 +414,7 @@ export async function generateEgenkontroll(
   // supabase-js inte harleda radtypen och allt nedan blir GenericStringError.
   const { data: objektRad, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, typ, areal, kartbild_bounds, avslutad_timestamp, faktisk_slut, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
+    .select('id, namn, typ, areal, vo_nummer, kartbild_bounds, avslutad_timestamp, faktisk_slut, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
     .eq('id', objektId)
     .maybeSingle();
 
@@ -471,7 +471,10 @@ export async function generateEgenkontroll(
   try {
     const { plan, utforande, matning, provytor } = await skapaPunkter(
       klient, skapad.id, objektId, objektTyp,
-      objekt as { avslutad_timestamp?: string | null; faktisk_slut?: string | null; areal?: number | null; kartbild_bounds?: unknown },
+      objekt as {
+        avslutad_timestamp?: string | null; faktisk_slut?: string | null;
+        areal?: number | null; kartbild_bounds?: unknown; vo_nummer?: string | null;
+      },
     );
     return {
       egenkontroll: skapad as Egenkontroll,
@@ -659,7 +662,7 @@ async function skapaPunkter(
   objektTyp: ObjektTyp,
   objekt: {
     avslutad_timestamp?: string | null; faktisk_slut?: string | null;
-    areal?: number | null; kartbild_bounds?: unknown;
+    areal?: number | null; kartbild_bounds?: unknown; vo_nummer?: string | null;
   },
 ): Promise<{ plan: number; utforande: number; matning: number; provytor: number }> {
   const planrader = await byggPlanrader(klient, objektId);
@@ -871,6 +874,8 @@ export async function hamtaVantande(
 export type KartObjekt = {
   lat: number | null;
   lng: number | null;
+  /** Nyckeln mot HPR-stammarna. Las bara - aldrig dim_objekt_id. */
+  vo_nummer: string | null;
   kartbild_url: string | null;
   kartbild_bounds: unknown;
 };
@@ -893,7 +898,7 @@ export async function hamtaRunda(
 
   const { data: objekt, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, status, lat, lng, kartbild_url, kartbild_bounds')
+    .select('id, namn, status, vo_nummer, lat, lng, kartbild_url, kartbild_bounds')
     .eq('id', objektId)
     .maybeSingle();
 
@@ -916,6 +921,7 @@ export async function hamtaRunda(
     kartObjekt: {
       lat: (o.lat as number) ?? null,
       lng: (o.lng as number) ?? null,
+      vo_nummer: (o.vo_nummer as string) ?? null,
       kartbild_url: (o.kartbild_url as string) ?? null,
       kartbild_bounds: o.kartbild_bounds ?? null,
     },
@@ -1468,7 +1474,7 @@ async function skapaProvytor(
   egenkontrollId: string,
   objektId: string,
   objektTyp: ObjektTyp,
-  objekt: { areal?: number | null; kartbild_bounds?: unknown },
+  objekt: { areal?: number | null; kartbild_bounds?: unknown; vo_nummer?: string | null },
 ): Promise<number> {
   if (objektTyp !== 'gallring') return 0;
 
@@ -1493,7 +1499,10 @@ async function skapaProvytor(
 
   if (paths.length === 0) return 0;
 
-  const ytor = lottaProvytor(paths, origo, antal);
+  // Stammarna hamtas EN gang och anvands bade som filter har och som lager i
+  // helskarmskartan. Saknas de lottas det enbart innanfor traktgransen.
+  const stammar = await hamtaAvverkadeStammar(objekt.vo_nummer, { klient });
+  const ytor = lottaProvytor(paths, origo, antal, stammar);
   if (ytor.length === 0) return 0;
 
   const { error: skrivFel } = await klient.from('egenkontroll_provyta').insert(
@@ -1507,6 +1516,57 @@ async function skapaProvytor(
   );
   if (skrivFel) throw new Error(`Kunde inte skapa provytorna: ${skrivFel.message}`);
   return ytor.length;
+}
+
+/**
+ * Avverkade stammar for ett objekt, ur HPR.
+ *
+ * Matchning: split_part(objekt_nyckel, ':', 2) mot objekt.vo_nummer - SAMMA
+ * regel som SkordarKarta anvander. LAS BARA; dim_objekt_id ar en oppen
+ * modellfraga och skrivs aldrig harifran.
+ *
+ * Kumulativa filer: filen med FLEST stammar vinner, inte den nyaste. En senare
+ * inkrementfil kan innehalla farre stammar an en tidigare full export.
+ *
+ * Tom lista betyder "inga stammar hittades" - anroparen ska da saga det, inte
+ * lata det se ut som att trakten var orord.
+ */
+export async function hamtaAvverkadeStammar(
+  voNummer: string | null | undefined,
+  options: KlientOptions = {},
+): Promise<LatLng[]> {
+  const vo = String(voNummer ?? '').trim();
+  if (!vo) return [];
+  const { klient } = await kravSession(options);
+
+  const { data: filer, error: filFel } = await klient
+    .from('hpr_filer')
+    .select('id, objekt_nyckel, stammar_count')
+    .not('objekt_nyckel', 'is', null)
+    .order('stammar_count', { ascending: false, nullsFirst: false });
+  if (filFel) throw new Error(`Kunde inte läsa HPR-filerna: ${filFel.message}`);
+
+  const fil = ((filer ?? []) as unknown as { id: string; objekt_nyckel: string }[])
+    .find((f) => String(f.objekt_nyckel ?? '').split(':')[1] === vo);
+  if (!fil) return [];
+
+  // Sidhamtning: en gallring kan ha over 12 000 stammar och PostgREST tar
+  // 1000 at gangen. .order() kravs for stabil paginering.
+  const ut: LatLng[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await klient
+      .from('hpr_stammar')
+      .select('lat, lng')
+      .eq('hpr_fil_id', fil.id)
+      .not('lat', 'is', null)
+      .order('stam_nummer', { ascending: true })
+      .range(offset, offset + 999);
+    if (error) throw new Error(`Kunde inte läsa stammarna: ${error.message}`);
+    const rader = (data ?? []) as unknown as { lat: number; lng: number }[];
+    for (const r of rader) if (r.lat != null && r.lng != null) ut.push({ lat: r.lat, lng: r.lng });
+    if (rader.length < 1000) break;
+  }
+  return ut;
 }
 
 /** Provytorna for en runda, i nummerordning. */

@@ -21,11 +21,14 @@ export default function ProvyteLista({
   minPosition,
   last,
   onValj,
+  onGaTill,
 }: {
   provytor: EgenkontrollProvyta[];
   minPosition: MinPosition;
   last: boolean;
   onValj: (yta: EgenkontrollProvyta) => void;
+  /** Ga-vyn. Utelamnad pa en last runda - da finns inget att ga till. */
+  onGaTill?: (yta: EgenkontrollProvyta) => void;
 }) {
   if (provytor.length === 0) return null;
 
@@ -46,6 +49,11 @@ export default function ProvyteLista({
         : a.yta.nummer - b.yta.nummer,
     );
 
+  // NASTA ATT GORA: narmaste OMATTA ytan. Den lyfts fram sa man ser vilken man
+  // ska till utan att lasa hela listan. Ar allt matt eller overhoppat finns
+  // ingen sadan - da visas ingen markering alls.
+  const nastaId = rader.find(({ yta }) => !yta.overhoppad && yta.matt == null)?.yta.id ?? null;
+
   return (
     <div style={{ marginBottom: 12 }}>
       {!minPosition && (
@@ -65,16 +73,18 @@ export default function ProvyteLista({
         {rader.map(({ yta, avstand, riktn }) => {
           const andel = skadeandel(yta.antal_frisk, yta.antal_skadad);
           const klar = yta.overhoppad || yta.matt != null;
+          const nasta = yta.id === nastaId;
           return (
+            <div key={yta.id} style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
             <button
-              key={yta.id}
               onClick={() => onValj(yta)}
               disabled={last}
               style={{
-                display: 'flex', alignItems: 'center', gap: 12, width: '100%',
+                display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0,
                 minHeight: 44, padding: '10px 14px', borderRadius: 12,
                 border: 'none', background: T.group, color: T.t1,
                 fontFamily: T.ff, textAlign: 'left',
+                outline: nasta ? `2px solid ${T.blue}` : 'none', outlineOffset: -2,
               }}
             >
               <span
@@ -87,6 +97,12 @@ export default function ProvyteLista({
               />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ fontSize: 16, fontWeight: 500 }}>Yta {yta.nummer}</span>
+                {/* Texten bar beskedet - ramen upprepar bara det. */}
+                {nasta && (
+                  <span style={{ color: T.blue, fontSize: 13, fontWeight: 600, marginLeft: 8 }}>
+                    nästa
+                  </span>
+                )}
                 <span style={{ display: 'block', fontSize: 13, color: T.t2, marginTop: 1 }}>
                   {yta.overhoppad
                     ? `Överhoppad — ${yta.kommentar}`
@@ -108,6 +124,22 @@ export default function ProvyteLista({
                 <span aria-hidden="true" style={{ width: 4, height: 28, borderRadius: 2, background: GUL, flexShrink: 0 }} />
               )}
             </button>
+
+            {onGaTill && !last && yta.lat != null && (
+              <button
+                onClick={() => onGaTill(yta)}
+                aria-label={`Gå till yta ${yta.nummer}`}
+                style={{
+                  minWidth: 56, minHeight: 44, borderRadius: 12,
+                  border: `1.5px solid ${nasta ? T.blue : 'rgba(255,255,255,0.14)'}`,
+                  background: 'transparent', color: nasta ? T.blue : T.t2,
+                  fontSize: 14, fontWeight: 600, fontFamily: T.ff, flexShrink: 0,
+                }}
+              >
+                Gå dit
+              </button>
+            )}
+            </div>
           );
         })}
       </div>

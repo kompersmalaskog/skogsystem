@@ -26,6 +26,7 @@ import {
   hamtaFoton,
   hamtaKontextmarkeringar,
   hamtaProvytor,
+  hamtaAvverkadeStammar,
   stubbeDom,
   KRAVNIVA_STUBBEHANDLING,
   AVVIKELSE_ETIKETT,
@@ -45,7 +46,8 @@ import StubbeSheet from '../StubbeSheet';
 import ProvytaSheet from '../ProvytaSheet';
 import ProvyteLista, { type MinPosition } from '../ProvyteLista';
 import ProvyteSammanstallning from '../ProvyteSammanstallning';
-import { skadeandel } from '@/lib/provytor';
+import GaTillYta from '../GaTillYta';
+import { skadeandel as _skadeandel, type LatLng } from '@/lib/provytor';
 import { anmarkningsText, kortDatum } from '../format';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
@@ -411,6 +413,12 @@ export default function EgenkontrollRundaPage() {
   const [provytor, setProvytor] = useState<EgenkontrollProvyta[]>([]);
   const [provytaVald, setProvytaVald] = useState<EgenkontrollProvyta | null>(null);
   const [minPosition, setMinPosition] = useState<MinPosition>(null);
+  const [helskarm, setHelskarm] = useState(false);
+  const [visaStammar, setVisaStammar] = useState(false);
+  const [gaTill, setGaTill] = useState<EgenkontrollProvyta | null>(null);
+  // Stammarna hamtas EN gang och bara nar de behovs (helskarm eller ga-vy).
+  const [stammar, setStammar] = useState<LatLng[] | null>(null);
+  const [stamFel, setStamFel] = useState(false);
   // Kontextlagret - orientering, aldrig dokumentets innehall.
   const [kontext, setKontext] = useState<{ data: any }[]>([]);
   const [avslutar, setAvslutar] = useState(false);
@@ -431,6 +439,18 @@ export default function EgenkontrollRundaPage() {
   useEffect(() => {
     ladda();
   }, [ladda]);
+
+  // Stammolnet: hamtas forst nar helskarmen oppnas, och bara en gang. Det ar
+  // 12 000 rader pa en gallring - de ska inte lasas for en 180 px karta.
+  const vo = vy?.kartObjekt?.vo_nummer ?? null;
+  useEffect(() => {
+    if (!helskarm || stammar !== null || !vo) return;
+    let avbruten = false;
+    hamtaAvverkadeStammar(vo)
+      .then((s) => { if (!avbruten) { setStammar(s); setStamFel(false); } })
+      .catch(() => { if (!avbruten) { setStammar([]); setStamFel(true); } });
+    return () => { avbruten = true; };
+  }, [helskarm, stammar, vo]);
 
   // Kontextmarkeringarna hamtas separat: gar de inte att lasa ska kartan anda
   // rita kontrollpunkterna, som ar det dokumentet handlar om.
@@ -619,7 +639,11 @@ export default function EgenkontrollRundaPage() {
             {/* Kartan ligger kvar synlig medan listan scrollas. Sticky, inte
                 fixed - den ska folja med i flodet och inte lagga sig over
                 nagot. 180 px ar en tredjedel av skarmen och ett medvetet pris. */}
-            {vy.egenkontroll && (
+            {/* ETT KARTLAGE I TAGET. Tva MapLibre-instanser skulle ge tva
+                GPS-prenumerationer, och den dolda panelen komponerar anda inte.
+                Kameralaget overlever medvetet INTE vaxlingen: den som oppnar
+                helskarm vill se helheten, den som stanger ar klar med den. */}
+            {vy.egenkontroll && !helskarm && !gaTill && (
               <div
                 style={{
                   position: 'sticky', top: 'calc(56px + env(safe-area-inset-top))',
@@ -634,11 +658,22 @@ export default function EgenkontrollRundaPage() {
                   valdPunktId={valdPunktId}
                   onPosition={setMinPosition}
                 />
+                <button
+                  onClick={() => setHelskarm(true)}
+                  style={{
+                    width: '100%', minHeight: 44, borderRadius: 10, marginBottom: 10,
+                    border: '1.5px solid rgba(255,255,255,0.14)', background: 'transparent',
+                    color: T.t2, fontSize: 15, fontWeight: 600, fontFamily: T.ff,
+                  }}
+                >
+                  Öppna stor karta
+                </button>
                 <ProvyteLista
                   provytor={provytor}
                   minPosition={minPosition}
                   last={rundanKlar}
                   onValj={(y) => setProvytaVald(y)}
+                  onGaTill={(y) => setGaTill(y)}
                 />
               </div>
             )}
@@ -843,6 +878,75 @@ export default function EgenkontrollRundaPage() {
               </>
             )}
           </>
+        )}
+
+        {helskarm && vy && (
+          <div style={{
+            position: 'fixed', inset: 0, background: T.bg, zIndex: 1150,
+            display: 'flex', flexDirection: 'column',
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: 'calc(8px + env(safe-area-inset-top)) 12px 8px',
+            }}>
+              <button onClick={() => setHelskarm(false)} style={{
+                minHeight: 44, border: 'none', background: 'transparent',
+                color: T.blue, fontSize: 17, fontFamily: T.ff,
+              }}>
+                Stäng
+              </button>
+              <span style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: 600 }}>
+                {vy.objektNamn}
+              </span>
+              <button
+                onClick={() => setVisaStammar((v) => !v)}
+                aria-pressed={visaStammar}
+                disabled={!stammar || stammar.length === 0}
+                style={{
+                  minHeight: 44, padding: '0 12px', borderRadius: 10,
+                  border: `1.5px solid ${visaStammar ? T.blue : 'rgba(255,255,255,0.14)'}`,
+                  background: 'transparent',
+                  color: !stammar || stammar.length === 0 ? T.t2 : visaStammar ? T.blue : T.t1,
+                  fontSize: 14, fontWeight: 600, fontFamily: T.ff,
+                }}
+              >
+                Stammar
+              </button>
+            </div>
+            {/* Sag varfor knappen ar slack - tyst avstangd ser ut som trasig. */}
+            {stammar !== null && stammar.length === 0 && (
+              <div style={{ fontSize: 13, color: T.orange, padding: '0 14px 8px', lineHeight: 1.45 }}>
+                {stamFel
+                  ? 'Stammarna kunde inte läsas.'
+                  : 'Inga avverkade stammar hittades för objektet — lägena kunde inte kontrolleras mot avverkad yta.'}
+              </div>
+            )}
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <RundKarta
+                objekt={vy.kartObjekt}
+                punkter={vy.punkter}
+                kontext={kontext}
+                provytor={provytor}
+                valdPunktId={valdPunktId}
+                hojd="100%"
+                stammar={stammar ?? []}
+                visaStammar={visaStammar}
+                onPosition={setMinPosition}
+              />
+            </div>
+          </div>
+        )}
+
+        {gaTill && vy && (
+          <GaTillYta
+            yta={gaTill}
+            objekt={vy.kartObjekt}
+            punkter={vy.punkter}
+            kontext={kontext}
+            provytor={provytor}
+            onStang={() => setGaTill(null)}
+            onMat={() => { setProvytaVald(gaTill); setGaTill(null); }}
+          />
         )}
 
         {provytaVald && vy?.egenkontroll && (

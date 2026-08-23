@@ -18,12 +18,48 @@
 
 import { svgToLatLon, type Origo, type LatLng } from './kartkoordinater';
 
+export type { LatLng };
+
 /** 100 kvadratmeter. */
 export const PROVYTA_RADIE_M = 5.64;
 /** Narmare kanten an sa hamnar halva ytan utanfor trakten. */
 const MIN_FRAN_KANT_M = 20;
 /** Tva ytor narmare varandra an sa matter i praktiken samma bestand. */
 const MIN_MELLAN_YTOR_M = 30;
+
+/**
+ * MAX AVSTAND TILL NARMASTE AVVERKADE STAM. Andra inte utan att lasa detta.
+ *
+ * Traktgransen ar PLANEN. Den avverkade ytan ar ofta mindre - hornen togs
+ * aldrig, en del kordes inte. En yta som lottas i planen men hamnar i ett
+ * oavverkat horn gar inte att bedoma; det hande i falt och ar felet den har
+ * troskeln finns for.
+ *
+ * TIO METER, av fyra skal som pekar at samma hall:
+ *
+ * 1. Kurvan knacker dar. Monte Carlo med 600 dragningar per objekt, filtrerade
+ *    till punkter INUTI traktgransen, andel med avverkad stam inom X meter:
+ *        5 m:  64 % / 60 %      (Hossjomala / Steglehylte)
+ *       10 m:  94 % / 86 %
+ *       15 m:  96 % / 95 %
+ *       20 m:  97 % / 95 %
+ *    Fran 5 till 10 vinner vi 30 respektive 26 procentenheter. Fran 10 till 15
+ *    bara 2 och 9. Bortom 10 m kops nastan ingen akta bestandsyta - daremot
+ *    slapps hornen tillbaka in.
+ *
+ * 2. Det ar ungefar tva gangar stamavstandet. Hossjomala har 387 stammar/ha och
+ *    Steglehylte 463, vilket ger ett teoretiskt medelavstand pa 5,1 och 4,6 m.
+ *    Vid 5 m troskel forkastas en tredjedel av verkligt avverkad mark bara for
+ *    att stammarna star glest just dar.
+ *
+ * 3. Det stammer med ytans egen storlek. Provytan har radien 5,64 m, sa 10 m
+ *    betyder att narmaste avverkade stam ligger inom ungefar tva ytradier -
+ *    ytan star pa eller intill avverkad mark, inte i en glanta.
+ *
+ * 4. Den avvisar en trovardig andel: 6 % av Hossjomalas och 14 % av
+ *    Steglehyltes planerade yta. Det ar storleksordningen "hornen togs aldrig".
+ */
+export const MAX_AVSTAND_TILL_STAM_M = 10;
 /** Slumpdragningar per yta innan vi ger upp pa ett skifte. */
 const MAX_FORSOK = 400;
 
@@ -112,6 +148,15 @@ export function fordelaPerSkifte(areor: number[], antal: number): number[] {
   return ut;
 }
 
+/** WGS84 -> samma metriska rymd som polygonerna. Invers av svgToLatLon x mpp. */
+function latLngTillMetrisk(p: LatLng, c: Origo, mpp: number): Punkt {
+  void mpp; // rymden ar redan meter - mpp behovs bara for SVG-hallet
+  return {
+    x: (p.lng - c.lng) * 111320 * Math.cos((c.lat * Math.PI) / 180),
+    y: (p.lat - c.lat) * 111320,
+  };
+}
+
 export type LottadYta = { nummer: number; lat: number; lng: number };
 
 /**
@@ -127,6 +172,12 @@ export function lottaProvytor(
   boundaryPaths: { x?: number | null; y?: number | null }[][],
   origo: Origo,
   antal: number,
+  /**
+   * Avverkade stammar i WGS84. Tom lista = ingen stamkontroll; da lottas det
+   * enbart innanfor traktgransen och vyn ska saga att lagena inte kunnat
+   * kontrolleras mot avverkad yta.
+   */
+  stammar: LatLng[] = [],
 ): LottadYta[] {
   const mpp = meterPerPixel(origo);
   const skiften = boundaryPaths
@@ -142,6 +193,30 @@ export function lottaProvytor(
   const per = fordelaPerSkifte(skiften.map((s) => s.area), antal);
   const lagda: Punkt[] = [];
   const ut: LottadYta[] = [];
+
+  // Stammarna i SAMMA metriska rymd som polygonerna, sa narhetsprovet blir en
+  // vanlig avstandsjamforelse. Rutnat med 10 m-celler: utan det blir provet
+  // 12 000 stammar x 400 forsok x 7 ytor och lottningen tar sekunder.
+  const rutor = new Map<string, Punkt[]>();
+  const cell = MAX_AVSTAND_TILL_STAM_M;
+  for (const st of stammar) {
+    const m = latLngTillMetrisk(st, origo, mpp);
+    const nyckel = `${Math.floor(m.x / cell)}:${Math.floor(m.y / cell)}`;
+    const lista = rutor.get(nyckel);
+    if (lista) lista.push(m); else rutor.set(nyckel, [m]);
+  }
+  const harStamNara = (p: Punkt): boolean => {
+    if (stammar.length === 0) return true; // ingen stamkontroll - se doc ovan
+    const cx = Math.floor(p.x / cell), cy = Math.floor(p.y / cell);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (const st of rutor.get(`${cx + dx}:${cy + dy}`) ?? []) {
+          if (Math.hypot(st.x - p.x, st.y - p.y) <= MAX_AVSTAND_TILL_STAM_M) return true;
+        }
+      }
+    }
+    return false;
+  };
 
   for (let s = 0; s < skiften.length; s++) {
     const { poly } = skiften[s];
@@ -159,6 +234,8 @@ export function lottaProvytor(
         if (!inuti(kandidat, poly)) continue;
         if (avstandTillKant(kandidat, poly) < MIN_FRAN_KANT_M) continue;
         if (lagda.some((l) => Math.hypot(l.x - kandidat.x, l.y - kandidat.y) < MIN_MELLAN_YTOR_M)) continue;
+        // Traktgransen ar planen; stammarna ar vad som faktiskt togs.
+        if (!harStamNara(kandidat)) continue;
         hittad = kandidat;
       }
       // Ingen giltig plats pa detta skifte - hoppa over i stallet for att

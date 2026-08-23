@@ -30,12 +30,14 @@ import {
 } from '@/lib/kartkoordinater';
 import { T } from '@/lib/utbildning';
 import type { EgenkontrollPunkt, EgenkontrollProvyta } from '@/lib/egenkontroll';
+import type { LatLng } from '@/lib/provytor';
 
 declare global {
   interface Window { maplibregl: any }
 }
 
-const HOJD = 180;
+/** Standardhojd i rundvyn. Helskarmslaget skickar in sin egen. */
+const HOJD_INLINE = 180;
 
 /** Status som farg. Listan sager samma sak i text - fargen bar aldrig ensam. */
 const STATUSFARG: Record<string, string> = {
@@ -89,6 +91,10 @@ export default function RundKarta({
   provytor,
   valdPunktId,
   onPosition,
+  hojd = HOJD_INLINE,
+  centreraPa,
+  stammar,
+  visaStammar = false,
 }: {
   objekt: KartObjektData | null;
   punkter: EgenkontrollPunkt[];
@@ -98,6 +104,16 @@ export default function RundKarta({
   valdPunktId: string | null;
   /** Positionen delas uppat sa avstandslistan slipper en egen GPS-prenumeration. */
   onPosition?: (p: { lat: number; lng: number; noggrannhet: number | null } | null) => void;
+  /** 180 i rundvyn, '100%' i helskarm. Ett lage i taget ar monterat. */
+  hojd?: number | string;
+  /** Ga-vyn centrerar pa ytan. */
+  centreraPa?: { lat: number; lng: number } | null;
+  /**
+   * Avverkade stammar (WGS84). Skickas BARA i helskarmslaget - i den lilla
+   * kartan ar 12 000 prickar brus, inte underlag.
+   */
+  stammar?: LatLng[];
+  visaStammar?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -158,6 +174,15 @@ export default function RundKarta({
         geometry: { type: 'Point', coordinates: [y.lng as number, y.lat as number] },
       })),
   }), [provytor]);
+
+  /** Stammolnet. Sma, graa, ej tryckbara - underlag, inte innehall. */
+  const stamGeo = useMemo<Geo>(() => ({
+    type: 'FeatureCollection',
+    features: (stammar ?? []).map((s2) => ({
+      type: 'Feature', properties: {},
+      geometry: { type: 'Point', coordinates: [s2.lng, s2.lat] },
+    })),
+  }), [stammar]);
 
   /** Avvikelsernas EGNA positioner - redan WGS84, ingen konvertering. */
   const avvikelseGeo = useMemo<Geo>(() => ({
@@ -250,6 +275,17 @@ export default function RundKarta({
           map.addLayer({ id: 'ek-kartbild', type: 'raster', source: 'ek-kartbild', paint: { 'raster-opacity': 0.85 } });
         }
       }
+
+      // STAMMOLNET allra underst - underlag under allt annat.
+      map.addSource('ek-stammar', { type: 'geojson', data: stamGeo });
+      map.addLayer({
+        id: 'ek-stammar', type: 'circle', source: 'ek-stammar',
+        layout: { visibility: visaStammar ? 'visible' : 'none' },
+        paint: {
+          'circle-color': 'rgba(58,58,64,0.70)', 'circle-radius': 2,
+          'circle-stroke-color': 'rgba(255,255,255,0.55)', 'circle-stroke-width': 0.5,
+        },
+      });
 
       // KONTEXT underst: nedtonat, tunt, ej tryckbart.
       map.addSource('ek-kontext', { type: 'geojson', data: kontextGeo });
@@ -369,7 +405,24 @@ export default function RundKarta({
     map.getSource('ek-punkter')?.setData(punktGeo);
     map.getSource('ek-avvikelser')?.setData(avvikelseGeo);
     map.getSource('ek-provytor')?.setData(provyteGeo);
-  }, [punktGeo, avvikelseGeo, provyteGeo, laddad]);
+    map.getSource('ek-stammar')?.setData(stamGeo);
+  }, [punktGeo, avvikelseGeo, provyteGeo, stamGeo, laddad]);
+
+  // Strombrytaren tander/slacker lagret utan att rita om kartan.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !laddad) return;
+    if (map.getLayer('ek-stammar')) {
+      map.setLayoutProperty('ek-stammar', 'visibility', visaStammar ? 'visible' : 'none');
+    }
+  }, [visaStammar, laddad]);
+
+  // Ga-vyn: centrera pa ytan, inte pa trakten.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !laddad || !centreraPa) return;
+    map.easeTo({ center: [centreraPa.lng, centreraPa.lat], zoom: 17, duration: 400 });
+  }, [centreraPa, laddad]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -407,7 +460,11 @@ export default function RundKarta({
     <div style={{ marginBottom: 12 }}>
       <div
         ref={containerRef}
-        style={{ height: HOJD, borderRadius: 12, overflow: 'hidden', background: '#ECEDE7' }}
+        style={{
+          height: hojd,
+          borderRadius: typeof hojd === 'number' ? 12 : 0,
+          overflow: 'hidden', background: '#ECEDE7',
+        }}
       />
       {/* Sag rakt ut vad kartan INTE kan har - anvandaren ska slippa prova sig fram. */}
       {!origo && (
