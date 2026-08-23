@@ -1029,10 +1029,13 @@ export default function PlannerPage() {
     const GALLRING_FILL_OPACITY = 0.45;
     const zoneCasingWidthGallring = ['interpolate', ['linear'], ['zoom'], 10, 4.5, 13, 7.5, 15, 10.5, 17, 12] as any; // ~1.5× bredare
     const gallringCase = (gallringVal: any, defaultVal: any) => ['case', ['==', ['get', 'zoneType'], 'gallring'], gallringVal, defaultVal] as any;
+    // Gallring: knivskarpa hörn på kantlinjen (miter) — bestånds-/gallringsgränser ska följa där man
+    // tryckte, rundade knutar skulle halvera den visuella skärpan. Data-drivet → övriga zoner rundade.
+    const gallringJoin = gallringCase('miter', 'round');
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
-    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': gallringCase('rgba(0,0,0,0.82)', 'rgba(0,0,0,0.6)'), 'line-width': gallringCase(zoneCasingWidthGallring, zoneCasingWidth) }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': gallringCase('rgba(0,0,0,0.82)', 'rgba(0,0,0,0.6)'), 'line-width': gallringCase(zoneCasingWidthGallring, zoneCasingWidth) }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
+    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
     // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
     // på EN BLICK utan att tappa. Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
     map.addLayer({
@@ -4239,7 +4242,7 @@ export default function PlannerPage() {
           if (snapDist < 15) {
             const closed = [...simplified.slice(0, -1), simplified[0]];
             if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
-            if (isZoneMode) finishZoneFromCoords(smoothCoords(closed, 2, true));
+            if (isZoneMode) finishZoneFromCoords(zoneType === 'gallring' ? closed : smoothCoords(closed, 2, true));
             return;
           }
         }
@@ -4262,7 +4265,7 @@ export default function PlannerPage() {
           if (closeDist < 15) {
             const closed = [...currentDrawCoords, currentDrawCoords[0]];
             if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
-            if (isZoneMode) finishZoneFromCoords(smoothCoords(closed, 2, true));
+            if (isZoneMode) finishZoneFromCoords(zoneType === 'gallring' ? closed : smoothCoords(closed, 2, true));
             return;
           }
         }
@@ -4279,8 +4282,8 @@ export default function PlannerPage() {
         let finalCoords: [number, number][];
         if (shouldClose) {
           const closed = [...currentDrawCoords, currentDrawCoords[0]];
-          // Boundary: skarpa hörn (ingen smoothing). Zoner: mjuka kurvor.
-          finalCoords = (isDrawMode && POLYGON_LINE_TYPES.has(drawType || '')) ? closed : smoothCoords(closed, 2, true);
+          // Boundary + gallringszon: skarpa hörn (ingen smoothing). Övriga zoner: mjuka kurvor.
+          finalCoords = ((isDrawMode && POLYGON_LINE_TYPES.has(drawType || '')) || (isZoneMode && zoneType === 'gallring')) ? closed : smoothCoords(closed, 2, true);
         } else {
           // Öppna linjer: smootha om inte polygon-typ ELLER rå-punkt-typ (stenmur = raka murstycken)
           finalCoords = (!POLYGON_LINE_TYPES.has(drawType || '') && !RAW_POINT_LINE_TYPES.has(drawType || '') && currentDrawCoords.length >= 3) ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
@@ -9341,7 +9344,7 @@ export default function PlannerPage() {
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 2 && zoneType) {
       let finalCoords = [...currentDrawCoords, currentDrawCoords[0]];
-      finalCoords = smoothCoords(finalCoords, 2, true);
+      if (zoneType !== 'gallring') finalCoords = smoothCoords(finalCoords, 2, true); // gallring: råa hörn där man tryckte
       console.log('Zon stängd (knapp), antal punkter:', currentDrawCoords.length, 'första:', finalCoords[0], 'sista:', finalCoords[finalCoords.length-1], 'efter smooth:', finalCoords.length);
       finishZoneFromCoords(finalCoords);
       return;
