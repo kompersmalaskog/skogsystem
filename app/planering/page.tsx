@@ -162,6 +162,7 @@ interface Marker {
   isLine?: boolean;
   arrowType?: string;
   zoneType?: string;
+  tradslag?: string; // gallringszon: valt huvudträdslag (tall/gran/lov) — färgar zonen, väljs i pickern före ritning
   lineType?: string;
   rotation?: number;
   // Pilar sparar numera geo direkt (lng/lat + angle) så de aldrig hänger på svgToLatLon/origo;
@@ -1021,10 +1022,31 @@ export default function PlannerPage() {
     // === Zone layers (zoom-interpolerade bredder) ===
     const zoneWidth = ['interpolate', ['linear'], ['zoom'], 10, 1.5, 13, 3, 15, 5, 17, 6] as any;
     const zoneCasingWidth = ['interpolate', ['linear'], ['zoom'], 10, 3, 13, 5, 15, 7, 17, 8] as any;
-    map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.2 } });
-    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    // Gallringszoner talar genom FYLLNINGEN (0.75) — kanten är TYST (ingen streckning; dash = linjernas
+    // alfabet: boundary/dike/nature/stonewall → casing + vit dash filtreras BORT för gallring). Löv/björk
+    // är VIT även här (samma färgspråk överallt) → synligheten bärs av en BRED mörkgrå ram (edgeColor
+    // #4d4b45, ~2.5× tall/gran) som håller FORMEN där färgen möter kartvitt. Tall/gran = sin mörka nyans,
+    // tunn kant. Knivskarpa miter-hörn.
+    //
+    // VIKTIGT (bugg #449, hittad via riktig MapLibre-render): kanten ligger i TRE lager, inte ett.
+    // MapLibre tillåter BARA EN zoom-baserad interpolate per uttryck — ett enda zone-outline med
+    // ['case', … zoomInterpolateLov, zoomInterpolateGallring, zoomInterpolateZoneWidth] AVVISAS tyst
+    // ("Only one zoom-based interpolate subexpression may be used") → kanten renderades ALDRIG. Därför:
+    // icke-gallring behåller sitt lager (zoneWidth), och gallring får två egna lager (löv bred / tall+gran
+    // tunn), var och en med EN interpolate. Övriga zoner (wet/steep/…) HELT oförändrade.
+    const GALLRING_FILL_OPACITY = 0.75;
+    const zoneOutlineWidthGallring = ['interpolate', ['linear'], ['zoom'], 10, 1.2, 13, 1.8, 15, 2.4, 17, 3] as any; // tall/gran: tunn kant
+    const zoneOutlineWidthLov = ['interpolate', ['linear'], ['zoom'], 10, 3, 13, 4.5, 15, 6, 17, 7.5] as any; // löv: bred ram (~2.5×) bär den vita ytan
+    const gallringCase = (gallringVal: any, defaultVal: any) => ['case', ['==', ['get', 'zoneType'], 'gallring'], gallringVal, defaultVal] as any;
+    const ejGallring = ['!=', ['get', 'zoneType'], 'gallring'] as any; // casing/dash/outline för ALLA UTOM gallring
+    const gallringLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['==', ['get', 'tradslag'], 'lov']] as any;
+    const gallringEjLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['!=', ['get', 'tradslag'], 'lov']] as any;
+    map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
+    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-gallring', type: 'line', source: 'zones-source', filter: gallringEjLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthGallring }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
+    map.addLayer({ id: 'zone-outline-gallring-lov', type: 'line', source: 'zones-source', filter: gallringLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthLov }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
+    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
     // på EN BLICK utan att tappa. Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
     map.addLayer({
@@ -2335,7 +2357,10 @@ export default function PlannerPage() {
   // Zoner
   const [isZoneMode, setIsZoneMode] = useState(false);
   const [zoneType, setZoneType] = useState<string | null>(null);
-  
+  // Gallringszon: huvudträdslaget väljs i pickern (Tall/Gran/Löv) FÖRE ritning → zonen föds färgad.
+  const [gallringTradslag, setGallringTradslag] = useState<string | null>(null);
+  const [gallringExpanded, setGallringExpanded] = useState(false); // pickern: "Gallring" utfälld med trädslagsval
+
   // Pilar
   const [isArrowMode, setIsArrowMode] = useState(false);
   const [arrowType, setArrowType] = useState<string | null>(null);
@@ -4228,7 +4253,7 @@ export default function PlannerPage() {
           if (snapDist < 15) {
             const closed = [...simplified.slice(0, -1), simplified[0]];
             if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
-            if (isZoneMode) finishZoneFromCoords(smoothCoords(closed, 2, true));
+            if (isZoneMode) finishZoneFromCoords(zoneType === 'gallring' ? closed : smoothCoords(closed, 2, true));
             return;
           }
         }
@@ -4251,7 +4276,7 @@ export default function PlannerPage() {
           if (closeDist < 15) {
             const closed = [...currentDrawCoords, currentDrawCoords[0]];
             if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
-            if (isZoneMode) finishZoneFromCoords(smoothCoords(closed, 2, true));
+            if (isZoneMode) finishZoneFromCoords(zoneType === 'gallring' ? closed : smoothCoords(closed, 2, true));
             return;
           }
         }
@@ -4268,8 +4293,8 @@ export default function PlannerPage() {
         let finalCoords: [number, number][];
         if (shouldClose) {
           const closed = [...currentDrawCoords, currentDrawCoords[0]];
-          // Boundary: skarpa hörn (ingen smoothing). Zoner: mjuka kurvor.
-          finalCoords = (isDrawMode && POLYGON_LINE_TYPES.has(drawType || '')) ? closed : smoothCoords(closed, 2, true);
+          // Boundary + gallringszon: skarpa hörn (ingen smoothing). Övriga zoner: mjuka kurvor.
+          finalCoords = ((isDrawMode && POLYGON_LINE_TYPES.has(drawType || '')) || (isZoneMode && zoneType === 'gallring')) ? closed : smoothCoords(closed, 2, true);
         } else {
           // Öppna linjer: smootha om inte polygon-typ ELLER rå-punkt-typ (stenmur = raka murstycken)
           finalCoords = (!POLYGON_LINE_TYPES.has(drawType || '') && !RAW_POINT_LINE_TYPES.has(drawType || '') && currentDrawCoords.length >= 3) ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
@@ -4823,6 +4848,7 @@ export default function PlannerPage() {
       const newZone = {
         id: Date.now(),
         zoneType,
+        ...(zoneType === 'gallring' && gallringTradslag ? { tradslag: gallringTradslag } : {}),
         path: svgPath,
         isZone: true,
       };
@@ -4833,6 +4859,7 @@ export default function PlannerPage() {
     setCurrentPath([]);
     setIsZoneMode(false);
     setZoneType(null);
+    setGallringTradslag(null);
     setIsDrawing(false);
     setDrawPaused(false);
   };
@@ -6033,7 +6060,31 @@ export default function PlannerPage() {
     { id: 'culture', name: 'Kulturmiljö', color: ZONE_COLORS.culture, icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: ZONE_COLORS.noentry, icon: 'warning' },
     { id: 'fornlamning', name: 'Fornlämning', color: ZONE_COLORS.fornlamning, icon: 'culturemonument' },
+    { id: 'gallring', name: 'Gallringszon', color: '#6b7c3a', icon: 'eternitytree' },
   ];
+
+  // Gallringszon: huvudträdslaget väljs i pickern (Tall/Gran/Löv) och färgar zonen med SAMMA palett
+  // som produktionshögarna — ögonen känner redan igen tall=orange, gran=grön, löv=björkvit. Löv =
+  // #f0f0f0 (björkvit); den mörka casingen (rgba(0,0,0,0.6)) bär kontrasten mot ljus karta. Zonens
+  // fält-färg tas alltså från trädslaget, inte från zoneTypes-posten (som bara ger picker-/kort-accent).
+  const GALLRING_TRADSLAG = [
+    { id: 'tall', name: 'Tall', color: '#e8832a' },
+    { id: 'gran', name: 'Gran', color: '#1d9e75' },
+    { id: 'lov',  name: 'Löv',  color: '#f0f0f0' },
+  ];
+  // Skyddsnät: en gallring-zon med SAKNAT/OKÄNT trädslag ska rendera SKRIKANDE MAGENTA — aldrig en
+  // trovärdig oliv (#6b7c3a föll tidigare som "beige" och dolde luckan). En lucka ska SE UT som en
+  // lucka (samma ärliga-fel-princip som överallt annars). Träffas bara om tradslag ≠ tall/gran/lov.
+  const GALLRING_SAKNAT = '#ff00ff';
+  const gallringFarg = (tradslag?: string | null) => GALLRING_TRADSLAG.find(t => t.id === tradslag)?.color || GALLRING_SAKNAT;
+  // SAMMA färgspråk överallt — inga kartundantag: löv/björk är VIT även på kartytan (#f0f0f0), precis som
+  // i produktionshögarna/pickern/korten. Vit fyllning kan aldrig ENSAM bära mot vita/benvita kartor (två
+  // recept bevisade det) → synligheten kommer från RAMEN: löv får en BRED mörkgrå heldragen kant (#4d4b45,
+  // ~2.5× tall/gran) som bär FORMEN där färgen sammanfaller med bakgrunden — samma grepp som felloutside-
+  // symbolens vita kantring. Tall/gran = mörkare nyans av sin färg, normal tunn kant. Ingen streckning
+  // (dash = linjernas språk: boundary/dike/nature/stonewall). Kart-fyllningen == identitetsfärgen (inget särfall).
+  const GALLRING_KANT: Record<string, string> = { tall: '#a8531a', gran: '#0f6b4d', lov: '#4d4b45' };
+  const gallringKantFarg = (tradslag?: string | null) => GALLRING_KANT[tradslag || ''] || GALLRING_SAKNAT;
 
   const warningCategories = [
     { section: 'Punkter', items: [
@@ -6267,9 +6318,17 @@ export default function PlannerPage() {
           if (f[0] !== l[0] || f[1] !== l[1]) coords.push(coords[0]);
         }
         const zt = zoneTypes.find(z => z.id === m.zoneType);
+        // Gallring färgas av trädslaget (tall/gran/löv), övriga zoner av sin zoneType-färg.
+        // Gallring: trädslagets identitetsfärg (löv = VIT #f0f0f0 som överallt); övriga zoner sin zoneType-färg.
+        const farg = m.zoneType === 'gallring' ? gallringFarg(m.tradslag) : (zt?.color || '#3b82f6');
         features.push({
           type: 'Feature',
-          properties: { zoneType: m.zoneType, id: m.id, color: zt?.color || '#3b82f6' },
+          properties: {
+            zoneType: m.zoneType, id: m.id, color: farg,
+            // Gallring: heldragen kant i mörk trädslagsnyans (edgeColor); löv får BRED ram (tradslag='lov')
+            // som bär den vita ytan. Övriga zoner saknar dessa → kanten tar 'color', normal bredd.
+            ...(m.zoneType === 'gallring' ? { edgeColor: gallringKantFarg(m.tradslag), tradslag: m.tradslag || '' } : {}),
+          },
           geometry: { type: 'Polygon', coordinates: [coords] },
         });
       });
@@ -9314,7 +9373,7 @@ export default function PlannerPage() {
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 2 && zoneType) {
       let finalCoords = [...currentDrawCoords, currentDrawCoords[0]];
-      finalCoords = smoothCoords(finalCoords, 2, true);
+      if (zoneType !== 'gallring') finalCoords = smoothCoords(finalCoords, 2, true); // gallring: råa hörn där man tryckte
       console.log('Zon stängd (knapp), antal punkter:', currentDrawCoords.length, 'första:', finalCoords[0], 'sista:', finalCoords[finalCoords.length-1], 'efter smooth:', finalCoords.length);
       finishZoneFromCoords(finalCoords);
       return;
@@ -9324,6 +9383,7 @@ export default function PlannerPage() {
       const newZone = {
         id: Date.now(),
         zoneType,
+        ...(zoneType === 'gallring' && gallringTradslag ? { tradslag: gallringTradslag } : {}),
         path: [...currentPath],
         isZone: true,
       };
@@ -9333,6 +9393,7 @@ export default function PlannerPage() {
     setCurrentDrawCoords([]);
     setIsZoneMode(false);
     setZoneType(null);
+    setGallringTradslag(null);
     setIsDrawing(false);
     setDrawPaused(false);
   };
@@ -13100,6 +13161,7 @@ export default function PlannerPage() {
 
         const getMarkerBgColor = () => {
           if (marker.isMarker) return getIconBackground(marker.type || '');
+          if (marker.isZone && marker.zoneType === 'gallring') return gallringFarg(marker.tradslag);
           if (marker.isZone) return zoneTypes.find(t => t.id === marker.zoneType)?.color || 'rgba(0,0,0,0.6)';
           if (marker.isArrow) return arrowTypes.find(t => t.id === marker.arrowType)?.color || 'rgba(0,0,0,0.6)';
           return 'rgba(0,0,0,0.6)';
@@ -13152,6 +13214,26 @@ export default function PlannerPage() {
                 </div>
                 <span style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>{getMarkerName()}</span>
               </div>
+
+              {/* Gallringszon: valt huvudträdslag (färgar zonen) */}
+              {marker.isZone && marker.zoneType === 'gallring' && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '8px',
+                    padding: '7px 14px', borderRadius: '999px',
+                    background: `${gallringFarg(marker.tradslag)}22`,
+                    border: `1px solid ${gallringFarg(marker.tradslag)}66`,
+                    color: '#fff', fontSize: '14px', fontWeight: 600,
+                  }}>
+                    <span style={{
+                      width: '13px', height: '13px', borderRadius: '4px',
+                      background: gallringFarg(marker.tradslag),
+                      border: '1px solid rgba(0,0,0,0.5)',
+                    }} />
+                    {GALLRING_TRADSLAG.find(t => t.id === marker.tradslag)?.name || 'Trädslag ej valt'}
+                  </span>
+                </div>
+              )}
 
               {/* Basväg: nummer + längd (+ ev. RISA-del) */}
               {marker.isLine && marker.lineType === 'mainRoad' && (() => {
@@ -15902,6 +15984,78 @@ export default function PlannerPage() {
                   padding: '16px',
                 }}>
                   {zoneTypes.map(type => (
+                    type.id === 'gallring' ? (
+                      // Gallring: fäll ut trädslagsval (Tall/Gran/Löv) FÖRE ritning → zonen föds färgad.
+                      <div key={type.id}>
+                        <div
+                          onClick={() => setGallringExpanded(v => !v)}
+                          style={{
+                            padding: '16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px',
+                            borderRadius: '12px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '10px',
+                            background: `${type.color}15`,
+                            border: `1.5px solid ${type.color}50`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}>
+                            <div style={{
+                              width: '20px',
+                              height: '20px',
+                              background: `${type.color}30`,
+                              borderRadius: '4px',
+                            }} />
+                          </div>
+                          <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{type.name}</span>
+                          <span style={{
+                            fontSize: '12px',
+                            color: 'rgba(255,255,255,0.4)',
+                            transform: gallringExpanded ? 'rotate(180deg)' : 'none',
+                            transition: 'transform 0.15s ease',
+                          }}>▼</span>
+                        </div>
+                        {gallringExpanded && GALLRING_TRADSLAG.map(ts => (
+                          <div
+                            key={ts.id}
+                            onClick={() => {
+                              setGallringTradslag(ts.id);
+                              setZoneType('gallring');
+                              setIsZoneMode(true);
+                              setGallringExpanded(false);
+                              setMenuOpen(false);
+                              setMenuHeight(0);
+                              setActiveCategory(null);
+                            }}
+                            style={{
+                              padding: '12px 16px 12px 40px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '14px',
+                              borderRadius: '12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{
+                              width: '26px',
+                              height: '26px',
+                              borderRadius: '7px',
+                              background: ts.color,
+                              border: '1.5px solid rgba(0,0,0,0.5)',
+                            }} />
+                            <span style={{ fontSize: '15px', color: '#fff' }}>{ts.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
                     <div
                       key={type.id}
                       onClick={() => {
@@ -15939,6 +16093,7 @@ export default function PlannerPage() {
                       </div>
                       <span style={{ fontSize: '15px', color: '#fff' }}>{type.name}</span>
                     </div>
+                    )
                   ))}
                 </div>
               </div>
