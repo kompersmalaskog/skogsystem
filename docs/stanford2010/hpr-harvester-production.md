@@ -240,6 +240,36 @@ if single_tree is None:
 gallring av klena tall/gran) skapas inte i `detalj_stam` eller `hpr_stammar`.
 Stockarna räknas inte heller. Detta är en **känd Lucka (Hög)** för gallring.
 
+> **KONSEKVENSEN ÄR NU MÄTT (2026-08-23).** Luckan var känd men aldrig
+> kvantifierad. Full rapport: STATUS.md, avsnitt "IMPORTUTREDNING 2026-08-23".
+>
+> Bortfallet följer andelen flerträdshantering rakt av:
+>
+> | Trakt | Andel flerträd | Volymavvikelse mot MOM |
+> |---|---|---|
+> | Hålabäck | 0,0 % | 0,00 % |
+> | Rössmåla | 2,8 % | −0,49 % |
+> | Sjöaryd | 5,0 % | −0,76 % |
+> | Räveboda | 7,2 % | −1,84 % |
+> | Johan Svensson | 23,9 % | −9,36 % |
+> | Steglehylte | 24,5 % | −5,85 % |
+>
+> `detalj_stam`-antalet är exakt antalet `SingleTreeProcessedStem` i filen.
+> På Sjöaryd: filen har 399 unika `StemKey` utan luckor, MOM säger
+> `NumberOfHarvestedStems` = 399, och filens totalvolym 25,5315 m³sub matchar
+> MOM:s 25,5300. De 20 som saknas i `detalj_stam` är exakt de 20 med
+> `MultiTreeProcessedStem`.
+>
+> Omfattning: 56 av 58 slutavverkningstrakter avviker också — detta är inte
+> ett gallringsproblem.
+>
+> Inför en fix: volymen är **per träd** (summering ger MOM:s total, ingen
+> dubbelräkning), men DBH är **delad inom bunten**, och flerträd skriver
+> `logVolumeCategory="m3subEstimated"` där enträd skriver `"m3sub"`.
+>
+> `IGNORERAS HELT` gäller fortfarande — parsern är oförändrad. Uppdatera det
+> här avsnittet när fixen är gjord.
+
 Notera att MOM-parsern hanterar MTH (`processtyp = 'MTH'`) korrekt på
 `fakt_produktion`-nivå (volymtotaler), så maskinens TOTALA dagsproduktion
 är riktig — men per-stam-detaljer i HPR försvinner.

@@ -731,20 +731,68 @@ DBH 61; paren har 67/67 och 86/86. Diametern ar matt
 EN gang for bunten, inte per trad.
 
 SLUTSATS FOR LAGRING: de kan lagras som separata
-rader i detalj_stam. Ingen ny struktur behovs. MEN:
+rader i detalj_stam. Ingen ny struktur behovs. Men
+dbh_mm ar da inte en individuell matning — tre rader
+med 61 mm ar EN matning, inte tre. Dgv och
+diameterhistogrammet skulle vikta bunten tre ganger.
+Behover en kolumn for StemBunchKey, eller en flagga,
+sa statistiken kan skilja dem at. Kolumn = migration
+= egen gren, fraga forst.
 
- 1. dbh_mm ar da inte en individuell matning. Tre
-    rader med 61 mm ar EN matning, inte tre. Dgv och
-    diameterhistogrammet skulle vikta bunten tre
-    ganger. Behover en kolumn for StemBunchKey, eller
-    en flagga, sa statistiken kan skilja dem at.
-    Kolumn = migration = egen gren, fraga forst.
- 2. VOLYMKATEGORIN SKILJER. Entrad skriver
-    logVolumeCategory="m3sub". Flertrad skriver
-    "m3subEstimated". En parser som bara letar m3sub
-    hittar noll volym aven efter att den slutat
-    hoppa over elementet. Detta ar den enskilt
-    lattaste missen att gora i fixen.
+### VARNING — m3subEstimated ar den tysta fallan
+Detta ar den miss som SER UT SOM EN LYCKAD FIX.
+
+Entrad skriver  logVolumeCategory="m3sub"
+Flertrad skriver logVolumeCategory="m3subEstimated"
+
+En parser som slutar hoppa over MultiTreeProcessedStem
+men fortsatter leta enbart "m3sub" far RATT STAMANTAL
+och NOLL VOLYM for flertradsstammarna.
+
+Verifierar man da bara stamantalet ser fixen ut att
+fungera: detalj_stam gar fran 488 till 641 pa Johan
+Svensson. Men fakt_sortiment star kvar pa 23,187 i
+stallet for att na 25,583, och avvikelsen mot MOM
+kvarstar oforandrad.
+
+Verifiera darfor ALLTID bada talen, stamantal OCH
+volym, mot MOM. I filen finns 705 "m3sub" och 20
+"m3subEstimated" pa Sjoaryd — samma 20 som ar
+flertradsstammarna.
+
+### KALIBRERINGSVYN — vagen finns i koden, inte i datan
+Kontrollerat pa begaran, eftersom kalibreringen ar
+kvalitetsregelverk mot Vida och delad DBH som
+individuella matningar skulle forvanga std.
+
+LAGET IDAG: ofarligt. Samtliga 629 HQC-filer for
+R64101, R64428 och PONS20SDJAA270231 ar genomsokta —
+1039 kontrollstammar, NOLL MultiTreeProcessedStem.
+Kontrollmatning kraver att en enskild stam klavas, sa
+buntade stammar dyker inte upp som kontrollstammar.
+detalj_kontroll_stock och fakt_kalibrering ar alltsa
+opaverkade av fel 1.
+
+MEN VAGEN FINNS I KODEN. HQC-parsern har samma skip:
+  skogsmaskin_import_version_6.py:1669
+    single_tree = find_element(stem,
+        'SingleTreeProcessedStem', ns)
+    if single_tree is None: continue
+
+Tar fix-grenen bort skippet MEKANISKT pa alla fem
+stallen oppnas en vag for buntdelad DBH in i
+detalj_kontroll_stock -> fakt_kalibrering -> kravet
+mot Vida. Tre rader med samma DBH skulle da rakans
+som tre oberoende matningar och krympa
+standardavvikelsen artificiellt — precis den sortens
+fel som far en kalibrering att se battre ut an den ar.
+
+ATGARD I FIX-GRENEN: HQC-stallet ska INTE behandlas
+som de fyra andra. Antingen star skippet kvar med en
+kommentar om varfor det ar avsiktligt just dar, eller
+sa laggs en explicit sparr. Beslutet ska vara
+medvetet och skrivet, inte en foljd av att nagon
+sokte och ersatte.
 
 ### BORTFALLET VAR KANT OCH DOKUMENTERAT
 docs/stanford2010/hpr-harvester-production.md rad 220
