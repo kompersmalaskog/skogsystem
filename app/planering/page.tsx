@@ -1026,21 +1026,19 @@ export default function PlannerPage() {
     // färgen läses PÅ EN BLICK (grön grön, orange orange) och den vita löv-fyllningen inte tonas bort
     // mot ljus karta — den mörka casingen bär skuggan/kontrasten. TRIMBARA (Martin godkänner i preview).
     // Data-drivet på ['get','zoneType'] → alla andra zontyper (wet/steep/…) är HELT oförändrade.
-    // Gallringszoner talar genom FYLLNINGEN — kanten är TYST. Streckning är linjernas alfabet
+    // Gallringszoner talar genom FYLLNINGEN (0.45) — kanten är TYST. Streckning är linjernas alfabet
     // (boundary/dike/nature/stonewall); en YTA får inte prata det → casing OCH vit dash filtreras BORT
-    // för gallring. Kanten blir en tunn HELDRAGEN linje i mörkare trädslagsnyans (edgeColor per feature),
-    // med knivskarpa miter-hörn. Fyllnadsopacitet + kantbredd är PER TRÄDSLAG (löv 0.60 + bredare kant,
-    // tall/gran 0.45 + tunn) via feature-properties fillOpacity/tradslag — löv-fyllningen är dessutom
-    // benvit (setData) så den syns mot grön/vit terrängkarta. Allt data-drivet → övriga zoner oförändrade.
-    const zoneOutlineWidthGallring = ['interpolate', ['linear'], ['zoom'], 10, 1.2, 13, 1.8, 15, 2.4, 17, 3] as any; // tall/gran: tunn kant
-    const zoneOutlineWidthLov = ['interpolate', ['linear'], ['zoom'], 10, 2.5, 13, 3.5, 15, 4.5, 17, 5] as any; // löv: kraftigare ram
+    // för gallring. Kanten = tunn HELDRAGEN linje i mörkare trädslagsnyans (edgeColor per feature),
+    // knivskarpa miter-hörn. Löv har egen kulör (gul-beige, setData) men SAMMA opacitet + kantbredd
+    // som tall/gran. Allt data-drivet på ['get','zoneType'] → övriga zoner (wet/steep/…) HELT oförändrade.
+    const GALLRING_FILL_OPACITY = 0.45;
+    const zoneOutlineWidthGallring = ['interpolate', ['linear'], ['zoom'], 10, 1.2, 13, 1.8, 15, 2.4, 17, 3] as any; // tunn kant
     const gallringCase = (gallringVal: any, defaultVal: any) => ['case', ['==', ['get', 'zoneType'], 'gallring'], gallringVal, defaultVal] as any;
     const ejGallring = ['!=', ['get', 'zoneType'], 'gallring'] as any; // casing/dash renderas för ALLA UTOM gallring
     const gallringJoin = gallringCase('miter', 'round');
-    const gallringKantBredd = ['case', ['==', ['get', 'tradslag'], 'lov'], zoneOutlineWidthLov, zoneOutlineWidthGallring] as any;
-    map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(['get', 'fillOpacity'], 0.2) } });
+    map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
     map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': gallringCase(['get', 'edgeColor'], ['get', 'color']), 'line-width': gallringCase(gallringKantBredd, zoneWidth) }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': gallringCase(['get', 'edgeColor'], ['get', 'color']), 'line-width': gallringCase(zoneOutlineWidthGallring, zoneWidth) }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
     map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
     // på EN BLICK utan att tappa. Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
@@ -6071,16 +6069,16 @@ export default function PlannerPage() {
   // Kantfärg = MÖRKARE nyans av trädslagsfärgen (mörkorange/tall, mörkgrön/gran, grå/löv). Ytan talar
   // genom fyllningen; kanten är en tunn HELDRAGEN, tyst linje — ingen streckning (dash = linjernas språk:
   // boundary/dike/nature/stonewall). Så gallringsytan aldrig förväxlas med traktgräns/naturvård.
-  const GALLRING_KANT: Record<string, string> = { tall: '#a8531a', gran: '#0f6b4d', lov: '#4d4b45' };
+  const GALLRING_KANT: Record<string, string> = { tall: '#a8531a', gran: '#0f6b4d', lov: '#9a7c2e' };
   const gallringKantFarg = (tradslag?: string | null) => GALLRING_KANT[tradslag || ''] || '#5f5e5a';
-  // Löv-särfall: REN vit fyllning är osynlig mot grön/vit terrängkarta (vitt mot vitt) oavsett opacitet.
-  // Löv får därför BENVIT/varmgrå fyllning (eget pigment → sammanfaller aldrig med kartvitt), högre
-  // opacitet (0.60) och en kraftigare, bredare mörk kant som ram. Alla tre trimbara konstanter.
-  const GALLRING_LOV_FILL = '#e8e6df';   // benvit — nära björkvit men med eget pigment
-  const GALLRING_FILL_OPACITY = 0.45;    // tall/gran
-  const GALLRING_LOV_OPACITY = 0.60;     // löv — bär mot vit/ljus bakgrund
+  // Löv på KARTYTAN får en RIKTIG kulör — varm gul-beige åt björklövs-hållet. Vit OCH benvit föll:
+  // kartorna ÄR byggda av vitt/grått/benvitt, så varje ljus neutral ton sammanfaller med någon
+  // bakgrund. Gul-beigen är äkta pigment mot alla tre (Positron/grön/grön-vit terräng) och krockar
+  // inte med tall-orange (rödare) eller gran-grönt. Kanten = mörkare nyans av samma gul-beige
+  // (GALLRING_KANT.lov). Opacitet + kantbredd SAMMA som tall/gran — kulören bär nu, inget särfall.
+  // Picker/kort behåller björkvit identitet (mörk bakgrund → redan rätt). Kart-fyllningen ≠ kort-swatchen.
+  const GALLRING_LOV_FILL = '#d9c78a';   // varm gul-beige, björklövs-håll (trimbar)
   const gallringFyllFarg = (tradslag?: string | null) => tradslag === 'lov' ? GALLRING_LOV_FILL : gallringFarg(tradslag);
-  const gallringOpacitet = (tradslag?: string | null) => tradslag === 'lov' ? GALLRING_LOV_OPACITY : GALLRING_FILL_OPACITY;
 
   const warningCategories = [
     { section: 'Punkter', items: [
@@ -6315,16 +6313,14 @@ export default function PlannerPage() {
         }
         const zt = zoneTypes.find(z => z.id === m.zoneType);
         // Gallring färgas av trädslaget (tall/gran/löv), övriga zoner av sin zoneType-färg.
-        // Gallring: löv får benvit fyllning (osynligt vitt-mot-vitt annars); tall/gran sin trädslagsfärg.
+        // Gallring: löv får gul-beige kulör, tall/gran sin trädslagsfärg. Övriga zoner sin zoneType-färg.
         const farg = m.zoneType === 'gallring' ? gallringFyllFarg(m.tradslag) : (zt?.color || '#3b82f6');
         features.push({
           type: 'Feature',
           properties: {
             zoneType: m.zoneType, id: m.id, color: farg,
-            // Gallring: tunn heldragen kant i mörkare trädslagsnyans (edgeColor), per-trädslags fyllnads-
-            // opacitet (löv 0.60, tall/gran 0.45) + trädslag (löv-kanten ritas bredare). Övriga zoner
-            // saknar dessa → kanten tar 'color', opacitet konstant 0.2.
-            ...(m.zoneType === 'gallring' ? { edgeColor: gallringKantFarg(m.tradslag), fillOpacity: gallringOpacitet(m.tradslag), tradslag: m.tradslag || '' } : {}),
+            // Gallring: tunn heldragen kant i mörkare trädslagsnyans (edgeColor). Övriga zoner saknar → kanten tar 'color'.
+            ...(m.zoneType === 'gallring' ? { edgeColor: gallringKantFarg(m.tradslag) } : {}),
           },
           geometry: { type: 'Polygon', coordinates: [coords] },
         });
