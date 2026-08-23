@@ -25,6 +25,7 @@ import {
   utforandeUnderrad,
   hamtaFoton,
   hamtaKontextmarkeringar,
+  hamtaProvytor,
   stubbeDom,
   KRAVNIVA_STUBBEHANDLING,
   AVVIKELSE_ETIKETT,
@@ -35,11 +36,16 @@ import {
   type PunktStatus,
   type AvvikelseTyp,
   type EgenkontrollFoto,
+  type EgenkontrollProvyta,
 } from '@/lib/egenkontroll';
 import { signeraFoto } from '@/lib/egenkontrollfoto';
 import AvvikelseSheet, { type SheetLage } from '../AvvikelseSheet';
 import RundKarta from '../RundKarta';
 import StubbeSheet from '../StubbeSheet';
+import ProvytaSheet from '../ProvytaSheet';
+import ProvyteLista, { type MinPosition } from '../ProvyteLista';
+import ProvyteSammanstallning from '../ProvyteSammanstallning';
+import { skadeandel } from '@/lib/provytor';
 import { anmarkningsText, kortDatum } from '../format';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
@@ -402,6 +408,9 @@ export default function EgenkontrollRundaPage() {
   const [sheet, setSheet] = useState<{ lage: SheetLage; punkt: EgenkontrollPunkt } | null>(null);
   const [valdPunktId, setValdPunktId] = useState<string | null>(null);
   const [stubbePunkt, setStubbePunkt] = useState<EgenkontrollPunkt | null>(null);
+  const [provytor, setProvytor] = useState<EgenkontrollProvyta[]>([]);
+  const [provytaVald, setProvytaVald] = useState<EgenkontrollProvyta | null>(null);
+  const [minPosition, setMinPosition] = useState<MinPosition>(null);
   // Kontextlagret - orientering, aldrig dokumentets innehall.
   const [kontext, setKontext] = useState<{ data: any }[]>([]);
   const [avslutar, setAvslutar] = useState(false);
@@ -437,10 +446,11 @@ export default function EgenkontrollRundaPage() {
   // ska aldrig gora att punkterna inte gar att besvara.
   const rundaId = vy?.egenkontroll?.id;
   useEffect(() => {
-    if (!rundaId) { setFotoPerPunkt({}); return; }
+    if (!rundaId) { setFotoPerPunkt({}); setProvytor([]); return; }
     let avbruten = false;
     (async () => {
       try {
+        setProvytor(await hamtaProvytor(rundaId));
         const foton = await hamtaFoton(rundaId);
         const par = await Promise.all(
           foton.map(async (f: EgenkontrollFoto) => ({
@@ -456,7 +466,7 @@ export default function EgenkontrollRundaPage() {
         }
         setFotoPerPunkt(karta);
       } catch {
-        if (!avbruten) setFotoPerPunkt({});
+        if (!avbruten) { setFotoPerPunkt({}); setProvytor([]); }
       }
     })();
     return () => { avbruten = true; };
@@ -620,7 +630,15 @@ export default function EgenkontrollRundaPage() {
                   objekt={vy.kartObjekt}
                   punkter={vy.punkter}
                   kontext={kontext}
+                  provytor={provytor}
                   valdPunktId={valdPunktId}
+                  onPosition={setMinPosition}
+                />
+                <ProvyteLista
+                  provytor={provytor}
+                  minPosition={minPosition}
+                  last={rundanKlar}
+                  onValj={(y) => setProvytaVald(y)}
                 />
               </div>
             )}
@@ -724,12 +742,19 @@ export default function EgenkontrollRundaPage() {
                     det bara finns en punkt - fler kommer i provyte-PR:en, och
                     en rubrik som byter namn nar innehallet vaxer ar samre an
                     en som star kvar. */}
-                {antalMatning > 0 && (
+                {(antalMatning > 0 || provytor.length > 0) && (
                   <div>
                     <SectionHeader>Mätningar</SectionHeader>
-                    <div style={{ fontSize: 15, color: T.t2, padding: '0 16px 8px' }}>
-                      {besvaradeMatning} av {antalMatning}
-                    </div>
+                    {antalMatning > 0 && (
+                      <div style={{ fontSize: 15, color: T.t2, padding: '0 16px 8px' }}>
+                        {besvaradeMatning} av {antalMatning}
+                      </div>
+                    )}
+                    {provytor.length > 0 && (
+                      <div style={{ background: T.group, borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
+                        <ProvyteSammanstallning provytor={provytor} />
+                      </div>
+                    )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {matningspunkter.map((p) => (
                         <MatningsKort
@@ -818,6 +843,16 @@ export default function EgenkontrollRundaPage() {
               </>
             )}
           </>
+        )}
+
+        {provytaVald && vy?.egenkontroll && (
+          <ProvytaSheet
+            yta={provytaVald}
+            egenkontrollId={vy.egenkontroll.id}
+            noggrannhetM={minPosition?.noggrannhet ?? null}
+            onStang={() => setProvytaVald(null)}
+            onSparad={() => { setProvytaVald(null); ladda(); }}
+          />
         )}
 
         {stubbePunkt && vy?.egenkontroll && (

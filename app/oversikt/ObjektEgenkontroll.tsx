@@ -14,6 +14,7 @@ import { T } from '@/lib/utbildning';
 import {
   hamtaRunda,
   hamtaFoton,
+  hamtaProvytor,
   utforandeUnderrad,
   stubbeDom,
   KRAVNIVA_STUBBEHANDLING,
@@ -23,7 +24,9 @@ import {
   type Egenkontroll,
   type EgenkontrollFoto,
   type AvvikelseTyp,
+  type EgenkontrollProvyta,
 } from '@/lib/egenkontroll';
+import ProvyteSammanstallning from '@/app/egenkontroll/ProvyteSammanstallning';
 import { signeraFoto } from '@/lib/egenkontrollfoto';
 
 const GUL = '#FFD60A';
@@ -179,6 +182,7 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
   const [laddat, setLaddat] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
   const [fotoPerPunkt, setFotoPerPunkt] = useState<Record<string, string[]>>({});
+  const [provytor, setProvytor] = useState<EgenkontrollProvyta[]>([]);
 
   useEffect(() => {
     let avbruten = false;
@@ -193,6 +197,7 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
         // signeras utelamnas den - ett arligt tomt tillstand slar en trasig
         // bildikon (samma linje som lib/kartfiler.ts).
         if (vy.egenkontroll) {
+          setProvytor(await hamtaProvytor(vy.egenkontroll.id));
           const foton = await hamtaFoton(vy.egenkontroll.id);
           const par = await Promise.all(
             foton.map(async (f: EgenkontrollFoto) => ({
@@ -272,6 +277,13 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
           {antalBattre} kan bli bättre
         </span>
       </div>
+
+      {provytor.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.t2, marginBottom: 4 }}>Provytor</div>
+          <ProvyteSammanstallning provytor={provytor} kompakt />
+        </div>
+      )}
 
       {grupper.map(({ rubrik, punkter: ps }) => (
         <div key={rubrik} style={{ marginTop: 14 }}>
