@@ -60,7 +60,7 @@ total AS (SELECT COALESCE(SUM(volym_m3sub),0) AS volym FROM rader),
 grupper AS (SELECT sortimentsgrupp AS namn, SUM(volym_m3sub) AS volym FROM rader GROUP BY 1),
 sagbart AS (SELECT * FROM rader WHERE sortimentsgrupp IN ('Timmer','Kubb')),
 diameter AS (
-  SELECT COALESCE(industri,'Okänd industri') AS industri,
+  SELECT COALESCE(industri,'Industri ej angiven') AS industri,
          CASE WHEN toppdia_ub_mm IS NULL OR toppdia_ub_mm = 0 THEN 'Okänd'
               WHEN toppdia_ub_mm < 160 THEN 'Under 16' WHEN toppdia_ub_mm < 200 THEN '16–19'
               WHEN toppdia_ub_mm < 240 THEN '20–23'    WHEN toppdia_ub_mm < 280 THEN '24–27'
@@ -72,7 +72,7 @@ diameter AS (
          volym_m3sub
   FROM sagbart
 ),
-industrier AS (SELECT COALESCE(industri,'Okänd industri') AS namn, SUM(volym_m3sub) AS volym FROM sagbart GROUP BY 1),
+industrier AS (SELECT COALESCE(industri,'Industri ej angiven') AS namn, SUM(volym_m3sub) AS volym FROM sagbart GROUP BY 1),
 objekt_volym AS (SELECT grupp_nyckel, SUM(volym_m3sub) AS volym FROM rader GROUP BY 1),
 -- Status härleds ALDRIG ur volym. En VO-grupp kan rymma flera objekt_id
 -- (skördarens och skotarens rad); regeln läser gruppen som en helhet.
