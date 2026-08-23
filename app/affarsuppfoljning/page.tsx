@@ -42,18 +42,33 @@ type Utfall = {
   volym_per_atgard: { namn: string; volym: number }[];
 };
 
-// Drill-down bakom massaraden. Möter ingen på förstavyn — massabruket hörde
-// av sig om att veden är för kort, och det här är svaret på den frågan.
-type MassaTradslag = {
-  namn: string; volym: number; dm: number;
-  tre_m_volym: number; tre_m_andel: number; rotkap_volym: number;
+// Massavedens objektlista bakom massaraden. Möter ingen på förstavyn.
+// En platt lista över objekt — inte en trädstruktur. Fyra indragsnivåer
+// beskrev sortimentens form, inte den fråga bruket ställde.
+type MassaObjekt = {
+  objekt_id: string; namn: string | null; vo: string | null;
+  m3fub: number; antal_bitar: number;
+  medellangd_m: number; medellangd_utan_rotkedja_m: number | null;
+  rotkap_m3: number; rotkap_st: number; rotkap_andel_pct: number | null;
+  massa_utan_sagbar_stock_m3: number; massa_utan_sagbar_stock_st: number;
+  avkap_m3: number; avkap_st: number;
+  status: string; atgard: string;
 };
 type Massaved = {
-  manad: string; total_volym: number; medellangd_dm: number | null; hemved_volym: number;
-  gran: { volym: number; tre_m: number; rotkap: number; timmermatt: number } | null;
-  tradslag: MassaTradslag[];
-  dolda_tradslag: number;
+  manad: string; atgard: string; valta: string;
+  mal_m: number; total_m3fub: number; medellangd_m: number | null;
+  objekt: MassaObjekt[];
 };
+
+const VALTOR = ['Barr', 'Björk'] as const;
+
+/** Kvalitetsstatus ur medellängd. Texten bär betydelsen; färgen förstärker
+ *  bara — förarna sitter i solljus där rött blir brunt. */
+function kvalitet(m: number, mal: number): { text: string; farg: string } {
+  if (m < 4.0)  return { text: 'Kort',      farg: 'rgba(255,120,110,0.95)' };
+  if (m < mal)  return { text: 'Under mål', farg: 'rgba(255,179,64,0.95)' };
+  return              { text: 'Godkänt',   farg: 'rgba(90,255,140,0.9)' };
+}
 
 const ATGARDER = ['Slutavverkning', 'Gallring', 'Grot', 'Allt'] as const;
 type Atgard = typeof ATGARDER[number];
@@ -111,9 +126,11 @@ export default function Sortimentsutfall() {
 
   useEffect(() => { hamta(); }, [hamta]);
 
-  // Massavedens längder — hämtas först när raden öppnas, och om på nytt när
-  // månad eller åtgärd ändras medan den är öppen.
+  // Objektlistan hämtas först när raden öppnas, och om på nytt när månad,
+  // åtgärd eller välta ändras medan den är öppen.
   const [massaOppen, setMassaOppen] = useState(false);
+  const [valta, setValta] = useState<typeof VALTOR[number]>('Barr');
+  const [oppetObjekt, setOppetObjekt] = useState<string | null>(null);
   const [massa, setMassa] = useState<Massaved | null>(null);
   const [massaLaddar, setMassaLaddar] = useState(false);
   const [massaFel, setMassaFel] = useState(false);
@@ -124,7 +141,7 @@ export default function Sortimentsutfall() {
     setMassaLaddar(true);
     setMassaFel(false);
     supabase
-      .rpc('massaved_langder', { p_manad: `${manad}-01`, p_atgard: atgard, p_bolag: 'Vida' })
+      .rpc('massaved_objektlista', { p_manad: `${manad}-01`, p_atgard: atgard, p_valta: valta })
       .then(({ data, error }) => {
         if (avbruten) return;
         // Ett fel får inte se ut som noll längd.
@@ -133,7 +150,7 @@ export default function Sortimentsutfall() {
         setMassaLaddar(false);
       });
     return () => { avbruten = true; };
-  }, [massaOppen, manad, atgard]);
+  }, [massaOppen, manad, atgard, valta]);
 
   const kanBakat = !granser || manad > granser.fran;
   const kanFramat = manad < nuvarandeManad();
@@ -292,100 +309,113 @@ export default function Sortimentsutfall() {
                         <div style={s.prog}><div style={{ ...s.progFill, width: `${g.andel}%` }} /></div>
                       )}
 
-                      {/* ── Massavedens längder ────────────────────────── */}
+                      {/* ── Massavedens objektlista ────────────── */}
                       {arMassa && massaOppen && (
-                        <div style={{ background: '#111110', borderRadius: 10, padding: 16, marginTop: 12 }}>
-                          {massaLaddar && <div style={{ ...s.muted, textAlign: 'center', padding: 12 }}>Hämtar längder…</div>}
+                        <div style={{ marginTop: 12 }}>
+                          {/* Välta: Barr och Björk lastas separat och får aldrig
+                              slås ihop till ett tal. */}
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                            {VALTOR.map(v => (
+                              <button key={v}
+                                onClick={() => { setValta(v); setOppetObjekt(null); }}
+                                style={{
+                                  border: 'none', borderRadius: 999, padding: '8px 16px', minHeight: 36,
+                                  fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                  background: valta === v ? 'rgba(90,255,140,0.15)' : 'rgba(255,255,255,0.05)',
+                                  color: valta === v ? 'rgba(90,255,140,0.9)' : '#7a7a72',
+                                }}>{v}</button>
+                            ))}
+                          </div>
+
+                          {massaLaddar && <div style={{ ...s.muted, textAlign: 'center', padding: 12 }}>Hämtar objekt…</div>}
 
                           {!massaLaddar && massaFel && (
                             <div style={{ ...s.muted, textAlign: 'center', padding: 12 }}>
-                              Längderna kunde inte hämtas. Volymen ovan står kvar — det är hämtningen som inte gick fram.
+                              Objekten kunde inte hämtas. Volymen ovan står kvar — det är hämtningen som inte gick fram.
                             </div>
                           )}
 
-                          {!massaLaddar && !massaFel && massa && massa.medellangd_dm === null && (
+                          {!massaLaddar && !massaFel && massa && massa.objekt.length === 0 && (
                             <div style={{ ...s.muted, textAlign: 'center', padding: 12 }}>
-                              Ingen massaved den här månaden.
+                              Ingen {valta.toLowerCase()}massaved den här månaden.
                             </div>
                           )}
 
-                          {!massaLaddar && !massaFel && massa && massa.medellangd_dm !== null && (
+                          {!massaLaddar && !massaFel && massa && massa.objekt.length > 0 && (
                             <>
-                              {/* Rubriktal — volymvägt, aldrig snitt per stock */}
+                              {/* Ett tal, stort — i meter. */}
                               <div style={{ textAlign: 'center', padding: '4px 0 18px' }}>
                                 <div>
-                                  <span style={{ fontFamily: "'Fraunces', serif", fontSize: 40, lineHeight: 1 }}>
-                                    {nf1(massa.medellangd_dm)}
+                                  <span style={{ fontFamily: "'Fraunces', serif", fontSize: 44, lineHeight: 1 }}>
+                                    {massa.medellangd_m?.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                   </span>
-                                  <span style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: '#7a7a72', marginLeft: 5 }}>dm</span>
+                                  <span style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: '#7a7a72', marginLeft: 5 }}>m</span>
                                 </div>
-                                <div style={{ ...s.muted, marginTop: 8, lineHeight: 1.5 }}>
-                                  volymvägd medellängd<br />
-                                  {nf1(massa.total_volym)} m³ massaved
-                                  {massa.hemved_volym > 0 && ` · hemved ${nf1(massa.hemved_volym)} m³ ej medräknad`}
+                                <div style={{ ...s.muted, marginTop: 8 }}>
+                                  mål {nf1(massa.mal_m)} m · {nf1(massa.total_m3fub)} m³fub
                                 </div>
                               </div>
 
-                              {/* Kedjan — gäller granen, och rubriken säger det */}
-                              {massa.gran && massa.gran.volym > 0 && (
-                                <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 14 }}>
-                                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Granmassaved</div>
-                                  {[
-                                    { etikett: 'Totalt',                        v: massa.gran.volym,      niva: 0 },
-                                    { etikett: 'varav kapat i 3 meter',         v: massa.gran.tre_m,      niva: 1 },
-                                    { etikett: 'varav rotkap',                  v: massa.gran.rotkap,     niva: 2 },
-                                    { etikett: 'varav toppdiameter 18 cm eller grövre', v: massa.gran.timmermatt, niva: 3 },
-                                  ].map(r => (
-                                    <div key={r.etikett} style={{
-                                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                                      padding: '6px 0', paddingLeft: r.niva * 12,
-                                      color: r.niva === 0 ? '#e8e8e4' : '#7a7a72',
-                                    }}>
-                                      <span style={{ fontSize: 12 }}>{r.etikett}</span>
-                                      <span>
-                                        <span style={{ fontFamily: "'Fraunces', serif", fontSize: r.niva === 0 ? 18 : 15, color: '#e8e8e4' }}>
-                                          {nf(r.v)}
-                                        </span>
-                                        <span style={{ ...s.muted, marginLeft: 5 }}>m³</span>
-                                      </span>
+                              {/* Objektlistan — lägst medellängd först, inte högst volym.
+                                  Ingen ram, inga staplar, inga indrag. */}
+                              {massa.objekt.map(o => {
+                                const kv = kvalitet(o.medellangd_m, massa.mal_m);
+                                const oppen = oppetObjekt === o.objekt_id;
+                                return (
+                                  <div key={o.objekt_id} style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                                    <div
+                                      onClick={() => setOppetObjekt(oppen ? null : o.objekt_id)}
+                                      role="button" aria-expanded={oppen}
+                                      style={{ display: 'flex', alignItems: 'center', gap: 10,
+                                               minHeight: 44, padding: '10px 0', cursor: 'pointer' }}>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                                          <span style={{ fontSize: 13, fontWeight: 600 }}>
+                                            {o.namn}
+                                            {o.vo && <span style={{ ...s.muted, marginLeft: 6 }}>VO {o.vo}</span>}
+                                          </span>
+                                          <span style={{ fontFamily: "'Fraunces', serif", fontSize: 17, whiteSpace: 'nowrap' }}>
+                                            {o.medellangd_m.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            <span style={{ ...s.muted, marginLeft: 4 }}>m</span>
+                                          </span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginTop: 3 }}>
+                                          <span style={{ fontSize: 11 }}>
+                                            <span style={{ color: kv.farg, fontWeight: 600 }}>{kv.text}</span>
+                                            <span style={{ color: '#7a7a72' }}> · {o.status}</span>
+                                            {o.atgard === 'Okänd åtgärd' && <span style={{ color: '#7a7a72' }}> · Okänd åtgärd</span>}
+                                          </span>
+                                          <span style={{ ...s.muted, whiteSpace: 'nowrap' }}>{nf1(o.m3fub)} m³</span>
+                                        </div>
+                                      </div>
+                                      <span style={{ color: '#7a7a72', fontSize: 16, flexShrink: 0 }}>{oppen ? '⌄' : '›'}</span>
                                     </div>
-                                  ))}
-                                </div>
-                              )}
 
-                              {/* Per trädslag */}
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', marginTop: 14, paddingTop: 14 }}>
-                                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Per trädslag</div>
-                                {massa.tradslag.map(t => (
-                                  <div key={t.namn} style={{ padding: '7px 0' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                                      <span style={{ fontSize: 12 }}>{t.namn}</span>
-                                      <span>
-                                        <span style={{ fontFamily: "'Fraunces', serif", fontSize: 17 }}>{nf1(t.dm)}</span>
-                                        <span style={{ ...s.muted, marginLeft: 5 }}>dm</span>
-                                      </span>
-                                    </div>
-                                    <div style={{ ...s.muted, marginTop: 2 }}>
-                                      {nf(t.volym)} m³ · {nf1(t.tre_m_andel)} % kapat i 3 meter
-                                      {t.tre_m_volym > 0 && ` (${nf(t.tre_m_volym)} m³)`}
-                                    </div>
+                                    {oppen && (
+                                      <div style={{ padding: '4px 0 14px', fontSize: 11, color: '#7a7a72', lineHeight: 1.7 }}>
+                                        {([
+                                          ['Medellängd utan rotkedja', o.medellangd_utan_rotkedja_m != null ? o.medellangd_utan_rotkedja_m.toLocaleString('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' m' : '—'],
+                                          ['Rotkap', nf1(o.rotkap_m3) + ' m³ · ' + nf(o.rotkap_st) + ' st' + (o.rotkap_andel_pct != null ? ' · ' + nf1(o.rotkap_andel_pct) + ' %' : '')],
+                                          ['Massa utan sågbar stock', nf1(o.massa_utan_sagbar_stock_m3) + ' m³ · ' + nf(o.massa_utan_sagbar_stock_st) + ' st'],
+                                          ['Avkap', o.avkap_m3.toLocaleString('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' m³ · ' + nf(o.avkap_st) + ' st'],
+                                          ['Antal bitar', nf(o.antal_bitar)],
+                                        ] as [string, string][]).map(([etikett, varde]) => (
+                                          <div key={etikett} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>{etikett}</span>
+                                            <span style={{ color: '#e8e8e4' }}>{varde}</span>
+                                          </div>
+                                        ))}
+                                        <div style={{ marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 8 }}>
+                                          Rotkap är härlett ur att biten är kortare än 3,2 m, sitter först på stammen
+                                          och blev massaved. kvalitet_kod är NULL på samtliga stockar — maskinen har
+                                          inte mätt röta. Massa utan sågbar stock är korta bitar ur stammar som aldrig
+                                          fick timmer eller kubb; där finns inget kapbeslut att avläsa.
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                ))}
-                                {massa.dolda_tradslag > 0 && (
-                                  <div style={{ ...s.muted, marginTop: 8 }}>
-                                    {massa.dolda_tradslag} trädslag under 1 m³ visas inte.
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Fotnoten — måste stå, och får aldrig påstå mätt röta */}
-                              <div style={{
-                                borderTop: '1px solid rgba(255,255,255,0.07)', marginTop: 14, paddingTop: 12,
-                                fontSize: 11, color: '#7a7a72', lineHeight: 1.6,
-                              }}>
-                                &quot;Rotkap&quot; är härlett ur att biten är 3 meter, sitter först på stammen och
-                                blev massaved. Filen innehåller ingen rötkod — maskinen har inte mätt röta.
-                              </div>
+                                );
+                              })}
                             </>
                           )}
                         </div>
