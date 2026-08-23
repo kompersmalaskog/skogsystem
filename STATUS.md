@@ -679,6 +679,115 @@ ATGARD: parsern maste lasa MultiTreeProcessedStem.
 Notera att elementet bar FLERA trad per Stem —
 volym och stamantal maste summeras, inte kopieras.
 
+### BEVISKEDJA — kalla till databas, Sjoaryd
+Bada kallfilerna ar overens om 399. Talet blir 379
+forst i importen.
+
+  Led                          Antal   Volym m3sub
+  -------------------------------------------------
+  MOM NumberOfHarvestedStems     399        25,530
+  HPR unika StemKey              399        25,5315
+    varav SingleTreeProcessed    379        25,3379
+    varav MultiTreeProcessed      20         0,1936
+  -------------------------------------------------
+  fakt_produktion (MOM)          399        25,530   OK
+  fakt_sortiment (HPR)            --        25,334   -20 stammar
+  detalj_stam                    379          --     -20 stammar
+
+Filens SUMMA 25,5315 mot MOM 25,5300 = +0,0015.
+Filens ENTRAD 25,3379 mot fakt_sortiment 25,3340.
+Bada stammer inom avrundning. Det finns alltsa inget
+ytterligare bortfall — flertradsstammarna ar HELA
+forklaringen for Sjoaryd.
+
+Bara en HPR och en MOM finns for Sjoaryd i hela
+Behandlade. Inga dubbletter.
+
+### VAD MultiTreeProcessedStem BAR — svar fore kodning
+Undersokt i skarp fil, inte bara i schemat.
+
+STRUKTUR: varje trad i bunten far en EGEN <Stem> med
+egen StemKey, egna StemCoordinates, egen HarvestDate,
+eget SpeciesGroupKey, egen BoomPositioning
+(BoomAngle + BoomExtension) och egen <Log>.
+De delar <StemBunchKey>.
+
+  <Stem><StemKey>489995</StemKey>
+    <ProcessingCategory>MultiTreeProcessing</...>
+    <StemCoordinates>...</StemCoordinates>
+    <BoomPositioning boomPositioningCategory="Felling">
+    <MultiTreeProcessedStem>
+      <StemBunchKey>5</StemBunchKey>
+      <DBH>61</DBH>
+      <ReferenceDiameter referenceDiameterHeight="20">
+      <Log>...</Log>
+
+VOLYM ar PER TRAD, inte delad. Bunt 5 har tre stammar
+a 0,009735 m3sub. Att summera rakt av ger filens
+total 25,5315 = MOM:s 25,5300. Ingen dubbelrakning.
+
+DBH ar DELAD inom bunten. Alla tre i bunt 5 har
+DBH 61; paren har 67/67 och 86/86. Diametern ar matt
+EN gang for bunten, inte per trad.
+
+SLUTSATS FOR LAGRING: de kan lagras som separata
+rader i detalj_stam. Ingen ny struktur behovs. MEN:
+
+ 1. dbh_mm ar da inte en individuell matning. Tre
+    rader med 61 mm ar EN matning, inte tre. Dgv och
+    diameterhistogrammet skulle vikta bunten tre
+    ganger. Behover en kolumn for StemBunchKey, eller
+    en flagga, sa statistiken kan skilja dem at.
+    Kolumn = migration = egen gren, fraga forst.
+ 2. VOLYMKATEGORIN SKILJER. Entrad skriver
+    logVolumeCategory="m3sub". Flertrad skriver
+    "m3subEstimated". En parser som bara letar m3sub
+    hittar noll volym aven efter att den slutat
+    hoppa over elementet. Detta ar den enskilt
+    lattaste missen att gora i fixen.
+
+### BORTFALLET VAR KANT OCH DOKUMENTERAT
+docs/stanford2010/hpr-harvester-production.md rad 220
+beskriver redan MultiTreeProcessedStem som "IGNORERAS
+HELT" och kallar det "en kand Lucka (Hog) for
+gallring". Dokumentet noterar ocksa korrekt att
+MOM-parsern hanterar MTH pa fakt_produktion-niva.
+
+Det var alltsa inget okant fel — det var en kand
+lucka vars konsekvens ingen hade matt. Uppdatera
+dokumentet nar parsern ar lagad.
+
+### HALABAECK DUGER INTE SOM FACIT FRAMAT
+Halabaeck har 0 % flertradshantering och ar darfor
+den ENDA trakt dar den trasiga och den lagade
+parsern ger samma svar. Att verifiera en parserfix
+mot Halabaeck bevisar ingenting.
+
+Anvand i stallet, facit fore fix:
+
+  Johan Svensson Brandeborg (objekt_id 9955)
+    MOM          641 stammar   25,583 m3sub
+    detalj_stam  488 stammar   (-153, 23,9 % flertrad)
+    fakt_sortiment            23,187 m3sub
+
+  Steglehylte gallring 2025 (objekt_id 11086334)
+    MOM        10393 stammar  486,863 m3sub
+    detalj_stam 8578 stammar   (-1815, 24,5 % flertrad)
+    fakt_sortiment           458,392 m3sub
+
+Efter fix ska detalj_stam matcha MOM:s stamantal och
+fakt_sortiment matcha MOM:s volym, bada inom
+avrundning. Kontrollera ocksa att Halabaeck fortfarande
+ger 254 / 32,7 — den far inte forandras.
+
+### ORDNING PA ATGARDERNA — TRE FEL, TRE GRENAR
+Fel 1 (MultiTree) ar EN gren. Ta inte fel 2
+(Kompersmala-dubbelrakningen) eller fel 4
+(4000-stammarstaket) i samma session. De har olika
+orsaker, olika risk och olika verifiering, och en
+gemensam gren gor det omojligt att se vilken andring
+som flyttade vilket tal.
+
 ### FEL 2 — Kompersmala Lovhuggning +81,5 % (AKTIVT)
 ORSAK FASTSTALLD: dubbelraknade kumulativa filer i
 fakt_sortiment.
