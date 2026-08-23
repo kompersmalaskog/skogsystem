@@ -612,4 +612,175 @@ omgång:
   en post som existerar får aldrig renderas som
   frånvarande.
 
+## IMPORTUTREDNING 2026-08-23 — RAPPORT
+
+Utredning, ingen kodandring. Fyra SEPARATA fel.
+Tre orsaker faststallda, ett delvis.
+
+### Hypotesen om brytdatum — FALSIFIERAD
+Avvikelserna ar INTE historiska. De uppstar med
+nuvarande kod, varje dag.
+
+  Rossmala Ga    importerad 2026-08-05   -0,49 %
+  Raveboda       importerad 2026-08-20   -1,84 %
+  Halabaeck      importerad 2026-08-21    0,00 %
+
+Raveboda importerades DAGEN FORE Halabaeck, med
+samma kod, och avviker. Det finns inget brytdatum
+och en omimport hjalper inte — den skulle reproducera
+felet. Billigaste utfallet ar bortfall.
+
+### FEL 1 — MultiTreeProcessedStem hoppas over (AKTIVT)
+ORSAK FASTSTALLD. Detta ar huvudfyndet och forklarar
+bade Sjoaryds 20 saknade stammar och hela den
+systematiska HPR-lagre-an-MOM-avvikelsen.
+
+Bevis, Sjoaryd (objekt 85893, R64101, 24 jan 2026),
+fil "Oskar Nilsson Sjoaryd 2026-01-24.hpr":
+- Filen innehaller 399 StemKey, UNIKA, UTAN luckor.
+- Samtliga 20 nycklar som saknas i detalj_stam FINNS
+  i filen. Felet ligger alltsa i IMPORTEN, inte i
+  maskinens export.
+- Varje tappad stam bar <MultiTreeProcessedStem>.
+  Varje behallen bar <SingleTreeProcessedStem>.
+- De tappade kommer i par och tripletter med samma
+  DBH (67/67, 86/86, 61/61/61 mm) — flertradshantering
+  av klena stammar, precis vad gallring gor.
+
+Koden, fyra stallen:
+  skogsmaskin_import_version_6.py:1335  (HPR)
+  skogsmaskin_import_version_6.py:1669  (HQC)
+  import_hpr.py:263
+  scripts/backfill-grot.py:106
+  scripts/tag-hpr-format.py:136
+Alla gor: single = find_element(stem,
+'SingleTreeProcessedStem'); if single is None: continue
+MultiTreeProcessedStem hanteras INGENSTANS i kodbasen.
+
+Korrelationen ar entydig — andel flertradsstammar mot
+volymavvikelse:
+
+  Halabaeck        0,0 % multi    0,00 % avvikelse
+  Rossmala         2,8 %         -0,49 %
+  Sjoaryd          5,0 %         -0,76 %
+  Raveboda         7,2 %         -1,84 %
+  Johan Svensson  23,9 %         -9,36 %
+  Steglehylte     24,5 %         -5,85 %
+
+detalj_stam-antalet ar EXAKT lika med antalet
+SingleTreeProcessedStem i filen pa alla kontrollerade
+trakter. Halabaeck stammer pa 0,00 % av ett enda skal:
+det ar den enda trakten utan flertradshantering.
+
+Volymavvikelsen ar mindre an stamavvikelsen darfor att
+flertradsstammar ar klena.
+
+ATGARD: parsern maste lasa MultiTreeProcessedStem.
+Notera att elementet bar FLERA trad per Stem —
+volym och stamantal maste summeras, inte kopieras.
+
+### FEL 2 — Kompersmala Lovhuggning +81,5 % (AKTIVT)
+ORSAK FASTSTALLD: dubbelraknade kumulativa filer i
+fakt_sortiment.
+
+20 av 22 sortiment har exakt 2 rader pa 2 olika datum.
+detalj_stam for samma objekt har bara 1 fil.
+
+Asymmetrin ar poangen: detalj_stam och detalj_stock
+har UNIQUE-nycklar och UPSERT:ar, sa kumulativa filer
+skriver over varandra korrekt. fakt_sortiment saknar
+motsvarande dedupe och har datum i nyckeln. Eftersom
+Ponsse inte skriver ProcessingDate per stam (Bugg B
+ovan) far varje kumulativ fil sitt eget sessions-
+slutdatum — och da ADDERAS de i stallet for att
+skriva over.
+
++81,5 % och inte +100 % darfor att den forsta filen
+var en delmangd av den andra.
+
+ATGARD: dedupe i fakt_sortiment enligt samma princip
+som detalj_stock, eller ta bort datum ur nyckeln for
+per-objekt-totaler.
+
+### FEL 3 — tre trakter utan fakt_sortiment (INTE IMPORTFEL)
+Midingstorp, Kompermala Ga och Lars Norberg Dunshultt
+har NOLL HPR-filer under Behandlade. Kompermala har
+14 MOM-filer men ingen HPR.
+
+Det finns alltsa inget att importera. Ingen bugg —
+men det betyder att sortimentsfordelning och all
+stamdata saknas for de tre, och att kvitto eller
+markagarrapport inte kan utfardas for dem.
+
+ATGARD: ta reda pa varfor maskinen inte producerade
+HPR for de tre. Ingen kodatgard.
+
+### FEL 4 — slutavverkningens stora avvikelser (EJ KLAR)
+ORSAK EJ FASTSTALLD. Annan mekanism an fel 1.
+
+  Anna Karin Swerup  MOM 4984  detalj_stam 4076  -18,2 %
+  Lonsbygd AU 2025   MOM 1079  detalj_stam  893  -17,2 %
+
+Anna Karin Swerups senaste HPR har 0 % flertrads-
+stammar, sa fel 1 forklarar det inte. Filerna ar
+DELADE: ...20260525174917.hpr och ...174917_1.hpr.
+Det pekar mot 4000-stammarstaket (se project-minnet
+om Scorpion) och att bara en del importerats — men
+det ar inte verifierat.
+
+ATGARD: egen utredning. Rakna StemKey per delfil och
+jamfor mot detalj_stam for objektet.
+
+### OMFATTNING — inte bara gallring
+                exakt lika   utan fakt_sortiment
+  gallring        1 av 22          3 av 25
+  slutavverkning  2 av 58          7 av 65
+  grot            0 av 1           0 av 1
+
+56 av 58 slutavverkningstrakter avviker pa volym.
+14 av 58 avviker pa stamantal. Detta ar ett app-brett
+problem, inte ett gallringsproblem.
+
+### EXTRA KONTROLL — trakt_data.areal
+Premissen stammer inte. INGEN vy laser
+trakt_data.areal. Planeringsvyn hamtar hela
+trakt_data-objektet for restriktioner men laser
+arealen ur objekt.areal, precis som alla andra.
+Gallringsvyn laser objekt.areal (lib/gallring.ts).
+
+28 stammar/ha pa Halabaeck ar alltsa INTE en bugg.
+Det ar sant: 254 stammar pa 9,17 ha, for att bara en
+dag av trakten ar kord. Talet beskriver en pagaende
+trakt, inte en fardig.
+
+### OPALITLIG DATA TILLS ATGARD
+Allt HPR-harlett ar underskattat med andelen
+flertradshantering — 0 till 9 % pa volym, upp till
+25 % pa stamantal:
+  detalj_stam, detalj_stock, fakt_sortiment,
+  hpr_stammar, hpr_filer.stammar_count
+
+fakt_produktion (MOM) ar KORREKT och opaverkad. Allt
+som raknas darifran — volym, stammar, medelstam,
+gallringsvyns huvudtal — star kvar.
+
+Dgv och diameterhistogram i gallringsvyn ar berak-
+nade pa de enkeltradade stammarna. De klenaste
+saknas systematiskt, sa Dgv ar for HOGT. Halabaeck ar
+opaverkad (0 % multi).
+
+### KONSEKVENS FOR DET SOM VANTAR
+Tradpositioner i gallringsvyn steg 2, kartan pa
+kvittot och punktvalet i matappen bygger alla pa
+detalj_stam. Med fel 1 okorrigerat blir varje
+flertradshanterad grupp ett hal i kartan — och i
+gallring ar det just de klena partierna som saknas.
+Kartan skulle visa gles gallring dar det gallrats
+hardast.
+
+Kranvinkeldata samlas dagligen. Varje dag med
+flertradshantering samlar ofullstandig data, och det
+gar inte att rekonstruera i efterhand utan
+omimport ur HPR-filerna.
+
 Uppdatera denna fil vid varje commit.
