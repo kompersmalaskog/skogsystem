@@ -1982,14 +1982,16 @@ export default function PlannerPage() {
   const [infoSkordareUtforare, setInfoSkordareUtforare] = useState<string | null>(null); // 'egen' | 'extern' | null
   const [infoSkordareUtforareNamn, setInfoSkordareUtforareNamn] = useState('');
   const [infoSkordareBand, setInfoSkordareBand] = useState(false);
-  const [infoSkordareBandPar, setInfoSkordareBandPar] = useState('1');
+  // null = ingen uppgift. Ett par ar en UPPGIFT, inte ett utgangslage -
+  // se sparningen langre ner for varfor defaulten var ett datafel.
+  const [infoSkordareBandPar, setInfoSkordareBandPar] = useState<string | null>(null);
   const [infoSkordareManFall, setInfoSkordareManFall] = useState(false);
   const [infoSkordareManFallText, setInfoSkordareManFallText] = useState('');
   const [infoSkotareMaskinId, setInfoSkotareMaskinId] = useState<string | null>(null);
   const [infoSkotareUtforare, setInfoSkotareUtforare] = useState<string | null>(null); // 'egen' | 'extern' | null
   const [infoSkotareUtforareNamn, setInfoSkotareUtforareNamn] = useState('');
   const [infoSkotareBand, setInfoSkotareBand] = useState(false);
-  const [infoSkotareBandPar, setInfoSkotareBandPar] = useState('1');
+  const [infoSkotareBandPar, setInfoSkotareBandPar] = useState<string | null>(null);
   const [infoSkotareLastreder, setInfoSkotareLastreder] = useState(false);
   const [infoSkotareRisDirekt, setInfoSkotareRisDirekt] = useState(false);
   const [infoSkotareKonfig, setInfoSkotareKonfig] = useState('bred');
@@ -2031,14 +2033,14 @@ export default function PlannerPage() {
         setInfoSkordareUtforare(data.skordare_utforare || null);
         setInfoSkordareUtforareNamn(data.skordare_utforare_namn || '');
         setInfoSkordareBand(data.skordare_band || false);
-        setInfoSkordareBandPar(data.skordare_band_par || '1');
+        setInfoSkordareBandPar(data.skordare_band_par ?? null);
         setInfoSkordareManFall(data.skordare_manuell_fallning || false);
         setInfoSkordareManFallText(data.skordare_manuell_fallning_text || '');
         setInfoSkotareMaskinId(data.skotare_maskin_id || null);
         setInfoSkotareUtforare(data.skotare_utforare || null);
         setInfoSkotareUtforareNamn(data.skotare_utforare_namn || '');
         setInfoSkotareBand(data.skotare_band || false);
-        setInfoSkotareBandPar(data.skotare_band_par || '1');
+        setInfoSkotareBandPar(data.skotare_band_par ?? null);
         setInfoSkotareLastreder(data.skotare_lastreder_breddat || false);
         setInfoSkotareRisDirekt(data.skotare_ris_direkt || false);
         setInfoSkotareKonfig(data.skotare_konfiguration || 'bred');
@@ -2110,14 +2112,19 @@ export default function PlannerPage() {
         skordare_utforare: infoSkordareUtforare,
         skordare_utforare_namn: infoSkordareUtforare === 'extern' ? (infoSkordareUtforareNamn || null) : null,
         skordare_band: infoSkordareBand,
-        skordare_band_par: infoSkordareBandPar,
+        // BAND OCH PAR FAR INTE SAGA EMOT VARANDRA. Ar bandet av ar antalet
+        // par ingen uppgift, och da skrivs null - aldrig en etta. Tidigare
+        // stamplade VARJE sparning i den har panelen band=false + par='1',
+        // vilket gjorde "ingen rorde faltet" omojligt att skilja fran "korde
+        // utan band". 29 objekt bar den stampeln och stadas inte harifran.
+        skordare_band_par: infoSkordareBand ? infoSkordareBandPar : null,
         skordare_manuell_fallning: infoSkordareManFall,
         skordare_manuell_fallning_text: infoSkordareManFallText || null,
         skotare_maskin_id: infoSkotareMaskinId,
         skotare_utforare: infoSkotareUtforare,
         skotare_utforare_namn: infoSkotareUtforare === 'extern' ? (infoSkotareUtforareNamn || null) : null,
         skotare_band: infoSkotareBand,
-        skotare_band_par: infoSkotareBandPar,
+        skotare_band_par: infoSkotareBand ? infoSkotareBandPar : null,
         skotare_lastreder_breddat: infoSkotareLastreder,
         skotare_ris_direkt: infoSkotareRisDirekt,
         skotare_extra_vagn: infoSkotareExtraVagn,
@@ -18520,7 +18527,14 @@ export default function PlannerPage() {
                   {/* Band toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareBand ? '12px' : '16px' }}>
                     <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
-                    <div onClick={() => setInfoSkordareBand(!infoSkordareBand)} style={{
+                    <div onClick={() => {
+                      const pa = !infoSkordareBand;
+                      // Valjaren nedan visas forst nar bandet ar pa. Slar nagon
+                      // pa det ar 1 par ett VAL som gors framfor ogonen, inte en
+                      // tyst default vid laddning - skillnaden ar hela poangen.
+                      if (pa && infoSkordareBandPar == null) setInfoSkordareBandPar('1');
+                      setInfoSkordareBand(pa);
+                    }} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
                       background: infoSkordareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
                     }}>
@@ -18601,7 +18615,11 @@ export default function PlannerPage() {
                   {/* Band toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkotareBand ? '12px' : '16px' }}>
                     <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
-                    <div onClick={() => setInfoSkotareBand(!infoSkotareBand)} style={{
+                    <div onClick={() => {
+                      const pa = !infoSkotareBand;
+                      if (pa && infoSkotareBandPar == null) setInfoSkotareBandPar('1');
+                      setInfoSkotareBand(pa);
+                    }} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
                       background: infoSkotareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
                     }}>
