@@ -1022,25 +1022,30 @@ export default function PlannerPage() {
     // === Zone layers (zoom-interpolerade bredder) ===
     const zoneWidth = ['interpolate', ['linear'], ['zoom'], 10, 1.5, 13, 3, 15, 5, 17, 6] as any;
     const zoneCasingWidth = ['interpolate', ['linear'], ['zoom'], 10, 3, 13, 5, 15, 7, 17, 8] as any;
-    // Gallringszoner: kraftigare fyllning + mörkare/bredare casing än övriga zoner, så trädslags-
-    // färgen läses PÅ EN BLICK (grön grön, orange orange) och den vita löv-fyllningen inte tonas bort
-    // mot ljus karta — den mörka casingen bär skuggan/kontrasten. TRIMBARA (Martin godkänner i preview).
-    // Data-drivet på ['get','zoneType'] → alla andra zontyper (wet/steep/…) är HELT oförändrade.
     // Gallringszoner talar genom FYLLNINGEN (0.75) — kanten är TYST (ingen streckning; dash = linjernas
     // alfabet: boundary/dike/nature/stonewall → casing + vit dash filtreras BORT för gallring). Löv/björk
     // är VIT även här (samma färgspråk överallt) → synligheten bärs av en BRED mörkgrå ram (edgeColor
-    // #4d4b45, zoneOutlineWidthLov ~2.5×) som håller FORMEN där färgen möter kartvitt. Tall/gran = sin
-    // mörka nyans, tunn kant. Knivskarpa miter-hörn. Data-drivet → övriga zoner (wet/steep/…) HELT oförändrade.
+    // #4d4b45, ~2.5× tall/gran) som håller FORMEN där färgen möter kartvitt. Tall/gran = sin mörka nyans,
+    // tunn kant. Knivskarpa miter-hörn.
+    //
+    // VIKTIGT (bugg #449, hittad via riktig MapLibre-render): kanten ligger i TRE lager, inte ett.
+    // MapLibre tillåter BARA EN zoom-baserad interpolate per uttryck — ett enda zone-outline med
+    // ['case', … zoomInterpolateLov, zoomInterpolateGallring, zoomInterpolateZoneWidth] AVVISAS tyst
+    // ("Only one zoom-based interpolate subexpression may be used") → kanten renderades ALDRIG. Därför:
+    // icke-gallring behåller sitt lager (zoneWidth), och gallring får två egna lager (löv bred / tall+gran
+    // tunn), var och en med EN interpolate. Övriga zoner (wet/steep/…) HELT oförändrade.
     const GALLRING_FILL_OPACITY = 0.75;
     const zoneOutlineWidthGallring = ['interpolate', ['linear'], ['zoom'], 10, 1.2, 13, 1.8, 15, 2.4, 17, 3] as any; // tall/gran: tunn kant
     const zoneOutlineWidthLov = ['interpolate', ['linear'], ['zoom'], 10, 3, 13, 4.5, 15, 6, 17, 7.5] as any; // löv: bred ram (~2.5×) bär den vita ytan
     const gallringCase = (gallringVal: any, defaultVal: any) => ['case', ['==', ['get', 'zoneType'], 'gallring'], gallringVal, defaultVal] as any;
-    const ejGallring = ['!=', ['get', 'zoneType'], 'gallring'] as any; // casing/dash renderas för ALLA UTOM gallring
-    const gallringJoin = gallringCase('miter', 'round');
-    const gallringKantBredd = ['case', ['==', ['get', 'tradslag'], 'lov'], zoneOutlineWidthLov, zoneOutlineWidthGallring] as any;
+    const ejGallring = ['!=', ['get', 'zoneType'], 'gallring'] as any; // casing/dash/outline för ALLA UTOM gallring
+    const gallringLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['==', ['get', 'tradslag'], 'lov']] as any;
+    const gallringEjLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['!=', ['get', 'tradslag'], 'lov']] as any;
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
     map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': gallringCase(['get', 'edgeColor'], ['get', 'color']), 'line-width': gallringCase(gallringKantBredd, zoneWidth) }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-gallring', type: 'line', source: 'zones-source', filter: gallringEjLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthGallring }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
+    map.addLayer({ id: 'zone-outline-gallring-lov', type: 'line', source: 'zones-source', filter: gallringLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthLov }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
     // på EN BLICK utan att tappa. Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
