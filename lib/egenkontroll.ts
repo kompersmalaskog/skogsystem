@@ -25,6 +25,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { kartOrigoFranBounds } from './kartkoordinater';
 import { lottaProvytor, PROVYTA_RADIE_M, type LatLng } from './provytor';
+import { hamtaVader, type Arbetsfonster, type VaderSnapshot } from './egenkontrollvader';
 
 // Den delade klienten hamtas LAT (dynamisk import nedan), inte har uppe.
 // ./supabase bygger webblasarklienten redan vid import och kraver da
@@ -73,7 +74,7 @@ export type Egenkontroll = {
   startad: string;
   klar: string | null;
   kommentar: string | null;
-  vader: unknown | null;
+  vader: VaderSnapshot | null;
   maskiner: MaskinSnapshot | null;
   skapad: string;
 };
@@ -414,7 +415,7 @@ export async function generateEgenkontroll(
   // supabase-js inte harleda radtypen och allt nedan blir GenericStringError.
   const { data: objektRad, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, typ, areal, vo_nummer, kartbild_bounds, avslutad_timestamp, faktisk_slut, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
+    .select('id, namn, typ, areal, vo_nummer, kartbild_bounds, avslutad_timestamp, faktisk_slut, lat, lng, dim_objekt_id, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
     .eq('id', objektId)
     .maybeSingle();
 
@@ -468,23 +469,15 @@ export async function generateEgenkontroll(
   if (!skapad) throw new Error('Egenkontrollen skapades men kunde inte läsas tillbaka.');
 
   // --- 4. Punkterna ------------------------------------------------------
+  let antal: { plan: number; utforande: number; matning: number; provytor: number };
   try {
-    const { plan, utforande, matning, provytor } = await skapaPunkter(
+    antal = await skapaPunkter(
       klient, skapad.id, objektId, objektTyp,
       objekt as {
         avslutad_timestamp?: string | null; faktisk_slut?: string | null;
         areal?: number | null; kartbild_bounds?: unknown; vo_nummer?: string | null;
       },
     );
-    return {
-      egenkontroll: skapad as Egenkontroll,
-      nyskapad: true,
-      antalPunkter: plan + utforande + matning,
-      antalPlanpunkter: plan,
-      antalUtforandepunkter: utforande,
-      antalMatningspunkter: matning,
-      antalProvytor: provytor,
-    };
   } catch (fel) {
     // Rundan finns men punkterna kom inte in. Lamnar vi den kvar blockerar den
     // tomma rundan varje nytt forsok (det partiella indexet slapper bara in en
@@ -494,6 +487,93 @@ export async function generateEgenkontroll(
     await klient.from('egenkontroll').delete().eq('id', skapad.id);
     throw fel;
   }
+
+  // --- 5. Vadret ---------------------------------------------------------
+  // SIST, och medvetet sa. Rundan, punkterna och provytorna finns redan nar
+  // vi borjar prata med en extern tjanst - ett langsamt eller trasigt API kan
+  // darfor omojligt hindra att en runda startas i skogen. Hela steget ligger
+  // dessutom i en egen try: ingenting harifran far na delete-grenen ovan.
+  //
+  // Snapshotten skrivs ALLTID nar anropet gick att gora, aven nar den bara
+  // bar skalet till att vadret saknas. Se lib/egenkontrollvader.ts.
+  let medVader: unknown = null;
+  try {
+    const vader = await hamtaVader(
+      objekt.lat as number | null,
+      objekt.lng as number | null,
+      await hamtaArbetsfonster(klient, objekt.dim_objekt_id as string | null),
+    );
+    const { data } = await klient
+      .from('egenkontroll')
+      .update({ vader })
+      .eq('id', skapad.id)
+      .select()
+      .maybeSingle();
+    medVader = data;
+  } catch {
+    // Vadret ar det enda i den har funktionen som far misslyckas tyst.
+    // Kolumnen forblir null, och vyn sager da att vadret inte sparades nar
+    // rundan startades - vilket ar sant bade for en gammal runda och for en
+    // skrivning som inte gick igenom.
+  }
+
+  return {
+    egenkontroll: (medVader ?? skapad) as Egenkontroll,
+    nyskapad: true,
+    antalPunkter: antal.plan + antal.utforande + antal.matning,
+    antalPlanpunkter: antal.plan,
+    antalUtforandepunkter: antal.utforande,
+    antalMatningspunkter: antal.matning,
+    antalProvytor: antal.provytor,
+  };
+}
+
+/**
+ * Nar trakten skordades och skotades, enligt MASKINDATAN.
+ *
+ * Kraver dim_objekt_id - nyckeln mot fakta-tabellerna. Den ar satt pa tre
+ * objekt totalt, sa de allra flesta rundor far tillbaka bara nullar i dag.
+ * Det ar med avsikt: det finns ingen annan arlig kalla. faktisk_slut ar null
+ * pa 12 av 13 objekt i listan, faktisk_start bar SKORDENS forsta dag, och
+ * avslutad_timestamp ar ett knapptryck. Bara fakt_lass vet nar det skotades.
+ *
+ * Skord = fakt_produktion (skordaren), skotning = fakt_lass (skotaren). De
+ * lases var for sig, aldrig joinade - se CLAUDE.md.
+ */
+async function hamtaArbetsfonster(
+  klient: SupabaseClient,
+  dimObjektId: string | null,
+): Promise<Arbetsfonster> {
+  const inget: Arbetsfonster = {
+    skord_start: null, skord_slut: null, skot_start: null, skot_slut: null,
+  };
+  if (!dimObjektId) return inget;
+
+  // .order() kravs - utan ORDER BY ar .limit(1) inte "forsta datumet" utan
+  // "nagon rad". Samma fallgrop som paginering utan sortering.
+  const kant = async (tabell: string, stigande: boolean): Promise<string | null> => {
+    const { data, error } = await klient
+      .from(tabell)
+      .select('datum')
+      .eq('objekt_id', dimObjektId)
+      .order('datum', { ascending: stigande })
+      .limit(1);
+    if (error) throw new Error(`Kunde inte läsa ${tabell}: ${error.message}`);
+    const rad = (data ?? [])[0] as { datum?: string } | undefined;
+    return rad?.datum ?? null;
+  };
+
+  const [skordStart, skordSlut, skotStart, skotSlut] = await Promise.all([
+    kant('fakt_produktion', true),
+    kant('fakt_produktion', false),
+    kant('fakt_lass', true),
+    kant('fakt_lass', false),
+  ]);
+
+  return {
+    skord_start: skordStart, skord_slut: skordSlut,
+    skot_start: skotStart, skot_slut: skotSlut,
+  };
 }
 
 async function hamtaPagaende(

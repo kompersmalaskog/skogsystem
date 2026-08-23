@@ -27,6 +27,7 @@ import {
   type EgenkontrollProvyta,
 } from '@/lib/egenkontroll';
 import ProvyteSammanstallning from '@/app/egenkontroll/ProvyteSammanstallning';
+import Forutsattningar from '@/app/egenkontroll/Forutsattningar';
 import { signeraFoto } from '@/lib/egenkontrollfoto';
 
 const GUL = '#FFD60A';
@@ -276,6 +277,14 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
         <span style={{ color: antalBattre > 0 ? GUL : T.t2, fontWeight: antalBattre > 0 ? 600 : 400 }}>
           {antalBattre} kan bli bättre
         </span>
+      </div>
+
+      {/* Forutsattningarna foljer med in i dokumentet - det ar har de gor mest
+          nytta, nar markagaren undrar eller nar man over tid ser att
+          sparskadorna sitter pa blota objekt och inte pa vissa forare.
+          Alltid utfallt: ett dokument har inga hopfallda delar. */}
+      <div style={{ marginTop: 4, marginBottom: 4 }}>
+        <Forutsattningar vader={runda.vader} maskiner={runda.maskiner} rundaId={runda.id} kompakt />
       </div>
 
       {provytor.length > 0 && (
