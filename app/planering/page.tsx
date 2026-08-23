@@ -6067,7 +6067,11 @@ export default function PlannerPage() {
     { id: 'gran', name: 'Gran', color: '#1d9e75' },
     { id: 'lov',  name: 'Löv',  color: '#f0f0f0' },
   ];
-  const gallringFarg = (tradslag?: string | null) => GALLRING_TRADSLAG.find(t => t.id === tradslag)?.color || '#6b7c3a';
+  // Skyddsnät: en gallring-zon med SAKNAT/OKÄNT trädslag ska rendera SKRIKANDE MAGENTA — aldrig en
+  // trovärdig oliv (#6b7c3a föll tidigare som "beige" och dolde luckan). En lucka ska SE UT som en
+  // lucka (samma ärliga-fel-princip som överallt annars). Träffas bara om tradslag ≠ tall/gran/lov.
+  const GALLRING_SAKNAT = '#ff00ff';
+  const gallringFarg = (tradslag?: string | null) => GALLRING_TRADSLAG.find(t => t.id === tradslag)?.color || GALLRING_SAKNAT;
   // SAMMA färgspråk överallt — inga kartundantag: löv/björk är VIT även på kartytan (#f0f0f0), precis som
   // i produktionshögarna/pickern/korten. Vit fyllning kan aldrig ENSAM bära mot vita/benvita kartor (två
   // recept bevisade det) → synligheten kommer från RAMEN: löv får en BRED mörkgrå heldragen kant (#4d4b45,
@@ -6075,7 +6079,7 @@ export default function PlannerPage() {
   // symbolens vita kantring. Tall/gran = mörkare nyans av sin färg, normal tunn kant. Ingen streckning
   // (dash = linjernas språk: boundary/dike/nature/stonewall). Kart-fyllningen == identitetsfärgen (inget särfall).
   const GALLRING_KANT: Record<string, string> = { tall: '#a8531a', gran: '#0f6b4d', lov: '#4d4b45' };
-  const gallringKantFarg = (tradslag?: string | null) => GALLRING_KANT[tradslag || ''] || '#5f5e5a';
+  const gallringKantFarg = (tradslag?: string | null) => GALLRING_KANT[tradslag || ''] || GALLRING_SAKNAT;
 
   const warningCategories = [
     { section: 'Punkter', items: [
