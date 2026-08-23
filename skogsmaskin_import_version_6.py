@@ -408,6 +408,84 @@ def harled_objektnamn(filnamn: str, object_name_xml: str = '') -> Optional[str]:
         return str(object_name_xml).strip()
     return None
 
+def las_produktfalt(prod_def, ns: str = '') -> Dict[str, str]:
+    """De fyra ProductDefinition-fälten vi tidigare kastade.
+
+    Verifierat mot Ulfsnäs AU 2026 (Opti5G 3.1.12, StanForD 3.6):
+        <ProductGroupName>Kubb</ProductGroupName>
+        <ProductInfo modificationRestricted="false">262-VAL</ProductInfo>
+        <ProductDestination>
+          <BusinessName>Vida Alvesta</BusinessName>
+          <BusinessID>89303</BusinessID>
+        </ProductDestination>
+
+    Returnerar BARA nycklar som har ett värde — aldrig None. Ett explicit
+    None hade raderat ett värde en tidigare fil skrivit, eftersom
+    dim_sortiment upsertas med merge på sortiment_id. Saknas fältet i filen
+    utelämnas nyckeln och kolumnen förblir NULL tills någon fil bär den.
+
+    Massaved saknar normalt ProductDestination — Vida styr destinationen per
+    leverans. Det är inte ett fel och ska inte gissas.
+    """
+    ut: Dict[str, str] = {}
+    if prod_def is None:
+        return ut
+    # Fälten sitter under Classified/UnclassifiedProductDefinition, men fall
+    # tillbaka på prod_def för exportörer som lägger dem en nivå upp.
+    inre = (find_element(prod_def, 'ClassifiedProductDefinition', ns)
+            or find_element(prod_def, 'UnclassifiedProductDefinition', ns))
+
+    def _text(tag: str) -> str:
+        v = get_text(inre, tag, ns) if inre is not None else ''
+        return (v or get_text(prod_def, tag, ns) or '').strip()
+
+    grupp = _text('ProductGroupName')
+    if grupp:
+        ut['produktgrupp'] = grupp
+    kundkod = _text('ProductInfo')
+    if kundkod:
+        ut['kundkod'] = kundkod
+
+    dest = None
+    if inre is not None:
+        dest = find_element(inre, 'ProductDestination', ns)
+    if dest is None:
+        dest = find_element(prod_def, 'ProductDestination', ns)
+    if dest is not None:
+        namn = (get_text(dest, 'BusinessName', ns) or '').strip()
+        bid = (get_text(dest, 'BusinessID', ns) or '').strip()
+        if namn:
+            ut['destination_namn'] = namn
+        if bid:
+            ut['destination_id'] = bid
+    return ut
+
+
+def upsert_nyckelgrupperat(table: str, rows: List[Dict], unique_columns: List[str]) -> int:
+    """upsert_data men grupperat på vilka nycklar raderna faktiskt har.
+
+    upsert_data normaliserar en batch till UNIONEN av allas nycklar och
+    skickar None för de som saknar en nyckel. Med merge-duplicates blir det
+    en radering: en rad utan 'produktgrupp' nollar kolumnen för ett sortiment
+    där en tidigare fil satt den.
+
+    Samma fälla fanns redan för 'fargmarkning', som bara sätts när Color1
+    finns i filen.
+
+    Genom att gruppera på nyckel-signaturen skickas aldrig en None som betyder
+    "vet ej". Rader utan fältet rör inte kolumnen alls.
+    """
+    if not rows:
+        return 0
+    grupper: Dict[frozenset, List[Dict]] = defaultdict(list)
+    for r in rows:
+        grupper[frozenset(r.keys())].append(r)
+    sparade = 0
+    for _, grupp in grupper.items():
+        sparade += upsert_data(table, grupp, unique_columns)
+    return sparade
+
+
 def normalize_maskin_id(maskin_id: str, tillverkare: str = '') -> str:
     """Normalisera maskin-ID för konsekvent format"""
     if not maskin_id:
@@ -1439,6 +1517,12 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         }
         if fargmarkning is not None:
             sort_row['fargmarkning'] = fargmarkning
+        # Produktgrupp, kundkod och destination till egna kolumner.
+        # OBS: prod_group ovan läses bara inne i "if not prod_name" — har filen
+        # ProductName på toppnivå hämtas gruppen aldrig där. las_produktfalt
+        # läser den ovillkorligt. Konkateneringen till 'namn' lämnas oförändrad;
+        # vyer i drift läser den strängen.
+        sort_row.update(las_produktfalt(prod_def, ns))
         data['sortiment'].append(sort_row)
 
         # === PRIS-MATRIS (ProductMatrixItem) ===
@@ -2453,12 +2537,17 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
             prod_name = get_text(prod_def, 'ProductName', ns)
         if prod_key and prod_name:
             fpr_product_names[prod_key] = prod_name
-            data['sortiment'].append({
+            fpr_sort_row = {
                 'sortiment_id': f"{maskin_id}_{prod_key}",
                 'product_key': prod_key,
                 'namn': prod_name,
                 'maskin_id': maskin_id
-            })
+            }
+            # Samma fält som HPR-vägen. dim_sortiment delas av båda filtyperna
+            # — läses de bara på ena hållet blir innehållet beroende av vilken
+            # fil som kom sist.
+            fpr_sort_row.update(las_produktfalt(prod_def, ns))
+            data['sortiment'].append(fpr_sort_row)
 
     # Bygg location -> obj_key lookup + avlägg-destinationer från LocationDefinition
     location_obj_map = {}
@@ -3996,11 +4085,11 @@ def save_hpr_to_supabase(data: Dict) -> bool:
             sortiment_med_namn = [s for s in data['sortiment'] if s.get('namn')]
             sortiment_utan_namn = [s for s in data['sortiment'] if not s.get('namn')]
             if sortiment_med_namn:
-                if upsert_data('dim_sortiment', sortiment_med_namn, ['sortiment_id']) == 0:
+                if upsert_nyckelgrupperat('dim_sortiment', sortiment_med_namn, ['sortiment_id']) == 0:
                     fel.append('dim_sortiment')
             if sortiment_utan_namn:
                 # Bara insert om sortiment saknas, skriv inte över befintliga namn
-                upsert_data('dim_sortiment', sortiment_utan_namn, ['sortiment_id'])
+                upsert_nyckelgrupperat('dim_sortiment', sortiment_utan_namn, ['sortiment_id'])
 
         # Pris-matris från ProductMatrixItem (en rad per lower-threshold-kombination)
         if data.get('sortiment_pris'):
@@ -4257,7 +4346,7 @@ def save_fpr_to_supabase(data: Dict) -> bool:
         if data.get('sortiment'):
             sortiment_med_namn = [s for s in data['sortiment'] if s.get('namn')]
             if sortiment_med_namn:
-                upsert_data('dim_sortiment', sortiment_med_namn, ['sortiment_id'])
+                upsert_nyckelgrupperat('dim_sortiment', sortiment_med_namn, ['sortiment_id'])
 
         # Lass – KRITISK
         if data.get('lass'):
