@@ -1027,15 +1027,19 @@ export default function PlannerPage() {
     // mot ljus karta — den mörka casingen bär skuggan/kontrasten. TRIMBARA (Martin godkänner i preview).
     // Data-drivet på ['get','zoneType'] → alla andra zontyper (wet/steep/…) är HELT oförändrade.
     const GALLRING_FILL_OPACITY = 0.45;
-    const zoneCasingWidthGallring = ['interpolate', ['linear'], ['zoom'], 10, 4.5, 13, 7.5, 15, 10.5, 17, 12] as any; // ~1.5× bredare
+    // Gallringszoner talar genom FYLLNINGEN (0.45) — kanten är TYST. Streckning är linjernas alfabet
+    // (boundary/dike/nature/stonewall); en YTA får inte prata det → casing OCH vit dash filtreras BORT
+    // för gallring. Kanten blir en tunn HELDRAGEN linje i mörkare trädslagsnyans (edgeColor per feature),
+    // med knivskarpa miter-hörn. Så gallringsytan aldrig förväxlas med traktgräns/naturvård på håll.
+    // Allt data-drivet på ['get','zoneType'] → övriga zoner (wet/steep/…) HELT oförändrade.
+    const zoneOutlineWidthGallring = ['interpolate', ['linear'], ['zoom'], 10, 1.2, 13, 1.8, 15, 2.4, 17, 3] as any; // tunn kant
     const gallringCase = (gallringVal: any, defaultVal: any) => ['case', ['==', ['get', 'zoneType'], 'gallring'], gallringVal, defaultVal] as any;
-    // Gallring: knivskarpa hörn på kantlinjen (miter) — bestånds-/gallringsgränser ska följa där man
-    // tryckte, rundade knutar skulle halvera den visuella skärpan. Data-drivet → övriga zoner rundade.
+    const ejGallring = ['!=', ['get', 'zoneType'], 'gallring'] as any; // casing/dash renderas för ALLA UTOM gallring
     const gallringJoin = gallringCase('miter', 'round');
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
-    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': gallringCase('rgba(0,0,0,0.82)', 'rgba(0,0,0,0.6)'), 'line-width': gallringCase(zoneCasingWidthGallring, zoneCasingWidth) }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
-    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
-    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
+    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': gallringCase(['get', 'edgeColor'], ['get', 'color']), 'line-width': gallringCase(zoneOutlineWidthGallring, zoneWidth) }, layout: { 'line-cap': 'round', 'line-join': gallringJoin } });
+    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
     // på EN BLICK utan att tappa. Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
     map.addLayer({
@@ -6062,6 +6066,11 @@ export default function PlannerPage() {
     { id: 'lov',  name: 'Löv',  color: '#f0f0f0' },
   ];
   const gallringFarg = (tradslag?: string | null) => GALLRING_TRADSLAG.find(t => t.id === tradslag)?.color || '#6b7c3a';
+  // Kantfärg = MÖRKARE nyans av trädslagsfärgen (mörkorange/tall, mörkgrön/gran, grå/löv). Ytan talar
+  // genom fyllningen; kanten är en tunn HELDRAGEN, tyst linje — ingen streckning (dash = linjernas språk:
+  // boundary/dike/nature/stonewall). Så gallringsytan aldrig förväxlas med traktgräns/naturvård.
+  const GALLRING_KANT: Record<string, string> = { tall: '#a8531a', gran: '#0f6b4d', lov: '#6b6a64' };
+  const gallringKantFarg = (tradslag?: string | null) => GALLRING_KANT[tradslag || ''] || '#5f5e5a';
 
   const warningCategories = [
     { section: 'Punkter', items: [
@@ -6299,7 +6308,11 @@ export default function PlannerPage() {
         const farg = m.zoneType === 'gallring' ? gallringFarg(m.tradslag) : (zt?.color || '#3b82f6');
         features.push({
           type: 'Feature',
-          properties: { zoneType: m.zoneType, id: m.id, color: farg },
+          properties: {
+            zoneType: m.zoneType, id: m.id, color: farg,
+            // Gallring: tunn heldragen kant i mörkare trädslagsnyans (edgeColor). Övriga zoner saknar → kanten tar 'color'.
+            ...(m.zoneType === 'gallring' ? { edgeColor: gallringKantFarg(m.tradslag) } : {}),
+          },
           geometry: { type: 'Polygon', coordinates: [coords] },
         });
       });
