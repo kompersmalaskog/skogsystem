@@ -12,6 +12,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 
 type Bit = {
   stam: string; bit: number; langd_m: number; volym_m3fub: number;
@@ -40,13 +41,17 @@ function Innehall() {
   const [valta, setValta] = useState<typeof VALTOR[number]>('Barr');
   const [d, setD] = useState<Niva3 | null>(null);
   const [laddar, setLaddar] = useState(true);
-  const [fel, setFel] = useState(false);
+  const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
 
   const hamta = useCallback(async () => {
-    setLaddar(true); setFel(false);
-    const { data, error } = await supabase.rpc('massaved_niva3', {
-      p_objekt_id: objektId, p_manad: `${manad}-01`, p_valta: valta, p_limit: 200 });
-    if (error) { setFel(true); setD(null); } else setD(data as Niva3);
+    setLaddar(true); setFel(null);
+    const { data, error } = await medAbortRetry(() => supabase.rpc('massaved_niva3', {
+      p_objekt_id: objektId, p_manad: `${manad}-01`, p_valta: valta, p_limit: 200 }));
+    if (error) {
+      setFel({ kod: (error as { code?: string }).code ?? (arAbortFel(error) ? 'ABORT' : 'OKÄND'),
+               text: error.message ?? String(error) });
+      setD(null);
+    } else setD(data as Niva3);
     setLaddar(false);
   }, [objektId, manad, valta]);
 
@@ -69,7 +74,27 @@ function Innehall() {
       </div>
 
       {laddar && <div style={{ ...S.muted, textAlign: 'center', padding: 40 }}>Hämtar bitarna…</div>}
-      {!laddar && fel && <div style={{ ...S.muted, textAlign: 'center', padding: 40 }}>Bitarna kunde inte hämtas.</div>}
+      {!laddar && fel && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', lineHeight: 1.6 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Bitarna kunde inte hämtas</div>
+          {/* Felmeddelandet ska säga vad användaren ska GÖRA. */}
+          <div style={{ ...S.muted, marginBottom: 16 }}>
+            {fel.kod === 'ABORT'
+              ? 'Anropet avbröts. Tryck Försök igen.'
+              : 'Tryck Försök igen. Står felet kvar: logga ut och in, och skicka koden nedan.'}
+          </div>
+          <button onClick={hamta}
+            style={{ border: 'none', borderRadius: 8, padding: '12px 22px', minHeight: 44,
+                     fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                     background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' }}>
+            Försök igen
+          </button>
+          {/* Detaljen kastas inte bort — utan den går felet inte att felsöka. */}
+          <div style={{ ...S.muted, marginTop: 18, fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-word' }}>
+            {fel.kod} · {fel.text}
+          </div>
+        </div>
+      )}
 
       {!laddar && !fel && d && d.antal_totalt === 0 && (
         <div style={{ ...S.muted, textAlign: 'center', padding: 40 }}>

@@ -14,6 +14,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 
 type Tradslag = {
   namn: string; m3fub: number; medellangd_m: number;
@@ -55,12 +56,16 @@ function Innehall() {
 
   const [d, setD] = useState<Niva2 | null>(null);
   const [laddar, setLaddar] = useState(true);
-  const [fel, setFel] = useState(false);
+  const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
 
   const hamta = useCallback(async () => {
-    setLaddar(true); setFel(false);
-    const { data, error } = await supabase.rpc('massaved_niva2', { p_objekt_id: objektId, p_manad: `${manad}-01` });
-    if (error) { setFel(true); setD(null); } else setD(data as Niva2);
+    setLaddar(true); setFel(null);
+    const { data, error } = await medAbortRetry(() => supabase.rpc('massaved_niva2', { p_objekt_id: objektId, p_manad: `${manad}-01` }));
+    if (error) {
+      setFel({ kod: (error as { code?: string }).code ?? (arAbortFel(error) ? 'ABORT' : 'OKÄND'),
+               text: error.message ?? String(error) });
+      setD(null);
+    } else setD(data as Niva2);
     setLaddar(false);
   }, [objektId, manad]);
 
@@ -76,8 +81,22 @@ function Innehall() {
 
       {laddar && <div style={{ ...S.muted, textAlign: 'center', padding: 40 }}>Hämtar objektet…</div>}
       {!laddar && fel && (
-        <div style={{ ...S.muted, textAlign: 'center', padding: 40 }}>
-          Objektet kunde inte hämtas. Försök igen.
+        <div style={{ textAlign: 'center', padding: '40px 20px', lineHeight: 1.6 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Objektet kunde inte hämtas</div>
+          <div style={{ ...S.muted, marginBottom: 16 }}>
+            {fel.kod === 'ABORT'
+              ? 'Anropet avbröts. Tryck Försök igen.'
+              : 'Tryck Försök igen. Står felet kvar: logga ut och in, och skicka koden nedan.'}
+          </div>
+          <button onClick={hamta}
+            style={{ border: 'none', borderRadius: 8, padding: '12px 22px', minHeight: 44,
+                     fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                     background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' }}>
+            Försök igen
+          </button>
+          <div style={{ ...S.muted, marginTop: 18, fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-word' }}>
+            {fel.kod} · {fel.text}
+          </div>
         </div>
       )}
 

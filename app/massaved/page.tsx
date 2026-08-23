@@ -16,6 +16,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 
 type ObjektRad = {
   objekt_id: string; namn: string | null; status: string;
@@ -51,13 +52,13 @@ function nuManad() {
 
 /** Färgen förstärker ordet — den bär det aldrig ensam. Förarna sitter i
  *  solljus där rött blir brunt. */
-export function kvalitet(m: number, mal: number) {
+function kvalitet(m: number, mal: number) {
   if (m < 4.0) return { ord: 'Kort', farg: 'rgba(255,120,110,0.95)' };
   if (m < mal) return { ord: 'Under mål', farg: 'rgba(255,179,64,0.95)' };
   return { ord: 'Godkänt', farg: 'rgba(90,255,140,0.9)' };
 }
 
-export const s = {
+const s = {
   page: { background: '#111110', minHeight: '100vh', paddingTop: 56, paddingBottom: 90, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
   muted: { color: '#7a7a72', fontSize: 11 },
   tal: { fontFamily: "'Fraunces', serif" } as const,
@@ -69,13 +70,22 @@ function Innehall() {
   const [valta, setValta] = useState<typeof VALTOR[number]>('Barr');
   const [data, setData] = useState<Niva1 | null>(null);
   const [laddar, setLaddar] = useState(true);
-  const [fel, setFel] = useState(false);
+  const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
 
   const hamta = useCallback(async () => {
-    setLaddar(true); setFel(false);
-    const { data, error } = await supabase.rpc('massaved_niva1', { p_manad: `${manad}-01`, p_valta: valta });
-    // Ett fel får aldrig se ut som noll längd.
-    if (error) { setFel(true); setData(null); } else setData(data as Niva1);
+    setLaddar(true); setFel(null);
+    // medAbortRetry: supabase-js auth-lås kan avbryta anropet transient.
+    // Utan omförsöket blev en låskollision en död vy.
+    const { data, error } = await medAbortRetry(() =>
+      supabase.rpc('massaved_niva1', { p_manad: `${manad}-01`, p_valta: valta }));
+    // Ett fel får aldrig se ut som noll längd — och felet ska BEHÅLLAS.
+    // Att bara sätta en boolean gjorde vyn omöjlig att felsöka: ingen kunde
+    // säga vad servern faktiskt svarade.
+    if (error) {
+      setFel({ kod: (error as { code?: string }).code ?? (arAbortFel(error) ? 'ABORT' : 'OKÄND'),
+               text: error.message ?? String(error) });
+      setData(null);
+    } else setData(data as Niva1);
     setLaddar(false);
   }, [manad, valta]);
 
@@ -132,8 +142,24 @@ function Innehall() {
       {laddar && <div style={{ ...s.muted, textAlign: 'center', padding: 40 }}>Hämtar {manadEtikett(manad)}…</div>}
 
       {!laddar && fel && (
-        <div style={{ ...s.muted, textAlign: 'center', padding: 40, lineHeight: 1.6 }}>
-          Längderna kunde inte hämtas.<br />Försök igen — siffrorna finns, det är hämtningen som inte gick fram.
+        <div style={{ textAlign: 'center', padding: '40px 20px', lineHeight: 1.6 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Längderna kunde inte hämtas</div>
+          {/* Felmeddelandet ska säga vad användaren ska GÖRA. */}
+          <div style={{ ...s.muted, marginBottom: 16 }}>
+            {fel.kod === 'ABORT'
+              ? 'Anropet avbröts. Tryck Försök igen.'
+              : 'Tryck Försök igen. Står felet kvar: logga ut och in, och skicka koden nedan.'}
+          </div>
+          <button onClick={hamta}
+            style={{ border: 'none', borderRadius: 8, padding: '12px 22px', minHeight: 44,
+                     fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                     background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' }}>
+            Försök igen
+          </button>
+          {/* Detaljen kastas inte bort — utan den går felet inte att felsöka. */}
+          <div style={{ ...s.muted, marginTop: 18, fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-word' }}>
+            {fel.kod} · {fel.text}
+          </div>
         </div>
       )}
 
