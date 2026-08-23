@@ -92,6 +92,12 @@ export type Diametermatt = {
   medianMm: number;
   minMm: number;
   maxMm: number;
+  /** Uttagen grundyta, Σ(π·d²/4) i m². Samma Σd² som Dgv bygger på — grundytan
+   *  är alltså gratis här och kräver ingen extra läsning av detalj_stam.
+   *  OBS: bygger på `matta` stammar, inte alla. detalj_stam har luckor, så
+   *  talet är en UNDERSKATTNING när matta < stammar. Anropare som visar det
+   *  måste skriva ut vilket underlag det står på. */
+  grundytaM2: number;
   klasser: DiameterKlass[];
 };
 
@@ -113,6 +119,12 @@ export type GallringRad = {
   tradslag: TradslagAndel[];
   /** Uppmätt areal, aldrig skattad. null = visa inget per-hektar-tal. */
   arealHa: number | null;
+  /** dim_objekt.skordning_avslutad — maskinens eget slutdatum ur StanForD.
+   *  Gäller SKÖRDNINGEN; skotningen kan pågå. null = inte avslutad.
+   *
+   *  objekt.avslutad_timestamp vore det naturliga valet men är satt på NOLL av
+   *  34 gallringstrakter (2026-08-22) — en grind på det fältet stänger allt. */
+  skordningAvslutad: string | null;
   diameter: Diametermatt | null;
 };
 
@@ -178,6 +190,8 @@ export function beraknaDiametermatt(diametrar: number[]): Diametermatt | null {
     medianMm: mitt,
     minMm: d[0],
     maxMm: d[d.length - 1],
+    // π·Σd²/4, från mm² till m².
+    grundytaM2: (Math.PI * s2) / 4 / 1e6,
     klasser: byggKlasser(d),
   };
 }
@@ -193,6 +207,7 @@ type DimObjektRad = {
   huvudtyp: string | null;
   risskotning: boolean | null;
   areal_ha: number | null;
+  skordning_avslutad: string | null;
 };
 
 /** Fel kastas alltid vidare. En tyst tom lista skulle se ut som "inga
@@ -207,7 +222,7 @@ async function hamtaGallringsobjekt(): Promise<DimObjektRad[]> {
   const rader = (await fetchAllRows((from, to) =>
     supabase
       .from('dim_objekt')
-      .select('objekt_id, object_name, vo_nummer, huvudtyp, risskotning, areal_ha')
+      .select('objekt_id, object_name, vo_nummer, huvudtyp, risskotning, areal_ha, skordning_avslutad')
       .order('objekt_id')
       .range(from, to),
   )) as DimObjektRad[];
@@ -374,6 +389,15 @@ function byggRader(
       stammar,
       tradslag: Array.from(perTradslag.values()).sort((a, b) => b.volym - a.volym),
       arealHa: arealer.get(vo) ?? null,
+      // Senaste avslutsdatum i VO-gruppen. Ett fysiskt objekt kan ligga som
+      // flera dim_objekt-rader; är någon av dem oavslutad är trakten det.
+      skordningAvslutad:
+        objektRader.every((o) => !!o.skordning_avslutad)
+          ? objektRader
+              .map((o) => o.skordning_avslutad!)
+              .sort()
+              .slice(-1)[0]
+          : null,
       diameter: null,
     });
   }
