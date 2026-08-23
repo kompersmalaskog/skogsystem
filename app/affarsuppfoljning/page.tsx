@@ -44,15 +44,20 @@ type Utfall = {
 
 // Drill-down bakom massaraden. Möter ingen på förstavyn — massabruket hörde
 // av sig om att veden är för kort, och det här är svaret på den frågan.
+// Strukturen är SORTIMENT först, trädslag inuti — inte tvärtom. Gran och
+// tall går i samma trave (Barrmassaved); bara björken är separerad. En
+// rubrik som "Granmassaved" hade beskrivit en beräkning på stammarnas
+// trädslag, inte en leverans bruket kan stämma av mot något de har.
 type MassaTradslag = {
   namn: string; volym: number; dm: number;
-  tre_m_volym: number; tre_m_andel: number; rotkap_volym: number;
+  tre_m_andel: number; tre_m_volym: number;
+  rotkap: number; timmermatt: number;
 };
+type MassaSortiment = { namn: string; volym: number; tradslag: MassaTradslag[] };
 type Massaved = {
   manad: string; total_volym: number; medellangd_dm: number | null; hemved_volym: number;
-  gran: { volym: number; tre_m: number; rotkap: number; timmermatt: number } | null;
-  tradslag: MassaTradslag[];
-  dolda_tradslag: number;
+  sortiment: MassaSortiment[];
+  dolda_rader: number;
 };
 
 const ATGARDER = ['Slutavverkning', 'Gallring', 'Grot', 'Allt'] as const;
@@ -311,7 +316,11 @@ export default function Sortimentsutfall() {
 
                           {!massaLaddar && !massaFel && massa && massa.medellangd_dm !== null && (
                             <>
-                              {/* Rubriktal — volymvägt, aldrig snitt per stock */}
+                              {/* Rubriktal — volymvägt, aldrig snitt per stock.
+                                  INGEN volym här: raden ovanför bär redan månadens
+                                  massavolym. Två tal som skiljer 17 m³ på samma skärm
+                                  gör att folk slutar lita på vyn — hemveden står som
+                                  fotnot i stället. */}
                               <div style={{ textAlign: 'center', padding: '4px 0 18px' }}>
                                 <div>
                                   <span style={{ fontFamily: "'Fraunces', serif", fontSize: 40, lineHeight: 1 }}>
@@ -319,70 +328,68 @@ export default function Sortimentsutfall() {
                                   </span>
                                   <span style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: '#7a7a72', marginLeft: 5 }}>dm</span>
                                 </div>
-                                <div style={{ ...s.muted, marginTop: 8, lineHeight: 1.5 }}>
-                                  volymvägd medellängd<br />
-                                  {nf1(massa.total_volym)} m³ massaved
-                                  {massa.hemved_volym > 0 && ` · hemved ${nf1(massa.hemved_volym)} m³ ej medräknad`}
-                                </div>
+                                <div style={{ ...s.muted, marginTop: 8 }}>volymvägd medellängd</div>
                               </div>
 
-                              {/* Kedjan — gäller granen, och rubriken säger det */}
-                              {massa.gran && massa.gran.volym > 0 && (
-                                <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 14 }}>
-                                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Granmassaved</div>
-                                  {[
-                                    { etikett: 'Totalt',                        v: massa.gran.volym,      niva: 0 },
-                                    { etikett: 'varav kapat i 3 meter',         v: massa.gran.tre_m,      niva: 1 },
-                                    { etikett: 'varav rotkap',                  v: massa.gran.rotkap,     niva: 2 },
-                                    { etikett: 'varav toppdiameter 18 cm eller grövre', v: massa.gran.timmermatt, niva: 3 },
-                                  ].map(r => (
-                                    <div key={r.etikett} style={{
-                                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                                      padding: '6px 0', paddingLeft: r.niva * 12,
-                                      color: r.niva === 0 ? '#e8e8e4' : '#7a7a72',
-                                    }}>
-                                      <span style={{ fontSize: 12 }}>{r.etikett}</span>
-                                      <span>
-                                        <span style={{ fontFamily: "'Fraunces', serif", fontSize: r.niva === 0 ? 18 : 15, color: '#e8e8e4' }}>
-                                          {nf(r.v)}
-                                        </span>
-                                        <span style={{ ...s.muted, marginLeft: 5 }}>m³</span>
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* Per trädslag */}
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', marginTop: 14, paddingTop: 14 }}>
-                                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Per trädslag</div>
-                                {massa.tradslag.map(t => (
-                                  <div key={t.namn} style={{ padding: '7px 0' }}>
+                              {/* Sortiment först, trädslag inuti. Ett sortiment med
+                                  bara ett trädslag ritas på en rad — nästlingen ska
+                                  bära information, inte upprepa samma siffra. */}
+                              {massa.sortiment.map(so => {
+                                const ensam = so.tradslag.length === 1;
+                                return (
+                                  <div key={so.namn} style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 12, marginBottom: 12 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                                      <span style={{ fontSize: 12 }}>{t.namn}</span>
+                                      <span style={{ fontSize: 13, fontWeight: 600 }}>{so.namn}</span>
                                       <span>
-                                        <span style={{ fontFamily: "'Fraunces', serif", fontSize: 17 }}>{nf1(t.dm)}</span>
-                                        <span style={{ ...s.muted, marginLeft: 5 }}>dm</span>
+                                        <span style={{ fontFamily: "'Fraunces', serif", fontSize: 18 }}>{nf(so.volym)}</span>
+                                        <span style={{ ...s.muted, marginLeft: 5 }}>m³</span>
+                                        {ensam && (
+                                          <span style={{ ...s.muted, marginLeft: 8 }}>
+                                            · {nf1(so.tradslag[0].dm)} dm · {nf1(so.tradslag[0].tre_m_andel)} % i 3 meter
+                                          </span>
+                                        )}
                                       </span>
                                     </div>
-                                    <div style={{ ...s.muted, marginTop: 2 }}>
-                                      {nf(t.volym)} m³ · {nf1(t.tre_m_andel)} % kapat i 3 meter
-                                      {t.tre_m_volym > 0 && ` (${nf(t.tre_m_volym)} m³)`}
-                                    </div>
-                                  </div>
-                                ))}
-                                {massa.dolda_tradslag > 0 && (
-                                  <div style={{ ...s.muted, marginTop: 8 }}>
-                                    {massa.dolda_tradslag} trädslag under 1 m³ visas inte.
-                                  </div>
-                                )}
-                              </div>
 
-                              {/* Fotnoten — måste stå, och får aldrig påstå mätt röta */}
+                                    {!ensam && so.tradslag.map(t => (
+                                      <div key={t.namn} style={{ marginTop: 10, paddingLeft: 12 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                          <span style={{ fontSize: 12 }}>{t.namn}</span>
+                                          <span style={{ ...s.muted }}>
+                                            <span style={{ fontFamily: "'Fraunces', serif", fontSize: 15, color: '#e8e8e4' }}>{nf(t.volym)}</span> m³
+                                            {' · '}{nf1(t.dm)} dm
+                                            {' · '}{nf1(t.tre_m_andel)} % i 3 meter
+                                            {t.tre_m_volym > 0 && ` (${nf(t.tre_m_volym)} m³)`}
+                                          </span>
+                                        </div>
+                                        {/* Kedjan hör hemma under sitt trädslag */}
+                                        {t.rotkap > 0 && (
+                                          <div style={{ paddingLeft: 12, marginTop: 4 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', ...s.muted }}>
+                                              <span>varav rotkap</span>
+                                              <span><span style={{ color: '#e8e8e4' }}>{nf(t.rotkap)}</span> m³</span>
+                                            </div>
+                                            {t.timmermatt > 0 && (
+                                              <div style={{ display: 'flex', justifyContent: 'space-between', ...s.muted, marginTop: 2 }}>
+                                                <span>varav timmerdimension (18 cm, Vislandas gräns)</span>
+                                                <span><span style={{ color: '#e8e8e4' }}>{nf(t.timmermatt)}</span> m³</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })}
+
+                              {/* Fotnoter — hemveden och härledningen */}
                               <div style={{
-                                borderTop: '1px solid rgba(255,255,255,0.07)', marginTop: 14, paddingTop: 12,
+                                borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 12,
                                 fontSize: 11, color: '#7a7a72', lineHeight: 1.6,
                               }}>
+                                {massa.hemved_volym > 0 && <>Hemved {nf1(massa.hemved_volym)} m³ ingår inte.<br /></>}
+                                {massa.dolda_rader > 0 && <>{massa.dolda_rader} rader under 1 m³ visas inte.<br /></>}
                                 &quot;Rotkap&quot; är härlett ur att biten är 3 meter, sitter först på stammen och
                                 blev massaved. Filen innehåller ingen rötkod — maskinen har inte mätt röta.
                               </div>
