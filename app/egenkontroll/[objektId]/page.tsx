@@ -45,6 +45,7 @@ import RundKarta from '../RundKarta';
 import StubbeSheet from '../StubbeSheet';
 import ProvytaSheet from '../ProvytaSheet';
 import ProvyteLista, { type MinPosition } from '../ProvyteLista';
+import Forutsattningar from '../Forutsattningar';
 import ProvyteSammanstallning from '../ProvyteSammanstallning';
 import GaTillYta from '../GaTillYta';
 import { skadeandel as _skadeandel, type LatLng } from '@/lib/provytor';
@@ -635,6 +636,17 @@ export default function EgenkontrollRundaPage() {
             <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: -0.5, margin: '4px 0 4px' }}>
               {vy.objektNamn}
             </h1>
+
+            {/* Forutsattningarna OVANFOR kartan och utanfor det sticky blocket:
+                de ska ses en gang och sedan scrollas bort. Aldrig nere vid
+                avvikelseknappen - se filhuvudet i Forutsattningar.tsx. */}
+            {vy.egenkontroll && !helskarm && !gaTill && (
+              <Forutsattningar
+                vader={vy.egenkontroll.vader}
+                maskiner={vy.egenkontroll.maskiner}
+                rundaId={vy.egenkontroll.id}
+              />
+            )}
 
             {/* Kartan ligger kvar synlig medan listan scrollas. Sticky, inte
                 fixed - den ska folja med i flodet och inte lagga sig over
