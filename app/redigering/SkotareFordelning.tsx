@@ -85,7 +85,9 @@ export default function SkotareFordelning({
     satt(m.maskin_id, { ...TOM_UTKAST })
   }
 
-  // Summan exkl. omlastning — mjuk varning om den överstiger avverkat
+  // Summan EGEN skotning (exkl. omlastning) över VO-gruppen. HÅRD spärr: den får
+  // ALDRIG överstiga avverkat. Omlastning omfattas ALDRIG av spärren (samma virke
+  // flyttat andra gången — kan vara stort). +0.5 = avrundningsmarginal.
   const summaExkl = useMemo(
     () => allaInsatser.reduce((s, i) => s + effektivVolym(i, utkast[i.maskinId] || tillUtkast(i)), 0),
     [allaInsatser, utkast],
@@ -101,6 +103,11 @@ export default function SkotareFordelning({
   const nagotDirty = allaInsatser.some(dirty)
 
   const spara = async () => {
+    // HÅRD spärr: egen skotning (exkl. omlastning) får aldrig överstiga avverkat.
+    if (overAvverkat) {
+      setSparFel(`Egen skotning (${Math.round(summaExkl).toLocaleString('sv-SE')} m³) överstiger avverkat (${Math.round(avverkatVolym).toLocaleString('sv-SE')} m³). Sänk egen skotning — eller flytta överskottet till omlastning (som inte räknas mot avverkat). Går inte att spara.`)
+      return
+    }
     setSparar(true); setSparFel(null)
     try {
       for (const i of allaInsatser) {
@@ -257,10 +264,10 @@ export default function SkotareFordelning({
         </div>
       )}
 
-      {/* Mjuk varning — aldrig spärr */}
+      {/* HÅRD spärr — går inte att spara. Omlastning omfattas aldrig. */}
       {overAvverkat && (
-        <div style={{ padding: '8px 12px', background: 'rgba(255,159,10,0.1)', border: `1px solid rgba(255,159,10,0.3)`, borderRadius: 8, fontSize: 12, color: C.orange, marginBottom: 10 }}>
-          Skotad volym exkl. omlastning ({Math.round(summaExkl).toLocaleString('sv-SE')} m³) överstiger avverkat ({Math.round(avverkatVolym).toLocaleString('sv-SE')} m³). Kontrollera fördelning/omlastning — du bestämmer.
+        <div style={{ padding: '8px 12px', background: 'rgba(255,69,58,0.1)', border: `1px solid rgba(255,69,58,0.35)`, borderRadius: 8, fontSize: 12, color: C.red, marginBottom: 10 }}>
+          Egen skotning ({Math.round(summaExkl).toLocaleString('sv-SE')} m³) överstiger avverkat ({Math.round(avverkatVolym).toLocaleString('sv-SE')} m³). Går inte att spara. Sänk egen skotning — eller lägg överskottet som omlastning (räknas aldrig mot avverkat).
         </div>
       )}
 
@@ -278,13 +285,18 @@ export default function SkotareFordelning({
 
       {sparFel && <div style={{ padding: '8px 12px', background: 'rgba(255,69,58,0.1)', borderRadius: 8, fontSize: 12, color: C.red, marginBottom: 10 }}>{sparFel}</div>}
 
-      <button onClick={spara} disabled={!nagotDirty || sparar} style={{
-        width: '100%', height: 44, background: nagotDirty && !sparar ? C.green : '#2a2a2c',
-        color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 600,
-        cursor: nagotDirty && !sparar ? 'pointer' : 'default', fontFamily: 'inherit', opacity: nagotDirty && !sparar ? 1 : 0.5,
-      }}>
-        {sparar ? 'Sparar …' : 'Spara fördelning'}
-      </button>
+      {(() => {
+        const kanSpara = nagotDirty && !sparar && !overAvverkat
+        return (
+          <button onClick={spara} disabled={!kanSpara} style={{
+            width: '100%', height: 44, background: kanSpara ? C.green : '#2a2a2c',
+            color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 600,
+            cursor: kanSpara ? 'pointer' : 'default', fontFamily: 'inherit', opacity: kanSpara ? 1 : 0.5,
+          }}>
+            {sparar ? 'Sparar …' : overAvverkat ? 'Egen skotning > avverkat' : 'Spara fördelning'}
+          </button>
+        )
+      })()}
     </div>
   )
 }
