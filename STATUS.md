@@ -612,6 +612,66 @@ omgång:
   en post som existerar får aldrig renderas som
   frånvarande.
 
+## MULTITREE-FIXEN 2026-08-23 — PILOT KORD
+
+Parsern laser nu MultiTreeProcessedStem. Fyra stallen
+andrade, HQC medvetet kvar. Migration
+20260823_detalj_stam_bunt_nyckel.sql kord.
+
+PILOT: Johan Svensson Brandeborg (objekt_id 9955),
+atta av atta mot forutsagelsen.
+
+  detalj_stam        488 -> 641   (facit MOM 641)
+  stam_bunt_nyckel     -  -> 153  i 74 buntar
+  NULL                 -  -> 488
+  Dgv              121,9 -> 116,0 mm
+  medeldiameter    104,5 ->  97,0 mm
+  min/max          57/277 -> 49/277
+  fakt_sortiment  23,187 -> 25,583 (facit MOM 25,583)
+
+Halabaeck orord: 254 stammar, 0 buntnycklar,
+Dgv 178,1, 32,685 m3. Regressionsvakten haller.
+
+GROT: hpr_stammar 641 rader, stam_nummer 1-641 utan
+luckor, 0 bio_energy_adaption — kallfilen har 0.
+backfill-grot behovde INTE koras om. Omimporten
+raderar hpr_filer + hpr_stammar for objektet forst,
+och GROT lases inline per stam i stallet for att
+slas upp via stam_nummer, sa omnumrering kan inte
+flytta en tagg.
+
+### VARNING — fakt_sortiment saknar nedgraderingsskydd
+hpr_filer HAR ett skydd. Kors en mindre delfil for
+ett objekt som redan har en storre snapshot loggar
+importen "hoppar — 278 stammar < befintlig komplett
+snapshot (488), ingen nedgradering" och lamnar
+hpr_filer i fred.
+
+fakt_sortiment har INGET sadant skydd. Den byggs om
+fran detalj_stock vid varje sparning
+(rebuild_fakt_sortiment), och en delfil tar den
+tillfalligt ned. Under piloten:
+
+  23 jan-filen kord:  15 -> 9 rader,  23,2 -> 12,0 m3
+  24 jan-filen kord:   9 -> 16 rader, 12,0 -> 25,583
+
+Slutlaget blev ratt, men bara for att bada filerna
+kordes. Hade omimporten avbrutits mellan dem — fel,
+natverk, ctrl-c — hade objektet legat kvar pa
+12,0 m3 UTAN varning. Ingenting i loggen sager att
+laget ar halvfardigt.
+
+REGEL: kor ALLA HPR-filer for ett objekt i ETT pass,
+eller storsta filen sist. Och verifiera efterat mot
+fakt_produktion innan nasta trakt paborjas —
+scripts/omimport-multitree.py gor bada delarna och
+STOPPAR vid avvikelse.
+
+### KVAR — breddning ej gjord
+21 gallringstrakter och 56 slutavverkningstrakter
+bar fortfarande ofullstandig HPR-data. Omimport-
+skriptet ar skrivet men inte kort i skarpt lage.
+
 ## IMPORTUTREDNING 2026-08-23 — RAPPORT
 
 Utredning, ingen kodandring. Fyra SEPARATA fel.
