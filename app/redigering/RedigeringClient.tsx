@@ -1383,9 +1383,10 @@ function NavRad({ label, summary, warn, onClick }: any) {
 // rader. Ligger i fasta headern — syns alltid, utan scroll.
 function MaskinBadges({ syskon, kortInfo }: any) {
   const skordat = (syskon || []).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)
-  const lass = (syskon || []).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0)
-  const manuell = Math.max(0, ...(syskon || []).map((o: any) => Number(o.skotad_volym_manuell) || 0))
-  const skotat = manuell > 0 ? manuell : lass
+  // skotatM3 är den DELADE skotat-regeln (lib/skotat.objektSkotat) via useMatchning
+  // — inkluderar filfri/manuell skotare. skotatManuell styr "(manuell)"-märket.
+  const skotat = (syskon || []).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0)
+  const skotatManuell = (syskon || []).some((o: any) => kortInfo[o.objekt_id]?.skotatManuell)
 
   // Union av gruppens maskiner, dedupe på maskin_id, skördare först
   const perId = new Map<string, any>()
@@ -1410,7 +1411,7 @@ function MaskinBadges({ syskon, kortInfo }: any) {
         // total upprepad per maskin och se ut som per-maskin-siffror
         const volym = arSk
           ? (antalPerTyp('skordare') === 1 && skordat > 0 ? ` · ${Math.round(skordat).toLocaleString('sv-SE')} m³` : '')
-          : (m.typ === 'skotare' && antalPerTyp('skotare') === 1 && skotat > 0 ? ` · ${Math.round(skotat).toLocaleString('sv-SE')} m³${manuell > 0 ? ' (manuell)' : ''}` : '')
+          : (m.typ === 'skotare' && antalPerTyp('skotare') === 1 && skotat > 0 ? ` · ${Math.round(skotat).toLocaleString('sv-SE')} m³${skotatManuell ? ' (manuell)' : ''}` : '')
         return badge(m.id,
           arSk ? 'rgba(168,213,130,0.12)' : 'rgba(240,178,76,0.12)',
           arSk ? '#a8d582' : '#f0b24c',
