@@ -4001,23 +4001,35 @@ def _save_hpr_tables(data: Dict):
         batch = stammar[i:i + batch_size]
         rows = []
         for s in batch:
+            # ALLA rader i en batch MASTE ha samma nyckeluppsattning.
+            #
+            # Tidigare lades dbh/lat/lng/antal_stockar/total_volym till
+            # VILLKORLIGT. En batch som blandade stammar med och utan de
+            # falten avvisades av PostgREST med
+            #   400 PGRST102 "All object keys must match"
+            # och HELA batchen foll — 500 rader per traff.
+            #
+            # Det syntes inte forran skala: vid 641 stammar (piloten) rymdes
+            # allt i tva likformiga batchar. Vid 12 936 (Bjorn Martinsson)
+            # slog det till 19 ganger och tappade 500 rader. Se STATUS.md.
+            #
+            # Nyckeln skrivs darfor ALLTID; saknat varde blir None -> NULL.
+            # Vardesemantiken ar oforandrad: falsy lat/lng/antal_stockar
+            # (inklusive 0) blev tidigare utelamnade och blir nu NULL, vilket
+            # ar samma sak for lasaren. Skriv inte om det till rena .get()
+            # utan att tanka pa nollan.
             row = {
                 'hpr_fil_id': hpr_fil_id,
                 'stam_nummer': s.get('hpr_stam_nummer'),
                 'tradslag': s.get('hpr_tradslag_namn'),
+                'dbh': s.get('dbh_mm'),
+                'lat': s['latitude'] if s.get('latitude') else None,
+                'lng': s['longitude'] if s.get('longitude') else None,
+                'antal_stockar': s['hpr_antal_stockar'] if s.get('hpr_antal_stockar') else None,
+                'total_volym': s.get('hpr_total_volym'),
+                'bio_energy_adaption': s.get('hpr_bio_energy_adaption'),
+                'sortiment': s.get('hpr_sortiment'),
             }
-            if s.get('dbh_mm') is not None:
-                row['dbh'] = s['dbh_mm']
-            if s.get('latitude'):
-                row['lat'] = s['latitude']
-            if s.get('longitude'):
-                row['lng'] = s['longitude']
-            if s.get('hpr_antal_stockar'):
-                row['antal_stockar'] = s['hpr_antal_stockar']
-            if s.get('hpr_total_volym') is not None:
-                row['total_volym'] = s['hpr_total_volym']
-            row['bio_energy_adaption'] = s.get('hpr_bio_energy_adaption')
-            row['sortiment'] = s.get('hpr_sortiment')
             rows.append(row)
 
         headers_ignore = {**SUPABASE_HEADERS, 'Prefer': 'resolution=ignore-duplicates'}

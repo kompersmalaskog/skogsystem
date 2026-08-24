@@ -258,6 +258,36 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 
 ---
 
+## Verifiering — fallgropar som ger falskt godkant
+
+### tsc i en ny worktree ljuger
+`npx tsc --noEmit` i en worktree UTAN `node_modules` kor inte TypeScript. Den
+plockar en stub som skriver
+
+    This is not the tsc command you are looking for
+
+och avslutar med 0. Ett `grep -c "error TS"` ger da **0 fel** — vilket ser ut
+som ett godkant resultat men betyder att kontrollen aldrig kordes.
+
+Det drabbar VARJE ny worktree, eftersom `node_modules` inte foljer med.
+
+Gor sa har:
+
+1. `npm install` i worktreen forst.
+2. Kor den LOKALA binaren: `./node_modules/.bin/tsc --noEmit -p tsconfig.json`
+3. Jamfor mot en BASLINJE. Repot har ~550 pre-existerande fel, sa ett antal
+   sager ingenting i sig. Kor samma kommando i en worktree pa `origin/main`
+   och diffa radagnostiskt:
+
+       sed -E 's/\([0-9]+,[0-9]+\)//' fel.txt | grep "error TS" | sort
+
+   Jamfor mangderna. Bara det som finns i grenen men inte i baslinjen ar ditt.
+
+Samma princip galler all verifiering: **ett verktyg som svarar "inga fel" utan
+att ha kort ar samma sak som ett verktyg som ljuger.** Kontrollera att det
+faktiskt kordes innan du litar pa nollan. Se ocksa STATUS.md om
+pagineringsbuggen, dar ett testverktyg gav 8 falsklarm av samma familj.
+
 ## Repo
 - GitHub: kompersmalaskog/skogsystem
 - Vercel bygger automatiskt vid push till main
