@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { MASKINER, type Maskin } from './OversiktShared'
+import { useMaskinvyMaskiner } from './useMaskinvyMaskiner'
 import Maskinvy from '../../maskinvy'
 import SkotareVy from '../../skotare'
 import MaskinLogg from './MaskinLogg'
@@ -20,10 +21,6 @@ import SkotareJamforelseNy from './SkotareJamforelseNy'
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
 type SkotareMaskin = { id: string; namn: string }
-const SKOTARE: SkotareMaskin[] = [
-  { id: 'A030353', namn: 'Ponsse Wisent' },
-  { id: 'A110148', namn: 'Ponsse Elephant King AF' },
-]
 
 // ──────────────────────────────────────────────────────────────
 // Vy-nav för den nya maskinvyn (?ny=1).
@@ -50,7 +47,13 @@ export default function MaskinvyPage() {
   const [ny, setNy] = useState(false)
   const [vy, setVy] = useState<string>('')
   const [maskinSkordare, setMaskinSkordare] = useState<Maskin>(MASKINER[0])
-  const [maskinSkotare,  setMaskinSkotare]  = useState<SkotareMaskin>(SKOTARE[0])
+  // Skotarlistan är dynamisk (dim_maskin, bekräftad + data) — ny maskin syns
+  // automatiskt. Default = första i listan när den laddats.
+  const { maskiner: skotareMaskiner } = useMaskinvyMaskiner('skotare')
+  const [maskinSkotare, setMaskinSkotare] = useState<SkotareMaskin | null>(null)
+  useEffect(() => {
+    if (!maskinSkotare && skotareMaskiner.length > 0) setMaskinSkotare(skotareMaskiner[0])
+  }, [skotareMaskiner, maskinSkotare])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -299,10 +302,11 @@ export default function MaskinvyPage() {
                      : <OversiktNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />)
                   : <Maskinvy />)
               : (ny
-                  ? (vy === 'produktion'  ? <SkotareProduktionNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
+                  ? (vy === 'jamforelse' ? <SkotareJamforelseNy />
+                     : !maskinSkotare ? <div style={{ padding: 24, color: 'rgba(255,255,255,0.45)', fontSize: 14 }}>Laddar maskiner …</div>
+                     : vy === 'produktion'  ? <SkotareProduktionNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
                      : vy === 'avbrott'   ? <SkotareAvbrottNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
                      : vy === 'idag'      ? <SkotareIdagNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
-                     : vy === 'jamforelse' ? <SkotareJamforelseNy />
                      : <SkotareOversiktNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />)
                   : <SkotareVy />)}
           </div>

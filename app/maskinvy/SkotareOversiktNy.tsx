@@ -12,6 +12,7 @@ import {
   type ManuellRad, type LassRad, type TidRad,
 } from '@/lib/maskinvy/skotarvolym'
 import { FLYTT_KATEGORI } from '../../lib/avbrott-kategorier'
+import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 
 // ─────────────────────────────────────────────────────────────
 // SkotareOversiktNy — Översikt för skotare bakom ?ny=1.
@@ -24,11 +25,7 @@ import { FLYTT_KATEGORI } from '../../lib/avbrott-kategorier'
 // för sig och kombineras sedan i JS.
 // ─────────────────────────────────────────────────────────────
 
-// ── Maskiner ─────────────────────────────────────────────────
-const SKOTARE = [
-  { id: 'A030353',  namn: 'Ponsse Wisent'           },
-  { id: 'A110148',  namn: 'Ponsse Elephant King AF' },
-]
+// Maskinlistan är dynamisk — se useMaskinvyMaskiner (dim_maskin, bekräftad + data).
 
 // ── Avståndklasser ───────────────────────────────────────────
 // Baserade på korstracka_m per lass i fakt_lass.
@@ -784,9 +781,10 @@ function SkotareOperatorDeepView({
 
 // ── Huvud-komponent ───────────────────────────────────────────
 export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
-  maskin: typeof SKOTARE[number]
-  onMaskinChange: (m: typeof SKOTARE[number]) => void
+  maskin: MaskinvyMaskin
+  onMaskinChange: (m: MaskinvyMaskin) => void
 }) {
+  const { maskiner: SKOTARE } = useMaskinvyMaskiner('skotare')
   const [period, setPeriod]             = useState<Period>('M')
   const [offset, setOffset]             = useState(0)
   const [data,     setData]             = useState<SkotareData | null>(null)

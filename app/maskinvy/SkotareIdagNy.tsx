@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 import { supabase } from '@/lib/supabase'
 import {
   C, FONT, fmtSv, VolymBadge,
@@ -26,10 +27,7 @@ import {
 // ─────────────────────────────────────────────────────────────
 
 // ── Maskiner ──────────────────────────────────────────────────
-const SKOTARE = [
-  { id: 'A030353',  namn: 'Ponsse Wisent'           },
-  { id: 'A110148',  namn: 'Ponsse Elephant King AF' },
-]
+// Maskinlistan är dynamisk — se useMaskinvyMaskiner (dim_maskin, bekräftad + data).
 
 // ── Hjälpfunktioner ───────────────────────────────────────────
 
@@ -776,9 +774,10 @@ function HintRad() {
 
 // ── Root-komponent ─────────────────────────────────────────────
 export default function SkotareIdagNy({ maskin, onMaskinChange }: {
-  maskin: typeof SKOTARE[number]
-  onMaskinChange: (m: typeof SKOTARE[number]) => void
+  maskin: MaskinvyMaskin
+  onMaskinChange: (m: MaskinvyMaskin) => void
 }) {
+  const { maskiner: SKOTARE } = useMaskinvyMaskiner('skotare')
   const [maskinOpen,   setMaskinOpen]   = useState(false)
   const [data,         setData]         = useState<SkotareIdagData | null>(null)
   const [loading,      setLoading]      = useState(true)
