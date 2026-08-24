@@ -97,6 +97,7 @@ export default function ResultatClient() {
               supabase.from('fakt_tid')
                 .select('maskin_id, processing_sek, terrain_sek, other_work_sek')
                 .gte('datum', start).lte('datum', end)
+                .order('id')  // unik tiebreaker — .range() kräver total ordning
                 .range(from, to)
             );
             const agg: Record<string, number> = {};

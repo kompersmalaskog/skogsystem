@@ -346,7 +346,7 @@ export function useDatahalsa(): Datahalsa {
         const rows: any[] = []; let fran = 0
         while (true) {
           const { data, error } = await supabase.from(tabell).select(kol)
-            .order(ordercol, { ascending: true }).range(fran, fran + 999)
+            .order(ordercol, { ascending: true }).order('id').range(fran, fran + 999)
           if (error) return { rows: [] as any[], fel: error.message }
           rows.push(...(data || []))
           if (!data || data.length < 1000) break

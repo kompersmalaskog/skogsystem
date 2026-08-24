@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
   if (maskinId) kontrQuery = kontrQuery.eq("maskin_id", maskinId);
 
   const kontrRes = await fetchAllRows<KontrollMin>((from, to) =>
-    kontrQuery.order("datum", { ascending: false }).range(from, to),
+    kontrQuery.order("datum", { ascending: false }).order('id').range(from, to),
   );
   if (kontrRes.error) {
     return NextResponse.json(
@@ -180,6 +180,7 @@ export async function GET(req: NextRequest) {
         )
         .in("detalj_kontroll_stock_id", chunk)
         .order("detalj_kontroll_stock_id", { ascending: true })
+        .order('id')  // unik tiebreaker — .range() kräver total ordning
         .range(from, to),
     );
     if (mpRes.error) {
@@ -255,7 +256,7 @@ export async function GET(req: NextRequest) {
     .select("datum,maskin_id,tradslag,typ,orsak");
   if (maskinId) histQuery = histQuery.eq("maskin_id", maskinId);
   const histRes = await fetchAllRows<TrendKalibrering>((from, to) =>
-    histQuery.order("datum", { ascending: false }).range(from, to),
+    histQuery.order("datum", { ascending: false }).order('id').range(from, to),
   );
   const kalibreringar = histRes.error ? [] : histRes.data;
 

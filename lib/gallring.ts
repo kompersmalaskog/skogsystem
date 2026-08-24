@@ -271,7 +271,7 @@ type ProdRad = {
 
 async function hamtaProduktion(objektIds: string[]): Promise<ProdRad[]> {
   if (objektIds.length === 0) return [];
-  // .order() är inte kosmetik — utan stabil sortering kan .range()-sidorna
+  // .order() är inte kosmetik — utan stabil sortering kan .order('operator_id').range()-sidorna
   // överlappa eller hoppa över rader, och summan blir tyst fel.
   return (await fetchAllRows((from, to) =>
     supabase
@@ -280,6 +280,7 @@ async function hamtaProduktion(objektIds: string[]): Promise<ProdRad[]> {
       .in('objekt_id', objektIds)
       .order('objekt_id')
       .order('datum')
+      .order('id')  // unik tiebreaker — .range() kräver total ordning
       .range(from, to),
   )) as ProdRad[];
 }
@@ -476,6 +477,7 @@ async function hamtaSortiment(objektIds: string[]): Promise<SortimentAndel[]> {
       .select('sortiment_id, stockar, volym_m3sub')
       .in('objekt_id', objektIds)
       .order('sortiment_id')
+      .order('id')  // unik tiebreaker — .range() kräver total ordning
       .range(from, to),
   )) as { sortiment_id: string | null; stockar: number | null; volym_m3sub: number | null }[];
 

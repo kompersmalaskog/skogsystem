@@ -1055,4 +1055,79 @@ utskriftsresultatet. Browser-panelen komponerade
 inte (innerWidth 0), sa matten gick inte att lasa.
 Behover ett oga pa print preview.
 
+## PAGINERINGSBUGGEN 2026-08-24
+
+.range()-paginering med en sorteringsnyckel som inte
+ar unik ger DUBBLETTER och SAKNADE rader samtidigt.
+Radantalet blir ratt, innehallet fel — darfor syns
+det inte som ett uppenbart fel.
+
+Upptackt i gallringsvyn: Bjorn Martinsson visades som
+21 817 stammar / 941,3 m3 mot MOM:s 22 023 / 950,4.
+Matning av vyns egen hamtning:
+
+  1044 rader hamtade · 1028 unika id
+  16 DUBBLETTER som maskerade 16 SAKNADE rader
+
+lib/gallring.ts sorterade fakt_produktion pa
+(objekt_id, datum). 62 rader delar samma datum, och
+objektet passerar sidgransen vid 1000. Vid gransen
+returneras vissa rader tva ganger medan andra hoppas
+over. Det slog till forst nar flertradsstammarna kom
+in och gallringsdatat passerade 1000 rader.
+
+### INVENTERING — hela appen
+67 .range()-anrop i 31 filer. Efter avdrag for
+engangsanrop och de som redan har unik nyckel:
+
+  41 direkta .from(tabell)     FIXADE
+   4 RPC-paginering            KVAR, kraver beslut
+  10 generiska hjalpare        KVAR, kraver beslut
+
+Fixen: tabellens unika nyckel laggs SIST i
+sorteringen, sa befintlig ordning behalls och bara
+oavgjorda lagen bryts. dim_*-tabellerna saknar id men
+har egna unika nycklar (objekt_id, operator_id,
+maskin_id, sortiment_id).
+
+Varst drabbad var markagarrapporten:
+lib/markagarrapport/aggregate.ts paginerade
+hpr_stammar, detalj_stock OCH detalj_stam HELT UTAN
+.order(). Utan ORDER BY ger Postgres ingen
+ordningsgaranti alls. Det ar kunddokumentet.
+
+### KVAR — kraver beslut per anropare
+RPC-paginering (4): .rpc(...).range(...) kan inte fa
+en tiebreaker utifran pa samma satt. Sorteringen
+maste in i SQL-funktionen eller anropet gores om.
+  lib/maskinvy/skotarvolym.ts:49
+  app/maskinvy/IdagNy.tsx:167
+  app/maskinvy/OversiktShared.tsx:264 och :280
+
+Generiska hjalpare (10): tar en fardig query eller
+ett tabellnamn som parameter, sa nyckeln maste komma
+fran anroparen. fetchAllRows i lib/ekonomi/period.ts
+ar den mest anvanda.
+  lib/ekonomi/period.ts:55, lib/hpr/objekt-data.ts:12
+  och :38, app/datahalsa/useDatahalsa.ts:144,
+  app/maskinvy/OversiktShared.tsx:260 och :261,
+  app/oversikt/page.tsx:55,
+  app/redigering/hooks/useFildata.ts:174,
+  app/redigering/hooks/useMatchning.ts:74,
+  app/uppfoljning/hooks/useUppfoljningList.ts:42
+
+### VERIFIERAT
+Bjorn Martinsson i gallringsvyn: 21 817 -> 22 023
+stammar och 941,3 -> 950,4 m3fub, exakt MOM:s facit.
+Listans huvudtal 6 638,0 -> 6 647,1.
+
+tsc: 551 fel bade fore och efter, radagnostisk
+jamforelse ger NOLL nya. (Forsta korningen svarade
+"0 fel" — worktreen saknade node_modules och npx
+korde en stub, inte tsc. Se minnet om det.)
+
+Bygget gront. Samtliga 41 andrade queries testade
+direkt mot databasen. Fetch-falla genom hela flodet
+hem -> gallring: noll misslyckade anrop.
+
 Uppdatera denna fil vid varje commit.

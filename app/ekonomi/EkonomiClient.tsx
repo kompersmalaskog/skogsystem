@@ -92,24 +92,28 @@ export default function EkonomiClient() {
           supabase.from('fakt_tid')
             .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek, other_work_sek')
             .gte('datum', start).lte('datum', end)
+            .order('id')  // unik tiebreaker — .range() kräver total ordning
             .range(from, to)
         ),
         fetchAllRows((from, to) =>
           supabase.from('fakt_produktion')
             .select('datum, maskin_id, objekt_id, volym_m3sub, stammar')
             .gte('datum', start).lte('datum', end)
+            .order('id')  // unik tiebreaker — .range() kräver total ordning
             .range(from, to)
         ),
         fetchAllRows((from, to) =>
           supabase.from('fakt_lass')
             .select('datum, maskin_id, objekt_id, volym_m3sub, korstracka_m')
             .gte('datum', start).lte('datum', end)
+            .order('id')  // unik tiebreaker — .range() kräver total ordning
             .range(from, to)
         ),
         fetchAllRows((from, to) =>
           supabase.from('fakt_sortiment')
             .select('objekt_id, sortiment_id')
             .gte('datum', start).lte('datum', end)
+            .order('sortiment_id')  // unik tiebreaker — .range() kräver total ordning
             .range(from, to)
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
@@ -236,12 +240,12 @@ export default function EkonomiClient() {
           fetchAllRows((from, to) =>
             supabase.from('fakt_lass')
               .select('datum, maskin_id, objekt_id, volym_m3sub')
-              .in('objekt_id', idList).range(from, to)
+              .in('objekt_id', idList).order('id').range(from, to)
           ),
           fetchAllRows((from, to) =>
             supabase.from('fakt_tid')
               .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek, other_work_sek')
-              .in('objekt_id', idList).range(from, to)
+              .in('objekt_id', idList).order('id').range(from, to)
           ),
           supabase.from('skotare_objekt_manuell')
             .select('objekt_id, maskin_id, volym_m3')

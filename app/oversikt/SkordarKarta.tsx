@@ -63,6 +63,7 @@ export default function SkordarKarta({ vo, objektId }: { vo?: string | null; obj
           while (true) {
             const { data: d, error } = await supabase
               .from('hpr_stammar').select('lat, lng').eq('hpr_fil_id', fil.id).not('lat', 'is', null)
+              .order('id')  // unik tiebreaker — .range() kräver total ordning
               .range(offset, offset + 999);
             if (error || !d || d.length === 0) break;
             for (const s of d as any[]) if (s.lat != null && s.lng != null) punkter.push({ lng: s.lng, lat: s.lat });

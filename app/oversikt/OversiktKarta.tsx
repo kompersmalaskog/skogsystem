@@ -935,7 +935,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     let from = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const { data, error } = await supabase.from('objekt').select('*').order('namn').range(from, from + PAGE - 1);
+      const { data, error } = await supabase.from('objekt').select('*').order('namn').order('id').range(from, from + PAGE - 1);
       if (error || !data || data.length === 0) break;
       all.push(...data);
       if (data.length < PAGE) break;
