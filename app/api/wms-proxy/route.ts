@@ -50,6 +50,21 @@ const WMS_LAYERS: Record<string, LayerConfig> = {
     layers: 'Ortofoto_0.5',
     srs: 'EPSG:3857',
   },
+  // IR-ortofoto (falskfärg 0,5 m) via samma öppna minkarta-väg — lövkronor lyser rött, barr mörkt →
+  // ritunderlag för att skilja löv från barr när gallringszoner ritas. Öppen (CC0), inget lösenord.
+  lm_ortofoto_ir: {
+    url: 'https://minkarta.lantmateriet.se/map/ortofoto/wms/v1.3',
+    layers: 'Ortofoto_IR',
+    srs: 'EPSG:3857',
+  },
+  // Nationella Marktäckedata (Naturvårdsverket) basskikt NMD 2023 v2.0 — klassar skog i trädslags-
+  // klasser (tall/gran/barrbland/lövbland/triviallöv/ädellöv). Ritunderlag för trädslagsfördelning.
+  // 10 m raster, CC0. Host geodata.naturvardsverket.se redan i ALLOWED_HOSTS. EPSG:3857 stöds direkt.
+  nmd_tradslag: {
+    url: 'https://geodata.naturvardsverket.se/inspire/lc-nmd/ows',
+    layers: 'LC.LandCoverRaster.Bas_2.0',
+    srs: 'EPSG:3857',
+  },
   // Körvyns tvingade skyddslager — routas hit för 5-min-cache + AbortController-timeout
   // (fail-fast om en gov-server hänger). Alla EPSG:3857, ingen auth (öppna tjänster).
   nyckelbiotoper: { url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: 'Nyckelbiotop_Skogsstyrelsen', srs: 'EPSG:3857' },
