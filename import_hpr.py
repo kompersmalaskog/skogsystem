@@ -276,33 +276,37 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
     earliest_date = None
 
     for stem in find_all_elements(machine, 'Stem', ns):
-        single_tree = find_element(stem, 'SingleTreeProcessedStem', ns)
-        if single_tree is None:
-            continue
+        # Enträds- ELLER flerträdshanterad stam. Flerträd hoppades tidigare
+        # över tyst; se STATUS.md, IMPORTUTREDNING 2026-08-23.
+        processed = find_element(stem, 'SingleTreeProcessedStem', ns)
+        if processed is None:
+            processed = find_element(stem, 'MultiTreeProcessedStem', ns)
+            if processed is None:
+                continue
 
         stam_nummer += 1
 
         # Trädslag
-        sp_key = get_text(stem, 'SpeciesGroupKey', ns) or get_text(single_tree, 'SpeciesGroupKey', ns)
+        sp_key = get_text(stem, 'SpeciesGroupKey', ns) or get_text(processed, 'SpeciesGroupKey', ns)
         tradslag = species_names.get(sp_key, sp_key or '')
 
         # DBH
-        dbh = safe_int(get_text(single_tree, 'DBH', ns))
+        dbh = safe_int(get_text(processed, 'DBH', ns))
 
         # GPS
         stem_lat = None
         stem_lon = None
         stem_coords = find_element(stem, 'StemCoordinates', ns)
         if stem_coords is None:
-            stem_coords = find_element(single_tree, 'Coordinates', ns)
+            stem_coords = find_element(processed, 'Coordinates', ns)
         if stem_coords is None:
-            stem_coords = find_element(single_tree, 'StemCoordinates', ns)
+            stem_coords = find_element(processed, 'StemCoordinates', ns)
         if stem_coords is not None:
             stem_lat = safe_float(get_text(stem_coords, 'Latitude', ns)) or None
             stem_lon = safe_float(get_text(stem_coords, 'Longitude', ns)) or None
 
         # Tidpunkt
-        processing_date = get_text(single_tree, 'ProcessingDate', ns) or get_text(stem, 'HarvestDate', ns)
+        processing_date = get_text(processed, 'ProcessingDate', ns) or get_text(stem, 'HarvestDate', ns)
         tidpunkt = parse_datetime(processing_date)
         if tidpunkt and (earliest_date is None or tidpunkt < earliest_date):
             earliest_date = tidpunkt
@@ -312,7 +316,7 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
         total_volym = 0.0
         sortiment_list = []
 
-        for log in find_all_elements(single_tree, 'Log', ns):
+        for log in find_all_elements(processed, 'Log', ns):
             antal_stockar += 1
             prod_key = get_text(log, 'ProductKey', ns)
             if prod_key and prod_key in product_groups:

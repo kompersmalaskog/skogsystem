@@ -1593,9 +1593,27 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
     hpr_stam_nummer = 0
 
     for stem in find_all_elements(machine, 'Stem', ns):
-        single_tree = find_element(stem, 'SingleTreeProcessedStem', ns)
-        if single_tree is None:
-            continue
+        # Enträds- ELLER flerträdshanterad stam.
+        #
+        # Flerträdshantering (MultiTreeProcessedStem) = skördaren griper flera
+        # klena stammar samtidigt. Tidigare hoppade den här loopen tyst över
+        # dem, vilket tappade upp till 24,5 % av stammarna på hårt flerträdade
+        # gallringstrakter. Se STATUS.md, IMPORTUTREDNING 2026-08-23.
+        #
+        # Varje träd i bunten har en EGEN <Stem> med egen StemKey, egna
+        # koordinater, egen HarvestDate och EGEN volym — de summerar till
+        # maskinens totala dagsproduktion, så de ska in som separata rader.
+        #
+        # DIAMETERN är dock mätt en gång för hela bunten och står identisk på
+        # alla träd i den. stam_bunt_nyckel bär StemBunchKey så att
+        # diameterstatistik kan vikta bunten som EN mätning i stället för tre.
+        processed = find_element(stem, 'SingleTreeProcessedStem', ns)
+        bunt_nyckel = None
+        if processed is None:
+            processed = find_element(stem, 'MultiTreeProcessedStem', ns)
+            if processed is None:
+                continue
+            bunt_nyckel = get_text(processed, 'StemBunchKey', ns)
 
         hpr_stam_nummer += 1
 
@@ -1605,16 +1623,16 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         # StemKey och ObjectKey ligger på Stem-nivå i Ponsse-filer
         stem_key = get_text(stem, 'StemKey', ns)
         if not stem_key:
-            stem_key = get_text(single_tree, 'StemKey', ns)
-        sp_key = get_text(stem, 'SpeciesGroupKey', ns) or get_text(single_tree, 'SpeciesGroupKey', ns)
-        obj_key = get_text(stem, 'ObjectKey', ns) or get_text(single_tree, 'ObjectKey', ns)
+            stem_key = get_text(processed, 'StemKey', ns)
+        sp_key = get_text(stem, 'SpeciesGroupKey', ns) or get_text(processed, 'SpeciesGroupKey', ns)
+        obj_key = get_text(stem, 'ObjectKey', ns) or get_text(processed, 'ObjectKey', ns)
         
         # Generera stam-nyckel om StemKey saknas
         if not stem_key:
             stem_key = f"auto_{len(data['stammar'])+1}"  
         
         # DBH
-        dbh = safe_int(get_text(single_tree, 'DBH', ns))
+        dbh = safe_int(get_text(processed, 'DBH', ns))
         
         # GPS för stam - Rottne: StemCoordinates på Stem-nivå, Ponsse: Coordinates i SingleTree
         stem_lat = None
@@ -1622,9 +1640,9 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         stem_alt = None
         stem_coords = find_element(stem, 'StemCoordinates', ns)
         if stem_coords is None:
-            stem_coords = find_element(single_tree, 'Coordinates', ns)
+            stem_coords = find_element(processed, 'Coordinates', ns)
         if stem_coords is None:
-            stem_coords = find_element(single_tree, 'StemCoordinates', ns)
+            stem_coords = find_element(processed, 'StemCoordinates', ns)
         if stem_coords is not None:
             stem_lat = safe_float(get_text(stem_coords, 'Latitude', ns))
             stem_lon = safe_float(get_text(stem_coords, 'Longitude', ns))
@@ -1632,22 +1650,22 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
 
         # StemGrade (1-4)
         stem_grade = None
-        grade_elem = find_element(stem, 'StemGrade', ns) or find_element(single_tree, 'StemGrade', ns)
+        grade_elem = find_element(stem, 'StemGrade', ns) or find_element(processed, 'StemGrade', ns)
         if grade_elem is not None:
             stem_grade = safe_int(get_text(grade_elem, 'GradeValue', ns))
 
         # StumpTreatment (boolean)
         stump_treat_txt = (get_text(stem, 'StumpTreatment', ns) or
-                           get_text(single_tree, 'StumpTreatment', ns) or '').strip().lower()
+                           get_text(processed, 'StumpTreatment', ns) or '').strip().lower()
         stubbbehandling = True if stump_treat_txt == 'true' else (False if stump_treat_txt == 'false' else None)
 
         # ManualFreeBuck (boolean) — manuell frikap
         free_buck_txt = (get_text(stem, 'ManualFreeBuck', ns) or
-                         get_text(single_tree, 'ManualFreeBuck', ns) or '').strip().lower()
+                         get_text(processed, 'ManualFreeBuck', ns) or '').strip().lower()
         manuell_frikap = True if free_buck_txt == 'true' else (False if free_buck_txt == 'false' else None)
         
         # Tidpunkt - Rottne: HarvestDate på Stem-nivå, Ponsse: ProcessingDate i SingleTree
-        processing_date = get_text(single_tree, 'ProcessingDate', ns) or get_text(stem, 'HarvestDate', ns)
+        processing_date = get_text(processed, 'ProcessingDate', ns) or get_text(stem, 'HarvestDate', ns)
         tidpunkt = parse_datetime(processing_date)
         datum = tidpunkt.date() if tidpunkt else None
         if datum is None:
@@ -1675,6 +1693,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             'stubbbehandling': stubbbehandling,
             'manuell_frikap': manuell_frikap,
             'tidpunkt': tidpunkt,
+            'stam_bunt_nyckel': bunt_nyckel,
             'filnamn': filnamn
         }
         data['stammar'].append(stam_data)
@@ -1685,7 +1704,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         hpr_sortiment_list = []
 
         # Stockar från denna stam
-        for log in find_all_elements(single_tree, 'Log', ns):
+        for log in find_all_elements(processed, 'Log', ns):
             log_key = get_text(log, 'LogKey', ns)
             prod_key = get_text(log, 'ProductKey', ns)
             
@@ -1927,6 +1946,21 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
 
         for stem in find_all_elements(control_values, 'Stem', ns):
             antal_stammar += 1
+            # AVSIKTLIGT KVAR — till skillnad från HPR-parsern ovan.
+            #
+            # Det här är HQC, kontrollstammarna, alltså kvalitetsregelverket
+            # mot Vida. En kontrollmätning görs genom att en ENSKILD stam
+            # klavas för hand, så flerträdshanterade stammar förekommer inte
+            # som kontrollstammar (verifierat 2026-08-23: 629 HQC-filer,
+            # 1039 kontrollstammar, noll MultiTreeProcessedStem).
+            #
+            # Skulle skippet tas bort här skulle buntdelad DBH kunna nå
+            # fakt_kalibrering. Tre stammar med identisk diameter räknas då
+            # som tre oberoende mätningar och krymper standardavvikelsen
+            # artificiellt — kalibreringen skulle se BÄTTRE ut än den är.
+            #
+            # Släpp alltså inte in flerträd här utan att först lösa hur
+            # buntar ska vägas i kalibreringsstatistiken.
             single_tree = find_element(stem, 'SingleTreeProcessedStem', ns)
             if single_tree is None:
                 continue

@@ -103,8 +103,13 @@ def extract_grot_flags(filepath: str) -> dict:
 
         stam_nummer = 0
         for stem in find_all_elements(machine, 'Stem', ns):
-            single = find_element(stem, 'SingleTreeProcessedStem', ns)
-            if single is None:
+            # MÅSTE räkna exakt samma stammar som HPR-parserns
+            # hpr_stam_nummer i skogsmaskin_import_version_6.py — räknarna
+            # är kopplade. Accepterar den ena flerträd men inte den andra
+            # glider numreringen isär och GROT-taggen hamnar på fel stam.
+            processed = (find_element(stem, 'SingleTreeProcessedStem', ns) or
+                         find_element(stem, 'MultiTreeProcessedStem', ns))
+            if processed is None:
                 continue
             stam_nummer += 1
 

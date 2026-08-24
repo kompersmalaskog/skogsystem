@@ -133,7 +133,10 @@ def analyze_hpr_file(filepath: str) -> dict:
         med_koord = 0
 
         for stem in find_all_elements(machine, 'Stem', ns):
-            single = find_element(stem, 'SingleTreeProcessedStem', ns)
+            # Enträds- eller flerträdshanterad. Räknas stammarna olika här
+            # och i importen blir has_coordinates/stammar_count fel.
+            single = (find_element(stem, 'SingleTreeProcessedStem', ns) or
+                      find_element(stem, 'MultiTreeProcessedStem', ns))
             if single is None:
                 continue
 
