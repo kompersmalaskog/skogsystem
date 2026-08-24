@@ -17,7 +17,7 @@ import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 type Bit = {
   stam: string; bit: number; langd_m: number; volym_m3fub: number;
   toppdia_mm: number | null; tradslag: string; dag: string;
-  rotkap: boolean; timmerdimension: boolean;
+  tre_m_stock: boolean; timmerdimension: boolean;
 };
 type Niva3 = { objekt_id: string; valta: string; antal_totalt: number; visas: number; bitar: Bit[] };
 
@@ -119,7 +119,7 @@ function Innehall() {
               <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#7a7a72' }}>
                 {b.tradslag} · stam {b.stam} bit {b.bit} · {b.dag}
                 {b.toppdia_mm != null && <> · {nf0(b.toppdia_mm)} mm</>}
-                {b.rotkap && <span style={{ color: 'rgba(255,179,64,0.95)', fontWeight: 600 }}> · rotkap</span>}
+                {b.tre_m_stock && <span style={{ color: 'rgba(255,179,64,0.95)', fontWeight: 600 }}> · 3 m-stock</span>}
                 {b.timmerdimension && <span style={{ color: 'rgba(255,120,110,0.95)', fontWeight: 600 }}> · timmerdimension</span>}
               </span>
               <span style={{ ...S.muted, flexShrink: 0 }}>{nf3(b.volym_m3fub)} m³</span>

@@ -7,7 +7,7 @@
 -- Båda hade gömt problemet och lämnat sidan seg i hytten.
 --
 -- ── VAD PLANEN VISADE ────────────────────────────────────────────────────
--- Inte rotkedjan. Den var redan ETT fönsterpass
+-- Inte 3 m-kedjan. Den var redan ETT fönsterpass
 -- (MIN(...) OVER (PARTITION BY maskin_id, stem_key, objekt_id)) — ingen
 -- korrelerad subquery, inget exists per stock.
 --
@@ -61,7 +61,7 @@ CREATE OR REPLACE FUNCTION massaved_rader(p_manad date)
 RETURNS TABLE (
   objekt_id text, valta text, tradslag text, maskin_id text,
   m3fub numeric, antal_bitar int, medellangd_m numeric,
-  medellangd_utan_rotkedja_m numeric, rotkap_m3 numeric, rotkap_st int,
+  medellangd_utan_tre_m_stock_m numeric, tre_m_stock_m3 numeric, tre_m_stock_st int,
   timmerdimension_m3 numeric, massa_utan_sagbar_stock_m3 numeric,
   massa_utan_sagbar_stock_st int
 ) LANGUAGE sql STABLE AS $f$
