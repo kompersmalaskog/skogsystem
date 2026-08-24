@@ -667,6 +667,45 @@ fakt_produktion innan nasta trakt paborjas —
 scripts/omimport-multitree.py gor bada delarna och
 STOPPAR vid avvikelse.
 
+### BJORN MARTINSSON — OVERIFIERAD, INTE KLAR
+Objekt 11109652 kordes 2026-08-23 som forsta trakt i
+breddningen. Skriptet STOPPADE pa den. Trakt 2-5
+kordes aldrig och ar ororda.
+
+  fore   19210 stammar / 906,182 m3
+  efter  21786 stammar / 936,736 m3   <- nuvarande lage
+  facit  22023 stammar / 950,354 m3   (MOM)
+
+Laget ar BATTRE an fore (+2576 stammar, 2576
+buntnycklar) men INTE verifierat. Tro inte att den
+ar klar.
+
+Bristen ligger HELT pa R64101: 8850 mot MOM 9087.
+R64428 ar exakt ratt (12936 = MOM). Samtliga 1862
+HPR-filer pa disk ar genomsokta — de 31 som bar
+objektet innehaller tillsammans exakt 8850 unika
+R64101-stammar. De 237 FINNS INTE I NAGON FIL.
+Importen skrev allt som fanns. Det ar en
+kalldataslucka, samma familj som Anna Karin Swerup
+och 4000-taket, inte nagot en omimport lagar.
+
+Tva fel som bara syns i skala dok ocksa upp:
+
+1. hpr_stammar tappade 500 rader. 19 ggr
+   400 PGRST102 "All object keys must match".
+   _save_hpr_tables bygger rader med VILLKORLIGA
+   nycklar (if s.get('dbh_mm') is not None: ...), sa
+   en batch som blandar rader med och utan valfria
+   falt avvisas av PostgREST. Vid pilotens 641 rader
+   rymdes allt i tva likformiga batchar; vid 12936
+   gjorde det inte det. Traffar markagarrapporten.
+   EGEN GREN, ska fixas FORE breddningen.
+
+2. detalj_stock fick en 500 statement timeout pa en
+   batch.
+
+detalj_stam skrevs felfritt.
+
 ### KVAR — breddning ej gjord
 21 gallringstrakter och 56 slutavverkningstrakter
 bar fortfarande ofullstandig HPR-data. Omimport-
