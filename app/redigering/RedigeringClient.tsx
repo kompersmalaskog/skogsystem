@@ -2116,6 +2116,19 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
           const idagDatum = new Date().toISOString().slice(0, 10)
           const satt = async (varde: number | null) => {
             setFardigskotat({ sparar: true, fel: '' })
+            // #1-FIX (defer till fördelning): en per-maskin-fördelning
+            // (skotare_objekt_manuell, maskin_id SATT) ÄR den skotade volymen.
+            // Färdigskotat-knappen får ALDRIG radera/klubba den — det var buggen som
+            // skapade spök-NULL-rader (volym_m3=avverkat, maskin_id NULL). Finns en
+            // fördelning och vi vill SÄTTA volym → deferra, rör inget.
+            if (varde !== null && !arRisjobb) {
+              const { data: perMaskin } = await supabase.from('skotare_objekt_manuell')
+                .select('id').in('objekt_id', skotarIds).not('maskin_id', 'is', null).is('datum_fran', null).limit(1)
+              if ((perMaskin || []).length > 0) {
+                setFardigskotat({ sparar: false, fel: 'Det finns redan en fördelning per skotare ovan — den räknas som skotad volym. Redigera den i "Fördelning per skotare"; den här knappen skriver inte över den.' })
+                return
+              }
+            }
             // På risjobb är detta ENDA klart-handlingen: den sätter både den
             // mätta volymen och avslutsdatumet — och tänder grot-automatiken.
             // TODO(#334): TILLFÄLLIG dubbel-skrivning till dim_objekt — tas bort i städ-PR.
@@ -2141,8 +2154,10 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
                 ?? null
               g15Map.set(id, g15 != null ? Number(g15) : null)
             }
+            // #1-FIX: radera BARA objekt-nivå-raden (maskin_id NULL) — aldrig
+            // per-maskin-fördelningen. Utan maskin_id-filtret klubbades fördelningen.
             const { error: delErr2 } = await supabase
-              .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
+              .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds).is('maskin_id', null)
             if (delErr2) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (rensning): ' + delErr2.message }); return }
             if (varde === null) {
               // Volym nollad — återinsert bara om g15 fanns; annars radera rent.
