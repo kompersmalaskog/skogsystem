@@ -1130,4 +1130,64 @@ Bygget gront. Samtliga 41 andrade queries testade
 direkt mot databasen. Fetch-falla genom hela flodet
 hem -> gallring: noll misslyckade anrop.
 
+## HPR_STAMMAR-BUGGEN 2026-08-24 — FIXAD
+
+_save_hpr_tables byggde raderna med VILLKORLIGA
+nycklar: dbh, lat, lng, antal_stockar och total_volym
+lades bara till nar de fanns. En batch som blandade
+stammar med och utan de falten avvisades av PostgREST
+med 400 PGRST102 "All object keys must match", och
+HELA batchen foll — 500 rader per traff.
+
+Syntes inte forran skala. Vid pilotens 641 stammar
+rymdes allt i tva likformiga batchar. Vid Bjorn
+Martinssons 12 936 slog det till 19 ganger:
+hpr_stammar fick 21 286 rader mot 21 786 forvantade.
+
+FIX: nyckeln skrivs alltid, saknat varde blir NULL.
+Vardesemantiken ar oforandrad — falsy lat/lng/
+antal_stockar (inklusive 0) blev tidigare utelamnade
+och blir nu NULL, vilket ar samma sak for lasaren.
+
+VERIFIERAT mot filen som fallde importen (Bjorn
+Martinsson, 11 402 stammar, 23 batchar):
+  gammal kod: 1 av 23 batchar blandade nycklar
+  ny kod:     0 av 23
+  varden som skiljer: 0
+
+### KVAR — hpr_stammar for Bjorn Martinsson ar ofullstandig
+De 500 tappade raderna kom aldrig in. Objektet har
+21 286 rader dar det ska ha 21 786. En omkorning av
+HPR-sparningen for objektet behovs, men ar INTE gjord.
+
+## MARKAGARRAPPORTEN — SPARBARHET FORE #466
+
+lib/markagarrapport/aggregate.ts paginerade
+hpr_stammar, detalj_stock OCH detalj_stam HELT UTAN
+.order() fram till #466 (mergad 2026-08-24).
+
+Utan ORDER BY ger Postgres INGEN ordningsgaranti.
+Konsekvensen ar inte bara "fel ordning" — sidorna kan
+overlappa och hoppa fritt, sa en rapport kan ha
+innehallit GODTYCKLIGA rader: samma stam raknad tva
+ganger, andra stammar helt utelamnade. Volym,
+stamantal, sortimentsfordelning och virkesvarde kan
+alla vara fel, at bada hallen.
+
+Objekt storre an 1000 rader i nagon av de tre
+tabellerna ar berorda — det ar de flesta. Halabaeck
+har 704 stockar och klarade sig; Husjonas har 1 349
+stammar och gjorde det inte.
+
+ATGARD: om nagon markagarrapport har GATT UT till en
+markagare bor den kunna spåras och rakans om mot
+nuvarande kod. Det ar ett kunddokument med
+virkesvarde i kronor. Vi vet inte idag vilka rapporter
+som genererats eller skickats — det finns ingen logg
+over utfardade rapporter. Bor utredas.
+
+Facit att stamma av mot finns hogre upp i filen:
+Husjonas (objekt_id 11124938) = 1 349 stammar,
+678 m3sub, 433 163 kr.
+
 Uppdatera denna fil vid varje commit.
