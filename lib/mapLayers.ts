@@ -71,6 +71,9 @@ export const wmsLayerGroups: LayerGroup[] = [
       { id: 'naturreservat', url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Naturreservat', name: 'Naturreservat', color: '#15803d', show3D: true },
       { id: 'natura2000', url: 'https://geodata.naturvardsverket.se/n2000/wms', layers: 'Habitatdirektivet,Fageldirektivet', name: 'Natura 2000', color: '#4ade80', show3D: true },
       { id: 'vattenskydd', url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Vattenskyddsomrade', name: 'Vattenskyddsområden', color: '#7dd3fc', show3D: true },
+      // Ritunderlag för gallringszoner: NMD-basskiktet klassar skog i trädslagsklasser (barr/löv/bland).
+      // Årtalet står i namnet; desc bär ärligheten (fingervisning, inte facit). show3D=false → körvyn orörd.
+      { id: 'nmd_tradslag', url: '/api/wms-proxy', layers: 'LC.LandCoverRaster.Bas_2.0', name: 'Trädslag (NMD 2023)', color: '#4ade80', proxyTarget: 'https://geodata.naturvardsverket.se/inspire/lc-nmd/ows', desc: '10 m, barr/löv/blandskog. Underlag när du ritar — fingervisning, inte facit (löv underskattas ofta).', show3D: false },
     ],
   },
   {
@@ -118,6 +121,9 @@ export const wmsLayerGroups: LayerGroup[] = [
     layers: [
       { id: 'lm_skuggning', url: '/api/wms-proxy', layers: 'terrangskuggning', name: 'Skuggning', color: '#78909C', proxyTarget: 'https://minkarta.lantmateriet.se/map/hojdmodell', show3D: true },
       { id: 'lm_ortofoto', url: '/api/wms-proxy', layers: 'Ortofoto_0.5', name: 'Ortofoto LM', color: '#8D6E63', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto', show3D: true },
+      // IR-ortofoto: falskfärg där lövkronor lyser rött → skiljer löv från barr. Ritunderlag, samma
+      // öppna minkarta-väg. Flygår varierar per område (Kompersmåla-trakten: 2024). show3D=false → körvyn orörd.
+      { id: 'lm_ortofoto_ir', url: '/api/wms-proxy', layers: 'Ortofoto_IR', name: 'Ortofoto IR (löv rött)', color: '#ff453a', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto', desc: '0,5 m falskfärg — lövkronor rött, barr mörkt. Flygår varierar (Kompersmåla ~2024).', show3D: false },
       { id: 'fastighetsgranser', url: 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3', layers: 'granser', name: 'Fastighetsgränser', color: '#f59e0b', show3D: true },
     ],
   },

@@ -1284,6 +1284,8 @@ export default function PlannerPage() {
       // Lantmäteriet
       { id: 'lm_skuggning', tiles: ['/api/wms-proxy?layer=lm_skuggning&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 0.35 },
       { id: 'lm_ortofoto', tiles: ['/api/wms-proxy?layer=lm_ortofoto&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 1.0 },
+      { id: 'lm_ortofoto_ir', tiles: ['/api/wms-proxy?layer=lm_ortofoto_ir&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 1.0 },
+      { id: 'nmd_tradslag', tiles: ['/api/wms-proxy?layer=nmd_tradslag&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 0.65 },
       { id: 'fastighetsgranser', tiles: ['https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], opacity: 0.7 },
       { id: 'hydrografi', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaFlodesackumulation/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenyta,Fl%C3%B6desackumulation__70ha41670,Fl%C3%B6desackumulation_20ha-70ha48822,Fl%C3%B6desackumulation_10ha-20ha19752&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], opacity: 0.7 },
     ];
@@ -3129,7 +3131,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
 
-    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto', 'fastighetsgranser', 'hydrografi'];
+    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto', 'lm_ortofoto_ir', 'nmd_tradslag', 'fastighetsgranser', 'hydrografi'];
 
     allWmsIds.forEach(id => {
       const layerId = `wms-layer-${id}`;
