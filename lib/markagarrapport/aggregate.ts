@@ -157,6 +157,7 @@ export async function aggregateMarkagarRapport(
     .from('hpr_stammar')
     .select('hpr_fil_id, stam_nummer, tradslag, dbh, lat, lng, total_volym, sortiment, bio_energy_adaption')
     .in('hpr_fil_id', hprFilerIds)
+    .order('id')  // unik tiebreaker — .range() kräver total ordning
     .range(from, to)
   );
 
@@ -177,7 +178,7 @@ export async function aggregateMarkagarRapport(
       .select('stock_key, stem_key, log_key, maskin_id, sortiment_id, sortiment_namn, volym_m3sub, volym_m3sob, langd_cm, toppdia_ob_mm, toppdia_ub_mm, kaporsak, latitude, longitude, filnamn')
       .eq('objekt_id', objektIdText);
     if (filnamnFilter) q = q.in('filnamn', filnamnFilter);
-    return q.range(from, to);
+    return q.order('id').range(from, to);
   });
   if (stocksRaw.length === 0) return { status: 'ingen_data', reason: 'ingen_detalj_stock' };
 
@@ -195,7 +196,7 @@ export async function aggregateMarkagarRapport(
       .select('stam_key, dbh_mm, latitude, longitude, tradslag_id, stem_grade, stubbbehandling, manuell_frikap, tidpunkt, filnamn, maskin_id')
       .eq('objekt_id', objektIdText);
     if (filnamnFilter) q = q.in('filnamn', filnamnFilter);
-    return q.range(from, to);
+    return q.order('id').range(from, to);
   });
 
   // 6. Sortiment + grupp (per maskin)

@@ -102,6 +102,7 @@ export async function GET(req: NextRequest) {
         .select("account, debit, credit, costcenter")
         .gte("transaction_date", fromdate)
         .lte("transaction_date", todate)
+        .order('id')  // unik tiebreaker — .range() kräver total ordning
         .range(offset, offset + sidStorlek - 1);
       if (err) {
         return NextResponse.json({ ok: false, meddelande: `Cache-läsning: ${err.message}` }, { status: 500 });

@@ -129,22 +129,22 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     fetchAllRows((from, to) =>
       supabase.from('fakt_produktion')
         .select('datum, maskin_id, objekt_id, volym_m3sub, stammar')
-        .in('objekt_id', ids).range(from, to)
+        .in('objekt_id', ids).order('id').range(from, to)
     ),
     fetchAllRows((from, to) =>
       supabase.from('fakt_lass')
         .select('datum, maskin_id, objekt_id, volym_m3sub, korstracka_m')
-        .in('objekt_id', ids).range(from, to)
+        .in('objekt_id', ids).order('id').range(from, to)
     ),
     fetchAllRows((from, to) =>
       supabase.from('fakt_tid')
         .select('datum, maskin_id, objekt_id, processing_sek, terrain_sek, other_work_sek')
-        .in('objekt_id', ids).range(from, to)
+        .in('objekt_id', ids).order('id').range(from, to)
     ),
     fetchAllRows((from, to) =>
       supabase.from('fakt_sortiment')
         .select('objekt_id, sortiment_id')
-        .in('objekt_id', ids).range(from, to)
+        .in('objekt_id', ids).order('id').range(from, to)
     ),
     supabase.from('skotare_objekt_manuell')
       .select('objekt_id, maskin_id, volym_m3, g15_timmar')

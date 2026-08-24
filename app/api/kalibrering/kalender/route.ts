@@ -96,6 +96,7 @@ export async function GET(req: NextRequest) {
       .order("objekt_id", { ascending: true })
       .order("tradslag_id", { ascending: true })
       .order("operator_id", { ascending: true })
+      .order('id')  // unik tiebreaker — .range() kräver total ordning
       .range(from, to)
   );
   if (prodRes.error) {

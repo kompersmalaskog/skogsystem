@@ -204,6 +204,7 @@ export async function GET(req: NextRequest) {
       .eq("filnamn", filnamn)
       .order("stam_nummer", { ascending: true })
       .order("stock_nummer", { ascending: true })
+      .order('id')  // unik tiebreaker — .range() kräver total ordning
       .range(from, to),
   );
   if (stockRes.error) {
@@ -230,6 +231,7 @@ export async function GET(req: NextRequest) {
         .in("detalj_kontroll_stock_id", stockIds)
         .order("detalj_kontroll_stock_id", { ascending: true })
         .order("position_cm", { ascending: true })
+        .order('id')  // unik tiebreaker — .range() kräver total ordning
         .range(from, to),
     );
     if (matpunktRes.error) {
@@ -268,6 +270,7 @@ export async function GET(req: NextRequest) {
       .select("stam_nummer,stem_diameter_profile")
       .eq("filnamn", filnamn)
       .order("stam_nummer", { ascending: true })
+      .order('id')  // unik tiebreaker — .range() kräver total ordning
       .range(from, to),
   );
   if (stamRes.error) {

@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
 
   // filnamn → trädslag (för denna maskin)
   const fkRes = await fetchAllRows<{ filnamn: string; tradslag: string | null }>((f, t) =>
-    supabase.from("fakt_kalibrering").select("filnamn,tradslag").eq("maskin_id", maskinId).range(f, t),
+    supabase.from("fakt_kalibrering").select("filnamn,tradslag").eq("maskin_id", maskinId).order('id').range(f, t),
   );
   const filTradslag = new Map<string, string>();
   for (const r of fkRes.data) if (r.tradslag) filTradslag.set(r.filnamn, r.tradslag.trim());

@@ -1640,6 +1640,7 @@ export async function hamtaAvverkadeStammar(
       .eq('hpr_fil_id', fil.id)
       .not('lat', 'is', null)
       .order('stam_nummer', { ascending: true })
+      .order('id')  // unik tiebreaker — .range() kräver total ordning
       .range(offset, offset + 999);
     if (error) throw new Error(`Kunde inte läsa stammarna: ${error.message}`);
     const rader = (data ?? []) as unknown as { lat: number; lng: number }[];

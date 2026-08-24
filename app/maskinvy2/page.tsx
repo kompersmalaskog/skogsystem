@@ -66,6 +66,7 @@ async function hämtaFaktProd(cols: string, start: string, end: string): Promise
   while (true) {
     const { data } = await supabase.from('fakt_produktion').select(cols)
       .gte('datum', start).lte('datum', end)
+      .order('id')  // unik tiebreaker — .range() kräver total ordning
       .range(off, off + PAGE - 1)
     const batch = (data || []) as ProdRow[]
     rows = rows.concat(batch)

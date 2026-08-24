@@ -185,6 +185,7 @@ async function fetchDetaljStam(ids: string[], datum: string): Promise<any[]> {
       .in('maskin_id', ids)
       .gte('tidpunkt', startTs)
       .lte('tidpunkt', endTs)
+      .order('id')  // unik tiebreaker — .range() kräver total ordning
       .range(off, off + PAGE - 1)
     if (error) throw error
     const batch = data || []

@@ -3613,6 +3613,7 @@ export default function PlannerPage() {
           .select('lat, lng, total_volym, tradslag, hpr_fil_id, bio_energy_adaption, sortiment')
           .eq('hpr_fil_id', senasteFil.id)
           .not('lat', 'is', null)
+          .order('id')  // unik tiebreaker — .range() kräver total ordning
           .range(offset, offset + 999);
         if (error || !data || data.length === 0) break;
         allStammar = allStammar.concat(data);
@@ -3976,6 +3977,7 @@ export default function PlannerPage() {
           .select('sortiment, total_volym')
           .eq('hpr_fil_id', senasteFil.id)
           .not('sortiment', 'is', null)
+          .order('id')  // unik tiebreaker — .range() kräver total ordning
           .range(offset, offset + 999);
         if (!data || data.length === 0) break;
         allStammar = allStammar.concat(data as any);

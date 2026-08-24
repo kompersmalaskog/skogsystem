@@ -106,7 +106,7 @@ export default function OversiktPage() {
       fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
         () => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub').order('objekt_id')
       ),
-      // .order() KRAVS - utan stabil sortering tappar .range()-pagineringen rader over 1000-radsgransen
+      // .order() KRAVS - utan stabil sortering tappar .order('id').range()-pagineringen rader over 1000-radsgransen
       // (fakt_lass > 1000 rader) -> skotat under-raknas (se project_postgrest_paginering_order).
       fetchAllRows<{ objekt_id: string; volym_m3sub: number; maskin_id: string | null }>(
         () => supabase.from('fakt_lass').select('objekt_id, volym_m3sub, maskin_id').order('objekt_id')

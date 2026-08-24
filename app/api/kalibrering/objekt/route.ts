@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
 
   // filnamn → object_name + maskin_id, samt kontroll-datum (för period)
   const fk = await fetchAllRows<{ filnamn: string; object_name: string | null; maskin_id: string; datum: string }>((f, t) =>
-    supabase.from("fakt_kalibrering").select("filnamn,object_name,maskin_id,datum").range(f, t),
+    supabase.from("fakt_kalibrering").select("filnamn,object_name,maskin_id,datum").order('id').range(f, t),
   );
   if (fk.error) {
     const e = fk.error as { message?: string };
@@ -129,12 +129,12 @@ export async function GET(req: NextRequest) {
 
   // profil + golv per maskin
   const dm = await fetchAllRows<{ maskin_id: string; kravprofil: string | null }>((f, t) =>
-    supabase.from("dim_maskin").select("maskin_id,kravprofil").range(f, t),
+    supabase.from("dim_maskin").select("maskin_id,kravprofil").order('maskin_id').range(f, t),
   );
   const maskinProfil = new Map<string, string | null>();
   for (const r of dm.data) maskinProfil.set(r.maskin_id, r.kravprofil);
   const kp = await fetchAllRows<{ profil: string; golv: number }>((f, t) =>
-    supabase.from("kravprofil").select("profil,golv").eq("variabel", "diameter").eq("metrik", "traffprocent").range(f, t),
+    supabase.from("kravprofil").select("profil,golv").eq("variabel", "diameter").eq("metrik", "traffprocent").order('id').range(f, t),
   );
   const golvForProfil = new Map<string, number>();
   for (const r of kp.data) golvForProfil.set(r.profil, Number(r.golv));
