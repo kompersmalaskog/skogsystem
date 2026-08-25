@@ -6,6 +6,11 @@
 // Inga fotnoter här — de hör till nivå 2, där man redan valt ett objekt och
 // frågar varför.
 //
+// Månaden följer MED i länken. Nivå 2 kan visa både månaden och hela
+// objektet, och den ska öppna på samma tal som raden man tryckte på —
+// annars uppstår en tankelucka: listan säger 4,07 och objektskärmen 3,97
+// för samma trakt, utan att något förklarar skillnaden.
+//
 // Maskinen är en grå ETIKETT på raden, aldrig ett filter. Vem som körde är
 // bakgrund till svaret, inte en fråga läsaren ska besvara först.
 //
