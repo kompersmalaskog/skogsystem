@@ -29,13 +29,19 @@ import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 type Tradslag = { namn: string; m3fub: number; medellangd_m: number; sagbar_m3: number };
 type Valta = { valta: string; m3fub: number; medellangd_m: number; antal_tradslag: number; tradslag: Tradslag[] };
 type Klass = { klass: string; ordning: number; niva: 'tre_m' | 'under_mal' | 'over_mal'; m3fub: number; st: number; varav_tre_m_st: number; andel: number };
-type SagbartSortiment = { namn: string; grupp: string; langd_min_m: number; dia_min_mm: number; dia_max_mm: number; m3fub: number };
+type SagbartSortiment = {
+  namn: string; grupp: string; langd_min_m: number; langd_max_m: number | null;
+  dia_min_mm: number; dia_max_mm: number; kalla: 'hpr' | 'harledd'; m3fub: number;
+};
 type Manad = { manad: string; m3fub: number; medellangd_m: number };
 type Niva2 = {
   objekt_id: string; namn: string | null; status: string; mal_m: number;
   medellangd_m: number | null; total_m3fub: number;
   tre_m_stock: { m3fub: number; st: number; andel: number | null; medellangd_utan_m3: number | null };
-  sagbar: { m3fub: number; andel: number | null; sortiment: SagbartSortiment[]; overlapp_m3: number };
+  sagbar: {
+    m3fub: number; andel: number | null; sortiment: SagbartSortiment[];
+    overlapp_m3: number; antal_ur_maskinen: number; antal_harledda: number;
+  };
   avkap: { st: number; m3fub: number; delar: { kap: string; st: number; m3fub: number }[] };
   valtor: Valta[]; langdfordelning: Klass[]; manader: Manad[];
   hemved_m3: number;
@@ -76,6 +82,7 @@ export default function MassavedObjekt() {
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
   const [visaRakning, setVisaRakning] = useState(false);
+  const [visaTak, setVisaTak] = useState(false);
 
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(null);
@@ -185,6 +192,10 @@ export default function MassavedObjekt() {
                 Massaved som ryms i ett helt sortimentsfönster — både längd och diameter — bland
                 de sortiment objektet faktiskt körde.
               </p>
+              {/* Gränsen skrivs ut. Ett procenttal som gömmer sitt eget
+                  antagande går inte att ifrågasätta. Mätt och gissat får
+                  INTE se likadana ut — de skiljs på ordet, på formen
+                  (intervall mot "från") och på färgen, i den ordningen. */}
               {d.sagbar.sortiment.map(so => (
                 <div key={so.namn} style={{ paddingLeft: 12, marginTop: 6 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
@@ -192,19 +203,40 @@ export default function MassavedObjekt() {
                                    overflow: 'hidden', textOverflow: 'ellipsis' }}>{so.namn}</span>
                     <span style={{ ...S.muted, flexShrink: 0 }}>{nf1(so.m3fub)} m³</span>
                   </div>
-                  {/* Gränsen skrivs ut. Ett procenttal som gömmer sitt eget
-                      antagande går inte att ifrågasätta. */}
                   <div style={{ ...S.muted, marginTop: 1 }}>
-                    från {nf2(so.langd_min_m)} m · {nf0(so.dia_min_mm)}–{nf0(so.dia_max_mm)} mm
-                    <span style={{ color: GUL }}> · taket härlett</span>
+                    {so.kalla === 'hpr' && so.langd_max_m != null ? (
+                      <>
+                        {nf2(so.langd_min_m)}–{nf2(so.langd_max_m)} m · {nf0(so.dia_min_mm)}–{nf0(so.dia_max_mm)} mm
+                        <span style={{ color: GRON }}> · ur maskinen</span>
+                      </>
+                    ) : (
+                      <>
+                        från {nf2(so.langd_min_m)} m · {nf0(so.dia_min_mm)}–{nf0(so.dia_max_mm)} mm
+                        <span style={{ color: GUL }}> · taket härlett</span>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
-              <p style={{ ...S.muted, marginTop: 8, lineHeight: 1.6 }}>
-                De undre gränserna står i prislistan. De övre gör det inte — de är härledda ur
-                högsta prisklassens undre gräns, och maskinens riktiga tak kan vara ett annat.
-                Talet ovan vilar alltså på en uppskattning som ingen har mätt.
-              </p>
+              {d.sagbar.antal_harledda > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <button onClick={() => setVisaTak(v => !v)}
+                    style={{ border: 'none', background: 'none', padding: '10px 0', minHeight: 44,
+                             fontFamily: 'inherit', fontSize: 11, color: GUL, cursor: 'pointer',
+                             textAlign: 'left' }}>
+                    Taket är härlett, inte mätt {visaTak ? '⌄' : '›'}
+                  </button>
+                  {visaTak && (
+                    <p style={{ ...S.muted, margin: '0 0 8px', lineHeight: 1.7 }}>
+                      De undre gränserna står i prislistan. De övre gör det inte — de är härledda
+                      ur högsta prisklassens undre gräns. Maskinens HPR-fil bär de riktiga
+                      gränserna, och där de har lästs in står det &quot;ur maskinen&quot; i stället.
+                      Skillnaden är inte liten: för kubb visade sig taket vara 260 mm och inte 220,
+                      och dessutom fanns ett längdtak som prislistan inte har alls.
+                    </p>
+                  )}
+                </div>
+              )}
               {d.sagbar.overlapp_m3 > 0 && (
                 <p style={{ ...S.muted, marginTop: 8, lineHeight: 1.6 }}>
                   {nf1(d.sagbar.overlapp_m3)} m³ ryms i flera av sortimenten och räknas en gång i totalen.
@@ -329,9 +361,15 @@ export default function MassavedObjekt() {
                 </p>
                 <p style={{ margin: '0 0 8px' }}>
                   Sågbar dimension kräver att biten ryms i BÅDA gränserna för ett sortiment,
-                  längd och diameter. Den övre diametergränsen finns inte i prislistan utan
-                  härleds ur högsta prisklassens undre gräns — den siffran är alltså en
-                  uppskattning, och den är den enskilt känsligaste i beräkningen.
+                  längd och diameter, som den redan är kapad. Regeln är alltså &quot;biten ÄR
+                  en sågbar stock&quot;, inte &quot;biten hade kunnat ge en sågbar stock&quot;.
+                </p>
+                <p style={{ margin: '0 0 8px' }}>
+                  Det får en följd som ser konstig ut tills man vet den: kubben är en
+                  fastlängdsprodukt, 3,05–3,25 m. En grov massavedsstock på 4,80 m och 150 mm
+                  räknas därför INTE som kubbdimension, trots att en 3,05-kubb hade gått att
+                  kapa ur den. Vad som hade kunnat bli om stammen kapats annorlunda är en
+                  annan fråga än den här vyn svarar på.
                 </p>
                 {d.hemved_m3 > 0 && (
                   <p style={{ margin: '0 0 8px' }}>

@@ -461,6 +461,83 @@ def las_produktfalt(prod_def, ns: str = '') -> Dict[str, str]:
     return ut
 
 
+def las_apteringsfonster(prod_def, ns: str = '') -> Dict[str, Any]:
+    """Maskinens apteringsfönster — både undre OCH övre gränser.
+
+    dim_sortiment_pris bär bara undre trösklar, så det övre taket har
+    härletts ur högsta prisklassens undre gräns. Det är fel. HPR-filen har
+    de riktiga gränserna (verifierat mot Åbogen RP 2026, Opti5G):
+
+        <DiameterDefinition>
+          <DiameterClasses diameterClassCategory="Top">
+            <DiameterClass><DiameterClassLowerLimit>123</...>
+            ...
+            <DiameterClassMAX>260</DiameterClassMAX>
+            <DiameterUnderBark>true</DiameterUnderBark>
+          </DiameterClasses>
+          <DiameterMINTop>123</DiameterMINTop>
+          <DiameterMAXButt>340</DiameterMAXButt>
+        </DiameterDefinition>
+        <LengthDefinition>
+          <LengthClass><LengthClassLowerLimit>305</...>
+          <LengthClassMAX>325</LengthClassMAX>
+        </LengthDefinition>
+
+    Kubb visade sig vara en FASTLÄNGDSPRODUKT: 305-325 cm. Den härledda
+    modellen saknade längdtak helt och räknade fyrametersbitar som
+    kubbdimension.
+
+    Returnerar BARA nycklar som har ett värde, aldrig None — samma skäl som
+    las_produktfalt: en merge-upsert med None raderar det en tidigare fil
+    skrivit.
+    """
+    ut: Dict[str, Any] = {}
+    if prod_def is None:
+        return ut
+    inre = (find_element(prod_def, 'ClassifiedProductDefinition', ns)
+            or find_element(prod_def, 'UnclassifiedProductDefinition', ns))
+    if inre is None:
+        return ut
+
+    dia_def = find_element(inre, 'DiameterDefinition', ns)
+    if dia_def is not None:
+        v = safe_int(get_text(dia_def, 'DiameterMINTop', ns))
+        if v:
+            ut['dia_min_top_mm'] = v
+        v = safe_int(get_text(dia_def, 'DiameterMAXButt', ns))
+        if v:
+            ut['dia_max_butt_mm'] = v
+        klasser = find_element(dia_def, 'DiameterClasses', ns)
+        if klasser is not None:
+            v = safe_int(get_text(klasser, 'DiameterClassMAX', ns))
+            if v:
+                ut['dia_max_mm'] = v
+            ub = (get_text(klasser, 'DiameterUnderBark', ns) or '').strip().lower()
+            if ub in ('true', 'false'):
+                ut['dia_under_bark'] = ub == 'true'
+            # Undre gränsen kan ligga som lägsta klass i stället för MINTop.
+            # OBS nivån: LowerLimit sitter i DiameterClass, inte direkt i
+            # DiameterClasses — find_all_elements tittar bara på barn.
+            if 'dia_min_top_mm' not in ut:
+                undre = [safe_int(get_text(dc, 'DiameterClassLowerLimit', ns))
+                         for dc in find_all_elements(klasser, 'DiameterClass', ns)]
+                undre = [x for x in undre if x]
+                if undre:
+                    ut['dia_min_top_mm'] = min(undre)
+
+    langd_def = find_element(inre, 'LengthDefinition', ns)
+    if langd_def is not None:
+        v = safe_int(get_text(langd_def, 'LengthClassMAX', ns))
+        if v:
+            ut['langd_max_cm'] = v
+        undre = [safe_int(get_text(lc, 'LengthClassLowerLimit', ns))
+                 for lc in find_all_elements(langd_def, 'LengthClass', ns)]
+        undre = [x for x in undre if x]
+        if undre:
+            ut['langd_min_cm'] = min(undre)
+    return ut
+
+
 def upsert_nyckelgrupperat(table: str, rows: List[Dict], unique_columns: List[str]) -> int:
     """upsert_data men grupperat på vilka nycklar raderna faktiskt har.
 
@@ -1391,6 +1468,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         'stammar': [],
         'stockar': [],
         'sortiment_summering': [],
+        'sortiment_fonster': [],
         'gps_spar': [],
         'objekt_cert_updates': [],   # [(objekt_id, cert)]
         'filnamn': filnamn,
@@ -1422,6 +1500,10 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
     logger.info(f"  Maskin: {maskin_id}")
     
     # === OBJEKT ===
+    # Fönstret ska skrivas per objekt, så objekten samlas uttryckligen.
+    # Produktloopen nedan låg tidigare och läste objekt_id ur den här
+    # loopens sista varv — det fungerar bara så länge filen har ETT objekt.
+    hpr_objekt_ids: List[str] = []
     for obj_def in find_all_elements(machine, 'ObjectDefinition', ns):
         obj_key = get_text(obj_def, 'ObjectKey', ns)
         contract_number = get_text(obj_def, 'ContractNumber', ns)
@@ -1459,6 +1541,8 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         end_date = parse_datetime(get_text(obj_def, 'EndDate', ns))
         
         objekt_id = make_objekt_id(vo_nummer, maskin_id, obj_key)
+        if objekt_id and objekt_id not in hpr_objekt_ids:
+            hpr_objekt_ids.append(objekt_id)
         obj_key_map[obj_key] = objekt_id
 
         data['objekt'].append({
@@ -1524,6 +1608,17 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         # vyer i drift läser den strängen.
         sort_row.update(las_produktfalt(prod_def, ns))
         data['sortiment'].append(sort_row)
+
+        # Apteringsfönstret per objekt. Undre OCH övre gränser, till skillnad
+        # från dim_sortiment_pris som bara bär undre trösklar.
+        fonster = las_apteringsfonster(prod_def, ns)
+        if fonster:
+            for _oid in hpr_objekt_ids:
+                rad = {'objekt_id': _oid,
+                       'sortiment_id': f"{maskin_id}_{prod_key}",
+                       'filnamn': filnamn}
+                rad.update(fonster)
+                data['sortiment_fonster'].append(rad)
 
         # === PRIS-MATRIS (ProductMatrixItem) ===
         # Verifierat StanForD-2010-nesting:
@@ -2830,6 +2925,57 @@ def insert_if_not_exists(table: str, data: List[Dict], filnamn_key: str = 'filna
     except Exception as e:
         logger.error(f"  Fel vid insert_if_not_exists för {table}: {e}")
         return 0
+
+
+def spara_apteringsfonster(rader: List[Dict], filnamn: str) -> int:
+    """Skriver fönstret per (objekt, sortiment) — och ändrar ALDRIG ett
+    fönster som redan står där.
+
+    Fönstret är knutet till objektet just för att prislistan byts över tid.
+    Skulle samma objekt ändå få ett nytt fönster (prislistbyte mitt i en
+    trakt) är det inte ett värde att uppdatera utan ett fynd att rapportera:
+    överskrivning hade räknat om trakten bakåt med de nya gränserna, tyst.
+    Första fönstret vinner, avvikelsen hamnar i import_fel.
+    """
+    if not rader:
+        return 0
+    objekt_ids = sorted({r['objekt_id'] for r in rader})
+    befintliga: Dict[tuple, Dict] = {}
+    try:
+        for i in range(0, len(objekt_ids), 50):
+            grupp = ','.join('"%s"' % o.replace('"', '') for o in objekt_ids[i:i + 50])
+            resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/dim_objekt_sortiment_fonster"
+                f"?select=*&objekt_id=in.({grupp})",
+                headers=SUPABASE_HEADERS, timeout=20)
+            if resp.status_code == 200:
+                for rad in resp.json():
+                    befintliga[(rad['objekt_id'], rad['sortiment_id'])] = rad
+    except Exception as e:
+        logger.warning("Kunde inte läsa befintliga apteringsfönster: %s", e)
+
+    FALT = ('dia_min_top_mm', 'dia_max_mm', 'dia_max_butt_mm',
+            'dia_under_bark', 'langd_min_cm', 'langd_max_cm')
+    att_skriva = []
+    for r in rader:
+        gammal = befintliga.get((r['objekt_id'], r['sortiment_id']))
+        if gammal is None:
+            att_skriva.append(r)
+            continue
+        skillnad = [f"{f}: {gammal.get(f)} -> {r.get(f)}"
+                    for f in FALT if f in r and gammal.get(f) != r.get(f)]
+        if skillnad:
+            # Larma, skriv inte över. Det gamla fönstret är det som gällde
+            # när virket faktiskt kapades.
+            _rapportera_import_fel(
+                'dim_objekt_sortiment_fonster', filnamn, 1, 'FONSTER_BYTTE',
+                f"{r['objekt_id']} / {r['sortiment_id']}: " + '; '.join(skillnad))
+            logger.warning("Apteringsfönstret bytte för %s / %s: %s",
+                           r['objekt_id'], r['sortiment_id'], '; '.join(skillnad))
+    if not att_skriva:
+        return 0
+    return upsert_nyckelgrupperat('dim_objekt_sortiment_fonster', att_skriva,
+                                  ['objekt_id', 'sortiment_id'])
 
 
 def _rapportera_import_fel(tabell: str, filnamn, antal: int, felkod, feltext):
@@ -4144,6 +4290,11 @@ def save_hpr_to_supabase(data: Dict) -> bool:
                 batch = data['sortiment_pris'][i:i+batch_size]
                 upsert_data('dim_sortiment_pris', batch,
                             ['sortiment_id', 'langd_min_cm', 'dia_min_mm'])
+
+        # Apteringsfönstret. Skrivs per objekt och skriver aldrig över ett
+        # fönster som redan står där — se spara_apteringsfonster.
+        if data.get('sortiment_fonster'):
+            spara_apteringsfonster(data['sortiment_fonster'], data.get('filnamn') or '')
 
         if data.get('tradslag'):
             if upsert_data('dim_tradslag', data['tradslag'], ['tradslag_id']) == 0:
