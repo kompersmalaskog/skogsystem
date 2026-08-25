@@ -2330,6 +2330,11 @@ export default function PlannerPage() {
   const skotningCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [skotningPunkter, setSkotningPunkter] = useState(0); // antal satta hörn (tryck-per-punkt) → styr "Klar"-knappen
   const skotningFinalizeRef = useRef<(() => void) | null>(null); // effektens slut-ringen-funktion, anropas av "Klar"
+  // Speglar skotningDrawing till en ref (samma mönster som stickvagOversiktRef) så de EN-gång-
+  // registrerade MapLibre-klickhanterarna kan dörrvakta sig under urvalsritning utan stale-closure.
+  // Under ring-ritning ska varje tryck bli ett hörn — inga symbol-/zon-/linje-/hög-kort får öppnas.
+  const skotningDrawingRef = useRef(false);
+  useEffect(() => { skotningDrawingRef.current = skotningDrawing; }, [skotningDrawing]);
   const [skotningReload, setSkotningReload] = useState(0);
   const [kvarData, setKvarData] = useState<{ sortiment: string; total: number; uttag: number; kvar: number; color: string }[]>([]);
   // Ångra senaste uttag: bump:as BARA vid ångra → loadHogar kör om (högarna kommer tillbaka). ALDRIG
@@ -3260,6 +3265,7 @@ export default function PlannerPage() {
     };
 
     const handleHogarClick = (e: any) => {
+      if (skotningDrawingRef.current) return; // urvalsritning: tryck = hörn, ej multi-select (hög-tryck-valet gäller UTANFÖR ritning)
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
       featureClickedRef.current = true;
@@ -3294,6 +3300,7 @@ export default function PlannerPage() {
 
     // Kluster-klick → zooma in
     const handleClusterClick = (e: any) => {
+      if (skotningDrawingRef.current) return; // urvalsritning: tryck = hörn, ingen kluster-zoom
       featureClickedRef.current = true;
       const features = map.queryRenderedFeatures(e.point, { layers: ['hogar-cluster'] });
       if (!features.length) return;
@@ -3328,6 +3335,7 @@ export default function PlannerPage() {
     // Symbol/pil-TAP → öppna kortet (drag borttaget). Läs id ur feature-props, hitta markören i
     // markersRef och öppna dess kort. I stickväg-översikt: välj för översikt istället (som förr).
     const handleMarkerFeatureClick = (e: any) => {
+      if (skotningDrawingRef.current) return; // urvalsritning: tryck = hörn, aldrig symbol-/pil-kort
       featureClickedRef.current = true;
       const rawId = e.features?.[0]?.properties?.id;
       if (rawId == null) return;
@@ -3379,6 +3387,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
 
     const handleGrotClick = (e: any) => {
+      if (skotningDrawingRef.current) return; // urvalsritning: tryck = hörn, aldrig GROT-kort
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
       featureClickedRef.current = true;
@@ -4421,6 +4430,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const onLarmClick = () => {
+      if (skotningDrawingRef.current) return; // urvalsritning: tryck = hörn, aldrig larm-popup
       if (larmPlacering) return; // mitt i en flytt — öppna inte popupen
       featureClickedRef.current = true;
       setLarmConfirmDelete(false);
@@ -4946,7 +4956,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
 
     const onLineClick = (e: any) => {
-      if (isDrawMode || isZoneMode || risaMarkMode) return;
+      if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing) return;
       // Prioritet symbol > zon > linje: ligger trycket också på en symbol/pil/zon → avstå (den vinner).
       // Symbolen är liten och avsiktligt placerad; linjen träffas av misstag längs hela sin sträckning.
       const overLine = ['markers-hit', 'arrows-hit', 'zone-fill'].filter(l => map.getLayer(l));
@@ -4966,7 +4976,7 @@ export default function PlannerPage() {
     };
 
     const onZoneClick = (e: any) => {
-      if (isDrawMode || isZoneMode || risaMarkMode) return;
+      if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing) return;
       // Prioritet symbol > zon: ligger trycket också på en symbol/pil → avstå (symbolen vinner).
       const overZone = ['markers-hit', 'arrows-hit'].filter(l => map.getLayer(l));
       if (overZone.length && map.queryRenderedFeatures(e.point, { layers: overZone }).length > 0) return;
@@ -4999,7 +5009,7 @@ export default function PlannerPage() {
       map.off('mouseenter', 'zone-fill', onEnter);
       map.off('mouseleave', 'zone-fill', onLeave);
     };
-  }, [mapLibreReady, isDrawMode, isZoneMode, markers, markerMenuOpen, stickvagMode, snitselKarta, risaMarkMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapLibreReady, isDrawMode, isZoneMode, markers, markerMenuOpen, stickvagMode, snitselKarta, risaMarkMode, skotningDrawing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Centrera på GPS-position
   const centerOnMe = () => {
@@ -7745,6 +7755,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const onClick = (e: any) => {
+      if (skotningDrawingRef.current) return; // urvalsritning: tryck = hörn, aldrig TMA-panel
       if (e.features && e.features.length > 0) {
         const bmId = e.features[0].properties.markerId;
         if (bmId) setTmaOpen(bmId);
