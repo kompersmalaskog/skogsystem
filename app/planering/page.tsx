@@ -17,6 +17,7 @@ import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
 import { ZONE_COLORS } from '@/lib/zone-colors'
+import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
@@ -3751,114 +3752,10 @@ export default function PlannerPage() {
         return inside;
       };
 
-      // Djup kopia — deduktionen muterar properties, originaldatan ska vara orörd
-      let filteredHogar = hogar.map(h => ({
-        ...h,
-        geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] },
-        properties: { ...h.properties },
-      }));
-      if (uttag && uttag.length > 0) {
-        // Separera uttag med polygon vs utan
-        const polyUttag = uttag.filter(u => u.polygon_coords && Array.isArray(u.polygon_coords) && u.polygon_coords.length >= 3);
-        const legacyUttag = uttag.filter(u => !u.polygon_coords || !Array.isArray(u.polygon_coords) || u.polygon_coords.length < 3);
-
-        console.log(`[HPR] uttag: ${uttag.length} rader (${polyUttag.length} med polygon, ${legacyUttag.length} legacy)`);
-
-        // === Polygon-baserat avdrag: proportionellt per polygon ===
-        if (polyUttag.length > 0) {
-          // Gruppera polygon-uttag per unik polygon → sortiment: volym
-          const polyGroups: { poly: [number, number][]; sortVol: Record<string, number> }[] = [];
-          const seen = new Map<string, number>();
-          for (const u of polyUttag) {
-            const polyKey = JSON.stringify(u.polygon_coords);
-            let idx = seen.get(polyKey);
-            if (idx === undefined) {
-              idx = polyGroups.length;
-              seen.set(polyKey, idx);
-              polyGroups.push({ poly: u.polygon_coords as [number, number][], sortVol: {} });
-            }
-            polyGroups[idx].sortVol[u.tradslag] = (polyGroups[idx].sortVol[u.tradslag] || 0) + u.volym;
-          }
-
-          // Per polygon: beräkna totalPerSort inuti, dra av proportionellt
-          for (const grp of polyGroups) {
-            const totalInPoly: Record<string, number> = {};
-            for (const h of filteredHogar) {
-              const [hLng, hLat] = h.geometry.coordinates;
-              if (!pipTest([hLng, hLat], grp.poly)) continue;
-              const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
-              for (const [sort, vol] of Object.entries(sv)) {
-                totalInPoly[sort] = (totalInPoly[sort] || 0) + (vol as number);
-              }
-            }
-
-            const newFiltered: typeof filteredHogar = [];
-            for (const h of filteredHogar) {
-              const [hLng, hLat] = h.geometry.coordinates;
-              if (!pipTest([hLng, hLat], grp.poly)) { newFiltered.push(h); continue; }
-              const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
-              let newTotal = 0;
-              const newSv: Record<string, number> = {};
-              for (const [sort, vol] of Object.entries(sv)) {
-                const uttaget = grp.sortVol[sort] || 0;
-                const totalSort = totalInPoly[sort] || 1;
-                const fraction = (vol as number) / totalSort;
-                const avdrag = uttaget * fraction;
-                const rest = Math.max(0, (vol as number) - avdrag);
-                if (rest > 0.001) newSv[sort] = rest;
-                newTotal += rest;
-              }
-              if (newTotal > 0.01) {
-                h.properties.volym = Math.round(newTotal * 100) / 100;
-                h.properties.sortimentVolymJson = JSON.stringify(newSv);
-                newFiltered.push(h);
-              }
-            }
-            filteredHogar = newFiltered;
-          }
-          console.log(`[HPR] polygon-uttag: ${hogar.length - filteredHogar.length} högar borttagna, ${filteredHogar.length} kvar`);
-        }
-
-        // === Legacy avdrag (utan polygon_coords): proportionellt per sortiment ===
-        if (legacyUttag.length > 0) {
-          const uttagMap: Record<string, number> = {};
-          legacyUttag.forEach(u => { uttagMap[u.tradslag] = (uttagMap[u.tradslag] || 0) + u.volym; });
-          console.log(`[HPR] legacy uttag per sortiment:`, JSON.stringify(uttagMap));
-
-          const totalPerSort: Record<string, number> = {};
-          filteredHogar.forEach(h => {
-            const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
-            for (const [sort, vol] of Object.entries(sv)) {
-              totalPerSort[sort] = (totalPerSort[sort] || 0) + vol;
-            }
-          });
-
-          const newFiltered: typeof filteredHogar = [];
-          for (const h of filteredHogar) {
-            const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
-            let newTotal = 0;
-            const newSv: Record<string, number> = {};
-            for (const [sort, vol] of Object.entries(sv)) {
-              const uttaget = uttagMap[sort] || 0;
-              const totalSort = totalPerSort[sort] || 1;
-              const fraction = vol / totalSort;
-              const avdrag = uttaget * fraction;
-              const rest = Math.max(0, vol - avdrag);
-              if (rest > 0.001) newSv[sort] = rest;
-              newTotal += rest;
-            }
-            if (newTotal > 0.01) {
-              h.properties.volym = Math.round(newTotal * 100) / 100;
-              h.properties.sortimentVolymJson = JSON.stringify(newSv);
-              newFiltered.push(h);
-            }
-          }
-          filteredHogar = newFiltered;
-        }
-
-        const totalVolymEfter = filteredHogar.reduce((s, h) => s + (h.properties.volym || 0), 0);
-        console.log(`[HPR] ${hogar.length - filteredHogar.length} högar borttagna totalt, ${filteredHogar.length} kvar (${totalVolymEfter.toFixed(1)} m³)`);
-      }
+      // KANONISK kvar-beräkning — flyttad till lib/skotat.ts (draAvUttagFranHogar) så pie-ikonerna
+      // OCH skotarvyns kommande stråk-etiketter delar EXAKT samma avdrag: proportionellt per
+      // polygon-uttag + legacy per sortiment. EN beräkning, ETT ställe.
+      const filteredHogar = draAvUttagFranHogar(hogar, uttag || []);
 
       // Uppdatera pieIcon index efter filtrering
       for (let i = 0; i < filteredHogar.length; i++) {
@@ -20324,28 +20221,9 @@ export default function PlannerPage() {
                           }
                           return inside;
                         };
-                        // Djup kopia av features — mutera INTE originalen
-                        const newFeatures: typeof hogarFeaturesRef.current = [];
-                        for (const h of hogarFeaturesRef.current) {
-                          const [hLng, hLat] = h.geometry.coordinates;
-                          if (!pipLocal([hLng, hLat], polyCoords)) {
-                            newFeatures.push({ ...h, geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] }, properties: { ...h.properties } });
-                            continue;
-                          }
-                          const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
-                          const newSv: Record<string, number> = {};
-                          for (const [sort, vol] of Object.entries(sv)) {
-                            if (checkedSorts.has(sort)) continue; // dra av helt — detta sortiment sparades som uttag
-                            newSv[sort] = vol;
-                          }
-                          const rest = Object.values(newSv).reduce((s, v) => s + v, 0);
-                          if (rest <= 0.01) continue; // högen försvinner
-                          newFeatures.push({
-                            ...h,
-                            geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] },
-                            properties: { ...h.properties, volym: Math.round(rest * 100) / 100, sortimentVolymJson: JSON.stringify(newSv) },
-                          });
-                        }
+                        // Optimistisk lokal uppdatering (lib/skotat.ts, draAvSparatSortiment) — samma
+                        // avdrag som ring-spar-handlern; loadHogar skriver om kanoniskt strax efter.
+                        const newFeatures = draAvSparatSortiment(hogarFeaturesRef.current, polyCoords, checkedSorts);
                         for (let i = 0; i < newFeatures.length; i++) newFeatures[i].properties.pieIcon = `pie-${i}`;
                         // Regenerera pie chart-ikoner så tårtdiagrammen speglar kvarvarande sortiment
                         try {
@@ -20690,28 +20568,9 @@ export default function PlannerPage() {
                         }
                         return inside;
                       };
-                      // Djup kopia av features — mutera INTE originalen
-                      const newFeatures: typeof hogarFeaturesRef.current = [];
-                      for (const h of hogarFeaturesRef.current) {
-                        const [hLng, hLat] = h.geometry.coordinates;
-                        if (!pipLocal([hLng, hLat], polyCoords)) {
-                          newFeatures.push({ ...h, geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] }, properties: { ...h.properties } });
-                          continue;
-                        }
-                        const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
-                        const newSv: Record<string, number> = {};
-                        for (const [sort, vol] of Object.entries(sv)) {
-                          if (checkedSorts.has(sort)) continue; // dra av helt — detta sortiment sparades som uttag
-                          newSv[sort] = vol;
-                        }
-                        const rest = Object.values(newSv).reduce((s, v) => s + v, 0);
-                        if (rest <= 0.01) continue; // högen försvinner
-                        newFeatures.push({
-                          ...h,
-                          geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] },
-                          properties: { ...h.properties, volym: Math.round(rest * 100) / 100, sortimentVolymJson: JSON.stringify(newSv) },
-                        });
-                      }
+                      // Optimistisk lokal uppdatering (lib/skotat.ts, draAvSparatSortiment) — samma
+                      // avdrag som multi-select-spar-handlern; loadHogar skriver om kanoniskt strax efter.
+                      const newFeatures = draAvSparatSortiment(hogarFeaturesRef.current, polyCoords, checkedSorts);
                       for (let i = 0; i < newFeatures.length; i++) newFeatures[i].properties.pieIcon = `pie-${i}`;
                       // Regenerera pie chart-ikoner så tårtdiagrammen speglar kvarvarande sortiment
                       try {
