@@ -81,9 +81,7 @@ COMMENT ON VIEW vy_sagbart_fonster_harlett IS
 -- ── KONTROLL ─────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION kontroll_apteringsfonster()
 RETURNS jsonb LANGUAGE sql STABLE AS $k$
-WITH bas AS (SELECT varde FROM kontroll_baslinje WHERE nyckel = 'apteringsfonster_fore_deploy'),
--- 1: fylls fälten?
-falt AS (
+WITH falt AS (
   SELECT COUNT(*) AS rader,
          COUNT(*) FILTER (WHERE dia_max_mm IS NOT NULL)   AS med_diatak,
          COUNT(*) FILTER (WHERE langd_max_cm IS NOT NULL) AS med_langdtak,
@@ -138,9 +136,7 @@ SELECT jsonb_build_object(
     'total_m3fub', a.total, 'sagbar_m3fub', a.sagbar, 'andel', a.andel,
     'vantat_harlett', 35.2, 'vantat_hpr', 30.3,
     'not', 'total_m3fub 126,7 är massavedsvolymen och får ALDRIG ändras av den här migrationen. Rör den sig har fönstret läckt in i fel beräkning.'),
- 'status', CASE WHEN (SELECT COUNT(*) FROM import_fel
-                      WHERE tabell='dim_objekt_sortiment_fonster' AND tid > now() - interval '30 days') > 0
-                     OR a.total <> 126.7
+ 'status', CASE WHEN m.antal > 0 OR a.total <> 126.7
                      OR (f.rader > 0 AND f.med_diatak <> f.rader)
                 THEN 'avvikelse' WHEN f.rader = 0 THEN 'väntar' ELSE 'ok' END
 ) FROM falt f, tackning t, motsagelser m, abogen a;
