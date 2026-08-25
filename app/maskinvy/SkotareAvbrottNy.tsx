@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 import {
   C, FONT, getPeriodRange, fetchAll,
   fmtSv, fmtTid,
@@ -23,10 +24,7 @@ import { translateKategori } from '../../lib/avbrott-kategorier'
 // ─────────────────────────────────────────────────────────────
 
 // ── Maskiner ─────────────────────────────────────────────────
-const SKOTARE = [
-  { id: 'A030353',  namn: 'Ponsse Wisent'           },
-  { id: 'A110148',  namn: 'Ponsse Elephant King AF' },
-]
+// Maskinlistan är dynamisk — se useMaskinvyMaskiner (dim_maskin, bekräftad + data).
 
 // ── Avbrottstyper (identisk med skördarens) ───────────────────
 const TYPER = ['Underhåll', 'Störning', 'Övrigt', 'Reparation'] as const
@@ -360,9 +358,10 @@ function FlyttKort({ timmar, antal }: { timmar: number; antal: number }) {
 
 // ── Root-komponent ─────────────────────────────────────────────
 export default function SkotareAvbrottNy({ maskin, onMaskinChange }: {
-  maskin: typeof SKOTARE[number]
-  onMaskinChange: (m: typeof SKOTARE[number]) => void
+  maskin: MaskinvyMaskin
+  onMaskinChange: (m: MaskinvyMaskin) => void
 }) {
+  const { maskiner: SKOTARE } = useMaskinvyMaskiner('skotare')
   const [period, setPeriod] = useState<Period>('M')
   const [offset, setOffset] = useState(0)
   const [data,   setData]   = useState<AvbrottData | null>(null)

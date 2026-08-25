@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 import {
   C, FONT, getPeriodRange, fetchAll,
   fmtSv, VolymBadge,
@@ -26,10 +27,7 @@ import {
 // ─────────────────────────────────────────────────────────────
 
 // ── Maskiner ─────────────────────────────────────────────────
-const SKOTARE = [
-  { id: 'A030353',  namn: 'Ponsse Wisent'           },
-  { id: 'A110148',  namn: 'Ponsse Elephant King AF' },
-]
+// Maskinlistan är dynamisk — se useMaskinvyMaskiner (dim_maskin, bekräftad + data).
 
 // ── Hjälpfunktioner ───────────────────────────────────────────
 function pad2(n: number): string { return String(n).padStart(2, '0') }
@@ -572,9 +570,10 @@ function BucketDetalj({ bucket, onClose }: {
 
 // ── Root-komponent ─────────────────────────────────────────────
 export default function SkotareProduktionNy({ maskin, onMaskinChange }: {
-  maskin: typeof SKOTARE[number]
-  onMaskinChange: (m: typeof SKOTARE[number]) => void
+  maskin: MaskinvyMaskin
+  onMaskinChange: (m: MaskinvyMaskin) => void
 }) {
+  const { maskiner: SKOTARE } = useMaskinvyMaskiner('skotare')
   const [period, setPeriod] = useState<Period>('M')
   const [offset, setOffset] = useState(0)
   const [data, setData]     = useState<SkotareProduktionData | null>(null)
