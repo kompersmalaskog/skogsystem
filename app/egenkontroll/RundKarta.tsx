@@ -271,9 +271,12 @@ export default function RundKarta({
     });
     mapRef.current = map;
     try { map.touchZoomRotate.disableRotation(); } catch { /* aldre maplibre */ }
+    // NERE TILL VANSTER, inte i default-hornet. Lagerknappen flyter nere till
+    // hoger i helskarmen, och attributionen far inte hamna under den - CC-BY
+    // kraver att den ar synlig.
     map.addControl(new window.maplibregl.AttributionControl({
       customAttribution: FORARKARTA_ATTRIBUTION, compact: true,
-    }));
+    }), 'bottom-left');
 
     map.on('load', async () => {
       map.resize();
