@@ -48,6 +48,22 @@ type Typ = {
   visaBrandrisk?: boolean;
   visaProduktionshogar?: boolean;
   onOppnaVarningar?: () => void;
+  /**
+   * MENYNS Z-INDEX. MASTE LIGGA OVER DEN VY SOM MONTERAR DEN.
+   *
+   * Defaulten 500 kommer fran planeringsvyn, dar menyn foddes: dar ligger
+   * kartan pa z-index 0 och 500 racker med marginal.
+   *
+   * Egenkontrollens helskarmskarta ligger daremot pa 1150 med ogenomskinlig
+   * bakgrund. Med defaulten monterades menyn UNDER den: knappen fyrade,
+   * tillstandet vande, menyn ritades - och var helt osynlig. Ingenting
+   * kastades, sa varken typkontroll eller bygge kunde se det.
+   *
+   * MONTERAR DU MENYN I EN TREDJE VY: ta reda pa vilket z-index den vyns
+   * karta eller overlagring har, och skicka ett hogre varde har. Gor du inte
+   * det ser felet ut som en knapp som inte gar att trycka pa.
+   */
+  zIndex?: number;
 };
 
 export default function KartLagerMeny(p: Typ) {
@@ -56,6 +72,7 @@ export default function KartLagerMeny(p: Typ) {
   const { visaBrandrisk, visaProduktionshogar, onOppnaVarningar } = p;
   const { setVisibleLayers, setVisibleLines, setVisibleZones } = p;
   const { lineTypes, zoneTypes } = p;
+  const zIndex = p.zIndex ?? 500;
 
   // Alias sa att den kopierade JSX:en nedan kan sta ORORD. Doper man om nagot
   // i sjalva JSX:en gar det inte langre att bevisa att den ar oforandrad.
@@ -79,7 +96,7 @@ export default function KartLagerMeny(p: Typ) {
           position: 'fixed',
           inset: 0,
           background: '#000',
-          zIndex: 500,
+          zIndex,
           display: 'flex',
           flexDirection: 'column',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", sans-serif',

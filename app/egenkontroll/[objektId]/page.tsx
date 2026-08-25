@@ -953,22 +953,7 @@ export default function EgenkontrollRundaPage() {
               <span style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: 600 }}>
                 {vy.objektNamn}
               </span>
-              {/* LAGER-KNAPPEN sitter BARA i helskarmen. I 180 px skulle den ata
-                  det lilla som finns, och den lilla kartan arver valen tyst. */}
-              <button
-                onClick={() => setLagerMeny(true)}
-                style={{
-                  minHeight: 44, padding: '0 12px', borderRadius: 10,
-                  border: '1.5px solid rgba(255,255,255,0.14)', background: 'transparent',
-                  color: T.t1, fontSize: 14, fontWeight: 600, fontFamily: T.ff,
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18 }}>
-                  layers
-                </span>
-                Lager
-              </button>
+              <span style={{ minWidth: 44 }} />
             </div>
             {/* Sag varfor knappen ar slack - tyst avstangd ser ut som trasig. */}
             {visaStammar && stammar !== null && stammar.length === 0 && (
@@ -978,7 +963,8 @@ export default function EgenkontrollRundaPage() {
                   : 'Inga avverkade stammar hittades för objektet — lägena kunde inte kontrolleras mot avverkad yta.'}
               </div>
             )}
-            <div style={{ flex: 1, minHeight: 0 }}>
+            {/* position:relative gor omslutningen till ankare for knappen. */}
+            <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
               <RundKarta
                 objekt={vy.kartObjekt}
                 punkter={vy.punkter}
@@ -993,6 +979,33 @@ export default function EgenkontrollRundaPage() {
                 egnaVarden={egnaVarden}
                 onPosition={setMinPosition}
               />
+              {/* LAGERKNAPPEN - flytande nere till hoger, ovanpa kartan.
+                  Samma plats i varje vy som har en karta, sa handen lar sig
+                  var den sitter. Bara i helskarmen: i 180 px skulle den ata
+                  det lilla som finns, och den lilla kartan arver valen tyst.
+                  zIndex 10 lagger den over MapLibres canvas (som ligger pa 0)
+                  utan att na kartkontrollerna; attributionen har flyttat till
+                  vanster hornet just for att inte hamna under den. */}
+              <button
+                onClick={() => setLagerMeny(true)}
+                aria-label="Kartlager"
+                style={{
+                  position: 'absolute', right: 12,
+                  bottom: 'calc(12px + env(safe-area-inset-bottom))',
+                  zIndex: 10,
+                  minHeight: 44, minWidth: 44, padding: '0 14px', borderRadius: 22,
+                  border: '1px solid rgba(255,255,255,0.18)',
+                  background: 'rgba(28,28,30,0.92)',
+                  backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                  color: T.t1, fontSize: 14, fontWeight: 600, fontFamily: T.ff,
+                  display: 'flex', alignItems: 'center', gap: 7,
+                }}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>
+                  layers
+                </span>
+                Lager
+              </button>
             </div>
           </div>
         )}
@@ -1003,6 +1016,10 @@ export default function EgenkontrollRundaPage() {
         <KartLagerMeny
           oppen={lagerMeny}
           onStang={() => setLagerMeny(false)}
+          // OVER helskarmens 1150. Med komponentens default (500) monterades
+          // menyn UNDER den ogenomskinliga helskarmen: knappen fyrade, men
+          // ingenting syntes. Se doc-kommentaren i KartLagerMeny.
+          zIndex={1250}
           mapType={baskarta}
           setMapType={setBaskarta}
           overlays={overlays}
