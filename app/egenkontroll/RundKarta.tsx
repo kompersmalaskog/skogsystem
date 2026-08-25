@@ -456,13 +456,31 @@ export default function RundKarta({
   // --- Tomma tillstand -----------------------------------------------------
   if (!objekt) return null;
 
+  // FYLLER = hojd angiven som strang ('100%' fran helskarmen och ga-vyn).
+  //
+  // DA MASTE WRAPPERN SJALV BARA HOJDEN. Gjorde den inte det resolverade
+  // containerns height:100% mot en auto-hog foralder och blev NOLL pixlar -
+  // matt i Chrome: bararen 715 px, wrappern 0, kartan 0. Kartan initierades,
+  // resize() kordes mot 0x0 och ingenting kastades. En nollhog container ar
+  // helt tyst, sa varken typkontroll, bygge eller databaskoll kunde se den;
+  // helskarmen och ga-vyn sag bara ut som knappar som inte gjorde nagot.
+  //
+  // Talfallet (rundvyns 180) ar orort - ett tal ger en definitiv hojd som
+  // aldrig har berott pa foraldern.
+  const fyller = typeof hojd === 'string';
+
   return (
-    <div style={{ marginBottom: 12 }}>
+    <div style={fyller
+      ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }
+      : { marginBottom: 12 }}>
       <div
         ref={containerRef}
         style={{
-          height: hojd,
-          borderRadius: typeof hojd === 'number' ? 12 : 0,
+          // flex:1 i stallet for height:100% - da kommer hojden fran
+          // flexlayouten och notisraderna nedan far plats utan att kartan
+          // trycks utanfor.
+          ...(fyller ? { flex: 1, minHeight: 0 } : { height: hojd }),
+          borderRadius: fyller ? 0 : 12,
           overflow: 'hidden', background: '#ECEDE7',
         }}
       />
