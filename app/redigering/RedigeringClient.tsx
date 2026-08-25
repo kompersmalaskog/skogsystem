@@ -1959,7 +1959,7 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
   useEffect(() => {
     let avbruten = false
     ;(async () => {
-      const { data } = await supabase.from('dim_maskin').select('maskin_id, tillverkare, modell, maskin_typ')
+      const { data } = await supabase.from('dim_maskin').select('maskin_id, tillverkare, modell, maskin_typ, aktiv_till')
       if (avbruten) return
       setSkotarLista((data || []).filter((m: any) => {
         const t = (m.maskin_typ || '').toLowerCase()
@@ -2258,15 +2258,21 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
               Grupperar objektet under skotaren redan innan första lasset. När lass börjar rulla vinner lassdatan.
             </div>
             <div style={styles.chipGrid as any}>
-              {skotarLista.map((m: any) => {
-                const vald = obj.tilldelad_skotare === m.maskin_id
-                const namn = [m.tillverkare, m.modell].filter(Boolean).join(' ') || m.maskin_id
-                return (
-                  <Chip key={m.maskin_id} label={namn} selected={vald}
-                    onClick={() => sattTilldeladSkotare(vald ? null : m.maskin_id)}
-                    editMode={false} onDelete={() => {}} />
-                )
-              })}
+              {/* Bara AKTIVA maskiner valbara (aktiv_till IS NULL) — sålda ska aldrig
+                  kunna tilldelas. En redan tilldelad SÅLD maskin visas ändå (märkt),
+                  så den går att byta bort. */}
+              {skotarLista
+                .filter((m: any) => m.aktiv_till == null || m.maskin_id === obj.tilldelad_skotare)
+                .map((m: any) => {
+                  const vald = obj.tilldelad_skotare === m.maskin_id
+                  const sald = m.aktiv_till != null
+                  const namn = ([m.tillverkare, m.modell].filter(Boolean).join(' ') || m.maskin_id) + (sald ? ' (såld)' : '')
+                  return (
+                    <Chip key={m.maskin_id} label={namn} selected={vald}
+                      onClick={() => sattTilldeladSkotare(vald ? null : m.maskin_id)}
+                      editMode={false} onDelete={() => {}} />
+                  )
+                })}
             </div>
             {tillLage.sparar && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 6 }}>Sparar …</div>}
             {tillLage.fel && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{tillLage.fel}</div>}
@@ -2813,7 +2819,7 @@ function hittaKandidater(jobb: any, objekt: any[]): any[] {
 // maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
 // eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
 // med två åtgärder: Namnge (öppnar sheeten) eller Ignorera (exkludera).
-function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, warnings, senasteData, forslag, onGodkannForslag, onOppna, onIgnorera, delay }: any) {
+function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, warnings, senasteData, forslag, onGodkannForslag, onOppna, onIgnorera, delay, aktivaSkotare, onTilldela }: any) {
   const namnlos = !obj.object_name
   const meta = []
   if (modell) meta.push(modell)
@@ -2844,6 +2850,26 @@ function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, war
         </div>
         {meta.length > 0 && <div style={styles.kortInfo}>{meta.join(' · ')}</div>}
         <KortBadges obj={obj} volym={volym} warnings={warnings} />
+        {/* Inline maskin-tilldelning — spara direkt utan att öppna objektet.
+            stopPropagation så select:en inte triggar kortets onOppna. Bara aktiva
+            maskiner valbara; en redan tilldelad SÅLD maskin visas så man kan byta bort den. */}
+        {onTilldela && !(obj.risskotning === true || arGrotHuvudtyp(obj.huvudtyp)) && (
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }} onClick={(e) => e.stopPropagation()}>
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', minWidth: 54 }}>Skotare</span>
+            <select
+              value={obj.tilldelad_skotare || ''}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onTilldela(e.target.value || null)}
+              style={{ flex: 1, minHeight: 36, borderRadius: 8, background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', fontSize: 13, fontFamily: 'inherit', padding: '0 8px' }}
+            >
+              <option value="">Ej tilldelad</option>
+              {obj.tilldelad_skotare && !(aktivaSkotare || []).some((s: any) => s.id === obj.tilldelad_skotare) && (
+                <option value={obj.tilldelad_skotare}>{obj.tilldelad_skotare} (såld)</option>
+              )}
+              {(aktivaSkotare || []).map((s: any) => <option key={s.id} value={s.id}>{s.namn}</option>)}
+            </select>
+          </div>
+        )}
         {(forslag || []).length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
             {forslag.map((f: any) => (
@@ -2880,6 +2906,9 @@ export default function ObjektRedigering() {
 function ObjektRedigeringInner() {
   const [objekt, setObjekt] = useState<any[]>([])
   const [maskiner, setMaskiner] = useState<Record<string, any>>({})
+  // Aktiva skotare (aktiv_till IS NULL) för inline-tilldelning i listan. SÅLDA
+  // maskiner ska ALDRIG vara valbara (Akelius-på-sålda-Elefant-buggen).
+  const [aktivaSkotare, setAktivaSkotare] = useState<{ id: string; namn: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [bolag, setBolag] = useState(STANDARD_BOLAG)
@@ -2950,6 +2979,36 @@ function ObjektRedigeringInner() {
     onRemoveBolag: (n: string) => taBortUrVallista('bolag', n, setBolag),
     onAddInkopare: (n: string) => laggTillIVallista('inkopare', n),
     onRemoveInkopare: (n: string) => taBortUrVallista('inkopare', n, setInkopare),
+  }
+
+  // Aktiva forwarders för inline-väljaren — aktiv_till IS NULL + bekräftad.
+  useEffect(() => {
+    let av = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('dim_maskin')
+        .select('maskin_id, visningsnamn, modell, maskin_typ, aktiv_till, bekraftad')
+        .is('aktiv_till', null).eq('bekraftad', true)
+      if (av) return
+      const sk = (data || [])
+        .filter((m: any) => { const t = (m.maskin_typ || '').toLowerCase(); return t.includes('forward') || t.includes('skot') })
+        .map((m: any) => ({ id: m.maskin_id, namn: (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell || m.maskin_id }))
+      setAktivaSkotare(sk)
+    })()
+    return () => { av = true }
+  }, [])
+
+  // Inline-tilldelning direkt från listan (utan att öppna objektet). Verifierad
+  // save: läser tillbaka VÄRDET (inte bara radantal) över hela VO-gruppen.
+  const tilldelaSkotareInline = async (ids: string[], mid: string | null) => {
+    const { data, error } = await supabase
+      .from('dim_objekt').update({ tilldelad_skotare: mid }).in('objekt_id', ids)
+      .select('objekt_id, tilldelad_skotare')
+    if (error) { setSaveError('Kunde inte tilldela skotare: ' + error.message); setTimeout(() => setSaveError(''), 6000); return }
+    if ((data || []).length !== ids.length || (data as any[]).some(r => (r.tilldelad_skotare || null) !== mid)) {
+      setSaveError('Tilldelningen landade inte — ladda om och försök igen'); setTimeout(() => setSaveError(''), 6000); return
+    }
+    setObjekt(prev => prev.map(o => ids.includes(o.objekt_id) ? { ...o, tilldelad_skotare: mid } : o))
   }
 
   const openObjekt = (obj: any) => setRedigerObj(obj)
@@ -3339,6 +3398,8 @@ function ObjektRedigeringInner() {
               delay={i * 60}
               onOppna={() => openObjekt(g.rep)}
               onIgnorera={() => ignoreraGrupp(g)}
+              aktivaSkotare={aktivaSkotare}
+              onTilldela={(mid: string | null) => tilldelaSkotareInline(g.rader.map((r: any) => r.objekt_id), mid)}
             />
           ))}
         </div>
