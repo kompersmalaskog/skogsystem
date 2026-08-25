@@ -23,8 +23,28 @@
 --   tak 220 -> 35,2 m³ (27,8 %)      tak 260 -> 47,2 m³ (37,3 %)
 --   tak 240 -> 41,6 m³ (32,9 %)      tak 300 -> 56,9 m³ (44,9 %)
 -- Timmertaket 440 biter inte alls (grövsta massabiten är 429 mm). Det är
--- alltså KUBBTAKET ensamt som bär osäkerheten. Riktiga övre gränser behöver
--- importeras för att talet ska bli exakt — inte gjort, inte utan att fråga.
+-- alltså KUBBTAKET ensamt som bär osäkerheten.
+--
+-- AVGJORT MOT HPR-FILEN (Åbogen RP 2026_PONS20SDJAA270231_20260803094447.hpr).
+-- Maskinens egen apteringsdefinition har både undre OCH övre gränser:
+--
+--   Alvesta305_V3 (Kubb)     DiameterMINTop 123  DiameterClassMAX 260
+--                            LengthClassLowerLimit 305  LengthClassMAX 325
+--   Vislanda_195_1-2 (Timmer) DiameterMINTop 180  DiameterClassMAX 650
+--                            LengthClass 372..606       LengthClassMAX 620
+--
+-- Två fel i den härledda modellen, och de drar åt olika håll:
+--   diametertaket är 260, inte 220        kubb 23,7 -> 40,7 m³
+--   OCH kubb har ett LÄNGDTAK på 325 cm   kubb 40,7 -> 12,9 m³
+-- Kubb är en fastlängdsprodukt: 305-325 cm, och systerprodukten
+-- Alvesta275_V3 är 275-295. Samma fönster i fyra objekt och två maskiner.
+-- "langd >= 305 utan tak" var alltså strukturellt fel, inte fel i kanten.
+--
+-- Rätt svar för Åbogen blir 30,3 m³ = 23,9 %, inte 35,2 = 27,8 %.
+--
+-- BERÄKNINGEN ÄR INTE ÄNDRAD HÄR. Gränserna måste importeras först, och det
+-- beslutet är Martins. Tills dess skriver vyn ut taket på skärmen med ordet
+-- "härlett", så att antagandet syns i stället för att gömmas i procenttalet.
 --
 -- ── 2. Två tal för samma sak på samma skärm ──────────────────────────────
 -- Kortet visade 37 st / 7,1 m³, längdklassen 3,00-3,14 visade 57 st / 8,8 m³.

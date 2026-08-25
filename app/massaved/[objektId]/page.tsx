@@ -192,11 +192,19 @@ export default function MassavedObjekt() {
                                    overflow: 'hidden', textOverflow: 'ellipsis' }}>{so.namn}</span>
                     <span style={{ ...S.muted, flexShrink: 0 }}>{nf1(so.m3fub)} m³</span>
                   </div>
+                  {/* Gränsen skrivs ut. Ett procenttal som gömmer sitt eget
+                      antagande går inte att ifrågasätta. */}
                   <div style={{ ...S.muted, marginTop: 1 }}>
                     från {nf2(so.langd_min_m)} m · {nf0(so.dia_min_mm)}–{nf0(so.dia_max_mm)} mm
+                    <span style={{ color: GUL }}> · taket härlett</span>
                   </div>
                 </div>
               ))}
+              <p style={{ ...S.muted, marginTop: 8, lineHeight: 1.6 }}>
+                De undre gränserna står i prislistan. De övre gör det inte — de är härledda ur
+                högsta prisklassens undre gräns, och maskinens riktiga tak kan vara ett annat.
+                Talet ovan vilar alltså på en uppskattning som ingen har mätt.
+              </p>
               {d.sagbar.overlapp_m3 > 0 && (
                 <p style={{ ...S.muted, marginTop: 8, lineHeight: 1.6 }}>
                   {nf1(d.sagbar.overlapp_m3)} m³ ryms i flera av sortimenten och räknas en gång i totalen.
