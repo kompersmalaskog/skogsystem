@@ -46,6 +46,9 @@ import StubbeSheet from '../StubbeSheet';
 import ProvytaSheet from '../ProvytaSheet';
 import ProvyteLista, { type MinPosition } from '../ProvyteLista';
 import Forutsattningar from '../Forutsattningar';
+import KartLagerMeny, { type EgetLager } from '@/components/KartLagerMeny';
+import { BASKARTOR, BASKARTA_DEFAULT, type BaskartaId } from '@/lib/mapLayers';
+import { useMapLayers, useStringSetting } from '@/lib/hooks/useMapLayers';
 import ProvyteSammanstallning from '../ProvyteSammanstallning';
 import GaTillYta from '../GaTillYta';
 import { skadeandel as _skadeandel, type LatLng } from '@/lib/provytor';
@@ -57,6 +60,26 @@ import { anmarkningsText, kortDatum } from '../format';
 // #FFD60A ar samma gult som datahalsobannern pa startsidan; T.orange betyder
 // redan "gar ut snart" pa utbildningssidorna.
 const GUL = '#FFD60A';
+
+// Egenkontrollens egna lager i kartmenyn.
+//
+// TRE TOGGLAR, INTE FEM. "Din position" har ingen: den ar ankaret, och den som
+// rakar slacka sig sjalv i skogen vinner ingenting pa det. Avvikelser har inget
+// eget lager heller - de AR kontrollpunkter med en status, och tva strombrytare
+// for samma punkt skulle gora att den kan vara bade tand och slackt.
+const EGNA_LAGER: EgetLager[] = [
+  { id: 'ekPunkter', namn: 'Kontrollpunkter', beskrivning: 'Punkterna ur planen, fargade efter svar' },
+  { id: 'ekProvytor', namn: 'Provytor', beskrivning: 'Lottade ytor, matta och omatta' },
+  { id: 'ekStammar', namn: 'Avverkade stammar', beskrivning: '' },
+];
+
+/** Stammolnets rad sager sitt eget tillstand - tomt far inte betyda tva saker. */
+function stamBeskrivning(stammar: LatLng[] | null, fel: boolean): string {
+  if (stammar === null) return 'Hämtas när stor karta öppnas';
+  if (fel) return 'Kunde inte läsas — försök igen senare';
+  if (stammar.length === 0) return 'Inga hittades för objektet';
+  return `${stammar.length.toLocaleString('sv-SE')} stammar ur maskindatan`;
+}
 
 /** Status i TEXT. Fargen upprepar bara det som redan star - den bar aldrig ensam. */
 const STATUS_TEXT: Record<string, { text: string; farg: string }> = {
@@ -415,7 +438,24 @@ export default function EgenkontrollRundaPage() {
   const [provytaVald, setProvytaVald] = useState<EgenkontrollProvyta | null>(null);
   const [minPosition, setMinPosition] = useState<MinPosition>(null);
   const [helskarm, setHelskarm] = useState(false);
-  const [visaStammar, setVisaStammar] = useState(false);
+  // KARTLAGREN. overlays delas med planeringsvyn genom mapLayers_v4 - slar
+  // man pa Markfuktighet har ar den pa dar ocksa, och tvartom. Baskartan
+  // sparas per vy: planeringsvyn haller sin i en vanlig useState och tappar
+  // valet vid varje omladdning, egenkontrollen minns det. Skillnaden ar
+  // avsiktlig och forsvinner i PR B.
+  const [overlays, setOverlays] = useMapLayers();
+  const [baskarta, setBaskarta] = useStringSetting<BaskartaId>(
+    'egenkontroll_baskarta', BASKARTA_DEFAULT, BASKARTOR.map((b) => b.id),
+  );
+  const [lagerMeny, setLagerMeny] = useState(false);
+
+  // Egenkontrollens egna lager. Punkter och provytor ar PA som default - de ar
+  // vad rundan handlar om. Stammolnet ar av: det ar 12 000 prickar som ska
+  // tandas nar man vill se var det ar kort, inte ligga och skrapa.
+  const [egnaVarden, setEgnaVarden] = useState<Record<string, boolean>>({
+    ekPunkter: true, ekProvytor: true, ekStammar: false,
+  });
+  const visaStammar = egnaVarden.ekStammar === true;
   const [gaTill, setGaTill] = useState<EgenkontrollProvyta | null>(null);
   // Stammarna hamtas EN gang och bara nar de behovs (helskarm eller ga-vy).
   const [stammar, setStammar] = useState<LatLng[] | null>(null);
@@ -668,6 +708,9 @@ export default function EgenkontrollRundaPage() {
                   kontext={kontext}
                   provytor={provytor}
                   valdPunktId={valdPunktId}
+                  baskarta={baskarta}
+                  overlays={overlays}
+                  egnaVarden={egnaVarden}
                   onPosition={setMinPosition}
                 />
                 <button
@@ -910,23 +953,25 @@ export default function EgenkontrollRundaPage() {
               <span style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: 600 }}>
                 {vy.objektNamn}
               </span>
+              {/* LAGER-KNAPPEN sitter BARA i helskarmen. I 180 px skulle den ata
+                  det lilla som finns, och den lilla kartan arver valen tyst. */}
               <button
-                onClick={() => setVisaStammar((v) => !v)}
-                aria-pressed={visaStammar}
-                disabled={!stammar || stammar.length === 0}
+                onClick={() => setLagerMeny(true)}
                 style={{
                   minHeight: 44, padding: '0 12px', borderRadius: 10,
-                  border: `1.5px solid ${visaStammar ? T.blue : 'rgba(255,255,255,0.14)'}`,
-                  background: 'transparent',
-                  color: !stammar || stammar.length === 0 ? T.t2 : visaStammar ? T.blue : T.t1,
-                  fontSize: 14, fontWeight: 600, fontFamily: T.ff,
+                  border: '1.5px solid rgba(255,255,255,0.14)', background: 'transparent',
+                  color: T.t1, fontSize: 14, fontWeight: 600, fontFamily: T.ff,
+                  display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >
-                Stammar
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18 }}>
+                  layers
+                </span>
+                Lager
               </button>
             </div>
             {/* Sag varfor knappen ar slack - tyst avstangd ser ut som trasig. */}
-            {stammar !== null && stammar.length === 0 && (
+            {visaStammar && stammar !== null && stammar.length === 0 && (
               <div style={{ fontSize: 13, color: T.orange, padding: '0 14px 8px', lineHeight: 1.45 }}>
                 {stamFel
                   ? 'Stammarna kunde inte läsas.'
@@ -943,11 +988,33 @@ export default function EgenkontrollRundaPage() {
                 hojd="100%"
                 stammar={stammar ?? []}
                 visaStammar={visaStammar}
+                baskarta={baskarta}
+                overlays={overlays}
+                egnaVarden={egnaVarden}
                 onPosition={setMinPosition}
               />
             </div>
           </div>
         )}
+
+        {/* MENYN - samma komponent som planeringsvyn ska anvanda i PR B.
+            Bara de props som hor till egenkontrollen skickas; planeringens sex
+            sektioner far inga och ritas darfor inte alls. */}
+        <KartLagerMeny
+          oppen={lagerMeny}
+          onStang={() => setLagerMeny(false)}
+          mapType={baskarta}
+          setMapType={setBaskarta}
+          overlays={overlays}
+          setOverlays={setOverlays}
+          egnaLager={EGNA_LAGER.map((l) =>
+            l.id === 'ekStammar'
+              ? { ...l, beskrivning: stamBeskrivning(stammar, stamFel) }
+              : l,
+          )}
+          egnaVarden={egnaVarden}
+          setEgnaVarden={setEgnaVarden}
+        />
 
         {gaTill && vy && (
           <GaTillYta
@@ -956,6 +1023,9 @@ export default function EgenkontrollRundaPage() {
             punkter={vy.punkter}
             kontext={kontext}
             provytor={provytor}
+            baskarta={baskarta}
+            overlays={overlays}
+            egnaVarden={egnaVarden}
             onStang={() => setGaTill(null)}
             onMat={() => { setProvytaVald(gaTill); setGaTill(null); }}
           />

@@ -167,3 +167,41 @@ export function useMapLayers(): [MapLayers, Dispatch<SetStateAction<MapLayers>>]
 
   return [layers, setLayers]
 }
+
+/**
+ * useStringSetting — generisk string-state med localStorage-persistens.
+ *
+ * Samma SSR-säkra mönster som useNumericSetting ovan. Tillagd (PR A) för
+ * baskarte-valet: planeringsvyn håller `mapType` i en vanlig useState och
+ * tappar därför valet vid varje omladdning. Egenkontrollen sparar det i
+ * stället — man ska slippa välja Flygfoto varje gång man öppnar en runda.
+ *
+ * `giltiga` skyddar mot skräp i localStorage: ett värde som inte längre finns
+ * i listan (borttagen baskarta, handredigerad nyckel) faller tillbaka på
+ * default i stället för att ge en tom karta.
+ */
+export function useStringSetting<T extends string>(
+  key: string,
+  defaultValue: T,
+  giltiga: readonly T[],
+): [T, Dispatch<SetStateAction<T>>] {
+  const [val, setVal] = useState<T>(defaultValue)
+  const hydratedRef = useRef(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!hydratedRef.current) return
+    try { window.localStorage.setItem(key, val) } catch {}
+  }, [key, val])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') { hydratedRef.current = true; return }
+    try {
+      const raw = window.localStorage.getItem(key)
+      if (raw !== null && (giltiga as readonly string[]).includes(raw)) setVal(raw as T)
+    } catch {}
+    hydratedRef.current = true
+  }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return [val, setVal]
+}
