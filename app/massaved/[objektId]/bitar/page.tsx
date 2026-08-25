@@ -8,16 +8,16 @@
 //
 // Ingen kommer hit av misstag, och ingen ska behöva det.
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 
 type Bit = {
   stam: string; bit: number; langd_m: number; volym_m3fub: number;
   toppdia_mm: number | null; tradslag: string; dag: string;
-  tre_m_stock: boolean; timmerdimension: boolean;
+  tre_m_stock: boolean; sagbar: boolean;
 };
 type Niva3 = { objekt_id: string; valta: string; antal_totalt: number; visas: number; bitar: Bit[] };
 
@@ -32,11 +32,9 @@ const S = {
   tal: { fontFamily: "'Fraunces', serif" } as const,
 };
 
-function Innehall() {
+export default function MassavedBitar() {
   const params = useParams();
-  const sp = useSearchParams();
   const objektId = decodeURIComponent(String(params.objektId));
-  const manad = sp.get('manad') || new Date().toISOString().slice(0, 7);
 
   const [valta, setValta] = useState<typeof VALTOR[number]>('Barr');
   const [d, setD] = useState<Niva3 | null>(null);
@@ -46,21 +44,21 @@ function Innehall() {
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(null);
     const { data, error } = await medAbortRetry(() => supabase.rpc('massaved_niva3', {
-      p_objekt_id: objektId, p_manad: `${manad}-01`, p_valta: valta, p_limit: 200 }));
+      p_objekt_id: objektId, p_valta: valta, p_limit: 200 }));
     if (error) {
       setFel({ kod: (error as { code?: string }).code ?? (arAbortFel(error) ? 'ABORT' : 'OKÄND'),
                text: error.message ?? String(error) });
       setD(null);
     } else setD(data as Niva3);
     setLaddar(false);
-  }, [objektId, manad, valta]);
+  }, [objektId, valta]);
 
   useEffect(() => { hamta(); }, [hamta]);
 
   return (
     <div style={S.page}>
       <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-        <Link href={`/massaved/${encodeURIComponent(objektId)}?manad=${manad}`}
+        <Link href={`/massaved/${encodeURIComponent(objektId)}`}
           style={{ ...S.muted, textDecoration: 'none' }}>‹ Objektet</Link>
         <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 10 }}>
           {VALTOR.map(v => (
@@ -120,7 +118,7 @@ function Innehall() {
                 {b.tradslag} · stam {b.stam} bit {b.bit} · {b.dag}
                 {b.toppdia_mm != null && <> · {nf0(b.toppdia_mm)} mm</>}
                 {b.tre_m_stock && <span style={{ color: 'rgba(255,179,64,0.95)', fontWeight: 600 }}> · 3 m-stock</span>}
-                {b.timmerdimension && <span style={{ color: 'rgba(255,120,110,0.95)', fontWeight: 600 }}> · timmerdimension</span>}
+                {b.sagbar && <span style={{ color: 'rgba(255,120,110,0.95)', fontWeight: 600 }}> · sågbar dimension</span>}
               </span>
               <span style={{ ...S.muted, flexShrink: 0 }}>{nf3(b.volym_m3fub)} m³</span>
             </div>
@@ -131,10 +129,3 @@ function Innehall() {
   );
 }
 
-export default function MassavedBitar() {
-  return (
-    <Suspense fallback={<div style={S.page} />}>
-      <Innehall />
-    </Suspense>
-  );
-}

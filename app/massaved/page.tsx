@@ -6,6 +6,11 @@
 // Inga fotnoter här — de hör till nivå 2, där man redan valt ett objekt och
 // frågar varför.
 //
+// Månaden gäller BARA den här nivån. Här jämförs objekt med varandra, och
+// då måste perioden vara densamma för alla. Nivå 2 svarar på en annan fråga
+// — hur gick det på trakten — och där är objektet enheten, inte månaden.
+// Därför bär länken ingen månad vidare.
+//
 // Maskinen är en grå ETIKETT på raden, aldrig ett filter. Vem som körde är
 // bakgrund till svaret, inte en fråga läsaren ska besvara först.
 //
@@ -94,7 +99,7 @@ function Innehall() {
   const rad = (o: ObjektRad, gra: boolean) => {
     const kv = kvalitet(o.medellangd_m, data?.mal_m ?? 4.6);
     return (
-      <Link key={o.objekt_id} href={`/massaved/${encodeURIComponent(o.objekt_id)}?manad=${manad}`}
+      <Link key={o.objekt_id} href={`/massaved/${encodeURIComponent(o.objekt_id)}`}
         style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44, padding: '11px 0',
                  borderTop: '1px solid rgba(255,255,255,0.07)', textDecoration: 'none',
                  color: gra ? '#7a7a72' : '#e8e8e4' }}>
