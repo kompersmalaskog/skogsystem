@@ -2622,6 +2622,27 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       res = { ok: false, message: 'Kunde inte spara — försök igen' }
     }
     if (res.ok) {
+      // Synka den OPERATIVA objekt-tabellen (appens produktions-/kart-/listkälla) när vo/namn ändrats.
+      // Redigering äger dim_objekt; objekt-raden redigeras annars bara i Objekt-vyn, så vo/namn kunde
+      // driva isär (Rössmåla: dim fick nytt vo men objekt låg kvar → produktionen blev osynlig). Matcha
+      // på VO-gruppens URSPRUNGS-vo (objekt-raden bär det tills vi skriver om det). Ingen matchande
+      // objekt-rad → tyst 0, inget fel; .select() = verifierad skrivning, ett DB-fel tigs aldrig ihjäl.
+      const voAndrad = andradeNycklar.includes('vo_nummer')
+      const namnAndrad = andradeNycklar.includes('object_name')
+      if (voAndrad || namnAndrad) {
+        const urspVo = String(originalObjekt?.vo_nummer ?? '').trim()
+        const objektPatch: any = {}
+        if (voAndrad && String(valtObjekt.vo_nummer ?? '').trim()) objektPatch.vo_nummer = valtObjekt.vo_nummer
+        if (namnAndrad && String(valtObjekt.object_name ?? '').trim()) objektPatch.namn = valtObjekt.object_name
+        if (urspVo && Object.keys(objektPatch).length > 0) {
+          const { error: objektFel } = await supabase.from('objekt').update(objektPatch).eq('vo_nummer', urspVo).select('id')
+          if (objektFel) {
+            setSaveError('Sparat i redigeringen — men objekt-synken misslyckades: ' + objektFel.message)
+            setSaving(false)
+            return
+          }
+        }
+      }
       // Spegla multi-rad-saven i lokal state: gemensamt till hela VO-gruppen,
       // maskinspecifikt till respektive maskinslags rader
       const gruppIds = sysk.map((o: any) => o.objekt_id)
