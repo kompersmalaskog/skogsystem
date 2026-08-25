@@ -2927,7 +2927,7 @@ def insert_if_not_exists(table: str, data: List[Dict], filnamn_key: str = 'filna
         return 0
 
 
-def spara_apteringsfonster(rader: List[Dict], filnamn: str) -> int:
+def spara_apteringsfonster(rader: List[Dict], filnamn: str):
     """Skriver fönstret per (objekt, sortiment) — och ändrar ALDRIG ett
     fönster som redan står där.
 
@@ -2938,7 +2938,7 @@ def spara_apteringsfonster(rader: List[Dict], filnamn: str) -> int:
     Första fönstret vinner, avvikelsen hamnar i import_fel.
     """
     if not rader:
-        return 0
+        return (0, 0, 0)
     objekt_ids = sorted({r['objekt_id'] for r in rader})
     befintliga: Dict[tuple, Dict] = {}
     try:
@@ -2957,6 +2957,8 @@ def spara_apteringsfonster(rader: List[Dict], filnamn: str) -> int:
     FALT = ('dia_min_top_mm', 'dia_max_mm', 'dia_max_butt_mm',
             'dia_under_bark', 'langd_min_cm', 'langd_max_cm')
     att_skriva = []
+    oforandrade = 0
+    bytten = 0
     for r in rader:
         gammal = befintliga.get((r['objekt_id'], r['sortiment_id']))
         if gammal is None:
@@ -2967,15 +2969,22 @@ def spara_apteringsfonster(rader: List[Dict], filnamn: str) -> int:
         if skillnad:
             # Larma, skriv inte över. Det gamla fönstret är det som gällde
             # när virket faktiskt kapades.
+            bytten += 1
             _rapportera_import_fel(
                 'dim_objekt_sortiment_fonster', filnamn, 1, 'FONSTER_BYTTE',
                 f"{r['objekt_id']} / {r['sortiment_id']}: " + '; '.join(skillnad))
             logger.warning("Apteringsfönstret bytte för %s / %s: %s",
                            r['objekt_id'], r['sortiment_id'], '; '.join(skillnad))
+        else:
+            oforandrade += 1
+    # Tre tal, inte ett. "0 skrivna" betyder antingen att allt redan stod där
+    # eller att skrivningen dog — och de två får aldrig se likadana ut för den
+    # som läser utfallet.
     if not att_skriva:
-        return 0
-    return upsert_nyckelgrupperat('dim_objekt_sortiment_fonster', att_skriva,
-                                  ['objekt_id', 'sortiment_id'])
+        return (0, oforandrade, bytten)
+    return (upsert_nyckelgrupperat('dim_objekt_sortiment_fonster', att_skriva,
+                                   ['objekt_id', 'sortiment_id']),
+            oforandrade, bytten)
 
 
 def _rapportera_import_fel(tabell: str, filnamn, antal: int, felkod, feltext):
