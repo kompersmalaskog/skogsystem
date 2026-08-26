@@ -2840,8 +2840,36 @@ function hittaKandidater(jobb: any, objekt: any[]): any[] {
 // maskin, via useMatchning-berikningen) så man ser direkt om det är skräp
 // eller riktigt utan att öppna det. Namnlöst är ett hederligt tillstånd
 // med två åtgärder: Namnge (öppnar sheeten) eller Ignorera (exkludera).
-function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, warnings, senasteData, forslag, onGodkannForslag, onOppna, onIgnorera, delay, aktivaSkotare, onTilldela }: any) {
+// Inline-sifferfält som sparar på blur/Enter (inte per tangenttryck) — undviker
+// en DB-skrivning per tecken. onCommit får rått tal (eller null); anroparen klampar.
+function InlineNum({ value, onCommit, placeholder, style }: any) {
+  const [txt, setTxt] = useState<string>(value ?? '')
+  useEffect(() => { setTxt(value ?? '') }, [value])
+  const commit = () => {
+    const t = String(txt).trim()
+    const n = t === '' ? null : Number(t.replace(',', '.'))
+    onCommit(n == null || !Number.isFinite(n) ? null : n)
+  }
+  return (
+    <input inputMode="numeric" value={txt} placeholder={placeholder}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setTxt(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      style={style} />
+  )
+}
+
+function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, warnings, senasteData, forslag, onGodkannForslag, onOppna, onIgnorera, delay, aktivaSkotare, onTilldela, onPatch, bolagOptions, atgardSlutOptions, atgardGallringOptions }: any) {
   const namnlos = !obj.object_name
+  const [merOppet, setMerOppet] = useState(false)
+  // Åtgärdsalternativ beror på huvudtyp (gallring vs slutavverkning).
+  const atgardOptions: string[] = (obj.huvudtyp === 'Gallring' ? atgardGallringOptions : atgardSlutOptions) || []
+  // Inline-fält renderas bara i listan (onPatch finns) och inte på risjobb.
+  const visaInline = !!onPatch && !(obj.risskotning === true || arGrotHuvudtyp(obj.huvudtyp))
+  const inlineSel = { flex: 1, minHeight: 36, borderRadius: 8, background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', fontSize: 13, fontFamily: 'inherit', padding: '0 8px' } as any
+  const inlineRad = { marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 } as any
+  const inlineLbl = { fontSize: 12, color: 'rgba(255,255,255,0.5)', minWidth: 54 } as any
   const meta = []
   if (modell) meta.push(modell)
   // Pågående-listan sorteras på datadatumet — visa det så sorteringen går
@@ -2890,6 +2918,66 @@ function ArbetsKort({ obj, info, modell, fildata, filRader, sanderEj, volym, war
               {(aktivaSkotare || []).map((s: any) => <option key={s.id} value={s.id}>{s.namn}</option>)}
             </select>
           </div>
+        )}
+        {/* Inline-fält (utan att öppna objektet): Åtgärd + Bolag framme, resten
+            bakom "Redigera fler". stopPropagation så inget triggar kortets onOppna. */}
+        {visaInline && (
+          <>
+            <div style={inlineRad} onClick={(e) => e.stopPropagation()}>
+              <span style={inlineLbl}>Åtgärd</span>
+              <select value={obj.atgard || ''} onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onPatch({ atgard: e.target.value || null })} style={inlineSel}>
+                <option value="">—</option>
+                {obj.atgard && !atgardOptions.includes(obj.atgard) && <option value={obj.atgard}>{obj.atgard}</option>}
+                {atgardOptions.map((a: string) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+            <div style={inlineRad} onClick={(e) => e.stopPropagation()}>
+              <span style={inlineLbl}>Bolag</span>
+              <select value={obj.bolag || ''} onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onPatch({ bolag: e.target.value || null })} style={inlineSel}>
+                <option value="">—</option>
+                {obj.bolag && !(bolagOptions || []).includes(obj.bolag) && <option value={obj.bolag}>{obj.bolag}</option>}
+                {(bolagOptions || []).map((b: string) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); setMerOppet(v => !v) }}
+              style={{ marginTop: 8, background: 'none', border: 'none', color: '#8ab4f8', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
+              {merOppet ? 'Dölj fält' : 'Redigera fler …'}
+            </button>
+            {merOppet && (
+              <>
+                <label style={{ ...inlineRad, cursor: 'pointer' }} onClick={(e) => e.stopPropagation()}>
+                  <span style={inlineLbl}>Extern</span>
+                  <input type="checkbox" checked={obj.extern_skordning === true}
+                    onChange={(e) => onPatch({ extern_skordning: e.target.checked })} />
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Extern skördare (annan avverkar)</span>
+                </label>
+                <div style={inlineRad} onClick={(e) => e.stopPropagation()}>
+                  <span style={inlineLbl}>Skotavst.</span>
+                  <InlineNum value={obj.skotavstand_manuell ?? ''} placeholder="m"
+                    onCommit={(n: number | null) => onPatch({ skotavstand_manuell: n })}
+                    style={{ ...inlineSel, flex: 'none', width: 90 }} />
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>m</span>
+                </div>
+                <div style={inlineRad} onClick={(e) => e.stopPropagation()}>
+                  <span style={inlineLbl}>Terräng</span>
+                  <select value={obj.terrang_kr_manuell == null ? 'normal' : 'svar'} onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => onPatch({ terrang_kr_manuell: e.target.value === 'svar' ? (Number(obj.terrang_kr_manuell) || 4) : null })}
+                    style={{ ...inlineSel, flex: 'none', width: 110 }}>
+                    <option value="normal">Normal</option>
+                    <option value="svar">Svår</option>
+                  </select>
+                  {obj.terrang_kr_manuell != null && (
+                    <InlineNum value={obj.terrang_kr_manuell ?? ''} placeholder="kr"
+                      onCommit={(n: number | null) => onPatch({ terrang_kr_manuell: n == null ? null : Math.min(8, Math.max(1, n)) })}
+                      style={{ ...inlineSel, flex: 'none', width: 70 }} />
+                  )}
+                  {obj.terrang_kr_manuell != null && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>kr/m³</span>}
+                </div>
+              </>
+            )}
+          </>
         )}
         {(forslag || []).length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
@@ -3019,18 +3107,22 @@ function ObjektRedigeringInner() {
     return () => { av = true }
   }, [])
 
-  // Inline-tilldelning direkt från listan (utan att öppna objektet). Verifierad
-  // save: läser tillbaka VÄRDET (inte bara radantal) över hela VO-gruppen.
-  const tilldelaSkotareInline = async (ids: string[], mid: string | null) => {
+  // Generisk inline-patch av dim_objekt-fält direkt från listan (utan att öppna
+  // objektet), över hela VO-gruppen. Verifierad save: läser tillbaka VÄRDET på
+  // varje patchat fält (inte bara radantal) — samma ärlighet som #222/#475.
+  const patchGrupp = async (ids: string[], patch: Record<string, any>) => {
+    const kolumner = ['objekt_id', ...Object.keys(patch)].join(',')
     const { data, error } = await supabase
-      .from('dim_objekt').update({ tilldelad_skotare: mid }).in('objekt_id', ids)
-      .select('objekt_id, tilldelad_skotare')
-    if (error) { setSaveError('Kunde inte tilldela skotare: ' + error.message); setTimeout(() => setSaveError(''), 6000); return }
-    if ((data || []).length !== ids.length || (data as any[]).some(r => (r.tilldelad_skotare || null) !== mid)) {
-      setSaveError('Tilldelningen landade inte — ladda om och försök igen'); setTimeout(() => setSaveError(''), 6000); return
+      .from('dim_objekt').update(patch).in('objekt_id', ids).select(kolumner)
+    if (error) { setSaveError('Kunde inte spara: ' + error.message); setTimeout(() => setSaveError(''), 6000); return }
+    const rader = (data || []) as any[]
+    const lika = (a: any, b: any) => (a ?? null) === (b ?? null)
+    if (rader.length !== ids.length || rader.some(r => Object.keys(patch).some(k => !lika(r[k], patch[k])))) {
+      setSaveError('Ändringen landade inte — ladda om och försök igen'); setTimeout(() => setSaveError(''), 6000); return
     }
-    setObjekt(prev => prev.map(o => ids.includes(o.objekt_id) ? { ...o, tilldelad_skotare: mid } : o))
+    setObjekt(prev => prev.map(o => ids.includes(o.objekt_id) ? { ...o, ...patch } : o))
   }
+  const tilldelaSkotareInline = (ids: string[], mid: string | null) => patchGrupp(ids, { tilldelad_skotare: mid })
 
   const openObjekt = (obj: any) => setRedigerObj(obj)
 
@@ -3421,6 +3513,10 @@ function ObjektRedigeringInner() {
               onIgnorera={() => ignoreraGrupp(g)}
               aktivaSkotare={aktivaSkotare}
               onTilldela={(mid: string | null) => tilldelaSkotareInline(g.rader.map((r: any) => r.objekt_id), mid)}
+              onPatch={(patch: Record<string, any>) => patchGrupp(g.rader.map((r: any) => r.objekt_id), patch)}
+              bolagOptions={bolag}
+              atgardSlutOptions={atgarderSlut}
+              atgardGallringOptions={atgarderGallring}
             />
           ))}
         </div>
