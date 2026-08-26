@@ -30,6 +30,14 @@ export type MattTrad = {
 
 export type MattPunkt = {
   punkt_nummer: number;
+  /** Ligger punkten i databasen? Sätts av synken. En punkt som redan finns
+   *  där får aldrig skrivas en gång till — då dubbelräknas den i grundytan. */
+  synkad?: boolean;
+  /** matning_punkt.id när punktraden skapats, även om träden inte gick igenom.
+   *  Utan det skulle ett omförsök skapa en ANDRA punktrad, och den första
+   *  ligger kvar med noll träd — alltså en punkt med grundyta 0 som drar ned
+   *  medlet. Med id:t skrivs träden om till samma rad i stället. */
+  punkt_id?: string | null;
   /** Där punkten lottades. */
   lat: number | null;
   lng: number | null;
@@ -45,6 +53,16 @@ export type MattPunkt = {
 export type PagaendeMatning = {
   /** Lokalt id tills raden finns i databasen. */
   lokal_id: string;
+  /**
+   * matning.id när raden skapats. HELA MÄTNINGENS IDENTITET HÄNGER HÄR.
+   *
+   * Utan fältet skapade synken en ny mätningsrad varje gång den kördes, och
+   * eftersom den körs efter varje punkt blev tio punkter i samma trakt till
+   * tio mätningar med en punkt var. Sammanfattningen hade då sagt "medel över
+   * 1 punkt" och ingen spridning — alltså exakt det den finns till för att
+   * visa. Sätts en gång, återanvänds resten av traktbesöket.
+   */
+  matning_id: string | null;
   objekt_id: string;
   datum: string;
   relaskop_faktor: number;
@@ -121,6 +139,12 @@ export function sparaPagaende(m: PagaendeMatning): void {
   } catch {
     /* full disk — mätningen fortsätter i minnet, synken får rädda den */
   }
+}
+
+/** Hur många punkter som ännu inte nått databasen. Det talet — inte antalet
+ *  mätta punkter — är vad vyn ska visa som "väntar på att sparas". */
+export function osynkadeAntal(m: PagaendeMatning | null): number {
+  return m ? m.punkter.filter((p) => !p.synkad).length : 0;
 }
 
 export function rensaPagaende(): void {
