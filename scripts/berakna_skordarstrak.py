@@ -29,7 +29,8 @@ except ImportError:
     print("FEL: 'requests' saknas (pip install requests)"); sys.exit(1)
 
 # ── Trimbara parametrar ──────────────────────────────────────────────────────
-TIDSLUCKA_S = 300      # > 5 min glapp → ny stråk
+TIDSLUCKA_S = 120      # > 2 min glapp → ny stråk (Martins beslut: speglar hur skördaren jobbade;
+                       #                          recompute-idempotent → billigt att trimma om)
 HOPP_M      = 200      # > 200 m mellan punkter → ny stråk (glapp/teleport)
 RDP_M       = 4.0      # RDP-tolerans i meter (gles sampling → låg)
 MIN_PUNKTER = 2        # en stråk behöver minst 2 punkter
