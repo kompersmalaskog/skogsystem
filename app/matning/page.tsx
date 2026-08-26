@@ -3,8 +3,11 @@
 // Mätvyn — ingången.
 //
 // Steg 1 mäter grundyta och trädslagsfördelning kvar efter gallring. Punkt.
-// Objektval, gå-till-punkten och sammanfattning kommer i egna omgångar; den
-// här sidan finns för att kameravyn och kalibreringen ska gå att nå och köra.
+//
+// Flödet: välj trakt → tio lottade punkter → gå dit → mät → besked direkt.
+// Sammanfattningen över alla punkter kommer i en egen omgång, liksom
+// skrivningen till databasen — tabellerna finns ännu inte, så mätningarna
+// lever i sidans tillstånd tills migrationen körts.
 //
 // MÄTNING ÄR SPÄRRAD TILLS ENHETEN KALIBRERATS. Utan kalibrering motsvarar
 // cirkeln en gissad vinkel, och då mäter man systematiskt fel utan att se det.
@@ -23,24 +26,38 @@ import {
 } from '@/lib/matning/lager';
 import Kalibrering from './Kalibrering';
 import Kamera from './Kamera';
+import Punktval from './Punktval';
+import type { Matpunkt } from '@/lib/matning/punkter';
 
-type Lage = 'oversikt' | 'kalibrerar' | 'matar';
+type Trakt = { id: string; namn: string; areal: number | null };
+type Lage = 'oversikt' | 'kalibrerar' | 'valjer' | 'matar';
 
 export default function MatningPage() {
   const [lage, setLage] = useState<Lage>('oversikt');
   const [kal, setKal] = useState<KalTyp | null>(null);
   const [laddat, setLaddat] = useState(false);
   const [punkter, setPunkter] = useState<{ nummer: number; grundyta: number; slutet: boolean }[]>([]);
+  const [trakt, setTrakt] = useState<Trakt | null>(null);
+  const [punkt, setPunkt] = useState<Matpunkt | null>(null);
   const [senaste, setSenaste] = useState<{ rad: string; avvikande: boolean; grundyta: number } | null>(null);
 
   // Kalibreringen ligger i localStorage och får läsas först efter mount —
   // annars ger servern och klienten olika första rendering.
   useEffect(() => { setKal(lasKalibrering()); setLaddat(true); }, []);
 
-  const punktNummer = punkter.length + 1;
+  const punktNummer = punkt?.nummer ?? punkter.length + 1;
 
   if (lage === 'kalibrerar') {
     return <Kalibrering onKlar={() => { setKal(lasKalibrering()); setLage('oversikt'); }} onAvbryt={() => setLage('oversikt')} />;
+  }
+
+  if (lage === 'valjer') {
+    return (
+      <Punktval
+        onAvbryt={() => setLage('oversikt')}
+        onMat={(t, p) => { setTrakt(t); setPunkt(p); setLage('matar'); }}
+      />
+    );
   }
 
   if (lage === 'matar' && kal) {
@@ -105,11 +122,11 @@ export default function MatningPage() {
           )}
 
           <button
-            onClick={() => setLage('matar')}
+            onClick={() => setLage('valjer')}
             style={{ width: '100%', minHeight: 84, borderRadius: 18, border: 'none',
               background: '#30D158', color: '#04240F', fontSize: 24, fontWeight: 700 }}
           >
-            Mät punkt {punktNummer}
+            {trakt ? `Mät i ${trakt.namn}` : 'Välj trakt och punkt'}
           </button>
 
           {punkter.length > 0 && (
