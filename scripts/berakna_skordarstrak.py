@@ -97,9 +97,15 @@ def rdp(pts, eps_m):
     return [pts[i] for i in range(len(pts)) if keep[i]]
 
 # ── PostgREST ────────────────────────────────────────────────────────────────
-def get(path):
-    r = requests.get(f"{URL}/rest/v1/{path}", headers=H, timeout=60)
-    r.raise_for_status(); return r.json()
+def get(path, _forsok=5):
+    import time
+    for i in range(_forsok):
+        try:
+            r = requests.get(f"{URL}/rest/v1/{path}", headers=H, timeout=60)
+            r.raise_for_status(); return r.json()
+        except Exception:
+            if i == _forsok - 1: raise
+            time.sleep(2 * (i + 1))  # transient 522/timeout → backoff + retry
 
 def las_objekt_map():
     """vo_nummer → objekt-uuid (bara objekt som finns i appen)."""
@@ -198,14 +204,22 @@ def skriv_strak(objekt_uuid, recs):
         r.raise_for_status()
 
 def main():
+    global TIDSLUCKA_S, HOPP_M, RDP_M
     ap = argparse.ArgumentParser()
     ap.add_argument('--vo', help='bara detta vo_nummer')
     ap.add_argument('--dry-run', action='store_true', help='räkna + rapportera, skriv inget')
+    ap.add_argument('--detalj', action='store_true', help='lista varje stråk (nr, punkter, längd, tid)')
+    ap.add_argument('--tidslucka', type=float, help=f'override TIDSLUCKA_S (default {TIDSLUCKA_S})')
+    ap.add_argument('--hopp', type=float, help=f'override HOPP_M (default {HOPP_M})')
+    ap.add_argument('--rdp', type=float, help=f'override RDP_M (default {RDP_M})')
     ap.add_argument('--lista-omatchade', action='store_true', help='sampla detalj_gps_spar-objekt utan app-objekt')
     a = ap.parse_args()
+    if a.tidslucka is not None: TIDSLUCKA_S = a.tidslucka
+    if a.hopp is not None: HOPP_M = a.hopp
+    if a.rdp is not None: RDP_M = a.rdp
 
     vo_map = las_objekt_map()
-    print(f"Objekt i appen med vo_nummer: {len(vo_map)}")
+    print(f"Objekt i appen med vo_nummer: {len(vo_map)}  |  trösklar: tidslucka={TIDSLUCKA_S}s hopp={HOPP_M}m rdp={RDP_M}m")
 
     if a.lista_omatchade:
         # Sampla objekt_id över tabellen (kan ej DISTINCT via PostgREST) → flagga vo utan app-objekt.
@@ -220,21 +234,32 @@ def main():
         print(f"OMATCHADE (GPS men inget app-objekt): {sorted(omatchade) or 'inga i samplingen'}")
         return
 
-    todo = [(a.vo, vo_map[a.vo])] if a.vo else list(vo_map.items())
+    todo = [(a.vo, vo_map.get(a.vo))] if a.vo else list(vo_map.items())
     tot = {'objekt': 0, 'strak': 0, 'ra': 0, 'dedup': 0}
     for vo, uuid in todo:
+        if uuid is None and not a.dry_run:
+            print(f"  {vo}: inget app-objekt (vo saknas i objekt-tabellen) → hoppar (skarp körning kräver mappning)")
+            continue
         rows = las_gps_for_vo(vo)
         if not rows:
+            print(f"  {vo}: 0 punkter")
             continue
-        recs, st = bygg_strak_for_objekt(vo, uuid, rows)
+        recs, st = bygg_strak_for_objekt(vo, uuid or '(omappad)', rows)
         if not recs:
             print(f"  {vo}: {st['ra']} punkter → {st['dedup']} efter dedup → 0 stråk (för korta?)")
             continue
         if not a.dry_run:
             skriv_strak(uuid, recs)
         tot['objekt'] += 1; tot['strak'] += st['strak']; tot['ra'] += st['ra']; tot['dedup'] += st['dedup']
-        print(f"  {vo} ({uuid[:8]}): {st['ra']} pkt → dedup {st['dedup']} → {st['strak']} stråk, {st['langd']/1000:.2f} km"
+        idtxt = uuid[:8] if uuid else 'omappad'
+        print(f"  {vo} ({idtxt}): {st['ra']} pkt → dedup {st['dedup']} → {st['strak']} stråk, {st['langd']/1000:.2f} km"
               + ("  [DRY]" if a.dry_run else ""))
+        if a.detalj:
+            for r in recs:
+                minst = ''
+                t0, t1 = parse_tid(r['tid_start']), parse_tid(r['tid_slut'])
+                if t0 and t1: minst = f"  {(t1 - t0).total_seconds()/60:>4.0f} min"
+                print(f"       #{r['strak_nr']:>2} [{r['maskin_id']}]  {r['langd_m']:>6.0f} m  {r['antal_punkter_ra']:>4}→{r['antal_punkter']:>3} pkt{minst}")
     print(f"\nKLART: {tot['objekt']} objekt, {tot['strak']} stråk, {tot['ra']} råpunkter → {tot['dedup']} efter dedup"
           + ("  (DRY-RUN, inget skrivet)" if a.dry_run else ""))
 
