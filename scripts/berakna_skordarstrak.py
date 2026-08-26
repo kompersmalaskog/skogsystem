@@ -241,26 +241,32 @@ def main():
         if uuid is None and not a.dry_run:
             print(f"  {vo}: inget app-objekt (vo saknas i objekt-tabellen) → hoppar (skarp körning kräver mappning)")
             continue
-        rows = las_gps_for_vo(vo)
-        if not rows:
-            print(f"  {vo}: 0 punkter")
+        try:
+            rows = las_gps_for_vo(vo)
+            if not rows:
+                print(f"  {vo}: 0 punkter")
+                continue
+            recs, st = bygg_strak_for_objekt(vo, uuid or '(omappad)', rows)
+            if not recs:
+                print(f"  {vo}: {st['ra']} punkter → {st['dedup']} efter dedup → 0 stråk (för korta?)")
+                continue
+            if not a.dry_run:
+                skriv_strak(uuid, recs)
+            tot['objekt'] += 1; tot['strak'] += st['strak']; tot['ra'] += st['ra']; tot['dedup'] += st['dedup']
+            idtxt = uuid[:8] if uuid else 'omappad'
+            print(f"  {vo} ({idtxt}): {st['ra']} pkt → dedup {st['dedup']} → {st['strak']} stråk, {st['langd']/1000:.2f} km"
+                  + ("  [DRY]" if a.dry_run else ""))
+            if a.detalj:
+                for r in recs:
+                    minst = ''
+                    t0, t1 = parse_tid(r['tid_start']), parse_tid(r['tid_slut'])
+                    if t0 and t1: minst = f"  {(t1 - t0).total_seconds()/60:>4.0f} min"
+                    print(f"       #{r['strak_nr']:>2} [{r['maskin_id']}]  {r['langd_m']:>6.0f} m  {r['antal_punkter_ra']:>4}→{r['antal_punkter']:>3} pkt{minst}")
+        except Exception as e:
+            # Ett trasigt objekt (t.ex. statement-timeout innan index) får INTE döda hela körningen.
+            print(f"  {vo}: FEL ({type(e).__name__}: {str(e)[:120]}) → hoppar, fortsätter med nästa")
+            tot['fel'] = tot.get('fel', 0) + 1
             continue
-        recs, st = bygg_strak_for_objekt(vo, uuid or '(omappad)', rows)
-        if not recs:
-            print(f"  {vo}: {st['ra']} punkter → {st['dedup']} efter dedup → 0 stråk (för korta?)")
-            continue
-        if not a.dry_run:
-            skriv_strak(uuid, recs)
-        tot['objekt'] += 1; tot['strak'] += st['strak']; tot['ra'] += st['ra']; tot['dedup'] += st['dedup']
-        idtxt = uuid[:8] if uuid else 'omappad'
-        print(f"  {vo} ({idtxt}): {st['ra']} pkt → dedup {st['dedup']} → {st['strak']} stråk, {st['langd']/1000:.2f} km"
-              + ("  [DRY]" if a.dry_run else ""))
-        if a.detalj:
-            for r in recs:
-                minst = ''
-                t0, t1 = parse_tid(r['tid_start']), parse_tid(r['tid_slut'])
-                if t0 and t1: minst = f"  {(t1 - t0).total_seconds()/60:>4.0f} min"
-                print(f"       #{r['strak_nr']:>2} [{r['maskin_id']}]  {r['langd_m']:>6.0f} m  {r['antal_punkter_ra']:>4}→{r['antal_punkter']:>3} pkt{minst}")
     print(f"\nKLART: {tot['objekt']} objekt, {tot['strak']} stråk, {tot['ra']} råpunkter → {tot['dedup']} efter dedup"
           + ("  (DRY-RUN, inget skrivet)" if a.dry_run else ""))
 
