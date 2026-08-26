@@ -25,6 +25,10 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
   const [selectedObj, setSelectedObj] = useState<any>(null);
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [objekt, setObjekt] = useState<any[]>([]);
+  // vo_nummer där SKOTNINGEN inte är klar + virke kvar på backen (avverkat > skotat).
+  // Skörd klar ≠ skotning klar: ett objekt som markerats avslutat men har virke kvar
+  // ska ändå synas i "att köra" för skotaren. skotning_avslutad styr, aldrig skördning.
+  const [skotKvarVo, setSkotKvarVo] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [roadDist, setRoadDist] = useState<Record<string, number | 'loading'>>({});
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -43,6 +47,48 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
       setLoading(false);
     };
     fetchObjekt();
+  }, []);
+
+  // Räkna ut vilka VO som har SKOTNING kvar (skotning_avslutad NULL + virke på backen),
+  // så avslutat-markerade objekt med oskotat virke ändå syns i "att köra". Skördningen
+  // får vara klar — det är skotningen som styr. egen_skotning = säljaren skotar → ej vårt.
+  useEffect(() => {
+    let avbruten = false;
+    (async () => {
+      const [dimR, prodR, lassR, manR] = await Promise.all([
+        supabase.from('dim_objekt').select('objekt_id, vo_nummer, skotning_avslutad, egen_skotning'),
+        supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub'),
+        supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub'),
+        supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_egen_skotning, volym_m3, ar_omlastning').is('datum_fran', null),
+      ]);
+      if (avbruten) return;
+      const voAv = new Map<string, string>();
+      const skotKlar = new Set<string>(), egen = new Set<string>();
+      for (const d of dimR.data || []) {
+        const vo = d.vo_nummer || d.objekt_id;
+        if (d.objekt_id) voAv.set(d.objekt_id, vo);
+        if (d.skotning_avslutad) skotKlar.add(vo);
+        if (d.egen_skotning === true) egen.add(vo);
+      }
+      const voFor = (oid: string) => voAv.get(oid) || oid;
+      const skordat = new Map<string, number>(), skotat = new Map<string, number>();
+      for (const p of prodR.data || []) { const vo = voFor(p.objekt_id); skordat.set(vo, (skordat.get(vo) || 0) + (p.volym_m3sub || 0)); }
+      for (const l of lassR.data || []) { const vo = voFor(l.objekt_id); skotat.set(vo, (skotat.get(vo) || 0) + (l.volym_m3sub || 0)); }
+      // Manuell EGEN skotning räknas som skotat (omlastning aldrig); grot-rader (maskin_id NULL) hoppas över.
+      for (const m of manR.data || []) {
+        if (!m.maskin_id) continue;
+        const vo = voFor(m.objekt_id);
+        const e = m.volym_egen_skotning ?? (m.ar_omlastning ? 0 : (m.volym_m3 ?? 0));
+        skotat.set(vo, (skotat.get(vo) || 0) + (Number(e) || 0));
+      }
+      const kvar = new Set<string>();
+      for (const [vo, sk] of skordat) {
+        if (skotKlar.has(vo) || egen.has(vo)) continue;      // skotning klar el. egen → ej på vår backe
+        if (sk - (skotat.get(vo) || 0) > 5) kvar.add(vo);    // > 5 m³fub kvar = virke på backen
+      }
+      if (!avbruten) setSkotKvarVo(kvar);
+    })();
+    return () => { avbruten = true; };
   }, []);
 
   useEffect(() => {
@@ -141,11 +187,16 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
     return R * c;
   };
 
+  // Avslutat MEN skotning kvar (virke på backen) = ännu inte klart för skotaren → visas
+  // som "att köra", inte bland Avslutade. Skörd klar ≠ objektet klart.
+  const harSkotningKvar = (o: any) => skotKvarVo.has(o.vo_nummer);
+  const arKlartAvslutat = (o: any) => o.status === 'avslutat' && !harSkotningKvar(o);
+
   // STEG 7: exkludera avslutade från Oplanerade/Planerade (annars dubblerade)
-  const oplanerade = objekt.filter(o => (!o.ar || !o.manad) && o.status !== 'avslutat');
-  const planerade = objekt.filter(o => o.ar && o.manad && o.status !== 'avslutat');
+  const oplanerade = objekt.filter(o => (!o.ar || !o.manad) && !arKlartAvslutat(o));
+  const planerade = objekt.filter(o => o.ar && o.manad && !arKlartAvslutat(o));
   const avslutade = objekt
-    .filter(o => o.status === 'avslutat')
+    .filter(o => arKlartAvslutat(o))
     .sort((a, b) => (b.avslutad_timestamp || '').localeCompare(a.avslutad_timestamp || ''));
 
   let lista: any[];
@@ -156,10 +207,11 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
       o.assigned_skotare_user_id === forareFilter.medarbetareId;
     if (activeTab === 'avslutade') {
       lista = objekt
-        .filter(o => baseFilter(o) && o.status === 'avslutat')
+        .filter(o => baseFilter(o) && arKlartAvslutat(o))
         .sort((a, b) => (b.avslutad_timestamp || '').localeCompare(a.avslutad_timestamp || ''));
     } else {
-      lista = objekt.filter(o => baseFilter(o) && (o.status === 'planerad' || o.status === 'pagaende'));
+      // "Att köra": planerad/pågående ELLER avslutat-med-skotning-kvar (virke på backen).
+      lista = objekt.filter(o => baseFilter(o) && (o.status === 'planerad' || o.status === 'pagaende' || harSkotningKvar(o)));
     }
   } else {
     let allData: any[];
