@@ -1,77 +1,154 @@
 'use client';
 
-// Mätvyn — ingången.
+// Mätvyn — ingången och flödets nav.
 //
 // Steg 1 mäter grundyta och trädslagsfördelning kvar efter gallring. Punkt.
-//
 // Flödet: välj trakt → tio lottade punkter → gå dit → mät → besked direkt.
-// Sammanfattningen över alla punkter kommer i en egen omgång, liksom
-// skrivningen till databasen — tabellerna finns ännu inte, så mätningarna
-// lever i sidans tillstånd tills migrationen körts.
 //
 // MÄTNING ÄR SPÄRRAD TILLS ENHETEN KALIBRERATS. Utan kalibrering motsvarar
 // cirkeln en gissad vinkel, och då mäter man systematiskt fel utan att se det.
 // Spärren är hela poängen med kalibreringsskärmen — tas den bort blir skärmen
 // en valfri inställning som ingen öppnar.
+//
+// SPARANDET GÅR LOKALT FÖRST. Varje punkt skrivs till localStorage i samma
+// ögonblick varvet sluts, innan något nätanrop försöks. Går synken inte igenom
+// står det hur många punkter som väntar — en osynkad punkt får aldrig se ut
+// som sparad.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { T } from '@/lib/utbildning';
+import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import {
   beskedForPunkt,
+  enhetsNamn,
   lasKalibrering,
+  punktGrundyta,
   varvSlutet,
   type Kalibrering as KalTyp,
+  type MattPunkt,
   type MattTrad,
+  type PagaendeMatning,
 } from '@/lib/matning/lager';
+import {
+  laggTillPunkt,
+  osynkadMatning,
+  startaMatning,
+  synka,
+} from '@/lib/matning/sparande';
+import type { Matpunkt } from '@/lib/matning/punkter';
 import Kalibrering from './Kalibrering';
 import Kamera from './Kamera';
 import Punktval from './Punktval';
-import type { Matpunkt } from '@/lib/matning/punkter';
 
 type Trakt = { id: string; namn: string; areal: number | null };
 type Lage = 'oversikt' | 'kalibrerar' | 'valjer' | 'matar';
 
+/** Var Martin faktiskt står när varvet sluts. Skilt från punktens lottade
+ *  läge — under krontak är GPS 5-15 m och att lagra det lottade läget som
+ *  mätplats vore en tyst osanning. Misslyckas den sparas null, inte en gissning. */
+function hamtaPosition(): Promise<GeolocationPosition | null> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null);
+  return new Promise((klar) => {
+    navigator.geolocation.getCurrentPosition(
+      (p) => klar(p),
+      () => klar(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 },
+    );
+  });
+}
+
 export default function MatningPage() {
+  const { medarbetare } = useCurrentMedarbetare();
   const [lage, setLage] = useState<Lage>('oversikt');
   const [kal, setKal] = useState<KalTyp | null>(null);
   const [laddat, setLaddat] = useState(false);
-  const [punkter, setPunkter] = useState<{ nummer: number; grundyta: number; slutet: boolean }[]>([]);
+  const [matning, setMatning] = useState<PagaendeMatning | null>(null);
   const [trakt, setTrakt] = useState<Trakt | null>(null);
   const [punkt, setPunkt] = useState<Matpunkt | null>(null);
   const [senaste, setSenaste] = useState<{ rad: string; avvikande: boolean; grundyta: number } | null>(null);
+  const [synkfel, setSynkfel] = useState<string | null>(null);
+  const [synkar, setSynkar] = useState(false);
 
-  // Kalibreringen ligger i localStorage och får läsas först efter mount —
-  // annars ger servern och klienten olika första rendering.
-  useEffect(() => { setKal(lasKalibrering()); setLaddat(true); }, []);
+  // localStorage får läsas först efter mount — annars ger servern och klienten
+  // olika första rendering.
+  useEffect(() => {
+    setKal(lasKalibrering());
+    setMatning(osynkadMatning());
+    setLaddat(true);
+  }, []);
 
-  const punktNummer = punkt?.nummer ?? punkter.length + 1;
+  const korSynk = useCallback(async (m: PagaendeMatning) => {
+    setSynkar(true);
+    const r = await synka(m, medarbetare?.id ?? null);
+    setSynkar(false);
+    if (r.kvar === 0 && r.fel === null) { setMatning(null); setSynkfel(null); }
+    else setSynkfel(r.fel);
+  }, [medarbetare?.id]);
+
+  const punktNummer = punkt?.nummer ?? (matning?.punkter.length ?? 0) + 1;
+  const matta = matning?.punkter ?? [];
 
   if (lage === 'kalibrerar') {
-    return <Kalibrering onKlar={() => { setKal(lasKalibrering()); setLage('oversikt'); }} onAvbryt={() => setLage('oversikt')} />;
+    return (
+      <Kalibrering
+        onKlar={() => { setKal(lasKalibrering()); setLage('oversikt'); }}
+        onAvbryt={() => setLage('oversikt')}
+      />
+    );
   }
 
   if (lage === 'valjer') {
     return (
       <Punktval
         onAvbryt={() => setLage('oversikt')}
-        onMat={(t, p) => { setTrakt(t); setPunkt(p); setLage('matar'); }}
+        onMat={(t, p) => {
+          setTrakt(t);
+          setPunkt(p);
+          // Ny trakt = ny mätning. Byter han trakt mitt i synkas den gamla
+          // först, annars skulle punkterna hamna under fel objekt.
+          if (!matning || matning.objekt_id !== t.id) {
+            if (matning && matning.punkter.length > 0) void korSynk(matning);
+            setMatning(startaMatning(t.id, kal!.relaskop_faktor, kal!.synfalt_grader, enhetsNamn()));
+          }
+          setLage('matar');
+        }}
       />
     );
   }
 
-  if (lage === 'matar' && kal) {
+  if (lage === 'matar' && kal && punkt) {
     return (
       <Kamera
-        punktNummer={punktNummer}
+        punktNummer={punkt.nummer}
         faktor={kal.relaskop_faktor}
         synfaltGrader={kal.synfalt_grader}
         onAvbryt={() => setLage('oversikt')}
         onKlar={(trad: MattTrad[], varv: number) => {
-          const grundyta = trad.length * kal.relaskop_faktor;
-          setSenaste({ ...beskedForPunkt(grundyta, punkter.map((p) => p.grundyta)) });
-          setPunkter((f) => [...f, { nummer: punktNummer, grundyta, slutet: varvSlutet(varv) }]);
-          setLage('oversikt');
+          void (async () => {
+            const pos = await hamtaPosition();
+            const ny: MattPunkt = {
+              punkt_nummer: punkt.nummer,
+              lat: punkt.lat,
+              lng: punkt.lng,
+              matt_lat: pos?.coords.latitude ?? null,
+              matt_lng: pos?.coords.longitude ?? null,
+              gps_noggrannhet_m: pos?.coords.accuracy ?? null,
+              varv_grader: varv,
+              matt_tid: new Date().toISOString(),
+              trad,
+            };
+            const bas = matning ?? startaMatning(trakt!.id, kal.relaskop_faktor, kal.synfalt_grader, enhetsNamn());
+            const uppdaterad = laggTillPunkt(bas, ny);   // lokalt FÖRST
+            setMatning(uppdaterad);
+            setSenaste(beskedForPunkt(
+              punktGrundyta(ny, kal.relaskop_faktor),
+              bas.punkter.map((p) => punktGrundyta(p, kal.relaskop_faktor)),
+            ));
+            setPunkt(null);
+            setLage('oversikt');
+            void korSynk(uppdaterad);                    // databasen sedan
+          })();
         }}
       />
     );
@@ -121,6 +198,34 @@ export default function MatningPage() {
             </div>
           )}
 
+          {/* Osynkat är normalläget halva dagen — men det ska SYNAS. */}
+          {matta.length > 0 && (
+            <div
+              style={{
+                background: '#1C1C1E', border: `2px solid ${synkfel ? '#FF9F0A' : 'rgba(255,255,255,0.15)'}`,
+                borderRadius: 14, padding: '14px 16px', marginBottom: 14, fontSize: 16, lineHeight: 1.5,
+              }}
+            >
+              {synkar ? (
+                <span style={{ color: '#fff' }}>Sparar {matta.length} punkter…</span>
+              ) : (
+                <>
+                  <strong style={{ color: '#fff' }}>
+                    {matta.length} {matta.length === 1 ? 'punkt' : 'punkter'} väntar på att sparas
+                  </strong>
+                  {synkfel && <div style={{ color: '#FF9F0A', marginTop: 4 }}>{synkfel}</div>}
+                  <button
+                    onClick={() => matning && korSynk(matning)}
+                    style={{ width: '100%', minHeight: 60, marginTop: 10, borderRadius: 12, border: 'none',
+                      background: 'rgba(255,255,255,0.16)', color: '#fff', fontSize: 17, fontWeight: 600 }}
+                  >
+                    Försök spara nu
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <button
             onClick={() => setLage('valjer')}
             style={{ width: '100%', minHeight: 84, borderRadius: 18, border: 'none',
@@ -129,25 +234,32 @@ export default function MatningPage() {
             {trakt ? `Mät i ${trakt.namn}` : 'Välj trakt och punkt'}
           </button>
 
-          {punkter.length > 0 && (
+          {matta.length > 0 && kal && (
             <div style={{ marginTop: 22 }}>
               <div style={{ fontSize: 14, letterSpacing: 0.6, color: '#C7C7CC', marginBottom: 8 }}>
                 MÄTTA PUNKTER
               </div>
-              {punkter.map((p) => (
+              {matta.map((p) => (
                 <div
-                  key={p.nummer}
+                  key={p.punkt_nummer}
                   style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     background: '#1C1C1E', borderRadius: 12, padding: '14px 16px', marginBottom: 8,
                     minHeight: 60,
                   }}
                 >
-                  <span style={{ fontSize: 17 }}>Punkt {p.nummer}</span>
+                  <span style={{ fontSize: 17 }}>
+                    Punkt {p.punkt_nummer}
+                    <span style={{ fontSize: 15, color: '#C7C7CC', marginLeft: 8 }}>
+                      {p.trad.length} träd
+                    </span>
+                  </span>
                   <span style={{ fontSize: 19, fontWeight: 700 }}>
-                    {Math.round(p.grundyta)} m²/ha
-                    {!p.slutet && (
-                      <span style={{ fontSize: 15, color: '#FF9F0A', marginLeft: 10 }}>ofullständigt varv</span>
+                    {Math.round(punktGrundyta(p, kal.relaskop_faktor))} m²/ha
+                    {!varvSlutet(p.varv_grader) && (
+                      <span style={{ fontSize: 15, color: '#FF9F0A', marginLeft: 10 }}>
+                        ofullständigt varv
+                      </span>
                     )}
                   </span>
                 </div>
