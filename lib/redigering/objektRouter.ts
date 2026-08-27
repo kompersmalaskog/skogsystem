@@ -109,7 +109,15 @@ export async function resolveObjektRad(dimObjektIds: string[], voNummer?: string
  * objekt-raden. Verifierad save: läser tillbaka värdet på varje fält. Saknas
  * objekt-rad skrivs bara dim (objektRadFanns=false). Skapar aldrig objekt-rader.
  */
-export async function sparaFalt(ref: SparaFaltRef, patch: Record<string, any>): Promise<SparaFaltResultat> {
+export interface SparaFaltOpts {
+  /** Begränsa vilka tabeller som skrivs (default båda). T.ex. ['objekt'] för att
+   *  BARA spegla till objekt-raden när dim redan sparats i ett annat flöde. */
+  tabeller?: ('dim' | 'objekt')[]
+}
+
+export async function sparaFalt(ref: SparaFaltRef, patch: Record<string, any>, opts?: SparaFaltOpts): Promise<SparaFaltResultat> {
+  const skrivDim = !opts?.tabeller || opts.tabeller.includes('dim')
+  const skrivObjekt = !opts?.tabeller || opts.tabeller.includes('objekt')
   const dimPatch: Record<string, any> = {}
   const objPatch: Record<string, any> = {}
   for (const [logisk, varde] of Object.entries(patch)) {
@@ -120,7 +128,7 @@ export async function sparaFalt(ref: SparaFaltRef, patch: Record<string, any>): 
   }
 
   // ── dim_objekt över hela VO-gruppen ──
-  if (Object.keys(dimPatch).length > 0) {
+  if (skrivDim && Object.keys(dimPatch).length > 0) {
     const ids = ref.dimObjektIds || []
     if (ids.length === 0) return { ok: false, message: 'Inga dim_objekt-id att spara mot', objektRadFanns: false }
     const kol = ['objekt_id', ...Object.keys(dimPatch)].join(',')
@@ -134,7 +142,7 @@ export async function sparaFalt(ref: SparaFaltRef, patch: Record<string, any>): 
 
   // ── objekt (planering) — EN rad, resolvad via FK→vo. Skapar aldrig. ──
   let objektRadFanns = false
-  if (Object.keys(objPatch).length > 0) {
+  if (skrivObjekt && Object.keys(objPatch).length > 0) {
     let objektId = ref.objektId
     if (!objektId) {
       const rad = await resolveObjektRad(ref.dimObjektIds || [], ref.voNummer)

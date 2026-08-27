@@ -10,6 +10,7 @@ import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkor
 import MatchningsVy from './MatchningsVy'
 import SkotareFordelning from './SkotareFordelning'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
+import { sparaFalt } from '@/lib/redigering/objektRouter'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
 // kompletteras med unika värden ur datan vid inläsning.
@@ -2622,22 +2623,28 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       res = { ok: false, message: 'Kunde inte spara — försök igen' }
     }
     if (res.ok) {
-      // Synka den OPERATIVA objekt-tabellen (appens produktions-/kart-/listkälla) när vo/namn ändrats.
-      // Redigering äger dim_objekt; objekt-raden redigeras annars bara i Objekt-vyn, så vo/namn kunde
-      // driva isär (Rössmåla: dim fick nytt vo men objekt låg kvar → produktionen blev osynlig). Matcha
-      // på VO-gruppens URSPRUNGS-vo (objekt-raden bär det tills vi skriver om det). Ingen matchande
-      // objekt-rad → tyst 0, inget fel; .select() = verifierad skrivning, ett DB-fel tigs aldrig ihjäl.
+      // Synka den OPERATIVA objekt-tabellen (appens produktions-/kart-/listkälla) när vo/namn ändrats,
+      // via två-tabell-routern (Etapp 0). Ersätter den tidigare inline .eq('vo_nummer')-synken (#407).
+      // dim_objekt är REDAN sparad ovan (sparaObjektTillSupabase), så vi speglar BARA objekt-raden
+      // (tabeller:['objekt']). Routern resolvar rätt rad FK-medvetet (objekt.dim_objekt_id) med
+      // URSPRUNGS-vo som fallback — objekt-raden bär gamla vo tills vi skriver om det. Ingen rad →
+      // tyst skip (objektRadFanns=false), verifierad skrivning (läser tillbaka värdet), ett DB-fel
+      // tigs aldrig ihjäl. Rössmåla: dim fick nytt vo men objekt låg kvar → produktionen blev osynlig.
       const voAndrad = andradeNycklar.includes('vo_nummer')
       const namnAndrad = andradeNycklar.includes('object_name')
       if (voAndrad || namnAndrad) {
         const urspVo = String(originalObjekt?.vo_nummer ?? '').trim()
-        const objektPatch: any = {}
-        if (voAndrad && String(valtObjekt.vo_nummer ?? '').trim()) objektPatch.vo_nummer = valtObjekt.vo_nummer
-        if (namnAndrad && String(valtObjekt.object_name ?? '').trim()) objektPatch.namn = valtObjekt.object_name
-        if (urspVo && Object.keys(objektPatch).length > 0) {
-          const { error: objektFel } = await supabase.from('objekt').update(objektPatch).eq('vo_nummer', urspVo).select('id')
-          if (objektFel) {
-            setSaveError('Sparat i redigeringen — men objekt-synken misslyckades: ' + objektFel.message)
+        const synkPatch: Record<string, any> = {}
+        if (voAndrad && String(valtObjekt.vo_nummer ?? '').trim()) synkPatch.vo_nummer = valtObjekt.vo_nummer
+        if (namnAndrad && String(valtObjekt.object_name ?? '').trim()) synkPatch.object_name = valtObjekt.object_name
+        if (Object.keys(synkPatch).length > 0) {
+          const synkRes = await sparaFalt(
+            { dimObjektIds: sysk.map((o: any) => o.objekt_id), voNummer: urspVo },
+            synkPatch,
+            { tabeller: ['objekt'] },
+          )
+          if (!synkRes.ok) {
+            setSaveError('Sparat i redigeringen — men objekt-synken misslyckades: ' + (synkRes.message || ''))
             setSaving(false)
             return
           }
