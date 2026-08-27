@@ -129,6 +129,40 @@ function korvyProximityZoom(dist: number | null): number {
   return KORVY_BASE_ZOOM + (KORVY_FULL_ZOOM - KORVY_BASE_ZOOM) * t;
 }
 
+// === SKOTARKÖRVY (v1): stråk-klumpning + sortimentfärg ===
+// Speglar getSortimentColor (loadHogar-scoped) så stråk-etikett + autopanel använder EXAKT
+// samma färgspråk som pie-ikonerna/skotningspanelen. Håll i synk med de två.
+function sortimentFargKorvy(s: string): string {
+  if (s.startsWith('Gran')) return '#1d9e75';
+  if (s.startsWith('Tall')) return '#e8832a';
+  if (s.startsWith('Björk')) return '#f0f0f0';
+  if (s.startsWith('Övr_löv')) return '#888780';
+  if (s === 'GROT') return '#8B5E3C';
+  return '#6b7c3a';
+}
+// Minsta avstånd (m) från en punkt till en stråk-polylinje ([[lng,lat],…]). Lokal ekvirektangulär
+// projektion runt punkten → planär segment-distans; tillräckligt exakt på trakt-skala (< några km).
+function avstandPunktTillStrak(lat: number, lon: number, geometri: [number, number][]): number {
+  if (!geometri || geometri.length === 0) return Infinity;
+  const R = 6371000, rad = Math.PI / 180;
+  const cosLat = Math.cos(lat * rad);
+  const proj = (g: [number, number]): [number, number] => [ (g[0] - lon) * rad * R * cosLat, (g[1] - lat) * rad * R ];
+  if (geometri.length === 1) { const [x, y] = proj(geometri[0]); return Math.hypot(x, y); }
+  let best = Infinity;
+  for (let i = 1; i < geometri.length; i++) {
+    const [ax, ay] = proj(geometri[i - 1]);
+    const [bx, by] = proj(geometri[i]);
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 > 0 ? ((-ax) * dx + (-ay) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + t * dx, cy = ay + t * dy;
+    const d = Math.hypot(cx, cy);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 // === TYPES ===
 interface Point {
   x: number;
@@ -2989,6 +3023,71 @@ export default function PlannerPage() {
   const [korvyAcuteWarning, setKorvyAcuteWarning] = useState<AcuteWarning | null>(null);
   const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());
   const korvyAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // === SKOTARKÖRVY (v1) — skördarstråk + kvarvolym i skotarens körvy ===
+  // Testbarhet (Martins flagga): läget FÖLJER rollen på objektet, MEN admin/chef får båda valen i
+  // KÖRVY-menyn (korvyForceRoll override) → Martin når skotarläget i previewn utan skotar-tilldelning.
+  const [korvyForceRoll, setKorvyForceRoll] = useState<'skordare' | 'skotare' | null>(null);
+  type StrakRad = { id: string; strak_nr: number; geometri: [number, number][]; langd_m: number };
+  const [strakData, setStrakData] = useState<StrakRad[]>([]);
+  const [valtStrakNr, setValtStrakNr] = useState<number | null>(null);
+  // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
+  const [hogarVersion, setHogarVersion] = useState(0);
+  const skotarKorvy = korvyActive && (korvyForceRoll ? korvyForceRoll === 'skotare' : minRoll === 'skotare');
+  const skotarKorvyRef = useRef(false);
+  useEffect(() => { skotarKorvyRef.current = skotarKorvy; }, [skotarKorvy]);
+  useEffect(() => { if (!skotarKorvy) setValtStrakNr(null); }, [skotarKorvy]);
+
+  // Hämta skördarstråk för valt objekt (bara i skotarkörvy). objekt_id = objekt.id (uuid) = valtObjekt.id.
+  useEffect(() => {
+    if (!skotarKorvy || !valtObjekt?.id) { setStrakData([]); return; }
+    let avbruten = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('skordarstrak')
+        .select('id, strak_nr, geometri, langd_m')
+        .eq('objekt_id', valtObjekt.id)
+        .order('strak_nr', { ascending: true });
+      if (avbruten) return;
+      if (error) { console.error('[Skotarkörvy] skordarstrak-hämtning:', error); setStrakData([]); return; }
+      const rader: StrakRad[] = (data || []).map((r: any) => ({
+        id: String(r.id),
+        strak_nr: r.strak_nr,
+        geometri: Array.isArray(r.geometri) ? r.geometri : [],
+        langd_m: r.langd_m ?? 0,
+      })).filter((r: StrakRad) => r.geometri.length >= 2);
+      setStrakData(rader);
+    })();
+    return () => { avbruten = true; };
+  }, [skotarKorvy, valtObjekt?.id]);
+
+  // Klumpa varje redan-kvar-reducerad hög (hogarFeaturesRef — draAvUttagFranHogar körd vid load,
+  // SAMMA kvar som pie-ikonerna) till närmaste stråk (≤ STRAK_KLUMP_M) och summera sortimentVolymJson
+  // per stråk. Ingen ny kvar-beräkning — bara tilldelning + summering.
+  const STRAK_KLUMP_M = 30;
+  const strakKvar = useMemo(() => {
+    const karta = new Map<number, { total: number; sortiment: Record<string, number> }>();
+    for (const s of strakData) karta.set(s.strak_nr, { total: 0, sortiment: {} });
+    if (strakData.length === 0) return karta;
+    for (const f of hogarFeaturesRef.current) {
+      const coord = f?.geometry?.coordinates;
+      if (!coord || coord.length < 2) continue;
+      const lng = coord[0], lat = coord[1];
+      let bastNr: number | null = null, bastD = Infinity;
+      for (const s of strakData) {
+        const d = avstandPunktTillStrak(lat, lng, s.geometri);
+        if (d < bastD) { bastD = d; bastNr = s.strak_nr; }
+      }
+      if (bastNr == null || bastD > STRAK_KLUMP_M) continue;
+      const post = karta.get(bastNr)!;
+      post.total += Number(f.properties?.volym) || 0;
+      let sv: Record<string, number> = {};
+      try { sv = JSON.parse(f.properties?.sortimentVolymJson || '{}'); } catch { /* */ }
+      for (const [namn, vol] of Object.entries(sv)) post.sortiment[namn] = (post.sortiment[namn] || 0) + (Number(vol) || 0);
+    }
+    return karta;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strakData, hogarVersion]);
   // Geofence: när maskinen är inne i en wet/steep/noentry-zon
   type ZoneAlert = { markerId: string; zoneType: string; label: string; color: string };
   const [korvyZoneAlert, setKorvyZoneAlert] = useState<ZoneAlert | null>(null);
@@ -3774,6 +3873,7 @@ export default function PlannerPage() {
       }
 
       hogarFeaturesRef.current = filteredHogar;
+      setHogarVersion(v => v + 1);   // skotarkörvy: räkna om stråk-klumpningen
       if (map.getSource('hogar-source')) {
         (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: filteredHogar });
       }
@@ -6269,6 +6369,17 @@ export default function PlannerPage() {
     return null;
   }, [simulatedPos, currentPosition]);
 
+  // Närmaste stråk till föraren (autopanelens default-stråk). Uppdateras per GPS-tick.
+  const narmasteStrakNr = useMemo(() => {
+    if (!skotarKorvy || !korvyEffectivePos || strakData.length === 0) return null;
+    let nr: number | null = null, bastD = Infinity;
+    for (const s of strakData) {
+      const d = avstandPunktTillStrak(korvyEffectivePos.lat, korvyEffectivePos.lon, s.geometri);
+      if (d < bastD) { bastD = d; nr = s.strak_nr; }
+    }
+    return nr;
+  }, [skotarKorvy, korvyEffectivePos, strakData]);
+
   const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) {
@@ -6653,6 +6764,9 @@ export default function PlannerPage() {
     }
     const pos = korvyEffectivePos;
     if (!pos || pos.lat == null || pos.lon == null) { setKorvyNextItems([]); return; }
+    // Skotarläget använder en annan producent (stråk + autopanel) — skördarens markör-kö tystas
+    // helt (tom kö ⇒ nästa-panelen + akutvarningen visas inte, och zoomen ligger på baszoom).
+    if (skotarKorvy) { setKorvyNextItems([]); return; }
     const symbolMarkers = markers.filter(m => m.isMarker);
     const items: NextItem[] = [];
     for (const m of symbolMarkers) {
@@ -6672,7 +6786,7 @@ export default function PlannerPage() {
     items.sort((a, b) => a.dist - b.dist);
     setKorvyNextItems(items.slice(0, 3));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [korvyActive, korvyEffectivePos, korvyHeading, markers]);
+  }, [korvyActive, korvyEffectivePos, korvyHeading, markers, skotarKorvy]);
 
   // 8) Akut varning: när närmsta marker är ≤50m, trigga vibration + kort. Per ID en gång.
   useEffect(() => {
@@ -6858,6 +6972,58 @@ export default function PlannerPage() {
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Körvy] mainroad-glow:', e); }
+    }
+
+    // 1b) SKOTARKÖRVY: skördarstråk (casing + linje) + kvarvolym-etikett. Data + synlighet styrs av
+    //     separat effekt (skotarKorvy). utkort (kvar≈0) och small (<50 m) dämpas i paint/etikett.
+    if (!map.getSource('skordarstrak-source')) {
+      try { map.addSource('skordarstrak-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+      catch (e) { console.error('[Skotarkörvy] strak-source:', e); }
+    }
+    if (!map.getLayer('skordarstrak-casing')) {
+      try {
+        map.addLayer({
+          id: 'skordarstrak-casing', type: 'line', source: 'skordarstrak-source',
+          paint: {
+            'line-color': '#0b0b0d',
+            'line-opacity': ['case', ['get', 'utkort'], 0.12, 0.5],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 6, 17, 12, 19, 18],
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Skotarkörvy] casing:', e); }
+    }
+    if (!map.getLayer('skordarstrak-line')) {
+      try {
+        map.addLayer({
+          id: 'skordarstrak-line', type: 'line', source: 'skordarstrak-source',
+          paint: {
+            'line-color': ['case', ['get', 'utkort'], '#8e8e93', '#0a84ff'],
+            'line-opacity': ['case', ['get', 'utkort'], 0.35, ['case', ['get', 'small'], 0.5, 0.95]],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 6, 19, 9],
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Skotarkörvy] line:', e); }
+    }
+    if (!map.getSource('skordarstrak-label-source')) {
+      try { map.addSource('skordarstrak-label-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+      catch (e) { console.error('[Skotarkörvy] label-source:', e); }
+    }
+    if (!map.getLayer('skordarstrak-label')) {
+      try {
+        map.addLayer({
+          id: 'skordarstrak-label', type: 'symbol', source: 'skordarstrak-label-source',
+          layout: {
+            'text-field': ['get', 'label'],
+            'text-font': ['Open Sans Bold'],
+            'text-size': 13,
+            'text-allow-overlap': false,
+            'visibility': 'none',
+          },
+          paint: { 'text-color': '#fff', 'text-halo-color': '#0b0b0d', 'text-halo-width': 1.6 },
+        });
+      } catch (e) { console.error('[Skotarkörvy] label:', e); }
     }
 
     // 2) Zon-extrusioner BORTTAGNA för ALLA zon-typer (wet/steep/culture). Zoner ska vara PLATTA
@@ -7070,6 +7236,58 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Körvy] hillshade-korvy:', e); }
     }
     console.log('[Körvy] immersion-layers setup klar');
+  }, [mapLibreReady]);
+
+  // === SKOTARKÖRVY: mata stråk-linjer + kvar-etiketter + toggla synlighet ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const vis = skotarKorvy ? 'visible' : 'none';
+    const lineFeatures: any[] = [];
+    const labelFeatures: any[] = [];
+    for (const s of strakData) {
+      const kvar = strakKvar.get(s.strak_nr)?.total ?? 0;
+      const utkort = kvar <= 0.05;          // klart utkört → dämpas
+      const small = s.langd_m < 50;         // småstump → dämpas + ingen etikett (datan rörs ej)
+      lineFeatures.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: s.geometri },
+        properties: { strak_nr: s.strak_nr, utkort, small },
+      });
+      if (!utkort && !small) {
+        const mid = s.geometri[Math.floor(s.geometri.length / 2)];
+        labelFeatures.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: mid },
+          properties: { label: `${kvar.toFixed(1)} m³` },
+        });
+      }
+    }
+    try {
+      const src = map.getSource('skordarstrak-source') as any;
+      if (src) src.setData({ type: 'FeatureCollection', features: lineFeatures });
+      const lsrc = map.getSource('skordarstrak-label-source') as any;
+      if (lsrc) lsrc.setData({ type: 'FeatureCollection', features: labelFeatures });
+    } catch (e) { console.error('[Skotarkörvy] setData:', e); }
+    for (const id of ['skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-label']) {
+      try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch { /* */ }
+    }
+  }, [skotarKorvy, strakData, strakKvar, mapLibreReady]);
+
+  // SKOTARKÖRVY: tryck på ett stråk → välj det (autopanelen visar dess sortiment). Bunden en gång;
+  // dörrvaktar på skotarKorvyRef så den är passiv i övriga lägen.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const onStrakClick = (e: any) => {
+      if (!skotarKorvyRef.current) return;
+      const f = e.features?.[0];
+      if (!f) return;
+      const nr = f.properties?.strak_nr;
+      if (nr != null) setValtStrakNr(Number(nr));
+    };
+    map.on('click', 'skordarstrak-line', onStrakClick);
+    return () => { try { map.off('click', 'skordarstrak-line', onStrakClick); } catch { /* */ } };
   }, [mapLibreReady]);
 
   // === KÖRVY: visibility-toggle för alla immersion-layers + markers-layer alignment ===
@@ -11114,6 +11332,67 @@ export default function PlannerPage() {
         );
       })()}
 
+      {/* === SKOTARKÖRVY: AUTOPANEL — närmaste stråkets sortimentsfördelning (byts när man rullar
+           över till nästa stråk). Tryck på ett stråk visar samma panel för stråk man inte står på. === */}
+      {skotarKorvy && (() => {
+        const aktivNr = valtStrakNr ?? narmasteStrakNr;
+        if (aktivNr == null) return null;
+        const post = strakKvar.get(aktivNr);
+        if (!post) return null;
+        const rader = Object.entries(post.sortiment)
+          .filter(([, v]) => v > 0.05)
+          .sort((a, b) => b[1] - a[1]);
+        const arValt = valtStrakNr != null && valtStrakNr !== narmasteStrakNr;
+        const utkort = post.total <= 0.05;
+        return (
+          <div style={{
+            position: 'fixed', left: 12, right: 92,
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+            maxWidth: 520, maxHeight: '42vh', overflowY: 'auto',
+            background: 'rgba(28,28,30,0.92)',
+            backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+            border: `1px solid ${utkort ? 'rgba(255,255,255,0.08)' : 'rgba(10,132,255,0.55)'}`,
+            borderRadius: 18, padding: '12px 14px', zIndex: 250, color: '#fff',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          }}>
+            {/* Rubrik: Stråk N + total kvar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: rader.length ? 10 : 0 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: utkort ? '#8e8e93' : '#0a84ff', textTransform: 'uppercase' }}>
+                  {arValt ? 'Valt stråk' : 'Vid stråket'}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>Stråk {aktivNr}</div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                {utkort ? (
+                  <span style={{ fontSize: 15, fontWeight: 700, color: '#8e8e93' }}>Utkört ✓</span>
+                ) : (
+                  <span style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                    {post.total.toFixed(1)} <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93' }}>m³ kvar</span>
+                  </span>
+                )}
+              </div>
+              {arValt && (
+                <button type="button" aria-label="Tillbaka till närmaste stråk"
+                  onClick={() => setValtStrakNr(null)}
+                  style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 15, border: 'none', cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+                </button>
+              )}
+            </div>
+            {/* Sortimentrader — samma namn/färger som skotningspanelen */}
+            {rader.map(([namn, vol]) => (
+              <div key={namn} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <span style={{ width: 16, height: 16, borderRadius: '50%', background: sortimentFargKorvy(namn), flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{namn}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{vol.toFixed(1)} m³</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* === KÖRVY: BASKARTE-VÄXLING (Karta/dämpad ⇄ Topokarta/full färg — båda Lantmäteriet) === */}
       {korvyActive && (
         <div style={{
@@ -11160,7 +11439,7 @@ export default function PlannerPage() {
       )}
 
       {/* === KÖRVY: NÄSTA HINDER — EN i taget, NÄRMASTE oavsett riktning (maskinen fäller åt sidan) === */}
-      {korvyActive && korvyNextItems.length > 0 && (() => {
+      {korvyActive && !skotarKorvy && korvyNextItems.length > 0 && (() => {
         const item = korvyNextItems[0];
         const next = korvyNextItems[1];
         const typeName = (t: string) => ({
@@ -11620,15 +11899,17 @@ export default function PlannerPage() {
               },
               {
                 title: 'KÖRVY',
-                items: [
-                  // Körvy 2D-raden är conditional toggle: startar när inaktiv,
-                  // avslutar (röd) när aktiv. Tidigare fanns en separat blå mode-
-                  // banner med "Avsluta"-knapp överst i körvyn — den togs bort
-                  // 2026-05 till förmån för denna placering i + menyn.
-                  korvyActive
-                    ? { label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); }, danger: true }
-                    : { label: 'Körvy 2D', icon: 'navigation', action: () => { setKorvyActive(true); } },
-                ],
+                // Körvy 2D-raden är conditional toggle: startar när inaktiv, avslutar (röd) när aktiv.
+                // Läget FÖLJER rollen på objektet (korvyForceRoll=null). Admin/chef har ingen roll-
+                // tilldelning → får båda valen explicit (skördar-/skotarkörvy) så previewn går att fälttitta.
+                items: korvyActive
+                  ? [{ label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); setKorvyForceRoll(null); }, danger: true }]
+                  : isAdminRiktig
+                    ? [
+                        { label: 'Skördarkörvy', icon: 'navigation', action: () => { setKorvyForceRoll('skordare'); setKorvyActive(true); } },
+                        { label: 'Skotarkörvy', icon: 'local_shipping', action: () => { setKorvyForceRoll('skotare'); setKorvyActive(true); } },
+                      ]
+                    : [{ label: 'Körvy 2D', icon: 'navigation', action: () => { setKorvyForceRoll(null); setKorvyActive(true); } }],
               },
               {
                 title: 'SKOTARE',
@@ -20240,6 +20521,7 @@ export default function PlannerPage() {
                           }
                         } catch { /* */ }
                         hogarFeaturesRef.current = newFeatures;
+                        setHogarVersion(v => v + 1);   // skotarkörvy: räkna om stråk-klumpningen
                         try {
                           const m = mapInstanceRef.current;
                           if (m?.getSource('hogar-source')) {
@@ -20587,6 +20869,7 @@ export default function PlannerPage() {
                         }
                       } catch { /* */ }
                       hogarFeaturesRef.current = newFeatures;
+                      setHogarVersion(v => v + 1);   // skotarkörvy: räkna om stråk-klumpningen
                       try {
                         const m = mapInstanceRef.current;
                         if (m?.getSource('hogar-source')) {
