@@ -130,6 +130,9 @@ function korvyProximityZoom(dist: number | null): number {
 }
 
 // === SKOTARKÖRVY (v1): stråk-klumpning + sortimentfärg ===
+// Autopanelens sortimentrader: allt under detta klumpas till EN "Övrigt"-rad sist. Ett halvt
+// kubikmeter är under vad som är värt att välja lass efter — resten ska inte äta plats i kortet.
+const OVRIGT_M3 = 0.5;
 // Speglar getSortimentColor (loadHogar-scoped) så stråk-etikett + autopanel använder EXAKT
 // samma färgspråk som pie-ikonerna/skotningspanelen. Håll i synk med de två.
 function sortimentFargKorvy(s: string): string {
@@ -6985,9 +6988,11 @@ export default function PlannerPage() {
         map.addLayer({
           id: 'skordarstrak-casing', type: 'line', source: 'skordarstrak-source',
           paint: {
+            // Tunn casing: bara så mycket mörk kant att linjen håller ihop mot ljus topokarta.
+            // Bredderna halverade mot v1 — kartan (stickvägar, ytor) ska gå att läsa UNDER stråket.
             'line-color': '#0b0b0d',
-            'line-opacity': ['case', ['get', 'utkort'], 0.12, 0.5],
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 6, 17, 12, 19, 18],
+            'line-opacity': ['case', ['get', 'utkort'], 0.10, 0.38],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 5.5, 19, 8],
           },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
@@ -6999,8 +7004,8 @@ export default function PlannerPage() {
           id: 'skordarstrak-line', type: 'line', source: 'skordarstrak-source',
           paint: {
             'line-color': ['case', ['get', 'utkort'], '#8e8e93', '#0a84ff'],
-            'line-opacity': ['case', ['get', 'utkort'], 0.35, ['case', ['get', 'small'], 0.5, 0.95]],
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 6, 19, 9],
+            'line-opacity': ['case', ['get', 'utkort'], 0.30, ['case', ['get', 'small'], 0.45, 0.88]],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1.8, 17, 3.2, 19, 4.6],
           },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
@@ -11339,9 +11344,22 @@ export default function PlannerPage() {
         if (aktivNr == null) return null;
         const post = strakKvar.get(aktivNr);
         if (!post) return null;
-        const rader = Object.entries(post.sortiment)
-          .filter(([, v]) => v > 0.05)
-          .sort((a, b) => b[1] - a[1]);
+        // Namnen kommer råa ur sortimentVolymJson ("Björk Massa: BjörkmavFall_V3"). Kör dem genom
+        // SAMMA kortnamnskälla som skotningspanelen (kortSortiment) — två råa apteringsnamn kan
+        // falla ut på samma kortnamn, så summera EFTER förkortningen, aldrig före.
+        const perKort: Record<string, number> = {};
+        for (const [ra, v] of Object.entries(post.sortiment)) {
+          const vol = Number(v) || 0;
+          if (vol <= 0) continue;
+          const k = kortSortiment(ra);
+          perKort[k] = (perKort[k] || 0) + vol;
+        }
+        // Störst först. Allt under OVRIGT_M3 slås ihop till en "Övrigt"-rad sist — en skotare ska
+        // se de sortiment som är värda ett lass, inte en lista med decimalrester.
+        const sorterade = Object.entries(perKort).sort((a, b) => b[1] - a[1]);
+        const rader = sorterade.filter(([, v]) => v >= OVRIGT_M3);
+        const ovrigt = sorterade.reduce((s, [, v]) => s + (v < OVRIGT_M3 ? v : 0), 0);
+        const visaOvrigt = ovrigt > 0.05;
         const arValt = valtStrakNr != null && valtStrakNr !== narmasteStrakNr;
         const utkort = post.total <= 0.05;
         return (
@@ -11356,7 +11374,7 @@ export default function PlannerPage() {
             fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
           }}>
             {/* Rubrik: Stråk N + total kvar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: rader.length ? 10 : 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: (rader.length || visaOvrigt) ? 10 : 0 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: utkort ? '#8e8e93' : '#0a84ff', textTransform: 'uppercase' }}>
                   {arValt ? 'Valt stråk' : 'Vid stråket'}
@@ -11381,7 +11399,7 @@ export default function PlannerPage() {
                 </button>
               )}
             </div>
-            {/* Sortimentrader — samma namn/färger som skotningspanelen */}
+            {/* Sortimentrader — kortnamn + samma färger som skotningspanelen, störst först */}
             {rader.map(([namn, vol]) => (
               <div key={namn} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <span style={{ width: 16, height: 16, borderRadius: '50%', background: sortimentFargKorvy(namn), flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
@@ -11389,6 +11407,13 @@ export default function PlannerPage() {
                 <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{vol.toFixed(1)} m³</span>
               </div>
             ))}
+            {visaOvrigt && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)', opacity: 0.65 }}>
+                <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#8e8e93', flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Övrigt</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{ovrigt.toFixed(1)} m³</span>
+              </div>
+            )}
           </div>
         );
       })()}

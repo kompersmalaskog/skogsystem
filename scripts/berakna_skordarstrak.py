@@ -7,7 +7,8 @@ Pipeline per (maskin_id, objekt):
   steg 0  DEDUP på (tidpunkt, lat, lon) — arbetspositions-bursten (en rad per stock på samma
           uppställning; ~22 identiska rader) → EN punkt, annars viktas stråket mot stockrika stopp.
   steg 1  Sortera på tidpunkt, SEGMENTERA: ny stråk vid tidslucka > TIDSLUCKA_S eller
-          avståndshopp > HOPP_M (GPS-glapp/förflyttning till annan del).
+          avståndshopp > hopptröskeln (förflyttning till annan del av beståndet).
+          Tröskeln är ADAPTIV per (objekt, maskin) — se HOPP_FAKTOR nedan.
   steg 2  RDP-förenkling (Ramer–Douglas–Peucker) med RDP_M meters tolerans. Punkterna är redan
           glest samplade (~10–30 m isär) → låg tolerans, behåller formen.
 Skriver STATISK geometri. Volym/kvar per stråk är dynamiskt (klumpning + lib/skotat, PR 2/3).
@@ -31,7 +32,20 @@ except ImportError:
 # ── Trimbara parametrar ──────────────────────────────────────────────────────
 TIDSLUCKA_S = 120      # > 2 min glapp → ny stråk (Martins beslut: speglar hur skördaren jobbade;
                        #                          recompute-idempotent → billigt att trimma om)
-HOPP_M      = 200      # > 200 m mellan punkter → ny stråk (glapp/teleport)
+# Hopptröskeln är ADAPTIV, inte ett fast meterantal. Skälet är mätt, inte gissat: maskinerna
+# loggar med helt olika täthet, så EN fast tröskel kan inte tjäna båda.
+#   PONS20SDJAA270231 (slutavverkning, tidsstyrd logg ~30 s):  mediansteg  1,7 m,  p99 27 m
+#   R64101 / R64428   (gallring,      avståndsstyrd logg):     mediansteg 10,2 m,  p99 23–74 m
+# Fasta 200 m klippte ingenting alls på Ponsse-objekten: förflyttningen mellan två arbetspunkter
+# ligger där på 20–30 m per punkt, så stråket löpte vidare TVÄRS beståndet (spaghettit på Akelius,
+# vo 11208196 — 9 stråk, längsta 7,4 km på ett annat objekt). 50 m ändrade exakt noll punkter.
+# Tröskeln sätts därför mot maskinens EGET normalsteg på just det objektet: ett steg som är
+# HOPP_FAKTOR gånger längre än medianen är en förflyttning, inte arbete. Golv mot GPS-brus,
+# tak mot orimligt glesa loggar.
+HOPP_FAKTOR = 3.0      # klipp när steget > FAKTOR × mediansteget för (objekt, maskin)
+HOPP_MIN_M  = 15.0     # golv — klipp aldrig på kortare steg än så (GPS-brus/kranrörelse)
+HOPP_TAK_M  = 200.0    # tak — > 200 m är alltid glapp/teleport, oavsett mediansteg
+HOPP_M      = None     # sätts av --hopp för att TVINGA en fast tröskel (annars adaptiv)
 RDP_M       = 4.0      # RDP-tolerans i meter (gles sampling → låg)
 MIN_PUNKTER = 2        # en stråk behöver minst 2 punkter
 MIN_LANGD_M = 15.0     # kortare stråk kastas
@@ -64,6 +78,27 @@ def haversine_m(lat1, lon1, lat2, lon2):
     dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
     a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
     return 2 * R * math.asin(min(1.0, math.sqrt(a)))
+
+def hopptroskel(dedup):
+    """Adaptiv hopptröskel (m) för EN (objekt, maskin)-serie. dedup = [(lng,lat,tid), ...] i tidsordning.
+
+    Mediansteget är maskinens normala loggavstånd på just detta objekt (tidsstyrd logg → litet;
+    avståndsstyrd → ~10 m). Ett steg som är HOPP_FAKTOR gånger längre är en förflyttning mellan
+    arbetspunkter — det ska bli ny stråk, inte en linje tvärs beståndet. --hopp tvingar fast värde.
+    """
+    if HOPP_M is not None:
+        return float(HOPP_M)
+    steg = []
+    for i in range(1, len(dedup)):
+        a, b = dedup[i - 1], dedup[i]
+        if (b[2] - a[2]).total_seconds() > TIDSLUCKA_S:
+            continue          # dygns-/rastglapp säger inget om loggtätheten
+        steg.append(haversine_m(a[1], a[0], b[1], b[0]))
+    if not steg:
+        return HOPP_MIN_M
+    steg.sort()
+    median = steg[len(steg) // 2]
+    return min(HOPP_TAK_M, max(HOPP_MIN_M, HOPP_FAKTOR * median))
 
 def rdp(pts, eps_m):
     """Ramer–Douglas–Peucker. pts = [(lng,lat,tid), ...]. Perp-avstånd i meter via lokal planprojektion."""
@@ -158,6 +193,10 @@ def bygg_strak_for_objekt(vo, objekt_uuid, rows):
         stats['dedup'] += len(dedup)
         dedup.sort(key=lambda p: p[2])  # på tidpunkt
 
+        # steg 1a: hopptröskel ur maskinens EGET normalsteg på detta objekt. Bara steg inom
+        # TIDSLUCKA_S räknas — ett dygnsuppehåll säger inget om hur tätt maskinen loggar.
+        trosk = hopptroskel(dedup)
+
         # steg 1: segmentera
         segs, cur = [], []
         for i, p in enumerate(dedup):
@@ -166,7 +205,7 @@ def bygg_strak_for_objekt(vo, objekt_uuid, rows):
             prev = cur[-1]
             gap = (p[2] - prev[2]).total_seconds()
             dist = haversine_m(prev[1], prev[0], p[1], p[0])
-            if gap > TIDSLUCKA_S or dist > HOPP_M:
+            if gap > TIDSLUCKA_S or dist > trosk:
                 segs.append(cur); cur = [p]
             else:
                 cur.append(p)
@@ -191,10 +230,12 @@ def bygg_strak_for_objekt(vo, objekt_uuid, rows):
                 'langd_m': round(langd, 1),
                 'tid_start': seg[0][2].isoformat(),
                 'tid_slut': seg[-1][2].isoformat(),
-                'berakning': {'tidslucka_s': TIDSLUCKA_S, 'hopp_m': HOPP_M, 'rdp_m': RDP_M},
+                'berakning': {'tidslucka_s': TIDSLUCKA_S, 'hopp_m': round(trosk, 1), 'rdp_m': RDP_M,
+                              'hopp_adaptiv': HOPP_M is None, 'hopp_faktor': HOPP_FAKTOR},
             })
             stats['langd'] += langd
         stats['strak'] += nr
+        stats.setdefault('trosk', []).append((maskin, round(trosk, 1)))
     return strak_recs, stats
 
 def skriv_strak(objekt_uuid, recs):
@@ -205,22 +246,26 @@ def skriv_strak(objekt_uuid, recs):
         r.raise_for_status()
 
 def main():
-    global TIDSLUCKA_S, HOPP_M, RDP_M
+    global TIDSLUCKA_S, HOPP_M, HOPP_FAKTOR, RDP_M
     ap = argparse.ArgumentParser()
     ap.add_argument('--vo', help='bara detta vo_nummer')
     ap.add_argument('--dry-run', action='store_true', help='räkna + rapportera, skriv inget')
     ap.add_argument('--detalj', action='store_true', help='lista varje stråk (nr, punkter, längd, tid)')
     ap.add_argument('--tidslucka', type=float, help=f'override TIDSLUCKA_S (default {TIDSLUCKA_S})')
-    ap.add_argument('--hopp', type=float, help=f'override HOPP_M (default {HOPP_M})')
+    ap.add_argument('--hopp', type=float, help='TVINGA fast hopptröskel i meter (default: adaptiv)')
+    ap.add_argument('--hopp-faktor', type=float, help=f'override HOPP_FAKTOR (default {HOPP_FAKTOR})')
     ap.add_argument('--rdp', type=float, help=f'override RDP_M (default {RDP_M})')
     ap.add_argument('--lista-omatchade', action='store_true', help='sampla detalj_gps_spar-objekt utan app-objekt')
     a = ap.parse_args()
     if a.tidslucka is not None: TIDSLUCKA_S = a.tidslucka
     if a.hopp is not None: HOPP_M = a.hopp
+    if a.hopp_faktor is not None: HOPP_FAKTOR = a.hopp_faktor
     if a.rdp is not None: RDP_M = a.rdp
 
     vo_map = las_objekt_map()
-    print(f"Objekt i appen med vo_nummer: {len(vo_map)}  |  trösklar: tidslucka={TIDSLUCKA_S}s hopp={HOPP_M}m rdp={RDP_M}m")
+    hopptxt = (f"{HOPP_M}m (tvingad)" if HOPP_M is not None
+               else f"adaptiv {HOPP_FAKTOR}×median, {HOPP_MIN_M:.0f}–{HOPP_TAK_M:.0f}m")
+    print(f"Objekt i appen med vo_nummer: {len(vo_map)}  |  trösklar: tidslucka={TIDSLUCKA_S}s hopp={hopptxt} rdp={RDP_M}m")
 
     if a.lista_omatchade:
         # Sampla objekt_id över tabellen (kan ej DISTINCT via PostgREST) → flagga vo utan app-objekt.
@@ -254,7 +299,9 @@ def main():
                 skriv_strak(uuid, recs)
             tot['objekt'] += 1; tot['strak'] += st['strak']; tot['ra'] += st['ra']; tot['dedup'] += st['dedup']
             idtxt = uuid[:8] if uuid else 'omappad'
+            trosktxt = ' '.join(f"{m}:{t:.0f}m" for m, t in st.get('trosk', []))
             print(f"  {vo} ({idtxt}): {st['ra']} pkt → dedup {st['dedup']} → {st['strak']} stråk, {st['langd']/1000:.2f} km"
+                  + (f"  [hopp {trosktxt}]" if trosktxt else "")
                   + ("  [DRY]" if a.dry_run else ""))
             if a.detalj:
                 for r in recs:
