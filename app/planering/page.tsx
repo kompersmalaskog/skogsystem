@@ -3034,6 +3034,11 @@ export default function PlannerPage() {
   type StrakRad = { id: string; strak_nr: number; geometri: [number, number][]; langd_m: number };
   const [strakData, setStrakData] = useState<StrakRad[]>([]);
   const [valtStrakNr, setValtStrakNr] = useState<number | null>(null);
+  // Autopanelen: KOMPAKT är default — hela listan åt halva skärmen i fält. Utfälld = förarens
+  // eget val, aldrig ett läge panelen hamnar i själv. Nollställs när man rullar till nästa stråk,
+  // annars ligger den kvar utfälld och äter kartan igen utan att någon bad om det.
+  const [panelUtfalld, setPanelUtfalld] = useState(false);
+  const panelSvepY = useRef<number | null>(null);   // touchstart-Y för svep-ner-fäller-ihop
   // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
   const [hogarVersion, setHogarVersion] = useState(0);
   const skotarKorvy = korvyActive && (korvyForceRoll ? korvyForceRoll === 'skotare' : minRoll === 'skotare');
@@ -6382,6 +6387,10 @@ export default function PlannerPage() {
     }
     return nr;
   }, [skotarKorvy, korvyEffectivePos, strakData]);
+
+  // Fäll ihop autopanelen så fort man byter stråk (rullar vidare, trycker på ett annat stråk,
+  // lämnar skotarläget). Utfällt är ett tillfälligt uppslag, inte ett läge man fastnar i.
+  useEffect(() => { setPanelUtfalld(false); }, [narmasteStrakNr, valtStrakNr, skotarKorvy]);
 
   const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
@@ -11362,19 +11371,74 @@ export default function PlannerPage() {
         const visaOvrigt = ovrigt > 0.05;
         const arValt = valtStrakNr != null && valtStrakNr !== narmasteStrakNr;
         const utkort = post.total <= 0.05;
+        // KOMPAKT: de tre största sortimenten på en rad. Fler än så ryms inte utan att kartan
+        // försvinner — resten finns kvar ett tryck bort i den utfällda listan.
+        const topp3 = rader.slice(0, 3);
         return (
-          <div style={{
-            position: 'fixed', left: 12, right: 92,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-            maxWidth: 520, maxHeight: '42vh', overflowY: 'auto',
-            background: 'rgba(28,28,30,0.92)',
-            backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-            border: `1px solid ${utkort ? 'rgba(255,255,255,0.08)' : 'rgba(10,132,255,0.55)'}`,
-            borderRadius: 18, padding: '12px 14px', zIndex: 250, color: '#fff',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-          }}>
-            {/* Rubrik: Stråk N + total kvar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: (rader.length || visaOvrigt) ? 10 : 0 }}>
+          <div
+            role="button" tabIndex={0}
+            aria-expanded={panelUtfalld}
+            aria-label={panelUtfalld ? 'Fäll ihop stråkpanelen' : 'Visa alla sortiment för stråket'}
+            onClick={() => { if (navigator.vibrate) navigator.vibrate(8); setPanelUtfalld(v => !v); }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPanelUtfalld(v => !v); } }}
+            onTouchStart={e => { panelSvepY.current = e.touches[0]?.clientY ?? null; }}
+            onTouchEnd={e => {
+              // Svep NER fäller ihop. Bara när listan redan är uppe vid toppen, annars krockar
+              // svepet med att skrolla i en lång sortimentlista.
+              const start = panelSvepY.current; panelSvepY.current = null;
+              if (start == null || !panelUtfalld) return;
+              const slut = e.changedTouches[0]?.clientY ?? start;
+              if (slut - start > 40 && (e.currentTarget as HTMLDivElement).scrollTop <= 0) setPanelUtfalld(false);
+            }}
+            style={{
+              position: 'fixed', left: 12, right: 92,
+              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+              maxWidth: 520,
+              // Kompakt har ingen höjdspärr — den behöver ingen. Innehållet ÄR två rader
+              // (rubrikrad + tre sortiment), så panelen kan inte växa. En vh-spärr hade i stället
+              // klippt bort sortimenten på låga skärmar, vilket är värre än några pixlar extra.
+              maxHeight: panelUtfalld ? '42vh' : undefined,
+              overflowY: panelUtfalld ? 'auto' : 'hidden',
+              background: 'rgba(28,28,30,0.92)',
+              backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+              border: `1px solid ${utkort ? 'rgba(255,255,255,0.08)' : 'rgba(10,132,255,0.55)'}`,
+              borderRadius: 18, padding: '12px 14px', zIndex: 250, color: '#fff', cursor: 'pointer',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+            }}>
+            {/* KOMPAKT rubrik: allt föraren behöver på EN rad — "Stråk N · X m³ kvar".
+                Versaletiketten är utfälld-lägets lyx; i kompakt kostar den en hel rad höjd, och
+                mätt på 375–412 px vred den rubriken till två rader. */}
+            {!panelUtfalld ? (
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: topp3.length ? 7 : 0 }}>
+                {arValt && (
+                  <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: '#0a84ff', textTransform: 'uppercase', flexShrink: 0 }}>Valt</span>
+                )}
+                <span style={{ fontSize: 17, fontWeight: 700, flexShrink: 0 }}>Stråk {aktivNr}</span>
+                <span style={{ color: '#5a5a5f', fontSize: 15, flexShrink: 0 }} aria-hidden="true">·</span>
+                {utkort ? (
+                  <span style={{ fontSize: 15, fontWeight: 700, color: '#8e8e93' }}>Utkört ✓</span>
+                ) : (
+                  <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                    {post.total.toFixed(1)} <span style={{ fontSize: 13, fontWeight: 600, color: '#8e8e93' }}>m³ kvar</span>
+                  </span>
+                )}
+                <span style={{ flex: 1 }} />
+                {(rader.length || visaOvrigt) ? (
+                  <span className="material-symbols-outlined" aria-hidden="true"
+                    style={{ flexShrink: 0, fontSize: 20, color: '#8e8e93', alignSelf: 'center' }}>expand_less</span>
+                ) : null}
+                {arValt && (
+                  <button type="button" aria-label="Tillbaka till närmaste stråk"
+                    onClick={e => { e.stopPropagation(); setValtStrakNr(null); }}
+                    style={{ flexShrink: 0, alignSelf: 'center', width: 30, height: 30, borderRadius: 15, border: 'none', cursor: 'pointer',
+                      background: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+            /* UTFÄLLD rubrik: Stråk N + total kvar, med etiketten som säger vilket stråk det är */
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: (rader.length || visaOvrigt) ? 8 : 0 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: utkort ? '#8e8e93' : '#0a84ff', textTransform: 'uppercase' }}>
                   {arValt ? 'Valt stråk' : 'Vid stråket'}
@@ -11390,24 +11454,43 @@ export default function PlannerPage() {
                   </span>
                 )}
               </div>
+              {(rader.length || visaOvrigt) ? (
+                <span className="material-symbols-outlined" aria-hidden="true"
+                  style={{ flexShrink: 0, fontSize: 20, color: '#8e8e93' }}>expand_more</span>
+              ) : null}
               {arValt && (
                 <button type="button" aria-label="Tillbaka till närmaste stråk"
-                  onClick={() => setValtStrakNr(null)}
+                  onClick={e => { e.stopPropagation(); setValtStrakNr(null); }}
                   style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 15, border: 'none', cursor: 'pointer',
                     background: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
                 </button>
               )}
             </div>
-            {/* Sortimentrader — kortnamn + samma färger som skotningspanelen, störst först */}
-            {rader.map(([namn, vol]) => (
+            )}
+            {/* KOMPAKT: de tre största. Posterna WRAPPAR hellre än kortas — mätt på 320–412 px blev
+                "Gran timmer" till "Gran ti…" när de tvingades dela raden lika. Ett halvt namn är
+                värdelöst för en skotare; en extra rad kostar 18 px. */}
+            {!panelUtfalld && topp3.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '3px 12px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 7 }}>
+                {topp3.map(([namn, vol]) => (
+                  <div key={namn} style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '0 1 auto', minWidth: 0 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: sortimentFargKorvy(namn), flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
+                    <span style={{ minWidth: 0, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{namn}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{vol.toFixed(1)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* UTFÄLLT: hela listan — kortnamn + samma färger som skotningspanelen, störst först */}
+            {panelUtfalld && rader.map(([namn, vol]) => (
               <div key={namn} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <span style={{ width: 16, height: 16, borderRadius: '50%', background: sortimentFargKorvy(namn), flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
                 <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{namn}</span>
                 <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{vol.toFixed(1)} m³</span>
               </div>
             ))}
-            {visaOvrigt && (
+            {panelUtfalld && visaOvrigt && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)', opacity: 0.65 }}>
                 <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#8e8e93', flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
                 <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Övrigt</span>
