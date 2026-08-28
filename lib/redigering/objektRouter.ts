@@ -34,6 +34,7 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
 
   // ── dim_objekt-only ──
   huvudtyp:            { dim: 'huvudtyp' },
+  exkludera:           { dim: 'exkludera' },
   terrang_kr_manuell:  { dim: 'terrang_kr_manuell' },
   skotavstand_manuell: { dim: 'skotavstand_manuell' },
   tilldelad_skotare:   { dim: 'tilldelad_skotare' },
