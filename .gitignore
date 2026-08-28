@@ -83,3 +83,7 @@ hpr_import_logg.txt
 inkommande/*.envz
 inkommande/*.zip
 *.envz
+.diameter_huvud.json
+.diameter_antal.json
+diameter_utfall.json
+diameter_verifiering.json

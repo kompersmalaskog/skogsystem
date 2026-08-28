@@ -56,33 +56,14 @@ M = ladda_importmodul()
 
 def lokal(tag):
     return tag.split('}', 1)[1] if '}' in tag else tag
-
-
-# Filnamnens tidsstämpelsuffix, ett mönster per maskintyp:
-#   Ponsse  Åbogen RP 2026_PONS20SDJAA270231_20260803094447.hpr
-#   Ponsse  Anna Karin Swerup_PONS20SDJAA270231_20260525174917_1.hpr
-#   Rottne  Bastaremåla gallring 2026-04-30 0753.hpr
-#   Rottne  Björn Martinsson Svinhult Au 2025 2026-02-23.hpr
-#
-# Det avslutande _1 är ett ökningsnummer, inte ett annat objekt. Utan
-# (_\d+)? i mönstret blev ETT objekt till 89 grupper — 103 filer i en riktig
-# grupp och 88 enfilsgrupper som var samma trakt. Grupperingen hade då läst
-# 88 filer i onödan, men värre: den hade sett ut att fungera.
-SUFFIX = [
-    re.compile(r'_[A-Za-z0-9]+_\d{8,14}(_\d+)?$'),
-    re.compile(r'\s\d{4}-\d{2}-\d{2}(\s\d{3,4})?(_\d+)?$'),
-]
-
-
-def gruppnyckel(sokvag):
-    namn = os.path.splitext(os.path.basename(sokvag))[0]
-    for m in SUFFIX:
-        ny = m.sub('', namn)
-        if ny != namn:
-            namn = ny
-            break
-    maskinmapp = os.path.basename(os.path.dirname(os.path.dirname(sokvag)))
-    return (maskinmapp, namn.strip())
+# ── GRUPPERING PÅ ObjectKey, INTE PÅ FILNAMN ─────────────────────────────
+# Första versionen grupperade på filnamnet med tidsstämpeln bortstrippad.
+# Det är maskinens namn på filen, inte objektets, och fyra olika trakter
+# exporterades alla som "HPR-Onedrive": S Rimshult lövgallring, Kjell
+# Nilsson Brorsmåla, Flytt/Service och Stefan Svensson Björkebråten. Bara
+# ett av dem låg i den största filen, så S Rimshult fick noll fönsterrader
+# — och det syntes bara för att täckningskontrollen räknade objekt utan
+# fönster. Objektet står i ObjectDefinition. Nyckeln tas därifrån.
 
 
 def las_huvud(sokvag):
@@ -197,14 +178,12 @@ def main():
     if not alla:
         return 1
 
-    grupper = defaultdict(list)
-    for f in alla:
-        grupper[gruppnyckel(f)].append(f)
-    # Största filen per grupp: kumulativa filer växer, den största bär mest.
-    valda = [max(fs, key=lambda x: (os.path.getsize(x), os.path.getmtime(x)))
-             for fs in grupper.values()]
-    print('grupper (objekt): %d  ->  läser %d filer, hoppar över %d'
-          % (len(grupper), len(valda), len(alla) - len(valda)))
+    # Alla filer läses. Fönstret ligger i HUVUDET, så kostnaden är låg per
+    # fil, och bara genom att se flera filer per objekt kan ett prislistbyte
+    # mitt i en trakt upptäckas — det är hela poängen med FONSTER_BYTTE.
+    # Äldst först: första fönstret vinner, och "först" ska betyda tidigast.
+    valda = sorted(alla, key=os.path.getmtime)
+    print('läser huvudet i alla %d filer (äldst först)' % len(valda))
 
     rader_totalt = 0
     skrivna = [0]
