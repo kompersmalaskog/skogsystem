@@ -130,6 +130,13 @@ function korvyProximityZoom(dist: number | null): number {
 }
 
 // === SKOTARKÖRVY (v1): stråk-klumpning + sortimentfärg ===
+// Autopanelens sortimentrader: allt under detta klumpas till EN "Övrigt"-rad sist. Ett halvt
+// kubikmeter är under vad som är värt att välja lass efter — resten ska inte äta plats i kortet.
+const OVRIGT_M3 = 0.5;
+// Stråk-identitet = (maskin_id, strak_nr). Två maskiner på samma objekt kan ha samma strak_nr,
+// så kvar/val/etikett MÅSTE nycklas på båda — annars klumpas den ena maskinens volym in i den
+// andras stråk och panelen visar fel siffra (Svinhult-nyckeln).
+const strakKeyAv = (maskin_id: string, strak_nr: number): string => `${maskin_id ?? ''}|${strak_nr}`;
 // Speglar getSortimentColor (loadHogar-scoped) så stråk-etikett + autopanel använder EXAKT
 // samma färgspråk som pie-ikonerna/skotningspanelen. Håll i synk med de två.
 function sortimentFargKorvy(s: string): string {
@@ -3028,15 +3035,21 @@ export default function PlannerPage() {
   // Testbarhet (Martins flagga): läget FÖLJER rollen på objektet, MEN admin/chef får båda valen i
   // KÖRVY-menyn (korvyForceRoll override) → Martin når skotarläget i previewn utan skotar-tilldelning.
   const [korvyForceRoll, setKorvyForceRoll] = useState<'skordare' | 'skotare' | null>(null);
-  type StrakRad = { id: string; strak_nr: number; geometri: [number, number][]; langd_m: number };
+  type StrakRad = { id: string; maskin_id: string; strak_nr: number; geometri: [number, number][]; langd_m: number };
   const [strakData, setStrakData] = useState<StrakRad[]>([]);
-  const [valtStrakNr, setValtStrakNr] = useState<number | null>(null);
+  // Valt/aktivt stråk identifieras med composite-nyckeln "maskin_id|strak_nr" (se strakKeyAv).
+  const [valtStrakKey, setValtStrakKey] = useState<string | null>(null);
+  // Autopanelen: KOMPAKT är default — hela listan åt halva skärmen i fält. Utfälld = förarens
+  // eget val, aldrig ett läge panelen hamnar i själv. Nollställs när man rullar till nästa stråk,
+  // annars ligger den kvar utfälld och äter kartan igen utan att någon bad om det.
+  const [panelUtfalld, setPanelUtfalld] = useState(false);
+  const panelSvepY = useRef<number | null>(null);   // touchstart-Y för svep-ner-fäller-ihop
   // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
   const [hogarVersion, setHogarVersion] = useState(0);
   const skotarKorvy = korvyActive && (korvyForceRoll ? korvyForceRoll === 'skotare' : minRoll === 'skotare');
   const skotarKorvyRef = useRef(false);
   useEffect(() => { skotarKorvyRef.current = skotarKorvy; }, [skotarKorvy]);
-  useEffect(() => { if (!skotarKorvy) setValtStrakNr(null); }, [skotarKorvy]);
+  useEffect(() => { if (!skotarKorvy) setValtStrakKey(null); }, [skotarKorvy]);
 
   // Hämta skördarstråk för valt objekt (bara i skotarkörvy). objekt_id = objekt.id (uuid) = valtObjekt.id.
   useEffect(() => {
@@ -3045,13 +3058,14 @@ export default function PlannerPage() {
     (async () => {
       const { data, error } = await supabase
         .from('skordarstrak')
-        .select('id, strak_nr, geometri, langd_m')
+        .select('id, maskin_id, strak_nr, geometri, langd_m')
         .eq('objekt_id', valtObjekt.id)
         .order('strak_nr', { ascending: true });
       if (avbruten) return;
       if (error) { console.error('[Skotarkörvy] skordarstrak-hämtning:', error); setStrakData([]); return; }
       const rader: StrakRad[] = (data || []).map((r: any) => ({
         id: String(r.id),
+        maskin_id: String(r.maskin_id ?? ''),
         strak_nr: r.strak_nr,
         geometri: Array.isArray(r.geometri) ? r.geometri : [],
         langd_m: r.langd_m ?? 0,
@@ -3066,20 +3080,20 @@ export default function PlannerPage() {
   // per stråk. Ingen ny kvar-beräkning — bara tilldelning + summering.
   const STRAK_KLUMP_M = 30;
   const strakKvar = useMemo(() => {
-    const karta = new Map<number, { total: number; sortiment: Record<string, number> }>();
-    for (const s of strakData) karta.set(s.strak_nr, { total: 0, sortiment: {} });
+    const karta = new Map<string, { total: number; sortiment: Record<string, number>; strak_nr: number; maskin_id: string }>();
+    for (const s of strakData) karta.set(strakKeyAv(s.maskin_id, s.strak_nr), { total: 0, sortiment: {}, strak_nr: s.strak_nr, maskin_id: s.maskin_id });
     if (strakData.length === 0) return karta;
     for (const f of hogarFeaturesRef.current) {
       const coord = f?.geometry?.coordinates;
       if (!coord || coord.length < 2) continue;
       const lng = coord[0], lat = coord[1];
-      let bastNr: number | null = null, bastD = Infinity;
+      let bastKey: string | null = null, bastD = Infinity;
       for (const s of strakData) {
         const d = avstandPunktTillStrak(lat, lng, s.geometri);
-        if (d < bastD) { bastD = d; bastNr = s.strak_nr; }
+        if (d < bastD) { bastD = d; bastKey = strakKeyAv(s.maskin_id, s.strak_nr); }
       }
-      if (bastNr == null || bastD > STRAK_KLUMP_M) continue;
-      const post = karta.get(bastNr)!;
+      if (bastKey == null || bastD > STRAK_KLUMP_M) continue;
+      const post = karta.get(bastKey)!;
       post.total += Number(f.properties?.volym) || 0;
       let sv: Record<string, number> = {};
       try { sv = JSON.parse(f.properties?.sortimentVolymJson || '{}'); } catch { /* */ }
@@ -6369,16 +6383,20 @@ export default function PlannerPage() {
     return null;
   }, [simulatedPos, currentPosition]);
 
-  // Närmaste stråk till föraren (autopanelens default-stråk). Uppdateras per GPS-tick.
-  const narmasteStrakNr = useMemo(() => {
+  // Närmaste stråk till föraren (autopanelens default-stråk), som composite-nyckel. Per GPS-tick.
+  const narmasteStrakKey = useMemo(() => {
     if (!skotarKorvy || !korvyEffectivePos || strakData.length === 0) return null;
-    let nr: number | null = null, bastD = Infinity;
+    let key: string | null = null, bastD = Infinity;
     for (const s of strakData) {
       const d = avstandPunktTillStrak(korvyEffectivePos.lat, korvyEffectivePos.lon, s.geometri);
-      if (d < bastD) { bastD = d; nr = s.strak_nr; }
+      if (d < bastD) { bastD = d; key = strakKeyAv(s.maskin_id, s.strak_nr); }
     }
-    return nr;
+    return key;
   }, [skotarKorvy, korvyEffectivePos, strakData]);
+
+  // Fäll ihop autopanelen så fort man byter stråk (rullar vidare, trycker på ett annat stråk,
+  // lämnar skotarläget). Utfällt är ett tillfälligt uppslag, inte ett läge man fastnar i.
+  useEffect(() => { setPanelUtfalld(false); }, [narmasteStrakKey, valtStrakKey, skotarKorvy]);
 
   const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
@@ -6985,9 +7003,11 @@ export default function PlannerPage() {
         map.addLayer({
           id: 'skordarstrak-casing', type: 'line', source: 'skordarstrak-source',
           paint: {
+            // Tunn casing: bara så mycket mörk kant att linjen håller ihop mot ljus topokarta.
+            // Bredderna halverade mot v1 — kartan (stickvägar, ytor) ska gå att läsa UNDER stråket.
             'line-color': '#0b0b0d',
-            'line-opacity': ['case', ['get', 'utkort'], 0.12, 0.5],
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 6, 17, 12, 19, 18],
+            'line-opacity': ['case', ['get', 'utkort'], 0.10, 0.38],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 5.5, 19, 8],
           },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
@@ -6999,8 +7019,8 @@ export default function PlannerPage() {
           id: 'skordarstrak-line', type: 'line', source: 'skordarstrak-source',
           paint: {
             'line-color': ['case', ['get', 'utkort'], '#8e8e93', '#0a84ff'],
-            'line-opacity': ['case', ['get', 'utkort'], 0.35, ['case', ['get', 'small'], 0.5, 0.95]],
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 6, 19, 9],
+            'line-opacity': ['case', ['get', 'utkort'], 0.30, ['case', ['get', 'small'], 0.45, 0.88]],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1.8, 17, 3.2, 19, 4.6],
           },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
@@ -7246,13 +7266,13 @@ export default function PlannerPage() {
     const lineFeatures: any[] = [];
     const labelFeatures: any[] = [];
     for (const s of strakData) {
-      const kvar = strakKvar.get(s.strak_nr)?.total ?? 0;
+      const kvar = strakKvar.get(strakKeyAv(s.maskin_id, s.strak_nr))?.total ?? 0;
       const utkort = kvar <= 0.05;          // klart utkört → dämpas
       const small = s.langd_m < 50;         // småstump → dämpas + ingen etikett (datan rörs ej)
       lineFeatures.push({
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: s.geometri },
-        properties: { strak_nr: s.strak_nr, utkort, small },
+        properties: { strakKey: strakKeyAv(s.maskin_id, s.strak_nr), strak_nr: s.strak_nr, maskin_id: s.maskin_id, utkort, small },
       });
       if (!utkort && !small) {
         const mid = s.geometri[Math.floor(s.geometri.length / 2)];
@@ -7283,8 +7303,8 @@ export default function PlannerPage() {
       if (!skotarKorvyRef.current) return;
       const f = e.features?.[0];
       if (!f) return;
-      const nr = f.properties?.strak_nr;
-      if (nr != null) setValtStrakNr(Number(nr));
+      const key = f.properties?.strakKey;
+      if (key != null) setValtStrakKey(String(key));
     };
     map.on('click', 'skordarstrak-line', onStrakClick);
     return () => { try { map.off('click', 'skordarstrak-line', onStrakClick); } catch { /* */ } };
@@ -11335,33 +11355,101 @@ export default function PlannerPage() {
       {/* === SKOTARKÖRVY: AUTOPANEL — närmaste stråkets sortimentsfördelning (byts när man rullar
            över till nästa stråk). Tryck på ett stråk visar samma panel för stråk man inte står på. === */}
       {skotarKorvy && (() => {
-        const aktivNr = valtStrakNr ?? narmasteStrakNr;
-        if (aktivNr == null) return null;
-        const post = strakKvar.get(aktivNr);
+        const aktivKey = valtStrakKey ?? narmasteStrakKey;
+        if (aktivKey == null) return null;
+        const post = strakKvar.get(aktivKey);
         if (!post) return null;
-        const rader = Object.entries(post.sortiment)
-          .filter(([, v]) => v > 0.05)
-          .sort((a, b) => b[1] - a[1]);
-        const arValt = valtStrakNr != null && valtStrakNr !== narmasteStrakNr;
+        // Namnen kommer råa ur sortimentVolymJson ("Björk Massa: BjörkmavFall_V3"). Kör dem genom
+        // SAMMA kortnamnskälla som skotningspanelen (kortSortiment) — två råa apteringsnamn kan
+        // falla ut på samma kortnamn, så summera EFTER förkortningen, aldrig före.
+        const perKort: Record<string, number> = {};
+        for (const [ra, v] of Object.entries(post.sortiment)) {
+          const vol = Number(v) || 0;
+          if (vol <= 0) continue;
+          const k = kortSortiment(ra);
+          perKort[k] = (perKort[k] || 0) + vol;
+        }
+        // Störst först. Allt under OVRIGT_M3 slås ihop till en "Övrigt"-rad sist — en skotare ska
+        // se de sortiment som är värda ett lass, inte en lista med decimalrester.
+        const sorterade = Object.entries(perKort).sort((a, b) => b[1] - a[1]);
+        const rader = sorterade.filter(([, v]) => v >= OVRIGT_M3);
+        const ovrigt = sorterade.reduce((s, [, v]) => s + (v < OVRIGT_M3 ? v : 0), 0);
+        const visaOvrigt = ovrigt > 0.05;
+        const arValt = valtStrakKey != null && valtStrakKey !== narmasteStrakKey;
         const utkort = post.total <= 0.05;
+        // KOMPAKT: de tre största sortimenten på en rad. Fler än så ryms inte utan att kartan
+        // försvinner — resten finns kvar ett tryck bort i den utfällda listan.
+        const topp3 = rader.slice(0, 3);
         return (
-          <div style={{
-            position: 'fixed', left: 12, right: 92,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-            maxWidth: 520, maxHeight: '42vh', overflowY: 'auto',
-            background: 'rgba(28,28,30,0.92)',
-            backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-            border: `1px solid ${utkort ? 'rgba(255,255,255,0.08)' : 'rgba(10,132,255,0.55)'}`,
-            borderRadius: 18, padding: '12px 14px', zIndex: 250, color: '#fff',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-          }}>
-            {/* Rubrik: Stråk N + total kvar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: rader.length ? 10 : 0 }}>
+          <div
+            role="button" tabIndex={0}
+            aria-expanded={panelUtfalld}
+            aria-label={panelUtfalld ? 'Fäll ihop stråkpanelen' : 'Visa alla sortiment för stråket'}
+            onClick={() => { if (navigator.vibrate) navigator.vibrate(8); setPanelUtfalld(v => !v); }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPanelUtfalld(v => !v); } }}
+            onTouchStart={e => { panelSvepY.current = e.touches[0]?.clientY ?? null; }}
+            onTouchEnd={e => {
+              // Svep NER fäller ihop. Bara när listan redan är uppe vid toppen, annars krockar
+              // svepet med att skrolla i en lång sortimentlista.
+              const start = panelSvepY.current; panelSvepY.current = null;
+              if (start == null || !panelUtfalld) return;
+              const slut = e.changedTouches[0]?.clientY ?? start;
+              if (slut - start > 40 && (e.currentTarget as HTMLDivElement).scrollTop <= 0) setPanelUtfalld(false);
+            }}
+            style={{
+              position: 'fixed', left: 12, right: 92,
+              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+              maxWidth: 520,
+              // Kompakt har ingen höjdspärr — den behöver ingen. Innehållet ÄR två rader
+              // (rubrikrad + tre sortiment), så panelen kan inte växa. En vh-spärr hade i stället
+              // klippt bort sortimenten på låga skärmar, vilket är värre än några pixlar extra.
+              maxHeight: panelUtfalld ? '42vh' : undefined,
+              overflowY: panelUtfalld ? 'auto' : 'hidden',
+              background: 'rgba(28,28,30,0.92)',
+              backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+              border: `1px solid ${utkort ? 'rgba(255,255,255,0.08)' : 'rgba(10,132,255,0.55)'}`,
+              borderRadius: 18, padding: '12px 14px', zIndex: 250, color: '#fff', cursor: 'pointer',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+            }}>
+            {/* KOMPAKT rubrik: allt föraren behöver på EN rad — "Stråk N · X m³ kvar".
+                Versaletiketten är utfälld-lägets lyx; i kompakt kostar den en hel rad höjd, och
+                mätt på 375–412 px vred den rubriken till två rader. */}
+            {!panelUtfalld ? (
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: topp3.length ? 7 : 0 }}>
+                {arValt && (
+                  <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: '#0a84ff', textTransform: 'uppercase', flexShrink: 0 }}>Valt</span>
+                )}
+                <span style={{ fontSize: 17, fontWeight: 700, flexShrink: 0 }}>Stråk {post.strak_nr}</span>
+                <span style={{ color: '#5a5a5f', fontSize: 15, flexShrink: 0 }} aria-hidden="true">·</span>
+                {utkort ? (
+                  <span style={{ fontSize: 15, fontWeight: 700, color: '#8e8e93' }}>Utkört ✓</span>
+                ) : (
+                  <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                    {post.total.toFixed(1)} <span style={{ fontSize: 13, fontWeight: 600, color: '#8e8e93' }}>m³ kvar</span>
+                  </span>
+                )}
+                <span style={{ flex: 1 }} />
+                {(rader.length || visaOvrigt) ? (
+                  <span className="material-symbols-outlined" aria-hidden="true"
+                    style={{ flexShrink: 0, fontSize: 20, color: '#8e8e93', alignSelf: 'center' }}>expand_less</span>
+                ) : null}
+                {arValt && (
+                  <button type="button" aria-label="Tillbaka till närmaste stråk"
+                    onClick={e => { e.stopPropagation(); setValtStrakKey(null); }}
+                    style={{ flexShrink: 0, alignSelf: 'center', width: 30, height: 30, borderRadius: 15, border: 'none', cursor: 'pointer',
+                      background: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+            /* UTFÄLLD rubrik: Stråk N + total kvar, med etiketten som säger vilket stråk det är */
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: (rader.length || visaOvrigt) ? 8 : 0 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: utkort ? '#8e8e93' : '#0a84ff', textTransform: 'uppercase' }}>
                   {arValt ? 'Valt stråk' : 'Vid stråket'}
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>Stråk {aktivNr}</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>Stråk {post.strak_nr}</div>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 {utkort ? (
@@ -11372,23 +11460,49 @@ export default function PlannerPage() {
                   </span>
                 )}
               </div>
+              {(rader.length || visaOvrigt) ? (
+                <span className="material-symbols-outlined" aria-hidden="true"
+                  style={{ flexShrink: 0, fontSize: 20, color: '#8e8e93' }}>expand_more</span>
+              ) : null}
               {arValt && (
                 <button type="button" aria-label="Tillbaka till närmaste stråk"
-                  onClick={() => setValtStrakNr(null)}
+                  onClick={e => { e.stopPropagation(); setValtStrakKey(null); }}
                   style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 15, border: 'none', cursor: 'pointer',
                     background: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
                 </button>
               )}
             </div>
-            {/* Sortimentrader — samma namn/färger som skotningspanelen */}
-            {rader.map(([namn, vol]) => (
+            )}
+            {/* KOMPAKT: de tre största. Posterna WRAPPAR hellre än kortas — mätt på 320–412 px blev
+                "Gran timmer" till "Gran ti…" när de tvingades dela raden lika. Ett halvt namn är
+                värdelöst för en skotare; en extra rad kostar 18 px. */}
+            {!panelUtfalld && topp3.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '3px 12px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 7 }}>
+                {topp3.map(([namn, vol]) => (
+                  <div key={namn} style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '0 1 auto', minWidth: 0 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: sortimentFargKorvy(namn), flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
+                    <span style={{ minWidth: 0, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{namn}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{vol.toFixed(1)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* UTFÄLLT: hela listan — kortnamn + samma färger som skotningspanelen, störst först */}
+            {panelUtfalld && rader.map(([namn, vol]) => (
               <div key={namn} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <span style={{ width: 16, height: 16, borderRadius: '50%', background: sortimentFargKorvy(namn), flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
                 <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{namn}</span>
                 <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{vol.toFixed(1)} m³</span>
               </div>
             ))}
+            {panelUtfalld && visaOvrigt && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)', opacity: 0.65 }}>
+                <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#8e8e93', flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Övrigt</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{ovrigt.toFixed(1)} m³</span>
+              </div>
+            )}
           </div>
         );
       })()}
