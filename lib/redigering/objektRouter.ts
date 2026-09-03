@@ -35,6 +35,16 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   // ── dim_objekt-only ──
   huvudtyp:            { dim: 'huvudtyp' },
   exkludera:           { dim: 'exkludera' },
+  // Etapp 1c — fält som drogs upp ur undersidorna. Maskinspecifika (stubbe/
+  // extra_vagn/klippning/avslut) skrivs av ANROPAREN mot rätt maskinslags rader
+  // via ref.dimObjektIds — routern vet inget om harvester/forwarder-splitten.
+  grot_anpassad:           { dim: 'grot_anpassad' },
+  grot_hamtad:             { dim: 'grot_hamtad' },
+  stubbbehandling:         { dim: 'stubbbehandling' },
+  extra_vagn:              { dim: 'extra_vagn' },
+  klippning:               { dim: 'klippning' },
+  skordning_avslutad_auto: { dim: 'skordning_avslutad_auto' },
+  skotning_avslutad_auto:  { dim: 'skotning_avslutad_auto' },
   terrang_kr_manuell:  { dim: 'terrang_kr_manuell' },
   skotavstand_manuell: { dim: 'skotavstand_manuell' },
   tilldelad_skotare:   { dim: 'tilldelad_skotare' },
