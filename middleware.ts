@@ -1,6 +1,35 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+// ─────────────────────────────────────────────────────────────
+// /api/* är STÄNGT som default. Kartläggning 2026-09: 30 av 79 rutter saknade
+// auth helt — salary-export lämnade ut allas löneunderlag, employee-details
+// vem som helsts semester/ATK, db-inspect rader ur medarbetare. Rutt-för-rutt
+// är 30 ändringar och nästa rutt någon skriver är öppen igen; default-stängt
+// i middleware är hela poängen.
+//
+// Släpps igenom UTAN session (explicit allowlist — lägg till med motivering):
+//   • Authorization: Bearer $CRON_SECRET   — Vercel cron (skickas automatiskt)
+//   • Authorization: Bearer $IMPORT_SECRET — importern (auto_import_watch.py →
+//     /api/mom-import). Deployas via deploy_import.ps1; saknas headern loggar
+//     watchern ERROR, aldrig tyst.
+//   • OAuth-handskakningen (/api/auth/*, /api/fortnox/auth, /api/fortnox/callback)
+//   • /api/version — PWA-versionspoll, körs även utan session
+// Rollkrav (admin/chef) och "vems data" ligger i rutterna (lib/auth/server.ts) —
+// middleware svarar bara på frågan "finns det en session?".
+// ─────────────────────────────────────────────────────────────
+const API_UTAN_SESSION = new Set<string>([
+  '/api/version',
+  '/api/fortnox/auth',
+  '/api/fortnox/callback',
+]);
+
+function bearerMatchar(request: NextRequest, envNamn: 'CRON_SECRET' | 'IMPORT_SECRET'): boolean {
+  const secret = process.env[envNamn];
+  if (!secret) return false;
+  return request.headers.get('authorization') === `Bearer ${secret}`;
+}
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -31,8 +60,13 @@ export async function middleware(request: NextRequest) {
   const isAuthCallback = pathname.startsWith('/api/auth/');
   const isApiRoute = pathname.startsWith('/api/');
 
-  // Always allow API routes and auth callbacks through
-  if (isApiRoute || isAuthCallback) return supabaseResponse;
+  if (isApiRoute || isAuthCallback) {
+    if (isAuthCallback || API_UTAN_SESSION.has(pathname)) return supabaseResponse;
+    if (bearerMatchar(request, 'CRON_SECRET') || bearerMatchar(request, 'IMPORT_SECRET')) return supabaseResponse;
+    if (user) return supabaseResponse;
+    // API svarar JSON 401 — aldrig redirect till /login (klienter parsar svaret).
+    return NextResponse.json({ ok: false, error: 'Ej inloggad' }, { status: 401 });
+  }
 
   // === Dev-mock bypass för /korvy ===
   // Tillåter åtkomst utan login ENDAST om BÅDA url-paramen är satta:
