@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { bygKedjaKm, Point, hamtaObjektKoordinater, dagensPlatser, dagensObjektOrdnat, KoordKalla } from "@/lib/routing";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
+import { målMedarbetareId } from "@/lib/auth/server";
 
 /**
  * GET /api/km-chain?medarbetare_id=&datum=YYYY-MM-DD
+ * medarbetare_id härleds ur sessionen (admin/chef får peka på annan).
  *
  * Bygger körkedjan för en specifik dag: [hem, obj1, obj2, ..., objN, hem].
  * Samlar alla arbetsdag-rader för dagen (sorterat på start_tid ASC) och
@@ -13,10 +15,12 @@ import { formatObjektNamn } from "@/utils/formatObjektNamn";
 export async function GET(req: NextRequest) {
   try {
     const u = new URL(req.url);
-    const medId = u.searchParams.get("medarbetare_id");
+    const mål = await målMedarbetareId(u.searchParams.get("medarbetare_id"));
+    if (!mål.ok) return mål.res;
+    const medId = mål.id;
     const datum = u.searchParams.get("datum");
-    if (!medId || !datum || !/^\d{4}-\d{2}-\d{2}$/.test(datum)) {
-      return NextResponse.json({ ok: false, error: "medarbetare_id och datum (YYYY-MM-DD) krävs" }, { status: 400 });
+    if (!datum || !/^\d{4}-\d{2}-\d{2}$/.test(datum)) {
+      return NextResponse.json({ ok: false, error: "datum (YYYY-MM-DD) krävs" }, { status: 400 });
     }
 
     const supabase = createClient(

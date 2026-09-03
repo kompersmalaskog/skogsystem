@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
+import { målMedarbetareId } from "@/lib/auth/server";
 
 /**
  * GET /api/fortnox/employee-details?medarbetare_id=<uuid>
+ * medarbetare_id härleds ur sessionen (admin/chef får peka på annan) — semester-
+ * och ATK-saldo är personuppgifter; var helt öppen för vilket id som helst.
  *
  * Hämtar semester- och ATK-saldo från Fortnox för given medarbetare.
  * Semester: VacationDaysPaid + VacationDaysSaved - VacationDaysRegisteredPaid.
@@ -14,13 +17,9 @@ import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const medarbetareId = searchParams.get("medarbetare_id");
-    if (!medarbetareId) {
-      return NextResponse.json(
-        { ok: false, meddelande: "medarbetare_id krävs" },
-        { status: 400 },
-      );
-    }
+    const mål = await målMedarbetareId(searchParams.get("medarbetare_id"));
+    if (!mål.ok) return mål.res;
+    const medarbetareId = mål.id;
 
     const supabase = serverSupabase();
     const idag = new Date().toISOString().slice(0, 10);

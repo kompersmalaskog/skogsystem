@@ -3,9 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import { berakaDagKm, persisteraDagKm, hamtaObjektKoordinater } from "@/lib/routing";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
+import { målMedarbetareId } from "@/lib/auth/server";
 
 /**
  * GET /api/km-summary?medarbetare_id=&month=YYYY-MM
+ * medarbetare_id härleds ur sessionen (admin/chef får peka på annan).
  *
  * Räknar total körsträcka och km-över-gräns för månaden. Per dag byggs
  * körkedjan [hem, obj1, obj2, ..., objN, hem] om DB saknar km-värden;
@@ -14,10 +16,12 @@ import { sistaDagenIManaden } from "@/lib/datumLokal";
 export async function GET(req: NextRequest) {
   try {
     const u = new URL(req.url);
-    const medId = u.searchParams.get("medarbetare_id");
+    const mål = await målMedarbetareId(u.searchParams.get("medarbetare_id"));
+    if (!mål.ok) return mål.res;
+    const medId = mål.id;
     const month = u.searchParams.get("month");
-    if (!medId || !month || !/^\d{4}-\d{2}$/.test(month)) {
-      return NextResponse.json({ ok: false, error: "medarbetare_id och month (YYYY-MM) krävs" }, { status: 400 });
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      return NextResponse.json({ ok: false, error: "month (YYYY-MM) krävs" }, { status: 400 });
     }
 
     const [y, m] = month.split("-").map(Number);

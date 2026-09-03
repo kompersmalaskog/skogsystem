@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { kravInloggad, kravRoll, ADMIN_ROLLER } from '@/lib/auth/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +13,8 @@ const admin = createClient(
 )
 
 export async function GET(request: NextRequest) {
+  const vakt = await kravInloggad()
+  if (!vakt.ok) return vakt.res
   const q = (request.nextUrl.searchParams.get('q') || '').trim()
   let query = admin.from('bolag').select('id, namn').order('namn', { ascending: true })
   if (q) query = query.ilike('namn', `%${q}%`)
@@ -21,6 +24,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  // Skapar register-rader — admin/chef.
+  const vakt = await kravRoll(ADMIN_ROLLER)
+  if (!vakt.ok) return vakt.res
   let body: any
   try {
     body = await request.json()
