@@ -3012,6 +3012,9 @@ export default function PlannerPage() {
   useEffect(() => {
     if (korvyActive) acquireGpsWithFallback();
   }, [korvyActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  // SKOTARKÖRVY (punkt 5): pausa auto-följe när föraren panorerat iväg (annars rycker nästa GPS-tick
+  // tillbaka kameran). "Följ mig"-knappen återupptar. GEJTAD till skotarKorvy → Stefans körvy rörs ej.
+  const [korvyFollowPaused, setKorvyFollowPaused] = useState(false);
   // Körvyns bas-karta: 'lm' (Karta — LM nedtonad, dämpad) eller 'topo' (Topokarta — LM full färg).
   // Default tyst så föraren möter den lugna svenska baskartan; toggla för terräng-detalj.
   const [korvyBasKarta, setKorvyBasKarta] = useState<'lm' | 'topo'>('lm');
@@ -6394,6 +6397,10 @@ export default function PlannerPage() {
     return key;
   }, [skotarKorvy, korvyEffectivePos, strakData]);
 
+  // Aktivt stråk (composite-nyckel): valt trumfar närmaste. Delas av kart-highlight (punkt 2),
+  // hög-prickarnas storlek (punkt 3) och autopanelen → panel och karta pekar på SAMMA stråk.
+  const aktivStrakKey = valtStrakKey ?? narmasteStrakKey;
+
   // Fäll ihop autopanelen så fort man byter stråk (rullar vidare, trycker på ett annat stråk,
   // lämnar skotarläget). Utfällt är ett tillfälligt uppslag, inte ett läge man fastnar i.
   useEffect(() => { setPanelUtfalld(false); }, [narmasteStrakKey, valtStrakKey, skotarKorvy]);
@@ -6621,6 +6628,9 @@ export default function PlannerPage() {
   // 2) GPS-following + heading när korvyActive (mjuk easing per uppdatering, behåll offset)
   useEffect(() => {
     if (!korvyActive) return;
+    // Skotarläge: har föraren panorerat iväg pausas följet tills "Följ mig" trycks (punkt 5).
+    // Bara skotarKorvy — Stefans körvy följer alltid (oförändrat).
+    if (skotarKorvy && korvyFollowPaused) return;
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
@@ -6638,7 +6648,18 @@ export default function PlannerPage() {
       duration: 500,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, korvyActive, korvyNextItems]);
+  }, [currentPosition, korvyHeading, korvyActive, korvyNextItems, skotarKorvy, korvyFollowPaused]);
+
+  // SKOTARKÖRVY (punkt 5): fingret drar kartan → pausa auto-följet ('dragstart' med originalEvent =
+  // äkta gest, inte vår easeTo). Bunden en gång; dörrvaktar på skotarKorvyRef. Rensas vid utträde.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const onDrag = (e: any) => { if (skotarKorvyRef.current && e && e.originalEvent) setKorvyFollowPaused(true); };
+    map.on('dragstart', onDrag);
+    return () => { try { map.off('dragstart', onDrag); } catch { /* */ } };
+  }, [mapLibreReady]);
+  useEffect(() => { if (!skotarKorvy) setKorvyFollowPaused(false); }, [skotarKorvy]);
 
   // 3) Större ikoner i Körvy via icon-size paint expression
   useEffect(() => {
@@ -6713,7 +6734,7 @@ export default function PlannerPage() {
       // (zone-fill/zone-outline/zone-label) — MÅSTE vara med annars döljs zonerna i körvy. Förr
       // visades zoner i körvy bara via 'zones-korvy-*-extrusion' (3D-pelaren, nu borttagen); utan
       // 'zone-' i whitelisten försvann den platta zonen (RISA syntes i planering men ej i körvy).
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-'];
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skordarstrak-', 'skotar-hogar-'];
       for (const l of allLayers) {
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
@@ -6728,14 +6749,26 @@ export default function PlannerPage() {
         const keep = SHOW.has(l.id) || KEEP_PREFIX.some(pref => l.id.startsWith(pref));
         try { map.setLayoutProperty(l.id, 'visibility', keep ? 'visible' : 'none'); } catch {}
       }
+      // SKOTARKÖRVY (punkt 4): göm GALLRINGSZONER — de ändrar inte skotarens körning. Övriga zoner
+      // (RISA/blöt/kultur) + traktgräns/basvägar/faror/TMA visas som i skördarens körvy. GROT-högar
+      // (grot-source, ej whitelistad) + dokument (ej lager) är redan borta. Gallring-fyllningen bor i
+      // delade zone-fill → nolla dess opacity BARA för gallring; restore i else-grenen nedan.
+      if (skotarKorvy) {
+        for (const id of ['zone-outline-gallring', 'zone-outline-gallring-lov']) {
+          try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+        }
+        try { if (map.getLayer('zone-fill')) map.setPaintProperty('zone-fill', 'fill-opacity', ['case', ['==', ['get', 'zoneType'], 'gallring'], 0, 0.2] as any); } catch {}
+      }
     } else if (korvyPrevVisRef.current) {
       // Restore
       for (const [id, vis] of Object.entries(korvyPrevVisRef.current)) {
         try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
       }
+      // Återställ zone-fill-opaciteten (gallring-nollningen ovan) till originalet gallringCase(0.75, 0.2).
+      try { if (map.getLayer('zone-fill')) map.setPaintProperty('zone-fill', 'fill-opacity', ['case', ['==', ['get', 'zoneType'], 'gallring'], 0.75, 0.2] as any); } catch {}
       korvyPrevVisRef.current = null;
     }
-  }, [korvyActive, mapLibreReady, korvyBasKarta]);
+  }, [korvyActive, skotarKorvy, mapLibreReady, korvyBasKarta]);
 
   // === KÖRVY: DEFERA skyddslagren — tänds en knapp EFTER öppning så basen (LM nedtonad) + symboler
   // laddar OKONKURRERAT → snabb start. De 7 gov-WMS congestar annars mobil-uppkopplingen vid
@@ -7026,6 +7059,23 @@ export default function PlannerPage() {
         });
       } catch (e) { console.error('[Skotarkörvy] line:', e); }
     }
+    // Aktiva stråket (punkt 2): ljusare + bredare blå ovanpå bas-linjen, filtrerat på 'aktiv'.
+    // Synkat med autopanelen (aktivStrakKey) så karta och panel pekar på SAMMA stråk.
+    if (!map.getLayer('skordarstrak-line-aktiv')) {
+      try {
+        map.addLayer({
+          id: 'skordarstrak-line-aktiv', type: 'line', source: 'skordarstrak-source',
+          filter: ['==', ['get', 'aktiv'], true],
+          paint: {
+            'line-color': '#4da3ff',
+            'line-opacity': 0.98,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3.4, 17, 6.5, 19, 9.5],
+            'line-blur': 0.4,
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Skotarkörvy] line-aktiv:', e); }
+    }
     if (!map.getSource('skordarstrak-label-source')) {
       try { map.addSource('skordarstrak-label-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
       catch (e) { console.error('[Skotarkörvy] label-source:', e); }
@@ -7044,6 +7094,34 @@ export default function PlannerPage() {
           paint: { 'text-color': '#fff', 'text-halo-color': '#0b0b0d', 'text-halo-width': 1.6 },
         });
       } catch (e) { console.error('[Skotarkörvy] label:', e); }
+    }
+    // Produktionshögar som små prickar i sortiment-färg (punkt 3) — INTE fulla pie-ikoner (för rörigt
+    // i körfart). Aktiva stråkets högar större (×1.7). Data + synlighet i egen effekt (skotarKorvy).
+    if (!map.getSource('skotar-hogar-source')) {
+      try { map.addSource('skotar-hogar-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+      catch (e) { console.error('[Skotarkörvy] hogar-source:', e); }
+    }
+    if (!map.getLayer('skotar-hogar-dots')) {
+      try {
+        map.addLayer({
+          id: 'skotar-hogar-dots', type: 'circle', source: 'skotar-hogar-source',
+          paint: {
+            'circle-color': ['get', 'color'],
+            'circle-stroke-color': 'rgba(255,255,255,0.85)',
+            'circle-stroke-width': 1,
+            // Top-level zoom-interpolate (zoom MÅSTE vara direkt input till top-level interpolate/step —
+            // nästlat i t.ex. '*' förkastar MapLibre lagret TYST). Aktiv-förstoringen (×1.7) läggs i
+            // varje stops DATA-DRIVNA utdata istället → samma effekt, giltigt uttryck.
+            'circle-radius': ['interpolate', ['linear'], ['zoom'],
+              13, ['case', ['get', 'aktiv'], 3.4, 2],
+              16, ['case', ['get', 'aktiv'], 6.8, 4],
+              19, ['case', ['get', 'aktiv'], 11.9, 7],
+            ],
+            'circle-opacity': 0.95,
+          },
+          layout: { 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Skotarkörvy] hogar-dots:', e); }
     }
 
     // 2) Zon-extrusioner BORTTAGNA för ALLA zon-typer (wet/steep/culture). Zoner ska vara PLATTA
@@ -7269,10 +7347,11 @@ export default function PlannerPage() {
       const kvar = strakKvar.get(strakKeyAv(s.maskin_id, s.strak_nr))?.total ?? 0;
       const utkort = kvar <= 0.05;          // klart utkört → dämpas
       const small = s.langd_m < 50;         // småstump → dämpas + ingen etikett (datan rörs ej)
+      const sKey = strakKeyAv(s.maskin_id, s.strak_nr);
       lineFeatures.push({
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: s.geometri },
-        properties: { strakKey: strakKeyAv(s.maskin_id, s.strak_nr), strak_nr: s.strak_nr, maskin_id: s.maskin_id, utkort, small },
+        properties: { strakKey: sKey, strak_nr: s.strak_nr, maskin_id: s.maskin_id, utkort, small, aktiv: sKey === aktivStrakKey },
       });
       if (!utkort && !small) {
         const mid = s.geometri[Math.floor(s.geometri.length / 2)];
@@ -7289,10 +7368,37 @@ export default function PlannerPage() {
       const lsrc = map.getSource('skordarstrak-label-source') as any;
       if (lsrc) lsrc.setData({ type: 'FeatureCollection', features: labelFeatures });
     } catch (e) { console.error('[Skotarkörvy] setData:', e); }
-    for (const id of ['skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-label']) {
+    for (const id of ['skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-line-aktiv', 'skordarstrak-label']) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch { /* */ }
     }
-  }, [skotarKorvy, strakData, strakKvar, mapLibreReady]);
+  }, [skotarKorvy, strakData, strakKvar, aktivStrakKey, mapLibreReady]);
+
+  // SKOTARKÖRVY (punkt 3): mata hög-prickarna. Varje redan-kvar-reducerad hög → punkt i sortiment-
+  // färg (properties.color); aktiv-flagga = närmaste stråk ≤ STRAK_KLUMP_M OCH = aktiva stråket → större.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const feats: any[] = [];
+    if (skotarKorvy) {
+      for (const f of hogarFeaturesRef.current) {
+        const c = f?.geometry?.coordinates;
+        if (!c || c.length < 2) continue;
+        const lng = c[0], lat = c[1];
+        let bastKey: string | null = null, bastD = Infinity;
+        for (const s of strakData) {
+          const d = avstandPunktTillStrak(lat, lng, s.geometri);
+          if (d < bastD) { bastD = d; bastKey = strakKeyAv(s.maskin_id, s.strak_nr); }
+        }
+        const aktiv = bastKey != null && bastD <= STRAK_KLUMP_M && bastKey === aktivStrakKey;
+        feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: { color: f.properties?.color || '#6b7c3a', aktiv } });
+      }
+    }
+    try {
+      const src = map.getSource('skotar-hogar-source') as any;
+      if (src) src.setData({ type: 'FeatureCollection', features: feats });
+      if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', skotarKorvy ? 'visible' : 'none');
+    } catch (e) { console.error('[Skotarkörvy] hogar-dots setData:', e); }
+  }, [skotarKorvy, hogarVersion, aktivStrakKey, strakData, mapLibreReady]);
 
   // SKOTARKÖRVY: tryck på ett stråk → välj det (autopanelen visar dess sortiment). Bunden en gång;
   // dörrvaktar på skotarKorvyRef så den är passiv i övriga lägen.
@@ -11506,6 +11612,40 @@ export default function PlannerPage() {
           </div>
         );
       })()}
+
+      {/* SKOTARKÖRVY (punkt 5): "Följ mig" — visas bara när föraren panorerat iväg (följet pausat).
+          Tryck återupptar auto-följet + recentrerar direkt på GPS. Ovanför +-knappen, klar av panelen. */}
+      {skotarKorvy && korvyFollowPaused && (
+        <button
+          type="button"
+          onClick={() => {
+            if (navigator.vibrate) navigator.vibrate(10);
+            setKorvyFollowPaused(false);
+            const map = mapInstanceRef.current; const pos = currentPosition as any;
+            if (map && pos && pos.lon != null && pos.lat != null) {
+              const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+              map.easeTo({ center: [pos.lon, pos.lat], bearing: korvyHeading, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 500 });
+            }
+          }}
+          aria-label="Följ mig"
+          style={{
+            position: 'fixed',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 76px)',
+            right: 16,
+            minHeight: 44, padding: '0 16px 0 12px',
+            display: 'flex', alignItems: 'center', gap: 7,
+            borderRadius: 22,
+            background: '#0a84ff', border: 'none',
+            color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+            boxShadow: '0 4px 16px rgba(10,132,255,0.4)',
+            zIndex: 260,
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>my_location</span>
+          Följ mig
+        </button>
+      )}
 
       {/* === KÖRVY: BASKARTE-VÄXLING (Karta/dämpad ⇄ Topokarta/full färg — båda Lantmäteriet) === */}
       {korvyActive && (
