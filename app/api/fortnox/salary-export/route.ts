@@ -5,6 +5,7 @@ import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
 import { ledighetKollisioner } from "@/lib/ledighetKollision";
 import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 
 /**
  * POST /api/fortnox/salary-export
@@ -17,6 +18,10 @@ import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
  * dry_run=false (default): skickar salary transactions till Fortnox.
  */
 export async function POST(req: NextRequest) {
+  // Allas löneunderlag + skarp Fortnox-sändning: admin/chef, inget annat.
+  // (Var helt öppen — oinloggad POST gav alla förares underlag.)
+  const vakt = await kravRoll(ADMIN_ROLLER);
+  if (!vakt.ok) return vakt.res;
   try {
     const body = await req.json();
     const period: string = body.period;

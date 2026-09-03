@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 
 /**
- * GET /api/fortnox/debug-saldon?id=07
+ * GET /api/fortnox/debug-saldon?id=07   (admin/chef)
  *
  * Dumpar rå data för att felsöka saldo-uträkningen.
  * Hämtar fält som matchar /vacation|atk|atf|saved/i från Fortnox-employee
@@ -10,6 +11,8 @@ import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
  * Tas bort när saldon-fliken visar rätt värden.
  */
 export async function GET(req: NextRequest) {
+  const vakt = await kravRoll(ADMIN_ROLLER);
+  if (!vakt.ok) return vakt.res;
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id") || "07";

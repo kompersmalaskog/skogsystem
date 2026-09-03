@@ -205,19 +205,43 @@ def run_hpr_import():
         logger.error(f"HPR-import fel: {e}")
 
 
+def _import_secret() -> str:
+    """IMPORT_SECRET ur .env.local bredvid scriptet (samma fil som Supabase-nycklarna).
+    /api/* är stängt som default i middleware — mom-import släpps in BARA med
+    Authorization: Bearer $IMPORT_SECRET. Saknas den → högt fel i loggen, aldrig tyst."""
+    env_path = os.path.join(SCRIPT_DIR, ".env.local")
+    try:
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("IMPORT_SECRET="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except FileNotFoundError:
+        pass
+    return os.environ.get("IMPORT_SECRET", "")
+
+
 def notify_vercel():
     """Anropa Vercel API med dagens datum efter MOM-import."""
     today = datetime.now().strftime("%Y-%m-%d")
     logger.info(f"Notifierar Vercel API: {VERCEL_API_URL} (datum={today})")
+    secret = _import_secret()
+    if not secret:
+        logger.error("IMPORT_SECRET saknas i .env.local — mom-import kommer få 401 och MOM-synken står still!")
     try:
         resp = requests.post(
             VERCEL_API_URL,
             json={"datum": today},
+            headers={"Authorization": f"Bearer {secret}"} if secret else {},
             timeout=30,
         )
-        logger.info(f"Vercel API svar: {resp.status_code}")
+        if resp.status_code == 200:
+            logger.info(f"Vercel API svar: {resp.status_code}")
+        else:
+            # 401 = header/secret fel, synken är DÖD tills det fixas. Aldrig info-nivå.
+            logger.error(f"Vercel API svar {resp.status_code}: {resp.text[:200]} — MOM-synken gick INTE igenom")
     except Exception as e:
-        logger.warning(f"Vercel API fel (ej kritiskt): {e}")
+        logger.error(f"Vercel API fel: {e} — MOM-synken gick INTE igenom")
 
 
 # ============================================================

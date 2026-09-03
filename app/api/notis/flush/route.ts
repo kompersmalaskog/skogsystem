@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 
 /**
  * Processar notis_kö — hämtar alla rader där skickas_at <= now() och
@@ -22,8 +23,16 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY || "DUop3YJnWfPGbNF2KGz8elhEpkVRoivHzM3Xt-Y5_fA"
 );
 
-export async function GET() { return flush(); }
-export async function POST() { return flush(); }
+// Vercel cron skickar Authorization: Bearer $CRON_SECRET automatiskt. Manuell
+// körning kräver admin/chef-session. (Var helt öppen — vem som helst kunde tömma kön.)
+async function tillaten(req: NextRequest): Promise<NextResponse | null> {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.get("authorization") === `Bearer ${secret}`) return null;
+  const vakt = await kravRoll(ADMIN_ROLLER);
+  return vakt.ok ? null : vakt.res;
+}
+export async function GET(req: NextRequest) { return (await tillaten(req)) ?? flush(); }
+export async function POST(req: NextRequest) { return (await tillaten(req)) ?? flush(); }
 
 async function flush() {
   const nu = new Date().toISOString();

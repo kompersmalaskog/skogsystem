@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
+import { kravRoll, ADMIN_ROLLER } from '@/lib/auth/server';
 
 /**
  * POST /api/notify
  * Body: { medarbetare_id, title, body, url }
+ * Admin/chef skickar till en medarbetare — mottagar-id är målet, inte identiteten.
+ * (Var öppen: vem som helst kunde pusha till vilken förare som helst.)
  *
  * Skickar push till ALLA registrerade enheter för medarbetaren.
  * Raderar prenumerationer som returnerar 410/404 (enhet avregistrerad).
@@ -16,6 +19,8 @@ const VAPID_PUBLIC_KEY =
 const VAPID_SUBJECT = 'mailto:info@kompersmalskog.se';
 
 export async function POST(req: NextRequest) {
+  const vakt = await kravRoll(ADMIN_ROLLER);
+  if (!vakt.ok) return vakt.res;
   try {
     const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
     if (!vapidPrivate) {

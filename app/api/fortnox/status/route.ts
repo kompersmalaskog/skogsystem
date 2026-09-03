@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { hämtaKoppling } from "@/lib/lonesystem/server";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 
-/** Returnerar anslutningsstatus baserat på om token finns och inte utgått. */
+/** Returnerar anslutningsstatus baserat på om token finns och inte utgått. Admin/chef. */
 export async function GET() {
+  const vakt = await kravRoll(ADMIN_ROLLER);
+  if (!vakt.ok) return vakt.res;
   try {
     const k = await hämtaKoppling();
     if (!k || !k.access_token) {

@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { hämtaKopplingDekrypterad, sparaTokens } from "@/lib/lonesystem/server";
 import { refreshFortnoxToken } from "@/lib/lonesystem/fortnox";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 
 /**
- * Manuell token-refresh. Kan anropas av cron eller admin.
- * Auto-refresh sker även automatiskt i getFortnoxClient() vid < 5 min kvar.
+ * Manuell token-refresh. Admin/chef (ingen cron anropar den — auto-refresh
+ * sker i getFortnoxClient() vid < 5 min kvar).
  */
 export async function POST() {
+  const vakt = await kravRoll(ADMIN_ROLLER);
+  if (!vakt.ok) return vakt.res;
   try {
     const k = await hämtaKopplingDekrypterad();
     if (!k || !k.plain_refresh_token) {

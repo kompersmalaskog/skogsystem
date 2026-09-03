@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { beraknaOchPersisteraDagKm, hamtaObjektKoordinater, ObjektKoord } from "@/lib/routing";
+import { målMedarbetareId } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +21,14 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const medarbetare_id: string | undefined = body.medarbetare_id;
+    // Skriver km på en arbetsdag — id ur sessionen, aldrig ur bodyn (var öppen:
+    // vem som helst kunde räkna om vem som helsts dag).
+    const mål = await målMedarbetareId(body.medarbetare_id);
+    if (!mål.ok) return mål.res;
+    const medarbetare_id = mål.id;
     const datum: string | undefined = body.datum;
-    if (!medarbetare_id || !datum || !/^\d{4}-\d{2}-\d{2}$/.test(datum)) {
-      return NextResponse.json({ ok: false, error: "medarbetare_id och datum (YYYY-MM-DD) krävs" }, { status: 400 });
+    if (!datum || !/^\d{4}-\d{2}-\d{2}$/.test(datum)) {
+      return NextResponse.json({ ok: false, error: "datum (YYYY-MM-DD) krävs" }, { status: 400 });
     }
 
     const supabase = createClient(

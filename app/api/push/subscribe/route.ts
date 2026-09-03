@@ -1,20 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { målMedarbetareId } from "@/lib/auth/server";
 
 /**
  * POST /api/push/subscribe
- * Body: { medarbetare_id: string, subscription: PushSubscriptionJSON, device_name?: string }
+ * Body: { medarbetare_id?: string, subscription: PushSubscriptionJSON, device_name?: string }
+ * Ägaren är den inloggade (sessionen) — bodyns medarbetare_id får inte avvika
+ * (var öppen: en enhet kunde registreras som vilken medarbetare som helst).
  *
  * Upsert på endpoint — samma enhet kan re-registreras utan dubbletter, och
  * byter ägare om en annan medarbetare loggar in på samma enhet.
  */
 export async function POST(req: NextRequest) {
   try {
-    const { medarbetare_id, subscription, device_name } = await req.json();
+    const { medarbetare_id: begart, subscription, device_name } = await req.json();
+    const mål = await målMedarbetareId(begart);
+    if (!mål.ok) return mål.res;
+    const medarbetare_id = mål.id;
 
-    if (!medarbetare_id || !subscription?.endpoint) {
+    if (!subscription?.endpoint) {
       return NextResponse.json(
-        { ok: false, error: "medarbetare_id och subscription.endpoint krävs" },
+        { ok: false, error: "subscription.endpoint krävs" },
         { status: 400 },
       );
     }
