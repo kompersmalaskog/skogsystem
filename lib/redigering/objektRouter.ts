@@ -84,7 +84,18 @@ export interface SparaFaltResultat {
   objektRadFanns: boolean
 }
 
-const lika = (a: any, b: any) => (a ?? null) === (b ?? null)
+// Kanonisk jämförelse för verifierad save — måste klara JSONB-objekt
+// (manuell_prognos {skotare,skordare}) och arrayer, inte bara skalärer.
+// Nyckelordning normaliseras (Postgres jsonb sorterar om vid läsning) så
+// {a,b} och {b,a} räknas lika. Skalärer jämförs via JSON.stringify → '1'
+// (text) skiljs från 1 (number), vilket är avsiktligt: skriv rätt typ.
+function kanonisk(v: any): string {
+  if (v === undefined || v === null) return 'null'
+  if (typeof v !== 'object') return JSON.stringify(v)
+  if (Array.isArray(v)) return '[' + v.map(kanonisk).join(',') + ']'
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + kanonisk(v[k])).join(',') + '}'
+}
+const lika = (a: any, b: any) => kanonisk(a) === kanonisk(b)
 
 /**
  * Hitta objekt-raden (planering) för en dim_objekt-VO-grupp. FK (objekt.dim_objekt_id)

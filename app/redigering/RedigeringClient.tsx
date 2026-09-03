@@ -11,6 +11,8 @@ import MatchningsVy from './MatchningsVy'
 import SkotareFordelning from './SkotareFordelning'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 import { sparaFalt, resolveObjektRad, FALT_RUTT } from '@/lib/redigering/objektRouter'
+import DokumentChips from '@/components/DokumentChips'
+import PdfLasare from '@/app/planering/PdfLasare'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
 // kompletteras med unika värden ur datan vid inläsning.
@@ -2364,6 +2366,86 @@ const STATUS_VAL = [
 
 const fmtM3 = (n: any) => (Number(n) || 0).toLocaleString('sv-SE', { maximumFractionDigits: 1 })
 
+// GROT-statusens skarpa värden (objekt.grot_status) — de som förarflödet/översikten sätter.
+const GROT_STATUS_VAL = [
+  { varde: 'ej_aktuellt', label: 'Ej aktuellt' },
+  { varde: 'skotat', label: 'Skotat' },
+  { varde: 'bortkord', label: 'Bortkörd' },
+  { varde: 'flisad', label: 'Flisad' },
+]
+
+// ── Etapp 1b: direktsparande rader för trakt-fälten (objekt-tabellen) ──
+// Alla tar `disabled` = objekt-rad saknas → visar "kräver trakt-import" i
+// stället för kontrollen. Aldrig tyst misslyckande; ingen rad skapas (Etapp 0).
+const PLAN_INPUT = { flex: 1, maxWidth: '62%', minHeight: 36, borderRadius: 8, background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', fontSize: 14, fontFamily: 'inherit', padding: '0 8px', textAlign: 'right' } as any
+const TRAKT_IMPORT_KRAVS = <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>kräver trakt-import</span>
+
+function PlanRad({ label, children }: any) {
+  return (
+    <div style={styles.kravRad as any}>
+      <span style={styles.directRowLabel}>{label}</span>
+      {children}
+    </div>
+  )
+}
+
+// Textfält — sparar på blur/Enter, aldrig per tangenttryck. Tomt → null.
+function PlanText({ label, value, onCommit, disabled, placeholder, multiline }: any) {
+  const [txt, setTxt] = useState<string>(value ?? '')
+  useEffect(() => { setTxt(value ?? '') }, [value])
+  if (disabled) return <PlanRad label={label}>{TRAKT_IMPORT_KRAVS}</PlanRad>
+  const commit = () => { const t = String(txt); if ((value ?? '') !== t) onCommit(t.trim() === '' ? null : t) }
+  if (multiline) {
+    return (
+      <div style={{ padding: '10px 16px' }}>
+        <div style={{ ...styles.directRowLabel, marginBottom: 6 } as any}>{label}</div>
+        <textarea value={txt} rows={2} placeholder={placeholder} onChange={(e) => setTxt(e.target.value)} onBlur={commit}
+          style={{ ...PLAN_INPUT, maxWidth: '100%', width: '100%', textAlign: 'left', padding: 8, resize: 'vertical', boxSizing: 'border-box' } as any} />
+      </div>
+    )
+  }
+  return (
+    <PlanRad label={label}>
+      <input type="text" value={txt} placeholder={placeholder} onChange={(e) => setTxt(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} style={PLAN_INPUT} />
+    </PlanRad>
+  )
+}
+
+// Talfält (svensk decimalkomma) — sparar på blur/Enter som tal eller null.
+function PlanNum({ label, value, onCommit, disabled, suffix }: any) {
+  const [txt, setTxt] = useState<string>(value == null ? '' : String(value).replace('.', ','))
+  useEffect(() => { setTxt(value == null ? '' : String(value).replace('.', ',')) }, [value])
+  if (disabled) return <PlanRad label={label}>{TRAKT_IMPORT_KRAVS}</PlanRad>
+  const commit = () => {
+    const t = String(txt).trim()
+    const n = t === '' ? null : Number(t.replace(',', '.'))
+    const ny = n == null || !Number.isFinite(n) ? null : n
+    if ((value ?? null) !== ny) onCommit(ny)
+  }
+  return (
+    <PlanRad label={label}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' }}>
+        <input inputMode="decimal" value={txt} onChange={(e) => setTxt(e.target.value)} onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} style={{ ...PLAN_INPUT, flex: 'none', width: 110 } as any} />
+        {suffix && <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{suffix}</span>}
+      </div>
+    </PlanRad>
+  )
+}
+
+// Datumfält — kolumnen är `date` (YYYY-MM-DD), så värdet ekar oförändrat tillbaka
+// och den verifierade saven håller.
+function PlanDate({ label, value, onCommit, disabled }: any) {
+  if (disabled) return <PlanRad label={label}>{TRAKT_IMPORT_KRAVS}</PlanRad>
+  return (
+    <PlanRad label={label}>
+      <input type="date" value={value ?? ''} onChange={(e) => onCommit(e.target.value === '' ? null : e.target.value)}
+        style={{ ...PLAN_INPUT, colorScheme: 'dark' } as any} />
+    </PlanRad>
+  )
+}
+
 // Read-only rad i "Från maskinen" — data som kommer av sig själv (import),
 // aldrig redigerbar. Dämpad så den läses som fakta, inte som ett fält.
 function MaskinRad({ label, value, suffix }: any) {
@@ -2403,7 +2485,7 @@ function PlanSelect({ label, value, options, onChange, disabled }: any) {
   )
 }
 
-function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, filRader, filHamtStatus, gruppSkotningAvslutad, skotareSanderEj, direktSpara, objektRad, objektRadLaddar, medarbetare, skordatTotal, skotatTotal }: any) {
+function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, filRader, filHamtStatus, gruppSkotningAvslutad, skotareSanderEj, direktSpara, objektRad, objektRadLaddar, medarbetare, skordatTotal, skotatTotal, onOppnaDok }: any) {
   const isGallring = obj.huvudtyp === 'Gallring'
   const atgarder = isGallring ? atgarderGallring : atgarderSlut
   const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
@@ -2544,6 +2626,71 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
         )}
       </IosGroup>
 
+      {/* Etapp 1b: trakt-fälten (objekt-tabellen). Saknas objekt-rad visas EN nedtonad
+          grupp med fältnamnen — synliga men ej sparbara, aldrig tyst; ingen rad skapas. */}
+      {!objektRadLaddar && !objektRad && (
+        <IosGroup title="Trakt-uppgifter">
+          <div style={{ padding: '12px 16px', fontSize: 13, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
+            Volym planerad · prognos · planerad start/slut · band · traktnr · fastighet · kontrakt · GROT-status · transport · traktkarta · traktdirektiv
+            <div style={{ marginTop: 6, color: 'rgba(255,255,255,0.3)' }}>kräver trakt-import — ingen planeringsrad finns för objektet ännu.</div>
+          </div>
+        </IosGroup>
+      )}
+      {!objektRadLaddar && objektRad && (
+        <>
+          <IosGroup title="Volym & tidplan">
+            <PlanNum label="Volym planerad" value={objektRad.volym_planerad} suffix="m³"
+              onCommit={(v: any) => direktSpara({ volym_planerad: v })} />
+            <PlanText label="Prognos skördare" placeholder="tim" value={objektRad.manuell_prognos?.skordare ?? ''}
+              onCommit={(v: any) => direktSpara({ manuell_prognos: { ...(objektRad.manuell_prognos || {}), skordare: v ?? '' } })} />
+            <PlanText label="Prognos skotare" placeholder="tim" value={objektRad.manuell_prognos?.skotare ?? ''}
+              onCommit={(v: any) => direktSpara({ manuell_prognos: { ...(objektRad.manuell_prognos || {}), skotare: v ?? '' } })} />
+            <PlanDate label="Planerad start" value={objektRad.planerad_start} onCommit={(v: any) => direktSpara({ planerad_start: v })} />
+            <PlanDate label="Planerad slut" value={objektRad.planerad_slut} onCommit={(v: any) => direktSpara({ planerad_slut: v })} />
+          </IosGroup>
+
+          {/* Band + band-par: paret visas som egen rad direkt under sin maskin när band är på. */}
+          <IosGroup title="Band">
+            <div style={{ padding: '8px 16px' }}>
+              <EgenskapSwitch label="Skördare — band" active={!!objektRad.skordare_band} onClick={() => direktSpara({ skordare_band: !objektRad.skordare_band })} orange={false} />
+            </div>
+            {objektRad.skordare_band && (
+              <PlanText label="Band-par skördare" placeholder="t.ex. 2" value={objektRad.skordare_band_par}
+                onCommit={(v: any) => direktSpara({ skordare_band_par: v })} />
+            )}
+            <div style={{ padding: '8px 16px' }}>
+              <EgenskapSwitch label="Skotare — band" active={!!objektRad.skotare_band} onClick={() => direktSpara({ skotare_band: !objektRad.skotare_band })} orange={false} />
+            </div>
+            {objektRad.skotare_band && (
+              <PlanText label="Band-par skotare" placeholder="t.ex. 1" value={objektRad.skotare_band_par}
+                onCommit={(v: any) => direktSpara({ skotare_band_par: v })} />
+            )}
+          </IosGroup>
+
+          <IosGroup title="Trakt">
+            <PlanText label="Traktnr" value={objektRad.traktnr} onCommit={(v: any) => direktSpara({ traktnr: v })} />
+            <PlanText label="Fastighet" value={objektRad.fastighetsbeteckning} onCommit={(v: any) => direktSpara({ fastighetsbeteckning: v })} />
+            <PlanText label="Kontraktsnr" value={objektRad.kontraktsnummer} onCommit={(v: any) => direktSpara({ kontraktsnummer: v })} />
+            <PlanSelect label="GROT-status" value={objektRad.grot_status} options={GROT_STATUS_VAL}
+              onChange={(v: any) => direktSpara({ grot_status: v })} />
+            <PlanText label="Transport" placeholder="Vändplan, framkomlighet …" multiline value={objektRad.transport_kommentar}
+              onCommit={(v: any) => direktSpara({ transport_kommentar: v })} />
+          </IosGroup>
+
+          {/* Klickbara trakt-länkar via delad DokumentChips (signerar privat bucket) → in-app PdfLasare. */}
+          <IosGroup title="Dokument">
+            {(objektRad.traktdirektiv_url || objektRad.traktkarta_url) ? (
+              <div style={{ padding: '12px 16px' }}>
+                <DokumentChips traktdirektivUrl={objektRad.traktdirektiv_url} traktkartaUrl={objektRad.traktkarta_url}
+                  typ={obj.huvudtyp === 'Slutavverkning' ? 'slut' : null} onOppna={onOppnaDok} />
+              </div>
+            ) : (
+              <div style={{ padding: '12px 16px', fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>Inga dokument ännu — traktkarta och direktiv kommer med trakt-importen.</div>
+            )}
+          </IosGroup>
+        </>
+      )}
+
       {/* (c) RÄTTA UPPGIFTER — det man rättar för hand. Direktsave via routern
           (skrivs över hela VO-gruppen, speglas till objekt-tabellen). */}
       <IosGroup title="Rätta uppgifter">
@@ -2658,6 +2805,8 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   const [objektRad, setObjektRad] = useState<any>(null)
   const [objektRadLaddar, setObjektRadLaddar] = useState(false)
   const [medarbetare, setMedarbetare] = useState<any[]>([])
+  // Trakt-dokument (privat bucket) öppnas in-app via PdfLasare — aldrig window.open i PWA:n.
+  const [pdfDok, setPdfDok] = useState<{ url: string; titel: string } | null>(null)
 
   // Nytt objekt in -> snapshot för dirty-jämförelsen, börja på översikten
   useEffect(() => {
@@ -2687,7 +2836,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       if (avbruten) return
       if (!rad) { setObjektRad(null); setObjektRadLaddar(false); return }
       const { data } = await supabase.from('objekt')
-        .select('id, status, assigned_skordare_user_id, assigned_skotare_user_id')
+        .select('id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar')
         .eq('id', rad.id).limit(1)
       if (avbruten) return
       setObjektRad((data && data[0]) || { id: rad.id })
@@ -2904,6 +3053,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
             gruppSkotningAvslutad={gruppSkotningAvslutad} skotareSanderEj={skotareSanderEj}
             direktSpara={direktSpara} objektRad={objektRad} objektRadLaddar={objektRadLaddar}
             medarbetare={medarbetare} skordatTotal={skordatTotal} skotatTotal={skotatTotal}
+            onOppnaDok={(url: string, titel: string) => setPdfDok({ url, titel })}
           />
         )}
         {valtObjekt && subpage === 'filer' && (
@@ -2919,6 +3069,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
         {valtObjekt && subpage === 'skotning' && <SubSkotning obj={valtObjekt} set={setValtObjekt} />}
         {valtObjekt && subpage === 'pris' && <SubPris obj={valtObjekt} set={setValtObjekt} gruppIds={syskon.map((o: any) => o.objekt_id)} />}
       </EditSheet>
+      {pdfDok && <PdfLasare signedUrl={pdfDok.url} titel={pdfDok.titel} onClose={() => setPdfDok(null)} />}
       <ConfirmDialog
         open={showDirtyDialog}
         title="Du har osparade ändringar"
