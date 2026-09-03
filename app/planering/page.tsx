@@ -11410,6 +11410,37 @@ export default function PlannerPage() {
         );
       })()}
 
+      {/* KÖRVY: dedikerad AVSLUTA-knapp (top-left). FÄLTFYND: körvyn gick "ibland inte att stänga" —
+          enda utvägen var +-menyns "Avsluta körvy", och +-knappen DÖLJS när volym-/briefing-state
+          ligger kvar (`!(volymLoading||volymResultat)` + `!briefingMode`-gaten på +-knappen). Då
+          fanns ingen väg ut. Denna knapp är ALLTID synlig i körvy, stor träffyta, direkt exit —
+          oberoende av +-menyn och av allt annat state. */}
+      {korvyActive && (
+        <button
+          type="button"
+          onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setKorvyActive(false); setKorvyForceRoll(null); }}
+          aria-label="Avsluta körvy"
+          style={{
+            position: 'fixed',
+            top: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+            left: 12,
+            minHeight: 44,
+            padding: '0 16px 0 11px',
+            display: 'flex', alignItems: 'center', gap: 6,
+            borderRadius: 22,
+            background: 'rgba(20,20,22,0.72)',
+            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.14)',
+            color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+            zIndex: 300,   // över autopanelen (250) + statuskort (260/270); under +-menyn (450)
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>close</span>
+          Avsluta
+        </button>
+      )}
+
       {/* Färskhets-stämpel + Uppdatera (mellanlösning, ingen öppen realtid). Visas i körvy OCH
           planering. Gul när datan är >10 min gammal — föraren ska aldrig tro att gammalt är färskt. */}
       {valtObjekt && !briefingMode && (() => {
