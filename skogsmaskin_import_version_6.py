@@ -2550,12 +2550,15 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
             )
         return oid
 
-    # Bygg location_coords_map tidigt så det är tillgängligt för objekt-parsning
+    # Bygg location_coords_map tidigt så det är tillgängligt för objekt-parsning.
+    # FÖRSTA LocationDefinition per objekt vinner (primärt avlägg, vid vägen) —
+    # inte sista. Rössmåla 2026-09-03: Max la upp en andra plats INNE i beståndet,
+    # "sista vinner" gjorde den till objektets koordinat och ingen väg fanns dit.
     location_coords_map = {}
     for loc_def_pre in find_all_elements(machine, 'LocationDefinition', ns):
         obj_key_pre = get_text(loc_def_pre, 'ObjectKey', ns)
         loc_coords_pre = find_element(loc_def_pre, 'LocationCoordinates', ns)
-        if loc_coords_pre is not None and obj_key_pre:
+        if loc_coords_pre is not None and obj_key_pre and obj_key_pre not in location_coords_map:
             lat_pre = safe_float(get_text(loc_coords_pre, 'Latitude', ns))
             lon_pre = safe_float(get_text(loc_coords_pre, 'Longitude', ns))
             if lat_pre and lon_pre:
@@ -3086,7 +3089,11 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
 # dem, om och om igen. Aldrig mer.
 #
 # Skyddade fält (import får bara fylla tomma):
-#   bolag, skogsagare, saljare, vo_nummer
+#   bolag, skogsagare, saljare, vo_nummer, latitude, longitude
+# latitude/longitude: koordinaten importen bär är skotarens registrerade avlägg
+# (FPR LocationDefinition) — bra som FÖRSTA värde för ett nytt objekt, men
+# Martins handsatta avläggskoordinat (Rössmåla 14 aug) skrevs över varje timme
+# när skotarfilen importerades om. Nu: fyll bara tom koordinat, aldrig ersätt.
 # vo_nummer: Martin sätter egna VO (t.ex. "P-1013") som limmar ihop
 # skördare+skotare på privata objekt — de får aldrig skrivas över av
 # maskinens ContractNumber/ObjectUserID. OBS: vo ingår i objekt_id-BYGGET
@@ -3097,8 +3104,19 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
 # aldrig. (huvudtyp/inkopare/atgard/exkludera skickas aldrig av importen —
 # de är redan helt manuella.)
 # Fält importen äger fritt: start_date, end_date, areal_ha, avverkningsform,
-# certifiering, cutting_method, koordinater, objektnr m.fl.
-SKYDDADE_OBJEKTFALT = ('bolag', 'skogsagare', 'saljare', 'vo_nummer')
+# certifiering, cutting_method, objektnr m.fl. (INTE koordinater längre.)
+#
+# REGEL FÖR OBJEKTETS KOORDINAT (beslutad 2026-09-04, Rössmåla-fallet):
+#   Skotarens FÖRSTA avlägg är objektets koordinat.
+#   En människa får ändra den.
+#   Importen får aldrig.
+# Varför: koordinaten används för km-beräkning (hem → avlägg → hem) och måste
+# vara en punkt man kan köra bil till. Skotarens första avlägg ligger vid vägen;
+# senare platser kan ligga inne i beståndet (ingen väg → ORS "ej routbar" → 0 km
+# för föraren). Martins handsatta rättelse (14 aug) skrevs över varje timme av
+# omimporterade skotarfiler. Därför är latitude/longitude skyddade: importen
+# fyller bara när koordinat saknas helt.
+SKYDDADE_OBJEKTFALT = ('bolag', 'skogsagare', 'saljare', 'vo_nummer', 'latitude', 'longitude')
 
 def _arv_skotartilldelning(nyfodda: List[str]):
     """Nyfödda dim_objekt-rader ärver Martins planerade skotare EN gång.

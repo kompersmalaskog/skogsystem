@@ -17,10 +17,24 @@ export const maxDuration = 60;
  * 'forare' · koordinat finns · ben ≤ 250 km). Rör bara km-fälten + km_kalla='auto'.
  *
  * Bearer CRON_SECRET. Rapporterar exakt vilka dagar som fylldes (med värden) och
- * vilka som hoppades (med orsak) — aldrig tyst.
+ * vilka som hoppades (med orsak) — aldrig tyst: i HTTP-svaret OCH i tabellen
+ * km_nattjobb_logg (en rad per körning), så utfallet går att läsa i efterhand
+ * utan Vercels flyktiga funktionsloggar. (2026-09-04: Max/Daniel hoppades två
+ * nätter i rad och ingen kunde se varför.)
  */
 const FONSTER_DAGAR = 14;
 const ORS_TAK = 100; // per körning — cachen gör att de flesta ben inte når ORS
+
+/** Skriver körningens logg-rad. Verifierar att raden landade (id tillbaka) —
+ *  en misslyckad loggskrivning får aldrig krascha jobbet, men den ska synas. */
+async function skrivLogg(supabase: any, rad: Record<string, any>): Promise<string | null> {
+  const { data, error } = await supabase.from("km_nattjobb_logg").insert(rad).select("id").maybeSingle();
+  if (error || !data?.id) {
+    console.error("[km/nattjobb] kunde inte skriva km_nattjobb_logg:", error?.message || "ingen rad tillbaka");
+    return null;
+  }
+  return data.id as string;
+}
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -29,16 +43,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    );
+  const startad = new Date();
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+  // Hålls utanför try så en krasch mitt i loopen ändå loggar det som hann hända.
+  const fyllda: any[] = [];
+  const hoppade: any[] = [];
+  let orsAnrop = 0;
+  let kandidaterAntal = 0;
+  let fran = "", idag = "";
 
-    const idag = ymdLokal(new Date());
+  try {
+    idag = ymdLokal(new Date());
     const franDate = new Date();
     franDate.setDate(franDate.getDate() - FONSTER_DAGAR);
-    const fran = ymdLokal(franDate);
+    fran = ymdLokal(franDate);
 
     // Oskyddade dagar i fönstret (redigerad=false). km-nollhet + km_kalla-vakt
     // avgörs i helpern. Bekräftade dagar tas MED — de är just de som ingen öppnar
@@ -53,6 +74,7 @@ export async function GET(request: NextRequest) {
 
     const noll = (v: any) => v == null || Number(v) === 0;
     const kandidater = (arb || []).filter(a => noll(a.km_morgon) && noll(a.km_kvall) && noll(a.km_totalt) && a.km_kalla !== "forare");
+    kandidaterAntal = kandidater.length;
 
     // Medarbetare (hemadress) + arbetsdag_objekt + objekt-koordinater
     const medIds = Array.from(new Set(kandidater.map(a => a.medarbetare_id)));
@@ -73,10 +95,6 @@ export async function GET(request: NextRequest) {
     ]));
     const koordMap: Record<string, ObjektKoord> = await hamtaObjektKoordinater(supabase, objektIds);
 
-    const fyllda: any[] = [];
-    const hoppade: any[] = [];
-    let orsAnrop = 0;
-
     for (const a of kandidater) {
       const m = medMap.get(a.medarbetare_id) || {};
       const res = await beraknaOchPersisteraDagKm(supabase, {
@@ -88,21 +106,41 @@ export async function GET(request: NextRequest) {
       });
       orsAnrop += res.orsAnrop;
       if (res.status === "skrev") {
-        fyllda.push({ id: a.id, medarbetare_id: a.medarbetare_id, datum: a.datum, km_morgon: res.km_morgon, km_kvall: res.km_kvall, källa: res.källa, bekraftad: a.bekraftad });
+        fyllda.push({ id: a.id, medarbetare_id: a.medarbetare_id, datum: a.datum, km_morgon: res.km_morgon, km_kvall: res.km_kvall, källa: res.källa, anm: res.anm ?? null, bekraftad: a.bekraftad });
       } else {
         hoppade.push({ id: a.id, medarbetare_id: a.medarbetare_id, datum: a.datum, orsak: res.orsak });
       }
     }
 
+    // Tabellform = prod (Martin körde SQL:en 2026-09-04): kord_tid, fonster_fran/till,
+    // kandidater, fyllda (int), hoppade (int), ors_anrop, detaljer (jsonb), fel.
+    const loggId = await skrivLogg(supabase, {
+      kord_tid: startad.toISOString(),
+      fonster_fran: fran, fonster_till: idag,
+      kandidater: kandidaterAntal, fyllda: fyllda.length, hoppade: hoppade.length,
+      ors_anrop: orsAnrop, detaljer: { fyllda, hoppade },
+    });
+    console.log(`[km/nattjobb] ${fran}..${idag}: kandidater=${kandidaterAntal} fyllda=${fyllda.length} hoppade=${hoppade.length} ors=${orsAnrop} logg=${loggId ?? "EJ SKRIVEN"}`);
+    for (const h of hoppade) console.log(`[km/nattjobb] hoppad ${h.datum} ${h.medarbetare_id}: ${h.orsak}`);
+
     return NextResponse.json({
       ok: true,
       fönster: { fran, till: idag, dagar: FONSTER_DAGAR },
-      kandidater: kandidater.length,
+      kandidater: kandidaterAntal,
       fyllda,
       hoppade,
       orsAnrop,
+      logg_id: loggId,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
+    const fel = e?.message || String(e);
+    console.error("[km/nattjobb] KRASCH:", fel);
+    const loggId = await skrivLogg(supabase, {
+      kord_tid: startad.toISOString(),
+      fonster_fran: fran || null, fonster_till: idag || null,
+      kandidater: kandidaterAntal, fyllda: fyllda.length, hoppade: hoppade.length,
+      ors_anrop: orsAnrop, detaljer: { fyllda, hoppade }, fel,
+    });
+    return NextResponse.json({ ok: false, error: fel, logg_id: loggId }, { status: 500 });
   }
 }
