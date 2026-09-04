@@ -3103,8 +3103,8 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
 # ersättas av ett riktigt namn (uppgradering), men ett riktigt namn rörs
 # aldrig. (huvudtyp/inkopare/atgard/exkludera skickas aldrig av importen —
 # de är redan helt manuella.)
-# Fält importen äger fritt: start_date, end_date, areal_ha, avverkningsform,
-# certifiering, cutting_method, objektnr m.fl. (INTE koordinater längre.)
+# Fält importen äger fritt: start_date, end_date, areal_ha, certifiering,
+# cutting_method, objektnr m.fl. (INTE koordinater eller avverkningsform längre.)
 #
 # REGEL FÖR OBJEKTETS KOORDINAT (beslutad 2026-09-04, Rössmåla-fallet):
 #   Skotarens FÖRSTA avlägg är objektets koordinat.
@@ -3116,8 +3116,10 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
 # för föraren). Martins handsatta rättelse (14 aug) skrevs över varje timme av
 # omimporterade skotarfiler. Därför är latitude/longitude skyddade: importen
 # fyller bara när koordinat saknas helt.
-SKYDDADE_OBJEKTFALT = ('bolag', 'skogsagare', 'saljare', 'vo_nummer', 'latitude', 'longitude')
-
+# avverkningsform sedan A' (#499): fylls av trakt-importen/auto-ifyllning (B) och
+# rättas för hand — ett maskinvärde får aldrig skriva över det. Utan skyddet vann
+# nästa HPR/FPR-fil (bara tomt filtrerades, inte överskrivning).
+SKYDDADE_OBJEKTFALT = ('bolag', 'skogsagare', 'saljare', 'vo_nummer', 'latitude', 'longitude', 'avverkningsform')
 def _arv_skotartilldelning(nyfodda: List[str]):
     """Nyfödda dim_objekt-rader ärver Martins planerade skotare EN gång.
 
@@ -3192,7 +3194,9 @@ def upsert_dim_objekt(objekt_rows: List[Dict]) -> int:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/dim_objekt",
             params={'objekt_id': f'in.({id_list})',
-                    'select': 'objekt_id,object_name,bolag,skogsagare,saljare'},
+                    # MÅSTE innehålla varje fält i SKYDDADE_OBJEKTFALT — ett fält
+                    # som inte läses ser alltid tomt ut och skyddet blir verkningslöst.
+                    'select': 'objekt_id,object_name,bolag,skogsagare,saljare,vo_nummer,latitude,longitude,avverkningsform'},
             headers=SUPABASE_HEADERS, timeout=30)
         if resp.status_code == 200:
             for rad in resp.json():
