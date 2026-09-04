@@ -170,6 +170,35 @@ function avstandPunktTillStrak(lat: number, lon: number, geometri: [number, numb
   return best;
 }
 
+// HYTTSPÅR: RDP-gallring av ett körspår ({lat,lng,tid}) — perp-avstånd i meter via lokal planprojektion.
+// Håller den SPARADE arrayen liten över ett helt skift (billiga skrivningar); behåller tid + ändpunkter.
+function rdpThin(pts: { lat: number; lng: number; tid: string }[], epsM: number): { lat: number; lng: number; tid: string }[] {
+  if (pts.length < 3) return pts;
+  const rad = Math.PI / 180, R = 6371000, cosLat = Math.cos(pts[0].lat * rad);
+  const X = (p: { lat: number; lng: number }) => p.lng * rad * R * cosLat;
+  const Y = (p: { lat: number; lng: number }) => p.lat * rad * R;
+  const keep = new Array(pts.length).fill(false);
+  keep[0] = keep[pts.length - 1] = true;
+  const stack: [number, number][] = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    if (b <= a + 1) continue;
+    const ax = X(pts[a]), ay = Y(pts[a]), bx = X(pts[b]), by = Y(pts[b]);
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    let maxD = -1, maxI = -1;
+    for (let i = a + 1; i < b; i++) {
+      const px = X(pts[i]), py = Y(pts[i]);
+      let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const cx = ax + t * dx, cy = ay + t * dy;
+      const d = Math.hypot(px - cx, py - cy);
+      if (d > maxD) { maxD = d; maxI = i; }
+    }
+    if (maxD > epsM && maxI > 0) { keep[maxI] = true; stack.push([a, maxI], [maxI, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+
 // === TYPES ===
 interface Point {
   x: number;
@@ -3057,6 +3086,138 @@ export default function PlannerPage() {
   const skotarKorvyRef = useRef(false);
   useEffect(() => { skotarKorvyRef.current = skotarKorvy; }, [skotarKorvy]);
   useEffect(() => { if (!skotarKorvy) setValtStrakKey(null); }, [skotarKorvy]);
+
+  // ═══ HYTTSPÅR (realtids-körspår, steg 1) ════════════════════════════════════════════════════════
+  // Appen loggar körvägen LIVE medan körvyn är öppen på ett objekt (BÅDA maskinerna). En rad per
+  // (objekt, roll, datum) i hyttspar → resume-bar. Punkterna gallras med GPS-vakten (#398) och
+  // RDP innan spar. Eget spår ritas direkt (MapLibre-lager). Andras spår = steg 2 (uppdatera-tryck).
+  const hyttRoll = korvyForceRoll ?? minRoll;   // effektiv roll: admin-override trumfar tilldelning
+  const hyttsparRowIdRef = useRef<string | null>(null);
+  const hyttsparPointsRef = useRef<{ lat: number; lng: number; tid: string }[]>([]);
+  const hyttsparLastFixRef = useRef<{ lat: number; lon: number; ts: number } | null>(null);
+  const hyttsparDirtyRef = useRef(false);
+  const hyttsparSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const uppdateraHyttsparLager = useCallback(() => {
+    const map = mapInstanceRef.current; if (!map) return;
+    const coords = hyttsparPointsRef.current.map(p => [p.lng, p.lat]);
+    try {
+      const src = map.getSource('hyttspar-egen-source') as any;
+      if (src) src.setData({ type: 'FeatureCollection', features: coords.length >= 2 ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }] : [] });
+    } catch { /* */ }
+  }, []);
+
+  // Sparar (RDP-gallrat) till hyttspar. final=true → status completed. Läser BARA refs (stabil).
+  const sparaHyttspar = useCallback(async (final: boolean) => {
+    const id = hyttsparRowIdRef.current; if (!id) return;
+    if (!final && !hyttsparDirtyRef.current) return;
+    hyttsparDirtyRef.current = false;
+    const thinned = rdpThin(hyttsparPointsRef.current, 3);   // 3 m — full array kvar i minnet, bara skriv gallrat
+    const patch: Record<string, unknown> = { points: thinned, antal_punkter: thinned.length, uppdaterad_at: new Date().toISOString() };
+    if (final) { patch.status = 'completed'; patch.avslutad_at = new Date().toISOString(); }
+    try {
+      const { error } = await supabase.from('hyttspar').update(patch).eq('id', id);
+      if (error) console.error('[Hyttspår] spar-fel:', error.message);
+    } catch (e) { console.error('[Hyttspår] spar-undantag:', e); }
+    if (final) { hyttsparRowIdRef.current = null; hyttsparPointsRef.current = []; hyttsparLastFixRef.current = null; }
+  }, []);
+
+  // Livscykel: starta loggning när körvyn är öppen på ett objekt med känd roll; stoppa på ALLA utvägar
+  // (körvy stängs / objekt byts / unmount = cleanup → completed; telefon låses = pagehide/visibility → spar).
+  useEffect(() => {
+    if (!(korvyActive && valtObjekt?.id && hyttRoll)) return;
+    let avbruten = false;
+    const objektId = valtObjekt.id;
+    const roll = hyttRoll;
+    const datum = new Date().toISOString().slice(0, 10);
+    (async () => {
+      try {
+        const { data: befintlig } = await supabase.from('hyttspar')
+          .select('id, points').eq('objekt_id', objektId).eq('roll', roll).eq('datum', datum).maybeSingle();
+        if (avbruten) return;
+        if (befintlig) {
+          hyttsparRowIdRef.current = befintlig.id;
+          hyttsparPointsRef.current = Array.isArray(befintlig.points) ? befintlig.points : [];
+          await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
+        } else {
+          const { data: ny, error } = await supabase.from('hyttspar')
+            .insert({ objekt_id: objektId, roll, datum, maskin_id: roll === 'skordare' ? ((valtObjekt as any)?.maskin_id ?? null) : null, points: [], status: 'recording' })
+            .select('id').single();
+          if (error || !ny) { console.error('[Hyttspår] insert-fel:', error?.message); return; }
+          hyttsparRowIdRef.current = ny.id;
+          hyttsparPointsRef.current = [];
+        }
+        if (avbruten) { sparaHyttspar(true); return; }
+        hyttsparLastFixRef.current = null;
+        uppdateraHyttsparLager();
+        hyttsparSaveTimerRef.current = setInterval(() => { sparaHyttspar(false); }, 20000);
+      } catch (e) { console.error('[Hyttspår] start-undantag:', e); }
+    })();
+    const onHide = () => { if (document.visibilityState === 'hidden') sparaHyttspar(false); };
+    const onPageHide = () => sparaHyttspar(false);
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      avbruten = true;
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onPageHide);
+      if (hyttsparSaveTimerRef.current) { clearInterval(hyttsparSaveTimerRef.current); hyttsparSaveTimerRef.current = null; }
+      sparaHyttspar(true);   // körvy stängd / objekt bytt → avsluta dagens spår (resume-bart samma dag)
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyActive, valtObjekt?.id, hyttRoll]);
+
+  // Ackumulering: varje GPS-fix (currentPosition) körs genom vakten (#398) → accepterade punkter läggs
+  // till + spåret ritas om. Gejtad på aktiv loggning (rowId satt) → no-op utanför körvy.
+  useEffect(() => {
+    if (!hyttsparRowIdRef.current) return;
+    const pos = currentPosition as any;
+    if (!pos || pos.lat == null || pos.lon == null) return;
+    const cand = { lat: pos.lat, lon: pos.lon, ts: Date.now(), accuracy: gpsAccuracy ?? 999 };
+    if (!gpsGuardAccepts(cand, hyttsparLastFixRef.current)) return;
+    hyttsparLastFixRef.current = { lat: cand.lat, lon: cand.lon, ts: cand.ts };
+    hyttsparPointsRef.current = [...hyttsparPointsRef.current, { lat: cand.lat, lng: cand.lon, tid: new Date(cand.ts).toISOString() }];
+    hyttsparDirtyRef.current = true;
+    uppdateraHyttsparLager();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition, gpsAccuracy]);
+
+  // HYTTSPÅR steg 2: ANDRAS spår (den andra maskinens/rollens körspår på objektet) — via UPPDATERA-
+  // TRYCK, inte poll/realtime. Skotaren behöver inte skördarens spår sekundfärskt; vyn ska vara lätt.
+  // Laddas en gång när körvyn öppnas (direkt värde) + knappen refetchar. Varje hyttspar-rad (per datum)
+  // renderas som EGEN LineString → inga falska hopp mellan dagars slut/start.
+  const [andrasSparTid, setAndrasSparTid] = useState<number | null>(null);
+  const [andrasSparLaddar, setAndrasSparLaddar] = useState(false);
+  const andrasRoll = hyttRoll === 'skordare' ? 'skotare' : hyttRoll === 'skotare' ? 'skordare' : null;
+  const hamtaAndrasSpar = useCallback(async () => {
+    const map = mapInstanceRef.current;
+    const objektId = valtObjekt?.id;
+    const roll = hyttRoll === 'skordare' ? 'skotare' : hyttRoll === 'skotare' ? 'skordare' : null;
+    if (!map || !objektId || !roll) return;
+    setAndrasSparLaddar(true);
+    try {
+      const { data, error } = await supabase.from('hyttspar')
+        .select('points').eq('objekt_id', objektId).eq('roll', roll);
+      if (error) { console.error('[Hyttspår] andras-hämtning:', error.message); return; }
+      const features = (data || [])
+        .map((r: any) => (Array.isArray(r.points) ? r.points : []))
+        .filter((pts: any[]) => pts.length >= 2)
+        .map((pts: any[]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: pts.map((p: any) => [p.lng, p.lat]) }, properties: {} }));
+      const src = map.getSource('hyttspar-andras-source') as any;
+      if (src) src.setData({ type: 'FeatureCollection', features });
+      setAndrasSparTid(Date.now());
+    } catch (e) { console.error('[Hyttspår] andras-undantag:', e); }
+    finally { setAndrasSparLaddar(false); }
+  }, [valtObjekt?.id, hyttRoll]);
+
+  // Ladda andras spår en gång när körvyn öppnas; töm + nollställ när den stängs/objekt byts.
+  useEffect(() => {
+    if (korvyActive && valtObjekt?.id && andrasRoll) { hamtaAndrasSpar(); return; }
+    const map = mapInstanceRef.current;
+    try { const src = map?.getSource('hyttspar-andras-source') as any; if (src) src.setData({ type: 'FeatureCollection', features: [] }); } catch { /* */ }
+    setAndrasSparTid(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyActive, valtObjekt?.id, hyttRoll]);
 
   // Hämta skördarstråk för valt objekt (bara i skotarkörvy). objekt_id = objekt.id (uuid) = valtObjekt.id.
   useEffect(() => {
@@ -6817,7 +6978,7 @@ export default function PlannerPage() {
       // (zone-fill/zone-outline/zone-label) — MÅSTE vara med annars döljs zonerna i körvy. Förr
       // visades zoner i körvy bara via 'zones-korvy-*-extrusion' (3D-pelaren, nu borttagen); utan
       // 'zone-' i whitelisten försvann den platta zonen (RISA syntes i planering men ej i körvy).
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skordarstrak-', 'skotar-hogar-'];
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skordarstrak-', 'skotar-hogar-', 'hyttspar-'];
       for (const l of allLayers) {
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
@@ -7415,6 +7576,54 @@ export default function PlannerPage() {
         // Lägg precis ovanför bg-korvy (under alla andra basemaps)
         try { map.moveLayer('hillshade-korvy', 'osm-layer'); } catch {}
       } catch (e) { console.error('[Körvy] hillshade-korvy:', e); }
+    }
+    // HYTTSPÅR: eget körspår LIVE (grön, tydligt skild från skördarstråkens blå). Data matas av
+    // ackumuleringen; synlighet styrs av körvy-whitelisten ('hyttspar-'-prefix). Default dold.
+    if (!map.getSource('hyttspar-egen-source')) {
+      try { map.addSource('hyttspar-egen-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+      catch (e) { console.error('[Hyttspår] source:', e); }
+    }
+    if (!map.getLayer('hyttspar-egen-casing')) {
+      try {
+        map.addLayer({
+          id: 'hyttspar-egen-casing', type: 'line', source: 'hyttspar-egen-source',
+          paint: { 'line-color': '#0b0b0d', 'line-opacity': 0.45, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 4, 17, 7, 19, 10] },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Hyttspår] casing:', e); }
+    }
+    if (!map.getLayer('hyttspar-egen-line')) {
+      try {
+        map.addLayer({
+          id: 'hyttspar-egen-line', type: 'line', source: 'hyttspar-egen-source',
+          paint: { 'line-color': '#34c759', 'line-opacity': 0.95, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2.4, 17, 4, 19, 6] },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Hyttspår] line:', e); }
+    }
+    // HYTTSPÅR steg 2: ANDRAS spår (andra maskinens körspår) — LILA, skilt från eget (grönt) och
+    // skördarstråk (blått). Data via uppdatera-tryck. Whitelistat via 'hyttspar-'-prefixet. Default dold.
+    if (!map.getSource('hyttspar-andras-source')) {
+      try { map.addSource('hyttspar-andras-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+      catch (e) { console.error('[Hyttspår] andras-source:', e); }
+    }
+    if (!map.getLayer('hyttspar-andras-casing')) {
+      try {
+        map.addLayer({
+          id: 'hyttspar-andras-casing', type: 'line', source: 'hyttspar-andras-source',
+          paint: { 'line-color': '#0b0b0d', 'line-opacity': 0.4, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3.5, 17, 6, 19, 8.5] },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Hyttspår] andras-casing:', e); }
+    }
+    if (!map.getLayer('hyttspar-andras-line')) {
+      try {
+        map.addLayer({
+          id: 'hyttspar-andras-line', type: 'line', source: 'hyttspar-andras-source',
+          paint: { 'line-color': '#bf5af2', 'line-opacity': 0.9, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 3.4, 19, 5] },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Hyttspår] andras-line:', e); }
     }
     console.log('[Körvy] immersion-layers setup klar');
   }, [mapLibreReady]);
@@ -11798,6 +12007,36 @@ export default function PlannerPage() {
         >
           <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>my_location</span>
           Följ mig
+        </button>
+      )}
+
+      {/* HYTTSPÅR steg 2: "Uppdatera spår" — hämtar andra maskinens (rollens) körspår på nytt.
+          Uppdatera-tryck, ingen poll. Lila accent = matchar andras-spår-linjen. Top-center. */}
+      {korvyActive && andrasRoll && (
+        <button
+          type="button"
+          onClick={() => { if (navigator.vibrate) navigator.vibrate(8); hamtaAndrasSpar(); }}
+          disabled={andrasSparLaddar}
+          aria-label={`Uppdatera ${andrasRoll === 'skordare' ? 'skördarens' : 'skotarens'} körspår`}
+          style={{
+            position: 'fixed',
+            top: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+            left: '50%', transform: 'translateX(-50%)',
+            minHeight: 38, padding: '0 14px',
+            display: 'flex', alignItems: 'center', gap: 7,
+            borderRadius: 19,
+            background: 'rgba(20,20,22,0.72)',
+            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(191,90,242,0.5)',
+            color: '#fff', fontSize: 13, fontWeight: 600, cursor: andrasSparLaddar ? 'default' : 'pointer',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+            zIndex: 260, whiteSpace: 'nowrap', opacity: andrasSparLaddar ? 0.7 : 1,
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18, color: '#bf5af2' }}>refresh</span>
+          {andrasSparLaddar
+            ? 'Uppdaterar…'
+            : `${andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår'}${andrasSparTid ? ' · ' + new Date(andrasSparTid).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : ''}`}
         </button>
       )}
 
