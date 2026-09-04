@@ -15,10 +15,14 @@ export interface RouteRequest {
   toLat: number;   toLng: number;
 }
 
-/** Svar: km + vilken källa datan kom från. */
+/** Svar: km + vilken källa datan kom från. `ejRoutbar` = ORS hittade ingen väg
+ *  inom 350 m från en av punkterna (felkod 2010) — punkten ligger inne i
+ *  beståndet, inte att det var ett tillfälligt fel. Anroparen kan då prova en
+ *  annan koordinatkälla (avlägg/plan) i stället för att ge upp. */
 export interface RouteResult {
   km: number;
   source: "cache" | "ors" | "fallback";
+  ejRoutbar?: boolean;
 }
 
 /**
@@ -45,6 +49,7 @@ export async function routeKm(
   if (hit) return { km: hit.distance_km, source: "cache" };
 
   const key = process.env.ORS_API_KEY;
+  let ejRoutbar = false;
   if (allowOrs && key) {
     try {
       const url = `https://api.openrouteservice.org/v2/directions/driving-car?start=${fLn},${fL}&end=${tLn},${tL}`;
@@ -61,14 +66,20 @@ export async function routeKm(
           return { km, source: "ors" };
         }
       } else {
-        console.warn("[routing] ORS", r.status, await r.text().catch(() => ""));
+        const text = await r.text().catch(() => "");
+        // 404 + felkod 2010 = "Could not find routable point within a radius of
+        // 350.0 meters" — koordinaten ligger inne i beståndet (Rössmåla 09-04:
+        // skotarens sista avlägg). Det är ett KOORDINATfel, inte ett ORS-fel, och
+        // löses med en annan koordinatkälla — därför signaleras det uppåt.
+        ejRoutbar = r.status === 404 && /"code"\s*:\s*2010/.test(text);
+        console.warn("[routing] ORS", r.status, ejRoutbar ? "(ej routbar punkt)" : "", text.slice(0, 200));
       }
     } catch (e: any) {
       console.warn("[routing] ORS-fel", e?.message || String(e));
     }
   }
 
-  return { km: Math.round(haversine(req.fromLat, req.fromLng, req.toLat, req.toLng) * 1.4), source: "fallback" };
+  return { km: Math.round(haversine(req.fromLat, req.fromLng, req.toLat, req.toLng) * 1.4), source: "fallback", ejRoutbar };
 }
 
 /**
@@ -80,10 +91,18 @@ export async function routeKm(
  */
 export type KoordKalla = "maskin" | "objekt" | "larm" | null;
 
+/** En koordinat ur kedjan + var den kom från. */
+export interface KoordKandidat { lat: number; lng: number; kalla: Exclude<KoordKalla, null> }
+
 export interface ObjektKoord {
   lat: number | null;
   lng: number | null;
   kalla: KoordKalla;
+  // Resten av kedjan efter den valda (t.ex. objekt-/larmkoordinat när dim_objekt
+  // vann). Används när ORS säger att den valda punkten inte går att köra till:
+  // "maskin"-punkten är skotarens sist registrerade avlägg och kan ligga inne i
+  // beståndet, medan objekt-tabellens punkt är avlägget vid vägen.
+  alternativ?: KoordKandidat[];
   object_name?: string | null;
   skogsagare?: string | null;
   huvudtyp?: string | null;
@@ -136,17 +155,21 @@ export async function hamtaObjektKoordinater(
   for (const id of ids) {
     const d = dimById[id];
     const o = objByVo[id];
-    let lat: number | null = null, lng: number | null = null;
-    let kalla: KoordKalla = null;
-    if (d && d.latitude != null && d.longitude != null) {
-      lat = Number(d.latitude); lng = Number(d.longitude); kalla = "maskin";
-    } else if (o && o.lat != null && o.lng != null) {
-      lat = Number(o.lat); lng = Number(o.lng); kalla = "objekt";
-    } else if (o && o.larmkoordinat_lat != null && o.larmkoordinat_lng != null) {
-      lat = Number(o.larmkoordinat_lat); lng = Number(o.larmkoordinat_lng); kalla = "larm";
-    }
+    // Hela kedjan i prioritetsordning; första = vald, resten = alternativ (så
+    // en ej routbar vald punkt kan falla vidare utan nytt DB-anrop). Dubbletter
+    // (samma punkt på 3 decimaler) tas bort — de ger samma ORS-svar.
+    const kedja: KoordKandidat[] = [];
+    if (d && d.latitude != null && d.longitude != null) kedja.push({ lat: Number(d.latitude), lng: Number(d.longitude), kalla: "maskin" });
+    if (o && o.lat != null && o.lng != null) kedja.push({ lat: Number(o.lat), lng: Number(o.lng), kalla: "objekt" });
+    if (o && o.larmkoordinat_lat != null && o.larmkoordinat_lng != null) kedja.push({ lat: Number(o.larmkoordinat_lat), lng: Number(o.larmkoordinat_lng), kalla: "larm" });
+    const unik: KoordKandidat[] = [];
+    for (const k of kedja) if (!unik.some(u => round3(u.lat) === round3(k.lat) && round3(u.lng) === round3(k.lng))) unik.push(k);
+    const vald = unik[0];
+    const lat: number | null = vald ? vald.lat : null, lng: number | null = vald ? vald.lng : null;
+    const kalla: KoordKalla = vald ? vald.kalla : null;
     map[id] = {
       lat, lng, kalla,
+      alternativ: unik.slice(1),
       object_name: d?.object_name ?? null,
       skogsagare: d?.skogsagare ?? null,
       huvudtyp: d?.huvudtyp ?? null,
@@ -282,6 +305,46 @@ export interface DagKmBerakning {
   km_kvall: number;
   källa: RouteResult["source"]; // "cache" | "ors" | "fallback"
   orsAnrop: number;
+  /** Satt när ett ben fick falla vidare i koordinatkedjan (vald punkt ej
+   *  routbar) — t.ex. "hem→objekt: maskin-punkt ej routbar → objekt-koordinat".
+   *  Följer med till nattjobbsloggen så bytet aldrig sker tyst. */
+  anm?: string;
+}
+
+/**
+ * Ett pendlingsben med fallback i koordinatkedjan: prova vald objektpunkt; säger
+ * ORS "ej routbar" (felkod 2010) → prova nästa kandidat (objekt → larm). Ett
+ * fel av annan sort (nätverk, kvot) faller INTE vidare — då är punkten inte
+ * problemet. `objektForst` = true när objektet är destinationen (morgon),
+ * false när det är avresepunkten (kväll).
+ */
+async function benMedKedja(
+  supabase: any,
+  hem: { lat: number; lng: number },
+  objekt: ObjektKoord,
+  objektForst: boolean,
+  allowOrs: boolean,
+): Promise<{ res: RouteResult; orsAnrop: number; anm?: string }> {
+  const kandidater: KoordKandidat[] = [
+    { lat: Number(objekt.lat), lng: Number(objekt.lng), kalla: (objekt.kalla ?? "maskin") as Exclude<KoordKalla, null> },
+    ...(objekt.alternativ ?? []),
+  ];
+  let orsAnrop = 0;
+  let sist: RouteResult | null = null;
+  for (let i = 0; i < kandidater.length; i++) {
+    const k = kandidater[i];
+    const req = objektForst
+      ? { fromLat: hem.lat, fromLng: hem.lng, toLat: k.lat, toLng: k.lng }
+      : { fromLat: k.lat, fromLng: k.lng, toLat: hem.lat, toLng: hem.lng };
+    const res = await routeKm(supabase, req, allowOrs);
+    if (res.source === "ors") orsAnrop++;
+    if (res.source !== "fallback" || !res.ejRoutbar) {
+      const anm = i > 0 ? `${objektForst ? "hem→objekt" : "objekt→hem"}: ${kandidater[0].kalla}-punkt ej routbar → ${k.kalla}-koordinat` : undefined;
+      return { res, orsAnrop, anm };
+    }
+    sist = res;
+  }
+  return { res: sist!, orsAnrop };
 }
 
 /**
@@ -306,16 +369,17 @@ export async function berakaDagKm(
   if (platser.length === 0) return null;
   const first = p.koordMap[platser[0]];
   const last = p.koordMap[platser[platser.length - 1]];
-  const hL = Number(p.hemLat), hN = Number(p.hemLng);
-  let orsAnrop = 0;
+  const hem = { lat: Number(p.hemLat), lng: Number(p.hemLng) };
   // Endast pendlingsbenen (hem→första, sista→hem). Aldrig mellan-objekt-körning —
   // den har ingen kolumn och är inte pendling. km_totalt = morgon + kväll.
-  const mRes = await routeKm(supabase, { fromLat: hL, fromLng: hN, toLat: Number(first.lat), toLng: Number(first.lng) }, p.allowOrs);
-  if (mRes.source === "ors") orsAnrop++;
-  const kRes = await routeKm(supabase, { fromLat: Number(last.lat), fromLng: Number(last.lng), toLat: hL, toLng: hN }, p.allowOrs);
-  if (kRes.source === "ors") orsAnrop++;
-  const källa = (mRes.source === "fallback" || kRes.source === "fallback") ? "fallback" : kRes.source;
-  return { km_morgon: mRes.km, km_kvall: kRes.km, källa, orsAnrop };
+  // Varje ben faller vidare i koordinatkedjan om den valda punkten inte går att
+  // köra till (fix A, 2026-09-04) — bytet rapporteras i `anm`, aldrig tyst.
+  const m = await benMedKedja(supabase, hem, first, true, p.allowOrs);
+  const k = await benMedKedja(supabase, hem, last, false, p.allowOrs);
+  const orsAnrop = m.orsAnrop + k.orsAnrop;
+  const källa = (m.res.source === "fallback" || k.res.source === "fallback") ? "fallback" : k.res.source;
+  const anm = [m.anm, k.anm].filter(Boolean).join("; ") || undefined;
+  return { km_morgon: m.res.km, km_kvall: k.res.km, källa, orsAnrop, anm };
 }
 
 export type PersistResultat =
@@ -379,7 +443,7 @@ export async function beraknaOchPersisteraDagKm(
     hemLat: number | null; hemLng: number | null;
     allowOrs: boolean;
   },
-): Promise<PersistResultat & { orsAnrop: number }> {
+): Promise<PersistResultat & { orsAnrop: number; anm?: string }> {
   const noll = (v: any) => v == null || Number(v) === 0;
   if (!(noll(p.rad.km_morgon) && noll(p.rad.km_kvall) && noll(p.rad.km_totalt))) return { status: "hoppad", orsak: "km redan satt", orsAnrop: 0 };
   if (p.rad.redigerad) return { status: "hoppad", orsak: "redigerad — föraren äger dagen", orsAnrop: 0 };
@@ -390,5 +454,5 @@ export async function beraknaOchPersisteraDagKm(
   });
   if (!ber) return { status: "hoppad", orsak: p.hemLat == null ? "saknar hemadress-koordinat" : "inget objekt med koordinat", orsAnrop: 0 };
   const res = await persisteraDagKm(supabase, p.rad, ber);
-  return { ...res, orsAnrop: ber.orsAnrop };
+  return { ...res, orsAnrop: ber.orsAnrop, anm: ber.anm };
 }
