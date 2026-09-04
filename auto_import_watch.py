@@ -205,6 +205,38 @@ def run_hpr_import():
         logger.error(f"HPR-import fel: {e}")
 
 
+def run_efterberakning():
+    """Efter HPR-importen: diameterserierna in, rotkapssimuleringen om.
+
+    Båda är inkrementella — bara nya filer och ändrade objekt rör sig, så en
+    körning utan nyheter tar sekunder. Skärmen /rotkap läser bara resultatet
+    (sim_rotkap) och aldrig serien, därför ligger arbetet här och inte där.
+    Fel stoppar aldrig importen: de loggas, och skärmen visar förra
+    körningens rader med sitt beräknad-datum."""
+    for script, args, timeout in (("import_diameterserie.py", ["--pa-riktigt"], 1800),
+                                  ("berakna_rotkap.py", [], 1800)):
+        logger.info(f"Startar efterberäkning: {script}")
+        try:
+            result = subprocess.run(
+                [PYTHON_EXE, os.path.join(SCRIPT_DIR, script), *args],
+                cwd=SCRIPT_DIR, capture_output=True, text=True,
+                encoding='utf-8', errors='replace', timeout=timeout, env=_env,
+            )
+            if result.returncode == 0:
+                logger.info(f"{script} klar (OK)")
+            else:
+                logger.error(f"{script} avslutades med kod {result.returncode}")
+                for line in (result.stdout or "").strip().split("\n")[-8:]:
+                    logger.warning(f"  {line}")
+            if result.stderr:
+                for line in result.stderr.strip().split("\n")[-5:]:
+                    logger.warning(f"  stderr: {line}")
+        except subprocess.TimeoutExpired:
+            logger.error(f"{script} timeout (>{timeout}s)")
+        except Exception as e:
+            logger.error(f"{script} fel: {e}")
+
+
 def _import_secret() -> str:
     """IMPORT_SECRET ur .env.local bredvid scriptet (samma fil som Supabase-nycklarna).
     /api/* är stängt som default i middleware — mom-import släpps in BARA med
@@ -351,6 +383,7 @@ def periodic_scan():
             if hpr_files:
                 logger.info(">>> Periodisk scan: kör HPR-import")
                 run_hpr_import()
+                run_efterberakning()
         except Exception as e:
             logger.error(f"Periodisk scan-fel: {e}")
 
@@ -407,6 +440,7 @@ class IncomingFileHandler(FileSystemEventHandler):
             # Kör HPR-import efteråt (MOM-import flyttar filer till Behandlade)
             logger.info(f">>> Kör HPR-import (efter MOM-flytt)")
             run_hpr_import()
+            run_efterberakning()
 
         elif ext == ".hpr":
             # Fördelningsuppföljningen först, medan filen ännu ligger i
@@ -415,6 +449,7 @@ class IncomingFileHandler(FileSystemEventHandler):
             post_hpr_fordelning(filepath)
             logger.info(f">>> Kör HPR-import för: {basename}")
             run_hpr_import()
+            run_efterberakning()
 
 
 # ============================================================
@@ -476,6 +511,7 @@ def main():
     if existing_hpr:
         logger.info(f"Kör HPR-import för {len(existing_hpr)} filer...")
         run_hpr_import()
+        run_efterberakning()
 
     # Starta watchdog-övervakning
     event_handler = IncomingFileHandler()
