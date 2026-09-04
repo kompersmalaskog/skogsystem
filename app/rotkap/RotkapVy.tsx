@@ -40,6 +40,11 @@ export type SimRad = {
 
 export const KAPLANGDER = [320, 340, 360, 380] as const;
 export const REFERENS = 300;
+/** Färre stammar än så är brus, inte ett tal. En enskild stam ger mellan
+ *  −309 och +81 liter, var femte exakt noll (797 stammar, fyra objekt).
+ *  Dras 20 slumpade stammar hamnar medlet inom ±50 % av det sanna i nio
+ *  fall av tio; med 10 bara i tre av fyra, med 2 varannan gång. */
+export const MIN_STAMMAR = 20;
 
 const nf = (n: number, d: number) =>
   n.toLocaleString('sv-SE', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -71,11 +76,12 @@ export function objektLista(rader: SimRad[]): ObjektVal[] {
   per.forEach((rs, id) => {
     const ref = rs.find(r => r.kaplangd_cm === REFERENS);
     if (!ref) return;
-    const orsak = ref.stammar > 0 ? null
+    const orsak = ref.stammar >= MIN_STAMMAR ? null
+      : ref.stammar > 0 ? 'för få stammar'
       : ref.stammar_objekt === 0 ? 'inga stockar'
       : ref.utan_sagstock + ref.utan_kurva > 0 ? 'rotkap utan sågstock eller kurva'
       : 'inga rotkap';
-    ut.push({ objekt_id: id, namn: ref.objekt_namn ?? id, ref, valjbar: ref.stammar > 0, orsak });
+    ut.push({ objekt_id: id, namn: ref.objekt_namn ?? id, ref, valjbar: orsak === null, orsak });
   });
   // Valbara först, störst först — sedan resten i bokstavsordning.
   return ut.sort((a, b) => Number(b.valjbar) - Number(a.valjbar)
@@ -163,6 +169,7 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
       {obj && !obj.valjbar && (
         <div style={{ ...S.muted, textAlign: 'center', padding: 40, lineHeight: 1.6 }}>
           Inget att simulera på {obj.namn}: {obj.orsak}.
+          {obj.ref.stammar > 0 && <><br />{nf0(obj.ref.stammar)} rotkapade stammar med sågstock, gränsen är {MIN_STAMMAR}. Färre än så ger brus, inte ett tal.</>}
           {obj.ref.utan_sagstock > 0 && <><br />{nf0(obj.ref.utan_sagstock)} rotkapade stammar fick ingen sågstock alls.</>}
           {obj.ref.utan_kurva > 0 && <><br />{nf0(obj.ref.utan_kurva)} rotkapade stammar saknar kurva.</>}
         </div>
