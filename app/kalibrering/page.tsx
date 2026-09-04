@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { KontrollResponse, StockRow, StamRow } from "@/app/api/kalibrering/kontroll/route";
 import PageContainer from '@/components/PageContainer';
+import { MATT, AVVIKELSE, maskinNamn, maskinKortNamn } from '@/lib/kalibrering/ordlista';
+import { dec, fmtAvvikelse, fmtTal, fmtKrav, fmtSig1, fmtAbs1 } from '@/lib/kalibrering/format';
 
 // === TYPES (matching actual Supabase tables) ===
 interface FaktKalibrering {
@@ -85,31 +87,7 @@ const MSym = ({ name, size = 18, color }: { name: string; size?: number; color?:
 
 const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 
-// Konsekvent format för avvikelser. cm visas alltid med 1 decimal (+0.3, -1.5),
-// mm visas alltid som heltal (+2, -1). null/undefined/NaN → '–'.
-const fmtAvvikelse = (n: number | null | undefined, unit: 'cm' | 'mm'): string => {
-  if (n == null || isNaN(n)) return '–';
-  const sign = n > 0 ? '+' : '';
-  if (unit === 'cm') return `${sign}${n.toFixed(1)}`;
-  return `${sign}${Math.round(n)}`;
-};
-
-// Osignerat mätvärde (std, toleransfönster): cm 1 decimal, mm heltal.
-const fmtTal = (n: number | null | undefined, unit: 'cm' | 'mm'): string => {
-  if (n == null || isNaN(n)) return '–';
-  return unit === 'cm' ? n.toFixed(1) : String(Math.round(n));
-};
-// Kravtröskel: minimala decimaler (4→"4", 1.5→"1.5", 3.5→"3.5"). Heltalsavrundning
-// skulle dölja att VIDA:s systematik-golv är 1,5 (inte 2) och std-mål 3,5 (inte 4).
-const fmtKrav = (n: number | null | undefined): string => {
-  if (n == null || isNaN(n)) return '–';
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
-};
-// Signerat mätvärde med 1 decimal (systematik på objekt/precisionskänsligt).
-const fmtSig1 = (n: number | null | undefined): string => {
-  if (n == null || isNaN(n)) return '–';
-  return `${n > 0 ? '+' : ''}${n.toFixed(1)}`;
-};
+// Talformat (komma som decimaltecken) bor i lib/kalibrering/format — en källa.
 
 // Pluralis: 1 = singular, 2+ = plural. "1 stock" / "2 stockar".
 const antalText = (n: number, singular: string, plural: string) =>
@@ -609,16 +587,7 @@ type CalMaskin = {
   kontroller: CalKontroll[];
 };
 
-const maskinNamn = (m: { tillverkare?: string | null; modell?: string | null; maskin_id: string }) => {
-  const t = (m.tillverkare ?? '').trim();
-  const mod = (m.modell ?? '').trim();
-  if (!t && !mod) return m.maskin_id;
-  if (!mod) return t;
-  if (!t) return mod;
-  // Om modell börjar med tillverkare (case-insensitivt), släpp prefixet
-  if (mod.toLowerCase().startsWith(t.toLowerCase())) return mod;
-  return `${t} ${mod}`;
-};
+// maskinNamn / maskinKortNamn bor i lib/kalibrering/ordlista — id:t visas aldrig.
 type CalDag = { datum: string; veckodag: number; status: CalDagstatus; maskiner: CalMaskin[] };
 type CalSammanfattning = { produktionsdagar: number; kompletta: number; saknas: number; varningar: number; okand_huvudtyp_dagar: number };
 type CalResponse = { manad: string; dagar: CalDag[]; sammanfattning: CalSammanfattning };
@@ -742,8 +711,13 @@ export default function KalibreringPage() {
   const filterLabel = useMemo(() => {
     if (effectiveSelected === 'all') return 'Alla maskiner';
     const m = alleMaskiner.find(x => x.maskin_id === effectiveSelected);
-    return m ? maskinNamn(m) : effectiveSelected;
+    return maskinNamn(m ?? { maskin_id: effectiveSelected });
   }, [effectiveSelected, alleMaskiner]);
+  // Namn för ett id var som helst i vyn — aldrig råa id:n i UI:t.
+  const maskinNamnFor = (id: string | null | undefined): string =>
+    id ? maskinNamn(alleMaskiner.find(x => x.maskin_id === id) ?? { maskin_id: id }) : '—';
+  const maskinKortNamnFor = (id: string | null | undefined): string =>
+    id ? maskinKortNamn(alleMaskiner.find(x => x.maskin_id === id) ?? { maskin_id: id }) : '—';
 
   // Aktiva maskiner: sålda (aktiv_till i det förflutna) döljs från väljare + 'alla'-aggregat.
   // Historiken finns kvar i DB; den bara filtreras bort ur vyn.
@@ -810,14 +784,14 @@ export default function KalibreringPage() {
         <div className="kalib-tr-stod">
           {variabel === 'langd'
             ? `inom ±${fmtKrav(stat.tolerans)} cm · n ${stat.n}`
-            : `syst ${fmtSig1(stat.systematisk)} · std ${(stat.standardavv ?? 0).toFixed(1)} ${enhet} · n ${stat.n}`}
+            : `${MATT.systematisk.fraga} ${fmtSig1(stat.systematisk)} ${enhet} · ${MATT.standardavv.fraga} ${fmtAbs1(stat.standardavv)} ${enhet} · n ${stat.n}`}
         </div>
       </div>
     );
   };
 
   const heroMaskinObj = heroMaskin ? alleMaskiner.find(m => m.maskin_id === heroMaskin) : undefined;
-  const heroNamn = heroMaskinObj ? maskinNamn(heroMaskinObj) : (heroMaskin ?? '');
+  const heroNamn = heroMaskin ? maskinNamn(heroMaskinObj ?? { maskin_id: heroMaskin }) : '';
 
   // Hämta diagnos-underlag (klasser, planområden, markörer) för vald maskin.
   const laddaDiagnos = useCallback((maskin: string, force = false) => {
@@ -949,8 +923,6 @@ export default function KalibreringPage() {
     const tolText = stat.tolerans != null ? `inom ±${fmtTal(stat.tolerans, enhet)} ${enhet}` : '';
     // Stödtalen visas alltid med 1 decimal — std/systematik ligger ofta precis
     // vid tröskeln (t.ex. 4,6 mot taket 4,5); heltal skulle dölja marginalen.
-    const sig1 = (x: number | null) => (x == null ? '–' : `${x > 0 ? '+' : ''}${x.toFixed(1)}`);
-    const abs1 = (x: number | null) => (x == null ? '–' : x.toFixed(1));
     return (
       <div className="kalib-hero-metric">
         <div className={`kalib-hero-metric-value tone-${ton}`}>{Math.round(stat.traffPct)}%</div>
@@ -960,7 +932,7 @@ export default function KalibreringPage() {
             ? `för få mått i perioden (${stat.n})`
             : variabel === 'langd'
               ? `n=${stat.n} · klaven mäter hela cm`
-              : `syst. ${sig1(stat.systematisk)} ${enhet} · std ${abs1(stat.standardavv)} ${enhet} · n=${stat.n}`}
+              : `${MATT.systematisk.fraga} ${fmtSig1(stat.systematisk)} ${enhet} · ${MATT.standardavv.fraga} ${fmtAbs1(stat.standardavv)} ${enhet} · n ${stat.n}`}
         </div>
       </div>
     );
@@ -1305,7 +1277,7 @@ export default function KalibreringPage() {
         // Subtitle-delar
         const sortText = s.sortiment_namn ?? '–';
         const lenM =
-          s.maskin_langd_cm != null ? `${(s.maskin_langd_cm / 100).toFixed(1)} m` : '–';
+          s.maskin_langd_cm != null ? `${dec(s.maskin_langd_cm / 100, 1)} m` : '–';
         const mpCount = s.matpunkter.length;
         const mpText = mpCount === 1 ? '1 mätpunkt' : `${mpCount} mätpunkter`;
 
@@ -1509,7 +1481,7 @@ export default function KalibreringPage() {
         );
         const sortimentText = Array.from(sortimentSet).join(' · ') || '–';
         const totalCm = stamStockar.reduce((a, st) => a + (st.maskin_langd_cm ?? 0), 0);
-        const totalM = (totalCm / 100).toFixed(1);
+        const totalM = dec(totalCm / 100, 1);
 
         // Skala för stock-storlek — relativ inom stammen så förhållandena
         // syns men inga absoluta px-värden tappar sig i extrema fall.
@@ -1643,7 +1615,7 @@ export default function KalibreringPage() {
                   const widthPct = ((st.maskin_langd_cm ?? maxLangd) / maxLangd) * 100;
                   const heightPx = 16 + ((st.maskin_toppdia_mm ?? maxDia) / maxDia) * 18;
                   const lenM = st.maskin_langd_cm != null
-                    ? (st.maskin_langd_cm / 100).toFixed(1).replace('.', ',')
+                    ? dec(st.maskin_langd_cm / 100, 1)
                     : '–';
                   const avvikText = hasAvvikData
                     ? `${fmtAvvikelse(sDia, 'mm')} mm`
@@ -1700,8 +1672,8 @@ export default function KalibreringPage() {
                       <span className="kalib-stamhallning-dia">Diameter</span>
                     </div>
                     {planer.map((p, idx) => {
-                      const startM = (p.startCm / 100).toFixed(1).replace('.', ',');
-                      const endM = (p.endCm / 100).toFixed(1).replace('.', ',');
+                      const startM = dec(p.startCm / 100, 1);
+                      const endM = dec(p.endCm / 100, 1);
                       return (
                         <div key={idx} className="kalib-stamhallning-row">
                           <span className="kalib-stamhallning-pos">{startM} – {endM} m</span>
@@ -1746,8 +1718,8 @@ export default function KalibreringPage() {
                   const hasSnow = snow > 0;
                   const hasRain = !hasSnow && rain > 0;
                   const iconName = hasSnow ? 'weather_snowy' : 'water_drop';
-                  const text = hasSnow ? `${snow.toFixed(1)} cm snö`
-                    : hasRain ? `${rain.toFixed(1)} mm`
+                  const text = hasSnow ? `${dec(snow, 1)} cm snö`
+                    : hasRain ? `${dec(rain, 1)} mm`
                     : 'Uppehåll';
                   return (
                     <div className="kalib-weather-item">
@@ -1759,7 +1731,7 @@ export default function KalibreringPage() {
                 {w.wind_speed_ms != null && (
                   <div className="kalib-weather-item">
                     <MSym name="air" size={18} color="#8E8E93" />
-                    <span className="kalib-weather-val">{w.wind_speed_ms.toFixed(1)} m/s</span>
+                    <span className="kalib-weather-val">{dec(w.wind_speed_ms, 1)} m/s</span>
                   </div>
                 )}
               </div>
@@ -1767,7 +1739,7 @@ export default function KalibreringPage() {
 
             <div className="kalib-card">
               <div className="kalib-tol-header">
-                <div className="kalib-tol-label">Längd · träffprocent</div>
+                <div className="kalib-tol-label">Längd · {MATT.traffprocent.term}</div>
                 <div className={`kalib-tol-value tone-${lenStatusTone === 'bad' ? 'hot' : 'ok'}`}>
                   {lenKlavade.length === 0 ? 'Ej klavad' : lenTraff != null ? `${lenTraff}%` : '–'}
                 </div>
@@ -2007,7 +1979,7 @@ export default function KalibreringPage() {
           </div>
           <div className="kalib-summary-row" style={{ marginTop: 16 }}>
             <div className="kalib-summary-item">
-              <div className="kalib-summary-label">Längd (M−O)</div>
+              <div className="kalib-summary-label">{AVVIKELSE.langd}</div>
               <div className={`kalib-summary-value tone-${lenTon}`}>{lenKlavad ? `${fmtAvvikelse(lenDiff, 'cm')} cm` : '–'}</div>
               <div className={`kalib-diff-badge tone-${lenTon}`}>{lenKlavad ? badgeText(lenTon) : 'Ej klavad'}</div>
             </div>
@@ -2017,7 +1989,7 @@ export default function KalibreringPage() {
               <div className="kalib-summary-hint">op: {opDia}</div>
             </div>
             <div className="kalib-summary-item">
-              <div className="kalib-summary-label">Topp (M−O)</div>
+              <div className="kalib-summary-label">{AVVIKELSE.topp}</div>
               <div className={`kalib-summary-value tone-${diaTon}`}>{diaKlavad ? `${fmtAvvikelse(diaDiff, 'mm')} mm` : '–'}</div>
               <div className={`kalib-diff-badge tone-${diaTon}`}>{diaKlavad ? badgeText(diaTon) : 'Ej klavad'}</div>
             </div>
@@ -2074,8 +2046,8 @@ export default function KalibreringPage() {
                 <div className="kalib-info-content">
                   <div className="kalib-info-title">Volym (m³fub)</div>
                   <div className="kalib-info-text">
-                    Maskin: {stock.maskin_volym_sub.toFixed(4)} • Operatör: {volKlavad ? stock.operator_volym_sub!.toFixed(4) : '–'}
-                    {volKlavad && stock.volym_avvikelse != null ? ` • Diff: ${stock.volym_avvikelse.toFixed(4)}` : ''}
+                    Maskin: {dec(stock.maskin_volym_sub, 4)} • Operatör: {volKlavad ? dec(stock.operator_volym_sub!, 4) : '–'}
+                    {volKlavad && stock.volym_avvikelse != null ? ` • Diff: ${dec(stock.volym_avvikelse, 4)}` : ''}
                   </div>
                 </div>
               </div>
@@ -2101,8 +2073,8 @@ export default function KalibreringPage() {
           <div className="kalib-total-summary">
             <div className="kalib-total-title">Snitt för {name.toLowerCase()}</div>
             <div className="kalib-total-grid two-col">
-              <div className="kalib-total-item"><div className="kalib-total-label">Längd (M−O)</div><div className={`kalib-total-value tone-${avvikelseTon(data.lenDiff, 'len', data.count)}`}>{fmtAvvikelse(data.lenDiff, 'cm')}<span className="kalib-total-unit"> cm</span></div></div>
-              <div className="kalib-total-item"><div className="kalib-total-label">Dia (M−O)</div><div className={`kalib-total-value tone-${avvikelseTon(data.diaDiff, 'dia', data.count)}`}>{fmtAvvikelse(data.diaDiff, 'mm')}<span className="kalib-total-unit"> mm</span></div></div>
+              <div className="kalib-total-item"><div className="kalib-total-label">{AVVIKELSE.langd}</div><div className={`kalib-total-value tone-${avvikelseTon(data.lenDiff, 'len', data.count)}`}>{fmtAvvikelse(data.lenDiff, 'cm')}<span className="kalib-total-unit"> cm</span></div></div>
+              <div className="kalib-total-item"><div className="kalib-total-label">{AVVIKELSE.dia}</div><div className={`kalib-total-value tone-${avvikelseTon(data.diaDiff, 'dia', data.count)}`}>{fmtAvvikelse(data.diaDiff, 'mm')}<span className="kalib-total-unit"> mm</span></div></div>
             </div>
           </div>
           <div className="kalib-modal-section-header"><div className="kalib-modal-section-title">Senaste kontroller</div></div>
@@ -2142,18 +2114,16 @@ export default function KalibreringPage() {
         <>
           {dag.maskiner.map(m => {
             const namn = maskinNamn(m);
-            const visaIdRad = !namn.includes(m.maskin_id) && namn !== m.maskin_id;
             return (
             <div key={m.maskin_id} className={`kalib-day-maskin ${m.status === 'inaktiv' ? 'inaktiv' : ''}`}>
               <div className="kalib-day-maskin-header">
                 <div>
                   <div className="kalib-day-maskin-namn">{namn}</div>
-                  {visaIdRad && <div className="kalib-day-maskin-id">{m.maskin_id}</div>}
                 </div>
                 <span className={`kalib-status-badge ${m.status}`}>{maskinStatusText(m.status)}</span>
               </div>
               <div className="kalib-day-maskin-meta">
-                {m.volym_m3sub.toFixed(2)} m³fub{m.status === 'inaktiv' ? ' · Inaktiv' : m.huvudtyp ? ` · ${m.huvudtyp}` : ''}
+                {dec(m.volym_m3sub, 2)} m³fub{m.status === 'inaktiv' ? ' · Inaktiv' : m.huvudtyp ? ` · ${m.huvudtyp}` : ''}
               </div>
               {m.huvudtyp_okand && (
                 <div className="kalib-day-maskin-info">
@@ -3015,7 +2985,7 @@ export default function KalibreringPage() {
                                         if (!c) return <td key={mo} className="kalib-stab-cell empty">·</td>;
                                         const mag = Math.abs(c.systematik);
                                         const cls = c.n < 20 ? 'tunn' : mag >= 4 ? 'hot' : mag >= 2 ? 'hi' : 'ok';
-                                        return <td key={mo} className={`kalib-stab-cell ${cls}`} title={`n=${c.n}`}>{c.systematik > 0 ? '+' : ''}{c.systematik.toFixed(1)}</td>;
+                                        return <td key={mo} className={`kalib-stab-cell ${cls}`} title={`n=${c.n}`}>{fmtSig1(c.systematik)}</td>;
                                       })}
                                     </tr>
                                   );
@@ -3079,7 +3049,7 @@ export default function KalibreringPage() {
                   {latestStockar.length > 0 && (
                     <div className="kalib-card">
                       <div className="kalib-section-title">Stockar</div>
-                      <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {stockText(latestStockar.length)} • {(totalLatestLen / 100).toFixed(1)} meter{latestUtanfor > 0 ? ` • ${latestUtanfor} utanför tolerans` : ''}</div>
+                      <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {stockText(latestStockar.length)} • {dec(totalLatestLen / 100, 1)} meter{latestUtanfor > 0 ? ` • ${latestUtanfor} utanför tolerans` : ''}</div>
                       <div className="kalib-stem-viz">
                         <div className="kalib-stem-viz-inner">
                           <span className="kalib-stem-label">Rot</span>
@@ -3174,28 +3144,26 @@ export default function KalibreringPage() {
                   return d ? PROFIL_TON[d.status] : 'ok';
                 };
                 // Samma format som hjälten (1 decimal, tecken på systematiken) — ett tal, ett utseende.
-                const sig1 = (x: number | null) => (x == null ? '–' : `${x > 0 ? '+' : ''}${x.toFixed(1)}`);
-                const abs1 = (x: number | null) => (x == null ? '–' : x.toFixed(1));
                 const gT = golvFor('traffprocent'), gS = golvFor('systematisk'), gStd = golvFor('standardavv');
                 const rader = [
-                  { key: 'traffprocent', fraga: 'Träffar den rätt?', term: 'träffprocent',
+                  { key: 'traffprocent', fraga: MATT.traffprocent.fraga, term: MATT.traffprocent.term,
                     varde: stat?.traffPct == null ? '–' : `${Math.round(stat.traffPct)} %`, krav: gT != null ? `krav ≥ ${fmtKrav(gT)} %` : '' },
-                  { key: 'systematisk', fraga: 'Går den rakt?', term: 'systematisk avvikelse',
-                    varde: stat?.systematisk == null ? '–' : `${sig1(stat.systematisk)} mm`, krav: gS != null ? `krav ≤ ${fmtKrav(gS)} mm` : '' },
-                  { key: 'standardavv', fraga: 'Flaxar den?', term: 'standardavvikelse',
-                    varde: stat?.standardavv == null ? '–' : `${abs1(stat.standardavv)} mm`, krav: gStd != null ? `krav ≤ ${fmtKrav(gStd)} mm` : '' },
+                  { key: 'systematisk', fraga: MATT.systematisk.fraga, term: MATT.systematisk.term,
+                    varde: stat?.systematisk == null ? '–' : `${fmtSig1(stat.systematisk)} mm`, krav: gS != null ? `krav ≤ ${fmtKrav(gS)} mm` : '' },
+                  { key: 'standardavv', fraga: MATT.standardavv.fraga, term: MATT.standardavv.term,
+                    varde: stat?.standardavv == null ? '–' : `${fmtAbs1(stat.standardavv)} mm`, krav: gStd != null ? `krav ≤ ${fmtKrav(gStd)} mm` : '' },
                 ];
                 const a = bedomning.atgard ?? null;
                 const dom = a ? atgardDom(a) : null;
                 const feRader = dom ? [
-                  { key: 'traff', fraga: 'Träffar den rätt?', r: dom.traff, fmt: (v: number) => `${Math.round(v)} %`,
+                  { key: 'traff', fraga: MATT.traffprocent.fraga, r: dom.traff, fmt: (v: number) => `${Math.round(v)} %`,
                     dTxt: `${Math.abs(Math.round(dom.traff.delta ?? 0))}`,
                     ord: dom.traff.riktning === 'battre' ? 'bättre' : dom.traff.riktning === 'samre' ? 'sämre' : 'oförändrad' },
-                  { key: 'syst', fraga: 'Går den rakt?', r: dom.syst, fmt: (v: number) => `${sig1(v)} mm`,
-                    dTxt: `${abs1(Math.abs(dom.syst.delta ?? 0))} mm`,
+                  { key: 'syst', fraga: MATT.systematisk.fraga, r: dom.syst, fmt: (v: number) => `${fmtSig1(v)} mm`,
+                    dTxt: `${fmtAbs1(Math.abs(dom.syst.delta ?? 0))} mm`,
                     ord: dom.syst.riktning === 'battre' ? 'rakare' : dom.syst.riktning === 'samre' ? ((dom.syst.efter ?? 0) > 0 ? 'drar grövre' : 'drar klenare') : 'oförändrad' },
-                  { key: 'std', fraga: 'Flaxar den?', r: dom.std, fmt: (v: number) => `${abs1(v)} mm`,
-                    dTxt: `${abs1(Math.abs(dom.std.delta ?? 0))} mm`,
+                  { key: 'std', fraga: MATT.standardavv.fraga, r: dom.std, fmt: (v: number) => `${fmtAbs1(v)} mm`,
+                    dTxt: `${fmtAbs1(Math.abs(dom.std.delta ?? 0))} mm`,
                     ord: dom.std.riktning === 'battre' ? 'lugnare' : dom.std.riktning === 'samre' ? 'flaxar mer' : 'oförändrad' },
                 ] : [];
                 return (
@@ -3320,7 +3288,7 @@ export default function KalibreringPage() {
                 return (
                   <>
                     <div className="kalib-section-title" style={{ margin: '18px 4px 8px' }}>
-                      Flaxar den? <span className="kalib-fackterm">standardavvikelse</span>
+                      {MATT.standardavv.fraga} <span className="kalib-fackterm">{MATT.standardavv.term}</span>
                     </div>
                     <div className="kalib-card">
                       <div className="kalib-section-subtitle">Hoppar maskinen fram och tillbaka, eller mäter den jämnt?{stdGolv != null ? ` ${diagnosData.profil} vill att spridningen håller sig under ${fmtKrav(stdGolv)} mm.` : ''}</div>
@@ -3383,13 +3351,13 @@ export default function KalibreringPage() {
                         <div className={`kalib-objdom-rubrik tone-${dom.ton}`}>{dom.rubrik}</div>
                         {!dom.tunn && (
                           <div className="kalib-objdom-tal">
-                            <span><b>{Math.round(o.traffPct)}%</b> träff ±4 mm</span>
-                            <span>syst {fmtSig1(o.systematisk)} mm</span>
-                            <span>std {o.standardavv.toFixed(1)} mm</span>
+                            <span><b>{Math.round(o.traffPct)}%</b> inom ±4 mm</span>
+                            <span>{MATT.systematisk.fraga} {fmtSig1(o.systematisk)} mm</span>
+                            <span>{MATT.standardavv.fraga} {fmtAbs1(o.standardavv)} mm</span>
                             <span>n {o.n}</span>
                           </div>
                         )}
-                        <div className="kalib-objdom-meta">{o.maskin_id ?? '—'}{mask?.profil ? ` · ${mask.profil}` : ''} · {o.fran} → {o.till}</div>
+                        <div className="kalib-objdom-meta">{maskinNamnFor(o.maskin_id)}{mask?.profil ? ` · ${mask.profil}` : ''} · {o.fran} → {o.till}</div>
                         {dom.attribution && <div className="kalib-objdom-attr">{dom.attribution}</div>}
                       </div>
                     );
@@ -3406,7 +3374,7 @@ export default function KalibreringPage() {
                           <button key={o.object_name} className={`kalib-obj-row ${valtObjekt === o.object_name ? 'vald' : ''}`} onClick={() => setValtObjekt(o.object_name)}>
                             <span className="kalib-obj-namn">{o.object_name}</span>
                             <span className={`kalib-obj-traff ${tunn ? 'tunn' : under ? 'tone-hot' : ''}`}>{tunn ? `n ${o.n}` : `${Math.round(o.traffPct)}%`}</span>
-                            <span className="kalib-obj-maskin">{o.maskin_id ?? '—'}</span>
+                            <span className="kalib-obj-maskin">{maskinKortNamnFor(o.maskin_id)}</span>
                           </button>
                         );
                       })}
@@ -3628,7 +3596,7 @@ export default function KalibreringPage() {
               {filteredKalib.length > 0 && (
                 <div className="kalib-report-footer">
                   <div className="kalib-report-machine">
-                    <div>{filteredKalib[0].maskin_id}</div>
+                    <div>{maskinNamnFor(filteredKalib[0].maskin_id)}</div>
                     <div className="kalib-report-machine-sub">{filteredKalib.length} kontroller totalt</div>
                   </div>
                 </div>
@@ -3686,15 +3654,15 @@ export default function KalibreringPage() {
                   return (
                     <>
                       <div className="kalib-hjalp-sekt">
-                        <div className="kalib-hjalp-fraga">Träffar den rätt? <span className="kalib-hjalp-term">träffprocent</span></div>
+                        <div className="kalib-hjalp-fraga">{MATT.traffprocent.fraga} <span className="kalib-hjalp-term">{MATT.traffprocent.term}</span></div>
                         <p>Av alla mätningar — hur många hamnar inom {fmtKrav(tol)} mm från det du klavat? {profil} vill att minst {traff ? Math.round(Number(traff.golv)) : '–'} % ska träffa.</p>
                       </div>
                       <div className="kalib-hjalp-sekt">
-                        <div className="kalib-hjalp-fraga">Drar den åt ett håll? <span className="kalib-hjalp-term">systematisk avvikelse</span></div>
+                        <div className="kalib-hjalp-fraga">{MATT.systematisk.fraga} <span className="kalib-hjalp-term">{MATT.systematisk.term}</span></div>
                         <p>Mäter den för stort hela tiden? Då sitter kurvan snett — det går att justera. {profil} vill att den drar mindre än {syst ? fmtKrav(Number(syst.mal)) : '–'} mm.</p>
                       </div>
                       <div className="kalib-hjalp-sekt">
-                        <div className="kalib-hjalp-fraga">Mäter den jämnt? <span className="kalib-hjalp-term">standardavvikelse</span></div>
+                        <div className="kalib-hjalp-fraga">{MATT.standardavv.fraga} <span className="kalib-hjalp-term">{MATT.standardavv.term}</span></div>
                         <p>Ger den samma svar varje gång, eller hoppar den? Hoppar den är det greppet. {profil} vill att hoppen håller sig under {std ? fmtKrav(Number(std.mal)) : '–'} mm.</p>
                       </div>
                       <div className="kalib-hjalp-slutord">Alla tre måste stämma. Det räcker inte att träffa rätt om svaren hoppar.</div>
