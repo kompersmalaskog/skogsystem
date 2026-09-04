@@ -20,7 +20,9 @@
 // positionen ar daremot redan WGS84 och behover ingenting.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from '@/app/oversikt/forarkarta-stil';
+import { FORARKARTA_ATTRIBUTION } from '@/app/oversikt/forarkarta-stil';
+import { BASKARTOR, BASKARTA_DEFAULT, buildKartStil, wmsTileLayers, type BaskartaId } from '@/lib/mapLayers';
+import type { MapLayers } from '@/lib/hooks/useMapLayers';
 import { signeraKartfil } from '@/lib/kartfiler';
 import {
   kartOrigoFranBounds,
@@ -95,6 +97,9 @@ export default function RundKarta({
   centreraPa,
   stammar,
   visaStammar = false,
+  baskarta = BASKARTA_DEFAULT,
+  overlays,
+  egnaVarden,
 }: {
   objekt: KartObjektData | null;
   punkter: EgenkontrollPunkt[];
@@ -114,7 +119,18 @@ export default function RundKarta({
    */
   stammar?: LatLng[];
   visaStammar?: boolean;
+  /** Vald bakgrundskarta. Samma fyra som planeringsvyn. */
+  baskarta?: BaskartaId;
+  /** WMS-lager + vidaKartbild. Delas med planeringsvyn via mapLayers_v4. */
+  overlays?: MapLayers;
+  /** Egenkontrollens egna lager: punkter, provytor, stammar. */
+  egnaVarden?: Record<string, boolean>;
 }) {
+  // Lases i map.on('load') som kor asynkront - da ar props ur forsta rendret
+  // inte langre sanningen. Ref:en ger det som galler NAR lagret laggs pa.
+  const overlaysRef = useRef<MapLayers | undefined>(overlays);
+  overlaysRef.current = overlays;
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -250,19 +266,39 @@ export default function RundKarta({
 
     const map = new window.maplibregl.Map({
       container: containerRef.current,
-      style: buildForarkartaStyle(),
+      style: buildKartStil(baskarta),
       center, zoom: 14, maxPitch: 0, dragRotate: false, attributionControl: false,
     });
     mapRef.current = map;
     try { map.touchZoomRotate.disableRotation(); } catch { /* aldre maplibre */ }
+    // NERE TILL VANSTER, inte i default-hornet. Lagerknappen flyter nere till
+    // hoger i helskarmen, och attributionen far inte hamna under den - CC-BY
+    // kraver att den ar synlig.
     map.addControl(new window.maplibregl.AttributionControl({
       customAttribution: FORARKARTA_ATTRIBUTION, compact: true,
-    }));
+    }), 'bottom-left');
 
     map.on('load', async () => {
       map.resize();
 
-      // VIDA:s kartbild som overlay, nar den finns.
+      // WMS-lagren laggs pa EN gang, alla slackta. De tands sedan ur
+      // overlays - samma monster som planeringsvyn, och samma data
+      // (lib/mapLayers.ts) sa de tva vyerna inte kan visa olika kartor.
+      for (const l of wmsTileLayers) {
+        try {
+          map.addSource(`wms-${l.id}`, { type: 'raster', tiles: l.tiles, tileSize: 256 });
+          map.addLayer({
+            id: `wms-layer-${l.id}`, type: 'raster', source: `wms-${l.id}`,
+            paint: { 'raster-opacity': l.tileOpacity ?? 0.7 },
+            layout: { visibility: 'none' },
+          });
+        } catch { /* ett trasigt lager far inte falla kartan */ }
+      }
+
+      // VIDA:s kartbild - NU ETT LAGER SOM ALLA ANDRA. Den tandes forr
+      // ovillkorligt sa fort bounds fanns; nu ar den en rad i menyn. Det gor
+      // att kartan duger aven pa de objekt som saknar bounds, dar den forr
+      // inte hade nagon bakgrund alls att erbjuda.
       if (objekt.kartbild_url && objekt.kartbild_bounds) {
         const url = await signeraKartfil(objekt.kartbild_url);
         const b = objekt.kartbild_bounds as [[number, number], [number, number]];
@@ -272,7 +308,11 @@ export default function RundKarta({
             // [[south,west],[north,east]] -> hornen medurs fran nordvast
             coordinates: [[b[0][1], b[1][0]], [b[1][1], b[1][0]], [b[1][1], b[0][0]], [b[0][1], b[0][0]]],
           });
-          map.addLayer({ id: 'ek-kartbild', type: 'raster', source: 'ek-kartbild', paint: { 'raster-opacity': 0.85 } });
+          map.addLayer({
+            id: 'ek-kartbild', type: 'raster', source: 'ek-kartbild',
+            paint: { 'raster-opacity': 0.85 },
+            layout: { visibility: overlaysRef.current?.vidaKartbild ? 'visible' : 'none' },
+          });
         }
       }
 
@@ -407,6 +447,54 @@ export default function RundKarta({
     map.getSource('ek-provytor')?.setData(provyteGeo);
     map.getSource('ek-stammar')?.setData(stamGeo);
   }, [punktGeo, avvikelseGeo, provyteGeo, stamGeo, laddad]);
+
+  // --- Bakgrundskartan ------------------------------------------------------
+  // Alla fyra ligger redan i stilen; vi tander en och slacker de andra. Att
+  // bygga om stilen hade tagit bort varje lager kartan lagt till efterat.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !laddad) return;
+    for (const b of BASKARTOR) {
+      if (map.getLayer(b.layerId)) {
+        map.setLayoutProperty(b.layerId, 'visibility', b.id === baskarta ? 'visible' : 'none');
+      }
+    }
+  }, [baskarta, laddad]);
+
+  // --- WMS-lagren + VIDA-bilden ---------------------------------------------
+  // Ett saknat lager ar inte ett fel: kartbilden laggs bara till nar objektet
+  // har en, och da ska raden i menyn helt enkelt inte gora nagot.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !laddad || !overlays) return;
+    for (const l of wmsTileLayers) {
+      const id = `wms-layer-${l.id}`;
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', overlays[l.id] ? 'visible' : 'none');
+      }
+    }
+    if (map.getLayer('ek-kartbild')) {
+      map.setLayoutProperty('ek-kartbild', 'visibility', overlays.vidaKartbild ? 'visible' : 'none');
+    }
+  }, [overlays, laddad]);
+
+  // --- Egenkontrollens egna lager -------------------------------------------
+  // Punkter och provytor slacks som GRUPPER: en punkt far aldrig kunna vara
+  // tand i ett lager och slackt i ett annat. Din position har ingen strombrytare
+  // - den ar ankaret, och den som rakar slacka sig sjalv i skogen vinner inget.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !laddad || !egnaVarden) return;
+    const satt = (lagerId: string, pa: boolean) => {
+      if (map.getLayer(lagerId)) map.setLayoutProperty(lagerId, 'visibility', pa ? 'visible' : 'none');
+    };
+    const punkterPa = egnaVarden.ekPunkter !== false;
+    for (const id of ['ek-punkt-linje', 'ek-punkt-symbol', 'ek-avvikelse', 'ek-vald-linje', 'ek-vald-symbol']) {
+      satt(id, punkterPa);
+    }
+    const ytorPa = egnaVarden.ekProvytor !== false;
+    for (const id of ['ek-provyta-matt', 'ek-provyta-omatt']) satt(id, ytorPa);
+  }, [egnaVarden, laddad]);
 
   // Strombrytaren tander/slacker lagret utan att rita om kartan.
   useEffect(() => {
