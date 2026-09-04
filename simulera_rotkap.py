@@ -3,27 +3,38 @@
     python simulera_rotkap.py <objekt_id>
 
 Skriver ingenting — läser och rapporterar. Allt objektet behöver kommer ur
-objektets egna data, inte ur något annat objekt:
+objektets egna data: barkfunktion ur dess ob/ub-par, prismatris ur dess egen
+HPR-fil, fönster ur dim_objekt_sortiment_fonster (korskontrollerat mot HPR),
+kurvor ur detalj_stam_diameter (service-rollen).
 
-  barkfunktion   skattad ur objektets egna toppdia ob/ub-par i detalj_stock
-  prismatris     ProductMatrixItem ur objektets egen HPR-fil
-  fönster        dim_objekt_sortiment_fonster, korskontrollerat mot HPR
-  kurvor         detalj_stam_diameter (service-rollen; oläsbar för authenticated)
+── TVÅ GRUPPER, FÖR RÖTAN GÅR OLIKA LÅNGT ──────────────────────────────────
+Populationen är stammar med en massabit på 300–314 cm före första sågbara
+stocken. Apteraren kan inte se röta, så den delas på vad föraren gjorde:
 
-För varje stam vars första stock är massaved på 300–314 cm:
-  1. läs avsmalningskurvan (över bark, 10 cm-steg)
-  2. dra av bark
-  3. kapa rotbiten som den kapades (A) respektive +40 cm (B)
-  4. aptera resten värdeoptimalt mot prismatrisen — BARA celler med
-     BuckingCriteria = "No limit"; en automatisk apterare får inte välja
-     manuella celler
-  5. jämför timmer / kubb / massaved
+  Grupp 1  EN massabit före sågstocken. Sågstocken börjar direkt över roten.
+           A: rot som kapad, apterad rest.  B: rot +40 cm, apterad rest.
+           40 cm av det grövsta virket blir massaved. Det är den verkliga
+           kostnaden och den kan ingen apterare rädda.
+
+  Grupp 2  FLERA massabitar i rad — rötan gick längre. Sågstocken börjar
+           där kedjan slutar, och det bestämde rötan, inte rotkapet. Ett
+           40 cm längre rotkap flyttas INOM massaveden och kostar noll timmer
+           — men bara om någon senare bit i kedjan har slack ner till 300 cm.
+           Ligger alla på 300–314 skjuts hela kedjan 40 cm uppåt och
+           sågstocken med den. Båda fallen räknas, och noll verifieras bara
+           där slacken faktiskt finns.
+
+  Scenario C, grupp 2: ersätt HELA kedjan med ett enda kap på 3,4 m. Det är
+  vinsten OM rötan tog slut inom 3,4 m. Datan kan inte säga hur ofta: StemGrade
+  har en enda grad på position 0 för varje stam, ingen kvalitetsgräns längs
+  stammen. C är alltså ett tak, inte en förväntan.
+
+Stammar utan sågbar stock alls redovisas men simuleras inte: där finns inget
+timmer att förlora eller vinna, och apteraren skulle bara hitta sågstockar
+som föraren av goda skäl inte tog.
 
 Innan något simuleras valideras maskineriet mot maskinens egna stockar:
-positionen på stammen, barkavdraget och volymen. Är de fel är resten
-värdelös, så de skrivs ut först.
-
-Resultatet sparas som JSON i scratchpad för sammanställning över objekt.
+position, bark och volym. Är de fel är resten värdelös.
 """
 import os, sys, io, json, math, glob, collections, importlib.util
 import xml.etree.ElementTree as ET
@@ -36,6 +47,8 @@ SCRATCH = os.path.join(
     'f31f7433-7467-4d14-9193-e8156481536d', 'scratchpad')
 BAS = os.path.join(os.environ['USERPROFILE'], 'Kompersmåla Skog',
                    'Maskindata - Dokument', 'MOM-filer', 'Behandlade')
+SKIFT = 40
+MASSA_MIN = 300          # manuell 3 m-massa får kapas ner till 300
 
 
 def ladda_import():
@@ -71,22 +84,14 @@ def hamta(tabell, filt, select, order):
         start += 1000
 
 
-# ── Prismatrisen ur objektets egen HPR-fil ────────────────────────────────
 def hitta_hpr(objekt_id, maskin_id, objnamn):
-    """Största HPR-filen för objektet, identifierad på ObjectKey ur huvudet.
-
-    Först importens huvudcache. Saknas den, eller saknar den objektet, letas
-    kandidater upp på filnamn och VERIFIERAS mot ObjectDefinition i huvudet —
-    filnamnet är maskinens, inte objektets, så det får bara peka, aldrig
-    avgöra. Samma läsare som diameterimporten använder.
-    """
+    """Största HPR-filen för objektet, identifierad på ObjectKey ur huvudet."""
     cache_fil = os.path.join(HAR, '.diameter_huvud.json')
     cache = json.load(io.open(cache_fil, encoding='utf-8')) if os.path.exists(cache_fil) else {}
     kand = [f for f, (mask, karta) in cache.items()
             if mask == maskin_id and objekt_id in (karta or {}).values() and os.path.exists(f)]
     if kand:
         return max(kand, key=os.path.getsize)
-
     spec = importlib.util.spec_from_file_location('dimp', os.path.join(HAR, 'import_diameterserie.py'))
     D = importlib.util.module_from_spec(spec)
     try:
@@ -96,14 +101,13 @@ def hitta_hpr(objekt_id, maskin_id, objnamn):
     ord_ = [w.lower() for w in objnamn.replace('-', ' ').split() if len(w) >= 4]
     kand = []
     for f in glob.glob(os.path.join(BAS, maskin_id, 'HPR', '*.hpr')):
-        bn = os.path.basename(f).lower()
-        if not any(w in bn for w in ord_):
+        if not any(w in os.path.basename(f).lower() for w in ord_):
             continue
         mask, karta, fel = D.huvud(f)
         if not fel and mask == maskin_id and objekt_id in karta.values():
             kand.append(f)
     if not kand:
-        raise SystemExit('ingen HPR-fil för %s (%s) — varken i cache eller på disk' % (objekt_id, objnamn))
+        raise SystemExit('ingen HPR-fil för %s (%s)' % (objekt_id, objnamn))
     return max(kand, key=os.path.getsize)
 
 
@@ -184,7 +188,6 @@ def main():
     OBJ = sys.argv[1]
     if not M.init_supabase():
         print('FEL: ingen anslutning'); return 1
-
     namn_rad = hamta('dim_objekt', 'objekt_id=eq.%s' % OBJ, 'object_name', 'objekt_id.asc')
     objnamn = namn_rad[0]['object_name'] if namn_rad else OBJ
     print('=' * 72); print('OBJEKT %s  %s' % (OBJ, objnamn)); print('=' * 72)
@@ -194,22 +197,17 @@ def main():
                     'stem_key.asc,log_key.asc')
     maskiner = sorted({s['maskin_id'] for s in stockar})
     if len(maskiner) != 1:
-        print('STOPP: %d maskiner på objektet (%s) — nyckeln är (objekt, maskin), kör per maskin.'
-              % (len(maskiner), maskiner)); return 1
+        print('STOPP: %d maskiner (%s) — kör per maskin.' % (len(maskiner), maskiner)); return 1
     MASKIN = maskiner[0]
 
-    # ── Bark ur objektets egna par ─────────────────────────────────────────
     par = [(s['toppdia_ob_mm'], s['toppdia_ub_mm']) for s in stockar
            if s['toppdia_ob_mm'] and s['toppdia_ub_mm'] and s['toppdia_ob_mm'] > 0]
     n = len(par); mx = sum(p[0] for p in par) / n; my = sum(p[1] for p in par) / n
     sxx = sum((p[0] - mx) ** 2 for p in par); sxy = sum((p[0] - mx) * (p[1] - my) for p in par)
     BARK_B = sxy / sxx; BARK_A = my - BARK_B * mx
-    syy = sum((p[1] - my) ** 2 for p in par)
-    r2 = (sxy * sxy) / (sxx * syy)
-    print('bark: dub = %.3f + %.5f*dob   (n %d, R² %.5f, snitt %.1f mm)'
-          % (BARK_A, BARK_B, n, r2, sum(p[0] - p[1] for p in par) / n))
+    r2 = (sxy * sxy) / (sxx * sum((p[1] - my) ** 2 for p in par))
+    print('bark: dub = %.3f + %.5f*dob   (n %d, R² %.5f)' % (BARK_A, BARK_B, n, r2))
 
-    # ── Prismatris + fönster ───────────────────────────────────────────────
     hpr = hitta_hpr(OBJ, MASKIN, objnamn)
     prod_raw = las_prismatris(hpr)
     print('prismatris ur %s' % os.path.basename(hpr)[:60])
@@ -220,15 +218,13 @@ def main():
     for k, v in prod_raw.items():
         if v['grupp'].lower() in ('timmer', 'kubb') or ar_massa(v):
             produkter[k] = Produkt(v)
-            f = fonster.get(k)
-            ok = (f and f['langd_min_cm'] == produkter[k].langd_klasser[0]
-                  and f['langd_max_cm'] == produkter[k].langd_max
-                  and f['dia_min_top_mm'] == produkter[k].dia_min and f['dia_max_mm'] == produkter[k].dia_max)
-            print('  %-24s %-6s L %d-%d  D %d-%d  celler auto %2d  manuella %2d   fönster i DB: %s'
-                  % (v['namn'][:24], v['grupp'][:6], produkter[k].langd_klasser[0], produkter[k].langd_max,
-                     produkter[k].dia_min, produkter[k].dia_max, len(produkter[k].pris),
-                     produkter[k].manuella, 'STÄMMER' if ok else ('SAKNAS' if not f else 'AVVIKER')))
-    grupp_av_key = {k: v['grupp'] for k, v in prod_raw.items()}
+            f = fonster.get(k); P = produkter[k]
+            ok = (f and f['langd_min_cm'] == P.langd_klasser[0] and f['langd_max_cm'] == P.langd_max
+                  and f['dia_min_top_mm'] == P.dia_min and f['dia_max_mm'] == P.dia_max)
+            print('  %-24s %-6s L %d-%d  D %d-%d  auto %2d  manuella %2d  fönster: %s'
+                  % (v['namn'][:24], P.grupp[:6], P.langd_klasser[0], P.langd_max, P.dia_min, P.dia_max,
+                     len(P.pris), P.manuella, 'STÄMMER' if ok else ('SAKNAS' if not f else 'AVVIKER')))
+    grupp_av_key = {k: v['grupp'].capitalize() for k, v in prod_raw.items()}
     namn_av_key = {k: v['namn'] for k, v in prod_raw.items()}
 
     serier = {s['stam_key']: s for s in hamta(
@@ -238,29 +234,38 @@ def main():
     per_stam = collections.defaultdict(list)
     for s in stockar:
         s['key'] = s['sortiment_id'].split('_')[-1]
-        s['grupp'] = grupp_av_key.get(s['key'], '?').capitalize(); s['namn'] = namn_av_key.get(s['key'], '?')
+        s['grupp'] = grupp_av_key.get(s['key'], '?'); s['namn'] = namn_av_key.get(s['key'], '?')
         per_stam[s['stem_key']].append(s)
 
-    urval = []; utan_kurva = 0
+    # ── Population och grupper ─────────────────────────────────────────────
+    def ar_massabit(lg):
+        return lg['grupp'] == 'Massa' and 'hemved' not in lg['namn'].lower()
+
+    g1, g2, utan_sag, utan_kurva = [], [], [], 0
     for sk, logs in per_stam.items():
         logs.sort(key=lambda x: x['log_key'])
-        r = logs[0]
-        if (r['log_key'] == 1 and r['grupp'].lower() == 'massa' and 'hemved' not in r['namn'].lower()
-                and 300 <= r['langd_cm'] <= 314):
-            if sk in serier:
-                urval.append(sk)
+        kedja = []
+        for lg in logs:
+            if ar_massabit(lg):
+                kedja.append(lg['langd_cm'])
             else:
-                utan_kurva += 1
-    print('stammar %d   rotbit log1 300-314: %d   varav utan kurva: %d   räknas: %d'
-          % (len(per_stam), len(urval) + utan_kurva, utan_kurva, len(urval)))
+                break
+        if not kedja or not any(300 <= c <= 314 for c in kedja):
+            continue
+        if len(kedja) == len(logs):           # ingen sågbar stock alls
+            utan_sag.append(sk); continue
+        if sk not in serier:
+            utan_kurva += 1; continue
+        (g1 if len(kedja) == 1 else g2).append((sk, kedja))
+    print('population %d: grupp 1 (en bit) %d, grupp 2 (flera) %d, utan sågstock %d, utan kurva %d'
+          % (len(g1) + len(g2) + len(utan_sag) + utan_kurva, len(g1), len(g2), len(utan_sag), utan_kurva))
+    print('  grupp 2 kedjor: %s' % dict(collections.Counter(len(k) for _, k in g2)))
 
-    # ── Validering ─────────────────────────────────────────────────────────
-    dia_fel = []; vol_fel = []; utanfor = 0; n_val = 0
-    kurvor = {}
-    for sk in urval:
+    # ── Kurvor + validering ────────────────────────────────────────────────
+    dia_fel = []; vol_fel = []; utanfor = 0; n_val = 0; kurvor = {}
+    for sk, _ in g1 + g2:
         ser = serier[sk]; steg = ser['steg_cm']; f0 = ser['forsta_position_cm'] or 0
-        dob = ser['diametrar']
-        END_grid = f0 + (len(dob) - 1) * steg
+        dob = ser['diametrar']; END_grid = f0 + (len(dob) - 1) * steg
         END = max(END_grid, int(ser.get('slut_hojd_cm') or 0))
         lut = (dob[-1] - dob[-2]) / steg if len(dob) > 1 else 0.0
         dub = [0.0] * (END + 1)
@@ -289,12 +294,10 @@ def main():
 
     def kvant(v):
         v = sorted(v); k = len(v)
-        return {'n': k, 'medel': sum(v) / k, 'median': v[k // 2], 'p10': v[k // 10], 'p90': v[9 * k // 10]} if v else {}
+        return {'n': k, 'median': v[k // 2], 'p10': v[k // 10], 'p90': v[9 * k // 10]} if v else {}
     vd = kvant(dia_fel); vv = kvant(vol_fel)
-    print('\nVALIDERING mot maskinens %d stockar' % n_val)
-    print('  toppdiameter ub, mm:  median %+.2f  p10 %+.2f  p90 %+.2f' % (vd['median'], vd['p10'], vd['p90']))
-    print('  volym m3sub, procent: median %+.2f  p10 %+.2f  p90 %+.2f' % (vv['median'], vv['p10'], vv['p90']))
-    print('  stockar bortom kurvans slut: %d' % utanfor)
+    print('VALIDERING mot %d stockar: toppdia median %+.2f (p10 %+.2f, p90 %+.2f) mm   volym median %+.2f (p10 %+.2f, p90 %+.2f) %%   utanför kurva %d'
+          % (n_val, vd['median'], vd['p10'], vd['p90'], vv['median'], vv['p10'], vv['p90'], utanfor))
 
     # ── Apteraren ─────────────────────────────────────────────────────────
     def aptera(dub, V, END, R):
@@ -318,64 +321,82 @@ def main():
                     if v > b:
                         b = v; c = (p.grupp, y)
             best[x] = b; val[x] = c
-        ut = collections.Counter(); st = collections.Counter(); x = R
+        ut = collections.Counter(); x = R
         while val[x]:
-            g, y = val[x]; ut[g] += V[y] - V[x]; st[g] += 1; x = y
+            g, y = val[x]; ut[g] += V[y] - V[x]; x = y
         ut['rest'] = V[END] - V[x]
-        return ut, st, best[R]
+        return ut
 
-    def kor(skift):
-        tot = collections.Counter(); st = collections.Counter(); varde = 0.0
-        for sk in urval:
+    def scenario(stammar, start_av):
+        """start_av(sk, kedja) -> massastart (cm) eller None att hoppa."""
+        tot = collections.Counter(); n_med = 0
+        for sk, kedja in stammar:
             dub, V, END = kurvor[sk]
-            rot = per_stam[sk][0]['langd_cm'] + skift
-            if rot > END:
+            S = start_av(sk, kedja)
+            if S is None or S > END:
                 continue
-            tot['Massa'] += V[rot] - V[0]; st['Massa'] += 1
-            ut, s2, v = aptera(dub, V, END, rot)
-            tot.update(ut); st.update(s2); varde += v
-        return tot, st, varde
+            n_med += 1
+            tot['Massa'] += V[S] - V[0]
+            tot.update(aptera(dub, V, END, S))
+        tot['n'] = n_med
+        return tot
 
-    fakt = collections.Counter(); fakt_st = collections.Counter()
-    for sk in urval:
-        for lg in per_stam[sk]:
-            fakt[lg['grupp']] += float(lg['volym_m3sub'] or 0); fakt_st[lg['grupp']] += 1
-    A, A_st, A_v = kor(0); B, B_st, B_v = kor(40)
+    NYCK = ('Timmer', 'Kubb', 'Massa', 'rest')
 
-    def rad(namn, c, st=None):
-        extra = '   (st T/K/M %d/%d/%d)' % (st['Timmer'], st['Kubb'], st['Massa']) if st else ''
-        return '  %-26s timmer %6.2f  kubb %6.2f  massa %6.2f  rest %5.2f%s' % (
-            namn, c['Timmer'], c['Kubb'], c['Massa'], c.get('rest', 0), extra)
-    D = collections.Counter({k: B[k] - A[k] for k in ('Timmer', 'Kubb', 'Massa', 'rest')})
-    print('\nUTFALL, m3sub, %d stammar' % len(urval))
-    print(rad('faktiskt (detalj_stock)', fakt, fakt_st))
-    print(rad('A: rot som kapad, DP rest', A, A_st))
-    print(rad('B: rot +40 cm, DP rest', B, B_st))
-    print(rad('B - A', D))
+    def diff(a, b):
+        return collections.Counter({k: b[k] - a[k] for k in NYCK})
 
-    # Konisk kontroll: första stocken över roten tar 40 cm, ingen omaptering.
-    kon = collections.Counter(); forsta = collections.Counter()
-    for sk in urval:
-        logs = per_stam[sk]
-        if len(logs) < 2:
-            continue
-        dub, V, END = kurvor[sk]; R = logs[0]['langd_cm']; nx = logs[1]
-        forsta[nx['grupp']] += 1
-        if nx['grupp'] == 'Timmer':
-            kon['Timmer'] -= (V[R + 40] - V[R]) if nx['langd_cm'] - 40 >= 372 else float(nx['volym_m3sub'] or 0)
-        elif nx['grupp'] == 'Kubb':
-            kon['Kubb'] -= float(nx['volym_m3sub'] or 0)
-    print('konisk kontroll (ingen omaptering): timmer %+.2f  kubb %+.2f   stocken över roten: %s'
-          % (kon['Timmer'], kon['Kubb'], dict(forsta)))
+    def rad(namn, c):
+        return '  %-34s timmer %+7.2f  kubb %+7.2f  massa %+7.2f  rest %+6.2f' % (
+            namn, c['Timmer'], c['Kubb'], c['Massa'], c.get('rest', 0))
+
+    # Grupp 1: sågstocken börjar direkt över roten.
+    A1 = scenario(g1, lambda sk, k: k[0])
+    B1 = scenario(g1, lambda sk, k: k[0] + SKIFT)
+    D1 = diff(A1, B1)
+
+    # Grupp 2: sågstocken börjar där kedjan slutar.
+    A2 = scenario(g2, lambda sk, k: sum(k))
+    # B, kedjeslut fast (40 cm flyttas inom massaveden) — kräver slack.
+    slack_ok = [(sk, k) for sk, k in g2 if sum(max(0, c - MASSA_MIN) for c in k[1:]) >= SKIFT]
+    slack_nej = [(sk, k) for sk, k in g2 if (sk, k) not in slack_ok]
+    B2_fast = scenario(g2, lambda sk, k: sum(k))
+    D2_fast = diff(A2, B2_fast)
+    # B, kedjan skjuts 40 cm (ingen slack).
+    B2_skjut = scenario(g2, lambda sk, k: sum(k) + SKIFT)
+    D2_skjut = diff(A2, B2_skjut)
+    # B, verkligt: fast där slack finns, skjuten där den saknas.
+    ok_set = {sk for sk, _ in slack_ok}
+    B2_verk = scenario(g2, lambda sk, k: sum(k) if sk in ok_set else sum(k) + SKIFT)
+    D2_verk = diff(A2, B2_verk)
+    # Scenario C: hela kedjan blir ETT kap på 340.
+    C2 = scenario(g2, lambda sk, k: 340)
+    DC = diff(A2, C2)
+
+    print('\nGRUPP 1 — en massabit, %d stammar' % A1['n'])
+    print(rad('A', A1)); print(rad('B rot +40', B1)); print(rad('B - A', D1))
+    print('\nGRUPP 2 — flera massabitar, %d stammar   (slack >= 40 cm i senare bitar: %d, saknas: %d)'
+          % (A2['n'], len(slack_ok), len(slack_nej)))
+    print(rad('A (sågstock vid kedjeslut)', A2))
+    print(rad('B - A, kedjeslut fast', D2_fast) + '   <- verifiering: ska vara noll')
+    print(rad('B - A, kedjan skjuts 40', D2_skjut) + '   <- utan slack')
+    print(rad('B - A, verkligt (slack avgör)', D2_verk))
+    print(rad('C - A, hela kedjan = ett 3,4 m-kap', DC) + '   <- tak: gäller OM rötan slutade inom 3,4 m')
+    tot = collections.Counter({k: D1[k] + D2_verk[k] for k in NYCK})
+    print('\nTOTALT B - A (grupp 1 + grupp 2 verkligt), %d stammar' % (A1['n'] + A2['n']))
+    print(rad('B - A', tot))
 
     io.open(os.path.join(SCRATCH, 'sim_%s.json' % OBJ), 'w', encoding='utf-8').write(json.dumps({
         'objekt_id': OBJ, 'namn': objnamn, 'maskin': MASKIN, 'stammar': len(per_stam),
-        'rotbitar': len(urval) + utan_kurva, 'utan_kurva': utan_kurva, 'raknade': len(urval),
+        'population': len(g1) + len(g2) + len(utan_sag) + utan_kurva,
+        'g1': A1['n'], 'g2': A2['n'], 'utan_sag': len(utan_sag), 'utan_kurva': utan_kurva,
+        'g2_kedjor': dict(collections.Counter(len(k) for _, k in g2)),
+        'slack_ok': len(slack_ok), 'slack_nej': len(slack_nej),
         'bark': {'a': BARK_A, 'b': BARK_B, 'n': n, 'r2': r2},
         'validering': {'dia': vd, 'vol': vv, 'utanfor': utanfor},
-        'fakt': dict(fakt), 'A': dict(A), 'B': dict(B), 'diff': dict(D),
-        'A_st': dict(A_st), 'B_st': dict(B_st), 'konisk': dict(kon), 'forsta_over_rot': dict(forsta),
-        'varde_A': A_v, 'varde_B': B_v,
+        'A1': dict(A1), 'B1': dict(B1), 'D1': dict(D1),
+        'A2': dict(A2), 'D2_fast': dict(D2_fast), 'D2_skjut': dict(D2_skjut), 'D2_verk': dict(D2_verk),
+        'C2': dict(C2), 'DC': dict(DC), 'tot': dict(tot),
     }, ensure_ascii=False, indent=1))
     return 0
 
