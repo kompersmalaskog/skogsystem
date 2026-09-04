@@ -215,6 +215,16 @@ def las_serier(f, objektkarta, maskin_id):
     return rader, stat
 
 
+def finns_i_tabellen(filnamn):
+    """Ligger minst en serie ur filen redan i detalj_stam_diameter?"""
+    import requests
+    r = requests.get('%s/rest/v1/detalj_stam_diameter' % M.SUPABASE_URL,
+                     params={'select': 'stam_key', 'filnamn': 'eq.%s' % filnamn, 'limit': 1},
+                     headers=M.SUPABASE_HEADERS, timeout=60)
+    r.raise_for_status()
+    return len(r.json()) > 0
+
+
 def skriv(rader):
     """Upsert i satser. Returnerar antal FAKTISKT skrivna rader."""
     import requests
@@ -285,6 +295,8 @@ def main():
             if objekt_id:
                 per_objekt[(objekt_id, maskin)].append(f)
         cache[f] = [maskin, karta]
+        if n % 100 == 0:
+            io.open(CACHE, 'w', encoding='utf-8').write(json.dumps(cache, ensure_ascii=False))
         if n % 300 == 0:
             print('  huvud %d/%d (%.0f s)' % (n, len(alla), time.time() - t0))
     io.open(CACHE, 'w', encoding='utf-8').write(json.dumps(cache, ensure_ascii=False))
@@ -309,6 +321,8 @@ def main():
     behovs = sorted({f for fs in per_objekt.values() for f in fs} - set(antal))
     for i, f in enumerate(behovs, 1):
         antal[f] = rakna_per_objekt(f)
+        if i % 20 == 0:
+            io.open(ANTAL_CACHE, 'w', encoding='utf-8').write(json.dumps(antal, ensure_ascii=False))
         if i % 100 == 0:
             print('  raknar %d/%d (%.0f s)' % (i, len(behovs), time.time() - ts))
     if behovs:
@@ -328,6 +342,26 @@ def main():
             valda.update(fs)
         else:
             valda.add(storst)
+    # ── Inkrementellt ─────────────────────────────────────────────────────
+    # Körs efter varje import. En fil vars serier redan står i tabellen läses
+    # inte om: filnamnet ligger på varje rad, så en räknefråga per fil avgör.
+    # Filer som lästs men inte gav några serier (Ponsse före 2026-07-18)
+    # finns inte i tabellen och antecknas lokalt i stället — annars hade de
+    # parsats om, minuter var, vid varje körning. --alla läser om allt.
+    LASTA = os.path.join(HAR, '.diameter_lasta.json')
+    lasta = {}
+    if os.path.exists(LASTA):
+        try:
+            lasta = json.load(io.open(LASTA, encoding='utf-8'))
+        except Exception:
+            lasta = {}
+    if '--alla' not in sys.argv:
+        kan_fraga = bool(M.SUPABASE_HEADERS) or M.init_supabase()
+        hoppade = {f for f in valda
+                   if os.path.basename(f) in lasta or (kan_fraga and finns_i_tabellen(os.path.basename(f)))}
+        if hoppade:
+            print('redan lästa: %d filer hoppas över (--alla läser om)' % len(hoppade))
+        valda -= hoppade
     gb = sum(os.path.getsize(f) for f in valda) / 1e9
     print('valda filer: %d  (%.2f GB)   objekt vid 4000-taket: %d'
           % (len(valda), gb, len(kapade)))
@@ -351,6 +385,9 @@ def main():
             if not ok:
                 print('AVBRYTER: skrivningen misslyckades.')
                 return 1
+        if pa_riktigt:
+            lasta[os.path.basename(f)] = len(rader)
+            io.open(LASTA, 'w', encoding='utf-8').write(json.dumps(lasta, ensure_ascii=False))
         print('  [%3d/%d] %-44s %5d stammar, %5d med serie, %7d punkter (%.0f s)'
               % (n, len(valda), os.path.basename(f)[:44], s['stammar'],
                  s['med_serie'], s['punkter'], time.time() - t1))

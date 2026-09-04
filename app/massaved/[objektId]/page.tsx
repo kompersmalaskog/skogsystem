@@ -219,6 +219,12 @@ function Innehall() {
                   <> — utan dem är snittet {nf2(d.tre_m_stock.medellangd_utan_m3)} m</>
                 )}.
               </p>
+              {/* Simuleringen svarar på frågan den här raden väcker: vad
+                  kostar ett längre rotkap i timmer? Räknat, inte mätt. */}
+              <Link href={`/rotkap?objekt=${encodeURIComponent(objektId)}`}
+                style={{ ...S.muted, textDecoration: 'underline' }}>
+                Vad kostar ett längre rotkap? ›
+              </Link>
             </>
           )}
 

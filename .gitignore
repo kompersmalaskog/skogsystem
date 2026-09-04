@@ -87,3 +87,5 @@ inkommande/*.zip
 .diameter_antal.json
 diameter_utfall.json
 diameter_verifiering.json
+.diameter_lasta.json
+.rotkap_utfall.json

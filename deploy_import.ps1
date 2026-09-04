@@ -37,7 +37,8 @@ $ErrorActionPreference = 'Stop'
 # Filerna som utgor importkoden i drift -- verifieras byte for byte efter reset.
 # HALL I SYNK med DRIFT_FILER i gap_check.py.
 $ImportFiler = @('skogsmaskin_import_version_6.py', 'import_hpr.py',
-                 'auto_import_watch.py', 'gap_check.py')
+                 'auto_import_watch.py', 'gap_check.py',
+                 'import_diameterserie.py', 'berakna_rotkap.py')
 
 $script:WatchdogStoppad = $false
 

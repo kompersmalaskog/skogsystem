@@ -24,6 +24,7 @@ const pageNames: Record<string, string> = {
   '/utbildning': 'Utbildning',
   '/egenkontroll': 'Egenkontroll',
   '/gallring': 'Gallring',
+  '/rotkap': 'Rotkap',
   '/fordonsoversikt': 'Fordonsöversikt',
   '/maskinflytt': 'Maskinflytt',
   '/maskinflytt/sammanstallning': 'Flyttlogg',
