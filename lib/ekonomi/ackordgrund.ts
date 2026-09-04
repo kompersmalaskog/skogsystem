@@ -10,6 +10,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { g15Sek } from '@/lib/g15';
+import { skotningsavstandM } from '@/lib/skotningsavstand';
 
 /** Medelstam = total volym / totala stammar. null utan stammar. */
 export function medelstamAuto(vol: number, stammar: number): number | null {
@@ -29,14 +30,15 @@ export function sortimentgrupperAuto(
   return grupper.size;
 }
 
-/** Volymviktat snittavstånd ur faktiska lass. null utan lassvolym. */
+/** Volymviktat SKOTNINGSAVSTÅND ur faktiska lass (enkelriktat — korstracka_m
+ *  är tur och retur, se lib/skotningsavstand). null utan lassvolym. */
 export function skotavstandVagtAuto(
   lassRader: { korstracka_m: number | null; volym_m3sub: number | null }[],
 ): number | null {
   let viktat = 0, vol = 0;
   for (const r of lassRader) {
     const v = Number(r.volym_m3sub) || 0;
-    viktat += (Number(r.korstracka_m) || 0) * v;
+    viktat += skotningsavstandM(r.korstracka_m) * v;
     vol += v;
   }
   return vol > 0 ? viktat / vol : null;

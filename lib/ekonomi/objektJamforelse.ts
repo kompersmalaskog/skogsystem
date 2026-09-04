@@ -27,6 +27,7 @@ import {
 } from '@/lib/ekonomi/acord';
 import { fetchAllRows } from '@/lib/ekonomi/period';
 import { medelstamAuto, sortimentgrupperAuto, skotavstandVagtAuto } from '@/lib/ekonomi/ackordgrund';
+import { skotningsavstandM } from '@/lib/skotningsavstand';
 
 // Under så här många G15-timmar är ett kr/tim- eller kr/m³-tal brus, inte
 // fakta. Delas av kr/tim-märkningen (mot-ackord) och klass-märkningen
@@ -240,7 +241,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     if (!r.objekt_id) continue;
     const key = `${r.objekt_id}|${r.maskin_id}`;
     (fwdAgg[key] ||= { vol: 0, skotKr: 0 });
-    fwdAgg[key].skotKr += skotAvstandKr(r.datum, r.korstracka_m || 0, Number(r.volym_m3sub) || 0, avstandList);
+    fwdAgg[key].skotKr += skotAvstandKr(r.datum, skotningsavstandM(r.korstracka_m), Number(r.volym_m3sub) || 0, avstandList);
   }
   const lassPerObjekt: Record<string, any[]> = {};
   for (const r of lassRows) { if (r.objekt_id) (lassPerObjekt[r.objekt_id] ||= []).push(r); }
