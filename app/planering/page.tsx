@@ -11725,36 +11725,10 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* KÖRVY: dedikerad AVSLUTA-knapp (top-left). FÄLTFYND: körvyn gick "ibland inte att stänga" —
-          enda utvägen var +-menyns "Avsluta körvy", och +-knappen DÖLJS när volym-/briefing-state
-          ligger kvar (`!(volymLoading||volymResultat)` + `!briefingMode`-gaten på +-knappen). Då
-          fanns ingen väg ut. Denna knapp är ALLTID synlig i körvy, stor träffyta, direkt exit —
-          oberoende av +-menyn och av allt annat state. */}
-      {korvyActive && (
-        <button
-          type="button"
-          onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setKorvyActive(false); setKorvyForceRoll(null); }}
-          aria-label="Avsluta körvy"
-          style={{
-            position: 'fixed',
-            top: 'calc(env(safe-area-inset-top, 0px) + 16px)',
-            left: 12,
-            minHeight: 44,
-            padding: '0 16px 0 11px',
-            display: 'flex', alignItems: 'center', gap: 6,
-            borderRadius: 22,
-            background: 'rgba(20,20,22,0.72)',
-            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255,255,255,0.14)',
-            color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-            zIndex: 300,   // över autopanelen (250) + statuskort (260/270); under +-menyn (450)
-          }}
-        >
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>close</span>
-          Avsluta
-        </button>
-      )}
+      {/* REN SKÄRM (fältfynd): den dedikerade Avsluta-knappen (#488) är BORTTAGEN från kartytan —
+          Avsluta bor nu i +-menyns KÖRVY-grupp. Det är säkert nu när (a) +-menyn är översta interaktiva
+          lagret (z650, kan inte svälja-klickas av någon overlay) och (b) +-knappen ALDRIG kan döljas i
+          körvy (korvyActive-gaten ovan). Båda invarianterna som #488 saknade är på plats. */}
 
       {/* Färskhets-stämpel + Uppdatera (mellanlösning, ingen öppen realtid). Visas i körvy OCH
           planering. Gul när datan är >10 min gammal — föraren ska aldrig tro att gammalt är färskt. */}
@@ -12010,59 +11984,9 @@ export default function PlannerPage() {
         </button>
       )}
 
-      {/* HYTTSPÅR steg 2: "Uppdatera spår" — hämtar andra maskinens (rollens) körspår på nytt.
-          Uppdatera-tryck, ingen poll. Lila accent = matchar andras-spår-linjen. Top-center. */}
-      {korvyActive && andrasRoll && (
-        <button
-          type="button"
-          onClick={() => { if (navigator.vibrate) navigator.vibrate(8); hamtaAndrasSpar(); }}
-          disabled={andrasSparLaddar}
-          aria-label={`Uppdatera ${andrasRoll === 'skordare' ? 'skördarens' : 'skotarens'} körspår`}
-          style={{
-            position: 'fixed',
-            top: 'calc(env(safe-area-inset-top, 0px) + 16px)',
-            left: '50%', transform: 'translateX(-50%)',
-            minHeight: 38, padding: '0 14px',
-            display: 'flex', alignItems: 'center', gap: 7,
-            borderRadius: 19,
-            background: 'rgba(20,20,22,0.72)',
-            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(191,90,242,0.5)',
-            color: '#fff', fontSize: 13, fontWeight: 600, cursor: andrasSparLaddar ? 'default' : 'pointer',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-            zIndex: 260, whiteSpace: 'nowrap', opacity: andrasSparLaddar ? 0.7 : 1,
-          }}
-        >
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18, color: '#bf5af2' }}>refresh</span>
-          {andrasSparLaddar
-            ? 'Uppdaterar…'
-            : `${andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår'}${andrasSparTid ? ' · ' + new Date(andrasSparTid).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : ''}`}
-        </button>
-      )}
-
-      {/* === KÖRVY: BASKARTE-VÄXLING (Karta/dämpad ⇄ Topokarta/full färg — båda Lantmäteriet) === */}
-      {korvyActive && (
-        <div style={{
-          position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', right: 12, zIndex: 260,
-          display: 'flex', gap: 3, padding: 3, borderRadius: 16,
-          background: 'rgba(28,28,30,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          border: '1px solid rgba(255,255,255,0.12)',
-          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-        }}>
-          {(['lm', 'topo'] as const).map(mode => (
-            <button key={mode} type="button"
-              onClick={() => { if (navigator.vibrate) navigator.vibrate(8); setKorvyBasKarta(mode); }}
-              style={{
-                padding: '6px 13px', borderRadius: 13, border: 'none', cursor: 'pointer',
-                fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
-                background: korvyBasKarta === mode ? '#0a84ff' : 'transparent',
-                color: korvyBasKarta === mode ? '#fff' : 'rgba(255,255,255,0.6)',
-              }}>
-              {mode === 'lm' ? 'Karta' : 'Topokarta'}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* REN SKÄRM (fältfynd): "Uppdatera spår"-knappen och Baskarta-växlaren är BORTTAGNA från
+          kartytan — båda bor nu i +-menyns KÖRVY-grupp (Uppdatera skördarens/skotarens spår + Baskarta).
+          Kartytan i körvy visar bara karta + position + autopanel/HUD. */}
 
       {/* === KÖRVY: KOMPASS-AKTIVERING — heading-up kräver telefonens kompass; iOS kräver tillstånd. === */}
       {korvyActive && korvyKompass !== 'aktiv' && (
@@ -12259,8 +12183,11 @@ export default function PlannerPage() {
       {/* Avsluta-pill borttagen — åtgärden finns nu i +-menyn (OBJEKT-sektionen).
           Sallan-handling → ett steg bort i menyn är lämpligt, precis som 'Byt objekt'. */}
 
-      {/* === PLUS-KNAPP (nere höger) — döljs bara när briefing eller volym-panel är öppna */}
-      {!briefingMode && !(volymLoading || volymResultat) && (
+      {/* === PLUS-KNAPP (nere höger). SÄKERHETSVILLKOR (fältfynd): i KÖRVY är +-knappen enda vägen till
+             menyn (där Avsluta bor) → den får ALDRIG kunna döljas. Volym-/briefing-state som råkade ligga
+             kvar dolde den förr och kapade utvägen (det #488 tvingades kringgå). `korvyActive ||` gör den
+             ALLTID synlig i körvy, oavsett övrigt state. Utanför körvy: oförändrad gate. */}
+      {(korvyActive || (!briefingMode && !(volymLoading || volymResultat))) && (
         <button
           type="button"
           onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setPlusMenuOpen(o => !o); }}
@@ -12284,7 +12211,10 @@ export default function PlannerPage() {
             alignItems: 'center',
             justifyContent: 'center',
 
-            zIndex: 200,
+            // SÄKERHET (fältfynd): z630 gör att +-knappen aldrig kan BLOCKERAS (övertäckas) av en
+            // yt-overlay — den ligger över info-/traktöversikt-backdropen (470) och alla andra
+            // yt-lager, men under +-menyns egen backdrop (640) så tryck-utanför fortfarande stänger.
+            zIndex: 630,
             transition: 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
             transform: plusMenuOpen ? 'rotate(45deg)' : 'rotate(0deg)',
           }}
@@ -12325,7 +12255,11 @@ export default function PlannerPage() {
       {/* === PLUS-MENY (bottom sheet) === */}
       {plusMenuOpen && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop. ROTORSAK-FIX (fältfynd): +-menyn låg tidigare på z-index 450, MEN flera
+              full-skärms-backdrops finns på högre z (objekt-info/traktöversikt z470, m.fl.) — låg en
+              sådan över menyn svalde den klicket på menyraderna (t.ex. "Avsluta körvy"): knappen syntes,
+              trycket dog. En meny MÅSTE vara översta interaktiva lagret. Höjt till 640/650 → över alla
+              yt-overlays, under bara de kritiska bekräftelse-modalerna (9999). */}
           <div
             onClick={() => setPlusMenuOpen(false)}
             style={{
@@ -12334,7 +12268,7 @@ export default function PlannerPage() {
               background: 'rgba(0,0,0,0.3)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)',
-              zIndex: 400,
+              zIndex: 640,
               animation: 'fadeIn 0.2s ease',
             }}
           />
@@ -12351,7 +12285,7 @@ export default function PlannerPage() {
             borderTopRightRadius: 20,
             borderTop: '1px solid rgba(255,255,255,0.08)',
             padding: '10px 16px calc(env(safe-area-inset-bottom, 10px) + 16px)',
-            zIndex: 450,
+            zIndex: 650,   // se backdrop-kommentaren: menyn måste vara översta interaktiva lagret
             maxHeight: '80vh',
             overflowY: 'auto',
             animation: 'slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1)',
@@ -12548,9 +12482,16 @@ export default function PlannerPage() {
                 title: 'KÖRVY',
                 // Körvy 2D-raden är conditional toggle: startar när inaktiv, avslutar (röd) när aktiv.
                 // Läget FÖLJER rollen på objektet (korvyForceRoll=null). Admin/chef har ingen roll-
-                // tilldelning → får båda valen explicit (skördar-/skotarkörvy) så previewn går att fälttitta.
+                // tilldelning → får båda valen explicit (skördar-/skotarkörvy).
+                // REN SKÄRM (fältfynd): i körvy bor ALLA kontroller här i menyn (baskarta, GPS-uppdatera,
+                // uppdatera spår, avsluta) → kartytan visar bara karta + position + autopanel/HUD.
                 items: korvyActive
-                  ? [{ label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); setKorvyForceRoll(null); }, danger: true }]
+                  ? [
+                      { label: korvyBasKarta === 'lm' ? 'Baskarta: Karta → Topokarta' : 'Baskarta: Topokarta → Karta', icon: 'layers', action: () => setKorvyBasKarta(korvyBasKarta === 'lm' ? 'topo' : 'lm') },
+                      { label: 'Uppdatera GPS', icon: 'my_location', action: () => { acquireGpsWithFallback(); } },
+                      ...(andrasRoll ? [{ label: andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår', icon: 'refresh', action: () => { hamtaAndrasSpar(); } }] : []),
+                      { label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); setKorvyForceRoll(null); }, danger: true },
+                    ]
                   : isAdminRiktig
                     ? [
                         { label: 'Skördarkörvy', icon: 'navigation', action: () => { setKorvyForceRoll('skordare'); setKorvyActive(true); } },
