@@ -2261,6 +2261,34 @@ function NamnRad({ obj, set, direktSpara }: any) {
 const PLAN_INPUT = { flex: 1, maxWidth: '62%', minHeight: 36, borderRadius: 8, background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', fontSize: 14, fontFamily: 'inherit', padding: '0 8px', textAlign: 'right' } as any
 const TRAKT_IMPORT_KRAVS = <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>kräver trakt-import</span>
 
+// C: "trakt säger: X" — trakt-importens värde (objekt-tabellen) visas under fältet
+// när det skiljer sig från dim-värdet (11 markägar-krockar i prod, ofta stavfel)
+// eller när dim är tomt. Ett tryck skriver trakt-värdet via routern (speglas till
+// båda tabellerna, Martins värde vinner tills han trycker). "ur trakt-import" när
+// provenansen (dim_objekt.auto_ifyllt, B) säger att värdet kom därifrån — läses
+// defensivt, kolumnen finns först när B-migrationen körts.
+function TraktSager({ trakt, dim, provenans, onAnvand }: any) {
+  const t = String(trakt ?? '').trim()
+  const d = String(dim ?? '').trim()
+  if (!t) return null
+  if (t.toLowerCase() === d.toLowerCase()) {
+    return provenans === 'trakt'
+      ? <div style={{ padding: '0 16px 10px', fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>ur trakt-import</div>
+      : null
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px 10px' }}>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        trakt säger: <span style={{ color: 'rgba(255,255,255,0.85)' }}>{t}</span>
+      </span>
+      <button type="button" className="tap-press" onClick={() => onAnvand(t)}
+        style={{ minHeight: 44, padding: '0 14px', borderRadius: 10, border: '1px solid rgba(173,198,255,0.35)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0 }}>
+        {d ? 'Använd' : 'Fyll i'}
+      </button>
+    </div>
+  )
+}
+
 function PlanRad({ label, children }: any) {
   return (
     <div style={styles.kravRad as any}>
@@ -2622,6 +2650,8 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
               />
             </div>
           </KravRad>
+          {objektRad && <TraktSager trakt={objektRad.markagare} dim={obj.skogsagare} provenans={obj.auto_ifyllt?.skogsagare}
+            onAnvand={(v: string) => { set({ ...obj, skogsagare: v }); direktSpara({ markagare: v }) }} />}
         </div>
         <div id="atgard-section">
           <KravRad label="Åtgärd" value={obj.atgard} expanded={oppetFalt === 'atgard'} onToggle={() => setOppetFalt(oppetFalt === 'atgard' ? null : 'atgard')}>
@@ -2641,9 +2671,13 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
           <ChipInput embedded label="Inköpare" value={obj.inkopare || ''} options={inkopare} setOptions={setInkopare}
             onChange={(v: any) => { set({ ...obj, inkopare: v }); direktSpara({ inkopare: v || null }) }}
             onAddOption={listAtgarder?.onAddInkopare} onRemoveOption={listAtgarder?.onRemoveInkopare} />
+          {objektRad && <TraktSager trakt={objektRad.inkopare} dim={obj.inkopare} provenans={obj.auto_ifyllt?.inkopare}
+            onAnvand={(v: string) => { set({ ...obj, inkopare: v }); direktSpara({ inkopare: v }) }} />}
         </div>
         <PlanText label="Avverkningsform" value={obj.avverkningsform} placeholder="t.ex. Föryngringsavverkning"
           onCommit={(v: any) => { set({ ...obj, avverkningsform: v }); direktSpara({ avverkningsform: v }) }} />
+        {objektRad && <TraktSager trakt={objektRad.avverkningsform} dim={obj.avverkningsform} provenans={obj.auto_ifyllt?.avverkningsform}
+          onAnvand={(v: string) => { set({ ...obj, avverkningsform: v }); direktSpara({ avverkningsform: v }) }} />}
       </IosGroup>
 
       {/* Egenskaper per maskinslag — maskinspecifika fält skrivs bara till det
@@ -2813,7 +2847,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       if (avbruten) return
       if (!rad) { setObjektRad(null); setObjektRadLaddar(false); return }
       const { data } = await supabase.from('objekt')
-        .select('id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar')
+        .select('id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, markagare, inkopare, avverkningsform')
         .eq('id', rad.id).limit(1)
       if (avbruten) return
       setObjektRad((data && data[0]) || { id: rad.id })
