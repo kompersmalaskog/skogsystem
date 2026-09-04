@@ -16,6 +16,7 @@ function getDatum() {
 const productionApps = [
   { href: '/uppfoljning',   label: 'Uppföljning', icon: 'monitoring'         },
   { href: '/uppfoljning/fordelning', label: 'Aptering', icon: 'content_cut'  },
+  { href: '/rotkap',        label: 'Rotkap',      icon: 'carpenter'           },
   { href: '/maskinvy',      label: 'Maskinvy',    icon: 'visibility'          },
   { href: '/maskinvy?ny=1', label: 'Maskinvy 2',  icon: 'new_releases'        },
   { href: '/starta-jobb',   label: 'Starta jobb', icon: 'power_settings_new'  },
