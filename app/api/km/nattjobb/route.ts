@@ -112,11 +112,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Tabellform = prod (Martin körde SQL:en 2026-09-04): kord_tid, fonster_fran/till,
+    // kandidater, fyllda (int), hoppade (int), ors_anrop, detaljer (jsonb), fel.
     const loggId = await skrivLogg(supabase, {
-      startad_at: startad.toISOString(), avslutad_at: new Date().toISOString(),
+      kord_tid: startad.toISOString(),
       fonster_fran: fran, fonster_till: idag,
-      kandidater: kandidaterAntal, antal_fyllda: fyllda.length, antal_hoppade: hoppade.length,
-      ors_anrop: orsAnrop, fyllda, hoppade,
+      kandidater: kandidaterAntal, fyllda: fyllda.length, hoppade: hoppade.length,
+      ors_anrop: orsAnrop, detaljer: { fyllda, hoppade },
     });
     console.log(`[km/nattjobb] ${fran}..${idag}: kandidater=${kandidaterAntal} fyllda=${fyllda.length} hoppade=${hoppade.length} ors=${orsAnrop} logg=${loggId ?? "EJ SKRIVEN"}`);
     for (const h of hoppade) console.log(`[km/nattjobb] hoppad ${h.datum} ${h.medarbetare_id}: ${h.orsak}`);
@@ -134,10 +136,10 @@ export async function GET(request: NextRequest) {
     const fel = e?.message || String(e);
     console.error("[km/nattjobb] KRASCH:", fel);
     const loggId = await skrivLogg(supabase, {
-      startad_at: startad.toISOString(), avslutad_at: new Date().toISOString(),
+      kord_tid: startad.toISOString(),
       fonster_fran: fran || null, fonster_till: idag || null,
-      kandidater: kandidaterAntal, antal_fyllda: fyllda.length, antal_hoppade: hoppade.length,
-      ors_anrop: orsAnrop, fyllda, hoppade, fel,
+      kandidater: kandidaterAntal, fyllda: fyllda.length, hoppade: hoppade.length,
+      ors_anrop: orsAnrop, detaljer: { fyllda, hoppade }, fel,
     });
     return NextResponse.json({ ok: false, error: fel, logg_id: loggId }, { status: 500 });
   }

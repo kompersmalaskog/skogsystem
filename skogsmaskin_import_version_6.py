@@ -3105,6 +3105,17 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
 # de är redan helt manuella.)
 # Fält importen äger fritt: start_date, end_date, areal_ha, avverkningsform,
 # certifiering, cutting_method, objektnr m.fl. (INTE koordinater längre.)
+#
+# REGEL FÖR OBJEKTETS KOORDINAT (beslutad 2026-09-04, Rössmåla-fallet):
+#   Skotarens FÖRSTA avlägg är objektets koordinat.
+#   En människa får ändra den.
+#   Importen får aldrig.
+# Varför: koordinaten används för km-beräkning (hem → avlägg → hem) och måste
+# vara en punkt man kan köra bil till. Skotarens första avlägg ligger vid vägen;
+# senare platser kan ligga inne i beståndet (ingen väg → ORS "ej routbar" → 0 km
+# för föraren). Martins handsatta rättelse (14 aug) skrevs över varje timme av
+# omimporterade skotarfiler. Därför är latitude/longitude skyddade: importen
+# fyller bara när koordinat saknas helt.
 SKYDDADE_OBJEKTFALT = ('bolag', 'skogsagare', 'saljare', 'vo_nummer', 'latitude', 'longitude')
 
 def _arv_skotartilldelning(nyfodda: List[str]):
