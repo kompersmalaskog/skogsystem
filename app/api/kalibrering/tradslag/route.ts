@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
+import { statistik, type VariabelStat } from "@/lib/kalibrering/statistik";
 
 /**
  * GET /api/kalibrering/tradslag?key=skogsystem-debug&maskin_id=X
@@ -26,10 +27,7 @@ export type KravRow = {
   variabel: string; metrik: string; riktning: string;
   tolerans: number | null; mal: number; golv: number; enhet: string; larm_min_matt: number | null;
 };
-export type VariabelStat = {
-  n: number; traffPct: number | null; systematisk: number | null;
-  standardavv: number | null; grovPct: number | null; tolerans: number | null; grovTolerans: number | null;
-};
+export type { VariabelStat };
 export type TradslagStat = { tradslag: string; diameter: VariabelStat; langd: VariabelStat };
 export type TradslagResponse = {
   ok: true; maskin_id: string; profil: string | null; trosklar: KravRow[]; tradslag: TradslagStat[];
@@ -47,25 +45,6 @@ async function fetchAllRows<T>(
   }
   return { data: all, error: null };
 }
-const r2 = (x: number) => Math.round(x * 100) / 100;
-function popStd(vals: number[], mean: number): number {
-  if (vals.length < 2) return 0;
-  return Math.sqrt(vals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vals.length);
-}
-function statistik(avvik: number[], tolerans: number | null, grovTolerans: number | null): VariabelStat {
-  const n = avvik.length;
-  if (n === 0) return { n: 0, traffPct: null, systematisk: null, standardavv: null, grovPct: null, tolerans, grovTolerans };
-  const systematisk = avvik.reduce((a, b) => a + b, 0) / n;
-  return {
-    n,
-    traffPct: tolerans == null ? null : r2((100 * avvik.filter((v) => Math.abs(v) <= tolerans).length) / n),
-    systematisk: r2(systematisk),
-    standardavv: r2(popStd(avvik, systematisk)),
-    grovPct: grovTolerans == null ? null : r2((100 * avvik.filter((v) => Math.abs(v) > grovTolerans).length) / n),
-    tolerans, grovTolerans,
-  };
-}
-
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   if (url.searchParams.get("key") !== DEBUG_KEY) return new NextResponse("Ogiltig nyckel", { status: 401 });
