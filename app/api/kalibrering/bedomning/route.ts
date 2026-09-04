@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
+import { statistik, type VariabelStat } from "@/lib/kalibrering/statistik";
 
 /**
  * GET /api/kalibrering/bedomning?key=skogsystem-debug&maskin_id=X
@@ -48,14 +49,31 @@ export type KravRow = {
   larm_min_matt: number | null;
 };
 
-export type VariabelStat = {
-  n: number;
-  traffPct: number | null;
-  systematisk: number | null;
-  standardavv: number | null;
-  grovPct: number | null;
-  tolerans: number | null;
-  grovTolerans: number | null;
+export type { VariabelStat };
+
+/**
+ * "Hjälpte åtgärden?" — de tre diametertalen FÖRE och EFTER maskinens senaste
+ * förar-markör (kalibrering_atgard), var för sig.
+ *   fore  = 90 dagar före markören (samma fönsterbegrepp som nuläget — ett
+ *           begrepp i appen, inte "hela historiken" som döljer att maskinen
+ *           kan ha drivit precis före åtgärden)
+ *   efter = från markörens datum t.o.m. senaste kontroll
+ * Underlagsgrind: < ATGARD_GRIND mått på NÅGON sida → fore/efter = null,
+ * forTidigt = true. Talen lämnar inte servern under grinden — ingen falsk
+ * förbättring kan råka visas.
+ * kalibreringarEfter: datum då diameterkurvan kalibrerats EFTER markören
+ * (fakt_kalibrering_historik, typ=diameter). Finns sådana kan förbättringen
+ * inte tillskrivas åtgärden — klienten dämpar domen.
+ */
+export type AtgardEffekt = {
+  datum: string;
+  text: string;
+  fore: VariabelStat | null;
+  efter: VariabelStat | null;
+  forTidigt: boolean;
+  nFore: number;
+  nEfter: number;
+  kalibreringarEfter: string[];
 };
 
 export type BedomningResponse = {
@@ -66,6 +84,7 @@ export type BedomningResponse = {
   diameter: VariabelStat | null;
   langd: VariabelStat | null;
   trosklar: KravRow[];
+  atgard: AtgardEffekt | null;
 };
 
 // PostgREST tar max 1000 rader åt gången — paginera tills tomt.
@@ -86,32 +105,9 @@ async function fetchAllRows<T>(
   return { data: all, error: null };
 }
 
-function popStd(vals: number[], mean: number): number {
-  if (vals.length < 2) return 0;
-  const v = vals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vals.length;
-  return Math.sqrt(v);
-}
-
-function statistik(avvik: number[], tolerans: number | null, grovTolerans: number | null): VariabelStat {
-  const n = avvik.length;
-  if (n === 0) {
-    return { n: 0, traffPct: null, systematisk: null, standardavv: null, grovPct: null, tolerans, grovTolerans };
-  }
-  const systematisk = avvik.reduce((a, b) => a + b, 0) / n;
-  const standardavv = popStd(avvik, systematisk);
-  const traffPct = tolerans == null ? null : (100 * avvik.filter((v) => Math.abs(v) <= tolerans).length) / n;
-  const grovPct = grovTolerans == null ? null : (100 * avvik.filter((v) => Math.abs(v) > grovTolerans).length) / n;
-  const r2 = (x: number) => Math.round(x * 100) / 100;
-  return {
-    n,
-    traffPct: traffPct == null ? null : r2(traffPct),
-    systematisk: r2(systematisk),
-    standardavv: r2(standardavv),
-    grovPct: grovPct == null ? null : r2(grovPct),
-    tolerans,
-    grovTolerans,
-  };
-}
+// Före/efter-grind: 30 mått på varje sida om markören. Under det säger vyn
+// "för tidigt" — aldrig ett tal som kan läsas som förbättring.
+const ATGARD_GRIND = 30;
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -168,7 +164,7 @@ export async function GET(req: NextRequest) {
   }
   if (!senaste || senaste.length === 0) {
     return NextResponse.json({
-      ok: true, maskin_id: maskinId, profil, fonster: null, diameter: null, langd: null, trosklar,
+      ok: true, maskin_id: maskinId, profil, fonster: null, diameter: null, langd: null, trosklar, atgard: null,
     } satisfies BedomningResponse);
   }
   const till = String(senaste[0].kontroll_datum).slice(0, 10);
@@ -219,6 +215,79 @@ export async function GET(req: NextRequest) {
   const diaAvvik = punktRes.data.map((p) => p.avvik);
   const diameter = statistik(diaAvvik, tolFor("diameter", "traffprocent"), tolFor("diameter", "grov_avvikelse"));
 
+  // === 6) Hjälpte åtgärden? — före/efter senaste förar-markören ===
+  let atgard: AtgardEffekt | null = null;
+  const { data: atgRows, error: atgErr } = await supabase
+    .from("kalibrering_atgard")
+    .select("datum,text")
+    .eq("maskin_id", maskinId)
+    .order("datum", { ascending: false })
+    .limit(1);
+  if (atgErr) {
+    return NextResponse.json({ ok: false, error: `kalibrering_atgard: ${atgErr.message}` }, { status: 500 });
+  }
+  if (atgRows && atgRows.length > 0) {
+    const bryt = String(atgRows[0].datum).slice(0, 10);
+    const brytD = new Date(`${bryt}T00:00:00Z`);
+    const foreFran = new Date(brytD.getTime() - FONSTER_DAGAR * 86400000).toISOString().slice(0, 10);
+
+    type AtgStock = { id: number; kontroll_datum: string; maskin_toppdia_mm: number | null; operator_toppdia_mm: number | null };
+    const atgStock = await fetchAllRows<AtgStock>((from, to) =>
+      supabase
+        .from("detalj_kontroll_stock")
+        .select(`id,kontroll_datum,${TOPPDIA_COLS}`)
+        .eq("maskin_id", maskinId)
+        .gte("kontroll_datum", foreFran)
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+    if (atgStock.error) {
+      const e = atgStock.error as { message?: string };
+      return NextResponse.json({ ok: false, error: `stockar (åtgärd): ${e.message}` }, { status: 500 });
+    }
+    const datumAv = new Map(atgStock.data.map((s) => [s.id, String(s.kontroll_datum).slice(0, 10)]));
+    const atgPunkter = await hamtaDiameterPunkter(supabase, atgStock.data);
+    if (atgPunkter.error) {
+      return NextResponse.json({ ok: false, error: `matpunkt (åtgärd): ${atgPunkter.error.message}` }, { status: 500 });
+    }
+    const foreAv: number[] = [];
+    const efterAv: number[] = [];
+    for (const p of atgPunkter.data) {
+      const d = datumAv.get(p.stockId) ?? "";
+      if (d < bryt) foreAv.push(p.avvik);
+      else efterAv.push(p.avvik);
+    }
+    const tolT = tolFor("diameter", "traffprocent");
+    const tolG = tolFor("diameter", "grov_avvikelse");
+    const fore = statistik(foreAv, tolT, tolG);
+    const efter = statistik(efterAv, tolT, tolG);
+    const forTidigt = fore.n < ATGARD_GRIND || efter.n < ATGARD_GRIND;
+
+    // Diameterkalibreringar efter markören — de konkurrerar om förklaringen.
+    const { data: kal, error: kalErr } = await supabase
+      .from("fakt_kalibrering_historik")
+      .select("datum")
+      .eq("maskin_id", maskinId)
+      .eq("typ", "diameter")
+      .gte("datum", bryt)
+      .order("datum", { ascending: true });
+    if (kalErr) {
+      return NextResponse.json({ ok: false, error: `fakt_kalibrering_historik: ${kalErr.message}` }, { status: 500 });
+    }
+    const kalibreringarEfter = Array.from(new Set((kal ?? []).map((k) => String(k.datum).slice(0, 10))));
+
+    atgard = {
+      datum: bryt,
+      text: String(atgRows[0].text ?? ""),
+      fore: forTidigt ? null : fore,
+      efter: forTidigt ? null : efter,
+      forTidigt,
+      nFore: fore.n,
+      nEfter: efter.n,
+      kalibreringarEfter,
+    };
+  }
+
   const response: BedomningResponse = {
     ok: true,
     maskin_id: maskinId,
@@ -227,6 +296,7 @@ export async function GET(req: NextRequest) {
     diameter: diameter.n > 0 ? diameter : null,
     langd: langd.n > 0 ? langd : null,
     trosklar,
+    atgard,
   };
   return NextResponse.json(response);
 }

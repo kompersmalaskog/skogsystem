@@ -184,10 +184,19 @@ type VariabelStat = {
   n: number; traffPct: number | null; systematisk: number | null;
   standardavv: number | null; grovPct: number | null; tolerans: number | null; grovTolerans: number | null;
 };
+// "Hjälpte åtgärden?" — före/efter senaste förar-markören (speglar AtgardEffekt i
+// bedomning/route.ts). fore/efter är null under grinden (30 mått per sida).
+type AtgardEffekt = {
+  datum: string; text: string;
+  fore: VariabelStat | null; efter: VariabelStat | null;
+  forTidigt: boolean; nFore: number; nEfter: number;
+  kalibreringarEfter: string[];
+};
 type BedomningResp = {
   ok: true; maskin_id: string; profil: string | null;
   fonster: { fran: string; till: string; dagar: number } | null;
   diameter: VariabelStat | null; langd: VariabelStat | null; trosklar: KravRow[];
+  atgard?: AtgardEffekt | null;
 };
 
 // Bedöm en variabel (diameter/längd) mot dess kravprofilrader.
@@ -227,6 +236,64 @@ const bedomProfil = (
     if (PROFIL_RANK[st] > PROFIL_RANK[värsta]) värsta = st;
   }
   return { status: värsta, larmTyst: false, detaljer };
+};
+
+// === "Hjälpte åtgärden?" — domen RÄKNAS UT ur mönstret (std × |syst|), gissas inte ===
+// Oförändrad-trösklar: under dem är skillnaden brus, inte förändring.
+const ATG_TROSKEL_TRAFF = 2;   // procentenheter
+const ATG_TROSKEL_MM = 0.2;    // mm — systematisk (som |syst|) och standardavvikelse
+type AtgRiktning = 'battre' | 'samre' | 'oforandrad';
+type AtgRad = { fore: number | null; efter: number | null; delta: number | null; riktning: AtgRiktning };
+type AtgDom = { traff: AtgRad; syst: AtgRad; std: AtgRad; rubrik: string; tillagg: string[] };
+
+// AVRUNDA FÖRST, diffa sedan — pilen ska gå att kontrollräkna mot de två talen
+// som står bredvid (86 → 77 får inte visa "8"). decimaler: 0 för träff%, 1 för mm.
+const atgRad = (fore: number | null, efter: number | null, troskel: number, hogBra: boolean, decimaler: number, somAbs = false): AtgRad => {
+  if (fore == null || efter == null) return { fore, efter, delta: null, riktning: 'oforandrad' };
+  const rnd = (x: number) => Number(x.toFixed(decimaler));
+  const fr = rnd(fore), er = rnd(efter);
+  const f = somAbs ? Math.abs(fr) : fr;
+  const e = somAbs ? Math.abs(er) : er;
+  const delta = rnd(e - f);
+  const riktning: AtgRiktning = Math.abs(delta) < troskel ? 'oforandrad' : (delta > 0) === hogBra ? 'battre' : 'samre';
+  return { fore: fr, efter: er, delta, riktning };
+};
+const fmtDagMan = (iso: string): string =>
+  new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }).replace('.', '');
+
+const atgardDom = (a: AtgardEffekt): AtgDom | null => {
+  if (!a.fore || !a.efter) return null;
+  const traff = atgRad(a.fore.traffPct, a.efter.traffPct, ATG_TROSKEL_TRAFF, true, 0);
+  const syst = atgRad(a.fore.systematisk, a.efter.systematisk, ATG_TROSKEL_MM, false, 1, true);
+  const std = atgRad(a.fore.standardavv, a.efter.standardavv, ATG_TROSKEL_MM, false, 1);
+  const kalibrerad = a.kalibreringarEfter.length > 0;
+  // Mönstertabellen. Med kurvjusteringar efter markören får rubriken INTE
+  // tillskriva trycket något — bara beskriva vad som hände.
+  let rubrik: string;
+  let battre = false;
+  if (std.riktning === 'samre' || syst.riktning === 'samre') {
+    const vad = [std.riktning === 'samre' ? 'spridningen' : null, syst.riktning === 'samre' ? 'systematiken' : null]
+      .filter(Boolean).join(' och ');
+    rubrik = `Blev inte bättre — ${vad} försämrades.`;
+  } else if (std.riktning === 'battre' && syst.riktning === 'oforandrad') {
+    rubrik = kalibrerad ? 'Flaxandet gav sig.' : 'Flaxandet gav sig — trycket var rätt.'; battre = true;
+  } else if (std.riktning === 'battre' && syst.riktning === 'battre') {
+    rubrik = 'Både jämnare och rakare.'; battre = true;
+  } else if (std.riktning === 'oforandrad' && syst.riktning === 'battre') {
+    rubrik = 'Går rakare men flaxar lika mycket.'; battre = true;
+  } else {
+    rubrik = 'Ingen mätbar skillnad ännu.';
+  }
+  const tillagg: string[] = [];
+  if (traff.riktning === 'battre') tillagg.push('Träffen följde efter.');
+  else if (traff.riktning === 'samre') tillagg.push('Träffen sjönk.');
+  if (kalibrerad) {
+    const d = a.kalibreringarEfter.map(fmtDagMan).join(', ');
+    tillagg.push(battre
+      ? `Men kurvan kalibrerades också ${d} — det går inte att säga vad som hjälpte.`
+      : `Kurvan kalibrerades också ${d}.`);
+  }
+  return { traff, syst, std, rubrik, tillagg };
 };
 
 // === Diagnos-motorn: rådata (per diameterklass) → ETT av tre fel + åtgärdstext ===
@@ -624,22 +691,6 @@ export default function KalibreringPage() {
   const [calLoading, setCalLoading] = useState(false);
   const [calError, setCalError] = useState<string | null>(null);
 
-  // === Trend-fliken: lazy fetch när användaren går dit, cache i ref ===
-  type TrendMatstalle = { position_cm: number; snitt_mm: number; stddev_mm: number; n: number };
-  type TrendKontrollPunkt = { filnamn: string; datum: string; dia_snitt_mm: number; len_snitt_cm: number; antal_stockar: number; object_name: string | null };
-  type TrendKalibreringEv = { datum: string; maskin_id: string; tradslag: string | null; typ: string | null; orsak: string | null };
-  type TrendTradslagData = { antal_kontroller: number; matstallen: TrendMatstalle[]; kontroller: TrendKontrollPunkt[] };
-  type TrendData = { per_tradslag: Record<string, TrendTradslagData>; kalibreringar: TrendKalibreringEv[]; totalt: { antal_kontroller: number; antal_matpunkter: number } };
-  const [trendData, setTrendData] = useState<TrendData | null>(null);
-  const [trendLoading, setTrendLoading] = useState(false);
-  const [trendError, setTrendError] = useState<string | null>(null);
-  const [selectedTrendTradslag, setSelectedTrendTradslag] = useState<string | null>(null);
-  const [trendUnit] = useState<'dia' | 'len'>('dia'); // Avvikelse-kurvan är alltid diameter (ingen längd-drift)
-  const [trendPeriod, setTrendPeriod] = useState<'vecka' | 'manad' | 'kvartal' | 'ar'>('manad');
-  // Anchor = en datum-sträng (ISO) inuti det fönster användaren tittar på.
-  // null = "auto, använd senaste kontroll för aktuellt trädslag".
-  const [trendAnchor, setTrendAnchor] = useState<string | null>(null);
-  const trendFetchKeyRef = useRef<string | null>(null);
 
   // Globalt maskinfilter — persistent över flikar
   const [selectedMaskinId, setSelectedMaskinId] = useState<string | 'all'>('all');
@@ -992,37 +1043,6 @@ export default function KalibreringPage() {
     return () => { cancelled = true; };
   }, [activeTab, effectiveSelected, tradslagMap]);
 
-  // === Trend-fliken: lazy fetch när användaren öppnar fliken eller byter maskinfilter
-  useEffect(() => {
-    if (activeTab !== 'trend') return;
-    const fetchKey = effectiveSelected; // 'all' eller maskin_id — invaliderar cache vid filterbyte
-    if (trendFetchKeyRef.current === fetchKey && trendData && !trendError) return;
-    let cancelled = false;
-    setTrendLoading(true);
-    setTrendError(null);
-    const url = effectiveSelected === 'all'
-      ? `/api/kalibrering/trend?key=skogsystem-debug`
-      : `/api/kalibrering/trend?key=skogsystem-debug&maskin_id=${encodeURIComponent(effectiveSelected)}`;
-    fetch(url, { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then((data: TrendData & { ok?: boolean }) => {
-        if (cancelled) return;
-        setTrendData(data);
-        trendFetchKeyRef.current = fetchKey;
-        // Förvalt trädslag: det med flest kontroller
-        const tradslagSorted = Object.entries(data.per_tradslag)
-          .sort(([, a], [, b]) => b.antal_kontroller - a.antal_kontroller)
-          .map(([k]) => k);
-        if (tradslagSorted.length > 0 && (selectedTrendTradslag == null || !data.per_tradslag[selectedTrendTradslag])) {
-          setSelectedTrendTradslag(tradslagSorted[0]);
-        }
-        setTrendLoading(false);
-      })
-      .catch(err => { if (!cancelled) { setTrendError(err?.message || 'Kunde inte ladda trenddata'); setTrendLoading(false); } });
-    return () => { cancelled = true; };
-    // selectedTrendTradslag är medvetet utelämnad — den är read-only-effekt på första laddning
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, effectiveSelected]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -2366,7 +2386,6 @@ export default function KalibreringPage() {
         .kalib-tc-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
         .kalib-tc-leg{display:flex;align-items:center;gap:5px;font-size:12px;color:#8E8E93;font-variant-numeric:tabular-nums}
         .kalib-tc-leg i{width:12px;height:3px;border-radius:2px;display:inline-block}
-        .kalib-tc-bandnote{font-size:12px;color:#8E8E93;margin-top:10px;line-height:1.4}
         .kalib-tc-tunt{font-size:11px;color:#8E8E93;margin-top:6px;line-height:1.4;opacity:0.85}
         /* === "Flaxar den?" — spridningen === */
         .kalib-tc-band{fill:rgba(255,255,255,0.05)}
@@ -2381,7 +2400,34 @@ export default function KalibreringPage() {
         .kalib-flax-atgard{font-size:15px;color:#8E8E93;margin-top:6px;line-height:1.4}
         .kalib-flax-slutsats.flaxar .kalib-flax-atgard{color:#EBEBF5}
         .kalib-flax-tillagg{font-size:13px;color:#8E8E93;margin-top:8px;line-height:1.4;font-style:italic}
-        .kalib-curve-mal{position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,0.28);pointer-events:none}
+        /* === "Så ligger du till" — de tre Vida-talen + hjälpte åtgärden? === */
+        .kalib-lage-rader{display:flex;flex-direction:column;margin-top:-6px}
+        .kalib-lage-rad{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.06)}
+        .kalib-lage-rad:first-child{border-top:none}
+        .kalib-lage-left{min-width:0}
+        .kalib-lage-fraga{font-size:17px;font-weight:600;color:#fff;line-height:1.2}
+        .kalib-lage-term{font-size:12px;color:#8E8E93;margin-top:2px}
+        .kalib-lage-right{text-align:right;flex-shrink:0}
+        .kalib-lage-varde{font-size:28px;font-weight:700;letter-spacing:-0.5px;line-height:1.1;font-variant-numeric:tabular-nums;color:#8E8E93}
+        .kalib-lage-varde.tone-hi{color:#FF9F0A}
+        .kalib-lage-varde.tone-hot{color:#FF453A}
+        .kalib-lage-krav{font-size:12px;color:#8E8E93;margin-top:2px}
+        .kalib-lage-atgard{margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06)}
+        .kalib-lage-atgard-rubrik{font-size:17px;font-weight:600;color:#fff}
+        .kalib-lage-atgard-markor{font-size:13px;color:#8E8E93;margin-top:2px}
+        .kalib-lage-fe-head{font-size:11px;color:#8E8E93;text-transform:uppercase;letter-spacing:0.4px;margin-top:10px}
+        .kalib-lage-fe-rad{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid rgba(255,255,255,0.04)}
+        .kalib-lage-fe-fraga{font-size:14px;color:#EBEBF5}
+        .kalib-lage-fe-right{text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
+        .kalib-lage-fe-tal{font-size:15px;color:#8E8E93}
+        .kalib-lage-fe-tal b{color:#fff;font-weight:600}
+        .kalib-lage-delta{font-size:12px;margin-top:2px;color:#8E8E93}
+        .kalib-lage-delta.battre{color:#30D158}
+        .kalib-lage-delta.samre{color:#FF453A}
+        .kalib-lage-dom{font-size:17px;font-weight:600;color:#fff;margin-top:12px;line-height:1.3}
+        .kalib-lage-tillagg{font-size:13px;color:#8E8E93;margin-top:6px;line-height:1.4}
+        .kalib-lage-fortidigt{font-size:15px;color:#8E8E93;margin-top:8px;line-height:1.4}
+        .kalib-lage-n{font-size:12px;color:#8E8E93}
         /* === Hjälptext "?" === */
         .kalib-hjalp-btn{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#8E8E93;font-size:15px;font-weight:600;cursor:pointer;flex-shrink:0}
         .kalib-hjalp-body{padding:4px 4px 8px}
@@ -2459,12 +2505,6 @@ export default function KalibreringPage() {
 
         /* === Kalender-fliken === */
         /* === Trend-fliken — kurva + tidsfilter + auto-mening === */
-        .kalib-trend-pills{display:flex;gap:8px;margin:0 0 10px;flex-wrap:wrap}
-        .kalib-trend-pill{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:22px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);color:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:background 0.12s}
-        .kalib-trend-pill:hover{background:rgba(255,255,255,0.10)}
-        .kalib-trend-pill.active{background:#fff;color:#000;border-color:#fff}
-        .kalib-trend-pill-count{font-size:12px;opacity:0.7;font-variant-numeric:tabular-nums}
-        .kalib-trend-pill.active .kalib-trend-pill-count{opacity:0.55}
 
         /* iOS-segmenterad kontroll: enhetväxling (Dia/Längd) och fönsterbredd */
         .kalib-trend-seg{display:flex;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.06);border-radius:9px;padding:2px;margin:0 0 10px;width:100%}
@@ -2473,84 +2513,31 @@ export default function KalibreringPage() {
         .kalib-trend-seg-btn.active{background:#3A3A3C;color:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.4)}
 
         /* Bläddringsrad: pilar + fönsteretikett. Som månads-navigatorn i Kalendern. */
-        .kalib-trend-nav{display:flex;align-items:center;justify-content:space-between;padding:6px 0;margin:0 0 6px}
-        .kalib-trend-nav-btn{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.06);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.12s}
-        .kalib-trend-nav-btn:hover:not(:disabled){background:rgba(255,255,255,0.12)}
-        .kalib-trend-nav-btn:disabled{background:rgba(255,255,255,0.03);cursor:default}
-        .kalib-trend-nav-label{font-size:16px;font-weight:600;color:#fff;letter-spacing:-0.01em;font-variant-numeric:tabular-nums}
 
-        .kalib-trend-too-few{font-size:13px;color:#FF9F0A;background:rgba(255,159,10,0.10);padding:10px 12px;border-radius:8px;margin:8px 0 14px;line-height:1.4}
-        .kalib-trend-empty{font-size:13px;color:#8E8E93;padding:16px;text-align:center}
 
         /* Trendkurvan: SVG-polyline + HTML-punkter ovanpå för klick/tooltip.
            Plot-rutan är egen container så att xPctFor/yPct mappar 1:1 mot
            både SVG:ns viewBox (0..100) och HTML-positionerna (left/top:%). */
-        .kalib-curve{margin:14px 0 0}
-        .kalib-curve.muted{opacity:0.55}
-        .kalib-curve-row{display:flex;height:200px}
-        .kalib-curve-yaxis{flex:0 0 30px;position:relative}
-        .kalib-curve-yaxis span{position:absolute;right:4px;transform:translateY(-50%);font-size:10px;color:#666;font-variant-numeric:tabular-nums}
-        .kalib-curve-plot{flex:1;position:relative;background:rgba(255,255,255,0.02);border-radius:8px}
-        .kalib-curve-tol{position:absolute;left:0;right:0;background:rgba(255,255,255,0.035);border-top:1px dashed rgba(255,255,255,0.18);border-bottom:1px dashed rgba(255,255,255,0.18);pointer-events:none}
-        .kalib-curve-zero{position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,0.32);pointer-events:none}
-        .kalib-curve-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
-        .kalib-curve-dot{position:absolute;width:10px;height:10px;border-radius:50%;background:#8E8E93;transform:translate(-50%,-50%);box-shadow:0 0 0 2px rgba(0,0,0,0.55);pointer-events:none}
-        .kalib-curve-dot.tone-ok{background:#8E8E93}
-        .kalib-curve-dot.tone-cold{background:#0A84FF}
-        .kalib-curve-dot.tone-hi{background:#FF9F0A}
-        .kalib-curve-dot.tone-hot{background:#FF453A}
-        .kalib-curve-kalib{position:absolute;top:0;bottom:0;width:1px;background:repeating-linear-gradient(to bottom,rgba(255,255,255,0.45) 0 3px,transparent 3px 6px);transform:translateX(-0.5px);pointer-events:none}
-        .kalib-curve-kalib-tag{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:10px;color:#8E8E93;background:#1C1C1E;padding:1px 5px;border-radius:3px;line-height:1.3;white-space:nowrap}
 
-        .kalib-curve-xaxis{display:flex;height:24px;margin-top:8px}
-        .kalib-curve-xaxis-spacer{flex:0 0 30px}
-        .kalib-curve-xaxis-inner{flex:1;position:relative}
-        .kalib-curve-xaxis-inner span{position:absolute;transform:translateX(-50%);font-size:11px;color:#8E8E93;font-variant-numeric:tabular-nums;white-space:nowrap;top:0}
 
-        .kalib-curve-mening{font-size:14px;color:#fff;line-height:1.45;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:10px;margin-top:14px}
 
         /* === Kontroll-lista under kurvan: dag-grupperade kort, Apple-rent === */
         /* Topprad: lugn orientering, ingen rubrik-stor stil. */
-        .kalib-trend-list-top{font-size:14px;font-weight:500;color:#fff;margin:14px 0 4px;padding:0 4px;letter-spacing:-0.01em}
-        .kalib-trend-list-top-tertiary{font-size:12px;font-weight:400;color:#8E8E93;margin-left:2px}
 
         /* Tom-stat: bara text, ingen tom låda. */
-        .kalib-trend-list-empty{font-size:13px;color:#8E8E93;text-align:center;padding:24px 12px;line-height:1.4}
 
         /* Dag-grupp: mjuk rubrik + ett kort som rymmer alla dagens rader. */
-        .kalib-trend-day{margin-top:14px}
-        .kalib-trend-day-header{font-size:12px;font-weight:500;color:#8E8E93;padding:0 4px 6px;letter-spacing:-0.005em}
-        .kalib-trend-day-card{background:#1C1C1E;border:0.5px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden}
 
         /* Rad: knapp som tar hela bredden, 12px gap, 12/14 padding, separerad
            med 0.5px botten-border utom på sista. */
-        .kalib-trend-row{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;background:transparent;border:none;border-bottom:0.5px solid rgba(255,255,255,0.08);cursor:pointer;text-align:left;font-family:inherit;color:inherit;transition:background 0.12s}
-        .kalib-trend-row:hover:not(:disabled){background:rgba(255,255,255,0.04)}
-        .kalib-trend-row:active:not(:disabled){background:rgba(255,255,255,0.07)}
-        .kalib-trend-row:disabled{opacity:0.6;cursor:wait}
-        .kalib-trend-row.last{border-bottom:none}
 
         /* Färgprick 8×8 — diverging-skala, samma värden som nivå 1/2/3. */
-        .kalib-trend-row-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#B4B2A9}
-        .kalib-trend-row-dot.tone-ok{background:#B4B2A9}
-        .kalib-trend-row-dot.tone-cold{background:#378ADD}
-        .kalib-trend-row-dot.tone-hi{background:#EF9F27}
-        .kalib-trend-row-dot.tone-hot{background:#E24B4A}
 
         /* Mittenkolumn: objektnamn + meta staplade, ellipsis vid truncate. */
         /* Namn tar bara sin naturliga bredd (växer inte) → värdet sitter intill
            namnet i stället för ytterst höger; chevron skjuts ut med margin-auto. */
-        .kalib-trend-row-info{flex:0 1 auto;min-width:0}
-        .kalib-trend-row-chev{margin-left:auto;flex-shrink:0;display:flex;align-items:center}
-        .kalib-trend-row-name{font-size:14px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .kalib-trend-row-meta{font-size:12px;color:#8E8E93;margin-top:2px}
 
         /* Värde: grå inom tolerans, annars samma färg som pricken. */
-        .kalib-trend-row-val{font-size:14px;font-weight:500;flex-shrink:0;font-variant-numeric:tabular-nums;color:#8E8E93}
-        .kalib-trend-row-val.tone-ok{color:#8E8E93}
-        .kalib-trend-row-val.tone-cold{color:#378ADD}
-        .kalib-trend-row-val.tone-hi{color:#EF9F27}
-        .kalib-trend-row-val.tone-hot{color:#E24B4A}
 
         .kalib-cal-header{display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px}
         .kalib-cal-nav{width:44px;height:44px;border-radius:22px;background:#1C1C1E;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-family:inherit}
@@ -2898,9 +2885,6 @@ export default function KalibreringPage() {
         @media(min-width:1000px){
           /* TREND — kontroller+kurva sticky vänster (~55%), lista höger (~45%).
              top klarar de två sticky-barerna (nav + filter). */
-          .kalib-trend-layout{display:flex;gap:24px;align-items:flex-start}
-          .kalib-trend-left{flex:0 0 55%;position:sticky;top:calc(180px + env(safe-area-inset-top));align-self:flex-start}
-          .kalib-trend-right{flex:1 1 0;min-width:0}
 
           /* RAPPORT — per-trädslag-tabellen fördelar kolumnerna jämnt så varje
              värde sitter under sin rubrik (löser högerklumpen). */
@@ -3167,6 +3151,109 @@ export default function KalibreringPage() {
             <>
               {partialBanner}
 
+              {/* ===== AVSNITT 0: SÅ LIGGER DU TILL — de tre Vida-talen + hjälpte åtgärden? ===== */}
+              {(() => {
+                if (!bedomning) {
+                  return (
+                    <div className="kalib-card">
+                      <div className="kalib-section-title">Så ligger du till</div>
+                      <div className="kalib-lugn-rad"><MSym name="hourglass_empty" size={16} color="#8E8E93" /><span>Läser läget…</span></div>
+                    </div>
+                  );
+                }
+                const stat = bedomning.diameter;
+                const tr = bedomning.trosklar;
+                const bed = bedomProfil(stat, 'diameter', tr);
+                const golvFor = (metrik: string): number | null => {
+                  const r = tr.find(t => t.variabel === 'diameter' && t.metrik === metrik);
+                  return r ? Number(r.golv) : null;
+                };
+                const tonFor = (metrik: string): ToneToken => {
+                  if (bed.larmTyst) return 'ok';
+                  const d = bed.detaljer.find(x => x.metrik === metrik);
+                  return d ? PROFIL_TON[d.status] : 'ok';
+                };
+                // Samma format som hjälten (1 decimal, tecken på systematiken) — ett tal, ett utseende.
+                const sig1 = (x: number | null) => (x == null ? '–' : `${x > 0 ? '+' : ''}${x.toFixed(1)}`);
+                const abs1 = (x: number | null) => (x == null ? '–' : x.toFixed(1));
+                const gT = golvFor('traffprocent'), gS = golvFor('systematisk'), gStd = golvFor('standardavv');
+                const rader = [
+                  { key: 'traffprocent', fraga: 'Träffar den rätt?', term: 'träffprocent',
+                    varde: stat?.traffPct == null ? '–' : `${Math.round(stat.traffPct)} %`, krav: gT != null ? `krav ≥ ${fmtKrav(gT)} %` : '' },
+                  { key: 'systematisk', fraga: 'Går den rakt?', term: 'systematisk avvikelse',
+                    varde: stat?.systematisk == null ? '–' : `${sig1(stat.systematisk)} mm`, krav: gS != null ? `krav ≤ ${fmtKrav(gS)} mm` : '' },
+                  { key: 'standardavv', fraga: 'Flaxar den?', term: 'standardavvikelse',
+                    varde: stat?.standardavv == null ? '–' : `${abs1(stat.standardavv)} mm`, krav: gStd != null ? `krav ≤ ${fmtKrav(gStd)} mm` : '' },
+                ];
+                const a = bedomning.atgard ?? null;
+                const dom = a ? atgardDom(a) : null;
+                const feRader = dom ? [
+                  { key: 'traff', fraga: 'Träffar den rätt?', r: dom.traff, fmt: (v: number) => `${Math.round(v)} %`,
+                    dTxt: `${Math.abs(Math.round(dom.traff.delta ?? 0))}`,
+                    ord: dom.traff.riktning === 'battre' ? 'bättre' : dom.traff.riktning === 'samre' ? 'sämre' : 'oförändrad' },
+                  { key: 'syst', fraga: 'Går den rakt?', r: dom.syst, fmt: (v: number) => `${sig1(v)} mm`,
+                    dTxt: `${abs1(Math.abs(dom.syst.delta ?? 0))} mm`,
+                    ord: dom.syst.riktning === 'battre' ? 'rakare' : dom.syst.riktning === 'samre' ? ((dom.syst.efter ?? 0) > 0 ? 'drar grövre' : 'drar klenare') : 'oförändrad' },
+                  { key: 'std', fraga: 'Flaxar den?', r: dom.std, fmt: (v: number) => `${abs1(v)} mm`,
+                    dTxt: `${abs1(Math.abs(dom.std.delta ?? 0))} mm`,
+                    ord: dom.std.riktning === 'battre' ? 'lugnare' : dom.std.riktning === 'samre' ? 'flaxar mer' : 'oförändrad' },
+                ] : [];
+                return (
+                  <div className="kalib-card">
+                    <div className="kalib-hero-topline">
+                      <div className="kalib-section-title">Så ligger du till · {heroNamn}</div>
+                    </div>
+                    <div className="kalib-section-subtitle">
+                      {bedomning.fonster ? `Rullande ${bedomning.fonster.dagar} dagar · ${stat?.n ?? 0} mått` : 'Inga kontroller ännu'}
+                      {bed.larmTyst && stat && stat.n > 0 ? ' · för få mått för en dom' : ''}
+                    </div>
+                    <div className="kalib-lage-rader">
+                      {rader.map(r => (
+                        <div key={r.key} className="kalib-lage-rad">
+                          <div className="kalib-lage-left">
+                            <div className="kalib-lage-fraga">{r.fraga}</div>
+                            <div className="kalib-lage-term">{r.term}</div>
+                          </div>
+                          <div className="kalib-lage-right">
+                            <div className={`kalib-lage-varde tone-${tonFor(r.key)}`}>{r.varde}</div>
+                            {r.krav && <div className="kalib-lage-krav">{r.krav}</div>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {a && (
+                      <div className="kalib-lage-atgard">
+                        <div className="kalib-lage-atgard-rubrik">Hjälpte åtgärden?</div>
+                        <div className="kalib-lage-atgard-markor">{a.text} · {fmtDagMan(a.datum)}</div>
+                        {(a.forTidigt || !dom) ? (
+                          <div className="kalib-lage-fortidigt">
+                            För tidigt att säga — kom tillbaka när fler kontroller gjorts efter {fmtDagMan(a.datum)}.
+                            <span className="kalib-lage-n"> {a.nFore} mått före · {a.nEfter} efter · behöver 30 på varje sida.</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="kalib-lage-fe-head">90 dagar före · mot allt efter</div>
+                            {feRader.map(f => (
+                              <div key={f.key} className="kalib-lage-fe-rad">
+                                <div className="kalib-lage-fe-fraga">{f.fraga}</div>
+                                <div className="kalib-lage-fe-right">
+                                  <div className="kalib-lage-fe-tal">{f.r.fore == null ? '–' : f.fmt(f.r.fore)} → <b>{f.r.efter == null ? '–' : f.fmt(f.r.efter)}</b></div>
+                                  <div className={`kalib-lage-delta ${f.r.riktning}`}>
+                                    {f.r.riktning === 'oforandrad' ? '→' : (f.r.delta ?? 0) > 0 ? '↑' : '↓'}{f.r.riktning === 'oforandrad' ? '' : ` ${f.dTxt}`} · {f.ord}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            <div className="kalib-lage-dom">{dom.rubrik}</div>
+                            {dom.tillagg.map((t, i) => <div key={i} className="kalib-lage-tillagg">{t}</div>)}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* ===== AVSNITT 1: LÄGET — träff & planområden per grovlek över tid ===== */}
               {(() => {
                 if (!diagnosData || !diagnosData.klasser.some(k => k.traffMonthly.length)) {
@@ -3214,552 +3301,6 @@ export default function KalibreringPage() {
                         <button className="kalib-markor-save" onClick={sparaMarkor} disabled={markorSparar || !nyMarkorDatum || !nyMarkorText.trim()}>{markorSparar ? 'Sparar…' : 'Markera'}</button>
                       </div>
                     </div>
-                  </>
-                );
-              })()}
-
-              {/* ===== AVSNITT 2: AVVIKELSE — driver maskinen åt ett håll? ===== */}
-              <div className="kalib-section-title" style={{ margin: '18px 4px 8px' }}>Diameteravvikelse — driver givaren åt ett håll?</div>
-              {trendLoading && (
-                <div className="kalib-card" style={{ textAlign: 'center', color: '#8E8E93' }}>
-                  Laddar trenddata…
-                </div>
-              )}
-              {trendError && !trendLoading && (
-                <div className="kalib-info-box neutral" style={{ marginBottom: 12 }}>
-                  <span className="kalib-info-icon"><MSym name="error" size={20} color="#8E8E93" /></span>
-                  <div className="kalib-info-content">
-                    <div className="kalib-info-title">Kunde inte ladda trend</div>
-                    <div className="kalib-info-text">{trendError}</div>
-                  </div>
-                </div>
-              )}
-              {!trendLoading && !trendError && trendData && (() => {
-                const TRADSLAG_TRESHOLD = 10;  // Skogforsk: ~10-15 kontroller behövs för pålitligt mönster
-                const tradslagAll = Object.entries(trendData.per_tradslag)
-                  .sort(([, a], [, b]) => b.antal_kontroller - a.antal_kontroller);
-                const trCurrentKey = selectedTrendTradslag ?? tradslagAll[0]?.[0] ?? null;
-                const trCurrent = trCurrentKey ? trendData.per_tradslag[trCurrentKey] : null;
-                const enough = trCurrent ? trCurrent.antal_kontroller >= TRADSLAG_TRESHOLD : false;
-
-                // Diverging-klassning — exakt samma trösklar som nivå 1/2/3.
-                type DivCls2 = 'cold' | 'ok' | 'hi' | 'hot';
-                const valCls = (v: number): DivCls2 => {
-                  if (trendUnit === 'dia') {
-                    return v > 6 ? 'hot' : v > 4 ? 'hi' : v < -4 ? 'cold' : 'ok';
-                  }
-                  return v > 3 ? 'hot' : v > 2 ? 'hi' : v < -2 ? 'cold' : 'ok';
-                };
-                const tol = trendUnit === 'dia' ? 4 : 2;
-                const unitTxt = trendUnit === 'dia' ? 'mm' : 'cm';
-                // Bandet ska vara kravprofilens SYSTEMATIK-krav (mål/golv), inte ±4 mm.
-                // ±4 är toleransen för en ENSKILD mätning — 4× för slappt för snittet.
-                const systKrav = (() => {
-                  if (effectiveSelected === 'all' || !bedomning?.trosklar) return null;
-                  const variabel = trendUnit === 'dia' ? 'diameter' : 'langd';
-                  const row = bedomning.trosklar.find(t => t.variabel === variabel && t.metrik === 'systematisk');
-                  return row ? { mal: Number(row.mal), golv: Number(row.golv), profil: bedomning.profil } : null;
-                })();
-                const bandVal = systKrav ? systKrav.golv : tol;
-                const Y_MAX = trendUnit === 'dia' ? 12 : 6;
-                const yPct = (v: number) => {
-                  const c = Math.max(-Y_MAX, Math.min(Y_MAX, v));
-                  return 50 - (c / Y_MAX) * 45;
-                };
-                const yAxisLabels = trendUnit === 'dia'
-                  ? [{ v: 8, t: '+8' }, { v: 4, t: '+4' }, { v: 0, t: '0' }, { v: -4, t: '−4' }, { v: -8, t: `−8 ${unitTxt}` }]
-                  : [{ v: 4, t: '+4' }, { v: 2, t: '+2' }, { v: 0, t: '0' }, { v: -2, t: '−2' }, { v: -4, t: `−4 ${unitTxt}` }];
-
-                // === FÖNSTER-MODELL: filtret bestämmer hur BRETT tidsfönster man ser,
-                // inte hur kontroller klumpas. Inom fönstret är varje dag = en punkt
-                // (dag-snitt om flera kontroller samma dag), placerad på sin riktiga
-                // x-position i tiden.
-                const isoWeek = (d: Date): number => {
-                  const tmp = new Date(d);
-                  tmp.setHours(0, 0, 0, 0);
-                  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
-                  const firstThursday = new Date(tmp.getFullYear(), 0, 4);
-                  firstThursday.setDate(firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7));
-                  return 1 + Math.round((tmp.getTime() - firstThursday.getTime()) / (7 * 86400000));
-                };
-                const startOfWeek = (d: Date): Date => {
-                  const x = new Date(d);
-                  x.setHours(0, 0, 0, 0);
-                  const day = (x.getDay() + 6) % 7; // mån=0
-                  x.setDate(x.getDate() - day);
-                  return x;
-                };
-                const windowRange = (anchor: Date): { start: Date; end: Date } => {
-                  if (trendPeriod === 'vecka') {
-                    const s = startOfWeek(anchor);
-                    return { start: s, end: new Date(s.getFullYear(), s.getMonth(), s.getDate() + 7) };
-                  }
-                  if (trendPeriod === 'manad') {
-                    return {
-                      start: new Date(anchor.getFullYear(), anchor.getMonth(), 1),
-                      end: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1),
-                    };
-                  }
-                  if (trendPeriod === 'kvartal') {
-                    const qStart = Math.floor(anchor.getMonth() / 3) * 3;
-                    return {
-                      start: new Date(anchor.getFullYear(), qStart, 1),
-                      end: new Date(anchor.getFullYear(), qStart + 3, 1),
-                    };
-                  }
-                  // ar
-                  return {
-                    start: new Date(anchor.getFullYear(), 0, 1),
-                    end: new Date(anchor.getFullYear() + 1, 0, 1),
-                  };
-                };
-                const windowLabel = (anchor: Date): string => {
-                  if (trendPeriod === 'vecka') return `Vecka ${isoWeek(anchor)} · ${anchor.getFullYear()}`;
-                  if (trendPeriod === 'manad') {
-                    const months = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'];
-                    return `${months[anchor.getMonth()]} ${anchor.getFullYear()}`;
-                  }
-                  if (trendPeriod === 'kvartal') return `Q${Math.floor(anchor.getMonth() / 3) + 1} ${anchor.getFullYear()}`;
-                  return `${anchor.getFullYear()}`;
-                };
-                const shiftWindow = (anchor: Date, delta: -1 | 1): Date => {
-                  const x = new Date(anchor);
-                  if (trendPeriod === 'vecka') x.setDate(x.getDate() + delta * 7);
-                  else if (trendPeriod === 'manad') x.setMonth(x.getMonth() + delta);
-                  else if (trendPeriod === 'kvartal') x.setMonth(x.getMonth() + delta * 3);
-                  else x.setFullYear(x.getFullYear() + delta);
-                  return x;
-                };
-
-                // Anchor: explicit (efter bläddring) eller auto = senaste kontrollen
-                // för aktuellt trädslag. Kontroller är sorterade datum desc, så [0] = senaste.
-                const defaultAnchor: Date = trCurrent && trCurrent.kontroller.length > 0
-                  ? new Date(trCurrent.kontroller[0].datum)
-                  : new Date();
-                const anchor: Date = trendAnchor ? new Date(trendAnchor) : defaultAnchor;
-                const range = windowRange(anchor);
-                const startMs = range.start.getTime();
-                const endMs = range.end.getTime();
-                const winLabel = windowLabel(anchor);
-
-                // Filtrera kontroller inom fönstret + gruppera per dag (dag-snitt om flera samma dag)
-                type CurvePoint = { key: string; label: string; ts: number; avg: number; n: number; filnamns: string[] };
-                const curvePoints: CurvePoint[] = (() => {
-                  if (!trCurrent) return [];
-                  const dayBuckets = new Map<string, { ts: number; vals: number[]; filnamns: string[] }>();
-                  for (const k of trCurrent.kontroller) {
-                    const d = new Date(k.datum);
-                    const t = d.getTime();
-                    if (t < startMs || t >= endMs) continue;
-                    const v = trendUnit === 'dia' ? k.dia_snitt_mm : k.len_snitt_cm;
-                    const dayKey = `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
-                    const dayTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).getTime();
-                    const b = dayBuckets.get(dayKey);
-                    if (b) { b.vals.push(v); b.filnamns.push(k.filnamn); }
-                    else dayBuckets.set(dayKey, { ts: dayTs, vals: [v], filnamns: [k.filnamn] });
-                  }
-                  const arr: CurvePoint[] = [];
-                  dayBuckets.forEach((b, key) => {
-                    arr.push({
-                      key,
-                      label: new Date(b.ts).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }),
-                      ts: b.ts,
-                      avg: b.vals.reduce((a, c) => a + c, 0) / b.vals.length,
-                      n: b.vals.length,
-                      filnamns: b.filnamns,
-                    });
-                  });
-                  arr.sort((a, b) => a.ts - b.ts);
-                  return arr;
-                })();
-
-                // X-position baserat på faktiskt datum inom fönstret (4-96% för marginal)
-                const xPctFor = (ts: number) => {
-                  const range = endMs - startMs;
-                  if (range <= 0) return 50;
-                  const raw = ((ts - startMs) / range) * 100;
-                  return Math.max(4, Math.min(96, raw));
-                };
-
-                // SVG polyline (om vi har minst 2 punkter)
-                const polylinePoints = curvePoints.length >= 2
-                  ? curvePoints.map((p) => `${xPctFor(p.ts).toFixed(2)},${yPct(p.avg).toFixed(2)}`).join(' ')
-                  : '';
-
-                // Underlagsgrind: rita ingen kurva på för få kontroller i fönstret.
-                // "1 kontroll · 1 dag" är slump, inte trend — tyst när vi inte vet.
-                const MIN_KURVA = 3;
-                const windowKontroller = curvePoints.reduce((a, p) => a + p.n, 0);
-                const ritaKurva = windowKontroller >= MIN_KURVA;
-
-                // Auto-mening: ärlig sammanfattning av FÖNSTRET
-                const autoMening = (): string => {
-                  if (curvePoints.length === 0) return '';
-                  if (curvePoints.length === 1) {
-                    const p = curvePoints[0];
-                    return `Enstaka kontroll ${p.label}: ${fmtAvvikelse(p.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}.`;
-                  }
-                  const allInTol = curvePoints.every((p) => Math.abs(p.avg) <= tol);
-                  if (allInTol) return `Stabilt inom ±${tol} ${unitTxt} under ${winLabel.toLowerCase()}.`;
-                  const peak = curvePoints.reduce((a, b) => Math.abs(b.avg) > Math.abs(a.avg) ? b : a);
-                  const peakIdx = curvePoints.indexOf(peak);
-                  const last = curvePoints[curvePoints.length - 1];
-                  if (peak === last) {
-                    const dir = peak.avg > 0 ? (trendUnit === 'dia' ? 'grovt' : 'långt') : (trendUnit === 'dia' ? 'klent' : 'kort');
-                    return `Drar åt ${dir} senast — ${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt} ${peak.label}.`;
-                  }
-                  const after = curvePoints.slice(peakIdx + 1);
-                  const recovered = after.length > 0 && after.every((p) => Math.abs(p.avg) <= tol);
-                  if (recovered) {
-                    return `Drog iväg ${peak.label} (${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}), tillbaka inom tolerans efter det.`;
-                  }
-                  return `Värst ${peak.label}: ${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}.`;
-                };
-
-                // Kalibreringsmarkörer som faller inom fönstret
-                const kalibMarkers: { ts: number; label: string }[] = trendData.kalibreringar
-                  .filter((kev) => {
-                    if (kev.tradslag && trCurrentKey && kev.tradslag.toLowerCase() !== trCurrentKey) return false;
-                    const t = new Date(kev.datum).getTime();
-                    return t >= startMs && t < endMs;
-                  })
-                  .map((kev) => ({
-                    ts: new Date(kev.datum).getTime(),
-                    label: new Date(kev.datum).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }),
-                  }));
-
-                // Bläddringshandlers
-                const onPrev = () => setTrendAnchor(shiftWindow(anchor, -1).toISOString());
-                const onNext = () => setTrendAnchor(shiftWindow(anchor, +1).toISOString());
-                // Nästa-knapp = disabled om fönstret hamnar bortom dagens datum
-                const nextRange = windowRange(shiftWindow(anchor, +1));
-                const canGoNext = nextRange.start.getTime() <= Date.now();
-
-                return (
-                  <>
-                    <div className="kalib-trend-layout">
-                    <div className="kalib-trend-left">
-                    {/* Trädslag-pillar */}
-                    {tradslagAll.length > 0 && (
-                      <div className="kalib-trend-pills">
-                        {tradslagAll.map(([key, td]) => (
-                          <button
-                            key={key}
-                            className={`kalib-trend-pill ${key === trCurrentKey ? 'active' : ''}`}
-                            onClick={() => { setSelectedTrendTradslag(key); setTrendAnchor(null); }}
-                          >
-                            <span className="kalib-trend-pill-name">{cap(key)}</span>
-                            <span className="kalib-trend-pill-count">{td.antal_kontroller}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Ingen enhetväxling: Avvikelse-kurvan är BARA diameter — längd
-                        kapas och driver inte gradvis, så en längd-driftkurva vore
-                        vilseledande. trendUnit förblir 'dia'. */}
-
-                    {/* Tidsupplösning */}
-                    <div className="kalib-trend-seg">
-                      <button className={`kalib-trend-seg-btn ${trendPeriod === 'vecka' ? 'active' : ''}`} onClick={() => setTrendPeriod('vecka')}>Vecka</button>
-                      <button className={`kalib-trend-seg-btn ${trendPeriod === 'manad' ? 'active' : ''}`} onClick={() => setTrendPeriod('manad')}>Månad</button>
-                      <button className={`kalib-trend-seg-btn ${trendPeriod === 'kvartal' ? 'active' : ''}`} onClick={() => setTrendPeriod('kvartal')}>Kvartal</button>
-                      <button className={`kalib-trend-seg-btn ${trendPeriod === 'ar' ? 'active' : ''}`} onClick={() => setTrendPeriod('ar')}>År</button>
-                    </div>
-
-                    {/* Bläddring inom fönstret */}
-                    {trCurrent && (
-                      <div className="kalib-trend-nav">
-                        <button
-                          className="kalib-trend-nav-btn"
-                          onClick={onPrev}
-                          aria-label="Föregående fönster"
-                        >
-                          <MSym name="chevron_left" size={22} color="#fff" />
-                        </button>
-                        <div className="kalib-trend-nav-label">{winLabel}</div>
-                        <button
-                          className="kalib-trend-nav-btn"
-                          onClick={onNext}
-                          disabled={!canGoNext}
-                          aria-label="Nästa fönster"
-                        >
-                          <MSym name="chevron_right" size={22} color={canGoNext ? '#fff' : '#3A3A3C'} />
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Trendkurva */}
-                    {trCurrent && (
-                      <div className="kalib-card">
-                        <div className="kalib-section-title">
-                          {trendUnit === 'dia' ? 'Diameter' : 'Längd'} · {cap(trCurrentKey ?? '')}
-                        </div>
-                        <div className="kalib-section-subtitle">
-                          {curvePoints.length === 0
-                            ? 'Inga kontroller i fönstret'
-                            : `${windowKontroller} kontroll${windowKontroller === 1 ? '' : 'er'} · ${curvePoints.length} dag${curvePoints.length === 1 ? '' : 'ar'}`}
-                        </div>
-
-                        {!enough && (
-                          <div className="kalib-trend-too-few">
-                            För få kontroller för pålitligt mönster ({trCurrent.antal_kontroller} av minst {TRADSLAG_TRESHOLD}).
-                            Färgerna är dämpade tills det finns mer data.
-                          </div>
-                        )}
-
-                        {curvePoints.length === 0 ? (
-                          <div className="kalib-trend-empty">
-                            Inga kontroller i {winLabel.toLowerCase()}. Bläddra ‹ › för att se andra perioder.
-                          </div>
-                        ) : !ritaKurva ? (
-                          <div className="kalib-trend-empty">
-                            För tunt underlag i {winLabel.toLowerCase()} — {windowKontroller} kontroll{windowKontroller === 1 ? '' : 'er'}. En kurva på så få kontroller vore slump, inte trend. Bläddra ‹ › till en period med mer data.
-                          </div>
-                        ) : (
-                          <>
-                            <div className={`kalib-curve ${enough ? '' : 'muted'}`}>
-                              <div className="kalib-curve-row">
-                                <div className="kalib-curve-yaxis">
-                                  {yAxisLabels.map((l) => (
-                                    <span key={l.t} style={{ top: `${yPct(l.v)}%` }}>{l.t}</span>
-                                  ))}
-                                </div>
-                                <div className="kalib-curve-plot">
-                                  {/* Krav-zon = kravprofilens systematik-golv (inte ±4 mm). */}
-                                  <div
-                                    className="kalib-curve-tol"
-                                    style={{ top: `${yPct(bandVal)}%`, bottom: `${100 - yPct(-bandVal)}%` }}
-                                  />
-                                  {/* Mål-linjer (VIDA: 1,0 mm inuti godkänt 1,5) */}
-                                  {systKrav && systKrav.mal !== systKrav.golv && [systKrav.mal, -systKrav.mal].map((v, i) => (
-                                    <div key={`mal-${i}`} className="kalib-curve-mal" style={{ top: `${yPct(v)}%` }} />
-                                  ))}
-                                  {/* Nollinje */}
-                                  <div className="kalib-curve-zero" style={{ top: `${yPct(0)}%` }} />
-                                  {/* Kalibreringsmarkörer (lodräta streckade linjer) */}
-                                  {kalibMarkers.map((m, i) => (
-                                    <div
-                                      key={`kev-${i}`}
-                                      className="kalib-curve-kalib"
-                                      style={{ left: `${xPctFor(m.ts)}%` }}
-                                      title={`Kalibrering ${m.label}`}
-                                    >
-                                      <span className="kalib-curve-kalib-tag">⚙ {m.label}</span>
-                                    </div>
-                                  ))}
-                                  {/* SVG-linje — fyller hela plot-rutan, viewBox 0..100 i båda axlar */}
-                                  {polylinePoints && (
-                                    <svg className="kalib-curve-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                                      <polyline
-                                        points={polylinePoints}
-                                        fill="none"
-                                        stroke="rgba(255,255,255,0.5)"
-                                        strokeWidth="1.5"
-                                        strokeLinejoin="round"
-                                        strokeLinecap="round"
-                                        vectorEffect="non-scaling-stroke"
-                                      />
-                                    </svg>
-                                  )}
-                                  {/* Punkter */}
-                                  {curvePoints.map((p) => {
-                                    const cls = enough ? valCls(p.avg) : 'ok';
-                                    return (
-                                      <div
-                                        key={p.key}
-                                        className={`kalib-curve-dot tone-${cls}`}
-                                        style={{ left: `${xPctFor(p.ts)}%`, top: `${yPct(p.avg)}%` }}
-                                        title={`${p.label}: ${fmtAvvikelse(p.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}${p.n > 1 ? ` (snitt av ${p.n} kontroller)` : ''}`}
-                                      />
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                              {/* X-axeletiketter: fönstrets ändar + jämn fördelning */}
-                              <div className="kalib-curve-xaxis">
-                                <div className="kalib-curve-xaxis-spacer" />
-                                <div className="kalib-curve-xaxis-inner">
-                                  {(() => {
-                                    // Generera lagom täta etiketter beroende på fönstertyp
-                                    const labels: { x: number; label: string }[] = [];
-                                    const startD = new Date(startMs);
-                                    if (trendPeriod === 'vecka') {
-                                      // Mån-Sön: visa varje dag
-                                      const days = ['Mån','Tis','Ons','Tor','Fre','Lör','Sön'];
-                                      for (let i = 0; i < 7; i++) {
-                                        const ts = new Date(startD.getFullYear(), startD.getMonth(), startD.getDate() + i, 12).getTime();
-                                        labels.push({ x: xPctFor(ts), label: days[i] });
-                                      }
-                                    } else if (trendPeriod === 'manad') {
-                                      // Visa dag-tal var 5:e dag
-                                      for (let dag = 1; dag <= 31; dag += 5) {
-                                        const ts = new Date(startD.getFullYear(), startD.getMonth(), dag, 12).getTime();
-                                        if (ts >= endMs) break;
-                                        labels.push({ x: xPctFor(ts), label: String(dag) });
-                                      }
-                                    } else if (trendPeriod === 'kvartal') {
-                                      // 3 månadsnamn
-                                      const months = ['Jan','Feb','Mar','Apr','Maj','Jun','Jul','Aug','Sep','Okt','Nov','Dec'];
-                                      for (let m = 0; m < 3; m++) {
-                                        const monthIdx = startD.getMonth() + m;
-                                        const ts = new Date(startD.getFullYear(), monthIdx, 15).getTime();
-                                        labels.push({ x: xPctFor(ts), label: months[monthIdx % 12] });
-                                      }
-                                    } else {
-                                      // år: 12 månadsbokstäver eller var 2:a
-                                      const months = ['J','F','M','A','M','J','J','A','S','O','N','D'];
-                                      for (let m = 0; m < 12; m++) {
-                                        const ts = new Date(startD.getFullYear(), m, 15).getTime();
-                                        labels.push({ x: xPctFor(ts), label: months[m] });
-                                      }
-                                    }
-                                    return labels.map((l, i) => (
-                                      <span key={i} style={{ left: `${l.x}%` }}>{l.label}</span>
-                                    ));
-                                  })()}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Auto-mening (klartext-sammanfattning) */}
-                            <div className="kalib-curve-mening">{autoMening()}</div>
-                            {systKrav ? (
-                              <div className="kalib-tc-bandnote">Bandet är {systKrav.profil}s krav på snittet (systematisk avvikelse golv {fmtKrav(systKrav.golv)}{systKrav.mal !== systKrav.golv ? `, mål ${fmtKrav(systKrav.mal)}` : ''} {unitTxt}) — inte toleransen för en enskild mätning.</div>
-                            ) : (
-                              <div className="kalib-tc-bandnote">Välj en maskin för att se dess krav på snittet i stället för det generella ±{tol} {unitTxt}-bandet.</div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
-                    </div>{/* /kalib-trend-left */}
-
-                    <div className="kalib-trend-right">
-                    {/* === Kontroll-lista för det valda fönstret === */}
-                    {trCurrent && (() => {
-                      // Enskilda kontroller inom [startMs, endMs), nyast först.
-                      // Inom samma datum: filnamn desc som stabil fallback.
-                      const inWindow = trCurrent.kontroller
-                        .filter((k) => {
-                          const t = new Date(k.datum).getTime();
-                          return t >= startMs && t < endMs;
-                        })
-                        .sort((a, b) => {
-                          const dt = new Date(b.datum).getTime() - new Date(a.datum).getTime();
-                          if (dt !== 0) return dt;
-                          return a.filnamn < b.filnamn ? 1 : a.filnamn > b.filnamn ? -1 : 0;
-                        });
-
-                      // Tom-stat: lugn text, ingen tom låda
-                      if (inWindow.length === 0) {
-                        const periodOrd =
-                          trendPeriod === 'vecka' ? 'vecka'
-                          : trendPeriod === 'manad' ? 'månad'
-                          : trendPeriod === 'kvartal' ? 'kvartal'
-                          : 'år';
-                        return (
-                          <div className="kalib-trend-list-empty">
-                            Inga kontroller denna {periodOrd}
-                          </div>
-                        );
-                      }
-
-                      // Antal unika trakter
-                      const trakterSet = new Set<string>();
-                      for (const k of inWindow) {
-                        if (k.object_name) trakterSet.add(k.object_name);
-                      }
-                      const trakterN = trakterSet.size;
-
-                      // Gruppera per dag
-                      type DayGroup = { dayKey: string; label: string; ts: number; items: typeof inWindow };
-                      const weekdays = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
-                      const monthsLong = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
-                      const dayMap = new Map<string, DayGroup>();
-                      for (const k of inWindow) {
-                        const d = new Date(k.datum);
-                        const dayKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                        const dayTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).getTime();
-                        const label = `${weekdays[d.getDay()]} ${d.getDate()} ${monthsLong[d.getMonth()]}`;
-                        const g = dayMap.get(dayKey);
-                        if (g) g.items.push(k);
-                        else dayMap.set(dayKey, { dayKey, label, ts: dayTs, items: [k] });
-                      }
-                      const dayGroups = Array.from(dayMap.values()).sort((a, b) => b.ts - a.ts);
-
-                      // Eget format med riktigt minustecken (Skogforsk-spec på listan)
-                      const fmtList = (v: number): string => {
-                        if (trendUnit === 'dia') {
-                          const r = Math.round(v);
-                          if (r === 0) return `0 ${unitTxt}`;
-                          if (r > 0) return `+${r} ${unitTxt}`;
-                          return `−${Math.abs(r)} ${unitTxt}`;
-                        }
-                        const r = Number(v.toFixed(1));
-                        if (r === 0) return `0 ${unitTxt}`;
-                        if (r > 0) return `+${r} ${unitTxt}`;
-                        return `−${Math.abs(r)} ${unitTxt}`;
-                      };
-
-                      return (
-                        <>
-                          {/* Topprad — lugn orientering */}
-                          <div className="kalib-trend-list-top">
-                            <span className="kalib-trend-list-top-primary">{winLabel}</span>
-                            <span className="kalib-trend-list-top-tertiary">
-                              · {inWindow.length} kontroll{inWindow.length === 1 ? '' : 'er'} · {trakterN} {trakterN === 1 ? 'trakt' : 'trakter'}
-                            </span>
-                          </div>
-
-                          {dayGroups.map((g) => (
-                            <div key={g.dayKey} className="kalib-trend-day">
-                              <div className="kalib-trend-day-header">{g.label}</div>
-                              <div className="kalib-trend-day-card">
-                                {g.items.map((k, idx) => {
-                                  const v = trendUnit === 'dia' ? k.dia_snitt_mm : k.len_snitt_cm;
-                                  const cls = valCls(v);
-                                  const isLast = idx === g.items.length - 1;
-                                  return (
-                                    <button
-                                      key={k.filnamn}
-                                      type="button"
-                                      className={`kalib-trend-row ${isLast ? 'last' : ''}`}
-                                      onClick={() => openKontrollFull(k.filnamn)}
-                                      disabled={laddarKontroll === k.filnamn}
-                                    >
-                                      <span className={`kalib-trend-row-dot tone-${cls}`} aria-hidden="true" />
-                                      <div className="kalib-trend-row-info">
-                                        <div className="kalib-trend-row-name">{k.object_name || 'Okänd trakt'}</div>
-                                        <div className="kalib-trend-row-meta">
-                                          {cap(trCurrentKey ?? '')} · {k.antal_stockar} stock{k.antal_stockar === 1 ? '' : 'ar'}
-                                        </div>
-                                      </div>
-                                      <span className={`kalib-trend-row-val tone-${cls}`}>
-                                        {fmtList(v)}
-                                      </span>
-                                      <span className="kalib-trend-row-chev"><MSym name="chevron_right" size={16} color="#8E8E93" /></span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ))}
-                        </>
-                      );
-                    })()}
-                    </div>{/* /kalib-trend-right */}
-                    </div>{/* /kalib-trend-layout */}
-
-                    {trendData.totalt.antal_kontroller === 0 && (
-                      <div className="kalib-info-box neutral">
-                        <span className="kalib-info-icon"><MSym name="info" size={20} color="#8E8E93" /></span>
-                        <div className="kalib-info-content">
-                          <div className="kalib-info-title">Ingen trenddata</div>
-                          <div className="kalib-info-text">Inga kontroller hittades för det här filtret.</div>
-                        </div>
-                      </div>
-                    )}
                   </>
                 );
               })()}
