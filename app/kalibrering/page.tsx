@@ -673,11 +673,14 @@ export default function KalibreringPage() {
   const [diagnosMap, setDiagnosMap] = useState<Record<string, DiagnosResp>>({});
   const [visaSiffror, setVisaSiffror] = useState(false); // Senaste-fliken: förarvy ↔ siffror
   // Objekt-fliken (maskinoberoende)
-  type ObjektStat = { object_name: string; maskin_id: string | null; n: number; traffPct: number; systematisk: number; standardavv: number; fran: string; till: string };
-  type MaskinInfo = { profil: string | null; golvDia: number | null; traffPctTotal: number | null; n: number };
+  type ObjektStat = { object_name: string; maskin_id: string | null; n: number; traffPct: number; systematisk: number; standardavv: number; grovPct: number | null; fran: string; till: string };
+  type MaskinInfo = { profil: string | null; golvDia: number | null; traffPctTotal: number | null; n: number; trosklar: KravRow[] };
   const [objektData, setObjektData] = useState<{ objekt: ObjektStat[]; maskiner: Record<string, MaskinInfo> } | null>(null);
   const [objektQ, setObjektQ] = useState('');
   const [valtObjekt, setValtObjekt] = useState<string | null>(null);
+  // Listans hopfällningar: "För tunt underlag" stängd som standard, "Visa äldre" per grupp.
+  const [objektVisaTunt, setObjektVisaTunt] = useState(false);
+  const [objektVisaAldre, setObjektVisaAldre] = useState<Record<string, boolean>>({});
   const [hjalpOpen, setHjalpOpen] = useState(false); // "?"-hjälptexten
   const [lagetSteg, setLagetSteg] = useState<LagetSteg>('kvartal'); // Läget: tidssteg (default kvartal → grova solida)
   // Rapport per-trädslag (per maskin, all-time) — träff%/syst/std mot maskinens profil.
@@ -745,22 +748,51 @@ export default function KalibreringPage() {
   const diagnosData = heroMaskin ? (diagnosMap[heroMaskin] ?? null) : null;
   const verdikt = diagnos(diagnosData);
 
-  // Objekt-dom: ett tydligt svar + attribution (maskinen vs trakten). Grind 100.
-  const objektDom = (o: ObjektStat, mask: MaskinInfo | undefined): { ton: ToneToken; rubrik: string; attribution: string | null; tunn: boolean } => {
-    if (o.n < 100) return { ton: 'ok', rubrik: `${o.object_name}: för tunt underlag`, attribution: `Bara ${o.n} mätpunkter — för få för en dom.`, tunn: true };
+  // === Objekt-dom — via bedomProfil mot objektets MASKINPROFIL (VIDA/BIOMETRIA), inget
+  // hårdkodat 85/3,5. Mjuk underlagsgrind (beslutad när Objekt byggdes, nu gjord):
+  //   < 50 mätpunkter  → för tunt underlag, ingen dom
+  //   50–100           → dom, men märkt "bygger på få mätningar"
+  //   > 100            → full dom
+  // Profilens larm-grind (150, för maskinen som helhet) gäller inte ett objekt — den
+  // stryps bort innan bedömningen. "Under kravet" = under GOLVET (röd); orange = under
+  // målet men godkänt, samma betydelse som i Så ligger du till.
+  const OBJEKT_GRIND_TUNT = 50;
+  const OBJEKT_GRIND_FULL = 100;
+  type ObjektGrupp = 'under' | 'godkand' | 'tunt';
+  const objektBedom = (o: ObjektStat, mask: MaskinInfo | undefined): { grupp: ObjektGrupp; status: ProfilStatus | null; faMatningar: boolean; ingenProfil: boolean } => {
+    const faMatningar = o.n >= OBJEKT_GRIND_TUNT && o.n <= OBJEKT_GRIND_FULL;
+    if (o.n < OBJEKT_GRIND_TUNT) return { grupp: 'tunt', status: null, faMatningar: false, ingenProfil: false };
+    const rows = (mask?.trosklar ?? []).filter(t => t.variabel === 'diameter');
+    if (rows.length === 0) return { grupp: 'tunt', status: null, faMatningar, ingenProfil: true };
+    const stat: VariabelStat = { n: o.n, traffPct: o.traffPct, systematisk: o.systematisk, standardavv: o.standardavv, grovPct: o.grovPct, tolerans: null, grovTolerans: null };
+    const bed = bedomProfil(stat, 'diameter', rows.map(t => ({ ...t, larm_min_matt: null })));
+    return { grupp: bed.status === 'röd' ? 'under' : 'godkand', status: bed.status, faMatningar, ingenProfil: false };
+  };
+  const objektDom = (o: ObjektStat, mask: MaskinInfo | undefined): { ton: ToneToken; rubrik: string; attribution: string | null; reservation: string | null; tunn: boolean } => {
+    const b = objektBedom(o, mask);
+    if (b.grupp === 'tunt') {
+      return b.ingenProfil
+        ? { ton: 'ok', rubrik: `${o.object_name}: ingen kravprofil för maskinen`, attribution: 'Maskinen saknar kravprofil — ingen dom går att ställa.', reservation: null, tunn: true }
+        : { ton: 'ok', rubrik: `${o.object_name}: för tunt underlag`, attribution: `Bara ${o.n} mätpunkter — för få för en dom.`, reservation: null, tunn: true };
+    }
     const golv = mask?.golvDia ?? 75;
     let ton: ToneToken; let ord: string;
-    if (o.traffPct < golv) { ton = 'hot'; ord = 'höll inte måttet'; }
-    else if (o.traffPct >= 85 && o.standardavv <= 3.5) { ton = 'ok'; ord = 'var mycket bra'; }
+    if (b.status === 'röd') { ton = 'hot'; ord = 'höll inte måttet'; }
+    else if (b.status === 'ok') { ton = 'ok'; ord = 'var mycket bra'; }
     else { ton = 'ok'; ord = 'var godkänd'; }
     let attribution: string | null = null;
-    if (o.traffPct < golv && mask?.traffPctTotal != null) {
+    if (b.status === 'röd' && mask?.traffPctTotal != null) {
       attribution = mask.traffPctTotal < golv
         ? 'Maskinen låg under kravet totalt den perioden — det var maskinen, inte trakten.'
         : 'Maskinen mätte bra i övrigt — avvikelsen är knuten till den här trakten.';
     }
-    return { ton, rubrik: `Mätningen på ${o.object_name} ${ord}`, attribution, tunn: false };
+    const reservation = b.faMatningar ? `Bygger på få mätningar (${o.n}) — läs domen med reservation.` : null;
+    return { ton, rubrik: `Mätningen på ${o.object_name} ${ord}`, attribution, reservation, tunn: false };
   };
+  // Visning, inte data: ett objekt som bara heter "Förnamn Efternamn" saknar traktnamn.
+  // Exakt två ord, inledande versal + gemener (bindestreck ok), inga siffror/koder.
+  const objektSaknarNamn = (namn: string): boolean =>
+    /^[A-ZÅÄÖ][a-zåäöé]+(-[A-ZÅÄÖ][a-zåäöé]+)? [A-ZÅÄÖ][a-zåäöé]+(-[A-ZÅÄÖ][a-zåäöé]+)?$/.test(namn.trim());
 
   // Rapport per-trädslag-cell: träff% (huvudtal) färgad via kravprofilen (sämsta-styr,
   // grind 30 här — inte larm-grindens 150). Diameter: syst/std stödtal. LÄNGD: bara
@@ -2343,6 +2375,15 @@ export default function KalibreringPage() {
         .kalib-obj-traff.tone-hot{color:#FF453A}
         .kalib-obj-traff.tunn{font-weight:400;font-size:12px}
         .kalib-obj-maskin{width:64px;text-align:right;font-size:11px;color:#8E8E93;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        /* Grupperad lista — rubriken bär ordet ("Under kravet"), raden bär bara talet */
+        .kalib-obj-grupp{margin-top:18px}
+        .kalib-obj-grupp:first-child{margin-top:10px}
+        .kalib-obj-grupp-rubrik{display:flex;align-items:center;justify-content:space-between;width:100%;padding:0 8px 8px;font-size:13px;font-weight:600;letter-spacing:.02em;color:#8E8E93;background:none;border:none;border-bottom:1px solid rgba(255,255,255,0.10);font-family:inherit;text-align:left}
+        .kalib-obj-grupp-rubrik.under{color:#FF453A}
+        .kalib-obj-grupp-rubrik.godkand{color:#EBEBF5}
+        .kalib-obj-grupp-rubrik.toggle{min-height:44px;padding:10px 8px;cursor:pointer}
+        .kalib-obj-namn-sub{display:block;font-size:12px;color:#8E8E93;font-weight:400}
+        .kalib-obj-toggle{width:100%;min-height:44px;padding:10px 8px;background:none;border:none;color:#0A84FF;font-size:14px;font-family:inherit;text-align:left;cursor:pointer}
         /* === Tidsserie-graf (Trend Läget) === */
         .kalib-tidschart{width:100%;max-width:520px;height:auto;display:block}
         .kalib-tc-grid{stroke:rgba(255,255,255,0.08);stroke-width:1;vector-effect:non-scaling-stroke}
@@ -3359,26 +3400,79 @@ export default function KalibreringPage() {
                         )}
                         <div className="kalib-objdom-meta">{maskinNamnFor(o.maskin_id)}{mask?.profil ? ` · ${mask.profil}` : ''} · {o.fran} → {o.till}</div>
                         {dom.attribution && <div className="kalib-objdom-attr">{dom.attribution}</div>}
+                        {dom.reservation && <div className="kalib-objdom-meta">{dom.reservation}</div>}
                       </div>
                     );
                   })()}
-                  <div className="kalib-obj-list">
-                    {objektData.objekt
-                      .filter(o => !objektQ.trim() || o.object_name.toLowerCase().includes(objektQ.trim().toLowerCase()))
-                      .map(o => {
-                        const mask = o.maskin_id ? objektData.maskiner[o.maskin_id] : undefined;
-                        const golv = mask?.golvDia ?? 75;
-                        const tunn = o.n < 100;
-                        const under = !tunn && o.traffPct < golv;
-                        return (
-                          <button key={o.object_name} className={`kalib-obj-row ${valtObjekt === o.object_name ? 'vald' : ''}`} onClick={() => setValtObjekt(o.object_name)}>
-                            <span className="kalib-obj-namn">{o.object_name}</span>
-                            <span className={`kalib-obj-traff ${tunn ? 'tunn' : under ? 'tone-hot' : ''}`}>{tunn ? `n ${o.n}` : `${Math.round(o.traffPct)}%`}</span>
-                            <span className="kalib-obj-maskin">{maskinKortNamnFor(o.maskin_id)}</span>
-                          </button>
-                        );
-                      })}
-                  </div>
+                  {(() => {
+                    // Tre grupper med rubrik — rubriken bär ordet, så procenten i raden
+                    // slipper vara en röd prick. Senaste först; äldre än 6 månader bakom
+                    // "Visa äldre". Sökning visar allt som matchar, oavsett hopfällning.
+                    const q = objektQ.trim().toLowerCase();
+                    const soker = q.length > 0;
+                    const sexManSedan = new Date(Date.now() - 183 * 86400000).toISOString().slice(0, 10);
+                    type Rad = { o: ObjektStat; b: ReturnType<typeof objektBedom>; gammal: boolean };
+                    const rader: Rad[] = objektData.objekt
+                      .filter(o => !soker || o.object_name.toLowerCase().includes(q))
+                      .map(o => { const b = objektBedom(o, o.maskin_id ? objektData.maskiner[o.maskin_id] : undefined); return { o, b, gammal: o.till < sexManSedan }; })
+                      .sort((a, b) => b.o.till.localeCompare(a.o.till));
+                    const grupper: { key: ObjektGrupp; rubrik: string; hopfalld: boolean }[] = [
+                      { key: 'under', rubrik: 'Under kravet', hopfalld: false },
+                      { key: 'godkand', rubrik: 'Godkända', hopfalld: false },
+                      { key: 'tunt', rubrik: 'För tunt underlag', hopfalld: !objektVisaTunt && !soker },
+                    ];
+                    const rad = (r: Rad) => {
+                      const saknarNamn = objektSaknarNamn(r.o.object_name);
+                      const hint = r.b.ingenProfil ? 'ingen kravprofil' : r.b.faMatningar ? 'få mätningar' : null;
+                      return (
+                        <button key={r.o.object_name} className={`kalib-obj-row ${valtObjekt === r.o.object_name ? 'vald' : ''}`} onClick={() => setValtObjekt(r.o.object_name)}>
+                          <span className="kalib-obj-namn">
+                            {saknarNamn ? <>Namn saknas<span className="kalib-obj-namn-sub">registrerat som {r.o.object_name}</span></> : r.o.object_name}
+                            {hint && <span className="kalib-obj-namn-sub">{hint}</span>}
+                          </span>
+                          <span className={`kalib-obj-traff ${r.b.grupp === 'tunt' ? 'tunn' : ''}`}>{r.b.grupp === 'tunt' ? `n ${r.o.n}` : `${Math.round(r.o.traffPct)}%`}</span>
+                          <span className="kalib-obj-maskin">{maskinKortNamnFor(r.o.maskin_id)}</span>
+                        </button>
+                      );
+                    };
+                    return (
+                      <div className="kalib-obj-list">
+                        {grupper.map(g => {
+                          const alla = rader.filter(r => r.b.grupp === g.key);
+                          if (alla.length === 0) return null;
+                          const nya = alla.filter(r => !r.gammal);
+                          const gamla = alla.filter(r => r.gammal);
+                          const visaAldre = soker || !!objektVisaAldre[g.key];
+                          return (
+                            <div key={g.key} className="kalib-obj-grupp">
+                              {g.key === 'tunt' ? (
+                                <button className="kalib-obj-grupp-rubrik toggle" onClick={() => setObjektVisaTunt(v => !v)} aria-expanded={!g.hopfalld}>
+                                  <span>{g.rubrik} · {alla.length}</span>
+                                  <MSym name={g.hopfalld ? 'expand_more' : 'expand_less'} size={18} color="#8E8E93" />
+                                </button>
+                              ) : (
+                                <div className={`kalib-obj-grupp-rubrik ${g.key}`}>{g.rubrik} ({alla.length})</div>
+                              )}
+                              {!g.hopfalld && (
+                                <>
+                                  {nya.map(rad)}
+                                  {visaAldre && gamla.map(rad)}
+                                  {gamla.length > 0 && !soker && (
+                                    <button className="kalib-obj-toggle" onClick={() => setObjektVisaAldre(v => ({ ...v, [g.key]: !v[g.key] }))}>
+                                      {visaAldre ? 'Dölj äldre' : `Visa äldre (${gamla.length})`}
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {rader.length === 0 && (
+                          <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>{soker ? 'Inget objekt matchar sökningen.' : 'Inga objekt med kontrollmätningar ännu.'}</span></div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </>
