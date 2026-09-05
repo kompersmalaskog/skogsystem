@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import type { KontrollResponse, StockRow, StamRow } from "@/app/api/kalibrering/kontroll/route";
 import PageContainer from '@/components/PageContainer';
 import { MATT, AVVIKELSE, maskinNamn, maskinKortNamn } from '@/lib/kalibrering/ordlista';
-import { dec, fmtAvvikelse, fmtTal, fmtKrav, fmtSig1, fmtAbs1 } from '@/lib/kalibrering/format';
+import { dec, fmtAvvikelse, fmtTal, fmtKrav, fmtSig1, fmtAbs1, fmtAntal } from '@/lib/kalibrering/format';
 
 // === TYPES (matching actual Supabase tables) ===
 interface FaktKalibrering {
@@ -1037,7 +1037,8 @@ export default function KalibreringPage() {
     if (activeTab !== 'report' || effectiveSelected === 'all' || tradslagMap[effectiveSelected]) return;
     const maskin = effectiveSelected;
     let cancelled = false;
-    fetch(`/api/kalibrering/tradslag?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+    // dagar=90 → samma rullande fönster som hjälten/bedomning. Ett fönster i hela rapporten.
+    fetch(`/api/kalibrering/tradslag?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}&dagar=90`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: { ok?: boolean; profil: string | null; trosklar: KravRow[]; tradslag: TradslagStat[] }) => {
         if (cancelled || !data?.ok) return;
@@ -1927,7 +1928,6 @@ export default function KalibreringPage() {
 
   // Filtrerade datakällor — Historik och Rapport räknar på dessa
   const filteredKalib = effectiveSelected === 'all' ? allKalib.filter(k => arAktiv(k.maskin_id)) : allKalib.filter(k => k.maskin_id === effectiveSelected);
-  const filteredHistorik = effectiveSelected === 'all' ? historik.filter(h => arAktiv(h.maskin_id)) : historik.filter(h => h.maskin_id === effectiveSelected);
 
   // Per-species stats (weighted by antal_kontrollstockar) — Historik bars + Rapport tabell
   const speciesData: Record<string, { count: number; totalStockar: number; lenDiff: number; diaDiff: number }> = {};
@@ -1950,10 +1950,6 @@ export default function KalibreringPage() {
   const totalStockar = filteredKalib.reduce((a, k) => a + k.antal_kontrollstockar, 0);
   const avgLenReport = totalStockar > 0 ? Math.round(filteredKalib.reduce((a, k) => a + k.langd_avvikelse_snitt_cm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
   const avgDiaReport = totalStockar > 0 ? Math.round(filteredKalib.reduce((a, k) => a + k.dia_avvikelse_snitt_mm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
-
-  // Unika kalibreringsjusteringar — Rapport
-  const kalibFileSet = new Set(filteredHistorik.map(h => h.filnamn));
-  const calibCount = kalibFileSet.size;
 
   // Avvikelsefärg kommer ENBART från delade avvikelseStatus/avvikelseTon
   // (modulnivå). De gamla lenOut/diaOut/stockLenCls/stockDiaCls är borttagna.
@@ -2248,6 +2244,11 @@ export default function KalibreringPage() {
   // har ingen enskild profil → faller tillbaka på snitt-toleransen som förr.
   const reportBed = effectiveSelected !== 'all' && bedomning && bedomning.maskin_id === effectiveSelected ? bedomning : null;
   const trData = effectiveSelected !== 'all' ? (tradslagMap[effectiveSelected] ?? null) : null;
+  // Rader utan underlag (båda cellerna under grind 30) göms — "Björk · n 0" sa inget.
+  const trRader = trData ? trData.tradslag.filter(t => t.diameter.n >= 30 || t.langd.n >= 30) : [];
+  // Sidfotens "sedan …" = första kontrollen i urvalet.
+  const forstaDatum = filteredKalib.reduce<string | null>((m, k) => (m == null || k.datum < m ? k.datum : m), null);
+  const reportSedan = forstaDatum ? new Date(forstaDatum).toLocaleDateString('sv-SE', { month: 'long', year: 'numeric' }) : '–';
   const reportDiaBed = reportBed ? bedomProfil(reportBed.diameter, 'diameter', reportBed.trosklar) : null;
   const reportLenBed = reportBed ? bedomProfil(reportBed.langd, 'langd', reportBed.trosklar) : null;
   const verdictWithinTolerance = reportBed
@@ -2316,12 +2317,14 @@ export default function KalibreringPage() {
         .kalib-diag-band.diag{fill:#FF453A;fill-opacity:0.85}
         .kalib-diag-band.tendens{fill:#FF9F0A;fill-opacity:0.8}
         .kalib-diag-stemlabels{display:flex;justify-content:space-between;width:100%;max-width:320px;font-size:12px;color:#8E8E93;margin:2px 6px 0}
+        .kalib-forarvy-etikett{font-size:13px;color:#8E8E93;margin:0 0 18px}
         .kalib-diag-text{margin:24px 0 4px}
-        .kalib-diag-m1{font-size:22px;font-weight:600;letter-spacing:-0.01em;color:#fff;line-height:1.25}
+        .kalib-diag-m1{font-size:28px;font-weight:600;letter-spacing:-0.02em;color:#fff;line-height:1.2}
         .kalib-diag-m1.laddar{color:#8E8E93;font-weight:500}
         .kalib-diag-m2{font-size:17px;color:#8E8E93;margin-top:8px}
         .kalib-forarvy-diagnos .kalib-diag-m2{color:#EBEBF5;font-weight:500}
         .kalib-diag-m3{font-size:14px;color:#8E8E93;margin-top:10px;max-width:340px;line-height:1.4}
+        .kalib-diag-tal{font-size:14px;color:#8E8E93;margin-top:12px;font-variant-numeric:tabular-nums}
         .kalib-visa-siffror{margin-top:22px;background:none;border:none;color:#8E8E93;font-size:15px;display:inline-flex;align-items:center;gap:2px;cursor:pointer;padding:8px 12px;min-height:44px}
         .kalib-tillbaka{background:none;border:none;color:#0A84FF;font-size:16px;display:inline-flex;align-items:center;gap:2px;cursor:pointer;padding:8px 4px;min-height:44px;margin-bottom:4px}
         /* Stabilitetsrutnät */
@@ -2643,14 +2646,6 @@ export default function KalibreringPage() {
         .kalib-tr-stod{font-size:11px;color:#8E8E93;margin-top:4px;line-height:1.35}
         .kalib-tr-tunt{font-size:13px;color:#8E8E93}
         .kalib-tr-not{font-size:12px;color:#8E8E93;margin-top:8px;line-height:1.4}
-        .kalib-report-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-        .kalib-report-metric{text-align:center;padding:14px 8px;background:rgba(255,255,255,0.04);border-radius:10px}
-        .kalib-report-metric-value{font-size:24px;font-weight:700;line-height:1;color:#fff;letter-spacing:-0.02em}
-        .kalib-report-metric-value.bad{color:#FF3B30}
-        /* Nyckeltal färgas efter värde: 0 = grått (lugn), >0 = rött */
-        .kalib-report-metric-value.tone-muted{color:#8E8E93}
-        .kalib-report-metric-value.tone-hot{color:#FF453A}
-        .kalib-report-metric-label{font-size:11px;color:#8E8E93;margin-top:8px}
         .kalib-report-results{display:flex;flex-direction:column;gap:14px;margin-bottom:18px}
         .kalib-report-result{display:flex;align-items:center;gap:14px}
         .kalib-report-result-label{width:72px;font-size:13px;color:#8E8E93}
@@ -2913,7 +2908,6 @@ export default function KalibreringPage() {
           .kalib-page-title{font-size:28px}
           .kalib-hero-metric-value{font-size:32px}
           .kalib-container{padding-top:20px}
-          .kalib-report-metrics{grid-template-columns:repeat(2,1fr)}
         }
       `}</style>
 
@@ -2944,16 +2938,14 @@ export default function KalibreringPage() {
               {!visaSiffror ? (
                 /* ===== FÖRARVYN — tyst och tydlig: en stam, ett band, två meningar ===== */
                 <>
-                  <header className="kalib-page-header">
-                    <h1 className="kalib-page-title">{heroNamn}</h1>
-                    <p className="kalib-page-subtitle">
-                      Kalibrering{diagnosData?.fonster ? ` · senaste ${diagnosData.fonster.dagar} dagarna` : ''}{diagnosData?.profil ? ` · ${diagnosData.profil}` : ''}
-                    </p>
-                  </header>
-
                   {partialBanner}
 
+                  {/* Maskinen står redan i filterchipet — här bara en liten etikett.
+                      Skärmens största text är DOMEN, inte maskinnamnet. */}
                   <div className={`kalib-forarvy kalib-forarvy-${verdikt.status}`}>
+                    <div className="kalib-forarvy-etikett">
+                      {diagnosData?.fonster ? `Senaste ${diagnosData.fonster.dagar} dagarna` : 'Kalibrering'}{diagnosData?.profil ? ` · ${diagnosData.profil}` : ''}
+                    </div>
                     <svg viewBox="0 0 320 92" className="kalib-diag-stem" role="img" aria-label="Stamdiagram med felläge">
                       <defs><clipPath id="kalibstemclip"><polygon points="12,14 308,40 308,52 12,78" /></clipPath></defs>
                       <polygon points="12,14 308,40 308,52 12,78" className="kalib-diag-stem-body" />
@@ -2972,6 +2964,12 @@ export default function KalibreringPage() {
                         <div className={`kalib-diag-m1 ${verdikt.status === 'diagnos' ? 'larm' : ''}`}>{verdikt.mening1}</div>
                         <div className="kalib-diag-m2">{verdikt.mening2}</div>
                         {verdikt.mening3 && <div className="kalib-diag-m3">{verdikt.mening3}</div>}
+                        {/* Lugnt läge: ETT tal, inte noll — träffprocenten ur samma 90-dagarsfönster som hjälten. */}
+                        {verdikt.status === 'bra' && bedomning?.diameter?.traffPct != null && (
+                          <div className="kalib-diag-tal">
+                            {Math.round(bedomning.diameter.traffPct)} % {MATT.traffprocent.term}{bedomning.fonster ? ` · senaste ${bedomning.fonster.dagar} dagarna` : ''}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -3525,6 +3523,18 @@ export default function KalibreringPage() {
                 const leadingEmpty = calData.dagar.length > 0 ? calData.dagar[0].veckodag - 1 : 0;
                 const totalCells = leadingEmpty + calData.dagar.length;
                 const trailingEmpty = (7 - (totalCells % 7)) % 7;
+                // Legenden visar bara de färger som faktiskt finns i rutnätet den här månaden.
+                const statusIManaden = new Set(calData.dagar.map(d => aggregeraDagFiltrerat(d, effectiveSelected)));
+                const legendRader = ([
+                  { st: 'komplett', cls: 'green', text: 'Kontroll lämnad' },
+                  { st: 'saknas', cls: 'red', text: 'Saknas' },
+                  { st: 'varning', cls: 'red-ring', text: 'Varning' },
+                ] as { st: CalDagstatus; cls: string; text: string }[]).filter(r => statusIManaden.has(r.st));
+                const legend = (variant: string) => legendRader.length === 0 ? null : (
+                  <div className={`kalib-cal-legend ${variant}`}>
+                    {legendRader.map(r => <div key={r.st} className="kalib-cal-legend-row"><span className={`kalib-cal-legend-dot ${r.cls}`} />{r.text}</div>)}
+                  </div>
+                );
                 return (
                   <>
                     <div className="kalib-cal-layout">
@@ -3538,24 +3548,26 @@ export default function KalibreringPage() {
                         <>
                           <div className="kalib-cal-summary-big">{sf.kompletta} av {sf.produktionsdagar} dagar kompletta</div>
                           <div className="kalib-cal-summary-sub">i {subManad}</div>
-                          <div className="kalib-cal-summary-grid two">
-                            <div className="kalib-cal-summary-item">
-                              <div className="kalib-cal-summary-num" style={{ color: sf.saknas > 0 ? '#FF3B30' : '#8E8E93' }}>{sf.saknas}</div>
-                              <div className="kalib-cal-summary-lbl">Saknas</div>
+                          {sf.saknas === 0 && sf.varningar === 0 ? (
+                            /* Allt grönt: två nollor är brus — en dämpad rad räcker. Rutorna
+                               kommer tillbaka (röda, med tal) först när ett tal är > 0. */
+                            <div className="kalib-lugn-rad"><MSym name="check" size={16} color="#8E8E93" /><span>Inga luckor</span></div>
+                          ) : (
+                            <div className="kalib-cal-summary-grid two">
+                              <div className="kalib-cal-summary-item">
+                                <div className="kalib-cal-summary-num" style={{ color: sf.saknas > 0 ? '#FF3B30' : '#8E8E93' }}>{sf.saknas}</div>
+                                <div className="kalib-cal-summary-lbl">Saknas</div>
+                              </div>
+                              <div className="kalib-cal-summary-item">
+                                <div className="kalib-cal-summary-num" style={{ color: sf.varningar > 0 ? '#FF3B30' : '#8E8E93' }}>{sf.varningar}</div>
+                                <div className="kalib-cal-summary-lbl">Varningar</div>
+                              </div>
                             </div>
-                            <div className="kalib-cal-summary-item">
-                              <div className="kalib-cal-summary-num" style={{ color: sf.varningar > 0 ? '#FF3B30' : '#8E8E93' }}>{sf.varningar}</div>
-                              <div className="kalib-cal-summary-lbl">Varningar</div>
-                            </div>
-                          </div>
+                          )}
                         </>
                       )}
                       {/* Legend i sidopanelen — bara ≥1000px (togglas mot inline nedan) */}
-                      <div className="kalib-cal-legend kalib-cal-legend--side">
-                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot green" />Kontroll lämnad</div>
-                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red" />Saknas</div>
-                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red-ring" />Varning</div>
-                      </div>
+                      {legend('kalib-cal-legend--side')}
                     </div>
 
                     <div className="kalib-card kalib-cal-gridcard">
@@ -3584,11 +3596,7 @@ export default function KalibreringPage() {
                           <div key={`t${i}`} className="kalib-cal-cell empty" />
                         ))}
                       </div>
-                      <div className="kalib-cal-legend kalib-cal-legend--inline">
-                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot green" />Kontroll lämnad</div>
-                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red" />Saknas</div>
-                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red-ring" />Varning</div>
-                      </div>
+                      {legend('kalib-cal-legend--inline')}
                     </div>
                     </div>{/* /kalib-cal-layout */}
                   </>
@@ -3606,28 +3614,6 @@ export default function KalibreringPage() {
                   <div className="kalib-report-title">Kvalitetsrapport</div>
                 </div>
                 <div className="kalib-report-date">{reportDate}</div>
-              </div>
-
-              <div className="kalib-report-section">
-                <div className="kalib-report-section-title">Nyckeltal</div>
-                <div className="kalib-report-metrics">
-                  <div className="kalib-report-metric">
-                    <div className="kalib-report-metric-value">{filteredKalib.length}</div>
-                    <div className="kalib-report-metric-label">Kontroller</div>
-                  </div>
-                  <div className="kalib-report-metric">
-                    <div className="kalib-report-metric-value">{totalStockar}</div>
-                    <div className="kalib-report-metric-label">Kontrollstockar</div>
-                  </div>
-                  <div className="kalib-report-metric">
-                    <div className="kalib-report-metric-value">{calibCount}</div>
-                    <div className="kalib-report-metric-label">Kalibreringar</div>
-                  </div>
-                  <div className="kalib-report-metric">
-                    <div className={`kalib-report-metric-value ${filteredKalib.filter(k => k.status === 'VARNING').length > 0 ? 'tone-hot' : 'tone-muted'}`}>{filteredKalib.filter(k => k.status === 'VARNING').length}</div>
-                    <div className="kalib-report-metric-label">Varningar</div>
-                  </div>
-                </div>
               </div>
 
               <div className="kalib-report-section">
@@ -3668,12 +3654,12 @@ export default function KalibreringPage() {
                   <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>Välj en maskin — Gran bedöms mot olika krav på olika maskiner och kan inte slås ihop.</span></div>
                 ) : !trData ? (
                   <div className="kalib-lugn-rad"><MSym name="hourglass_empty" size={16} color="#8E8E93" /><span>Laddar per-trädslag…</span></div>
-                ) : trData.tradslag.length === 0 ? (
+                ) : trRader.length === 0 ? (
                   <div className="kalib-lugn-rad"><MSym name="info" size={16} color="#8E8E93" /><span>Inga trädslag med underlag.</span></div>
                 ) : (
                   <div className="kalib-tr-table">
                     <div className="kalib-tr-head"><span>Trädslag</span><span>Diameter</span><span>Längd</span></div>
-                    {trData.tradslag.map(t => (
+                    {trRader.map(t => (
                       <div key={t.tradslag} className="kalib-tr-row" onClick={() => openSpeciesDetail(t.tradslag.toLowerCase())}>
                         <div className="kalib-tr-namn">{cap(t.tradslag)}<MSym name="chevron_right" size={16} color="#8E8E93" /></div>
                         {renderTrCell(t.diameter, 'diameter', 'mm', trData.trosklar)}
@@ -3682,7 +3668,7 @@ export default function KalibreringPage() {
                     ))}
                   </div>
                 )}
-                {trData && trData.tradslag.length > 0 && (
+                {trRader.length > 0 && (
                   <div className="kalib-tr-not">Längd bedöms bara på träffprocent — stocken kapas, den driver inte gradvis. ±2 cm: klaven mäter hela cm.</div>
                 )}
               </div>
@@ -3691,7 +3677,7 @@ export default function KalibreringPage() {
                 <div className="kalib-report-footer">
                   <div className="kalib-report-machine">
                     <div>{maskinNamnFor(filteredKalib[0].maskin_id)}</div>
-                    <div className="kalib-report-machine-sub">{filteredKalib.length} kontroller totalt</div>
+                    <div className="kalib-report-machine-sub">{fmtAntal(filteredKalib.length)} kontroller · {fmtAntal(totalStockar)} stockar · sedan {reportSedan}</div>
                   </div>
                 </div>
               )}
@@ -3765,6 +3751,7 @@ export default function KalibreringPage() {
                   );
                 })()}
               </div>
+              <button className="kalib-modal-close" onClick={() => setHjalpOpen(false)}>Stäng</button>
             </div>
           </div>
         )}

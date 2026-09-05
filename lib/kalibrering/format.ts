@@ -42,6 +42,10 @@ export const fmtSig1 = (n: number | null | undefined): string => {
   return `${n > 0 ? '+' : ''}${dec(n, 1)}`;
 };
 
+/** Heltal med svensk tusentalsavgränsare (hårt mellanslag): 2319 → "2 319". */
+export const fmtAntal = (n: number): string =>
+  String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0');
+
 /** Osignerat värde med 1 decimal: standardavvikelse (4,0). */
 export const fmtAbs1 = (n: number | null | undefined): string => {
   if (n == null || isNaN(n)) return '–';

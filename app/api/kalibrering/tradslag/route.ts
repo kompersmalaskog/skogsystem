@@ -16,6 +16,11 @@ import { statistik, type VariabelStat } from "@/lib/kalibrering/statistik";
  * Trädslag per KONTROLL (fakt_kalibrering.tradslag, en per filnamn) → mappas
  * till stockarnas/matpunkternas trädslag via filnamn.
  *
+ * ?dagar=N → rullande N-dagarsfönster t.o.m. maskinens senaste kontroll, exakt
+ * som bedomning. Utan parametern: hela historiken. Rapporten skickar dagar=90
+ * så per-trädslag-tabellen och hjältens tal bygger på SAMMA fönster — annars
+ * står 80 % (90 dagar) ovanför 70 % (allt) för samma maskin, omärkt.
+ *
  * KRITISKT — OMÄTT ≠ AVVIKELSE: operator NULL/0 exkluderas innan något räknas.
  */
 
@@ -31,6 +36,7 @@ export type { VariabelStat };
 export type TradslagStat = { tradslag: string; diameter: VariabelStat; langd: VariabelStat };
 export type TradslagResponse = {
   ok: true; maskin_id: string; profil: string | null; trosklar: KravRow[]; tradslag: TradslagStat[];
+  fonster: { fran: string; till: string; dagar: number } | null;
 };
 
 async function fetchAllRows<T>(
@@ -50,8 +56,26 @@ export async function GET(req: NextRequest) {
   if (url.searchParams.get("key") !== DEBUG_KEY) return new NextResponse("Ogiltig nyckel", { status: 401 });
   const maskinId = url.searchParams.get("maskin_id");
   if (!maskinId) return NextResponse.json({ ok: false, error: "maskin_id krävs" }, { status: 400 });
+  const dagarParam = url.searchParams.get("dagar");
+  const dagar = dagarParam && Number(dagarParam) > 0 ? Math.floor(Number(dagarParam)) : null;
 
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+  // Fönster: N dagar t.o.m. senaste kontroll (samma beräkning som bedomning/route.ts)
+  let fonster: { fran: string; till: string; dagar: number } | null = null;
+  let fran: string | null = null;
+  let tillExkl: string | null = null;
+  if (dagar) {
+    const { data: senaste } = await supabase.from("detalj_kontroll_stock").select("kontroll_datum")
+      .eq("maskin_id", maskinId).order("kontroll_datum", { ascending: false }).limit(1);
+    if (senaste && senaste.length > 0) {
+      const till = String(senaste[0].kontroll_datum).slice(0, 10);
+      const tillD = new Date(`${till}T00:00:00Z`);
+      fran = new Date(tillD.getTime() - (dagar - 1) * 86400000).toISOString().slice(0, 10);
+      tillExkl = new Date(tillD.getTime() + 86400000).toISOString().slice(0, 10);
+      fonster = { fran, till, dagar };
+    }
+  }
 
   // profil + trösklar
   const { data: maskinRows } = await supabase.from("dim_maskin").select("kravprofil").eq("maskin_id", maskinId).limit(1);
@@ -86,10 +110,12 @@ export async function GET(req: NextRequest) {
     operator_langd_cm: number | null;
     maskin_toppdia_mm: number | null;
     operator_toppdia_mm: number | null;
-  }>((f, t) =>
-    supabase.from("detalj_kontroll_stock").select(`id,filnamn,maskin_langd_cm,operator_langd_cm,${TOPPDIA_COLS}`)
-      .eq("maskin_id", maskinId).order("id", { ascending: true }).range(f, t),
-  );
+  }>((f, t) => {
+    let q = supabase.from("detalj_kontroll_stock").select(`id,filnamn,maskin_langd_cm,operator_langd_cm,${TOPPDIA_COLS}`)
+      .eq("maskin_id", maskinId);
+    if (fran && tillExkl) q = q.gte("kontroll_datum", fran).lt("kontroll_datum", tillExkl);
+    return q.order("id", { ascending: true }).range(f, t);
+  });
   if (stockRes.error) {
     const e = stockRes.error as { message?: string };
     return NextResponse.json({ ok: false, error: `stockar: ${e.message}` }, { status: 500 });
@@ -128,5 +154,5 @@ export async function GET(req: NextRequest) {
     langd: statistik(lenAvvik.get(key) ?? [], tolLen, grovLen),
   })).sort((a, b) => (b.diameter.n) - (a.diameter.n));
 
-  return NextResponse.json({ ok: true, maskin_id: maskinId, profil, trosklar, tradslag } satisfies TradslagResponse);
+  return NextResponse.json({ ok: true, maskin_id: maskinId, profil, trosklar, tradslag, fonster } satisfies TradslagResponse);
 }
