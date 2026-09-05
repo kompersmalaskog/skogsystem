@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
+import { statistik } from "@/lib/kalibrering/statistik";
 
 /**
  * GET /api/kalibrering/objekt?key=skogsystem-debug
@@ -28,10 +29,17 @@ export type ObjektStat = {
   traffPct: number;
   systematisk: number;
   standardavv: number;
+  grovPct: number | null; // Biometria: andel över grov-toleransen; null utan sådan rad
   fran: string;
   till: string;
 };
-export type MaskinInfo = { profil: string | null; golvDia: number | null; traffPctTotal: number | null; n: number };
+export type KravRow = {
+  variabel: string; metrik: string; riktning: string;
+  tolerans: number | null; mal: number; golv: number; enhet: string; larm_min_matt: number | null;
+};
+// trosklar = maskinprofilens ALLA kravrader, så klienten dömer objektet via
+// bedomProfil (VIDA:s mål/golv-trappa, Biometrias binära) — inget hårdkodat 85/3,5.
+export type MaskinInfo = { profil: string | null; golvDia: number | null; traffPctTotal: number | null; n: number; trosklar: KravRow[] };
 export type ObjektResponse = {
   ok: true;
   objekt: ObjektStat[];
@@ -55,11 +63,6 @@ async function fetchAllRows<T>(
   return { data: all, error: null };
 }
 const r1 = (x: number) => Math.round(x * 10) / 10;
-const r2 = (x: number) => Math.round(x * 100) / 100;
-function popStd(vals: number[], mean: number): number {
-  if (vals.length < 2) return 0;
-  return Math.sqrt(vals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vals.length);
-}
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -133,26 +136,45 @@ export async function GET(req: NextRequest) {
   );
   const maskinProfil = new Map<string, string | null>();
   for (const r of dm.data) maskinProfil.set(r.maskin_id, r.kravprofil);
-  const kp = await fetchAllRows<{ profil: string; golv: number }>((f, t) =>
-    supabase.from("kravprofil").select("profil,golv").eq("variabel", "diameter").eq("metrik", "traffprocent").order('id').range(f, t),
+  // Hela kravprofilen per profil — klienten dömer via bedomProfil, inte via ett golv.
+  const kp = await fetchAllRows<KravRow & { profil: string }>((f, t) =>
+    supabase.from("kravprofil").select("profil,variabel,metrik,riktning,tolerans,mal,golv,enhet,larm_min_matt").order('id').range(f, t),
   );
+  if (kp.error) {
+    const e = kp.error as { message?: string };
+    return NextResponse.json({ ok: false, error: `kravprofil: ${e.message}` }, { status: 500 });
+  }
+  const trosklarForProfil = new Map<string, KravRow[]>();
+  for (const r of kp.data) {
+    const { profil, ...rad } = r;
+    (trosklarForProfil.get(profil) ?? trosklarForProfil.set(profil, []).get(profil)!).push(rad);
+  }
   const golvForProfil = new Map<string, number>();
-  for (const r of kp.data) golvForProfil.set(r.profil, Number(r.golv));
+  const tolFor = (profil: string | null, metrik: string): number | null => {
+    const r = profil ? trosklarForProfil.get(profil)?.find((t) => t.variabel === "diameter" && t.metrik === metrik) : undefined;
+    return r && r.tolerans != null ? Number(r.tolerans) : null;
+  };
+  trosklarForProfil.forEach((rows, profil) => {
+    const g = rows.find((t) => t.variabel === "diameter" && t.metrik === "traffprocent");
+    if (g) golvForProfil.set(profil, Number(g.golv));
+  });
 
-  // bygg objekt-lista
+  // bygg objekt-lista — samma statistik() som bedomning/tradslag (en källa)
   const objekt: ObjektStat[] = [];
   objAvvik.forEach((o, name) => {
     const n = o.avvik.length;
     if (n === 0) return;
-    const mean = o.avvik.reduce((a, b) => a + b, 0) / n;
+    const profil = o.maskin ? (maskinProfil.get(o.maskin) ?? null) : null;
+    const st = statistik(o.avvik, tolFor(profil, "traffprocent") ?? 4, tolFor(profil, "grov_avvikelse"));
     const period = objPeriod.get(name) ?? { fran: "", till: "" };
     objekt.push({
       object_name: name,
       maskin_id: o.maskin,
       n,
-      traffPct: r1((100 * o.avvik.filter((v) => Math.abs(v) <= 4).length) / n),
-      systematisk: r2(mean),
-      standardavv: r2(popStd(o.avvik, mean)),
+      traffPct: st.traffPct ?? 0,
+      systematisk: st.systematisk ?? 0,
+      standardavv: st.standardavv ?? 0,
+      grovPct: st.grovPct,
       fran: period.fran,
       till: period.till,
     });
@@ -167,8 +189,9 @@ export async function GET(req: NextRequest) {
     maskiner[maskin] = {
       profil,
       golvDia: profil ? (golvForProfil.get(profil) ?? null) : null,
-      traffPctTotal: n > 0 ? r1((100 * avvik.filter((v) => Math.abs(v) <= 4).length) / n) : null,
+      traffPctTotal: n > 0 ? r1((100 * avvik.filter((v) => Math.abs(v) <= (tolFor(profil, "traffprocent") ?? 4)).length) / n) : null,
       n,
+      trosklar: profil ? (trosklarForProfil.get(profil) ?? []) : [],
     };
   });
 
