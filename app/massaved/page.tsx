@@ -1,27 +1,22 @@
 'use client';
 
-// NIVÅ 1 — massavedens längd, objektlista.
+// NIVÅ 1 — massavedens längd, månad för månad. Samma form som nivå 2 och
+// undernivåerna (se form.tsx): rubrikrad med månadsväljare, medellängden
+// stor, ordraden, Vida-raden, vältan som kontroll, storleken dämpad, sedan
+// en rad per objekt med medellängden som talet — det avgör om man trycker.
 //
-// En fråga: vilka objekt är korta? Inget annat får konkurrera om utrymmet.
-// Inga fotnoter här — de hör till nivå 2, där man redan valt ett objekt och
-// frågar varför.
+// Månaden följer MED i länken. Nivå 2 öppnar på samma tal som raden man
+// tryckte på — annars uppstår en tankelucka.
 //
-// Månaden följer MED i länken. Nivå 2 kan visa både månaden och hela
-// objektet, och den ska öppna på samma tal som raden man tryckte på —
-// annars uppstår en tankelucka: listan säger 4,07 och objektskärmen 3,97
-// för samma trakt, utan att något förklarar skillnaden.
-//
-// Maskinen är en grå ETIKETT på raden, aldrig ett filter. Vem som körde är
-// bakgrund till svaret, inte en fråga läsaren ska besvara först.
-//
-// Objekt utan bolag räknas INTE in i rubriktalet men göms inte heller. De
-// ligger sist som egna grå rader. Marie Krokshult vindf har bolag NULL.
+// Maskinen är en grå ETIKETT på raden, aldrig ett filter. Objekt utan bolag
+// räknas INTE in i talet men göms inte heller: de ligger sist, dämpade.
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
-import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
+import { SIDA, GUL, GRON, SEKUNDAR, MUTED, nf0, nf1, nf2, manadEtikett, stor, stegaManad, nuManad, utanPrefix,
+         Rubrikrad, Stort, Tillstand, Damp, Kontroll, Rad, Rader, Laddar, Fel } from '../massaved/form';
 
 type ObjektRad = {
   objekt_id: string; namn: string | null; status: string;
@@ -35,42 +30,17 @@ type Niva1 = {
 };
 
 const VALTOR = ['Barr', 'Björk'] as const;
-const MANADER = ['januari','februari','mars','april','maj','juni',
-                 'juli','augusti','september','oktober','november','december'];
 
-const nf1 = (n: number) => n.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const nf2 = (n: number) => n.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-function manadEtikett(ym: string) {
-  const [y, m] = ym.split('-').map(Number);
-  return `${MANADER[m - 1]} ${y}`;
+/** Två år bakåt. Datans egen början känner den här nivån inte till. */
+function manadLista() {
+  const ut: string[] = [];
+  for (let m = nuManad(), i = 0; i < 24; m = stegaManad(m, -1), i++) ut.push(m);
+  return ut;
 }
-function stega(ym: string, steg: number) {
-  const [y, m] = ym.split('-').map(Number);
-  const d = new Date(y, m - 1 + steg, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-function nuManad() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-/** Färgen förstärker ordet — den bär det aldrig ensam. Förarna sitter i
- *  solljus där rött blir brunt. */
-function kvalitet(m: number, mal: number) {
-  if (m < 4.0) return { ord: 'Kort', farg: 'rgba(255,120,110,0.95)' };
-  if (m < mal) return { ord: 'Under mål', farg: 'rgba(255,179,64,0.95)' };
-  return { ord: 'Godkänt', farg: 'rgba(90,255,140,0.9)' };
-}
-
-const s = {
-  page: { background: '#111110', minHeight: '100vh', paddingTop: 56, paddingBottom: 90, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
-  muted: { color: '#7a7a72', fontSize: 11 },
-  tal: { fontFamily: "'Fraunces', serif" } as const,
-};
 
 function Innehall() {
   const sp = useSearchParams();
+  const router = useRouter();
   const [manad, setManad] = useState(sp.get('manad') || nuManad());
   const [valta, setValta] = useState<typeof VALTOR[number]>('Barr');
   const [data, setData] = useState<Niva1 | null>(null);
@@ -80,12 +50,9 @@ function Innehall() {
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(null);
     // medAbortRetry: supabase-js auth-lås kan avbryta anropet transient.
-    // Utan omförsöket blev en låskollision en död vy.
     const { data, error } = await medAbortRetry(() =>
       supabase.rpc('massaved_niva1', { p_manad: `${manad}-01`, p_valta: valta }));
     // Ett fel får aldrig se ut som noll längd — och felet ska BEHÅLLAS.
-    // Att bara sätta en boolean gjorde vyn omöjlig att felsöka: ingen kunde
-    // säga vad servern faktiskt svarade.
     if (error) {
       setFel({ kod: (error as { code?: string }).code ?? (arAbortFel(error) ? 'ABORT' : 'OKÄND'),
                text: error.message ?? String(error) });
@@ -96,110 +63,69 @@ function Innehall() {
 
   useEffect(() => { hamta(); }, [hamta]);
 
+  const valjManad = (m: string) => { setManad(m); router.replace(`/massaved?manad=${m}`, { scroll: false }); };
+  const mal = data?.mal_m ?? 4.6;
+
   const rad = (o: ObjektRad, gra: boolean) => {
-    const kv = kvalitet(o.medellangd_m, data?.mal_m ?? 4.6);
+    const under = o.medellangd_m < mal;
     return (
-      <Link key={o.objekt_id} href={`/massaved/${encodeURIComponent(o.objekt_id)}?manad=${manad}`}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44, padding: '11px 0',
-                 borderTop: '1px solid rgba(255,255,255,0.07)', textDecoration: 'none',
-                 color: gra ? '#7a7a72' : '#e8e8e4' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                       background: gra ? '#4a4a46' : kv.farg }} />
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {o.namn}
-          </div>
-          <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>
-            {gra ? 'saknar bolag' : kv.ord} · {o.status}
-            {o.maskiner && <> · {o.maskiner}</>}
-          </div>
-        </span>
-        <span style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ ...s.tal, fontSize: 17 }}>{nf2(o.medellangd_m)}<span style={{ ...s.muted, marginLeft: 3 }}>m</span></div>
-          <div style={s.muted}>{nf1(o.m3fub)} m³</div>
-        </span>
-      </Link>
+      <Rad key={o.objekt_id} href={`/massaved/${encodeURIComponent(o.objekt_id)}?manad=${manad}`}
+        text={utanPrefix(o.namn ?? o.objekt_id)} dampad={gra}
+        sub={<>
+          {gra ? 'saknar bolag' : <span style={{ color: under ? GUL : GRON, fontWeight: 600 }}>{under ? 'under' : 'når'} {nf1(mal)} m</span>}
+          {' · '}{nf1(o.m3fub)} m³fub{o.maskiner && <> · {o.maskiner}</>}
+        </>}
+        tal={nf2(o.medellangd_m)} enhet="m" farg={gra ? SEKUNDAR : under ? GUL : GRON} />
     );
   };
 
   return (
-    <div style={s.page}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 10 }}>
-          <button aria-label="Föregående månad" onClick={() => setManad(m => stega(m, -1))}
-            style={{ border: 'none', background: 'none', color: '#e8e8e4', fontSize: 20, cursor: 'pointer', padding: '10px 16px', minWidth: 44, minHeight: 44, lineHeight: 1 }}>‹</button>
-          <span style={{ fontSize: 14, fontWeight: 600, minWidth: 150, textAlign: 'center' }}>{manadEtikett(manad)}</span>
-          <button aria-label="Nästa månad" disabled={manad >= nuManad()} onClick={() => setManad(m => stega(m, 1))}
-            style={{ border: 'none', background: 'none', color: manad >= nuManad() ? '#3a3a38' : '#e8e8e4', fontSize: 20, cursor: manad >= nuManad() ? 'default' : 'pointer', padding: '10px 16px', minWidth: 44, minHeight: 44, lineHeight: 1 }}>›</button>
-        </div>
-        {/* Välta — barr och björk lastas separat och slås aldrig ihop. */}
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-          {VALTOR.map(v => (
-            <button key={v} onClick={() => setValta(v)}
-              style={{ border: 'none', borderRadius: 999, padding: '10px 18px', minHeight: 44,
-                       fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                       background: valta === v ? 'rgba(90,255,140,0.15)' : 'rgba(255,255,255,0.05)',
-                       color: valta === v ? 'rgba(90,255,140,0.9)' : '#7a7a72' }}>{v}</button>
-          ))}
-        </div>
-      </div>
+    <div style={SIDA}>
+      <Rubrikrad text={stor(manadEtikett(manad))} value={manad} onChange={valjManad} label="Månad">
+        {manadLista().map(m => <option key={m} value={m}>{stor(manadEtikett(m))}</option>)}
+      </Rubrikrad>
 
-      {laddar && <div style={{ ...s.muted, textAlign: 'center', padding: 40 }}>Hämtar {manadEtikett(manad)}…</div>}
+      {laddar && <Laddar vad={manadEtikett(manad)} />}
+      {!laddar && fel && <Fel rubrik="Längderna kunde inte hämtas" fel={fel} igen={hamta} />}
 
-      {!laddar && fel && (
-        <div style={{ textAlign: 'center', padding: '40px 20px', lineHeight: 1.6 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Längderna kunde inte hämtas</div>
-          {/* Felmeddelandet ska säga vad användaren ska GÖRA. */}
-          <div style={{ ...s.muted, marginBottom: 16 }}>
-            {fel.kod === 'ABORT'
-              ? 'Anropet avbröts. Tryck Försök igen.'
-              : 'Tryck Försök igen. Står felet kvar: logga ut och in, och skicka koden nedan.'}
+      {!laddar && !fel && data && (
+        <>
+          <div style={{ padding: '18px 16px 0' }}>
+            {data.medellangd_m != null ? (
+              <Stort tal={nf2(data.medellangd_m)} enhet="m" ordrad={`medellängd ${valta.toLowerCase()}massaved`}>
+                <Tillstand farg={data.medellangd_m < mal ? GUL : GRON}>
+                  {data.medellangd_m < mal ? 'under' : 'når'} Vidas önskade {nf1(mal)} m
+                </Tillstand>
+                <Kontroll text={valta.toLowerCase()} value={valta} onChange={v => setValta(v as typeof VALTOR[number])} label="Välta">
+                  {VALTOR.map(v => <option key={v} value={v}>{v}</option>)}
+                </Kontroll>
+                <Damp>
+                  {data.antal_objekt} objekt · {nf0(data.total_m3fub)} m³fub
+                  {data.antal_under_mal > 0 && <> · {data.antal_under_mal} under {nf1(mal)} m</>}
+                </Damp>
+              </Stort>
+            ) : (
+              <>
+                <div style={{ fontSize: 13, lineHeight: 1.6 }}>Ingen {valta.toLowerCase()}massaved i {manadEtikett(manad)}.</div>
+                <Kontroll text={valta.toLowerCase()} value={valta} onChange={v => setValta(v as typeof VALTOR[number])} label="Välta">
+                  {VALTOR.map(v => <option key={v} value={v}>{v}</option>)}
+                </Kontroll>
+              </>
+            )}
           </div>
-          <button onClick={hamta}
-            style={{ border: 'none', borderRadius: 8, padding: '12px 22px', minHeight: 44,
-                     fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                     background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' }}>
-            Försök igen
-          </button>
-          {/* Detaljen kastas inte bort — utan den går felet inte att felsöka. */}
-          <div style={{ ...s.muted, marginTop: 18, fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-word' }}>
-            {fel.kod} · {fel.text}
-          </div>
-        </div>
-      )}
 
-      {!laddar && !fel && data && data.medellangd_m == null && data.utan_bolag.length === 0 && (
-        <div style={{ ...s.muted, textAlign: 'center', padding: 40 }}>
-          Ingen {valta.toLowerCase()}massaved i {manadEtikett(manad)}.
-        </div>
-      )}
-
-      {!laddar && !fel && data && (data.medellangd_m != null || data.utan_bolag.length > 0) && (
-        <div style={{ padding: '0 16px' }}>
-          {data.medellangd_m != null && (
-            <div style={{ textAlign: 'center', padding: '30px 0 22px' }}>
-              <div>
-                <span style={{ ...s.tal, fontSize: 56, lineHeight: 1 }}>{nf2(data.medellangd_m)}</span>
-                <span style={{ ...s.tal, fontSize: 22, color: '#7a7a72', marginLeft: 6 }}>m</span>
-              </div>
-              <div style={{ ...s.muted, marginTop: 10, lineHeight: 1.5 }}>
-                mål {nf1(data.mal_m)} m<br />
-                {data.antal_under_mal} av {data.antal_objekt} objekt under mål
-              </div>
-            </div>
+          {(data.objekt.length > 0 || data.utan_bolag.length > 0) && (
+            <Rader>
+              {data.objekt.map(o => rad(o, false))}
+              {data.utan_bolag.length > 0 && (
+                <>
+                  <div style={{ ...MUTED, padding: '14px 0 6px' }}>Räknas inte in i talet ovan</div>
+                  {data.utan_bolag.map(o => rad(o, true))}
+                </>
+              )}
+            </Rader>
           )}
-
-          {data.objekt.map(o => rad(o, false))}
-
-          {data.utan_bolag.length > 0 && (
-            <>
-              <div style={{ ...s.muted, marginTop: 24, marginBottom: 4 }}>
-                Räknas inte in i talet ovan
-              </div>
-              {data.utan_bolag.map(o => rad(o, true))}
-            </>
-          )}
-        </div>
+        </>
       )}
     </div>
   );
@@ -207,7 +133,7 @@ function Innehall() {
 
 export default function Massaved() {
   return (
-    <Suspense fallback={<div style={s.page} />}>
+    <Suspense fallback={<div style={SIDA} />}>
       <Innehall />
     </Suspense>
   );
