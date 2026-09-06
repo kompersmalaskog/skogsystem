@@ -6569,6 +6569,29 @@ export default function PlannerPage() {
   // hög-prickarnas storlek (punkt 3) och autopanelen → panel och karta pekar på SAMMA stråk.
   const aktivStrakKey = valtStrakKey ?? narmasteStrakKey;
 
+  // REN SKÄRM (fältfynd): GPS- och kartdata-statusraderna låg och krockade uppe t.v. i körvyn. De
+  // flyttas in i +-menyn (som labels på uppdatera-raderna) + en TYST prick på +-knappen vid problem.
+  // Räknas per render (inte memo) så åldern (min sedan) är färsk. Ingen statustext på kartytan.
+  const korvyStatus = (() => {
+    const felKod = gpsStatus?.kind === 'error' ? gpsStatus.code : null;
+    const soker = gpsStatus?.kind === 'searching';
+    const ageMin = gpsFixAt ? Math.floor((Date.now() - gpsFixAt) / 60000) : null;
+    const gpsGammal = ageMin != null && ageMin >= 3;
+    const fixTid = gpsFixAt ? new Date(gpsFixAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
+    const gpsText = felKod != null
+      ? (felKod === 1 ? 'GPS: tillåt plats i Inställningar' : 'GPS-fel — tryck för att försöka igen')
+      : soker ? 'GPS söker…'
+      : korvyEffectivePos ? `GPS ${fixTid ?? ''}${ageMin != null && ageMin > 0 ? ` · ${ageMin} min sedan` : ''}`.trim()
+      : 'Ingen GPS-position — tryck för att söka';
+    const dataAlder = markersUppdateradAt != null ? (Date.now() - markersUppdateradAt) / 60000 : null;
+    const dataGammal = dataAlder != null && dataAlder >= 10;
+    const dataTid = markersUppdateradAt != null ? new Date(markersUppdateradAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
+    const dataText = markersUppdaterar ? 'Kartdata hämtar…' : (dataTid ? `Kartdata ${dataTid}${dataGammal ? ` · ${Math.floor(dataAlder ?? 0)} min` : ''}` : 'Kartdata ej hämtad');
+    const harProblem = felKod != null;   // RÖTT: äkta GPS-fel (nekad/otillgänglig) — kräver åtgärd
+    const harVarning = !harProblem && (gpsGammal || dataGammal || !korvyEffectivePos); // GULT: gammal fix/kartdata eller ännu ingen fix (söker)
+    return { gpsText, felKod, soker, gpsGammal, dataText, dataGammal, harProblem, harVarning };
+  })();
+
   // Fäll ihop autopanelen så fort man byter stråk (rullar vidare, trycker på ett annat stråk,
   // lämnar skotarläget). Utfällt är ett tillfälligt uppslag, inte ett läge man fastnar i.
   useEffect(() => { setPanelUtfalld(false); setKlaradeStrakSort(new Set()); }, [narmasteStrakKey, valtStrakKey, skotarKorvy]);
@@ -11673,66 +11696,21 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === KÖRVY: GPS-STATUS — surfar fel (aldrig tyst), senast uppdaterad, Försök igen === */}
-      {korvyActive && (() => {
-        const pos = korvyEffectivePos;
-        const sokande = gpsStatus?.kind === 'searching';
-        const fel = gpsStatus?.kind === 'error' ? gpsStatus.code : null;
-        const felText = fel === 1 ? 'Platsbehörighet nekad — tillåt plats för appen i telefonens inställningar'
-          : fel === 3 ? 'Ingen GPS-fix — dålig sikt mot himlen? Försök igen eller flytta dig till öppnare mark'
-          : fel === 2 ? 'Position otillgänglig just nu'
-          : fel != null ? ('GPS-fel (kod ' + fel + ')') : null;
-        const fixTid = gpsFixAt ? new Date(gpsFixAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
-        const ageMin = gpsFixAt ? Math.floor((Date.now() - gpsFixAt) / 60000) : null;
-        const gammal = ageMin != null && ageMin >= 3;
-        // Har position (även gammal) OCH inget aktivt fel → diskret status uppe t.v.
-        if (pos && !fel) {
-          return (
-            <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', left: 12, zIndex: 260,
-              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 14,
-              background: 'rgba(28,28,30,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)' }}>
-              <span style={{ width: 8, height: 8, borderRadius: 4, background: gammal ? '#FF9F0A' : '#34C759', flexShrink: 0 }} />
-              <span style={{ fontSize: 12, color: gammal ? '#FF9F0A' : 'rgba(255,255,255,0.75)', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                {sokande ? 'Uppdaterar…' : ('GPS ' + (fixTid || '') + (ageMin != null && ageMin > 0 ? ' · ' + ageMin + ' min sedan' : ''))}
-              </span>
-              <button type="button" onClick={acquireGpsWithFallback}
-                style={{ marginLeft: 2, padding: '3px 9px', borderRadius: 9, border: 'none', background: 'rgba(255,255,255,0.12)', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Uppdatera</button>
-            </div>
-          );
-        }
-        // Ingen position, eller aktivt fel → tydlig ruta med Försök igen
-        return (
-          <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 118px)', left: 12, right: 12, zIndex: 260,
-            padding: '12px 16px', borderRadius: 14, background: 'rgba(28,28,30,0.96)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid ' + (sokande ? 'rgba(255,255,255,0.15)' : 'rgba(255,159,10,0.45)') }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, color: '#fff', fontWeight: 600, marginBottom: 2 }}>
-                  {sokande ? 'Söker GPS…' : (felText || 'Ingen GPS-position än')}
-                </div>
-                {!sokande && (
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.4 }}>
-                    {pos ? ('Visar senast kända position' + (fixTid ? ' (' + fixTid + ')' : '')) : 'Kartan kan inte visa var du är förrän en position hämtats'}
-                  </div>
-                )}
-              </div>
-              {!sokande && (
-                <button type="button" onClick={acquireGpsWithFallback}
-                  style={{ flexShrink: 0, padding: '9px 16px', borderRadius: 11, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Försök igen</button>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {/* REN SKÄRM (fältfynd): GPS-statuskortet är BORTTAGET från kartytan (det krockade med
+          färskhets-stämpeln uppe t.v.). GPS-status + Uppdatera bor nu i +-menyns KÖRVY-grupp
+          (raden "GPS …"), och en TYST prick på +-knappen lyser gult/rött vid gammal/fel. Ingen
+          statustext på kartan. iOS-permission-CTA:n ("Aktivera plats") lämnas orörd — den är en
+          engångs-gest-gate, inte en statusrad, och visas bara innan plats aktiverats. */}
 
       {/* REN SKÄRM (fältfynd): den dedikerade Avsluta-knappen (#488) är BORTTAGEN från kartytan —
           Avsluta bor nu i +-menyns KÖRVY-grupp. Det är säkert nu när (a) +-menyn är översta interaktiva
           lagret (z650, kan inte svälja-klickas av någon overlay) och (b) +-knappen ALDRIG kan döljas i
           körvy (korvyActive-gaten ovan). Båda invarianterna som #488 saknade är på plats. */}
 
-      {/* Färskhets-stämpel + Uppdatera (mellanlösning, ingen öppen realtid). Visas i körvy OCH
-          planering. Gul när datan är >10 min gammal — föraren ska aldrig tro att gammalt är färskt. */}
-      {valtObjekt && !briefingMode && (() => {
+      {/* Färskhets-stämpel + Uppdatera (mellanlösning, ingen öppen realtid). REN SKÄRM: visas nu bara
+          i PLANERINGSVYN (!korvyActive) — i körvyn bor kartdata-status + uppdatera i +-menyn (raden
+          "Kartdata …") + den tysta pricken på +-knappen. Gul när datan är >10 min gammal. */}
+      {valtObjekt && !briefingMode && !korvyActive && (() => {
         const alderMin = markersUppdateradAt != null ? (Date.now() - markersUppdateradAt) / 60000 : null;
         const gammal = alderMin != null && alderMin >= 10;
         const tid = markersUppdateradAt != null ? new Date(markersUppdateradAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
@@ -12249,6 +12227,18 @@ export default function PlannerPage() {
               {plusBadgeCount}
             </span>
           )}
+          {/* TYST status-prick (fältfynd): GPS/kartdata-statusen flyttades in i menyn; en liten prick
+              på +-knappen lyser RÖTT (GPS-fel/ingen fix) eller GULT (gammal position/kartdata) så
+              föraren ser att något behöver kollas — utan en textrad på kartan. Detaljen finns i menyn. */}
+          {korvyActive && (korvyStatus.harProblem || korvyStatus.harVarning) && !plusMenuOpen && (
+            <span aria-label={korvyStatus.harProblem ? 'GPS-problem — se menyn' : 'Gammal position/kartdata — se menyn'}
+              style={{
+                position: 'absolute', top: '-2px', left: '-2px',
+                width: 12, height: 12, borderRadius: 6,
+                background: korvyStatus.harProblem ? '#ff453a' : '#FF9F0A',
+                border: '2px solid rgba(20,20,22,0.72)',
+              }} />
+          )}
         </button>
       )}
 
@@ -12488,7 +12478,10 @@ export default function PlannerPage() {
                 items: korvyActive
                   ? [
                       { label: korvyBasKarta === 'lm' ? 'Baskarta: Karta → Topokarta' : 'Baskarta: Topokarta → Karta', icon: 'layers', action: () => setKorvyBasKarta(korvyBasKarta === 'lm' ? 'topo' : 'lm') },
-                      { label: 'Uppdatera GPS', icon: 'my_location', action: () => { acquireGpsWithFallback(); } },
+                      // GPS- + kartdata-STATUS bor nu här (raderna bär statustexten; tryck = uppdatera) →
+                      // ingen krockande statusrad på kartytan. danger=röd vid GPS-fel/ingen fix.
+                      { label: korvyStatus.gpsText, icon: 'my_location', action: () => { acquireGpsWithFallback(); }, danger: korvyStatus.harProblem },
+                      { label: korvyStatus.dataText, icon: 'refresh', action: () => { refetchMarkers(true); } },
                       ...(andrasRoll ? [{ label: andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår', icon: 'refresh', action: () => { hamtaAndrasSpar(); } }] : []),
                       { label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); setKorvyForceRoll(null); }, danger: true },
                     ]
