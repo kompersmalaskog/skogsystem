@@ -4,6 +4,9 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { TreePine, Trees } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { ymdLokal } from '@/lib/datumLokal'
+import { hamtaAlla } from '@/lib/supabaseAlla'
+import { arbetsdagarIManad, ledigaVardagarIManad } from '@/app/ledighet/_components/datum'
 
 // ============================================================
 // Types
@@ -95,75 +98,8 @@ const MANAD = ['', 'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
 // deras BUFFERT — räknas ALDRIG in i kapaciteten.
 const TIMMAR_PER_DAG = 8
 
-// Påskdagen (Meeus/Anonymous Gregorian) — beräknas, aldrig hårdkodad.
-function paskdagen(year: number): Date {
-  const a = year % 19, b = Math.floor(year / 100), c = year % 100
-  const d = Math.floor(b / 4), e = b % 4
-  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3)
-  const h = (19 * a + b - d - g + 15) % 30
-  const i = Math.floor(c / 4), k = c % 4
-  const l = (32 + 2 * e + 2 * i - h - k) % 7
-  const m = Math.floor((a + 11 * h + 22 * l) / 451)
-  const month = Math.floor((h + l - 7 * m + 114) / 31) // 3=mars, 4=april
-  const day = ((h + l - 7 * m + 114) % 31) + 1
-  return new Date(year, month - 1, day)
-}
-function isoDatum(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-// Svenska lediga dagar för ett år: formellt röda (rörliga via påsk; midsommar/alla helgons via
-// lördagsregel) PLUS arbetsfria aftnar (midsommar-/jul-/nyårsafton — ej formellt röda men lediga).
-// Kapaciteten drar bort dessa när de infaller mån–fre. Rörliga dagar beräknas, aldrig hårdkodas.
-function svenskaLedigaDagar(year: number): Set<string> {
-  const s = new Set<string>()
-  const add = (d: Date) => s.add(isoDatum(d))
-  add(new Date(year, 0, 1))   // nyårsdagen
-  add(new Date(year, 0, 6))   // trettondedag jul
-  add(new Date(year, 4, 1))   // första maj
-  add(new Date(year, 5, 6))   // nationaldagen
-  add(new Date(year, 11, 24)) // julafton (arbetsfri afton)
-  add(new Date(year, 11, 25)) // juldagen
-  add(new Date(year, 11, 26)) // annandag jul
-  add(new Date(year, 11, 31)) // nyårsafton (arbetsfri afton)
-  const p = paskdagen(year)
-  const off = (n: number) => new Date(year, p.getMonth(), p.getDate() + n)
-  add(off(-2)) // långfredag
-  add(off(1))  // annandag påsk
-  add(off(39)) // Kristi himmelsfärd
-  for (let day = 20; day <= 26; day++) { const d = new Date(year, 5, day); if (d.getDay() === 6) { add(d); add(new Date(year, 5, day - 1)); break } } // midsommardagen (lör) + midsommarafton (fre)
-  for (let o = 0; o <= 6; o++) { const d = new Date(year, 9, 31 + o); if (d.getDay() === 6) { add(d); break } }        // alla helgons dag (lör 31 okt–6 nov)
-  return s
-}
-// Arbetsdagar i HELA månaden: vardag (mån–fre), ej röd dag. Kapaciteten räknas på hela månaden,
-// INTE "från idag" — månadens totala golv (matchar facit: juli 2026 = 23 vardagar).
-function arbetsdagarIManad(ar: number, manad: number): string[] {
-  const lediga = svenskaLedigaDagar(ar)
-  const dagar: string[] = []
-  const antalDagar = new Date(ar, manad, 0).getDate()
-  for (let day = 1; day <= antalDagar; day++) {
-    const d = new Date(ar, manad - 1, day)
-    const dow = d.getDay()
-    if (dow === 0 || dow === 6) continue // helg
-    const iso = isoDatum(d)
-    if (lediga.has(iso)) continue        // röd dag / arbetsfri afton
-    dagar.push(iso)
-  }
-  return dagar
-}
-
-// Antal LEDIGA vardagar (röda dagar + arbetsfria aftnar mån–fre) i månaden — för "N röda borträknade".
-function ledigaVardagarIManad(ar: number, manad: number): number {
-  const lediga = svenskaLedigaDagar(ar)
-  let n = 0
-  const antalDagar = new Date(ar, manad, 0).getDate()
-  for (let day = 1; day <= antalDagar; day++) {
-    const d = new Date(ar, manad - 1, day)
-    const dow = d.getDay()
-    if (dow === 0 || dow === 6) continue
-    if (lediga.has(isoDatum(d))) n++
-  }
-  return n
-}
+// Röda dagar, aftnar och arbetsdagar: EN källa för hela appen —
+// app/ledighet/_components/datum.ts (arbetsdagarIManad, ledigaVardagarIManad).
 
 // ============================================================
 // Helpers
@@ -213,17 +149,10 @@ function harledTyp(huvudtyp: string | null, maskinId: string | undefined, objekt
   return 'Okänt'
 }
 
+// Arbetsdagar kvar EFTER idag — samma kalender (röda dagar + aftnar) som Kapacitet-fliken.
 function arbetsdagarKvar(ar: number, manad: number): number {
-  const idag = new Date()
-  const sistaDag = new Date(ar, manad, 0).getDate()
-  if (ar < idag.getFullYear() || (ar === idag.getFullYear() && manad < idag.getMonth() + 1)) return 0
-  const start = (ar === idag.getFullYear() && manad === idag.getMonth() + 1) ? idag.getDate() + 1 : 1
-  let count = 0
-  for (let d = start; d <= sistaDag; d++) {
-    const day = new Date(ar, manad - 1, d).getDay()
-    if (day !== 0 && day !== 6) count++
-  }
-  return count
+  const idag = ymdLokal(new Date())
+  return arbetsdagarIManad(ar, manad).filter(d => d > idag).length
 }
 
 // Skogstyp-intervall för Utfall-kalibreringen (takt-kurvornas grupper).
@@ -312,21 +241,40 @@ export default function HelikopterV2Page() {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const touchStartY = useRef<number | null>(null)
 
+  // Tre tillstånd som SYNS olika: laddar, tomt, fel. Fel får aldrig se ut som tomt,
+  // och förra månadens data får aldrig ligga kvar under en ny rubrik.
+  const [fel, setFel] = useState<string | null>(null)
+
   const load = useCallback(async () => {
+    const tomAllt = () => {
+      setData([]); setBestallningar([]); setOversikt([]); setOvrigtData([]); setObjektAlla([])
+      setDimMaskiner([]); setMaskinstoppData([]); setAvslutByVo({}); setUtfallVy([]); setAvslutObjekt([])
+    }
     try {
       // Läs via inloggad session-klient (inte hårdkodad anon-nyckel).
-      const [hv, best, dimo, obj, dimm, stopp, stoppMaskin, utfall, oversiktRes, ovrigtRes] = await Promise.all([
-        supabase.from('helikopter_vy').select('*'),
+      // Tabeller/vyer som kan växa förbi PostgREST:s 1000-radersgräns hämtas sidvis
+      // (hamtaAlla, unik sorteringsnyckel) — aldrig tyst kapade.
+      const svar = await Promise.all([
+        hamtaAlla<any>(() => supabase.from('helikopter_vy').select('*'), 'objekt_id'),
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
-        supabase.from('dim_objekt').select('objekt_id,object_name,maskin_id,vo_nummer,huvudtyp,atgard,skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto'),
-        supabase.from('objekt').select('id,namn,vo_nummer,typ,ar,manad,status,volym,manuell_prognos,skordare_maskin_id,skotare_maskin_id,skordare_utforare,skotare_utforare'),
+        hamtaAlla<any>(() => supabase.from('dim_objekt').select('objekt_id,object_name,maskin_id,vo_nummer,huvudtyp,atgard,skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto'), 'objekt_id'),
+        hamtaAlla<any>(() => supabase.from('objekt').select('id,namn,vo_nummer,typ,ar,manad,status,volym,manuell_prognos,skordare_maskin_id,skotare_maskin_id,skordare_utforare,skotare_utforare'), 'id'),
         supabase.from('dim_maskin').select('maskin_id,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'),
         supabase.from('stopp').select('id,fran_datum,till_datum,orsak'),
         supabase.from('stopp_maskin').select('stopp_id,maskin_id'),
-        supabase.from('vy_objekt_utfall').select('*'),
+        hamtaAlla<any>(() => supabase.from('vy_objekt_utfall').select('*'), ['objekt_id', 'roll']),
         supabase.from('helikopter_oversikt').select('bolag,typ,bestallning,avverkat,utskotat').eq('ar', ar).eq('manad', manad),
         supabase.from('helikopter_oversikt_ovrigt').select('bolag,typ,avverkat,utskotat').eq('ar', ar).eq('manad', manad),
       ])
+      const [hv, best, dimo, obj, dimm, stopp, stoppMaskin, utfall, oversiktRes, ovrigtRes] = svar
+      // Supabase-klienten kastar inte — felet ligger i varje svar. Ett enda fel = felläge.
+      const forstaFel = svar.find(r => r.error)?.error
+      if (forstaFel) {
+        console.error('[helikopter-v2] läsning misslyckades', forstaFel)
+        tomAllt()
+        setFel(forstaFel.message || 'Kunde inte läsa data')
+        return
+      }
       // Härled huvudtyp där den saknas (maskin-regel + vo-match) — fas 1, ingen DB-ändring.
       const maskinById = new Map<string, string>((dimo.data || []).map((d: any) => [d.objekt_id, d.maskin_id]))
       const typByVo = new Map<string, string>(
@@ -334,17 +282,15 @@ export default function HelikopterV2Page() {
           .filter((o: any) => o.vo_nummer != null && String(o.vo_nummer).trim() !== '')
           .map((o: any) => [String(o.vo_nummer).trim(), o.typ])
       )
-      if (hv.data) {
-        setData(hv.data.map((o: any) => ({
-          ...o,
-          huvudtyp: harledTyp(o.huvudtyp, maskinById.get(o.objekt_id), typByVo.get(String(o.vo_nummer || '').trim())),
-        })))
-      }
-      if (best.data) setBestallningar(best.data)
+      setData((hv.data || []).map((o: any) => ({
+        ...o,
+        huvudtyp: harledTyp(o.huvudtyp, maskinById.get(o.objekt_id), typByVo.get(String(o.vo_nummer || '').trim())),
+      })))
+      setBestallningar(best.data || [])
       setOversikt((oversiktRes.data || []) as OversiktRad[])
       setOvrigtData((ovrigtRes.data || []) as OvrigtRad[])
       setObjektAlla(obj.data || [])
-      if (dimm.data) setDimMaskiner(dimm.data as DimMaskin[])
+      setDimMaskiner((dimm.data || []) as DimMaskin[])
       // Stopp: tabellen `maskinstopp` finns inte — joina stopp (datum/orsak) med stopp_maskin (vilka maskiner).
       const stoppById = new Map<string, any>((stopp.data || []).map((s: any) => [s.id, s]))
       setMaskinstoppData((stoppMaskin.data || []).flatMap((sm: any) => {
@@ -367,7 +313,12 @@ export default function HelikopterV2Page() {
       setAvslutObjekt(((dimo.data || []) as any[])
         .filter(d => d.skordning_avslutad != null || d.skotning_avslutad != null)
         .map(d => ({ objekt_id: d.objekt_id, object_name: d.object_name, vo_nummer: d.vo_nummer, skordning_avslutad: d.skordning_avslutad, skotning_avslutad: d.skotning_avslutad, huvudtyp: d.huvudtyp, atgard: d.atgard })))
-    } catch { /* use empty */ }
+      setFel(null)
+    } catch (e: any) {
+      console.error('[helikopter-v2] läsning kastade', e)
+      tomAllt()
+      setFel(e?.message || 'Kunde inte läsa data')
+    }
   }, [ar, manad])
 
   useEffect(() => {
@@ -412,17 +363,9 @@ export default function HelikopterV2Page() {
   }, [oversikt])
 
   const workdaysInfo = useMemo(() => {
-    const totalDays = new Date(ar, manad, 0).getDate()
-    const now = new Date()
-    let total = 0, passed = 0
-    for (let d = 1; d <= totalDays; d++) {
-      const dow = new Date(ar, manad - 1, d).getDay()
-      if (dow !== 0 && dow !== 6) {
-        total++
-        if (new Date(ar, manad - 1, d).getTime() <= now.getTime()) passed++
-      }
-    }
-    return { total, passed }
+    const idag = ymdLokal(new Date())
+    const dagar = arbetsdagarIManad(ar, manad)
+    return { total: dagar.length, passed: dagar.filter(d => d <= idag).length }
   }, [ar, manad])
 
   // Månadssummor — kalenderbas ur helikopter_oversikt (beställd produktion i månaden).
@@ -563,7 +506,7 @@ export default function HelikopterV2Page() {
 
   // === KAPACITET (framåt): hinner maskinerna med månadens objekt — RÄKNAD kapacitet (dagar × 8) ===
   const kapacitet = useMemo(() => {
-    const idag = new Date().toISOString().slice(0, 10)
+    const idag = ymdLokal(new Date())
     // Inkl. 'avslutat' — avslutade objekt var del av månadens plan och ska synas som klara (RAD 1 + lista),
     // inte sållas bort tyst. RAD 2 (kvar) exkluderar dem via klar-flaggan nedan.
     const monthObjekt = objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'planerad' || o.status === 'pagaende' || o.status === 'avslutat'))
@@ -782,10 +725,25 @@ export default function HelikopterV2Page() {
       </div>
 
       {loading && (
-        <div style={{ textAlign: 'center', padding: 40, color: muted }}>Laddar...</div>
+        <div style={{ textAlign: 'center', padding: 40, color: muted }}>Laddar {MANAD[manad]}…</div>
       )}
 
-      {!loading && (
+      {/* Fel = eget tillstånd, aldrig förklätt till "tomt". */}
+      {!loading && fel && (
+        <div style={{ padding: '0 24px 120px' }}>
+          <div style={{ ...card, padding: '24px 18px', textAlign: 'center' }}>
+            <div style={{ fontSize: 17, fontWeight: 600, color: text, marginBottom: 16 }}>Kunde inte läsa data – försök igen</div>
+            <button
+              onClick={() => { setLoading(true); load().finally(() => setLoading(false)) }}
+              style={{ minHeight: 44, padding: '0 24px', borderRadius: 10, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 15, fontWeight: 600, fontFamily: ff, cursor: 'pointer' }}
+            >
+              Försök igen
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!loading && !fel && (
         <div style={{ padding: '0 24px 120px' }}>
           {flik === 'bestallning' && (harProduktion ? (
           <>
