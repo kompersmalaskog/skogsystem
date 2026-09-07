@@ -85,6 +85,19 @@ function ritaPilIkon(farg: string, px = 80): HTMLCanvasElement {
 // och den framtonande radie-ringen.
 const FALLNINGSRADIE_M = 40;
 
+// FAROTYPER i körvyn — DELAD källa för både etikett-lagret (markers-korvy-label) och det förstärkta
+// faro-larmet (blink + pip). En symbol av dessa typer larmar automatiskt (OPTION A: ingen kryssruta).
+const KORVY_FARO_TYPER = new Set<string>(['powerline', 'manualfelling', 'warning', 'steep']);
+
+// Innehålls-hash för en markör (typ + kommentar). Kvittens lagrar hashen; ändras innehållet skiljer
+// hashen → symbolen återuppstår OKVITTERAD. djb2 → base36 (kort, deterministisk, ingen krypto behövs).
+function markerInnehallHash(m: { type?: string; comment?: string }): string {
+  const s = `${m.type ?? ''}|${m.comment ?? ''}`;
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
 // Körvy-synhåll: i körläge visas symboler/faror inom detta avstånd från FÖRAREN (GPS), inte
 // från trakt-centrum. Robust mot trakter med skevt/saknat centrum — svgToLatLon(symbol) och
 // GPS jämförs som två VERKLIGA positioner. Generöst tilltaget; vid zoom 18 syns ändå bara ett
@@ -1672,13 +1685,8 @@ export default function PlannerPage() {
           source: 'markers-source',
           filter: ['all',
             ['<=', ['number', ['get', 'dist'], 9999], 100],
-            ['match', ['get', 'type'],
-              'powerline',     true,
-              'manualfelling', true,
-              'warning',       true,
-              'steep',         true,
-              false,
-            ],
+            // Faro-typerna ur den DELADE konstanten (samma källa som faro-larmet) → ingen drift.
+            ['match', ['get', 'type'], [...KORVY_FARO_TYPER] as any, true, false],
           ],
           layout: {
             'text-field': ['match', ['get', 'type'],
@@ -2160,7 +2168,7 @@ export default function PlannerPage() {
         if (data.checklist_items) setChecklistItems(data.checklist_items);
         if (data.generellt_tillstand) setGenerelltTillstand(data.generellt_tillstand);
       }
-      // Ladda kvitterade varningar från Supabase
+      // Ladda kvitterade varningar från Supabase (planeringsvyns activeWarning — orörd, håll isär).
       const { data: ackData } = await supabase
         .from('warning_acknowledgments')
         .select('marker_id')
@@ -2168,6 +2176,13 @@ export default function PlannerPage() {
       if (ackData && ackData.length > 0) {
         setAcknowledgedWarnings(ackData.map(r => r.marker_id));
       }
+      // Ladda körvyns symbol-kvittens (proximitets-notis) — marker_id → innehålls-hash, per objekt.
+      const { data: kvData, error: kvErr } = await supabase
+        .from('korvy_kvittens')
+        .select('marker_id, innehall_hash')
+        .eq('objekt_id', valtObjekt.id);
+      if (kvErr) console.error('[Körvy kvittens] laddning:', kvErr.message);
+      setWarningAckMap(new Map((kvData || []).map((r: any) => [String(r.marker_id), r.innehall_hash ?? ''])));
       setInfoLoaded(true);
     };
     loadInfo();
@@ -3058,10 +3073,34 @@ export default function PlannerPage() {
   // Nästa-kö (3 närmaste framåt) + akut varning
   type NextItem = { id: string; type: string; comment?: string; dist: number; color: string; bearing: number };
   const [korvyNextItems, setKorvyNextItems] = useState<NextItem[]>([]);
-  type AcuteWarning = { id: string; type: string; comment?: string; dist: number; color: string; photoData?: string; audioData?: string; expireAt: number };
+  type AcuteWarning = { id: string; type: string; namn: string; comment?: string; dist: number; color: string; photoData?: string; audioData?: string; isFara: boolean; hash: string };
   const [korvyAcuteWarning, setKorvyAcuteWarning] = useState<AcuteWarning | null>(null);
-  const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());
+  const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());  // nyckel `${id}|${hash}` → vibb/ljud en gång per innehåll
   const korvyAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Proximitets-notis: kvitterade symboler per (objekt, marker) → innehålls-hash. Symbol är TYST bara
+  // om hashen matchar (ändrad kommentar → återuppstår). Dedikerad körvy-tabell (korvy_kvittens),
+  // skild från planeringsvyns activeWarning (håll isär). Laddas i loadInfo per objekt.
+  const [warningAckMap, setWarningAckMap] = useState<Map<string, string>>(new Map());
+  // WebAudio för faro-pip (kort pip vid infart). Låses upp av körvy-öppningsgesten (iOS-krav).
+  const korvyAudioCtxRef = useRef<AudioContext | null>(null);
+  const unlockKorvyLjud = () => {
+    try {
+      if (!korvyAudioCtxRef.current) { const AC = (window as any).AudioContext || (window as any).webkitAudioContext; if (AC) korvyAudioCtxRef.current = new AC(); }
+      if (korvyAudioCtxRef.current?.state === 'suspended') korvyAudioCtxRef.current.resume().catch(() => {});
+    } catch { /* ljud kan saknas på vissa enheter */ }
+  };
+  const spelaKorvyPip = () => {
+    const ctx = korvyAudioCtxRef.current; if (!ctx) return;
+    try {
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.type = 'square'; osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.2);
+    } catch { /* pip kan misslyckas — vibration + blink täcker ändå */ }
+  };
 
   // === SKOTARKÖRVY (v1) — skördarstråk + kvarvolym i skotarens körvy ===
   // Testbarhet (Martins flagga): läget FÖLJER rollen på objektet, MEN admin/chef får båda valen i
@@ -7106,37 +7145,54 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, korvyEffectivePos, korvyHeading, markers, skotarKorvy]);
 
-  // 8) Akut varning: när närmsta marker är ≤50m, trigga vibration + kort. Per ID en gång.
+  // 8) PROXIMITETS-NOTIS: visa NÄRMASTE OKVITTERADE symbol inom sin kategori-radie (getWarningDistances,
+  //    30/50 m) automatiskt — alla typer. Kön (korvyNextItems) är sorterad → första kandidaten = närmast.
+  //    Kvitterad + oförändrad (matchande hash) hoppas över → tyst. Kortet ligger kvar tills passerad
+  //    (utanför radien → nästa kandidat/null) eller kvitterad; INGEN 8s-timer. Ett kort i taget (aldrig bunt).
+  //    Nivå 2 — FAROR (KORVY_FARO_TYPER): vibb-mönster + pip + blink (i kortet). Vibb/ljud EN gång per innehåll.
   useEffect(() => {
-    if (!korvyActive) { setKorvyAcuteWarning(null); return; }
-    const closest = korvyNextItems[0];
-    if (!closest) return;
-    if (closest.dist > 50) return;
-    if (korvyTriggeredIdsRef.current.has(closest.id)) return;
-    // Hämta full marker för foto/audio
-    const m = markers.find(mm => String(mm.id) === closest.id);
-    korvyTriggeredIdsRef.current.add(closest.id);
-    if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
-    setKorvyAcuteWarning({
-      id: closest.id,
-      type: closest.type,
-      comment: closest.comment,
-      dist: closest.dist,
-      color: closest.color,
-      photoData: m?.photoData,
-      audioData: m?.audioData,
-      expireAt: Date.now() + 8000,
-    });
-    // Audio-uppspelning
-    if (m?.audioData) {
-      try {
-        if (korvyAudioRef.current) { korvyAudioRef.current.pause(); }
-        korvyAudioRef.current = new Audio(m.audioData);
-        korvyAudioRef.current.play().catch(() => {});
-      } catch { /* audio kan misslyckas på vissa enheter */ }
+    if (!korvyActive || skotarKorvy) { setKorvyAcuteWarning(null); return; }
+    let vald: { item: NextItem; m: Marker; hash: string } | null = null;
+    for (const item of korvyNextItems) {
+      const m = markers.find(mm => String(mm.id) === item.id);
+      if (!m) continue;
+      const hash = markerInnehallHash(m);
+      if (warningAckMap.get(item.id) === hash) continue;                 // kvitterad + oförändrad → tyst
+      if (item.dist > getWarningDistances(m).warnDist) continue;         // utanför kategori-radien
+      vald = { item, m, hash }; break;                                   // närmaste okvitterade inom radie
+    }
+    if (!vald) { setKorvyAcuteWarning(null); return; }
+    const { item, m, hash } = vald;
+    const isFara = KORVY_FARO_TYPER.has(item.type);
+    const namn = markerTypes.find(t => t.id === item.type)?.name || 'Markering';
+    setKorvyAcuteWarning({ id: item.id, type: item.type, namn, comment: item.comment, dist: item.dist, color: item.color, photoData: m.photoData, audioData: m.audioData, isFara, hash });
+    // Vibb + ljud EN gång per (marker, innehåll). Ändrat innehåll (ny hash) → ny nyckel → larmar igen.
+    const trigKey = `${item.id}|${hash}`;
+    if (!korvyTriggeredIdsRef.current.has(trigKey)) {
+      korvyTriggeredIdsRef.current.add(trigKey);
+      if (navigator.vibrate) navigator.vibrate(isFara ? [60, 40, 60, 40, 60] : [30, 50, 30]);
+      if (m.audioData) {
+        try { if (korvyAudioRef.current) korvyAudioRef.current.pause(); korvyAudioRef.current = new Audio(m.audioData); korvyAudioRef.current.play().catch(() => {}); } catch { /* */ }
+      }
+      if (isFara) spelaKorvyPip();   // nivå 2: ETT pip vid infart (inte upprepat)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [korvyNextItems, korvyActive]);
+  }, [korvyNextItems, korvyActive, skotarKorvy, warningAckMap, markers]);
+
+  // Kvittering ("Sett") för körvy-notisen → skriv korvy_kvittens (upsert per objekt+marker med hashen).
+  // Optimistiskt: lägg i map + tysta kortet direkt; nästa kandidat (om någon inom radie) dyker upp.
+  const kvitteraKorvySymbol = useCallback(async (w: AcuteWarning) => {
+    if (!valtObjekt?.id) return;
+    setWarningAckMap(prev => new Map(prev).set(w.id, w.hash));
+    setKorvyAcuteWarning(null);
+    try {
+      const { error } = await supabase.from('korvy_kvittens').upsert(
+        { objekt_id: valtObjekt.id, marker_id: w.id, marker_type: w.type, marker_name: w.namn, innehall_hash: w.hash, kvitterad_at: new Date().toISOString() },
+        { onConflict: 'objekt_id,marker_id' },
+      );
+      if (error) console.error('[Körvy kvittens] spar-fel:', error.message);
+    } catch (e) { console.error('[Körvy kvittens] undantag:', e); }
+  }, [valtObjekt?.id]);
 
   // === GPS-PRICK på kartan (Apple Maps-stil) — WebGL circle-layers ===
   // Skapar source/layers vid första GPS-fix om de saknas. Uppdaterar data vid varje
@@ -7949,19 +8005,8 @@ export default function PlannerPage() {
     }
   }, [korvyActive]);
 
-  // 9) Akut varning auto-dismiss: efter 8s eller när dist > 80m
-  useEffect(() => {
-    if (!korvyAcuteWarning) return;
-    const checkDist = korvyNextItems.find(i => i.id === korvyAcuteWarning.id);
-    if (checkDist && checkDist.dist > 80) {
-      setKorvyAcuteWarning(null);
-      return;
-    }
-    const remaining = korvyAcuteWarning.expireAt - Date.now();
-    if (remaining <= 0) { setKorvyAcuteWarning(null); return; }
-    const t = setTimeout(() => setKorvyAcuteWarning(null), remaining);
-    return () => clearTimeout(t);
-  }, [korvyAcuteWarning, korvyNextItems]);
+  // 9) (Borttagen) 8s-auto-dismiss. Notisen ligger kvar tills PASSERAD (utanför kategori-radien →
+  //    kandidat-effekten ovan nollar/byter kortet) eller KVITTERAD ("Sett"). Ingen timer.
 
   // 5) Visa/dölj Körvy-labels (typ + avstånd) på markeringar inom 200m + lines emphasis
   useEffect(() => {
@@ -12069,7 +12114,7 @@ export default function PlannerPage() {
             background: 'rgba(28,28,30,0.94)',
             backdropFilter: 'blur(24px) saturate(180%)',
             WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-            border: `2px solid ${w.color}`,
+            border: `${w.isFara ? '2.5px' : '2px'} solid ${w.color}`,
             borderRadius: 16,
             padding: 16,
             zIndex: 260,
@@ -12078,9 +12123,12 @@ export default function PlannerPage() {
             alignItems: 'center',
             gap: 14,
             fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-            animation: 'korvySlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+            // Nivå 2 (fara): pulsande röd glöd ovanpå in-glidningen. Vanlig notis: bara in-glidning.
+            animation: w.isFara
+              ? 'korvySlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1), faraBlink 0.9s ease-in-out infinite'
+              : 'korvySlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
           }}>
-            <style>{`@keyframes korvySlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }`}</style>
+            <style>{`@keyframes korvySlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } @keyframes faraBlink { 0%,100% { box-shadow: 0 0 0 0 rgba(255,69,58,0); } 50% { box-shadow: 0 0 0 5px rgba(255,69,58,0.6); } }`}</style>
             {/* Tonad bg-overlay för markeringsfärg */}
             <div style={{ position: 'absolute', inset: 0, background: bgTint, borderRadius: 14, pointerEvents: 'none' }} aria-hidden="true" />
             {/* Innehåll */}
@@ -12099,7 +12147,7 @@ export default function PlannerPage() {
             )}
             <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
               <div style={{ fontSize: '17px', fontWeight: '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {w.type}
+                {w.namn}
               </div>
               {w.comment && (
                 <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -12107,9 +12155,17 @@ export default function PlannerPage() {
                 </div>
               )}
             </div>
-            <div style={{ fontSize: '20px', fontWeight: '700', color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
+            <div style={{ fontSize: '17px', fontWeight: '700', color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
               {w.dist} m
             </div>
+            {/* Sett/OK — kvitterar symbolen (per objekt+marker). Tystar den (och blink/pip) på framtida
+                pass tills innehållet ändras. Gäller ALLA notiser inkl faror. */}
+            <button type="button" onClick={() => { if (navigator.vibrate) navigator.vibrate(8); kvitteraKorvySymbol(w); }}
+              aria-label={`Kvittera ${w.namn}`}
+              style={{ flexShrink: 0, position: 'relative', zIndex: 1, padding: '9px 16px', borderRadius: 12, border: 'none',
+                background: '#30d158', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Sett
+            </button>
           </div>
         );
       })()}
@@ -12487,10 +12543,10 @@ export default function PlannerPage() {
                     ]
                   : isAdminRiktig
                     ? [
-                        { label: 'Skördarkörvy', icon: 'navigation', action: () => { setKorvyForceRoll('skordare'); setKorvyActive(true); } },
+                        { label: 'Skördarkörvy', icon: 'navigation', action: () => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); } },
                         { label: 'Skotarkörvy', icon: 'local_shipping', action: () => { setKorvyForceRoll('skotare'); setKorvyActive(true); } },
                       ]
-                    : [{ label: 'Körvy 2D', icon: 'navigation', action: () => { setKorvyForceRoll(null); setKorvyActive(true); } }],
+                    : [{ label: 'Körvy 2D', icon: 'navigation', action: () => { unlockKorvyLjud(); setKorvyForceRoll(null); setKorvyActive(true); } }],
               },
               {
                 title: 'SKOTARE',
