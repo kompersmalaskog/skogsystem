@@ -18,6 +18,7 @@ const pageNames: Record<string, string> = {
   '/kalibrering': 'Kalibrering',
   '/bestallningar': 'Beställningar',
   '/helikopter': 'Helikopter',
+  '/helikopter-v2': 'Helikopter v2',
   '/forbattringsforslag': 'Förslag',
   '/maskin-service': 'Maskinservice',
   '/datahalsa': 'Datahälsa',
