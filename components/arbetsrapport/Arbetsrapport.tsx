@@ -13,6 +13,8 @@ import type { VilaTrosklar } from "@/lib/vilobrott";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
+import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
+import PdfLasare from "@/app/planering/PdfLasare";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -648,6 +650,31 @@ export default function Arbetsrapport() {
   const [gsAvtal, setGsAvtal] = useState<any>(null);
   const [objektLista, setObjektLista] = useState<any[]>([]);
   const [historik, setHistorik] = useState<any[]>([]);
+  // Förarens tidsspecifikation för vald månad — SAMMA beräkning som Fortnox-
+  // exporten (/api/lon/min-manad → lib/lonesystem/loneunderlag). Räknas vid varje
+  // öppning; inget cachas. Ersätter den lokala månadsberäkningen som fanns här
+  // förr (två sanningar om samma månad).
+  const [minManad, setMinManad] = useState<{ arbetsmanad: string; laddar: boolean; fel: string | null; data: any | null }>({ arbetsmanad: "", laddar: false, fel: null, data: null });
+  // PDF:en öppnas INNE i appen (PdfLasare) — aldrig ny flik/nedladdning som slänger
+  // ut föraren ur den installerade appen. Han bläddrar först, delar/sparar sedan.
+  const [specPdf, setSpecPdf] = useState<{ url: string; titel: string; filnamn: string } | null>(null);
+  useEffect(() => {
+    if (steg !== "lön" || !medarbetare?.id) return;
+    const ref = new Date();
+    const d = new Date(ref.getFullYear(), ref.getMonth() + lönOffset, 1);
+    const arbetsmanad = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    let avbruten = false;
+    setMinManad({ arbetsmanad, laddar: true, fel: null, data: null });
+    fetch("/api/lon/min-manad", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ arbetsmanad }), cache: "no-store" })
+      .then(async r => {
+        const j = await r.json().catch(() => ({}));
+        if (avbruten) return;
+        if (!r.ok || !j.ok) setMinManad({ arbetsmanad, laddar: false, fel: j.error || `Kunde inte läsa specifikationen (HTTP ${r.status})`, data: null });
+        else setMinManad({ arbetsmanad, laddar: false, fel: null, data: j.medarbetare });
+      })
+      .catch(e => { if (!avbruten) setMinManad({ arbetsmanad, laddar: false, fel: e?.message || String(e), data: null }); });
+    return () => { avbruten = true; };
+  }, [steg, lönOffset, medarbetare?.id]);
   const [dagensObjekt, setDagensObjekt] = useState<string | null>(null);
   const [valtObjektId, setValtObjektId] = useState<string | null>(null);
   const [visaObjektVäljare, setVisaObjektVäljare] = useState(false);
@@ -3800,20 +3827,24 @@ export default function Arbetsrapport() {
     const månadsExtraTid = extraTidData.filter(e => e.datum && e.datum.startsWith(lönePeriod));
     const extraTidMin = månadsExtraTid.reduce((a,e) => a + (e.minuter || 0), 0);
 
-    // Rådata från faktiska dagar i filtrerad historik + extra tid — inga kronor
+    // Månadens summor kommer ur specifikationen (/api/lon/min-manad = samma
+    // beräkning som Fortnox-exporten). INGEN lokal månadsberäkning längre —
+    // två sanningar om samma månad är precis det som rensats bort. Dagräkningen
+    // ur historik finns kvar bara för bekräftelse-gaten.
     const arbetsdagar = månadsHistorik.length;
-    const jobbadMin2 = månadsHistorik.reduce((a,d) => a + (d.arbetad_min || 0), 0) + extraTidMin;
-    const extraTidH = Math.round(extraTidMin/60*10)/10;
-    const jobbadH = arbetsdagar > 0 || extraTidMin > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
-    const totalKm = månadsHistorik.reduce((a,d) => a + (d.km_totalt || d.km_morgon || 0) + (d.km_kvall || 0), 0);
-    const trakDagar = månadsHistorik.filter(d => d.traktamente).length;
+    const spec = minManad.arbetsmanad === lönePeriod && !minManad.laddar ? minManad.data : null;
+    const specLaddar = minManad.arbetsmanad !== lönePeriod || minManad.laddar;
+    const specFel = minManad.arbetsmanad === lönePeriod ? minManad.fel : null;
+    const jobbadH = spec ? Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 10) / 10 : 0;
+    const extraTidH = spec ? Number(spec.extra_h) : 0;
+    const totalKm = spec ? (spec.dagar as any[]).reduce((a: number, d: any) => a + (d.km_totalt || 0), 0) : 0;
+    const trakDagar = spec ? (spec.dagar as any[]).filter((d: any) => d.traktamente).length : 0;
     const redigeringar = Object.entries(redDagar);
 
-    // Brandrisk-OB: månadens summa (timmar, aldrig kronor) + tyst retroaktiv-rad
-    // för obesvarade tidiga vardagsmorgnar. Obesvarade läses ur årsData (hela året)
-    // så gamla dagar utanför 60-dagars-historiken också fångas — ingen nag, bara
-    // en rad som ligger kvar med ja/nej direkt i listan tills den besvaras.
-    const obTotalMin = månadsHistorik.reduce((a, d) => a + obMinuter({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: d.brandrisk_beordrad ?? null }), 0);
+    // Brandrisk-OB: månadens summa kommer ur specen (spec.ob.timmar). Här bara den
+    // tysta retroaktiv-listan för obesvarade tidiga vardagsmorgnar — läses ur
+    // årsData (hela året) så gamla dagar utanför 60-dagars-historiken också fångas.
+    // Ingen nag; ligger kvar med ja/nej tills den besvaras. Bor i "Saknas"-blocket.
     const obObesDagar = (årsData || []).filter((d: any) => d.datum && d.brandrisk_beordrad == null && arTidigVardag({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: null }))
       .sort((a: any, b: any) => b.datum.localeCompare(a.datum));
     const svaraBrandriskRetro = async (d: any, val: boolean) => {
@@ -3841,7 +3872,8 @@ export default function Arbetsrapport() {
 
     const periodStatus = lönStatusPerPeriod[lönePeriod] || null;
     const ärGodkänd = !!periodStatus;
-    const kanGodkänna = arbetsdagar > 0 && obekräftadeDagar === 0 && !ärGodkänd;
+    // Godkännandet skriver månadens summor — de måste komma ur en laddad spec.
+    const kanGodkänna = arbetsdagar > 0 && obekräftadeDagar === 0 && !ärGodkänd && !!spec;
 
     // Godkänn månaden: föraren har granskat rådatan och står för den.
     // TODO(Fortnox): här kopplas den faktiska Fortnox-sändningen in när
@@ -3967,33 +3999,7 @@ export default function Arbetsrapport() {
 
           <main style={{ paddingTop:80,paddingBottom:128,padding:"80px 16px 128px",maxWidth:640,margin:"0 auto" }}>
 
-            {/* Tyst retroaktiv-rad: tidiga vardagsmorgnar som saknar brandrisk-svar.
-                Ingen popup, ingen upprepning — ligger kvar tills de besvaras (ja/nej
-                direkt i listan). Gamla vårdagar kan ignoreras; raden gnäller inte. */}
-            {obObesDagar.length > 0 && (
-              <section style={{ marginBottom:24 }}>
-                <div onClick={()=>setObRetroÖppen(o=>!o)} style={{ background:"rgba(255,214,10,0.06)",border:"1px solid rgba(255,214,10,0.25)",borderRadius:12,padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:20,color:"#ffd60a" }}>local_fire_department</span>
-                    <span style={{ fontSize:15,color:"#fff" }}>{obObesDagar.length} tidig{obObesDagar.length===1?' dag':'a dagar'} väntar på brandrisk-svar</span>
-                  </div>
-                  <span className="material-symbols-outlined" style={{ fontSize:20,color:"rgba(255,255,255,0.4)",transform:obRetroÖppen?"rotate(90deg)":"none",transition:"transform .15s" }}>chevron_right</span>
-                </div>
-                {obRetroÖppen && (
-                  <div style={{ marginTop:8,background:"#1c1c1e",borderRadius:12,padding:"4px 16px" }}>
-                    {obObesDagar.map((d:any, i:number) => (
-                      <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:i<obObesDagar.length-1?"1px solid rgba(255,255,255,0.08)":"none",gap:10 }}>
-                        <span style={{ fontSize:14,color:"#fff",...TNUM }}>{d.datum} · {(d.start_tid||'').slice(0,5)}</span>
-                        <div style={{ display:"flex",gap:8 }}>
-                          <button onClick={()=>svaraBrandriskRetro(d,true)} style={{ padding:"6px 16px",background:C.orange,color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Ja</button>
-                          <button onClick={()=>svaraBrandriskRetro(d,false)} style={{ padding:"6px 16px",background:"rgba(255,255,255,0.08)",color:"#fff",border:"none",borderRadius:8,fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Nej</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            )}
+            {/* Brandrisk-retroraden bor numera i Sammanställningens "Saknas"-block. */}
 
             {/* Timmar per vecka — veckan som hjälte, staplar visar dagsrytmen */}
             <section style={{ marginBottom:32 }}>
@@ -4074,12 +4080,17 @@ export default function Arbetsrapport() {
               </div>
             </section>
 
-            {/* Körning — rådata; ersättningen räknas i Fortnox */}
+            {/* Körning — BARA det som blir ersättning (påbörjade mil ur specen, samma
+                lib/kmErsattning som exporten). Rå-km per dag finns i kalendern; två tal
+                för samma sak bjöd in frågan varför de skiljer sig. */}
             <section style={{ marginBottom:32 }}>
               <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Körning</h2>
               <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <p style={{ fontSize:12,color:"#8e8e93",margin:0 }}>Total körning</p>
-                <p style={{ ...TYPE.h2,margin:0,...TNUM }}>{totalKm} km</p>
+                <div>
+                  <p style={{ fontSize:12,color:"#8e8e93",margin:0 }}>Reseersättning</p>
+                  {spec && <p style={{ fontSize:11,color:"#636366",margin:"3px 0 0" }}>påbörjade mil över fri pendling {spec.km_grans} km/dag</p>}
+                </div>
+                <p style={{ ...TYPE.h2,margin:0,...TNUM }}>{spec ? `${spec.kor_mil} mil` : specLaddar ? '…' : '–'}</p>
               </div>
             </section>
 
@@ -4182,40 +4193,147 @@ export default function Arbetsrapport() {
 
         <main style={{ paddingTop:96,paddingBottom:192,padding:"96px 16px 192px",maxWidth:448,margin:"0 auto",width:"100%" }}>
 
-          {/* Hjälte: Arbetad tid — samma mönster som Dag-vyns Total. Rådata,
-              inga kronor: Fortnox räknar lönen på det föraren godkänner här. */}
-          <section style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",marginBottom:16 }}>
-            {ärGodkänd && (
-              <div style={{ display:"flex",justifyContent:"center",paddingTop:14 }}>
-                <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:12,background:"rgba(48,209,88,0.1)",color:C.green,fontSize:13,fontWeight:600,border:"1px solid rgba(48,209,88,0.2)" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:14 }}>check</span>
-                  Godkänd
-                </span>
-              </div>
-            )}
-            <div style={{ textAlign:"center",padding:"18px 0 16px",borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
-              <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Arbetad tid</p>
-              <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>
-                {jobbadH.toLocaleString('sv-SE')} <span style={{ ...TYPE.h2,color:"#8e8e93",fontWeight:600 }}>tim</span>
-              </p>
-              <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
-                {arbetadeDagar} arbetsdagar{extraTidH > 0 ? ` · varav extra tid ${extraTidH.toLocaleString('sv-SE')} tim` : ''}
-              </p>
+          {/* TIDSSPECIFIKATION — exakt det som går till lönen, ur SAMMA beräkning som
+              Fortnox-exporten (/api/lon/min-manad). MÄNGDER, aldrig kronor: föraren
+              kontrollerar timmar och mil mot sitt lönebesked, Fortnox äger satserna. */}
+          {ärGodkänd && (
+            <div style={{ display:"flex",justifyContent:"center",marginBottom:12 }}>
+              <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:12,background:"rgba(48,209,88,0.1)",color:C.green,fontSize:13,fontWeight:600,border:"1px solid rgba(48,209,88,0.2)" }}>
+                <span className="material-symbols-outlined" style={{ fontSize:14 }}>check</span>
+                Godkänd
+              </span>
             </div>
-            {/* Stödrader — rådata som label ↔ värde */}
-            {([
-              ["Bekräftade dagar", `${bekräftadeDagar} av ${arbetsdagar}`, obekräftadeDagar > 0 ? C.orange : C.green],
-              ["Körning", `${totalKm.toLocaleString('sv-SE')} km`, "#fff"],
-              ["Traktamente", `${trakDagar} ${trakDagar === 1 ? 'dag' : 'dagar'}`, "#fff"],
-              ...(obTotalMin > 0 ? [["Brandrisk-OB", fmtOb(obTotalMin), "#ffd60a"] as [string,string,string]] : []),
-              ...frånvaroRader.map(([label, n]) => [label, `${n} ${n === 1 ? 'dag' : 'dagar'}`, "#fff"] as [string,string,string]),
-            ] as [string,string,string][]).map(([l,v,färg],i,arr)=>(
-              <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i < arr.length-1 ? "1px solid rgba(255,255,255,0.08)" : "none" }}>
-                <span style={{ fontSize:16,color:"#fff" }}>{l}</span>
-                <span style={{ ...TYPE.bodyList,color:färg,...TNUM }}>{v}</span>
-              </div>
-            ))}
-          </section>
+          )}
+
+          {specFel && (
+            <div style={{ background:"rgba(255,59,48,0.08)",border:"1px solid rgba(255,59,48,0.2)",borderRadius:12,padding:"12px 16px",marginBottom:16 }}>
+              <p style={{ margin:0,...TYPE.meta,color:C.red }}>Kunde inte läsa tidsspecifikationen: {specFel}</p>
+            </div>
+          )}
+          {specLaddar && !specFel && (
+            <div style={{ background:"#1c1c1e",borderRadius:12,padding:"18px 20px",marginBottom:16 }}>
+              <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Räknar månaden…</p>
+            </div>
+          )}
+
+          {spec && (() => {
+            const dagNamnKort = ['sön','mån','tis','ons','tor','fre','lör'];
+            const fmtHm = (min: number) => { const h = Math.floor(min/60), mm = min%60; return mm ? `${h}:${String(mm).padStart(2,'0')}` : `${h}:00`; };
+            const ovrigaVarn: string[] = (spec.varningar || []).filter((v: string) => !/saknar typ|ej bekräftade/i.test(v));
+            const harSaknas = obekräftadeDagar > 0 || obObesDagar.length > 0 || (spec.synk?.length ?? 0) > 0 || (spec.ledighetskollision?.length ?? 0) > 0 || (spec.maskin_utan_typ?.length ?? 0) > 0 || ovrigaVarn.length > 0;
+            return (
+              <>
+                {/* Går till lönen */}
+                <section style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",marginBottom:16 }}>
+                  <div style={{ textAlign:"center",padding:"18px 0 16px",borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
+                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Går till lönen</p>
+                    <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>
+                      {jobbadH.toLocaleString('sv-SE')} <span style={{ ...TYPE.h2,color:"#8e8e93",fontWeight:600 }}>tim</span>
+                    </p>
+                    <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
+                      {spec.arbetsdagar} arbetsdagar{extraTidH > 0 ? ` · varav extra tid ${extraTidH.toLocaleString('sv-SE')} tim` : ''}
+                    </p>
+                  </div>
+                  {(spec.rader as any[]).map((r: any, i: number, arr: any[]) => (
+                    <div key={r.SalaryCode + i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:"1px solid rgba(255,255,255,0.08)",gap:12 }}>
+                      <span style={{ fontSize:16,color:"#fff" }}>{loneartLabel(r.SalaryCode)} <span style={{ fontSize:11,color:"#636366" }}>{r.SalaryCode}</span></span>
+                      <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM,whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ color:"#8e8e93",fontSize:13 }}>{loneartEnhet(r.SalaryCode)}</span></span>
+                    </div>
+                  ))}
+                  {spec.rader.length === 0 && (
+                    <p style={{ margin:0,padding:"14px 0",...TYPE.meta,color:"#8e8e93" }}>Inga lönerader den här månaden.</p>
+                  )}
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",gap:12 }}>
+                    <span style={{ fontSize:16,color:"#fff" }}>Brandrisk-OB <span style={{ fontSize:11,color:"#636366" }}>löneart ej fastställd</span></span>
+                    <span style={{ ...TYPE.bodyList,color:spec.ob.timmar > 0 ? "#ffd60a" : "#8e8e93",...TNUM,whiteSpace:"nowrap" }}>{fmtMangd(spec.ob.timmar)} <span style={{ color:"#8e8e93",fontSize:13 }}>tim</span></span>
+                  </div>
+                </section>
+
+                {/* Saknas — det föraren själv kan fixa */}
+                {harSaknas && (
+                  <section style={{ background:"rgba(255,149,0,0.06)",border:"1px solid rgba(255,149,0,0.22)",borderRadius:12,padding:"4px 16px",marginBottom:16 }}>
+                    <p style={{ margin:"14px 0 4px",...TYPE.micro,color:C.orange }}>Saknas — du kan fixa det</p>
+                    {obekräftadeDagar > 0 && (
+                      <div style={{ padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
+                        <p style={{ margin:0,fontSize:15,color:"#fff" }}>{obekräftadeDagar} {obekräftadeDagar === 1 ? 'dag är inte bekräftad' : 'dagar är inte bekräftade'}</p>
+                        <p style={{ margin:"3px 0 0",fontSize:12,color:"#8e8e93" }}>Tiden är med i underlaget men ingen har granskat den. Bekräfta i Kalender.</p>
+                      </div>
+                    )}
+                    {obObesDagar.length > 0 && (
+                      <div style={{ padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
+                        <div onClick={()=>setObRetroÖppen(o=>!o)} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer" }}>
+                          <p style={{ margin:0,fontSize:15,color:"#fff" }}>{obObesDagar.length} tidig{obObesDagar.length===1?' dag':'a dagar'} väntar på brandrisk-svar</p>
+                          <span className="material-symbols-outlined" style={{ fontSize:20,color:"rgba(255,255,255,0.4)",transform:obRetroÖppen?"rotate(90deg)":"none",transition:"transform .15s" }}>chevron_right</span>
+                        </div>
+                        {obRetroÖppen && obObesDagar.map((d:any, i:number) => (
+                          <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 0",gap:10 }}>
+                            <span style={{ fontSize:14,color:"#fff",...TNUM }}>{d.datum} · {(d.start_tid||'').slice(0,5)}</span>
+                            <div style={{ display:"flex",gap:8 }}>
+                              <button onClick={()=>svaraBrandriskRetro(d,true)} style={{ padding:"6px 16px",background:C.orange,color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Ja</button>
+                              <button onClick={()=>svaraBrandriskRetro(d,false)} style={{ padding:"6px 16px",background:"rgba(255,255,255,0.08)",color:"#fff",border:"none",borderRadius:8,fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Nej</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(spec.synk as any[]).map((s: any, i: number) => (
+                      <div key={`syn${i}`} style={{ padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
+                        <p style={{ margin:0,fontSize:15,color:"#fff",...TNUM }}>{s.datum}: {s.diff_min} min oförklarad tidsavvikelse</p>
+                        <p style={{ margin:"3px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>Du sa {s.bekraftat}, maskinen {s.maskinen}. Öppna dagen i Kalender och förklara.</p>
+                      </div>
+                    ))}
+                    {(spec.ledighetskollision as any[]).map((k: any, i: number) => (
+                      <p key={`led${i}`} style={{ margin:0,padding:"10px 0",fontSize:14,color:"#fff",borderBottom:"1px solid rgba(255,255,255,0.06)",...TNUM }}>{k.datum}: godkänd ledighet ({k.typ}) och {fmtHm(k.arbetad_min)} arbete samma dag</p>
+                    ))}
+                    {(spec.maskin_utan_typ as string[]).map((mid: string) => (
+                      <p key={mid} style={{ margin:0,padding:"10px 0",fontSize:14,color:C.red,borderBottom:"1px solid rgba(255,255,255,0.06)" }}>Maskin {mid} saknar typ i registret — premielön räknas inte. Säg till Martin.</p>
+                    ))}
+                    {ovrigaVarn.map((v: string, i: number) => (
+                      <p key={`v${i}`} style={{ margin:0,padding:"10px 0",fontSize:13,color:"#8e8e93" }}>{v}</p>
+                    ))}
+                    <div style={{ height:8 }} />
+                  </section>
+                )}
+
+                {/* Dag för dag — tidrapporten */}
+                <section style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 16px",marginBottom:16 }}>
+                  <p style={{ margin:"14px 0 6px",...TYPE.micro,color:"#8e8e93" }}>Dag för dag</p>
+                  {(spec.dagar as any[]).map((d: any, i: number, arr: any[]) => {
+                    const dt = new Date(`${d.datum}T12:00:00`);
+                    const flagg = !d.bekraftad;
+                    return (
+                      <div key={d.id} style={{ padding:"9px 0",borderBottom:i < arr.length-1 ? "1px solid rgba(255,255,255,0.06)" : "none" }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10 }}>
+                          <span style={{ fontSize:14,color:flagg ? C.orange : "#fff",...TNUM }}>{dagNamnKort[dt.getDay()]} {dt.getDate()}/{dt.getMonth()+1} · {(d.start_tid||'').slice(0,5) || '–'}–{(d.slut_tid||'').slice(0,5) || '–'}{d.rast_min != null ? ` · rast ${d.rast_min}` : ''}</span>
+                          <span style={{ fontSize:14,color:"#fff",fontWeight:600,...TNUM,whiteSpace:"nowrap" }}>{fmtHm(d.arbetad_min)}{d.extra_min ? <span style={{ color:"#7dd88f",fontWeight:400 }}> +{fmtHm(d.extra_min)}</span> : null}</span>
+                        </div>
+                        <div style={{ display:"flex",justifyContent:"space-between",gap:10,marginTop:2 }}>
+                          <span style={{ fontSize:12,color:"#8e8e93",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(d.objekt as string[]).join(', ') || (d.dagtyp && d.dagtyp !== 'normal' ? d.dagtyp : '—')}</span>
+                          <span style={{ fontSize:12,color:"#8e8e93",whiteSpace:"nowrap",...TNUM }}>
+                            {d.ersattningsmil ? `${d.ersattningsmil} mil` : ''}{d.ob_min > 0 ? `${d.ersattningsmil ? ' · ' : ''}OB ${fmtOb(d.ob_min)}` : ''}{flagg ? `${d.ersattningsmil || d.ob_min ? ' · ' : ''}ej bekräftad` : ''}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {spec.dagar.length === 0 && <p style={{ margin:0,padding:"10px 0 14px",...TYPE.meta,color:"#8e8e93" }}>Inga arbetsdagar den här månaden.</p>}
+                  <div style={{ height:6 }} />
+                </section>
+
+                {/* PDF ur samma beräkning — öppnas i appens läsvy; därifrån Dela / spara */}
+                <button type="button"
+                  onClick={()=>setSpecPdf({
+                    url: `/api/lon/min-manad/pdf?arbetsmanad=${encodeURIComponent(lönePeriod)}`,
+                    titel: `Tidsspecifikation ${lönMånadsLabel}`,
+                    filnamn: `tidsspecifikation-${lönePeriod}-${(medarbetare?.namn || 'medarbetare').toLowerCase().replace(/[^a-z0-9åäö]+/gi,'-')}.pdf`,
+                  })}
+                  style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",height:48,background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:16 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:20,color:"#0a84ff" }}>picture_as_pdf</span>
+                  Öppna som PDF
+                </button>
+              </>
+            );
+          })()}
 
           {/* Bekräftelse-gaten: obekräftade dagar blockerar godkännandet helt */}
           {arbetsdagar > 0 && obekräftadeDagar > 0 && !ärGodkänd && (
@@ -4264,6 +4382,9 @@ export default function Arbetsrapport() {
           </div>
         </main>
         {bottomNav}
+
+        {/* Tidsspecifikationen som PDF — in-app läsvy med Dela / spara */}
+        {specPdf && <PdfLasare signedUrl={specPdf.url} titel={specPdf.titel} delaFilnamn={specPdf.filnamn} onClose={()=>setSpecPdf(null)} />}
 
         {/* Bekräftelsedialog innan inskickning */}
         {lönBekräfta && (
