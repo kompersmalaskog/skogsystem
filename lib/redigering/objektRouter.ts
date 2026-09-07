@@ -69,6 +69,10 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   skotare_utforare_namn:      { objekt: 'skotare_utforare_namn' },
   skordare_utforare_namn:     { objekt: 'skordare_utforare_namn' },
   manuell_prognos:            { objekt: 'manuell_prognos' },
+  // volym = trakt-importens <Target> (objekt.volym) — DEN planerade volymen.
+  // volym_planerad är en död kolumn (0 rader); behålls i kartan bara för
+  // bakåtkompatibilitet, redigeringsvyn läser/skriver volym.
+  volym:                      { objekt: 'volym' },
   volym_planerad:             { objekt: 'volym_planerad' },
   planerad_start:             { objekt: 'planerad_start' },
   planerad_slut:              { objekt: 'planerad_slut' },

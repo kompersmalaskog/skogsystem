@@ -210,7 +210,11 @@ export function parseObjektInfo(objectInfoXml: string, ogiXml: string | null): E
       if (ci && typeof ci === 'object') falt.inkopare_epost = tomTillUndef(textOf(samlaDjupt(ci, 'Email').flat(Infinity)[0]));
     }
     falt.fastighetsbeteckning = forsta(ogi, 'RealEstateIDObject');
-    falt.kontraktsnummer = forsta(ogi, 'ContractNumber');
+    // OGI ContractNumber LAGRAS INTE som kontraktsnummer: i VIDA:s trakt-XML är
+    // ContractNumber VO-numret (samma som maskinfilernas ContractNumber → vo_nummer).
+    // Mappningen gav kontraktsnummer = VO på 13 objekt i prod (ett med två VO:n).
+    // Kontraktsnr ska vara TOMT när det saknas, aldrig visa VO:t. Städat i
+    // migration 20260904_objekt_kontraktsnummer_var_vo.sql.
   }
 
   const checklist = parseChecklist(oi);

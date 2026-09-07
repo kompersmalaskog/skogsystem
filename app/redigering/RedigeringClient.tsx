@@ -2527,8 +2527,11 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
       {!objektRadLaddar && objektRad && (
         <>
           <IosGroup title="Volym & tidplan">
-            <PlanNum label="Volym planerad" value={objektRad.volym_planerad} suffix="m³"
-              onCommit={(v: any) => direktSpara({ volym_planerad: v })} />
+            {/* Planerad volym = objekt.volym (trakt-importens <Target>, route.ts). INTE
+                volym_planerad (död kolumn, 0 rader) och INTE trakt_data.volym — den är
+                planeringsvyns hårdkodade placeholder 649 (page.tsx) på 44 av 47 objekt. */}
+            <PlanNum label="Volym planerad" value={objektRad.volym} suffix="m³fub"
+              onCommit={(v: any) => direktSpara({ volym: v })} />
             <PlanText label="Prognos skördare" placeholder="tim" value={objektRad.manuell_prognos?.skordare ?? ''}
               onCommit={(v: any) => direktSpara({ manuell_prognos: { ...(objektRad.manuell_prognos || {}), skordare: v ?? '' } })} />
             <PlanText label="Prognos skotare" placeholder="tim" value={objektRad.manuell_prognos?.skotare ?? ''}
@@ -2558,7 +2561,11 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
           <IosGroup title="Trakt">
             <PlanText label="Traktnr" value={objektRad.traktnr} onCommit={(v: any) => direktSpara({ traktnr: v })} />
             <PlanText label="Fastighet" value={objektRad.fastighetsbeteckning} onCommit={(v: any) => direktSpara({ fastighetsbeteckning: v })} />
-            <PlanText label="Kontraktsnr" value={objektRad.kontraktsnummer} onCommit={(v: any) => direktSpara({ kontraktsnummer: v })} />
+            {/* Kontraktsnr: trakt-importen mappade OGI ContractNumber hit — men det ÄR VO-numret
+                (13 rader i prod). Visa aldrig ett kontraktsnr som bara är VO:t; tomt = saknas. */}
+            <PlanText label="Kontraktsnr"
+              value={(objektRad.kontraktsnummer && objektRad.vo_nummer && String(objektRad.kontraktsnummer).includes(String(objektRad.vo_nummer).trim())) ? '' : objektRad.kontraktsnummer}
+              onCommit={(v: any) => direktSpara({ kontraktsnummer: v })} />
             <PlanSelect label="GROT-status" value={objektRad.grot_status} options={GROT_STATUS_VAL}
               onChange={(v: any) => direktSpara({ grot_status: v })} />
             <PlanText label="Transport" placeholder="Vändplan, framkomlighet …" multiline value={objektRad.transport_kommentar}
@@ -2813,7 +2820,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       if (avbruten) return
       if (!rad) { setObjektRad(null); setObjektRadLaddar(false); return }
       const { data } = await supabase.from('objekt')
-        .select('id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar')
+        .select('id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, volym, vo_nummer')
         .eq('id', rad.id).limit(1)
       if (avbruten) return
       setObjektRad((data && data[0]) || { id: rad.id })
