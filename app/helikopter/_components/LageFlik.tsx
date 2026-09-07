@@ -5,8 +5,8 @@
 import { Axe, Truck } from 'lucide-react'
 import { T } from '@/lib/utbildning'
 import { PROGNOS_FRAN_ARBETSDAG, SKORDARE_FORE_VARNING_DAGAR, type ManadStatus, type SparLage } from '../_lib/berakningar'
-import { dagarText, fmt, fmtDag } from '../_lib/format'
-import type { Arbetsdagar, MaskinLage } from '../_lib/queries'
+import { MANAD_NAMN as MANAD_NAMN_LOKAL, dagarText, fmt, fmtDag } from '../_lib/format'
+import type { Arbetsdagar, MaskinLage, Typ } from '../_lib/queries'
 import { Kort, KortLank, Rad, SparRubrik, Stapel, StortTal, type Ton } from './SparKort'
 import DinMaskin from './DinMaskin'
 
@@ -16,21 +16,24 @@ type Props = {
   dagar: Arbetsdagar
   ar: number
   manad: number
+  antalPlanerade: Record<Typ, number>
   dinMaskin: { maskinNamn: string; lage: MaskinLage | null; fel: string | null; onRetry: () => void } | null
 }
 
-export default function LageFlik({ spar, status, dagar, ar, manad, dinMaskin }: Props) {
+export default function LageFlik({ spar, status, dagar, ar, manad, antalPlanerade, dinMaskin }: Props) {
   return (
     <>
-      {spar.map(s => <LageKort key={s.typ} s={s} status={status} dagar={dagar} ar={ar} manad={manad} />)}
+      {spar.map(s => <LageKort key={s.typ} s={s} status={status} dagar={dagar} ar={ar} manad={manad} antalPlanerade={antalPlanerade[s.typ]} />)}
       {dinMaskin && <DinMaskin {...dinMaskin} />}
     </>
   )
 }
 
-function LageKort({ s, status, dagar, ar, manad }: { s: SparLage; status: ManadStatus; dagar: Arbetsdagar; ar: number; manad: number }) {
+function LageKort({ s, status, dagar, ar, manad, antalPlanerade }: { s: SparLage; status: ManadStatus; dagar: Arbetsdagar; ar: number; manad: number; antalPlanerade: number }) {
   const ingenBestallning = s.bestallt <= 0
   const bestLank = `/bestallningar?ar=${ar}&manad=${manad}`
+  // Utan planerade objekt finns inget att ligga före eller efter på — grått, aldrig grönt.
+  const ingenPlan = status !== 'avslutad' && antalPlanerade === 0
 
   // Det stora talet — ett per spår.
   let stort: { text: string; ton: Ton; under?: string; liten?: boolean }
@@ -41,6 +44,8 @@ function LageKort({ s, status, dagar, ar, manad }: { s: SparLage; status: ManadS
     stort = diff >= 0
       ? { text: 'Klart', ton: 'gron', under: `${fmt(s.skotat)} av ${fmt(s.bestallt)} m³fub skotat` }
       : { text: `${fmt(diff)} m³fub`, ton: 'orange', under: `${fmt(s.skotat)} av ${fmt(s.bestallt)} skotat` }
+  } else if (ingenPlan) {
+    stort = { text: 'Inga objekt planerade', ton: 'dampad', liten: true, under: `inget objekt lagt på ${MANAD_NAMN_LOKAL[manad - 1]}` }
   } else if (status === 'kommande') {
     stort = { text: 'Inte startad', ton: 'dampad', liten: true }
   } else if (!s.harPrognos || !s.lage) {
@@ -54,7 +59,7 @@ function LageKort({ s, status, dagar, ar, manad }: { s: SparLage; status: ManadS
   }
 
   const gront = s.lage != null && s.lage.status !== 'efter'
-  const visaTakt = status === 'pagaende' && !ingenBestallning && s.harPrognos
+  const visaTakt = status === 'pagaende' && !ingenBestallning && s.harPrognos && !ingenPlan
   const taktText = gront && s.klartDatumSkotat
     ? `Klart omkring ${fmtDag(s.klartDatumSkotat)}`
     : `Kör ${fmt(s.taktSkotat ?? 0)} m³fub/dag · behöver ${fmt(s.behovPerDag ?? 0)}`

@@ -19,6 +19,7 @@ import {
   type BolagRad, type FastData, type Manadsdata, type MaskinLage,
 } from '../_lib/queries'
 import { TYPER, globalaArbetsdagar, manadStatus, maskinNamn, raknaSpar, valjBas, type SparLage } from '../_lib/berakningar'
+import type { Typ } from '../_lib/queries'
 import { MANAD_NAMN, dagarText, manadRubrik, relativTid } from '../_lib/format'
 import { Fel, Laddar } from './Tillstand'
 import LageFlik from './LageFlik'
@@ -146,6 +147,13 @@ export default function HelikopterVy() {
     }).filter((x): x is SparLage => x != null)
   }, [manadsdata, dagar])
 
+  // Antal objekt per spår i månaden (alla statusar) — Läge får inte vara grönt utan plan.
+  const antalPlanerade = useMemo(() => {
+    const n: Record<Typ, number> = { gallring: 0, slutavverkning: 0 }
+    for (const o of manadsdata?.planering ?? []) if (o.typ === 'gallring' || o.typ === 'slutavverkning') n[o.typ as Typ]++
+    return n
+  }, [manadsdata])
+
   const underrad = !dagar
     ? ''
     : status === 'avslutad'
@@ -213,6 +221,7 @@ export default function HelikopterVy() {
             dagar={dagar}
             ar={ar}
             manad={manad}
+            antalPlanerade={antalPlanerade}
             dinMaskin={dinMaskinNamn ? { maskinNamn: maskinNamn(dinMaskinNamn), lage: maskinLage, fel: maskinLageFel, onRetry: () => setVersion(v => v + 1) } : null}
           />
         ) : flik === 'planering' ? (

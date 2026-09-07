@@ -25,10 +25,13 @@ describe('läge', () => {
     expect(dagarEfter(700, 590, null)).toBeNull()
     expect(dagarEfter(700, 590, 0)).toBeNull()
   })
-  it('prognos skotat kapas av prognos skördat men aldrig under redan skotat', () => {
+  it('prognos skotat kapas vid ingående oskotat + prognos skördat, aldrig under redan skotat', () => {
     expect(prognosSkotat(590, 40, 12, 2000)).toBe(1070)
     expect(prognosSkotat(590, 40, 12, 900)).toBe(900)
-    // gallring sept 2026: skotat 294 > skördat 136 (förra månadens virke) → aldrig under 294
+    expect(prognosSkotat(590, 40, 12, 900, 300)).toBe(1070)   // 900 + 300 = 1 200 > 1 070
+    // gallring sept 2026: skotat 294 > månadens skördat 136, men 1 921 låg oskotat vid månadsstart
+    expect(prognosSkotat(294, 55, 18, 136 + 25.6 * 18, 1921)).toBeCloseTo(294 + 55 * 18)
+    // utan ingående: taket = prognos skördat
     expect(prognosSkotat(294, 55, 18, 136 + 25.6 * 18)).toBeCloseTo(136 + 25.6 * 18)
     expect(prognosSkotat(294, 0, 18, 100)).toBe(294)
   })
@@ -56,15 +59,15 @@ describe('läge', () => {
   })
   it('bas: beställda bolag när beställning finns, annars alla', () => {
     const rader: SparRad[] = [
-      { typ: 'gallring', bas: 'bestallt', bestallt: 0, bolag: [], skordat: 10, skotat: 5, takt_skordat: null, takt_skotat: null, takt_dagar: 0, takt_fonster: [], oskotat_forandring_per_dag: null },
-      { typ: 'gallring', bas: 'totalt', bestallt: 0, bolag: [], skordat: 30, skotat: 15, takt_skordat: null, takt_skotat: null, takt_dagar: 0, takt_fonster: [], oskotat_forandring_per_dag: null },
+      { typ: 'gallring', bas: 'bestallt', bestallt: 0, bolag: [], skordat: 10, skotat: 5, takt_skordat: null, takt_skotat: null, takt_dagar: 0, takt_fonster: [], oskotat_forandring_per_dag: null, ingaende_oskotat: 0 },
+      { typ: 'gallring', bas: 'totalt', bestallt: 0, bolag: [], skordat: 30, skotat: 15, takt_skordat: null, takt_skotat: null, takt_dagar: 0, takt_fonster: [], oskotat_forandring_per_dag: null, ingaende_oskotat: 0 },
     ]
     expect(valjBas(rader, 'gallring')?.skordat).toBe(30)
     rader[0].bestallt = 1000
     expect(valjBas(rader, 'gallring')?.skordat).toBe(10)
   })
   it('raknaSpar på september 2026-siffrorna (slutavverkning)', () => {
-    const rad: SparRad = { typ: 'slutavverkning', bas: 'bestallt', bestallt: 5000, bolag: ['Vida'], skordat: 1621.6, skotat: 470.5, takt_skordat: 322.1, takt_skotat: 86.3, takt_dagar: 4, takt_fonster: [], oskotat_forandring_per_dag: 235.9 }
+    const rad: SparRad = { typ: 'slutavverkning', bas: 'bestallt', bestallt: 5000, bolag: ['Vida'], skordat: 1621.6, skotat: 470.5, takt_skordat: 322.1, takt_skotat: 86.3, takt_dagar: 4, takt_fonster: [], oskotat_forandring_per_dag: 235.9, ingaende_oskotat: 1660 }
     const dagar: Arbetsdagar = { maskin_id: null, totalt: 22, gangna: 4, kvar: 18, gangna_datum: [], kvar_datum: [] }
     const s = raknaSpar(rad, dagar)
     expect(s.harPrognos).toBe(true)
@@ -76,6 +79,16 @@ describe('läge', () => {
     expect(s.oskotatStatus).toBe('vaxer')
     expect(s.skordareDagarFore).toBe(13)                           // 1151/86,3
     expect(s.klartDatumSkotat).toBeNull()                          // prognos < beställt
+  })
+  it('raknaSpar gallring september 2026: ingående oskotat lyfter taket → klart 23 sep', () => {
+    const kvar = ['2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11', '2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-28', '2026-09-29', '2026-09-30']
+    const rad: SparRad = { typ: 'gallring', bas: 'bestallt', bestallt: 1000, bolag: ['Vida'], skordat: 136, skotat: 294, takt_skordat: 25.6, takt_skotat: 55, takt_dagar: 4, takt_fonster: [], oskotat_forandring_per_dag: -29.4, ingaende_oskotat: 1921 }
+    const dagar: Arbetsdagar = { maskin_id: null, totalt: 22, gangna: 4, kvar: 18, gangna_datum: [], kvar_datum: kvar }
+    const s = raknaSpar(rad, dagar)
+    expect(s.prognosSkotat).toBeCloseTo(1284)                     // 294 + 55 × 18, under taket 1 921 + 597
+    expect(s.lage).toEqual({ status: 'fore', dagar: 2 })          // (182 − 294)/55 = −2,0
+    expect(s.klartDatumSkotat).toBe('2026-09-23')                 // 706/55 = 12,8 → 13:e arbetsdagen kvar
+    expect(s.oskotatStatus).toBe('minskar')
   })
 })
 

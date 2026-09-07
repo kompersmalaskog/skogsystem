@@ -75,13 +75,13 @@ export function prognosSkordat(skordat: number, taktSkordat: number | null, kvar
 }
 
 /**
- * skotat + takt × dagar kvar, men aldrig mer än prognostiserat skördat — och
- * aldrig mindre än det som redan är skotat (skotat kan överstiga månadens
- * skördat när förra månadens virke skotas ut).
+ * skotat + takt × dagar kvar, men aldrig mer än vad som finns att skota:
+ * ingående oskotat (öppna objekt vid månadsstart) + prognostiserat skördat.
+ * Aldrig mindre än det som redan är skotat.
  */
-export function prognosSkotat(skotat: number, taktSkotat: number | null, kvar: number, progSkordat: number): number {
+export function prognosSkotat(skotat: number, taktSkotat: number | null, kvar: number, progSkordat: number, ingaendeOskotat = 0): number {
   const ra = skotat + (taktSkotat ?? 0) * kvar
-  return Math.min(ra, Math.max(progSkordat, skotat))
+  return Math.min(ra, Math.max(ingaendeOskotat + progSkordat, skotat))
 }
 
 /** Datumet (ISO) för den arbetsdag då kvarvarande volym är klar i nuvarande takt. */
@@ -116,6 +116,7 @@ export type SparLage = {
   skordat: number
   skotat: number
   oskotat: number
+  ingaendeOskotat: number
   taktSkordat: number | null
   taktSkotat: number | null
   taktDagar: number
@@ -136,7 +137,7 @@ export function raknaSpar(rad: SparRad, dagar: Arbetsdagar): SparLage {
   const prognos = harPrognos(rad.takt_dagar)
   const plan = planIdag(rad.bestallt, dagar.gangna, dagar.totalt)
   const pSkordat = prognos ? prognosSkordat(rad.skordat, rad.takt_skordat, dagar.kvar) : null
-  const pSkotat = prognos && pSkordat != null ? prognosSkotat(rad.skotat, rad.takt_skotat, dagar.kvar, pSkordat) : null
+  const pSkotat = prognos && pSkordat != null ? prognosSkotat(rad.skotat, rad.takt_skotat, dagar.kvar, pSkordat, rad.ingaende_oskotat) : null
   const oskotat = rad.skordat - rad.skotat
   return {
     typ: rad.typ,
@@ -145,6 +146,7 @@ export function raknaSpar(rad: SparRad, dagar: Arbetsdagar): SparLage {
     skordat: rad.skordat,
     skotat: rad.skotat,
     oskotat,
+    ingaendeOskotat: rad.ingaende_oskotat,
     taktSkordat: rad.takt_skordat,
     taktSkotat: rad.takt_skotat,
     taktDagar: rad.takt_dagar,

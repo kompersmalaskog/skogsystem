@@ -108,10 +108,10 @@ function Rad({ title, isOpen, onToggle, children }: { title: string; isOpen: boo
 }
 
 // MODULNIVÅ av samma skäl → input behåller fokus vid inskrivning.
-function InputField({ label, value, onChange, placeholder, type = 'text' }: any) {
+function InputField({ label, value, onChange, placeholder, type = 'text', obligatorisk = false }: any) {
   return (
     <div style={{ marginBottom: '16px' }}>
-      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>{label}</label>
+      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>{label}{obligatorisk && <span style={{ color: 'rgba(255,255,255,0.6)' }}> · KRÄVS</span>}</label>
       <input type={type} value={value} onChange={onChange} placeholder={placeholder}
         style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '15px', color: '#fff', boxSizing: 'border-box' }} />
     </div>
@@ -353,11 +353,12 @@ function ObjektPageInner() {
     e.target.value = '';
   };
 
+  // Namn, bolag och volym (> 0) krävs — utan volym kan varken helikoptern eller
+  // planeringen räkna på objektet. Knappen är inaktiv tills fälten är ifyllda.
+  const formGiltig = form.namn.trim() !== '' && String(form.bolag || '').trim() !== '' && Number(form.volym) > 0;
+
   const saveObj = async () => {
-    if (!form.namn || !form.bolag || !form.volym) {
-      alert('Fyll i namn, bolag och volym');
-      return;
-    }
+    if (!formGiltig) return;
 
     // Koordinater: konvertera SWEREF99 TM → WGS84 (samma som import-routen).
     // Vid redigering laddas lat/lng (WGS84, små tal) tillbaka i fälten → konvertera inte då.
@@ -935,12 +936,12 @@ function ObjektPageInner() {
                     <div style={{ flex: 1 }}><InputField label="VO-NUMMER" value={form.voNummer} onChange={(e: any) => setForm({ ...form, voNummer: e.target.value })} /></div>
                     <div style={{ flex: 1 }}><InputField label="TRAKTNR" value={form.traktNr} onChange={(e: any) => setForm({ ...form, traktNr: e.target.value })} /></div>
                   </div>
-                  <InputField label="NAMN" value={form.namn} onChange={(e: any) => setForm({ ...form, namn: e.target.value })} />
-                  <ChipSelect items={sparadeBolag} selected={form.bolag} onSelect={(v: string) => setForm({ ...form, bolag: v })} label="BOLAG" editKey="bolag" onAdd={addBolag} onRemove={removeBolag} />
+                  <InputField label="NAMN" obligatorisk value={form.namn} onChange={(e: any) => setForm({ ...form, namn: e.target.value })} />
+                  <ChipSelect items={sparadeBolag} selected={form.bolag} onSelect={(v: string) => setForm({ ...form, bolag: v })} label="BOLAG · KRÄVS" editKey="bolag" onAdd={addBolag} onRemove={removeBolag} />
                   <ChipSelect items={sparadeCert} selected={form.cert} onSelect={(v: string) => setForm({ ...form, cert: v })} label="CERTIFIERING" editKey="cert" onAdd={addCert} onRemove={removeCert} />
                   <ChipSelect items={sparadeAtgarder[form.typ] || []} selected={form.atgard} onSelect={(v: string) => setForm({ ...form, atgard: v })} label="ÅTGÄRD" editKey="atgard" onAdd={addAtgard} onRemove={removeAtgard} />
                   <div style={{ display: 'flex', gap: '12px' }}>
-                    <div style={{ flex: 1 }}><InputField label="VOLYM M³" value={form.volym} onChange={(e: any) => setForm({ ...form, volym: e.target.value })} type="number" /></div>
+                    <div style={{ flex: 1 }}><InputField label="VOLYM M³FUB" obligatorisk value={form.volym} onChange={(e: any) => setForm({ ...form, volym: e.target.value })} type="number" /></div>
                     <div style={{ flex: 1 }}><InputField label="AREAL HA" value={form.areal} onChange={(e: any) => setForm({ ...form, areal: e.target.value })} /></div>
                   </div>
                   <div style={{ marginBottom: '16px' }}>
@@ -1055,7 +1056,10 @@ function ObjektPageInner() {
 
             {/* Knappar */}
             <div style={{ marginTop: '20px' }}>
-              <button onClick={saveObj} style={{ width: '100%', padding: '16px', border: 'none', borderRadius: '10px', background: '#fff', color: '#000', fontSize: '16px', fontWeight: '600', cursor: 'pointer', marginBottom: '10px' }}>Spara</button>
+              {!formGiltig && (
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginBottom: '10px' }}>Fyll i namn, bolag och volym för att spara</div>
+              )}
+              <button onClick={saveObj} disabled={!formGiltig} style={{ width: '100%', padding: '16px', border: 'none', borderRadius: '10px', background: '#fff', color: '#000', fontSize: '16px', fontWeight: '600', cursor: formGiltig ? 'pointer' : 'default', opacity: formGiltig ? 1 : 0.4, marginBottom: '10px' }}>Spara</button>
               {editingId && (
                 <button onClick={deleteObj} style={{ width: '100%', padding: '14px', border: 'none', borderRadius: '10px', background: 'transparent', color: 'rgba(255,255,255,0.25)', fontSize: '14px', cursor: 'pointer', marginBottom: '6px' }}>Ta bort</button>
               )}

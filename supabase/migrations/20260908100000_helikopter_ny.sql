@@ -143,7 +143,7 @@ RETURNS TABLE (
   typ text, bas text, bestallt numeric, bolag text[],
   skordat numeric, skotat numeric,
   takt_skordat numeric, takt_skotat numeric, takt_dagar int, takt_fonster date[],
-  oskotat_forandring_per_dag numeric)
+  oskotat_forandring_per_dag numeric, ingaende_oskotat numeric)
 LANGUAGE sql STABLE AS $$
   WITH man AS (SELECT make_date(p_ar, p_manad, 1) AS fran, (make_date(p_ar, p_manad, 1) + interval '1 month')::date AS till_excl),
   gangna AS (SELECT unnest(gangna_datum) AS d FROM helikopter_ny_arbetsdagar(p_ar, p_manad, p_idag) WHERE maskin_id IS NULL),
@@ -162,6 +162,25 @@ LANGUAGE sql STABLE AS $$
     JOIN dag d ON d.typ = t.typ
     WHERE bs.bas = 'totalt'
        OR EXISTS (SELECT 1 FROM best b WHERE b.typ = t.typ AND lower(b.bolag) = lower(d.bolag))),
+  -- Ingående oskotat = per objekt som INTE är skotningsavslutat: skördat − skotat FÖRE
+  -- månadens start, aldrig under 0, summerat per typ (och bolagsurval). Tak för
+  -- skotningsprognosen: allt som fanns att skota vid månadsstart + det som skördas i månaden.
+  oppna AS (
+    SELECT d.objekt_id, COALESCE(NULLIF(lower(btrim(d.huvudtyp)), ''), 'okänd') AS typ, NULLIF(btrim(d.bolag), '') AS bolag
+    FROM dim_objekt d
+    WHERE d.skotning_avslutad IS NULL AND COALESCE(d.skotning_avslutad_auto, false) = false),
+  obj_oskotat AS (
+    SELECT o.typ, o.bolag,
+           GREATEST(
+             COALESCE((SELECT sum(p.volym_m3sub) FROM fakt_produktion p, man WHERE p.objekt_id = o.objekt_id AND p.datum < man.fran), 0)
+           - COALESCE((SELECT sum(l.volym_m3sub) FROM fakt_lass l, man WHERE l.objekt_id = o.objekt_id AND l.datum < man.fran), 0), 0) AS oskotat
+    FROM oppna o),
+  ingaende AS (
+    SELECT t.typ, bs.bas, COALESCE(sum(oo.oskotat), 0) AS oskotat
+    FROM typer t CROSS JOIN baser bs
+    LEFT JOIN obj_oskotat oo ON oo.typ = t.typ
+      AND (bs.bas = 'totalt' OR EXISTS (SELECT 1 FROM best b WHERE b.typ = t.typ AND lower(b.bolag) = lower(oo.bolag)))
+    GROUP BY t.typ, bs.bas),
   agg AS (
     SELECT t.typ, bs.bas,
            COALESCE(sum(r.skordat), 0) AS skordat,
@@ -179,8 +198,10 @@ LANGUAGE sql STABLE AS $$
          CASE WHEN f.n > 0 THEN round(a.f_skotat  / f.n, 1) END AS takt_skotat,
          f.n::int AS takt_dagar,
          f.dagar AS takt_fonster,
-         CASE WHEN f.n > 0 THEN round((a.f_skordat - a.f_skotat) / f.n, 1) END AS oskotat_forandring_per_dag
+         CASE WHEN f.n > 0 THEN round((a.f_skordat - a.f_skotat) / f.n, 1) END AS oskotat_forandring_per_dag,
+         i.oskotat AS ingaende_oskotat
   FROM agg a
+  JOIN ingaende i ON i.typ = a.typ AND i.bas = a.bas
   CROSS JOIN (SELECT count(*) AS n, COALESCE(array_agg(d ORDER BY d), '{}') AS dagar FROM fonster) f
   ORDER BY a.typ, a.bas;
 $$;

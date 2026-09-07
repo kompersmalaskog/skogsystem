@@ -21,6 +21,8 @@ export type SparRad = {
   takt_dagar: number
   takt_fonster: string[]
   oskotat_forandring_per_dag: number | null
+  /** Oskotat vid månadens start på objekt som inte är skotningsavslutade (aldrig < 0 per objekt). */
+  ingaende_oskotat: number
 }
 
 export type Arbetsdagar = {
@@ -114,6 +116,7 @@ function normSpar(r: any): SparRad {
     takt_skordat: talEllerNull(r.takt_skordat), takt_skotat: talEllerNull(r.takt_skotat),
     takt_dagar: tal(r.takt_dagar), takt_fonster: r.takt_fonster ?? [],
     oskotat_forandring_per_dag: talEllerNull(r.oskotat_forandring_per_dag),
+    ingaende_oskotat: tal(r.ingaende_oskotat),
   }
 }
 function normDagar(r: any): Arbetsdagar {
