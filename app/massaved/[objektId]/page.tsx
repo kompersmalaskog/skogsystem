@@ -1,38 +1,32 @@
 'use client';
 
-// NIVÅ 2 — ett objekt — och dess undernivåer. Samma form på varje skärm
-// (form.tsx). Vilken skärm som visas styrs av ?vy= i länken, så att
-// bakåtknappen och delade länkar fungerar:
-//   (ingen)          objektet: medellängden stor, Vida-raden, period som
-//                    kontroll, storleken, sedan raderna
-//   vy=tre-m         3 m-stockar
-//   vy=sagbar        sågbar dimension, ett sortiment per rad
-//   vy=sortiment     ett sortiment: fönstret, en nivå till in (&sort=namn)
-//   vy=sagbar-rakning
-//   vy=langd         längdfördelning
+// NIVÅ 2 — ett objekt — och dess undernivåer, byggda mot Martins förlagor.
+// Samma form på varje skärm (form.tsx). Vilken skärm som visas styrs av
+// ?vy= i länken, så att bakåtknappen och delade länkar fungerar:
+//   (ingen)          objektet: "Ulfsnäs AU ⌄", 4,03 m, medellängd
+//                    barrmassaved, under Vidas önskade 4,6 m, augusti ⌄,
+//                    179,8 m³fub · 1 589 bitar, sedan raderna
+//   vy=tre-m         3 m-stockar: 26 %, Utan dem, Rötan fortsatte, Visa bitarna
+//   vy=langd         längdfördelning: 42 % når 4,6 m, staplar per klass
+//   vy=sagbar        sågbar dimension: 21 %, ett sortiment per rad
+//   vy=sortiment     ett sortiment: volymen, Längd, Diameter, Visa bitarna,
+//                    tekniskt längst ner (&sort=namn)
+//   vy=sagbar-rakning, vy=rakning   texterna, en nivå in
 //   vy=tradslag      trädslag och avkap — avkapets 3 dm och 6 dm bor här
-//   vy=rakning       så räknas talet
 //
 // Omfånget: ?manad=YYYY-MM är månaden, saknas den eller är "alla" gäller
-// hela objektet. Månaden ärvs från raden man tryckte på i nivå 1, så första
-// talet man ser är det man kom från.
+// hela objektet. Månaden ärvs från raden man tryckte på i nivå 1.
 //
-// BEGREPPEN:
-//   3 m-stock  massavedsstock kapad till 3 m för att ta bort röta. INUTI
-//              massavedsvolymen; det är den som drar ner medellängden.
-//   Avkap      kapposten ur prislistan, 3 dm eller 6 dm. Eget sortiment,
-//              UTANFÖR massavedsvolymen.
-//   Sågbar     biten ryms i ett helt sortimentsfönster — längd OCH diameter.
-//   dimension  Fönstren kommer ur objektets EGNA sortiment.
-//
-// Rör inga beräkningar: allt här är omflyttning av det som redan hämtas.
+// Färg betyder något: gult 3 m-stockar, grönt når målet, grått allt annat.
+// Rör inga beräkningar: allt här är omflyttning av det som redan hämtas,
+// plus en läsning av sim_rotkap för antalet stammar där rötan fortsatte.
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
-import { SIDA, GUL, GRON, SEKUNDAR, MUTED, nf0, nf1, nf2, manadNamn, manadEtikett, stor, utanPrefix,
-         Rubrikrad, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Textlank, Stycken, Laddar, Fel } from '../form';
+import { SIDA, GUL, GRON, TEXT, DAMPAD, nf0, nf1, nf2, manadNamn, manadEtikett, stor, kortObjekt,
+         Rubrikrad, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Textlank, Teknisk, Stycken, Laddar, Fel } from '../form';
 
 type Tradslag = { namn: string; m3fub: number; medellangd_m: number; sagbar_m3: number };
 type Valta = { valta: string; m3fub: number; medellangd_m: number; antal_tradslag: number; tradslag: Tradslag[] };
@@ -60,11 +54,15 @@ type Niva2 = {
 type ObjektIManad = { objekt_id: string; namn: string | null };
 type Rotkap = { stammar: number; grupp2_stammar: number };
 
-/** "Timmer: Vislanda_195_1-2_V3" → "Timmer Vislanda". Maskinens namn står kvar en nivå in. */
-function kortNamn(so: SagbartSortiment) {
-  const bas = so.namn.replace(/^[^:]+:\s*/, '').split('_')[0];
-  return `${so.grupp} ${bas}`;
+/** "Tall Timmer: Urshult 1-4_V3" → "Talltimmer Urshult", "Kubb: Alvesta305_V3" → "Kubb Alvesta".
+ *  Maskinens hela namn står kvar längst ner på sortimentets egen skärm. */
+function kortSortiment(so: SagbartSortiment) {
+  const [fore, efter] = so.namn.includes(':') ? so.namn.split(/:\s*/, 2) : [so.grupp, so.namn];
+  const prefix = stor(fore.replace(/\s+/g, '').toLowerCase());
+  const ort = (efter.match(/^[A-Za-zÅÄÖåäö]+/) ?? [efter.split('_')[0]])[0];
+  return `${prefix} ${ort}`;
 }
+const klassFarg = (n: Klass['niva']) => n === 'tre_m' ? GUL : n === 'over_mal' ? GRON : DAMPAD;
 
 function Innehall() {
   const params = useParams();
@@ -104,7 +102,8 @@ function Innehall() {
       .then(({ data }) => setRotkap((data as Rotkap | null) ?? null));
   }, [objektId]);
 
-  // Väljaren i rubrikraden: månadens övriga objekt, båda vältorna.
+  // Väljaren i rubrikraden: månadens övriga objekt, båda vältorna. Anropen
+  // tar 10–20 s och fylls på efter att sidan visats.
   const pickerManad = manad ?? (d?.manader?.length ? d.manader[d.manader.length - 1] : null);
   useEffect(() => {
     if (!pickerManad) return;
@@ -122,7 +121,7 @@ function Innehall() {
       .catch(() => setAndra([]));
   }, [pickerManad]);
 
-  const namn = utanPrefix(d?.namn ?? objektId);
+  const namn = kortObjekt(d?.namn ?? objektId);
   const periodOrd = manad ? manadNamn(manad) : 'hela objektet';
   const bas = `/massaved/${encodeURIComponent(objektId)}`;
   const url = (q: Record<string, string | null | undefined>) => {
@@ -134,6 +133,7 @@ function Innehall() {
   const go = (v: string, s?: string) => router.push(url({ vy: v, sort: s }));
   const objektUrl = url({});
   const rotkapUrl = `/rotkap?objekt=${encodeURIComponent(objektId)}`;
+  const bitarUrl = `${bas}/bitar`;
   const har = `${namn} · ${periodOrd}`;
 
   if (laddar) return <div style={SIDA}><Laddar vad={namn} /></div>;
@@ -143,8 +143,17 @@ function Innehall() {
   const onskad = d.onskad_medellangd_m;
   const bitar = d.langdfordelning.reduce((s, k) => s + k.st, 0);
   const overMal = d.langdfordelning.filter(k => k.niva === 'over_mal').reduce((s, k) => s + k.andel, 0);
-  const valtaOrd = d.valtor.length === 1 ? `${d.valtor[0].valta.toLowerCase()}massaved` : 'massaved';
+  const maxAndel = Math.max(1e-9, ...d.langdfordelning.map(k => k.andel));
+  const storstaValta = [...d.valtor].sort((a, b) => b.m3fub - a.m3fub)[0];
+  const valtaOrd = storstaValta ? `${storstaValta.valta.toLowerCase()}massaved` : 'massaved';
   const under = d.medellangd_m != null && d.medellangd_m < onskad;
+  const periodKontroll = (
+    <Kontroll text={periodOrd} value={manad ?? 'alla'} label="Period"
+      onChange={m => router.replace(`${bas}?manad=${m}`, { scroll: false })}>
+      {d.manader.map(m => <option key={m} value={m}>{stor(manadEtikett(m))}</option>)}
+      <option value="alla">Hela objektet</option>
+    </Kontroll>
+  );
 
   // ── Objektet ──────────────────────────────────────────────────────────
   if (!vy) {
@@ -157,41 +166,31 @@ function Innehall() {
           <option value="__alla">Alla objekt{pickerManad ? ` i ${manadEtikett(pickerManad)}` : ''}</option>
           <option value={objektId}>{namn}</option>
           {andra.filter(o => o.objekt_id !== objektId).map(o => (
-            <option key={o.objekt_id} value={o.objekt_id}>{utanPrefix(o.namn ?? o.objekt_id)}</option>
+            <option key={o.objekt_id} value={o.objekt_id}>{kortObjekt(o.namn ?? o.objekt_id)}</option>
           ))}
         </Rubrikrad>
 
         {d.medellangd_m == null ? (
-          <div style={{ padding: '18px 16px 0', fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ padding: '10px 16px 0', fontSize: 13, lineHeight: 1.6 }}>
             Ingen massaved på {namn}{manad ? ` i ${manadEtikett(manad)}` : ''}.
-            {d.manader.length > 0 && manad && (
-              <Kontroll text={periodOrd} value={manad} label="Period"
-                onChange={m => router.replace(`${bas}?manad=${m}`, { scroll: false })}>
-                {d.manader.map(m => <option key={m} value={m}>{stor(manadEtikett(m))}</option>)}
-                <option value="alla">Hela objektet</option>
-              </Kontroll>
-            )}
+            {d.manader.length > 0 && periodKontroll}
           </div>
         ) : (
           <>
             <Stort tal={nf2(d.medellangd_m)} enhet="m" ordrad={`medellängd ${valtaOrd}`}>
               <Tillstand farg={under ? GUL : GRON}>{under ? 'under' : 'når'} Vidas önskade {nf1(onskad)} m</Tillstand>
-              <Kontroll text={periodOrd} value={manad ?? 'alla'} label="Period"
-                onChange={m => router.replace(`${bas}?manad=${m}`, { scroll: false })}>
-                {d.manader.map(m => <option key={m} value={m}>{stor(manadEtikett(m))}</option>)}
-                <option value="alla">Hela objektet</option>
-              </Kontroll>
+              {periodKontroll}
               <Damp>{nf1(d.total_m3fub)} m³fub · {nf0(bitar)} bitar</Damp>
             </Stort>
 
             <Rader>
               {d.tre_m_stock.st > 0 && (
-                <Rad text="3 m-stockar" tal={nf1(d.tre_m_stock.andel ?? 0)} enhet="%" onClick={() => go('tre-m')} />
+                <Rad text="3 m-stockar" tal={`${nf0(d.tre_m_stock.andel ?? 0)} %`} farg={GUL} onClick={() => go('tre-m')} />
               )}
               {d.sagbar.sortiment.length > 0 && (
-                <Rad text="Sågbar dimension" tal={nf1(d.sagbar.andel ?? 0)} enhet="%" onClick={() => go('sagbar')} />
+                <Rad text="Sågbar dimension" tal={`${nf0(d.sagbar.andel ?? 0)} %`} onClick={() => go('sagbar')} />
               )}
-              <Rad text="Längdfördelning" tal={nf0(overMal)} enhet="%" onClick={() => go('langd')} />
+              <Rad text="Längdfördelning" tal={`${nf0(overMal)} %`} farg={GRON} onClick={() => go('langd')} />
               <Rad text="Trädslag och avkap" onClick={() => go('tradslag')} />
               <Rad text="Så räknas talet" onClick={() => go('rakning')} />
             </Rader>
@@ -208,18 +207,39 @@ function Innehall() {
     return (
       <div style={SIDA}>
         <Tillbakarad href={objektUrl} text={har} />
-        <Stort tal={nf1(t.andel ?? 0)} enhet="%" ordrad="av massaveden är 3 m-stockar">
+        <Stort tal={nf0(t.andel ?? 0)} enhet="%" ordrad="av volymen är 3 m-stockar">
           <Damp>{nf0(t.st)} st · {nf1(t.m3fub)} m³fub</Damp>
-          <Mening>Kapade till 3 m för att ta bort röta. De ligger i massavedsvolymen och drar ner medellängden.</Mening>
+          <Mening>Kapade till 3 m för att ta bort röta.</Mening>
         </Stort>
         <Rader>
-          {t.medellangd_utan_m3 != null && <Rad text="Utan dem" tal={nf2(t.medellangd_utan_m3)} enhet="m" farg={GRON} />}
+          {t.medellangd_utan_m3 != null && <Rad text="Utan dem" tal={`${nf2(t.medellangd_utan_m3)} m`} farg={GRON} />}
           {rotkap && rotkap.grupp2_stammar > 0 && (
-            <Rad text="Rötan fortsatte" tal={nf0(rotkap.grupp2_stammar)} enhet="stammar" href={rotkapUrl} />
+            <Rad text="Rötan fortsatte" tal={`${nf0(rotkap.grupp2_stammar)} st`} href={rotkapUrl} />
           )}
-          <Rad text="Visa bitarna" href={`${bas}/bitar`} />
+          <Rad text="Visa bitarna" href={bitarUrl} />
         </Rader>
         <Textlank href={rotkapUrl} text="Vad kostar ett längre rotkap" />
+      </div>
+    );
+  }
+
+  // ── Längdfördelning ───────────────────────────────────────────────────
+  if (vy === 'langd') {
+    return (
+      <div style={SIDA}>
+        <Tillbakarad href={objektUrl} text={har} />
+        <Stort tal={nf0(overMal)} enhet="%" ordrad={`når Vidas önskade ${nf1(onskad)} m`}>
+          <Damp>{nf1(d.total_m3fub)} m³fub · {nf0(bitar)} bitar</Damp>
+        </Stort>
+        <Rader>
+          {d.langdfordelning.map(k => (
+            <Rad key={k.klass} text={k.klass} tal={`${nf1(k.andel)} %`}
+              farg={k.niva === 'under_mal' ? TEXT : klassFarg(k.niva)}
+              hoger={`${nf1(k.m3fub)} m³`}
+              stapel={{ andel: k.andel, max: maxAndel, farg: klassFarg(k.niva) }} />
+          ))}
+          <Rad text="Visa bitarna" href={bitarUrl} />
+        </Rader>
       </div>
     );
   }
@@ -230,13 +250,14 @@ function Innehall() {
     return (
       <div style={SIDA}>
         <Tillbakarad href={objektUrl} text={har} />
-        <Stort tal={nf1(s.andel ?? 0)} enhet="%" ordrad="av massaveden ryms i ett sågbart sortiment">
-          <Damp>{nf1(s.m3fub)} m³fub · {s.sortiment.length} sortiment</Damp>
-          <Mening>Både längd och diameter måste rymmas i sortimentets fönster, som biten redan är kapad.</Mening>
+        <Stort tal={nf0(s.andel ?? 0)} enhet="%" ordrad="hade rymts i ett sågbart sortiment">
+          <Damp>{nf1(s.m3fub)} m³fub</Damp>
+          <Mening>Både längd och diameter räknas mot de sortiment objektet körde.</Mening>
         </Stort>
         <Rader>
-          {s.sortiment.map(so => (
-            <Rad key={so.namn} text={kortNamn(so)} tal={nf1(so.m3fub)} enhet="m³" onClick={() => go('sortiment', so.namn)} />
+          {/* Största först, som i förlagan. */}
+          {[...s.sortiment].sort((a, b) => b.m3fub - a.m3fub).map(so => (
+            <Rad key={so.namn} text={kortSortiment(so)} tal={`${nf1(so.m3fub)} m³`} onClick={() => go('sortiment', so.namn)} />
           ))}
           <Rad text="Så räknas sågbart" onClick={() => go('sagbar-rakning')} />
         </Rader>
@@ -244,26 +265,30 @@ function Innehall() {
     );
   }
 
-  // ── Ett sortiment: fönstret ───────────────────────────────────────────
+  // ── Ett sortiment ─────────────────────────────────────────────────────
   if (vy === 'sortiment') {
     const so = d.sagbar.sortiment.find(x => x.namn === sort);
     const sagbarUrl = url({ vy: 'sagbar' });
     if (!so) return <div style={SIDA}><Tillbakarad href={sagbarUrl} text="Sågbar dimension" /><Stycken>Sortimentet finns inte i det här omfånget.</Stycken></div>;
     const urMaskinen = so.kalla === 'hpr' && so.langd_max_m != null;
+    const andel = d.total_m3fub > 0 ? (100 * so.m3fub) / d.total_m3fub : 0;
     return (
       <div style={SIDA}>
         <Tillbakarad href={sagbarUrl} text="Sågbar dimension" />
-        <Stort tal={nf1(so.m3fub)} enhet="m³fub" ordrad={`sågbar dimension, ${kortNamn(so)}`}>
-          <Damp>
-            {urMaskinen
-              ? <>{nf2(so.langd_min_m)}–{nf2(so.langd_max_m as number)} m · {nf0(so.dia_min_mm)}–{nf0(so.dia_max_mm)} mm · ur maskinen</>
-              : <>från {nf2(so.langd_min_m)} m · {nf0(so.dia_min_mm)}–{nf0(so.dia_max_mm)} mm · taket härlett</>}
-          </Damp>
-          {!urMaskinen && (
-            <Mening>De undre gränserna står i prislistan, de övre är härledda ur högsta prisklassen. Maskinens fil bär de riktiga gränserna när den lästs in.</Mening>
-          )}
-          <Mening>I maskinen heter sortimentet {so.namn}.</Mening>
+        <Stort tal={nf1(so.m3fub)} enhet="m³" ordrad={`hade rymts i ${kortSortiment(so)}`}>
+          <Damp>{nf1(andel)} % av massaveden</Damp>
         </Stort>
+        <Rader>
+          <Rad text="Längd" tal={urMaskinen ? `${nf2(so.langd_min_m)}–${nf2(so.langd_max_m as number)} m` : `från ${nf2(so.langd_min_m)} m`} />
+          <Rad text="Diameter" tal={`${nf0(so.dia_min_mm)}–${nf0(so.dia_max_mm)} mm`} />
+          <Rad text="Visa bitarna" href={bitarUrl} />
+        </Rader>
+        <Teknisk>
+          {urMaskinen
+            ? 'Gränserna kommer ur maskinen.'
+            : 'De undre gränserna kommer ur prislistan, taket är härlett ur högsta prisklassen.'}
+          {' '}I maskinen heter sortimentet {so.namn}.
+        </Teknisk>
       </div>
     );
   }
@@ -300,24 +325,6 @@ function Innehall() {
     );
   }
 
-  // ── Längdfördelning ───────────────────────────────────────────────────
-  if (vy === 'langd') {
-    return (
-      <div style={SIDA}>
-        <Tillbakarad href={objektUrl} text={har} />
-        <Stort tal={nf0(overMal)} enhet="%" ordrad={`av volymen är ${nf1(onskad)} m eller längre`}>
-          <Damp>{nf0(bitar)} bitar · {nf1(d.total_m3fub)} m³fub</Damp>
-        </Stort>
-        <Rader>
-          {d.langdfordelning.map(k => (
-            <Rad key={k.klass} text={k.klass} tal={nf1(k.andel)} enhet="%"
-              sub={<>{nf1(k.m3fub)} m³ · {nf0(k.st)} st{k.varav_tre_m_st > 0 && <>, varav {nf0(k.varav_tre_m_st)} 3 m-stockar</>}</>} />
-          ))}
-        </Rader>
-      </div>
-    );
-  }
-
   // ── Trädslag och avkap ────────────────────────────────────────────────
   if (vy === 'tradslag') {
     const ettTradslag = d.valtor.length === 1 && d.valtor[0].tradslag.length === 1 ? d.valtor[0].tradslag[0] : null;
@@ -335,17 +342,17 @@ function Innehall() {
           {d.valtor.map(v => (
             <span key={v.valta}>
               {d.valtor.length > 1 && (
-                <Rad text={`Hela ${v.valta.toLowerCase()}vältan`} tal={nf2(v.medellangd_m)} enhet="m" sub={`${nf1(v.m3fub)} m³`} />
+                <Rad text={`Hela ${v.valta.toLowerCase()}vältan`} tal={`${nf2(v.medellangd_m)} m`} hoger={`${nf1(v.m3fub)} m³`} />
               )}
               {v.tradslag.map(t => (
-                <Rad key={t.namn} text={t.namn} tal={nf2(t.medellangd_m)} enhet="m"
-                  sub={<>{nf1(t.m3fub)} m³{t.sagbar_m3 > 0 && <> · sågbar dimension {nf1(t.sagbar_m3)} m³</>}</>} />
+                <Rad key={t.namn} text={t.namn} tal={`${nf2(t.medellangd_m)} m`} hoger={`${nf1(t.m3fub)} m³`} />
               ))}
             </span>
           ))}
           {d.avkap.delar.map(del => (
-            <Rad key={del.kap} text={`Avkap ${del.kap}`} tal={nf0(del.st)} enhet="st" sub={`${nf2(del.m3fub)} m³`} />
+            <Rad key={del.kap} text={`Avkap ${del.kap}`} tal={`${nf0(del.st)} st`} hoger={`${nf2(del.m3fub)} m³`} />
           ))}
+          <Rad text="Visa bitarna" href={bitarUrl} />
         </Rader>
       </div>
     );
