@@ -13,14 +13,38 @@ import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
 import { ledighetKollisioner } from "@/lib/ledighetKollision";
 import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
+import { ersattningsMilDag } from "@/lib/kmErsattning";
 
 export type LoneunderlagRad = ExportSammanfattning & { status: string };
+
+/** En rad i förarens tidrapport — samma arbetsdag-rad beräkningen redan läser,
+ *  plus rast/objekt/extra tid. Mängder; km är rådata, ersattningsmil det som
+ *  blir ersättning (samma lib/kmErsattning som exporten). */
+export type LoneunderlagDag = {
+  id: string;
+  datum: string;
+  start_tid: string | null;
+  slut_tid: string | null;
+  rast_min: number | null;
+  arbetad_min: number;      // maskintid (arbetsdag.arbetad_min)
+  extra_min: number;        // extra tid samma dag (extra_tid)
+  objekt: string[];         // objektnamn i dagens ordning
+  km_totalt: number;
+  ersattningsmil: number;   // påbörjade mil över fri pendling — det som ersätts
+  traktamente: boolean;
+  dagtyp: string | null;
+  bekraftad: boolean;
+  brandrisk_beordrad: boolean | null;
+  ob_min: number;
+};
 
 export type LoneunderlagBerikad = LoneunderlagRad & {
   ob: { timmar: number; dagar: number; obesvarade: number };
   maskin_utan_typ: string[];
   synk: SynkRad[];
   ledighetskollision: ReturnType<typeof ledighetKollisioner>;
+  dagar: LoneunderlagDag[];
+  km_grans: number;         // fri pendling km/dag ur gs_avtal — för förklaringstexten
 };
 
 export type SynkRad = {
@@ -63,8 +87,10 @@ export async function beraknaLoneunderlag(
   // Ladda data
   const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes] = await Promise.all([
     supabase.from("medarbetare").select("id, namn").order("namn"),
+    // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
+    // för-dag-rader — de påverkar inte beräkningen, som bara ser de gamla fälten.)
     supabase.from("arbetsdag")
-      .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp, synk_avvikelse, start_tid, brandrisk_beordrad")
+      .select("id, medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp, synk_avvikelse, start_tid, brandrisk_beordrad, slut_tid, rast_min, traktamente, objekt_id")
       .gte("datum", arbStart).lte("datum", arbSlut),
     // Extra tid = arbete när maskinen var av — arbetstid rakt av,
     // ska in i timlön/övertid (arbetad_min ser den inte)
@@ -223,15 +249,65 @@ export async function beraknaLoneunderlag(
     if (utanTyp.length) maskinUtanTypMap.set(med.id, utanTyp);
   }
 
+  // Dag för dag (förarens tidrapport): objektnamn via arbetsdag_objekt →
+  // dim_objekt, extra tid per dag. Läses BARA för de medarbetare som beräknats
+  // (filterIds) — en förares spec hämtar aldrig andras dagar.
+  const beraknadeIds = new Set(resultat.map(r => r.medarbetare_id));
+  const dagRader = ((arbRes.data || []) as any[]).filter(d => beraknadeIds.has(d.medarbetare_id));
+  const arbIds = dagRader.map(d => d.id).filter(Boolean);
+  const aoRes = arbIds.length
+    ? await supabase.from("arbetsdag_objekt").select("arbetsdag_id, objekt_id, objekt_namn, ordning").in("arbetsdag_id", arbIds)
+    : { data: [] as any[] };
+  const objektIds = Array.from(new Set<string>([
+    ...dagRader.map(d => d.objekt_id).filter(Boolean).map(String),
+    ...((aoRes.data as any[]) || []).map(r => r.objekt_id).filter(Boolean).map(String),
+  ]));
+  const dimRes = objektIds.length
+    ? await supabase.from("dim_objekt").select("objekt_id, object_name").in("objekt_id", objektIds)
+    : { data: [] as any[] };
+  const objNamn = new Map<string, string>(((dimRes.data as any[]) || []).map(d => [String(d.objekt_id), d.object_name || String(d.objekt_id)]));
+  const aoByArb = new Map<string, { objekt_id: string | null; objekt_namn: string | null; ordning: number | null }[]>();
+  for (const r of ((aoRes.data as any[]) || [])) {
+    if (!aoByArb.has(r.arbetsdag_id)) aoByArb.set(r.arbetsdag_id, []);
+    aoByArb.get(r.arbetsdag_id)!.push(r);
+  }
+  const extraMinPerDag = new Map<string, number>(); // `${med}|${datum}` → min
+  for (const e of (extraRes.data || []) as any[]) {
+    if (!e.medarbetare_id || !e.datum) continue;
+    const k = `${e.medarbetare_id}|${e.datum}`;
+    extraMinPerDag.set(k, (extraMinPerDag.get(k) || 0) + (e.minuter || 0));
+  }
+  const dagarPerMed = new Map<string, LoneunderlagDag[]>();
+  for (const d of dagRader) {
+    const ao = (aoByArb.get(d.id) || []).sort((a: { ordning: number | null }, b: { ordning: number | null }) => (a.ordning ?? 0) - (b.ordning ?? 0));
+    const objekt = ao.length
+      ? ao.map(r => r.objekt_namn || (r.objekt_id ? objNamn.get(String(r.objekt_id)) : null) || "").filter(Boolean)
+      : (d.objekt_id ? [objNamn.get(String(d.objekt_id)) || String(d.objekt_id)] : []);
+    const km = Number(d.km_totalt || 0);
+    const rad: LoneunderlagDag = {
+      id: d.id, datum: d.datum, start_tid: d.start_tid, slut_tid: d.slut_tid, rast_min: d.rast_min,
+      arbetad_min: Number(d.arbetad_min || 0),
+      extra_min: extraMinPerDag.get(`${d.medarbetare_id}|${d.datum}`) || 0,
+      objekt, km_totalt: km, ersattningsmil: ersattningsMilDag(km, kmGrans),
+      traktamente: !!d.traktamente, dagtyp: d.dagtyp ?? null, bekraftad: !!d.bekraftad,
+      brandrisk_beordrad: d.brandrisk_beordrad ?? null, ob_min: obMinuter(d),
+    };
+    if (!dagarPerMed.has(d.medarbetare_id)) dagarPerMed.set(d.medarbetare_id, []);
+    dagarPerMed.get(d.medarbetare_id)!.push(rad);
+  }
+  for (const l of Array.from(dagarPerMed.values())) l.sort((a: LoneunderlagDag, b: LoneunderlagDag) => a.datum.localeCompare(b.datum));
+
   // Berikning (dry_run/granskningsvy/förarspec): OB, maskin-luckor,
-  // tidsavvikelser, ledighetskollision — allt på ett ställe, ingen parallell
-  // beräkning någonstans.
+  // tidsavvikelser, ledighetskollision, dag för dag — allt på ett ställe,
+  // ingen parallell beräkning någonstans.
   const berikad: LoneunderlagBerikad[] = resultat.map(r => ({
     ...r,
     ob: obMap.get(r.medarbetare_id) || { timmar: 0, dagar: 0, obesvarade: 0 },
     maskin_utan_typ: maskinUtanTypMap.get(r.medarbetare_id) || [],
     synk: synkAvvikelser.filter(s => s.medarbetare_id === r.medarbetare_id),
     ledighetskollision: ledKollMap.get(r.medarbetare_id) || [],
+    dagar: dagarPerMed.get(r.medarbetare_id) || [],
+    km_grans: kmGrans,
   }));
 
   return {

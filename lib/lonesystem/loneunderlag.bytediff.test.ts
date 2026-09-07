@@ -23,9 +23,15 @@ describe("salary-export dry_run: gammal route == ny route (byte för byte)", () 
     const b = await kör(ny, { period, dry_run: true });
     expect(a.status).toBe(200);
     expect(b.status).toBe(a.status);
-    expect(b.text.length).toBe(a.text.length);
-    expect(b.text).toBe(a.text);
+    // Efter lyftet fick dry_run TVÅ nya nycklar per medarbetare (dagar, km_grans —
+    // förarens tidrapport). Allt annat ska vara byte-identiskt: strippa bara de två
+    // och jämför resten som text (nyckelordning bevaras av JSON.stringify).
+    const strippa = (t: string) => JSON.stringify(JSON.parse(t), (k, v) => (k === "dagar" || k === "km_grans") ? undefined : v);
+    const a2 = strippa(a.text), b2 = strippa(b.text);
+    expect(b2.length).toBe(a2.length);
+    expect(b2).toBe(a2);
     const j = JSON.parse(b.text);
+    expect(Array.isArray(j.medarbetare[0]?.dagar)).toBe(true);
     console.log(`  ${period}: ${j.medarbetare.length} medarbetare, ${j.totalt_rader} rader, ${b.text.length} bytes — identiskt`);
   }, 120_000);
 });
