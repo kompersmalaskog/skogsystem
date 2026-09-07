@@ -23,13 +23,45 @@ function sakraPromiseWithResolvers() {
 
 type Status = 'laddar' | 'klar' | 'fel';
 
-export default function PdfLasare({ signedUrl, titel, onClose }: {
+export default function PdfLasare({ signedUrl, titel, onClose, delaFilnamn }: {
   signedUrl: string;
   titel: string;
   onClose: () => void;
+  /** Sätts → en "Dela / spara"-knapp i headern. Hämtar PDF:en (same-origin,
+   *  cookie följer med) och lämnar den till delningsarket (navigator.share med
+   *  fil — iOS 15+, även installerad app) så föraren SER dokumentet först och
+   *  väljer sedan om han sparar. Saknas fil-delning: öppna i ny flik. */
+  delaFilnamn?: string;
 }) {
   const [status, setStatus] = useState<Status>('laddar');
+  const [delar, setDelar] = useState(false);
   const sidytaRef = useRef<HTMLDivElement>(null);
+
+  const dela = async () => {
+    if (!delaFilnamn || delar) return;
+    setDelar(true);
+    try {
+      const r = await fetch(signedUrl, { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const fil = new File([blob], delaFilnamn, { type: 'application/pdf' });
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+      if (typeof nav.share === 'function' && (!nav.canShare || nav.canShare({ files: [fil] }))) {
+        await nav.share({ files: [fil], title: titel });
+      } else {
+        // Ingen fil-delning (äldre webbläsare/desktop): öppna dokumentet i ny flik —
+        // därifrån finns webbläsarens egna spara/skriv ut.
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank', 'noopener');
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+    } catch (e: any) {
+      // Avbruten delning (AbortError) är inte ett fel.
+      if (e?.name !== 'AbortError') console.warn('[PdfLasare] dela misslyckades', e?.message || e);
+    } finally {
+      setDelar(false);
+    }
+  };
 
   useEffect(() => {
     let avbruten = false;
@@ -104,6 +136,12 @@ export default function PdfLasare({ signedUrl, titel, onClose }: {
           borderBottom: '1px solid rgba(255,255,255,0.1)', flexShrink: 0,
         }}>
           <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titel}</span>
+          {delaFilnamn && status === 'klar' && (
+            <button type="button" onClick={dela} disabled={delar} style={{
+              height: 36, padding: '0 14px', borderRadius: 18, border: 'none', background: 'rgba(77,163,255,0.18)',
+              color: '#4da3ff', fontSize: 14, fontWeight: 600, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit', opacity: delar ? 0.6 : 1,
+            }}>{delar ? 'Delar…' : 'Dela / spara'}</button>
+          )}
           <button type="button" onClick={onClose} aria-label="Stäng" style={{
             width: 36, height: 36, borderRadius: 18, border: 'none', background: 'rgba(255,255,255,0.12)',
             color: 'rgba(255,255,255,0.85)', fontSize: 17, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit',

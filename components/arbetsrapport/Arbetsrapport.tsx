@@ -14,6 +14,7 @@ import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, typ
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
+import PdfLasare from "@/app/planering/PdfLasare";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -654,6 +655,9 @@ export default function Arbetsrapport() {
   // öppning; inget cachas. Ersätter den lokala månadsberäkningen som fanns här
   // förr (två sanningar om samma månad).
   const [minManad, setMinManad] = useState<{ arbetsmanad: string; laddar: boolean; fel: string | null; data: any | null }>({ arbetsmanad: "", laddar: false, fel: null, data: null });
+  // PDF:en öppnas INNE i appen (PdfLasare) — aldrig ny flik/nedladdning som slänger
+  // ut föraren ur den installerade appen. Han bläddrar först, delar/sparar sedan.
+  const [specPdf, setSpecPdf] = useState<{ url: string; titel: string; filnamn: string } | null>(null);
   useEffect(() => {
     if (steg !== "lön" || !medarbetare?.id) return;
     const ref = new Date();
@@ -4316,12 +4320,17 @@ export default function Arbetsrapport() {
                   <div style={{ height:6 }} />
                 </section>
 
-                {/* Spara — PDF ur samma beräkning, öppnas med delningsarket i mobilen */}
-                <a href={`/api/lon/min-manad/pdf?arbetsmanad=${encodeURIComponent(lönePeriod)}`} target="_blank" rel="noopener"
-                  style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",height:48,background:"rgba(255,255,255,0.06)",color:"#fff",borderRadius:12,fontSize:15,fontWeight:600,textDecoration:"none",marginBottom:16,boxSizing:"border-box" }}>
+                {/* PDF ur samma beräkning — öppnas i appens läsvy; därifrån Dela / spara */}
+                <button type="button"
+                  onClick={()=>setSpecPdf({
+                    url: `/api/lon/min-manad/pdf?arbetsmanad=${encodeURIComponent(lönePeriod)}`,
+                    titel: `Tidsspecifikation ${lönMånadsLabel}`,
+                    filnamn: `tidsspecifikation-${lönePeriod}-${(medarbetare?.namn || 'medarbetare').toLowerCase().replace(/[^a-z0-9åäö]+/gi,'-')}.pdf`,
+                  })}
+                  style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",height:48,background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:16 }}>
                   <span className="material-symbols-outlined" style={{ fontSize:20,color:"#0a84ff" }}>picture_as_pdf</span>
-                  Spara som PDF
-                </a>
+                  Öppna som PDF
+                </button>
               </>
             );
           })()}
@@ -4373,6 +4382,9 @@ export default function Arbetsrapport() {
           </div>
         </main>
         {bottomNav}
+
+        {/* Tidsspecifikationen som PDF — in-app läsvy med Dela / spara */}
+        {specPdf && <PdfLasare signedUrl={specPdf.url} titel={specPdf.titel} delaFilnamn={specPdf.filnamn} onClose={()=>setSpecPdf(null)} />}
 
         {/* Bekräftelsedialog innan inskickning */}
         {lönBekräfta && (
