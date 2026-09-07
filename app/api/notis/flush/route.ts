@@ -3,6 +3,24 @@ import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
+import { skaFragaBrandrisk } from "@/lib/ob";
+
+/**
+ * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
+ * server-side före 2026-09: en förare som stängt av fick pushar ändå. Alla stod
+ * på true, därför märkte ingen. Nu avgör de här, per notis:
+ *   push_aktiv=false        → inga pushar alls
+ *   daglig_pamin_aktiv=false → ingen dagsslut-påminnelse (andra typer går)
+ * Returnerar orsak (→ fel_meddelande, som bekräftad-fallet) eller null = skicka.
+ */
+export function skippOrsak(
+  med: { push_aktiv?: boolean | null; daglig_pamin_aktiv?: boolean | null } | null | undefined,
+  typ: string,
+): string | null {
+  if (med && med.push_aktiv === false) return "Ej skickad — push avstängd i medarbetarens inställningar";
+  if (typ === "dagsslut" && med && med.daglig_pamin_aktiv === false) return "Ej skickad — daglig påminnelse avstängd i medarbetarens inställningar";
+  return null;
+}
 
 /**
  * Processar notis_kö — hämtar alla rader där skickas_at <= now() och
@@ -52,8 +70,22 @@ async function flush() {
   let skippade = 0;
   let uppskjutna = 0;
 
+  // Växlarna läses EN gång per körning för alla mottagare i kön.
+  const mottagarIds = Array.from(new Set((pendingRader || []).map((n: any) => n.mottagare_id).filter(Boolean)));
+  const medRes = mottagarIds.length
+    ? await supabase.from("medarbetare").select("id, push_aktiv, daglig_pamin_aktiv").in("id", mottagarIds)
+    : { data: [] as any[] };
+  const medMap = new Map<string, any>(((medRes.data as any[]) || []).map(m => [m.id, m]));
+
   for (const n of (pendingRader || [])) {
     try {
+      // Medarbetarens växlar (push_aktiv / daglig_pamin_aktiv) — se skippOrsak.
+      const orsak = skippOrsak(medMap.get(n.mottagare_id), n.typ);
+      if (orsak) {
+        await supabase.from("notis_kö").update({ skickad_at: new Date().toISOString(), fel_meddelande: orsak }).eq("id", n.id);
+        skippade++;
+        continue;
+      }
       // Dagsslut: har föraren redan bekräftat dagen när flush kör finns
       // inget att påminna om — markera som hanterad utan utskick.
       if (n.typ === "dagsslut" && n.datum) {
@@ -139,30 +171,53 @@ async function flush() {
   });
 }
 
-async function byggMeddelande(n: any): Promise<{ title: string; body: string; url: string; tag?: string }> {
+const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
+
+export async function byggMeddelande(n: any): Promise<{ title: string; body: string; url: string; tag?: string }> {
   if (n.typ === "dagsslut" && n.datum) {
     // FÄRSK dagstotal vid utskick: maskintid + extra tid (samma formel som
     // #188) — inte det som stod när notisen köades. Kumulativa MOM-filer
     // kan ha uppdaterat dagen mellan köandet (t.ex. lunch) och 17-utskicket.
     const [dagRes, extraRes] = await Promise.all([
       supabase.from("arbetsdag")
-        .select("arbetad_min, km_morgon, km_kvall, km_totalt")
+        .select("arbetad_min, start_tid, brandrisk_beordrad")
         .eq("medarbetare_id", n.mottagare_id).eq("datum", n.datum).maybeSingle(),
       supabase.from("extra_tid")
         .select("minuter")
         .eq("medarbetare_id", n.mottagare_id).eq("datum", n.datum),
     ]);
-    const maskinMin = (dagRes.data as any)?.arbetad_min || 0;
+    const dag: any = dagRes.data || {};
+    const maskinMin = dag.arbetad_min || 0;
     const extraMin = (extraRes.data || []).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
     const tot = maskinMin + extraMin;
     const h = Math.floor(tot / 60);
     const m = tot % 60;
-    const km = ((dagRes.data as any)?.km_morgon || 0) + ((dagRes.data as any)?.km_kvall || 0) + ((dagRes.data as any)?.km_totalt || 0);
+    // Låsskärmstext: kort. "brandrisk?" — ett ord — när dagen startade före 05:30
+    // och svaret saknas (samma regel som frågan vid bekräftelsen, lib/ob).
+    const fraga = skaFragaBrandrisk({ datum: n.datum, start_tid: dag.start_tid ?? null, brandrisk_beordrad: dag.brandrisk_beordrad ?? null });
     return {
       title: "Din arbetsdag",
-      body: `${h}h ${m}min${km > 0 ? ` · ${km}km` : ""} — Stämmer?`,
+      body: `${h}h ${m}min${fraga ? " · brandrisk?" : ""} · Stämmer?`,
       url: "/arbetsrapport",
       tag: `dagsslut-${n.mottagare_id}-${n.datum}`,
+    };
+  }
+
+  if (n.typ === "manadsskifte") {
+    // Köas av /api/notis/manadsskifte (den 1:a) ur samma beräkning som
+    // löneunderlaget. payload: { period: "YYYY-MM", obekraftade, obesvarade, oforklarade }.
+    const p = n.payload || {};
+    const [å, mm] = String(p.period || "").split("-").map(Number);
+    const manad = mm ? MANADER[mm - 1] : "månaden";
+    const delar: string[] = [];
+    if (p.obekraftade > 0) delar.push(`${p.obekraftade} obekräftad${p.obekraftade === 1 ? "" : "e"} dag${p.obekraftade === 1 ? "" : "ar"}`);
+    if (p.obesvarade > 0) delar.push(`${p.obesvarade} brandriskfråg${p.obesvarade === 1 ? "a" : "or"}`);
+    if (p.oforklarade > 0) delar.push(`${p.oforklarade} tidsavvikelse${p.oforklarade === 1 ? "" : "r"}`);
+    return {
+      title: `${manad.charAt(0).toUpperCase()}${manad.slice(1)}${å ? ` ${å}` : ""}: fixa innan lönen`,
+      body: delar.join(" · ") || "Något saknas i din månad",
+      url: "/arbetsrapport",
+      tag: `manadsskifte-${n.mottagare_id}-${p.period || ""}`,
     };
   }
 
