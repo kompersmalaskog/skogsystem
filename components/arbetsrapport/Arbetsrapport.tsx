@@ -2133,12 +2133,16 @@ export default function Arbetsrapport() {
               : 'Avslutas automatiskt vid utloggning från maskinen';
           const maskinText = maskinNamn || medarbetare?.maskin_id || null;
           const vObj = valtObjektId ? objektLista.find(o=>o.id===valtObjektId) : null;
+          // Objektet FYLLS AV IMPORTEN när första MOM-filen landat (mom-import: dominant
+          // objekt ur fakt_tid → arbetsdag.objekt_id + arbetsdag_objekt). Ett tomt objekt
+          // är ett övergångstillstånd — därför ingen "Välj objekt" medan vi väntar på
+          // maskinen. Först när passet går och objektet ändå saknas visas valet.
           const objText = (isWorking && dagData[idagKey]?.objekt_id)
             ? (objektLista.find(o => o.id === dagData[idagKey]?.objekt_id)?.namn || dagData[idagKey]?.objekt_id)
-            : (dagensObjekt || dagData[idagKey]?.objekt_namn || vObj?.namn || null);
-          const platsText = objText || 'Välj objekt';
+            : (dagData[idagKey]?.objekt_namn || vObj?.namn || null);
+          const behovValjaObjekt = isWorking && !objText;
           return (
-        <section style={{ marginBottom:28,animation:"fadeUp 0.5s ease 0.05s both" }}>
+        <section style={{ marginBottom:12,animation:"fadeUp 0.5s ease 0.05s both" }}>
           <div style={{ display:"flex",alignItems:"center",gap:10 }}>
             {isWorking
               ? <div style={{ width:10,height:10,borderRadius:"50%",background:"#0a84ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />
@@ -2147,15 +2151,22 @@ export default function Arbetsrapport() {
             <h1 style={{ margin:0,color:"#fff",...TYPE.h1,...TNUM }}>{rubrik}</h1>
           </div>
           <p style={{ margin:"6px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>{under}</p>
-          {/* Maskin · Plats — en grå rad, tryck väljer objekt (samma väljare som förr) */}
-          <button onClick={()=>setVisaObjektVäljare(true)}
-            style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",minHeight:44,margin:"10px 0 0",padding:0,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
-            <span style={{ ...TYPE.meta,color:"#8e8e93",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
-              {maskinText ? `${maskinText} · ` : ''}<span style={{ color: objText ? "#8e8e93" : "#0a84ff" }}>{platsText}</span>
-            </span>
-            <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",flexShrink:0 }}>chevron_right</span>
-          </button>
-          <div style={{ marginTop:14 }}>
+          {/* Maskin · Objekt — grå textrad. Bara när objektet saknas under pågående pass
+              blir den en riktig rad (etikett + pil ihop) som öppnar objektväljaren. */}
+          {behovValjaObjekt ? (
+            <button onClick={()=>setVisaObjektVäljare(true)}
+              style={{ display:"inline-flex",alignItems:"center",gap:4,minHeight:44,margin:"6px 0 0",padding:0,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+              <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{maskinText ? `${maskinText} · ` : ''}</span>
+              <span style={{ ...TYPE.meta,color:"#0a84ff" }}>Välj objekt</span>
+              <span className="material-symbols-outlined" style={{ fontSize:18,color:"#0a84ff" }}>chevron_right</span>
+            </button>
+          ) : (maskinText || objText) ? (
+            <p style={{ margin:"6px 0 0",...TYPE.meta,color:"#8e8e93",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+              {[maskinText, objText].filter(Boolean).join(' · ')}
+            </p>
+          ) : null}
+          {/* Undantagshandlingarna är små: passet startar och avslutas av sig självt (MOM). */}
+          <div style={{ marginTop:10 }}>
             {isWorking ? (
               <button onClick={async ()=>{
                 const nuT = nuKlock();
@@ -2166,7 +2177,8 @@ export default function Arbetsrapport() {
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                 synkaVilobrott(idagKey);
-              }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",background:"rgba(255,255,255,0.04)",color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
+              }} style={{ display:"inline-flex",alignItems:"center",gap:6,minHeight:44,padding:0,background:"none",border:"none",color:"#0a84ff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
+                <span className="material-symbols-outlined" style={{ fontSize:18 }}>stop_circle</span>
                 Avsluta pass
               </button>
             ) : pagaendeAktiviteter.length===0 ? (
@@ -2205,7 +2217,8 @@ export default function Arbetsrapport() {
                   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                   synkaVilobrott(idagKey);
                 }
-              }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.25)",background:"transparent",color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
+              }} style={{ display:"inline-flex",alignItems:"center",gap:6,minHeight:44,padding:0,background:"none",border:"none",color:"#0a84ff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
+                <span className="material-symbols-outlined" style={{ fontSize:18 }}>play_circle</span>
                 Starta manuellt
               </button>
             ) : <span />}
@@ -2234,7 +2247,7 @@ export default function Arbetsrapport() {
             setExtraTidData(d => [data, ...d]);
             if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
           }}
-            style={{ display:"flex",alignItems:"center",gap:6,margin:"-8px 0 28px",padding:0,background:"none",border:"none",color:"#0a84ff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
+            style={{ display:"inline-flex",alignItems:"center",gap:6,minHeight:44,margin:"0 0 12px",padding:0,background:"none",border:"none",color:"#0a84ff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
             <span className="material-symbols-outlined" style={{ fontSize:18 }}>add</span>
             Extra arbete
           </button>
