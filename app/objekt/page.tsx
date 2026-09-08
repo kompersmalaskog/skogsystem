@@ -222,7 +222,8 @@ function ObjektPageInner() {
 
   // Rätta-läge per traktinfo-sektion (null = läs), och dokument-URL:er för knapparna
   const [rattaSektion, setRattaSektion] = useState<string | null>(null);
-  const [dokUrls, setDokUrls] = useState<{ td: string | null; sl: string | null; tk: string | null; vl: string | null }>({ td: null, sl: null, tk: null, vl: null });
+  const [dokUrls, setDokUrls] = useState<{ td: string | null; sl: string | null; tk: string | null; vl: string | null; ok: string | null }>({ td: null, sl: null, tk: null, vl: null, ok: null });
+  const [traktkartorDok, setTraktkartorDok] = useState<{ namn: string; path: string; ordning: number }[]>([]);
   const [ovrigaDok, setOvrigaDok] = useState<{ namn: string; path: string }[]>([]);
   const [importVarningar, setImportVarningar] = useState<string[]>([]);
   const [varningarOppna, setVarningarOppna] = useState(false);
@@ -275,7 +276,7 @@ function ObjektPageInner() {
     setMonth(m); setYear(y);
   };
 
-  const MAX_MB = 25; // samma tak som trakt-inbox-bucketen + servern
+  const MAX_MB = 100; // samma tak som trakt-inbox-bucketen + servern (importen varnar redan vid 50 MB)
   const handleZipImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -417,7 +418,8 @@ function ObjektPageInner() {
       sortiment: obj.sortiment || [], anteckningar: obj.anteckningar || '', forardirektiv: obj.forardirektiv || '',
       ar: obj.ar || year, manad: obj.manad || 0, ordning: obj.ordning || 1, status: obj.status || 'planerad'
     });
-    setDokUrls({ td: obj.traktdirektiv_url || null, sl: obj.stamplingslangd_url || null, tk: obj.traktkarta_url || null, vl: obj.valtlapp_url || null });
+    setDokUrls({ td: obj.traktdirektiv_url || null, sl: obj.stamplingslangd_url || null, tk: obj.traktkarta_url || null, vl: obj.valtlapp_url || null, ok: obj.oversiktskarta_url || null });
+    setTraktkartorDok(Array.isArray(obj.traktkartor) ? obj.traktkartor : []);
     setOvrigaDok(Array.isArray(obj.ovriga_dokument) ? obj.ovriga_dokument : []);
     setImportVarningar(Array.isArray(obj.import_varningar) ? obj.import_varningar : []);
     setVarningarOppna(false);
@@ -861,11 +863,11 @@ function ObjektPageInner() {
             )}
 
             {/* Dokumentknappar — delad DokumentChips (samma chips i /objekt + planeringsvyn). Öppnar i ny flik. */}
-            {editingId && harDokument({ traktdirektivUrl: dokUrls.td, traktkartaUrl: dokUrls.tk, stamplingslangdUrl: dokUrls.sl, valtlappUrl: dokUrls.vl, ovrigaDokument: ovrigaDok }) && (
+            {editingId && harDokument({ traktdirektivUrl: dokUrls.td, traktkartaUrl: dokUrls.tk, traktkartor: traktkartorDok, oversiktskartaUrl: dokUrls.ok, stamplingslangdUrl: dokUrls.sl, valtlappUrl: dokUrls.vl, ovrigaDokument: ovrigaDok }) && (
               <div style={{ marginBottom: '20px' }}>
                 <DokumentChips
-                  traktdirektivUrl={dokUrls.td} traktkartaUrl={dokUrls.tk} stamplingslangdUrl={dokUrls.sl}
-                  valtlappUrl={dokUrls.vl} ovrigaDokument={ovrigaDok} typ={form.typ}
+                  traktdirektivUrl={dokUrls.td} traktkartaUrl={dokUrls.tk} traktkartor={traktkartorDok} oversiktskartaUrl={dokUrls.ok}
+                  stamplingslangdUrl={dokUrls.sl} valtlappUrl={dokUrls.vl} ovrigaDokument={ovrigaDok} typ={form.typ}
                   onOppna={(s) => window.open(s, '_blank', 'noopener,noreferrer')}
                 />
               </div>

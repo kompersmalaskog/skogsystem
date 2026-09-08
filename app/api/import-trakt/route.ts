@@ -104,6 +104,15 @@ export async function POST(request: NextRequest) {
 
     const varningar: string[] = [];
 
+    // Tak-varning: bucketen tar 100 MB, men vi vill VETA när vi närmar oss i stället för att
+    // upptäcka det genom ett avvisat objekt mitt i en arbetsdag. Vid >50 MB (halva taket) logga
+    // i import_varningar. Den här var 43,6 MB (fyra traktkartor + översiktskarta); nästa kan vara
+    // 80. blob.size = råfilens byte, före uppackning.
+    const filMB = blob.size / (1024 * 1024);
+    if (blob.size > 50 * 1024 * 1024) {
+      varningar.push(`Filen är ${filMB.toFixed(1)} MB — över 50 MB (halva taket 100 MB). Håll koll så vi inte slår i taket.`);
+    }
+
     // Envz (StanForD Envelope) eller vanlig zip? packaUppEnvz -> null om ingen .env (= zip).
     const envz = await packaUppEnvz(arrayBuffer);
 
@@ -258,9 +267,23 @@ export async function POST(request: NextRequest) {
       return path;
     };
     const traktdirektiv_url = await laddaUppPdf(klass.traktdirektiv.bytes, `${traktnr}_traktdirektiv.pdf`);
-    const traktkarta_url = await laddaUppPdf(klass.traktkarta?.bytes ?? null, `${traktnr}_traktkarta.pdf`);
     const stamplingslangd_url = await laddaUppPdf(klass.stamplingslangd?.bytes ?? null, `${traktnr}_stamplingslangd.pdf`);
     const valtlapp_url = await laddaUppPdf(klass.valtlapp?.bytes ?? null, `${traktnr}_valtlapp.pdf`);
+    const oversiktskarta_url = await laddaUppPdf(klass.oversiktskarta?.bytes ?? null, `${traktnr}_oversiktskarta.pdf`);
+
+    // Traktkartor: en trakt kan ha FLERA blad. Ladda upp var för sig (index-baserad, unik path
+    // även om två blad skulle ha samma ordning), bygg listan [{namn, path, ordning}] sorterad på
+    // ordning. traktkarta_url = första bladet (ordning 1) så befintlig UI (pill, prickar, planering)
+    // fungerar oförändrat. Storage-path är ren ASCII (traktnr numeriskt) — inget Å/Ä/Ö i nyckeln.
+    const traktkartor: { namn: string; path: string; ordning: number }[] = [];
+    for (let i = 0; i < klass.traktkartor.length; i++) {
+      const tk = klass.traktkartor[i];
+      const path = await laddaUppPdf(tk.bytes, `${traktnr}_traktkarta_${i + 1}.pdf`);
+      if (path) traktkartor.push({ namn: tk.namn, path, ordning: tk.ordning }); // originalnamn bevarat
+    }
+    traktkartor.sort((a, b) => a.ordning - b.ordning);
+    const traktkarta_url = traktkartor[0]?.path ?? null; // första bladet (bakåtkompatibel pekare)
+
     const ovriga_dokument: { namn: string; path: string }[] = [];
     for (let i = 0; i < klass.ovriga.length; i++) {
       const o = klass.ovriga[i];
@@ -306,7 +329,9 @@ export async function POST(request: NextRequest) {
       kartbild_bounds,
       traktdirektiv_url,
       stamplingslangd_url,
-      traktkarta_url,
+      traktkarta_url,                                          // första bladet (bakåtkompatibel)
+      traktkartor: traktkartor.length > 0 ? traktkartor : null, // alla blad [{namn, path, ordning}]
+      oversiktskarta_url,                                      // _ÖK.pdf (egen typ)
       valtlapp_url,
       ovriga_dokument: ovriga_dokument.length > 0 ? ovriga_dokument : null,
       import_varningar: varningar.length > 0 ? varningar : null,
