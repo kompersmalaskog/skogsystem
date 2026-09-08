@@ -2119,11 +2119,12 @@ export default function Arbetsrapport() {
         utbildning: 'Utbildning pågår', service: 'Service pågår',
         möte: 'Möte pågår', annat: 'Annat arbete pågår',
       };
+      // Det faktiska klockslaget systemet registrerat — inte bara "pågår".
       const rubrik = !isWorking
         ? 'Väntar på maskin'
         : (typ && typ !== 'normal' && dagTypVisa[typ])
           ? dagTypVisa[typ]
-          : `Pågående sedan ${startKort}`;
+          : `Arbetsdagen startade ${startKort}`;
       const under = !isWorking
         ? 'Startar automatiskt vid inloggning'
         : (typ && typ !== 'normal')
@@ -2141,14 +2142,25 @@ export default function Arbetsrapport() {
         ? (objektLista.find(o => o.id === idagArb?.objekt_id)?.namn || idagArb?.objekt_id)
         : (idagArb?.objekt_namn || vObj?.namn || null);
       const behovValjaObjekt = isWorking && !objText;
+      // VÄNTAR = liten, lugn informationsrad ovanför knapparna. Skärmen är
+      // startpunkten för en dag som inte kommer från en maskin — inte en
+      // väntsal. Raden löser sig själv inom en timme när filerna kommer.
+      if (!isWorking) return (
+        <section>
+          <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+            <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2, flexShrink:0 }}>schedule</span>
+            <p style={{ margin:0, ...TYP.meta, color:FARG.text2 }}>
+              {maskinText ? `Väntar på ${maskinText}` : 'Väntar på maskin'} · startar automatiskt vid inloggning
+            </p>
+          </div>
+        </section>
+      );
+      // PASSET GÅR (innan första timfilen satt slut_tid): klockslaget som rubrik.
       return (
         <section>
           <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
-            {isWorking
-              ? <span className="puls" style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:FARG.gron, flexShrink:0 }} />
-              : <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:FARG.text2 }}>schedule</span>
-            }
-            <h1 style={{ margin:0, ...TYP.titel, ...TNUM, color:FARG.text }}>{rubrik}</h1>
+            <span className="puls" style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:FARG.gron, flexShrink:0 }} />
+            <h1 style={{ margin:0, ...TYP.rubrik, ...TNUM, color:FARG.text }}>{rubrik}</h1>
           </div>
           <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>{under}</p>
           {(maskinText || objText || behovValjaObjekt) && (
@@ -2249,7 +2261,7 @@ export default function Arbetsrapport() {
               <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>
               <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
                 <span className="puls" style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:FARG.gron, display:"inline-block" }} />
-                <span style={{ ...TYP.meta, color:FARG.gron }}>Pågår</span>
+                <span style={{ ...TYP.meta, ...TNUM, color:FARG.gron }}>Arbetsdagen startade {start}</span>
               </div>
               {talBlock(
                 <>{start} → pågår{rast ? ` · rast ${rast} min` : ''}</>,
@@ -2501,6 +2513,42 @@ export default function Arbetsrapport() {
       );
     })();
 
+    /* VAD SOM VÄNTAR — en rad var, bara när de finns. Tryck leder dit man
+       åtgärdar. Källorna är de som redan finns: obekräftade dagar ur årsData
+       (samma som Kalendern), brandrisk ur skaFragaBrandrisk (samma som
+       Sammanställningens retro-fråga), vilobrott ur vilobrott-tabellen (samma
+       som Vila-fliken — de gamla vilaVarningar-korten är ersatta av rader). */
+    const fmtDatumKort = (iso: string) => {
+      const d = new Date(iso + 'T00:00:00');
+      return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`;
+    };
+    const obekraftade: string[] = (årsData || [])
+      .filter((d: any) => d.datum && d.datum < idagKey && !d.bekraftad
+        && (d.start_tid || d.slut_tid || (d.dagtyp && d.dagtyp !== 'normal')))
+      .map((d: any) => d.datum as string)
+      .sort();
+    const brandriskObesvarade = (årsData || [])
+      .filter((d: any) => d.datum && d.datum < idagKey
+        && skaFragaBrandrisk({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: d.brandrisk_beordrad ?? null }));
+    const vilobrottObesvarade = aktuellaVilobrott.filter(b => !b.besvarat_av_forare);
+    type VantarRad = { nyckel: string; text: string; farg: string; onClick: () => void };
+    const vantarRader: VantarRad[] = [];
+    if (obekraftade.length === 1) {
+      vantarRader.push({ nyckel:'bekr', farg:FARG.orange, text:`${fmtDatumKort(obekraftade[0])} väntar på bekräftelse`, onClick:()=>öppnaRedigera(obekraftade[0]) });
+    } else if (obekraftade.length > 1) {
+      vantarRader.push({ nyckel:'bekr', farg:FARG.orange, text:`${obekraftade.length} dagar väntar på bekräftelse`, onClick:()=>setSteg('kalender') });
+    }
+    if (brandriskObesvarade.length > 0) {
+      vantarRader.push({ nyckel:'brand', farg:FARG.orange,
+        text: brandriskObesvarade.length === 1 ? '1 brandriskfråga obesvarad' : `${brandriskObesvarade.length} brandriskfrågor obesvarade`,
+        onClick:()=>setSteg('lön') });
+    }
+    for (const b of vilobrottObesvarade) {
+      vantarRader.push({ nyckel:`vila-${b.id}`, farg: b.typ==='dygnsvila' ? FARG.rod : FARG.orange,
+        text:`${b.typ==='dygnsvila' ? 'Dygnsvila' : 'Veckovila'} ${Number(b.vila_h)} h av ${Number(b.krav_h)} · ${fmtDatumKort(b.datum)}`,
+        onClick:()=>{ setMinTidFlik('vila'); setSteg('mintid'); } });
+    }
+
     return (
     <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
       <style>{css}{designCss}</style>{timerBanner}
@@ -2512,11 +2560,8 @@ export default function Arbetsrapport() {
 
       <main style={{ paddingTop:(aktivTimer ? DAG_HUVUD + BANNER : DAG_HUVUD) + AVSTAND.xxl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
 
-        {/* Påminnelse obekräftad dag */}
-        {igårObekräftad && varningsKort('igar', 'warning', FARG.orange, 'Du glömde bekräfta gårdagen', undefined, ()=>öppnaRedigera(igårKey))}
-
-        {/* Vila-varningar */}
-        {vilaVarningar.map((v,i)=> varningsKort(`vila-${i}`, 'warning', v.typ==='röd'?FARG.rod:FARG.orange, v.text))}
+        {/* Obekräftade dagar och vilobrott är RADER i "vad som väntar" nedan —
+            inte längre egna kort här. */}
 
         {/* Timer-varningar: 3h-påminnelse (orange) och 12h-varning (röd) */}
         {pagaendeAktiviteter.map(p => {
@@ -2538,10 +2583,71 @@ export default function Arbetsrapport() {
           {sammanfattningKort}
         </Tillstand>
 
-        {/* Extra arbete — sekundär: en handling man oftast INTE trycker på.
-            Skärmens primära är Bekräfta dagen (kvällen); morgonen har ingen.
-            Visas i alla lägen utom när en timer pågår eller dagen är bekräftad. */}
+        {/* VAD SOM VÄNTAR — rader, bara när de finns. Rent = inget här alls. */}
+        {vantarRader.length > 0 && (
+          <section className="tona-in" style={{ marginTop:AVSTAND.l }}>
+            {vantarRader.map(r => (
+              <button key={r.nyckel} onClick={r.onClick}
+                style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", gap:AVSTAND.s, ...TYP.text, color:FARG.text, borderBottom:`1px solid ${FARG.linje}`, textAlign:"left" }}>
+                <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.s, minWidth:0 }}>
+                  <span style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:r.farg, flexShrink:0 }} />
+                  <span style={{ ...TNUM, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.text}</span>
+                </span>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, flexShrink:0 }}>chevron_right</span>
+              </button>
+            ))}
+          </section>
+        )}
+
+        {/* TVÅ LIKVÄRDIGA VÄGAR IN I DAGEN — ingen primär, valet beror på dagen:
+            "Starta arbetspass" för en maskin som inte skickar filer, "Extra
+            arbete" för jobb på morgonen innan man sätter sig i maskinen. När
+            passet väl går finns bara Extra arbete kvar. Döljs när en timer
+            pågår eller dagen är bekräftad. */}
         {!idagArb?.bekraftad && pagaendeAktiviteter.length===0 && (
+          <div style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.xl }}>
+            {!isWorking && !idagArb?.slut_tid && (
+              <button onClick={async ()=>{
+                const nuT = nuKlock();
+                if (!medarbetare?.id) { console.warn('[Starta arbetspass] medarbetare saknas'); return; }
+                const res = await upsertVerifierat(supabase, "arbetsdag", {
+                  medarbetare_id: medarbetare.id,
+                  datum: idagKey,
+                  start_tid: nuT + ":00",
+                  maskin_id: medarbetare.maskin_id || null,
+                  // arbetad_min är generated (slut_tid - start_tid - rast_min) — sätts ej manuellt
+                }, { onConflict: 'medarbetare_id,datum', select: "*" });
+                if (!res.ok) { setBekraftaFel(res.fel); return; }
+                setBekraftaFel(null);
+                setStart(nuT); setStartÄndrad(true);
+                const data = res.rows[0];
+                if (data) {
+                  setDagData(d => ({ ...d, [idagKey]: {
+                    ...(d[idagKey] || {}),
+                    id: data.id,
+                    status: 'saknas',
+                    arbMin: 0,
+                    km: 0, km_morgon: 0, km_kvall: 0, km_totalt: 0,
+                    trak: !!data.traktamente,
+                    start_tid: data.start_tid,
+                    start: (data.start_tid||'').slice(0,5),
+                    slut_tid: null,
+                    slut: '',
+                    rast_min: 0,
+                    rast: 0,
+                    maskin_id: data.maskin_id,
+                    maskin_namn: maskinNamnMap[data.maskin_id] || data.maskin_id || null,
+                    objekt_id: data.objekt_id || null,
+                    objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || null,
+                  }}));
+                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
+                  synkaVilobrott(idagKey);
+                }
+              }} style={KNAPP.sekundar}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>play_circle</span>
+                Starta arbetspass
+              </button>
+            )}
           <button onClick={async ()=>{
             const startTid = nuKlock();
             const { data, error } = await supabase.from("extra_tid").insert({
@@ -2557,10 +2663,11 @@ export default function Arbetsrapport() {
             setExtraTidData(d => [data, ...d]);
             if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
           }}
-            style={{ ...KNAPP.sekundar, marginTop:AVSTAND.xl }}>
+            style={KNAPP.sekundar}>
             <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
             Extra arbete
           </button>
+          </div>
         )}
 
         {/* "Samma som igår" — när dagen inte startat och igår var bekräftad med
@@ -2603,53 +2710,13 @@ export default function Arbetsrapport() {
           );
         })()}
 
-        {/* Undantagen — längst ner, tertiära: "Starta manuellt" (passet startar
-            annars via MOM) och frånvaro. sjuk/vab skrivs till arbetsdag.dagtyp —
-            oplanerad frånvaro idag. Planerad ledighet ansöks i Ledighet-vyn. */}
+        {/* Undantaget — längst ner, tertiärt: frånvaro. sjuk/vab skrivs till
+            arbetsdag.dagtyp — oplanerad frånvaro idag. Planerad ledighet
+            ansöks i Ledighet-vyn. ("Starta arbetspass" är en av de två
+            likvärdiga vägarna in i dagen och ligger bland knapparna ovan.) */}
         {!isWorking && !idagArb?.bekraftad && (
           <section style={{ marginTop:AVSTAND.l }}>
             <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xl, flexWrap:"wrap" }}>
-              {pagaendeAktiviteter.length===0 && !idagArb?.slut_tid && (
-                <button onClick={async ()=>{
-                  const nuT = nuKlock();
-                  if (!medarbetare?.id) { console.warn('[Starta manuellt] medarbetare saknas'); return; }
-                  const res = await upsertVerifierat(supabase, "arbetsdag", {
-                    medarbetare_id: medarbetare.id,
-                    datum: idagKey,
-                    start_tid: nuT + ":00",
-                    maskin_id: medarbetare.maskin_id || null,
-                    // arbetad_min är generated (slut_tid - start_tid - rast_min) — sätts ej manuellt
-                  }, { onConflict: 'medarbetare_id,datum', select: "*" });
-                  if (!res.ok) { alert(res.fel); return; }
-                  setStart(nuT); setStartÄndrad(true);
-                  const data = res.rows[0];
-                  if (data) {
-                    setDagData(d => ({ ...d, [idagKey]: {
-                      ...(d[idagKey] || {}),
-                      id: data.id,
-                      status: 'saknas',
-                      arbMin: 0,
-                      km: 0, km_morgon: 0, km_kvall: 0, km_totalt: 0,
-                      trak: !!data.traktamente,
-                      start_tid: data.start_tid,
-                      start: (data.start_tid||'').slice(0,5),
-                      slut_tid: null,
-                      slut: '',
-                      rast_min: 0,
-                      rast: 0,
-                      maskin_id: data.maskin_id,
-                      maskin_namn: maskinNamnMap[data.maskin_id] || data.maskin_id || null,
-                      objekt_id: data.objekt_id || null,
-                      objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || null,
-                    }}));
-                    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
-                    synkaVilobrott(idagKey);
-                  }
-                }} style={KNAPP.tertiar}>
-                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>play_circle</span>
-                  Starta manuellt
-                </button>
-              )}
               <button onClick={()=>setVisaÖvrigt(v=>!v)} style={KNAPP.tertiar}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{visaÖvrigt ? "expand_more" : "chevron_right"}</span>
                 Sjuk eller VAB idag?
