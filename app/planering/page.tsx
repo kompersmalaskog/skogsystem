@@ -13,6 +13,7 @@ import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
+import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -2057,6 +2058,9 @@ export default function PlannerPage() {
     skordare: '', // Planerarens uppskattning
     skotare: '',
   });
+  // Tidsförslag (Prognos-fliken): historik = avslutade objekts PLANERADE timmar per kategori. Hämtas EN
+  // gång; förslaget räknas i lib/prognos-forslag och Jocke kan alltid skriva över (aldrig tvingande).
+  const [prognosHistorik, setPrognosHistorik] = useState<HistorikObjekt[]>([]);
   
   // Beräkna terräng/bärighet från zoner automatiskt
   // beraknaForhallanden borttagen — Förhållanden-sektionen (sliders) slopad i Trakt-hopslagningen
@@ -2114,6 +2118,17 @@ export default function PlannerPage() {
   const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
   const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
   const [infoVolym, setInfoVolym] = useState(''); // en sanning: objekt.volym
+  // Tidsförslag (Prognos-fliken). Areal från Traktdata-fältet (annars objekt.areal), kategori = typ,
+  // medelstam-proxy = trakt_data.beraknad.medeldiameter. null = för tunt underlag → ärligt tomt-läge.
+  const tidsforslag: Tidsforslag | null = useMemo(() => {
+    const arealTxt = Number(String(infoAreal ?? '').replace(',', '.').trim());
+    const areal = Number.isFinite(arealTxt) && arealTxt > 0 ? arealTxt : (typeof valtObjekt?.areal === 'number' ? valtObjekt.areal : null);
+    return beraknaTidsforslag(
+      { areal, kategori: (valtObjekt?.typ as string) ?? null, medeldiameterCm: (traktData?.beraknad?.medeldiameter as number) ?? null },
+      prognosHistorik,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [infoAreal, valtObjekt?.areal, valtObjekt?.typ, traktData, prognosHistorik]);
   const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
   const [infoLoaded, setInfoLoaded] = useState(false);
   const infoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -2195,6 +2210,26 @@ export default function PlannerPage() {
         .from('dim_maskin')
         .select('maskin_id, modell, tillverkare, maskin_typ, klarar_typ, extramaskin, aktiv_till');
       if (data) setDimMaskiner(data as DimMaskin[]);
+    })();
+  }, []);
+
+  // Ladda tidsförslags-historik EN gång: avslutade objekts planerade timmar + medeldiameter per kategori.
+  // (Ingen faktisk-tid-koppling finns per objekt — se lib/prognos-forslag för ärlighets-noten.)
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('objekt')
+        .select('areal, typ, manuell_prognos, trakt_data')
+        .eq('status', 'avslutat');
+      if (error) { console.error('[Prognos-förslag] historik-hämtning:', error.message); return; }
+      const parseTim = (v: unknown): number | null => { const n = Number(String(v ?? '').replace(',', '.').trim()); return Number.isFinite(n) && n > 0 ? n : null; };
+      setPrognosHistorik((data || []).map((r: any): HistorikObjekt => ({
+        areal: typeof r.areal === 'number' ? r.areal : Number(r.areal) || null,
+        kategori: r.typ ?? null,
+        skordareTimmar: parseTim(r.manuell_prognos?.skordare),
+        skotareTimmar: parseTim(r.manuell_prognos?.skotare),
+        medeldiameterCm: r.trakt_data?.beraknad?.medeldiameter ?? null,
+      })));
     })();
   }, []);
 
@@ -19419,47 +19454,9 @@ export default function PlannerPage() {
           {traktTab === 'fakta' && (
               <div style={{ padding: '12px' }}>
 
-                {/* MARKFÖRHÅLLANDEN */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markförhållanden</div>
-
-                  {/* Bärighet */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
-                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      {[{ id: 'bra', label: 'Bra' }, { id: 'medel', label: 'Medel' }, { id: 'dalig', label: 'Dålig' }].map(opt => (
-                        <div key={opt.id} onClick={() => setInfoBarighet(opt.id)}
-                          style={{
-                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                            background: infoBarighet === opt.id ? '#0a84ff' : 'transparent',
-                            color: infoBarighet === opt.id ? '#fff' : '#8e8e93',
-                            fontWeight: infoBarighet === opt.id ? '600' : '400',
-                            transition: 'all 0.2s ease',
-                          }}>{opt.label}</div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Terräng */}
-                  <div>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
-                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      {[{ id: 'flackt', label: 'Flackt' }, { id: 'kuperat', label: 'Kuperat' }, { id: 'brant', label: 'Brant' }].map(opt => (
-                        <div key={opt.id} onClick={() => setInfoTerrang(opt.id)}
-                          style={{
-                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                            background: infoTerrang === opt.id ? '#0a84ff' : 'transparent',
-                            color: infoTerrang === opt.id ? '#fff' : '#8e8e93',
-                            fontWeight: infoTerrang === opt.id ? '600' : '400',
-                            transition: 'all 0.2s ease',
-                          }}>{opt.label}</div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                {/* MARKFÖRHÅLLANDEN (Bärighet + Terräng) FLYTTAT till Prognos-fliken (påverkar tiden).
+                    Samma state (infoBarighet/infoTerrang) + samma debouncade sparning; traktöversikts-
+                    popovern läser oförändrat samma state. Inget annat i Fakta-fliken använder fälten. */}
 
                 {/* HINDER & HÄNSYN */}
                 <div style={{
@@ -19770,6 +19767,35 @@ export default function PlannerPage() {
 
           {traktTab === 'prognos' && (
           <div style={{ padding: '24px' }}>
+            {/* MARKFÖRHÅLLANDEN (flyttat hit från Fakta — påverkar tiden). Tre-vals-knappar, samma
+                state/sparning som förr. */}
+            <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '20px', marginBottom: '16px' }}>
+              <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '16px' }}>Markförhållanden</div>
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
+                <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  {[{ id: 'bra', label: 'Bra' }, { id: 'medel', label: 'Medel' }, { id: 'dalig', label: 'Dålig' }].map(opt => (
+                    <div key={opt.id} onClick={() => setInfoBarighet(opt.id)}
+                      style={{ flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                        background: infoBarighet === opt.id ? '#0a84ff' : 'transparent',
+                        color: infoBarighet === opt.id ? '#fff' : '#8e8e93',
+                        fontWeight: infoBarighet === opt.id ? '600' : '400', transition: 'all 0.2s ease' }}>{opt.label}</div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
+                <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  {[{ id: 'flackt', label: 'Flackt' }, { id: 'kuperat', label: 'Kuperat' }, { id: 'brant', label: 'Brant' }].map(opt => (
+                    <div key={opt.id} onClick={() => setInfoTerrang(opt.id)}
+                      style={{ flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                        background: infoTerrang === opt.id ? '#0a84ff' : 'transparent',
+                        color: infoTerrang === opt.id ? '#fff' : '#8e8e93',
+                        fontWeight: infoTerrang === opt.id ? '600' : '400', transition: 'all 0.2s ease' }}>{opt.label}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
             {/* Tid-sektion */}
             <div style={{
               background: 'rgba(255,255,255,0.06)',
@@ -19849,6 +19875,41 @@ export default function PlannerPage() {
                   <span style={{ fontSize: '20px', color: '#48484a', lineHeight: 1 }}>›</span>
                 </div>
               </div>
+
+              {/* DEL 2: Föreslagen tid ur historik + medelstam. ALDRIG tvingande — Jocke skriver alltid
+                  över genom att trycka på raden ovan. Tomt-läge om underlaget är för tunt. */}
+              {tidsforslag ? (
+                <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ fontSize: '11px', color: '#8e8e93', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Förslag</div>
+                  {tidsforslag.skordareTimmar != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: tidsforslag.skotareTimmar != null ? '10px' : '0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '17px' }}>🌲</span>
+                        <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Skördare</span>
+                        <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>{tidsforslag.skordareTimmar} h</span>
+                      </div>
+                      <div onClick={() => setManuellPrognos(prev => ({ ...prev, skordare: String(tidsforslag.skordareTimmar ?? '') }))}
+                        style={{ fontSize: '13px', color: '#0a84ff', cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', background: 'rgba(10,132,255,0.12)' }}>Använd</div>
+                    </div>
+                  )}
+                  {tidsforslag.skotareTimmar != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '17px' }}>🚛</span>
+                        <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Skotare</span>
+                        <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>{tidsforslag.skotareTimmar} h</span>
+                      </div>
+                      <div onClick={() => setManuellPrognos(prev => ({ ...prev, skotare: String(tidsforslag.skotareTimmar ?? '') }))}
+                        style={{ fontSize: '13px', color: '#0a84ff', cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', background: 'rgba(10,132,255,0.12)' }}>Använd</div>
+                    </div>
+                  )}
+                  <div style={{ fontSize: '11px', color: '#636366', marginTop: '12px', lineHeight: 1.4 }}>{tidsforslag.forklaring}</div>
+                </div>
+              ) : (
+                <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: '12px', color: '#8e8e93', lineHeight: 1.4 }}>
+                  Inget förslag än — för få liknande avslutade objekt att räkna på.
+                </div>
+              )}
             </div>
             {/* Traktdata */}
             <div style={{
