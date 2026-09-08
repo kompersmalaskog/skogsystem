@@ -1,14 +1,14 @@
 'use client'
 
-// Flik 3 — Uppföljning. Per spår: var månaden LANDAR (stort tal: "−340 m³fub" eller
-// "Klart 24 okt"), skotat-prognos mot beställt, skördare/flaskhals, stapel med
-// plan-idag-streck, skotat per bolag, "Per bolag ›" → sheet med CSV på samma bas.
+// Flik 3 — Uppföljning. Exakt fem rader per spår:
+//   1 rubrik · 2 stort tal · 3 en mening · 4 stapel (skotat mot beställt) · 5 Veckor › / Per bolag ›
+// Inga objekt i månaden → "Inga objekt" (grått), ingen stapel, "Planera objekt ›".
 import { useState } from 'react'
 import { T } from '@/lib/utbildning'
 import { PROGNOS_FRAN_ARBETSDAG, prognosPerBolag, type ManadStatus, type SparLage } from '../_lib/berakningar'
-import { fmt, fmtDag } from '../_lib/format'
+import { MANAD_NAMN, fmt, fmtDag } from '../_lib/format'
 import type { Arbetsdagar, BolagRad, Typ } from '../_lib/queries'
-import { Kort, KortLank, Rad, SparRubrik, Stapel, StortTal, type Ton } from './SparKort'
+import { Kort, KortLank, SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton } from './SparKort'
 import BolagSheet from './BolagSheet'
 
 type Props = {
@@ -18,18 +18,17 @@ type Props = {
   bolag: BolagRad[] | null
   bolagFel: string | null
   onRetryBolag: () => void
+  antalPlanerade: Record<Typ, number>
   ar: number
   manad: number
 }
 
-export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, ar, manad }: Props) {
+export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, antalPlanerade, ar, manad }: Props) {
   const [oppen, setOppen] = useState<Typ | null>(null)
   return (
     <>
       {spar.map(s => (
-        <UppfoljningKort key={s.typ} s={s} status={status} dagar={dagar}
-          bolag={bolag ? bolag.filter(b => b.typ === s.typ) : null} bolagFel={bolagFel} onRetryBolag={onRetryBolag}
-          onOppna={() => setOppen(s.typ)} />
+        <UppfoljningKort key={s.typ} s={s} status={status} antalPlanerade={antalPlanerade[s.typ]} ar={ar} manad={manad} onOppnaBolag={() => setOppen(s.typ)} />
       ))}
       {oppen && (
         <BolagSheet
@@ -37,6 +36,9 @@ export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, 
           onClose={() => setOppen(null)}
           typ={oppen}
           rader={(bolag ?? []).filter(b => b.typ === oppen)}
+          laddar={bolag == null && !bolagFel}
+          fel={bolagFel}
+          onRetry={onRetryBolag}
           kvar={status === 'pagaende' ? dagar.kvar : 0}
           harPrognos={status === 'pagaende' && (spar.find(s => s.typ === oppen)?.harPrognos ?? false)}
           ar={ar}
@@ -47,70 +49,69 @@ export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, 
   )
 }
 
-function UppfoljningKort({ s, status, dagar, bolag, bolagFel, onRetryBolag, onOppna }: {
-  s: SparLage; status: ManadStatus; dagar: Arbetsdagar
-  bolag: BolagRad[] | null; bolagFel: string | null; onRetryBolag: () => void; onOppna: () => void
+function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }: {
+  s: SparLage; status: ManadStatus; antalPlanerade: number; ar: number; manad: number; onOppnaBolag: () => void
 }) {
-  const ingenBestallning = s.bestallt <= 0
+  const manadNamn = MANAD_NAMN[manad - 1]
+  const ingenPlan = status !== 'avslutad' && antalPlanerade === 0
+  const ingenBest = s.bestallt <= 0
+  const veckorHref = `/helikopter/veckor?typ=${s.typ}&ar=${ar}&manad=${manad}`
+  const planeraHref = `/helikopter?flik=planering&ar=${ar}&manad=${manad}`
 
-  let stort: { text: string; ton: Ton; under?: string; liten?: boolean }
-  let landarText: string | null = null
-  if (ingenBestallning) {
-    stort = { text: `${fmt(s.skotat)} m³fub`, ton: 'neutral', under: 'skotat · ingen beställning' }
+  let stort: { text: string; ton: Ton; liten?: boolean }
+  let mening: string
+  let stapel: { farg: string; plan: number | null } | null = null
+
+  if (ingenPlan) {
+    stort = { text: 'Inga objekt', ton: 'dampad' }
+    mening = `Skotat ${fmt(s.skotat)} · inget planerat i ${manadNamn}`
+  } else if (ingenBest) {
+    stort = { text: fmt(s.skotat), ton: 'neutral' }
+    mening = `Skotat ${fmt(s.skotat)} · ingen beställning`
   } else if (status === 'avslutad') {
     const diff = s.skotat - s.bestallt
-    stort = diff >= 0 ? { text: 'Klart', ton: 'gron', under: 'beställningen levererad' } : { text: `${fmt(diff)} m³fub`, ton: 'orange', under: 'mot beställt' }
-    landarText = `Skotat ${fmt(s.skotat)} av ${fmt(s.bestallt)}`
+    stort = diff >= 0 ? { text: 'Klart', ton: 'gron' } : { text: fmt(diff), ton: 'orange' }
+    mening = `Skotat ${fmt(s.skotat)} av ${fmt(s.bestallt)}`
+    stapel = { farg: TON_FARG[stort.ton], plan: null }
   } else if (status === 'kommande') {
     stort = { text: 'Inte startad', ton: 'dampad', liten: true }
+    mening = `Plan ${fmt(s.bestallt)} m³fub`
   } else if (!s.harPrognos || s.prognosSkotat == null) {
-    stort = { text: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, ton: 'dampad', liten: true, under: `arbetsdag ${dagar.gangna + 1} av ${dagar.totalt}` }
+    stort = { text: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, ton: 'dampad', liten: true }
+    mening = `Skotat ${fmt(s.skotat)} · prognos från arbetsdag ${PROGNOS_FRAN_ARBETSDAG}`
+    stapel = { farg: 'rgba(255,255,255,0.6)', plan: s.plan }
   } else {
     const diff = s.prognosSkotat - s.bestallt
     stort = diff >= 0
       ? { text: s.klartDatumSkotat ? `Klart ${fmtDag(s.klartDatumSkotat)}` : 'Klart i tid', ton: 'gron' }
-      : { text: `${fmt(diff)} m³fub`, ton: 'orange', under: 'prognos mot beställt' }
-    landarText = `Skotat landar ${fmt(s.prognosSkotat)} av ${fmt(s.bestallt)}`
-  }
-
-  // Skördaren: klar-datum, eller hur långt före — och om skotaren är flaskhalsen.
-  let skordareText = `Skördat ${fmt(s.skordat)} m³fub`
-  if (status === 'pagaende' && s.harPrognos) {
-    if (s.klartDatumSkordat) skordareText = `Skördaren klar ${fmtDag(s.klartDatumSkordat)}`
-    else if (s.oskotat > 0) {
-      const flaskhals = s.taktSkotat != null && s.taktSkordat != null && s.taktSkotat < s.taktSkordat
-      skordareText = `Skördaren ${fmt(s.oskotat)} före${flaskhals ? ' · skotaren är flaskhals' : ''}`
-    }
-  }
-
-  // Skotat per bolag — bara bolag med beställning; resten som Övrigt.
-  let bolagText: string | null = null
-  if (bolag) {
-    const med = bolag.filter(b => b.lovat > 0).map(b => `${b.bolag ?? 'Okänt'} ${fmt(b.skotat)}`)
-    const ovrigt = bolag.filter(b => b.lovat <= 0).reduce((sum, b) => sum + b.skotat, 0)
-    if (ovrigt > 0) med.push(`Övrigt ${fmt(ovrigt)}`)
-    bolagText = med.length > 0 ? med.join(' · ') : null
+      : { text: fmt(diff), ton: 'orange' }
+    // Relationen skördare/skotare: mer än en dags skotning oskotat i månaden = skotaren är flaskhals.
+    const flaskhals = s.oskotat > (s.taktSkotat ?? 0)
+    const landar = `Landar ${fmt(s.prognosSkotat)}`
+    mening = flaskhals
+      ? `${landar} · skotaren är flaskhals`
+      : s.klartDatumSkordat
+        ? `${landar} · skördaren klar ${fmtDag(s.klartDatumSkordat)}`
+        : `${landar} · i takt`
+    stapel = { farg: TON_FARG[stort.ton], plan: s.plan }
   }
 
   return (
     <Kort>
       <SparRubrik typ={s.typ} bestallt={s.bestallt} bolag={s.bolag} />
-      <StortTal text={stort.text} ton={stort.ton} under={stort.under} liten={stort.liten} />
-      {landarText && <Rad text={landarText} />}
-      <Rad text={skordareText} />
-      <Stapel bestallt={s.bestallt} skordat={s.skordat} skotat={s.skotat} plan={status === 'pagaende' ? s.plan : null} />
-      <div style={{ marginTop: 10 }}>
-        {bolagFel ? (
-          <Rad text="Kunde inte läsa bolag" varde={<button type="button" onClick={onRetryBolag} style={{ background: 'none', border: 'none', color: T.blue, fontSize: 14, fontWeight: 600, fontFamily: T.ff, cursor: 'pointer', minHeight: 32, padding: 0 }}>Försök igen</button>} />
-        ) : bolag == null ? (
-          <Rad text="Laddar bolag…" dampad />
-        ) : bolagText ? (
-          <Rad text={bolagText} dampad />
+      <StortTal text={stort.text} ton={stort.ton} liten={stort.liten} />
+      <div style={{ fontSize: 15, color: T.t1, fontFamily: T.ff, fontVariantNumeric: 'tabular-nums', marginTop: -4 }}>{mening}</div>
+      {stapel && <StapelEnkel bestallt={s.bestallt} skotat={s.skotat} plan={stapel.plan} farg={stapel.farg} />}
+      <div style={{ marginTop: 12 }}>
+        {ingenPlan ? (
+          <KortLank text="Planera objekt" href={planeraHref} />
         ) : (
-          <Rad text="Inget skotat än" dampad />
+          <>
+            <KortLank text="Veckor" href={veckorHref} />
+            <KortLank text="Per bolag" onClick={onOppnaBolag} />
+          </>
         )}
       </div>
-      {bolag && bolag.length > 0 && <KortLank text="Per bolag" onClick={onOppna} />}
     </Kort>
   )
 }

@@ -1,8 +1,8 @@
 'use client'
 
-// Ett spår (gallring / slutavverkning) som kort. Samma skelett i alla tre flikar:
-//   rubrik → ETT stort tal → stödrader → tunn stapel → (åtgärd) → (knapp)
-// Färg används bara på det stora talet (och på "växer" i Läge); allt annat är text.
+// Ett spår (gallring / slutavverkning) som kort. Samma skelett i alla flikar:
+//   rubrik → ETT stort tal → stödrader → tunn stapel → (åtgärd) → (listrader)
+// Färg används bara på det stora talet och stapeln; allt annat är text.
 import Link from 'next/link'
 import { ArrowRight, ChevronRight, TreePine, Trees } from 'lucide-react'
 import { T } from '@/lib/utbildning'
@@ -17,6 +17,16 @@ export const TON_FARG: Record<Ton, string> = {
   orange: T.orange,
   neutral: T.t1,
   dampad: T.t2,
+}
+
+/** Stora tal: appens sans, större. Samma överallt. */
+export const STORT_TAL_STIL: React.CSSProperties = {
+  fontFamily: T.ff,
+  fontSize: 46,
+  fontWeight: 500,
+  letterSpacing: '-0.02em',
+  lineHeight: 1.05,
+  fontVariantNumeric: 'tabular-nums',
 }
 
 export function TypIkon({ typ, size = 18 }: { typ: Typ; size?: number }) {
@@ -38,35 +48,38 @@ export function SparRubrik({ typ, bestallt, bolag }: { typ: Typ; bestallt: numbe
   )
 }
 
-/** Det stora talet — huvudsaken, 44 pt. */
+/** Det stora talet — huvudsaken. */
 export function StortTal({ text, ton = 'neutral', under, liten }: { text: string; ton?: Ton; under?: string; liten?: boolean }) {
   return (
     <div style={{ margin: '12px 0 14px' }}>
-      <div style={{ fontSize: liten ? 24 : 44, lineHeight: 1.05, fontWeight: 600, letterSpacing: -0.5, color: TON_FARG[ton], fontFamily: "'Fraunces', Georgia, serif", fontVariantNumeric: 'tabular-nums' }}>
-        {text}
-      </div>
+      <div style={{ ...STORT_TAL_STIL, fontSize: liten ? 24 : 46, color: TON_FARG[ton] }}>{text}</div>
       {under && <div style={{ fontSize: 14, color: T.t2, marginTop: 6, fontFamily: T.ff }}>{under}</div>}
     </div>
   )
 }
 
 /** Stödrad: (ikon) text till vänster, värde till höger. Ingen färg om inte `vardeTon` sätts. */
-export function Rad({ ikon, text, varde, vardeTon = 'dampad', dampad }: { ikon?: React.ReactNode; text: React.ReactNode; varde?: React.ReactNode; vardeTon?: Ton; dampad?: boolean }) {
+export function Rad({ ikon, text, varde, vardeTon = 'dampad', dampad, under }: { ikon?: React.ReactNode; text: React.ReactNode; varde?: React.ReactNode; vardeTon?: Ton; dampad?: boolean; under?: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '7px 0', fontFamily: T.ff, minHeight: 32 }}>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, color: dampad ? T.t2 : T.t1, minWidth: 0 }}>
-        {ikon && <span style={{ display: 'flex', flexShrink: 0, alignSelf: 'center' }}>{ikon}</span>}
-        <span>{text}</span>
-      </span>
-      {varde != null && varde !== '' && (
-        <span style={{ fontSize: 14, color: TON_FARG[vardeTon], textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{varde}</span>
+    <div style={{ padding: '7px 0', fontFamily: T.ff }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, minHeight: 18 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, color: dampad ? T.t2 : T.t1, minWidth: 0 }}>
+          {ikon && <span style={{ display: 'flex', flexShrink: 0, alignSelf: 'center' }}>{ikon}</span>}
+          <span>{text}</span>
+        </span>
+        {varde != null && varde !== '' && (
+          <span style={{ fontSize: 14, color: TON_FARG[vardeTon], textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{varde}</span>
+        )}
+      </div>
+      {under != null && under !== '' && (
+        <div style={{ fontSize: 13, color: T.t2, marginTop: 3, paddingLeft: ikon ? 24 : 0, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{under}</div>
       )}
     </div>
   )
 }
 
-/** Tunn stapel till beställt: skördat grått lager under, skotat ljust lager över. Valfritt plan-idag-streck. */
-export function Stapel({ bestallt, skordat, skotat, plan }: { bestallt: number; skordat: number; skotat: number; plan?: number | null }) {
+/** Läge: tunn stapel till beställt — skördat grått lager under, skotat ljust lager över. */
+export function Stapel({ bestallt, skordat, skotat }: { bestallt: number; skordat: number; skotat: number }) {
   const max = Math.max(bestallt, skordat, skotat, 1)
   const pct = (v: number) => `${Math.min(100, Math.max(0, (v / max) * 100))}%`
   return (
@@ -74,14 +87,28 @@ export function Stapel({ bestallt, skordat, skotat, plan }: { bestallt: number; 
       <div style={{ position: 'relative', height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: pct(skordat), background: 'rgba(255,255,255,0.28)', borderRadius: 3 }} />
         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: pct(skotat), background: 'rgba(255,255,255,0.9)', borderRadius: 3 }} />
-        {plan != null && plan > 0 && bestallt > 0 && (
-          <div style={{ position: 'absolute', top: -1, bottom: -1, left: pct(plan), width: 2, background: T.orange }} aria-label="plan idag" />
-        )}
       </div>
       {bestallt > 0 && bestallt < max && (
         <div style={{ position: 'relative', height: 0 }}>
           <div style={{ position: 'absolute', left: pct(bestallt), top: -8, width: 1, height: 10, background: 'rgba(255,255,255,0.5)' }} aria-label="beställt" />
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Uppföljning: 9 px stapel, BARA skotat mot beställt, fylld i statusfärgen,
+ * 2 px svart planstreck vid plan idag. Inga siffror under.
+ */
+export function StapelEnkel({ bestallt, skotat, plan, farg }: { bestallt: number; skotat: number; plan?: number | null; farg: string }) {
+  const max = Math.max(bestallt, 1)
+  const pct = (v: number) => `${Math.min(100, Math.max(0, (v / max) * 100))}%`
+  return (
+    <div style={{ position: 'relative', height: 9, borderRadius: 5, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', marginTop: 12 }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: pct(skotat), background: farg, borderRadius: 5 }} />
+      {plan != null && plan > 0 && (
+        <div style={{ position: 'absolute', top: 0, bottom: 0, left: `calc(${pct(plan)} - 1px)`, width: 2, background: '#000' }} aria-label="plan idag" />
       )}
     </div>
   )
@@ -99,11 +126,11 @@ export function AtgardRuta({ atgard }: { atgard: Atgard }) {
   return atgard.href ? <Link href={atgard.href} style={{ textDecoration: 'none' }}>{inre}</Link> : inre
 }
 
-/** Länk-knapp längst ned i kortet: "Objekt ›" */
+/** Listrad längst ned i kortet, 44 pt: "Objekt ›" */
 export function KortLank({ text, href, onClick }: { text: string; href?: string; onClick?: () => void }) {
   const stil: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', minHeight: 44,
-    marginTop: 12, padding: '0 2px', background: 'transparent', border: 'none', borderTop: `1px solid ${T.sep}`,
+    marginTop: 4, padding: '0 2px', background: 'transparent', border: 'none', borderTop: `1px solid ${T.sep}`,
     color: T.blue, fontSize: 15, fontWeight: 600, fontFamily: T.ff, cursor: 'pointer', textDecoration: 'none',
   }
   const inre = <><span>{text}</span><ChevronRight size={18} aria-hidden="true" /></>
@@ -112,5 +139,5 @@ export function KortLank({ text, href, onClick }: { text: string; href?: string;
 }
 
 export function Kort({ children }: { children: React.ReactNode }) {
-  return <section style={{ background: T.group, borderRadius: 12, padding: '16px 16px 12px', marginBottom: 14 }}>{children}</section>
+  return <section style={{ background: T.group, borderRadius: 12, padding: '16px 16px 8px', marginBottom: 14 }}>{children}</section>
 }

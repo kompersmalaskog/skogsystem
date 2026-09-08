@@ -59,15 +59,15 @@ describe('läge', () => {
   })
   it('bas: beställda bolag när beställning finns, annars alla', () => {
     const rader: SparRad[] = [
-      { typ: 'gallring', bas: 'bestallt', bestallt: 0, bolag: [], skordat: 10, skotat: 5, takt_skordat: null, takt_skotat: null, takt_dagar: 0, takt_fonster: [], oskotat_forandring_per_dag: null, ingaende_oskotat: 0 },
-      { typ: 'gallring', bas: 'totalt', bestallt: 0, bolag: [], skordat: 30, skotat: 15, takt_skordat: null, takt_skotat: null, takt_dagar: 0, takt_fonster: [], oskotat_forandring_per_dag: null, ingaende_oskotat: 0 },
+      { typ: 'gallring', bas: 'bestallt', bestallt: 0, bolag: [], skordat: 10, skotat: 5, takt_skordat: null, takt_skotat: null, takt_dagar: 0, takt_fonster: [], oskotat_forandring_per_dag: null, ingaende_oskotat: 0, oskotat_objekt: [] },
+      { typ: 'gallring', bas: 'totalt', bestallt: 0, bolag: [], skordat: 30, skotat: 15, takt_skordat: null, takt_skotat: null, takt_dagar: 0, takt_fonster: [], oskotat_forandring_per_dag: null, ingaende_oskotat: 0, oskotat_objekt: [] },
     ]
     expect(valjBas(rader, 'gallring')?.skordat).toBe(30)
     rader[0].bestallt = 1000
     expect(valjBas(rader, 'gallring')?.skordat).toBe(10)
   })
   it('raknaSpar på september 2026-siffrorna (slutavverkning)', () => {
-    const rad: SparRad = { typ: 'slutavverkning', bas: 'bestallt', bestallt: 5000, bolag: ['Vida'], skordat: 1621.6, skotat: 470.5, takt_skordat: 322.1, takt_skotat: 86.3, takt_dagar: 4, takt_fonster: [], oskotat_forandring_per_dag: 235.9, ingaende_oskotat: 1660 }
+    const rad: SparRad = { typ: 'slutavverkning', bas: 'bestallt', bestallt: 5000, bolag: ['Vida'], skordat: 1621.6, skotat: 470.5, takt_skordat: 322.1, takt_skotat: 86.3, takt_dagar: 4, takt_fonster: [], oskotat_forandring_per_dag: 235.9, ingaende_oskotat: 1660, oskotat_objekt: [] }
     const dagar: Arbetsdagar = { maskin_id: null, totalt: 22, gangna: 4, kvar: 18, gangna_datum: [], kvar_datum: [] }
     const s = raknaSpar(rad, dagar)
     expect(s.harPrognos).toBe(true)
@@ -82,7 +82,7 @@ describe('läge', () => {
   })
   it('raknaSpar gallring september 2026: ingående oskotat lyfter taket → klart 23 sep', () => {
     const kvar = ['2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11', '2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-28', '2026-09-29', '2026-09-30']
-    const rad: SparRad = { typ: 'gallring', bas: 'bestallt', bestallt: 1000, bolag: ['Vida'], skordat: 136, skotat: 294, takt_skordat: 25.6, takt_skotat: 55, takt_dagar: 4, takt_fonster: [], oskotat_forandring_per_dag: -29.4, ingaende_oskotat: 1921 }
+    const rad: SparRad = { typ: 'gallring', bas: 'bestallt', bestallt: 1000, bolag: ['Vida'], skordat: 136, skotat: 294, takt_skordat: 25.6, takt_skotat: 55, takt_dagar: 4, takt_fonster: [], oskotat_forandring_per_dag: -29.4, ingaende_oskotat: 1921, oskotat_objekt: [] }
     const dagar: Arbetsdagar = { maskin_id: null, totalt: 22, gangna: 4, kvar: 18, gangna_datum: [], kvar_datum: kvar }
     const s = raknaSpar(rad, dagar)
     expect(s.prognosSkotat).toBeCloseTo(1284)                     // 294 + 55 × 18, under taket 1 921 + 597

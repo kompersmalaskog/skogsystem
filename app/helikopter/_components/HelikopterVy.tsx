@@ -234,6 +234,7 @@ export default function HelikopterVy() {
             bolag={bolag?.nyckel === bolagNyckel ? bolag.rader : null}
             bolagFel={bolagFel}
             onRetryBolag={() => { setBolag(null); setVersion(v => v + 1) }}
+            antalPlanerade={antalPlanerade}
             ar={ar}
             manad={manad}
           />

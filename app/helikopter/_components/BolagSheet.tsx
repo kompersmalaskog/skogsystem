@@ -13,6 +13,9 @@ type Props = {
   onClose: () => void
   typ: Typ
   rader: BolagRad[]
+  laddar?: boolean
+  fel?: string | null
+  onRetry?: () => void
   kvar: number
   harPrognos: boolean
   ar: number
@@ -27,7 +30,7 @@ function bygg(rader: BolagRad[], kvar: number, harPrognos: boolean): Rad[] {
     .sort((a, b) => b.lovat - a.lovat || b.skotat - a.skotat)
 }
 
-export default function BolagSheet({ open, onClose, typ, rader, kvar, harPrognos, ar, manad }: Props) {
+export default function BolagSheet({ open, onClose, typ, rader, laddar, fel, onRetry, kvar, harPrognos, ar, manad }: Props) {
   const lista = bygg(rader, kvar, harPrognos)
   const filnamn = `helikopter-${TYP_NAMN[typ].toLowerCase()}-${ar}-${String(manad).padStart(2, '0')}.csv`
 
@@ -66,7 +69,14 @@ export default function BolagSheet({ open, onClose, typ, rader, kvar, harPrognos
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1fr', gap: 8, fontSize: 11, color: T.t2, textTransform: 'uppercase', letterSpacing: 0.2, padding: '0 0 8px', fontFamily: T.ff }}>
         <span>Bolag</span><span style={{ textAlign: 'right' }}>Lovat</span><span style={{ textAlign: 'right' }}>Skördat</span><span style={{ textAlign: 'right' }}>Skotat</span><span style={{ textAlign: 'right' }}>Prognos</span>
       </div>
-      {lista.length === 0 && <div style={{ fontSize: 15, color: T.t2, padding: '12px 0', fontFamily: T.ff }}>Inga bolag med produktion eller beställning den här månaden.</div>}
+      {fel ? (
+        <div style={{ textAlign: 'center', padding: '12px 0' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: T.t1, marginBottom: 12, fontFamily: T.ff }}>Kunde inte läsa bolag – försök igen</div>
+          {onRetry && <button type="button" onClick={onRetry} style={knapp}>Försök igen</button>}
+        </div>
+      ) : laddar ? (
+        <div style={{ fontSize: 15, color: T.t2, padding: '12px 0', fontFamily: T.ff }}>Laddar bolag…</div>
+      ) : lista.length === 0 && <div style={{ fontSize: 15, color: T.t2, padding: '12px 0', fontFamily: T.ff }}>Inga bolag med produktion eller beställning den här månaden.</div>}
       {lista.map(r => (
         <div key={r.bolag} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1fr', gap: 8, minHeight: 44, alignItems: 'center', borderTop: `1px solid ${T.sep}`, fontSize: 15, fontFamily: T.ff, fontVariantNumeric: 'tabular-nums' }}>
           <span style={{ color: T.t1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.bolag}</span>

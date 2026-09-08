@@ -23,6 +23,8 @@ export type SparRad = {
   oskotat_forandring_per_dag: number | null
   /** Oskotat vid månadens start på objekt som inte är skotningsavslutade (aldrig < 0 per objekt). */
   ingaende_oskotat: number
+  /** De två öppna objekten med mest oskotat just nu. */
+  oskotat_objekt: { namn: string | null; oskotat: number }[]
 }
 
 export type Arbetsdagar = {
@@ -80,10 +82,29 @@ export type MaskinLage = {
   namn: string | null
   volym: number | null
   gjort: number
-  kvar: number
+  /** null = skördare utan planerad volym (inget att räkna kvar mot). */
+  kvar: number | null
   takt_per_dag: number | null
   takt_dagar: number
   nasta_namn: string | null
+  /** Tilldelat pågående objekt när det är ett annat än där maskinen senast jobbade. */
+  planerad_namn: string | null
+  senast_datum: string | null
+}
+
+export type VeckaRad = {
+  isovecka: number
+  iso_ar: number
+  fran: string
+  till: string
+  arbetsdagar: number
+  arbetsdagar_kvar: number
+  plan: number | null
+  skordat: number
+  skotat: number
+  status: 'last' | 'pagar' | 'kommande'
+  orsak: string | null
+  maskiner: { maskin_id: string; modell: string | null; roll: 'skordare' | 'skotare'; volym: number }[]
 }
 
 export type Svar<T> = { data: T; error: null } | { data: null; error: string }
@@ -117,6 +138,7 @@ function normSpar(r: any): SparRad {
     takt_dagar: tal(r.takt_dagar), takt_fonster: r.takt_fonster ?? [],
     oskotat_forandring_per_dag: talEllerNull(r.oskotat_forandring_per_dag),
     ingaende_oskotat: tal(r.ingaende_oskotat),
+    oskotat_objekt: Array.isArray(r.oskotat_objekt) ? r.oskotat_objekt.map((o: any) => ({ namn: o?.namn ?? null, oskotat: tal(o?.oskotat) })) : [],
   }
 }
 function normDagar(r: any): Arbetsdagar {
@@ -139,7 +161,19 @@ function normAvvikelse(r: any): Avvikelse {
   return { bolag: r.bolag, typ: r.typ, antal: tal(r.antal), medel_kvot: tal(r.medel_kvot), std_kvot: talEllerNull(r.std_kvot) }
 }
 function normMaskinLage(r: any): MaskinLage {
-  return { roll: r.roll, objekt_id: r.objekt_id, namn: r.namn ?? null, volym: talEllerNull(r.volym), gjort: tal(r.gjort), kvar: tal(r.kvar), takt_per_dag: talEllerNull(r.takt_per_dag), takt_dagar: tal(r.takt_dagar), nasta_namn: r.nasta_namn ?? null }
+  return {
+    roll: r.roll, objekt_id: String(r.objekt_id), namn: r.namn ?? null, volym: talEllerNull(r.volym), gjort: tal(r.gjort),
+    kvar: talEllerNull(r.kvar), takt_per_dag: talEllerNull(r.takt_per_dag), takt_dagar: tal(r.takt_dagar),
+    nasta_namn: r.nasta_namn ?? null, planerad_namn: r.planerad_namn ?? null, senast_datum: r.senast_datum ?? null,
+  }
+}
+function normVecka(r: any): VeckaRad {
+  return {
+    isovecka: tal(r.isovecka), iso_ar: tal(r.iso_ar), fran: r.fran, till: r.till,
+    arbetsdagar: tal(r.arbetsdagar), arbetsdagar_kvar: tal(r.arbetsdagar_kvar), plan: talEllerNull(r.plan),
+    skordat: tal(r.skordat), skotat: tal(r.skotat), status: r.status, orsak: r.orsak ?? null,
+    maskiner: Array.isArray(r.maskiner) ? r.maskiner.map((m: any) => ({ maskin_id: String(m?.maskin_id ?? ''), modell: m?.modell ?? null, roll: m?.roll, volym: tal(m?.volym) })) : [],
+  }
 }
 
 export type Manadsdata = { spar: SparRad[]; arbetsdagar: Arbetsdagar[]; planering: PlaneringObjekt[] }
@@ -189,7 +223,31 @@ export async function hamtaBolag(ar: number, manad: number, idag: string): Promi
   return { data: (r.data ?? []).map(normBolag), error: null }
 }
 
-/** Inloggad förares maskin: pågående objekt, kvar och takt. null = inget pågående objekt. */
+/** Veckor för ett spår i en månad — /helikopter/veckor. */
+export async function hamtaVeckor(ar: number, manad: number, typ: Typ, idag: string): Promise<Svar<VeckaRad[]>> {
+  const r = await rpc<any[]>('helikopter_ny_veckor', { p_ar: ar, p_manad: manad, p_typ: typ, p_idag: idag })
+  if (r.error) return { data: null, error: r.error }
+  return { data: (r.data ?? []).map(normVecka), error: null }
+}
+
+/** Veckoorsak: tom text raderar raden. Skrivning kräver admin (RLS). */
+export async function sparaOrsak(ar: number, manad: number, typ: Typ, isovecka: number, orsak: string): Promise<{ error: string | null }> {
+  try {
+    const text = orsak.trim().slice(0, 60)
+    if (text === '') {
+      const { error } = await supabase.from('helikopter_veckoorsak').delete().match({ ar, manad, typ, isovecka })
+      return { error: error ? felText(error) : null }
+    }
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('helikopter_veckoorsak')
+      .upsert({ ar, manad, typ, isovecka, orsak: text, uppdaterad: new Date().toISOString(), av: user?.id ?? null }, { onConflict: 'ar,manad,typ,isovecka' })
+    return { error: error ? felText(error) : null }
+  } catch (e) {
+    return { error: felText(e) }
+  }
+}
+
+/** Inloggad förares maskin: var den senast jobbade, kvar och takt. null = ingen fakt-rad alls. */
 export async function hamtaMaskinLage(maskinId: string, idag: string): Promise<Svar<MaskinLage | null>> {
   const r = await rpc<any[]>('helikopter_ny_maskin', { p_maskin_id: maskinId, p_idag: idag })
   if (r.error) return { data: null, error: r.error }

@@ -5,7 +5,7 @@
 import { Axe, Truck } from 'lucide-react'
 import { T } from '@/lib/utbildning'
 import { PROGNOS_FRAN_ARBETSDAG, SKORDARE_FORE_VARNING_DAGAR, type ManadStatus, type SparLage } from '../_lib/berakningar'
-import { MANAD_NAMN as MANAD_NAMN_LOKAL, dagarText, fmt, fmtDag } from '../_lib/format'
+import { MANAD_NAMN, dagarText, fmt, fmtDag } from '../_lib/format'
 import type { Arbetsdagar, MaskinLage, Typ } from '../_lib/queries'
 import { Kort, KortLank, Rad, SparRubrik, Stapel, StortTal, type Ton } from './SparKort'
 import DinMaskin from './DinMaskin'
@@ -45,7 +45,7 @@ function LageKort({ s, status, dagar, ar, manad, antalPlanerade }: { s: SparLage
       ? { text: 'Klart', ton: 'gron', under: `${fmt(s.skotat)} av ${fmt(s.bestallt)} m³fub skotat` }
       : { text: `${fmt(diff)} m³fub`, ton: 'orange', under: `${fmt(s.skotat)} av ${fmt(s.bestallt)} skotat` }
   } else if (ingenPlan) {
-    stort = { text: 'Inga objekt planerade', ton: 'dampad', liten: true, under: `inget objekt lagt på ${MANAD_NAMN_LOKAL[manad - 1]}` }
+    stort = { text: 'Inga objekt planerade', ton: 'dampad', liten: true, under: `inget objekt lagt på ${MANAD_NAMN[manad - 1]}` }
   } else if (status === 'kommande') {
     stort = { text: 'Inte startad', ton: 'dampad', liten: true }
   } else if (!s.harPrognos || !s.lage) {
@@ -66,12 +66,12 @@ function LageKort({ s, status, dagar, ar, manad, antalPlanerade }: { s: SparLage
 
   // Skördare: hur långt före skotaren.
   let skordareVarde = ''
-  if (status === 'pagaende' && s.harPrognos && s.skordareDagarFore != null) {
+  if (status === 'pagaende' && s.harPrognos && s.skordareDagarFore != null && s.skordareDagarFore > 0) {
     skordareVarde = `${dagarText(s.skordareDagarFore)} före skotaren`
     if (s.skordareDagarFore > SKORDARE_FORE_VARNING_DAGAR) skordareVarde += ' · dra ner eller byt trakt'
   }
 
-  // Skotare: oskotat och riktning.
+  // Skotare: oskotat, riktning — och var virket ligger (de två objekt med mest oskotat).
   let skotareVarde = ''
   let skotareTon: Ton = 'dampad'
   if (s.oskotat > 0) {
@@ -80,6 +80,9 @@ function LageKort({ s, status, dagar, ar, manad, antalPlanerade }: { s: SparLage
     else if (s.oskotatStatus === 'minskar') skotareVarde += ` · minskar ${fmt(-(s.oskotatForandring ?? 0))}/dag`
     else if (s.oskotatStatus === 'i_takt') skotareVarde += ' · i takt'
   }
+  const varVirket = s.oskotatObjekt.length > 0
+    ? s.oskotatObjekt.map(o => `${kortNamn(o.namn)} ${fmt(o.oskotat)}`).join(' · ')
+    : ''
 
   return (
     <Kort>
@@ -87,9 +90,15 @@ function LageKort({ s, status, dagar, ar, manad, antalPlanerade }: { s: SparLage
       <StortTal text={stort.text} ton={stort.ton} under={stort.under} liten={stort.liten} />
       {visaTakt && <Rad text={taktText} />}
       <Rad ikon={<Axe size={16} color={T.t2} aria-hidden="true" />} text={`Skördat ${fmt(s.skordat)} m³fub`} varde={skordareVarde} />
-      <Rad ikon={<Truck size={16} color={T.t2} aria-hidden="true" />} text={`Skotat ${fmt(s.skotat)} m³fub`} varde={skotareVarde} vardeTon={skotareTon} />
+      <Rad ikon={<Truck size={16} color={T.t2} aria-hidden="true" />} text={`Skotat ${fmt(s.skotat)} m³fub`} varde={skotareVarde} vardeTon={skotareTon} under={varVirket} />
       <Stapel bestallt={s.bestallt} skordat={s.skordat} skotat={s.skotat} />
       {ingenBestallning && status !== 'avslutad' && <KortLank text="Lägg in beställning" href={bestLank} />}
     </Kort>
   )
+}
+
+/** "400763 Akelius Tåget SA -26" → "Akelius Tåget SA": släpp inledande nummer och avslutande årsstump. */
+function kortNamn(namn: string | null): string {
+  if (!namn) return 'Objekt'
+  return namn.replace(/^\d+\s+/, '').replace(/\s+-?\d{2,4}$/, '').replace(/\s+(AU|SA|Ga|ga|GA|au)\s+\d{4}$/, ' $1').trim() || namn
 }

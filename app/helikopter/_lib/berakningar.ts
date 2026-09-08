@@ -117,6 +117,7 @@ export type SparLage = {
   skotat: number
   oskotat: number
   ingaendeOskotat: number
+  oskotatObjekt: { namn: string | null; oskotat: number }[]
   taktSkordat: number | null
   taktSkotat: number | null
   taktDagar: number
@@ -147,6 +148,7 @@ export function raknaSpar(rad: SparRad, dagar: Arbetsdagar): SparLage {
     skotat: rad.skotat,
     oskotat,
     ingaendeOskotat: rad.ingaende_oskotat,
+    oskotatObjekt: rad.oskotat_objekt ?? [],
     taktSkordat: rad.takt_skordat,
     taktSkotat: rad.takt_skotat,
     taktDagar: rad.takt_dagar,
