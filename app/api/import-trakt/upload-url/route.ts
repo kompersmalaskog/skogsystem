@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 // URL:en skapas med service-role; token:en kringgår RLS så klienten aldrig behöver läs/skriv
 // på bucketen.
 
-const MAX_BYTES = 25 * 1024 * 1024; // samma tak som bucketens file_size_limit
+const MAX_BYTES = 100 * 1024 * 1024; // samma tak som bucketens file_size_limit (104857600)
 
 async function skapaInloggadKlient() {
   const cookieStore = await cookies();
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Endast .envz eller .zip' }, { status: 400 });
     }
     if (typeof storlek === 'number' && storlek > MAX_BYTES) {
-      return NextResponse.json({ error: 'Filen är för stor (max 25 MB)' }, { status: 413 });
+      return NextResponse.json({ error: 'Filen är för stor (max 100 MB)' }, { status: 413 });
     }
 
     // Unik, klient-oberoende sökväg. Vi litar inte på klientens filnamn för lagringen.

@@ -11356,7 +11356,7 @@ export default function PlannerPage() {
         // Kontorets dokument (TD + stämplingslängd) ligger i privat bucket → signeras vid klick och
         // renderas i in-app PDF-läsvyn (PdfLasare), aldrig window.open/nedladdning som slänger ut
         // föraren ur den installerade appen. Rad visas bara om url finns.
-        const harDok = harDokument({ traktdirektivUrl: valtObjekt.traktdirektiv_url, traktkartaUrl: valtObjekt.traktkarta_url, stamplingslangdUrl: valtObjekt.stamplingslangd_url, valtlappUrl: valtObjekt.valtlapp_url, ovrigaDokument: Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null });
+        const harDok = harDokument({ traktdirektivUrl: valtObjekt.traktdirektiv_url, traktkartaUrl: valtObjekt.traktkarta_url, traktkartor: Array.isArray(valtObjekt.traktkartor) ? valtObjekt.traktkartor : null, oversiktskartaUrl: valtObjekt.oversiktskarta_url, stamplingslangdUrl: valtObjekt.stamplingslangd_url, valtlappUrl: valtObjekt.valtlapp_url, ovrigaDokument: Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null });
         // Rad i "På trakten" — etikett vänster, värde höger.
         const ptRad = (etikett: string, varde: string) => (
           <div key={etikett} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
@@ -11474,6 +11474,8 @@ export default function PlannerPage() {
                   <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Dokument</div>
                   <DokumentChips
                     traktdirektivUrl={valtObjekt.traktdirektiv_url} traktkartaUrl={valtObjekt.traktkarta_url}
+                    traktkartor={Array.isArray(valtObjekt.traktkartor) ? valtObjekt.traktkartor : null}
+                    oversiktskartaUrl={valtObjekt.oversiktskarta_url}
                     stamplingslangdUrl={valtObjekt.stamplingslangd_url} valtlappUrl={valtObjekt.valtlapp_url}
                     ovrigaDokument={Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null}
                     typ={valtObjekt.typ}
