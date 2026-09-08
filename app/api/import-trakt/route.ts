@@ -180,6 +180,9 @@ export async function POST(request: NextRequest) {
       cert: td.cert, typ: td.typ, volym: td.volym, areal: td.areal,
       grot: td.grot, anteckningar: td.anteckningar, sortiment: td.sortiment,
       larmkoordinat_lat: td.larmkoordinat?.lat, larmkoordinat_lng: td.larmkoordinat?.lng,
+      // Kontraktsnr finns BARA i TD-texten (OGI ContractNumber = VO, mappas ej sedan #512).
+      // envz vinner bara där den har värde → TD-värdet står kvar.
+      kontraktsnummer: td.kontraktsnummer,
     };
     const falt = envzUttag ? mergeFalt(tdRecord, envzUttag.falt) : tdRecord;
 
@@ -280,7 +283,7 @@ export async function POST(request: NextRequest) {
       markagare_tel: falt.markagare_tel || null,            // TD-parsern
       markagare_epost: falt.markagare_epost || null,        // TD-parsern
       fastighetsbeteckning: falt.fastighetsbeteckning || null, // OGI RealEstateIDObject (ny)
-      kontraktsnummer: falt.kontraktsnummer || null,        // OGI ContractNumber (ny)
+      kontraktsnummer: falt.kontraktsnummer || null,        // TD-parsern (header "Kontraktsnr … anges vid fakturering"); aldrig VO
       cert: falt.cert || null,
       typ: falt.typ,
       atgard: falt.typ === 'slutavverkning' ? 'Au' : 'Gallring',

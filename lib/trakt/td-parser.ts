@@ -50,6 +50,9 @@ export interface TdFalt {
   grot: boolean;
   anteckningar: string;
   sortiment: string[];
+  /** Riktigt kontraktsnr ("anges vid fakturering") ur TD-headern. Finns BARA i PDF-texten —
+   *  OGI ContractNumber är VO-numret. Tomt om saknas; aldrig lika med VO eller traktnr. */
+  kontraktsnummer: string;
 }
 
 export function parseTraktdirektivText(text: string, traktnrFromFilename = ''): TdFalt {
@@ -75,6 +78,19 @@ export function parseTraktdirektivText(text: string, traktnrFromFilename = ''): 
   let vo_nummer = '';
   const voMatch = text.match(/Virkesorder[\s\S]{0,100}?(11\d{6})/i);
   if (voMatch) vo_nummer = voMatch[1];
+
+  // Kontraktsnr — ur header-raden som står på varje TD-sida:
+  //   "Traktnr Kontraktsnr Ursprung Datum  887818  972548 (anges vid fakturering)"
+  // Det riktiga, fakturagrundande numret finns BARA här (OGI ContractNumber = VO).
+  // Verifierat mot alla 25 sparade TD-PDF:er 2026-09-08: 25/25 träff, alla ≠ VO.
+  // GARANTI: aldrig lika med VO eller traktnr (då lämnas fältet tomt).
+  let kontraktsnummer = '';
+  const kMatch = text.match(/Traktnr\s+Kontraktsnr\s+Ursprung\s+Datum\s+(\d{6})\s+(?:(\d{6})\s+)?\(anges vid fakturering\)/i);
+  if (kMatch && kMatch[2]) {
+    const k = kMatch[2];
+    const traktnrSiffror = String(traktnr || kMatch[1]).replace(/\D.*$/, '');
+    if (k !== vo_nummer && k !== kMatch[1] && k !== traktnrSiffror) kontraktsnummer = k;
+  }
 
   // Markägare - namn i VERSALER efter "VIDA"
   let markagare = '';
@@ -153,6 +169,6 @@ export function parseTraktdirektivText(text: string, traktnrFromFilename = ''): 
   return {
     namn, traktnr, vo_nummer, markagare, markagare_epost, markagare_tel,
     inkopare, inkopare_tel, cert, typ, volym, areal, lat, lng, larmkoordinat,
-    grot, anteckningar, sortiment,
+    grot, anteckningar, sortiment, kontraktsnummer,
   };
 }
