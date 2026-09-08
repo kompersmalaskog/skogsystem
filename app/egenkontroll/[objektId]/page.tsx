@@ -27,6 +27,7 @@ import {
   hamtaKontextmarkeringar,
   hamtaProvytor,
   hamtaAvverkadeStammar,
+  punktPlatser,
   stubbeDom,
   KRAVNIVA_STUBBEHANDLING,
   AVVIKELSE_ETIKETT,
@@ -48,7 +49,8 @@ import ProvyteLista, { type MinPosition } from '../ProvyteLista';
 import Forutsattningar from '../Forutsattningar';
 import ProvyteSammanstallning from '../ProvyteSammanstallning';
 import GaTillYta from '../GaTillYta';
-import { skadeandel as _skadeandel, type LatLng } from '@/lib/provytor';
+import { skadeandel as _skadeandel, avstandM, riktning, type LatLng } from '@/lib/provytor';
+import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
 import { anmarkningsText, kortDatum } from '../format';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
@@ -57,6 +59,46 @@ import { anmarkningsText, kortDatum } from '../format';
 // #FFD60A ar samma gult som datahalsobannern pa startsidan; T.orange betyder
 // redan "gar ut snart" pa utbildningssidorna.
 const GUL = '#FFD60A';
+
+/** Valet minns sig mellan rundor - det ar ett arbetssatt, inte en installning
+ *  per objekt. Samma person gar likadant pa nasta trakt. */
+const ORDNING_NYCKEL = 'egenkontroll_punktordning';
+
+/** Grupp eller avstand. Tva val, en rad - samma sprak som svarsknapparna. */
+function OrdningsValjare({
+  varde,
+  onValj,
+}: {
+  varde: 'avstand' | 'grupp';
+  onValj: (v: 'avstand' | 'grupp') => void;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 8, margin: '0 0 10px' }} role="group" aria-label="Ordning">
+      {([
+        { id: 'avstand', etikett: 'Närmast först' },
+        { id: 'grupp', etikett: 'Grupp' },
+      ] as const).map((v) => {
+        const aktiv = varde === v.id;
+        return (
+          <button
+            key={v.id}
+            onClick={() => onValj(v.id)}
+            aria-pressed={aktiv}
+            style={{
+              flex: 1, minHeight: 44, borderRadius: 10,
+              border: `1.5px solid ${aktiv ? T.blue : 'rgba(255,255,255,0.14)'}`,
+              background: aktiv ? T.blue : 'transparent',
+              color: aktiv ? '#000' : T.t1,
+              fontSize: 15, fontWeight: 600, fontFamily: T.ff,
+            }}
+          >
+            {v.etikett}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 /** Status i TEXT. Fargen upprepar bara det som redan star - den bar aldrig ensam. */
 const STATUS_TEXT: Record<string, { text: string; farg: string }> = {
@@ -155,6 +197,9 @@ function PunktKort({
   last,
   fotoUrler,
   vald,
+  avstand,
+  riktn,
+  nasta,
   onSvara,
   onOppnaSheet,
   onValj,
@@ -167,6 +212,11 @@ function PunktKort({
   fotoUrler: string[];
   /** Markerad pa kartan just nu. */
   vald: boolean;
+  /** Meter till punkten. null = ingen position, eller punkten ar ingen plats. */
+  avstand?: number | null;
+  riktn?: string | null;
+  /** Narmaste OBESVARADE punkten - den man ska ga till harnast. */
+  nasta?: boolean;
   onSvara: (status: PunktStatus) => void;
   onOppnaSheet: (lage: SheetLage) => void;
   /** null = punkten ar ingen plats (kalla='fast') och gar inte att centrera. */
@@ -184,7 +234,9 @@ function PunktKort({
         borderRadius: 12,
         padding: '12px 14px',
         // Vald punkt ramas in - samma besked som den vita glorian pa kartan.
-        outline: vald ? `2px solid ${T.blue}` : 'none',
+        // Nasta att ga till far samma ram; texten under bar beskedet, sa ramen
+        // upprepar bara det och ar aldrig ensam informationsbarare.
+        outline: vald || nasta ? `2px solid ${T.blue}` : 'none',
         outlineOffset: -2,
       }}
     >
@@ -205,6 +257,15 @@ function PunktKort({
         </button>
       ) : (
         <div style={{ fontSize: 16, fontWeight: 500 }}>{punkt.rubrik}</div>
+      )}
+      {/* HELA METER. GPS:en under krontak ar 5-15 m - decimaler hade latsats
+          om en precision som inte finns. Riktningen star i ORD bredvid. */}
+      {avstand != null && (
+        <div style={{ fontSize: 14, color: T.t2, marginTop: 2 }}>
+          {avstand < 1000 ? `${Math.round(avstand)} m` : `${(avstand / 1000).toFixed(1)} km`}
+          {riktn && ` · ${riktn}`}
+          {nasta && <span style={{ color: T.blue, fontWeight: 600 }}> · närmast kvar</span>}
+        </div>
       )}
       {hjalptext && (
         <div style={{ fontSize: 14, color: T.t2, lineHeight: 1.4, marginTop: 3 }}>
@@ -414,6 +475,20 @@ export default function EgenkontrollRundaPage() {
   const [provytor, setProvytor] = useState<EgenkontrollProvyta[]>([]);
   const [provytaVald, setProvytaVald] = useState<EgenkontrollProvyta | null>(null);
   const [minPosition, setMinPosition] = useState<MinPosition>(null);
+
+  // LISTANS ORDNING. Default ar avstand: punkterna ar ritade vid ett skrivbord,
+  // och den ordningen sager ingenting om var de ligger i terrangen - man
+  // zickzackar. Grupperingen finns kvar for den som vill se allt av ett slag.
+  const [ordning, setOrdning] = useState<'avstand' | 'grupp'>('avstand');
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(ORDNING_NYCKEL) === 'grupp') setOrdning('grupp');
+    } catch { /* privat lage - da galler default */ }
+  }, []);
+  const valjOrdning = (v: 'avstand' | 'grupp') => {
+    setOrdning(v);
+    try { localStorage.setItem(ORDNING_NYCKEL, v); } catch { /* ignore */ }
+  };
   const [helskarm, setHelskarm] = useState(false);
   const [visaStammar, setVisaStammar] = useState(false);
   const [gaTill, setGaTill] = useState<EgenkontrollProvyta | null>(null);
@@ -566,6 +641,51 @@ export default function EgenkontrollRundaPage() {
   );
 
   const grupper = useMemo(() => gruppera(planpunkter), [planpunkter]);
+
+  // ORIGO ur kartbild_bounds - samma kalla som kartan. Saknas bounds gar
+  // markeringarnas SVG-rymd inte att placera, och da har ingen punkt ett
+  // avstand. Vi gissar aldrig en plats ur lat/lng: det ar ett annat origo an
+  // det planeraren ritade mot.
+  const origo = useMemo(
+    () => (vy?.kartObjekt ? kartOrigoFranBounds(vy.kartObjekt) : null),
+    [vy?.kartObjekt],
+  );
+
+  // Avstand och riktning per punkt. En LINJE matas till sin narmaste
+  // brytpunkt - se punktPlatser i lib/egenkontroll.ts.
+  const avstandPerPunkt = useMemo(() => {
+    const karta = new Map<string, { m: number; r: string }>();
+    if (!origo || !minPosition) return karta;
+    for (const p of planpunkter) {
+      let bast: { m: number; r: string } | null = null;
+      for (const plats of punktPlatser(p, origo)) {
+        const m = avstandM(minPosition, plats);
+        if (!bast || m < bast.m) bast = { m, r: riktning(minPosition, plats) };
+      }
+      if (bast) karta.set(p.id, bast);
+    }
+    return karta;
+  }, [planpunkter, origo, minPosition]);
+
+  // Avstandsordning. Punkter UTAN plats kan inte sorteras och laggs sist -
+  // de gissas aldrig in i ordningen.
+  const avstandsRader = useMemo(() => {
+    const med = planpunkter.filter((p) => avstandPerPunkt.has(p.id));
+    const utan = planpunkter.filter((p) => !avstandPerPunkt.has(p.id));
+    med.sort((x, y) => avstandPerPunkt.get(x.id)!.m - avstandPerPunkt.get(y.id)!.m);
+    return { med, utan };
+  }, [planpunkter, avstandPerPunkt]);
+
+  // NASTA ATT GA TILL: narmaste OBESVARADE. Ar allt besvarat finns ingen -
+  // da visas ingen framhavning alls.
+  const nastaPunktId = useMemo(
+    () => avstandsRader.med.find((p) => p.status == null)?.id ?? null,
+    [avstandsRader],
+  );
+
+  // Avstandsordning kraver bade en plats att rakna FRAN och en att rakna TILL.
+  const kanSorteraPaAvstand = origo != null && minPosition != null;
+  const visaAvstand = ordning === 'avstand' && kanSorteraPaAvstand;
   const antalPlan = planpunkter.length;
   const besvaradePlan = planpunkter.filter((p) => p.status !== null).length;
   const antalAvvikelser = planpunkter.filter((p) => p.status === 'avvikelse').length;
@@ -737,11 +857,32 @@ export default function EgenkontrollRundaPage() {
                   </div>
                 )}
 
-                {grupper.map(({ grupp, punkter }) => (
-                  <div key={grupp}>
-                    <SectionHeader>{grupp}</SectionHeader>
+                {/* ORDNINGEN. Bara nar det finns nagot att ordna. */}
+                {antalPlan > 1 && (
+                  <OrdningsValjare varde={ordning} onValj={valjOrdning} />
+                )}
+
+                {/* Varfor avstandsordningen inte gar att fa. Tva skilda skal
+                    som atgardas OLIKA - de far inte se likadana ut. */}
+                {ordning === 'avstand' && !kanSorteraPaAvstand && antalPlan > 0 && (
+                  <div style={{ fontSize: 13, color: T.orange, lineHeight: 1.45, margin: '0 4px 10px' }}>
+                    {origo == null
+                      ? 'Objektet saknar kartbildens hörnkoordinater, så punkterna kan inte placeras i terrängen — de listas i grupp och ordning.'
+                      : 'Utan din position går det inte att säga avstånd — punkterna listas i grupp och ordning.'}
+                  </div>
+                )}
+
+                {visaAvstand ? (
+                  <>
+                    {minPosition?.noggrannhet != null && (
+                      <div style={{ fontSize: 12.5, color: T.t2, lineHeight: 1.45, margin: '0 4px 8px' }}>
+                        Din position är ±{Math.round(minPosition.noggrannhet)} m. Ordningen mellan
+                        två punkter som ligger nära varandra är därför inte exakt — den räcker för
+                        att slippa gå fram och tillbaka över trakten.
+                      </div>
+                    )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {punkter.map((p) => (
+                      {avstandsRader.med.map((p) => (
                         <PunktKort
                           key={p.id}
                           punkt={p}
@@ -749,14 +890,66 @@ export default function EgenkontrollRundaPage() {
                           last={rundanKlar}
                           fotoUrler={fotoPerPunkt[p.id] ?? []}
                           vald={valdPunktId === p.id}
+                          avstand={avstandPerPunkt.get(p.id)?.m ?? null}
+                          riktn={avstandPerPunkt.get(p.id)?.r ?? null}
+                          nasta={p.id === nastaPunktId}
                           onSvara={(status) => svara(p, status)}
                           onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
                           onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
                         />
                       ))}
                     </div>
-                  </div>
-                ))}
+
+                    {/* Punkter utan plats gissas ALDRIG in i ordningen. */}
+                    {avstandsRader.utan.length > 0 && (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={{ fontSize: 13, color: T.t2, lineHeight: 1.45, margin: '0 4px 8px' }}>
+                          {avstandsRader.utan.length === 1
+                            ? 'En punkt saknar geometri och kan inte sorteras på avstånd.'
+                            : `${avstandsRader.utan.length} punkter saknar geometri och kan inte sorteras på avstånd.`}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {avstandsRader.utan.map((p) => (
+                            <PunktKort
+                              key={p.id}
+                              punkt={p}
+                              sparar={!!sparStatus[p.id]}
+                              last={rundanKlar}
+                              fotoUrler={fotoPerPunkt[p.id] ?? []}
+                              vald={valdPunktId === p.id}
+                              onSvara={(status) => svara(p, status)}
+                              onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
+                              onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  grupper.map(({ grupp, punkter }) => (
+                    <div key={grupp}>
+                      <SectionHeader>{grupp}</SectionHeader>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {punkter.map((p) => (
+                          <PunktKort
+                            key={p.id}
+                            punkt={p}
+                            sparar={!!sparStatus[p.id]}
+                            last={rundanKlar}
+                            fotoUrler={fotoPerPunkt[p.id] ?? []}
+                            vald={valdPunktId === p.id}
+                            avstand={avstandPerPunkt.get(p.id)?.m ?? null}
+                            riktn={avstandPerPunkt.get(p.id)?.r ?? null}
+                            onSvara={(status) => svara(p, status)}
+                            onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
+                            onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
 
                 {/* Del 2. Doljs HELT nar rundan saknar utforandepunkter - en
                     runda som startades fore denna PR far dem aldrig, sa det
