@@ -612,7 +612,6 @@ export default function Arbetsrapport() {
   const [årsData, setÅrsData] = useState<any[]>([]);
   const [lönSparar, setLönSparar] = useState(false);
   const [lönFel, setLönFel] = useState("");
-  const [månadsKlar, setMånadsKlar] = useState(false);
   const [kalÅr, setKalÅr] = useState(new Date().getFullYear());
   const [kalMånad, setKalMånad] = useState(new Date().getMonth());
   const [dagData, setDagData] = useState<Record<string, any>>({});
@@ -1323,14 +1322,16 @@ export default function Arbetsrapport() {
 
   const idag=new Date();
   const datumStr=`${["Sön","Mån","Tis","Ons","Tor","Fre","Lör"][idag.getDay()]} ${idag.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][idag.getMonth()]}`;
+  // Långt datum för hälsningsraden: "måndag 7 september"
+  const datumLångt=`${["söndag","måndag","tisdag","onsdag","torsdag","fredag","lördag"][idag.getDay()]} ${idag.getDate()} ${["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()]}`;
 
   const frikm = gsAvtal?.km_grans_per_dag ?? 60;
-  const fardtidPerMil = gsAvtal?.fardtid_kr_per_mil ?? 10.49;
+  // Ingen kr-beräkning i appen: mil är mängden, satsen äger Fortnox. (fardtidPerMil/ersKr
+  // räknades här men visades aldrig — död kod som bröt principen. Borttagen.)
   const arbMin = Math.max(0,tim(start,slut)-rast);
   const totKm  = (kmM?.km||0)+(kmK?.km||0);
   const ersKm  = Math.max(0,totKm-frikm);                          // km över gränsen
   const milPåbörjade = ersattningsMilDag(totKm, frikm);            // påbörjade mil (delad lib)
-  const ersKr  = Math.round(milPåbörjade*fardtidPerMil*100)/100;   // färdtidsersättning kr
   const totEx  = extra.reduce((a,e)=>a+e.min,0);
   const totMin = arbMin+totEx;
   const idagKey = new Date().toISOString().split('T')[0];
@@ -2104,62 +2105,57 @@ export default function Arbetsrapport() {
 
         {/* Pågående extra-aktiviteter visas nu via global banner ovanför — se timerBanner */}
 
-        {/* Hero */}
-        <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
-          <h1 style={{ ...TYPE.h2,color:"#fff",margin:"0 0 4px" }}>{hälsning()}, {förnamn}</h1>
-          <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>{datumStr}</p>
-        </section>
+        {/* Hälsning — liten, sekundär, på datumets rad (Apple: Väder/Hem). Utan namn.
+            Det största på skärmen är TILLSTÅNDET nedan, inte hälsningen. */}
+        <p style={{ margin:"0 0 18px",...TYPE.meta,color:"#8e8e93" }}>{hälsning()} · {datumLångt}</p>
 
-        {/* Shift Status Card — döljs efter bekräftning och när pass redan avslutats
-            (då finns sammanfattningen i stället). */}
-        {!dagData[idagKey]?.bekraftad && !dagData[idagKey]?.slut_tid && (
-        <section style={{ background:isWorking?"#1c1c1e":"rgba(255,255,255,0.04)",borderRadius:12,padding:"20px 24px",marginBottom:32,position:"relative",overflow:"hidden",animation:"fadeUp 0.5s ease 0.05s both",border:isWorking?"1px solid rgba(255,255,255,0.06)":"1px solid rgba(255,255,255,0.05)" }}>
-          <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:isWorking?12:4 }}>
+        {/* TILLSTÅNDET — inget kort: stor text mot tom yta, maskin och plats som en
+            grå rad under. Slår ihop det som förr var tre kort (status, Maskinstatus,
+            Plats). Döljs efter bekräftning och när passet avslutats (då finns
+            sammanfattningen i stället). */}
+        {!dagData[idagKey]?.bekraftad && !dagData[idagKey]?.slut_tid && (()=>{
+          const typ = dagData[idagKey]?.dagtyp;
+          const startKort = dagData[idagKey]?.start_tid?.slice(0,5) || '—';
+          const dagTypVisa: Record<string,string> = {
+            sjuk: 'Sjukdag', vab: 'VAB', semester: 'Semester', atk: 'ATK',
+            utbildning: 'Utbildning pågår', service: 'Service pågår',
+            möte: 'Möte pågår', annat: 'Annat arbete pågår',
+          };
+          const rubrik = !isWorking
+            ? 'Väntar på maskin'
+            : (typ && typ !== 'normal' && dagTypVisa[typ])
+              ? dagTypVisa[typ]
+              : `Pågående sedan ${startKort}`;
+          const under = !isWorking
+            ? 'Startar automatiskt vid inloggning'
+            : (typ && typ !== 'normal')
+              ? `Startad ${(dagData[idagKey]?.start_tid||'').slice(0,5)}`
+              : 'Avslutas automatiskt vid utloggning från maskinen';
+          const maskinText = maskinNamn || medarbetare?.maskin_id || null;
+          const vObj = valtObjektId ? objektLista.find(o=>o.id===valtObjektId) : null;
+          const objText = (isWorking && dagData[idagKey]?.objekt_id)
+            ? (objektLista.find(o => o.id === dagData[idagKey]?.objekt_id)?.namn || dagData[idagKey]?.objekt_id)
+            : (dagensObjekt || dagData[idagKey]?.objekt_namn || vObj?.namn || null);
+          const platsText = objText || 'Välj objekt';
+          return (
+        <section style={{ marginBottom:28,animation:"fadeUp 0.5s ease 0.05s both" }}>
+          <div style={{ display:"flex",alignItems:"center",gap:10 }}>
             {isWorking
-              ? <div style={{ width:8,height:8,borderRadius:"50%",background:"#0a84ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />
-              : <span className="material-symbols-outlined" style={{ fontSize:18,color:"#8e8e93" }}>schedule</span>
+              ? <div style={{ width:10,height:10,borderRadius:"50%",background:"#0a84ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />
+              : <span className="material-symbols-outlined" style={{ fontSize:22,color:"#8e8e93" }}>schedule</span>
             }
-            {(()=>{
-              const typ = dagData[idagKey]?.dagtyp;
-              const startKort = dagData[idagKey]?.start_tid?.slice(0,5) || '—';
-              const dagTypVisa: Record<string,string> = {
-                sjuk: 'Sjukdag', vab: 'VAB', semester: 'Semester', atk: 'ATK',
-                utbildning: 'Utbildning pågår', service: 'Service pågår',
-                möte: 'Möte pågår', annat: 'Annat arbete pågår',
-              };
-              const rubrik = !isWorking
-                ? 'Väntar på maskin'
-                : (typ && typ !== 'normal' && dagTypVisa[typ])
-                  ? dagTypVisa[typ]
-                  : `Pågående sedan ${startKort}`;
-              return <h2 style={{ margin:0,color:"#fff",...TYPE.body,...TNUM }}>{rubrik}</h2>;
-            })()}
+            <h1 style={{ margin:0,color:"#fff",...TYPE.h1,...TNUM }}>{rubrik}</h1>
           </div>
-          <p style={{ fontSize:13,color:"rgba(255,255,255,0.5)",margin:isWorking?"0 0 16px":"0 0 14px",lineHeight:1.5,...TNUM }}>
-            {!isWorking
-              ? 'Startar automatiskt vid inloggning'
-              : (dagData[idagKey]?.dagtyp && dagData[idagKey]?.dagtyp !== 'normal')
-                ? `Startad ${(dagData[idagKey]?.start_tid||'').slice(0,5)}`
-                : 'Avslutas automatiskt vid utloggning från maskinen'
-            }
-          </p>
-          {isWorking && ((maskinNamn || medarbetare?.maskin_id) || (dagData[idagKey]?.objekt_id)) && (
-            <div style={{ display:"flex",flexDirection:"column",gap:4,marginBottom:16,paddingBottom:16,borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
-              {(maskinNamn || medarbetare?.maskin_id) && (
-                <div style={{ display:"flex",justifyContent:"space-between" }}>
-                  <span style={{ fontSize:13,color:"rgba(255,255,255,0.5)" }}>Maskin</span>
-                  <span style={{ ...TYPE.bodyList,color:"#fff" }}>{maskinNamn || medarbetare?.maskin_id}</span>
-                </div>
-              )}
-              {dagData[idagKey]?.objekt_id && (
-                <div style={{ display:"flex",justifyContent:"space-between" }}>
-                  <span style={{ fontSize:13,color:"rgba(255,255,255,0.5)" }}>Objekt</span>
-                  <span style={{ ...TYPE.bodyList,color:"#fff" }}>{objektLista.find(o => o.id === dagData[idagKey]?.objekt_id)?.namn || dagData[idagKey]?.objekt_id}</span>
-                </div>
-              )}
-            </div>
-          )}
-          <div>
+          <p style={{ margin:"6px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>{under}</p>
+          {/* Maskin · Plats — en grå rad, tryck väljer objekt (samma väljare som förr) */}
+          <button onClick={()=>setVisaObjektVäljare(true)}
+            style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",minHeight:44,margin:"10px 0 0",padding:0,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+            <span style={{ ...TYPE.meta,color:"#8e8e93",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+              {maskinText ? `${maskinText} · ` : ''}<span style={{ color: objText ? "#8e8e93" : "#0a84ff" }}>{platsText}</span>
+            </span>
+            <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",flexShrink:0 }}>chevron_right</span>
+          </button>
+          <div style={{ marginTop:14 }}>
             {isWorking ? (
               <button onClick={async ()=>{
                 const nuT = nuKlock();
@@ -2215,7 +2211,8 @@ export default function Arbetsrapport() {
             ) : <span />}
           </div>
         </section>
-        )}
+          );
+        })()}
 
         {/* Logga tid — lågmäld textlänk under dagens status, inte huvudhandlingen.
             Visas i alla lägen utom när en timer redan pågår eller dagen är
@@ -2258,8 +2255,10 @@ export default function Arbetsrapport() {
           if (igårObjNamn) sammanfattning.push(igårObjNamn);
           if (harKm) sammanfattning.push(`${igårKmTot} km`);
           if (harTrak) sammanfattning.push('traktamente');
+          // Synlig som förr (användningen går inte att mäta — den skriver bara lokal
+          // state), men utan ram: en rad, inte ett kort.
           return (
-            <section style={{ marginBottom:24 }}>
+            <section style={{ marginBottom:20 }}>
               <button onClick={() => {
                 if (igår.objekt_id) setValtObjektId(igår.objekt_id);
                 if (igår.km_morgon != null) setKmM({ km: igår.km_morgon });
@@ -2270,8 +2269,7 @@ export default function Arbetsrapport() {
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
               }} style={{
                 width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between",
-                padding:"14px 16px", background:"#1c1c1e",
-                border:"1px solid rgba(255,255,255,0.06)", borderRadius:12,
+                minHeight:44, padding:"8px 0", background:"none", border:"none",
                 cursor:"pointer", fontFamily:"inherit", textAlign:"left",
               }}>
                 <div style={{ minWidth:0, flex:1 }}>
@@ -2314,7 +2312,6 @@ export default function Arbetsrapport() {
           const helKr  = gsAvtal?.traktamente_hel_kr  ?? 300;
           const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
           const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
-          const harErsKr = ersKr > 0;
           const harKmBlock = harKm && harMaskinPass;
           const harObjBlock = !!(dagObjNamn || maskinNamnLång) && harMaskinPass;
           const sammanRad = (label: string, value: string, onClick?: () => void) => (
@@ -2484,7 +2481,8 @@ export default function Arbetsrapport() {
                 )}
                 {harMaskinPass && trakÖppen&&(
                   <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10 }}>
-                    {[{k:'inget',l:'Inget',v:null},{k:'halv',l:`Halv · ${halvKr}`,v:{summa:halvKr}},{k:'hel',l:`Hel · ${helKr}`,v:{summa:helKr}}].map(opt=>{
+                    {/* Mängder, inte kronor: Inget / Halv / Hel. Beloppet äger Fortnox (samma princip som #377). */}
+                    {[{k:'inget',l:'Inget',v:null},{k:'halv',l:'Halv',v:{summa:halvKr}},{k:'hel',l:'Hel',v:{summa:helKr}}].map(opt=>{
                       const valt = opt.v === null ? !trak : (trak?.summa === (opt.v as any)?.summa);
                       return (
                         <button key={opt.k} onClick={async ()=>{
@@ -2614,25 +2612,15 @@ export default function Arbetsrapport() {
 
         {/* Bottom sheet för Starta extra arbete renderas utanför main (nedan) */}
 
-        {/* Månadssammanställnings-notis (OBS: månadsKlar sätts aldrig — död sedan tidigare, flaggad) */}
-        {månadsKlar&&!lönStatusPerPeriod[new Date().toISOString().slice(0,7)]&&(
-          <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:16,marginBottom:24,cursor:"pointer",animation:"fadeUp 0.4s ease" }}>
-            <p style={{ margin:"0 0 6px",fontSize:13,fontWeight:500,color:C.orange }}>Månaden är slut</p>
-            <p style={{ margin:"0 0 8px",...TYPE.bodyList,color:"#fff" }}>Granska månadssammanställningen för {månadsNamn()}</p>
-            <span style={{ ...TYPE.meta,color:"#0a84ff" }}>Öppna →</span>
-          </div>
-        )}
-
-        {/* Frånvaro & övrigt — klickbart kort, expandera för val */}
+        {/* Frånvaro — en textlänk, inte ett kort. Typerna (sjuk, vab) skrivs till
+            arbetsdag.dagtyp — oplanerad frånvaro som händer idag. Planerad ledighet
+            (semester, ATK) ansöks i Ledighet-vyn. */}
         {!isWorking && !dagData[idagKey]?.bekraftad && (
-          <section style={{ marginTop:32,marginBottom:16,animation:"fadeUp 0.5s ease 0.15s both" }}>
+          <section style={{ marginTop:8,marginBottom:16,animation:"fadeUp 0.5s ease 0.15s both" }}>
             <button onClick={()=>setVisaÖvrigt(v=>!v)}
-              style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
-              <div>
-                <p style={{ margin:0,fontSize:16,fontWeight:600,color:"#fff" }}>Frånvaro</p>
-                <p style={{ margin:"3px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Sjuk, VAB</p>
-              </div>
-              <span className="material-symbols-outlined" style={{ fontSize:22,color:"rgba(255,255,255,0.45)",transform:visaÖvrigt?"rotate(90deg)":"none",transition:"transform 0.2s",flexShrink:0,marginLeft:12 }}>chevron_right</span>
+              style={{ display:"flex",alignItems:"center",gap:6,minHeight:44,padding:0,background:"none",border:"none",color:"#0a84ff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>
+              <span className="material-symbols-outlined" style={{ fontSize:18 }}>{visaÖvrigt ? "expand_more" : "chevron_right"}</span>
+              Sjuk eller VAB idag?
             </button>
             {visaÖvrigt && (
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,animation:"fadeUp 0.25s ease" }}>
@@ -2694,39 +2682,7 @@ export default function Arbetsrapport() {
         )}
 
 
-        {/* Maskinstatus & Plats — startsidans metadata, göms när pass avslutats eller bekräftats */}
-        {!dagData[idagKey]?.slut_tid && !dagData[idagKey]?.bekraftad && (
-        <section style={{ marginTop:48,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)",animation:"fadeUp 0.5s ease 0.15s both" }}>
-          <div style={{ marginBottom:24 }}>
-            <h3 style={secHead}>Maskinstatus</h3>
-            <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
-              {maskinNamn || medarbetare?.maskin_id ? (
-                <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:999,fontSize:13,fontWeight:500,color:"#fff" }}>
-                  {[maskinNamn, medarbetare?.maskin_id].filter(Boolean).join(" · ")}
-                </div>
-              ) : <p style={{ margin:0,fontSize:13,color:"#636366" }}>Ingen maskin inloggad</p>}
-            </div>
-          </div>
-          {(()=>{
-            const vObj = valtObjektId ? objektLista.find(o=>o.id===valtObjektId) : null;
-            const visatObjekt = dagensObjekt || dagData[idagKey]?.objekt_namn || (vObj?.namn);
-            const visatÄgare = vObj?.ägare || null;
-            const platsText = visatObjekt
-              ? `${visatObjekt}${visatÄgare ? ` · ${visatÄgare}` : ''}`
-              : "Välj objekt";
-            return (
-              <button onClick={()=>setVisaObjektVäljare(true)}
-                style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
-                <div>
-                  <p style={{ margin:0,fontSize:16,fontWeight:600,color:"#fff" }}>Plats</p>
-                  <p style={{ margin:"3px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>{platsText}</p>
-                </div>
-                <span className="material-symbols-outlined" style={{ fontSize:22,color:"rgba(255,255,255,0.45)",flexShrink:0,marginLeft:12 }}>chevron_right</span>
-              </button>
-            );
-          })()}
-        </section>
-        )}
+        {/* Maskinstatus & Plats bor numera i tillståndsraden högst upp (Maskin · Plats). */}
 
         {/* Objektväljare */}
         {visaObjektVäljare&&(
@@ -2831,7 +2787,6 @@ export default function Arbetsrapport() {
         const ny = tMK + tKK;
         const över = Math.max(0, ny - frikm);
         const mil = över > 0 ? Math.ceil(över/10) : 0;
-        const kr = Math.round(mil * fardtidPerMil * 100) / 100;
         const stäng = () => setVisaKmSheet(false);
         const KmInput = ({label, value, onChange}: {label: string; value: number; onChange: (v:number)=>void}) => (
           <div style={{ flex:1,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
@@ -3036,21 +2991,9 @@ export default function Arbetsrapport() {
     // Varningar — vila läses från vilobrott-tabellen (en sanning, samma som
     // Dag-vyn). Övertidstak ligger kvar inline tills övertidshantering blir
     // egen uppgift (200/230/250h är separat scope, ej rört av denna refaktor).
+    // Vilovarningar visas på ETT ställe för handling — Dag-vyn (där bekräftelsen
+    // sker) — och i Vila-fliken för historik. Inte här också (var tredje kopian).
     const varningar: {typ:'röd'|'orange';text:string}[] = [];
-    for (const b of aktuellaVilobrott) {
-      if (b.besvarat_av_forare) continue;
-      if (b.typ === 'dygnsvila') {
-        varningar.push({
-          typ: 'röd',
-          text: `Dygnsvila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
-        });
-      } else if (b.typ === 'veckovila') {
-        varningar.push({
-          typ: 'orange',
-          text: `Veckovila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
-        });
-      }
-    }
     // Övertidstak — separat scope, ej rört
     if(årsÖvH>230) varningar.push({typ:'röd',text:`${årsKvar}h kvar till max 250h övertid`});
     else if(årsÖvH>200) varningar.push({typ:'orange',text:'Du närmar dig övertidstaket (250h)'});
@@ -4887,7 +4830,7 @@ export default function Arbetsrapport() {
                 ? <p style={{ margin:"4px 0 0",fontSize:12,color:C.orange,...TNUM }}>Osäker: ~{redKmBerakning} km fågelvägen (ingen vägberäkning)</p>
                 : <p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>Beräknat: {redKmBerakning} km (vägavstånd)</p>
             )}
-            {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
+            {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0;
               return över>0
                 ? <p style={{ margin:"8px 0 0",...TYPE.meta,color:C.green,...TNUM }}>Reseersättning: {över} km över {frikm} km = {mil} påbörjade mil</p>
                 : <p style={{ margin:"8px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
@@ -5385,7 +5328,6 @@ export default function Arbetsrapport() {
           {redDag?.start_tid&&(()=>{
             const över = Math.max(0, redKm - frikm);
             const mil  = över>0 ? Math.ceil(över/10) : 0;
-            const kr   = Math.round(mil*fardtidPerMil*100)/100;
             const segs = redKmChain || [];
             const harFlerObjekt = segs.length > 2;
             const öppnaKmSheet = () => {
@@ -5689,7 +5631,6 @@ export default function Arbetsrapport() {
           const ny = redTmpKmM + redTmpKmK;
           const över = Math.max(0, ny - frikm);
           const mil = över > 0 ? Math.ceil(över/10) : 0;
-          const kr = Math.round(mil * fardtidPerMil * 100) / 100;
           const stäng = () => setVisaRedKmSheet(false);
           const KmInp = ({label, value, onChange}: {label: string; value: number; onChange: (v:number)=>void}) => (
             <div style={{ flex:1,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
