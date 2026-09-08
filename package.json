@@ -8,6 +8,7 @@
     "vercel-build": "next build",
     "start": "next start",
     "test": "vitest run",
+    "design-lint": "node scripts/design-lint.mjs",
     "download-lm-dem": "node scripts/download-lm-dem.mjs"
   },
   "dependencies": {
