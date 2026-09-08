@@ -74,6 +74,9 @@ export const RADIE = { rad: 10, knapp: 12, kort: 12, sheet: 16, cirkel: "50%" } 
 /** Träffyta. Skillen: minst 44 pt, maskinen skakar. Primärknappen 48. */
 export const TRAFFYTA = { min: 44, primar: 48 } as const;
 
+/** Ikonstorlek (Material Symbols): i löptext 18, i en rad 22, helskärmsbekräftelse 96. */
+export const IKON = { text: 18, rad: 22, stor: 96 } as const;
+
 // ---------------------------------------------------------------------------
 // Färg — ett tema
 // ---------------------------------------------------------------------------
@@ -144,10 +147,17 @@ export const designCss = `
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.4; }
   }
-  .tona-in { animation: tonaIn ${RORELSE.byte}ms ${RORELSE.kurva} both; }
+  @keyframes sheetUpp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  .tona-in      { animation: tonaIn ${RORELSE.byte}ms ${RORELSE.kurva} both; }
+  .tona-opacity { animation: tonaOpacity ${RORELSE.byte}ms ${RORELSE.kurva} both; }
+  .sheet-upp    { animation: sheetUpp ${RORELSE.sheet}ms ${RORELSE.kurva} both; }
   .puls    { animation: puls 2s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) {
-    .tona-in { animation-name: tonaOpacity; }
+    .tona-in  { animation-name: tonaOpacity; }
+    .sheet-upp { animation-name: tonaOpacity; }
     .puls    { animation: none; }
     * { transition-property: opacity !important; }
   }

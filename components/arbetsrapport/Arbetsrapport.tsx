@@ -15,6 +15,13 @@ import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
 import PdfLasare from "@/app/planering/PdfLasare";
+// Designvärden — EN källa (lib/design/tokens.ts). Dagsvyn är piloten: den
+// importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
+// Lön, Kalender, Redigera) använder ännu den lokala TYPE-skalan nedan och
+// rättas när de rörs.
+import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, TRAFFYTA, RORELSE, designCss } from "@/lib/design/tokens";
+import Tillstand from "@/components/design/Tillstand";
+import { useRaknaUppVarde } from "@/lib/design/raknaUpp";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -810,13 +817,17 @@ export default function Arbetsrapport() {
         }));
       }
     });
-    // Hämta maskinnamn-lookup
-    supabase.from("dim_maskin").select("maskin_id, tillverkare, modell").then(res => {
-      if(res.data) {
-        const m: Record<string, string> = {};
-        for(const r of res.data) m[r.maskin_id] = r.modell || r.tillverkare || r.maskin_id;
-        setMaskinNamnMap(m);
-      }
+    // Hämta maskinnamn-lookup. NAMNET föraren känner igen ("Wisent2015",
+    // "Ponsse Scorpion") bor i maskiner.namn; dim_maskin.modell är
+    // tillverkarens kod ("810E") och bara en reserv när namn saknas.
+    Promise.all([
+      supabase.from("dim_maskin").select("maskin_id, tillverkare, modell"),
+      supabase.from("maskiner").select("maskin_id, namn"),
+    ]).then(([dim, mask]) => {
+      const m: Record<string, string> = {};
+      for(const r of dim.data || []) m[r.maskin_id] = r.modell || r.tillverkare || r.maskin_id;
+      for(const r of mask.data || []) if (r.namn) m[r.maskin_id] = r.namn;
+      setMaskinNamnMap(m);
     });
     // Hämta väder från SMHI via GPS
     if (navigator.geolocation) {
@@ -1330,6 +1341,10 @@ export default function Arbetsrapport() {
   // räknades här men visades aldrig — död kod som bröt principen. Borttagen.)
   const arbMin = Math.max(0,tim(start,slut)-rast);
   const totKm  = (kmM?.km||0)+(kmK?.km||0);
+  // Maskinpassets tal räknar upp när MOM-filen flyttar slut_tid under dagen —
+  // hoppar inte (RORELSE.tal). Hookarna ligger här, före alla steg-returer.
+  const arbMinVisad = useRaknaUppVarde(arbMin);
+  const totKmVisad  = useRaknaUppVarde(totKm);
   const ersKm  = Math.max(0,totKm-frikm);                          // km över gränsen
   const milPåbörjade = ersattningsMilDag(totKm, frikm);            // påbörjade mil (delad lib)
   const totEx  = extra.reduce((a,e)=>a+e.min,0);
@@ -2052,155 +2067,481 @@ export default function Arbetsrapport() {
      tider eller bekräfta dagen — det var buggen. Blocket är borttaget. */
 
   /* ─── HEM (morgon/dag/meny unified) ─── */
-  if(steg==="morgon"||steg==="dag"||steg==="meny") return (
-    <div style={{ minHeight:"100vh",background:"#000",color:"#e5e2e0",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
-      <style>{css}</style>{timerBanner}
+  /* PILOTEN för designtokens (lib/design/tokens.ts): sex typsteg, avstånds-
+     skalan, fem knappnivåer, ett tema, tre rörelsetider. Dagens tillstånd
+     (väntar → pågår → avslutad → bekräftad) ritas inuti EN <Tillstand> så att
+     bytet tonar över på samma plats med reserverad höjd i stället för att ett
+     element försvinner och ett annat dyker upp. Inga literaler här — skriv
+     aldrig ett tal som inte kommer ur tokens. */
+  if(steg==="morgon"||steg==="dag"||steg==="meny") {
+    const DAG_HUVUD = 64;   // fast rubrikrad överst (layoutmått, inte typ/avstånd)
+    const BANNER    = 44;   // timer-bannern under rubrikraden (se timerBanner)
+    const idagArb: any = dagData[idagKey];
+    const extraFärdiga = (extraTidData || []).filter((e: any) => e.datum === idagKey && e.slut_tid);
+    const harMaskinPass = !!idagArb?.slut_tid;
+    const redanBekräftad = !!idagArb?.bekraftad;
+    const varBekräftad   = !!idagArb?.bekraftad_tid;
+    const ändradSedan    = varBekräftad && !redanBekräftad;
+    // PÅGÅR-LÄGE: timvisa MOM-filer sätter slut_tid redan på morgonen och
+    // skjuter den framåt varje timme — "slut_tid finns" betyder inte längre
+    // "dagen är slut". Tills stall-detektionen slagit till visas dagen som
+    // löpande utan bekräfta-knapp; länken låter föraren bekräfta ändå.
+    const dagPågår = harMaskinPass && !redanBekräftad && !bekraftaÄndå
+      && !arDagAvslutad(idagKey, idagArb?.slut_tid);
+    const visaTillstand = !redanBekräftad && !harMaskinPass;
+    const visaSammanfattning = harMaskinPass || extraFärdiga.length > 0;
+    const tillstandNyckel = [
+      visaTillstand ? (isWorking ? 'pagar' : 'vantar') : '-',
+      visaSammanfattning ? (redanBekräftad ? 'bekraftad' : dagPågår ? 'pagar-kort' : 'avslutad') : '-',
+    ].join('|');
 
-      {/* Top bar */}
-      <header style={{ position:"fixed",top:0,width:"100%",height:64,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",zIndex:50,display:"flex",justifyContent:"center",alignItems:"center",padding:"0 24px",boxSizing:"border-box" }}>
-        <span style={{ ...TYPE.body,color:"#fff" }}>Dag</span>
-      </header>
+    /* Varningskort — samma form för alla: ikon i statusfärg + ord. Färgen
+       förstärker texten, den bär aldrig ensam. */
+    const varningsKort = (nyckel: string, ikon: string, farg: string, text: string, under?: string, onClick?: () => void) => (
+      <div key={nyckel} onClick={onClick} className="tona-in"
+        style={{ ...KORT, display:"flex", alignItems:"center", gap:AVSTAND.s, marginBottom:AVSTAND.m, cursor:onClick?"pointer":"default" }}>
+        <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:farg, flexShrink:0 }}>{ikon}</span>
+        <div style={{ flex:1, minWidth:0 }}>
+          <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{text}</p>
+          {under && <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2, ...TNUM }}>{under}</p>}
+        </div>
+        {onClick && <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, flexShrink:0 }}>chevron_right</span>}
+      </div>
+    );
 
-      <main style={{ paddingTop:aktivTimer?140:96,paddingBottom:128,paddingLeft:24,paddingRight:24,flex:1,width:"100%",boxSizing:"border-box" }}>
-
-        {/* Påminnelse obekräftad dag */}
-        {igårObekräftad&&(
-          <div onClick={()=>öppnaRedigera(igårKey)} style={{ background:"rgba(255,159,10,0.06)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:"fadeUp 0.3s ease" }}>
-            <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-              <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>warning</span>
-              <span style={{ ...TYPE.bodyList,color:"#fff" }}>Du glömde bekräfta gårdagen</span>
-            </div>
-            <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>chevron_right</span>
-          </div>
-        )}
-
-        {/* Vila-varningar */}
-        {vilaVarningar.map((v,i)=>(
-          <div key={i} style={{ background:v.typ==='röd'?"rgba(255,69,58,0.08)":"rgba(255,159,10,0.08)",border:`1px solid ${v.typ==='röd'?"rgba(255,69,58,0.25)":"rgba(255,159,10,0.25)"}`,borderRadius:12,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:10 }}>
-            <span className="material-symbols-outlined" style={{ color:v.typ==='röd'?"#ff453a":"#ff9f0a",fontSize:20 }}>warning</span>
-            <span style={{ ...TYPE.meta,color:"#fff" }}>{v.text}</span>
-          </div>
-        ))}
-
-        {/* Timer-varningar: 3h-påminnelse (orange) och 12h-varning (röd) */}
-        {pagaendeAktiviteter.map(p => {
-          const sek = sekDiff(p.start_tid);
-          if (sek > 12*3600) return (
-            <div key={`varn-${p.id}`} style={{ background:"rgba(255,69,58,0.1)",border:"1px solid rgba(255,69,58,0.35)",borderRadius:12,padding:"14px 16px",marginBottom:10,display:"flex",alignItems:"center",gap:10 }}>
-              <span className="material-symbols-outlined" style={{ color:"#ff453a",fontSize:22 }}>warning</span>
-              <div style={{ flex:1,minWidth:0 }}>
-                <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Timer igång sedan igår</p>
-                <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Startad {(p.start_tid||'').slice(0,5)} — glömd att stoppa?</p>
-              </div>
-            </div>
-          );
-          if (sek > 3*3600) return (
-            <div key={`pam-${p.id}`} style={{ background:"rgba(255,159,10,0.08)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"12px 16px",marginBottom:10,display:"flex",alignItems:"center",gap:10 }}>
-              <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>schedule</span>
-              <p style={{ margin:0,fontSize:13,color:"#fff" }}>Timer igång sedan {(p.start_tid||'').slice(0,5)} — glömt stoppa?</p>
-            </div>
-          );
-          return null;
-        })}
-
-        {/* Pågående extra-aktiviteter visas nu via global banner ovanför — se timerBanner */}
-
-        {/* Hälsning — liten, sekundär, på datumets rad (Apple: Väder/Hem). Utan namn.
-            Det största på skärmen är TILLSTÅNDET nedan, inte hälsningen. */}
-        <p style={{ margin:"0 0 18px",...TYPE.meta,color:"#8e8e93" }}>{hälsning()} · {datumLångt}</p>
-
-        {/* TILLSTÅNDET — inget kort: stor text mot tom yta, maskin och plats som en
-            grå rad under. Slår ihop det som förr var tre kort (status, Maskinstatus,
-            Plats). Döljs efter bekräftning och när passet avslutats (då finns
-            sammanfattningen i stället). */}
-        {!dagData[idagKey]?.bekraftad && !dagData[idagKey]?.slut_tid && (()=>{
-          const typ = dagData[idagKey]?.dagtyp;
-          const startKort = dagData[idagKey]?.start_tid?.slice(0,5) || '—';
-          const dagTypVisa: Record<string,string> = {
-            sjuk: 'Sjukdag', vab: 'VAB', semester: 'Semester', atk: 'ATK',
-            utbildning: 'Utbildning pågår', service: 'Service pågår',
-            möte: 'Möte pågår', annat: 'Annat arbete pågår',
-          };
-          const rubrik = !isWorking
-            ? 'Väntar på maskin'
-            : (typ && typ !== 'normal' && dagTypVisa[typ])
-              ? dagTypVisa[typ]
-              : `Pågående sedan ${startKort}`;
-          const under = !isWorking
-            ? 'Startar automatiskt vid inloggning'
-            : (typ && typ !== 'normal')
-              ? `Startad ${(dagData[idagKey]?.start_tid||'').slice(0,5)}`
-              : 'Avslutas automatiskt vid utloggning från maskinen';
-          // Vilken maskin väntar vi på? Förarens maskin i första hand; saknas den
-          // (admin, vikarie) — maskinen på senaste arbetsdagen. Bara uppgiften, ingen länk.
-          const maskinIdVisa = medarbetare?.maskin_id || historik.find(d => d.maskin_id)?.maskin_id || null;
-          const maskinText = maskinNamn || (maskinIdVisa ? (maskinNamnMap[maskinIdVisa] || maskinIdVisa) : null);
-          const vObj = valtObjektId ? objektLista.find(o=>o.id===valtObjektId) : null;
-          // Objektet FYLLS AV IMPORTEN när första MOM-filen landat (mom-import: dominant
-          // objekt ur fakt_tid → arbetsdag.objekt_id + arbetsdag_objekt). Ett tomt objekt
-          // är ett övergångstillstånd — därför ingen "Välj objekt" medan vi väntar på
-          // maskinen. Först när passet går och objektet ändå saknas visas valet.
-          const objText = (isWorking && dagData[idagKey]?.objekt_id)
-            ? (objektLista.find(o => o.id === dagData[idagKey]?.objekt_id)?.namn || dagData[idagKey]?.objekt_id)
-            : (dagData[idagKey]?.objekt_namn || vObj?.namn || null);
-          const behovValjaObjekt = isWorking && !objText;
-          return (
-        <section style={{ marginBottom:12,animation:"fadeUp 0.5s ease 0.05s both" }}>
-          <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+    /* TILLSTÅNDET — inget kort: titel mot tom yta, underrad, maskin och plats
+       som en grå rad. Döljs när passet avslutats (då finns sammanfattningen). */
+    const tillstandSektion = (() => {
+      const typ = idagArb?.dagtyp;
+      const startKort = idagArb?.start_tid?.slice(0,5) || '—';
+      const dagTypVisa: Record<string,string> = {
+        sjuk: 'Sjukdag', vab: 'VAB', semester: 'Semester', atk: 'ATK',
+        utbildning: 'Utbildning pågår', service: 'Service pågår',
+        möte: 'Möte pågår', annat: 'Annat arbete pågår',
+      };
+      const rubrik = !isWorking
+        ? 'Väntar på maskin'
+        : (typ && typ !== 'normal' && dagTypVisa[typ])
+          ? dagTypVisa[typ]
+          : `Pågående sedan ${startKort}`;
+      const under = !isWorking
+        ? 'Startar automatiskt vid inloggning'
+        : (typ && typ !== 'normal')
+          ? `Startad ${(idagArb?.start_tid||'').slice(0,5)}`
+          : 'Avslutas automatiskt vid utloggning från maskinen';
+      // Vilken maskin? Förarens maskin först; saknas den (admin, vikarie) —
+      // maskinen på senaste arbetsdagen. maskinNamnMap bär maskiner.namn
+      // ("Wisent2015"), inte tillverkarkoden. Bara uppgiften, ingen länk.
+      const maskinIdVisa = medarbetare?.maskin_id || historik.find(d => d.maskin_id)?.maskin_id || null;
+      const maskinText = maskinNamn || (maskinIdVisa ? (maskinNamnMap[maskinIdVisa] || maskinIdVisa) : null);
+      const vObj = valtObjektId ? objektLista.find(o=>o.id===valtObjektId) : null;
+      // Objektet FYLLS AV IMPORTEN när första MOM-filen landat. Tomt objekt är
+      // ett övergångstillstånd — "Välj objekt" bara när passet går och det ändå saknas.
+      const objText = (isWorking && idagArb?.objekt_id)
+        ? (objektLista.find(o => o.id === idagArb?.objekt_id)?.namn || idagArb?.objekt_id)
+        : (idagArb?.objekt_namn || vObj?.namn || null);
+      const behovValjaObjekt = isWorking && !objText;
+      return (
+        <section>
+          <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
             {isWorking
-              ? <div style={{ width:10,height:10,borderRadius:"50%",background:"#0a84ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />
-              : <span className="material-symbols-outlined" style={{ fontSize:22,color:"#8e8e93" }}>schedule</span>
+              ? <span className="puls" style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:FARG.gron, flexShrink:0 }} />
+              : <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:FARG.text2 }}>schedule</span>
             }
-            <h1 style={{ margin:0,color:"#fff",...TYPE.h1,...TNUM }}>{rubrik}</h1>
+            <h1 style={{ margin:0, ...TYP.titel, ...TNUM, color:FARG.text }}>{rubrik}</h1>
           </div>
-          <p style={{ margin:"6px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>{under}</p>
-          {/* Maskin · Objekt — en liten grå rad med uppgiften. Ingen pil, ingen länk.
-              Bara när objektet saknas under pågående pass hängs "Välj objekt" på som
-              en tryckbar del av raden (grå + pil — pilen bär, inte färgen). */}
+          <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>{under}</p>
           {(maskinText || objText || behovValjaObjekt) && (
-            <div style={{ display:"flex",alignItems:"center",gap:4,margin:"4px 0 0",minWidth:0 }}>
-              <span style={{ ...TYPE.meta,color:"#8e8e93",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs, minWidth:0 }}>
+              <span style={{ ...TYP.meta, color:FARG.text2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                 {[maskinText, objText].filter(Boolean).join(' · ')}
               </span>
               {behovValjaObjekt && (
-                <button onClick={()=>setVisaObjektVäljare(true)}
-                  style={{ display:"inline-flex",alignItems:"center",gap:2,minHeight:44,padding:0,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",flexShrink:0 }}>
-                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{maskinText ? '· ' : ''}Välj objekt</span>
-                  <span className="material-symbols-outlined" style={{ fontSize:18,color:"#8e8e93" }}>chevron_right</span>
+                <button onClick={()=>setVisaObjektVäljare(true)} style={{ ...KNAPP.tertiar, gap:AVSTAND.xs, flexShrink:0 }}>
+                  {maskinText ? '· ' : ''}Välj objekt
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>chevron_right</span>
                 </button>
               )}
             </div>
           )}
-          {/* Avsluta pass — undantag (MOM avslutar passet av sig självt): liten och grå.
-              "Starta manuellt" ligger längst ner på skärmen bland de andra undantagen. */}
+          {/* Avsluta pass — undantag (MOM avslutar passet självt): tertiär. */}
           {isWorking && (
-            <div style={{ marginTop:8 }}>
+            <div style={{ marginTop:AVSTAND.s }}>
               <button onClick={async ()=>{
                 const nuT = nuKlock();
                 // Verifiera FÖRE lokal state — ett pass som inte avslutades i DB får inte se avslutat ut
-                const res = await uppdateraVerifierat(supabase, "arbetsdag", { slut_tid: nuT + ":00" }, { id: dagData[idagKey]?.id });
-                if (!res.ok) { alert(res.fel); return; }
+                const res = await uppdateraVerifierat(supabase, "arbetsdag", { slut_tid: nuT + ":00" }, { id: idagArb?.id });
+                if (!res.ok) { setBekraftaFel(res.fel); return; } // felet visas i vyn, aldrig window.alert
+                setBekraftaFel(null);
                 setSlut(nuT); setSlutÄndrad(true);
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                 synkaVilobrott(idagKey);
-              }} style={{ display:"inline-flex",alignItems:"center",gap:6,minHeight:44,padding:0,background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>
-                <span className="material-symbols-outlined" style={{ fontSize:18 }}>stop_circle</span>
+              }} style={KNAPP.tertiar}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>stop_circle</span>
                 Avsluta pass
               </button>
             </div>
           )}
+          {bekraftaFel && (
+            <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod }}>{bekraftaFel}</p>
+          )}
         </section>
-          );
-        })()}
+      );
+    })();
 
-        {/* Extra arbete — DEN primära handlingen på morgonen: en riktig knapp med
-            vikt (fyllning, full bredd, 48 px), utan blått — rubriken ska vara
-            skärmens starkaste element och blått är länkfärg i appen. Visas i alla
-            lägen utom när en timer redan pågår eller dagen är bekräftad. Täcker
-            morgon före MOM, under pass och kvällsarbete efter pass (köra hem,
-            hämta reservdelar). */}
-        {!dagData[idagKey]?.bekraftad && pagaendeAktiviteter.length===0 && (
+    /* DAGSSAMMANFATTNINGEN — kortet med det stora talet, villkorade rader och
+       en knapp. Strukturen är oförändrad; värdena kommer ur tokens. */
+    const sammanfattningKort = (() => {
+      if (!visaSammanfattning) return null;
+      const bekräftadTidKort = idagArb?.bekraftad_tid
+        ? new Date(idagArb.bekraftad_tid).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})
+        : '';
+      const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
+      const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
+      const dagTypRubrik: Record<string,string> = { sjuk:'Sjukdag', vab:'VAB' };
+      const typPrefix = idagArb?.dagtyp && idagArb.dagtyp !== 'normal' ? dagTypRubrik[idagArb.dagtyp] : '';
+      const datumRubrik = typPrefix
+        ? `${typPrefix} — ${dagNamnLång} ${idag.getDate()} ${månNamnLång}`
+        : `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
+      const dagObjId = valtObjektId || idagArb?.objekt_id || null;
+      const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || dagObjId) : '';
+      const maskinNamnLång = maskinNamn || maskinNamnMap[medarbetare?.maskin_id] || medarbetare?.maskin_id || '';
+      const helKr  = gsAvtal?.traktamente_hel_kr  ?? 300;
+      const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
+      const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
+      const harKmBlock = harKm && harMaskinPass;
+      const harObjBlock = !!(dagObjNamn || maskinNamnLång) && harMaskinPass;
+      const linjeUnder = (aktiv: boolean): CSSProperties => aktiv
+        ? { paddingBottom:AVSTAND.s, borderBottom:`1px solid ${FARG.linje}`, marginBottom:AVSTAND.s }
+        : {};
+      const sammanRad = (label: string, value: string, onClick?: () => void) => (
+        <div key={label} onClick={onClick}
+          style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:onClick?TRAFFYTA.min:undefined, padding:`${AVSTAND.s}px 0`, cursor:onClick?"pointer":"default" }}>
+          <span style={{ ...TYP.meta, color:FARG.text2 }}>{label}</span>
+          <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs }}>
+            <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{value}</span>
+            {onClick && <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3 }}>chevron_right</span>}
+          </div>
+        </div>
+      );
+      const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
+      const öppnaKm    = () => { setTMK(kmM?.km||0); setTKK(kmK?.km||0); setVisaKmSheet(true); };
+      const talBlock = (under: ReactNode, fotnot: ReactNode, onClick?: () => void, linje?: boolean) => (
+        <div onClick={onClick} style={{ textAlign:"center", padding:`${AVSTAND.l}px 0`, cursor:onClick?"pointer":"default", ...linjeUnder(!!linje) }}>
+          <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>Maskinpass</p>
+          <p style={{ margin:0, ...TYP.tal, color:FARG.text }}>{fmt(Math.round(arbMinVisad))}</p>
+          <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>{under}</p>
+          <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text3 }}>{fotnot}</p>
+          {(()=>{
+            const exMinIdag = extraTidData.filter(e => e.datum === idagKey).reduce((a,e) => a + (e.minuter||0), 0);
+            return exMinIdag > 0 ? (
+              <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>+ {fmt(exMinIdag)} extra arbete · totalt {fmt(arbMin + exMinIdag)} idag</p>
+            ) : null;
+          })()}
+        </div>
+      );
+
+      if (dagPågår) {
+        return (
+          <section>
+            <div style={KORT}>
+              <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>
+              <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
+                <span className="puls" style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:FARG.gron, display:"inline-block" }} />
+                <span style={{ ...TYP.meta, color:FARG.gron }}>Pågår</span>
+              </div>
+              {talBlock(
+                <>{start} → pågår{rast ? ` · rast ${rast} min` : ''}</>,
+                'Hittills — uppdateras när nya maskinfiler kommer',
+              )}
+              <div style={{ display:"flex", justifyContent:"center" }}>
+                <button onClick={()=>setBekraftaÄndå(true)} style={KNAPP.tertiar}>
+                  Dagen är inte avslutad än — bekräfta ändå
+                </button>
+              </div>
+            </div>
+          </section>
+        );
+      }
+      return (
+        <section>
+          <div style={KORT}>
+            <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>
+            {redanBekräftad && (
+              <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.gron }}>check_circle</span>
+                <span style={{ ...TYP.meta, ...TNUM, color:FARG.gron }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
+              </div>
+            )}
+            {ändradSedan && (
+              <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.orange }}>edit</span>
+                <span style={{ ...TYP.meta, color:FARG.orange }}>Ändrad — ej bekräftad</span>
+              </div>
+            )}
+            {/* Hjälte: Maskinpass — hela blocket öppnar Ändra tider. Siffran är
+                passets tid (start→slut−rast). Extra tid är egna poster; dagens
+                TOTAL visas som dämpad rad när extra finns. */}
+            {harMaskinPass && talBlock(
+              <>{start} → {slut} · rast {rast} min <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, verticalAlign:"middle" }}>chevron_right</span></>,
+              'Rast = tid markerad som Meal break i maskinen',
+              öppnaTider,
+              harObjBlock || harKmBlock,
+            )}
+            {harObjBlock&&(
+              <div style={linjeUnder(harKmBlock)}>
+                {maskinNamnLång && sammanRad("Maskin", maskinNamnLång)}
+                {(()=>{
+                  // Flera objekt per dag (Hössjömåla + Flytt etc.) — en rad var.
+                  const objLista = idagArb?.objekt_lista || [];
+                  if (objLista.length > 1) {
+                    return objLista.map((o:any, i:number) => {
+                      const tidStr = o.start_tid && o.slut_tid
+                        ? ` (${o.start_tid.slice(0,5)}–${o.slut_tid.slice(0,5)})`
+                        : o.arbetad_min ? ` (${fmt(o.arbetad_min)})` : '';
+                      return (
+                        <div key={o.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, padding:`${AVSTAND.s}px 0` }}>
+                          <span style={{ ...TYP.meta, color:FARG.text2 }}>{i === 0 ? "Objekt" : ""}</span>
+                          <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, textAlign:"right" as const }}>
+                            {o.objekt_namn || o.objekt_id}
+                            <span style={{ ...TYP.meta, ...TNUM, color:FARG.text2 }}>{tidStr}</span>
+                          </span>
+                        </div>
+                      );
+                    });
+                  }
+                  return dagObjNamn ? sammanRad("Objekt", dagObjNamn) : null;
+                })()}
+              </div>
+            )}
+            {/* Körning — bara för maskinpass. Talet räknar upp när km fylls i. */}
+            {harMaskinPass && (
+              <div style={linjeUnder(true)}>
+                {sammanRad("Körning", `${Math.round(totKmVisad)} km`, öppnaKm)}
+                {milPåbörjade > 0 && sammanRad("Reseersättning", `${milPåbörjade} påbörjade mil`)}
+              </div>
+            )}
+            {/* Extra tid-rader för idag — klickbara för att redigera typ/objekt/deb/kommentar. */}
+            {(()=>{
+              const extraIdag = (extraTidData || [])
+                .filter((e: any) => e.datum === idagKey && e.slut_tid)
+                .sort((a: any, b: any) => (a.start_tid||'').localeCompare(b.start_tid||''));
+              if (extraIdag.length === 0) return null;
+              const arbSt = idagArb?.start_tid;
+              const arbEn = idagArb?.slut_tid;
+              const prefixFör = (e: any): string => {
+                if (arbSt && e.slut_tid && e.slut_tid <= arbSt) return "Morgon";
+                if (arbEn && e.start_tid && e.start_tid >= arbEn) return "Kväll";
+                return "Extra";
+              };
+              return (
+                <div style={linjeUnder(true)}>
+                  {extraIdag.map((e: any) => {
+                    const typLabel = e.aktivitet_typ ? aktLabel(e.aktivitet_typ) : '';
+                    const tidStr = `${(e.start_tid||'').slice(0,5)}–${(e.slut_tid||'').slice(0,5)}`;
+                    const värde = `${typLabel?typLabel+' ':''}${tidStr} (${fmt(e.minuter||0)})`;
+                    return (
+                      <div key={e.id} onClick={()=>{
+                        setKvAvTyp(e.aktivitet_typ || null);
+                        setKvAvObj(e.objekt_id ? objektLista.find(o => o.id === e.objekt_id) || null : null);
+                        setKvAvDeb(!!e.debiterbar);
+                        setKvAvBesk(e.kommentar || "");
+                        setEfterStoppSheet(e);
+                      }} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
+                        <span style={{ ...TYP.meta, color:FARG.text2, flexShrink:0 }}>{prefixFör(e)}</span>
+                        <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, minWidth:0 }}>
+                          <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{värde}</span>
+                          <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, flexShrink:0 }}>chevron_right</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            {harMaskinPass && (
+              <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
+                <span style={{ ...TYP.meta, color:FARG.text2 }}>Traktamente</span>
+                <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs }}>
+                  <span style={{ ...TYP.listtitel, color:FARG.text }}>{trak?.summa ? "Heldag" : "Inget"}</span>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, transform:trakÖppen?"rotate(90deg)":"none", transition:`transform ${RORELSE.tryck}ms ${RORELSE.kurva}` }}>chevron_right</span>
+                </div>
+              </div>
+            )}
+            {harMaskinPass && trakÖppen&&(
+              <div className="tona-in" style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:AVSTAND.s, marginTop:AVSTAND.s }}>
+                {/* Mängder, inte kronor: Inget / Halv / Hel. Beloppet äger Fortnox (#377). */}
+                {[{k:'inget',l:'Inget',v:null},{k:'halv',l:'Halv',v:{summa:halvKr}},{k:'hel',l:'Hel',v:{summa:helKr}}].map(opt=>{
+                  const valt = opt.v === null ? !trak : (trak?.summa === (opt.v as any)?.summa);
+                  return (
+                    <button key={opt.k} onClick={async ()=>{
+                      setTrakÖppen(false);
+                      if (idagArb?.id) {
+                        const bryterBekräftelse = !!idagArb?.bekraftad;
+                        const payload: any = { traktamente: !!opt.v };
+                        if (bryterBekräftelse) payload.bekraftad = false;
+                        const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: idagArb.id });
+                        if (!res.ok) { setBekraftaFel(res.fel); return; } // trak-valet rörs inte — DB och UI ska aldrig glida isär
+                        setBekraftaFel(null);
+                        if (bryterBekräftelse) setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: false, traktamente: !!opt.v } }));
+                        else setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], traktamente: !!opt.v } }));
+                      }
+                      setTrak(opt.v as any); setTrakÄndrad(true);
+                    }}
+                      // Valt = fyllning + fet text + bock. Färgen bär aldrig ensam.
+                      style={{ ...KNAPP.sekundar, padding:0, background:valt?FARG.fyllning:"transparent", color:valt?FARG.text:FARG.text2, ...TYP.meta, fontWeight:valt?VIKT.halvfet:VIKT.normal, gap:AVSTAND.xs }}>
+                      {valt && <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>check</span>}
+                      {opt.l}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          {/* Brandrisk-OB — frågan VID BEKRÄFTELSEN. Villkor: vardag + start < 05:30
+              + obesvarad. Blockerar ALDRIG bekräftelsen — obesvarad förblir null. */}
+          {(() => {
+            const dag = { datum: idagKey, start_tid: idagArb?.start_tid, brandrisk_beordrad: idagArb?.brandrisk_beordrad ?? null };
+            const fråga = skaFragaBrandrisk(dag);
+            const obMin = obMinuter(dag);
+            if (!fråga && obMin <= 0) return null;
+            const svara = async (val: boolean) => {
+              if (!idagArb?.id) return;
+              const res = await uppdateraVerifierat(supabase, 'arbetsdag', { brandrisk_beordrad: val }, { id: idagArb.id });
+              if (!res.ok) { setBekraftaFel(res.fel); return; }
+              setBekraftaFel(null);
+              setDagData(d => ({ ...d, [idagKey]: { ...(d[idagKey]||{}), brandrisk_beordrad: val } }));
+              if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+            };
+            if (fråga) return (
+              <div style={{ ...KORT, marginTop:AVSTAND.m }}>
+                <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:FARG.orange }}>local_fire_department</span>
+                  <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>Tidig start · {(idagArb?.start_tid||'').slice(0,5)}</span>
+                </div>
+                <p style={{ margin:`${AVSTAND.s}px 0 ${AVSTAND.m}px`, ...TYP.text, color:FARG.text }}>Började du tidigt på grund av brandrisk?</p>
+                <div style={{ display:"flex", gap:AVSTAND.s }}>
+                  <button onClick={()=>svara(true)} style={KNAPP.sekundar}>Ja</button>
+                  <button onClick={()=>svara(false)} style={KNAPP.sekundar}>Nej</button>
+                </div>
+              </div>
+            );
+            return (
+              <div style={{ marginTop:AVSTAND.m, display:"flex", alignItems:"center", gap:AVSTAND.s, color:FARG.orange }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>local_fire_department</span>
+                <span style={{ ...TYP.meta, ...TNUM }}>Brandrisk · {fmtOb(obMin)} OB</span>
+              </div>
+            );
+          })()}
+          {/* Skärmens ENDA primära: Bekräfta dagen. Bekräftad dag → sekundär "Ändra rapport". */}
+          {harMaskinPass && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
+            <button onClick={()=>setVisaTiderSheet(false)} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.l }}>
+              Ändra rapport
+            </button>
+          ) : (
+            <button
+              onClick={async ()=>{
+                const nuT = nuKlock();
+                const nuTS = nuT + ":00";
+                // Stoppa eventuella pågående extra-tid-aktiviteter.
+                // Går stängningen inte igenom avbryts bekräftelsen — annars
+                // bekräftas dagen med en timer som fortfarande är öppen i DB.
+                for (const p of pagaendeAktiviteter) {
+                  const min = minutDiff(p.start_tid, nuTS);
+                  // < 1 min = feltryck: radera i stället för att spara 0-min-post
+                  const res = min < 1
+                    ? await raderaVerifierat(supabase, "extra_tid", { id: p.id })
+                    : await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
+                  if (!res.ok) { setBekraftaFel(res.fel); return; } // felet visas under knappen
+                }
+                if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
+
+                // För-check: kör analys på [idag-7, idag] och hämta obesvarade brott.
+                // Om någon finns → starta orsaks-flödet och vänta. Annars → bekräfta direkt.
+                if (medarbetare?.id && trosklar) {
+                  const fromDt = new Date(idagKey); fromDt.setDate(fromDt.getDate() - 7);
+                  const fromIso = fromDt.toISOString().slice(0, 10);
+                  const toIso = idagKey;
+                  const dagar = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
+                  try {
+                    await analyseraOchSpara(medarbetare.id, dagar, trosklar, fromIso, toIso);
+                    const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
+                    setAktuellaVilobrott(nyaBrott);
+                    const obesvarade = nyaBrott
+                      .filter(b => !b.besvarat_av_forare)
+                      .filter(b => b.datum >= fromIso && b.datum <= toIso);
+                    if (obesvarade.length > 0) {
+                      // Frys kön — bygg INTE om från re-fetchad aktuellaVilobrott under flödet
+                      setVilobrottKö(obesvarade);
+                      setVilobrottIdx(0);
+                      setVilobrottOrsakVal(null);
+                      setVilobrottOrsakFritext("");
+                      setSteg("vilobrottOrsak");
+                      return;
+                    }
+                  } catch (err) {
+                    // För-check fel ska inte blockera arbetsflödet — bekräfta ändå.
+                    console.error('Vilo-för-check misslyckades:', err);
+                  }
+                }
+
+                // Inga obesvarade brott — bekräfta direkt
+                await bekraftaDagen();
+              }}
+              style={{ ...KNAPP.primar, marginTop:AVSTAND.l }}>
+              {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
+            </button>
+          ))}
+          {/* Guard-felmeddelande — visas om bekraftaDagen blockerade pga tomma tider */}
+          {bekraftaFel && (
+            <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod, textAlign:"center" }}>{bekraftaFel}</p>
+          )}
+        </section>
+      );
+    })();
+
+    return (
+    <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
+      <style>{css}{designCss}</style>{timerBanner}
+
+      {/* Rubrikraden */}
+      <header style={{ position:"fixed", top:0, width:"100%", height:DAG_HUVUD, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)", zIndex:50, display:"flex", justifyContent:"center", alignItems:"center", padding:`0 ${AVSTAND.sidmarginal}px`, boxSizing:"border-box" }}>
+        <span style={{ ...TYP.listtitel, color:FARG.text }}>Dag</span>
+      </header>
+
+      <main style={{ paddingTop:(aktivTimer ? DAG_HUVUD + BANNER : DAG_HUVUD) + AVSTAND.xxl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
+
+        {/* Påminnelse obekräftad dag */}
+        {igårObekräftad && varningsKort('igar', 'warning', FARG.orange, 'Du glömde bekräfta gårdagen', undefined, ()=>öppnaRedigera(igårKey))}
+
+        {/* Vila-varningar */}
+        {vilaVarningar.map((v,i)=> varningsKort(`vila-${i}`, 'warning', v.typ==='röd'?FARG.rod:FARG.orange, v.text))}
+
+        {/* Timer-varningar: 3h-påminnelse (orange) och 12h-varning (röd) */}
+        {pagaendeAktiviteter.map(p => {
+          const sek = sekDiff(p.start_tid);
+          if (sek > 12*3600) return varningsKort(`varn-${p.id}`, 'warning', FARG.rod, 'Timer igång sedan igår', `Startad ${(p.start_tid||'').slice(0,5)} — glömd att stoppa?`);
+          if (sek > 3*3600) return varningsKort(`pam-${p.id}`, 'schedule', FARG.orange, `Timer igång sedan ${(p.start_tid||'').slice(0,5)} — glömt stoppa?`);
+          return null;
+        })}
+
+        {/* Hälsning — liten, sekundär, på datumets rad. Utan namn.
+            Det största på skärmen är TILLSTÅNDET, inte hälsningen. */}
+        <p style={{ margin:`0 0 ${AVSTAND.l}px`, ...TYP.meta, color:FARG.text2 }}>{hälsning()} · {datumLångt}</p>
+
+        {/* DAGENS TILLSTÅND — väntar → pågår → avslutad → bekräftad tonar över
+            på samma plats. Ett byte av nyckeln tonar ut det gamla, reserverar
+            höjden och tonar in det nya; inget under flyttar sig. */}
+        <Tillstand nyckel={tillstandNyckel}>
+          {visaTillstand && tillstandSektion}
+          {sammanfattningKort}
+        </Tillstand>
+
+        {/* Extra arbete — sekundär: en handling man oftast INTE trycker på.
+            Skärmens primära är Bekräfta dagen (kvällen); morgonen har ingen.
+            Visas i alla lägen utom när en timer pågår eller dagen är bekräftad. */}
+        {!idagArb?.bekraftad && pagaendeAktiviteter.length===0 && (
           <button onClick={async ()=>{
             const startTid = nuKlock();
             const { data, error } = await supabase.from("extra_tid").insert({
@@ -2216,15 +2557,15 @@ export default function Arbetsrapport() {
             setExtraTidData(d => [data, ...d]);
             if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
           }}
-            style={{ width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,minHeight:48,margin:"0 0 8px",padding:"0 16px",background:"rgba(255,255,255,0.10)",border:"none",borderRadius:12,color:"#fff",...TYPE.bodyList,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-            <span className="material-symbols-outlined" style={{ fontSize:20 }}>add</span>
+            style={{ ...KNAPP.sekundar, marginTop:AVSTAND.xl }}>
+            <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
             Extra arbete
           </button>
         )}
 
-        {/* "Samma som igår" — visas när dagen ännu inte startat och igår var bekräftad
-            med data värd att kopiera (objekt, km eller traktamente). */}
-        {!isWorking && !dagData[idagKey]?.bekraftad && (() => {
+        {/* "Samma som igår" — när dagen inte startat och igår var bekräftad med
+            data värd att kopiera (objekt, km eller traktamente). En rad, inget kort. */}
+        {!isWorking && !idagArb?.bekraftad && (() => {
           const igår = historik.find(d => d.datum === igårKey);
           if (!igår?.bekraftad) return null;
           const harObjekt = !!igår.objekt_id;
@@ -2237,10 +2578,8 @@ export default function Arbetsrapport() {
           if (igårObjNamn) sammanfattning.push(igårObjNamn);
           if (harKm) sammanfattning.push(`${igårKmTot} km`);
           if (harTrak) sammanfattning.push('traktamente');
-          // Synlig som förr (användningen går inte att mäta — den skriver bara lokal
-          // state), men utan ram: en rad, inte ett kort.
           return (
-            <section style={{ marginBottom:20 }}>
+            <section style={{ marginTop:AVSTAND.m }}>
               <button onClick={() => {
                 if (igår.objekt_id) setValtObjektId(igår.objekt_id);
                 if (igår.km_morgon != null) setKmM({ km: igår.km_morgon });
@@ -2249,359 +2588,28 @@ export default function Arbetsrapport() {
                 setIgårKopierat(true);
                 setTimeout(() => setIgårKopierat(false), 2000);
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
-              }} style={{
-                width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between",
-                minHeight:44, padding:"8px 0", background:"none", border:"none",
-                cursor:"pointer", fontFamily:"inherit", textAlign:"left",
-              }}>
+              }} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", gap:AVSTAND.m, textAlign:"left" }}>
                 <div style={{ minWidth:0, flex:1 }}>
-                  <p style={{ margin:0, ...TYPE.bodyList, color:"#fff" }}>
+                  <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>
                     {igårKopierat ? "Använt — redo att bekräfta" : "Samma som igår"}
                   </p>
                   {!igårKopierat && (
-                    <p style={{ margin:"3px 0 0", fontSize:13, color:"#8e8e93", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sammanfattning.join(' · ')}</p>
+                    <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sammanfattning.join(' · ')}</p>
                   )}
                 </div>
-                <span className="material-symbols-outlined" style={{ fontSize:22, color: igårKopierat ? "#30d158" : "#8e8e93", flexShrink:0, marginLeft:12 }}>{igårKopierat ? "check_circle" : "history"}</span>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:igårKopierat?FARG.gron:FARG.text2, flexShrink:0 }}>{igårKopierat ? "check_circle" : "history"}</span>
               </button>
             </section>
           );
         })()}
 
-        {/* Dagssammanfattning + Bekräfta — när maskin-passet är avslutat,
-            eller när det bara finns färdiga extra-aktiviteter för idag. */}
-        {(()=>{
-          const idagArb: any = dagData[idagKey];
-          const extraFärdiga = (extraTidData || []).filter((e: any) => e.datum === idagKey && e.slut_tid);
-          const harMaskinPass = !!idagArb?.slut_tid;
-          if (!harMaskinPass && extraFärdiga.length === 0) return null;
-          const redanBekräftad = !!idagArb?.bekraftad;
-          const varBekräftad   = !!idagArb?.bekraftad_tid;
-          const ändradSedan    = varBekräftad && !redanBekräftad;
-          const bekräftadTidKort = idagArb?.bekraftad_tid
-            ? new Date(idagArb.bekraftad_tid).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})
-            : '';
-          const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
-          const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
-          const dagTypRubrik: Record<string,string> = { sjuk:'Sjukdag', vab:'VAB' };
-          const typPrefix = idagArb?.dagtyp && idagArb.dagtyp !== 'normal' ? dagTypRubrik[idagArb.dagtyp] : '';
-          const datumRubrik = typPrefix
-            ? `${typPrefix} — ${dagNamnLång} ${idag.getDate()} ${månNamnLång}`
-            : `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
-          const dagObjId = valtObjektId || idagArb?.objekt_id || null;
-          const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || dagObjId) : '';
-          const maskinNamnLång = maskinNamn || maskinNamnMap[medarbetare?.maskin_id] || medarbetare?.maskin_id || '';
-          const helKr  = gsAvtal?.traktamente_hel_kr  ?? 300;
-          const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
-          const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
-          const harKmBlock = harKm && harMaskinPass;
-          const harObjBlock = !!(dagObjNamn || maskinNamnLång) && harMaskinPass;
-          const sammanRad = (label: string, value: string, onClick?: () => void) => (
-            <div key={label} onClick={onClick}
-              style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
-              <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>{label}</span>
-              <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-                <span style={{ color:"#fff",...TYPE.bodyList,...TNUM }}>{value}</span>
-                {onClick && <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)" }}>chevron_right</span>}
-              </div>
-            </div>
-          );
-          const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
-          const öppnaKm    = () => { setTMK(kmM?.km||0); setTKK(kmK?.km||0); setVisaKmSheet(true); };
-          // PÅGÅR-LÄGE: timvisa MOM-filer sätter slut_tid redan på morgonen
-          // och skjuter den framåt varje timme — "slut_tid finns" betyder inte
-          // längre "dagen är slut". Tills stall-detektionen slagit till visas
-          // dagen som löpande utan bekräfta-knapp; länken låter föraren
-          // bekräfta ändå så ingen låses ute.
-          const dagPågår = harMaskinPass && !redanBekräftad && !bekraftaÄndå
-            && !arDagAvslutad(idagKey, idagArb?.slut_tid);
-          if (dagPågår) {
-            return (
-              <section style={{ marginBottom:32 }}>
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                  <p style={{ margin:"0 0 6px",...TYPE.body,color:"#fff" }}>{datumRubrik}</p>
-                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
-                    <span style={{ width:8,height:8,borderRadius:4,background:"#30d158",display:"inline-block" }} />
-                    <span style={{ ...TYPE.meta,color:"#30d158" }}>Pågår</span>
-                  </div>
-                  <div style={{ textAlign:"center",padding:"14px 0 16px" }}>
-                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Maskinpass</p>
-                    <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(arbMin)}</p>
-                    <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
-                      {start} → pågår{rast ? ` · rast ${rast} min` : ''}
-                    </p>
-                    <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Hittills — uppdateras när nya maskinfiler kommer</p>
-                  </div>
-                  <p onClick={()=>setBekraftaÄndå(true)}
-                     style={{ margin:"4px 0 0",textAlign:"center",...TYPE.meta,color:"#8e8e93",textDecoration:"underline",cursor:"pointer" }}>
-                    Dagen är inte avslutad än — bekräfta ändå
-                  </p>
-                </div>
-              </section>
-            );
-          }
-          return (
-            <section style={{ marginBottom:32 }}>
-              <div style={{ background:"#1c1c1e",borderRadius:12,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <p style={{ margin:"0 0 6px",...TYPE.body,color:"#fff" }}>{datumRubrik}</p>
-                {redanBekräftad && (
-                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check_circle</span>
-                    <span style={{ ...TYPE.meta,color:"#30d158",...TNUM }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
-                  </div>
-                )}
-                {ändradSedan && (
-                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:18,color:"#ff9f0a" }}>edit</span>
-                    <span style={{ ...TYPE.meta,color:"#ff9f0a" }}>Ändrad — ej bekräftad</span>
-                  </div>
-                )}
-                {!redanBekräftad && !ändradSedan && <div style={{ height:6 }} />}
-                {/* Hjälte: Total arbetstid — hela blocket klickbart, öppnar Ändra tider
-                    (start/slut/rast, samma sheet som Arbetstid/Rast-raderna öppnade). */}
-                {harMaskinPass && (
-                  <div onClick={öppnaTider} style={{ textAlign:"center",padding:"14px 0 16px",cursor:"pointer",borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
-                    {/* "Maskinpass", inte "Total arbetstid" — siffran är passets tid
-                        (start→slut−rast, redigerbar här). Extra tid är egna poster;
-                        dagens TOTAL visas som dämpad rad nedan när extra finns. */}
-                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Maskinpass</p>
-                    <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(arbMin)}</p>
-                    <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
-                      {start} → {slut} · rast {rast} min
-                      <span className="material-symbols-outlined" style={{ fontSize:14,color:"rgba(255,255,255,0.25)",verticalAlign:"-2px",marginLeft:2 }}>chevron_right</span>
-                    </p>
-                    <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Rast = tid markerad som Meal break i maskinen</p>
-                    {(()=>{
-                      const exMinIdag = extraTidData.filter(e => e.datum === idagKey).reduce((a,e) => a + (e.minuter||0), 0);
-                      return exMinIdag > 0 ? (
-                        <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#8e8e93",...TNUM }}>+ {fmt(exMinIdag)} extra arbete · totalt {fmt(arbMin + exMinIdag)} idag</p>
-                      ) : null;
-                    })()}
-                  </div>
-                )}
-                {harObjBlock&&(
-                  <div style={{ paddingBottom:10,borderBottom:harKmBlock?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:harKmBlock?10:0 }}>
-                    {maskinNamnLång && sammanRad("Maskin", maskinNamnLång)}
-                    {(()=>{
-                      // Flera objekt per dag (Hössjömåla + Flytt etc.) — visa varje
-                      // som egen rad. Faller tillbaka på primärt objekt om listan saknas.
-                      const objLista = idagArb?.objekt_lista || [];
-                      if (objLista.length > 1) {
-                        return objLista.map((o:any, i:number) => {
-                          const tidStr = o.start_tid && o.slut_tid
-                            ? ` (${o.start_tid.slice(0,5)}–${o.slut_tid.slice(0,5)})`
-                            : o.arbetad_min ? ` (${fmt(o.arbetad_min)})` : '';
-                          return (
-                            <div key={o.id} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center" }}>
-                              <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>{i === 0 ? "Objekt" : ""}</span>
-                              <span style={{ color:"#fff",...TYPE.bodyList,textAlign:"right" as const,...TNUM }}>
-                                {o.objekt_namn || o.objekt_id}
-                                <span style={{ color:"rgba(255,255,255,0.5)",fontSize:13,...TNUM }}>{tidStr}</span>
-                              </span>
-                            </div>
-                          );
-                        });
-                      }
-                      return dagObjNamn ? sammanRad("Objekt", dagObjNamn) : null;
-                    })()}
-                  </div>
-                )}
-                {/* Körning — bara för maskinpass */}
-                {harMaskinPass && (
-                  <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
-                    {sammanRad("Körning", `${totKm} km`, öppnaKm)}
-                    {milPåbörjade > 0 && sammanRad("Reseersättning", `${milPåbörjade} påbörjade mil`)}
-                  </div>
-                )}
-                {/* Extra tid-rader för idag — klickbara för att redigera typ/objekt/deb/kommentar.
-                    Prefix Morgon/Kväll/Extra avgörs av tid relative till arbetsdag. */}
-                {(()=>{
-                  const extraIdag = (extraTidData || [])
-                    .filter((e: any) => e.datum === idagKey && e.slut_tid)
-                    .sort((a: any, b: any) => (a.start_tid||'').localeCompare(b.start_tid||''));
-                  if (extraIdag.length === 0) return null;
-                  const arbSt = dagData[idagKey]?.start_tid;
-                  const arbEn = dagData[idagKey]?.slut_tid;
-                  const prefixFör = (e: any): string => {
-                    if (arbSt && e.slut_tid && e.slut_tid <= arbSt) return "Morgon";
-                    if (arbEn && e.start_tid && e.start_tid >= arbEn) return "Kväll";
-                    return "Extra";
-                  };
-                  return (
-                    <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10,display:"flex",flexDirection:"column",gap:6 }}>
-                      {extraIdag.map((e: any) => {
-                        const typLabel = e.aktivitet_typ ? aktLabel(e.aktivitet_typ) : '';
-                        const tidStr = `${(e.start_tid||'').slice(0,5)}–${(e.slut_tid||'').slice(0,5)}`;
-                        const värde = `${typLabel?typLabel+' ':''}${tidStr} (${fmt(e.minuter||0)})`;
-                        return (
-                          <div key={e.id} onClick={()=>{
-                            setKvAvTyp(e.aktivitet_typ || null);
-                            setKvAvObj(e.objekt_id ? objektLista.find(o => o.id === e.objekt_id) || null : null);
-                            setKvAvDeb(!!e.debiterbar);
-                            setKvAvBesk(e.kommentar || "");
-                            setEfterStoppSheet(e);
-                          }} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:"pointer",gap:8 }}>
-                            <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta,flexShrink:0 }}>{prefixFör(e)}</span>
-                            <div style={{ display:"flex",alignItems:"center",gap:4,minWidth:0 }}>
-                              <span style={{ color:"#fff",...TYPE.bodyList,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...TNUM }}>{värde}</span>
-                              <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)",flexShrink:0 }}>chevron_right</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-                {harMaskinPass && (
-                <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
-                  <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>Traktamente</span>
-                  <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-                    <span style={{ color:"#fff",...TYPE.bodyList }}>{trak?.summa ? "Heldag" : "Inget"}</span>
-                    <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:trakÖppen?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
-                  </div>
-                </div>
-                )}
-                {harMaskinPass && trakÖppen&&(
-                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10 }}>
-                    {/* Mängder, inte kronor: Inget / Halv / Hel. Beloppet äger Fortnox (samma princip som #377). */}
-                    {[{k:'inget',l:'Inget',v:null},{k:'halv',l:'Halv',v:{summa:halvKr}},{k:'hel',l:'Hel',v:{summa:helKr}}].map(opt=>{
-                      const valt = opt.v === null ? !trak : (trak?.summa === (opt.v as any)?.summa);
-                      return (
-                        <button key={opt.k} onClick={async ()=>{
-                          setTrakÖppen(false);
-                          if (dagData[idagKey]?.id) {
-                            const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
-                            const payload: any = { traktamente: !!opt.v };
-                            if (bryterBekräftelse) payload.bekraftad = false;
-                            const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: dagData[idagKey].id });
-                            if (!res.ok) { alert(res.fel); return; } // trak-valet rörs inte — DB och UI ska aldrig glida isär
-                            if (bryterBekräftelse) setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: false, traktamente: !!opt.v } }));
-                            else setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], traktamente: !!opt.v } }));
-                          }
-                          setTrak(opt.v as any); setTrakÄndrad(true);
-                        }}
-                          style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 6px",color:valt?"#0a84ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>{opt.l}</button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-              {/* Brandrisk-OB — frågan VID BEKRÄFTELSEN (där föraren godkänner sin dag).
-                  Villkor: vardag + start < 05:30 + obesvarad. Blockerar ALDRIG bekräftelsen
-                  — trycker han Bekräfta utan att svara förblir det null. Svarar han ja visas
-                  utfallet ("Brandrisk · X tim OB") i samma ögonblick. */}
-              {(() => {
-                const dag = { datum: idagKey, start_tid: idagArb?.start_tid, brandrisk_beordrad: idagArb?.brandrisk_beordrad ?? null };
-                const fråga = skaFragaBrandrisk(dag);
-                const obMin = obMinuter(dag);
-                if (!fråga && obMin <= 0) return null;
-                const svara = async (val: boolean) => {
-                  if (!idagArb?.id) return;
-                  const res = await uppdateraVerifierat(supabase, 'arbetsdag', { brandrisk_beordrad: val }, { id: idagArb.id });
-                  if (!res.ok) { alert(res.fel); return; }
-                  setDagData(d => ({ ...d, [idagKey]: { ...(d[idagKey]||{}), brandrisk_beordrad: val } }));
-                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
-                };
-                if (fråga) return (
-                  <div style={{ marginTop:16,padding:"14px 16px",border:"1px solid rgba(255,214,10,0.35)",borderRadius:12 }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:8 }}>
-                      <span className="material-symbols-outlined" style={{ fontSize:20,color:"#ffd60a" }}>local_fire_department</span>
-                      <span style={{ ...TYPE.meta,color:"#fff",fontWeight:600 }}>Tidig start · {(idagArb?.start_tid||'').slice(0,5)}</span>
-                    </div>
-                    <p style={{ margin:"0 0 12px",fontSize:15,color:"#fff" }}>Började du tidigt på grund av brandrisk?</p>
-                    <div style={{ display:"flex",gap:10 }}>
-                      <button onClick={()=>svara(true)} style={{ flex:1,padding:12,background:C.orange,color:"#fff",border:"none",borderRadius:10,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>Ja</button>
-                      <button onClick={()=>svara(false)} style={{ flex:1,padding:12,background:"rgba(255,255,255,0.08)",color:"#fff",border:"none",borderRadius:10,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Nej</button>
-                    </div>
-                  </div>
-                );
-                return (
-                  <div style={{ marginTop:16,display:"flex",alignItems:"center",gap:8,color:"#ffd60a",fontSize:14 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:18 }}>local_fire_department</span>
-                    <span style={TNUM}>Brandrisk · {fmtOb(obMin)} OB</span>
-                  </div>
-                );
-              })()}
-              {/* Primärknapp: Bekräfta / Bekräfta igen / Ändra rapport — bara för maskinpass */}
-              {harMaskinPass && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
-                <button onClick={()=>setVisaTiderSheet(false)}
-                  style={{ width:"100%",marginTop:16,padding:"18px",background:"#2c2c2e",color:"#fff",border:"none",borderRadius:12,fontSize:16,fontWeight:600,cursor:"default",fontFamily:"inherit" }}>
-                  Ändra rapport
-                </button>
-              ) : (
-                <button
-                  onClick={async ()=>{
-                    const nuT = nuKlock();
-                    const nuTS = nuT + ":00";
-                    // Stoppa eventuella pågående extra-tid-aktiviteter.
-                    // Går stängningen inte igenom avbryts bekräftelsen — annars
-                    // bekräftas dagen med en timer som fortfarande är öppen i DB.
-                    for (const p of pagaendeAktiviteter) {
-                      const min = minutDiff(p.start_tid, nuTS);
-                      // < 1 min = feltryck: radera i stället för att spara 0-min-post
-                      const res = min < 1
-                        ? await raderaVerifierat(supabase, "extra_tid", { id: p.id })
-                        : await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
-                      if (!res.ok) { alert(res.fel); return; }
-                    }
-                    if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
-
-                    // För-check: kör analys på [idag-7, idag] och hämta obesvarade brott.
-                    // Om någon finns → starta orsaks-flödet och vänta. Annars → bekräfta direkt.
-                    if (medarbetare?.id && trosklar) {
-                      const fromDt = new Date(idagKey); fromDt.setDate(fromDt.getDate() - 7);
-                      const fromIso = fromDt.toISOString().slice(0, 10);
-                      const toIso = idagKey;
-                      const dagar = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
-                      try {
-                        await analyseraOchSpara(medarbetare.id, dagar, trosklar, fromIso, toIso);
-                        const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
-                        setAktuellaVilobrott(nyaBrott);
-                        const obesvarade = nyaBrott
-                          .filter(b => !b.besvarat_av_forare)
-                          .filter(b => b.datum >= fromIso && b.datum <= toIso);
-                        if (obesvarade.length > 0) {
-                          // Frys kön — bygg INTE om från re-fetchad aktuellaVilobrott under flödet
-                          setVilobrottKö(obesvarade);
-                          setVilobrottIdx(0);
-                          setVilobrottOrsakVal(null);
-                          setVilobrottOrsakFritext("");
-                          setSteg("vilobrottOrsak");
-                          return;
-                        }
-                      } catch (err) {
-                        // För-check fel ska inte blockera arbetsflödet — bekräfta ändå.
-                        // Vilo-data uppdateras vid nästa render.
-                        console.error('Vilo-för-check misslyckades:', err);
-                      }
-                    }
-
-                    // Inga obesvarade brott — bekräfta direkt
-                    await bekraftaDagen();
-                  }}
-                  style={{ width:"100%",marginTop:16,padding:"20px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-                  {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
-                </button>
-              ))}
-              {/* Guard-felmeddelande — visas om bekraftaDagen blockerade pga tomma tider */}
-              {bekraftaFel && (
-                <p style={{ margin:"10px 0 0",...TYPE.meta,color:"#ff453a",textAlign:"center" }}>{bekraftaFel}</p>
-              )}
-              {/* "+ Starta extra tid" lever nu högst upp i dag-vyn som enda ingång */}
-            </section>
-          );
-        })()}
-
-        {/* Bottom sheet för Starta extra arbete renderas utanför main (nedan) */}
-
-        {/* Undantagen — längst ner, små och gråa: "Starta manuellt" (passet startar
-            annars av sig självt via MOM) och frånvaro. Typerna (sjuk, vab) skrivs
-            till arbetsdag.dagtyp — oplanerad frånvaro som händer idag. Planerad
-            ledighet (semester, ATK) ansöks i Ledighet-vyn. */}
-        {!isWorking && !dagData[idagKey]?.bekraftad && (
-          <section style={{ marginTop:8,marginBottom:16 }}>
-            <div style={{ display:"flex",alignItems:"center",gap:20,flexWrap:"wrap" }}>
-              {pagaendeAktiviteter.length===0 && !dagData[idagKey]?.slut_tid && (
+        {/* Undantagen — längst ner, tertiära: "Starta manuellt" (passet startar
+            annars via MOM) och frånvaro. sjuk/vab skrivs till arbetsdag.dagtyp —
+            oplanerad frånvaro idag. Planerad ledighet ansöks i Ledighet-vyn. */}
+        {!isWorking && !idagArb?.bekraftad && (
+          <section style={{ marginTop:AVSTAND.l }}>
+            <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xl, flexWrap:"wrap" }}>
+              {pagaendeAktiviteter.length===0 && !idagArb?.slut_tid && (
                 <button onClick={async ()=>{
                   const nuT = nuKlock();
                   if (!medarbetare?.id) { console.warn('[Starta manuellt] medarbetare saknas'); return; }
@@ -2637,19 +2645,18 @@ export default function Arbetsrapport() {
                     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                     synkaVilobrott(idagKey);
                   }
-                }} style={{ display:"inline-flex",alignItems:"center",gap:6,minHeight:44,padding:0,background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:18 }}>play_circle</span>
+                }} style={KNAPP.tertiar}>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>play_circle</span>
                   Starta manuellt
                 </button>
               )}
-              <button onClick={()=>setVisaÖvrigt(v=>!v)}
-                style={{ display:"inline-flex",alignItems:"center",gap:6,minHeight:44,padding:0,background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>
-                <span className="material-symbols-outlined" style={{ fontSize:18 }}>{visaÖvrigt ? "expand_more" : "chevron_right"}</span>
+              <button onClick={()=>setVisaÖvrigt(v=>!v)} style={KNAPP.tertiar}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{visaÖvrigt ? "expand_more" : "chevron_right"}</span>
                 Sjuk eller VAB idag?
               </button>
             </div>
             {visaÖvrigt && (
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,animation:"fadeUp 0.25s ease" }}>
+              <div className="tona-in" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:AVSTAND.m, marginTop:AVSTAND.m }}>
                 {[
                   {id:"sjuk", label:"Sjukfrånvaro", icon:"medical_services", heldag:true, msg:{text:"Krya på dig!", icon:"sick"}},
                   {id:"vab",  label:"VAB",          icon:"child_care",       heldag:true, msg:{text:"VAB registrerad"}},
@@ -2697,9 +2704,9 @@ export default function Arbetsrapport() {
                       }
                     }
                   }}
-                    style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 12px",cursor:"pointer",fontFamily:"inherit" }}>
-                    <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>{s.icon}</span>
-                    <span style={{ color:"#fff",...TYPE.bodyList }}>{s.label}</span>
+                    style={KNAPP.sekundar}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2 }}>{s.icon}</span>
+                    {s.label}
                   </button>
                 ))}
               </div>
@@ -2707,18 +2714,15 @@ export default function Arbetsrapport() {
           </section>
         )}
 
-
-        {/* Maskinstatus & Plats bor numera i tillståndsraden högst upp (Maskin · Plats). */}
-
-        {/* Objektväljare */}
+        {/* Objektväljare — sheet */}
         {visaObjektVäljare&&(
-          <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:"#0d0d0f",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
-              <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <h3 style={{ margin:0,...TYPE.h2 }}>Välj objekt</h3>
-                <button onClick={()=>setVisaObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+          <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+            <div className="sheet-upp" style={{ background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, width:"100%", maxWidth:520, maxHeight:"70vh", display:"flex", flexDirection:"column" }}>
+              <div style={{ padding:`${AVSTAND.l}px`, borderBottom:`1px solid ${FARG.linje}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <h3 style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Välj objekt</h3>
+                <button onClick={()=>setVisaObjektVäljare(false)} style={KNAPP.lank}>Stäng</button>
               </div>
-              <div style={{ flex:1,overflowY:"auto" }}>
+              <div style={{ flex:1, overflowY:"auto" }}>
                 <ObjektValjarLista
                   objekt={objektLista}
                   valtId={valtObjektId}
@@ -2732,62 +2736,59 @@ export default function Arbetsrapport() {
 
       <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
 
-      {/* Bottom sheet: Starta extra arbete */}
-      {/* Objekt-väljare (stackad ovanpå Starta extra-sheet:en) */}
-
       {/* "Vad gjorde du?"-sheeten + objektväljare — delad UI, se efterStoppUI */}
       {efterStoppUI}
 
-      {/* Bottom sheet: Ändra tider */}
+      {/* Sheet: Ändra tider */}
       {visaTiderSheet && (()=>{
         const tAm = Math.max(0, tim(tS, tE) - tR);
         const stäng = () => setVisaTiderSheet(false);
         const ändrat = tS !== start || tE !== slut || tR !== rast;
+        const sektionsRubrik = (text: string, andrad: boolean) => (
+          <span style={{ ...TYP.micro, display:"block", textAlign:"center", marginBottom:AVSTAND.xs, color:andrad?FARG.orange:FARG.text2 }}>{text}{andrad ? ' · ändrad' : ''}</span>
+        );
         return (
-          <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1500,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-            <div onClick={e=>e.stopPropagation()}
-              style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"12px 12px 0 0",padding:"10px 20px 28px",maxHeight:"92vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
-              <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
-                <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+          <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+            <div onClick={e=>e.stopPropagation()} className="sheet-upp"
+              style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
+              <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+                <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
               </div>
-              <p style={{ margin:"0 0 16px",...TYPE.h2,color:"#fff" }}>Ändra tider</p>
-              <div style={{ background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"16px 12px",display:"flex",flexDirection:"column",gap:16 }}>
+              <p style={{ margin:`0 0 ${AVSTAND.l}px`, ...TYP.rubrik, color:FARG.text }}>Ändra tider</p>
+              <div style={{ background:FARG.upphojt, borderRadius:RADIE.kort, padding:`${AVSTAND.l}px ${AVSTAND.m}px`, display:"flex", flexDirection:"column", gap:AVSTAND.l }}>
                 <div>
-                  <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:6,color:tS!==start?C.orange:"rgba(255,255,255,0.5)" }}>Start</span>
+                  {sektionsRubrik('Start', tS!==start)}
                   <TimePicker value={tS} onChange={setTS}/>
                 </div>
-                <div style={{ borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:14 }}>
-                  <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:6,color:tE!==slut?C.orange:"rgba(255,255,255,0.5)" }}>Slut</span>
+                <div style={{ borderTop:`1px solid ${FARG.linje}`, paddingTop:AVSTAND.m }}>
+                  {sektionsRubrik('Slut', tE!==slut)}
                   <TimePicker value={tE} onChange={setTE}/>
                 </div>
-                <div style={{ borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:14 }}>
-                  <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:tR!==rast?C.orange:"rgba(255,255,255,0.5)" }}>Rast</span>
-                  <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8 }}>
+                <div style={{ borderTop:`1px solid ${FARG.linje}`, paddingTop:AVSTAND.m }}>
+                  {sektionsRubrik('Rast', tR!==rast)}
+                  <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:AVSTAND.s }}>
                     <Wheel value={tR} onChange={setTR} min={0} max={120} step={5}/>
-                    <span style={{ ...TYPE.meta,color:"rgba(255,255,255,0.5)",fontWeight:600 }}>min</span>
+                    <span style={{ ...TYP.meta, color:FARG.text2 }}>min</span>
                   </div>
                 </div>
               </div>
-              <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(48,209,88,0.08)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta,fontWeight:500 }}>Maskinpass</span>
-                <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{fmt(tAm)}</span>
+              <div style={{ marginTop:AVSTAND.l, padding:`${AVSTAND.l}px`, background:FARG.upphojt, borderRadius:RADIE.kort, display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                <span style={{ ...TYP.meta, color:FARG.text2 }}>Maskinpass</span>
+                <span style={{ ...TYP.rubrik, ...TNUM, color:FARG.text }}>{fmt(tAm)}</span>
               </div>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginTop:16 }}>
-                <button onClick={stäng}
-                  style={{ padding:"16px",background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-                  Avbryt
-                </button>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
+                <button onClick={stäng} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Avbryt</button>
                 <button
                   onClick={async ()=>{
                     if (ändrat) {
-                      if (dagData[idagKey]?.id) {
+                      if (idagArb?.id) {
                         // Om dagen var bekräftad, rasera bekräftelsen så status visar "Ändrad".
                         // Verifiera skrivningen FÖRE lokal state — tider är lönedata,
                         // ett "Spara" som inte nådde DB får inte se sparat ut.
-                        const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
+                        const bryterBekräftelse = !!idagArb?.bekraftad;
                         const payload: any = { start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR };
                         if (bryterBekräftelse) payload.bekraftad = false;
-                        const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: dagData[idagKey].id });
+                        const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: idagArb.id });
                         if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar
                         setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR, start: tS, slut: tE, rast: tR, ...(bryterBekräftelse ? { bekraftad: false } : {}) } }));
                         synkaVilobrott(idagKey);
@@ -2799,7 +2800,7 @@ export default function Arbetsrapport() {
                     }
                     stäng();
                   }}
-                  style={{ padding:"16px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                  style={KNAPP.primar}>
                   Spara
                 </button>
               </div>
@@ -2808,66 +2809,63 @@ export default function Arbetsrapport() {
         );
       })()}
 
-      {/* Bottom sheet: Ändra km */}
+      {/* Sheet: Ändra km */}
       {visaKmSheet && (()=>{
         const ny = tMK + tKK;
         const över = Math.max(0, ny - frikm);
         const mil = över > 0 ? Math.ceil(över/10) : 0;
         const stäng = () => setVisaKmSheet(false);
         const KmInput = ({label, value, onChange}: {label: string; value: number; onChange: (v:number)=>void}) => (
-          <div style={{ flex:1,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
-            <p style={{ margin:"0 0 10px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>{label}</p>
-            <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-              <button onClick={()=>onChange(Math.max(0, value-10))} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.08)",border:"none",color:"#fff",fontSize:20,cursor:"pointer" }}>−</button>
-              <span style={{ fontSize:28,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums" }}>{value}</span>
-              <button onClick={()=>onChange(Math.min(999, value+10))} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.08)",border:"none",color:"#fff",fontSize:20,cursor:"pointer" }}>+</button>
+          <div style={{ flex:1, background:FARG.upphojt, borderRadius:RADIE.kort, padding:`${AVSTAND.l}px` }}>
+            <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>{label}</p>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:AVSTAND.s }}>
+              <button onClick={()=>onChange(Math.max(0, value-10))} style={{ ...KNAPP.sekundar, width:TRAFFYTA.min, padding:0, ...TYP.rubrik }}>−</button>
+              <span style={{ ...TYP.tal, color:FARG.text }}>{value}</span>
+              <button onClick={()=>onChange(Math.min(999, value+10))} style={{ ...KNAPP.sekundar, width:TRAFFYTA.min, padding:0, ...TYP.rubrik }}>+</button>
             </div>
-            <p style={{ margin:"6px 0 0",textAlign:"center",fontSize:12,color:"rgba(255,255,255,0.4)" }}>km</p>
+            <p style={{ margin:`${AVSTAND.xs}px 0 0`, textAlign:"center", ...TYP.meta, color:FARG.text2 }}>km</p>
           </div>
         );
         return (
-          <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1500,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-            <div onClick={e=>e.stopPropagation()}
-              style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"12px 12px 0 0",padding:"10px 20px 28px",maxHeight:"85vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
-              <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
-                <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+          <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+            <div onClick={e=>e.stopPropagation()} className="sheet-upp"
+              style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"85vh", overflowY:"auto" }}>
+              <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+                <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
               </div>
-              <p style={{ margin:"0 0 16px",...TYPE.h2,color:"#fff" }}>Ändra km</p>
-              <div style={{ display:"flex",gap:10 }}>
+              <p style={{ margin:`0 0 ${AVSTAND.l}px`, ...TYP.rubrik, color:FARG.text }}>Ändra km</p>
+              <div style={{ display:"flex", gap:AVSTAND.s }}>
                 <KmInput label="Morgon" value={tMK} onChange={setTMK}/>
                 <KmInput label="Kväll"  value={tKK} onChange={setTKK}/>
               </div>
-              <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(48,209,88,0.08)",borderRadius:12 }}>
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                  <span style={{ color:"rgba(255,255,255,0.6)",...TYPE.meta }}>Totalt</span>
-                  <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{ny} km</span>
+              <div style={{ marginTop:AVSTAND.l, padding:`${AVSTAND.l}px`, background:FARG.upphojt, borderRadius:RADIE.kort }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                  <span style={{ ...TYP.meta, color:FARG.text2 }}>Totalt</span>
+                  <span style={{ ...TYP.rubrik, ...TNUM, color:FARG.text }}>{ny} km</span>
                 </div>
                 {över > 0
-                  ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#30d158",fontWeight:500 }}>Reseersättning: {över} km över {frikm} km = {mil} påbörjade mil</p>
-                  : <p style={{ margin:"8px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
+                  ? <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text }}>Reseersättning: {över} km över {frikm} km = {mil} påbörjade mil</p>
+                  : <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
                 }
               </div>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginTop:16 }}>
-                <button onClick={stäng}
-                  style={{ padding:"16px",background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-                  Avbryt
-                </button>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
+                <button onClick={stäng} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Avbryt</button>
                 <button
                   onClick={async ()=>{
-                    if (dagData[idagKey]?.id) {
-                      const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
+                    if (idagArb?.id) {
+                      const bryterBekräftelse = !!idagArb?.bekraftad;
                       // km_kalla='forare': föraren har satt km själv → helpern/
                       // nattjobbet rör den ALDRIG igen, inte ens om den är 0.
                       const payload: any = { km_morgon: tMK, km_kvall: tKK, km_kalla: 'forare' };
                       if (bryterBekräftelse) payload.bekraftad = false;
-                      const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: dagData[idagKey].id });
+                      const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: idagArb.id });
                       if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar
                       setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], km_morgon: tMK, km_kvall: tKK, km: tMK+tKK, km_totalt: tMK+tKK, ...(bryterBekräftelse ? { bekraftad: false } : {}) } }));
                     }
                     setKmM({km:tMK}); setKmK({km:tKK});
                     stäng();
                   }}
-                  style={{ padding:"16px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                  style={KNAPP.primar}>
                   Spara
                 </button>
               </div>
@@ -2876,35 +2874,33 @@ export default function Arbetsrapport() {
         );
       })()}
 
-      {/* Bekräftelse-overlay efter Bekräfta dagen ✓ */}
-      {/* Heldagstyp-meddelande (Sjuk/VAB/Semester/Ledig) — auto-stänger efter 2.5s */}
+      {/* Heldagstyp-meddelande (Sjuk/VAB) — auto-stänger efter 2.5 s */}
       {heldagsMeddelande && (
-        <div style={{ position:"fixed",inset:0,background:"#000",zIndex:2100,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"dimIn 0.2s ease",padding:"24px" }}>
+        <div className="tona-opacity" style={{ position:"fixed", inset:0, background:FARG.bg, zIndex:2100, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:`${AVSTAND.xl}px` }}>
           {heldagsMeddelande.icon && (
-            <span className="material-symbols-outlined" style={{ fontSize:96,color:"#fff",marginBottom:24,animation:"checkPop 0.5s cubic-bezier(0.2,0.8,0.3,1.2)" }}>{heldagsMeddelande.icon}</span>
+            <span className="material-symbols-outlined tona-in" style={{ fontSize:IKON.stor, color:FARG.text, marginBottom:AVSTAND.xl }}>{heldagsMeddelande.icon}</span>
           )}
-          <p style={{ margin:"0 0 16px",...TYPE.largeTitle,color:"#fff",textAlign:"center" }}>{heldagsMeddelande.text}</p>
-          <p style={{ margin:0,...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>
+          <p style={{ margin:`0 0 ${AVSTAND.l}px`, ...TYP.titel, color:FARG.text, textAlign:"center" }}>{heldagsMeddelande.text}</p>
+          <p style={{ margin:0, ...TYP.meta, color:FARG.text2 }}>
             {["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()]} {idag.getDate()} {["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()]}
           </p>
         </div>
       )}
 
-      {/* Timer visas nu som kompakt banner överst — se timerBanner */}
-
+      {/* Bekräftelse-overlay efter Bekräfta dagen ✓ */}
       {bekräftelseVisa && (
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-          <div style={{ width:120,height:120,borderRadius:"50%",background:"#30D158",display:"flex",alignItems:"center",justifyContent:"center",animation:"checkPop 0.5s cubic-bezier(0.2,0.8,0.3,1.2)" }}>
+        <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:2000, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+          <div className="tona-in" style={{ width:120, height:120, borderRadius:RADIE.cirkel, background:FARG.gron, display:"flex", alignItems:"center", justifyContent:"center" }}>
             <svg width="56" height="56" viewBox="0 0 52 52">
-              <path d="M14 27 L23 36 L38 18" stroke="#fff" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" strokeDasharray="60" style={{ animation:"checkDraw 0.4s 0.2s both ease-out" }}/>
+              <path d="M14 27 L23 36 L38 18" stroke={FARG.text} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" strokeDasharray="60" style={{ animation:`checkDraw ${RORELSE.tal}ms ${RORELSE.byte}ms both ${RORELSE.kurva}` }}/>
             </svg>
           </div>
-          <p style={{ margin:"32px 0 0",...TYPE.largeTitle,color:"#fff" }}>Dagen bekräftad</p>
+          <p style={{ margin:`${AVSTAND.xxl}px 0 0`, ...TYP.titel, color:FARG.text }}>Dagen bekräftad</p>
         </div>
       )}
     </div>
-  );
-
+    );
+  }
 
   /* ─── MIN TID ─── */
   if(steg==="mintid") {

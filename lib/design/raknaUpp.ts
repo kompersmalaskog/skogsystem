@@ -28,7 +28,8 @@ export function formateraTal(v: number, decimaler: number): string {
   return v.toLocaleString("sv-SE", { minimumFractionDigits: decimaler, maximumFractionDigits: decimaler });
 }
 
-export function useRaknaUpp(mal: number | null | undefined, decimaler = 0): string {
+/** Det animerade VÄRDET (tal) — för vyer som formaterar själva, t.ex. "7h 54min". */
+export function useRaknaUppVarde(mal: number | null | undefined): number {
   const malTal = typeof mal === "number" && Number.isFinite(mal) ? mal : 0;
   const [visat, setVisat] = useState(malTal);
   const fran = useRef(malTal);
@@ -54,5 +55,10 @@ export function useRaknaUpp(mal: number | null | undefined, decimaler = 0): stri
     return () => { if (raf.current != null) cancelAnimationFrame(raf.current); };
   }, [malTal]);
 
-  return formateraTal(visat, decimaler);
+  return visat;
+}
+
+/** Det animerade värdet som STRÄNG med svensk decimalkomma. */
+export function useRaknaUpp(mal: number | null | undefined, decimaler = 0): string {
+  return formateraTal(useRaknaUppVarde(mal), decimaler);
 }

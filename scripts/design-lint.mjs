@@ -33,12 +33,13 @@ const ALFA = new Set(["0.08", "0.1", "0.10"]); // rgba(255,255,255,x) som är to
 
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [
-  // "components/arbetsrapport/Arbetsrapport.tsx", // skarpas när piloten är klar
+  "components/arbetsrapport/Arbetsrapport.tsx", // piloten (dagsvyn) — nya literaler fäller
 ];
 
 // --- Regler ---------------------------------------------------------------
+const IKON_STORLEKAR = new Set([18, 22, 96]); // IKON.text/rad/stor — bara på ikonrader
 const REGLER = [
-  { namn: "textstorlek", re: /fontSize:\s*"?(\d+(?:\.\d+)?)(?:px)?"?/g, ok: (m) => TYP_STORLEKAR.has(Number(m[1])) },
+  { namn: "textstorlek", re: /fontSize:\s*"?(\d+(?:\.\d+)?)(?:px)?"?/g, ok: (m, rad) => TYP_STORLEKAR.has(Number(m[1])) || (rad.includes("material-symbols") && IKON_STORLEKAR.has(Number(m[1]))) },
   { namn: "vikt", re: /fontWeight:\s*"?(\d{3}|bold|normal)"?/g, ok: (m) => VIKTER.has(Number(m[1])) },
   { namn: "typsnitt", re: /fontFamily:\s*"([^"]+)"/g, ok: (m) => m[1] === "inherit" },
   { namn: "avstånd", re: /\b(?:gap|padding(?:Top|Bottom|Left|Right)?|margin(?:Top|Bottom|Left|Right)?):\s*"?(-?\d+)(?:px)?"?\s*[,}]/g, ok: (m) => AVSTAND.has(Math.abs(Number(m[1]))) },
@@ -58,13 +59,19 @@ function git(cmd) {
   return execSync(`git ${cmd}`, { cwd: ROT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
 }
 
+// Kommentarer räknas inte ("(#377)" är ett PR-nummer, inte en färg).
+function utanKommentar(rad) {
+  return rad.replace(/\{\/\*.*?\*\/\}/g, "").replace(/\/\*.*?\*\//g, "").replace(/(^|[^:"'])\/\/.*$/, "$1");
+}
+
 function raknaRader(rader) {
   const fynd = {};
-  for (const rad of rader) {
+  for (const radRaa of rader) {
+    const rad = utanKommentar(radRaa);
     for (const r of REGLER) {
       r.re.lastIndex = 0;
       for (const m of rad.matchAll(r.re)) {
-        if (r.ok(m)) continue;
+        if (r.ok(m, rad)) continue;
         const f = (fynd[r.namn] ||= { antal: 0, exempel: new Set() });
         f.antal++;
         if (f.exempel.size < 4) f.exempel.add(m[0].trim());
@@ -74,10 +81,16 @@ function raknaRader(rader) {
   return fynd;
 }
 
+// Diffen tas från merge-basen mot ARBETSTRÄDET, så lokala körningar ser
+// ocommittade ändringar (i CI är arbetsträdet = HEAD).
+function mergeBas(bas) {
+  try { return git(`merge-base ${bas} HEAD`).trim(); } catch { return bas; }
+}
+
 function tilllagdaRader(fil, bas) {
   // Bara +-rader ur diffen: skulden som redan finns räknas inte som ny.
   try {
-    const diff = git(`diff -U0 ${bas}...HEAD -- "${fil}"`);
+    const diff = git(`diff -U0 ${bas} -- "${fil}"`);
     return diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).map((l) => l.slice(1));
   } catch {
     return [];
@@ -87,14 +100,15 @@ function tilllagdaRader(fil, bas) {
 const args = process.argv.slice(2);
 const alla = args.includes("--alla");
 const strikt = args.includes("--strikt");
-const bas = args.find((a) => !a.startsWith("--")) || "origin/main";
+const basRef = args.find((a) => !a.startsWith("--")) || "origin/main";
+const bas = alla ? basRef : mergeBas(basRef);
 
 let filer;
 if (alla) {
   filer = git("ls-files app components").split("\n").filter((f) => VY_FIL.test(f) && !UNDANTAG.test(f));
 } else {
   let andrade = "";
-  try { andrade = git(`diff --name-only ${bas}...HEAD -- app components`); } catch { andrade = ""; }
+  try { andrade = git(`diff --name-only ${bas} -- app components`); } catch { andrade = ""; }
   filer = andrade.split("\n").filter((f) => f && VY_FIL.test(f) && !UNDANTAG.test(f) && existsSync(path.join(ROT, f)));
 }
 
