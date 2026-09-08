@@ -2099,6 +2099,11 @@ export default function PlannerPage() {
   const [infoSkotareBandPar, setInfoSkotareBandPar] = useState('1');
   const [infoSkotareLastreder, setInfoSkotareLastreder] = useState(false);
   const [infoSkotareRisDirekt, setInfoSkotareRisDirekt] = useState(false);
+  // DEL 3 (prognos-fliken): skotningsavstånd (val-fält) + basvägsarbete (engångstid). Breddat lastrede
+  // återanvänder det befintliga Fakta-fältet infoSkotareLastreder — ingen egen kontroll här.
+  const [infoSkotningsavstand, setInfoSkotningsavstand] = useState<string | null>(null); // 'kort'|'medel'|'langt'
+  const [infoBasvagKravs, setInfoBasvagKravs] = useState(false);
+  const [infoBasvagTimmar, setInfoBasvagTimmar] = useState('');
   const [infoSkotareKonfig, setInfoSkotareKonfig] = useState('bred');
   const [infoTrailerIn, setInfoTrailerIn] = useState(true);
   const [infoTransportKommentar, setInfoTransportKommentar] = useState('');
@@ -2123,12 +2128,20 @@ export default function PlannerPage() {
   const tidsforslag: Tidsforslag | null = useMemo(() => {
     const arealTxt = Number(String(infoAreal ?? '').replace(',', '.').trim());
     const areal = Number.isFinite(arealTxt) && arealTxt > 0 ? arealTxt : (typeof valtObjekt?.areal === 'number' ? valtObjekt.areal : null);
+    const bvTim = Number(String(infoBasvagTimmar ?? '').replace(',', '.').trim());
     return beraknaTidsforslag(
-      { areal, kategori: (valtObjekt?.typ as string) ?? null, medeldiameterCm: (traktData?.beraknad?.medeldiameter as number) ?? null },
+      {
+        areal,
+        kategori: (valtObjekt?.typ as string) ?? null,
+        medeldiameterCm: (traktData?.beraknad?.medeldiameter as number) ?? null,
+        skotningsavstand: infoSkotningsavstand,
+        lastrederBreddat: infoSkotareLastreder,
+        basvagTimmar: infoBasvagKravs && Number.isFinite(bvTim) ? bvTim : null,
+      },
       prognosHistorik,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [infoAreal, valtObjekt?.areal, valtObjekt?.typ, traktData, prognosHistorik]);
+  }, [infoAreal, valtObjekt?.areal, valtObjekt?.typ, traktData, prognosHistorik, infoSkotningsavstand, infoSkotareLastreder, infoBasvagKravs, infoBasvagTimmar]);
   const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
   const [infoLoaded, setInfoLoaded] = useState(false);
   const infoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -2139,7 +2152,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, larmkoordinat_kalla, larmkoordinat_bekraftad')
+        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, larmkoordinat_kalla, larmkoordinat_bekraftad, skotningsavstand, basvag_kravs, basvag_timmar')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -2158,6 +2171,9 @@ export default function PlannerPage() {
         setInfoSkotareBand(data.skotare_band || false);
         setInfoSkotareBandPar(data.skotare_band_par || '1');
         setInfoSkotareLastreder(data.skotare_lastreder_breddat || false);
+        setInfoSkotningsavstand(data.skotningsavstand || null);
+        setInfoBasvagKravs(data.basvag_kravs || false);
+        setInfoBasvagTimmar(data.basvag_timmar != null ? String(data.basvag_timmar) : '');
         setInfoSkotareRisDirekt(data.skotare_ris_direkt || false);
         setInfoSkotareKonfig(data.skotare_konfiguration || 'bred');
         setInfoTrailerIn(data.transport_trailer_in !== false);
@@ -2219,17 +2235,27 @@ export default function PlannerPage() {
     (async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('areal, typ, manuell_prognos, trakt_data')
+        .select('areal, typ, manuell_prognos, trakt_data, basvag_timmar')
         .eq('status', 'avslutat');
       if (error) { console.error('[Prognos-förslag] historik-hämtning:', error.message); return; }
       const parseTim = (v: unknown): number | null => { const n = Number(String(v ?? '').replace(',', '.').trim()); return Number.isFinite(n) && n > 0 ? n : null; };
-      setPrognosHistorik((data || []).map((r: any): HistorikObjekt => ({
-        areal: typeof r.areal === 'number' ? r.areal : Number(r.areal) || null,
-        kategori: r.typ ?? null,
-        skordareTimmar: parseTim(r.manuell_prognos?.skordare),
-        skotareTimmar: parseTim(r.manuell_prognos?.skotare),
-        medeldiameterCm: r.trakt_data?.beraknad?.medeldiameter ?? null,
-      })));
+      setPrognosHistorik((data || []).map((r: any): HistorikObjekt => {
+        // KRITISKT: dra bort basväg-engångstiden från den planerade skotartiden INNAN den blir
+        // ha/timme-underlag — annars snedvrids snittet uppåt för alla framtida förslag. (Basväg
+        // attribueras till skotaren.) Blir basen <= 0 → null, objektet räknas då inte in på skotar-snittet.
+        const skotarePlanerad = parseTim(r.manuell_prognos?.skotare);
+        const basvag = Number(r.basvag_timmar);
+        const skotareBas = skotarePlanerad != null
+          ? (Number.isFinite(basvag) && basvag > 0 ? skotarePlanerad - basvag : skotarePlanerad)
+          : null;
+        return {
+          areal: typeof r.areal === 'number' ? r.areal : Number(r.areal) || null,
+          kategori: r.typ ?? null,
+          skordareTimmar: parseTim(r.manuell_prognos?.skordare),
+          skotareTimmar: skotareBas != null && skotareBas > 0 ? skotareBas : null,
+          medeldiameterCm: r.trakt_data?.beraknad?.medeldiameter ?? null,
+        };
+      }));
     })();
   }, []);
 
@@ -2267,6 +2293,10 @@ export default function PlannerPage() {
         skotare_ris_direkt: infoSkotareRisDirekt,
         skotare_extra_vagn: infoSkotareExtraVagn,
         skotare_konfiguration: infoSkotareKonfig,
+        // DEL 3 (prognos-fliken). Breddat lastrede sparas redan via skotare_lastreder_breddat ovan.
+        skotningsavstand: infoSkotningsavstand,
+        basvag_kravs: infoBasvagKravs,
+        basvag_timmar: infoBasvagKravs ? parseSvNum(infoBasvagTimmar) : null,
         transport_trailer_in: infoTrailerIn,
         transport_kommentar: infoTransportKommentar || null,
         markagare_ska_ha_ved: infoMarkagareVed,
@@ -2288,7 +2318,7 @@ export default function PlannerPage() {
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, infoLarmLat, infoLarmLng, infoLarmBeskrivning, infoLarmKalla, infoLarmBekraftad, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, infoLarmLat, infoLarmLng, infoLarmBeskrivning, infoLarmKalla, infoLarmBekraftad, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand, infoSkotningsavstand, infoBasvagKravs, infoBasvagTimmar]);
 
   // === Maskin-väljare (Fakta-fliken) — matas från dim_maskin ===
   // Valbar lista för en roll: rätt maskin_typ, aktiv (ej såld), klarar objektets typ.
@@ -19796,6 +19826,57 @@ export default function PlannerPage() {
                 </div>
               </div>
             </div>
+            {/* DEL 3: Skotningsavstånd (påverkar tid-förslaget) + basvägsarbete (engångstid). Breddat
+                lastrede återanvänder Fakta-fältet — visas här bara som info om att det kortar tiden. */}
+            <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '20px', marginBottom: '16px' }}>
+              <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '16px' }}>Skotning</div>
+              <div style={{ marginBottom: '4px' }}>
+                <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Skotningsavstånd</div>
+                <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  {[{ id: 'kort', label: 'Kort' }, { id: 'medel', label: 'Medel' }, { id: 'langt', label: 'Långt' }].map(opt => (
+                    <div key={opt.id} onClick={() => setInfoSkotningsavstand(infoSkotningsavstand === opt.id ? null : opt.id)}
+                      style={{ flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                        background: infoSkotningsavstand === opt.id ? '#0a84ff' : 'transparent',
+                        color: infoSkotningsavstand === opt.id ? '#fff' : '#8e8e93',
+                        fontWeight: infoSkotningsavstand === opt.id ? '600' : '400', transition: 'all 0.2s ease' }}>{opt.label}</div>
+                  ))}
+                </div>
+              </div>
+              {/* Breddat lastrede — läses från Fakta-fältet, kortar skotartiden. Read-only info här. */}
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '13px', color: '#fff' }}>Breddat lastrede</div>
+                  <div style={{ fontSize: '11px', color: '#636366', marginTop: '2px' }}>
+                    {infoSkotareLastreder ? 'Kortar skotartiden' : 'Redigeras i Fakta-fliken'}
+                  </div>
+                </div>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: infoSkotareLastreder ? '#30d158' : '#8e8e93' }}>
+                  {infoSkotareLastreder ? 'Ja' : 'Nej'}
+                </span>
+              </div>
+              {/* Basvägsarbete — ENGÅNGSTID, läggs på skotarens förslag separat (aldrig i ha/timme). */}
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '13px', color: '#fff' }}>Kräver basvägsanläggning</span>
+                  <div onClick={() => setInfoBasvagKravs(!infoBasvagKravs)} style={{
+                    width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                    background: infoBasvagKravs ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease' }}>
+                    <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoBasvagKravs ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                  </div>
+                </div>
+                {infoBasvagKravs && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '14px' }}>
+                    <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>Engångstid basväg</span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '8px 12px' }}>
+                      <input value={infoBasvagTimmar} onChange={e => setInfoBasvagTimmar(e.target.value)}
+                        inputMode="decimal" placeholder="0"
+                        style={{ width: '52px', background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: '16px', fontWeight: '600', textAlign: 'right' }} />
+                      <span style={{ fontSize: '13px', color: '#8e8e93' }}>h</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
             {/* Tid-sektion */}
             <div style={{
               background: 'rgba(255,255,255,0.06)',
@@ -19894,12 +19975,20 @@ export default function PlannerPage() {
                   )}
                   {tidsforslag.skotareTimmar != null && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '17px' }}>🚛</span>
                         <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Skotare</span>
-                        <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>{tidsforslag.skotareTimmar} h</span>
+                        {tidsforslag.basvagTimmar > 0 ? (
+                          <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>
+                            {tidsforslag.skotareTimmar} h
+                            <span style={{ fontSize: '12px', color: '#8e8e93', fontWeight: '400' }}> + {tidsforslag.basvagTimmar} h basväg</span>
+                            {' = '}{tidsforslag.skotareTotalt} h
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>{tidsforslag.skotareTimmar} h</span>
+                        )}
                       </div>
-                      <div onClick={() => setManuellPrognos(prev => ({ ...prev, skotare: String(tidsforslag.skotareTimmar ?? '') }))}
+                      <div onClick={() => setManuellPrognos(prev => ({ ...prev, skotare: String(tidsforslag.skotareTotalt ?? tidsforslag.skotareTimmar ?? '') }))}
                         style={{ fontSize: '13px', color: '#0a84ff', cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', background: 'rgba(10,132,255,0.12)' }}>Använd</div>
                     </div>
                   )}
