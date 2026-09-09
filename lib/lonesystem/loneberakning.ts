@@ -22,6 +22,7 @@
  */
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
+import { FRANVARO_DAGTYPER_ALLA } from "../franvaro";
 
 type ArbetsdagInput = {
   datum: string;        // YYYY-MM-DD
@@ -126,8 +127,8 @@ export function beräknaExport(
 
   const eid = anstallningsnummer || "SAKNAS";
 
-  // Filtrera bort frånvarodagar (sjuk, semester, vab, atk)
-  const FRANVARO = new Set(["sjuk", "semester", "vab", "atk"]);
+  // Filtrera bort frånvarodagar — listan ägs av lib/franvaro (sjuk, vab, föräldraledig, semester, atk)
+  const FRANVARO = new Set<string>(FRANVARO_DAGTYPER_ALLA);
   const produktionsDagar = dagar.filter(d => !d.dagtyp || !FRANVARO.has(d.dagtyp));
   const antalArbetsdagar = produktionsDagar.length;
   const ordinarie = antalArbetsdagar * 8; // timmar

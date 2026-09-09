@@ -56,7 +56,7 @@ function tidTillTimmar(t: string): { h: number; m: number } | null {
   return { h: parseInt(m[1], 10), m: parseInt(m[2], 10) };
 }
 
-function isoVecka(d: Date): { år: number; vecka: number } {
+export function isoVecka(d: Date): { år: number; vecka: number } {
   // ISO 8601: torsdagen i samma vecka avgör året
   const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const dayNr = (target.getUTCDay() + 6) % 7;

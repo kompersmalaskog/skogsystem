@@ -390,10 +390,23 @@ export type PersistResultat =
  * VAKT + verifierad skrivning av en beräknad dag. Skriver BARA km_morgon/km_kvall
  * + km_kalla='auto', och bara när ALLA håller:
  *   · alla km-fält 0/null (skriver aldrig över befintlig km)
- *   · redigerad = false (föraren äger dagen)
  *   · km_kalla ≠ 'forare' (medveten uppgift, inkl. medveten 0 — oförstörbar)
  *   · källa ≠ fallback (persisterar aldrig en haversine-gissning)
  *   · båda benen ≤ MAX_BEN_KM (trolig felkoordinat annars)
+ *
+ * INGEN vakt på `redigerad` (borttagen 2026-09-09). `redigerad` betyder att
+ * föraren ägt TIDERNA eller maskinen — inte km. De 14 redigerade 0-km-dagarna i
+ * prod hade anledningar som "810E", "Operatörsbyte", "fel i mom filen": ingen
+ * nämnde km; nollan var en följd av att km aldrig räknats, inte ett beslut.
+ * Vakten låste därför in nollor på dagar som HAR koordinat. Det ENDA skyddet
+ * för en medveten km-uppgift (inkl. medveten 0) är km_kalla='forare', som
+ * km-sheeten och "Spara ändring" sätter när föraren rör km.
+ *
+ * REGEL: EN MANUELL KM-RÄTTNING MÅSTE SÄTTA km_kalla='forare', ANNARS ÄR DEN
+ * INTE SKYDDAD. Gäller SQL i prod lika mycket som appen. Dalarna-dagarna
+ * nollades via SQL i augusti 2026 innan km_kalla fanns — 30 av 106 hade
+ * fyllts på nytt (1 244 km/dag, 3 730 mil i underlaget) innan det upptäcktes.
+ * Vakten skyddar bara det som faktiskt är märkt.
  * Race-skydd i WHERE (km fortfarande 0, km_kalla inte forare) + verifierad via
  * .select() (0 rader = någon hann emellan → hoppad, aldrig tyst "skrev").
  */
@@ -404,11 +417,10 @@ export async function persisteraDagKm(
 ): Promise<PersistResultat> {
   const noll = (v: any) => v == null || Number(v) === 0;
   if (!(noll(rad.km_morgon) && noll(rad.km_kvall) && noll(rad.km_totalt))) return { status: "hoppad", orsak: "km redan satt" };
-  if (rad.redigerad) return { status: "hoppad", orsak: "redigerad — föraren äger dagen" };
   if (rad.km_kalla === "forare") return { status: "hoppad", orsak: "km_kalla='forare' — medveten uppgift" };
   if (ber.källa === "fallback") return { status: "hoppad", orsak: "ingen vägberäkning (ORS-fel) — persisterar aldrig haversine-gissning" };
   if (ber.km_morgon > MAX_BEN_KM || ber.km_kvall > MAX_BEN_KM) return { status: "hoppad", orsak: `ben > ${MAX_BEN_KM} km (${ber.km_morgon}/${ber.km_kvall}) — trolig felkoordinat` };
-  // Vakten (km 0/null, redigerad=false, km_kalla ≠ 'forare') har redan körts på
+  // Vakten (km 0/null, km_kalla ≠ 'forare') har redan körts på
   // den FÄRSKA raden ovan. En .or()-filter på update+select får supabase-js att
   // bygga en trasig fråga ("column … does not exist"), därför inget DB-WHERE
   // utöver id. VERIFIERAD SKRIVNING: .select() på km-fälten ger PostgREST:s
@@ -446,7 +458,6 @@ export async function beraknaOchPersisteraDagKm(
 ): Promise<PersistResultat & { orsAnrop: number; anm?: string }> {
   const noll = (v: any) => v == null || Number(v) === 0;
   if (!(noll(p.rad.km_morgon) && noll(p.rad.km_kvall) && noll(p.rad.km_totalt))) return { status: "hoppad", orsak: "km redan satt", orsAnrop: 0 };
-  if (p.rad.redigerad) return { status: "hoppad", orsak: "redigerad — föraren äger dagen", orsAnrop: 0 };
   if (p.rad.km_kalla === "forare") return { status: "hoppad", orsak: "km_kalla='forare' — medveten uppgift", orsAnrop: 0 };
   const ber = await berakaDagKm(supabase, {
     aoRader: p.aoRader, fallbackObjektId: [p.rad.objekt_id], koordMap: p.koordMap,

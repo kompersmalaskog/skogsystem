@@ -63,14 +63,15 @@ export async function hamtaVilobrottForPeriod(
 }
 
 /**
- * Hämtar vilobrott för en medarbetare de senaste 14 dagarna.
- * Används av Dag-vyns morgon-varningar och Bekräfta-flödets för-check.
+ * Hämtar vilobrott för en medarbetare de senaste `dagar` dagarna (default 14).
+ * Används av Dag-vyns "vad som väntar" (30 dagar) och Bekräfta-flödets för-check.
  */
 export async function hamtaAktuellaVilobrott(
   medarbetareId: string,
+  dagar = 14,
 ): Promise<VilobrottRad[]> {
   const från = new Date();
-  från.setDate(från.getDate() - 14);
+  från.setDate(från.getDate() - dagar);
   return hamtaVilobrottForPeriod(medarbetareId, isoDate(från), isoDate(new Date()));
 }
 
