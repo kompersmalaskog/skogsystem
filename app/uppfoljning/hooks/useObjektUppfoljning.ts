@@ -157,6 +157,77 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
 
         if (cancelled) return;
 
+        // FLERTRÄD — HPR-härlett ur detalj_stam.stam_bunt_nyckel (#460), aldrig MOM.
+        //
+        // Mätt population = FILER som skrivits av den flerträdsmedvetna importen.
+        // Importen upsertar på (maskin_id, stam_key) med filnamn i payloaden, så
+        // varje stam bär namnet på den fil som senast skrev den; en fil som har
+        // minst en rad med skapad_tid ≥ 2026-08-23 (då MultiTreeProcessedStem
+        // började läsas, #460) är skriven av den nya importen, och då är ALLA
+        // stammar med det filnamnet mätta. Varken "skapad_tid ≥ datum" (upsert
+        // rör inte skapad_tid på befintliga enträdsrader → Svinhult 11109652 hade
+        // gett falska 100 %) eller "senaste filen" (Svinhult har två skördarserier,
+        // R64101 + R64428, 8 850 + 12 936 stammar) duger som nämnare.
+        // meta_importerade_filer.importerad_tid uppdateras inte av omimporten.
+        // Inga sådana filer → "ej mätt", ALDRIG 0 %. Täljare och nämnare filtreras
+        // på samma filer → konsistenta. Känd lucka (konservativ åt fel håll bara
+        // om den inträffar): en omimporterad serie helt utan buntar och utan nya
+        // rader syns inte och hamnar utanför nämnaren.
+        // Grepp = distinkta (filnamn, maskin_id, nyckel): StemBunchKey börjar om
+        // per fil (migration 20260823) och alla stammar i en bunt bär samma
+        // filnamn efter upsert. Buntrader hämtas paginerade — PostgREST cappar
+        // svaret på 1 000 rader oavsett .limit().
+        let flertrad: any = null;
+        if (skIds.length) {
+          const FLERTRAD_SEDAN = '2026-08-23T00:00:00Z';
+          let stammar = 0, matta = 0, buntStammar = 0, buntRaderLasta = 0;
+          const greppNycklar = new Set<string>();
+          for (const oid of skIds) {
+            const totR = await supabase.from('detalj_stam').select('id', { count: 'exact', head: true }).eq('objekt_id', oid);
+            stammar += totR.count ?? 0;
+            // Distinkta filnamn med post-#460-rader — få filer per objekt, en rad per varv.
+            const filer: string[] = [];
+            let sista: string | null = null;
+            for (let i = 0; i < 50; i++) {
+              let q = supabase.from('detalj_stam').select('filnamn').eq('objekt_id', oid).gte('skapad_tid', FLERTRAD_SEDAN).not('filnamn', 'is', null).order('filnamn', { ascending: true }).limit(1);
+              if (sista) q = q.gt('filnamn', sista);
+              const { data } = await q;
+              const f: string | undefined = data?.[0]?.filnamn;
+              if (!f) break;
+              filer.push(f);
+              sista = f;
+            }
+            if (!filer.length) continue; // ej mätt för det här skördarobjektet
+            const [iFilR, buntR] = await Promise.all([
+              supabase.from('detalj_stam').select('id', { count: 'exact', head: true }).eq('objekt_id', oid).in('filnamn', filer),
+              supabase.from('detalj_stam').select('id', { count: 'exact', head: true }).eq('objekt_id', oid).in('filnamn', filer).not('stam_bunt_nyckel', 'is', null),
+            ]);
+            matta += iFilR.count ?? 0;
+            buntStammar += buntR.count ?? 0;
+            for (let from = 0; from < 50000; from += 1000) {
+              const { data } = await supabase
+                .from('detalj_stam')
+                .select('filnamn, maskin_id, stam_bunt_nyckel')
+                .eq('objekt_id', oid).in('filnamn', filer).not('stam_bunt_nyckel', 'is', null)
+                .order('stam_key', { ascending: true }).order('maskin_id', { ascending: true })
+                .range(from, from + 999);
+              const rader = data || [];
+              rader.forEach((r: any) => greppNycklar.add(`${r.filnamn}|${r.maskin_id}|${r.stam_bunt_nyckel}`));
+              buntRaderLasta += rader.length;
+              if (rader.length < 1000) break;
+            }
+          }
+          const grepp = greppNycklar.size;
+          if (stammar > 0) {
+            flertrad = {
+              matt: matta > 0,
+              andelPct: matta > 0 ? (100 * buntStammar) / matta : 0,
+              stammarPerGrepp: grepp > 0 ? buntRaderLasta / grepp : 0,
+              grepp, buntStammar, stammar,
+            };
+          }
+        }
+
         const bas = buildUppfoljningData({
           obj,
           tidRows: tidRes.data || [],
@@ -175,6 +246,7 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
         });
         setData({
           ...bas,
+          flertrad,
           avvikelser: byggAvvikelser({
             ...bas,
             refTid,
