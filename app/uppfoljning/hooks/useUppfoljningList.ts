@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { g15Sek } from '@/lib/g15';
 import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
 import { harledTyp } from '@/lib/objekt/typ';
 import { type UppfoljningObjekt } from '../lib/transform';
@@ -101,6 +102,24 @@ export function useUppfoljningList(): UseUppfoljningListResult {
 
         const maskinMap = new Map<string, any>();
         dimMaskin.forEach(m => maskinMap.set(m.maskin_id, m));
+
+        // G15 per objekt och MASKINTYP (skörd vs skotning) för list-chippen. fakt_tid är
+        // liten (~1 300 rader) men hämtas paginerat ändå. Summeras via lib/g15.g15Sek —
+        // aldrig egen formel. Skördartid = harvester-rader, skotartid = forwarder-rader
+        // (ett delat objekt_id hostar båda → typen avgör, inte objektet).
+        const tidRader = await hamtaAlla<{ objekt_id: string; maskin_id: string; processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }>(
+          () => supabase.from('fakt_tid').select('objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek').order('objekt_id'),
+        );
+        const g15PerObjekt = new Map<string, { sk: number; st: number }>();
+        for (const r of tidRader) {
+          if (!r.objekt_id) continue;
+          const typ = getMachineType(maskinMap.get(r.maskin_id));
+          if (typ === 'unknown') continue;
+          const h = g15Sek(r.processing_sek, r.terrain_sek, r.other_work_sek) / 3600;
+          const a = g15PerObjekt.get(r.objekt_id) || { sk: 0, st: 0 };
+          if (typ === 'skordare') a.sk += h; else a.st += h;
+          g15PerObjekt.set(r.objekt_id, a);
+        }
         const skotareManuellMap = new Map<string, { volym_m3: number | null; g15_timmar: number | null }>();
         // Per (objekt, maskin) → RÅ rad. EN-regeln (lib/skotat) delar upp i egen/omlastning.
         const manPerMaskinById = new Map<string, Map<string, SkotareManuellRad>>();
@@ -394,6 +413,10 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             tilldeladSkotare: namnFranLass || namnFranTilldelning || null,
             skotareKalla,
             skotareAvvikelse,
+            // Skörd vs skotning (G15 h) över VO-gruppen — skördartid ur skördarobjektens
+            // harvester-rader, skotartid ur skotarobjektens forwarder-rader.
+            skordareG15h: skordareObjektIds.reduce((s, id) => s + (g15PerObjekt.get(id)?.sk || 0), 0),
+            skotareG15h: skotareObjektIds.reduce((s, id) => s + (g15PerObjekt.get(id)?.st || 0), 0),
             risskotningPagar: entries.some((e: any) => harPagaendeRis.has(e.objekt_id)),
             antalLass: stCount,
             dieselTotal: 0, // visas inte på förstasidan; detaljvyn hämtar sitt eget

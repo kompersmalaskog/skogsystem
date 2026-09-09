@@ -66,6 +66,10 @@ export interface UppfoljningObjekt {
   // Satt när lassdatan säger en annan skotare än tilldelningen — visas som
   // stillsam notis, aldrig som tyst övertäckning.
   skotareAvvikelse: { lass: string; tilldelad: string } | null;
+  // G15 per maskintyp över VO-gruppen (fakt_tid ⋈ dim_maskin.maskin_typ, lib/g15).
+  // Listan visar kvoten skotning/skörd som dämpad chip när båda finns.
+  skordareG15h?: number;
+  skotareG15h?: number;
   // Aktiv koppling till ett PÅGÅENDE risjobb (F3)
   risskotningPagar: boolean;
   externSkotning: boolean;

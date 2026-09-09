@@ -267,6 +267,13 @@ function MaskinUppdelning({ objekt, skordas, onSelect }: { objekt: UppfoljningOb
                     ) : (
                       <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{liggetidText(o)}</div>
                     )}
+                    {/* Skörd vs skotning — dämpad chip för att skanna listan; kvoten bär informationen.
+                        Bara när båda maskintyperna har G15 (annars ingen chip, aldrig "0×"). */}
+                    {(o.skordareG15h ?? 0) > 0 && (o.skotareG15h ?? 0) > 0 && (
+                      <div style={{ fontSize: 11, color: V6_GREY2, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                        Skörd {sv(Math.round(o.skordareG15h!))} h · Skotning {sv(Math.round(o.skotareG15h!))} h · {(o.skotareG15h! / o.skordareG15h!).toLocaleString('sv-SE', { maximumFractionDigits: 1 })}×
+                      </div>
+                    )}
                     {o.skotareAvvikelse && (
                       <div style={{ fontSize: 11, color: V6_GREY2, marginTop: 2 }}>
                         Lassdata: {o.skotareAvvikelse.lass} · tilldelad: {o.skotareAvvikelse.tilldelad}

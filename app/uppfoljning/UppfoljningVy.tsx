@@ -833,10 +833,29 @@ function Tid({ data }: { data: UppfoljningData }) {
     ['Rast', data.skotareRast],
     ['Avbrott', data.skotareAvbrott],
   ];
+  // Skörd vs skotning — hur lång tid skotningen tog i förhållande till skörden.
+  // KVOTEN är huvudtalet (ett tal per vy); timmarna är stöd. Bara när båda
+  // maskintyperna har G15 (median i prod 1,3×; Räveboda AU 2,6× sticker ut).
+  const kvot = hasSk && hasSt ? data.skotareG15h / data.skordareG15h : 0;
   return (
-    <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: 10 }}>
-      {hasSk && <TidKort label="Skördare" color={V6_SK} rows={skRows} />}
-      {hasSt && <TidKort label={data.skotareTidManuell ? 'Skotare · manuell tid' : 'Skotare'} color={V6_ST} rows={stRows} />}
+    <div style={{ padding: '0 24px 16px' }}>
+      {hasSk && hasSt && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+            {kvot.toLocaleString('sv-SE', { maximumFractionDigits: 1 })}×
+          </span>
+          <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ color: V6_SK }}>Skörd {data.skordareG15h.toLocaleString('sv-SE', { maximumFractionDigits: 1 })} h</span>
+            {' · '}
+            <span style={{ color: V6_ST }}>Skotning {data.skotareG15h.toLocaleString('sv-SE', { maximumFractionDigits: 1 })} h</span>
+            {data.skotareTidManuell ? ' · manuell skotartid' : ''}
+          </span>
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: 10 }}>
+        {hasSk && <TidKort label="Skördare" color={V6_SK} rows={skRows} />}
+        {hasSt && <TidKort label={data.skotareTidManuell ? 'Skotare · manuell tid' : 'Skotare'} color={V6_ST} rows={stRows} />}
+      </div>
     </div>
   );
 }
