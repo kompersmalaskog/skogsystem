@@ -8,25 +8,12 @@
 import type { Arbetsdagar, Avvikelse, BolagRad, Maskin, PlaneringObjekt, SparRad, StoppRad, Typ } from './queries'
 import { dagarText, fmt, kortNamn } from './format'
 
-// ── Trösklar och konstanter — EN plats ──────────────────────────────────────
-/** Planeringsgolv: 8 h dagtid per arbetsdag. Övertid och extramaskin är buffert. */
-export const TIMMAR_PER_DAG = 8
-/** Takten räknas på de senaste N gångna arbetsdagarna (SQL: LIMIT 5). */
-export const TAKT_FONSTER_DAGAR = 5
-/** Ingen prognos före arbetsdag 4 i månaden → kräver 3 gångna arbetsdagar. */
-export const PROGNOS_FRAN_ARBETSDAG = 4
-/** |dagar efter| under detta = "På plan". */
-export const PA_PLAN_GRANS_DAGAR = 1
-/** Oskotat "i takt" när förändringen per dag ligger inom ± ett halvt lass. */
-export const OSKOTAT_I_TAKT_M3_PER_DAG = 8
-/** Skördaren mer än så här många dagar före skotaren → "dra ner eller byt trakt". */
-export const SKORDARE_FORE_VARNING_DAGAR = 3
-/** Bolagets historiska avvikelse används först vid så här många avslutade objekt. */
-export const MIN_HISTORIK_OBJEKT = 5
-/** Utan historik flaggas "saknas" när gapet är större än så här stor andel av beställt. */
-export const SAKNAS_GRANS_UTAN_HISTORIK = 0.10
-/** volym_m3sub är m³fub. Dokumenterad här och i migrationen; används inte i någon formel. */
-export const M3FUB_FAKTOR = 1
+// ── Trösklar: EN fil — trosklar.ts. Återexporteras här för anroparna. ──────
+import {
+  MIN_HISTORIK_OBJEKT, OSKOTAT_I_TAKT_M3_PER_DAG, PA_PLAN_GRANS_DAGAR, PROGNOS_FRAN_ARBETSDAG,
+  SAKNAS_GRANS_UTAN_HISTORIK, TIMMAR_PER_DAG,
+} from './trosklar'
+export * from './trosklar'
 
 export const TYPER: Typ[] = ['gallring', 'slutavverkning']
 export const TYP_NAMN: Record<Typ, string> = { gallring: 'Gallring', slutavverkning: 'Slutavverkning' }

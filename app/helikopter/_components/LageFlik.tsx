@@ -5,7 +5,7 @@
 import { useState } from 'react'
 import { kapacitetsMaskiner, lageSvar, motBestallningRad, TYP_NAMN, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, dagarText, fmt, kortNamn } from '../_lib/format'
-import type { Arbetsdagar, Maskin, MaskinLage, Typ } from '../_lib/queries'
+import type { Arbetsdagar, BestallningRad, Maskin, MaskinLage, Typ } from '../_lib/queries'
 import { ListLank, ListRad, Lista, Sektion, Svarsrad } from './Lista'
 import { knapp } from './Tillstand'
 import VarVirketSheet from './VarVirketSheet'
@@ -20,11 +20,12 @@ type Props = {
   manad: number
   idag: string
   maskiner: Maskin[]
+  bestallningar: BestallningRad[]
   antalPlanerade: Record<Typ, number>
   dinMaskin: { maskinNamn: string; lage: MaskinLage | null; fel: string | null; onRetry: () => void } | null
 }
 
-export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, antalPlanerade, dinMaskin }: Props) {
+export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, antalPlanerade, dinMaskin }: Props) {
   const [sheet, setSheet] = useState<'virke' | 'maskiner' | null>(null)
   const svar = lageSvar(spar, antalPlanerade, status, dagar)
   const manadNamn = MANAD_NAMN[manad - 1]
@@ -42,10 +43,13 @@ export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskine
             const efter = s.lage?.status === 'efter' && (s.lage.dagar ?? 0) >= 1
             const rad = motBestallningRad(s, antalPlanerade[s.typ], status, manadNamn)
             const harBest = s.bestallt > 0
+            // Fler än ett bolag: "· Vida 4 000, Södra 1 000" (störst först) i text-secondary efter spårnamnet.
+            const bolagen = bestallningar.filter(b => b.typ === s.typ).sort((a, b) => b.volym - a.volym)
+            const bolagText = bolagen.length > 1 ? bolagen.map(b => `${b.bolag} ${fmt(b.volym)}`).join(', ') : null
             return (
               <ListRad
                 key={s.typ}
-                namn={TYP_NAMN[s.typ]}
+                namn={bolagText ? <>{TYP_NAMN[s.typ]}<span style={{ fontSize: 13, fontWeight: 400, color: T.t2 }}> · {bolagText}</span></> : TYP_NAMN[s.typ]}
                 tal={fmt(s.skotat)}
                 talTon={efter ? 'orange' : 'normal'}
                 av={harBest ? fmt(s.bestallt) : undefined}

@@ -1,10 +1,10 @@
 'use client'
 
-// "Skördare och skotare": per spår skördat/skotat, skördaren N dagar före + råd; takt per maskin.
+// "Skördare och skotare": per spår skördat/skotat, skördaren N dagar före skotaren (bara fakta); takt per maskin.
 import { useEffect, useState } from 'react'
 import { Sheet } from '@/components/Sheet'
 import { T } from '@/lib/utbildning'
-import { SKORDARE_FORE_VARNING_DAGAR, TYP_NAMN, maskinNamn, maskinRoll, type ManadStatus, type SparLage } from '../_lib/berakningar'
+import { TYP_NAMN, maskinNamn, maskinRoll, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { dagarText, fmt, kortNamn } from '../_lib/format'
 import { hamtaMaskinTakter, type Maskin, type MaskinLage } from '../_lib/queries'
 import { ListRad, Sektion, TEXT_MUTED } from './Lista'
@@ -38,12 +38,12 @@ export default function MaskinerSheet({ open, onClose, spar, status, maskiner, i
           ? (status === 'pagaende' ? 'Prognos från arbetsdag 4' : '')
           : fore <= 0
             ? 'Skotaren håller jämna steg'
-            : `Skördaren ${dagarText(fore)} före${fore > SKORDARE_FORE_VARNING_DAGAR ? ' · dra ner eller byt trakt' : ''}`
+            : `Skördaren ${dagarText(fore)} före skotaren`
         return (
           <Sektion key={s.typ} rubrik={TYP_NAMN[s.typ]}>
             <ListRad namn="Skördat" tal={fmt(s.skordat)} under={s.taktSkordat != null ? `${fmt(s.taktSkordat)}/dag` : undefined} />
             <ListRad namn="Skotat" tal={fmt(s.skotat)} under={s.taktSkotat != null ? `${fmt(s.taktSkotat)}/dag` : undefined} />
-            {rad && <ListRad namn="Oskotat" tal={fmt(Math.max(s.oskotat, 0))} talTon={fore != null && fore > SKORDARE_FORE_VARNING_DAGAR ? 'orange' : 'normal'} under={rad} />}
+            {rad && <ListRad namn="Oskotat" tal={fmt(Math.max(s.oskotat, 0))} under={rad} />}
           </Sektion>
         )
       })}

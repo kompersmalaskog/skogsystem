@@ -16,12 +16,12 @@ LANGUAGE sql STABLE AS $$
       AND lower(btrim(d.huvudtyp)) IN ('slutavverkning', 'gallring')),
   vol AS (
     SELECT o.objekt_id, o.object_name, o.typ, o.bolag,
-           COALESCE((SELECT sum(p.volym_m3sub) FROM fakt_produktion p WHERE p.objekt_id = o.objekt_id), 0) AS skordat,
-           COALESCE((SELECT sum(l.volym_m3sub) FROM fakt_lass l WHERE l.objekt_id = o.objekt_id), 0) AS skotat,
+           COALESCE((SELECT sum(p.volym_m3sub) FROM fakt_produktion p WHERE p.objekt_id = o.objekt_id), 0)::numeric AS skordat,  -- volym_m3sub är double precision
+           COALESCE((SELECT sum(l.volym_m3sub) FROM fakt_lass l WHERE l.objekt_id = o.objekt_id), 0)::numeric AS skotat,
            GREATEST((SELECT max(p.datum) FROM fakt_produktion p WHERE p.objekt_id = o.objekt_id),
                     (SELECT max(l.datum) FROM fakt_lass l WHERE l.objekt_id = o.objekt_id)) AS senast
     FROM oppna o)
-  SELECT v.typ, v.objekt_id, v.object_name, v.bolag, v.skordat, v.skotat, v.skordat - v.skotat AS oskotat, v.senast
+  SELECT v.typ, v.objekt_id, v.object_name, v.bolag, v.skordat, v.skotat, (v.skordat - v.skotat)::numeric AS oskotat, v.senast
   FROM vol v
   WHERE v.skordat - v.skotat > 0
     AND (NOT EXISTS (SELECT 1 FROM best b WHERE b.typ = v.typ)

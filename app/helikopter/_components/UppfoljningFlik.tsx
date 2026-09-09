@@ -6,9 +6,11 @@
 import { useState } from 'react'
 import { T } from '@/lib/utbildning'
 import { PROGNOS_FRAN_ARBETSDAG, prognosPerBolag, type ManadStatus, type SparLage } from '../_lib/berakningar'
-import { MANAD_NAMN, fmt, fmtDag } from '../_lib/format'
-import type { Arbetsdagar, BolagRad, Typ } from '../_lib/queries'
+import { MANAD_NAMN, fmt, fmtDag, kortNamn } from '../_lib/format'
+import type { Arbetsdagar, BolagRad, MaskinManad, Typ } from '../_lib/queries'
 import { Kort, KortLank, SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton } from './SparKort'
+import { ListRad, Lista, Sektion } from './Lista'
+import { knapp } from './Tillstand'
 import BolagSheet from './BolagSheet'
 
 type Props = {
@@ -18,18 +20,22 @@ type Props = {
   bolag: BolagRad[] | null
   bolagFel: string | null
   onRetryBolag: () => void
+  maskiner: MaskinManad[] | null
+  maskinerFel: string | null
+  onRetryMaskiner: () => void
   antalPlanerade: Record<Typ, number>
   ar: number
   manad: number
 }
 
-export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, antalPlanerade, ar, manad }: Props) {
+export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad }: Props) {
   const [oppen, setOppen] = useState<Typ | null>(null)
   return (
     <>
       {spar.map(s => (
         <UppfoljningKort key={s.typ} s={s} status={status} antalPlanerade={antalPlanerade[s.typ]} ar={ar} manad={manad} onOppnaBolag={() => setOppen(s.typ)} />
       ))}
+      <MaskinSektion maskiner={maskiner} fel={maskinerFel} onRetry={onRetryMaskiner} manadNamn={MANAD_NAMN[manad - 1]} />
       {oppen && (
         <BolagSheet
           open
@@ -113,6 +119,56 @@ function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }:
         )}
       </div>
     </Kort>
+  )
+}
+
+/** MASKINER: en rad per aktiv maskin — månadens volym, var den senast producerade, takt, oskotat på objektet. Ingen stapel, ingen färg. */
+function MaskinSektion({ maskiner, fel, onRetry, manadNamn }: { maskiner: MaskinManad[] | null; fel: string | null; onRetry: () => void; manadNamn: string }) {
+  const rubrik = manadNamn.toUpperCase()
+  if (fel) {
+    return (
+      <Lista>
+        <Sektion rubrik={`Maskiner · ${rubrik}`}>
+          <div style={{ textAlign: 'center', padding: '12px 0' }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: T.t1, marginBottom: 12 }}>Kunde inte läsa maskinerna – försök igen</div>
+            <button type="button" onClick={onRetry} style={knapp}>Försök igen</button>
+          </div>
+        </Sektion>
+      </Lista>
+    )
+  }
+  return (
+    <Lista>
+      {(['skordare', 'skotare'] as const).map(roll => (
+        <Sektion key={roll} rubrik={`${roll === 'skordare' ? 'Skördare' : 'Skotare'} · ${rubrik}`}>
+          {maskiner == null ? (
+            <div style={{ fontSize: 14, color: T.t2, padding: '10px 0 12px' }}>Laddar maskiner…</div>
+          ) : maskiner.filter(m => m.roll === roll).length === 0 ? (
+            <div style={{ fontSize: 14, color: T.t2, padding: '10px 0 12px' }}>Inga aktiva maskiner</div>
+          ) : (
+            maskiner.filter(m => m.roll === roll).map(m => {
+              const har = m.volym_manad > 0
+              const delar: string[] = []
+              if (har) {
+                if (m.objekt_namn) delar.push(kortNamn(m.objekt_namn))
+                if (m.takt_per_dag != null) delar.push(`${fmt(m.takt_per_dag)}/dag`)
+                if (roll === 'skotare' && m.oskotat_objekt != null) delar.push(`oskotat på objektet ${fmt(m.oskotat_objekt)}`)
+              }
+              return (
+                <ListRad
+                  key={m.maskin_id}
+                  namn={m.modell || m.maskin_id}
+                  tal={har ? <>{fmt(m.volym_manad)}<span style={{ color: T.t2 }}> m³fub</span></> : '–'}
+                  talTon={har ? 'normal' : 'muted'}
+                  under={har ? delar.join(' · ') : `Ingen produktion i ${manadNamn}`}
+                  underMuted={!har}
+                />
+              )
+            })
+          )}
+        </Sektion>
+      ))}
+    </Lista>
   )
 }
 

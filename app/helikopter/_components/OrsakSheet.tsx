@@ -1,13 +1,12 @@
 'use client'
 
-// Veckoorsak: ett textfält, max 60 tecken, Spara/Avbryt. Tom text tar bort orsaken.
+// Veckoorsak: ett textfält (max ORSAK_MAX_TECKEN), Spara/Avbryt. Tom text tar bort orsaken.
 import { useEffect, useState } from 'react'
 import { Sheet } from '@/components/Sheet'
 import { T } from '@/lib/utbildning'
 import { sparaOrsak, type Typ } from '../_lib/queries'
+import { ORSAK_MAX_TECKEN as MAX } from '../_lib/trosklar'
 import { knapp } from './Tillstand'
-
-const MAX = 60
 
 type Props = {
   open: boolean

@@ -94,6 +94,21 @@ export type MaskinLage = {
 
 export type StoppRad = { id: string; fran_datum: string; till_datum: string; orsak: string; maskiner: string[] }
 
+export type BestallningRad = { typ: Typ; bolag: string; volym: number }
+
+/** Uppföljningens MASKINER-sektion: en rad per aktiv maskin (helikopter_ny_maskiner). */
+export type MaskinManad = {
+  maskin_id: string
+  modell: string | null
+  roll: 'skordare' | 'skotare'
+  volym_manad: number
+  objekt_namn: string | null
+  takt_per_dag: number | null
+  takt_dagar: number
+  oskotat_objekt: number | null
+  senast_datum: string | null
+}
+
 export type OskotatObjekt = { typ: Typ; objekt_id: string; namn: string | null; bolag: string | null; skordat: number; skotat: number; oskotat: number; senast_datum: string | null }
 
 export type VeckaRad = {
@@ -180,22 +195,23 @@ function normVecka(r: any): VeckaRad {
   }
 }
 
-export type Manadsdata = { spar: SparRad[]; arbetsdagar: Arbetsdagar[]; planering: PlaneringObjekt[]; stopp: StoppRad[] }
+export type Manadsdata = { spar: SparRad[]; arbetsdagar: Arbetsdagar[]; planering: PlaneringObjekt[]; stopp: StoppRad[]; bestallningar: BestallningRad[] }
 
 /** Månadsberoende: spår, arbetsdagar, månadens objekt. Hämtas om vid månadsbyte. */
 export async function hamtaManadsdata(ar: number, manad: number, idag: string): Promise<Svar<Manadsdata>> {
   const forsta = `${ar}-${String(manad).padStart(2, '0')}-01`
   const sista = new Date(ar, manad, 0)
   const sistaIso = `${sista.getFullYear()}-${String(sista.getMonth() + 1).padStart(2, '0')}-${String(sista.getDate()).padStart(2, '0')}`
-  const [spar, dagar, plan, stopp, stoppMaskin] = await Promise.all([
+  const [spar, dagar, plan, stopp, stoppMaskin, best] = await Promise.all([
     rpc<any[]>('helikopter_ny_spar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_arbetsdagar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_planering', { p_ar: ar, p_manad: manad }),
     hamtaAlla<any>(() => supabase.from('stopp').select('id,fran_datum,till_datum,orsak').gte('till_datum', forsta).lte('fran_datum', sistaIso), 'id'),
     hamtaAlla<any>(() => supabase.from('stopp_maskin').select('stopp_id,maskin_id'), ['stopp_id', 'maskin_id']),
+    hamtaAlla<any>(() => supabase.from('bestallningar').select('id,typ,bolag,volym').eq('ar', ar).eq('manad', manad), 'id'),
   ])
-  const fel = spar.error ?? dagar.error ?? plan.error ?? (stopp.error ? felText(stopp.error) : null) ?? (stoppMaskin.error ? felText(stoppMaskin.error) : null)
-  if (fel) { if (stopp.error || stoppMaskin.error) console.error('[helikopter] stopp', stopp.error ?? stoppMaskin.error); return { data: null, error: fel } }
+  const fel = spar.error ?? dagar.error ?? plan.error ?? (stopp.error ? felText(stopp.error) : null) ?? (stoppMaskin.error ? felText(stoppMaskin.error) : null) ?? (best.error ? felText(best.error) : null)
+  if (fel) { if (stopp.error || stoppMaskin.error || best.error) console.error('[helikopter] stopp/bestallningar', stopp.error ?? stoppMaskin.error ?? best.error); return { data: null, error: fel } }
   const maskinerPerStopp = new Map<string, string[]>()
   for (const sm of stoppMaskin.data ?? []) maskinerPerStopp.set(sm.stopp_id, [...(maskinerPerStopp.get(sm.stopp_id) ?? []), sm.maskin_id])
   return {
@@ -204,6 +220,9 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
       arbetsdagar: (dagar.data ?? []).map(normDagar),
       planering: (plan.data ?? []).map(normPlanering),
       stopp: (stopp.data ?? []).map((s: any): StoppRad => ({ id: s.id, fran_datum: s.fran_datum, till_datum: s.till_datum, orsak: s.orsak ?? '', maskiner: maskinerPerStopp.get(s.id) ?? [] })),
+      bestallningar: (best.data ?? [])
+        .filter((b: any) => b.typ === 'gallring' || b.typ === 'slutavverkning')
+        .map((b: any): BestallningRad => ({ typ: b.typ, bolag: String(b.bolag ?? '').trim(), volym: tal(b.volym) })),
     },
     error: null,
   }
@@ -233,6 +252,20 @@ export async function hamtaBolag(ar: number, manad: number, idag: string): Promi
   const r = await rpc<any[]>('helikopter_ny_bolag', { p_ar: ar, p_manad: manad, p_idag: idag })
   if (r.error) return { data: null, error: r.error }
   return { data: (r.data ?? []).map(normBolag), error: null }
+}
+
+/** Uppföljningens maskinsektion — alla aktiva maskiner i ett anrop. Lazy när fliken öppnas. */
+export async function hamtaMaskiner(ar: number, manad: number, idag: string): Promise<Svar<MaskinManad[]>> {
+  const r = await rpc<any[]>('helikopter_ny_maskiner', { p_ar: ar, p_manad: manad, p_idag: idag })
+  if (r.error) return { data: null, error: r.error }
+  return {
+    data: (r.data ?? []).map((m: any): MaskinManad => ({
+      maskin_id: String(m.maskin_id), modell: m.modell ?? null, roll: m.roll === 'skordare' ? 'skordare' : 'skotare',
+      volym_manad: tal(m.volym_manad), objekt_namn: m.objekt_namn ?? null, takt_per_dag: talEllerNull(m.takt_per_dag),
+      takt_dagar: tal(m.takt_dagar), oskotat_objekt: talEllerNull(m.oskotat_objekt), senast_datum: m.senast_datum ?? null,
+    })),
+    error: null,
+  }
 }
 
 /** Var virket ligger: alla öppna objekt med oskotat, per typ. Lazy när sheeten öppnas. */

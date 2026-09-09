@@ -15,8 +15,8 @@ import { T } from '@/lib/utbildning'
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaFast, hamtaManadsdata, hamtaMaskinLage,
-  type BolagRad, type FastData, type Manadsdata, type MaskinLage,
+  hamtaBolag, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaMaskiner,
+  type BolagRad, type FastData, type Manadsdata, type MaskinLage, type MaskinManad,
 } from '../_lib/queries'
 import { TYPER, globalaArbetsdagar, manadStatus, maskinNamn, raknaSpar, valjBas, type SparLage } from '../_lib/berakningar'
 import type { Typ } from '../_lib/queries'
@@ -78,6 +78,8 @@ export default function HelikopterVy() {
   const [laddarManad, setLaddarManad] = useState(true)
   const [bolag, setBolag] = useState<{ nyckel: string; rader: BolagRad[] } | null>(null)
   const [bolagFel, setBolagFel] = useState<string | null>(null)
+  const [maskinerManad, setMaskinerManad] = useState<{ nyckel: string; rader: MaskinManad[] } | null>(null)
+  const [maskinerFel, setMaskinerFel] = useState<string | null>(null)
   const [maskinLage, setMaskinLage] = useState<MaskinLage | null>(null)
   const [maskinLageFel, setMaskinLageFel] = useState<string | null>(null)
 
@@ -136,6 +138,20 @@ export default function HelikopterVy() {
     })
     return () => { avbruten = true }
   }, [flik, ar, manad, idag, bolag, bolagNyckel, version])
+
+  // Maskinsektionen på Uppföljning — lazy när fliken öppnas, cachat per månad.
+  useEffect(() => {
+    if (flik !== 'uppfoljning') return
+    if (maskinerManad?.nyckel === bolagNyckel) return
+    let avbruten = false
+    setMaskinerFel(null)
+    hamtaMaskiner(ar, manad, idag).then(r => {
+      if (avbruten) return
+      if (r.error != null) setMaskinerFel(r.error)
+      else setMaskinerManad({ nyckel: bolagNyckel, rader: r.data })
+    })
+    return () => { avbruten = true }
+  }, [flik, ar, manad, idag, maskinerManad, bolagNyckel, version])
 
   const status = manadStatus(ar, manad, idag)
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
@@ -223,6 +239,7 @@ export default function HelikopterVy() {
             manad={manad}
             idag={idag}
             maskiner={fast.maskiner}
+            bestallningar={manadsdata.bestallningar}
             antalPlanerade={antalPlanerade}
             dinMaskin={dinMaskinNamn ? { maskinNamn: maskinNamn(dinMaskinNamn), lage: maskinLage, fel: maskinLageFel, onRetry: () => setVersion(v => v + 1) } : null}
           />
@@ -236,6 +253,9 @@ export default function HelikopterVy() {
             bolag={bolag?.nyckel === bolagNyckel ? bolag.rader : null}
             bolagFel={bolagFel}
             onRetryBolag={() => { setBolag(null); setVersion(v => v + 1) }}
+            maskiner={maskinerManad?.nyckel === bolagNyckel ? maskinerManad.rader : null}
+            maskinerFel={maskinerFel}
+            onRetryMaskiner={() => { setMaskinerManad(null); setVersion(v => v + 1) }}
             antalPlanerade={antalPlanerade}
             ar={ar}
             manad={manad}
