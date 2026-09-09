@@ -326,6 +326,43 @@ function raderForMaskinslag(syskon: any[], typ: string, oppnadId: string): strin
   return traff.length > 0 ? traff : [oppnadId]
 }
 
+// FILFRI SKOTARE (dim_maskin.sander_filer=false, t.ex. JD810E): manuell volym/G15 skrivs som
+// PER-MASKIN-rad — maskin_id = tilldelad skotare, volym_egen_skotning (+ volym_m3 legacy-synk),
+// g15_timmar, datum_fran NULL — exakt samma form som fördelningen (#448). ALDRIG som
+// objekt-nivå-rad (maskin_id NULL): den hoppas av per-maskin-logiken (ObjektValjare,
+// lib/skotat) → volymen syns aldrig som skotad → objektet går inte att avsluta (Åbogen,
+// Hålabäck 16 — Claude fick koppla om i DB båda gångerna). Verifierat sparande: läser
+// tillbaka VÄRDET. Städar en ev. objekt-nivå-spökrad som annars trumfar i äldre läsare.
+// Utelämnad nyckel i `v` = behåll radens befintliga värde (så G15 inte nollas när bara
+// volymen sätts, och tvärtom).
+async function sparaPerMaskinSkotning(
+  objektIds: string[], maskinId: string, v: { egen?: number | null; g15?: number | null },
+): Promise<{ ok: boolean; message: string }> {
+  const num = (x: any) => (x == null ? null : Number(x))
+  for (const oid of objektIds) {
+    const { data: bef, error: e0 } = await supabase.from('skotare_objekt_manuell')
+      .select('id, volym_egen_skotning, g15_timmar').eq('objekt_id', oid).eq('maskin_id', maskinId).is('datum_fran', null).limit(1)
+    if (e0) return { ok: false, message: 'Skotarrad (läsning): ' + e0.message }
+    const rad: any = (bef || [])[0]
+    const egen = 'egen' in v ? num(v.egen) : num(rad?.volym_egen_skotning)
+    const g15 = 'g15' in v ? num(v.g15) : num(rad?.g15_timmar)
+    const payload = { objekt_id: oid, maskin_id: maskinId, datum_fran: null as null, volym_egen_skotning: egen, volym_m3: egen, g15_timmar: g15 }
+    const q = rad
+      ? supabase.from('skotare_objekt_manuell').update(payload).eq('id', rad.id).select('id, volym_egen_skotning, g15_timmar')
+      : supabase.from('skotare_objekt_manuell').insert(payload).select('id, volym_egen_skotning, g15_timmar')
+    const { data, error } = await q
+    if (error) return { ok: false, message: 'Skotarrad: ' + error.message }
+    const r: any = (data || [])[0]
+    if (!r || num(r.volym_egen_skotning) !== egen || num(r.g15_timmar) !== g15) {
+      return { ok: false, message: 'Skotarraden landade inte — ladda om och försök igen' }
+    }
+    const { error: eDel } = await supabase.from('skotare_objekt_manuell')
+      .delete().eq('objekt_id', oid).is('maskin_id', null).is('datum_fran', null)
+    if (eDel) return { ok: false, message: 'Spökrad (rensning): ' + eDel.message }
+  }
+  return { ok: true, message: '' }
+}
+
 async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: boolean; message: string }> {
   // Bygg ovrigt_info-JSON från extern skotning-fälten
   let ovrigtInfo = null;
@@ -376,6 +413,23 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
   // 2026-07-25) så att läsningens prioritetsregel inte döljer det nya värdet.
   const harVolym = (obj.skotad_volym_manuell ?? 0) > 0
   const harG15 = (obj.skotning_g15_manuell ?? 0) > 0
+  if (obj.tilldelad_skotare) {
+    // TILLDELAD SKOTARE FINNS → per-maskin-rad, aldrig objekt-nivå (maskin_id NULL).
+    // Rör inga rader alls om inget är angivet (en fördelning får aldrig klubbas av
+    // ett tomt formulär). Manuell-rutan direktsparar samma väg; detta är spegeln
+    // vid Spara så batch-vägen inte kan återskapa NULL-raden.
+    if (harVolym || harG15) {
+      const r4 = await sparaPerMaskinSkotning(skotarIds, obj.tilldelad_skotare, {
+        ...(harVolym ? { egen: Number(obj.skotad_volym_manuell) } : {}),
+        ...(harG15 ? { g15: Number(obj.skotning_g15_manuell) } : {}),
+      })
+      if (!r4.ok) return r4
+    }
+    return { ok: true, message: '' }
+  }
+  // INGEN tilldelad skotare (legacy, objekt-nivå): skriv om objektets manuella data i sin
+  // helhet — DELETE utan maskin_id-filter tar även maskinspecifika rader (migrerade
+  // 2026-07-25) så att läsningens prioritetsregel inte döljer det nya värdet.
   const { error: delManuellErr } = await supabase
     .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds)
   if (delManuellErr) return { ok: false, message: 'Skotarvolym (rensning): ' + delManuellErr.message }
@@ -1947,17 +2001,33 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
           const mObj = skotarLista.find((m: any) => m.maskin_id === obj.tilldelad_skotare)
           const namn = mObj ? ((mObj.visningsnamn && String(mObj.visningsnamn).trim()) || mObj.modell || mObj.maskin_id) : (obj.tilldelad_skotare || 'skotaren')
           const radRam = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, marginTop: 8 }
+          // DIREKTSAVE per maskin (filfri skotare): raden maskin_id = tilldelad skotare får
+          // volym_egen_skotning / g15_timmar — samma form som fördelningen. Dim-kolumnerna
+          // speglas (legacy-läsare, #334) och snapshotet uppdateras så inget räknas som osparat.
+          const sparaFilfri = async (falt: 'egen' | 'g15', v: number | null) => {
+            const dimKey = falt === 'egen' ? 'skotad_volym_manuell' : 'skotning_g15_manuell'
+            set({ ...obj, [dimKey]: v })
+            if (!obj.tilldelad_skotare) { setFardigskotat({ sparar: false, fel: 'Ingen tilldelad skotare — välj skotare nedan först.' }); return }
+            const ids = raderForMaskinslag(syskon || [obj], 'forwarder', obj.objekt_id)
+            setFardigskotat({ sparar: true, fel: '' })
+            const r = await sparaPerMaskinSkotning(ids, obj.tilldelad_skotare, falt === 'egen' ? { egen: v } : { g15: v })
+            if (!r.ok) { setFardigskotat({ sparar: false, fel: r.message }); return }
+            const spegel = await direktPatchDimObjekt(ids, { [dimKey]: v })
+            if (!spegel.ok) { setFardigskotat({ sparar: false, fel: 'Sparat på maskinen — men speglingen: ' + spegel.message }); return }
+            if (onRaderUppdaterade) onRaderUppdaterade(ids, { [dimKey]: v })
+            setFardigskotat({ sparar: false, fel: '' })
+          }
           return (
             <div style={{ marginBottom: 10, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,159,10,0.06)', border: '1px solid rgba(255,159,10,0.2)' }}>
               <div style={{ ...styles.subsectionLabel, marginTop: 0 }}>Manuell rapportering — {namn} (sänder inga filer)</div>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5, marginBottom: 4 }}>
-                Inga filer kommer från maskinen. Ange G15-timmar och skotad volym manuellt — de räknas till {namn} i uppföljningen, källmärkta som manuella. Sparas med Spara-knappen.
+                Inga filer kommer från maskinen. Ange G15-timmar och skotad volym manuellt — de räknas till {namn} i uppföljningen, källmärkta som manuella. Sparas direkt när du lämnar fältet — på maskinens rad, så objektet går att avsluta.
               </div>
               <div style={radRam}>
-                <NumField label="G15-timmar" value={obj.skotning_g15_manuell ?? null} onChange={(v: number | null) => set({ ...obj, skotning_g15_manuell: v })} placeholder="0" suffix="h" />
+                <PlanNum label="G15-timmar" value={obj.skotning_g15_manuell ?? null} suffix="h" onCommit={(v: number | null) => sparaFilfri('g15', v)} />
               </div>
               <div style={radRam}>
-                <NumField label="Skotad volym" value={obj.skotad_volym_manuell ?? null} onChange={(v: number | null) => set({ ...obj, skotad_volym_manuell: v })} placeholder="0" suffix="m³" />
+                <PlanNum label="Skotad volym" value={obj.skotad_volym_manuell ?? null} suffix="m³" onCommit={(v: number | null) => sparaFilfri('egen', v)} />
               </div>
               {m3PerG15 != null && (
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>
@@ -1999,6 +2069,12 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
             if (arRisjobb) patch.skotning_avslutad = varde == null ? null : idagDatum
             const r = await direktPatchDimObjekt(skotarIds, patch)
             if (!r.ok) { setFardigskotat({ sparar: false, fel: r.message }); return }
+            if (obj.tilldelad_skotare) {
+              // TILLDELAD SKOTARE (t.ex. filfri JD810E) → färdigskotat = per-maskin-raden
+              // får volymen (volym_egen_skotning), G15 behålls. Aldrig objekt-nivå-rad.
+              const rp = await sparaPerMaskinSkotning(skotarIds, obj.tilldelad_skotare, { egen: varde })
+              if (!rp.ok) { setFardigskotat({ sparar: false, fel: rp.message }); return }
+            } else {
             // Spegla till skotare_objekt_manuell (primär läskälla sedan DEL 0).
             // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
             // maskin_id-filter tar även maskinspecifika rader så att prioritetsregeln
@@ -2039,6 +2115,7 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
               )
               if (insErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (ny tabell): ' + insErr.message }); return }
             }
+            } // slut: ingen tilldelad skotare (legacy objekt-nivå)
             if (arRisjobb) {
               // Automatiken körs EFTER att markeringen landat. Misslyckas den
               // visas felet — en halvkörd avbockning tigs aldrig ihjäl.
@@ -2260,6 +2337,34 @@ function NamnRad({ obj, set, direktSpara }: any) {
 // stället för kontrollen. Aldrig tyst misslyckande; ingen rad skapas (Etapp 0).
 const PLAN_INPUT = { flex: 1, maxWidth: '62%', minHeight: 36, borderRadius: 8, background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', fontSize: 14, fontFamily: 'inherit', padding: '0 8px', textAlign: 'right' } as any
 const TRAKT_IMPORT_KRAVS = <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>kräver trakt-import</span>
+
+// C: "trakt säger: X" — trakt-importens värde (objekt-tabellen) visas under fältet
+// när det skiljer sig från dim-värdet (11 markägar-krockar i prod, ofta stavfel)
+// eller när dim är tomt. Ett tryck skriver trakt-värdet via routern (speglas till
+// båda tabellerna, Martins värde vinner tills han trycker). "ur trakt-import" när
+// provenansen (dim_objekt.auto_ifyllt, B) säger att värdet kom därifrån — läses
+// defensivt, kolumnen finns först när B-migrationen körts.
+function TraktSager({ trakt, dim, provenans, onAnvand }: any) {
+  const t = String(trakt ?? '').trim()
+  const d = String(dim ?? '').trim()
+  if (!t) return null
+  if (t.toLowerCase() === d.toLowerCase()) {
+    return provenans === 'trakt'
+      ? <div style={{ padding: '0 16px 10px', fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>ur trakt-import</div>
+      : null
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px 10px' }}>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        trakt säger: <span style={{ color: 'rgba(255,255,255,0.85)' }}>{t}</span>
+      </span>
+      <button type="button" className="tap-press" onClick={() => onAnvand(t)}
+        style={{ minHeight: 44, padding: '0 14px', borderRadius: 10, border: '1px solid rgba(173,198,255,0.35)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0 }}>
+        {d ? 'Använd' : 'Fyll i'}
+      </button>
+    </div>
+  )
+}
 
 function PlanRad({ label, children }: any) {
   return (
@@ -2629,6 +2734,8 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
               />
             </div>
           </KravRad>
+          {objektRad && <TraktSager trakt={objektRad.markagare} dim={obj.skogsagare} provenans={obj.auto_ifyllt?.skogsagare}
+            onAnvand={(v: string) => { set({ ...obj, skogsagare: v }); direktSpara({ markagare: v }) }} />}
         </div>
         <div id="atgard-section">
           <KravRad label="Åtgärd" value={obj.atgard} expanded={oppetFalt === 'atgard'} onToggle={() => setOppetFalt(oppetFalt === 'atgard' ? null : 'atgard')}>
@@ -2648,9 +2755,13 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
           <ChipInput embedded label="Inköpare" value={obj.inkopare || ''} options={inkopare} setOptions={setInkopare}
             onChange={(v: any) => { set({ ...obj, inkopare: v }); direktSpara({ inkopare: v || null }) }}
             onAddOption={listAtgarder?.onAddInkopare} onRemoveOption={listAtgarder?.onRemoveInkopare} />
+          {objektRad && <TraktSager trakt={objektRad.inkopare} dim={obj.inkopare} provenans={obj.auto_ifyllt?.inkopare}
+            onAnvand={(v: string) => { set({ ...obj, inkopare: v }); direktSpara({ inkopare: v }) }} />}
         </div>
         <PlanText label="Avverkningsform" value={obj.avverkningsform} placeholder="t.ex. Föryngringsavverkning"
           onCommit={(v: any) => { set({ ...obj, avverkningsform: v }); direktSpara({ avverkningsform: v }) }} />
+        {objektRad && <TraktSager trakt={objektRad.avverkningsform} dim={obj.avverkningsform} provenans={obj.auto_ifyllt?.avverkningsform}
+          onAnvand={(v: string) => { set({ ...obj, avverkningsform: v }); direktSpara({ avverkningsform: v }) }} />}
       </IosGroup>
 
       {/* Egenskaper per maskinslag — maskinspecifika fält skrivs bara till det
@@ -2820,7 +2931,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       if (avbruten) return
       if (!rad) { setObjektRad(null); setObjektRadLaddar(false); return }
       const { data } = await supabase.from('objekt')
-        .select('id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, volym, vo_nummer')
+        .select('id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, volym, vo_nummer, markagare, inkopare, avverkningsform')
         .eq('id', rad.id).limit(1)
       if (avbruten) return
       setObjektRad((data && data[0]) || { id: rad.id })

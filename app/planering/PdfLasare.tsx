@@ -23,13 +23,87 @@ function sakraPromiseWithResolvers() {
 
 type Status = 'laddar' | 'klar' | 'fel';
 
-export default function PdfLasare({ signedUrl, titel, onClose }: {
+export default function PdfLasare({ signedUrl, titel, onClose, delaFilnamn }: {
   signedUrl: string;
   titel: string;
   onClose: () => void;
+  /** Sätts → en "Dela / spara"-knapp i headern. Hämtar PDF:en (same-origin,
+   *  cookie följer med) och lämnar den till delningsarket (navigator.share med
+   *  fil — iOS 15+, även installerad app) så föraren SER dokumentet först och
+   *  väljer sedan om han sparar. Saknas fil-delning: öppna i ny flik. */
+  delaFilnamn?: string;
 }) {
   const [status, setStatus] = useState<Status>('laddar');
+  const [delar, setDelar] = useState(false);
   const sidytaRef = useRef<HTMLDivElement>(null);
+
+  // STÄNGNING. Läsvyn ligger ÖVER all app-chrome: appens globala TopBar
+  // (app/layout.tsx) är fixed med z-index 1000 och döljs bara på /planering —
+  // på /arbetsrapport och /redigering täckte den läsvyns header så krysset
+  // inte gick att nå (Martin satt fast i tidsspecen, 2026-09-07). Därför
+  // z 3000+, och tre vägar ut: stort kryss (44 px, handskvänligt), telefonens
+  // bakåtgest (history-post som poppas) och Escape. Alla går till onClose —
+  // föräldern nollar bara sin state, så man landar där man var.
+  const stangdRef = useRef(false);
+  const historyPostRef = useRef(false);
+  const stang = () => {
+    if (stangdRef.current) return;
+    stangdRef.current = true;
+    if (historyPostRef.current) {
+      // Vår post ligger överst → back poppar den; popstate-lyssnaren nedan
+      // ser stangdRef och anropar inte onClose två gånger.
+      historyPostRef.current = false;
+      try { window.history.back(); } catch { /* ignoreras */ }
+    }
+    onClose();
+  };
+  useEffect(() => {
+    try {
+      window.history.pushState({ pdfLasare: true }, '', window.location.href);
+      historyPostRef.current = true;
+    } catch { /* ingen history — krysset räcker */ }
+    const onPop = () => {
+      historyPostRef.current = false;
+      if (!stangdRef.current) { stangdRef.current = true; onClose(); }
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') stang(); };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('keydown', onKey);
+      // Avmonterad utan back (t.ex. föräldern nollade state själv): ta bort
+      // vår post så nästa bakåtgest inte bara "gör ingenting".
+      if (historyPostRef.current) { historyPostRef.current = false; try { window.history.back(); } catch { /* ignoreras */ } }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const dela = async () => {
+    if (!delaFilnamn || delar) return;
+    setDelar(true);
+    try {
+      const r = await fetch(signedUrl, { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const fil = new File([blob], delaFilnamn, { type: 'application/pdf' });
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+      if (typeof nav.share === 'function' && (!nav.canShare || nav.canShare({ files: [fil] }))) {
+        await nav.share({ files: [fil], title: titel });
+      } else {
+        // Ingen fil-delning (äldre webbläsare/desktop): öppna dokumentet i ny flik —
+        // därifrån finns webbläsarens egna spara/skriv ut.
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank', 'noopener');
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+    } catch (e: any) {
+      // Avbruten delning (AbortError) är inte ett fel.
+      if (e?.name !== 'AbortError') console.warn('[PdfLasare] dela misslyckades', e?.message || e);
+    } finally {
+      setDelar(false);
+    }
+  };
 
   useEffect(() => {
     let avbruten = false;
@@ -91,22 +165,28 @@ export default function PdfLasare({ signedUrl, titel, onClose }: {
 
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 490 }} />
+      <div onClick={stang} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 3000 }} />
       <div style={{
-        position: 'fixed', inset: 0, zIndex: 495, display: 'flex', flexDirection: 'column',
+        position: 'fixed', inset: 0, zIndex: 3010, display: 'flex', flexDirection: 'column',
         background: '#0d0d0f',
         paddingTop: 'env(safe-area-inset-top, 0px)',
         fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
       }}>
-        {/* Header */}
+        {/* Header — krysset uppe till höger, 44 px: träffas med handske */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 10px 10px 14px',
           borderBottom: '1px solid rgba(255,255,255,0.1)', flexShrink: 0,
         }}>
           <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titel}</span>
-          <button type="button" onClick={onClose} aria-label="Stäng" style={{
-            width: 36, height: 36, borderRadius: 18, border: 'none', background: 'rgba(255,255,255,0.12)',
-            color: 'rgba(255,255,255,0.85)', fontSize: 17, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit',
+          {delaFilnamn && status === 'klar' && (
+            <button type="button" onClick={dela} disabled={delar} style={{
+              height: 44, padding: '0 16px', borderRadius: 22, border: 'none', background: 'rgba(77,163,255,0.18)',
+              color: '#4da3ff', fontSize: 15, fontWeight: 600, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit', opacity: delar ? 0.6 : 1,
+            }}>{delar ? 'Delar…' : 'Dela / spara'}</button>
+          )}
+          <button type="button" onClick={stang} aria-label="Stäng" style={{
+            width: 44, height: 44, borderRadius: 22, border: 'none', background: 'rgba(255,255,255,0.16)',
+            color: '#fff', fontSize: 22, lineHeight: '44px', cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit', padding: 0,
           }}>✕</button>
         </div>
 
@@ -130,7 +210,7 @@ export default function PdfLasare({ signedUrl, titel, onClose }: {
           <div style={{ position: 'absolute', left: 0, right: 0, top: 58, bottom: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, textAlign: 'center' }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Kunde inte läsa dokumentet</div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', maxWidth: 300, lineHeight: 1.5 }}>Dokumentet gick inte att öppna. Kontrollera nätet och försök igen.</div>
-            <button type="button" onClick={onClose} style={{ marginTop: 4, padding: '10px 22px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Stäng</button>
+            <button type="button" onClick={stang} style={{ marginTop: 4, padding: '10px 22px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Stäng</button>
           </div>
         )}
       </div>

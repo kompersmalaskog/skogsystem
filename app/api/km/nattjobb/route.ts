@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { beraknaOchPersisteraDagKm, hamtaObjektKoordinater, ObjektKoord } from "@/lib/routing";
 import { ymdLokal } from "@/lib/datumLokal";
+import { franGolv } from "@/lib/skarpStart";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -13,7 +14,7 @@ export const maxDuration = 60;
  * fångar bara det som föll mellan stolarna.
  *
  * Delar EXAKT kodväg med app + bekräftelse via lib/routing beraknaOchPersisteraDagKm
- * (dagensPlatser + routeKm + samma vakt: km 0/null · redigerad=false · km_kalla ≠
+ * (dagensPlatser + routeKm + samma vakt: km 0/null · km_kalla ≠
  * 'forare' · koordinat finns · ben ≤ 250 km). Rör bara km-fälten + km_kalla='auto'.
  *
  * Bearer CRON_SECRET. Rapporterar exakt vilka dagar som fylldes (med värden) och
@@ -59,16 +60,19 @@ export async function GET(request: NextRequest) {
     idag = ymdLokal(new Date());
     const franDate = new Date();
     franDate.setDate(franDate.getDate() - FONSTER_DAGAR);
-    fran = ymdLokal(franDate);
+    // Fönstret klipps mot skarp start: dagar före 2026-08-01 är byggmaterial
+    // och får aldrig fyllas automatiskt (lib/skarpStart).
+    fran = franGolv(ymdLokal(franDate));
 
-    // Oskyddade dagar i fönstret (redigerad=false). km-nollhet + km_kalla-vakt
-    // avgörs i helpern. Bekräftade dagar tas MED — de är just de som ingen öppnar
-    // igen och som annars förblir tomma (Stefan 08-18-fallet).
+    // Alla dagar i fönstret — även redigerade (vakten på redigerad togs bort
+    // 2026-09-09: redigerad = tiderna/maskinen rättade, inte km; se lib/routing).
+    // km-nollhet + km_kalla-vakt avgörs i helpern. Bekräftade dagar tas MED — de
+    // är just de som ingen öppnar igen och som annars förblir tomma (Stefan
+    // 08-18-fallet). Det ENDA skyddet för en medveten km-uppgift är km_kalla='forare'.
     const { data: arb, error: arbErr } = await supabase
       .from("arbetsdag")
       .select("id, medarbetare_id, datum, objekt_id, km_morgon, km_kvall, km_totalt, redigerad, km_kalla, bekraftad")
       .gte("datum", fran).lte("datum", idag)
-      .eq("redigerad", false)
       .order("datum", { ascending: true });
     if (arbErr) return NextResponse.json({ error: "kunde inte hämta arbetsdag", details: arbErr.message }, { status: 500 });
 

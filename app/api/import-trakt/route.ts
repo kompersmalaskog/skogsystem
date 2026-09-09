@@ -12,6 +12,9 @@ import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
 
 export const runtime = 'nodejs'; // JSZip + unpdf + fast-xml-parser behöver Node-runtime, inte edge
+// Stora trakter (fyra traktkartor + översikt = 40+ MB) tar tid: uppackning + base64 av ~46
+// bilagor + flera stora PDF-uppladdningar. Default-maxDuration timeoutade (889174). 300 s = tak.
+export const maxDuration = 300;
 
 // Klient med ANVÄNDARENS session (cookies). Uppladdningar till kartbilder-bucketen går då
 // genom storage-policyerna (privat bucket, bara admin skriver) istället för anonymt.
@@ -65,7 +68,23 @@ function sweref99ToWgs84(n: number, e: number): { lat: number; lng: number } {
   return { lat, lng };
 }
 
+// Loggar ett misslyckat trakt-importförsök i import_fel (läses av /datahalsa "Tappades något vid
+// import?"). Så att en 500:ad import syns i appen i stället för att lämna en föräldralös fil i
+// trakt-inbox som ingen tittar i (Wisent-läxan: tyst tapp upptäcks aldrig). En död funktion
+// (OOM/timeout) kan inte logga sig själv — då loggar klienten via /api/import-trakt/logga-fel.
+// Best-effort: en misslyckad loggning får ALDRIG maskera originalfelet.
+async function loggaImportFel(service: any, filnamn: string | null, felkod: string, feltext: string) {
+  try {
+    await service.from('import_fel').insert({
+      tabell: 'objekt', filnamn, felkod, feltext: (feltext ?? '').slice(0, 2000),
+    });
+  } catch (e) {
+    console.error('Kunde inte logga import_fel:', e);
+  }
+}
+
 export async function POST(request: NextRequest) {
+  let sokvagForLogg: string | null = null; // hoistad så catch kan logga vilken fil som föll
   try {
     // Auth-gate: trakt-importen skriver markägardata — bara inloggad admin får köra den.
     const supabase = await skapaInloggadKlient();
@@ -90,6 +109,7 @@ export async function POST(request: NextRequest) {
     if (!sokvag || typeof sokvag !== 'string') {
       return NextResponse.json({ error: 'sokvag saknas' }, { status: 400 });
     }
+    sokvagForLogg = sokvag;
 
     const service = skapaServiceKlient();
     const { data: blob, error: dlErr } = await service.storage.from('trakt-inbox').download(sokvag);
@@ -100,9 +120,17 @@ export async function POST(request: NextRequest) {
       );
     }
     const arrayBuffer = await blob.arrayBuffer();
-    const zip = await JSZip.loadAsync(arrayBuffer);
 
     const varningar: string[] = [];
+
+    // Tak-varning: bucketen tar 100 MB, men vi vill VETA när vi närmar oss i stället för att
+    // upptäcka det genom ett avvisat objekt mitt i en arbetsdag. Vid >50 MB (halva taket) logga
+    // i import_varningar. Den här var 43,6 MB (fyra traktkartor + översiktskarta); nästa kan vara
+    // 80. blob.size = råfilens byte, före uppackning.
+    const filMB = blob.size / (1024 * 1024);
+    if (blob.size > 50 * 1024 * 1024) {
+      varningar.push(`Filen är ${filMB.toFixed(1)} MB — över 50 MB (halva taket 100 MB). Håll koll så vi inte slår i taket.`);
+    }
 
     // Envz (StanForD Envelope) eller vanlig zip? packaUppEnvz -> null om ingen .env (= zip).
     const envz = await packaUppEnvz(arrayBuffer);
@@ -120,11 +148,17 @@ export async function POST(request: NextRequest) {
       varningar.push(...envz.varningar);
       bilagor = envz.bilagor;
       ogiXml = envz.ogiXml;
+      // buf ÄR redan en Buffer (Uint8Array-subklass) — referera den, kopiera INTE med
+      // new Uint8Array (sparar ~39 MB på en trakt med fyra 7–10 MB-kartor). pdf.js får en
+      // egen kopia först vid textutdraget nedan (enda stället bufferten kan behöva vara fristående).
       for (const [namn, buf] of Array.from(bilagor)) {
-        if (/\.pdf$/i.test(namn)) pdfer.push({ namn, bytes: new Uint8Array(buf) });
+        if (/\.pdf$/i.test(namn)) pdfer.push({ namn, bytes: buf });
         else if (/object-info\.xml$/i.test(namn)) objektinfoXml = buf.toString('utf-8');
       }
     } else {
+      // JSZip laddas BARA i zip-fallbacken. För envz laddade packaUppEnvz redan arkivet —
+      // en andra JSZip.loadAsync här höll ett helt extra arkiv i minnet i onödan (~40 MB).
+      const zip = await JSZip.loadAsync(arrayBuffer);
       for (const [filename, entry] of Object.entries(zip.files)) {
         if (entry.dir) continue;
         const l = filename.toLowerCase();
@@ -140,6 +174,14 @@ export async function POST(request: NextRequest) {
       envzUttag = parseObjektInfo(objektinfoXml, ogiXml);
       varningar.push(...envzUttag.varningar);
       if (!executorGodkand(envzUttag.executor)) {
+        // Logga den AVVISADE leveransen i import_fel (utöver att visa felet) så vi har historik
+        // över vad som stoppats — en avvisning som bara visas för den som råkar importera glöms.
+        // Rik kontext så raden är självförklarande i /datahalsa: org.nr, trakt, VO, requestor.
+        await loggaImportFel(
+          service, sokvag, 'EXECUTOR_AVVISAD',
+          `Executor "${envzUttag.executor ?? 'saknas'}" matchar inte ${forvantadExecutorOrgnr()}. ` +
+          `Trakt ${envzUttag.falt.traktnr ?? '?'} (${envzUttag.falt.namn ?? '?'}), VO ${envzUttag.falt.vo_nummer ?? '?'}, Requestor ${envzUttag.falt.bolag ?? '?'}.`,
+        );
         return NextResponse.json(
           { error: `Executor "${envzUttag.executor ?? 'saknas'}" matchar inte ${forvantadExecutorOrgnr()} — annan entreprenörs leverans, inget objekt skapat.` },
           { status: 403 }
@@ -165,9 +207,12 @@ export async function POST(request: NextRequest) {
     let text = '';
     try {
       const { extractText } = await import('unpdf');
-      text = (await extractText(klass.traktdirektiv.bytes.slice(), { mergePages: true })).text || '';
-    } catch (e) {
+      // Egen kopia till pdf.js (bytes kan nu vara en Buffer, vars .slice() ger en delad vy;
+      // new Uint8Array kopierar). Bara traktdirektivet läses som text — inte de stora kartorna.
+      text = (await extractText(new Uint8Array(klass.traktdirektiv.bytes), { mergePages: true })).text || '';
+    } catch (e: any) {
       console.error('PDF extraction failed:', e);
+      await loggaImportFel(service, sokvag, 'PDF_LAS', `Kunde inte läsa traktdirektiv-PDF: ${e?.message ?? e}`);
       return NextResponse.json({ error: 'Kunde inte läsa PDF' }, { status: 500 });
     }
     const td = parseTraktdirektivText(text, traktnrFromFilename);
@@ -180,6 +225,9 @@ export async function POST(request: NextRequest) {
       cert: td.cert, typ: td.typ, volym: td.volym, areal: td.areal,
       grot: td.grot, anteckningar: td.anteckningar, sortiment: td.sortiment,
       larmkoordinat_lat: td.larmkoordinat?.lat, larmkoordinat_lng: td.larmkoordinat?.lng,
+      // Kontraktsnr finns BARA i TD-texten (OGI ContractNumber = VO, mappas ej sedan #512).
+      // envz vinner bara där den har värde → TD-värdet står kvar.
+      kontraktsnummer: td.kontraktsnummer,
     };
     const falt = envzUttag ? mergeFalt(tdRecord, envzUttag.falt) : tdRecord;
 
@@ -254,16 +302,38 @@ export async function POST(request: NextRequest) {
       if (pdfErr) { console.error(`PDF-uppladdning (${path}) misslyckades:`, pdfErr); return null; }
       return path;
     };
-    const traktdirektiv_url = await laddaUppPdf(klass.traktdirektiv.bytes, `${traktnr}_traktdirektiv.pdf`);
-    const traktkarta_url = await laddaUppPdf(klass.traktkarta?.bytes ?? null, `${traktnr}_traktkarta.pdf`);
-    const stamplingslangd_url = await laddaUppPdf(klass.stamplingslangd?.bytes ?? null, `${traktnr}_stamplingslangd.pdf`);
-    const valtlapp_url = await laddaUppPdf(klass.valtlapp?.bytes ?? null, `${traktnr}_valtlapp.pdf`);
-    const ovriga_dokument: { namn: string; path: string }[] = [];
-    for (let i = 0; i < klass.ovriga.length; i++) {
-      const o = klass.ovriga[i];
-      const path = await laddaUppPdf(o.bytes, `${traktnr}_ovrigt_${i}.pdf`);
-      if (path) ovriga_dokument.push({ namn: o.namn, path }); // originalnamn bevarat + synligt
-    }
+    // Alla PDF-uppladdningar körs PARALLELLT. De är oberoende och nätverksbundna; sekventiellt
+    // låg 5 stora blad (~40 MB) i rad och bidrog till timeouten på 889174. Buffertarna finns redan
+    // i minnet (bilagor), så parallellt kostar ingen extra minnestopp — bara kortare väggklocka.
+    // Promise.all bevarar ordningen, så traktkartornas index/ordning står kvar. Storage-path är
+    // ren ASCII (traktnr numeriskt) — inget Å/Ä/Ö i nyckeln.
+    const [
+      traktdirektiv_url,
+      stamplingslangd_url,
+      valtlapp_url,
+      oversiktskarta_url,
+      traktkartaResultat,
+      ovrigaResultat,
+    ] = await Promise.all([
+      laddaUppPdf(klass.traktdirektiv.bytes, `${traktnr}_traktdirektiv.pdf`),
+      laddaUppPdf(klass.stamplingslangd?.bytes ?? null, `${traktnr}_stamplingslangd.pdf`),
+      laddaUppPdf(klass.valtlapp?.bytes ?? null, `${traktnr}_valtlapp.pdf`),
+      laddaUppPdf(klass.oversiktskarta?.bytes ?? null, `${traktnr}_oversiktskarta.pdf`),
+      Promise.all(klass.traktkartor.map((tk, i) =>
+        laddaUppPdf(tk.bytes, `${traktnr}_traktkarta_${i + 1}.pdf`)
+          .then((path) => (path ? { namn: tk.namn, path, ordning: tk.ordning } : null)),
+      )),
+      Promise.all(klass.ovriga.map((o, i) =>
+        laddaUppPdf(o.bytes, `${traktnr}_ovrigt_${i}.pdf`)
+          .then((path) => (path ? { namn: o.namn, path } : null)),
+      )),
+    ]);
+    // traktkarta_url = första bladet (ordning 1) så befintlig UI (pill, prickar, planering) fungerar.
+    const traktkartor = traktkartaResultat
+      .filter((x): x is { namn: string; path: string; ordning: number } => x !== null)
+      .sort((a, b) => a.ordning - b.ordning);
+    const traktkarta_url = traktkartor[0]?.path ?? null;
+    const ovriga_dokument = ovrigaResultat.filter((x): x is { namn: string; path: string } => x !== null);
 
     const harLarm = falt.larmkoordinat_lat != null && falt.larmkoordinat_lng != null;
 
@@ -280,7 +350,7 @@ export async function POST(request: NextRequest) {
       markagare_tel: falt.markagare_tel || null,            // TD-parsern
       markagare_epost: falt.markagare_epost || null,        // TD-parsern
       fastighetsbeteckning: falt.fastighetsbeteckning || null, // OGI RealEstateIDObject (ny)
-      kontraktsnummer: falt.kontraktsnummer || null,        // OGI ContractNumber (ny)
+      kontraktsnummer: falt.kontraktsnummer || null,        // TD-parsern (header "Kontraktsnr … anges vid fakturering"); aldrig VO
       cert: falt.cert || null,
       typ: falt.typ,
       atgard: falt.typ === 'slutavverkning' ? 'Au' : 'Gallring',
@@ -303,7 +373,9 @@ export async function POST(request: NextRequest) {
       kartbild_bounds,
       traktdirektiv_url,
       stamplingslangd_url,
-      traktkarta_url,
+      traktkarta_url,                                          // första bladet (bakåtkompatibel)
+      traktkartor: traktkartor.length > 0 ? traktkartor : null, // alla blad [{namn, path, ordning}]
+      oversiktskarta_url,                                      // _ÖK.pdf (egen typ)
       valtlapp_url,
       ovriga_dokument: ovriga_dokument.length > 0 ? ovriga_dokument : null,
       import_varningar: varningar.length > 0 ? varningar : null,
@@ -361,7 +433,10 @@ export async function POST(request: NextRequest) {
 
       const { data: upd, error: updErr } = await supabase
         .from('objekt').update(patch).eq('id', befintlig.id).select().single();
-      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+      if (updErr) {
+        await loggaImportFel(service, sokvag, 'OBJEKT_UPDATE', updErr.message);
+        return NextResponse.json({ error: updErr.message }, { status: 500 });
+      }
       saved = upd;
 
       // Geometrin är importerad (inga manuella ändringar) -> ersätt helt: radera + skriv ny.
@@ -382,6 +457,7 @@ export async function POST(request: NextRequest) {
         if (error.code === '23505') {
           return NextResponse.json({ error: 'Objektet finns redan' }, { status: 409 });
         }
+        await loggaImportFel(service, sokvag, 'OBJEKT_INSERT', error.message);
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
       saved = ins;
@@ -399,6 +475,8 @@ export async function POST(request: NextRequest) {
 
   } catch (err: any) {
     console.error('Import error:', err);
+    // Best-effort synlig logg. service från try:n är inte i scope här — skapa en egen.
+    try { await loggaImportFel(skapaServiceKlient(), sokvagForLogg, 'IMPORT_500', err?.message ?? String(err)); } catch {}
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

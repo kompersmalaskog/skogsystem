@@ -83,10 +83,17 @@ export function sortimentTillagg(antalGrupper: number, conf: SortConfig | null):
 
 // Skotningsavståndstillägg för ETT lass: hela påbörjade 100 m över
 // grundavståndet × kr/100m × lassvolym.
-export function skotAvstandKr(datum: string, korstrackaM: number, volymM3: number, avstandList: AvstandConfig[]): number {
+//
+// Avståndet in är SKOTNINGSAVSTÅND (enkelriktat), aldrig fakt_lass.korstracka_m
+// (tur och retur) — parameternamnet bär enheten just därför. Lass-härledda
+// anropare konverterar med lib/skotningsavstand.skotningsavstandM();
+// dim_objekt.skotavstand_manuell är redan enkelriktad och skickas in orörd.
+// Halvera ALDRIG här: funktionen tar emot båda källorna och skulle halvera
+// det manuella värdet en andra gång.
+export function skotAvstandKr(datum: string, skotningsavstandM: number, volymM3: number, avstandList: AvstandConfig[]): number {
   const cfg = avstandList.find(c => isValidOn(datum, c.giltig_fran, c.giltig_till));
   if (!cfg) return 0;
-  const step = Math.max(0, Math.ceil((korstrackaM - cfg.grundavstand_m) / 100));
+  const step = Math.max(0, Math.ceil((skotningsavstandM - cfg.grundavstand_m) / 100));
   return step * cfg.kr_per_100m * volymM3;
 }
 

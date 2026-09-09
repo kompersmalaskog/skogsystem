@@ -25,6 +25,7 @@ import {
   fordelaSkotadVolymFrånDB, type SkotareManuellRad, ovrigtKrPerM3, type OvrigtRad,
 } from '@/lib/ekonomi/acord';
 import { type PeriodType, getPeriodDates, fetchAllRows } from '@/lib/ekonomi/period';
+import { skotningsavstandM } from '@/lib/skotningsavstand';
 import {
   EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad,
   Laddar, FelRuta, Tomt, BARNSTEN,
@@ -277,7 +278,7 @@ export default function EkonomiClient() {
         if (!fwdAgg[key]) fwdAgg[key] = { vol: 0, skotavstand_kr: 0 };
         const vol = Number(r.volym_m3sub) || 0;
         if (!manuellIds.has(r.objekt_id)) fwdAgg[key].vol += vol;
-        fwdAgg[key].skotavstand_kr += skotAvstandKr(r.datum, r.korstracka_m || 0, vol, avstandList);
+        fwdAgg[key].skotavstand_kr += skotAvstandKr(r.datum, skotningsavstandM(r.korstracka_m), vol, avstandList);
       }
       for (const [key, vol] of Object.entries(manuellPeriodDelar)) {
         if (!fwdAgg[key]) fwdAgg[key] = { vol: 0, skotavstand_kr: 0 };

@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { analyseraVilobrott, type Arbetsdag, type VilaTrosklar } from "@/lib/vilobrott";
+import { franGolv } from "@/lib/skarpStart";
 
 /**
  * Storage-lagret för vilobrott-tabellen. Håller lib/vilobrott.ts fri från
@@ -63,14 +64,15 @@ export async function hamtaVilobrottForPeriod(
 }
 
 /**
- * Hämtar vilobrott för en medarbetare de senaste 14 dagarna.
- * Används av Dag-vyns morgon-varningar och Bekräfta-flödets för-check.
+ * Hämtar vilobrott för en medarbetare de senaste `dagar` dagarna (default 14).
+ * Används av Dag-vyns "vad som väntar" (30 dagar) och Bekräfta-flödets för-check.
  */
 export async function hamtaAktuellaVilobrott(
   medarbetareId: string,
+  dagar = 14,
 ): Promise<VilobrottRad[]> {
   const från = new Date();
-  från.setDate(från.getDate() - 14);
+  från.setDate(från.getDate() - dagar);
   return hamtaVilobrottForPeriod(medarbetareId, isoDate(från), isoDate(new Date()));
 }
 
@@ -118,6 +120,12 @@ export async function analyseraOchSpara(
   fonsterFromDatum: string,
   fonsterToDatum: string,
 ): Promise<void> {
+  // SKRIVGOLV (lib/skarpStart): analysera aldrig före skarp start. Ett läsgolv
+  // hade räckt för visningen, men den här funktionen INSERT/UPDATE/DELETE:ar —
+  // ett fönster som når in i juli hade skapat/raderat brott på byggmaterial.
+  // Besvarade brott före golvet finns kvar i DB (revisionsspår) och rörs ej.
+  fonsterFromDatum = franGolv(fonsterFromDatum);
+  if (fonsterToDatum < fonsterFromDatum) return;
   const nyaBrott = analyseraVilobrott(dagar, trosklar);
   // Begränsa till analysfönstret — brott utanför är inte vår jurisdiktion.
   const nyaIFonster = nyaBrott.filter(

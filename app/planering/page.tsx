@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { gpsGuardAccepts } from '@/lib/gps-guard'
+import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
 import { signeraKartfil } from '@/lib/kartfiler'
 import DokumentChips, { harDokument } from '@/components/DokumentChips'
 import ObjektValjare from './ObjektValjare'
@@ -13,6 +13,7 @@ import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
+import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -84,6 +85,19 @@ function ritaPilIkon(farg: string, px = 80): HTMLCanvasElement {
 // körriktningen. Styr körvyns symbol-tändning, nästa-hinder-panelen ("inom fällningsradie")
 // och den framtonande radie-ringen.
 const FALLNINGSRADIE_M = 40;
+
+// FAROTYPER i körvyn — DELAD källa för både etikett-lagret (markers-korvy-label) och det förstärkta
+// faro-larmet (blink + pip). En symbol av dessa typer larmar automatiskt (OPTION A: ingen kryssruta).
+const KORVY_FARO_TYPER = new Set<string>(['powerline', 'manualfelling', 'warning', 'steep']);
+
+// Innehålls-hash för en markör (typ + kommentar). Kvittens lagrar hashen; ändras innehållet skiljer
+// hashen → symbolen återuppstår OKVITTERAD. djb2 → base36 (kort, deterministisk, ingen krypto behövs).
+function markerInnehallHash(m: { type?: string; comment?: string }): string {
+  const s = `${m.type ?? ''}|${m.comment ?? ''}`;
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
 
 // Körvy-synhåll: i körläge visas symboler/faror inom detta avstånd från FÖRAREN (GPS), inte
 // från trakt-centrum. Robust mot trakter med skevt/saknat centrum — svgToLatLon(symbol) och
@@ -169,6 +183,13 @@ function avstandPunktTillStrak(lat: number, lon: number, geometri: [number, numb
   }
   return best;
 }
+
+// HYTTSPÅR avsluts-skydd: ett långt glapp utan punkter (skärmlås/bakgrund, t.ex. hemresan) följt av en
+// punkt LÅNGT bort är inte en kontinuerlig del av arbetet. GPS-vakten (#398) släpper ändå in den för att
+// stora Δt ger låg beräknad hastighet. Tröskel: glapp > 20 min OCH hopp > 1,5 km → försegla spåret vid
+// sista giltiga punkten och kasta hopp-punkten. Kort glapp eller nära återkomst (samma trakt) rör vi inte.
+const HYTTSPAR_MAX_GAP_MS = 20 * 60 * 1000;   // 20 min utan accepterad punkt = loggningen tystnade
+const HYTTSPAR_MAX_RESUME_M = 1500;           // + hopp längre än så = annan plats, inte arbetsforts.
 
 // HYTTSPÅR: RDP-gallring av ett körspår ({lat,lng,tid}) — perp-avstånd i meter via lokal planprojektion.
 // Håller den SPARADE arrayen liten över ett helt skift (billiga skrivningar); behåller tid + ändpunkter.
@@ -526,15 +547,29 @@ export default function PlannerPage() {
       return;
     }
     let active = true;
-    (async () => {
+    // Wake Lock släpps AUTOMATISKT av webbläsaren så fort sidan blir dold (skärmen slocknar / appen
+    // bakgrundas). Utan om-begäran vid återkomst är låset borta för gott → skärmen kan slockna igen och
+    // GPS-loggningen tystnar (grundorsaken till det sena hopp-punkten i hyttspåret). Därför: begär om
+    // varje gång sidan blir synlig. iOS Safari 16.4+ stöder API:t; saknas det gör optional-chaining +
+    // try/catch detta till en tyst no-op (ingen krasch, ingen effekt) — det efterfrågade fallbacket.
+    const acquire = async () => {
+      if (!active || document.visibilityState !== 'visible' || screenWakeLockRef.current) return;
       try {
         const lock = await (navigator as any).wakeLock?.request('screen');
-        if (active) screenWakeLockRef.current = lock;
-        else lock?.release().catch(() => {});
-      } catch (_) {}
-    })();
+        if (!lock) return;
+        if (active && document.visibilityState === 'visible') {
+          screenWakeLockRef.current = lock;
+          // Om webbläsaren släpper låset (dold sida) → nolla så nästa visibilitychange kan begära om.
+          lock.addEventListener?.('release', () => { screenWakeLockRef.current = null; });
+        } else { lock.release?.().catch(() => {}); }
+      } catch (_) { /* ej stött / nekat → tyst fallback */ }
+    };
+    acquire();
+    const onVisible = () => { if (document.visibilityState === 'visible') acquire(); };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       active = false;
+      document.removeEventListener('visibilitychange', onVisible);
       screenWakeLockRef.current?.release().catch(() => {});
       screenWakeLockRef.current = null;
     };
@@ -1673,13 +1708,8 @@ export default function PlannerPage() {
           source: 'markers-source',
           filter: ['all',
             ['<=', ['number', ['get', 'dist'], 9999], 100],
-            ['match', ['get', 'type'],
-              'powerline',     true,
-              'manualfelling', true,
-              'warning',       true,
-              'steep',         true,
-              false,
-            ],
+            // Faro-typerna ur den DELADE konstanten (samma källa som faro-larmet) → ingen drift.
+            ['match', ['get', 'type'], [...KORVY_FARO_TYPER] as any, true, false],
           ],
           layout: {
             'text-field': ['match', ['get', 'type'],
@@ -2050,6 +2080,9 @@ export default function PlannerPage() {
     skordare: '', // Planerarens uppskattning
     skotare: '',
   });
+  // Tidsförslag (Prognos-fliken): historik = avslutade objekts PLANERADE timmar per kategori. Hämtas EN
+  // gång; förslaget räknas i lib/prognos-forslag och Jocke kan alltid skriva över (aldrig tvingande).
+  const [prognosHistorik, setPrognosHistorik] = useState<HistorikObjekt[]>([]);
   
   // Beräkna terräng/bärighet från zoner automatiskt
   // beraknaForhallanden borttagen — Förhållanden-sektionen (sliders) slopad i Trakt-hopslagningen
@@ -2088,6 +2121,11 @@ export default function PlannerPage() {
   const [infoSkotareBandPar, setInfoSkotareBandPar] = useState('1');
   const [infoSkotareLastreder, setInfoSkotareLastreder] = useState(false);
   const [infoSkotareRisDirekt, setInfoSkotareRisDirekt] = useState(false);
+  // DEL 3 (prognos-fliken): skotningsavstånd (val-fält) + basvägsarbete (engångstid). Breddat lastrede
+  // återanvänder det befintliga Fakta-fältet infoSkotareLastreder — ingen egen kontroll här.
+  const [infoSkotningsavstand, setInfoSkotningsavstand] = useState<string | null>(null); // 'kort'|'medel'|'langt'
+  const [infoBasvagKravs, setInfoBasvagKravs] = useState(false);
+  const [infoBasvagTimmar, setInfoBasvagTimmar] = useState('');
   const [infoSkotareKonfig, setInfoSkotareKonfig] = useState('bred');
   const [infoTrailerIn, setInfoTrailerIn] = useState(true);
   const [infoTransportKommentar, setInfoTransportKommentar] = useState('');
@@ -2107,6 +2145,25 @@ export default function PlannerPage() {
   const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
   const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
   const [infoVolym, setInfoVolym] = useState(''); // en sanning: objekt.volym
+  // Tidsförslag (Prognos-fliken). Areal från Traktdata-fältet (annars objekt.areal), kategori = typ,
+  // medelstam-proxy = trakt_data.beraknad.medeldiameter. null = för tunt underlag → ärligt tomt-läge.
+  const tidsforslag: Tidsforslag | null = useMemo(() => {
+    const arealTxt = Number(String(infoAreal ?? '').replace(',', '.').trim());
+    const areal = Number.isFinite(arealTxt) && arealTxt > 0 ? arealTxt : (typeof valtObjekt?.areal === 'number' ? valtObjekt.areal : null);
+    const bvTim = Number(String(infoBasvagTimmar ?? '').replace(',', '.').trim());
+    return beraknaTidsforslag(
+      {
+        areal,
+        kategori: (valtObjekt?.typ as string) ?? null,
+        medeldiameterCm: (traktData?.beraknad?.medeldiameter as number) ?? null,
+        skotningsavstand: infoSkotningsavstand,
+        lastrederBreddat: infoSkotareLastreder,
+        basvagTimmar: infoBasvagKravs && Number.isFinite(bvTim) ? bvTim : null,
+      },
+      prognosHistorik,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [infoAreal, valtObjekt?.areal, valtObjekt?.typ, traktData, prognosHistorik, infoSkotningsavstand, infoSkotareLastreder, infoBasvagKravs, infoBasvagTimmar]);
   const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
   const [infoLoaded, setInfoLoaded] = useState(false);
   const infoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -2117,7 +2174,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, larmkoordinat_kalla, larmkoordinat_bekraftad')
+        .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, larmkoordinat_kalla, larmkoordinat_bekraftad, skotningsavstand, basvag_kravs, basvag_timmar')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -2136,6 +2193,9 @@ export default function PlannerPage() {
         setInfoSkotareBand(data.skotare_band || false);
         setInfoSkotareBandPar(data.skotare_band_par || '1');
         setInfoSkotareLastreder(data.skotare_lastreder_breddat || false);
+        setInfoSkotningsavstand(data.skotningsavstand || null);
+        setInfoBasvagKravs(data.basvag_kravs || false);
+        setInfoBasvagTimmar(data.basvag_timmar != null ? String(data.basvag_timmar) : '');
         setInfoSkotareRisDirekt(data.skotare_ris_direkt || false);
         setInfoSkotareKonfig(data.skotare_konfiguration || 'bred');
         setInfoTrailerIn(data.transport_trailer_in !== false);
@@ -2161,7 +2221,7 @@ export default function PlannerPage() {
         if (data.checklist_items) setChecklistItems(data.checklist_items);
         if (data.generellt_tillstand) setGenerelltTillstand(data.generellt_tillstand);
       }
-      // Ladda kvitterade varningar från Supabase
+      // Ladda kvitterade varningar från Supabase (planeringsvyns activeWarning — orörd, håll isär).
       const { data: ackData } = await supabase
         .from('warning_acknowledgments')
         .select('marker_id')
@@ -2169,6 +2229,13 @@ export default function PlannerPage() {
       if (ackData && ackData.length > 0) {
         setAcknowledgedWarnings(ackData.map(r => r.marker_id));
       }
+      // Ladda körvyns symbol-kvittens (proximitets-notis) — marker_id → innehålls-hash, per objekt.
+      const { data: kvData, error: kvErr } = await supabase
+        .from('korvy_kvittens')
+        .select('marker_id, innehall_hash')
+        .eq('objekt_id', valtObjekt.id);
+      if (kvErr) console.error('[Körvy kvittens] laddning:', kvErr.message);
+      setWarningAckMap(new Map((kvData || []).map((r: any) => [String(r.marker_id), r.innehall_hash ?? ''])));
       setInfoLoaded(true);
     };
     loadInfo();
@@ -2181,6 +2248,36 @@ export default function PlannerPage() {
         .from('dim_maskin')
         .select('maskin_id, visningsnamn, modell, tillverkare, maskin_typ, klarar_typ, extramaskin, aktiv_till');
       if (data) setDimMaskiner(data as DimMaskin[]);
+    })();
+  }, []);
+
+  // Ladda tidsförslags-historik EN gång: avslutade objekts planerade timmar + medeldiameter per kategori.
+  // (Ingen faktisk-tid-koppling finns per objekt — se lib/prognos-forslag för ärlighets-noten.)
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('objekt')
+        .select('areal, typ, manuell_prognos, trakt_data, basvag_timmar')
+        .eq('status', 'avslutat');
+      if (error) { console.error('[Prognos-förslag] historik-hämtning:', error.message); return; }
+      const parseTim = (v: unknown): number | null => { const n = Number(String(v ?? '').replace(',', '.').trim()); return Number.isFinite(n) && n > 0 ? n : null; };
+      setPrognosHistorik((data || []).map((r: any): HistorikObjekt => {
+        // KRITISKT: dra bort basväg-engångstiden från den planerade skotartiden INNAN den blir
+        // ha/timme-underlag — annars snedvrids snittet uppåt för alla framtida förslag. (Basväg
+        // attribueras till skotaren.) Blir basen <= 0 → null, objektet räknas då inte in på skotar-snittet.
+        const skotarePlanerad = parseTim(r.manuell_prognos?.skotare);
+        const basvag = Number(r.basvag_timmar);
+        const skotareBas = skotarePlanerad != null
+          ? (Number.isFinite(basvag) && basvag > 0 ? skotarePlanerad - basvag : skotarePlanerad)
+          : null;
+        return {
+          areal: typeof r.areal === 'number' ? r.areal : Number(r.areal) || null,
+          kategori: r.typ ?? null,
+          skordareTimmar: parseTim(r.manuell_prognos?.skordare),
+          skotareTimmar: skotareBas != null && skotareBas > 0 ? skotareBas : null,
+          medeldiameterCm: r.trakt_data?.beraknad?.medeldiameter ?? null,
+        };
+      }));
     })();
   }, []);
 
@@ -2218,6 +2315,10 @@ export default function PlannerPage() {
         skotare_ris_direkt: infoSkotareRisDirekt,
         skotare_extra_vagn: infoSkotareExtraVagn,
         skotare_konfiguration: infoSkotareKonfig,
+        // DEL 3 (prognos-fliken). Breddat lastrede sparas redan via skotare_lastreder_breddat ovan.
+        skotningsavstand: infoSkotningsavstand,
+        basvag_kravs: infoBasvagKravs,
+        basvag_timmar: infoBasvagKravs ? parseSvNum(infoBasvagTimmar) : null,
         transport_trailer_in: infoTrailerIn,
         transport_kommentar: infoTransportKommentar || null,
         markagare_ska_ha_ved: infoMarkagareVed,
@@ -2239,7 +2340,7 @@ export default function PlannerPage() {
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, infoLarmLat, infoLarmLng, infoLarmBeskrivning, infoLarmKalla, infoLarmBekraftad, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, infoLarmLat, infoLarmLng, infoLarmBeskrivning, infoLarmKalla, infoLarmBekraftad, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand, infoSkotningsavstand, infoBasvagKravs, infoBasvagTimmar]);
 
   // === Maskin-väljare (Fakta-fliken) — matas från dim_maskin ===
   // Valbar lista för en roll: rätt maskin_typ, aktiv (ej såld), klarar objektets typ.
@@ -3059,10 +3160,34 @@ export default function PlannerPage() {
   // Nästa-kö (3 närmaste framåt) + akut varning
   type NextItem = { id: string; type: string; comment?: string; dist: number; color: string; bearing: number };
   const [korvyNextItems, setKorvyNextItems] = useState<NextItem[]>([]);
-  type AcuteWarning = { id: string; type: string; comment?: string; dist: number; color: string; photoData?: string; audioData?: string; expireAt: number };
+  type AcuteWarning = { id: string; type: string; namn: string; comment?: string; dist: number; color: string; photoData?: string; audioData?: string; isFara: boolean; hash: string };
   const [korvyAcuteWarning, setKorvyAcuteWarning] = useState<AcuteWarning | null>(null);
-  const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());
+  const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());  // nyckel `${id}|${hash}` → vibb/ljud en gång per innehåll
   const korvyAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Proximitets-notis: kvitterade symboler per (objekt, marker) → innehålls-hash. Symbol är TYST bara
+  // om hashen matchar (ändrad kommentar → återuppstår). Dedikerad körvy-tabell (korvy_kvittens),
+  // skild från planeringsvyns activeWarning (håll isär). Laddas i loadInfo per objekt.
+  const [warningAckMap, setWarningAckMap] = useState<Map<string, string>>(new Map());
+  // WebAudio för faro-pip (kort pip vid infart). Låses upp av körvy-öppningsgesten (iOS-krav).
+  const korvyAudioCtxRef = useRef<AudioContext | null>(null);
+  const unlockKorvyLjud = () => {
+    try {
+      if (!korvyAudioCtxRef.current) { const AC = (window as any).AudioContext || (window as any).webkitAudioContext; if (AC) korvyAudioCtxRef.current = new AC(); }
+      if (korvyAudioCtxRef.current?.state === 'suspended') korvyAudioCtxRef.current.resume().catch(() => {});
+    } catch { /* ljud kan saknas på vissa enheter */ }
+  };
+  const spelaKorvyPip = () => {
+    const ctx = korvyAudioCtxRef.current; if (!ctx) return;
+    try {
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.type = 'square'; osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.2);
+    } catch { /* pip kan misslyckas — vibration + blink täcker ändå */ }
+  };
 
   // === SKOTARKÖRVY (v1) — skördarstråk + kvarvolym i skotarens körvy ===
   // Testbarhet (Martins flagga): läget FÖLJER rollen på objektet, MEN admin/chef får båda valen i
@@ -3098,6 +3223,7 @@ export default function PlannerPage() {
   const hyttsparLastFixRef = useRef<{ lat: number; lon: number; ts: number } | null>(null);
   const hyttsparDirtyRef = useRef(false);
   const hyttsparSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hyttsparSealingRef = useRef(false);   // true medan spåret förseglas efter ett glapp (async-fönster)
 
   const uppdateraHyttsparLager = useCallback(() => {
     const map = mapInstanceRef.current; if (!map) return;
@@ -3171,11 +3297,25 @@ export default function PlannerPage() {
   // Ackumulering: varje GPS-fix (currentPosition) körs genom vakten (#398) → accepterade punkter läggs
   // till + spåret ritas om. Gejtad på aktiv loggning (rowId satt) → no-op utanför körvy.
   useEffect(() => {
-    if (!hyttsparRowIdRef.current) return;
+    if (!hyttsparRowIdRef.current || hyttsparSealingRef.current) return;
     const pos = currentPosition as any;
     if (!pos || pos.lat == null || pos.lon == null) return;
     const cand = { lat: pos.lat, lon: pos.lon, ts: Date.now(), accuracy: gpsAccuracy ?? 999 };
     if (!gpsGuardAccepts(cand, hyttsparLastFixRef.current)) return;
+    // AVSLUTS-SKYDD: GPS-vakten släpper in en punkt efter ett långt glapp (stor Δt → låg hastighet,
+    // gps-guard rad 48-49). Men glapp = loggningen tystnade (skärmlås/bakgrund). En punkt som dyker upp
+    // LÅNGT bort efter ett sådant glapp (hemresan) får aldrig ritas in som kontinuerligt arbete →
+    // försegla spåret vid sista giltiga punkten (= arbetsslutet) och kasta hopp-punkten.
+    const last = hyttsparLastFixRef.current;
+    if (last && (cand.ts - last.ts) > HYTTSPAR_MAX_GAP_MS
+             && haversineMeters(last.lat, last.lon, cand.lat, cand.lon) > HYTTSPAR_MAX_RESUME_M) {
+      console.warn('[Hyttspår] långt glapp + hopp → förseglar vid sista giltiga punkten, kastar sen punkt',
+        { gapMin: Math.round((cand.ts - last.ts) / 60000), hoppKm: +(haversineMeters(last.lat, last.lon, cand.lat, cand.lon) / 1000).toFixed(1) });
+      hyttsparSealingRef.current = true;
+      hyttsparLastFixRef.current = null;
+      sparaHyttspar(true).finally(() => { hyttsparSealingRef.current = false; });
+      return;
+    }
     hyttsparLastFixRef.current = { lat: cand.lat, lon: cand.lon, ts: cand.ts };
     hyttsparPointsRef.current = [...hyttsparPointsRef.current, { lat: cand.lat, lng: cand.lon, tid: new Date(cand.ts).toISOString() }];
     hyttsparDirtyRef.current = true;
@@ -7107,37 +7247,54 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, korvyEffectivePos, korvyHeading, markers, skotarKorvy]);
 
-  // 8) Akut varning: när närmsta marker är ≤50m, trigga vibration + kort. Per ID en gång.
+  // 8) PROXIMITETS-NOTIS: visa NÄRMASTE OKVITTERADE symbol inom sin kategori-radie (getWarningDistances,
+  //    30/50 m) automatiskt — alla typer. Kön (korvyNextItems) är sorterad → första kandidaten = närmast.
+  //    Kvitterad + oförändrad (matchande hash) hoppas över → tyst. Kortet ligger kvar tills passerad
+  //    (utanför radien → nästa kandidat/null) eller kvitterad; INGEN 8s-timer. Ett kort i taget (aldrig bunt).
+  //    Nivå 2 — FAROR (KORVY_FARO_TYPER): vibb-mönster + pip + blink (i kortet). Vibb/ljud EN gång per innehåll.
   useEffect(() => {
-    if (!korvyActive) { setKorvyAcuteWarning(null); return; }
-    const closest = korvyNextItems[0];
-    if (!closest) return;
-    if (closest.dist > 50) return;
-    if (korvyTriggeredIdsRef.current.has(closest.id)) return;
-    // Hämta full marker för foto/audio
-    const m = markers.find(mm => String(mm.id) === closest.id);
-    korvyTriggeredIdsRef.current.add(closest.id);
-    if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
-    setKorvyAcuteWarning({
-      id: closest.id,
-      type: closest.type,
-      comment: closest.comment,
-      dist: closest.dist,
-      color: closest.color,
-      photoData: m?.photoData,
-      audioData: m?.audioData,
-      expireAt: Date.now() + 8000,
-    });
-    // Audio-uppspelning
-    if (m?.audioData) {
-      try {
-        if (korvyAudioRef.current) { korvyAudioRef.current.pause(); }
-        korvyAudioRef.current = new Audio(m.audioData);
-        korvyAudioRef.current.play().catch(() => {});
-      } catch { /* audio kan misslyckas på vissa enheter */ }
+    if (!korvyActive || skotarKorvy) { setKorvyAcuteWarning(null); return; }
+    let vald: { item: NextItem; m: Marker; hash: string } | null = null;
+    for (const item of korvyNextItems) {
+      const m = markers.find(mm => String(mm.id) === item.id);
+      if (!m) continue;
+      const hash = markerInnehallHash(m);
+      if (warningAckMap.get(item.id) === hash) continue;                 // kvitterad + oförändrad → tyst
+      if (item.dist > getWarningDistances(m).warnDist) continue;         // utanför kategori-radien
+      vald = { item, m, hash }; break;                                   // närmaste okvitterade inom radie
+    }
+    if (!vald) { setKorvyAcuteWarning(null); return; }
+    const { item, m, hash } = vald;
+    const isFara = KORVY_FARO_TYPER.has(item.type);
+    const namn = markerTypes.find(t => t.id === item.type)?.name || 'Markering';
+    setKorvyAcuteWarning({ id: item.id, type: item.type, namn, comment: item.comment, dist: item.dist, color: item.color, photoData: m.photoData, audioData: m.audioData, isFara, hash });
+    // Vibb + ljud EN gång per (marker, innehåll). Ändrat innehåll (ny hash) → ny nyckel → larmar igen.
+    const trigKey = `${item.id}|${hash}`;
+    if (!korvyTriggeredIdsRef.current.has(trigKey)) {
+      korvyTriggeredIdsRef.current.add(trigKey);
+      if (navigator.vibrate) navigator.vibrate(isFara ? [60, 40, 60, 40, 60] : [30, 50, 30]);
+      if (m.audioData) {
+        try { if (korvyAudioRef.current) korvyAudioRef.current.pause(); korvyAudioRef.current = new Audio(m.audioData); korvyAudioRef.current.play().catch(() => {}); } catch { /* */ }
+      }
+      if (isFara) spelaKorvyPip();   // nivå 2: ETT pip vid infart (inte upprepat)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [korvyNextItems, korvyActive]);
+  }, [korvyNextItems, korvyActive, skotarKorvy, warningAckMap, markers]);
+
+  // Kvittering ("Sett") för körvy-notisen → skriv korvy_kvittens (upsert per objekt+marker med hashen).
+  // Optimistiskt: lägg i map + tysta kortet direkt; nästa kandidat (om någon inom radie) dyker upp.
+  const kvitteraKorvySymbol = useCallback(async (w: AcuteWarning) => {
+    if (!valtObjekt?.id) return;
+    setWarningAckMap(prev => new Map(prev).set(w.id, w.hash));
+    setKorvyAcuteWarning(null);
+    try {
+      const { error } = await supabase.from('korvy_kvittens').upsert(
+        { objekt_id: valtObjekt.id, marker_id: w.id, marker_type: w.type, marker_name: w.namn, innehall_hash: w.hash, kvitterad_at: new Date().toISOString() },
+        { onConflict: 'objekt_id,marker_id' },
+      );
+      if (error) console.error('[Körvy kvittens] spar-fel:', error.message);
+    } catch (e) { console.error('[Körvy kvittens] undantag:', e); }
+  }, [valtObjekt?.id]);
 
   // === GPS-PRICK på kartan (Apple Maps-stil) — WebGL circle-layers ===
   // Skapar source/layers vid första GPS-fix om de saknas. Uppdaterar data vid varje
@@ -7950,19 +8107,8 @@ export default function PlannerPage() {
     }
   }, [korvyActive]);
 
-  // 9) Akut varning auto-dismiss: efter 8s eller när dist > 80m
-  useEffect(() => {
-    if (!korvyAcuteWarning) return;
-    const checkDist = korvyNextItems.find(i => i.id === korvyAcuteWarning.id);
-    if (checkDist && checkDist.dist > 80) {
-      setKorvyAcuteWarning(null);
-      return;
-    }
-    const remaining = korvyAcuteWarning.expireAt - Date.now();
-    if (remaining <= 0) { setKorvyAcuteWarning(null); return; }
-    const t = setTimeout(() => setKorvyAcuteWarning(null), remaining);
-    return () => clearTimeout(t);
-  }, [korvyAcuteWarning, korvyNextItems]);
+  // 9) (Borttagen) 8s-auto-dismiss. Notisen ligger kvar tills PASSERAD (utanför kategori-radien →
+  //    kandidat-effekten ovan nollar/byter kortet) eller KVITTERAD ("Sett"). Ingen timer.
 
   // 5) Visa/dölj Körvy-labels (typ + avstånd) på markeringar inom 200m + lines emphasis
   useEffect(() => {
@@ -11277,7 +11423,7 @@ export default function PlannerPage() {
         // Kontorets dokument (TD + stämplingslängd) ligger i privat bucket → signeras vid klick och
         // renderas i in-app PDF-läsvyn (PdfLasare), aldrig window.open/nedladdning som slänger ut
         // föraren ur den installerade appen. Rad visas bara om url finns.
-        const harDok = harDokument({ traktdirektivUrl: valtObjekt.traktdirektiv_url, traktkartaUrl: valtObjekt.traktkarta_url, stamplingslangdUrl: valtObjekt.stamplingslangd_url, valtlappUrl: valtObjekt.valtlapp_url, ovrigaDokument: Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null });
+        const harDok = harDokument({ traktdirektivUrl: valtObjekt.traktdirektiv_url, traktkartaUrl: valtObjekt.traktkarta_url, traktkartor: Array.isArray(valtObjekt.traktkartor) ? valtObjekt.traktkartor : null, oversiktskartaUrl: valtObjekt.oversiktskarta_url, stamplingslangdUrl: valtObjekt.stamplingslangd_url, valtlappUrl: valtObjekt.valtlapp_url, ovrigaDokument: Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null });
         // Rad i "På trakten" — etikett vänster, värde höger.
         const ptRad = (etikett: string, varde: string) => (
           <div key={etikett} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
@@ -11395,6 +11541,8 @@ export default function PlannerPage() {
                   <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Dokument</div>
                   <DokumentChips
                     traktdirektivUrl={valtObjekt.traktdirektiv_url} traktkartaUrl={valtObjekt.traktkarta_url}
+                    traktkartor={Array.isArray(valtObjekt.traktkartor) ? valtObjekt.traktkartor : null}
+                    oversiktskartaUrl={valtObjekt.oversiktskarta_url}
                     stamplingslangdUrl={valtObjekt.stamplingslangd_url} valtlappUrl={valtObjekt.valtlapp_url}
                     ovrigaDokument={Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null}
                     typ={valtObjekt.typ}
@@ -12070,7 +12218,7 @@ export default function PlannerPage() {
             background: 'rgba(28,28,30,0.94)',
             backdropFilter: 'blur(24px) saturate(180%)',
             WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-            border: `2px solid ${w.color}`,
+            border: `${w.isFara ? '2.5px' : '2px'} solid ${w.color}`,
             borderRadius: 16,
             padding: 16,
             zIndex: 260,
@@ -12079,9 +12227,12 @@ export default function PlannerPage() {
             alignItems: 'center',
             gap: 14,
             fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-            animation: 'korvySlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+            // Nivå 2 (fara): pulsande röd glöd ovanpå in-glidningen. Vanlig notis: bara in-glidning.
+            animation: w.isFara
+              ? 'korvySlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1), faraBlink 0.9s ease-in-out infinite'
+              : 'korvySlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
           }}>
-            <style>{`@keyframes korvySlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }`}</style>
+            <style>{`@keyframes korvySlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } @keyframes faraBlink { 0%,100% { box-shadow: 0 0 0 0 rgba(255,69,58,0); } 50% { box-shadow: 0 0 0 5px rgba(255,69,58,0.6); } }`}</style>
             {/* Tonad bg-overlay för markeringsfärg */}
             <div style={{ position: 'absolute', inset: 0, background: bgTint, borderRadius: 14, pointerEvents: 'none' }} aria-hidden="true" />
             {/* Innehåll */}
@@ -12100,7 +12251,7 @@ export default function PlannerPage() {
             )}
             <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
               <div style={{ fontSize: '17px', fontWeight: '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {w.type}
+                {w.namn}
               </div>
               {w.comment && (
                 <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -12108,9 +12259,17 @@ export default function PlannerPage() {
                 </div>
               )}
             </div>
-            <div style={{ fontSize: '20px', fontWeight: '700', color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
+            <div style={{ fontSize: '17px', fontWeight: '700', color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
               {w.dist} m
             </div>
+            {/* Sett/OK — kvitterar symbolen (per objekt+marker). Tystar den (och blink/pip) på framtida
+                pass tills innehållet ändras. Gäller ALLA notiser inkl faror. */}
+            <button type="button" onClick={() => { if (navigator.vibrate) navigator.vibrate(8); kvitteraKorvySymbol(w); }}
+              aria-label={`Kvittera ${w.namn}`}
+              style={{ flexShrink: 0, position: 'relative', zIndex: 1, padding: '9px 16px', borderRadius: 12, border: 'none',
+                background: '#30d158', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Sett
+            </button>
           </div>
         );
       })()}
@@ -12488,10 +12647,10 @@ export default function PlannerPage() {
                     ]
                   : isAdminRiktig
                     ? [
-                        { label: 'Skördarkörvy', icon: 'navigation', action: () => { setKorvyForceRoll('skordare'); setKorvyActive(true); } },
+                        { label: 'Skördarkörvy', icon: 'navigation', action: () => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); } },
                         { label: 'Skotarkörvy', icon: 'local_shipping', action: () => { setKorvyForceRoll('skotare'); setKorvyActive(true); } },
                       ]
-                    : [{ label: 'Körvy 2D', icon: 'navigation', action: () => { setKorvyForceRoll(null); setKorvyActive(true); } }],
+                    : [{ label: 'Körvy 2D', icon: 'navigation', action: () => { unlockKorvyLjud(); setKorvyForceRoll(null); setKorvyActive(true); } }],
               },
               {
                 title: 'SKOTARE',
@@ -19364,47 +19523,9 @@ export default function PlannerPage() {
           {traktTab === 'fakta' && (
               <div style={{ padding: '12px' }}>
 
-                {/* MARKFÖRHÅLLANDEN */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markförhållanden</div>
-
-                  {/* Bärighet */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
-                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      {[{ id: 'bra', label: 'Bra' }, { id: 'medel', label: 'Medel' }, { id: 'dalig', label: 'Dålig' }].map(opt => (
-                        <div key={opt.id} onClick={() => setInfoBarighet(opt.id)}
-                          style={{
-                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                            background: infoBarighet === opt.id ? '#0a84ff' : 'transparent',
-                            color: infoBarighet === opt.id ? '#fff' : '#8e8e93',
-                            fontWeight: infoBarighet === opt.id ? '600' : '400',
-                            transition: 'all 0.2s ease',
-                          }}>{opt.label}</div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Terräng */}
-                  <div>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
-                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      {[{ id: 'flackt', label: 'Flackt' }, { id: 'kuperat', label: 'Kuperat' }, { id: 'brant', label: 'Brant' }].map(opt => (
-                        <div key={opt.id} onClick={() => setInfoTerrang(opt.id)}
-                          style={{
-                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                            background: infoTerrang === opt.id ? '#0a84ff' : 'transparent',
-                            color: infoTerrang === opt.id ? '#fff' : '#8e8e93',
-                            fontWeight: infoTerrang === opt.id ? '600' : '400',
-                            transition: 'all 0.2s ease',
-                          }}>{opt.label}</div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                {/* MARKFÖRHÅLLANDEN (Bärighet + Terräng) FLYTTAT till Prognos-fliken (påverkar tiden).
+                    Samma state (infoBarighet/infoTerrang) + samma debouncade sparning; traktöversikts-
+                    popovern läser oförändrat samma state. Inget annat i Fakta-fliken använder fälten. */}
 
                 {/* HINDER & HÄNSYN */}
                 <div style={{
@@ -19715,6 +19836,86 @@ export default function PlannerPage() {
 
           {traktTab === 'prognos' && (
           <div style={{ padding: '24px' }}>
+            {/* MARKFÖRHÅLLANDEN (flyttat hit från Fakta — påverkar tiden). Tre-vals-knappar, samma
+                state/sparning som förr. */}
+            <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '20px', marginBottom: '16px' }}>
+              <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '16px' }}>Markförhållanden</div>
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
+                <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  {[{ id: 'bra', label: 'Bra' }, { id: 'medel', label: 'Medel' }, { id: 'dalig', label: 'Dålig' }].map(opt => (
+                    <div key={opt.id} onClick={() => setInfoBarighet(opt.id)}
+                      style={{ flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                        background: infoBarighet === opt.id ? '#0a84ff' : 'transparent',
+                        color: infoBarighet === opt.id ? '#fff' : '#8e8e93',
+                        fontWeight: infoBarighet === opt.id ? '600' : '400', transition: 'all 0.2s ease' }}>{opt.label}</div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
+                <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  {[{ id: 'flackt', label: 'Flackt' }, { id: 'kuperat', label: 'Kuperat' }, { id: 'brant', label: 'Brant' }].map(opt => (
+                    <div key={opt.id} onClick={() => setInfoTerrang(opt.id)}
+                      style={{ flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                        background: infoTerrang === opt.id ? '#0a84ff' : 'transparent',
+                        color: infoTerrang === opt.id ? '#fff' : '#8e8e93',
+                        fontWeight: infoTerrang === opt.id ? '600' : '400', transition: 'all 0.2s ease' }}>{opt.label}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {/* DEL 3: Skotningsavstånd (påverkar tid-förslaget) + basvägsarbete (engångstid). Breddat
+                lastrede återanvänder Fakta-fältet — visas här bara som info om att det kortar tiden. */}
+            <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '20px', marginBottom: '16px' }}>
+              <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '16px' }}>Skotning</div>
+              <div style={{ marginBottom: '4px' }}>
+                <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Skotningsavstånd</div>
+                <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  {[{ id: 'kort', label: 'Kort' }, { id: 'medel', label: 'Medel' }, { id: 'langt', label: 'Långt' }].map(opt => (
+                    <div key={opt.id} onClick={() => setInfoSkotningsavstand(infoSkotningsavstand === opt.id ? null : opt.id)}
+                      style={{ flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
+                        background: infoSkotningsavstand === opt.id ? '#0a84ff' : 'transparent',
+                        color: infoSkotningsavstand === opt.id ? '#fff' : '#8e8e93',
+                        fontWeight: infoSkotningsavstand === opt.id ? '600' : '400', transition: 'all 0.2s ease' }}>{opt.label}</div>
+                  ))}
+                </div>
+              </div>
+              {/* Breddat lastrede — läses från Fakta-fältet, kortar skotartiden. Read-only info här. */}
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '13px', color: '#fff' }}>Breddat lastrede</div>
+                  <div style={{ fontSize: '11px', color: '#636366', marginTop: '2px' }}>
+                    {infoSkotareLastreder ? 'Kortar skotartiden' : 'Redigeras i Fakta-fliken'}
+                  </div>
+                </div>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: infoSkotareLastreder ? '#30d158' : '#8e8e93' }}>
+                  {infoSkotareLastreder ? 'Ja' : 'Nej'}
+                </span>
+              </div>
+              {/* Basvägsarbete — ENGÅNGSTID, läggs på skotarens förslag separat (aldrig i ha/timme). */}
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '13px', color: '#fff' }}>Kräver basvägsanläggning</span>
+                  <div onClick={() => setInfoBasvagKravs(!infoBasvagKravs)} style={{
+                    width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                    background: infoBasvagKravs ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease' }}>
+                    <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoBasvagKravs ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                  </div>
+                </div>
+                {infoBasvagKravs && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '14px' }}>
+                    <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>Engångstid basväg</span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '8px 12px' }}>
+                      <input value={infoBasvagTimmar} onChange={e => setInfoBasvagTimmar(e.target.value)}
+                        inputMode="decimal" placeholder="0"
+                        style={{ width: '52px', background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: '16px', fontWeight: '600', textAlign: 'right' }} />
+                      <span style={{ fontSize: '13px', color: '#8e8e93' }}>h</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
             {/* Tid-sektion */}
             <div style={{
               background: 'rgba(255,255,255,0.06)',
@@ -19794,6 +19995,49 @@ export default function PlannerPage() {
                   <span style={{ fontSize: '20px', color: '#48484a', lineHeight: 1 }}>›</span>
                 </div>
               </div>
+
+              {/* DEL 2: Föreslagen tid ur historik + medelstam. ALDRIG tvingande — Jocke skriver alltid
+                  över genom att trycka på raden ovan. Tomt-läge om underlaget är för tunt. */}
+              {tidsforslag ? (
+                <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ fontSize: '11px', color: '#8e8e93', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Förslag</div>
+                  {tidsforslag.skordareTimmar != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: tidsforslag.skotareTimmar != null ? '10px' : '0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '17px' }}>🌲</span>
+                        <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Skördare</span>
+                        <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>{tidsforslag.skordareTimmar} h</span>
+                      </div>
+                      <div onClick={() => setManuellPrognos(prev => ({ ...prev, skordare: String(tidsforslag.skordareTimmar ?? '') }))}
+                        style={{ fontSize: '13px', color: '#0a84ff', cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', background: 'rgba(10,132,255,0.12)' }}>Använd</div>
+                    </div>
+                  )}
+                  {tidsforslag.skotareTimmar != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '17px' }}>🚛</span>
+                        <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Skotare</span>
+                        {tidsforslag.basvagTimmar > 0 ? (
+                          <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>
+                            {tidsforslag.skotareTimmar} h
+                            <span style={{ fontSize: '12px', color: '#8e8e93', fontWeight: '400' }}> + {tidsforslag.basvagTimmar} h basväg</span>
+                            {' = '}{tidsforslag.skotareTotalt} h
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>{tidsforslag.skotareTimmar} h</span>
+                        )}
+                      </div>
+                      <div onClick={() => setManuellPrognos(prev => ({ ...prev, skotare: String(tidsforslag.skotareTotalt ?? tidsforslag.skotareTimmar ?? '') }))}
+                        style={{ fontSize: '13px', color: '#0a84ff', cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', background: 'rgba(10,132,255,0.12)' }}>Använd</div>
+                    </div>
+                  )}
+                  <div style={{ fontSize: '11px', color: '#636366', marginTop: '12px', lineHeight: 1.4 }}>{tidsforslag.forklaring}</div>
+                </div>
+              ) : (
+                <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: '12px', color: '#8e8e93', lineHeight: 1.4 }}>
+                  Inget förslag än — för få liknande avslutade objekt att räkna på.
+                </div>
+              )}
             </div>
             {/* Traktdata */}
             <div style={{

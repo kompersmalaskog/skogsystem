@@ -23,7 +23,7 @@
 // id traffar 0 rader och kan omojligt aterskapa nagot.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { kartOrigoFranBounds } from './kartkoordinater';
+import { kartOrigoFranBounds, svgToLatLon, type Origo } from './kartkoordinater';
 import { lottaProvytor, PROVYTA_RADIE_M, type LatLng } from './provytor';
 import { hamtaVader, type Arbetsfonster, type VaderSnapshot } from './egenkontrollvader';
 
@@ -320,6 +320,37 @@ function byggMaskinSnapshot(objekt: Record<string, unknown>): MaskinSnapshot {
     skordare_maskin: (objekt.skordare_maskin as string) ?? null,
     skotare_maskin: (objekt.skotare_maskin as string) ?? null,
   };
+}
+
+/**
+ * Punktens plats(er) i WGS84, ur geometri_snapshot.
+ *
+ * TOM LISTA = INGEN PLATS, och det ar ett riktigt svar. Utforandepunkter och
+ * matningar har kalla='fast' och ingen geometri - de ar inte platser och ska
+ * varken fa avstand eller sorteras. Detsamma galler en planpunkt vars snapshot
+ * saknas: da gissar vi inte en plats, vi sager att den inte gar att sortera.
+ *
+ * En LINJE ger alla sina brytpunkter, inte en mittpunkt. Avstandet till en
+ * basvag ar avstandet till dess NARMASTE del - mittpunkten pa en 300 m vag
+ * hade sagt att man har langt kvar nar man star vid anden av den.
+ *
+ * Konverteringen ar samma svgToLatLon som kartan anvander. Ingen andra
+ * berakning - origo kommer ur kartbild_bounds och ingen annanstans.
+ */
+export function punktPlatser(p: EgenkontrollPunkt, origo: Origo): LatLng[] {
+  const g = p.geometri_snapshot as
+    | { x?: number; y?: number; path?: { x?: number | null; y?: number | null }[] }
+    | null;
+  if (!g) return [];
+  if (Array.isArray(g.path)) {
+    return g.path
+      .filter((v) => v && v.x != null && v.y != null)
+      .map((v) => svgToLatLon(v.x as number, v.y as number, origo));
+  }
+  if (typeof g.x === 'number' && typeof g.y === 'number') {
+    return [svgToLatLon(g.x, g.y, origo)];
+  }
+  return [];
 }
 
 /** Klassar en markering. null = ska inte bli punkt. */

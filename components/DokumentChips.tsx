@@ -10,7 +10,9 @@ import { signeraKartfil } from '@/lib/kartfiler';
 
 export interface DokumentChipsProps {
   traktdirektivUrl?: string | null;
-  traktkartaUrl?: string | null;
+  traktkartaUrl?: string | null;                                           // första bladet (bakåtkompat.)
+  traktkartor?: { namn: string; path: string; ordning: number }[] | null;  // alla blad — "Traktkarta N av M"
+  oversiktskartaUrl?: string | null;                                       // _ÖK.pdf (egen typ)
   stamplingslangdUrl?: string | null;
   valtlappUrl?: string | null;
   ovrigaDokument?: { namn: string; path: string }[] | null;
@@ -18,9 +20,18 @@ export interface DokumentChipsProps {
   onOppna: (signeradUrl: string, titel: string) => void;
 }
 
+// Effektiv traktkarte-lista: flera blad om de finns, annars ETT från traktkartaUrl (rader
+// importerade före traktkartor-kolumnen), annars tomt. Sorterad på ordning.
+function traktkartaBlad(p: Pick<DokumentChipsProps, 'traktkartor' | 'traktkartaUrl'>): { namn: string; path: string; ordning: number }[] {
+  if (p.traktkartor && p.traktkartor.length > 0) {
+    return [...p.traktkartor].sort((a, b) => (a.ordning ?? 0) - (b.ordning ?? 0));
+  }
+  return p.traktkartaUrl ? [{ namn: 'Traktkarta', path: p.traktkartaUrl, ordning: 1 }] : [];
+}
+
 // Finns någon dokument alls? (används för att gate:a sektionen så tom = ingen rad.)
-export function harDokument(p: Pick<DokumentChipsProps, 'traktdirektivUrl' | 'traktkartaUrl' | 'stamplingslangdUrl' | 'valtlappUrl' | 'ovrigaDokument'>): boolean {
-  return !!(p.traktdirektivUrl || p.traktkartaUrl || p.stamplingslangdUrl || p.valtlappUrl || (p.ovrigaDokument && p.ovrigaDokument.length > 0));
+export function harDokument(p: Pick<DokumentChipsProps, 'traktdirektivUrl' | 'traktkartaUrl' | 'traktkartor' | 'oversiktskartaUrl' | 'stamplingslangdUrl' | 'valtlappUrl' | 'ovrigaDokument'>): boolean {
+  return !!(p.traktdirektivUrl || traktkartaBlad(p).length > 0 || p.oversiktskartaUrl || p.stamplingslangdUrl || p.valtlappUrl || (p.ovrigaDokument && p.ovrigaDokument.length > 0));
 }
 
 const ikonStil = { width: 14, height: 14, flexShrink: 0 } as React.CSSProperties;
@@ -56,10 +67,14 @@ export default function DokumentChips(props: DokumentChipsProps) {
     >{ikon}{etikett}</button>
   );
 
+  const blad = traktkartaBlad(props);
+
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
       {props.traktdirektivUrl && pill(props.traktdirektivUrl, 'Traktdirektiv', fileTextIcon)}
-      {props.traktkartaUrl && pill(props.traktkartaUrl, 'Traktkarta', mapIcon)}
+      {/* Ett blad → "Traktkarta", flera → "Traktkarta N av M" */}
+      {blad.map((tk, i) => pill(tk.path, blad.length > 1 ? `Traktkarta ${i + 1} av ${blad.length}` : 'Traktkarta', mapIcon, `tk${i}`))}
+      {props.oversiktskartaUrl && pill(props.oversiktskartaUrl, 'Översiktskarta', mapIcon)}
       {props.stamplingslangdUrl && pill(props.stamplingslangdUrl, 'Stämplingslängd', clipboardIcon)}
       {props.valtlappUrl && pill(props.valtlappUrl, 'Vältlappar', clipboardIcon)}
       {(props.ovrigaDokument || []).map((d, i) => pill(d.path, d.namn, fileTextIcon, `ov${i}`))}

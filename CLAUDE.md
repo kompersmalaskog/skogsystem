@@ -316,6 +316,8 @@ pagineringsbuggen, dar ett testverktyg gav 8 falsklarm av samma familj.
 1. **Pusha ALDRIG till en PR utan att först kolla att den fortfarande är öppen** — `gh pr view <nr> --json state`. Är den `MERGED`: öppna en NY PR för commiten. Pusha aldrig till den stängda grenen — det bygger en preview som ser rätt ut men aldrig landar i main.
 2. **Efter varje merge Martin gör: verifiera på INNEHÅLL att ändringen finns i `origin/main`** — `git fetch` + grep efter en unik markör ur diffen (`git show origin/main:<fil> | grep <markör>`), aldrig på PR-status. "Merged" betyder inte "levererad": squashen kan ha tagit bara en delmängd av commitsen (#268 tog 1 av 2 — den data-drivna korta-stopp-fixen tappades och fick återlandas i #274).
 
+**En manuell km-rättning måste sätta `km_kalla='forare'`, annars är den inte skyddad.** Gäller SQL i prod lika mycket som appen. `arbetsdag.km_kalla` är sedan 2026-09-09 det ENDA skyddet mot att nattjobbet och beräkna-vid-öppning fyller en km-nolla (vakten på `redigerad` är borttagen — `redigerad` betyder att tiderna rättats, inte km). Dalarna-dagarna nollades via SQL i augusti 2026 innan fältet fanns: 30 av 106 hade fyllts på nytt (1 244 km/dag, 3 730 mil i löneunderlaget) innan det upptäcktes. Vakten skyddar bara det som faktiskt är märkt. `npx tsx scripts/km-nattjobb-torrkorning.ts` visar vad nattjobbet skulle skriva utan att röra något.
+
 ## Framtida förbättringar (bygg inte nu)
 
 ### HPR-automatik som komplement till "Starta körning"-knappen
