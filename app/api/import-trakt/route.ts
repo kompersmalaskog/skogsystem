@@ -174,6 +174,14 @@ export async function POST(request: NextRequest) {
       envzUttag = parseObjektInfo(objektinfoXml, ogiXml);
       varningar.push(...envzUttag.varningar);
       if (!executorGodkand(envzUttag.executor)) {
+        // Logga den AVVISADE leveransen i import_fel (utöver att visa felet) så vi har historik
+        // över vad som stoppats — en avvisning som bara visas för den som råkar importera glöms.
+        // Rik kontext så raden är självförklarande i /datahalsa: org.nr, trakt, VO, requestor.
+        await loggaImportFel(
+          service, sokvag, 'EXECUTOR_AVVISAD',
+          `Executor "${envzUttag.executor ?? 'saknas'}" matchar inte ${forvantadExecutorOrgnr()}. ` +
+          `Trakt ${envzUttag.falt.traktnr ?? '?'} (${envzUttag.falt.namn ?? '?'}), VO ${envzUttag.falt.vo_nummer ?? '?'}, Requestor ${envzUttag.falt.bolag ?? '?'}.`,
+        );
         return NextResponse.json(
           { error: `Executor "${envzUttag.executor ?? 'saknas'}" matchar inte ${forvantadExecutorOrgnr()} — annan entreprenörs leverans, inget objekt skapat.` },
           { status: 403 }
