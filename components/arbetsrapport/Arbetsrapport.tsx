@@ -945,7 +945,9 @@ export default function Arbetsrapport() {
         // 'beraknad' (route_cache/ORS = riktig vägberäkning). Tom kedja = null.
         setRedKmKälla(segs.length === 0 ? null
           : segs.some((s: any) => s.source === 'fallback') ? 'fallback' : 'beraknad');
-        setRedKm(prev => prev === 0 ? (j.kmErsattningsgrund ?? 0) : prev);
+        // INTE setRedKm här. Det beräknade talet är ett FÖRSLAG (redKmBerakning)
+        // som Körning-kortet visar med en "Använd"-knapp; skrevs det in i redKm
+        // slog harÄndrat till och en bekräftad dag såg ändrad ut av att öppnas.
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -4814,6 +4816,16 @@ export default function Arbetsrapport() {
     const redSlutOrig  = redDag.slut_tid||"00:00";
     const redRastOrig  = redDag.rast_min||0;
     const redKmOrig    = redDag.km_totalt||0;
+    // REGEL: EN BERÄKNING SOM VISAS ÄR ETT FÖRSLAG, INTE EN ÄNDRING. BARA NÅGOT
+    // FÖRAREN RÖRT GÖR DAGEN SMUTSIG.
+    // harÄndrat får därför bara jämföra förarens fält (redStart/redSlut/redRast/
+    // redKm/redObjektId) mot databasens rad. Ingenting som räknas fram vid
+    // öppning (km-chain, berakna-dag, synk) får skrivas in i de fälten — de
+    // landar i redKmBerakning & co och visas som förslag som föraren själv får
+    // ta. Bugg 2026-09-09: km-chain skrev sitt tal i redKm → harÄndrat slog
+    // till → "Bekräftad kl 15:20" byttes mot "Anledning till ändring" fast
+    // föraren bara TITTAT på dagen. Samma mönster som debDefault och de tre
+    // km-implementationerna: något beräknat FÖR VISNING togs för något GJORT.
     const harÄndrat = redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig||redKm!==redKmOrig||(redObjektId&&redObjektId!==(redDag.objekt_id||null));
 
     if(redVy==="tid") return (
@@ -5414,9 +5426,18 @@ export default function Arbetsrapport() {
                   //  · objekt utan koordinat → km går inte att beräkna, OSÄKER
                   //  · fallback (haversine × 1,4) → fågelvägen, OSÄKER
                   //  · route_cache/ORS → riktigt beräknat vägavstånd
+                  // Beräknat men inte taget: ett FÖRSLAG föraren själv trycker in.
+                  // Först då blir dagen ändrad (harÄndrat) — aldrig av att den öppnas.
+                  const forslag = redKmBerakning != null && redKmBerakning > 0 && redKm === 0 && !redKmSaknarKoord;
+                  if (forslag) return (
+                    <button onClick={()=>setRedKm(redKmBerakning)} style={{ ...KNAPP.tertiar, marginTop:AVSTAND.xs, gap:AVSTAND.xs }}>
+                      <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
+                      <span style={{ ...TNUM }}>Använd beräknat {redKmBerakning} km{redKmKälla === 'fallback' ? ' (osäkert, fågelvägen)' : ' (vägavstånd)'}</span>
+                    </button>
+                  );
                   const egen = redKmBerakning != null && redKm !== redKmBerakning;
                   if (egen) return (
-                    <p style={{ margin:"8px 0 0",fontSize:12,color:"#8e8e93" }}>Egen uppgift</p>
+                    <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>Egen uppgift</p>
                   );
                   if (redKmSaknarKoord) return (
                     <p style={{ margin:"8px 0 0",fontSize:12,color:C.orange }}>
@@ -5511,15 +5532,23 @@ export default function Arbetsrapport() {
                         kmMorg = halv;
                         kmKvall = redKm - halv;
                       }
+                      // SAMMA REGEL SOM KM-SHEETEN OCH ÄNDRA TIDER: en ändring på en
+                      // bekräftad dag bryter bekräftelsen — underskriften gäller det
+                      // som stod där när föraren skrev under. Har föraren rört km
+                      // äger hen värdet (km_kalla='forare', inkl. medveten 0).
+                      const bryterBekräftelse = !!(redDag as any)?.bekraftad;
+                      const kmÄndrad = redKm !== redKmOrig;
                       const res = await upsertVerifierat(supabase, "arbetsdag", {
                         medarbetare_id: medarbetare.id,
                         datum: redDag.datum,
                         start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
                         km_morgon: kmMorg, km_kvall: kmKvall,
+                        ...(kmÄndrad ? { km_kalla: 'forare' } : {}),
                         objekt_id: redObjektId || redDag.objekt_id || null,
                         maskin_id: redMaskinId || redDag.maskin_id || null,
                         redigerad: true,
                         redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
+                        ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
                       }, { onConflict: 'medarbetare_id,datum' });
                       if (!res.ok) throw new Error(res.fel);
                       setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
@@ -5530,9 +5559,11 @@ export default function Arbetsrapport() {
                       const sparad = {
                         start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
                         km_morgon: kmMorg, km_kvall: kmKvall, km_totalt: kmMorg + kmKvall,
+                        ...(kmÄndrad ? { km_kalla: 'forare' } : {}),
                         objekt_id: redObjektId || (redDag as any).objekt_id || null,
                         maskin_id: redMaskinId || (redDag as any).maskin_id || null,
                         redigerad: true,
+                        ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
                       };
                       setRedDag((d:any) => ({ ...d, ...sparad }));
                       setDagData(dd => ({ ...dd, [(redDag as any).datum]: { ...(dd[(redDag as any).datum]||{}), ...sparad } }));
