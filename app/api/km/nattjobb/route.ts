@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { beraknaOchPersisteraDagKm, hamtaObjektKoordinater, ObjektKoord } from "@/lib/routing";
 import { ymdLokal } from "@/lib/datumLokal";
+import { franGolv } from "@/lib/skarpStart";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -59,7 +60,9 @@ export async function GET(request: NextRequest) {
     idag = ymdLokal(new Date());
     const franDate = new Date();
     franDate.setDate(franDate.getDate() - FONSTER_DAGAR);
-    fran = ymdLokal(franDate);
+    // Fönstret klipps mot skarp start: dagar före 2026-08-01 är byggmaterial
+    // och får aldrig fyllas automatiskt (lib/skarpStart).
+    fran = franGolv(ymdLokal(franDate));
 
     // Alla dagar i fönstret — även redigerade (vakten på redigerad togs bort
     // 2026-09-09: redigerad = tiderna/maskinen rättade, inte km; se lib/routing).

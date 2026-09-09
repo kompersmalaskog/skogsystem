@@ -51,6 +51,10 @@ import skogsmaskin_import_version_6 as imp
 
 # ----------------- Konfiguration (justera fritt) -----------------
 DAYS_BACK = 14                 # fönster: senaste N dagar
+SKARP_START = '2026-08-01'     # Datumgolv under invarianterna (a–d). PAR med lib/skarpStart.ts —
+                               # flyttas gränsen görs det ALLTID i par. Rader före golvet är
+                               # byggmaterial (appen byggdes om: km på tre sätt, dubbleringar jan–jul)
+                               # och larmas inte; leveransen (MAX datum) ser fortfarande allt.
 ABS_THRESHOLD_H = 0.5          # LARM om |tak − DB| > detta antal timmar
 REL_THRESHOLD = 0.10           # info-flagga om gap ≥ 10 % av taket (även under abs-tröskeln)
 MAX_ENGINE_H = 24.0            # invariant: motortid per (maskin, dag) kan aldrig överstiga detta
@@ -229,6 +233,10 @@ def check_invarianter():
         offset += 1000
 
     larm = []
+    # Invarianterna räknas från SKARP_START (samma filter som useDatahalsa —
+    # håll i synk). Hela hämtningen behålls för radräkningen i rapporten.
+    rows_alla = rows
+    rows = [r for r in rows if (r.get('datum') or '') >= SKARP_START]
     # (a) >24h motortid per (maskin, dag)
     eng_dag = defaultdict(int)
     for r in rows:
@@ -275,7 +283,7 @@ def check_invarianter():
     for _namn, _fn in FYSIK_INVARIANTER:
         larm += _fn(rows)
 
-    return larm, len(rows), tomgang_arv
+    return larm, len(rows_alla), tomgang_arv
 
 
 def db_day_pt(maskin, dayset):

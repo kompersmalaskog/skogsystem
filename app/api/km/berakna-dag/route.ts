@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { beraknaOchPersisteraDagKm, hamtaObjektKoordinater, ObjektKoord } from "@/lib/routing";
 import { målMedarbetareId } from "@/lib/auth/server";
+import { SKARP_START, foreSkarpStart } from "@/lib/skarpStart";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,10 @@ export async function POST(req: NextRequest) {
     const datum: string | undefined = body.datum;
     if (!datum || !/^\d{4}-\d{2}-\d{2}$/.test(datum)) {
       return NextResponse.json({ ok: false, error: "datum (YYYY-MM-DD) krävs" }, { status: 400 });
+    }
+    // Skrivgolv: dagar före skarp start fylls aldrig automatiskt (lib/skarpStart).
+    if (foreSkarpStart(datum)) {
+      return NextResponse.json({ ok: true, status: "hoppad", orsak: `före skarp start ${SKARP_START} — fylls aldrig automatiskt` });
     }
 
     const supabase = createClient(

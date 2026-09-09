@@ -19,11 +19,13 @@
 // ─────────────────────────────────────────────────────────────
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { SKARP_START, franGolv } from '@/lib/skarpStart'
 
-// Baslinje: kända importfel (2 st "Kunde inte spara" 2026-05-22 +
-// 2 st "No such file" 2026-05-22/06-02). Uppmätt 2026-07-13.
-// LARM endast om antalet VÄXER. Sänk konstanten om felen städas.
-export const KANDA_IMPORTFEL = 4
+// Importfel räknas från SKARP START (lib/skarpStart). De fyra kända felen
+// från maj/juni 2026 (2 "Kunde inte spara", 2 "No such file") ligger före
+// golvet och behöver ingen handräknad baslinje längre — varje fel efter
+// golvet är ett äkta larm.
+export const KANDA_IMPORTFEL = 0
 
 // Importfärskhet (Martins trösklar 2026-07-13): filer kommer flera
 // gånger om dagen, men helg/semester ger naturliga luckor.
@@ -173,7 +175,9 @@ export function useDatahalsa(): Datahalsa {
           .gte('importerad_tid', new Date(Date.now() - 7 * 86400_000).toISOString()),
         supabase.from('meta_importerade_filer')
           .select('filnamn, felmeddelande, importerad_tid')
-          .eq('status', 'FEL').order('importerad_tid', { ascending: false }),
+          .eq('status', 'FEL')
+          .gte('importerad_tid', `${SKARP_START}T00:00:00`)
+          .order('importerad_tid', { ascending: false }),
       ])
       if (avbruten) return
       const errMsg = senaste.error?.message || veckan.error?.message || fel.error?.message || null
@@ -248,13 +252,18 @@ export function useDatahalsa(): Datahalsa {
         setLeverans({ laddar: false, fel: null, data: lista })
       }
 
-      // ── Invarianter ur HELA fakt_tid ──
+      // ── Invarianter ur fakt_tid FRÅN SKARP START ──
+      // Leveransen ovan använder hela historiken (MAX(datum) per maskin måste
+      // kunna säga "tyst sedan juli"). Invarianterna är ÅTGÄRDSLARM och räknar
+      // bara från golvet — dubbleringarna från jan–jul är byggmaterial
+      // (lib/skarpStart; gap_check.py filtrerar likadant, håll i synk).
       if (tid.fel) { setInvarianter({ laddar: false, fel: tid.fel, data: null }); return }
+      const skarpa = rader.filter(r => String(r.datum) >= SKARP_START)
 
       // Invarianterna — SAMMA formler som gap_check (håll i synk):
       // (a) >24h motortid per (maskin, dag)
       const engDag = new Map<string, number>()
-      for (const r of rader) {
+      for (const r of skarpa) {
         const k = `${r.maskin_id}|${r.datum}`
         engDag.set(k, (engDag.get(k) ?? 0) + (r.engine_time_sek || 0))
       }
@@ -267,7 +276,7 @@ export function useDatahalsa(): Datahalsa {
       })
       // (b) dubblett-signaturen: identiska (proc,terr,eng,fuel)>0 över olika operatörer
       const grupper = new Map<string, any[]>()
-      for (const r of rader) {
+      for (const r of skarpa) {
         const k = `${r.datum}|${r.maskin_id}|${r.objekt_id}`
         const g = grupper.get(k) ?? []
         g.push(r); grupper.set(k, g)
@@ -293,7 +302,7 @@ export function useDatahalsa(): Datahalsa {
       // (c) tomgångs-konsistens: lagrad == max(0, eng − (P+T+OW − kort_stopp))
       //     Arvet läkt 2026-07-13 → baslinjen är 0; varje inkonsistent rad är röd.
       let tomgangInkonsistenta = 0
-      for (const r of rader) {
+      for (const r of skarpa) {
         const g0 = (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0) - (r.kort_stopp_sek || 0)
         const forv = Math.max(0, (r.engine_time_sek || 0) - g0)
         if (Math.abs((r.tomgang_sek || 0) - forv) > 1) tomgangInkonsistenta++
@@ -354,7 +363,9 @@ export function useDatahalsa(): Datahalsa {
         }
         return { rows, fel: null as string | null }
       }
-      const cutoff = new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 10)
+      // 60 dagar, klippt mot skarp start (lib/skarpStart): koordinatlarmet
+      // ska aldrig lista dagar före golvet — de är byggmaterial.
+      const cutoff = franGolv(new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 10))
       const [dimR, objR, medR, arbR, aoR] = await Promise.all([
         sidor('dim_objekt', 'objekt_id, object_name, objektnr, latitude, longitude, kraver_koordinat', 'objekt_id'),
         sidor('objekt', 'vo_nummer, lat, lng, larmkoordinat_lat, larmkoordinat_lng', 'vo_nummer'),
@@ -456,7 +467,7 @@ export function useDatahalsa(): Datahalsa {
     const punkter: string[] = []
     // röda villkor
     if (filer.data && filer.data.felFiler.length > KANDA_IMPORTFEL)
-      punkter.push(`${filer.data.felFiler.length - KANDA_IMPORTFEL} NYA importfel (utöver ${KANDA_IMPORTFEL} kända)`)
+      punkter.push(`${filer.data.felFiler.length - KANDA_IMPORTFEL} importfel sedan ${SKARP_START}`)
     if (filer.data?.timmarSedan != null && filer.data.timmarSedan > GULT_TIM)
       punkter.push(`Ingen fil på ${Math.round(filer.data.timmarSedan / 24)} dygn`)
     if (invarianter.data) {

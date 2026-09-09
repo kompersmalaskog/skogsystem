@@ -14,6 +14,7 @@
 // dämpat/grupperat, aldrig rött — inget tappades. Rött = verkligt tapp.
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
+import { SKARP_START } from '@/lib/skarpStart'
 import {
   useDatahalsa, KANDA_IMPORTFEL, LEV_GRON_DYGN, LEV_GUL_DYGN,
   importFelKlass, type Besked, type LeveransRad, type ImportFelRad,
@@ -406,7 +407,7 @@ export default function DatahalsaPage() {
               {koordinatLarm.data.koordlosa.length > 0 && (
                 <>
                   <div style={{ fontSize: 12, fontWeight: 600, color: C.rod, marginBottom: 2 }}>
-                    {koordinatLarm.data.koordlosa.length} arbetsdag(ar) senaste 60 dagarna på objekt utan koordinat — km blir tyst 0
+                    {koordinatLarm.data.koordlosa.length} arbetsdag(ar) senaste 60 dagarna (från {SKARP_START}) på objekt utan koordinat — km blir tyst 0
                   </div>
                   {koordinatLarm.data.koordlosa.map((k, i) => (
                     <Rad key={`${k.medarbetare}-${k.datum}-${k.objekt_id}-${i}`}
@@ -419,7 +420,7 @@ export default function DatahalsaPage() {
             </>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: C.text }}>
-              <Prick farg={C.gron} /> Alla objekt med arbetsdagar (60 d) har koordinat
+              <Prick farg={C.gron} /> Alla objekt med arbetsdagar (60 d, från {SKARP_START}) har koordinat
             </div>
           )}
           <div style={{ paddingTop: 10, fontSize: 11, color: C.dim }}>
