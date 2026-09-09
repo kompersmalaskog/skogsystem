@@ -11,6 +11,7 @@ import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
 import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_RUBRIK, arFranvaroDagtyp } from "@/lib/franvaro";
+import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
@@ -2500,7 +2501,9 @@ export default function Arbetsrapport() {
                 // Om någon finns → starta orsaks-flödet och vänta. Annars → bekräfta direkt.
                 if (medarbetare?.id && trosklar) {
                   const fromDt = new Date(idagKey); fromDt.setDate(fromDt.getDate() - 7);
-                  const fromIso = fromDt.toISOString().slice(0, 10);
+                  // Klippt mot skarp start — analysen skriver i vilobrott-tabellen
+                  // och får aldrig nå in i dagar före golvet (lib/skarpStart).
+                  const fromIso = franGolv(fromDt.toISOString().slice(0, 10));
                   const toIso = idagKey;
                   const dagar = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
                   try {
@@ -2550,7 +2553,9 @@ export default function Arbetsrapport() {
        Källorna är de befintliga: årsData (Kalendern), skaFragaBrandrisk
        (Sammanställningens retro-fråga), vilobrott-tabellen (Vila-fliken). */
     const dagarSedan = (n: number) => { const d = new Date(idagKey + 'T00:00:00'); d.setDate(d.getDate() - n); return ymdLokal(d); };
-    const fran7 = dagarSedan(7), fran30 = dagarSedan(30);
+    // Fönstren klipps mot SKARP START (lib/skarpStart): golvet hindrar att ett
+    // vidgat fönster någonsin drar in dagar före 2026-08-01 (735 obekräftade).
+    const fran7 = franGolv(dagarSedan(7)), fran30 = franGolv(dagarSedan(30));
     const fmtDatumKort = (iso: string) => {
       const d = new Date(iso + 'T00:00:00');
       return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`;
@@ -3823,7 +3828,11 @@ export default function Arbetsrapport() {
     // tysta retroaktiv-listan för obesvarade tidiga vardagsmorgnar — läses ur
     // årsData (hela året) så gamla dagar utanför 60-dagars-historiken också fångas.
     // Ingen nag; ligger kvar med ja/nej tills den besvaras. Bor i "Saknas"-blocket.
-    const obObesDagar = (årsData || []).filter((d: any) => d.datum && d.brandrisk_beordrad == null && arTidigVardag({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: null }))
+    // SAMMA fönster som Dag-vyns väntar-rad: 30 dagar, klippt mot skarp start.
+    // Förr räknades hela året här medan Dag-vyn räknade 30 dagar — samma fråga,
+    // två svar. Nu en sanning (lib/skarpStart).
+    const brandriskFran = franGolv(ymdLokal(new Date(Date.now() - 30 * 86400_000)));
+    const obObesDagar = (årsData || []).filter((d: any) => d.datum && d.datum >= brandriskFran && d.brandrisk_beordrad == null && arTidigVardag({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: null }))
       .sort((a: any, b: any) => b.datum.localeCompare(a.datum));
     const svaraBrandriskRetro = async (d: any, val: boolean) => {
       if (!d.id) return;
@@ -5884,7 +5893,9 @@ export default function Arbetsrapport() {
       if (dag?.dagtyp === 'vab')  return 'vab';
       if (dag?.dagtyp === 'foraldraledig') return 'vab'; // samma orange prick som VAB
       if (dag?.bekraftad) return 'ok';
-      if (dag) return 'saknas';
+      // Före skarp start: ingen åtgärdsprick (orange) — dagen visas, räknas
+      // inte. Grön för bekräftade står kvar (lib/skarpStart).
+      if (dag) return foreSkarpStart(k) ? 'tom' : 'saknas';
       if (rödaDagar[k]) return 'röd';
       const date = new Date(kalÅr, kalMånad, d);
       const dow = date.getDay();
@@ -6005,7 +6016,8 @@ export default function Arbetsrapport() {
                 // Ohanterad synk-avvikelse (bekraftad dag vars maskintider byggts
                 // om) → amber prick, upptackbart utan att oppna dagen.
                 const _sh = historik.find((x:any)=>x.datum===datum);
-                const synkOhanterad = !!_sh?.synk_avvikelse && !_sh.synk_avvikelse.kvitterad;
+                // Amber synk-prick bara från skarp start (lib/skarpStart) — före golvet visas dagen, larmas inte.
+                const synkOhanterad = !!_sh?.synk_avvikelse && !_sh.synk_avvikelse.kvitterad && !foreSkarpStart(datum);
                 // Ledig dag: godkänd ledighet OCH inget arbete/frånvaro-prick och
                 // ingen extra tid ("arbete vinner"). Egen visuell klass (ton +
                 // typ-etikett), aldrig en ny prickfärg.
