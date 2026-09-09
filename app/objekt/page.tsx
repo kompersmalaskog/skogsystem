@@ -108,10 +108,21 @@ function Rad({ title, isOpen, onToggle, children }: { title: string; isOpen: boo
 }
 
 // MODULNIVÅ av samma skäl → input behåller fokus vid inskrivning.
-function InputField({ label, value, onChange, placeholder, type = 'text' }: any) {
+// Svårighet — tre val; etiketten visas i listan bara när den inte är normal.
+const SVARIGHET_VAL = [
+  { varde: 'normal' as const, label: 'Normal' },
+  { varde: 'svar' as const, label: 'Svår' },
+  { varde: 'vf' as const, label: 'VF' },
+];
+function SvarighetTagg({ svarighet }: { svarighet?: string | null }) {
+  if (svarighet !== 'svar' && svarighet !== 'vf') return null;
+  return <span style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.1)', borderRadius: '6px', padding: '2px 6px', marginLeft: '8px', verticalAlign: 'middle', letterSpacing: '0.3px' }}>{svarighet === 'vf' ? 'VF' : 'Svår'}</span>;
+}
+
+function InputField({ label, value, onChange, placeholder, type = 'text', obligatorisk = false }: any) {
   return (
     <div style={{ marginBottom: '16px' }}>
-      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>{label}</label>
+      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>{label}{obligatorisk && <span style={{ color: 'rgba(255,255,255,0.6)' }}> · KRÄVS</span>}</label>
       <input type={type} value={value} onChange={onChange} placeholder={placeholder}
         style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '15px', color: '#fff', boxSizing: 'border-box' }} />
     </div>
@@ -214,7 +225,7 @@ function ObjektPageInner() {
   const [form, setForm] = useState({ 
     voNummer: '', traktNr: '', namn: '', bolag: '', 
     inkopare: '', inkoparetel: '', markagare: '', markagaretel: '', markagareepost: '',
-    cert: '', typ: 'slut', atgard: '', volym: '', areal: '', grot: false,
+    cert: '', typ: 'slut', atgard: '', volym: '', areal: '', grot: false, svarighet: 'normal' as 'normal' | 'svar' | 'vf',
     maskiner: [] as string[], koordinatX: '', koordinatY: '',
     sortiment: [] as string[], anteckningar: '', forardirektiv: '',
     ar: 2026, manad: 1, ordning: 1, status: 'planerad'
@@ -396,11 +407,12 @@ function ObjektPageInner() {
     e.target.value = '';
   };
 
+  // Namn, bolag och volym (> 0) krävs — utan volym kan varken helikoptern eller
+  // planeringen räkna på objektet. Knappen är inaktiv tills fälten är ifyllda.
+  const formGiltig = form.namn.trim() !== '' && String(form.bolag || '').trim() !== '' && Number(form.volym) > 0;
+
   const saveObj = async () => {
-    if (!form.namn || !form.bolag || !form.volym) {
-      alert('Fyll i namn, bolag och volym');
-      return;
-    }
+    if (!formGiltig) return;
 
     // Koordinater: konvertera SWEREF99 TM → WGS84 (samma som import-routen).
     // Vid redigering laddas lat/lng (WGS84, små tal) tillbaka i fälten → konvertera inte då.
@@ -422,6 +434,8 @@ function ObjektPageInner() {
       cert: form.cert || null, typ: form.typ === 'slut' ? 'slutavverkning' : 'gallring',
       atgard: form.atgard || null, volym: parseInt(form.volym),
       areal: form.areal ? parseFloat(form.areal) : null, grot: form.grot,
+      // Svårighet: datainsamling för kommande prognosmodell — används inte i beräkningar än.
+      svarighet: form.svarighet,
       // status utelämnas medvetet → DB-default 'planerad' vid insert, oförändrad vid
       // update. Status styrs av planeringsvyn, inte detta formulär (objekt_status_check).
       lat, lng,
@@ -455,7 +469,7 @@ function ObjektPageInner() {
       markagare: obj.markagare || '', markagaretel: obj.markagare_tel || '', markagareepost: obj.markagare_epost || '',
       cert: obj.cert || '', typ: obj.typ === 'slutavverkning' ? 'slut' : 'gallring',
       atgard: obj.atgard || '', volym: obj.volym?.toString() || '',
-      areal: obj.areal?.toString() || '', grot: obj.grot || false,
+      areal: obj.areal?.toString() || '', grot: obj.grot || false, svarighet: (obj.svarighet === 'svar' || obj.svarighet === 'vf') ? obj.svarighet : 'normal',
       maskiner: obj.maskiner || [], koordinatX: obj.lat?.toString() || '', koordinatY: obj.lng?.toString() || '',
       sortiment: obj.sortiment || [], anteckningar: obj.anteckningar || '', forardirektiv: obj.forardirektiv || '',
       ar: obj.ar || year, manad: obj.manad || 0, ordning: obj.ordning || 1, status: obj.status || 'planerad'
@@ -777,7 +791,7 @@ function ObjektPageInner() {
                 style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' }}>
                 <div style={{ width: '3px', height: '32px', borderRadius: '2px', flexShrink: 0, background: obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e', opacity: (obj.lat && obj.lng) ? 0.8 : 0.15 }} />
                 <div style={{ minWidth: 0, flexShrink: 1 }}>
-                  <div style={{ fontSize: '16px', fontWeight: '500', color: '#fff', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
+                  <div style={{ fontSize: '16px', fontWeight: '500', color: '#fff', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}<SvarighetTagg svarighet={obj.svarighet} /></div>
                   <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cap(obj.bolag)}{obj.atgard && ` · ${obj.atgard}`}</div>
                 </div>
                 {prickInfo === obj.id ? (
@@ -857,7 +871,7 @@ function ObjektPageInner() {
               <div style={{ width: '3px', height: '32px', borderRadius: '2px', flexShrink: 0, background: obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e', opacity: (obj.lat && obj.lng) ? 0.8 : 0.15 }} />
               {/* Namn + bolag·åtgärd */}
               <div style={{ minWidth: 0, flexShrink: 1 }}>
-                <div style={{ fontSize: '16px', fontWeight: '500', color: '#fff', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
+                <div style={{ fontSize: '16px', fontWeight: '500', color: '#fff', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}<SvarighetTagg svarighet={obj.svarighet} /></div>
                 <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cap(obj.bolag)}{obj.atgard && ` · ${obj.atgard}`}</div>
               </div>
               {/* Fyra prickar: traktdirektiv · karta · stämplingslängd · produktion */}
@@ -979,12 +993,24 @@ function ObjektPageInner() {
                     <div style={{ flex: 1 }}><InputField label="VO-NUMMER" value={form.voNummer} onChange={(e: any) => setForm({ ...form, voNummer: e.target.value })} /></div>
                     <div style={{ flex: 1 }}><InputField label="TRAKTNR" value={form.traktNr} onChange={(e: any) => setForm({ ...form, traktNr: e.target.value })} /></div>
                   </div>
-                  <InputField label="NAMN" value={form.namn} onChange={(e: any) => setForm({ ...form, namn: e.target.value })} />
-                  <ChipSelect items={sparadeBolag} selected={form.bolag} onSelect={(v: string) => setForm({ ...form, bolag: v })} label="BOLAG" editKey="bolag" onAdd={addBolag} onRemove={removeBolag} />
+                  <InputField label="NAMN" obligatorisk value={form.namn} onChange={(e: any) => setForm({ ...form, namn: e.target.value })} />
+                  <ChipSelect items={sparadeBolag} selected={form.bolag} onSelect={(v: string) => setForm({ ...form, bolag: v })} label="BOLAG · KRÄVS" editKey="bolag" onAdd={addBolag} onRemove={removeBolag} />
                   <ChipSelect items={sparadeCert} selected={form.cert} onSelect={(v: string) => setForm({ ...form, cert: v })} label="CERTIFIERING" editKey="cert" onAdd={addCert} onRemove={removeCert} />
                   <ChipSelect items={sparadeAtgarder[form.typ] || []} selected={form.atgard} onSelect={(v: string) => setForm({ ...form, atgard: v })} label="ÅTGÄRD" editKey="atgard" onAdd={addAtgard} onRemove={removeAtgard} />
+                  {/* Svårighet — segmenterad kontroll. Datainsamling för kommande prognosmodell; styr inget än. */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>SVÅRIGHET</label>
+                    <div role="radiogroup" aria-label="Svårighet" style={{ display: 'flex', background: 'rgba(255,255,255,0.06)', borderRadius: '10px', padding: '3px', gap: '3px' }}>
+                      {SVARIGHET_VAL.map(v => (
+                        <button key={v.varde} type="button" role="radio" aria-checked={form.svarighet === v.varde} onClick={() => setForm({ ...form, svarighet: v.varde })}
+                          style={{ flex: 1, minHeight: '40px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '600', background: form.svarighet === v.varde ? 'rgba(255,255,255,0.14)' : 'transparent', color: form.svarighet === v.varde ? '#fff' : 'rgba(255,255,255,0.5)' }}>
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div style={{ display: 'flex', gap: '12px' }}>
-                    <div style={{ flex: 1 }}><InputField label="VOLYM M³" value={form.volym} onChange={(e: any) => setForm({ ...form, volym: e.target.value })} type="number" /></div>
+                    <div style={{ flex: 1 }}><InputField label="VOLYM M³FUB" obligatorisk value={form.volym} onChange={(e: any) => setForm({ ...form, volym: e.target.value })} type="number" /></div>
                     <div style={{ flex: 1 }}><InputField label="AREAL HA" value={form.areal} onChange={(e: any) => setForm({ ...form, areal: e.target.value })} /></div>
                   </div>
                   <div style={{ marginBottom: '16px' }}>
@@ -1005,6 +1031,7 @@ function ObjektPageInner() {
                   <Las label="BOLAG" value={cap(form.bolag)} />
                   <Las label="CERTIFIERING" value={form.cert} />
                   <Las label="ÅTGÄRD" value={form.atgard} />
+                  <Las label="SVÅRIGHET" value={SVARIGHET_VAL.find(v => v.varde === form.svarighet)?.label || 'Normal'} />
                   <Las label="VOLYM" value={form.volym ? `${form.volym} m³fub` : ''} />
                   <Las label="AREAL" value={form.areal ? `${form.areal} ha` : ''} />
                   {/* Ur trakt-geometrin (envz). Saknas data → raden visas inte alls
@@ -1099,7 +1126,10 @@ function ObjektPageInner() {
 
             {/* Knappar */}
             <div style={{ marginTop: '20px' }}>
-              <button onClick={saveObj} style={{ width: '100%', padding: '16px', border: 'none', borderRadius: '10px', background: '#fff', color: '#000', fontSize: '16px', fontWeight: '600', cursor: 'pointer', marginBottom: '10px' }}>Spara</button>
+              {!formGiltig && (
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginBottom: '10px' }}>Fyll i namn, bolag och volym för att spara</div>
+              )}
+              <button onClick={saveObj} disabled={!formGiltig} style={{ width: '100%', padding: '16px', border: 'none', borderRadius: '10px', background: '#fff', color: '#000', fontSize: '16px', fontWeight: '600', cursor: formGiltig ? 'pointer' : 'default', opacity: formGiltig ? 1 : 0.4, marginBottom: '10px' }}>Spara</button>
               {editingId && (
                 <button onClick={deleteObj} style={{ width: '100%', padding: '14px', border: 'none', borderRadius: '10px', background: 'transparent', color: 'rgba(255,255,255,0.25)', fontSize: '14px', cursor: 'pointer', marginBottom: '6px' }}>Ta bort</button>
               )}

@@ -88,6 +88,62 @@ export function arRodDag(iso: string): boolean {
   return rodaDagar(parseInt(iso.substring(0, 4), 10)).has(iso);
 }
 
+const ledigaDagarCache = new Map<number, Set<string>>();
+
+/**
+ * Arbetsfria aftnar: julafton, nyårsafton och midsommarafton. Inte formellt
+ * röda, men lediga i praktiken — kapacitets- och ledighetsräkningen ska räkna
+ * dem lika över hela appen (helikoptervyn hade tidigare en egen lista).
+ */
+export function arbetsfriaAftnar(ar: number): Set<string> {
+  const s = new Set<string>();
+  s.add(`${ar}-12-24`); // julafton
+  s.add(`${ar}-12-31`); // nyårsafton
+  // Midsommarafton: fredagen 19–25 juni (dagen före midsommardagen).
+  for (let d = 19; d <= 25; d++) {
+    if (new Date(ar, 5, d).getDay() === 5) { s.add(toISO(new Date(ar, 5, d))); break; }
+  }
+  return s;
+}
+
+/** Röda dagar + arbetsfria aftnar. EN källa för "räknas inte som arbetsdag". */
+export function ledigaDagar(ar: number): Set<string> {
+  const cached = ledigaDagarCache.get(ar);
+  if (cached) return cached;
+  const s = new Set<string>([...rodaDagar(ar), ...arbetsfriaAftnar(ar)]);
+  ledigaDagarCache.set(ar, s);
+  return s;
+}
+
+export function arLedigDag(iso: string): boolean {
+  return ledigaDagar(parseInt(iso.substring(0, 4), 10)).has(iso);
+}
+
+/**
+ * Arbetsdagar (ISO-datum) i en månad: mån–fre som varken är röd dag eller
+ * arbetsfri afton. 1-indexerad månad.
+ */
+export function arbetsdagarIManad(ar: number, manad: number): string[] {
+  const antalDagar = new Date(ar, manad, 0).getDate();
+  const ut: string[] = [];
+  for (let dag = 1; dag <= antalDagar; dag++) {
+    const iso = toISO(new Date(ar, manad - 1, dag));
+    if (!arHelg(iso) && !arLedigDag(iso)) ut.push(iso);
+  }
+  return ut;
+}
+
+/** Antal lediga vardagar (röda + aftnar som infaller mån–fre) i månaden. */
+export function ledigaVardagarIManad(ar: number, manad: number): number {
+  const antalDagar = new Date(ar, manad, 0).getDate();
+  let n = 0;
+  for (let dag = 1; dag <= antalDagar; dag++) {
+    const iso = toISO(new Date(ar, manad - 1, dag));
+    if (!arHelg(iso) && arLedigDag(iso)) n++;
+  }
+  return n;
+}
+
 export function arHelg(iso: string): boolean {
   const dag = new Date(iso + 'T00:00:00').getDay();
   return dag === 0 || dag === 6;
@@ -101,7 +157,7 @@ export function kalenderdagar(startIso: string, slutIso: string): number {
 }
 
 /**
- * Arbetsdagar i intervallet: mån–fre som inte är röd dag.
+ * Arbetsdagar i intervallet: mån–fre som varken är röd dag eller arbetsfri afton.
  * Används BARA för att visa en ansökans längd — aldrig för saldomatte
  * (saldot är auktoritativt i medarbetare_saldo, sätts manuellt/via Fortnox).
  */
@@ -112,7 +168,7 @@ export function arbetsdagar(startIso: string, slutIso: string): number {
   const slut = new Date(slutIso + 'T00:00:00');
   while (d <= slut) {
     const iso = toISO(d);
-    if (!arHelg(iso) && !arRodDag(iso)) antal++;
+    if (!arHelg(iso) && !arLedigDag(iso)) antal++;
     d.setDate(d.getDate() + 1);
   }
   return antal;

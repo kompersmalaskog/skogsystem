@@ -35,7 +35,9 @@ type OvrigtRad = {
 };
 type Mappning = { id: string; maskin_id: string; kostnadsstalle_kod: string };
 type FortnoxCc = { kod: string; namn?: string; aktiv?: boolean; har_trafik?: boolean };
-type Maskinopt = { maskin_id: string; modell: string | null; maskin_typ?: string | null };
+type Maskinopt = { maskin_id: string; modell: string | null; visningsnamn?: string | null; maskin_typ?: string | null };
+// Ett maskinnamn i hela appen: visningsnamn före modell.
+const maskinNamn = (m: { visningsnamn?: string | null; modell: string | null; maskin_id: string }) => (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell || m.maskin_id;
 type OmappadFaktura = {
   id: number;
   document_number: number;
@@ -197,7 +199,7 @@ export default function InstallningarClient() {
       supabase.from('acord_terrang').select('id, namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('namn'),
       supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
-      supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum').order('modell'),
+      supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum').order('visningsnamn', { nullsFirst: false }),
       supabase.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod'),
       supabase.from('fortnox_invoice_rows')
         .select('id, document_number, invoice_date, description, total, matched_objekt_id, manual_objekt_id')
@@ -834,7 +836,7 @@ export default function InstallningarClient() {
                 <div key={m.maskin_id} style={{ padding: '12px 0', borderBottom: idx < maskinOptLista.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{m.modell || m.maskin_id}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{maskinNamn(m)}</div>
                       <div style={{ fontSize: 10, color: '#7a7a72', fontFamily: 'ui-monospace, monospace', marginTop: 2 }}>{m.maskin_id}</div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
@@ -889,7 +891,7 @@ export default function InstallningarClient() {
                     onChange={e => setOmappadVal(prev => ({ ...prev, [cc.kod]: e.target.value }))}>
                     <option value="">Välj maskin…</option>
                     {maskinOptLista.map(m => (
-                      <option key={m.maskin_id} value={m.maskin_id}>{m.modell || m.maskin_id}</option>
+                      <option key={m.maskin_id} value={m.maskin_id}>{maskinNamn(m)}</option>
                     ))}
                   </select>
                   <button

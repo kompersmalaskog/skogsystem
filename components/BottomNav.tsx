@@ -18,7 +18,7 @@ const morItems = [
   { href: '/redigering', label: 'Objektdetaljer', icon: 'edit' },
   { href: '/forbattringsforslag', label: 'Feedback', icon: 'feedback' },
   { href: '/uppfoljning', label: 'Uppföljning', icon: 'monitoring' },
-  { href: '/helikopter-v2', label: 'Helikopter', icon: 'flight' },
+  { href: '/helikopter', label: 'Helikopter', icon: 'flight' },
   { href: '/starta-jobb', label: 'Starta jobb', icon: 'power_settings_new' },
   { href: '/utbildning', label: 'Utbildning', icon: 'school' },
   { href: '/arbetsrapport', label: 'Rapport', icon: 'description' },

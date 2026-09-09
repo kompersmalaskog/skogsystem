@@ -4,6 +4,7 @@ export interface Maskin {
   maskin_id: string;
   tillverkare: string;
   modell: string;
+  visningsnamn?: string | null;
   modell_ar?: string;
   aggregat_tillverkare?: string;
   aggregat?: string;

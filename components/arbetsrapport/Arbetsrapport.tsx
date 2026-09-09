@@ -822,13 +822,16 @@ export default function Arbetsrapport() {
     // Hämta maskinnamn-lookup. NAMNET föraren känner igen ("Wisent2015",
     // "Ponsse Scorpion") bor i maskiner.namn; dim_maskin.modell är
     // tillverkarens kod ("810E") och bara en reserv när namn saknas.
+    // Ett maskinnamn i hela appen: dim_maskin.visningsnamn (admin) vinner, sedan
+    // maskiner.namn (maskin-service), sedan modell/tillverkare, sist id.
     Promise.all([
-      supabase.from("dim_maskin").select("maskin_id, tillverkare, modell"),
+      supabase.from("dim_maskin").select("maskin_id, visningsnamn, tillverkare, modell"),
       supabase.from("maskiner").select("maskin_id, namn"),
     ]).then(([dim, mask]) => {
       const m: Record<string, string> = {};
       for(const r of dim.data || []) m[r.maskin_id] = r.modell || r.tillverkare || r.maskin_id;
       for(const r of mask.data || []) if (r.namn) m[r.maskin_id] = r.namn;
+      for(const r of dim.data || []) { const v = (r.visningsnamn || "").trim(); if (v) m[r.maskin_id] = v; }
       setMaskinNamnMap(m);
     });
     // Hämta väder från SMHI via GPS

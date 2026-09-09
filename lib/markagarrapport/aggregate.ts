@@ -271,10 +271,10 @@ export async function aggregateMarkagarRapport(
   // 9. Maskin-info
   const { data: maskinRows } = await supabase
     .from('dim_maskin')
-    .select('maskin_id, modell')
+    .select('maskin_id, visningsnamn, modell')
     .in('maskin_id', maskinIds);
   const maskinModellById = new Map<string, string>(
-    (maskinRows ?? []).map(m => [m.maskin_id, m.modell ?? ''])
+    (maskinRows ?? []).map(m => [m.maskin_id, (m.visningsnamn ?? '').trim() || m.modell || ''])
   );
 
   // 10. Bygg per-stam-strukturer

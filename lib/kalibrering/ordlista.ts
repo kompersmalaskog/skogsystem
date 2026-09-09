@@ -31,18 +31,22 @@ export const AVVIKELSE = {
 /**
  * MASKINNAMN — ett id som "PONS20SDJAA270231" får aldrig nå användaren.
  *
- * maskinNamn:     "PONSSE Scorpion Giant 8W", "Rottne Industri AB R64428"
+ * maskinNamn:     dim_maskin.visningsnamn om satt ("Ponsse Scorpion"), annars
+ *                 "PONSSE Scorpion Giant 8W", "Rottne Industri AB R64428"
  *                 (tillverkare + modell, dubbelt prefix strippat). Saknas
  *                 dim_maskin-rad: ett kort id (≤ 8 tecken, t.ex. R64428) är
  *                 ett namn i sig — ett långt serienummer blir "Okänd maskin".
  * maskinKortNamn: för trånga kolumner. Kort id → id:t ("R64428"), annars
  *                 namnets första ord ("PONSSE").
  */
-export type MaskinNamnRad = { maskin_id: string; tillverkare?: string | null; modell?: string | null };
+export type MaskinNamnRad = { maskin_id: string; tillverkare?: string | null; modell?: string | null; visningsnamn?: string | null };
 
 const KORT_ID_MAX = 8;
 
 export const maskinNamn = (m: MaskinNamnRad): string => {
+  // Ett maskinnamn i hela appen: admin-satt visningsnamn vinner över tillverkare + modell.
+  const v = (m.visningsnamn ?? '').trim();
+  if (v) return v;
   const t = (m.tillverkare ?? '').trim();
   const mod = (m.modell ?? '').trim();
   if (!t && !mod) return m.maskin_id.length <= KORT_ID_MAX ? m.maskin_id : 'Okänd maskin';

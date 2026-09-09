@@ -119,7 +119,7 @@ export default function EkonomiClient() {
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
         supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, atgard, risskotning, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, terrang_kr_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
-        supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
+        supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
         supabase.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till').not('grundavstand_m', 'is', null),
@@ -314,7 +314,7 @@ export default function EkonomiClient() {
           const tp = timprisList.find(p => p.maskin_id === maskin_id);
           agg[maskin_id] = {
             maskin_id,
-            maskin_namn: tp?.maskin_namn || minfo?.modell || maskin_id,
+            maskin_namn: tp?.maskin_namn || (minfo?.visningsnamn && String(minfo.visningsnamn).trim()) || minfo?.modell || maskin_id,
             maskin_typ: minfo?.maskin_typ || null,
             volym: 0, intakt: 0, prel: 0, timmarUtanPris: 0,
           };

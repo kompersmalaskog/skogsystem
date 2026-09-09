@@ -80,7 +80,7 @@ const fmtTim = (n: number) => n.toFixed(1).replace('.', ',');
 export async function hamtaObjektJamforelse(start: string, end: string): Promise<JamforelseData> {
   const [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, ovrigtRes, exkluderade] = await Promise.all([
     supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, skordning_g15_manuell, skotning_g15_manuell, terrang_kr_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
-    supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
+    supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
     supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
     supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
     supabase.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till').not('grundavstand_m', 'is', null),
@@ -111,7 +111,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   const timprisList: MaskinTimpris[] = timprisRes.data || [];
   for (const m of (maskinRes.data || [])) {
     const tp = timprisList.find(p => p.maskin_id === m.maskin_id);
-    maskinNamnMap[m.maskin_id] = { namn: tp?.maskin_namn || m.modell || m.maskin_id, typ: m.maskin_typ || null };
+    maskinNamnMap[m.maskin_id] = { namn: tp?.maskin_namn || (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell || m.maskin_id, typ: m.maskin_typ || null };
   }
 
   const bas: JamforelseData = {
