@@ -9,7 +9,7 @@ import { T } from '@/lib/utbildning'
 import type { Svar } from '../_lib/berakningar'
 
 export const TEXT_MUTED = 'rgba(235,235,245,0.45)'
-const KANT = `0.5px solid ${T.sep}`
+export const KANT = `0.5px solid ${T.sep}`
 
 /** Svarsraden: ikon vid avvikelse + rubrik 17/500 + en rad 14 text-secondary. Ok = grått, ingen ikon. */
 export function Svarsrad({ svar }: { svar: Svar }) {
@@ -76,6 +76,44 @@ export function ListRad({ namn, tal, talTon = 'normal', av, andel, planAndel, or
       )}
       {under != null && under !== '' && (
         <div style={{ fontSize: 13, color: underMuted ? TEXT_MUTED : T.t2, marginTop: andel !== undefined ? 8 : 4, lineHeight: 1.4, fontVariantNumeric: 'tabular-nums' }}>{under}</div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Mätarrad under en rubrikrad: ikon 16 px + etikett 14 px, tal höger (500) + "av X" i
+ * text-secondary, under: stapel 6 px mot beställt med planstreck. Fyllning text-secondary
+ * när värdet ligger på eller över plan idag, orange under.
+ */
+export function MatarRad({ ikon, label, varde, av, andel, planAndel, orange, forsta }: {
+  ikon: React.ReactNode
+  label: string
+  varde: string
+  av?: string
+  /** 0–1. undefined = ingen stapel. */
+  andel?: number
+  planAndel?: number | null
+  orange?: boolean
+  forsta?: boolean
+}) {
+  return (
+    <div style={{ marginTop: forsta ? 8 : 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: T.t1 }}>
+          <span style={{ display: 'flex', flexShrink: 0 }}>{ikon}</span>{label}
+        </span>
+        <span style={{ fontSize: 14, fontWeight: 500, color: T.t1, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+          {varde}{av && <span style={{ color: T.t2, fontWeight: 400 }}> av {av}</span>}
+        </span>
+      </div>
+      {andel !== undefined && (
+        <div style={{ position: 'relative', height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 6, overflow: 'visible' }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.min(100, Math.max(0, andel * 100))}%`, background: orange ? T.orange : T.t2, borderRadius: 3 }} />
+          {planAndel != null && planAndel > 0 && (
+            <div style={{ position: 'absolute', top: -3, height: 12, width: 2, left: `calc(${Math.min(100, planAndel * 100)}% - 1px)`, background: T.t1, borderRadius: 1 }} aria-label="plan idag" />
+          )}
+        </div>
       )}
     </div>
   )

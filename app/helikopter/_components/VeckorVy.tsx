@@ -1,15 +1,16 @@
 'use client'
 
-// /helikopter/veckor — ett spår, en månad, vecka för vecka mot plan.
+// /helikopter/veckor — en månad, vecka för vecka mot plan, med växel mellan spåren.
+// Båda spåren hämtas direkt (två små RPC-anrop) så bytet är omedelbart.
 // Diagram (kolumn per vecka) → detaljblock för vald vecka → orsak.
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { ChevronLeft, TreePine, Trees, Truck } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { ChevronLeft, TreePine, Truck } from 'lucide-react'
 import PageContainer from '@/components/PageContainer'
 import { T } from '@/lib/utbildning'
 import { ymdLokal } from '@/lib/datumLokal'
-import { TYP_NAMN } from '../_lib/berakningar'
+import { TYPER, TYP_NAMN } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik } from '../_lib/format'
 import { hamtaVeckor, type Typ, type VeckaRad } from '../_lib/queries'
 import { Fel, Laddar, Tomt } from './Tillstand'
@@ -18,9 +19,22 @@ import VeckoDiagram, { veckaFarg } from './VeckoDiagram'
 import OrsakSheet from './OrsakSheet'
 
 type Roll = 'skordare' | 'skotare'
+type PerTyp = Record<Typ, VeckaRad[]>
+
+/** Senaste låsta veckan, annars första. */
+function forvaldVecka(veckor: VeckaRad[]): number | null {
+  const lasta = veckor.filter(v => v.status === 'last')
+  return lasta.length > 0 ? lasta[lasta.length - 1].isovecka : veckor[0]?.isovecka ?? null
+}
+
+/** Spåret har beställning i månaden när någon vecka har plan > 0. */
+function harBestallning(veckor: VeckaRad[]): boolean {
+  return veckor.some(v => v.plan != null && v.plan > 0)
+}
 
 export default function VeckorVy() {
   const sp = useSearchParams()
+  const router = useRouter()
   const idag = ymdLokal(new Date())
   const typ: Typ = sp.get('typ') === 'gallring' ? 'gallring' : 'slutavverkning'
   const arParam = parseInt(sp.get('ar') || '')
@@ -29,7 +43,7 @@ export default function VeckorVy() {
   const manad = Number.isFinite(manadParam) && manadParam >= 1 && manadParam <= 12 ? manadParam : Number(idag.slice(5, 7))
   const tillbaka = `/helikopter?flik=uppfoljning&ar=${ar}&manad=${manad}`
 
-  const [veckor, setVeckor] = useState<VeckaRad[] | null>(null)
+  const [data, setData] = useState<PerTyp | null>(null)
   const [fel, setFel] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
   const [vald, setVald] = useState<number | null>(null)
@@ -38,20 +52,36 @@ export default function VeckorVy() {
 
   useEffect(() => {
     let avbruten = false
-    setVeckor(null); setFel(null)
-    hamtaVeckor(ar, manad, typ, idag).then(r => {
+    setData(null); setFel(null)
+    Promise.all(TYPER.map(t => hamtaVeckor(ar, manad, t, idag))).then(svar => {
       if (avbruten) return
-      if (r.error != null) { setFel(r.error); return }
-      setVeckor(r.data)
-      // Default: senaste låsta veckan, annars första.
-      const lasta = r.data.filter(v => v.status === 'last')
-      setVald(prev => prev ?? (lasta.length > 0 ? lasta[lasta.length - 1].isovecka : r.data[0]?.isovecka ?? null))
+      const felet = svar.find(s => s.error != null)?.error
+      if (felet != null) { setFel(felet); return }
+      const per = { gallring: [], slutavverkning: [] } as PerTyp
+      TYPER.forEach((t, i) => { per[t] = svar[i].data ?? [] })
+      setData(per)
     })
     return () => { avbruten = true }
-  }, [ar, manad, typ, idag, version])
+  }, [ar, manad, idag, version])
+
+  const veckor = data ? data[typ] : null
+
+  // Vald vecka: behålls vid spårbyte om den finns, annars senaste låsta.
+  useEffect(() => {
+    if (!veckor) return
+    setVald(prev => (prev != null && veckor.some(v => v.isovecka === prev) ? prev : forvaldVecka(veckor)))
+    setRoll(null)
+  }, [veckor])
+
+  const sattTyp = (t: Typ) => {
+    if (t === typ) return
+    const q = new URLSearchParams(sp.toString())
+    q.set('typ', t)
+    router.replace(`/helikopter/veckor?${q.toString()}`, { scroll: false })
+  }
 
   const vecka = useMemo(() => veckor?.find(v => v.isovecka === vald) ?? null, [veckor, vald])
-  const TypIkon = typ === 'gallring' ? Trees : TreePine
+  const best = veckor ? harBestallning(veckor) : false
 
   return (
     <div style={{ background: T.bg, minHeight: '100vh', paddingBottom: 110, color: T.t1, fontFamily: T.ff, WebkitFontSmoothing: 'antialiased' }}>
@@ -61,13 +91,32 @@ export default function VeckorVy() {
             <ChevronLeft size={26} />
           </Link>
           <div style={{ textAlign: 'center' }}>
-            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <TypIkon size={18} color={T.t2} aria-hidden="true" />{TYP_NAMN[typ]}
-            </h1>
-            <div style={{ fontSize: 13, color: T.t2, marginTop: 2 }}>{manadRubrik(ar, manad)} · vecka för vecka</div>
+            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Veckor</h1>
+            <div style={{ fontSize: 13, color: T.t2, marginTop: 2 }}>{manadRubrik(ar, manad)}</div>
           </div>
           <span />
         </header>
+
+        {/* Spårväxel — samma stil som flikraden på /helikopter. Vald = typ i URL:en. */}
+        <div role="tablist" aria-label="Spår" style={{ display: 'flex', background: T.group, borderRadius: 10, padding: 3, gap: 3, marginBottom: 14 }}>
+          {TYPER.map(t => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={typ === t}
+              onClick={() => sattTyp(t)}
+              style={{
+                flex: 1, minHeight: 44, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: T.ff,
+                fontSize: 15, fontWeight: 600,
+                background: typ === t ? 'rgba(255,255,255,0.12)' : 'transparent',
+                color: typ === t ? T.t1 : T.t2,
+              }}
+            >
+              {TYP_NAMN[t]}
+            </button>
+          ))}
+        </div>
 
         {fel ? (
           <Fel onRetry={() => setVersion(v => v + 1)} />
@@ -91,7 +140,7 @@ export default function VeckorVy() {
                 {roll ? (
                   <PerMaskin vecka={vecka} roll={roll} onTillbaka={() => setRoll(null)} />
                 ) : (
-                  <VeckoDetalj vecka={vecka} onAndraOrsak={() => setOrsakOppen(true)} />
+                  <VeckoDetalj vecka={vecka} harBest={best} onAndraOrsak={() => setOrsakOppen(true)} />
                 )}
               </section>
             )}
@@ -115,27 +164,28 @@ export default function VeckorVy() {
   )
 }
 
-/** " · 4 arbetsdagar · plan 909" — pågående: " · 3 dagar kvar · behöver 250/dag" (kvar till veckoplan för skotat). */
-function veckoRubrik(v: VeckaRad): string {
-  if (v.status === 'pagar' && v.plan != null) {
+/** " · 4 arbetsdagar · plan 909" — pågående: " · 3 dagar kvar · behöver 250/dag" (kvar till veckoplan för skotat). Utan beställning: " · 4 arbetsdagar · ingen beställning". */
+function veckoRubrik(v: VeckaRad, harBest: boolean): string {
+  const dagar = ` · ${v.arbetsdagar} ${v.arbetsdagar === 1 ? 'arbetsdag' : 'arbetsdagar'}`
+  if (!harBest || v.plan == null) return `${dagar} · ingen beställning`
+  if (v.status === 'pagar') {
     const kvarM3 = v.plan - v.skotat
     const behov = v.arbetsdagar_kvar > 0 && kvarM3 > 0 ? ` · behöver ${fmt(kvarM3 / v.arbetsdagar_kvar)}/dag` : kvarM3 <= 0 ? ' · veckoplanen nådd' : ''
     return ` · ${v.arbetsdagar_kvar} ${v.arbetsdagar_kvar === 1 ? 'dag' : 'dagar'} kvar${behov}`
   }
-  const dagar = ` · ${v.arbetsdagar} ${v.arbetsdagar === 1 ? 'arbetsdag' : 'arbetsdagar'}`
-  return v.plan != null ? `${dagar} · plan ${fmt(v.plan)}` : dagar
+  return `${dagar} · plan ${fmt(v.plan)}`
 }
 
-function VeckoDetalj({ vecka, onAndraOrsak }: { vecka: VeckaRad; onAndraOrsak: () => void }) {
+function VeckoDetalj({ vecka, harBest, onAndraOrsak }: { vecka: VeckaRad; harBest: boolean; onAndraOrsak: () => void }) {
   return (
     <>
       <div style={{ fontSize: 15, fontWeight: 600, color: T.t1 }}>
         Vecka {vecka.isovecka}
-        <span style={{ color: T.t2, fontWeight: 400 }}>{veckoRubrik(vecka)}</span>
+        <span style={{ color: T.t2, fontWeight: 400 }}>{veckoRubrik(vecka, harBest)}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-        <Spalt ikon={<TreePine size={15} color={T.t2} aria-hidden="true" />} label="Skördat" varde={vecka.skordat} vecka={vecka} />
-        <Spalt ikon={<Truck size={15} color={T.t2} aria-hidden="true" />} label="Skotat" varde={vecka.skotat} vecka={vecka} />
+        <Spalt ikon={<TreePine size={15} color={T.t2} aria-hidden="true" />} label="Skördat" varde={vecka.skordat} vecka={vecka} harBest={harBest} />
+        <Spalt ikon={<Truck size={15} color={T.t2} aria-hidden="true" />} label="Skotat" varde={vecka.skotat} vecka={vecka} harBest={harBest} />
       </div>
       <div style={{ fontSize: 14, color: T.t2, marginTop: 14, lineHeight: 1.4 }}>
         {vecka.orsak ? vecka.orsak : <span style={{ color: 'rgba(235,235,245,0.4)' }}>Ingen orsak angiven</span>}
@@ -147,11 +197,11 @@ function VeckoDetalj({ vecka, onAndraOrsak }: { vecka: VeckaRad; onAndraOrsak: (
   )
 }
 
-function Spalt({ ikon, label, varde, vecka }: { ikon: React.ReactNode; label: string; varde: number; vecka: VeckaRad }) {
-  const plan = vecka.plan
+function Spalt({ ikon, label, varde, vecka, harBest }: { ikon: React.ReactNode; label: string; varde: number; vecka: VeckaRad; harBest: boolean }) {
+  const plan = harBest ? vecka.plan : null
   const farg = vecka.status === 'kommande' ? T.t2 : veckaFarg(varde, plan)
   let diff: string
-  if (plan == null) diff = ''
+  if (plan == null) diff = harBest ? '' : 'Ingen beställning'
   else if (vecka.status === 'kommande') diff = `plan ${fmt(plan)}`
   else if (vecka.status === 'pagar') {
     const kvarM3 = plan - varde
