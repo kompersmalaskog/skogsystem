@@ -208,7 +208,7 @@ export function useFildata(): Fildata {
         const maskinMap = new Map<string, MaskinInfo>();
         (maskinRes.data || []).forEach((m: any) =>
           maskinMap.set(m.maskin_id, {
-            modell: m.modell || null,
+            modell: (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell || null, // visningsnamn vinner
             typ: typAvMaskin(m.maskin_typ),
             sanderFiler: m.sander_filer !== false,
           }));

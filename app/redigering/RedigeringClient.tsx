@@ -82,7 +82,7 @@ async function hamtaObjektFranSupabase() {
 async function hamtaMaskinerFranSupabase() {
   const { data, error } = await supabase
     .from('dim_maskin')
-    .select('maskin_id, modell, maskin_typ')
+    .select('maskin_id, visningsnamn, modell, maskin_typ')
   if (error) throw new Error('Kunde inte hämta maskiner: ' + error.message)
   return data || []
 }
@@ -1822,7 +1822,7 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
   useEffect(() => {
     let avbruten = false
     ;(async () => {
-      const { data } = await supabase.from('dim_maskin').select('maskin_id, tillverkare, modell, maskin_typ, aktiv_till')
+      const { data } = await supabase.from('dim_maskin').select('maskin_id, visningsnamn, tillverkare, modell, maskin_typ, aktiv_till')
       if (avbruten) return
       setSkotarLista((data || []).filter((m: any) => {
         const t = (m.maskin_typ || '').toLowerCase()
@@ -1945,7 +1945,7 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
           const vol = Number(obj.skotad_volym_manuell) || 0
           const m3PerG15 = tim > 0 && vol > 0 ? vol / tim : null
           const mObj = skotarLista.find((m: any) => m.maskin_id === obj.tilldelad_skotare)
-          const namn = mObj ? (mObj.modell || mObj.maskin_id) : (obj.tilldelad_skotare || 'skotaren')
+          const namn = mObj ? ((mObj.visningsnamn && String(mObj.visningsnamn).trim()) || mObj.modell || mObj.maskin_id) : (obj.tilldelad_skotare || 'skotaren')
           const radRam = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, marginTop: 8 }
           return (
             <div style={{ marginBottom: 10, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,159,10,0.06)', border: '1px solid rgba(255,159,10,0.2)' }}>
@@ -2126,7 +2126,7 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
                 .map((m: any) => {
                   const vald = obj.tilldelad_skotare === m.maskin_id
                   const sald = m.aktiv_till != null
-                  const namn = ([m.tillverkare, m.modell].filter(Boolean).join(' ') || m.maskin_id) + (sald ? ' (såld)' : '')
+                  const namn = ((m.visningsnamn && String(m.visningsnamn).trim()) || [m.tillverkare, m.modell].filter(Boolean).join(' ') || m.maskin_id) + (sald ? ' (såld)' : '')
                   return (
                     <Chip key={m.maskin_id} label={namn} selected={vald}
                       onClick={() => sattTilldeladSkotare(vald ? null : m.maskin_id)}
@@ -3512,7 +3512,7 @@ function ObjektRedigeringInner() {
         const maskinLookup = {}
         const maskinTypMap = {}
         maskinData.forEach(m => {
-          maskinLookup[m.maskin_id] = m.modell
+          maskinLookup[m.maskin_id] = (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell
           maskinTypMap[m.maskin_id] = m.maskin_typ || null
         })
         // Berika varje objekt med maskin_typ så getWarnings + UI kan läsa direkt

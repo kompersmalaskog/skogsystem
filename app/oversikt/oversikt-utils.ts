@@ -65,8 +65,10 @@ export function dKm(a: { lat: number; lng: number }, b: { lat: number; lng: numb
   return Math.round(R * 2 * Math.atan2(Math.sqrt(d), Math.sqrt(1 - d)));
 }
 
-/** Build display name from dim_maskin data */
-export function getMaskinDisplayName(m: { tillverkare?: string; modell?: string; maskin_id: string }): string {
+/** Build display name from dim_maskin data — visningsnamn (admin) vinner över tillverkare + modell. */
+export function getMaskinDisplayName(m: { tillverkare?: string; modell?: string; visningsnamn?: string | null; maskin_id: string }): string {
+  const v = (m.visningsnamn ?? '').trim();
+  if (v) return v;
   const { tillverkare, modell } = m;
   if (!tillverkare && !modell) return m.maskin_id;
   if (!tillverkare) return modell!;

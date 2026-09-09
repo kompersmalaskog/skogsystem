@@ -107,7 +107,7 @@ export function useMatchning(): MatchningData {
         const [dimRes, planRes, maskinRes, exkluderade, prodRows, lassRows, tidRows, manuellRes] = await Promise.all([
           supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, maskin_id, bolag, inkopare, huvudtyp, atgard, start_date, exkludera'),
           supabase.from('objekt').select('id, namn, vo_nummer, status, dim_objekt_id'),
-          supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
+          supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
           hamtaExkluderadeObjektId(),
           hamtaAlla('fakt_produktion', 'objekt_id, volym_m3sub'),
           hamtaAlla('fakt_lass', 'objekt_id, maskin_id, volym_m3sub'),
@@ -123,7 +123,7 @@ export function useMatchning(): MatchningData {
         if (maskinRes.error) throw new Error('Kunde inte läsa dim_maskin: ' + maskinRes.error.message);
 
         const maskinMap = new Map<string, { modell: string | null; typ: 'skordare' | 'skotare' | null }>();
-        (maskinRes.data || []).forEach((m: any) => maskinMap.set(m.maskin_id, { modell: m.modell || null, typ: typAvMaskin(m.maskin_typ) }));
+        (maskinRes.data || []).forEach((m: any) => maskinMap.set(m.maskin_id, { modell: (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell || null, typ: typAvMaskin(m.maskin_typ) }));
 
         // Aggregat per objekt_id
         const skordat = new Map<string, number>();

@@ -354,6 +354,7 @@ interface ManuellPrognos {
 interface DimMaskin {
   maskin_id: string;
   modell: string | null;
+  visningsnamn?: string | null; // admin-satt namn, visas före modell
   tillverkare: string | null;
   maskin_typ: string | null;   // 'Harvester' | 'Forwarder'
   klarar_typ: string | null;   // 'slutavverkning' | 'gallring' | 'bada' | null (null = okänt)
@@ -379,7 +380,7 @@ function maskinKlararTyp(klararTyp: string | null, objektTyp: string | null | un
 }
 
 function maskinModell(m: DimMaskin | undefined | null): string {
-  return m?.modell || m?.maskin_id || '';
+  return (m?.visningsnamn && m.visningsnamn.trim()) || m?.modell || m?.maskin_id || '';
 }
 
 // Linjetyper som ritas som stängda polygoner.
@@ -2178,7 +2179,7 @@ export default function PlannerPage() {
     (async () => {
       const { data } = await supabase
         .from('dim_maskin')
-        .select('maskin_id, modell, tillverkare, maskin_typ, klarar_typ, extramaskin, aktiv_till');
+        .select('maskin_id, visningsnamn, modell, tillverkare, maskin_typ, klarar_typ, extramaskin, aktiv_till');
       if (data) setDimMaskiner(data as DimMaskin[]);
     })();
   }, []);

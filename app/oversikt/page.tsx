@@ -62,7 +62,7 @@ async function fetchAllRows<T>(query: () => any): Promise<T[]> {
 }
 
 // Maskinnamn = tillverkare + modell (identiskt med uppföljningens getMachineLabel) — grupperingsetikett.
-function getMachineLabel(m: any): string { return m ? [m.tillverkare, m.modell].filter(Boolean).join(' ') : ''; }
+function getMachineLabel(m: any): string { return m ? ((m.visningsnamn || '').trim() || [m.tillverkare, m.modell].filter(Boolean).join(' ')) : ''; }
 
 export default function OversiktPage() {
   // Default = Objekt (uppgiftslistan "vad ska jag göra idag") — kartan är ett tryck bort.

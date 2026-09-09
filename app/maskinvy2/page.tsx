@@ -1,4 +1,5 @@
 'use client';
+import { maskinVisningsnamn } from '@/lib/maskinNamn'
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -34,7 +35,7 @@ interface ProdRow {
   datum: string; maskin_id: string; objekt_id: string;
   volym_m3sub: number; stammar: number;
 }
-interface Maskin { maskin_id: string; modell: string; tillverkare: string; typ: string | null; }
+interface Maskin { maskin_id: string; modell: string; tillverkare: string; visningsnamn?: string | null; typ: string | null; }
 interface Operator { operator_id: string; operator_namn: string | null; operator_key: string | null; }
 
 interface Agg {
@@ -174,7 +175,7 @@ function aggregateOperators(
   ops.forEach(o => opNames.set(o.operator_id, o.operator_namn || o.operator_key || o.operator_id));
 
   const maskinMap = new Map<string, string>();
-  maskiner.forEach(m => maskinMap.set(m.maskin_id, `${m.tillverkare} ${m.modell}`.trim()));
+  maskiner.forEach(m => maskinMap.set(m.maskin_id, maskinVisningsnamn(m)));
 
   // Aggregate time per operator
   const map = new Map<string, { g15: number; proc: number; terr: number; other: number; ks: number; maint: number; dist: number; avb: number; rast: number; bransle: number; maskinCount: Map<string, number> }>();
@@ -417,7 +418,7 @@ export default function Maskinvy2Page() {
     const [tc, tp, mr, or_, pc, pp, py] = await Promise.all([
       supabase.from('fakt_tid').select(tidCols).gte('datum', curr.start).lte('datum', curr.end),
       supabase.from('fakt_tid').select(tidCols).gte('datum', prev.start).lte('datum', prev.end),
-      supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ'),
+      supabase.from('dim_maskin').select('maskin_id,visningsnamn,modell,tillverkare,typ'),
       supabase.from('dim_operator').select('operator_id,operator_namn,operator_key'),
       hämtaFaktProd(prodCols, curr.start, curr.end),
       hämtaFaktProd(prodCols, prev.start, prev.end),
@@ -445,7 +446,7 @@ export default function Maskinvy2Page() {
     const check = machineType === 'skordare' ? isSkordare : (t: string | null) => !isSkordare(t);
     return maskiner
       .filter(m => check(m.typ))
-      .sort((a, b) => (`${a.tillverkare} ${a.modell}`).localeCompare(`${b.tillverkare} ${b.modell}`));
+      .sort((a, b) => maskinVisningsnamn(a).localeCompare(maskinVisningsnamn(b)));
   }, [maskiner, machineType]);
 
   // ── Machine filter ──
@@ -677,7 +678,7 @@ export default function Maskinvy2Page() {
                 <option value="alla">Alla {machineType === 'skordare' ? 'skördare' : 'skotare'}</option>
                 {typeMaskiner.map(m => (
                   <option key={m.maskin_id} value={m.maskin_id}>
-                    {`${m.tillverkare} ${m.modell}`.trim() || m.maskin_id}
+                    {maskinVisningsnamn(m)}
                   </option>
                 ))}
               </Select>

@@ -54,7 +54,7 @@ export async function GET() {
   const supabase = supaService();
   const [mapRes, maskinRes, aktivaCcRes] = await Promise.all([
     supabase.from("maskin_kostnadsstalle").select("id, maskin_id, kostnadsstalle_kod").order("maskin_id"),
-    supabase.from("dim_maskin").select("maskin_id, modell, maskin_typ").order("modell"),
+    supabase.from("dim_maskin").select("maskin_id, visningsnamn, modell, maskin_typ").order("modell"),
     supabase.from("fortnox_voucher_rows")
       .select("costcenter")
       .not("costcenter", "is", null)

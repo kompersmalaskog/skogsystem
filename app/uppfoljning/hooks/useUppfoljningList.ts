@@ -33,7 +33,7 @@ function getMachineType(maskin: any): 'skordare' | 'skotare' | 'unknown' {
 }
 function getMachineLabel(maskin: any): string {
   if (!maskin) return '';
-  return [maskin.tillverkare, maskin.modell].filter(Boolean).join(' ');
+  return (maskin.visningsnamn || '').trim() || [maskin.tillverkare, maskin.modell].filter(Boolean).join(' ');
 }
 // Paginerad hämtning (PostgREST-taket är 1000 rader) — fakt_lass är rå och kan överstiga det.
 async function hamtaAlla<T>(bygg: () => any): Promise<T[]> {

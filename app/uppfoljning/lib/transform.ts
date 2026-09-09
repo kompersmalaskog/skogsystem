@@ -373,7 +373,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
 
   // Modellsträng per maskin (för per-maskin-kortens "modell"-rad).
   const maskinModellMap = new Map<string, string>();
-  dimMaskin.forEach((m: any) => { if (m.maskin_id && m.modell) maskinModellMap.set(m.maskin_id, m.modell); });
+  dimMaskin.forEach((m: any) => { const n = (m.visningsnamn || '').trim() || m.modell; if (m.maskin_id && n) maskinModellMap.set(m.maskin_id, n); });
   const maskinModell = (mid: string) => maskinModellMap.get(mid) || null;
 
   const tradslagMap = new Map<string, string>();

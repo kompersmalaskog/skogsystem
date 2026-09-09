@@ -785,10 +785,10 @@ export default function Arbetsrapport() {
       }
     });
     // Hämta maskinnamn-lookup
-    supabase.from("dim_maskin").select("maskin_id, tillverkare, modell").then(res => {
+    supabase.from("dim_maskin").select("maskin_id, visningsnamn, tillverkare, modell").then(res => {
       if(res.data) {
         const m: Record<string, string> = {};
-        for(const r of res.data) m[r.maskin_id] = r.modell || r.tillverkare || r.maskin_id;
+        for(const r of res.data) m[r.maskin_id] = (r.visningsnamn || "").trim() || r.modell || r.tillverkare || r.maskin_id;
         setMaskinNamnMap(m);
       }
     });

@@ -1,10 +1,11 @@
 'use client'
+import { maskinVisningsnamn } from '@/lib/maskinNamn'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
-type Maskin = { maskin_id: number; modell: string; tillverkare: string; typ: string }
+type Maskin = { maskin_id: number; modell: string; tillverkare: string; visningsnamn?: string | null; typ: string }
 
 interface DailyData {
   datum: string
@@ -81,7 +82,7 @@ export default function MaskinvyNyPage() {
   // Load machines
   useEffect(() => {
     withTimeout(
-      supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ'),
+      supabase.from('dim_maskin').select('maskin_id,visningsnamn,modell,tillverkare,typ'),
       SUPABASE_TIMEOUT
     )
       .then(({ data, error }) => {
@@ -366,7 +367,7 @@ export default function MaskinvyNyPage() {
                 }}
               >
                 {maskiner.length > 0
-                  ? maskiner.map(m => <option key={m.maskin_id} value={m.maskin_id}>{m.modell} ({m.typ})</option>)
+                  ? maskiner.map(m => <option key={m.maskin_id} value={m.maskin_id}>{maskinVisningsnamn({ ...m, maskin_id: String(m.maskin_id) })} ({m.typ})</option>)
                   : <option value="">Inga maskiner</option>
                 }
               </select>
@@ -400,7 +401,7 @@ export default function MaskinvyNyPage() {
             </span>
             <span style={{ color: 'rgba(255,255,255,0.2)' }}>/</span>
             <span style={{ fontFamily: "'Geist', system-ui, sans-serif", fontWeight: 700, fontSize: 16, color: '#ffffff' }}>
-              {currentMaskin?.modell || (loading ? 'Laddar...' : 'Ingen maskin vald')}
+              {(currentMaskin && maskinVisningsnamn({ ...currentMaskin, maskin_id: String(currentMaskin.maskin_id) })) || (loading ? 'Laddar...' : 'Ingen maskin vald')}
             </span>
           </div>
           <div style={{
