@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "app/api/import-trakt/route.ts": {
+      "memory": 3009
+    }
+  },
   "crons": [
     {
       "path": "/api/notis/flush",

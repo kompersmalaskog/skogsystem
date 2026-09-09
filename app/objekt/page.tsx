@@ -277,9 +277,22 @@ function ObjektPageInner() {
   };
 
   const MAX_MB = 100; // samma tak som trakt-inbox-bucketen + servern (importen varnar redan vid 50 MB)
+  // Loggar en importfil som misslyckades KLIENT-sidan (funktionen svarade inte / 5xx utan JSON)
+  // till import_fel via en lätt endpoint (service-role kräver server). Så en tyst död import syns
+  // i /datahalsa i stället för att bli en föräldralös fil i trakt-inbox. Best-effort.
+  const loggaMisslyckadImport = async (sokvag: string | null, feltext: string) => {
+    try {
+      await fetch('/api/import-trakt/logga-fel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sokvag, feltext }),
+      });
+    } catch (e) { console.error('Kunde inte logga misslyckad import:', e); }
+  };
+
   const handleZipImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    let sokvagForLogg: string | null = null; // känd så fort filen laddats upp — för synlig fellogg
 
     // Storlekskontroll FÖRST — begripligt fel i stället för det tysta plattformsfel den gamla
     // multipart-vägen gav när filen översteg Vercels body-gräns.
@@ -317,23 +330,43 @@ function ObjektPageInner() {
         e.target.value = '';
         return;
       }
+      sokvagForLogg = urlData.sokvag; // filen finns nu i trakt-inbox — kan loggas/köras om
 
-      // 3. Importera från storage — liten JSON-request (några hundra byte).
-      setImportStatus('Läser traktfil...');
-      const res = await fetch('/api/import-trakt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sokvag: urlData.sokvag, ar: year, manad: month + 1 }),
-      });
-      const data = await res.json();
+      // 3. Importera från storage — liten JSON-request (några hundra byte). Kan ta en stund för
+      // stora trakter (uppackning + flera stora PDF:er). AbortController så snurran ALDRIG hänger
+      // för evigt — routens maxDuration är 300 s, vi ger 310 s och avbryter sedan med tydligt fel.
+      setImportStatus('Läser traktfil (stora trakter kan ta någon minut)...');
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 310_000);
+      let res: Response;
+      try {
+        res = await fetch('/api/import-trakt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sokvag: urlData.sokvag, ar: year, manad: month + 1 }),
+          signal: ctrl.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
-      if (!res.ok) {
+      // Läs svaret defensivt: en död funktion (OOM/timeout) ger 5xx UTAN JSON-body → res.json()
+      // kastar. Vi ska aldrig tolka tystnad som "gick bra".
+      let data: any = null;
+      try { data = await res.json(); } catch { /* icke-JSON (t.ex. 504 gateway) */ }
+
+      if (!res.ok || !data) {
         if (res.status === 409) {
           setImportStatus('⚠ Objektet finns redan');
+        } else if (data?.error) {
+          // Routen levde och svarade med begripligt fel — den loggade själv i import_fel.
+          setImportStatus(`Fel: ${data.error}`);
         } else {
-          setImportStatus(`Fel: ${data.error || 'Import misslyckades'}`);
+          // Funktionen svarade ${status} utan besked = trolig timeout/minne. Logga synligt.
+          setImportStatus(`Fel: importen svarade ${res.status} utan besked — trolig timeout eller minnesbrist. Filen ligger kvar för omkörning.`);
+          await loggaMisslyckadImport(sokvagForLogg, `Importen svarade HTTP ${res.status} utan JSON — trolig timeout/OOM.`);
         }
-        setTimeout(() => setImportStatus(''), 4000);
+        setTimeout(() => setImportStatus(''), 7000);
         e.target.value = '';
         return;
       }
@@ -344,10 +377,19 @@ function ObjektPageInner() {
       setImportStatus('✓ Importerat!');
       setTimeout(() => setImportStatus(''), 2000);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Import error:', error);
-      setImportStatus('Fel: Kunde inte importera');
-      setTimeout(() => setImportStatus(''), 3000);
+      const avbruten = error?.name === 'AbortError';
+      setImportStatus(avbruten
+        ? 'Fel: importen tog för lång tid (avbröts efter 5 min). Filen ligger kvar för omkörning.'
+        : 'Fel: Kunde inte importera (nätverksfel). Filen ligger kvar för omkörning.');
+      // Synlig logg om filen hann laddas upp (annars finns inget att köra om).
+      if (sokvagForLogg) {
+        await loggaMisslyckadImport(sokvagForLogg, avbruten
+          ? 'Klient-timeout (AbortController, 310 s) — importen svarade aldrig.'
+          : `Nätverksfel mot /api/import-trakt: ${error?.message ?? error}`);
+      }
+      setTimeout(() => setImportStatus(''), 7000);
     }
 
     // Återställ input så samma fil kan väljas igen
