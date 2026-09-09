@@ -4,6 +4,7 @@ import webpush from "web-push";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { skaFragaBrandrisk } from "@/lib/ob";
+import { SKARP_START, foreSkarpStart } from "@/lib/skarpStart";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -83,6 +84,17 @@ async function flush() {
       const orsak = skippOrsak(medMap.get(n.mottagare_id), n.typ);
       if (orsak) {
         await supabase.from("notis_kö").update({ skickad_at: new Date().toISOString(), fel_meddelande: orsak }).eq("id", n.id);
+        skippade++;
+        continue;
+      }
+      // Golv: en omimport av gamla MOM-filer köar dagsslut-notiser för gamla
+      // datum, och stall-vakten nedan släpper igenom alla gårdagar. Dagar före
+      // skarp start ska aldrig pusha "Stämmer?" — markera som hanterad.
+      if (n.datum && foreSkarpStart(n.datum)) {
+        await supabase.from("notis_kö").update({
+          skickad_at: new Date().toISOString(),
+          fel_meddelande: `Ej skickad — dagen ligger före skarp start ${SKARP_START}`,
+        }).eq("id", n.id);
         skippade++;
         continue;
       }
