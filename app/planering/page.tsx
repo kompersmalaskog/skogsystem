@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { gpsGuardAccepts } from '@/lib/gps-guard'
+import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
 import { signeraKartfil } from '@/lib/kartfiler'
 import DokumentChips, { harDokument } from '@/components/DokumentChips'
 import ObjektValjare from './ObjektValjare'
@@ -183,6 +183,13 @@ function avstandPunktTillStrak(lat: number, lon: number, geometri: [number, numb
   }
   return best;
 }
+
+// HYTTSPÅR avsluts-skydd: ett långt glapp utan punkter (skärmlås/bakgrund, t.ex. hemresan) följt av en
+// punkt LÅNGT bort är inte en kontinuerlig del av arbetet. GPS-vakten (#398) släpper ändå in den för att
+// stora Δt ger låg beräknad hastighet. Tröskel: glapp > 20 min OCH hopp > 1,5 km → försegla spåret vid
+// sista giltiga punkten och kasta hopp-punkten. Kort glapp eller nära återkomst (samma trakt) rör vi inte.
+const HYTTSPAR_MAX_GAP_MS = 20 * 60 * 1000;   // 20 min utan accepterad punkt = loggningen tystnade
+const HYTTSPAR_MAX_RESUME_M = 1500;           // + hopp längre än så = annan plats, inte arbetsforts.
 
 // HYTTSPÅR: RDP-gallring av ett körspår ({lat,lng,tid}) — perp-avstånd i meter via lokal planprojektion.
 // Håller den SPARADE arrayen liten över ett helt skift (billiga skrivningar); behåller tid + ändpunkter.
@@ -539,15 +546,29 @@ export default function PlannerPage() {
       return;
     }
     let active = true;
-    (async () => {
+    // Wake Lock släpps AUTOMATISKT av webbläsaren så fort sidan blir dold (skärmen slocknar / appen
+    // bakgrundas). Utan om-begäran vid återkomst är låset borta för gott → skärmen kan slockna igen och
+    // GPS-loggningen tystnar (grundorsaken till det sena hopp-punkten i hyttspåret). Därför: begär om
+    // varje gång sidan blir synlig. iOS Safari 16.4+ stöder API:t; saknas det gör optional-chaining +
+    // try/catch detta till en tyst no-op (ingen krasch, ingen effekt) — det efterfrågade fallbacket.
+    const acquire = async () => {
+      if (!active || document.visibilityState !== 'visible' || screenWakeLockRef.current) return;
       try {
         const lock = await (navigator as any).wakeLock?.request('screen');
-        if (active) screenWakeLockRef.current = lock;
-        else lock?.release().catch(() => {});
-      } catch (_) {}
-    })();
+        if (!lock) return;
+        if (active && document.visibilityState === 'visible') {
+          screenWakeLockRef.current = lock;
+          // Om webbläsaren släpper låset (dold sida) → nolla så nästa visibilitychange kan begära om.
+          lock.addEventListener?.('release', () => { screenWakeLockRef.current = null; });
+        } else { lock.release?.().catch(() => {}); }
+      } catch (_) { /* ej stött / nekat → tyst fallback */ }
+    };
+    acquire();
+    const onVisible = () => { if (document.visibilityState === 'visible') acquire(); };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       active = false;
+      document.removeEventListener('visibilitychange', onVisible);
       screenWakeLockRef.current?.release().catch(() => {});
       screenWakeLockRef.current = null;
     };
@@ -3201,6 +3222,7 @@ export default function PlannerPage() {
   const hyttsparLastFixRef = useRef<{ lat: number; lon: number; ts: number } | null>(null);
   const hyttsparDirtyRef = useRef(false);
   const hyttsparSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hyttsparSealingRef = useRef(false);   // true medan spåret förseglas efter ett glapp (async-fönster)
 
   const uppdateraHyttsparLager = useCallback(() => {
     const map = mapInstanceRef.current; if (!map) return;
@@ -3274,11 +3296,25 @@ export default function PlannerPage() {
   // Ackumulering: varje GPS-fix (currentPosition) körs genom vakten (#398) → accepterade punkter läggs
   // till + spåret ritas om. Gejtad på aktiv loggning (rowId satt) → no-op utanför körvy.
   useEffect(() => {
-    if (!hyttsparRowIdRef.current) return;
+    if (!hyttsparRowIdRef.current || hyttsparSealingRef.current) return;
     const pos = currentPosition as any;
     if (!pos || pos.lat == null || pos.lon == null) return;
     const cand = { lat: pos.lat, lon: pos.lon, ts: Date.now(), accuracy: gpsAccuracy ?? 999 };
     if (!gpsGuardAccepts(cand, hyttsparLastFixRef.current)) return;
+    // AVSLUTS-SKYDD: GPS-vakten släpper in en punkt efter ett långt glapp (stor Δt → låg hastighet,
+    // gps-guard rad 48-49). Men glapp = loggningen tystnade (skärmlås/bakgrund). En punkt som dyker upp
+    // LÅNGT bort efter ett sådant glapp (hemresan) får aldrig ritas in som kontinuerligt arbete →
+    // försegla spåret vid sista giltiga punkten (= arbetsslutet) och kasta hopp-punkten.
+    const last = hyttsparLastFixRef.current;
+    if (last && (cand.ts - last.ts) > HYTTSPAR_MAX_GAP_MS
+             && haversineMeters(last.lat, last.lon, cand.lat, cand.lon) > HYTTSPAR_MAX_RESUME_M) {
+      console.warn('[Hyttspår] långt glapp + hopp → förseglar vid sista giltiga punkten, kastar sen punkt',
+        { gapMin: Math.round((cand.ts - last.ts) / 60000), hoppKm: +(haversineMeters(last.lat, last.lon, cand.lat, cand.lon) / 1000).toFixed(1) });
+      hyttsparSealingRef.current = true;
+      hyttsparLastFixRef.current = null;
+      sparaHyttspar(true).finally(() => { hyttsparSealingRef.current = false; });
+      return;
+    }
     hyttsparLastFixRef.current = { lat: cand.lat, lon: cand.lon, ts: cand.ts };
     hyttsparPointsRef.current = [...hyttsparPointsRef.current, { lat: cand.lat, lng: cand.lon, tid: new Date(cand.ts).toISOString() }];
     hyttsparDirtyRef.current = true;
