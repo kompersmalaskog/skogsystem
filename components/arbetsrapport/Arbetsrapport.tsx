@@ -9,7 +9,8 @@ import { ymdLokal } from "@/lib/datumLokal";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
-import type { VilaTrosklar } from "@/lib/vilobrott";
+import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_RUBRIK, arFranvaroDagtyp } from "@/lib/franvaro";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
@@ -783,7 +784,7 @@ export default function Arbetsrapport() {
           });
         // Fetch aktuella vilobrott (senaste 14 dagar) för Dag-vyns morgon-
         // varningar och Min tid-översikten. Tom array är OK.
-        hamtaAktuellaVilobrott(med.data.id)
+        hamtaAktuellaVilobrott(med.data.id, 30)
           .then(setAktuellaVilobrott)
           .catch(err => console.error('Vilobrott-fel:', err));
       }
@@ -996,7 +997,7 @@ export default function Arbetsrapport() {
   useEffect(() => {
     if (steg !== "morgon" && steg !== "dag" && steg !== "meny" && steg !== "mintid") return;
     if (!medarbetare?.id) return;
-    hamtaAktuellaVilobrott(medarbetare.id)
+    hamtaAktuellaVilobrott(medarbetare.id, 30)
       .then(setAktuellaVilobrott)
       .catch(err => console.error('Vilobrott-fel:', err));
   }, [steg, medarbetare?.id]);
@@ -2067,12 +2068,17 @@ export default function Arbetsrapport() {
      tider eller bekräfta dagen — det var buggen. Blocket är borttaget. */
 
   /* ─── HEM (morgon/dag/meny unified) ─── */
-  /* PILOTEN för designtokens (lib/design/tokens.ts): sex typsteg, avstånds-
-     skalan, fem knappnivåer, ett tema, tre rörelsetider. Dagens tillstånd
-     (väntar → pågår → avslutad → bekräftad) ritas inuti EN <Tillstand> så att
-     bytet tonar över på samma plats med reserverad höjd i stället för att ett
-     element försvinner och ett annat dyker upp. Inga literaler här — skriv
-     aldrig ett tal som inte kommer ur tokens. */
+  /* PILOTEN för designtokens (lib/design/tokens.ts). Formen är bestämd av
+     Martin efter jämförelse av alla varianter: den KORTBASERADE var bäst,
+     problemet var antalet kort. Morgonen är därför TRE kort —
+       1. tillstånd + maskin + plats + "Starta arbetspass"
+       2. Extra arbete
+       3. Frånvaro
+     — med hälsning och datum överst, och ett "vad som väntar"-kort ovanför
+     hälsningen BARA när det finns något att säga. Rent = skärmen börjar med
+     hälsningen. Kort 1 och dagssammanfattningen ritas inuti EN <Tillstand>
+     så bytet väntar → pågår → avslutad → bekräftad tonar över på samma plats.
+     Inga literaler här — allt ur tokens. */
   if(steg==="morgon"||steg==="dag"||steg==="meny") {
     const DAG_HUVUD = 64;   // fast rubrikrad överst (layoutmått, inte typ/avstånd)
     const BANNER    = 44;   // timer-bannern under rubrikraden (se timerBanner)
@@ -2095,8 +2101,19 @@ export default function Arbetsrapport() {
       visaSammanfattning ? (redanBekräftad ? 'bekraftad' : dagPågår ? 'pagar-kort' : 'avslutad') : '-',
     ].join('|');
 
-    /* Varningskort — samma form för alla: ikon i statusfärg + ord. Färgen
-       förstärker texten, den bär aldrig ensam. */
+    /* En rad i ett kort: etikett vänster, värde höger, pil om tryckbar. */
+    const kortRad = (label: string, value: ReactNode, onClick?: () => void, sista?: boolean) => (
+      <div key={label} onClick={onClick}
+        style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}`, cursor:onClick?"pointer":"default" }}>
+        <span style={{ ...TYP.meta, color:FARG.text2, flexShrink:0 }}>{label}</span>
+        <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, minWidth:0 }}>
+          <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{value}</span>
+          {onClick && <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, flexShrink:0 }}>chevron_right</span>}
+        </div>
+      </div>
+    );
+
+    /* Varningskort — ikon i statusfärg + ord. Färgen bär aldrig ensam. */
     const varningsKort = (nyckel: string, ikon: string, farg: string, text: string, under?: string, onClick?: () => void) => (
       <div key={nyckel} onClick={onClick} className="tona-in"
         style={{ ...KORT, display:"flex", alignItems:"center", gap:AVSTAND.s, marginBottom:AVSTAND.m, cursor:onClick?"pointer":"default" }}>
@@ -2109,95 +2126,113 @@ export default function Arbetsrapport() {
       </div>
     );
 
-    /* TILLSTÅNDET — inget kort: titel mot tom yta, underrad, maskin och plats
-       som en grå rad. Döljs när passet avslutats (då finns sammanfattningen). */
-    const tillstandSektion = (() => {
+    /* KORT 1 — tillstånd, maskin, plats, start. Väntar: klocka + "Väntar på
+       maskin". Passet går (innan första timfilen satt slut_tid): grön puls +
+       det faktiska klockslaget systemet registrerat. */
+    const tillstandKort = (() => {
       const typ = idagArb?.dagtyp;
       const startKort = idagArb?.start_tid?.slice(0,5) || '—';
-      const dagTypVisa: Record<string,string> = {
-        sjuk: 'Sjukdag', vab: 'VAB', semester: 'Semester', atk: 'ATK',
-        utbildning: 'Utbildning pågår', service: 'Service pågår',
-        möte: 'Möte pågår', annat: 'Annat arbete pågår',
-      };
-      // Det faktiska klockslaget systemet registrerat — inte bara "pågår".
       const rubrik = !isWorking
         ? 'Väntar på maskin'
-        : (typ && typ !== 'normal' && dagTypVisa[typ])
-          ? dagTypVisa[typ]
+        : (typ && FRANVARO_RUBRIK[typ])
+          ? FRANVARO_RUBRIK[typ]
           : `Arbetsdagen startade ${startKort}`;
       const under = !isWorking
         ? 'Startar automatiskt vid inloggning'
-        : (typ && typ !== 'normal')
+        : (typ && typ !== 'normal' && typ !== 'Produktion')
           ? `Startad ${(idagArb?.start_tid||'').slice(0,5)}`
           : 'Avslutas automatiskt vid utloggning från maskinen';
-      // Vilken maskin? Förarens maskin först; saknas den (admin, vikarie) —
-      // maskinen på senaste arbetsdagen. maskinNamnMap bär maskiner.namn
-      // ("Wisent2015"), inte tillverkarkoden. Bara uppgiften, ingen länk.
-      const maskinIdVisa = medarbetare?.maskin_id || historik.find(d => d.maskin_id)?.maskin_id || null;
-      const maskinText = maskinNamn || (maskinIdVisa ? (maskinNamnMap[maskinIdVisa] || maskinIdVisa) : null);
+      // Maskinens NAMN ur maskiner-tabellen ("Wisent2015"), aldrig koden
+      // ("810E") — maskinNamnMap föredrar maskiner.namn. Förarens maskin
+      // först; saknas den (admin, vikarie) maskinen på senaste arbetsdagen.
+      const maskinIdVisa = idagArb?.maskin_id || medarbetare?.maskin_id || historik.find(d => d.maskin_id)?.maskin_id || null;
+      const maskinText = (idagArb?.maskin_id ? maskinNamnMap[idagArb.maskin_id] : null) || maskinNamn || (maskinIdVisa ? (maskinNamnMap[maskinIdVisa] || maskinIdVisa) : null);
       const vObj = valtObjektId ? objektLista.find(o=>o.id===valtObjektId) : null;
-      // Objektet FYLLS AV IMPORTEN när första MOM-filen landat. Tomt objekt är
-      // ett övergångstillstånd — "Välj objekt" bara när passet går och det ändå saknas.
+      // Objektet FYLLS AV IMPORTEN när första MOM-filen landat; innan dess kan
+      // föraren välja själv (valtObjektId följer med i dagens rad).
       const objText = (isWorking && idagArb?.objekt_id)
         ? (objektLista.find(o => o.id === idagArb?.objekt_id)?.namn || idagArb?.objekt_id)
         : (idagArb?.objekt_namn || vObj?.namn || null);
-      const behovValjaObjekt = isWorking && !objText;
-      // VÄNTAR = liten, lugn informationsrad ovanför knapparna. Skärmen är
-      // startpunkten för en dag som inte kommer från en maskin — inte en
-      // väntsal. Raden löser sig själv inom en timme när filerna kommer.
-      if (!isWorking) return (
-        <section>
-          <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
-            <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2, flexShrink:0 }}>schedule</span>
-            <p style={{ margin:0, ...TYP.meta, color:FARG.text2 }}>
-              {maskinText ? `Väntar på ${maskinText}` : 'Väntar på maskin'} · startar automatiskt vid inloggning
-            </p>
-          </div>
-        </section>
-      );
-      // PASSET GÅR (innan första timfilen satt slut_tid): klockslaget som rubrik.
       return (
         <section>
-          <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
-            <span className="puls" style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:FARG.gron, flexShrink:0 }} />
-            <h1 style={{ margin:0, ...TYP.rubrik, ...TNUM, color:FARG.text }}>{rubrik}</h1>
-          </div>
-          <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>{under}</p>
-          {(maskinText || objText || behovValjaObjekt) && (
-            <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs, minWidth:0 }}>
-              <span style={{ ...TYP.meta, color:FARG.text2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                {[maskinText, objText].filter(Boolean).join(' · ')}
-              </span>
-              {behovValjaObjekt && (
-                <button onClick={()=>setVisaObjektVäljare(true)} style={{ ...KNAPP.tertiar, gap:AVSTAND.xs, flexShrink:0 }}>
-                  {maskinText ? '· ' : ''}Välj objekt
-                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>chevron_right</span>
-                </button>
-              )}
+          <div style={KORT}>
+            <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+              {isWorking
+                ? <span className="puls" style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:FARG.gron, flexShrink:0 }} />
+                : <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:FARG.text2, flexShrink:0 }}>schedule</span>}
+              <h2 style={{ margin:0, ...TYP.rubrik, ...TNUM, color:FARG.text }}>{rubrik}</h2>
             </div>
-          )}
-          {/* Avsluta pass — undantag (MOM avslutar passet självt): tertiär. */}
-          {isWorking && (
-            <div style={{ marginTop:AVSTAND.s }}>
+            <p style={{ margin:`${AVSTAND.xs}px 0 ${AVSTAND.s}px`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>{under}</p>
+            {kortRad("Maskin", maskinText || "Ingen inloggad")}
+            {objText
+              ? kortRad("Plats", objText, isWorking ? undefined : ()=>setVisaObjektVäljare(true), true)
+              : kortRad("Plats", "Välj objekt", ()=>setVisaObjektVäljare(true), true)}
+            {/* Vägen in för den som kör en maskin utan filer — fylld sekundär,
+                inte kontur, inte textlänk. Passet går → "Avsluta pass" tertiär. */}
+            {!isWorking ? (
               <button onClick={async ()=>{
                 const nuT = nuKlock();
-                // Verifiera FÖRE lokal state — ett pass som inte avslutades i DB får inte se avslutat ut
-                const res = await uppdateraVerifierat(supabase, "arbetsdag", { slut_tid: nuT + ":00" }, { id: idagArb?.id });
-                if (!res.ok) { setBekraftaFel(res.fel); return; } // felet visas i vyn, aldrig window.alert
+                if (!medarbetare?.id) { console.warn('[Starta arbetspass] medarbetare saknas'); return; }
+                const res = await upsertVerifierat(supabase, "arbetsdag", {
+                  medarbetare_id: medarbetare.id,
+                  datum: idagKey,
+                  start_tid: nuT + ":00",
+                  maskin_id: medarbetare.maskin_id || null,
+                  objekt_id: valtObjektId || null,
+                  // arbetad_min är generated (slut_tid - start_tid - rast_min) — sätts ej manuellt
+                }, { onConflict: 'medarbetare_id,datum', select: "*" });
+                if (!res.ok) { setBekraftaFel(res.fel); return; }
                 setBekraftaFel(null);
-                setSlut(nuT); setSlutÄndrad(true);
-                setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
-                if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
-                synkaVilobrott(idagKey);
-              }} style={KNAPP.tertiar}>
-                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>stop_circle</span>
-                Avsluta pass
+                setStart(nuT); setStartÄndrad(true);
+                const data = res.rows[0];
+                if (data) {
+                  setDagData(d => ({ ...d, [idagKey]: {
+                    ...(d[idagKey] || {}),
+                    id: data.id,
+                    status: 'saknas',
+                    arbMin: 0,
+                    km: 0, km_morgon: 0, km_kvall: 0, km_totalt: 0,
+                    trak: !!data.traktamente,
+                    start_tid: data.start_tid,
+                    start: (data.start_tid||'').slice(0,5),
+                    slut_tid: null,
+                    slut: '',
+                    rast_min: 0,
+                    rast: 0,
+                    maskin_id: data.maskin_id,
+                    maskin_namn: maskinNamnMap[data.maskin_id] || data.maskin_id || null,
+                    objekt_id: data.objekt_id || null,
+                    objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || null,
+                  }}));
+                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
+                  synkaVilobrott(idagKey);
+                }
+              }} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.m }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>play_circle</span>
+                Starta arbetspass
               </button>
-            </div>
-          )}
-          {bekraftaFel && (
-            <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod }}>{bekraftaFel}</p>
-          )}
+            ) : (
+              <div style={{ marginTop:AVSTAND.s }}>
+                <button onClick={async ()=>{
+                  const nuT = nuKlock();
+                  // Verifiera FÖRE lokal state — ett pass som inte avslutades i DB får inte se avslutat ut
+                  const res = await uppdateraVerifierat(supabase, "arbetsdag", { slut_tid: nuT + ":00" }, { id: idagArb?.id });
+                  if (!res.ok) { setBekraftaFel(res.fel); return; } // felet visas i vyn, aldrig window.alert
+                  setBekraftaFel(null);
+                  setSlut(nuT); setSlutÄndrad(true);
+                  setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
+                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
+                  synkaVilobrott(idagKey);
+                }} style={KNAPP.tertiar}>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>stop_circle</span>
+                  Avsluta pass
+                </button>
+              </div>
+            )}
+            {bekraftaFel && (
+              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod }}>{bekraftaFel}</p>
+            )}
+          </div>
         </section>
       );
     })();
@@ -2211,8 +2246,7 @@ export default function Arbetsrapport() {
         : '';
       const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
       const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
-      const dagTypRubrik: Record<string,string> = { sjuk:'Sjukdag', vab:'VAB' };
-      const typPrefix = idagArb?.dagtyp && idagArb.dagtyp !== 'normal' ? dagTypRubrik[idagArb.dagtyp] : '';
+      const typPrefix = idagArb?.dagtyp && FRANVARO_RUBRIK[idagArb.dagtyp] ? FRANVARO_RUBRIK[idagArb.dagtyp] : '';
       const datumRubrik = typPrefix
         ? `${typPrefix} — ${dagNamnLång} ${idag.getDate()} ${månNamnLång}`
         : `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
@@ -2227,16 +2261,7 @@ export default function Arbetsrapport() {
       const linjeUnder = (aktiv: boolean): CSSProperties => aktiv
         ? { paddingBottom:AVSTAND.s, borderBottom:`1px solid ${FARG.linje}`, marginBottom:AVSTAND.s }
         : {};
-      const sammanRad = (label: string, value: string, onClick?: () => void) => (
-        <div key={label} onClick={onClick}
-          style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:onClick?TRAFFYTA.min:undefined, padding:`${AVSTAND.s}px 0`, cursor:onClick?"pointer":"default" }}>
-          <span style={{ ...TYP.meta, color:FARG.text2 }}>{label}</span>
-          <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs }}>
-            <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{value}</span>
-            {onClick && <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3 }}>chevron_right</span>}
-          </div>
-        </div>
-      );
+      const sammanRad = (label: string, value: string, onClick?: () => void) => kortRad(label, value, onClick, true);
       const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
       const öppnaKm    = () => { setTMK(kmM?.km||0); setTKK(kmK?.km||0); setVisaKmSheet(true); };
       const talBlock = (under: ReactNode, fotnot: ReactNode, onClick?: () => void, linje?: boolean) => (
@@ -2513,26 +2538,44 @@ export default function Arbetsrapport() {
       );
     })();
 
-    /* VAD SOM VÄNTAR — en rad var, bara när de finns. Tryck leder dit man
-       åtgärdar. Källorna är de som redan finns: obekräftade dagar ur årsData
-       (samma som Kalendern), brandrisk ur skaFragaBrandrisk (samma som
-       Sammanställningens retro-fråga), vilobrott ur vilobrott-tabellen (samma
-       som Vila-fliken — de gamla vilaVarningar-korten är ersatta av rader). */
+    /* VAD SOM VÄNTAR — eget kort ÖVERST, ovanför hälsningen. Varje rad visas
+       BARA när den har något att säga; är allt i ordning finns kortet inte.
+       Ordning: vilobrott (RÖD — du behöver VETA innan du startar passet),
+       obekräftade dagar (ORANGE — du kan åtgärda), brandriskfrågor (ORANGE).
+       Fönster räknade i prod av Martin: obekräftade 7 dagar (äldre är
+       importerade maskindagar från före appen, de bekräftas aldrig),
+       brandrisk 30 dagar, vilobrott 30 dagar. Tryck leder dit man åtgärdar.
+       Källorna är de befintliga: årsData (Kalendern), skaFragaBrandrisk
+       (Sammanställningens retro-fråga), vilobrott-tabellen (Vila-fliken). */
+    const dagarSedan = (n: number) => { const d = new Date(idagKey + 'T00:00:00'); d.setDate(d.getDate() - n); return ymdLokal(d); };
+    const fran7 = dagarSedan(7), fran30 = dagarSedan(30);
     const fmtDatumKort = (iso: string) => {
       const d = new Date(iso + 'T00:00:00');
       return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`;
     };
+    const fmtTim = (h: number) => (Math.round(h * 10) / 10).toLocaleString('sv-SE');
     const obekraftade: string[] = (årsData || [])
-      .filter((d: any) => d.datum && d.datum < idagKey && !d.bekraftad
-        && (d.start_tid || d.slut_tid || (d.dagtyp && d.dagtyp !== 'normal')))
+      .filter((d: any) => d.datum && d.datum >= fran7 && d.datum < idagKey && !d.bekraftad
+        && (d.start_tid || d.slut_tid || arFranvaroDagtyp(d.dagtyp)))
       .map((d: any) => d.datum as string)
       .sort();
     const brandriskObesvarade = (årsData || [])
-      .filter((d: any) => d.datum && d.datum < idagKey
+      .filter((d: any) => d.datum && d.datum >= fran30 && d.datum < idagKey
         && skaFragaBrandrisk({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: d.brandrisk_beordrad ?? null }));
-    const vilobrottObesvarade = aktuellaVilobrott.filter(b => !b.besvarat_av_forare);
+    // Dygnsvila räknas mellan slut_tid dag N och start_tid dag N+1 — den kan
+    // alltså INTE räknas före dagens pass börjat. Det som visas är lagrade
+    // brott: dygnsvilan från i natt syns först när dagens start finns.
+    const vilobrottObesvarade = aktuellaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30);
     type VantarRad = { nyckel: string; text: string; farg: string; onClick: () => void };
     const vantarRader: VantarRad[] = [];
+    for (const b of vilobrottObesvarade) {
+      const nar = b.typ === 'veckovila'
+        ? `vecka ${isoVecka(new Date(b.datum + 'T00:00:00')).vecka}`
+        : (b.datum === igårKey ? 'i natt' : fmtDatumKort(b.datum));
+      vantarRader.push({ nyckel:`vila-${b.id}`, farg:FARG.rod,
+        text:`${b.typ === 'dygnsvila' ? 'Dygnsvila' : 'Veckovila'} ${fmtTim(Number(b.vila_h))} tim av ${fmtTim(Number(b.krav_h))} · ${nar}`,
+        onClick:()=>{ setMinTidFlik('vila'); setSteg('mintid'); } });
+    }
     if (obekraftade.length === 1) {
       vantarRader.push({ nyckel:'bekr', farg:FARG.orange, text:`${fmtDatumKort(obekraftade[0])} väntar på bekräftelse`, onClick:()=>öppnaRedigera(obekraftade[0]) });
     } else if (obekraftade.length > 1) {
@@ -2543,11 +2586,18 @@ export default function Arbetsrapport() {
         text: brandriskObesvarade.length === 1 ? '1 brandriskfråga obesvarad' : `${brandriskObesvarade.length} brandriskfrågor obesvarade`,
         onClick:()=>setSteg('lön') });
     }
-    for (const b of vilobrottObesvarade) {
-      vantarRader.push({ nyckel:`vila-${b.id}`, farg: b.typ==='dygnsvila' ? FARG.rod : FARG.orange,
-        text:`${b.typ==='dygnsvila' ? 'Dygnsvila' : 'Veckovila'} ${Number(b.vila_h)} h av ${Number(b.krav_h)} · ${fmtDatumKort(b.datum)}`,
-        onClick:()=>{ setMinTidFlik('vila'); setSteg('mintid'); } });
-    }
+
+    /* Kort med rubrik + underrad + pil (kort 2 och 3). */
+    const kortKnapp = (rubrik: string, under: string, onClick: () => void, oppen?: boolean) => (
+      <button onClick={onClick}
+        style={{ ...KORT, width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between", gap:AVSTAND.s, border:"none", cursor:"pointer", fontFamily:"inherit", textAlign:"left", color:FARG.text }}>
+        <div style={{ minWidth:0 }}>
+          <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{rubrik}</p>
+          <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{under}</p>
+        </div>
+        <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:FARG.text3, flexShrink:0, transform:oppen?"rotate(90deg)":"none", transition:`transform ${RORELSE.tryck}ms ${RORELSE.kurva}` }}>chevron_right</span>
+      </button>
+    );
 
     return (
     <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
@@ -2560,35 +2610,12 @@ export default function Arbetsrapport() {
 
       <main style={{ paddingTop:(aktivTimer ? DAG_HUVUD + BANNER : DAG_HUVUD) + AVSTAND.xxl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
 
-        {/* Obekräftade dagar och vilobrott är RADER i "vad som väntar" nedan —
-            inte längre egna kort här. */}
-
-        {/* Timer-varningar: 3h-påminnelse (orange) och 12h-varning (röd) */}
-        {pagaendeAktiviteter.map(p => {
-          const sek = sekDiff(p.start_tid);
-          if (sek > 12*3600) return varningsKort(`varn-${p.id}`, 'warning', FARG.rod, 'Timer igång sedan igår', `Startad ${(p.start_tid||'').slice(0,5)} — glömd att stoppa?`);
-          if (sek > 3*3600) return varningsKort(`pam-${p.id}`, 'schedule', FARG.orange, `Timer igång sedan ${(p.start_tid||'').slice(0,5)} — glömt stoppa?`);
-          return null;
-        })}
-
-        {/* Hälsning — liten, sekundär, på datumets rad. Utan namn.
-            Det största på skärmen är TILLSTÅNDET, inte hälsningen. */}
-        <p style={{ margin:`0 0 ${AVSTAND.l}px`, ...TYP.meta, color:FARG.text2 }}>{hälsning()} · {datumLångt}</p>
-
-        {/* DAGENS TILLSTÅND — väntar → pågår → avslutad → bekräftad tonar över
-            på samma plats. Ett byte av nyckeln tonar ut det gamla, reserverar
-            höjden och tonar in det nya; inget under flyttar sig. */}
-        <Tillstand nyckel={tillstandNyckel}>
-          {visaTillstand && tillstandSektion}
-          {sammanfattningKort}
-        </Tillstand>
-
-        {/* VAD SOM VÄNTAR — rader, bara när de finns. Rent = inget här alls. */}
+        {/* VAD SOM VÄNTAR — ovanför hälsningen, bara när något finns. */}
         {vantarRader.length > 0 && (
-          <section className="tona-in" style={{ marginTop:AVSTAND.l }}>
-            {vantarRader.map(r => (
+          <section className="tona-in" style={{ ...KORT, paddingTop:AVSTAND.xs, paddingBottom:AVSTAND.xs, marginBottom:AVSTAND.l }}>
+            {vantarRader.map((r, i) => (
               <button key={r.nyckel} onClick={r.onClick}
-                style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", gap:AVSTAND.s, ...TYP.text, color:FARG.text, borderBottom:`1px solid ${FARG.linje}`, textAlign:"left" }}>
+                style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", gap:AVSTAND.s, ...TYP.text, color:FARG.text, borderBottom: i === vantarRader.length - 1 ? "none" : `1px solid ${FARG.linje}`, textAlign:"left" }}>
                 <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.s, minWidth:0 }}>
                   <span style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:r.farg, flexShrink:0 }} />
                   <span style={{ ...TNUM, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.text}</span>
@@ -2599,153 +2626,69 @@ export default function Arbetsrapport() {
           </section>
         )}
 
-        {/* TVÅ LIKVÄRDIGA VÄGAR IN I DAGEN — ingen primär, valet beror på dagen:
-            "Starta arbetspass" för en maskin som inte skickar filer, "Extra
-            arbete" för jobb på morgonen innan man sätter sig i maskinen. När
-            passet väl går finns bara Extra arbete kvar. Döljs när en timer
-            pågår eller dagen är bekräftad. */}
+        {/* Timer-varningar: 3h-påminnelse (orange) och 12h-varning (röd) */}
+        {pagaendeAktiviteter.map(p => {
+          const sek = sekDiff(p.start_tid);
+          if (sek > 12*3600) return varningsKort(`varn-${p.id}`, 'warning', FARG.rod, 'Timer igång sedan igår', `Startad ${(p.start_tid||'').slice(0,5)} — glömd att stoppa?`);
+          if (sek > 3*3600) return varningsKort(`pam-${p.id}`, 'schedule', FARG.orange, `Timer igång sedan ${(p.start_tid||'').slice(0,5)} — glömt stoppa?`);
+          return null;
+        })}
+
+        {/* Hälsning + datum överst, som i originalet. */}
+        <p style={{ margin:`0 0 ${AVSTAND.l}px`, ...TYP.meta, color:FARG.text2 }}>{hälsning()} · {datumLångt}</p>
+
+        {/* DAGENS TILLSTÅND — kort 1 (väntar/pågår) och dagssammanfattningen
+            (avslutad/bekräftad) tonar över på samma plats med reserverad höjd. */}
+        <Tillstand nyckel={tillstandNyckel}>
+          {visaTillstand && tillstandKort}
+          {sammanfattningKort}
+        </Tillstand>
+
+        {/* KORT 2 — Extra arbete. Startar timern direkt (samma flöde som förr). */}
         {!idagArb?.bekraftad && pagaendeAktiviteter.length===0 && (
-          <div style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.xl }}>
-            {!isWorking && !idagArb?.slut_tid && (
-              <button onClick={async ()=>{
-                const nuT = nuKlock();
-                if (!medarbetare?.id) { console.warn('[Starta arbetspass] medarbetare saknas'); return; }
-                const res = await upsertVerifierat(supabase, "arbetsdag", {
-                  medarbetare_id: medarbetare.id,
-                  datum: idagKey,
-                  start_tid: nuT + ":00",
-                  maskin_id: medarbetare.maskin_id || null,
-                  // arbetad_min är generated (slut_tid - start_tid - rast_min) — sätts ej manuellt
-                }, { onConflict: 'medarbetare_id,datum', select: "*" });
-                if (!res.ok) { setBekraftaFel(res.fel); return; }
-                setBekraftaFel(null);
-                setStart(nuT); setStartÄndrad(true);
-                const data = res.rows[0];
-                if (data) {
-                  setDagData(d => ({ ...d, [idagKey]: {
-                    ...(d[idagKey] || {}),
-                    id: data.id,
-                    status: 'saknas',
-                    arbMin: 0,
-                    km: 0, km_morgon: 0, km_kvall: 0, km_totalt: 0,
-                    trak: !!data.traktamente,
-                    start_tid: data.start_tid,
-                    start: (data.start_tid||'').slice(0,5),
-                    slut_tid: null,
-                    slut: '',
-                    rast_min: 0,
-                    rast: 0,
-                    maskin_id: data.maskin_id,
-                    maskin_namn: maskinNamnMap[data.maskin_id] || data.maskin_id || null,
-                    objekt_id: data.objekt_id || null,
-                    objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || null,
-                  }}));
-                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
-                  synkaVilobrott(idagKey);
-                }
-              }} style={KNAPP.sekundar}>
-                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>play_circle</span>
-                Starta arbetspass
-              </button>
-            )}
-          <button onClick={async ()=>{
-            const startTid = nuKlock();
-            const { data, error } = await supabase.from("extra_tid").insert({
-              medarbetare_id: medarbetare.id,
-              datum: idagKey,
-              start_tid: startTid + ":00",
-              slut_tid: null,
-              minuter: 0,
-              kalla: 'morgon',
-            }).select().single();
-            if (error || !data) { alert(SPARA_FEL); return; }
-            setPagaendeAktiviteter(p => [...p, data]);
-            setExtraTidData(d => [data, ...d]);
-            if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
-          }}
-            style={KNAPP.sekundar}>
-            <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
-            Extra arbete
-          </button>
+          <div style={{ marginTop:AVSTAND.m }}>
+            {kortKnapp('Extra arbete', 'Reservdelar, service, brandkontroll', async ()=>{
+              const startTid = nuKlock();
+              const { data, error } = await supabase.from("extra_tid").insert({
+                medarbetare_id: medarbetare.id,
+                datum: idagKey,
+                start_tid: startTid + ":00",
+                slut_tid: null,
+                minuter: 0,
+                kalla: 'morgon',
+              }).select().single();
+              if (error || !data) { setBekraftaFel(SPARA_FEL); return; }
+              setBekraftaFel(null);
+              setPagaendeAktiviteter(p => [...p, data]);
+              setExtraTidData(d => [data, ...d]);
+              if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
+            })}
           </div>
         )}
 
-        {/* "Samma som igår" — när dagen inte startat och igår var bekräftad med
-            data värd att kopiera (objekt, km eller traktamente). En rad, inget kort. */}
-        {!isWorking && !idagArb?.bekraftad && (() => {
-          const igår = historik.find(d => d.datum === igårKey);
-          if (!igår?.bekraftad) return null;
-          const harObjekt = !!igår.objekt_id;
-          const igårKmTot = (igår.km_morgon || 0) + (igår.km_kvall || 0);
-          const harKm = igårKmTot > 0;
-          const harTrak = !!igår.traktamente;
-          if (!harObjekt && !harKm && !harTrak) return null;
-          const igårObjNamn = igår.objekt_id ? (objektLista.find(o => o.id === igår.objekt_id)?.namn || null) : null;
-          const sammanfattning: string[] = [];
-          if (igårObjNamn) sammanfattning.push(igårObjNamn);
-          if (harKm) sammanfattning.push(`${igårKmTot} km`);
-          if (harTrak) sammanfattning.push('traktamente');
-          return (
-            <section style={{ marginTop:AVSTAND.m }}>
-              <button onClick={() => {
-                if (igår.objekt_id) setValtObjektId(igår.objekt_id);
-                if (igår.km_morgon != null) setKmM({ km: igår.km_morgon });
-                if (igår.km_kvall != null) setKmK({ km: igår.km_kvall });
-                if (igår.traktamente) { setTrak({ summa: gsAvtal?.traktamente_hel_kr ?? 300 }); setTrakÄndrad(true); }
-                setIgårKopierat(true);
-                setTimeout(() => setIgårKopierat(false), 2000);
-                if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
-              }} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", gap:AVSTAND.m, textAlign:"left" }}>
-                <div style={{ minWidth:0, flex:1 }}>
-                  <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>
-                    {igårKopierat ? "Använt — redo att bekräfta" : "Samma som igår"}
-                  </p>
-                  {!igårKopierat && (
-                    <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sammanfattning.join(' · ')}</p>
-                  )}
-                </div>
-                <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:igårKopierat?FARG.gron:FARG.text2, flexShrink:0 }}>{igårKopierat ? "check_circle" : "history"}</span>
-              </button>
-            </section>
-          );
-        })()}
-
-        {/* Undantaget — längst ner, tertiärt: frånvaro. sjuk/vab skrivs till
-            arbetsdag.dagtyp — oplanerad frånvaro idag. Planerad ledighet
-            ansöks i Ledighet-vyn. ("Starta arbetspass" är en av de två
-            likvärdiga vägarna in i dagen och ligger bland knapparna ovan.) */}
+        {/* KORT 3 — Frånvaro. Underraden visar vad som finns utan att trycka;
+            tryck fäller ut valen (lib/franvaro äger listan). sjuk/vab/
+            föräldraledig skrivs till arbetsdag.dagtyp — oplanerad frånvaro
+            idag, bekräftas direkt. Planerad ledighet ansöks i Ledighet-vyn. */}
         {!isWorking && !idagArb?.bekraftad && (
-          <section style={{ marginTop:AVSTAND.l }}>
-            <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xl, flexWrap:"wrap" }}>
-              <button onClick={()=>setVisaÖvrigt(v=>!v)} style={KNAPP.tertiar}>
-                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{visaÖvrigt ? "expand_more" : "chevron_right"}</span>
-                Sjuk eller VAB idag?
-              </button>
-            </div>
+          <section style={{ marginTop:AVSTAND.m }}>
+            {kortKnapp('Frånvaro', FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
             {visaÖvrigt && (
-              <div className="tona-in" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:AVSTAND.m, marginTop:AVSTAND.m }}>
-                {[
-                  {id:"sjuk", label:"Sjukfrånvaro", icon:"medical_services", heldag:true, msg:{text:"Krya på dig!", icon:"sick"}},
-                  {id:"vab",  label:"VAB",          icon:"child_care",       heldag:true, msg:{text:"VAB registrerad"}},
-                ].map(s=>(
+              <div className="tona-in" style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.s }}>
+                {FRANVARO_VAL.map(s=>(
                   <button key={s.id} onClick={async ()=>{
-                    const nuT = nuKlock();
                     const nuIso = new Date().toISOString();
-                    // Heldagstyper: bekräftas direkt, ingen tid krävs
-                    // Timertyper: skapas med start_tid, pågående tills föraren avslutar
+                    // Heldagstyp: bekräftas direkt, ingen tid krävs.
                     const payload: any = {
                       medarbetare_id: medarbetare.id,
                       datum: idagKey,
                       dagtyp: s.id,
+                      bekraftad: true,
+                      bekraftad_tid: nuIso,
                     };
-                    if (s.heldag) {
-                      payload.bekraftad = true;
-                      payload.bekraftad_tid = nuIso;
-                    } else {
-                      payload.start_tid = nuT + ":00";
-                    }
                     const res = await upsertVerifierat(supabase, "arbetsdag", payload, { onConflict: 'medarbetare_id,datum', select: "*" });
-                    if (!res.ok) { alert(res.fel); return; }
+                    if (!res.ok) { setBekraftaFel(res.fel); return; }
+                    setBekraftaFel(null);
                     const data = res.rows[0];
                     if (data) {
                       setDagTyp(s.id);
@@ -2765,18 +2708,19 @@ export default function Arbetsrapport() {
                       }}));
                       setVisaÖvrigt(false);
                       if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
-                      if (s.heldag) {
-                        setHeldagsMeddelande({ typ: s.id, text: s.msg!.text, icon: (s.msg as any).icon });
-                        setTimeout(() => setHeldagsMeddelande(null), 2500);
-                      }
+                      setHeldagsMeddelande({ typ: s.id, text: s.meddelande, icon: s.ikon });
+                      setTimeout(() => setHeldagsMeddelande(null), 2500);
                     }
                   }}
-                    style={KNAPP.sekundar}>
-                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2 }}>{s.icon}</span>
+                    style={{ ...KNAPP.sekundar, justifyContent:"flex-start", padding:`0 ${AVSTAND.l}px` }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2 }}>{s.ikon}</span>
                     {s.label}
                   </button>
                 ))}
               </div>
+            )}
+            {bekraftaFel && !visaTillstand && (
+              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod }}>{bekraftaFel}</p>
             )}
           </section>
         )}
@@ -3889,7 +3833,7 @@ export default function Arbetsrapport() {
     };
 
     // Frånvaro per dagtyp (rad visas bara om typen förekommer)
-    const FRANVARO_TYPER: [string,string][] = [['sjuk','Sjukfrånvaro'],['vab','VAB'],['semester','Semester'],['atk','ATK']];
+    const FRANVARO_TYPER: [string,string][] = [['sjuk','Sjukfrånvaro'],['vab','VAB'],['foraldraledig','Föräldraledig'],['semester','Semester'],['atk','ATK']];
     const frånvaroRader = FRANVARO_TYPER
       .map(([typ,label]) => [label, månadsHistorik.filter(d => d.dagtyp === typ).length] as [string,number])
       .filter(([,n]) => n > 0);
@@ -4999,17 +4943,15 @@ export default function Arbetsrapport() {
             <div>
               <p style={{ margin:0,fontSize:13,color:C.label }}>{redMånadDisplay}</p>
               <h1 style={{ margin:"4px 0 0",...TYPE.h1 }}>
-                {redDag?.dagtyp === 'sjuk' ? `Sjukdag — ${redDatumDisplay}`
-                  : redDag?.dagtyp === 'vab' ? `VAB — ${redDatumDisplay}`
-                  : redDatumDisplay}
+                {arFranvaroDagtyp(redDag?.dagtyp) ? `${FRANVARO_RUBRIK[redDag.dagtyp]} — ${redDatumDisplay}` : redDatumDisplay}
               </h1>
             </div>
           </div>
         </div>
         {(()=>{
-          // Heldagstyp (sjuk/vab) får en minimal vy — ingen arbetstid/körning,
-          // bara statusmeddelande + bekräftad-rad.
-          if (redDag?.dagtyp === 'sjuk' || redDag?.dagtyp === 'vab') {
+          // Heldagstyp (sjuk/vab/föräldraledig — lib/franvaro) får en minimal vy —
+          // ingen arbetstid/körning, bara statusmeddelande + bekräftad-rad.
+          if (arFranvaroDagtyp(redDag?.dagtyp)) {
             const bekraftadRedan = !!redDag?.bekraftad;
             const bekraftadTidFmt = redDag?.bekraftad_tid
               ? new Date(redDag.bekraftad_tid).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})
@@ -5539,7 +5481,7 @@ export default function Arbetsrapport() {
             // väntetext.
             const harStart = !!redDag?.start_tid;
             const harSlut = !!redDag?.slut_tid;
-            const erHelDag = redDag?.dagtyp === 'sjuk' || redDag?.dagtyp === 'vab';
+            const erHelDag = arFranvaroDagtyp(redDag?.dagtyp);
             const harExtra = (extraTidData || []).some((e:any) => e.datum === redDag.datum && e.slut_tid);
             const kanBekrafta = !bekraftadRedan && (harSlut || erHelDag || (harExtra && !harStart));
             const passPågår = harStart && !harSlut && !erHelDag;
@@ -5862,19 +5804,20 @@ export default function Arbetsrapport() {
     // (verifierat mot DB). Jobbade dagar = arbetsdagar med maskinpass ELLER
     // extra tid; vardag/helg ur veckodagen. Frånvaro räknas separat, aldrig
     // som jobbad. 0-rader döljs i renderingen (visa det som hänt).
-    const FRANVARO_TYPER = new Set(['sjuk', 'semester', 'vab']);
+    const FRANVARO_TYPER = new Set(['sjuk', 'semester', 'vab', 'foraldraledig']);
     const ärHelg = (datum: string) => {
       const [y, m, dd] = datum.split('-').map(Number);
       const w = new Date(y, m - 1, dd).getDay(); // lokal veckodag, 0=sön 6=lör
       return w === 0 || w === 6;
     };
-    let sjukDagar = 0, semesterDagar = 0, vabDagar = 0;
+    let sjukDagar = 0, semesterDagar = 0, vabDagar = 0, foraldraledigDagar = 0;
     const jobbadeSet = new Set<string>();
     for (const [datum, d] of månadsDagRader as [string, any][]) {
       const typ = String(d.dagtyp || '').toLowerCase();
       if (typ === 'sjuk') { sjukDagar++; continue; }
       if (typ === 'semester') { semesterDagar++; continue; }
       if (typ === 'vab') { vabDagar++; continue; }
+      if (typ === 'foraldraledig') { foraldraledigDagar++; continue; }
       if ((d.arbMin || 0) > 0) jobbadeSet.add(datum);
     }
     for (const e of månadsExtra) if ((e.minuter || 0) > 0) jobbadeSet.add(e.datum);
@@ -5888,6 +5831,7 @@ export default function Arbetsrapport() {
       { label: 'Sjukdagar', värde: sjukDagar },
       { label: 'Semesterdagar', värde: semesterDagar },
       { label: 'VAB-dagar', värde: vabDagar },
+      { label: 'Föräldralediga dagar', värde: foraldraledigDagar },
     ].filter(r => r.värde > 0);
     // km hämtas från /api/km-summary som fyller ut saknade DB-värden via ORS
     const totalKm = kmSummary?.totalKm ?? 0;
@@ -5907,6 +5851,7 @@ export default function Arbetsrapport() {
       // utan data in i "saknas"-grenen, vilket gav spurious orange prickar.
       if (dag?.dagtyp === 'sjuk') return 'sjuk';
       if (dag?.dagtyp === 'vab')  return 'vab';
+      if (dag?.dagtyp === 'foraldraledig') return 'vab'; // samma orange prick som VAB
       if (dag?.bekraftad) return 'ok';
       if (dag) return 'saknas';
       if (rödaDagar[k]) return 'röd';
@@ -6035,7 +5980,7 @@ export default function Arbetsrapport() {
                 // typ-etikett), aldrig en ny prickfärg.
                 const ledTyp = ledighetDagar[datum];
                 const ärLedig = !!ledTyp && !dotFärg[s] && !harExtra;
-                const ledEtikett = !ärLedig ? '' : ledTyp==='semester'?'Sem':ledTyp==='sjuk'?'Sjuk':ledTyp==='vab'?'VAB':'Ledig';
+                const ledEtikett = !ärLedig ? '' : ledTyp==='semester'?'Sem':ledTyp==='sjuk'?'Sjuk':ledTyp==='vab'?'VAB':ledTyp==='foraldraledig'?'FL':'Ledig';
 
                 return (
                   <div key={i}
