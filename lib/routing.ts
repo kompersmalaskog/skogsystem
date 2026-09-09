@@ -401,6 +401,12 @@ export type PersistResultat =
  * Vakten låste därför in nollor på dagar som HAR koordinat. Det ENDA skyddet
  * för en medveten km-uppgift (inkl. medveten 0) är km_kalla='forare', som
  * km-sheeten och "Spara ändring" sätter när föraren rör km.
+ *
+ * REGEL: EN MANUELL KM-RÄTTNING MÅSTE SÄTTA km_kalla='forare', ANNARS ÄR DEN
+ * INTE SKYDDAD. Gäller SQL i prod lika mycket som appen. Dalarna-dagarna
+ * nollades via SQL i augusti 2026 innan km_kalla fanns — 30 av 106 hade
+ * fyllts på nytt (1 244 km/dag, 3 730 mil i underlaget) innan det upptäcktes.
+ * Vakten skyddar bara det som faktiskt är märkt.
  * Race-skydd i WHERE (km fortfarande 0, km_kalla inte forare) + verifierad via
  * .select() (0 rader = någon hann emellan → hoppad, aldrig tyst "skrev").
  */
