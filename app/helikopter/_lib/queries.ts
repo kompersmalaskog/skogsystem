@@ -70,6 +70,8 @@ export type PlaneringObjekt = {
 export type Maskin = {
   maskin_id: string
   modell: string | null
+  /** Admin-satt visningsnamn — visas före modell överallt (maskinNamn). */
+  visningsnamn?: string | null
   maskin_typ: string | null
   klarar_typ: string | null
   extramaskin: boolean | null
@@ -100,6 +102,8 @@ export type BestallningRad = { typ: Typ; bolag: string; volym: number }
 export type MaskinManad = {
   maskin_id: string
   modell: string | null
+  /** COALESCE(visningsnamn, modell, maskin_id) ur RPC:n — det namn användaren ser. */
+  namn: string
   roll: 'skordare' | 'skotare'
   volym_manad: number
   objekt_namn: string | null
@@ -123,7 +127,7 @@ export type VeckaRad = {
   skotat: number
   status: 'last' | 'pagar' | 'kommande'
   orsak: string | null
-  maskiner: { maskin_id: string; modell: string | null; roll: 'skordare' | 'skotare'; volym: number }[]
+  maskiner: { maskin_id: string; modell: string | null; namn: string; roll: 'skordare' | 'skotare'; volym: number }[]
 }
 
 export type Svar<T> = { data: T; error: null } | { data: null; error: string }
@@ -191,7 +195,7 @@ function normVecka(r: any): VeckaRad {
     isovecka: tal(r.isovecka), iso_ar: tal(r.iso_ar), fran: r.fran, till: r.till,
     arbetsdagar: tal(r.arbetsdagar), arbetsdagar_kvar: tal(r.arbetsdagar_kvar), plan: talEllerNull(r.plan),
     skordat: tal(r.skordat), skotat: tal(r.skotat), status: r.status, orsak: r.orsak ?? null,
-    maskiner: Array.isArray(r.maskiner) ? r.maskiner.map((m: any) => ({ maskin_id: String(m?.maskin_id ?? ''), modell: m?.modell ?? null, roll: m?.roll, volym: tal(m?.volym) })) : [],
+    maskiner: Array.isArray(r.maskiner) ? r.maskiner.map((m: any) => ({ maskin_id: String(m?.maskin_id ?? ''), modell: m?.modell ?? null, namn: String(m?.namn ?? m?.modell ?? m?.maskin_id ?? ''), roll: m?.roll, volym: tal(m?.volym) })) : [],
   }
 }
 
@@ -234,7 +238,7 @@ export type FastData = { maskiner: Maskin[]; senasteData: string | null; avvikel
 export async function hamtaFast(): Promise<Svar<FastData>> {
   try {
     const [maskiner, senaste, avvikelse] = await Promise.all([
-      hamtaAlla<Maskin>(() => supabase.from('dim_maskin').select('maskin_id,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'), 'maskin_id'),
+      hamtaAlla<Maskin>(() => supabase.from('dim_maskin').select('maskin_id,visningsnamn,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'), 'maskin_id'),
       rpc<string | null>('helikopter_ny_senaste_data', {}),
       hamtaAlla<any>(() => supabase.from('helikopter_ny_bolag_avvikelse').select('bolag,typ,antal,medel_kvot,std_kvot'), ['bolag', 'typ']),
     ])
@@ -260,7 +264,7 @@ export async function hamtaMaskiner(ar: number, manad: number, idag: string): Pr
   if (r.error) return { data: null, error: r.error }
   return {
     data: (r.data ?? []).map((m: any): MaskinManad => ({
-      maskin_id: String(m.maskin_id), modell: m.modell ?? null, roll: m.roll === 'skordare' ? 'skordare' : 'skotare',
+      maskin_id: String(m.maskin_id), modell: m.modell ?? null, namn: String(m.namn ?? m.modell ?? m.maskin_id), roll: m.roll === 'skordare' ? 'skordare' : 'skotare',
       volym_manad: tal(m.volym_manad), objekt_namn: m.objekt_namn ?? null, takt_per_dag: talEllerNull(m.takt_per_dag),
       takt_dagar: tal(m.takt_dagar), oskotat_objekt: talEllerNull(m.oskotat_objekt), senast_datum: m.senast_datum ?? null,
     })),

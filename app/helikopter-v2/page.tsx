@@ -55,6 +55,7 @@ interface OvrigtRad {      // helikopter_oversikt_ovrigt: produktion/skotning UT
 interface DimMaskin {
   maskin_id: string
   modell: string | null
+  visningsnamn?: string | null   // admin-satt namn, visas före modell
   maskin_typ: string | null   // 'Harvester' | 'Forwarder'
   klarar_typ: string | null
   extramaskin: boolean | null
@@ -119,7 +120,7 @@ function oversiktTypNamn(t: string): 'Slutavverkning' | 'Gallring' | null {
 }
 
 function maskinModell(m: DimMaskin | undefined | null): string {
-  return m?.modell || m?.maskin_id || 'Maskin'
+  return (m?.visningsnamn && m.visningsnamn.trim()) || m?.modell || m?.maskin_id || 'Maskin'
 }
 
 // Timmar ur manuell_prognos: STRÄNGAR ('50', ofta ''). Tomt/ogiltigt -> null (= HÅL,
@@ -259,7 +260,7 @@ export default function HelikopterV2Page() {
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
         hamtaAlla<any>(() => supabase.from('dim_objekt').select('objekt_id,object_name,maskin_id,vo_nummer,huvudtyp,atgard,skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto'), 'objekt_id'),
         hamtaAlla<any>(() => supabase.from('objekt').select('id,namn,vo_nummer,typ,ar,manad,status,volym,manuell_prognos,skordare_maskin_id,skotare_maskin_id,skordare_utforare,skotare_utforare'), 'id'),
-        supabase.from('dim_maskin').select('maskin_id,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'),
+        supabase.from('dim_maskin').select('maskin_id,visningsnamn,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'),
         supabase.from('stopp').select('id,fran_datum,till_datum,orsak'),
         supabase.from('stopp_maskin').select('stopp_id,maskin_id'),
         hamtaAlla<any>(() => supabase.from('vy_objekt_utfall').select('*'), ['objekt_id', 'roll']),

@@ -663,7 +663,7 @@ export default function KalibreringPage() {
 
   // Globalt maskinfilter — persistent över flikar
   const [selectedMaskinId, setSelectedMaskinId] = useState<string | 'all'>('all');
-  const [alleMaskiner, setAlleMaskiner] = useState<{ maskin_id: string; tillverkare: string | null; modell: string | null; aktiv_till: string | null }[]>([]);
+  const [alleMaskiner, setAlleMaskiner] = useState<{ maskin_id: string; tillverkare: string | null; modell: string | null; visningsnamn: string | null; aktiv_till: string | null }[]>([]);
   const [maskinSheetOpen, setMaskinSheetOpen] = useState(false);
   const [maskinSearchQ, setMaskinSearchQ] = useState('');
 
@@ -696,7 +696,7 @@ export default function KalibreringPage() {
     let cancelled = false;
     supabase
       .from('dim_maskin')
-      .select('maskin_id, tillverkare, modell, aktiv_till')
+      .select('maskin_id, tillverkare, modell, visningsnamn, aktiv_till')
       .eq('maskin_typ', 'Harvester')
       .order('aktiv_till', { ascending: false, nullsFirst: true })
       .then(({ data, error }) => {

@@ -182,7 +182,7 @@ function PerMaskin({ vecka, roll, onTillbaka }: { vecka: VeckaRad; roll: Roll; o
         <div style={{ marginTop: 6 }}>
           {rader.map(m => (
             <div key={m.maskin_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, fontSize: 15, borderTop: `1px solid ${T.sep}`, fontVariantNumeric: 'tabular-nums' }}>
-              <span style={{ color: T.t1 }}>{m.modell || m.maskin_id}</span>
+              <span style={{ color: T.t1 }}>{m.namn}</span>
               <span style={{ color: T.t2 }}>{fmt(m.volym)}</span>
             </div>
           ))}

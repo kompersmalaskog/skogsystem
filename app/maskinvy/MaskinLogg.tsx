@@ -13,7 +13,7 @@ interface LogEntry {
 
 interface Maskin {
   maskin_id: string;
-  modell: string;
+  namn: string; // visningsnamn, annars modell, annars id
 }
 
 interface DailyProd {
@@ -52,9 +52,10 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
 
   // Load machines
   useEffect(() => {
-    supabase.from('dim_maskin').select('maskin_id, modell').order('modell').then(({ data }) => {
+    // Ett maskinnamn i hela appen: visningsnamn före modell (samma som useMaskinvyMaskiner).
+    supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell').order('visningsnamn', { nullsFirst: false }).then(({ data }) => {
       if (data) {
-        setMaskiner(data);
+        setMaskiner(data.map((m: any) => ({ maskin_id: m.maskin_id, namn: (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell || m.maskin_id })));
         if (data.length > 0 && !selectedMaskin) {
           setSelectedMaskin(data[0].maskin_id);
         }
@@ -252,7 +253,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
     loadData();
   };
 
-  const maskinNamn = maskiner.find(m => m.maskin_id === selectedMaskin)?.modell || '';
+  const maskinNamn = maskiner.find(m => m.maskin_id === selectedMaskin)?.namn || '';
 
   // Expose open function globally so sidebar menu can trigger it
   useEffect(() => {
@@ -329,7 +330,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
             >
               {maskiner.map(m => (
                 <option key={m.maskin_id} value={m.maskin_id} style={{ background: C.bg }}>
-                  {m.modell} ({m.maskin_id})
+                  {m.namn} ({m.maskin_id})
                 </option>
               ))}
             </select>

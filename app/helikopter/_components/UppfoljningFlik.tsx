@@ -157,7 +157,7 @@ function MaskinSektion({ maskiner, fel, onRetry, manadNamn }: { maskiner: Maskin
               return (
                 <ListRad
                   key={m.maskin_id}
-                  namn={m.modell || m.maskin_id}
+                  namn={m.namn}
                   tal={har ? <>{fmt(m.volym_manad)}<span style={{ color: T.t2 }}> m³fub</span></> : '–'}
                   talTon={har ? 'normal' : 'muted'}
                   under={har ? delar.join(' · ') : `Ingen produktion i ${manadNamn}`}

@@ -343,8 +343,9 @@ export function atgardForTyp(
   return null
 }
 
+/** Ett maskinnamn i hela appen: visningsnamn (admin) före modell (fil) före id. */
 export function maskinNamn(m: Maskin): string {
-  return m.modell || m.maskin_id
+  return (m.visningsnamn && m.visningsnamn.trim()) || m.modell || m.maskin_id
 }
 
 // ── Uppföljning per bolag ───────────────────────────────────────────────────

@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
     const supabase = serverSupabase();
     const [mapRes, maskinRes, ccRes, syncRes] = await Promise.all([
       supabase.from("maskin_kostnadsstalle").select("maskin_id, kostnadsstalle_kod"),
-      supabase.from("dim_maskin").select("maskin_id, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum"),
+      supabase.from("dim_maskin").select("maskin_id, visningsnamn, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum"),
       // Fortnox costcenters är liten och statisk — vi kan kalla den direkt.
       (async () => {
         try {
@@ -175,7 +175,7 @@ export async function GET(req: NextRequest) {
       });
       maskiner.push({
         maskin_id: maskinId,
-        maskin_namn: maskinInfo?.modell || maskinId,
+        maskin_namn: (maskinInfo?.visningsnamn && String(maskinInfo.visningsnamn).trim()) || maskinInfo?.modell || maskinId,
         maskin_typ: maskinInfo?.maskin_typ || null,
         // Rådata för verklig värdeminskning (KALKYL, ej bokförd) — klienten
         // räknar kr/G15-tim × periodens G15-timmar via
