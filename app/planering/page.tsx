@@ -3149,6 +3149,14 @@ export default function PlannerPage() {
   // Default tyst så föraren möter den lugna svenska baskartan; toggla för terräng-detalj.
   const [korvyBasKarta, setKorvyBasKarta] = useState<'lm' | 'topo'>('lm');
   const [korvyBlinkOn, setKorvyBlinkOn] = useState(true);
+  // HIT-TEST (debug, ?hittest=1): synlig ruta BARA i körvyn som visar vilket element elementFromPoint
+  // träffar på touchstart vs click → lokaliserar dead-tap-buggen utan fjärrdebugg (Martin kör Windows).
+  // TILLFÄLLIG — tas bort i uppföljande PR när buggen är lokaliserad. Se hit-test-effekten nedan.
+  const [hitTestOn] = useState<boolean>(() => { try { return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('hittest') === '1'; } catch { return false; } });
+  const [hitLog, setHitLog] = useState<string[]>([]);
+  const hitDownElRef = useRef<Element | null>(null);
+  const hitRenderRef = useRef(0);
+  if (hitTestOn) hitRenderRef.current += 1;   // räknar render-takten (körvyns blink 600ms + tick 1000ms syns)
   const korvyPrevCameraRef = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
   const korvyZoomRef = useRef<number>(KORVY_BASE_ZOOM);  // utjämnad närhets-zoom (lerp → ingen studs)
   // GPS-heading (pos.coords.heading) — sätts när användaren rör sig (speed >= ~1 m/s).
@@ -7108,6 +7116,41 @@ export default function PlannerPage() {
     const t = setInterval(() => setKorvyBlinkOn(b => !b), 600);
     return () => clearInterval(t);
   }, [korvyActive]);
+
+  // HIT-TEST-lyssnare (debug, ?hittest=1, bara i körvyn): fångar touchstart + click i CAPTURE-fas och
+  // loggar vilket element elementFromPoint träffar. En "DOWN" UTAN följande "CLICK" = klicket avbröts
+  // (målet byttes ut / avbröts mellan touchstart och click) = dead-tap. "≠BYTT" = click-elementet är ett
+  // annat än det touchstart träffade. Tas bort i uppföljande PR.
+  useEffect(() => {
+    if (!hitTestOn || !korvyActive) return;
+    const sig = (el: Element | null) => {
+      if (!el) return 'INGET';
+      let z = '?', pe = '?';
+      try { const cs = getComputedStyle(el); z = cs.zIndex; pe = cs.pointerEvents; } catch { /* */ }
+      const al = el.getAttribute?.('aria-label');
+      const cls = al ? `"${al.slice(0, 16)}"` : (typeof el.className === 'string' && el.className ? '.' + el.className.split(' ')[0].slice(0, 16) : '');
+      return `${el.tagName.toLowerCase()}${cls} z=${z} pe=${pe}`;
+    };
+    const push = (line: string) => setHitLog(prev => [line, ...prev].slice(0, 7));
+    const onDown = (e: TouchEvent) => {
+      const t = e.touches && e.touches[0]; if (!t) return;
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      hitDownElRef.current = el;
+      push(`▼ DOWN  ${sig(el)}`);
+    };
+    const onClick = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const bytt = hitDownElRef.current && hitDownElRef.current !== el ? '  ≠BYTT' : '';
+      push(`● CLICK ${sig(el)}${bytt}`);
+      hitDownElRef.current = null;
+    };
+    document.addEventListener('touchstart', onDown, { capture: true, passive: true });
+    document.addEventListener('click', onClick, true);
+    return () => {
+      document.removeEventListener('touchstart', onDown, true);
+      document.removeEventListener('click', onClick, true);
+    };
+  }, [hitTestOn, korvyActive]);
 
   // 6) Whitelist-baserad layer-visibility: i Körvy, dölj alla overlays och basemap-rasters
   // utom våra egna data + bg-korvy + hillshade-korvy. Restore vid avsluta.
@@ -12399,6 +12442,25 @@ export default function PlannerPage() {
               }} />
           )}
         </button>
+      )}
+
+      {/* === HIT-TEST-RUTA (debug, ?hittest=1, BARA i körvyn) === pointerEvents:none så rutan ALDRIG
+             fångar testtrycken. render#-räknaren visar körvyns re-render-takt (blink 600ms + tick 1000ms).
+             DOWN utan följande CLICK = dead-tap. TILLFÄLLIG — tas bort i uppföljande PR. */}
+      {hitTestOn && korvyActive && (
+        <div style={{
+          position: 'fixed', left: 8, right: 8, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
+          zIndex: 9000, pointerEvents: 'none', background: 'rgba(0,0,0,0.85)', color: '#7CFC00',
+          font: '11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace', padding: '8px 10px', borderRadius: 8,
+          border: '1px solid rgba(124,252,0,0.35)', maxHeight: '44vh', overflow: 'hidden', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        }}>
+          <div style={{ color: '#9f9', marginBottom: 4 }}>HITTEST · render #{hitRenderRef.current} · blink={String(korvyBlinkOn)} · tick={proximityTick} · DOWN utan CLICK = dead-tap</div>
+          {hitLog.length === 0
+            ? <div style={{ color: '#8a8' }}>tryck någonstans…</div>
+            : hitLog.map((l, i) => (
+                <div key={i} style={{ color: l.indexOf('BYTT') >= 0 ? '#ff6b6b' : (l.charAt(0) === '▼' ? '#6cd0ff' : '#7CFC00') }}>{l}</div>
+              ))}
+        </div>
       )}
 
       {/* === PLUS-MENY (bottom sheet) === */}
