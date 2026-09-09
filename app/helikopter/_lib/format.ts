@@ -43,3 +43,24 @@ export function relativTid(iso: string | null, nu: Date = new Date()): string {
 export function dagarText(n: number): string {
   return `${n} ${n === 1 ? 'dag' : 'dagar'}`
 }
+
+/** "400763 Akelius Tåget SA -26" → "Akelius Tåget SA": släpp inledande nummer och avslutande årsstump. */
+export function kortNamn(namn: string | null | undefined): string {
+  if (!namn) return 'Objekt'
+  const k = namn.replace(/^\d+\s+/, '').replace(/\s+-?\d{2,4}$/, '').trim()
+  return k || namn
+}
+
+/** stopp.orsak (enum) → svenska. */
+export const STOPP_ORSAK: Record<string, string> = {
+  semesterstopp: 'Semesterstopp',
+  produktionsbegransning: 'Produktionsbegränsning',
+}
+
+/** "2026-10-14".."2026-10-25" → "14–25 okt", över månadsgräns "28 sep–3 okt". */
+export function fmtPeriod(franIso: string, tillIso: string): string {
+  const [, fm, fd] = franIso.split('-').map(Number)
+  const [, tm, td] = tillIso.split('-').map(Number)
+  if (fm === tm) return fd === td ? `${fd} ${MANAD_KORT[fm - 1]}` : `${fd}–${td} ${MANAD_KORT[fm - 1]}`
+  return `${fd} ${MANAD_KORT[fm - 1]}–${td} ${MANAD_KORT[tm - 1]}`
+}

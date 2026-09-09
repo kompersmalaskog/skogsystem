@@ -5,7 +5,8 @@
 // (supabase/migrations/20260908100000_helikopter_ny.sql), som läser
 // volym_m3sub = m³fub. Ingen omräkning sker här.
 
-import type { Arbetsdagar, Avvikelse, BolagRad, Maskin, PlaneringObjekt, SparRad, Typ } from './queries'
+import type { Arbetsdagar, Avvikelse, BolagRad, Maskin, PlaneringObjekt, SparRad, StoppRad, Typ } from './queries'
+import { dagarText, fmt, kortNamn } from './format'
 
 // ── Trösklar och konstanter — EN plats ──────────────────────────────────────
 /** Planeringsgolv: 8 h dagtid per arbetsdag. Övertid och extramaskin är buffert. */
@@ -373,4 +374,103 @@ export function manadStatus(ar: number, manad: number, idag: string): ManadStatu
   const nyckel = `${ar}-${String(manad).padStart(2, '0')}`
   const idagNyckel = idag.slice(0, 7)
   return nyckel < idagNyckel ? 'avslutad' : nyckel > idagNyckel ? 'kommande' : 'pagaende'
+}
+
+// ── Svarsrader: det viktigaste överst, max en avvikelse ─────────────────────
+export type Svar = { rubrik: string; rad: string | null; avvikelse: boolean }
+
+/** Läge: sämsta spåret. Efter > flaskhals > saknar objekt > väntar på prognos > på plan. */
+export function lageSvar(spar: SparLage[], antalPlanerade: Record<Typ, number>, status: ManadStatus, dagar: Arbetsdagar | null): Svar {
+  const medBest = spar.filter(s => s.bestallt > 0)
+  if (status === 'kommande') return { rubrik: 'Inte startad', rad: null, avvikelse: false }
+  if (medBest.length === 0) {
+    const skotat = spar.filter(s => s.skotat > 0).map(s => `${TYP_NAMN[s.typ].toLowerCase()} ${fmt(s.skotat)}`)
+    return { rubrik: 'Ingen beställning inlagd', rad: skotat.length > 0 ? `Skotat ${skotat.join(' · ')}` : null, avvikelse: false }
+  }
+  if (status === 'avslutad') {
+    const under = medBest.filter(s => s.skotat < s.bestallt).sort((a, b) => (a.skotat - a.bestallt) - (b.skotat - b.bestallt))
+    if (under.length === 0) return { rubrik: medBest.length > 1 ? 'Klart · båda spåren' : `Klart · ${TYP_NAMN[medBest[0].typ].toLowerCase()}`, rad: null, avvikelse: false }
+    const s = under[0]
+    return { rubrik: `${TYP_NAMN[s.typ]} ${fmt(s.skotat - s.bestallt)} m³fub mot beställt`, rad: `Skotat ${fmt(s.skotat)} av ${fmt(s.bestallt)}`, avvikelse: true }
+  }
+  const aktiva = medBest.filter(s => antalPlanerade[s.typ] > 0)
+  const efter = aktiva.filter(s => s.lage?.status === 'efter').sort((a, b) => (b.lage?.dagar ?? 0) - (a.lage?.dagar ?? 0))
+  if (efter.length > 0) {
+    const s = efter[0]
+    const flaskhals = s.oskotat > (s.taktSkotat ?? 0)
+    return {
+      rubrik: `${TYP_NAMN[s.typ]} ${dagarText(s.lage?.dagar ?? 0)} efter`,
+      rad: flaskhals ? `Skotaren är flaskhals · ${fmt(s.oskotat)} m³fub ligger i skogen` : `Kör ${fmt(s.taktSkotat ?? 0)}/dag · behöver ${fmt(s.behovPerDag ?? 0)}`,
+      avvikelse: true,
+    }
+  }
+  const flask = aktiva.filter(s => s.harPrognos && s.oskotatStatus === 'vaxer' && s.oskotat > (s.taktSkotat ?? 0)).sort((a, b) => b.oskotat - a.oskotat)
+  if (flask.length > 0) {
+    const s = flask[0]
+    return { rubrik: `${TYP_NAMN[s.typ]}: skotaren är flaskhals`, rad: `${fmt(s.oskotat)} m³fub ligger i skogen · växer ${fmt(s.oskotatForandring ?? 0)}/dag`, avvikelse: true }
+  }
+  const utanObjekt = medBest.filter(s => antalPlanerade[s.typ] === 0)
+  if (utanObjekt.length > 0) {
+    const s = utanObjekt[0]
+    const andra = aktiva.find(a => a.typ !== s.typ)
+    const rad = andra ? (andra.harPrognos ? `${TYP_NAMN[andra.typ]} på plan` : `${TYP_NAMN[andra.typ]}: prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`) : null
+    return { rubrik: `${TYP_NAMN[s.typ]}: inga objekt planerade`, rad, avvikelse: false }
+  }
+  if (aktiva.some(s => !s.harPrognos)) {
+    return { rubrik: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, rad: dagar ? `arbetsdag ${dagar.gangna + 1} av ${dagar.totalt}` : null, avvikelse: false }
+  }
+  return { rubrik: aktiva.length > 1 ? 'På plan · båda spåren' : `På plan · ${TYP_NAMN[aktiva[0].typ].toLowerCase()}`, rad: null, avvikelse: false }
+}
+
+/** Underraden i MOT BESTÄLLNING: "Kör 94/dag · behöver 252 · oskotat växer 247/dag". */
+export function motBestallningRad(s: SparLage, antalPlanerade: number, status: ManadStatus, manadNamn: string): { text: string; muted: boolean } {
+  if (s.bestallt <= 0) return { text: 'Ingen beställning inlagd', muted: true }
+  if (status !== 'avslutad' && antalPlanerade === 0) {
+    return { text: `Inga objekt planerade${s.skotat > 0 ? ' · skotar ut föregående månad' : ''}`, muted: true }
+  }
+  if (status === 'avslutad') return { text: `Skotat ${fmt(s.skotat)} av ${fmt(s.bestallt)}`, muted: false }
+  if (status === 'kommande') return { text: 'Inte startad', muted: true }
+  if (!s.harPrognos) return { text: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, muted: true }
+  const oskotat = s.oskotatStatus === 'vaxer' ? `oskotat växer ${fmt(s.oskotatForandring ?? 0)}/dag`
+    : s.oskotatStatus === 'minskar' ? `oskotat minskar ${fmt(-(s.oskotatForandring ?? 0))}/dag` : 'oskotat i takt'
+  return { text: `Kör ${fmt(s.taktSkotat ?? 0)}/dag · behöver ${fmt(s.behovPerDag ?? 0)} · ${oskotat}`, muted: false }
+}
+
+/** Åtgärd för en kort maskin: minsta objekt → maskin med luft som klarar typen; annars övertid i dagar; annars bolaget. */
+export function atgardForMaskin(b: MaskinBelaggning, alla: MaskinBelaggning[], kvarDagar: number): string {
+  const kandidater = b.objekt.filter(o => !o.klar && o.timmar != null).sort((x, y) => (x.timmar as number) - (y.timmar as number))
+  for (const o of kandidater) {
+    const mal = alla.find(k => k.roll === b.roll && k.maskin.maskin_id !== b.maskin.maskin_id && klararTyp(k.maskin, o.typ) && k.luftH >= (o.timmar as number))
+    if (mal) return `${kortNamn(o.namn)} kan flyttas till ${maskinNamn(mal.maskin)}`
+  }
+  const kortH = -b.luftH
+  const dagar = Math.max(1, Math.ceil(kortH / TIMMAR_PER_DAG))
+  if (dagar <= Math.max(kvarDagar, 0)) return `${dagarText(dagar)} övertid`
+  return 'Prata med bolaget'
+}
+
+/** Planering: maskin över kapacitet > kubik saknas > allt får plats. */
+export function planeringSvar(bel: MaskinBelaggning[], plan: Record<Typ, PlaneratResultat>, kvarDagar: number): Svar {
+  const korta = bel.filter(b => b.luftH < 0).sort((a, b) => a.luftH - b.luftH)
+  const saknas = TYPER.filter(t => plan[t].saknas > 0).sort((a, b) => plan[b].saknas - plan[a].saknas)
+  const saknasText = (t: Typ) => `${TYP_NAMN[t].toLowerCase()} saknar ${fmt(plan[t].saknas)} m³fub`
+  if (korta.length > 0) {
+    const b = korta[0]
+    const delar = [atgardForMaskin(b, bel, kvarDagar)]
+    if (saknas.length > 0) delar.push(saknasText(saknas[0]))
+    return { rubrik: `${maskinNamn(b.maskin)} ${fmt(-b.luftH)} h kort`, rad: delar.join(' · '), avvikelse: true }
+  }
+  if (saknas.length > 0) {
+    const t = saknas[0]
+    const delar = ['Planera in fler objekt']
+    if (saknas[1]) delar.push(saknasText(saknas[1]))
+    return { rubrik: `${TYP_NAMN[t]} saknar ${fmt(plan[t].saknas)} m³fub`, rad: delar.join(' · '), avvikelse: true }
+  }
+  const luft = bel.reduce((sum, b) => sum + Math.max(b.luftH, 0), 0)
+  return { rubrik: `Allt planerat får plats · ${fmt(luft)} h luft`, rad: null, avvikelse: false }
+}
+
+/** Maskinens stopp som berör månaden (för Planeringens underrad). */
+export function stoppForMaskin(stopp: StoppRad[], maskinId: string): StoppRad[] {
+  return stopp.filter(s => s.maskiner.includes(maskinId)).sort((a, b) => a.fran_datum.localeCompare(b.fran_datum))
 }

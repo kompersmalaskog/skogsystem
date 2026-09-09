@@ -99,7 +99,7 @@ export function Stapel({ bestallt, skordat, skotat }: { bestallt: number; skorda
 
 /**
  * Uppföljning: 9 px stapel, BARA skotat mot beställt, fylld i statusfärgen,
- * 2 px svart planstreck vid plan idag. Inga siffror under.
+ * 2 px planstreck i text-primary vid plan idag. Inga siffror under.
  */
 export function StapelEnkel({ bestallt, skotat, plan, farg }: { bestallt: number; skotat: number; plan?: number | null; farg: string }) {
   const max = Math.max(bestallt, 1)
@@ -108,7 +108,7 @@ export function StapelEnkel({ bestallt, skotat, plan, farg }: { bestallt: number
     <div style={{ position: 'relative', height: 9, borderRadius: 5, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', marginTop: 12 }}>
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: pct(skotat), background: farg, borderRadius: 5 }} />
       {plan != null && plan > 0 && (
-        <div style={{ position: 'absolute', top: 0, bottom: 0, left: `calc(${pct(plan)} - 1px)`, width: 2, background: '#000' }} aria-label="plan idag" />
+        <div style={{ position: 'absolute', top: 0, bottom: 0, left: `calc(${pct(plan)} - 1px)`, width: 2, background: T.t1 }} aria-label="plan idag" />
       )}
     </div>
   )

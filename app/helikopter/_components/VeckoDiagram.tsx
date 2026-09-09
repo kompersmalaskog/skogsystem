@@ -1,7 +1,7 @@
 'use client'
 
 // Kolumn per vecka: två staplar (skördat vänster, skotat höger, 4 px mellan) och
-// ett 2 px svart planstreck över båda. Skala: största veckoplanen = 100 %.
+// ett 2 px planstreck i text-primary över båda. Skala: största veckoplanen = 100 %.
 // Grön ≥ plan, orange under. Kommande: tomma spår + streck. Pågående: 50 % opacitet.
 // Tryck på kolumn = välj vecka. Tryck på stapel = per maskin för den rollen.
 import { TreePine, Truck } from 'lucide-react'
@@ -77,10 +77,11 @@ export default function VeckoDiagram({ veckor, vald, onValjVecka, onValjStapel }
                 )}
                 {/* Planstreck över båda staplarna */}
                 {v.plan != null && v.plan > 0 && (
-                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: h(v.plan) - 1, height: 2, background: '#000' }} aria-label="plan" />
+                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: h(v.plan) - 1, height: 2, background: T.t1 }} aria-label="plan" />
                 )}
               </div>
               <div style={{ fontSize: 13, fontWeight: arVald ? 700 : 500, color: arVald ? T.t1 : T.t2 }}>v{v.isovecka}</div>
+              <div style={{ fontSize: 12, color: 'rgba(235,235,245,0.45)', lineHeight: 1.2 }}>{v.arbetsdagar} {v.arbetsdagar === 1 ? 'dag' : 'dagar'}</div>
               {v.orsak && (
                 <div style={{ fontSize: 12, color: T.t2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>{v.orsak}</div>
               )}

@@ -45,7 +45,7 @@ LANGUAGE sql STABLE AS $$
   ad AS (SELECT * FROM helikopter_ny_arbetsdagar(p_ar, p_manad, p_idag) WHERE maskin_id IS NULL),
   dagar AS (SELECT unnest(gangna_datum || kvar_datum) AS d FROM ad),
   best AS (
-    SELECT btrim(b.bolag) AS bolag, sum(b.volym) AS volym
+    SELECT btrim(b.bolag) AS bolag, sum(b.volym)::numeric AS volym  -- bestallningar.volym är double precision
     FROM bestallningar b WHERE b.ar = p_ar AND b.manad = p_manad AND lower(btrim(b.typ)) = lower(p_typ) GROUP BY 1),
   bestallt AS (SELECT COALESCE(sum(volym), 0) AS v, count(*) > 0 AS finns FROM best),
   veckor AS (
@@ -78,7 +78,7 @@ LANGUAGE sql STABLE AS $$
     FROM veckor v JOIN rader r ON r.datum BETWEEN v.fran AND v.till GROUP BY 1, 2, 3, 4)
   SELECT v.isovecka, v.iso_ar, v.fran, v.till,
          vi.arbetsdagar, vi.arbetsdagar_kvar,
-         CASE WHEN (SELECT totalt FROM ad) > 0 THEN round(vi.arbetsdagar * (SELECT bv.v FROM bestallt bv) / (SELECT totalt FROM ad), 0) END AS plan,
+         CASE WHEN (SELECT totalt FROM ad) > 0 THEN round((vi.arbetsdagar * (SELECT bv.v FROM bestallt bv) / (SELECT totalt FROM ad))::numeric, 0) END AS plan,
          vol.skordat, vol.skotat,
          CASE WHEN vi.sista < p_idag THEN 'last' WHEN p_idag BETWEEN v.fran AND v.till THEN 'pagar' ELSE 'kommande' END AS status,
          (SELECT o.orsak FROM helikopter_veckoorsak o WHERE o.ar = p_ar AND o.manad = p_manad AND lower(o.typ) = lower(p_typ) AND o.isovecka = v.isovecka) AS orsak,
@@ -108,7 +108,7 @@ LANGUAGE sql STABLE AS $$
   gangna AS (SELECT unnest(gangna_datum) AS d FROM helikopter_ny_arbetsdagar(p_ar, p_manad, p_idag) WHERE maskin_id IS NULL),
   fonster AS (SELECT d FROM gangna ORDER BY d DESC LIMIT 5),
   best AS (
-    SELECT lower(btrim(b.typ)) AS typ, btrim(b.bolag) AS bolag, sum(b.volym) AS volym
+    SELECT lower(btrim(b.typ)) AS typ, btrim(b.bolag) AS bolag, sum(b.volym)::numeric AS volym  -- bestallningar.volym är double precision
     FROM bestallningar b WHERE b.ar = p_ar AND b.manad = p_manad
     GROUP BY 1, 2),
   typer AS (SELECT unnest(ARRAY['slutavverkning', 'gallring']) AS typ),

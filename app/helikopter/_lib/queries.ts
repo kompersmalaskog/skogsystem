@@ -92,6 +92,10 @@ export type MaskinLage = {
   senast_datum: string | null
 }
 
+export type StoppRad = { id: string; fran_datum: string; till_datum: string; orsak: string; maskiner: string[] }
+
+export type OskotatObjekt = { typ: Typ; objekt_id: string; namn: string | null; bolag: string | null; skordat: number; skotat: number; oskotat: number; senast_datum: string | null }
+
 export type VeckaRad = {
   isovecka: number
   iso_ar: number
@@ -176,22 +180,30 @@ function normVecka(r: any): VeckaRad {
   }
 }
 
-export type Manadsdata = { spar: SparRad[]; arbetsdagar: Arbetsdagar[]; planering: PlaneringObjekt[] }
+export type Manadsdata = { spar: SparRad[]; arbetsdagar: Arbetsdagar[]; planering: PlaneringObjekt[]; stopp: StoppRad[] }
 
 /** Månadsberoende: spår, arbetsdagar, månadens objekt. Hämtas om vid månadsbyte. */
 export async function hamtaManadsdata(ar: number, manad: number, idag: string): Promise<Svar<Manadsdata>> {
-  const [spar, dagar, plan] = await Promise.all([
+  const forsta = `${ar}-${String(manad).padStart(2, '0')}-01`
+  const sista = new Date(ar, manad, 0)
+  const sistaIso = `${sista.getFullYear()}-${String(sista.getMonth() + 1).padStart(2, '0')}-${String(sista.getDate()).padStart(2, '0')}`
+  const [spar, dagar, plan, stopp, stoppMaskin] = await Promise.all([
     rpc<any[]>('helikopter_ny_spar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_arbetsdagar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_planering', { p_ar: ar, p_manad: manad }),
+    hamtaAlla<any>(() => supabase.from('stopp').select('id,fran_datum,till_datum,orsak').gte('till_datum', forsta).lte('fran_datum', sistaIso), 'id'),
+    hamtaAlla<any>(() => supabase.from('stopp_maskin').select('stopp_id,maskin_id'), ['stopp_id', 'maskin_id']),
   ])
-  const fel = spar.error ?? dagar.error ?? plan.error
-  if (fel) return { data: null, error: fel }
+  const fel = spar.error ?? dagar.error ?? plan.error ?? (stopp.error ? felText(stopp.error) : null) ?? (stoppMaskin.error ? felText(stoppMaskin.error) : null)
+  if (fel) { if (stopp.error || stoppMaskin.error) console.error('[helikopter] stopp', stopp.error ?? stoppMaskin.error); return { data: null, error: fel } }
+  const maskinerPerStopp = new Map<string, string[]>()
+  for (const sm of stoppMaskin.data ?? []) maskinerPerStopp.set(sm.stopp_id, [...(maskinerPerStopp.get(sm.stopp_id) ?? []), sm.maskin_id])
   return {
     data: {
       spar: (spar.data ?? []).map(normSpar),
       arbetsdagar: (dagar.data ?? []).map(normDagar),
       planering: (plan.data ?? []).map(normPlanering),
+      stopp: (stopp.data ?? []).map((s: any): StoppRad => ({ id: s.id, fran_datum: s.fran_datum, till_datum: s.till_datum, orsak: s.orsak ?? '', maskiner: maskinerPerStopp.get(s.id) ?? [] })),
     },
     error: null,
   }
@@ -221,6 +233,29 @@ export async function hamtaBolag(ar: number, manad: number, idag: string): Promi
   const r = await rpc<any[]>('helikopter_ny_bolag', { p_ar: ar, p_manad: manad, p_idag: idag })
   if (r.error) return { data: null, error: r.error }
   return { data: (r.data ?? []).map(normBolag), error: null }
+}
+
+/** Var virket ligger: alla öppna objekt med oskotat, per typ. Lazy när sheeten öppnas. */
+export async function hamtaOskotatObjekt(ar: number, manad: number): Promise<Svar<OskotatObjekt[]>> {
+  const r = await rpc<any[]>('helikopter_ny_oskotat_objekt', { p_ar: ar, p_manad: manad })
+  if (r.error) return { data: null, error: r.error }
+  return {
+    data: (r.data ?? []).map((o: any): OskotatObjekt => ({
+      typ: o.typ, objekt_id: String(o.objekt_id), namn: o.namn ?? null, bolag: o.bolag ?? null,
+      skordat: tal(o.skordat), skotat: tal(o.skotat), oskotat: tal(o.oskotat), senast_datum: o.senast_datum ?? null,
+    })),
+    error: null,
+  }
+}
+
+/** Takt per aktiv maskin (senaste 5 arbetsdagarna) — Läge-sheeten "Skördare och skotare". */
+export async function hamtaMaskinTakter(maskinIds: string[], idag: string): Promise<Svar<Record<string, MaskinLage | null>>> {
+  const svar = await Promise.all(maskinIds.map(id => hamtaMaskinLage(id, idag)))
+  const fel = svar.find(s => s.error != null)?.error
+  if (fel != null) return { data: null, error: fel }
+  const ut: Record<string, MaskinLage | null> = {}
+  maskinIds.forEach((id, i) => { ut[id] = svar[i].data })
+  return { data: ut, error: null }
 }
 
 /** Veckor för ett spår i en månad — /helikopter/veckor. */

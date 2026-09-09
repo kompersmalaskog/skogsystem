@@ -1,18 +1,18 @@
 'use client'
 
-// Flik 2 — Planering. Per spår: det som är FEL som stort tal ("Saknas 150 m³fub",
-// "22 h kort" eller "Klart att köra"), två kontrollrader (volym, timmar), åtgärd,
-// knapp till objektlistan. Objekt utan volym/bolag räknas inte men visas.
-import { Check, TriangleAlert } from 'lucide-react'
-import { T } from '@/lib/utbildning'
+// Flik 2 — Planering, i liststil: svarsrad (värsta avvikelsen + åtgärd), SKÖRDARE,
+// SKOTARE (en rad per aktiv maskin: timmar kvar mot kapacitet kvar), två listrader.
+import { useState } from 'react'
 import {
-  atgardForTyp, belaggning, otilldelade, planeratPerTyp, timmarForTyp, TYPER,
-  type ManadStatus, type SparLage,
+  belaggning, otilldelade, planeratPerTyp, planeringSvar, stoppForMaskin, maskinNamn, TYPER,
+  type ManadStatus, type PlaneratResultat, type SparLage,
 } from '../_lib/berakningar'
-import { fmt } from '../_lib/format'
+import { STOPP_ORSAK, fmt, fmtPeriod, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, FastData, Manadsdata, Typ } from '../_lib/queries'
-import { AtgardRuta, Kort, KortLank, Rad, SparRubrik, StortTal, type Ton } from './SparKort'
+import { ListLank, ListRad, Lista, Sektion, Svarsrad } from './Lista'
 import { Tomt } from './Tillstand'
+import EjTilldeladeSheet from './EjTilldeladeSheet'
+import MotBestallningSheet from './MotBestallningSheet'
 
 type Props = {
   manadsdata: Manadsdata
@@ -26,63 +26,61 @@ type Props = {
 }
 
 export default function PlaneringFlik({ manadsdata, fast, spar, status, dagar, idag, ar, manad }: Props) {
+  const [sheet, setSheet] = useState<'ej' | 'best' | null>(null)
   if (status === 'avslutad') {
     return <Tomt rubrik="Månaden är avslutad" text="Planering gäller innevarande och kommande månader. Utfallet finns under Uppföljning." />
   }
-  const bel = belaggning(manadsdata.planering, fast.maskiner, manadsdata.arbetsdagar, idag, status === 'pagaende')
-  const kvarDagar = status === 'pagaende' ? dagar.kvar : dagar.totalt
+  const pagaende = status === 'pagaende'
+  const bel = belaggning(manadsdata.planering, fast.maskiner, manadsdata.arbetsdagar, idag, pagaende)
+  const kvarDagar = pagaende ? dagar.kvar : dagar.totalt
+  const plan: Record<Typ, PlaneratResultat> = {
+    gallring: planeratPerTyp(manadsdata.planering, 'gallring', spar.find(s => s.typ === 'gallring')?.bestallt ?? 0, fast.avvikelse),
+    slutavverkning: planeratPerTyp(manadsdata.planering, 'slutavverkning', spar.find(s => s.typ === 'slutavverkning')?.bestallt ?? 0, fast.avvikelse),
+  }
+  const svar = planeringSvar(bel, plan, kvarDagar)
+  const ejTilldelade = Array.from(new Set(TYPER.flatMap(t => otilldelade(manadsdata.planering, t).map(o => o.objekt_id))))
+    .map(id => manadsdata.planering.find(o => o.objekt_id === id)!)
+  const bestSmak = TYPER.map(t => `${t === 'slutavverkning' ? 'slut' : 'gall'} ${fmt(plan[t].korrigerat)} av ${fmt(spar.find(s => s.typ === t)?.bestallt ?? 0)}`).join(' · ')
+
   return (
     <>
-      {TYPER.map(typ => (
-        <PlaneringKort key={typ} typ={typ} s={spar.find(x => x.typ === typ) ?? null} manadsdata={manadsdata} fast={fast} bel={bel} kvarDagar={kvarDagar} ar={ar} manad={manad} />
-      ))}
+      <Svarsrad svar={svar} />
+      <Lista>
+        {(['skordare', 'skotare'] as const).map(roll => (
+          <Sektion key={roll} rubrik={roll === 'skordare' ? 'Skördare' : 'Skotare'}>
+            {bel.filter(b => b.roll === roll).map(b => {
+              const over = b.luftH < 0
+              const stopp = stoppForMaskin(manadsdata.stopp, b.maskin.maskin_id)
+              const tom = b.objekt.length === 0
+              const under = stopp.length > 0
+                ? stopp.map(s => `${STOPP_ORSAK[s.orsak] ?? s.orsak} ${fmtPeriod(s.fran_datum, s.till_datum)}`).join(' · ')
+                : tom
+                  ? `${fmt(b.kapacitetH)} h lediga`
+                  : b.objekt.map(o => kortNamn(o.namn)).join(', ')
+              return (
+                <ListRad
+                  key={b.maskin.maskin_id}
+                  namn={maskinNamn(b.maskin)}
+                  tal={tom ? 'Inga objekt' : `${fmt(b.belagtH)} h`}
+                  talTon={tom ? 'muted' : over ? 'orange' : 'normal'}
+                  av={tom ? undefined : `${fmt(b.kapacitetH)} h`}
+                  andel={tom ? 0 : b.kapacitetH > 0 ? Math.min(b.belagtH / b.kapacitetH, 1) : (b.belagtH > 0 ? 1 : 0)}
+                  orange={over}
+                  under={under}
+                  underMuted={tom && stopp.length === 0}
+                />
+              )
+            })}
+          </Sektion>
+        ))}
+        <div style={{ marginTop: 6 }}>
+          <ListLank text="Ej tilldelade" smakprov={`${ejTilldelade.length} ${ejTilldelade.length === 1 ? 'objekt' : 'objekt'}`} onClick={() => setSheet('ej')} />
+          <ListLank text="Mot beställning" smakprov={bestSmak} onClick={() => setSheet('best')} />
+        </div>
+      </Lista>
+
+      <EjTilldeladeSheet open={sheet === 'ej'} onClose={() => setSheet(null)} objekt={ejTilldelade} ar={ar} manad={manad} />
+      <MotBestallningSheet open={sheet === 'best'} onClose={() => setSheet(null)} plan={plan} spar={spar} objekt={manadsdata.planering} avvikelse={fast.avvikelse} />
     </>
-  )
-}
-
-function Ikon({ varning }: { varning: boolean }) {
-  return varning
-    ? <TriangleAlert size={16} color={T.orange} aria-label="varning" />
-    : <Check size={16} color={T.green} aria-label="ok" />
-}
-
-function PlaneringKort({ typ, s, manadsdata, fast, bel, kvarDagar, ar, manad }: {
-  typ: Typ; s: SparLage | null; manadsdata: Manadsdata; fast: FastData
-  bel: ReturnType<typeof belaggning>; kvarDagar: number; ar: number; manad: number
-}) {
-  const bestallt = s?.bestallt ?? 0
-  const bolag = s?.bolag ?? []
-  const objektHref = `/objekt?ar=${ar}&manad=${manad}&typ=${typ}`
-  const plan = planeratPerTyp(manadsdata.planering, typ, bestallt, fast.avvikelse)
-  const tim = timmarForTyp(bel, typ)
-  const atgard = atgardForTyp(typ, plan, tim, bel, kvarDagar, objektHref, fmt)
-  const utanMaskin = otilldelade(manadsdata.planering, typ).length
-
-  let stort: { text: string; ton: Ton; under?: string }
-  if (plan.saknas > 0) stort = { text: `Saknas ${fmt(plan.saknas)} m³fub`, ton: 'orange' }
-  else if (tim.luft < 0) stort = { text: `${fmt(-tim.luft)} h kort`, ton: 'orange' }
-  else if (bestallt <= 0) stort = plan.antalObjekt > 0
-    ? { text: `${fmt(plan.korrigerat)} m³fub`, ton: 'neutral', under: 'planerat · ingen beställning' }
-    : { text: 'Inget planerat', ton: 'dampad', under: 'ingen beställning' }
-  else stort = { text: 'Klart att köra', ton: 'gron' }
-
-  const just = plan.justeringProcent
-  const volymText = `Planerat ca ${fmt(plan.korrigerat)} m³fub · ${plan.antalObjekt} objekt${just != null ? ` · justerad ${just > 0 ? '+' : ''}${just} %` : ''}`
-  const timText = tim.maskiner.length === 0
-    ? 'Timmar – inga objekt på våra maskiner'
-    : `Timmar ${fmt(tim.timmar)} h av ${fmt(tim.kapacitet)} h · ${tim.luft >= 0 ? `${fmt(tim.luft)} h luft` : `${fmt(-tim.luft)} h kort`}`
-
-  return (
-    <Kort>
-      <SparRubrik typ={typ} bestallt={bestallt} bolag={bolag} />
-      <StortTal text={stort.text} ton={stort.ton} under={stort.under} />
-      <Rad ikon={<Ikon varning={plan.saknas > 0} />} text={volymText} />
-      <Rad ikon={<Ikon varning={tim.luft < 0 || tim.saknarPrognos > 0} />} text={timText} dampad={tim.maskiner.length === 0} />
-      {atgard && <AtgardRuta atgard={atgard} />}
-      {plan.utanVolym > 0 && <KortLank text={`${plan.utanVolym} objekt saknar volym`} href={objektHref} />}
-      {plan.utanBolag > 0 && <KortLank text={`${plan.utanBolag} objekt saknar bolag`} href={objektHref} />}
-      {utanMaskin > 0 && <KortLank text={`${utanMaskin} objekt saknar maskin`} href={objektHref} />}
-      <KortLank text="Objekt" href={objektHref} />
-    </Kort>
   )
 }

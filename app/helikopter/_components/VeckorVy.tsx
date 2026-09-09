@@ -115,13 +115,23 @@ export default function VeckorVy() {
   )
 }
 
+/** " · 4 arbetsdagar · plan 909" — pågående: " · 3 dagar kvar · behöver 250/dag" (kvar till veckoplan för skotat). */
+function veckoRubrik(v: VeckaRad): string {
+  if (v.status === 'pagar' && v.plan != null) {
+    const kvarM3 = v.plan - v.skotat
+    const behov = v.arbetsdagar_kvar > 0 && kvarM3 > 0 ? ` · behöver ${fmt(kvarM3 / v.arbetsdagar_kvar)}/dag` : kvarM3 <= 0 ? ' · veckoplanen nådd' : ''
+    return ` · ${v.arbetsdagar_kvar} ${v.arbetsdagar_kvar === 1 ? 'dag' : 'dagar'} kvar${behov}`
+  }
+  const dagar = ` · ${v.arbetsdagar} ${v.arbetsdagar === 1 ? 'arbetsdag' : 'arbetsdagar'}`
+  return v.plan != null ? `${dagar} · plan ${fmt(v.plan)}` : dagar
+}
+
 function VeckoDetalj({ vecka, onAndraOrsak }: { vecka: VeckaRad; onAndraOrsak: () => void }) {
   return (
     <>
       <div style={{ fontSize: 15, fontWeight: 600, color: T.t1 }}>
-        Vecka {vecka.isovecka}{vecka.plan != null ? <span style={{ color: T.t2, fontWeight: 400 }}> · plan {fmt(vecka.plan)}</span> : ''}
-        {vecka.status === 'pagar' && <span style={{ color: T.t2, fontWeight: 400 }}> · pågår</span>}
-        {vecka.status === 'kommande' && <span style={{ color: T.t2, fontWeight: 400 }}> · kommande</span>}
+        Vecka {vecka.isovecka}
+        <span style={{ color: T.t2, fontWeight: 400 }}>{veckoRubrik(vecka)}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
         <Spalt ikon={<TreePine size={15} color={T.t2} aria-hidden="true" />} label="Skördat" varde={vecka.skordat} vecka={vecka} />

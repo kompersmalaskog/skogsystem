@@ -221,6 +221,8 @@ export default function HelikopterVy() {
             dagar={dagar}
             ar={ar}
             manad={manad}
+            idag={idag}
+            maskiner={fast.maskiner}
             antalPlanerade={antalPlanerade}
             dinMaskin={dinMaskinNamn ? { maskinNamn: maskinNamn(dinMaskinNamn), lage: maskinLage, fel: maskinLageFel, onRetry: () => setVersion(v => v + 1) } : null}
           />
