@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { tradslagFarg, tradslagLabel } from '@/lib/tradslag'
 import {
   C, FONT, COMBO_IDS, fetchAll, fmtSv, getPeriodRange,
   type Maskin, type Period,
@@ -24,14 +25,6 @@ type TradslagRad = {
   farg: string
 }
 
-function tradfarg(namn: string): string {
-  const n = namn.toLowerCase()
-  if (n.includes('gran')) return '#30d158'
-  if (n.includes('tall')) return '#ff9f0a'
-  if (n.includes('björk') || n.includes('bjork')) return '#ffd60a'
-  return '#8e8e93'
-}
-
 async function fetchVolymPerTradslag(
   maskinId: string, start: string, end: string,
 ): Promise<TradslagRad[]> {
@@ -47,31 +40,31 @@ async function fetchVolymPerTradslag(
     tradNamn[t.tradslag_id] = t.namn
   }
 
-  // Summera per tradslag_id
+  // Summera per NORMALISERAT namn (lib/tradslag), inte per tradslag_id:
+  // id:t är per maskin, så "Rottne H8E (båda)" hade två rader för samma art,
+  // och R64101:s 'ÖVR LÖV'/'LÖV'/'LOV2' är samma "Övrigt löv" som 'ÖVR_LÖV'.
   const agg: Record<string, { volym: number; stammar: number }> = {}
   for (const r of prodRows) {
-    const tid = r.tradslag_id || '__okänt__'
-    if (!agg[tid]) agg[tid] = { volym: 0, stammar: 0 }
-    agg[tid].volym   += r.volym_m3sub || 0
-    agg[tid].stammar += r.stammar || 0
+    const namn = tradslagLabel(r.tradslag_id ? tradNamn[r.tradslag_id] : null)
+    if (!agg[namn]) agg[namn] = { volym: 0, stammar: 0 }
+    agg[namn].volym   += r.volym_m3sub || 0
+    agg[namn].stammar += r.stammar || 0
   }
 
   const totalVolym = Object.values(agg).reduce((s, v) => s + v.volym, 0)
 
   return Object.entries(agg)
     .filter(([, v]) => v.volym > 0)
-    .map(([tid, v]) => {
-      const namn = tradNamn[tid] || tid
-      return {
-        tradslag_id: tid,
-        namn,
-        volym:   v.volym,
-        stammar: v.stammar,
-        andel:   totalVolym > 0 ? v.volym / totalVolym : 0,
-        farg:    tradfarg(namn),
-      }
-    })
-    .sort((a, b) => b.volym - a.volym)
+    .sort((a, b) => b[1].volym - a[1].volym)
+    .map(([namn, v], i) => ({
+      tradslag_id: namn,
+      namn,
+      volym:   v.volym,
+      stammar: v.stammar,
+      andel:   totalVolym > 0 ? v.volym / totalVolym : 0,
+      // Appens EN trädslagspalett — samma färg för Gran här som i uppföljningen.
+      farg:    tradslagFarg(namn, i),
+    }))
 }
 
 // ─────────────────────────────────────────────────────────────

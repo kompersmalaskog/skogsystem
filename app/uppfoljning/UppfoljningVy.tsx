@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
+import { tradslagFarg } from '@/lib/tradslag';
 import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
@@ -722,22 +723,23 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
 }
 
 // ── Trädslag + Sortiment ──────────────────────────────────────────────────
+// Färg ur appens EN trädslagspalett (lib/tradslag) — Gran är grön här, i
+// maskinvyn och i gallringsvyn. Namnet står alltid i text bredvid färgen.
 function Tradslag({ tradslag }: { tradslag: { namn: string; pct: number }[] }) {
   if (!tradslag || tradslag.length === 0) return null;
-  const colors = ['#a8d582', '#64d2ff', '#ff9f0a', '#bf5af2', '#ff453a'];
   return (
     <div style={{ padding: '0 24px 16px' }}>
       <div style={{ background: V6_CARD, borderRadius: 14, padding: '16px 16px 14px' }}>
         <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 12 }}>Trädslag</div>
         <div style={{ display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden', gap: 2, marginBottom: 14 }}>
           {tradslag.map((t, i) => (
-            <div key={t.namn} style={{ width: `${t.pct}%`, background: colors[i % colors.length] }} />
+            <div key={t.namn} style={{ width: `${t.pct}%`, background: tradslagFarg(t.namn, i) }} />
           ))}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {tradslag.map((t, i) => (
             <div key={t.namn} style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: colors[i % colors.length], flexShrink: 0, alignSelf: 'center' }} />
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: tradslagFarg(t.namn, i), flexShrink: 0, alignSelf: 'center' }} />
               <span style={{ flex: 1, fontSize: 14, color: '#fff' }}>{t.namn}</span>
               <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{t.pct}%</span>
             </div>

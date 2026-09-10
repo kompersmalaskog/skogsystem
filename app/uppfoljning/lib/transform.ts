@@ -5,6 +5,7 @@ import type { UppfoljningData, Maskin, Forare, AvbrottRad, DieselDag } from '../
 import { G15_GRANS_SEK, g15Sek } from '@/lib/g15';
 import { skotningsavstandM } from '@/lib/skotningsavstand';
 import { type ObjektTyp } from '@/lib/objekt/typ';
+import { tradslagLabel } from '@/lib/tradslag';
 import { objektSkotat, resolveSkotareVolym, type SkotareManuellRad } from '@/lib/skotat';
 
 // ── Typer ─────────────────────────────────────────────────────────────────
@@ -435,10 +436,13 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
       return { datum: `${date.getDate()}/${date.getMonth() + 1}`, m3: Math.round(m3) };
     });
 
-  // Per trädslag
+  // Per trädslag — grupperat på NORMALISERAT namn (lib/tradslag), inte på
+  // maskinens råa namn: 'ÖVR_LÖV', 'ÖVR LÖV', 'LÖV' och 'LOV2' är samma
+  // "Övrigt löv" och ska bli EN rad, inte två med olika färg.
   const tradslagAgg = new Map<string, number>();
   skProd.forEach((r: any) => {
-    const ts = (r.tradslag_id && tradslagMap.get(r.tradslag_id)) || r.tradslag_id || 'Övrigt';
+    const ratt = r.tradslag_id ? tradslagMap.get(r.tradslag_id) : null;
+    const ts = tradslagLabel(ratt);
     tradslagAgg.set(ts, (tradslagAgg.get(ts) || 0) + (r.volym_m3sub || 0));
   });
   const totalTradslagVol = Array.from(tradslagAgg.values()).reduce((a, b) => a + b, 0);
