@@ -7486,11 +7486,11 @@ export default function PlannerPage() {
         map.addLayer({
           id: 'skordarstrak-casing', type: 'line', source: 'skordarstrak-source',
           paint: {
-            // Tunn casing: bara så mycket mörk kant att linjen håller ihop mot ljus topokarta.
-            // Bredderna halverade mot v1 — kartan (stickvägar, ytor) ska gå att läsa UNDER stråket.
+            // KONTRAST-fix: mörk casing BARA under AKTIVA stråket → det får en tydlig kant och lyfter.
+            // Övriga stråk saknar casing (ritas som tunna grå linjer) så bara det aktiva sticker ut.
             'line-color': '#0b0b0d',
-            'line-opacity': ['case', ['get', 'utkort'], 0.10, 0.38],
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 5.5, 19, 8],
+            'line-opacity': ['case', ['get', 'aktiv'], 0.55, 0],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 4.5, 17, 8, 19, 12],
           },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
@@ -7501,9 +7501,12 @@ export default function PlannerPage() {
         map.addLayer({
           id: 'skordarstrak-line', type: 'line', source: 'skordarstrak-source',
           paint: {
-            'line-color': ['case', ['get', 'utkort'], '#8e8e93', '#0a84ff'],
-            'line-opacity': ['case', ['get', 'utkort'], 0.30, ['case', ['get', 'small'], 0.45, 0.88]],
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1.8, 17, 3.2, 19, 4.6],
+            // KONTRAST-fix: alla ICKE-aktiva stråk dämpas till tunn, grå, nästan genomskinlig linje →
+            // ren bakgrundskontext. Aktiva stråket ritas i full färg/bredd av 'skordarstrak-line-aktiv'
+            // ovanpå, så här sätts dess opacity till 0 (dubbelritning undviks).
+            'line-color': ['case', ['get', 'utkort'], '#3a3a3c', '#6d6d72'],
+            'line-opacity': ['case', ['get', 'aktiv'], 0, ['case', ['get', 'utkort'], 0.14, 0.32]],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1.3, 17, 2.2, 19, 3],
           },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
@@ -7517,10 +7520,12 @@ export default function PlannerPage() {
           id: 'skordarstrak-line-aktiv', type: 'line', source: 'skordarstrak-source',
           filter: ['==', ['get', 'aktiv'], true],
           paint: {
-            'line-color': '#4da3ff',
-            'line-opacity': 0.98,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3.4, 17, 6.5, 19, 9.5],
-            'line-blur': 0.4,
+            // KONTRAST-fix: aktiva stråket lyser i klar, mättad blå och full bredd — enda blå linjen på
+            // kartan (övriga är dämpade grå), så VILKET stråk som är aktivt går inte att missa i fält.
+            'line-color': '#38b6ff',
+            'line-opacity': 1,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 4, 17, 7.5, 19, 11],
+            'line-blur': 0.6,
           },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
@@ -7556,18 +7561,21 @@ export default function PlannerPage() {
         map.addLayer({
           id: 'skotar-hogar-dots', type: 'circle', source: 'skotar-hogar-source',
           paint: {
-            'circle-color': ['get', 'color'],
-            'circle-stroke-color': 'rgba(255,255,255,0.85)',
-            'circle-stroke-width': 1,
+            // KONTRAST-fix: AKTIVA stråkets högar i full sortiment-färg, större, med vit ring → de hör
+            // tydligt ihop med det aktiva (blå) stråket. Övriga högar dämpas till små, grå, halvtranspa-
+            // renta prickar (samma dämpning som de grå stråken) så de inte konkurrerar.
+            'circle-color': ['case', ['get', 'aktiv'], ['get', 'color'], '#5a5a5e'],
+            'circle-stroke-color': 'rgba(255,255,255,0.9)',
+            'circle-stroke-width': ['case', ['get', 'aktiv'], 1.5, 0],
             // Top-level zoom-interpolate (zoom MÅSTE vara direkt input till top-level interpolate/step —
-            // nästlat i t.ex. '*' förkastar MapLibre lagret TYST). Aktiv-förstoringen (×1.7) läggs i
-            // varje stops DATA-DRIVNA utdata istället → samma effekt, giltigt uttryck.
+            // nästlat i t.ex. '*' förkastar MapLibre lagret TYST). Aktiv-förstoringen läggs i varje stops
+            // DATA-DRIVNA utdata istället → samma effekt, giltigt uttryck.
             'circle-radius': ['interpolate', ['linear'], ['zoom'],
-              13, ['case', ['get', 'aktiv'], 3.4, 2],
-              16, ['case', ['get', 'aktiv'], 6.8, 4],
-              19, ['case', ['get', 'aktiv'], 11.9, 7],
+              13, ['case', ['get', 'aktiv'], 3.8, 1.5],
+              16, ['case', ['get', 'aktiv'], 7.6, 2.8],
+              19, ['case', ['get', 'aktiv'], 13, 4.6],
             ],
-            'circle-opacity': 0.95,
+            'circle-opacity': ['case', ['get', 'aktiv'], 1, 0.4],
           },
           layout: { 'visibility': 'none' },
         });
@@ -7851,7 +7859,9 @@ export default function PlannerPage() {
         geometry: { type: 'LineString', coordinates: s.geometri },
         properties: { strakKey: sKey, strak_nr: s.strak_nr, maskin_id: s.maskin_id, utkort, small, aktiv: sKey === aktivStrakKey },
       });
-      if (!utkort && !small) {
+      // KONTRAST-fix: volym-etikett BARA på det aktiva stråket (förr på alla → rörigt, inget stack ut).
+      // Panelen visar det aktiva stråkets sortiment; övriga stråks siffror behövs inte på kartan i körfart.
+      if (!utkort && !small && sKey === aktivStrakKey) {
         const mid = s.geometri[Math.floor(s.geometri.length / 2)];
         labelFeatures.push({
           type: 'Feature',
