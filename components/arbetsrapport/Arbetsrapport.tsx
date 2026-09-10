@@ -12,6 +12,8 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
 import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_RUBRIK, arFranvaroDagtyp } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
+import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
+import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
@@ -189,27 +191,10 @@ const nuKlock5 = () => {
   return `${h}:${m}`;
 };
 
-/* ── Extra-aktiviteter ── */
-type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'flytt'|'annat'|'utbildning'|'brandkontroll'|'reparation';
-const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debDefault: boolean }[] = [
-  { typ:'rotben',       label:'Kapa rotben',        icon:'content_cut',          debDefault:false },
-  { typ:'reservdelar',  label:'Hämta reservdelar',  icon:'build',                debDefault:false },
-  { typ:'service',      label:'Service',            icon:'engineering',          debDefault:false },
-  { typ:'reparation',   label:'Reparation',         icon:'handyman',             debDefault:false },
-  { typ:'utbildning',   label:'Utbildning',         icon:'school',               debDefault:false },
-  { typ:'markagare',    label:'Markägarmöte',       icon:'handshake',            debDefault:true  },
-  { typ:'flytt',        label:'Flytt av maskin',    icon:'local_shipping',       debDefault:true  },
-  { typ:'brandkontroll',label:'Brandkontroll',      icon:'local_fire_department',debDefault:false },
-  { typ:'mote',         label:'Möte',               icon:'groups',               debDefault:false },
-  { typ:'annat',        label:'Annat',              icon:'more_horiz',           debDefault:false },
-];
-/** Typer som visas i "Starta extra arbete"-vyn (morgon + kväll). */
-const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','reparation','utbildning','markagare','flytt','brandkontroll','annat'];
+/* ── Extra-aktiviteter — listan bor i lib/aktiviteter (delad med PeriodForm) ── */
 /** Visningstroskel for synk-avvikelsen: fraga foraren bara nar skillnaden i
  * arbetad tid >= detta (min). Admin ser alla oavsett. En plats. */
 const SYNK_AVVIKELSE_TROSKEL_MIN = 30;
-const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
-const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';
 const segInput: CSSProperties = { width:"100%",boxSizing:"border-box",padding:"12px 14px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:10,color:"#fff",fontSize:16,fontFamily:"inherit" };
 
 /** Sekunder mellan start_tid (HH:MM eller HH:MM:SS) och nu. Returnerar 0 om start saknas. */
@@ -613,6 +598,13 @@ export default function Arbetsrapport() {
   const [pushEnhetsNamn, setPushEnhetsNamn] = useState<string | null>(null);
   const [visaÖvrigt, setVisaÖvrigt] = useState(false);
   const [efterStoppSheet, setEfterStoppSheet] = useState<any | null>(null);
+  // PERIODFORMULÄRET (components/arbetsrapport/PeriodForm) — ett formulär, tre
+  // ingångar. 'ny' = lägg till period för ett datum (systemet avgör segment/
+  // extra_tid mot passet); 'redigera' = befintlig extra_tid-post (tider,
+  // aktivitet, objekt, faktureras, kommentar, ta bort).
+  const [periodForm, setPeriodForm] = useState<null | { lage: 'ny' | 'redigera'; datum: string; rad?: any; varden: PeriodVarden; pass: { start_tid: string | null; slut_tid: string | null } | null }>(null);
+  const [periodSparar, setPeriodSparar] = useState(false);
+  const [periodFel, setPeriodFel] = useState<string | null>(null);
   const [heldagsMeddelande, setHeldagsMeddelande] = useState<{text:string;icon?:string;typ:string}|null>(null);
   const [bekräftelseVisa, setBekräftelseVisa] = useState(false);
   const [visaTiderSheet, setVisaTiderSheet] = useState(false);
@@ -1213,13 +1205,13 @@ export default function Arbetsrapport() {
             if (opna && opna.length > 0) {
               const startSec = startTid + ':00';
               for (const o of opna) {
-                const min = minutDiff(o.start_tid, startSec);
+                const min = Math.max(0, minutDiff(o.start_tid, startSec));
                 // Bakgrundspoll — ingen alert; re-fetchen nedan visar sanningen om stängningen inte gick igenom.
-                // < 1 min = feltryck: radera i stället för att spara en 0-min-post.
-                const res = min < 1
-                  ? await raderaVerifierat(supabase, 'extra_tid', { id: o.id })
-                  : await uppdateraVerifierat(supabase, 'extra_tid', { slut_tid: startSec, minuter: min }, { id: o.id });
-                if (!res.ok) console.error('[auto-stopp] extra_tid', o.id, 'kunde inte stängas/raderas');
+                // Ingen tyst radering av korta poster (regel 2026-09-09): en post föraren
+                // inte vill ha tar hen bort själv, synligt, i periodformuläret.
+                // minuter är INTE genererad — räknas om här.
+                const res = await uppdateraVerifierat(supabase, 'extra_tid', { slut_tid: startSec, minuter: min }, { id: o.id });
+                if (!res.ok) console.error('[auto-stopp] extra_tid', o.id, 'kunde inte stängas');
               }
               setPagaendeAktiviteter([]);
               // Refresh extra_tid lista
@@ -1520,90 +1512,13 @@ export default function Arbetsrapport() {
       .order('start_tid', { ascending: true });
     setDagSegment(data || []);
   };
+  // Synk-kortets och tidigarelagd-kortets ingång till periodformuläret (samma
+  // formulär som allt annat — se oppnaPeriodNy nedan; gap:et fylls i som förslag).
   const öppnaSegForm = (opts?: { gap?: { start: string; slut: string }; typ?: AktivitetTyp; fromSynk?: boolean; fromTidigarelagd?: boolean }) => {
-    const typ = opts?.typ || 'markagare';
     const rd: any = redDag;
-    setSegFel(null); setSegÖppen(true);
-    setSegForm({
-      start: opts?.gap?.start || rd?.start_tid?.slice(0,5) || "08:00",
-      slut:  opts?.gap?.slut  || rd?.slut_tid?.slice(0,5)  || "17:00",
-      typ,
-      deb: AKTIVITETER.find(a=>a.typ===typ)?.debDefault ?? false,
-      kommentar: "",
-      fromSynk: opts?.fromSynk,
-      fromTidigarelagd: opts?.fromTidigarelagd,
-    });
-  };
-  const sparaSegment = async () => {
-    const rd: any = redDag;
-    if (!segForm || !medarbetare?.id || !rd) return;
-    const pass = { start_tid: rd.start_tid || null, slut_tid: rd.slut_tid || null };
-    // Överlapp gäller mot BÅDE segment och dagens extra_tid — extra_tid saknar
-    // DB-spärr, så koden fångar dubbeltryck (ej järngaranti; ingen constraint).
-    const dagExtra = (extraTidData || []).filter((e:any) => e.datum === rd.datum && e.slut_tid);
-    const befintliga = [
-      ...dagSegment.map((x:any) => ({ start_tid: x.start_tid, slut_tid: x.slut_tid })),
-      ...dagExtra.map((e:any) => ({ start_tid: e.start_tid, slut_tid: e.slut_tid })),
-    ];
-    const lage = klassificeraPeriod({ start: segForm.start, slut: segForm.slut }, pass);
-    if (lage === 'korsar') {
-      setSegFel(`Perioden korsar maskinpassets gräns (${(rd.start_tid||'').slice(0,5)}–${(rd.slut_tid||'').slice(0,5)}). Dela upp den i en del inom passet och en utanför.`);
-      return;
-    }
-
-    if (lage === 'inne') {
-      // REDAN inom den betalda dagen → märks som segment (adderar ingen tid).
-      const v = valideraSegment({ start: segForm.start, slut: segForm.slut }, pass, befintliga);
-      if (!v.ok) { setSegFel(v.fel); return; }
-      const { data, error } = await supabase.from('arbetsdag_segment').insert({
-        medarbetare_id: medarbetare.id, datum: rd.datum,
-        start_tid: segForm.start, slut_tid: segForm.slut,
-        aktivitet_typ: segForm.typ, debiterbar: segForm.deb,
-        kommentar: segForm.kommentar?.trim() || null,
-        kalla: (segForm.fromSynk || segForm.fromTidigarelagd) ? 'synk' : 'forare',
-      }).select().single();
-      if (error || !data) {
-        setSegFel((error as any)?.code === '23P01' ? 'Perioden överlappar en du redan märkt.' : SPARA_FEL);
-        return;
-      }
-      const nyaSegment = [...dagSegment, data].sort((x:any,y:any)=>(x.start_tid||'').localeCompare(y.start_tid||''));
-      setDagSegment(nyaSegment);
-      // Tidigarelagd-start-omriktning: kvittera gapet (segmentet ÄR kvittensen).
-      // Rör aldrig start_tid — angiven tid styr fortsatt arbetsdag/lön.
-      if (segForm.fromTidigarelagd && rd.tidigarelagd_start && !rd.tidigarelagd_start.kvitterad) {
-        const nyTL = { ...rd.tidigarelagd_start, kvitterad: new Date().toISOString(), val: 'markt_segment', aktivitet: segForm.typ, segment_id: data.id };
-        const res = await uppdateraVerifierat(supabase, 'arbetsdag', { tidigarelagd_start: nyTL }, { id: rd.id });
-        if (res.ok) setRedDag((d:any) => ({ ...d, tidigarelagd_start: nyTL }));
-      }
-      // Synk-omriktning: kvittera avvikelsen (behåll klassificeringen, INGEN
-      // extra_tid). Kvarstår ett odäckt gap → lämna okvitterad så kortet visar nästa.
-      if (segForm.fromSynk && rd.synk_avvikelse && !rd.synk_avvikelse.kvitterad) {
-        const kvarGap = harledGap(rd.synk_avvikelse).filter(g =>
-          !nyaSegment.some((x:any) => x.start_tid.slice(0,5) < g.slut && g.start < x.slut_tid.slice(0,5)));
-        if (kvarGap.length === 0) {
-          const nyAvv = { ...rd.synk_avvikelse, kvitterad: new Date().toISOString(), val: 'markt_segment', aktivitet: segForm.typ, segment_id: data.id };
-          const res = await uppdateraVerifierat(supabase, 'arbetsdag', { synk_avvikelse: nyAvv }, { id: rd.id });
-          if (res.ok) setRedDag((d:any) => ({ ...d, synk_avvikelse: nyAvv }));
-        }
-      }
-    } else {
-      // UTANFÖR den betalda dagen (eller dag utan fönster) → LÄGGS TILL som
-      // extra_tid (ger ersättning). kalla: före passet 'morgon', efter 'kvall'.
-      const v = valideraSegment({ start: segForm.start, slut: segForm.slut }, { start_tid: null, slut_tid: null }, befintliga);
-      if (!v.ok) { setSegFel(v.fel); return; }
-      const kalla = lage === 'utanfor_fore' ? 'morgon' : lage === 'utanfor_efter' ? 'kvall' : 'under_dagen';
-      const { data, error } = await supabase.from('extra_tid').insert({
-        medarbetare_id: medarbetare.id, datum: rd.datum,
-        start_tid: segForm.start + ':00', slut_tid: segForm.slut + ':00',
-        minuter: periodMin(segForm.start, segForm.slut),
-        aktivitet_typ: segForm.typ, debiterbar: segForm.deb,
-        kommentar: segForm.kommentar?.trim() || null, kalla,
-      }).select().single();
-      if (error || !data) { setSegFel(SPARA_FEL); return; }
-      setExtraTidData(d => [data, ...d]);
-    }
-    setSegForm(null); setSegFel(null);
-    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+    if (!rd?.datum) return;
+    setSegÖppen(true);
+    oppnaPeriodNy(rd.datum, { ...opts, typ: opts?.typ || 'markagare' });
   };
   const taBortSegment = async (id: string) => {
     const { error } = await supabase.from('arbetsdag_segment').delete().eq('id', id);
@@ -1770,206 +1685,187 @@ export default function Arbetsrapport() {
     </div>
   );
 
-  // Global timer-banner — visas så länge en extra tid-timer är aktiv, oavsett vy.
-  // Placeras av varje vys returnerade JSX genom `{timerBanner}`.
+  // INGEN TIMER, INGEN BANNER (beslut 2026-09-09): extra tid är två klockslag.
+  // Trycket noterar starten, "Avsluta" noterar slutet — sedan öppnas period-
+  // formuläret med båda tiderna redigerbara. En öppen post (slut_tid null) från
+  // idag visas i kort 2 på Dag; från en tidigare dag i Redigera för den dagen
+  // ("Sluttid saknas") och som väntar-rad — den kan aldrig mer bli föräldralös.
   const aktivTimer = pagaendeAktiviteter[0];
-  const stoppaAktivTimer = async () => {
-    if (!aktivTimer) return;
-    const nuT = nuKlock() + ":00";
-    const min = minutDiff(aktivTimer.start_tid, nuT);
-    // Stopp under 1 minut = feltryck, inte arbete. Radera posten i stället
-    // för att spara en 0-min-post — skräpet ska aldrig uppstå vid källan.
-    // (Martins olåsta 0-min-post kom från exakt detta: start+stopp direkt.)
-    if (min < 1) {
-      const bort = await raderaVerifierat(supabase, "extra_tid", { id: aktivTimer.id });
-      if (!bort.ok) { alert(bort.fel); return; } // timern står kvar
-      setPagaendeAktiviteter(arr => arr.filter(x => x.id !== aktivTimer.id));
-      setExtraTidData(arr => arr.filter(x => x.id !== aktivTimer.id));
-      setExtraDagData(m => {
-        const datum = aktivTimer.datum;
-        if (!datum || !m[datum]) return m;
-        return { ...m, [datum]: m[datum].filter((x: any) => x.id !== aktivTimer.id) };
-      });
-      return; // ingen sheet — det fanns inget arbete att beskriva
-    }
-    const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuT, minuter: min }, { id: aktivTimer.id }, "*");
-    if (!res.ok) { alert(res.fel); return; } // timern står kvar — inget låtsas-stopp
-    const uppdaterad = res.rows[0];
-    setPagaendeAktiviteter(arr => arr.filter(x => x.id !== aktivTimer.id));
-    setExtraTidData(arr => arr.map(x => x.id === aktivTimer.id ? uppdaterad : x));
-    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
-    setKvAvTyp(uppdaterad.aktivitet_typ || null);
-    setKvAvObj(uppdaterad.objekt_id ? objektLista.find(o => o.id === uppdaterad.objekt_id) || null : null);
-    setKvAvDeb(!!uppdaterad.debiterbar);
-    setKvAvBesk(uppdaterad.kommentar || "");
-    setEfterStoppSheet(uppdaterad);
+  const timerBanner: ReactNode = null;
+
+  const periodVardenFran = (rad: any): PeriodVarden => ({
+    start: (rad?.start_tid || '').slice(0, 5),
+    slut: (rad?.slut_tid || '').slice(0, 5),
+    typ: (rad?.aktivitet_typ as AktivitetTyp) || 'annat',
+    deb: !!rad?.debiterbar,
+    kommentar: rad?.kommentar || '',
+    objektId: rad?.objekt_id || null,
+  });
+  const passFor = (datum: string) => {
+    const d: any = dagData[datum];
+    return d ? { start_tid: d.start_tid || null, slut_tid: d.slut_tid || null } : null;
   };
-  const timerBanner = aktivTimer ? (
-    <div style={{
-      position:"fixed", top:64, left:0, right:0, height:44,
-      background:"rgba(30,10,10,0.92)",
-      borderBottom:"1px solid rgba(255,69,58,0.4)",
-      backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)",
-      zIndex:900, display:"flex", alignItems:"center",
-      padding:"0 14px", gap:10,
-      fontFamily:"'Inter',-apple-system,sans-serif",
-    }}>
-      <div style={{ width:8,height:8,borderRadius:"50%",background:"#ff453a",animation:"pulseDot 2s infinite",flexShrink:0 }} />
-      <span style={{ fontSize:13,fontWeight:600,color:"#fff",flexShrink:0 }}>
-        Tidlogg pågår {(aktivTimer.start_tid||'').slice(0,5)}
-      </span>
-      <span style={{ ...TYPE.bodyList,color:"#fff",fontVariantNumeric:"tabular-nums",marginLeft:"auto",marginRight:8,flexShrink:0 }}>
-        {fmtHMS(sekDiff(aktivTimer.start_tid))}
-      </span>
-      <button onClick={stoppaAktivTimer}
-        style={{ background:"#ff453a",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0 }}>
-        Stoppa
-      </button>
-    </div>
+  /** Öppna en befintlig extra_tid-post för redigering (tider, aktivitet, objekt, faktureras, ta bort). */
+  const oppnaPeriodRedigera = (rad: any) => {
+    setPeriodFel(null);
+    setPeriodForm({ lage: 'redigera', datum: rad.datum, rad, varden: periodVardenFran(rad), pass: passFor(rad.datum) });
+  };
+  /** Öppna ett tomt formulär för ett datum (lägg till i efterhand / Redigera "Lägg till period"). */
+  const oppnaPeriodNy = (datum: string, opts?: { gap?: { start: string; slut: string }; typ?: AktivitetTyp; fromSynk?: boolean; fromTidigarelagd?: boolean }) => {
+    const typ = opts?.typ || 'annat';
+    setPeriodFel(null);
+    setSegForm(opts?.fromSynk || opts?.fromTidigarelagd ? { start: '', slut: '', typ, deb: false, kommentar: '', fromSynk: opts?.fromSynk, fromTidigarelagd: opts?.fromTidigarelagd } : null);
+    setPeriodForm({
+      lage: 'ny', datum, pass: passFor(datum),
+      varden: { start: opts?.gap?.start || '', slut: opts?.gap?.slut || '', typ, deb: AKTIVITETER.find(a => a.typ === typ)?.debDefault ?? false, kommentar: '', objektId: null },
+    });
+  };
+  /** "Avsluta" på Dag: sluttiden noteras (ingen tyst radering av korta poster), sedan formuläret. */
+  const avslutaExtra = async (rad: any) => {
+    const nuT = nuKlock() + ":00";
+    const min = Math.max(0, minutDiff(rad.start_tid, nuT));
+    // minuter är INTE genererad — räknas om vid varje tidsändring.
+    const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuT, minuter: min }, { id: rad.id }, "*");
+    if (!res.ok) { setBekraftaFel(res.fel); return; }
+    setBekraftaFel(null);
+    const uppdaterad = res.rows[0];
+    setPagaendeAktiviteter(arr => arr.filter(x => x.id !== rad.id));
+    setExtraTidData(arr => arr.map(x => x.id === rad.id ? uppdaterad : x));
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+    oppnaPeriodRedigera(uppdaterad);
+  };
+  const stangPeriodForm = () => { setPeriodForm(null); setPeriodFel(null); setSegForm(null); };
+  const speglaExtra = (rad: any) => {
+    const byt = (x: any) => x.id === rad.id ? rad : x;
+    setExtraTidData(d => d.some(x => x.id === rad.id) ? d.map(byt) : [rad, ...d]);
+    setExtraDagData(m => {
+      const datum = rad.datum;
+      if (!datum) return m;
+      const lista = m[datum] || [];
+      return { ...m, [datum]: lista.some((x: any) => x.id === rad.id) ? lista.map(byt) : [rad, ...lista] };
+    });
+    if (!rad.slut_tid) setPagaendeAktiviteter(arr => arr.some(x => x.id === rad.id) ? arr : [...arr, rad]);
+    else setPagaendeAktiviteter(arr => arr.filter(x => x.id !== rad.id));
+  };
+  const sparaPeriod = async () => {
+    if (!periodForm || !medarbetare?.id) return;
+    const v = periodForm.varden;
+    const min = periodMin(v.start, v.slut);
+    if (!v.start || !v.slut || min <= 0) { setPeriodFel('Sluttiden måste vara efter starttiden.'); return; }
+    setPeriodSparar(true);
+    try {
+      if (periodForm.lage === 'redigera') {
+        // Befintlig extra_tid-post: förblir extra_tid. minuter räknas om — INTE genererad.
+        const payload = {
+          start_tid: v.start + ':00', slut_tid: v.slut + ':00', minuter: min,
+          aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb, kommentar: v.kommentar.trim() || null,
+        };
+        const res = await uppdateraVerifierat(supabase, "extra_tid", payload, { id: periodForm.rad.id }, "*");
+        if (!res.ok) { setPeriodFel(res.fel); return; }
+        speglaExtra(res.rows[0] || { ...periodForm.rad, ...payload });
+        stangPeriodForm();
+        return;
+      }
+      // NY period: systemet avgör mot passet — inne = segment (redan betald,
+      // märks bara), utanför = extra_tid (läggs till). Samma regel som förr.
+      const rd: any = dagData[periodForm.datum] || null;
+      const pass = periodForm.pass || { start_tid: null, slut_tid: null };
+      const dagExtra = (extraTidData || []).filter((e: any) => e.datum === periodForm.datum && e.slut_tid);
+      const befintliga = [
+        ...(periodForm.datum === (redDag as any)?.datum ? dagSegment : []).map((x: any) => ({ start_tid: x.start_tid, slut_tid: x.slut_tid })),
+        ...dagExtra.map((e: any) => ({ start_tid: e.start_tid, slut_tid: e.slut_tid })),
+      ];
+      const lage = klassificeraPeriod({ start: v.start, slut: v.slut }, pass);
+      if (lage === 'korsar') { setPeriodFel(`Perioden korsar maskinpassets gräns (${(pass.start_tid || '').slice(0, 5)}–${(pass.slut_tid || '').slice(0, 5)}). Dela upp den.`); return; }
+      if (lage === 'inne') {
+        const val = valideraSegment({ start: v.start, slut: v.slut }, pass, befintliga);
+        if (!val.ok) { setPeriodFel(val.fel); return; }
+        const { data, error } = await supabase.from('arbetsdag_segment').insert({
+          medarbetare_id: medarbetare.id, datum: periodForm.datum,
+          start_tid: v.start, slut_tid: v.slut,
+          aktivitet_typ: v.typ, debiterbar: v.deb,
+          kommentar: v.kommentar.trim() || null,
+          kalla: (segForm?.fromSynk || segForm?.fromTidigarelagd) ? 'synk' : 'forare',
+        }).select().single();
+        if (error || !data) { setPeriodFel((error as any)?.code === '23P01' ? 'Perioden överlappar en du redan märkt.' : SPARA_FEL); return; }
+        const nyaSegment = [...dagSegment, data].sort((x: any, y: any) => (x.start_tid || '').localeCompare(y.start_tid || ''));
+        setDagSegment(nyaSegment);
+        // Tidigarelagd-start: segmentet ÄR kvittensen. Rör aldrig start_tid.
+        if (segForm?.fromTidigarelagd && rd?.tidigarelagd_start && !rd.tidigarelagd_start.kvitterad) {
+          const nyTL = { ...rd.tidigarelagd_start, kvitterad: new Date().toISOString(), val: 'markt_segment', aktivitet: v.typ, segment_id: data.id };
+          const res = await uppdateraVerifierat(supabase, 'arbetsdag', { tidigarelagd_start: nyTL }, { id: rd.id });
+          if (res.ok) setRedDag((d: any) => ({ ...d, tidigarelagd_start: nyTL }));
+        }
+        // Synk-omriktning: kvittera avvikelsen när inget odäckt gap återstår.
+        if (segForm?.fromSynk && rd?.synk_avvikelse && !rd.synk_avvikelse.kvitterad) {
+          const kvarGap = harledGap(rd.synk_avvikelse).filter(g =>
+            !nyaSegment.some((x: any) => x.start_tid.slice(0, 5) < g.slut && g.start < x.slut_tid.slice(0, 5)));
+          if (kvarGap.length === 0) {
+            const nyAvv = { ...rd.synk_avvikelse, kvitterad: new Date().toISOString(), val: 'markt_segment', aktivitet: v.typ, segment_id: data.id };
+            const res = await uppdateraVerifierat(supabase, 'arbetsdag', { synk_avvikelse: nyAvv }, { id: rd.id });
+            if (res.ok) setRedDag((d: any) => ({ ...d, synk_avvikelse: nyAvv }));
+          }
+        }
+      } else {
+        const val = valideraSegment({ start: v.start, slut: v.slut }, { start_tid: null, slut_tid: null }, befintliga);
+        if (!val.ok) { setPeriodFel(val.fel); return; }
+        const kalla = lage === 'utanfor_fore' ? 'morgon' : lage === 'utanfor_efter' ? 'kvall' : 'under_dagen';
+        const { data, error } = await supabase.from('extra_tid').insert({
+          medarbetare_id: medarbetare.id, datum: periodForm.datum,
+          start_tid: v.start + ':00', slut_tid: v.slut + ':00',
+          minuter: min, // INTE genererad
+          aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb,
+          kommentar: v.kommentar.trim() || null, kalla,
+        }).select().single();
+        if (error || !data) { setPeriodFel(SPARA_FEL); return; }
+        speglaExtra(data);
+      }
+      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+      stangPeriodForm();
+    } finally {
+      setPeriodSparar(false);
+    }
+  };
+  // Ta bort — VERIFIERAT (0 träffade rader = ärligt fel, aldrig tyst "borttaget").
+  const taBortPeriod = async () => {
+    if (!periodForm?.rad) return;
+    const id = periodForm.rad.id;
+    const res = await raderaVerifierat(supabase, "extra_tid", { id });
+    if (!res.ok) { setPeriodFel(res.fel); return; }
+    setExtraTidData(d => d.filter(x => x.id !== id));
+    setExtraDagData(m => {
+      const datum = periodForm.rad.datum;
+      if (!datum || !m[datum]) return m;
+      return { ...m, [datum]: m[datum].filter((x: any) => x.id !== id) };
+    });
+    setPagaendeAktiviteter(arr => arr.filter(x => x.id !== id));
+    stangPeriodForm();
+  };
+  const periodDatumText = (datum: string) => {
+    const d = new Date(datum + 'T00:00:00');
+    return `${["söndag","måndag","tisdag","onsdag","torsdag","fredag","lördag"][d.getDay()]} ${d.getDate()} ${["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][d.getMonth()]}`;
+  };
+
+  // DELAD UI (renderas i både Dag-vyn och Redigera): periodformuläret.
+  const efterStoppUI = periodForm ? (
+    <PeriodForm
+      rubrik={periodForm.lage === 'ny' ? 'Lägg till period' : 'Extra arbete'}
+      datumText={periodDatumText(periodForm.datum)}
+      varden={periodForm.varden}
+      onAndra={v => setPeriodForm(f => f ? { ...f, varden: v } : f)}
+      pass={periodForm.pass}
+      klassificera={periodForm.lage === 'ny'}
+      fel={periodFel}
+      sparar={periodSparar}
+      onSpara={sparaPeriod}
+      onTaBort={periodForm.lage === 'redigera' ? taBortPeriod : undefined}
+      onAvbryt={stangPeriodForm}
+      objektNamn={periodForm.varden.objektId ? (objektLista.find(o => o.id === periodForm.varden.objektId)?.namn || periodForm.varden.objektId) : null}
+      renderObjektValjare={(valtId, onValj) => (
+        <ObjektValjarLista objekt={objektLista} valtId={valtId} onVälj={o => onValj(o ? o.id : null)} tillåtInget />
+      )}
+    />
   ) : null;
-
-  // "Vad gjorde du?"-sheeten + dess objektväljare — DELAD UI (som timerBanner)
-  // som renderas i BÅDE Dag-vyn (morgon) och kalender-dagvyn (redigera).
-  // Låg tidigare bara i morgon-returnen: kalender-dagvyns rader satte state
-  // men ingen sheet fanns i det trädet => redigering i efterhand var död.
-  const efterStoppUI = (<>
-    {/* Objekt-väljare för efter-stopp-sheet (stackat ovanpå) */}
-    {efterStoppSheet && kvAvVäljer && (
-      <div onClick={()=>setKvAvVäljer(false)}
-        style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1700,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-        <div onClick={e=>e.stopPropagation()}
-          style={{ width:"100%",maxWidth:560,background:"#0d0d0f",borderRadius:"12px 12px 0 0",padding:"10px 0 20px",maxHeight:"85vh",display:"flex",flexDirection:"column",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
-          <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
-            <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
-          </div>
-          <div style={{ padding:"0 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-            <p style={{ margin:0,...TYPE.h2,color:"#fff" }}>Välj objekt</p>
-            <button onClick={()=>setKvAvVäljer(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Avbryt</button>
-          </div>
-          <div style={{ flex:1,overflowY:"auto" }}>
-            {objektLista.length === 0 ? (
-              <p style={{ margin:"32px 20px",textAlign:"center",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>Inga objekt tillgängliga</p>
-            ) : (
-              <ObjektValjarLista
-                objekt={objektLista}
-                valtId={kvAvObj?.id ?? null}
-                onVälj={o => { setKvAvObj(o); setKvAvVäljer(false); }}
-                tillåtInget
-              />
-            )}
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* Bottom sheet: Vad gjorde du? (efter timerstopp ELLER klick på befintlig post) */}
-    {efterStoppSheet && (()=>{
-      const typer = EXTRA_ARBETE_TYPER.map(t => AKTIVITETER.find(x => x.typ === t)!);
-      const tidLabel = `${(efterStoppSheet.start_tid||'').slice(0,5)} – ${(efterStoppSheet.slut_tid||'').slice(0,5)} · ${fmt(efterStoppSheet.minuter || 0)}`;
-      const stäng = () => {
-        setEfterStoppSheet(null);
-        setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); setKvAvBesk("");
-      };
-      const sparaDetaljer = async () => {
-        const res = await uppdateraVerifierat(supabase, "extra_tid", {
-          aktivitet_typ: kvAvTyp || null,
-          objekt_id: kvAvObj?.id || null,
-          debiterbar: kvAvDeb,
-          kommentar: kvAvBesk || null,
-        }, { id: efterStoppSheet.id });
-        if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar så föraren kan försöka igen
-        const uppdaterad = (x: any) => x.id === efterStoppSheet.id
-          ? { ...x, aktivitet_typ: kvAvTyp || null, objekt_id: kvAvObj?.id || null, debiterbar: kvAvDeb, kommentar: kvAvBesk || null }
-          : x;
-        setExtraTidData(d => d.map(uppdaterad));
-        // Kalenderns/tidslinjens per-dag-cache måste också med — annars visar
-        // tidslinjen gamla värden tills månaden hämtas om
-        setExtraDagData(m => {
-          const datum = efterStoppSheet.datum;
-          if (!datum || !m[datum]) return m;
-          return { ...m, [datum]: m[datum].map(uppdaterad) };
-        });
-        stäng();
-      };
-      // Radera posten — VERIFIERAT (0 träffade rader = ärligt fel, aldrig
-      // tyst "borttaget"; RLS kan blockera lika tyst som update-buggen #162)
-      const taBortPost = async () => {
-        if (!window.confirm("Ta bort den här posten?")) return;
-        const res = await raderaVerifierat(supabase, "extra_tid", { id: efterStoppSheet.id });
-        if (!res.ok) { alert(res.fel); return; } // sheet:en står kvar
-        setExtraTidData(d => d.filter(x => x.id !== efterStoppSheet.id));
-        setExtraDagData(m => {
-          const datum = efterStoppSheet.datum;
-          if (!datum || !m[datum]) return m;
-          return { ...m, [datum]: m[datum].filter((x: any) => x.id !== efterStoppSheet.id) };
-        });
-        setPagaendeAktiviteter(arr => arr.filter(x => x.id !== efterStoppSheet.id));
-        stäng();
-      };
-      return (
-        <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1600,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-          <div onClick={e=>e.stopPropagation()}
-            style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"12px 12px 0 0",padding:"10px 20px 28px",maxHeight:"90vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
-            <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
-              <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
-            </div>
-            <p style={{ margin:"0 0 4px",...TYPE.h2,color:"#fff" }}>Vad gjorde du?</p>
-            <p style={{ margin:"0 0 16px",...TYPE.meta,color:"rgba(255,255,255,0.5)" }}>{tidLabel}</p>
-
-            <p style={{ margin:"0 0 8px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Aktivitet</p>
-            {typer.map(t=>(
-              <div key={t.typ} onClick={()=>setKvAvTyp(t.typ)}
-                style={{ background:kvAvTyp===t.typ?"rgba(10,132,255,0.15)":"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.typ?"1px solid rgba(10,132,255,0.35)":"1px solid rgba(255,255,255,0.06)" }}>
-                <span style={{ ...TYPE.bodyList,color:"#fff" }}>{t.label}</span>
-                {kvAvTyp===t.typ
-                  ? <div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-                  : <div style={{ width:20,height:20,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.18)" }}/>
-                }
-              </div>
-            ))}
-
-            <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:12,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:"1px solid rgba(255,255,255,0.06)" }}>
-              <div>
-                <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Objekt</p>
-                <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?"#0a84ff":"rgba(255,255,255,0.5)" }}>{kvAvObj?kvAvObj.namn:"Välj objekt (valfritt)"}</p>
-              </div>
-              <ChevronRight/>
-            </div>
-
-            <div style={{ marginTop:6,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
-              <div>
-                <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Debiterbar</p>
-                <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Faktureras kunden</p>
-              </div>
-              <div onClick={()=>setKvAvDeb(v=>!v)}
-                style={{ width:51,height:31,borderRadius:999,background:kvAvDeb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
-                <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s" }}/>
-              </div>
-            </div>
-
-            <div style={{ marginTop:12 }}>
-              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Kommentar (valfritt)</p>
-              <input value={kvAvBesk} onChange={e=>setKvAvBesk(e.target.value)} placeholder="Eller hoppa över"
-                style={{ width:"100%",padding:"13px 14px",fontSize:15,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.04)",color:"#fff",fontFamily:"inherit",boxSizing:"border-box" }}/>
-            </div>
-
-            <button onClick={sparaDetaljer}
-              style={{ width:"100%",marginTop:20,padding:"18px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
-              Spara
-            </button>
-            <button onClick={taBortPost}
-              style={{ width:"100%",marginTop:8,padding:"14px",background:"rgba(255,69,58,0.12)",color:"#ff453a",border:"1px solid rgba(255,69,58,0.3)",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-              Ta bort
-            </button>
-            <button onClick={stäng}
-              style={{ width:"100%",marginTop:8,padding:"12px",background:"none",color:"rgba(255,255,255,0.6)",border:"none",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
-              Hoppa över
-            </button>
-          </div>
-        </div>
-      );
-    })()}
-  </>);
 
   /* ─── ORSAK TILL VILOBROTT ─── */
   if(steg==="vilobrottOrsak") {
@@ -2087,7 +1983,6 @@ export default function Arbetsrapport() {
      Inga literaler här — allt ur tokens. */
   if(steg==="morgon"||steg==="dag"||steg==="meny") {
     const DAG_HUVUD = 64;   // fast rubrikrad överst (layoutmått, inte typ/avstånd)
-    const BANNER    = 44;   // timer-bannern under rubrikraden (se timerBanner)
     const idagArb: any = dagData[idagKey];
     const extraFärdiga = (extraTidData || []).filter((e: any) => e.datum === idagKey && e.slut_tid);
     const harMaskinPass = !!idagArb?.slut_tid;
@@ -2385,13 +2280,7 @@ export default function Arbetsrapport() {
                     const tidStr = `${(e.start_tid||'').slice(0,5)}–${(e.slut_tid||'').slice(0,5)}`;
                     const värde = `${typLabel?typLabel+' ':''}${tidStr} (${fmt(e.minuter||0)})`;
                     return (
-                      <div key={e.id} onClick={()=>{
-                        setKvAvTyp(e.aktivitet_typ || null);
-                        setKvAvObj(e.objekt_id ? objektLista.find(o => o.id === e.objekt_id) || null : null);
-                        setKvAvDeb(!!e.debiterbar);
-                        setKvAvBesk(e.kommentar || "");
-                        setEfterStoppSheet(e);
-                      }} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
+                      <div key={e.id} onClick={()=>oppnaPeriodRedigera(e)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
                         <span style={{ ...TYP.meta, color:FARG.text2, flexShrink:0 }}>{prefixFör(e)}</span>
                         <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, minWidth:0 }}>
                           <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{värde}</span>
@@ -2491,11 +2380,10 @@ export default function Arbetsrapport() {
                 // Går stängningen inte igenom avbryts bekräftelsen — annars
                 // bekräftas dagen med en timer som fortfarande är öppen i DB.
                 for (const p of pagaendeAktiviteter) {
-                  const min = minutDiff(p.start_tid, nuTS);
-                  // < 1 min = feltryck: radera i stället för att spara 0-min-post
-                  const res = min < 1
-                    ? await raderaVerifierat(supabase, "extra_tid", { id: p.id })
-                    : await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
+                  const min = Math.max(0, minutDiff(p.start_tid, nuTS));
+                  // Ingen tyst radering av korta poster — föraren tar bort själv i
+                  // periodformuläret. minuter är INTE genererad — räknas om här.
+                  const res = await uppdateraVerifierat(supabase, "extra_tid", { slut_tid: nuTS, minuter: min }, { id: p.id });
                   if (!res.ok) { setBekraftaFel(res.fel); return; } // felet visas under knappen
                 }
                 if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
@@ -2596,6 +2484,13 @@ export default function Arbetsrapport() {
         text: brandriskObesvarade.length === 1 ? '1 brandriskfråga obesvarad' : `${brandriskObesvarade.length} brandriskfrågor obesvarade`,
         onClick:()=>setSteg('lön') });
     }
+    // Extra arbete från en tidigare dag utan sluttid — leder till Redigera för
+    // den dagen där posten kan fyllas i eller tas bort. Aldrig mer föräldralös.
+    for (const e of (extraTidData || []).filter((x: any) => x.start_tid && !x.slut_tid && x.datum && x.datum < idagKey && x.datum >= fran30)) {
+      vantarRader.push({ nyckel:`extra-oppen-${e.id}`, farg:FARG.orange,
+        text:`Extra arbete utan sluttid · ${fmtDatumKort(e.datum)}`,
+        onClick:()=>öppnaRedigera(e.datum) });
+    }
 
     /* Kort med rubrik + underrad + pil (kort 2 och 3). */
     const kortKnapp = (rubrik: string, under: string, onClick: () => void, oppen?: boolean) => (
@@ -2618,7 +2513,7 @@ export default function Arbetsrapport() {
         <span style={{ ...TYP.listtitel, color:FARG.text }}>Dag</span>
       </header>
 
-      <main style={{ paddingTop:(aktivTimer ? DAG_HUVUD + BANNER : DAG_HUVUD) + AVSTAND.xxl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
+      <main style={{ paddingTop:DAG_HUVUD + AVSTAND.xxl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
 
         {/* VAD SOM VÄNTAR — ovanför hälsningen, bara när något finns. */}
         {vantarRader.length > 0 && (
@@ -2654,8 +2549,25 @@ export default function Arbetsrapport() {
           {sammanfattningKort}
         </Tillstand>
 
-        {/* KORT 2 — Extra arbete. Startar timern direkt (samma flöde som förr). */}
-        {!idagArb?.bekraftad && pagaendeAktiviteter.length===0 && (
+        {/* KORT 2 — Extra arbete. Två klockslag, ingen timer: trycket noterar
+            starten, "Avsluta" noterar slutet och öppnar periodformuläret där
+            båda tiderna kan rättas och posten tas bort. "Lägg till i efterhand"
+            öppnar samma formulär tomt. */}
+        {!idagArb?.bekraftad && (aktivTimer ? (
+          <section style={{ ...KORT, marginTop:AVSTAND.m }}>
+            <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>Extra arbete</p>
+            <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>
+              {aktLabel(aktivTimer.aktivitet_typ)} · sedan {(aktivTimer.start_tid||'').slice(0,5)}
+            </p>
+            <button onClick={()=>avslutaExtra(aktivTimer)} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.m }}>
+              <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>stop_circle</span>
+              Avsluta
+            </button>
+            <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.xs }}>
+              <button onClick={()=>oppnaPeriodRedigera(aktivTimer)} style={KNAPP.tertiar}>Ändra starttid eller ta bort</button>
+            </div>
+          </section>
+        ) : (
           <div style={{ marginTop:AVSTAND.m }}>
             {kortKnapp('Extra arbete', 'Reservdelar, service, brandkontroll', async ()=>{
               const startTid = nuKlock();
@@ -2673,8 +2585,14 @@ export default function Arbetsrapport() {
               setExtraTidData(d => [data, ...d]);
               if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
             })}
+            <div style={{ display:"flex", justifyContent:"center" }}>
+              <button onClick={()=>oppnaPeriodNy(idagKey)} style={KNAPP.tertiar}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>schedule</span>
+                Lägg till i efterhand
+              </button>
+            </div>
           </div>
-        )}
+        ))}
 
         {/* KORT 3 — Frånvaro. Underraden visar vad som finns utan att trycka;
             tryck fäller ut valen (lib/franvaro äger listan). sjuk/vab/
@@ -5021,7 +4939,12 @@ export default function Arbetsrapport() {
           const extraTidForDag = (extraTidData || [])
             .filter((e:any) => e.datum === redDag.datum && e.slut_tid)
             .sort((a:any,b:any) => (a.start_tid||'').localeCompare(b.start_tid||''));
-          const harExtra = extraTidForDag.length > 0;
+          // Öppna poster (slut_tid saknas) för den här dagen — syns som "Sluttid
+          // saknas" i periodlistan så de kan rättas eller tas bort. Det var så de
+          // tre föräldralösa null-raderna uppstod: aldrig synliga någonstans.
+          const extraOppnaForDag = (extraTidData || [])
+            .filter((e:any) => e.datum === (redDag as any).datum && e.start_tid && !e.slut_tid);
+          const harExtra = extraTidForDag.length > 0 || extraOppnaForDag.length > 0;
           const prefixFörExtra = (e: any): string => {
             const arbSt = redDag?.start_tid;
             const arbEn = redDag?.slut_tid;
@@ -5285,6 +5208,7 @@ export default function Arbetsrapport() {
             const perioder: any[] = [
               ...dagSegment.map((sg:any) => ({ kind:'segment', id:sg.id, start:(sg.start_tid||'').slice(0,5), slut:(sg.slut_tid||'').slice(0,5), typ:sg.aktivitet_typ, deb:sg.debiterbar, kommentar:sg.kommentar, kalla:sg.kalla })),
               ...extraTidForDag.map((e:any) => ({ kind:'extra', id:e.id, start:(e.start_tid||'').slice(0,5), slut:(e.slut_tid||'').slice(0,5), typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:e.minuter||0, raw:e })),
+              ...extraOppnaForDag.map((e:any) => ({ kind:'extra', oppen:true, id:e.id, start:(e.start_tid||'').slice(0,5), slut:'', typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:0, raw:e })),
             ].sort((a,b)=>a.start.localeCompare(b.start));
             const antal = perioder.length;
             const öppen = segÖppen || antal > 0;
@@ -5303,20 +5227,14 @@ export default function Arbetsrapport() {
 
                 {öppen && perioder.map((p:any, i:number) => (
                   <div key={p.kind+p.id}
-                    onClick={p.kind==='extra' ? () => {
-                      setKvAvTyp(p.raw.aktivitet_typ || null);
-                      setKvAvObj(p.raw.objekt_id ? objektLista.find(o => o.id === p.raw.objekt_id) || null : null);
-                      setKvAvDeb(!!p.raw.debiterbar);
-                      setKvAvBesk(p.raw.kommentar || "");
-                      setEfterStoppSheet(p.raw);
-                    } : undefined}
+                    onClick={p.kind==='extra' ? () => oppnaPeriodRedigera(p.raw) : undefined}
                     style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom: (i<antal-1||!!segForm) ? `1px solid ${C.line}` : "none",gap:10,cursor: p.kind==='extra'?"pointer":"default" }}>
                     <div style={{ minWidth:0 }}>
                       <span style={{ fontSize:15,color:"#fff" }}>{aktLabel(p.typ)}</span>
                       {p.kind==='extra' && <span style={{ marginLeft:8,fontSize:12,fontWeight:600,color:"#30d158",...TNUM }}>+{fmt(p.minuter)}</span>}
                       {p.deb && <span style={{ marginLeft:8,fontSize:12,color:"#30d158" }}>faktureras</span>}
                       {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:8,fontSize:12,color:"#8e8e93" }}>via maskinavvikelse</span>}
-                      <div style={{ fontSize:13,color:"#8e8e93",...TNUM }}>{p.start}–{p.slut}{p.kind==='extra' ? ' · läggs till' : ''}{p.kommentar?` · ${p.kommentar}`:''}</div>
+                      <div style={{ ...TYP.meta, color: p.oppen ? FARG.orange : FARG.text2, ...TNUM }}>{p.oppen ? `${p.start} – sluttid saknas · fyll i eller ta bort` : `${p.start}–${p.slut}${p.kind==='extra' ? ' · läggs till' : ''}`}{p.kommentar?` · ${p.kommentar}`:''}</div>
                     </div>
                     {p.kind==='segment'
                       ? <button onClick={()=>taBortSegment(p.id)} style={{ background:"none",border:"none",color:"#8e8e93",cursor:"pointer",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",flexShrink:0 }}>
@@ -5326,54 +5244,14 @@ export default function Arbetsrapport() {
                   </div>
                 ))}
 
-                {öppen && (segForm ? (
-                  <div style={{ padding:"14px 0 16px" }}>
-                    <div style={{ display:"flex",gap:10,marginBottom:8 }}>
-                      <label style={{ flex:1 }}>
-                        <span style={{ display:"block",fontSize:12,color:"#8e8e93",marginBottom:4 }}>Från</span>
-                        <input type="time" step={300} value={segForm.start} onChange={e=>setSegForm(f=>f?{...f,start:e.target.value}:f)} style={segInput} />
-                      </label>
-                      <label style={{ flex:1 }}>
-                        <span style={{ display:"block",fontSize:12,color:"#8e8e93",marginBottom:4 }}>Till</span>
-                        <input type="time" step={300} value={segForm.slut} onChange={e=>setSegForm(f=>f?{...f,slut:e.target.value}:f)} style={segInput} />
-                      </label>
-                    </div>
-                    {/* Live-läge: säg vad som händer, utan jargong om tabeller. */}
-                    {formLage==='korsar' ? (
-                      <p style={{ margin:"0 0 12px",fontSize:13,color:"#ff9f0a" }}>Perioden korsar maskinpassets slut ({(pass.slut_tid||'').slice(0,5)}) — dela upp i en inom och en efter.</p>
-                    ) : (formMin>0 && (formLage==='utanfor_fore'||formLage==='utanfor_efter'||formLage==='ingen_pass')) ? (
-                      <p style={{ margin:"0 0 12px",fontSize:13,fontWeight:600,color:"#30d158" }}>Läggs till dagen · +{fmt(formMin)}</p>
-                    ) : formLage==='inne' ? (
-                      <p style={{ margin:"0 0 12px",fontSize:13,color:"#8e8e93" }}>Redan i dagen — märks bara</p>
-                    ) : <div style={{ height:4 }} />}
-                    <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:12 }}>
-                      {EXTRA_ARBETE_TYPER.map(t => {
-                        const akt = AKTIVITETER.find(x=>x.typ===t)!;
-                        const vald = segForm!.typ === t;
-                        return (
-                          <button key={t} onClick={()=>setSegForm(f=>f?{...f,typ:t,deb:akt.debDefault}:f)}
-                            style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 12px",minHeight:44,background: vald?"rgba(255,159,10,0.18)":"rgba(255,255,255,0.06)",border: vald?"1px solid rgba(255,159,10,0.5)":"1px solid transparent",borderRadius:10,color:"#fff",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>
-                            <span className="material-symbols-outlined" style={{ fontSize:18 }}>{akt.icon}</span>{akt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div onClick={()=>setSegForm(f=>f?{...f,deb:!f.deb}:f)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",minHeight:44,cursor:"pointer" }}>
-                      <span style={{ fontSize:15,color:"#fff" }}>Ska faktureras</span>
-                      <span className="material-symbols-outlined" style={{ fontSize:26,color: segForm.deb?"#30d158":"#48484a" }}>{segForm.deb?"toggle_on":"toggle_off"}</span>
-                    </div>
-                    <input value={segForm.kommentar} onChange={e=>setSegForm(f=>f?{...f,kommentar:e.target.value}:f)} placeholder="Kommentar (valfritt)" style={{ ...segInput,marginTop:8 }} />
-                    {segFel && <p style={{ margin:"10px 0 0",fontSize:13,color:"#ff453a" }}>{segFel}</p>}
-                    <div style={{ display:"flex",gap:10,marginTop:14 }}>
-                      <button onClick={()=>{ setSegForm(null); setSegFel(null); }} style={{ ...btn.secondary,flex:1,marginTop:0 }}>Avbryt</button>
-                      <button onClick={sparaSegment} disabled={formLage==='korsar'||formMin<=0} style={{ flex:1,padding:"14px",background: (formLage==='korsar'||formMin<=0)?"rgba(255,159,10,0.35)":C.orange,color:"#fff",border:"none",borderRadius:12,fontSize:16,fontWeight:700,cursor:(formLage==='korsar'||formMin<=0)?"default":"pointer",fontFamily:"inherit" }}>Spara period</button>
-                    </div>
-                  </div>
-                ) : (
-                  <button onClick={()=>öppnaSegForm()} style={{ display:"flex",alignItems:"center",gap:8,width:"100%",padding:"14px 0",minHeight:44,background:"none",border:"none",color:C.orange,fontSize:15,cursor:"pointer",fontFamily:"inherit" }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:20 }}>add</span>Lägg till period
+                {/* "Lägg till period" öppnar PERIODFORMULÄRET — samma formulär som
+                    Dag-vyns Extra arbete och "Lägg till i efterhand". Det inbäddade
+                    segmentformuläret är borta: ett formulär, tre ingångar. */}
+                {öppen && (
+                  <button onClick={()=>oppnaPeriodNy((redDag as any).datum)} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"flex-start" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>Lägg till period
                   </button>
-                ))}
+                )}
               </Card>
             </div>
             );
