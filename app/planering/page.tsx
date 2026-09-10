@@ -85,6 +85,9 @@ function ritaPilIkon(farg: string, px = 80): HTMLCanvasElement {
 // körriktningen. Styr körvyns symbol-tändning, nästa-hinder-panelen ("inom fällningsradie")
 // och den framtonande radie-ringen.
 const FALLNINGSRADIE_M = 40;
+// Proximitetskortet växer när symbolen är inom sin kategori-radie, och krymper först vid radie+HYST.
+// Hysteresen gör att GPS-brus vid gränsen inte får kortet att flimra stort/litet (mikroskak).
+const KORVY_CARD_HYST_M = 10;
 
 // FAROTYPER i körvyn — DELAD källa för både etikett-lagret (markers-korvy-label) och det förstärkta
 // faro-larmet (blink + pip). En symbol av dessa typer larmar automatiskt (OPTION A: ingen kryssruta).
@@ -3160,8 +3163,11 @@ export default function PlannerPage() {
   // Nästa-kö (3 närmaste framåt) + akut varning
   type NextItem = { id: string; type: string; comment?: string; dist: number; color: string; bearing: number };
   const [korvyNextItems, setKorvyNextItems] = useState<NextItem[]>([]);
-  type AcuteWarning = { id: string; type: string; namn: string; comment?: string; dist: number; color: string; photoData?: string; audioData?: string; isFara: boolean; hash: string };
-  const [korvyAcuteWarning, setKorvyAcuteWarning] = useState<AcuteWarning | null>(null);
+  // ETT proximitetskort (växer på plats): närmaste OKVITTERADE symbol. `big` = inom kategori-radien
+  // (slår ihop gamla "nästa hinder"-raden + akut-kortet till en komponent som växer/krymper på plats).
+  type ProxItem = { id: string; type: string; namn: string; comment?: string; dist: number; color: string; bearing: number; photoData?: string; audioData?: string; isFara: boolean; hash: string; warnDist: number; big: boolean };
+  const [korvyProx, setKorvyProx] = useState<ProxItem | null>(null);
+  const korvyBigRef = useRef<{ id: string; big: boolean } | null>(null);   // hysteres-minne → ingen flimmer vid radie-gränsen
   const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());  // nyckel `${id}|${hash}` → vibb/ljud en gång per innehåll
   const korvyAudioRef = useRef<HTMLAudioElement | null>(null);
   // Proximitets-notis: kvitterade symboler per (objekt, marker) → innehålls-hash. Symbol är TYST bara
@@ -3176,17 +3182,21 @@ export default function PlannerPage() {
       if (korvyAudioCtxRef.current?.state === 'suspended') korvyAudioCtxRef.current.resume().catch(() => {});
     } catch { /* ljud kan saknas på vissa enheter */ }
   };
-  const spelaKorvyPip = () => {
+  // Faro-förstärkning: spela `antal` korta pip i rad (default 1). Faror ropar tre pip vid infart.
+  const spelaKorvyPip = (antal = 1) => {
     const ctx = korvyAudioCtxRef.current; if (!ctx) return;
-    try {
-      const osc = ctx.createOscillator(); const gain = ctx.createGain();
-      osc.type = 'square'; osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.start(); osc.stop(ctx.currentTime + 0.2);
-    } catch { /* pip kan misslyckas — vibration + blink täcker ändå */ }
+    for (let i = 0; i < antal; i++) {
+      try {
+        const t0 = ctx.currentTime + i * 0.26;   // ~0,26 s mellan pipen → tydligt "pip-pip-pip"
+        const osc = ctx.createOscillator(); const gain = ctx.createGain();
+        osc.type = 'square'; osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(t0); osc.stop(t0 + 0.2);
+      } catch { /* pip kan misslyckas — vibration + blink täcker ändå */ }
+    }
   };
 
   // === SKOTARKÖRVY (v1) — skördarstråk + kvarvolym i skotarens körvy ===
@@ -6937,6 +6947,14 @@ export default function PlannerPage() {
     if (diff > 45) return '→';
     return '↑';
   };
+  // Riktning i ord (för proximitetskortet): samma trösklar som pilen.
+  const korvyRiktning = (bearing: number, heading: number): string => {
+    const diff = (((bearing - heading) % 360) + 540) % 360 - 180;
+    if (diff < -135 || diff > 135) return 'bakom';
+    if (diff < -45) return 'vänster';
+    if (diff > 45) return 'höger';
+    return 'rakt fram';
+  };
   // Färgkodning per markeringstyp för Körvy-prick (matchar spec)
   const korvyColorForType = (type?: string): string => {
     if (!type) return '#8e8e93';
@@ -7213,8 +7231,8 @@ export default function PlannerPage() {
   }, [korvyActive, mapLibreReady]);
 
   // 7) Beräkna nästa-kö (3 närmaste markeringar inom 300m, alla riktningar) + nollställ vid avsluta
-  // korvyEffectivePos = SIM-medveten position. korvyAcuteWarning (effekt 8 nedan)
-  // ärver SIM-stödet transitive eftersom den läser från korvyNextItems[0].
+  // korvyEffectivePos = SIM-medveten position. korvyProx (effekt 8 nedan)
+  // ärver SIM-stödet transitive eftersom den läser från korvyNextItems.
   useEffect(() => {
     if (!korvyActive) {
       setKorvyNextItems([]);
@@ -7247,46 +7265,53 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, korvyEffectivePos, korvyHeading, markers, skotarKorvy]);
 
-  // 8) PROXIMITETS-NOTIS: visa NÄRMASTE OKVITTERADE symbol inom sin kategori-radie (getWarningDistances,
-  //    30/50 m) automatiskt — alla typer. Kön (korvyNextItems) är sorterad → första kandidaten = närmast.
-  //    Kvitterad + oförändrad (matchande hash) hoppas över → tyst. Kortet ligger kvar tills passerad
-  //    (utanför radien → nästa kandidat/null) eller kvitterad; INGEN 8s-timer. Ett kort i taget (aldrig bunt).
-  //    Nivå 2 — FAROR (KORVY_FARO_TYPER): vibb-mönster + pip + blink (i kortet). Vibb/ljud EN gång per innehåll.
+  // 8) PROXIMITETSKORT (ETT kort, växer på plats): NÄRMASTE OKVITTERADE symbol. Kön (korvyNextItems) är
+  //    sorterad → första okvitterade kandidaten = aktiv (oavsett avstånd, för att kunna visa den smala
+  //    raden på håll). `big` = inom sin kategori-radie (getWarningDistances, 30/50 m) → kortet växer.
+  //    Hysteres (KORVY_CARD_HYST_M): växer vid radien, krymper först vid radie+HYST → inget flimmer i
+  //    GPS-brus. Kvitterad + oförändrad hash hoppas över → nästa okvitterade (eller null). Ett kort i taget.
+  //    Nivå 2 — FAROR: starkare vibb + tre pip + blink + skärmkant-glöd, EN gång per innehåll NÄR det växer.
   useEffect(() => {
-    if (!korvyActive || skotarKorvy) { setKorvyAcuteWarning(null); return; }
-    let vald: { item: NextItem; m: Marker; hash: string } | null = null;
+    if (!korvyActive || skotarKorvy) { korvyBigRef.current = null; setKorvyProx(null); return; }
+    let found: ProxItem | null = null;
     for (const item of korvyNextItems) {
       const m = markers.find(mm => String(mm.id) === item.id);
       if (!m) continue;
       const hash = markerInnehallHash(m);
-      if (warningAckMap.get(item.id) === hash) continue;                 // kvitterad + oförändrad → tyst
-      if (item.dist > getWarningDistances(m).warnDist) continue;         // utanför kategori-radien
-      vald = { item, m, hash }; break;                                   // närmaste okvitterade inom radie
+      if (warningAckMap.get(item.id) === hash) continue;                 // kvitterad + oförändrad → hoppa
+      const warnDist = getWarningDistances(m).warnDist;
+      const isFara = KORVY_FARO_TYPER.has(item.type);
+      const namn = markerTypes.find(t => t.id === item.type)?.name || 'Markering';
+      const prevBig = korvyBigRef.current?.id === item.id ? korvyBigRef.current.big : false;
+      const big = item.dist <= warnDist ? true : (prevBig && item.dist <= warnDist + KORVY_CARD_HYST_M);
+      found = { id: item.id, type: item.type, namn, comment: item.comment, dist: item.dist, color: item.color, bearing: item.bearing, photoData: m.photoData, audioData: m.audioData, isFara, hash, warnDist, big };
+      break;                                                             // närmaste OKVITTERADE = aktiv
     }
-    if (!vald) { setKorvyAcuteWarning(null); return; }
-    const { item, m, hash } = vald;
-    const isFara = KORVY_FARO_TYPER.has(item.type);
-    const namn = markerTypes.find(t => t.id === item.type)?.name || 'Markering';
-    setKorvyAcuteWarning({ id: item.id, type: item.type, namn, comment: item.comment, dist: item.dist, color: item.color, photoData: m.photoData, audioData: m.audioData, isFara, hash });
-    // Vibb + ljud EN gång per (marker, innehåll). Ändrat innehåll (ny hash) → ny nyckel → larmar igen.
-    const trigKey = `${item.id}|${hash}`;
-    if (!korvyTriggeredIdsRef.current.has(trigKey)) {
-      korvyTriggeredIdsRef.current.add(trigKey);
-      if (navigator.vibrate) navigator.vibrate(isFara ? [60, 40, 60, 40, 60] : [30, 50, 30]);
-      if (m.audioData) {
-        try { if (korvyAudioRef.current) korvyAudioRef.current.pause(); korvyAudioRef.current = new Audio(m.audioData); korvyAudioRef.current.play().catch(() => {}); } catch { /* */ }
+    if (!found) { korvyBigRef.current = null; setKorvyProx(null); return; }
+    korvyBigRef.current = { id: found.id, big: found.big };
+    setKorvyProx(found);
+    // Vibb/ljud/pip EN gång per (marker, innehåll) NÄR kortet växer (går in i stort läge).
+    if (found.big) {
+      const trigKey = `${found.id}|${found.hash}`;
+      if (!korvyTriggeredIdsRef.current.has(trigKey)) {
+        korvyTriggeredIdsRef.current.add(trigKey);
+        if (navigator.vibrate) navigator.vibrate(found.isFara ? [80, 40, 80, 40, 80, 40, 80] : [30, 50, 30]);
+        if (found.audioData) {
+          try { if (korvyAudioRef.current) korvyAudioRef.current.pause(); korvyAudioRef.current = new Audio(found.audioData); korvyAudioRef.current.play().catch(() => {}); } catch { /* */ }
+        }
+        if (found.isFara) spelaKorvyPip(3);   // nivå 2: TRE pip vid infart (faro-förstärkning)
       }
-      if (isFara) spelaKorvyPip();   // nivå 2: ETT pip vid infart (inte upprepat)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyNextItems, korvyActive, skotarKorvy, warningAckMap, markers]);
 
   // Kvittering ("Sett") för körvy-notisen → skriv korvy_kvittens (upsert per objekt+marker med hashen).
   // Optimistiskt: lägg i map + tysta kortet direkt; nästa kandidat (om någon inom radie) dyker upp.
-  const kvitteraKorvySymbol = useCallback(async (w: AcuteWarning) => {
+  const kvitteraKorvySymbol = useCallback(async (w: ProxItem) => {
     if (!valtObjekt?.id) return;
     setWarningAckMap(prev => new Map(prev).set(w.id, w.hash));
-    setKorvyAcuteWarning(null);
+    korvyBigRef.current = null;
+    setKorvyProx(null);
     try {
       const { error } = await supabase.from('korvy_kvittens').upsert(
         { objekt_id: valtObjekt.id, marker_id: w.id, marker_type: w.type, marker_name: w.namn, innehall_hash: w.hash, kvitterad_at: new Date().toISOString() },
@@ -12136,143 +12161,90 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === KÖRVY: NÄSTA HINDER — EN i taget, NÄRMASTE oavsett riktning (maskinen fäller åt sidan) === */}
-      {korvyActive && !skotarKorvy && korvyNextItems.length > 0 && (() => {
-        const item = korvyNextItems[0];
-        const next = korvyNextItems[1];
-        const typeName = (t: string) => ({
-          landing:'Avlägg', eternitytree:'Evighetsträd', naturecorner:'Naturhörn',
-          culturemonument:'Kulturminne', culturestump:'Kulturstubbe', highstump:'Högstubbe',
-          brashpile:'Risrep', windfall:'Vindfälle', manualfelling:'Fäll manuellt',
-          powerline:'Kraftledning', road:'Väg', turningpoint:'Vändplats',
-          ditch:'Dike', bridge:'Bro', corduroy:'Kavlebro', wet:'Blött',
-          steep:'Brant', trail:'Stig', warning:'Varning',
-        } as Record<string, string>)[t] || 'Markering';
-        const inom = item.dist <= FALLNINGSRADIE_M;
-        return (
-          <div style={{
-            // Slutar FÖRE höger-hörnet (right: 92) så +-knappen och meny-knappen är åtkomliga —
-            // panelen låg förut full bredd (right: 12) och skymde dem. Lägre padding = lägre panel.
-            position: 'fixed', left: 12, right: 92,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-            maxWidth: 520,
-            background: 'rgba(28,28,30,0.92)',
-            backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-            border: `1px solid ${inom ? item.color : 'rgba(255,255,255,0.08)'}`,
-            borderRadius: 18, padding: '11px 14px', zIndex: 250, color: '#fff',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              {/* Riktningspil: var faran är (framför/höger/bakom/vänster) relativt körriktningen */}
-              <span style={{ fontSize: 34, fontWeight: 700, color: item.color, width: 34, textAlign: 'center', flexShrink: 0, lineHeight: 1 }} aria-hidden="true">
-                {bearingArrow(item.bearing, korvyHeading)}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                {inom && (
-                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, color: item.color, textTransform: 'uppercase' }}>
-                    Inom fällningsradie
-                  </div>
-                )}
-                <div style={{ fontSize: 20, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {item.comment || typeName(item.type)}
-                </div>
-                {item.comment && (
-                  <div style={{ fontSize: 13, color: '#8e8e93', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {typeName(item.type)}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexShrink: 0 }}>
-                <span style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{item.dist}</span>
-                <span style={{ fontSize: 15, fontWeight: 600, color: '#8e8e93' }}>m</span>
-              </div>
-            </div>
-            {next && (
-              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#8e8e93' }}>
-                <span style={{ color: next.color, fontWeight: 700 }} aria-hidden="true">{bearingArrow(next.bearing, korvyHeading)}</span>
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Nästa: {next.comment || typeName(next.type)} · {next.dist} m</span>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* === KÖRVY: AKUT VARNING (≤50m) === */}
-      {korvyActive && korvyAcuteWarning && (() => {
-        const w = korvyAcuteWarning;
-        // Tonad bakgrund i markeringsfärg (rgba 0.15)
+      {/* === KÖRVY: PROXIMITETSKORT — ETT kort som VÄXER PÅ PLATS. Slår ihop gamla "Nästa hinder"-raden +
+             akut-kortet till en komponent. Fast botten-plats: smal rad på håll → växer till stort kort inom
+             kategori-radien via EN mjuk height-övergång (diskret, ej GPS-bunden skalning → ingen mikroskak).
+             Krymper/försvinner vid Sett/passerad. Faror: blink + skärmkant-glöd + tre pip. RÖR EJ skotarkörvyn. === */}
+      {korvyActive && !skotarKorvy && korvyProx && (() => {
+        const p = korvyProx;
+        const big = p.big;
         const bgTint = (() => {
-          const c = w.color;
+          const c = p.color;
           if (c === '#30d158') return 'rgba(48,209,88,0.15)';
           if (c === '#0a84ff') return 'rgba(10,132,255,0.15)';
           if (c === '#ff9f0a') return 'rgba(255,159,10,0.15)';
           if (c === '#ff453a') return 'rgba(255,69,58,0.15)';
           return 'rgba(142,142,147,0.15)';
         })();
+        const riktning = korvyRiktning(p.bearing, korvyHeading);
         return (
-          <div style={{
-            position: 'fixed',
-            left: 12,
-            right: 12,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px + 140px + 12px)',
-            background: 'rgba(28,28,30,0.94)',
-            backdropFilter: 'blur(24px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-            border: `${w.isFara ? '2.5px' : '2px'} solid ${w.color}`,
-            borderRadius: 16,
-            padding: 16,
-            zIndex: 260,
-            color: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-            // Nivå 2 (fara): pulsande röd glöd ovanpå in-glidningen. Vanlig notis: bara in-glidning.
-            animation: w.isFara
-              ? 'korvySlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1), faraBlink 0.9s ease-in-out infinite'
-              : 'korvySlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
-          }}>
-            <style>{`@keyframes korvySlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } @keyframes faraBlink { 0%,100% { box-shadow: 0 0 0 0 rgba(255,69,58,0); } 50% { box-shadow: 0 0 0 5px rgba(255,69,58,0.6); } }`}</style>
-            {/* Tonad bg-overlay för markeringsfärg */}
-            <div style={{ position: 'absolute', inset: 0, background: bgTint, borderRadius: 14, pointerEvents: 'none' }} aria-hidden="true" />
-            {/* Innehåll */}
-            {w.photoData ? (
-              <img
-                src={w.photoData}
-                alt=""
-                style={{ width: 44, height: 44, borderRadius: 8, objectFit: 'cover', flexShrink: 0, position: 'relative', zIndex: 1 }}
-              />
-            ) : (
-              <span style={{
-                width: 44, height: 44, borderRadius: 8, background: w.color, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 1,
-              }} aria-hidden="true">
-                <span className="material-symbols-outlined" style={{ fontSize: '28px', color: '#fff' }}>warning</span>
-              </span>
+          <>
+            <style>{`@keyframes faraBlink { 0%,100% { box-shadow: 0 0 0 0 rgba(255,69,58,0); } 50% { box-shadow: 0 0 0 5px rgba(255,69,58,0.6); } } @keyframes faraKantGlod { 0%,100% { box-shadow: inset 0 0 0 0 rgba(255,69,58,0), inset 0 0 40px 8px rgba(255,69,58,0.12); } 50% { box-shadow: inset 0 0 0 6px rgba(255,69,58,0.75), inset 0 0 90px 22px rgba(255,69,58,0.4); } }`}</style>
+            {/* Skärmkant-glöd (bara stort + fara) — extra synlig i solljus. pointerEvents:none → blockerar aldrig. */}
+            {big && p.isFara && (
+              <div aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 259, pointerEvents: 'none', animation: 'faraKantGlod 0.9s ease-in-out infinite' }} />
             )}
-            <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
-              <div style={{ fontSize: '17px', fontWeight: '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {w.namn}
-              </div>
-              {w.comment && (
-                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {w.comment}
+            {/* Kortet: fast botten-förankrad container. Höjden animerar 56↔300 px → VÄXER/KRYMPER PÅ PLATS
+                (botten står still, växer uppåt). Smal/full-innehåll korsdöljs med opacity. */}
+            <div style={{ position: 'fixed', left: 12, right: 12, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)', zIndex: 260, pointerEvents: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
+              <div style={{
+                position: 'relative', pointerEvents: 'auto', overflow: 'hidden',
+                height: big ? 300 : 56,
+                background: 'rgba(28,28,30,0.94)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                border: `${big ? (p.isFara ? '2.5px' : '2px') : '1px'} solid ${big ? p.color : 'rgba(255,255,255,0.14)'}`,
+                borderRadius: 16, color: '#fff',
+                transition: 'height 0.4s cubic-bezier(0.32,0.72,0,1), border-color 0.4s ease',
+                animation: big && p.isFara ? 'faraBlink 0.9s ease-in-out infinite' : 'none',
+              }}>
+                {/* Färgton */}
+                <div style={{ position: 'absolute', inset: 0, background: bgTint, pointerEvents: 'none' }} aria-hidden="true" />
+
+                {/* SMAL RAD (på håll): "[pil] Kommentar/typ · 150 m · vänster" */}
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px', opacity: big ? 0 : 1, transition: 'opacity 0.18s ease', pointerEvents: big ? 'none' : 'auto' }}>
+                  <span style={{ fontSize: 24, fontWeight: 700, color: p.color, width: 24, textAlign: 'center', flexShrink: 0, lineHeight: 1 }} aria-hidden="true">{bearingArrow(p.bearing, korvyHeading)}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.comment || p.namn}</span>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: p.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{p.dist} m</span>
+                  <span style={{ fontSize: 13, color: '#8e8e93', flexShrink: 0 }}>{riktning}</span>
                 </div>
-              )}
+
+                {/* STORT KORT (inom radien): bild/ikon + namn + kommentar + stor Sett */}
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 12, opacity: big ? 1 : 0, transition: `opacity 0.3s ease ${big ? '0.12s' : '0s'}`, pointerEvents: big ? 'auto' : 'none' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    {p.photoData ? (
+                      <img src={p.photoData} alt="" style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+                    ) : (
+                      <span style={{ width: 64, height: 64, borderRadius: 10, background: p.color, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
+                        <span className="material-symbols-outlined" style={{ fontSize: '38px', color: '#fff' }}>warning</span>
+                      </span>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '22px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.namn}</div>
+                      <div style={{ fontSize: 14, color: '#8e8e93' }}>{riktning}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexShrink: 0 }}>
+                      <span style={{ fontSize: '30px', fontWeight: 800, color: p.color, fontVariantNumeric: 'tabular-nums' }}>{p.dist}</span>
+                      <span style={{ fontSize: 16, fontWeight: 600, color: '#8e8e93' }}>m</span>
+                    </div>
+                  </div>
+                  {p.comment && (
+                    <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', fontSize: '18px', lineHeight: 1.35, color: '#fff' }}>{p.comment}</div>
+                  )}
+                  {/* Sett — kvitterar symbolen (per objekt+marker). Tystar den + blink/pip på framtida pass tills
+                      innehållet ändras. Gäller ALLA notiser inkl faror. Ordet "Sett" behålls. */}
+                  <button type="button" onClick={() => { if (navigator.vibrate) navigator.vibrate(8); kvitteraKorvySymbol(p); }}
+                    aria-label={`Kvittera ${p.namn}`}
+                    style={{ marginTop: 'auto', width: '100%', minHeight: 56, borderRadius: 14, border: 'none', background: '#30d158', color: '#fff', fontSize: 19, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Sett
+                  </button>
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: '17px', fontWeight: '700', color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
-              {w.dist} m
-            </div>
-            {/* Sett/OK — kvitterar symbolen (per objekt+marker). Tystar den (och blink/pip) på framtida
-                pass tills innehållet ändras. Gäller ALLA notiser inkl faror. */}
-            <button type="button" onClick={() => { if (navigator.vibrate) navigator.vibrate(8); kvitteraKorvySymbol(w); }}
-              aria-label={`Kvittera ${w.namn}`}
-              style={{ flexShrink: 0, position: 'relative', zIndex: 1, padding: '9px 16px', borderRadius: 12, border: 'none',
-                background: '#30d158', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-              Sett
-            </button>
-          </div>
+          </>
         );
       })()}
+
+      {/* (Akut-varningskortet är sammanslaget i PROXIMITETSKORTET ovan — kortet växer på plats inom
+          radien; ingen separat komponent längre.) */}
 
       {/* STEG 3 (förenklad): "Starta körning"-pill för förare med planerat objekt.
           Döljs när annat läge är aktivt (ritar/mäter/körvy/briefing/skotning) — då
