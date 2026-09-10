@@ -66,8 +66,12 @@ export function tradslagFarg(namn: string, i = 0): string {
 // ---------------------------------------------------------------------------
 
 // dim_tradslag bär maskinens egna namn i versaler, och samma trädslag stavas
-// olika mellan maskiner ('ÖVR_LÖV' och 'ÖVR LÖV'). Normalisera innan
-// gruppering, annars delas ett trädslag i två staplar med olika färg.
+// olika mellan maskiner. Prod 2026-09-10 (37 rader): GRAN, TALL, BJÖRK,
+// ÖVR_LÖV, 'ÖVR LÖV' (R64101), LÖV och LOV2 (R64101). Alla lövvarianterna
+// är samma grupp "Övrigt löv". Normalisera innan gruppering, annars delas ett
+// trädslag i två staplar med olika färg (uppföljningen visade 'ÖVR_LÖV' och
+// 'ÖVR LÖV' som två rader). Gruppera ALLTID på tradslagLabel(namn), aldrig
+// på tradslag_id — id:t är per maskin och slår isär samma art.
 const TRADSLAG_NAMN: Record<string, string> = {
   TALL: 'Tall',
   GRAN: 'Gran',
@@ -75,6 +79,12 @@ const TRADSLAG_NAMN: Record<string, string> = {
   'BJÖRK': 'Björk',
   OVR_LOV: 'Övrigt löv',
   'ÖVR_LÖV': 'Övrigt löv',
+  'OVR_LÖV': 'Övrigt löv',
+  'ÖVR_LOV': 'Övrigt löv',
+  LOV: 'Övrigt löv',
+  'LÖV': 'Övrigt löv',
+  LOV2: 'Övrigt löv',
+  'LÖV2': 'Övrigt löv',
   CONTORTA: 'Contorta',
   LARK: 'Lärk',
   'LÄRK': 'Lärk',
