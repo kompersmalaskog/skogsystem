@@ -7,6 +7,7 @@ import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
 import { typKort, arRisjobb } from '@/lib/objekt/typ';
 import { paBackenKvar } from '@/lib/skotat';
+import { kapacitetKvot, kapacitetKlarsprak } from '@/lib/kapacitet';
 
 /* ── Design tokens (V6) ── */
 const V6_GREY = '#8e8e93';
@@ -267,13 +268,17 @@ function MaskinUppdelning({ objekt, skordas, onSelect }: { objekt: UppfoljningOb
                     ) : (
                       <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{liggetidText(o)}</div>
                     )}
-                    {/* Skörd vs skotning — dämpad chip för att skanna listan; kvoten bär informationen.
-                        Bara när båda maskintyperna har G15 (annars ingen chip, aldrig "0×"). */}
-                    {(o.skordareG15h ?? 0) > 0 && (o.skotareG15h ?? 0) > 0 && (
-                      <div style={{ fontSize: 11, color: V6_GREY2, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-                        Skörd {sv(Math.round(o.skordareG15h!))} h · Skotning {sv(Math.round(o.skotareG15h!))} h · {(o.skotareG15h! / o.skordareG15h!).toLocaleString('sv-SE', { maximumFractionDigits: 1 })}×
-                      </div>
-                    )}
+                    {/* Kapacitet — dämpad chip i samma klarspråk som objektdetaljen
+                        ("1½ skotare per skördare", lib/kapacitet). Bara när båda
+                        maskintyperna har G15 — annars ingen chip, aldrig en falsk nolla. */}
+                    {(() => {
+                      const kvot = kapacitetKvot(o.skordareG15h, o.skotareG15h);
+                      return kvot !== null ? (
+                        <div style={{ fontSize: 11, color: V6_GREY2, marginTop: 2 }}>
+                          {kapacitetKlarsprak(kvot).huvud}
+                        </div>
+                      ) : null;
+                    })()}
                     {o.skotareAvvikelse && (
                       <div style={{ fontSize: 11, color: V6_GREY2, marginTop: 2 }}>
                         Lassdata: {o.skotareAvvikelse.lass} · tilldelad: {o.skotareAvvikelse.tilldelad}

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
 import { tradslagFarg } from '@/lib/tradslag';
+import { kapacitetKvot, kapacitetKlarsprak } from '@/lib/kapacitet';
 import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
@@ -833,23 +834,31 @@ function Tid({ data }: { data: UppfoljningData }) {
     ['Rast', data.skotareRast],
     ['Avbrott', data.skotareAvbrott],
   ];
-  // Skörd vs skotning — hur lång tid skotningen tog i förhållande till skörden.
-  // KVOTEN är huvudtalet (ett tal per vy); timmarna är stöd. Bara när båda
-  // maskintyperna har G15 (median i prod 1,3×; Räveboda AU 2,6× sticker ut).
-  const kvot = hasSk && hasSt ? data.skotareG15h / data.skordareG15h : 0;
+  // Kapacitet — hur många skotare skördaren sysselsatte på det här objektet.
+  // Eget kort, klarspråk (lib/kapacitet): "1½ skotare per skördare" med
+  // "1 h 24 min skotning per timme skörd" som stöd. Aldrig rå kvot. Bara när
+  // båda maskintyperna har G15; annars inget kort — ingen falsk nolla.
+  const kvot = kapacitetKvot(data.skordareG15h, data.skotareG15h);
+  const klar = kvot !== null ? kapacitetKlarsprak(kvot) : null;
   return (
     <div style={{ padding: '0 24px 16px' }}>
-      {hasSk && hasSt && (
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-            {kvot.toLocaleString('sv-SE', { maximumFractionDigits: 1 })}×
-          </span>
-          <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
-            <span style={{ color: V6_SK }}>Skörd {data.skordareG15h.toLocaleString('sv-SE', { maximumFractionDigits: 1 })} h</span>
-            {' · '}
-            <span style={{ color: V6_ST }}>Skotning {data.skotareG15h.toLocaleString('sv-SE', { maximumFractionDigits: 1 })} h</span>
+      {klar && (
+        <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 14px', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>
+            Kapacitet
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.6px', lineHeight: 1, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+              {klar.tal}
+            </span>
+            <span style={{ fontSize: 16, fontWeight: 600, color: '#fff', letterSpacing: '-0.2px' }}>
+              {klar.enhet}
+            </span>
+          </div>
+          <div style={{ fontSize: 12, color: V6_GREY, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+            {klar.stod}
             {data.skotareTidManuell ? ' · manuell skotartid' : ''}
-          </span>
+          </div>
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: 10 }}>
