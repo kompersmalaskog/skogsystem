@@ -5,7 +5,9 @@
 // att ändra utfallet (byte-diff-test: loneunderlag.bytediff.test.ts).
 //
 // Regler som ärvs härifrån: MÄNGDER, aldrig kronor (Fortnox äger satserna);
-// fakt-tabellerna läses aldrig här — allt kommer ur arbetsdag/extra_tid;
+// fakt-tabellerna läses aldrig för BERÄKNINGEN — allt underlag kommer ur
+// arbetsdag/extra_tid (enda undantaget är granskningsstödet för långa raster,
+// som läser fakt_avbrott för att VISA maskinens avbrott — det ändrar inget tal);
 // per medarbetare filtreras ALDRIG i klienten utan här (medarbetareIds).
 // ─────────────────────────────────────────────────────────────
 import { beräknaExport, arbetsperiodFrånLöneperiod, type ExportSammanfattning } from "@/lib/lonesystem/loneberakning";
@@ -14,6 +16,7 @@ import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
 import { ledighetKollisioner } from "@/lib/ledighetKollision";
 import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
+import { RAST_FRAGA_MIN } from "@/lib/arbetsdagRegler";
 
 export type LoneunderlagRad = ExportSammanfattning & { status: string };
 
@@ -38,6 +41,16 @@ export type LoneunderlagDag = {
   ob_min: number;
 };
 
+/** Dag med rast över RAST_FRAGA_MIN — granskningsstöd. `avbrott` är maskinens
+ *  egna avbrott samma dag (fakt_avbrott): ett "Övrigt" med samma start som
+ *  rasten betyder att stoppet bokfördes som rast vid omstart. */
+export type RastLangRad = {
+  datum: string;
+  rast_min: number;
+  arbetad_min: number;
+  avbrott: { typ: string; kategori: string | null; minuter: number; klockslag: string | null }[];
+};
+
 export type LoneunderlagBerikad = LoneunderlagRad & {
   ob: { timmar: number; dagar: number; obesvarade: number };
   maskin_utan_typ: string[];
@@ -45,6 +58,7 @@ export type LoneunderlagBerikad = LoneunderlagRad & {
   ledighetskollision: ReturnType<typeof ledighetKollisioner>;
   dagar: LoneunderlagDag[];
   km_grans: number;         // fri pendling km/dag ur gs_avtal — för förklaringstexten
+  rast_langa: RastLangRad[];
 };
 
 export type SynkRad = {
@@ -297,6 +311,35 @@ export async function beraknaLoneunderlag(
   }
   for (const l of Array.from(dagarPerMed.values())) l.sort((a: LoneunderlagDag, b: LoneunderlagDag) => a.datum.localeCompare(b.datum));
 
+  // Långa raster (> RAST_FRAGA_MIN) — GRANSKNINGSSTÖD, aldrig underlag. Det här
+  // är det enda stället som läser en fakt-tabell: maskinens avbrott samma dag,
+  // så granskaren ser "Övrigt 24 min med samma start" bredvid rasten. Beräkningen
+  // ovan rör den aldrig. (Stefan aug 2026: 98/107/110 min "Meal break" som var
+  // flytt/väntan — 4 timmar övertid för mycket.)
+  const rastLangaKandidater = dagRader.filter(d => Number(d.rast_min || 0) > RAST_FRAGA_MIN);
+  const avbrottPerDag = new Map<string, RastLangRad["avbrott"]>(); // `${maskin}|${datum}`
+  if (rastLangaKandidater.length) {
+    const maskiner = Array.from(new Set(rastLangaKandidater.map(d => d.maskin_id).filter(Boolean)));
+    const datumn = Array.from(new Set(rastLangaKandidater.map(d => d.datum)));
+    const avRes = maskiner.length
+      ? await supabase.from("fakt_avbrott").select("maskin_id, datum, typ, kategori_kod, langd_sek, klockslag").in("maskin_id", maskiner).in("datum", datumn)
+      : { data: [] as any[] };
+    for (const a of ((avRes.data as any[]) || [])) {
+      const k = `${a.maskin_id}|${a.datum}`;
+      if (!avbrottPerDag.has(k)) avbrottPerDag.set(k, []);
+      avbrottPerDag.get(k)!.push({ typ: a.typ, kategori: a.kategori_kod ?? null, minuter: Math.round((a.langd_sek || 0) / 60), klockslag: a.klockslag ? String(a.klockslag).slice(0, 5) : null });
+    }
+  }
+  const rastLangaPerMed = new Map<string, RastLangRad[]>();
+  for (const d of rastLangaKandidater) {
+    const rad: RastLangRad = {
+      datum: d.datum, rast_min: Number(d.rast_min || 0), arbetad_min: Number(d.arbetad_min || 0),
+      avbrott: (avbrottPerDag.get(`${d.maskin_id}|${d.datum}`) || []).sort((a, b) => (a.klockslag || "").localeCompare(b.klockslag || "")),
+    };
+    if (!rastLangaPerMed.has(d.medarbetare_id)) rastLangaPerMed.set(d.medarbetare_id, []);
+    rastLangaPerMed.get(d.medarbetare_id)!.push(rad);
+  }
+
   // Berikning (dry_run/granskningsvy/förarspec): OB, maskin-luckor,
   // tidsavvikelser, ledighetskollision, dag för dag — allt på ett ställe,
   // ingen parallell beräkning någonstans.
@@ -308,6 +351,7 @@ export async function beraknaLoneunderlag(
     ledighetskollision: ledKollMap.get(r.medarbetare_id) || [],
     dagar: dagarPerMed.get(r.medarbetare_id) || [],
     km_grans: kmGrans,
+    rast_langa: (rastLangaPerMed.get(r.medarbetare_id) || []).sort((a, b) => a.datum.localeCompare(b.datum)),
   }));
 
   return {

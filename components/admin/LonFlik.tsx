@@ -707,12 +707,15 @@ function FortnoxExportSektion({
           const ledK = m.ledighetskollision || [];
           const maskinLuckor = m.maskin_utan_typ || [];
           const ob = m.ob || { timmar: 0, dagar: 0, obesvarade: 0 };
-          // "saknar typ" visas som strukturerad rad — filtrera bort ur textvarningarna
-          // så samma sak inte står två gånger.
-          const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ/i.test(v));
+          const rastLanga = m.rast_langa || [];
+          const kortpass = m.kortpass || [];
+          // "saknar typ" och kortpass visas som strukturerade rader — filtrera bort
+          // ur textvarningarna så samma sak inte står två gånger.
+          const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ|^Kortpass/i.test(v));
           const oen = (fortnoxData.oenighet || []).filter((o: any) => o.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id));
           const harRiktighet = maskinLuckor.length > 0 || synk.length > 0 || ledK.length > 0 ||
-            (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0;
+            (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0 ||
+            rastLanga.length > 0 || kortpass.length > 0;
           const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
           return (
             <div key={mi} style={{
@@ -750,6 +753,31 @@ function FortnoxExportSektion({
                     {maskinLuckor.map((mid: string) => (
                       <p key={mid} style={{ margin: 0, fontSize: 12, color: C.red }}>
                         Maskin <strong>{mid}</strong> saknar typ i maskinregistret → premielön beräknas inte. Lägg in maskinen (skördare/skotare) för att få med premien.
+                      </p>
+                    ))}
+                    {/* Lång rast = troligen stillestånd bokfört som "Meal break" i terminalen.
+                        Maskinens egna avbrott samma dag är stödet — ett "Övrigt" med samma
+                        start som rasten är mönstret (lib/arbetsdagRegler). Fel rast = fel
+                        betald tid, rakt in i övertiden. */}
+                    {rastLanga.map((r: any) => {
+                      const ovrigt = (r.avbrott || []).filter((a: any) => /övrigt|default/i.test(`${a.typ} ${a.kategori || ""}`));
+                      const andra = (r.avbrott || []).filter((a: any) => !ovrigt.includes(a));
+                      const beskriv = (a: any) => `${a.typ}${a.kategori && !/default/i.test(a.kategori) ? ` (${a.kategori})` : ""} ${a.minuter} min${a.klockslag ? ` kl ${a.klockslag}` : ""}`;
+                      return (
+                        <p key={`rast-${r.datum}`} style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                          {r.datum}: <strong>rast {r.rast_min} min</strong> — mer än en lunch. {ovrigt.length > 0
+                            ? <>Maskinen loggade samtidigt {ovrigt.map(beskriv).join(", ")} — stillestånd bokfört som rast? </>
+                            : <>Inget parallellt avbrott loggat. </>}
+                          {andra.length > 0 && <span style={{ color: C.label }}>Övriga avbrott den dagen: {andra.map(beskriv).join(", ")}. </span>}
+                          <span style={{ color: C.label }}>Rätt rast = rätt betald tid; rättas i förarens Redigera.</span>
+                        </p>
+                      );
+                    })}
+                    {/* Kortpass: under arbetsdagströskeln — betald tid men ingen arbetsdag.
+                        Oftast en inloggning på någon annans maskin. */}
+                    {kortpass.map((k: any) => (
+                      <p key={`kort-${k.datum}`} style={{ margin: 0, fontSize: 12, color: C.label }}>
+                        {k.datum}: kortpass <strong>{k.minuter} min</strong>{k.km_totalt > 0 ? ` · ${k.km_totalt} km` : ""} — räknas som tid men inte som arbetsdag (ingen ×8 i övertidsbasen, ingen vältlappsvecka, ingen reseersättning). Felinloggning? Ta bort dagen.
                       </p>
                     ))}
                     {synk.map((s: any, si: number) => (
