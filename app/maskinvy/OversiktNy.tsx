@@ -10,6 +10,7 @@ import {
 import OperatorDeepView from './OperatorDeepView'
 import VolymDeepView from './VolymDeepView'
 import FlertradKort from './FlertradKort'
+import TradslagKort from './TradslagKort'
 
 export default function OversiktNy({ maskin, onMaskinChange }: {
   maskin: Maskin
@@ -183,6 +184,8 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
         <KpiList data={data} prev={prevData} series={series} loading={loading} onVolymClick={() => setVolymOpen(true)} />
         {/* Flerträd per period — HPR-härlett, egen hämtning (RPC), rör inte Data/PeriodKpi. */}
         <FlertradKort maskin={maskin} period={period} offset={offset} />
+        {/* Trädslag per period — via maskindata_produktion (tradslag_id sedan 20260912), lib/tradslag-normaliserat. */}
+        <TradslagKort maskin={maskin} period={period} offset={offset} />
         <TimeDistribution data={data} loading={loading} />
         <OperatorList
           operatorer={data?.operatorer ?? []}

@@ -26,7 +26,7 @@ export const FLERTRAD_MATT_SEDAN = '2026-08-23'
 
 type DagRad = { dag: string; stammar_alla: number; stammar_matta: number; bunt_stammar: number; grepp: number }
 
-type Hink = { key: string; label: string; start: string; end: string }
+export type Hink = { key: string; label: string; start: string; end: string }
 type Summa = { alla: number; matta: number; bunt: number; grepp: number }
 
 const MAN_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
@@ -41,8 +41,8 @@ function isoVecka(d: Date): number {
   return Math.ceil(((t.getTime() - arStart.getTime()) / 86400000 + 1) / 7)
 }
 
-/** Samma hinkar som Produktion-vyn: dag för V/M, vecka för K, månad för Å. */
-function byggHinkar(period: Period, start: string, end: string): Hink[] {
+/** Samma hinkar som Produktion-vyn: dag för V/M, vecka för K, månad för Å. Delas med TradslagKort. */
+export function byggHinkar(period: Period, start: string, end: string): Hink[] {
   const s = new Date(start + 'T00:00:00'); const e = new Date(end + 'T00:00:00')
   const ut: Hink[] = []
   if (period === 'V' || period === 'M') {
