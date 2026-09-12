@@ -130,6 +130,11 @@ export interface UppfoljningData {
   // Balans
   skordareBalG15h: number;
   skotareBalG15h: number;
+  // Flerträdshantering (skördaren griper flera klena stammar i ett grepp) — HPR-härlett
+  // ur detalj_stam.stam_bunt_nyckel (#460), INTE MOM. matt=false = objektets senaste
+  // HPR-fil skrevs före 2026-08-23, då flerträd började läsas → "ej mätt", aldrig 0 %.
+  // Historik kräver omimport (scripts/omimport-multitree.py — Martins beslut).
+  flertrad?: { matt: boolean; andelPct: number; stammarPerGrepp: number; grepp: number; buntStammar: number; stammar: number } | null;
 }
 
 // ── Design tokens ─────────────────────────────────────────────────────────
@@ -587,7 +592,9 @@ function Collapse({ title, varde, children, defaultOpen = false }: { title: stri
 // rows: [värde, enhet, manuellt?]. manuellt=true → "manuellt"-badge (G15-taltet
 // kommer ur skotning_g15_manuell, inte mätt maskintid — samma ärlighetsregel som
 // mätt/rapporterat/schablon: säg vilken sorts siffra det är).
-function ProdKort({ color, label, rows }: { color: string; label: string; rows: [string, string, boolean?][] }) {
+// Tredje elementet: true → "manuellt"-badge; en STRÄNG → badge med den texten
+// (källmärkning, t.ex. 'HPR' för flerträd som är HPR-härlett, inte MOM).
+function ProdKort({ color, label, rows }: { color: string; label: string; rows: [string, string, (boolean | string)?][] }) {
   return (
     <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
@@ -600,7 +607,9 @@ function ProdKort({ color, label, rows }: { color: string; label: string; rows: 
             <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>{v}</span>
             <span style={{ fontSize: 11, color: V6_GREY, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>{u}</span>
             {manuell && (
-              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_GREY, border: `1px solid ${V6_SEP}`, borderRadius: 5, padding: '1px 5px' }}>manuellt</span>
+              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_GREY, border: `1px solid ${V6_SEP}`, borderRadius: 5, padding: '1px 5px' }}>
+                {typeof manuell === 'string' ? manuell : 'manuellt'}
+              </span>
             )}
           </div>
         ))}
@@ -610,10 +619,21 @@ function ProdKort({ color, label, rows }: { color: string; label: string; rows: 
 }
 
 function Produktivitet({ data }: { data: UppfoljningData }) {
-  const skRows: [string, string, boolean?][] = [];
+  const skRows: [string, string, (boolean | string)?][] = [];
   if (data.skordareM3G15h > 0) skRows.push([String(data.skordareM3G15h), 'm³/G15h']);
   if (data.skordareStammarG15h > 0) skRows.push([String(data.skordareStammarG15h), 'stammar/G15h']);
   if (data.skordareMedelstam > 0) skRows.push([String(data.skordareMedelstam), 'm³ medelstam']);
+  // Flerträd — HPR-härlett (detalj_stam.stam_bunt_nyckel), källmärkt 'HPR'. Objekt utan
+  // stammar importerade sedan 2026-08-23 (#460) visar "ej mätt" — ALDRIG 0 %: deras
+  // flerträdsstammar hoppades över av den gamla importen och finns inte i tabellen.
+  if (data.flertrad) {
+    if (data.flertrad.matt) {
+      skRows.push([`${data.flertrad.andelPct.toLocaleString('sv-SE', { maximumFractionDigits: 0 })} %`, 'flerträd', 'HPR']);
+      if (data.flertrad.grepp > 0) skRows.push([data.flertrad.stammarPerGrepp.toLocaleString('sv-SE', { maximumFractionDigits: 1 }), 'stammar/grepp', 'HPR']);
+    } else {
+      skRows.push(['ej mätt', 'flerträd · importerad före 2026-08-23']);
+    }
+  }
 
   // m³/G15h och lass/G15h delar G15-nämnaren → märks "manuellt" när skotartiden
   // kommer ur skotning_g15_manuell. Snittlass/skotningsavstånd rör inte G15 → omärkta.
