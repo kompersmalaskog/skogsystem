@@ -87,6 +87,7 @@ export const FARG = {
   upphojt:  "#2c2c2e",
   linje:    "rgba(255,255,255,0.08)",
   fyllning: "rgba(255,255,255,0.10)", // sekundär knapp
+  tonad:    "rgba(255,255,255,0.04)", // svag yta bakom en kolumn/zon (kalenderns helg)
   text:     "#ffffff",
   text2:    "#8e8e93",
   text3:    "#636366",

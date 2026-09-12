@@ -29,7 +29,7 @@ const FARGER = new Set([
   "#000000", "#000", "#1c1c1e", "#2c2c2e", "#ffffff", "#fff", "#8e8e93", "#636366",
   "#0a84ff", "#30d158", "#ff9f0a", "#ff453a", "#a8d582", "#f0b24c",
 ]);
-const ALFA = new Set(["0.08", "0.1", "0.10"]); // rgba(255,255,255,x) som är tokens
+const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) som är tokens (tonad/linje/fyllning)
 
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [

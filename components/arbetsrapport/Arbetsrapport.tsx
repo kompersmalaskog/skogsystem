@@ -5612,45 +5612,59 @@ export default function Arbetsrapport() {
       minPerDatum.set(datum, (minPerDatum.get(datum) || 0) + (d.arbMin || 0));
     }
     for (const e of månadsExtra) minPerDatum.set(e.datum, (minPerDatum.get(e.datum) || 0) + (e.minuter || 0));
-    const jobbadeDagar = Array.from(minPerDatum.values()).filter(arArbetsdag).length;
-
-    const statusFärg=(d)=>{
-      const k=dagKey(d);
-      const dag=dagData[k];
-      // Prick visas BARA när det finns en arbetsdag-rad för dagen:
-      //   sjuk/vab-dagtyp → egen färg
-      //   bekräftat      → grön
-      //   annars          → orange
-      // Om raden saknas returneras icke-prickfärgat värde ("röd" för
-      // helgdagar i texten, "weekend"/"tom" för alla andra) — de saknas
-      // i dotFärg så ingen prick renderas. Tidigare föll gångna vardagar
-      // utan data in i "saknas"-grenen, vilket gav spurious orange prickar.
-      if (dag?.dagtyp === 'sjuk') return 'sjuk';
-      if (dag?.dagtyp === 'vab')  return 'vab';
-      if (dag?.dagtyp === 'foraldraledig') return 'vab'; // samma orange prick som VAB
-      if (dag?.bekraftad) return 'ok';
-      // Före skarp start: ingen åtgärdsprick (orange) — dagen visas, räknas
-      // inte. Grön för bekräftade står kvar (lib/skarpStart).
-      if (dag) return foreSkarpStart(k) ? 'tom' : 'saknas';
-      if (rödaDagar[k]) return 'röd';
-      const date = new Date(kalÅr, kalMånad, d);
-      const dow = date.getDay();
-      if (dow === 0 || dow === 6) return 'weekend';
-      return 'tom';
+    // ── Dagens innehåll per datum — EN klassning för rutnätet OCH månadskortet ──
+    // Cellen visar TAL och ORD, inte prickar (Apple-hållet, Martin 2026-09-13):
+    //   arbete    → timmarna (vit = bekräftad, orange = obekräftad)
+    //   frånvaro  → ordet (Sjuk/VAB/Semester/Föräldraledig/ATK) ur BÅDA källorna:
+    //               arbetsdag.dagtyp (morgonkortet) och ledighet_ansokningar
+    //               (godkänd). Läser man bara den ena försvinner sjukdagen här
+    //               precis som den försvann ur lönen. "Arbete vinner".
+    //   röd dag   → helgdagsnamnet (lib/roda-dagar, påsk beräknad)
+    //   vardag utan rapport → orange streck (bara från skarp start, bara gången tid)
+    //   helg utan arbete → tomt
+    const idagIso = ymdLokal(nuDat);
+    const franvaroOrd: Record<string, string> = { sjuk: "Sjuk", vab: "VAB", semester: "Semester", foraldraledig: "Föräldr.", atk: "ATK", ledig: "Ledig" };
+    const franvaroRubrik: Record<string, string> = { sjuk: "Sjuk", vab: "VAB", semester: "Semester", foraldraledig: "Föräldraledig", atk: "ATK", ledig: "Ledig" };
+    type DagKlass = { slag: "arbete" | "franvaro" | "rod" | "saknas" | "tom"; min: number; bekraftad: boolean; typ?: string; helgNamn?: string; helg: boolean; mer: boolean };
+    const klassa = (d: number): DagKlass => {
+      const k = dagKey(d);
+      const dag = dagData[k];
+      const dow = new Date(kalÅr, kalMånad, d).getDay();
+      const helg = dow === 0 || dow === 6;
+      const min = minPerDatum.get(k) || 0;
+      const harExtra = (extraDagData[k] || []).length > 0;
+      const _sh = historik.find((x: any) => x.datum === k);
+      const synkOhanterad = !!_sh?.synk_avvikelse && !_sh.synk_avvikelse.kvitterad && !foreSkarpStart(k);
+      // "mer på dagen": rättad, extra tid eller ohanterad avvikelse — EN markering,
+      // detaljen finns i Redigera.
+      const mer = !!dag?.redigerad || harExtra || synkOhanterad;
+      if (min > 0 || (dag && !arFranvaroDagtyp(dag.dagtyp) && dag.start_tid)) {
+        return { slag: "arbete", min, bekraftad: !!dag?.bekraftad, helg, mer };
+      }
+      const dagtyp = String(dag?.dagtyp || "").toLowerCase();
+      const franvaroTyp = (FRANVARO_DAGTYPER_ALLA as readonly string[]).includes(dagtyp) ? dagtyp : (ledighetDagar[k] || null);
+      if (franvaroTyp) return { slag: "franvaro", min: 0, bekraftad: true, typ: franvaroTyp, helg, mer: false };
+      if (rödaDagar[k]) return { slag: "rod", min: 0, bekraftad: true, helgNamn: rödaDagar[k], helg, mer: false };
+      if (!helg && k < idagIso && !foreSkarpStart(k)) return { slag: "saknas", min: 0, bekraftad: false, helg, mer: false };
+      return { slag: "tom", min: 0, bekraftad: true, helg, mer: false };
     };
-
-    // Prickar: statusfärg bara som prick bredvid ett ord (statusförklaringen).
-    // Extra tid är INTE en status → grå prick (blått betyder "navigerar").
-    // Synk-avvikelse = "titta på dagen" → orange, samma som obekräftad.
-    const dotFärg: Record<string,string> = {
-      ok:FARG.gron,        // bekräftad
-      saknas:FARG.orange,  // data finns men ej bekräftat
-      sjuk:FARG.rod,
-      vab:FARG.orange,
-    };
-    const extraPrickFärg = FARG.text2;
-    const synkPrickFärg = FARG.orange;
-    // (Ingen useRaknaUpp här — vyn ligger bakom ett villkor, hooks får inte det.)
+    const klasser = new Map<number, DagKlass>();
+    for (let d = 1; d <= dagar; d++) klasser.set(d, klassa(d));
+    // Månadskortets uppdelning — ur samma klassning. Nollrader visas inte.
+    let vardagarJobbade = 0, helgdagarJobbade = 0, utanRapport = 0;
+    const franvaroAntal = new Map<string, number>();
+    for (const kl of Array.from(klasser.values())) {
+      if (kl.slag === "arbete" && arArbetsdag(kl.min)) { if (kl.helg) helgdagarJobbade++; else vardagarJobbade++; }
+      if (kl.slag === "franvaro" && kl.typ) franvaroAntal.set(kl.typ, (franvaroAntal.get(kl.typ) || 0) + 1);
+      if (kl.slag === "saknas") utanRapport++;
+    }
+    const kortRader: { ord: string; antal: number; farg?: string }[] = [
+      { ord: "Vardagar", antal: vardagarJobbade },
+      { ord: "Helgdagar", antal: helgdagarJobbade },
+      ...(["sjuk", "vab", "semester", "foraldraledig", "atk", "ledig"] as const).map(t => ({ ord: franvaroRubrik[t], antal: franvaroAntal.get(t) || 0 })),
+      { ord: "Vardagar utan rapport", antal: utanRapport, farg: FARG.orange },
+    ].filter(r => r.antal > 0);
+    const fmtTim = (min: number) => (Math.round(min / 60 * 10) / 10).toLocaleString("sv-SE");
     const månadHjälte = jobbadH;
 
     return (
@@ -5671,37 +5685,47 @@ export default function Arbetsrapport() {
 
         <main style={{ flex:1, padding:`0 ${AVSTAND.sidmarginal}px ${SCROLL_BOTTOM}px`, overflowY:"auto" }}>
 
-          {/* Månadskortet: ETT tal (jobbat av mål) + jobbade dagar. Progress-
-              stapeln, "varav extra tid", dagtypsraderna och körningen är borta —
-              de sa samma sak som Lön (specen) eller rutnätet. */}
+          {/* Månadskortet: ETT tal (jobbat av mål, centrerat) + uppdelningen —
+              vardagar, helgdagar, frånvaro per typ, vardagar utan rapport.
+              Nollrader visas inte. Progress-stapel, km och "varav extra" är
+              borta (Prio 1) — de står i Lön. */}
           <section style={{ marginTop:AVSTAND.l, marginBottom:AVSTAND.xl }}>
             <div style={KORT}>
-              <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>Jobbat i {kalMånadNamn}</p>
-              <p style={{ margin:0, ...TYP.tal, color:FARG.text }}>
-                {månadHjälte.toLocaleString('sv-SE')}
-                <span style={{ ...TYP.meta, ...TNUM, color:FARG.text2, marginLeft:AVSTAND.xs }}>av {målH} tim</span>
-              </p>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:AVSTAND.m, paddingTop:AVSTAND.m, borderTop:`1px solid ${FARG.linje}` }}>
-                <span style={{ ...TYP.meta, color:FARG.text2 }}>Jobbade dagar</span>
-                <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{jobbadeDagar}</span>
+              <div style={{ textAlign:"center" }}>
+                <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>Jobbat i {kalMånadNamn}</p>
+                <p style={{ margin:0, ...TYP.tal, color:FARG.text }}>
+                  {månadHjälte.toLocaleString('sv-SE')}
+                  <span style={{ ...TYP.meta, ...TNUM, color:FARG.text2, marginLeft:AVSTAND.xs }}>av {målH} tim</span>
+                </p>
               </div>
+              {kortRader.length > 0 && (
+                <div style={{ marginTop:AVSTAND.m, paddingTop:AVSTAND.xs, borderTop:`1px solid ${FARG.linje}` }}>
+                  {kortRader.map(r => (
+                    <div key={r.ord} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:`${AVSTAND.s}px 0` }}>
+                      <span style={{ ...TYP.meta, color:r.farg ?? FARG.text2 }}>{r.ord}</span>
+                      <span style={{ ...TYP.listtitel, ...TNUM, color:r.farg ?? FARG.text }}>{r.antal}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
 
-          {/* Calendar grid */}
+          {/* Rutnätet. Helgkolumnerna (lör/sön) tonade inkl. rubriken — en arbetad
+              helgdag blir en vit siffra på tonad botten. Rad-gap 0 och luften
+              inuti cellen, så tonen löper som en kolumn. */}
           <section style={{ marginBottom:AVSTAND.xxl }}>
-            {/* Weekday headers */}
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", textAlign:"center", marginBottom:AVSTAND.l }}>
-              {veckar.map(v=>(
-                <div key={v} style={{ color:FARG.text2, ...TYP.micro }}>{v}</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", textAlign:"center" }}>
+              {veckar.map((v, vi)=>(
+                <div key={v} style={{ color:FARG.text2, ...TYP.micro, padding:`${AVSTAND.s}px 0`, background: vi >= 5 ? FARG.tonad : "transparent" }}>{v}</div>
               ))}
             </div>
 
-            {/* Day cells */}
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:`${AVSTAND.xl}px 0`, textAlign:"center" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", textAlign:"center" }}>
               {cells.map((d,i)=>{
-                if(!d) return <div key={i} style={{ padding:`${AVSTAND.s}px 0`, ...INAKTIV, opacity:0.2 }}>{(() => {
-                  // Show prev/next month days faded
+                const helgKolumn = i % 7 >= 5;
+                if(!d) return <div key={i} style={{ padding:`${AVSTAND.m}px 0`, background: helgKolumn ? FARG.tonad : "transparent", opacity:0.2 }}>{(() => {
+                  // Föregående månads dagar, dämpade
                   if(i < startDag) {
                     const prevMonth = new Date(kalÅr, kalMånad, 0);
                     return prevMonth.getDate() - (startDag - 1 - i);
@@ -5709,74 +5733,54 @@ export default function Arbetsrapport() {
                   return '';
                 })()}</div>;
 
-                const s=statusFärg(d);
+                const kl = klasser.get(d)!;
                 const isToday=d===nuDat.getDate()&&kalMånad===nuDat.getMonth()&&kalÅr===nuDat.getFullYear();
-                const k=dagKey(d);
-                const datum=`${kalÅr}-${String(kalMånad+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-                const helgNamn = rödaDagar[k] || '';
-                const harExtra = (extraDagData[datum]||[]).length > 0;
-                // Ohanterad synk-avvikelse (bekraftad dag vars maskintider byggts
-                // om) → amber prick, upptackbart utan att oppna dagen.
-                const _sh = historik.find((x:any)=>x.datum===datum);
-                // Amber synk-prick bara från skarp start (lib/skarpStart) — före golvet visas dagen, larmas inte.
-                const synkOhanterad = !!_sh?.synk_avvikelse && !_sh.synk_avvikelse.kvitterad && !foreSkarpStart(datum);
-                // Ledig dag: godkänd ledighet OCH inget arbete/frånvaro-prick och
-                // ingen extra tid ("arbete vinner"). Egen visuell klass (ton +
-                // typ-etikett), aldrig en ny prickfärg.
-                const ledTyp = ledighetDagar[datum];
-                const ärLedig = !!ledTyp && !dotFärg[s] && !harExtra;
-                const ledEtikett = !ärLedig ? '' : ledTyp==='semester'?'Sem':ledTyp==='sjuk'?'Sjuk':ledTyp==='vab'?'VAB':ledTyp==='foraldraledig'?'FL':'Ledig';
+                const datum=dagKey(d);
+                // Underraden: talet, ordet, helgnamnet eller strecket — en sak per dag.
+                const under = kl.slag === "arbete"
+                  ? <span style={{ ...TYP.micro, textTransform:"none", letterSpacing:0, ...TNUM, color: kl.bekraftad ? FARG.text : FARG.orange }}>{fmtTim(kl.min)}</span>
+                  : kl.slag === "franvaro"
+                  ? <span style={{ ...TYP.micro, textTransform:"none", letterSpacing:0, color:FARG.text2, maxWidth:"100%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{franvaroOrd[kl.typ!] || kl.typ}</span>
+                  : kl.slag === "rod"
+                  ? <span style={{ ...TYP.micro, textTransform:"none", letterSpacing:0, color:FARG.rod, maxWidth:"100%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{kl.helgNamn}</span>
+                  : kl.slag === "saknas"
+                  ? <span style={{ ...TYP.micro, color:FARG.orange }}>–</span>
+                  : <span style={{ ...TYP.micro }}>&nbsp;</span>;
 
                 return (
                   <div key={i}
                     onClick={()=>öppnaRedigera(datum)}
-                    style={{ position:"relative", display:"flex", flexDirection:"column", alignItems:"center", cursor:"pointer", padding:`${AVSTAND.s}px 0`, minHeight:TRAFFYTA.min, ...(ärLedig?{ background:FARG.linje, borderRadius:RADIE.rad }:{}) }}>
-                    {/* Ring: idag = vit ring (inte blå — blått navigerar). Den gula
-                        "redigerad"-ringen är borta: att en dag rättats är ingen status
-                        föraren ska agera på. */}
-                    {isToday && <div style={{ position:"absolute", top:AVSTAND.xs, width:36, height:36, border:`2px solid ${FARG.text}`, borderRadius:RADIE.cirkel }} />}
+                    style={{ position:"relative", display:"flex", flexDirection:"column", alignItems:"center", cursor:"pointer", padding:`${AVSTAND.m}px ${AVSTAND.xs}px`, minHeight:TRAFFYTA.min, boxSizing:"border-box", background: helgKolumn ? FARG.tonad : "transparent" }}>
+                    {/* Frånvaro: blågrå ton på cellen (som förr) — dagen är förklarad */}
+                    {kl.slag === "franvaro" && <div style={{ position:"absolute", inset:AVSTAND.xs, background:"rgba(120,124,150,0.18)", borderRadius:RADIE.rad }} />}
+                    {/* Idag: vit ring (blått betyder "navigerar") */}
+                    {isToday && <div style={{ position:"absolute", top:AVSTAND.s, width:36, height:36, border:`2px solid ${FARG.text}`, borderRadius:RADIE.cirkel }} />}
                     <span style={{
-                      ...TYP.text, ...TNUM,
-                      fontWeight: isToday ? VIKT.fet : VIKT.normal,
-                      color: s==="röd" ? FARG.rod : FARG.text,
+                      ...TYP.meta, fontWeight:VIKT.halvfet, ...TNUM,
+                      color: kl.slag === "rod" ? FARG.rod : FARG.text,
                       position:"relative", zIndex:1,
                       lineHeight:"36px",
                     }}>{d}</span>
-                    {/* Helgdag namn / ledig-etikett: micro-steget, aldrig egna storlekar */}
-                    {helgNamn && <span style={{ ...TYP.micro, color:s==="röd"?FARG.rod:FARG.text2, maxWidth:44, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{helgNamn}</span>}
-                    {ärLedig && <span style={{ ...TYP.micro, color:FARG.text2 }}>{ledEtikett}</span>}
-                    {/* Status dot: bekräftad=grön, saknas=orange, + grå punkt för extra tid.
-                        Visas även på helgdagar — helgtexten döljer inte pricken. */}
-                    {(dotFärg[s]||harExtra||synkOhanterad)?(
-                      <div style={{ display:"flex", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
-                        {dotFärg[s]&&(
-                          <div style={{ width:AVSTAND.xs, height:AVSTAND.xs, borderRadius:RADIE.cirkel, background:dotFärg[s] }}/>
-                        )}
-                        {harExtra&&(
-                          <div style={{ width:AVSTAND.xs, height:AVSTAND.xs, borderRadius:RADIE.cirkel, background:extraPrickFärg }}/>
-                        )}
-                        {synkOhanterad&&(
-                          <div style={{ width:AVSTAND.xs, height:AVSTAND.xs, borderRadius:RADIE.cirkel, background:synkPrickFärg }}/>
-                        )}
-                      </div>
-                    ):null}
+                    <span style={{ position:"relative", zIndex:1, display:"inline-flex", alignItems:"center", gap:AVSTAND.xs, maxWidth:"100%" }}>
+                      {under}
+                      {/* EN markering för "mer på dagen" (rättad / extra tid / avvikelse) */}
+                      {kl.mer && <span style={{ width:AVSTAND.xs, height:AVSTAND.xs, borderRadius:RADIE.cirkel, background:FARG.text2, display:"inline-block", flexShrink:0 }} />}
+                    </span>
                   </div>
                 );
               })}
             </div>
           </section>
 
-          {/* Statusförklaring — EN rad, prick + ord. Förr sex rader med egna
-              storlekar (12/20 px-prickar, ringar, 8 px-text). */}
+          {/* Förklaring — tre ord. Talen förklarar sig själva. */}
           <section style={{ display:"flex", flexWrap:"wrap", justifyContent:"center", gap:`${AVSTAND.s}px ${AVSTAND.l}px`, paddingTop:AVSTAND.l, borderTop:`1px solid ${FARG.linje}` }}>
             {([
-              ["Bekräftad", FARG.gron],
-              ["Obekräftad", FARG.orange],
-              ["Extra tid", FARG.text2],
-              ["Frånvaro", FARG.rod],
-            ] as [string, string][]).map(([ord, farg]) => (
+              ["7,1", FARG.text, "Bekräftad"],
+              ["7,1", FARG.orange, "Obekräftad"],
+              ["–", FARG.orange, "Ingen rapport"],
+            ] as [string, string, string][]).map(([tecken, farg, ord]) => (
               <span key={ord} style={{ display:"inline-flex", alignItems:"center", gap:AVSTAND.xs, ...TYP.meta, color:FARG.text2 }}>
-                <span style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:farg, display:"inline-block" }} />{ord}
+                <span style={{ ...TYP.micro, textTransform:"none", letterSpacing:0, ...TNUM, color:farg }}>{tecken}</span>{ord}
               </span>
             ))}
           </section>
