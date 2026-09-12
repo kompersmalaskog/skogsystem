@@ -23,12 +23,6 @@ const tabs: { id: TabId; label: string; icon: string }[] = [
   { id: 'objekt', label: 'Objekt', icon: 'format_list_bulleted' },
 ];
 
-// Aggregated production per objekt_id: { skordareVol, skotareVol }
-export interface ProdAgg {
-  skordareVol: number;
-  skotareVol: number;
-}
-
 // Produktion per objekt (m³fub) — skördat (vy_uppf_prod_per_objekt) + skotat
 // (vy_uppf_lass_per_objekt). NYCKEL = vo_nummer (vyernas objekt_id-kolumn innehåller
 // vo-nummer, inte objekt.id). "På backen" = skördat − skotat räknas i vyn.
@@ -70,7 +64,6 @@ export default function OversiktPage() {
   const [objekt, setObjekt] = useState<OversiktObjekt[]>([]);
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [maskinKo, setMaskinKo] = useState<MaskinKoItem[]>([]);
-  const [prodMap, setProdMap] = useState<Record<string, ProdAgg>>({});
   const [skordMap, setSkordMap] = useState<Record<string, SkordAgg>>({});
   const [grotAnpassad, setGrotAnpassad] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -103,9 +96,8 @@ export default function OversiktPage() {
 
     // Production data — paginated, can be large
     const [lassRows, skordRows, skotRows, manuellRows, tilldeladRows] = await Promise.all([
-      // Rå fakt_produktion hämtas INTE längre — prodMap byggs ur vy_uppf_prod/vy_uppf_lass (aggregatvyerna
-      // nedan) som ger samma per-objekt-summa utan att dra 10k+ rårader (~1,2 s per sidladdning). fakt_lass
-      // RÅ behövs dock kvar för per-maskin-lassen (skotat-regeln, lib/skotat).
+      // Rå fakt_produktion hämtas INTE längre — den byggde bara en OANVÄND prodMap (nu borttagen). fakt_lass
+      // RÅ behövs dock kvar för per-maskin-lassen (skotat-regeln, lib/skotat). ~1,2 s snabbare per sidladdning.
       // .order() KRÄVS — stabil paginering över 1000-radsgränsen (se project_postgrest_paginering_order).
       fetchAllRows<{ objekt_id: string; volym_m3sub: number; maskin_id: string | null }>(
         () => supabase.from('fakt_lass').select('objekt_id, volym_m3sub, maskin_id').order('objekt_id')
@@ -129,23 +121,6 @@ export default function OversiktPage() {
         () => supabase.from('dim_objekt').select('vo_nummer, tilldelad_skotare, egen_skotning').order('vo_nummer')
       ),
     ]);
-
-    // prodMap = per-objekt skördat/skotat ur AGGREGATVYERNA (samma summa som råtabellerna gav, utan
-    // 10k+ rårader): skördat ur vy_uppf_prod (skordRows), skotat ur vy_uppf_lass (skotRows).
-    const map: Record<string, ProdAgg> = {};
-    for (const r of skordRows) {
-      if (!r.objekt_id) continue;
-      const k = String(r.objekt_id);
-      if (!map[k]) map[k] = { skordareVol: 0, skotareVol: 0 };
-      map[k].skordareVol += r.volym_m3sub || 0;
-    }
-    for (const r of skotRows) {
-      if (!r.objekt_id) continue;
-      const k = String(r.objekt_id);
-      if (!map[k]) map[k] = { skordareVol: 0, skotareVol: 0 };
-      map[k].skotareVol += r.volym_m3sub || 0;
-    }
-    setProdMap(map);
 
     // Produktion per objekt (m³fub) — nyckel = vo_nummer (matchas mot objekt.vo_nummer).
     // skotat startar som null (ingen rad = okänt, ≠ 0); sätts bara när en lass-rad finns.
@@ -264,7 +239,7 @@ export default function OversiktPage() {
             zIndex: activeTab === 'karta' ? 1 : 0,
             transition: 'opacity 180ms ease-out',
           }}>
-            <OversiktKarta objekt={objekt} maskiner={maskiner} maskinKo={maskinKo} prodMap={prodMap} skordMap={skordMap} />
+            <OversiktKarta objekt={objekt} maskiner={maskiner} maskinKo={maskinKo} skordMap={skordMap} />
           </div>
           <div style={{
             position: 'absolute', inset: 0, overflow: 'auto',
