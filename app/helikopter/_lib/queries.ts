@@ -326,6 +326,24 @@ export async function sparaOrsak(ar: number, manad: number, typ: Typ, isovecka: 
   }
 }
 
+/**
+ * Onsdagsnotisen nu: köar veckoläget till mottagarna (helikopter_notis_vecka, kräver admin)
+ * och tömmer notis-kön direkt via /api/notis/flush. Lyckas köandet men inte tömningen går
+ * notisen ändå inom fem minuter (Vercel-cronen) — skickadNu säger vilket.
+ */
+export async function skickaVeckoNotis(): Promise<Svar<{ antal: number; skickadNu: boolean }>> {
+  const r = await rpc<number>('helikopter_notis_vecka', { p_manuell: true })
+  if (r.error) return { data: null, error: r.error }
+  const antal = Number(r.data ?? 0)
+  if (antal === 0) return { data: { antal, skickadNu: false }, error: null }
+  try {
+    const res = await fetch('/api/notis/flush', { method: 'POST' })
+    return { data: { antal, skickadNu: res.ok }, error: null }
+  } catch {
+    return { data: { antal, skickadNu: false }, error: null }
+  }
+}
+
 /** Inloggad förares maskin: var den senast jobbade, kvar och takt. null = ingen fakt-rad alls. */
 export async function hamtaMaskinLage(maskinId: string, idag: string): Promise<Svar<MaskinLage | null>> {
   const r = await rpc<any[]>('helikopter_ny_maskin', { p_maskin_id: maskinId, p_idag: idag })

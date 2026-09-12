@@ -5,6 +5,7 @@ import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { skaFragaBrandrisk } from "@/lib/ob";
 import { SKARP_START, foreSkarpStart } from "@/lib/skarpStart";
+import { formateraVeckoNotis } from "@/app/helikopter/_lib/veckoNotis";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -250,6 +251,18 @@ export async function byggMeddelande(n: any): Promise<{ title: string; body: str
       body: `${p.period} ändrades${p.andrare_id ? ` av ${andrareNamn}` : ""} (${datumStr}). Det godkända valet behöver granskas igen.`,
       url,
       tag: `atk-${p.medarbetare_id}-${p.period}`,
+    };
+  }
+
+  if (n.typ === "helikopter_vecka") {
+    // Onsdagsnotisen (helikopter_notis_vecka, migration 20260912110200). payload = rådatan
+    // ur helikopter_ny_*; texten byggs här av den rena, testade formateraren.
+    const p = n.payload || {};
+    return {
+      title: "Veckoläge",
+      body: formateraVeckoNotis(p),
+      url: "/helikopter?flik=uppfoljning",
+      tag: `helikopter-vecka-${n.mottagare_id}-${n.datum || n.id || ""}`,
     };
   }
 

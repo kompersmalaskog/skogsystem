@@ -12,6 +12,7 @@ import { Kort, KortLank, SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton }
 import { ListRad, Lista, Sektion } from './Lista'
 import { knapp } from './Tillstand'
 import BolagSheet from './BolagSheet'
+import { skickaVeckoNotis } from '../_lib/queries'
 
 type Props = {
   spar: SparLage[]
@@ -26,9 +27,11 @@ type Props = {
   antalPlanerade: Record<Typ, number>
   ar: number
   manad: number
+  /** Admin/chef ser "Skicka veckoläge nu" (onsdagsnotisen). */
+  arAdmin: boolean
 }
 
-export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad }: Props) {
+export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad, arAdmin }: Props) {
   const [oppen, setOppen] = useState<Typ | null>(null)
   return (
     <>
@@ -36,6 +39,7 @@ export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, 
         <UppfoljningKort key={s.typ} s={s} status={status} antalPlanerade={antalPlanerade[s.typ]} ar={ar} manad={manad} onOppnaBolag={() => setOppen(s.typ)} />
       ))}
       <MaskinSektion maskiner={maskiner} fel={maskinerFel} onRetry={onRetryMaskiner} manadNamn={MANAD_NAMN[manad - 1]} />
+      {arAdmin && <VeckoNotisSektion />}
       {oppen && (
         <BolagSheet
           open
@@ -168,6 +172,47 @@ function MaskinSektion({ maskiner, fel, onRetry, manadNamn }: { maskiner: Maskin
           )}
         </Sektion>
       ))}
+    </Lista>
+  )
+}
+
+/**
+ * ONSDAGSNOTIS (admin): manuell utlösare för veckoläget som pushas onsdagar 12:00
+ * (helikopter_notis_vecka + notis_kö). Knappen köar och tömmer kön direkt; texten
+ * är samma som den automatiska. Tillståndet står under knappen — aldrig alert().
+ */
+function VeckoNotisSektion() {
+  const [lage, setLage] = useState<{ status: 'vila' | 'skickar' | 'klar' | 'fel'; text: string | null }>({ status: 'vila', text: null })
+  const skickar = lage.status === 'skickar'
+  async function skicka() {
+    setLage({ status: 'skickar', text: null })
+    const r = await skickaVeckoNotis()
+    if (r.error !== null || r.data == null) { setLage({ status: 'fel', text: 'Kunde inte skicka – försök igen' }); return }
+    if (r.data.antal === 0) { setLage({ status: 'fel', text: 'Ingen mottagare hittades' }); return }
+    const vem = r.data.antal === 1 ? '1 mottagare' : `${r.data.antal} mottagare`
+    setLage({ status: 'klar', text: r.data.skickadNu ? `Skickad till ${vem}` : `Köad till ${vem} – går inom 5 minuter` })
+  }
+  return (
+    <Lista>
+      <Sektion rubrik="Onsdagsnotis">
+        <div style={{ fontSize: 14, color: T.t2, fontFamily: T.ff, padding: '8px 0 12px' }}>
+          Veckoläget pushas onsdagar 12:00. Samma text kan skickas nu.
+        </div>
+        <button
+          type="button"
+          onClick={skicka}
+          disabled={skickar}
+          aria-busy={skickar}
+          style={{ ...knapp, width: '100%', opacity: skickar ? 0.4 : 1, cursor: skickar ? 'default' : 'pointer' }}
+        >
+          {skickar ? 'Skickar…' : 'Skicka veckoläge nu'}
+        </button>
+        {lage.text && (
+          <div role="status" style={{ fontSize: 14, color: lage.status === 'fel' ? T.orange : T.t2, fontFamily: T.ff, fontVariantNumeric: 'tabular-nums', padding: '10px 0 4px' }}>
+            {lage.text}
+          </div>
+        )}
+      </Sektion>
     </Lista>
   )
 }

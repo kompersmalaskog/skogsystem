@@ -260,6 +260,7 @@ export default function HelikopterVy() {
             antalPlanerade={antalPlanerade}
             ar={ar}
             manad={manad}
+            arAdmin={medarbetare?.roll === 'admin' || medarbetare?.roll === 'chef'}
           />
         )}
       </PageContainer>
