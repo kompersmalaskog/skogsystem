@@ -14,6 +14,7 @@ import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
+import { hyttsparTillLinjer, hyttsparDugligaSegment } from '../../lib/hyttspar'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -3205,6 +3206,10 @@ export default function PlannerPage() {
   const [korvyForceRoll, setKorvyForceRoll] = useState<'skordare' | 'skotare' | null>(null);
   type StrakRad = { id: string; maskin_id: string; strak_nr: number; geometri: [number, number][]; langd_m: number };
   const [strakData, setStrakData] = useState<StrakRad[]>([]);
+  // KÄLLBYTE: 'gps' = skördarens RIKTIGA hyttspår (verifierat), 'rekonstruerad' = skordarstrak (arbets-
+  // positioner mellan stopp), null = inget. Driver källmärkningen i skotarpanelen. Data-gejtat: hyttspar
+  // används bara om det har dugliga segment (≥5 pkt & ≥30 m), annars osynlig fallback på skordarstrak.
+  const [strakKalla, setStrakKalla] = useState<'gps' | 'rekonstruerad' | null>(null);
   // Valt/aktivt stråk identifieras med composite-nyckeln "maskin_id|strak_nr" (se strakKeyAv).
   const [valtStrakKey, setValtStrakKey] = useState<string | null>(null);
   // Autopanelen: KOMPAKT är default — hela listan åt halva skärmen i fält. Utfälld = förarens
@@ -3237,10 +3242,14 @@ export default function PlannerPage() {
 
   const uppdateraHyttsparLager = useCallback(() => {
     const map = mapInstanceRef.current; if (!map) return;
-    const coords = hyttsparPointsRef.current.map(p => [p.lng, p.lat]);
     try {
       const src = map.getSource('hyttspar-egen-source') as any;
-      if (src) src.setData({ type: 'FeatureCollection', features: coords.length >= 2 ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }] : [] });
+      // FANTOMLINJE-FIX (delad hjälpare): dela punkterna i segment vid tidsglapp → ett segment per
+      // sammanhängande körning. Ritas hela arrayen som EN linje bryggas glappen (app stängd) med en
+      // rak fantomlinje. Nu = en LineString per segment, ingen brygga.
+      const features = hyttsparTillLinjer(hyttsparPointsRef.current as any)
+        .map(coords => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
+      if (src) src.setData({ type: 'FeatureCollection', features });
     } catch { /* */ }
   }, []);
 
@@ -3350,10 +3359,12 @@ export default function PlannerPage() {
       const { data, error } = await supabase.from('hyttspar')
         .select('points').eq('objekt_id', objektId).eq('roll', roll);
       if (error) { console.error('[Hyttspår] andras-hämtning:', error.message); return; }
+      // FANTOMLINJE-FIX (samma delade hjälpare som eget-spåret): varje rad delas dessutom i SEGMENT
+      // vid interna tidsglapp (app stängd mitt i passet) → en LineString per segment, ingen rak brygga
+      // över glappet. Förr: en LineString per rad (bryggade interna glapp — Martins fältfynd).
       const features = (data || [])
-        .map((r: any) => (Array.isArray(r.points) ? r.points : []))
-        .filter((pts: any[]) => pts.length >= 2)
-        .map((pts: any[]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: pts.map((p: any) => [p.lng, p.lat]) }, properties: {} }));
+        .flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []))
+        .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
       const src = map.getSource('hyttspar-andras-source') as any;
       if (src) src.setData({ type: 'FeatureCollection', features });
       setAndrasSparTid(Date.now());
@@ -3370,18 +3381,41 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, valtObjekt?.id, hyttRoll]);
 
-  // Hämta skördarstråk för valt objekt (bara i skotarkörvy). objekt_id = objekt.id (uuid) = valtObjekt.id.
+  // Stråk-KÄLLA för valt objekt (bara i skotarkörvy). objekt_id = objekt.id (uuid) = valtObjekt.id.
+  // KÄLLBYTE: föredra skördarens RIKTIGA hyttspår (roll=skordare) framför den rekonstruerade
+  // skordarstrak (arbetspositioner mellan stopp). Data-gejtat: hyttsparet används bara om det har
+  // DUGLIGA segment (≥5 pkt & ≥30 m efter tidsglapp-segmentering) → annars OSYNLIG fallback på
+  // skordarstrak som förr. Klumpning + rendering är källa-agnostiska (läser bara geometri) → oförändrade.
   useEffect(() => {
-    if (!skotarKorvy || !valtObjekt?.id) { setStrakData([]); return; }
+    if (!skotarKorvy || !valtObjekt?.id) { setStrakData([]); setStrakKalla(null); return; }
     let avbruten = false;
+    const objektId = valtObjekt.id;
     (async () => {
+      // 1) Riktigt hyttspår (skördaren)? Segmentera varje session, behåll dugliga segment.
+      let gpsRader: StrakRad[] = [];
+      try {
+        const { data: hs } = await supabase.from('hyttspar')
+          .select('points').eq('objekt_id', objektId).eq('roll', 'skordare');
+        if (avbruten) return;
+        let nr = 0;
+        for (const rad of (hs || [])) {
+          for (const seg of hyttsparDugligaSegment(Array.isArray((rad as any).points) ? (rad as any).points : [])) {
+            nr += 1;
+            gpsRader.push({ id: `hyttspar-${nr}`, maskin_id: 'hyttspar', strak_nr: nr, geometri: seg.geometri, langd_m: seg.langd_m });
+          }
+        }
+      } catch (e) { console.error('[Skotarkörvy] hyttspår-hämtning:', e); }
+
+      if (gpsRader.length > 0) { setStrakData(gpsRader); setStrakKalla('gps'); return; }
+
+      // 2) Fallback: rekonstruerad skordarstrak (som förr).
       const { data, error } = await supabase
         .from('skordarstrak')
         .select('id, maskin_id, strak_nr, geometri, langd_m')
-        .eq('objekt_id', valtObjekt.id)
+        .eq('objekt_id', objektId)
         .order('strak_nr', { ascending: true });
       if (avbruten) return;
-      if (error) { console.error('[Skotarkörvy] skordarstrak-hämtning:', error); setStrakData([]); return; }
+      if (error) { console.error('[Skotarkörvy] skordarstrak-hämtning:', error); setStrakData([]); setStrakKalla(null); return; }
       const rader: StrakRad[] = (data || []).map((r: any) => ({
         id: String(r.id),
         maskin_id: String(r.maskin_id ?? ''),
@@ -3390,6 +3424,7 @@ export default function PlannerPage() {
         langd_m: r.langd_m ?? 0,
       })).filter((r: StrakRad) => r.geometri.length >= 2);
       setStrakData(rader);
+      setStrakKalla(rader.length > 0 ? 'rekonstruerad' : null);
     })();
     return () => { avbruten = true; };
   }, [skotarKorvy, valtObjekt?.id]);
@@ -11970,6 +12005,15 @@ export default function PlannerPage() {
               borderRadius: 18, padding: '12px 14px', zIndex: 250, color: '#fff', cursor: 'pointer',
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
             }}>
+            {/* KÄLLMÄRKNING: visar OM stråklinjerna är skördarens riktiga hyttspår (verifierat) eller
+                den rekonstruerade skordarstrak (arbetspositioner mellan stopp). Data-gejtat i fetchen. */}
+            {strakKalla && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, fontSize: 11, fontWeight: 600, letterSpacing: 0.3,
+                  color: strakKalla === 'gps' ? '#30d158' : '#8e8e93' }}>
+                <span style={{ width: 7, height: 7, borderRadius: 4, background: strakKalla === 'gps' ? '#30d158' : '#8e8e93', flexShrink: 0 }} aria-hidden="true" />
+                {strakKalla === 'gps' ? 'Verifierat GPS-spår' : 'Uppskattat'}
+              </div>
+            )}
             {/* KOMPAKT rubrik: allt föraren behöver på EN rad — "Stråk N · X m³ kvar".
                 Versaletiketten är utfälld-lägets lyx; i kompakt kostar den en hel rad höjd, och
                 mätt på 375–412 px vred den rubriken till två rader. */}
