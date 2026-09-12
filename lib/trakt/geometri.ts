@@ -13,12 +13,35 @@ const SWEREF99TM = '+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +unit
 
 // Känd lager-mappning: filnamn (utan ändelse) -> logisk typ. FLBESKR i dbf:en bär
 // underbeskrivningen (t.ex. "Basväg", "Kraftledning", "Larmkoordinat").
+// Referenslagren (fornlämning/nyckelbiotop/skogsbruksplan/fastighetsgräns) klassas så de kan
+// tändas med egna lagerknappar (default AV) i stället för att ligga som 'okänt' och skräpa.
 const LAGER: { namn: string; typ: string }[] = [
   { namn: 'L_TRAKTDEL', typ: 'traktgräns' },
   { namn: 'L_TILLAGGSYTOR', typ: 'hänsynsyta' },
   { namn: 'L_TILLAGGSLINJER', typ: 'linje' },
   { namn: 'L_TILLAGGSPUNKTER', typ: 'punkt' },
+  // Riksantikvarieämbetet — fornlämningar (yta/punkt/linje). Kör man sönder en är det brott.
+  { namn: 'L_RAA_POLY_101', typ: 'fornlämning' },
+  { namn: 'L_RAA_POINT_101', typ: 'fornlämning' },
+  { namn: 'L_RAA_LINE_101', typ: 'fornlämning' },
+  // Skogsstyrelsen — nyckelbiotoper/naturvärden/naturvårdsavtal. Påverkar vad som får avverkas.
+  { namn: 'SV_SKS_NYCKELBIOTOP_101', typ: 'nyckelbiotop' },
+  { namn: 'L_SKS_NATURVARDEN_101', typ: 'nyckelbiotop' },
+  { namn: 'L_SKS_NATURVARDSAVTAL_101', typ: 'nyckelbiotop' },
+  // Skogsbruksplanens avdelningar (bär GrönKommentar-text i ANTECKNING).
+  { namn: 'SV_BESKRIVNINGSENHET_FL', typ: 'skogsbruksplan' },
+  // Fastighetsgränser (~1,6 kB/feature — bloatar inte; behålls för ägogräns-koll).
+  { namn: 'SV_FASTIGHET', typ: 'fastighetsgräns' },
 ];
+
+// Lager vi HOPPAR HELT: region-/riksstora referenspolygoner (upp till 38 000 ha) som aldrig
+// är meningsfulla på trakt-nivå och stod för ~90 % av den lagrade geometrin (886312: 410 kB,
+// 98 av 109 features okända). Läses inte ens in (spar parse av vertex-tunga jättepolygoner);
+// hoppet loggas i varningar så vi märker om VIDA börjar leverera dem på ett vettigt sätt.
+const HOPPA_LAGER = new Set(
+  ['L_LST_NATURVARD_101', 'L_NVV_FRILUFTSLIV_101', 'L_NVV_NATURA2000_101', 'L_NVV_NATURRESERVAT_101']
+    .map((s) => s.toLowerCase()),
+);
 
 export interface GeoLager {
   namn: string;
@@ -144,6 +167,13 @@ export async function packaGeometri(bilagor: Map<string, Buffer>, ogiXml?: strin
 
   for (const shp of shpNamn) {
     const bas = shp.replace(/\.shp$/i, '');
+
+    // Region-/riksstora referenslager: hoppa HELT (läs inte ens in), logga att det gjordes.
+    if (HOPPA_LAGER.has(bas.toLowerCase())) {
+      varningar.push(`Hoppade över lagret "${bas}" — region-/riksstort referenslager (upp till tiotusentals ha), ej trakt-relevant. Importeras inte.`);
+      continue;
+    }
+
     const konf = LAGER.find((l) => l.namn.toLowerCase() === bas.toLowerCase());
     const typ = konf?.typ ?? 'okänt';
     if (!konf) {
