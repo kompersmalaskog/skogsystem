@@ -9,6 +9,7 @@ import OversiktObjektLista from './OversiktObjektLista';
 import { Maskin, MaskinKoItem, OversiktObjekt, TabId, C } from './oversikt-types';
 import { globalCss, ff } from './oversikt-styles';
 import { objektSkotat, type SkotareManuellRad } from '@/lib/skotat';
+import { maskinVisningsnamn } from '@/lib/maskinNamn';
 
 const OBJEKT_SELECT = `id, namn, vo_nummer, typ, atgard, status, volym, areal, lat, lng, ar, manad, bolag, markagare, markagare_tel,
   barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text,
@@ -56,8 +57,9 @@ async function fetchAllRows<T>(query: () => any): Promise<T[]> {
   return all;
 }
 
-// Maskinnamn = tillverkare + modell (identiskt med uppföljningens getMachineLabel) — grupperingsetikett.
-function getMachineLabel(m: any): string { return m ? ((m.visningsnamn || '').trim() || [m.tillverkare, m.modell].filter(Boolean).join(' ')) : ''; }
+// Maskinnamn (grupperingsetikett) = appens ENA maskinnamn, lib/maskinNamn → maskinVisningsnamn:
+// visningsnamn (admin-satt) först, annars tillverkare + modell. Delas nu med uppföljningen och resten
+// av appen (helikopter/ekonomi/kalibrering m.fl.) — kan inte längre driva isär. Se lib/maskinNamn.ts.
 
 export default function OversiktPage() {
   // Default = Objekt (uppgiftslistan "vad ska jag göra idag") — kartan är ett tryck bort.
@@ -211,8 +213,8 @@ export default function OversiktPage() {
       skmap[k].egenSkotning = egenByVo.has(k);
       const lassId = lassMaskinByVo[k] || null;
       const tilldId = tilldByVo[k] || null;
-      const namnLass = lassId ? getMachineLabel(maskinMap.get(lassId)) : '';
-      const namnTilld = tilldId ? getMachineLabel(maskinMap.get(tilldId)) : '';
+      const namnLass = lassId ? maskinVisningsnamn(maskinMap.get(lassId)) : '';
+      const namnTilld = tilldId ? maskinVisningsnamn(maskinMap.get(tilldId)) : '';
       skmap[k].skotareKalla = namnLass ? 'lass' : namnTilld ? 'tilldelad' : null;
       skmap[k].tilldeladSkotare = namnLass || namnTilld || null;
       skmap[k].skotareAvvikelse = (lassId && tilldId && lassId !== tilldId && namnLass && namnTilld) ? { lass: namnLass, tilldelad: namnTilld } : null;
