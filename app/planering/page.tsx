@@ -1543,6 +1543,9 @@ export default function PlannerPage() {
     // Hänsynsytor — blå fylld yta + kontur
     map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'line-width': 1.5 }, layout: { visibility: 'none' } });
+    // LOPNR mitt i varje hänsynsyta (symbol på polygon = centroid). Numret kopplar ytan till
+    // traktdirektivets hänsynstabell; tryck på ytan öppnar åtgärdstexten (se handleTraktKlick).
+    map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'LOPNR'], '']], 'text-size': 13, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 1.6 } });
     // Kör & fara — basväg (brun HELDRAGEN, tjock) vs kraftledning (röd STRECKAD, tunnare).
     // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
     map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#a16207'], 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
@@ -2144,6 +2147,9 @@ export default function PlannerPage() {
   const [larmPlacering, setLarmPlacering] = useState(false); // "Peka på karta"-läge (larmkoordinat)
   const larmPlaceringFromRef = useRef<'trakt' | 'karta'>('trakt'); // varifrån flytten startades
   const [larmPopupOpen, setLarmPopupOpen] = useState(false); // popup vid tryck på märket
+  // Tryck på en trakt-feature (hänsynsyta/linje/avlägg) → kort med nr, typ, areal och ÅTGÄRD-texten
+  // (traktdirektivets hänsyns-/körinstruktion, som ligger i ATGARD — inte ANTECKNING).
+  const [traktInfo, setTraktInfo] = useState<{ typ: string; lopnr: string; flbeskr: string; arealHa: number | null; atgard: string; anteckning: string } | null>(null);
   const [larmConfirmDelete, setLarmConfirmDelete] = useState(false);
   const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
   const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
@@ -3653,6 +3659,7 @@ export default function PlannerPage() {
     set('trakt-gr-line', !!overlays.traktGrans);
     set('trakt-hansyn-fill', !!overlays.hansyn);
     set('trakt-hansyn-line', !!overlays.hansyn);
+    set('trakt-hansyn-label', !!overlays.hansyn);
     // Kör & fara: basväg + kraftledning + punkter (avlägg/larm) i samma lager.
     set('trakt-basvag-line', !!overlays.korFara);
     set('trakt-kraftledning-line', !!overlays.korFara);
@@ -4778,6 +4785,50 @@ export default function PlannerPage() {
       map.off('click', 'larm-pin-hit', onLarmClick);
       map.off('mouseenter', 'larm-pin-hit', onEnter);
       map.off('mouseleave', 'larm-pin-hit', onLeave);
+    };
+  }, [mapLibreReady, larmPlacering]);
+
+  // === Tryck på trakt-feature → kort med nr/typ/areal + ÅTGÄRD-texten ===
+  // Datan finns redan i geometrin (ATGARD = instruktionen). queryRenderedFeatures i
+  // prioritetsordning: avlägg (punkt) > linje > hänsynsyta, så en punkt ovanpå en yta vinner.
+  // Larmet har egen popup (fångas av larm-pin-hit före detta), så det listas inte här.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const LAGER = ['trakt-punkt-circle', 'trakt-basvag-line', 'trakt-kraftledning-line', 'trakt-hansyn-fill'];
+    const onKlick = (e: any) => {
+      if (skotningDrawingRef.current) return;   // urvalsritning: tryck = hörn
+      if (larmPlacering) return;                 // mitt i en larmflytt
+      const lager = LAGER.filter((l) => map.getLayer(l));
+      const träffar = lager.length ? map.queryRenderedFeatures(e.point, { layers: lager }) : [];
+      if (!träffar.length) return;
+      featureClickedRef.current = true;          // hindra att tom-yta-klicket stänger paneler
+      const p = träffar[0].properties || {};
+      const areaRaw = p['SHAPE.STAr'] ?? p['SHAPE_STAr'] ?? p['Shape_Area'];
+      const area = parseFloat(String(areaRaw ?? '').replace(',', '.'));
+      const txt = (v: any) => (v == null ? '' : String(v).trim());
+      setTraktInfo({
+        typ: txt(p._typ),
+        lopnr: txt(p.LOPNR) || txt(p.EXTRA_LABE),   // hänsyn = LOPNR, avlägg = EXTRA_LABE (01-1)
+        flbeskr: txt(p.FLBESKR),
+        arealHa: Number.isFinite(area) && area > 0 ? area / 10000 : null,
+        atgard: txt(p.ATGARD),
+        anteckning: txt(p.ANTECKNING),
+      });
+    };
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const onLeave = () => { map.getCanvas().style.cursor = ''; };
+    for (const l of LAGER) {
+      map.on('click', l, onKlick);
+      map.on('mouseenter', l, onEnter);
+      map.on('mouseleave', l, onLeave);
+    }
+    return () => {
+      for (const l of LAGER) {
+        map.off('click', l, onKlick);
+        map.off('mouseenter', l, onEnter);
+        map.off('mouseleave', l, onLeave);
+      }
     };
   }, [mapLibreReady, larmPlacering]);
 
@@ -13652,6 +13703,53 @@ export default function PlannerPage() {
       )}
 
       {/* Larmkoordinat: popup vid tryck på märket — tillfartsväg (SAMMA fält som Larm-fliken), flytta, ta bort */}
+      {/* Trakt-feature-kort: nr, typ, areal + ÅTGÄRD-texten (traktdirektivets instruktion) */}
+      {traktInfo && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
+          onClick={() => setTraktInfo(null)}
+        >
+          <div
+            style={{ background: '#000', borderRadius: '24px', padding: '28px', width: '90%', maxWidth: '500px', border: '1px solid rgba(255,255,255,0.15)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {(() => {
+              const rubrik = traktInfo.flbeskr
+                || (traktInfo.typ === 'hänsynsyta' ? 'Hänsynsyta' : traktInfo.typ === 'linje' ? 'Linje' : traktInfo.typ === 'punkt' ? 'Avlägg' : 'Trakt-objekt');
+              const kontext: string[] = [];
+              if (traktInfo.lopnr) kontext.push(`Nr ${traktInfo.lopnr}`);
+              if (traktInfo.arealHa != null) kontext.push(`${traktInfo.arealHa.toFixed(2)} ha`);
+              const visaAnteckning = traktInfo.anteckning && traktInfo.anteckning !== traktInfo.atgard;
+              const harText = traktInfo.atgard || traktInfo.anteckning;
+              return (
+                <>
+                  <div style={{ fontSize: '19px', fontWeight: 700, color: '#fff', marginBottom: kontext.length ? '2px' : '14px' }}>{rubrik}</div>
+                  {kontext.length > 0 && (
+                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', marginBottom: '16px' }}>{kontext.join(' · ')}</div>
+                  )}
+                  {traktInfo.atgard && (
+                    <div style={{ fontSize: '15px', lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap', marginBottom: visaAnteckning ? '14px' : '20px' }}>{traktInfo.atgard}</div>
+                  )}
+                  {visaAnteckning && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.3)', marginBottom: '4px' }}>Anteckning</div>
+                      <div style={{ fontSize: '14px', lineHeight: 1.5, color: 'rgba(255,255,255,0.75)', whiteSpace: 'pre-wrap' }}>{traktInfo.anteckning}</div>
+                    </div>
+                  )}
+                  {!harText && (
+                    <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)', marginBottom: '20px' }}>Ingen åtgärdstext i traktdirektivet för den här ytan.</div>
+                  )}
+                  <button onClick={() => setTraktInfo(null)}
+                    style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '15px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Stäng
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
       {larmPopupOpen && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
