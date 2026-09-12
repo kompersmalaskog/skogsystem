@@ -46,7 +46,8 @@ async function fetchAllRows<T>(query: () => any): Promise<T[]> {
   const all: T[] = [];
   let offset = 0;
   while (true) {
-    const { data } = await query().range(offset, offset + PAGE - 1);
+    const { data, error } = await query().range(offset, offset + PAGE - 1);
+    if (error) throw error;   // ärligt fel — svälj aldrig; ett tyst [] ser ut som en tom databas (ljuger)
     if (!data || data.length === 0) break;
     all.push(...data);
     if (data.length < PAGE) break;
@@ -67,27 +68,41 @@ export default function OversiktPage() {
   const [skordMap, setSkordMap] = useState<Record<string, SkordAgg>>({});
   const [grotAnpassad, setGrotAnpassad] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [fel, setFel] = useState(false);           // FAS A (objekten) gick inte att läsa → ärlig felruta, ej tyst tomt
+  const [skordKlar, setSkordKlar] = useState(false); // FAS B (skord/skotat) klar → listan slutar visa skelett
 
   const fetchAll = async () => {
-    // Core data — small tables, single fetch
-    const [maskinerRes, koRes] = await Promise.all([
-      supabase.from('dim_maskin').select('*').order('modell'),
-      supabase.from('maskin_ko').select('*').order('ordning'),
-    ]);
+    setFel(false);
+    setSkordKlar(false);
 
-    // Fetch ALL objekt with pagination (Supabase default limit is 1000)
-    let allObjekt = await fetchAllRows<any>(() => supabase.from('objekt').select(OBJEKT_SELECT).order('namn'));
-    if (allObjekt.length === 0) {
-      // OBJEKT_SELECT might have invalid columns — fallback to select('*')
-      console.warn('[Översikt] OBJEKT_SELECT returned 0 rows, falling back to select(*)');
-      allObjekt = await fetchAllRows<any>(() => supabase.from('objekt').select('*').order('namn'));
+    // ── FAS A: kärndata (objekten) — måste lyckas. Fel här = ärlig felruta, ALDRIG ett tyst tomt. ──
+    let allObjekt: any[];
+    try {
+      const [maskinerRes, koRes] = await Promise.all([
+        supabase.from('dim_maskin').select('*').order('modell'),
+        supabase.from('maskin_ko').select('*').order('ordning'),
+      ]);
+      // Fetch ALL objekt with pagination (Supabase default limit is 1000)
+      allObjekt = await fetchAllRows<any>(() => supabase.from('objekt').select(OBJEKT_SELECT).order('namn'));
+      if (allObjekt.length === 0) {
+        // OBJEKT_SELECT might have invalid columns — fallback to select('*')
+        console.warn('[Översikt] OBJEKT_SELECT returned 0 rows, falling back to select(*)');
+        allObjekt = await fetchAllRows<any>(() => supabase.from('objekt').select('*').order('namn'));
+      }
+      console.log(`[Översikt] Hämtade ${allObjekt.length} objekt`);
+      setObjekt(allObjekt);
+      if (maskinerRes.data) setMaskiner(maskinerRes.data);
+      if (koRes.data) setMaskinKo(koRes.data);
+    } catch (e) {
+      console.error('[Översikt] kunde inte läsa objekten', e);
+      setFel(true);
+      setLoading(false);
+      return;   // ingen kärndata → visa felrutan, hoppa FAS B
     }
-    console.log(`[Översikt] Hämtade ${allObjekt.length} objekt`);
-    setObjekt(allObjekt);
-    if (maskinerRes.data) setMaskiner(maskinerRes.data);
-    if (koRes.data) setMaskinKo(koRes.data);
     setLoading(false);
 
+    // ── FAS B: skörd/skotat + gruppering. Mjukt fel: listan står kvar (degraderad), inte tömd. ──
+    try {
     // Fetch grot_anpassad from dim_objekt
     const grotRes = await supabase.from('dim_objekt').select('vo_nummer').eq('grot_anpassad', true);
     if (grotRes.data) {
@@ -203,6 +218,13 @@ export default function OversiktPage() {
       skmap[k].skotareAvvikelse = (lassId && tilldId && lassId !== tilldId && namnLass && namnTilld) ? { lass: namnLass, tilldelad: namnTilld } : null;
     }
     setSkordMap(skmap);
+    } catch (e) {
+      // Mjukt fel: skörd/skotat kunde inte läsas. Listan står kvar (utan gruppering/på-backen-summa)
+      // hellre än att tömmas — kärndatan (objekten) syns redan. Logga, degradera tyst i UI.
+      console.warn('[Översikt] skörd/skotat-data kunde inte läsas — listan visas utan gruppering', e);
+    } finally {
+      setSkordKlar(true);   // sluta visa skelett oavsett utfall (annars hänger listan i skelett)
+    }
   };
 
   useEffect(() => { fetchAll(); }, []);
@@ -227,8 +249,19 @@ export default function OversiktPage() {
       <style>{globalCss}</style>
 
       {loading ? (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.t3 }}>
-          Laddar...
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.t3, fontSize: 14 }}>
+          Laddar objekt…
+        </div>
+      ) : fel ? (
+        // Ärlig felruta — INTE ett tyst tomt. Skild från "Inga objekt" (äkta tomt) med tryckbar retry.
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: '0 32px', textAlign: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: C.t1 }}>Kunde inte läsa objekten</div>
+          <div style={{ fontSize: 13, color: C.t3, maxWidth: 260, lineHeight: 1.5 }}>Kontrollera uppkopplingen och försök igen.</div>
+          <button onClick={() => { setLoading(true); fetchAll(); }} style={{
+            minHeight: 44, padding: '0 22px', borderRadius: 12, cursor: 'pointer', fontFamily: ff,
+            fontSize: 14, fontWeight: 600, color: C.t1,
+            background: 'rgba(255,255,255,0.1)', border: `1px solid ${C.borderStrong}`,
+          }}>Försök igen</button>
         </div>
       ) : (
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -283,7 +316,7 @@ export default function OversiktPage() {
             overscrollBehavior: 'contain',
             WebkitOverflowScrolling: 'touch',
           }}>
-            <OversiktObjektLista objekt={objekt} skordMap={skordMap} />
+            <OversiktObjektLista objekt={objekt} skordMap={skordMap} skordKlar={skordKlar} />
           </div>
         </div>
       )}

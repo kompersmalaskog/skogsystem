@@ -16,6 +16,7 @@ import SkotarRad from './SkotarRad';
 interface Props {
   objekt: OversiktObjekt[];
   skordMap: Record<string, SkordAgg>;   // nyckel = vo_nummer
+  skordKlar: boolean;                   // FAS B klar? false = visa skelett (gruppering/på-backen hänger på skordMap)
 }
 
 /** Neutral grå tagg. Färgdisciplin: bara fara (röd) och hänsyn (orange) får färg — allt annat grått. */
@@ -549,7 +550,34 @@ const FARA_OR_FILTER = ['type', 'zoneType', 'lineType', 'arrowType']
   .map((f) => `data->>${f}.in.(${Array.from(FARA_SUBTYPER).join(',')})`)
   .join(',');
 
-export default function OversiktObjektLista({ objekt, skordMap }: Props) {
+/** Listskelett — reserverar rubrik, segment och kortplatser medan skörd/skotat (FAS B) laddas, så
+    listan inte poppar om (gruppering, på-backen-summa och effektiv status hänger alla på skordMap).
+    Samma språk som DetaljSkeleton: stilla grå block, ingen spinner. */
+function ListSkeleton() {
+  const blk = (w: string, h: number, r = 8) => (
+    <div style={{ width: w, height: h, borderRadius: r, background: 'rgba(255,255,255,0.04)' }} />
+  );
+  return (
+    <div aria-hidden="true" style={{ height: '100%', overflowY: 'auto', padding: '0 16px 80px', fontFamily: ff }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0 12px' }}>
+        <div style={{ flex: 1 }}>{blk('52%', 14)}</div>
+        {blk('40px', 40, 12)}
+      </div>
+      {blk('100%', 44, 12)}
+      <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <div key={i} style={{ padding: '13px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}` }}>
+            {blk('58%', 14)}
+            <div style={{ height: 9 }} />
+            {blk('38%', 12)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function OversiktObjektLista({ objekt, skordMap, skordKlar }: Props) {
   const [sel, setSel] = useState<string | null>(null);
   const [statusF, setStatusF] = useState<StatusFilter>('alla');
   const [panelOpen, setPanelOpen] = useState(false);
@@ -690,6 +718,10 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [synligaNyckel]);
 
+  // FAS B (skörd/skotat) ännu inte klar → skelett. Renderar vi listan nu hänger gruppering, på-backen
+  // och effektiv status på en tom skordMap → allt poppar om när den landar. Alla hooks har redan körts.
+  if (!skordKlar) return <ListSkeleton />;
+
   const renderKort = (o: OversiktObjekt) => {
     const sv = statusVisning(o.status);
     const harFara = faraCache[o.id] === true;   // röd fara-markör (lazy, cachead)
@@ -814,7 +846,7 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
       {/* Lista — Pågår grupperas per skotare (arbetslistan); annars en rad per objekt (reglaget kan
           slå på samma gruppering i övriga segment). Grupprubrik = maskin + på-backen-summa. */}
       {li.length === 0 ? (
-        <div style={{ fontSize: 13, color: C.t3, padding: '28px 4px', textAlign: 'center' }}>Inga objekt.</div>
+        <div style={{ fontSize: 13, color: C.t3, padding: '28px 4px', textAlign: 'center' }}>Inga objekt</div>
       ) : grupperaPerMaskin ? (
         grupper.map(g => (
           <div key={g.maskin || 'ej'} style={{ marginBottom: 14 }}>
