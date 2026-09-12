@@ -53,13 +53,10 @@ declare global {
   interface Window { maplibregl: any; }
 }
 
-interface ProdAgg { skordareVol: number; skotareVol: number; }
-
 interface Props {
   objekt: OversiktObjekt[];
   maskiner: Maskin[];
   maskinKo: MaskinKoItem[];
-  prodMap: Record<string, ProdAgg>;
   skordMap: Record<string, SkordAgg>;   // vo-nyckel — för skotar-tillståndet (ring + ObjCard-rad)
 }
 
@@ -447,10 +444,9 @@ function ObjCard({ obj, warnings, koPlats, devicePos, skotar }: {
 
 /* ── Förar-sheet (Beslut 1): Nu störst + dragbart för Härnäst-listan ──
    Read-only. Källa: maskin_ko sorterad på ordning. Tryck → öppnar ObjCard. */
-function DriverSheet({ queue, maskinNamn, prodMap, warningsByObj, onSelect }: {
+function DriverSheet({ queue, maskinNamn, warningsByObj, onSelect }: {
   queue: OversiktObjekt[];
   maskinNamn: string | null;
-  prodMap: Record<string, ProdAgg>;
   warningsByObj: Record<string, ObjWarnings>;
   onSelect: (id: string) => void;
 }) {
@@ -868,7 +864,7 @@ function buildMarkerEl(
 }
 
 /* ════════════════════════════════════════════════════════════════ */
-export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskiner, maskinKo: propMaskinKo, prodMap, skordMap }: Props) {
+export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskiner, maskinKo: propMaskinKo, skordMap }: Props) {
   // Self-fetch: OversiktKarta äger sin egen data så förarvyn kan berika objekt
   // (kolumner som page.tsx:OBJEKT_SELECT saknar), läsa inloggad medarbetare och
   // köra realtime — utan att röra page.tsx (parallellt spår arbetar där).
@@ -1771,7 +1767,6 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         <DriverSheet
           queue={driverQueue}
           maskinNamn={(() => { const m = maskiner.find(x => x.maskin_id === driverMaskinId); return m ? getMaskinDisplayName(m) : (driverMaskinId ?? null); })()}
-          prodMap={prodMap}
           warningsByObj={warningsByObj}
           onSelect={(id) => setSelectedId(id)}
         />
