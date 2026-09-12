@@ -251,11 +251,11 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 5. Auto-avslut av skotning: öppna objekt (skotning_avslutad NULL, ej _auto)
 --    som har produktion, där senaste fakt_produktion.datum OCH senaste
---    fakt_lass.datum båda är äldre än p_dagar (14) → skotning_avslutad_auto = true.
---    Objekt utan lass alls räknas som "inga lass på 14 dagar". Returnerar det
+--    fakt_lass.datum båda är äldre än p_dagar (30, var 14 t.o.m. 2026-09-12) → skotning_avslutad_auto = true.
+--    Objekt utan lass alls räknas som "inga lass på 30 dagar". Returnerar det
 --    som stängdes. SECURITY DEFINER; bara service_role/cron får köra.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION helikopter_auto_avslut_skotning(p_idag date DEFAULT CURRENT_DATE, p_dagar int DEFAULT 14)
+CREATE OR REPLACE FUNCTION helikopter_auto_avslut_skotning(p_idag date DEFAULT CURRENT_DATE, p_dagar int DEFAULT 30)
 RETURNS TABLE (objekt_id text, object_name text, senast_produktion date, senast_lass date)
 LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = public AS $$
   WITH kand AS (
@@ -281,7 +281,7 @@ GRANT EXECUTE ON FUNCTION helikopter_auto_avslut_skotning(date, int) TO service_
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
-    PERFORM cron.schedule('helikopter_auto_avslut_skotning', '20 3 * * *', 'SELECT public.helikopter_auto_avslut_skotning()');
+    PERFORM cron.schedule('helikopter_auto_avslut_skotning', '20 3 * * *', 'SELECT public.helikopter_auto_avslut_skotning(CURRENT_DATE, 30)');
   END IF;
 END $$;
 

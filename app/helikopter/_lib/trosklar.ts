@@ -16,8 +16,12 @@ export const PA_PLAN_GRANS_DAGAR = 1
 /** Oskotat räknas "i takt" när förändringen per dag ligger inom ± ett halvt lass. */
 export const OSKOTAT_I_TAKT_M3_PER_DAG = 8
 
-/** Auto-avslut av skotning: öppna objekt utan produktion OCH lass på så här många dagar stängs (skotning_avslutad_auto). SQL-default i helikopter_auto_avslut_skotning(p_dagar). */
-export const AUTO_AVSLUT_DAGAR = 14
+/**
+ * Auto-avslut av skotning: öppna objekt utan produktion OCH lass på så här många dagar stängs (skotning_avslutad_auto).
+ * 30, inte 14: skotaren kommer ofta mer än två veckor efter skördaren — med 14 stängdes objekt som bara väntade på skotaren.
+ * SQL-default i helikopter_auto_avslut_skotning(p_dagar) och cron-raden (20260912110100) säger samma sak.
+ */
+export const AUTO_AVSLUT_DAGAR = 30
 
 /** Bolagets historiska avvikelse (verklig/planerad volym) används först vid så här många avslutade objekt. */
 export const MIN_HISTORIK_OBJEKT = 5
