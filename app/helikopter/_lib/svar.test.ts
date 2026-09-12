@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { atgardForMaskin, belaggning, lageSvar, motBestallningRad, planeratPerTyp, planeringSvar, raknaSpar, valjBas, type PlaneratResultat } from './berakningar'
+import { atgardForMaskin, belaggning, flodesText, lageSvar, motBestallningRad, planeratPerTyp, planeringSvar, raknaSpar, valjBas, type PlaneratResultat } from './berakningar'
 import type { Arbetsdagar, Maskin, PlaneringObjekt, SparRad, Typ } from './queries'
 
 const dagar: Arbetsdagar = { maskin_id: null, totalt: 22, gangna: 6, kvar: 16, gangna_datum: [], kvar_datum: [] }
@@ -13,12 +13,20 @@ const gall = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 187, skotat: 3
 
 describe('Läge svarsrad', () => {
   it('september 2026: slutavverkning efter, skotaren flaskhals', () => {
-    const s = lageSvar([gall, slut], { gallring: 0, slutavverkning: 5 }, 'pagaende', dagar)
-    expect(s).toEqual({ rubrik: 'Slutavverkning 6 dagar efter', rad: 'Skotaren är flaskhals · 1 267 m³fub ligger i skogen'.replace(/ /g, ' ').replace('1 267', (1267).toLocaleString('sv-SE')), avvikelse: true })
+    const s = lageSvar([gall, slut], { gallring: 0, slutavverkning: 5 }, 'pagaende', dagar, 'september')
+    expect(s).toEqual({ rubrik: 'Slutavverkning 6 dagar efter', rad: `Skotaren är flaskhals · ${(1267).toLocaleString('sv-SE')} m³fub efter skördaren i september`, avvikelse: true })
+  })
+  it('flödestexten: flaskhals / tar igen / skotar ut föregående månad', () => {
+    expect(flodesText(slut, 'september')).toBe(`Skotaren är flaskhals · ${(1267).toLocaleString('sv-SE')} m³fub efter skördaren i september`)
+    const tarIgen = raknaSpar(rad('slutavverkning', { oskotat_forandring_per_dag: -40 }), dagar)
+    expect(flodesText(tarIgen, 'september')).toBe(`Skotaren tar igen · ${(1267).toLocaleString('sv-SE')} m³fub efter skördaren`)
+    expect(flodesText(gall, 'september')).toBe(`Skotar ut föregående månad · ${(169).toLocaleString('sv-SE')} m³fub före skördaren`)
+    expect(flodesText(raknaSpar(rad('gallring', { skordat: 100, skotat: 100 }), dagar), 'september')).toBeNull()
+    expect(JSON.stringify([slut, gall, tarIgen].map(x => flodesText(x, 'september')))).not.toContain('ligger i skogen')
   })
   it('spår utan objekt när det andra är på plan', () => {
     const ok = raknaSpar(rad('slutavverkning', { skotat: 1400, takt_skotat: 260, oskotat_forandring_per_dag: 0 }), dagar)
-    const s = lageSvar([gall, ok], { gallring: 0, slutavverkning: 5 }, 'pagaende', dagar)
+    const s = lageSvar([gall, ok], { gallring: 0, slutavverkning: 5 }, 'pagaende', dagar, 'september')
     expect(s.rubrik).toBe('Gallring: inga objekt planerade')
     expect(s.rad).toBe('Slutavverkning på plan')
     expect(s.avvikelse).toBe(false)
@@ -26,12 +34,12 @@ describe('Läge svarsrad', () => {
   it('allt på plan', () => {
     const ok = raknaSpar(rad('slutavverkning', { skotat: 1400, takt_skotat: 260, oskotat_forandring_per_dag: 0 }), dagar)
     const okG = raknaSpar(rad('gallring', { bestallt: 1000, skotat: 280, takt_skotat: 60, skordat: 300, oskotat_forandring_per_dag: 2 }), dagar)
-    expect(lageSvar([okG, ok], { gallring: 2, slutavverkning: 5 }, 'pagaende', dagar)).toEqual({ rubrik: 'På plan · båda spåren', rad: null, avvikelse: false })
+    expect(lageSvar([okG, ok], { gallring: 2, slutavverkning: 5 }, 'pagaende', dagar, 'september')).toEqual({ rubrik: 'På plan · båda spåren', rad: null, avvikelse: false })
   })
   it('ingen beställning', () => {
     const a = raknaSpar(rad('slutavverkning', { bestallt: 0, skotat: 718 }), dagar)
     const b = raknaSpar(rad('gallring', { bestallt: 0, skotat: 0 }), dagar)
-    expect(lageSvar([b, a], { gallring: 0, slutavverkning: 0 }, 'pagaende', dagar).rubrik).toBe('Ingen beställning inlagd')
+    expect(lageSvar([b, a], { gallring: 0, slutavverkning: 0 }, 'pagaende', dagar, 'september').rubrik).toBe('Ingen beställning inlagd')
   })
   it('underraden mot beställning', () => {
     expect(motBestallningRad(slut, 5, 'pagaende', 'september').text).toBe(`Kör ${(114).toLocaleString('sv-SE')}/dag · behöver ${(268).toLocaleString('sv-SE')} · oskotat växer ${(252).toLocaleString('sv-SE')}/dag`)

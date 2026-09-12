@@ -367,8 +367,24 @@ export function manadStatus(ar: number, manad: number, idag: string): ManadStatu
 // ── Svarsrader: det viktigaste överst, max en avvikelse ─────────────────────
 export type Svar = { rubrik: string; rad: string | null; avvikelse: boolean }
 
+/**
+ * Flödet skördare→skotare i månaden, ur gap = månadens skördat − skotat på spåret.
+ * gap > 0 och minskar: "Skotaren tar igen · N m³fub efter skördaren"
+ * gap > 0 annars:      "Skotaren är flaskhals · N m³fub efter skördaren i <månad>"
+ * gap < 0:             "Skotar ut föregående månad · N m³fub före skördaren"
+ */
+export function flodesText(s: SparLage, manadNamn: string): string | null {
+  const gap = s.oskotat
+  if (gap > 0) {
+    if (s.oskotatStatus === 'minskar') return `Skotaren tar igen · ${fmt(gap)} m³fub efter skördaren`
+    return `Skotaren är flaskhals · ${fmt(gap)} m³fub efter skördaren i ${manadNamn}`
+  }
+  if (gap < 0) return `Skotar ut föregående månad · ${fmt(-gap)} m³fub före skördaren`
+  return null
+}
+
 /** Läge: sämsta spåret. Efter > flaskhals > saknar objekt > väntar på prognos > på plan. */
-export function lageSvar(spar: SparLage[], antalPlanerade: Record<Typ, number>, status: ManadStatus, dagar: Arbetsdagar | null): Svar {
+export function lageSvar(spar: SparLage[], antalPlanerade: Record<Typ, number>, status: ManadStatus, dagar: Arbetsdagar | null, manadNamn: string): Svar {
   const medBest = spar.filter(s => s.bestallt > 0)
   if (status === 'kommande') return { rubrik: 'Inte startad', rad: null, avvikelse: false }
   if (medBest.length === 0) {
@@ -385,17 +401,18 @@ export function lageSvar(spar: SparLage[], antalPlanerade: Record<Typ, number>, 
   const efter = aktiva.filter(s => s.lage?.status === 'efter').sort((a, b) => (b.lage?.dagar ?? 0) - (a.lage?.dagar ?? 0))
   if (efter.length > 0) {
     const s = efter[0]
-    const flaskhals = s.oskotat > (s.taktSkotat ?? 0)
+    // Mer än en dags skotning mellan skördare och skotare (åt något håll) → flödestexten, annars takten.
+    const flode = Math.abs(s.oskotat) > (s.taktSkotat ?? 0) ? flodesText(s, manadNamn) : null
     return {
       rubrik: `${TYP_NAMN[s.typ]} ${dagarText(s.lage?.dagar ?? 0)} efter`,
-      rad: flaskhals ? `Skotaren är flaskhals · ${fmt(s.oskotat)} m³fub ligger i skogen` : `Kör ${fmt(s.taktSkotat ?? 0)}/dag · behöver ${fmt(s.behovPerDag ?? 0)}`,
+      rad: flode ?? `Kör ${fmt(s.taktSkotat ?? 0)}/dag · behöver ${fmt(s.behovPerDag ?? 0)}`,
       avvikelse: true,
     }
   }
   const flask = aktiva.filter(s => s.harPrognos && s.oskotatStatus === 'vaxer' && s.oskotat > (s.taktSkotat ?? 0)).sort((a, b) => b.oskotat - a.oskotat)
   if (flask.length > 0) {
     const s = flask[0]
-    return { rubrik: `${TYP_NAMN[s.typ]}: skotaren är flaskhals`, rad: `${fmt(s.oskotat)} m³fub ligger i skogen · växer ${fmt(s.oskotatForandring ?? 0)}/dag`, avvikelse: true }
+    return { rubrik: `${TYP_NAMN[s.typ]}: skotaren är flaskhals`, rad: `${fmt(s.oskotat)} m³fub efter skördaren i ${manadNamn} · växer ${fmt(s.oskotatForandring ?? 0)}/dag`, avvikelse: true }
   }
   const utanObjekt = medBest.filter(s => antalPlanerade[s.typ] === 0)
   if (utanObjekt.length > 0) {

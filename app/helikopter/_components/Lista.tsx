@@ -120,11 +120,11 @@ export function MatarRad({ ikon, label, varde, av, andel, planAndel, orange, for
 }
 
 /** Listrad 44 pt med chevron. Smakprov i text-secondary efter punkt. */
-export function ListLank({ text, smakprov, href, onClick }: { text: string; smakprov?: string; href?: string; onClick?: () => void }) {
+export function ListLank({ text, smakprov, href, onClick, orange }: { text: string; smakprov?: string; href?: string; onClick?: () => void; orange?: boolean }) {
   const stil: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', minHeight: 44,
     padding: '0 2px', background: 'transparent', border: 'none', borderTop: KANT, textAlign: 'left',
-    color: T.t1, fontSize: 15, fontFamily: T.ff, cursor: 'pointer', textDecoration: 'none',
+    color: orange ? T.orange : T.t1, fontSize: 15, fontFamily: T.ff, cursor: 'pointer', textDecoration: 'none',
   }
   const inre = (
     <>

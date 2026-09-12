@@ -7,11 +7,11 @@ import { useState } from 'react'
 import { Trees, Truck } from 'lucide-react'
 import { kapacitetsMaskiner, lageSvar, motBestallningRad, TYP_NAMN, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, dagarText, fmt, kortNamn } from '../_lib/format'
-import type { Arbetsdagar, BestallningRad, Maskin, MaskinLage, Typ } from '../_lib/queries'
+import type { Arbetsdagar, BestallningRad, Maskin, MaskinLage, Typ, UtanTypRad } from '../_lib/queries'
 import { KANT, ListLank, ListRad, Lista, MatarRad, Sektion, Svarsrad, TEXT_MUTED } from './Lista'
 import { knapp } from './Tillstand'
-import VarVirketSheet from './VarVirketSheet'
 import MaskinerSheet from './MaskinerSheet'
+import UtanTypSheet from './UtanTypSheet'
 import { T } from '@/lib/utbildning'
 
 type Props = {
@@ -23,18 +23,16 @@ type Props = {
   idag: string
   maskiner: Maskin[]
   bestallningar: BestallningRad[]
+  utanTyp: UtanTypRad[] | null
   antalPlanerade: Record<Typ, number>
   dinMaskin: { maskinNamn: string; lage: MaskinLage | null; fel: string | null; onRetry: () => void } | null
 }
 
-export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, antalPlanerade, dinMaskin }: Props) {
-  const [sheet, setSheet] = useState<'virke' | 'maskiner' | null>(null)
-  const svar = lageSvar(spar, antalPlanerade, status, dagar)
+export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, utanTyp, antalPlanerade, dinMaskin }: Props) {
+  const [sheet, setSheet] = useState<'maskiner' | 'utan' | null>(null)
   const manadNamn = MANAD_NAMN[manad - 1]
-
-  // Smakprov "Var virket ligger": topp två över båda spåren.
-  const topp = spar.flatMap(s => s.oskotatObjekt).sort((a, b) => b.oskotat - a.oskotat).slice(0, 2)
-  const smakprov = topp.length > 0 ? topp.map(o => `${kortNamn(o.namn)} ${fmt(o.oskotat)}`).join(', ') : undefined
+  const svar = lageSvar(spar, antalPlanerade, status, dagar, manadNamn)
+  const utanSumma = (utanTyp ?? []).reduce((s, r) => s + r.volym, 0)
 
   return (
     <>
@@ -89,12 +87,17 @@ export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskine
         )}
 
         <div style={{ marginTop: 6 }}>
-          <ListLank text="Var virket ligger" smakprov={smakprov} onClick={() => setSheet('virke')} />
           <ListLank text="Skördare och skotare" onClick={() => setSheet('maskiner')} />
+          {/* Produktion som inte räknas på något spår — syns samma dag, inte när talen inte stämmer. */}
+          {utanTyp == null ? (
+            <ListLank orange text="Objekt utan typ eller bolag kunde inte läsas" smakprov="ladda om" onClick={() => window.location.reload()} />
+          ) : utanTyp.length > 0 && (
+            <ListLank orange text={`${fmt(utanSumma)} m³fub på objekt utan typ eller bolag`} onClick={() => setSheet('utan')} />
+          )}
         </div>
       </Lista>
 
-      <VarVirketSheet open={sheet === 'virke'} onClose={() => setSheet(null)} ar={ar} manad={manad} />
+      <UtanTypSheet open={sheet === 'utan'} onClose={() => setSheet(null)} rader={utanTyp ?? []} manadNamn={manadNamn} />
       <MaskinerSheet open={sheet === 'maskiner'} onClose={() => setSheet(null)} spar={spar} status={status} maskiner={kapacitetsMaskiner(maskiner, idag)} idag={idag} />
     </>
   )

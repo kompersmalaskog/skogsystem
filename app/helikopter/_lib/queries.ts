@@ -113,7 +113,19 @@ export type MaskinManad = {
   senast_datum: string | null
 }
 
-export type OskotatObjekt = { typ: Typ; objekt_id: string; namn: string | null; bolag: string | null; skordat: number; skotat: number; oskotat: number; senast_datum: string | null }
+export type UtanTypRad = {
+  objekt_id: string
+  namn: string | null
+  vo_nummer: string | null
+  huvudtyp: string | null
+  bolag: string | null
+  skordat: number
+  skotat: number
+  /** skördat + skotat i månaden */
+  volym: number
+  senast_datum: string | null
+  objekt_uuid: string | null
+}
 
 export type VeckaRad = {
   isovecka: number
@@ -199,21 +211,25 @@ function normVecka(r: any): VeckaRad {
   }
 }
 
-export type Manadsdata = { spar: SparRad[]; arbetsdagar: Arbetsdagar[]; planering: PlaneringObjekt[]; stopp: StoppRad[]; bestallningar: BestallningRad[] }
+/** utanTyp = null när RPC:n inte gick att läsa — raden visar då ett fel, aldrig "inget". */
+export type Manadsdata = { spar: SparRad[]; arbetsdagar: Arbetsdagar[]; planering: PlaneringObjekt[]; stopp: StoppRad[]; bestallningar: BestallningRad[]; utanTyp: UtanTypRad[] | null }
 
 /** Månadsberoende: spår, arbetsdagar, månadens objekt. Hämtas om vid månadsbyte. */
 export async function hamtaManadsdata(ar: number, manad: number, idag: string): Promise<Svar<Manadsdata>> {
   const forsta = `${ar}-${String(manad).padStart(2, '0')}-01`
   const sista = new Date(ar, manad, 0)
   const sistaIso = `${sista.getFullYear()}-${String(sista.getMonth() + 1).padStart(2, '0')}-${String(sista.getDate()).padStart(2, '0')}`
-  const [spar, dagar, plan, stopp, stoppMaskin, best] = await Promise.all([
+  const [spar, dagar, plan, stopp, stoppMaskin, best, utan] = await Promise.all([
     rpc<any[]>('helikopter_ny_spar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_arbetsdagar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_planering', { p_ar: ar, p_manad: manad }),
     hamtaAlla<any>(() => supabase.from('stopp').select('id,fran_datum,till_datum,orsak').gte('till_datum', forsta).lte('fran_datum', sistaIso), 'id'),
     hamtaAlla<any>(() => supabase.from('stopp_maskin').select('stopp_id,maskin_id'), ['stopp_id', 'maskin_id']),
     hamtaAlla<any>(() => supabase.from('bestallningar').select('id,typ,bolag,volym').eq('ar', ar).eq('manad', manad), 'id'),
+    rpc<any[]>('helikopter_ny_utan_typ', { p_ar: ar, p_manad: manad }),
   ])
+  // utan typ-RPC:n är ett komplement: fel där fäller inte hela fliken utan syns på sin egen rad.
+  if (utan.error != null) console.error('[helikopter] helikopter_ny_utan_typ', utan.error)
   const fel = spar.error ?? dagar.error ?? plan.error ?? (stopp.error ? felText(stopp.error) : null) ?? (stoppMaskin.error ? felText(stoppMaskin.error) : null) ?? (best.error ? felText(best.error) : null)
   if (fel) { if (stopp.error || stoppMaskin.error || best.error) console.error('[helikopter] stopp/bestallningar', stopp.error ?? stoppMaskin.error ?? best.error); return { data: null, error: fel } }
   const maskinerPerStopp = new Map<string, string[]>()
@@ -227,6 +243,10 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
       bestallningar: (best.data ?? [])
         .filter((b: any) => b.typ === 'gallring' || b.typ === 'slutavverkning')
         .map((b: any): BestallningRad => ({ typ: b.typ, bolag: String(b.bolag ?? '').trim(), volym: tal(b.volym) })),
+      utanTyp: utan.error != null ? null : (utan.data ?? []).map((u: any): UtanTypRad => ({
+        objekt_id: String(u.objekt_id), namn: u.namn ?? null, vo_nummer: u.vo_nummer ?? null, huvudtyp: u.huvudtyp ?? null, bolag: u.bolag ?? null,
+        skordat: tal(u.skordat), skotat: tal(u.skotat), volym: tal(u.volym), senast_datum: u.senast_datum ?? null, objekt_uuid: u.objekt_uuid ?? null,
+      })),
     },
     error: null,
   }
@@ -267,19 +287,6 @@ export async function hamtaMaskiner(ar: number, manad: number, idag: string): Pr
       maskin_id: String(m.maskin_id), modell: m.modell ?? null, namn: String(m.namn ?? m.modell ?? m.maskin_id), roll: m.roll === 'skordare' ? 'skordare' : 'skotare',
       volym_manad: tal(m.volym_manad), objekt_namn: m.objekt_namn ?? null, takt_per_dag: talEllerNull(m.takt_per_dag),
       takt_dagar: tal(m.takt_dagar), oskotat_objekt: talEllerNull(m.oskotat_objekt), senast_datum: m.senast_datum ?? null,
-    })),
-    error: null,
-  }
-}
-
-/** Var virket ligger: alla öppna objekt med oskotat, per typ. Lazy när sheeten öppnas. */
-export async function hamtaOskotatObjekt(ar: number, manad: number): Promise<Svar<OskotatObjekt[]>> {
-  const r = await rpc<any[]>('helikopter_ny_oskotat_objekt', { p_ar: ar, p_manad: manad })
-  if (r.error) return { data: null, error: r.error }
-  return {
-    data: (r.data ?? []).map((o: any): OskotatObjekt => ({
-      typ: o.typ, objekt_id: String(o.objekt_id), namn: o.namn ?? null, bolag: o.bolag ?? null,
-      skordat: tal(o.skordat), skotat: tal(o.skotat), oskotat: tal(o.oskotat), senast_datum: o.senast_datum ?? null,
     })),
     error: null,
   }
