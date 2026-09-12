@@ -3364,26 +3364,53 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, valtObjekt?.id, hyttRoll]);
 
-  // DIAGNOS (?diag=1): pollar kart-tillståndet var sekund → visar om KÄLLORNA fick data (feature/punkt-
-  // antal) och om LAGREN faktiskt är 'visible'. Skiljer (b) källan får ej data från (c) whitelist/vis-bugg.
+  // DIAGNOS (?diag=1): pollar kart-tillståndet var sekund. RÄTTAD LÄSNING: maplibre-gl v5 (5.24) lagrar
+  // setData-datan som `source._data = {geojson: FeatureCollection}` — INTE `_data = FeatureCollection`
+  // som v4. Förra diagen läste `_data.features` → alltid undefined → falskt "källa saknas" för ALLA
+  // källor (även den etablerade skordarstrak). Nu läses `_data.geojson.features` (med v4-fallback).
+  // DESSUTOM decisivt: E=källan finns · L=isSourceLoaded (worker klar) · Nf/Np=satta features/punkter ·
+  // vw=querySourceFeatures (features i AKTUELL vy). Skiljer (a) data saknas [0f], (b) data finns men
+  // utanför vyn [Nf men vw=0 → kameran tittar fel/zoom], (c) ritas men syns ej [Nf, vw>0, vis=visible
+  // → paint/z-order]. + KAMERA-rad: center/zoom vs pos vs stråkets första koordinat.
   useEffect(() => {
     if (!diagOn || !korvyActive) return;
+    const featsAv = (id: string): any[] => {
+      try {
+        const raw = (mapInstanceRef.current?.getSource(id) as any)?._data;
+        const gj = raw?.geojson ?? raw;                 // v5: {geojson:FC}; v4-fallback: FC direkt
+        return Array.isArray(gj?.features) ? gj.features : [];
+      } catch { return []; }
+    };
     const las = () => {
       const map = mapInstanceRef.current; if (!map) return;
       const srcInfo = (id: string) => {
         try {
-          const d = (map.getSource(id) as any)?._data;
-          const feats = Array.isArray(d?.features) ? d.features : null;
-          if (!feats) return 'källa saknas';
+          const s = map.getSource(id) as any;
+          if (!s) return 'E✗ SAKNAS';
+          const feats = featsAv(id);
           const pts = feats.reduce((n: number, f: any) => n + (f?.geometry?.coordinates?.length || 0), 0);
-          return `${feats.length}f/${pts}p`;
+          let vw = -1; try { vw = map.querySourceFeatures(id).length; } catch { vw = -1; }
+          let L = '?'; try { L = map.isSourceLoaded(id) ? '✓' : '…'; } catch { /* */ }
+          return `E✓ L${L} ${feats.length}f/${pts}p vw=${vw}`;
         } catch { return 'fel' }
       };
       const vis = (id: string) => { try { return map.getLayer(id) ? String(map.getLayoutProperty(id, 'visibility') ?? 'default') : 'EJ LAGER' } catch { return '?' } };
+      // KAMERA vs DATA — allt läst FRÄSKT ur kartan (ej stale React-closure).
+      let kam = '?';
+      try {
+        const c = map.getCenter(); const z = map.getZoom();
+        const s0 = featsAv('skordarstrak-source')[0]?.geometry?.coordinates?.[0]
+                ?? featsAv('hyttspar-egen-source')[0]?.geometry?.coordinates?.[0];
+        const s0txt = Array.isArray(s0) ? `${(+s0[1]).toFixed(4)},${(+s0[0]).toFixed(4)}` : '–';
+        const gc = featsAv('gps-position')[0]?.geometry?.coordinates;
+        const postxt = Array.isArray(gc) ? `${(+gc[1]).toFixed(4)},${(+gc[0]).toFixed(4)}` : 'NULL';
+        kam = `center=${c.lat.toFixed(4)},${c.lng.toFixed(4)} z=${z.toFixed(1)} · pos=${postxt} · data[0]=${s0txt}`;
+      } catch { /* */ }
       setDiagKarta({
         egenSrc: srcInfo('hyttspar-egen-source'), egenVis: vis('hyttspar-egen-line'),
         histSrc: srcInfo('hyttspar-hist-source'), histVis: vis('hyttspar-hist-line'),
         strakSrc: srcInfo('skordarstrak-source'), strakVis: vis('skordarstrak-line'), strakAktivVis: vis('skordarstrak-line-aktiv'),
+        kam,
       });
     };
     las();
@@ -12054,9 +12081,11 @@ export default function PlannerPage() {
           <div style={{ color: '#9f9', marginBottom: 3 }}>HYTTSPÅR-DIAG · objekt {String(valtObjekt?.id ?? '–').slice(0, 8)} "{(valtObjekt?.namn ?? '–')}"</div>
           <div>korvyActive={String(korvyActive)} · skotarKorvy={String(skotarKorvy)} · hyttRoll={String(hyttRoll)} · mapLibreReady={String(mapLibreReady)}</div>
           <div style={{ color: '#6cd0ff' }}>1-2-3 HÄMTAT eget(roll={String(hyttRoll)}): {diagHamt ? `${diagHamt.rader} rader · seg/dag[${diagHamt.segPerDag || '–'}] · mapReady@hämt=${String(diagHamt.mapReady)}` : 'ingen hämtning ännu (roll null?)'}</div>
-          <div style={{ color: '#ffd479' }}>4-5 KÄLLA/VIS  egen: {diagKarta.egenSrc ?? '?'} vis={diagKarta.egenVis ?? '?'}</div>
-          <div style={{ color: '#ffd479' }}>            hist: {diagKarta.histSrc ?? '?'} vis={diagKarta.histVis ?? '?'}</div>
-          <div style={{ color: diagKarta.strakSrc === '0f/0p' || diagKarta.strakSrc === 'källa saknas' ? '#ff6b6b' : '#ffd479' }}>6 skordarstrak: {diagKarta.strakSrc ?? '?'} vis={diagKarta.strakVis ?? '?'} · aktiv-vis={diagKarta.strakAktivVis ?? '?'} · strakData={strakData.length} · källa={String(strakKalla)}</div>
+          <div style={{ color: (diagKarta.egenSrc ?? '').startsWith('E✓') ? '#ffd479' : '#ff6b6b' }}>4-5 KÄLLA/VIS  egen: {diagKarta.egenSrc ?? '?'} vis={diagKarta.egenVis ?? '?'}</div>
+          <div style={{ color: (diagKarta.histSrc ?? '').startsWith('E✓') ? '#ffd479' : '#ff6b6b' }}>            hist: {diagKarta.histSrc ?? '?'} vis={diagKarta.histVis ?? '?'}</div>
+          <div style={{ color: (diagKarta.strakSrc ?? '').startsWith('E✓') && !((diagKarta.strakSrc ?? '').includes(' 0f/')) ? '#ffd479' : '#ff6b6b' }}>6 skordarstrak: {diagKarta.strakSrc ?? '?'} vis={diagKarta.strakVis ?? '?'} · aktiv-vis={diagKarta.strakAktivVis ?? '?'} · strakData={strakData.length} · källa={String(strakKalla)}</div>
+          <div style={{ color: '#c58cff' }}>7 KAMERA {diagKarta.kam ?? '?'}</div>
+          <div style={{ color: '#666', fontSize: 10 }}>E=källa finns · L=worker klar(✓)/laddar(…) · Nf/Np=satta features/punkter · vw=features i vyn · data[0]=lat,lng</div>
         </div>
       )}
 
