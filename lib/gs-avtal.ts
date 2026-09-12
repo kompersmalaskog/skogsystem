@@ -33,6 +33,11 @@ export type GsAvtal = {
   ob_sondag_kr?: number | null;
 
   // Färdmedel & färdtid
+  // Reseersättning = EN rad: fardtid_kr_per_mil per påbörjad mil per dag över
+  // km_grans_per_dag. Alla har firmabil. Kolumnen gs_avtal.fardmedel_kr_per_mil
+  // finns i prod-tabellen men är OANVÄND av appen (COMMENT ON COLUMN satt i
+  // prod 2026-09-10, beslut löneansvariga). Beslutet måste tas om ifall firmabil
+  // någon gång inte gäller alla. Fältet finns medvetet inte i den här typen.
   km_ersattning_kr?: number | null;
   km_grans_per_dag?: number | null;
   fardtid_kr?: number | null;

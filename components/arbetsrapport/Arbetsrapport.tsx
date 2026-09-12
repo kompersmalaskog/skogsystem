@@ -10,7 +10,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
-import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_RUBRIK, arFranvaroDagtyp } from "@/lib/franvaro";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_RUBRIK, FRANVARO_DAGTYPER_ALLA, arFranvaroDagtyp } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
@@ -23,7 +23,7 @@ import PdfLasare from "@/app/planering/PdfLasare";
 // importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
 // Lön, Kalender, Redigera) använder ännu den lokala TYPE-skalan nedan och
 // rättas när de rörs.
-import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, TRAFFYTA, RORELSE, designCss } from "@/lib/design/tokens";
+import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
 import { useRaknaUppVarde } from "@/lib/design/raknaUpp";
 
@@ -119,7 +119,9 @@ const TYPE = {
 // Interna vy-headers (fixed/sticky) ska börja UNDER appens globala TopBar
 // (56px + safe-area, zIndex 1000) — inte på viewportens y=0 som TopBar äger.
 const HEADER_TOP = "calc(56px + env(safe-area-inset-top))";
-const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:"0 20px", boxSizing:"border-box" as const, width:"100%" };
+// Sidmarginal ur tokens (16) — förr 20 här och 16 i Dag/Kalender, så innehållet
+// hoppade 4 px i sidled vid varje vybyte.
+const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:`0 ${AVSTAND.sidmarginal}px`, boxSizing:"border-box" as const, width:"100%" };
 const darkShell: CSSProperties = { ...shell };
 const topBar: CSSProperties = { paddingTop:24, paddingBottom:12 };
 const mid: CSSProperties    = { flex:1, display:"flex", flexDirection:"column" as const, justifyContent:"center", alignItems:"center", textAlign:"center" as const };
@@ -239,6 +241,9 @@ function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => v
       {[
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
+        // Lön = egen flik (beslut 2026-09-10): månadens spec, PDF och godkännande
+        // ska hittas blint. Förr en "flik" inuti Min tid som lyste fel i navet.
+        {icon:"receipt_long",key:"lön",label:"Lön"},
         {icon:"bar_chart",key:"mintid",label:"Min tid"},
         {icon:"settings",key:"inst",label:"Inställningar"},
       ].map(n=>(
@@ -682,7 +687,6 @@ export default function Arbetsrapport() {
   const [redMaskinId, setRedMaskinId] = useState<string | null>(null);
   const [visaRedObjektVäljare, setVisaRedObjektVäljare] = useState(false);
   const [visaRedMaskinVäljare, setVisaRedMaskinVäljare] = useState(false);
-  const [visaRedRastPicker, setVisaRedRastPicker] = useState(false);
   const [visaRedKmSheet, setVisaRedKmSheet] = useState(false);
   const [redTmpKmM, setRedTmpKmM] = useState(0);
   const [redTmpKmK, setRedTmpKmK] = useState(0);
@@ -702,6 +706,12 @@ export default function Arbetsrapport() {
   const [vilobrottIdx, setVilobrottIdx] = useState(0);
   const [vilobrottOrsakVal, setVilobrottOrsakVal] = useState<'oforutsedd' | 'akut_jour' | 'planerad_avtal' | 'annat' | null>(null);
   const [vilobrottOrsakFritext, setVilobrottOrsakFritext] = useState("");
+  // Vad orsaksflödet ska göra när sista orsaken är sparad: skriva under DEN
+  // dag som startade flödet (Dag-vyn: idag via bekraftaDagen; Redigera: vald
+  // dag) och gå tillbaka dit föraren kom ifrån. null = Dag-vyn (idag).
+  const [bekraftaMål, setBekraftaMål] = useState<{ datum: string; skriv: () => Promise<boolean>; tillbaka: "morgon" | "redigera" } | null>(null);
+  // Felrad i Redigera-vyn — ersätter window.alert (app-egna dialoger).
+  const [redFel, setRedFel] = useState<string | null>(null);
   const [visaHelÅrVila, setVisaHelÅrVila] = useState(false);
   const [vilaPeriod, setVilaPeriod] = useState<'7d'|'30d'|'månad'|'år'>('7d');
   const [vilaMånad, setVilaMånad] = useState(new Date().getMonth());
@@ -1620,6 +1630,57 @@ export default function Arbetsrapport() {
     return true;
   };
 
+  // EN Bekräfta-väg för Dag OCH Redigera. Förr hade bara Dag-vyn för-checken —
+  // Redigeras Bekräfta skrev under en dag utan att fråga om vilobrott, så
+  // samma dag kunde bekräftas med eller utan orsak beroende på var man stod.
+  //
+  //   1. Analysera [datum-7, datum] (klippt mot skarp start; bara om fönstret
+  //      ligger inom årsData — annars skulle en tom dagslista RADERA obesvarade
+  //      brott i fönstret, se analyseraOchSpara).
+  //   2. Obesvarade brott i fönstret → orsaksflödet; `skriv` körs när sista
+  //      orsaken sparats (sparaOrsakOchFortsätt), och vyn går till `tillbaka`.
+  //   3. Inga brott → `skriv` direkt.
+  // För-check-fel blockerar aldrig: då skrivs dagen ändå (som förr i Dag-vyn).
+  const bekraftaMedForcheck = async (
+    datum: string,
+    skriv: () => Promise<boolean>,
+    tillbaka: "morgon" | "redigera",
+  ): Promise<void> => {
+    if (medarbetare?.id && trosklar) {
+      const fromDt = new Date(datum + "T00:00:00"); fromDt.setDate(fromDt.getDate() - 7);
+      const fromIso = franGolv(ymdLokal(fromDt));
+      const toIso = datum;
+      const årStart = `${new Date().getFullYear()}-01-01`;
+      try {
+        if (fromIso >= årStart && toIso >= fromIso) {
+          const dagar = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
+          await analyseraOchSpara(medarbetare.id, dagar, trosklar, fromIso, toIso);
+        }
+        // Läs fönstret direkt — hamtaAktuellaVilobrott (14 d) räcker inte för
+        // en äldre dag i Redigera. Dag-vyns gula rader uppdateras separat.
+        const [iFonster, nyaAktuella] = await Promise.all([
+          hamtaVilobrottForPeriod(medarbetare.id, fromIso, toIso),
+          hamtaAktuellaVilobrott(medarbetare.id),
+        ]);
+        setAktuellaVilobrott(nyaAktuella);
+        const obesvarade = iFonster.filter(b => !b.besvarat_av_forare);
+        if (obesvarade.length > 0) {
+          // Frys kön — bygg INTE om från re-fetchad aktuellaVilobrott under flödet
+          setVilobrottKö(obesvarade);
+          setVilobrottIdx(0);
+          setVilobrottOrsakVal(null);
+          setVilobrottOrsakFritext("");
+          setBekraftaMål({ datum, skriv, tillbaka });
+          setSteg("vilobrottOrsak");
+          return;
+        }
+      } catch (err) {
+        console.error("Vilo-för-check misslyckades:", err);
+      }
+    }
+    await skriv();
+  };
+
   // Sparar förarens orsak-svar för det aktuella brottet i kön och avancerar.
   // Vid sista brottet: bekräftar dagen + nollställer kön. Vid backa: avbrytsHelpern.
   const sparaOrsakOchFortsätt = async () => {
@@ -1662,16 +1723,19 @@ export default function Arbetsrapport() {
       setVilobrottOrsakVal(null);
       setVilobrottOrsakFritext("");
     } else {
-      // Sista brottet — bekräfta dagen. Om guarden blockerar (tomma tider)
-      // går vi tillbaka till morgon-vyn där felmeddelandet syns under
-      // Bekräfta-knappen. Orsak-svaret är redan persistat i DB så det går
-      // inte förlorat — föraren fixar tiderna och bekräftar igen.
-      await bekraftaDagen();
+      // Sista brottet — skriv under den dag som startade flödet (bekraftaMål;
+      // Dag-vyn = idag via bekraftaDagen). Om guarden blockerar (tomma tider)
+      // går vi tillbaka till vyn där felmeddelandet syns under Bekräfta-
+      // knappen. Orsak-svaret är redan persistat i DB så det går inte
+      // förlorat — föraren fixar tiderna och bekräftar igen.
+      const mål = bekraftaMål;
+      if (mål) await mål.skriv(); else await bekraftaDagen();
+      setBekraftaMål(null);
       setVilobrottKö([]);
       setVilobrottIdx(0);
       setVilobrottOrsakVal(null);
       setVilobrottOrsakFritext("");
-      setSteg("morgon");
+      setSteg(mål?.tillbaka ?? "morgon");
     }
   };
 
@@ -1884,13 +1948,15 @@ export default function Arbetsrapport() {
       { key: 'annat' as const,          label: 'Annat',                        sub: 'Skriv en kort beskrivning' },
     ];
     const avbryt = () => {
-      // Backar till morgon. Redan-besvarade brott är sparade i DB —
-      // föraren förlorar ingenting. Dagen förblir obekräftad.
+      // Backar dit flödet startade (Dag eller Redigera). Redan-besvarade brott
+      // är sparade i DB — föraren förlorar ingenting. Dagen förblir obekräftad.
+      const tillbaka = bekraftaMål?.tillbaka ?? "morgon";
+      setBekraftaMål(null);
       setVilobrottKö([]);
       setVilobrottIdx(0);
       setVilobrottOrsakVal(null);
       setVilobrottOrsakFritext("");
-      setSteg("morgon");
+      setSteg(tillbaka);
     };
     const klart = !!vilobrottOrsakVal && (vilobrottOrsakVal !== 'annat' || vilobrottOrsakFritext.trim().length > 0);
     const ärSista = vilobrottIdx === vilobrottKö.length - 1;
@@ -2388,39 +2454,8 @@ export default function Arbetsrapport() {
                 }
                 if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
 
-                // För-check: kör analys på [idag-7, idag] och hämta obesvarade brott.
-                // Om någon finns → starta orsaks-flödet och vänta. Annars → bekräfta direkt.
-                if (medarbetare?.id && trosklar) {
-                  const fromDt = new Date(idagKey); fromDt.setDate(fromDt.getDate() - 7);
-                  // Klippt mot skarp start — analysen skriver i vilobrott-tabellen
-                  // och får aldrig nå in i dagar före golvet (lib/skarpStart).
-                  const fromIso = franGolv(fromDt.toISOString().slice(0, 10));
-                  const toIso = idagKey;
-                  const dagar = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
-                  try {
-                    await analyseraOchSpara(medarbetare.id, dagar, trosklar, fromIso, toIso);
-                    const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
-                    setAktuellaVilobrott(nyaBrott);
-                    const obesvarade = nyaBrott
-                      .filter(b => !b.besvarat_av_forare)
-                      .filter(b => b.datum >= fromIso && b.datum <= toIso);
-                    if (obesvarade.length > 0) {
-                      // Frys kön — bygg INTE om från re-fetchad aktuellaVilobrott under flödet
-                      setVilobrottKö(obesvarade);
-                      setVilobrottIdx(0);
-                      setVilobrottOrsakVal(null);
-                      setVilobrottOrsakFritext("");
-                      setSteg("vilobrottOrsak");
-                      return;
-                    }
-                  } catch (err) {
-                    // För-check fel ska inte blockera arbetsflödet — bekräfta ändå.
-                    console.error('Vilo-för-check misslyckades:', err);
-                  }
-                }
-
-                // Inga obesvarade brott — bekräfta direkt
-                await bekraftaDagen();
+                // För-check + skrivning — SAMMA funktion som Redigeras Bekräfta.
+                await bekraftaMedForcheck(idagKey, bekraftaDagen, "morgon");
               }}
               style={{ ...KNAPP.primar, marginTop:AVSTAND.l }}>
               {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
@@ -2864,7 +2899,9 @@ export default function Arbetsrapport() {
     const dagIdx = (nu.getDay()+6)%7; // 0=mån
     const veckStart = new Date(nu); veckStart.setDate(nu.getDate()-dagIdx);
     const veckSlut = new Date(veckStart); veckSlut.setDate(veckStart.getDate()+6);
-    const veckoNr = Math.ceil((Math.floor((nu.getTime()-new Date(nu.getFullYear(),0,1).getTime())/864e5)+new Date(nu.getFullYear(),0,1).getDay()+1)/7);
+    // EN veckonummerdefinition i hela appen: ISO (lib/vilobrott isoVecka). Förr
+    // fanns tre — samma dagar kunde heta vecka 41 här och 42 i Sammanställningen.
+    const veckoNr = isoVecka(nu).vecka;
     const rödaDagarVecka = getRödaDagar(nu.getFullYear());
     const veckoDagar: {datum:string;dag:string;h:number}[] = [];
     let veckoTot = 0;
@@ -2887,46 +2924,16 @@ export default function Arbetsrapport() {
     const idagKey2 = nu.toISOString().split('T')[0];
     const idagAd = årsData.find(r=>r.datum===idagKey2);
     const idagH = Math.round(((idagAd?.arbetad_min||0)+(extraPerDag.get(idagKey2)||0))/60*10)/10;
-    const idagDiff = idagH - 8;
 
-    // Månad
-    const månStart = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,'0')}-01`;
-    const månData = årsData.filter(r=>r.datum>=månStart);
-    const månJobbatMin = månData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(månStart);
-    const månJobbatH = Math.round(månJobbatMin/60*10)/10;
-    // Räkna arbetsdagar i månaden
-    const dIM = new Date(nu.getFullYear(),nu.getMonth()+1,0).getDate();
+    // MÅNADEN RÄKNAS INTE HÄR LÄNGRE. Förr fanns en lokal månadsberäkning
+    // (timmar minus 8 × vardagar) parallellt med Sammanställningens spec
+    // (beraknaLoneunderlag, per dag och avtal) — de kunde aldrig bli lika. Nu
+    // är Månaden en länk till Sammanställningen; Idag/Veckan/Övertid-året
+    // stannar som rådata. (Kvartalsblocket var död kod och är borttaget.)
     const rödaDagar2 = getRödaDagar(nu.getFullYear());
-    let månArbDagar=0;
-    for(let d=1;d<=dIM;d++){
-      const dt=new Date(nu.getFullYear(),nu.getMonth(),d);
-      const dow=dt.getDay();
-      const k=`${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      if(dow!==0&&dow!==6&&!rödaDagar2[k]) månArbDagar++;
-    }
-    const månMålH = månArbDagar*8;
-    const månÖvH = Math.max(0,månJobbatH-månMålH);
 
-    // Kvartal
-    const kvartal = Math.floor(nu.getMonth()/3);
-    const kvStart = `${nu.getFullYear()}-${String(kvartal*3+1).padStart(2,'0')}-01`;
-    const kvData = årsData.filter(r=>r.datum>=kvStart);
-    const kvMin = kvData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(kvStart);
-    // Räkna kvartalets arbetsdagar
-    let kvArbDagar=0;
-    for(let m=kvartal*3;m<kvartal*3+3;m++){
-      const dagar=new Date(nu.getFullYear(),m+1,0).getDate();
-      for(let d=1;d<=dagar;d++){
-        const dt=new Date(nu.getFullYear(),m,d);
-        const dow=dt.getDay();
-        const k=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        if(dow!==0&&dow!==6&&!rödaDagar2[k]) kvArbDagar++;
-      }
-    }
-    const kvÖvH = Math.max(0,Math.round(kvMin/60*10)/10-kvArbDagar*8);
-
-    // År — övertid beräknad per månad
-    const årsMin = årsData.reduce((a,d)=>a+(d.arbetad_min||0),0) + extraMinMellan(`${nu.getFullYear()}-01-01`);
+    // År — övertid beräknad per månad (årstaket är ett kalenderårsbegrepp och
+    // får inte golvas — se lib/skarpStart)
     let årsÖvH = 0;
     for(let m=0;m<=nu.getMonth();m++){
       const mp=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}`;
@@ -2946,91 +2953,82 @@ export default function Arbetsrapport() {
       årsÖvH+=mÖv/60;
     }
     årsÖvH=Math.round(årsÖvH*10)/10;
-    const årsKvar = Math.max(0,250-årsÖvH);
-    const årsBarFärg = årsÖvH>230?"#ff453a":årsÖvH>200?"#ff9f0a":"#30d158";
-
-    // Varningar — vila läses från vilobrott-tabellen (en sanning, samma som
-    // Dag-vyn). Övertidstak ligger kvar inline tills övertidshantering blir
-    // egen uppgift (200/230/250h är separat scope, ej rört av denna refaktor).
+    // Övertidstaket ur AVTALET (gs_avtal.max_overtid_ar) — inte hårdkodat 250
+    // på fem ställen. Varningsnivåerna: nära = inom 50 h, över = inom 20 h.
+    const övertidTak = Number(gsAvtal?.max_overtid_ar ?? 250);
+    const årsKvar = Math.max(0, Math.round((övertidTak-årsÖvH)*10)/10);
+    const årsNiva: 'ok'|'nara'|'over' = årsÖvH > övertidTak-20 ? 'over' : årsÖvH > övertidTak-50 ? 'nara' : 'ok';
+    // Färgen förstärker ett ORD — den bär aldrig ensam (skogsystem-design).
+    const årsFarg = årsNiva==='over' ? FARG.rod : årsNiva==='nara' ? FARG.orange : FARG.gron;
+    const årsOrd = årsNiva==='over' ? `${årsKvar} tim kvar till taket` : årsNiva==='nara' ? `nära taket · ${årsKvar} tim kvar` : `god marginal · ${årsKvar} tim kvar`;
     // Vilovarningar visas på ETT ställe för handling — Dag-vyn (där bekräftelsen
     // sker) — och i Vila-fliken för historik. Inte här också (var tredje kopian).
-    const varningar: {typ:'röd'|'orange';text:string}[] = [];
-    // Övertidstak — separat scope, ej rört
-    if(årsÖvH>230) varningar.push({typ:'röd',text:`${årsKvar}h kvar till max 250h övertid`});
-    else if(årsÖvH>200) varningar.push({typ:'orange',text:'Du närmar dig övertidstaket (250h)'});
-
-    const fmtDiff = (h: number) => { const abs=Math.abs(h); const hh=Math.floor(abs); const mm=Math.round((abs-hh)*60); return `${h>=0?'+':'−'}${hh}h${mm>0?` ${mm}min`:''}`; };
-    const månDiff = månJobbatH - månMålH;
+    // Övertidsvarningarna som låg här sa samma sak som Övertid-kortet nedan.
 
     return (
-      <div style={{ minHeight:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",paddingBottom:120 }}>
+      <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",paddingBottom:AVSTAND.xxl }}>
         <style>{css}</style>{timerBanner}
-        <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:"0 24px",paddingTop:16 }}>
-          <h1 style={{ margin:"0 0 12px",...TYPE.h1,color:"#fff" }}>Min tid</h1>
-          <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2,marginBottom:12,overflowX:"auto" }}>
-            {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['monster','Mönster'],['lön','Lön']] as const).map(([k,l])=>(
-              <button key={k} onClick={()=>{if(k==='lön'){setSteg('lön');return;}setMinTidFlik(k);}} style={{ flex:1,minWidth:60,padding:"7px 8px",borderRadius:6,border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:minTidFlik===k?"rgba(255,255,255,0.12)":"transparent",color:minTidFlik===k?"#fff":"#8e8e93",whiteSpace:"nowrap" }}>{l}</button>
+        <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:`0 ${AVSTAND.sidmarginal}px`,paddingTop:AVSTAND.l }}>
+          <h1 style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.titel,color:FARG.text }}>Min tid</h1>
+          <div style={{ display:"flex",gap:0,background:FARG.linje,borderRadius:RADIE.rad,padding:AVSTAND.xs,marginBottom:AVSTAND.m,overflowX:"auto" }}>
+            {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['monster','Mönster']] as const).map(([k,l])=>(
+              <button key={k} onClick={()=>setMinTidFlik(k)} style={{ flex:1, minHeight:TRAFFYTA.min, padding:`0 ${AVSTAND.s}px`, borderRadius:RADIE.rad, border:"none", ...TYP.meta, fontWeight:minTidFlik===k?VIKT.halvfet:VIKT.normal, cursor:"pointer", fontFamily:"inherit", background:minTidFlik===k?FARG.fyllning:"transparent", color:minTidFlik===k?FARG.text:FARG.text2, whiteSpace:"nowrap" }}>{l}</button>
             ))}
           </div>
         </header>
 
-        <main style={{ paddingTop:126,paddingLeft:20,paddingRight:20,paddingBottom:SCROLL_BOTTOM }}>
-
-          {/* Varningar — bara på översikt */}
-          {minTidFlik==='översikt'&&varningar.length>0&&(
-            <section style={{ marginBottom:24 }}>
-              {varningar.map((v,i)=>(
-                <div key={i} style={{ background:v.typ==='röd'?"rgba(255,69,58,0.08)":"rgba(255,159,10,0.08)",border:`1px solid ${v.typ==='röd'?"rgba(255,69,58,0.25)":"rgba(255,159,10,0.25)"}`,borderRadius:12,padding:"14px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:10 }}>
-                  <span className="material-symbols-outlined" style={{ color:v.typ==='röd'?"#ff453a":"#ff9f0a",fontSize:20 }}>warning</span>
-                  <span style={{ ...TYPE.meta,color:"#fff" }}>{v.text}</span>
-                </div>
-              ))}
-            </section>
-          )}
+        <main style={{ paddingTop:AVSTAND.xxl,paddingLeft:AVSTAND.sidmarginal,paddingRight:AVSTAND.sidmarginal,paddingBottom:SCROLL_BOTTOM }}>
 
           {minTidFlik==='översikt'&&<>
-          {/* Stapeldiagram — veckan */}
-          <section style={{ marginBottom:32 }}>
-            <h3 style={secHead}>Vecka {veckoNr}</h3>
-            <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-              <div style={{ display:"flex",alignItems:"flex-end",justifyContent:"space-between",height:120,gap:6,marginBottom:8 }}>
+          {/* VECKAN — ETT tal per vy: veckans timmar som hjälte i kortets huvud,
+              staplarna som stöd i grå fyllning (blått betyder bara "navigerar").
+              Förr stod samma tal i diagrammet (utan total) OCH som rad i Summering. */}
+          <section style={{ marginBottom:AVSTAND.xl }}>
+            <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Vecka {veckoNr}</h3>
+            <div style={KORT}>
+              <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:AVSTAND.s }}>
+                <span style={{ ...TYP.tal, color:FARG.text }}>{(Math.round(veckoTot*10)/10).toLocaleString('sv-SE')}<span style={{ ...TYP.meta, color:FARG.text2 }}> tim</span></span>
+                <span style={{ ...TYP.meta, ...TNUM, color:FARG.text2 }}>av {veckoMålH} tim</span>
+              </div>
+              <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", height:96, gap:AVSTAND.xs, marginTop:AVSTAND.m }}>
                 {veckoDagar.map(d=>(
-                  <div key={d.datum} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",height:"100%" }}>
-                    {d.h>0&&<span style={{ fontSize:10,fontWeight:600,color:"#0a84ff",marginBottom:4 }}>{d.h}</span>}
-                    <div style={{ flex:1,display:"flex",alignItems:"flex-end",width:"100%" }}>
-                      <div style={{ width:"100%",height:`${d.h>0?Math.max(8,d.h/maxH*100):8}%`,background:d.h>0?"#0a84ff":"rgba(255,255,255,0.08)",borderRadius:4,transition:"height 0.4s ease" }} />
+                  <div key={d.datum} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", height:"100%" }}>
+                    <div style={{ flex:1, display:"flex", alignItems:"flex-end", width:"100%" }}>
+                      <div style={{ width:"100%", height:`${d.h>0?Math.max(8,d.h/maxH*100):8}%`, background:d.h>0?FARG.fyllning:FARG.linje, borderRadius:RADIE.rad, transition:`height ${RORELSE.byte}ms ${RORELSE.kurva}` }} />
                     </div>
                   </div>
                 ))}
               </div>
-              <div style={{ display:"flex",justifyContent:"space-between" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginTop:AVSTAND.xs }}>
                 {veckoDagar.map(d=>(
-                  <div key={d.datum+'l'} style={{ flex:1,textAlign:"center" }}>
-                    <span style={{ fontSize:9,fontWeight:600,color:d.h>0?"#8e8e93":"rgba(255,255,255,0.15)",letterSpacing:"0.05em" }}>{(d as any).dagKort}</span>
+                  <div key={d.datum+'l'} style={{ flex:1, textAlign:"center" }}>
+                    <span style={{ ...TYP.micro, ...TNUM, color:d.h>0?FARG.text2:FARG.text3 }}>{d.h>0 ? d.h.toLocaleString('sv-SE') : (d as any).dagKort}</span>
                   </div>
                 ))}
               </div>
             </div>
           </section>
 
-          {/* Summering */}
-          <section style={{ marginBottom:32 }}>
-            <h3 style={secHead}>Summering</h3>
-            <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-              {[
-                ...(idagH>0?[{label:"Idag",val:`${idagH}h`}]:[]),
-                {label:"Veckan",val:`${Math.round(veckoTot*10)/10}h`,sub:`av ${veckoMålH}h`},
-                {label:"Månaden",val:`${månJobbatH}h`,sub:månÖvH>0?`av ${månMålH}h (${månÖvH}h övertid)`:`av ${månMålH}h`},
-                {label:"Året",val:`${Math.round(årsMin/60*10)/10}h`,sub:'totalt'},
-              ].map((r,i,arr)=>(
-                <div key={r.label} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<arr.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
-                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{r.label}</span>
-                  <div style={{ display:"flex",alignItems:"baseline",gap:8 }}>
-                    <span style={{ ...TYPE.bodyList,color:"#fff" }}>{r.val}</span>
-                    {'sub' in r&&<span style={{ fontSize:12,fontWeight:500,color:"#8e8e93" }}>{(r as any).sub}</span>}
-                  </div>
+          {/* Summering — bara rådata som inte finns någon annanstans. Månaden är
+              en LÄNK till Sammanställningen (specen är enda sanningen om
+              månadens timmar och övertid); "Året totalt" är borttagen. */}
+          <section style={{ marginBottom:AVSTAND.xl }}>
+            <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Summering</h3>
+            <div style={{ ...KORT, paddingTop:0, paddingBottom:0 }}>
+              {idagH>0 && (
+                <div style={{ ...RAD, justifyContent:"space-between" }}>
+                  <span style={{ ...TYP.meta, color:FARG.text2 }}>Idag</span>
+                  <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{idagH.toLocaleString('sv-SE')} tim</span>
                 </div>
-              ))}
+              )}
+              <div style={{ ...RAD, justifyContent:"space-between" }}>
+                <span style={{ ...TYP.meta, color:FARG.text2 }}>Veckan</span>
+                <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{(Math.round(veckoTot*10)/10).toLocaleString('sv-SE')} tim <span style={{ ...TYP.meta, color:FARG.text2 }}>av {veckoMålH}</span></span>
+              </div>
+              <button onClick={()=>setSteg('lön')} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", borderBottom:"none", ...TYP.meta }}>
+                <span style={{ color:FARG.text2 }}>Månaden</span>
+                <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, color:FARG.bla }}>Se lönespecen<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>chevron_right</span></span>
+              </button>
             </div>
           </section>
 
@@ -3052,41 +3050,41 @@ export default function Arbetsrapport() {
             const semPct = semTotalt>0?Math.min(100,uttagna/semTotalt*100):0;
 
             return (
-              <section style={{ marginBottom:24 }}>
-                <h3 style={secHead}>Semester</h3>
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+              <section style={{ marginBottom:AVSTAND.xl }}>
+                <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Semester</h3>
+                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.xl,border:`1px solid ${FARG.linje}` }}>
                   {laddar?(
-                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Hämtar saldo…</p>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Hämtar saldo…</p>
                   ):fel?(<>
-                    <p style={{ margin:0,...TYPE.meta,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Kunde inte hämta saldo</p>
                     <button onClick={()=>setFortnoxSaldoStatus('idle')}
-                      style={{ marginTop:12,padding:"10px 16px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#fff",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>
+                      style={{ marginTop:AVSTAND.m,padding:`${AVSTAND.m}px ${AVSTAND.l}px`,background:FARG.linje,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.rad,color:FARG.text,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>
                       Försök igen
                     </button>
                   </>):tom?(
-                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inget saldo registrerat</p>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Inget saldo registrerat</p>
                   ):(<>
                     {/* Hjälte: dagar kvar — flikens hela poäng, samma mönster
                         som Dag-vyns Total och kalenderns månadskort. */}
-                    <div style={{ textAlign:"center",padding:"6px 0 4px" }}>
-                      <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>
+                    <div style={{ textAlign:"center",padding:`${AVSTAND.s}px 0 ${AVSTAND.xs}px` }}>
+                      <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>
                         {semKvar}
-                        <span style={{ ...TYPE.meta,color:"#8e8e93",marginLeft:6 }}>dagar kvar</span>
+                        <span style={{ ...TYP.meta,color:FARG.text2,marginLeft:AVSTAND.s }}>dagar kvar</span>
                       </p>
-                      <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginTop:14,overflow:"hidden" }}>
-                        <div style={{ height:"100%",width:`${semPct}%`,background:"#0a84ff",borderRadius:2 }} />
+                      <div style={{ height:4,background:FARG.linje,borderRadius:RADIE.rad,marginTop:AVSTAND.l,overflow:"hidden" }}>
+                        <div style={{ height:"100%",width:`${semPct}%`,background:FARG.bla,borderRadius:RADIE.rad }} />
                       </div>
                     </div>
-                    <div style={{ borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:16,paddingTop:8 }}>
+                    <div style={{ borderTop:`1px solid ${FARG.linje}`,marginTop:AVSTAND.l,paddingTop:AVSTAND.s }}>
                       {[
                         ["Betalda",`${betalda} dagar`],
                         ["Sparade",`${sparade} dagar`],
                         ["Obetalda",`${obetalda} dagar`],
                         ["Uttagna",`${uttagna} dagar`],
                       ].map(([l,v])=>(
-                        <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0" }}>
-                          <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{l}</span>
-                          <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM }}>{v}</span>
+                        <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.s}px 0` }}>
+                          <span style={{ ...TYP.meta,color:FARG.text2 }}>{l}</span>
+                          <span style={{ ...TYP.listtitel,color:FARG.text,...TNUM }}>{v}</span>
                         </div>
                       ))}
                     </div>
@@ -3116,28 +3114,28 @@ export default function Arbetsrapport() {
             const efterValperiod = nu > maj15;
 
             return (
-              <section style={{ marginBottom:24 }}>
-                <h3 style={secHead}>ATK</h3>
+              <section style={{ marginBottom:AVSTAND.xl }}>
+                <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>ATK</h3>
                 {/* Saldo */}
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)",marginBottom:12 }}>
+                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.xl,border:`1px solid ${FARG.linje}`,marginBottom:AVSTAND.m }}>
                   {laddar?(
-                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Hämtar saldo…</p>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Hämtar saldo…</p>
                   ):fel?(<>
-                    <p style={{ margin:0,...TYPE.meta,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Kunde inte hämta saldo</p>
                     <button onClick={()=>setFortnoxSaldoStatus('idle')}
-                      style={{ marginTop:12,padding:"10px 16px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#fff",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>
+                      style={{ marginTop:AVSTAND.m,padding:`${AVSTAND.m}px ${AVSTAND.l}px`,background:FARG.linje,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.rad,color:FARG.text,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>
                       Försök igen
                     </button>
                   </>):tom?(
-                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inget saldo registrerat</p>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Inget saldo registrerat</p>
                   ):(<>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:atkTimmar!=null?16:0 }}>
-                      <span style={{ ...TYPE.h2,color:"#fff",...TNUM }}>{atkKr.toLocaleString('sv-SE')} <span style={{ ...TYPE.meta,color:"#8e8e93" }}>kr</span></span>
+                      <span style={{ ...TYP.rubrik,color:FARG.text,...TNUM }}>{atkKr.toLocaleString('sv-SE')} <span style={{ ...TYP.meta,color:FARG.text2 }}>kr</span></span>
                     </div>
                     {atkTimmar!=null&&(
                       <div style={{ display:"flex",justifyContent:"space-between" }}>
-                        <span style={{ fontSize:13,color:"#8e8e93" }}>Motsvarar</span>
-                        <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{atkTimmar}h ({atkDagar} dagar)</span>
+                        <span style={{ ...TYP.meta,color:FARG.text2 }}>Motsvarar</span>
+                        <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.text }}>{atkTimmar}h ({atkDagar} dagar)</span>
                       </div>
                     )}
                   </>)}
@@ -3145,16 +3143,16 @@ export default function Arbetsrapport() {
 
                 {/* ATK-val — beror på datum */}
                 {föreValperiod&&(
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>ATK-val öppnar 1 maj</p>
+                  <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.xl,border:`1px solid ${FARG.linje}` }}>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>ATK-val öppnar 1 maj</p>
                   </div>
                 )}
 
                 {efterValperiod&&harValt&&(
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(48,209,88,0.2)" }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                      <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check_circle</span>
-                      <span style={{ ...TYPE.meta,color:"#fff" }}>
+                  <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.l,border:`1px solid ${FARG.linje}` }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
+                      <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.gron }}>check_circle</span>
+                      <span style={{ ...TYP.meta,color:FARG.text }}>
                         Ditt val: {atkValSparat.val==='ledig'?'Ledig tid':atkValSparat.val==='kontant'?'Pengar':'Pension'}
                       </span>
                     </div>
@@ -3165,16 +3163,16 @@ export default function Arbetsrapport() {
                     föraren kan inget göra förrän nästa fönster, ingen varning
                     och inget "kontakta chef". */}
                 {efterValperiod&&!harValt&&(
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.06)" }}>
-                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inget val registrerat i år · nästa ATK-val öppnar 1 maj</p>
+                  <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.l,border:`1px solid ${FARG.linje}` }}>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Inget val registrerat i år · nästa ATK-val öppnar 1 maj</p>
                   </div>
                 )}
 
                 {iValperiod&&harValt&&(
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(48,209,88,0.2)" }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                      <span className="material-symbols-outlined" style={{ fontSize:16,color:"#30d158" }}>check</span>
-                      <span style={{ ...TYPE.meta,color:"#fff" }}>
+                  <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.l,border:`1px solid ${FARG.linje}` }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
+                      <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.gron }}>check</span>
+                      <span style={{ ...TYP.meta,color:FARG.text }}>
                         {atkValSparat.val==='ledig'?`Du valde ledig tid${atkDagar!=null?`: ${atkDagar} dagar`:''}`:atkValSparat.val==='kontant'?`Utbetalas juni ${årNu2}: ≈ ${atkKr.toLocaleString('sv-SE')} kr`:`Avsatt till pension: ≈ ${atkKr.toLocaleString('sv-SE')} kr`}
                       </span>
                     </div>
@@ -3183,18 +3181,18 @@ export default function Arbetsrapport() {
 
                 {/* Valfönstret öppet: en handling, inte en varning. */}
                 {iValperiod&&!harValt&&(
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-                    <p style={{ margin:"0 0 16px",...TYPE.body,color:"#fff" }}>Gör ditt ATK-val {årNu2}</p>
-                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16 }}>
+                  <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.xl,border:`1px solid ${FARG.linje}` }}>
+                    <p style={{ margin:`0 0 ${AVSTAND.l}px`,...TYP.listtitel,color:FARG.text }}>Gör ditt ATK-val {årNu2}</p>
+                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:AVSTAND.s,marginBottom:AVSTAND.l }}>
                       {([
                         {k:'ledig' as const,label:'Ledig tid',sub:atkDagar!=null?`= ${atkDagar} dagar`:''},
                         {k:'kontant' as const,label:'Pengar',sub:`≈ ${atkKr.toLocaleString('sv-SE')} kr`,sub2:'före skatt'},
                         {k:'pension' as const,label:'Pension',sub:`≈ ${atkKr.toLocaleString('sv-SE')} kr`,sub2:'till pension'},
                       ]).map(o=>(
-                        <button key={o.k} onClick={()=>setAtkVal(o.k)} style={{ background:atkVal===o.k?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:atkVal===o.k?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"14px 8px",cursor:"pointer",fontFamily:"inherit",textAlign:"center" }}>
-                          <p style={{ margin:0,fontSize:13,fontWeight:600,color:atkVal===o.k?"#0a84ff":"#fff" }}>{o.label}</p>
-                          <p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>{o.sub}</p>
-                          {'sub2' in o&&<p style={{ margin:"2px 0 0",fontSize:11,color:"#636366" }}>{(o as any).sub2}</p>}
+                        <button key={o.k} onClick={()=>setAtkVal(o.k)} style={{ background:atkVal===o.k?FARG.upphojt:FARG.linje,border:atkVal===o.k?`1px solid ${FARG.linje}`:`1px solid ${FARG.linje}`,borderRadius:RADIE.rad,padding:`${AVSTAND.l}px ${AVSTAND.s}px`,cursor:"pointer",fontFamily:"inherit",textAlign:"center" }}>
+                          <p style={{ margin:0,...TYP.meta,fontWeight:VIKT.halvfet,color:atkVal===o.k?FARG.bla:FARG.text }}>{o.label}</p>
+                          <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>{o.sub}</p>
+                          {'sub2' in o&&<p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.micro,color:FARG.text3 }}>{(o as any).sub2}</p>}
                         </button>
                       ))}
                     </div>
@@ -3207,7 +3205,7 @@ export default function Arbetsrapport() {
                         if (!res.ok) { alert(res.fel); return; } // ATK-valet får aldrig se bekräftat ut utan att vara sparat
                         setAtkValSparat(row);
                       }}
-                      style={{ width:"100%",height:48,background:atkVal?"#0a84ff":"rgba(255,255,255,0.04)",border:"none",borderRadius:12,color:atkVal?"#fff":"#636366",fontSize:15,fontWeight:600,cursor:atkVal?"pointer":"default",fontFamily:"inherit",opacity:atkVal?1:0.5 }}>
+                      style={{ width:"100%",height:48,background:atkVal?FARG.bla:FARG.linje,border:"none",borderRadius:RADIE.kort,color:atkVal?FARG.text:FARG.text3,...TYP.text,fontWeight:VIKT.halvfet,cursor:atkVal?"pointer":"default",fontFamily:"inherit",opacity:atkVal?1:0.5 }}>
                       Bekräfta val
                     </button>
                   </div>
@@ -3219,18 +3217,18 @@ export default function Arbetsrapport() {
           </>}
 
           {minTidFlik==='översikt'&&<>
-          {/* Övertid året — progress bar */}
-          <section style={{ marginBottom:32 }}>
-            <h3 style={secHead}>Övertid {nu.getFullYear()}</h3>
-            <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
-                <span style={{ ...TYPE.h2,color:årsBarFärg,...TNUM }}>{årsÖvH}h</span>
-                <span style={{ ...TYPE.meta,color:"#8e8e93" }}>av 250h</span>
+          {/* Övertid året — taket ur avtalet; färgen förstärker ett ord. */}
+          <section style={{ marginBottom:AVSTAND.xl }}>
+            <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Övertid {nu.getFullYear()}</h3>
+            <div style={KORT}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:AVSTAND.s }}>
+                <span style={{ ...TYP.rubrik, ...TNUM, color:FARG.text }}>{årsÖvH.toLocaleString('sv-SE')} tim</span>
+                <span style={{ ...TYP.meta, ...TNUM, color:FARG.text2 }}>av {övertidTak} tim</span>
               </div>
-              <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:8,overflow:"hidden" }}>
-                <div style={{ height:"100%",width:`${Math.min(100,årsÖvH/250*100)}%`,background:årsBarFärg,borderRadius:2,transition:"width 0.5s" }} />
+              <div style={{ height:AVSTAND.xs, background:FARG.linje, borderRadius:RADIE.rad, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${Math.min(100, övertidTak > 0 ? årsÖvH/övertidTak*100 : 0)}%`, background:årsFarg, borderRadius:RADIE.rad, transition:`width ${RORELSE.tal}ms ${RORELSE.kurva}` }} />
               </div>
-              <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>{årsKvar} tim kvar</p>
+              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:årsFarg }}>{årsOrd}</p>
             </div>
           </section>
 
@@ -3412,18 +3410,21 @@ export default function Arbetsrapport() {
             // Långa ledigheter (>=24h) visas som hela timmar — "161h 12min" är
             // brus på den nivån och spränger kortbredden.
             const fmtStor = (h:number) => h >= 24 ? `${Math.round(h)}h` : fmtVilaH(h);
-            const SammanfattningsKort = ({label, vilaH, kravH, saknas}:{label:string;vilaH:number;kravH:number;saknas?:boolean}) => {
-              const st = vilaNiva(vilaH, kravH);
+            // `brott` = ett brott finns i vilobrott-TABELLEN för perioden. Tabellen
+            // avgör status; den lokalt räknade vilan visar bara timmarna. Förr kunde
+            // kortet lysa grönt medan tabellen hade ett brott i samma fönster.
+            const SammanfattningsKort = ({label, vilaH, kravH, saknas, brott}:{label:string;vilaH:number;kravH:number;saknas?:boolean;brott?:boolean}) => {
+              const st = brott ? 'brott' : vilaNiva(vilaH, kravH);
               const farg = st==='brott' ? '#ff453a' : st==='nara' ? '#ff9f0a' : '#30d158';
               return (
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                  <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>{label}</p>
+                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,border:`1px solid ${FARG.linje}` }}>
+                  <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{label}</p>
                   {saknas ? (
-                    <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen vila registrerad än</p>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Ingen vila registrerad än</p>
                   ) : (<>
-                    <p style={{ margin:0,fontSize:22,fontWeight:700,color:"#fff",...TNUM }}>{fmtStor(vilaH)}</p>
-                    <p style={{ margin:"6px 0 0",fontSize:12,fontWeight:600,color:farg,display:"flex",alignItems:"center",gap:4 }}>
-                      <span className="material-symbols-outlined" style={{ fontSize:14 }}>{st==='brott'?'warning':'check'}</span>
+                    <p style={{ margin:0,...TYP.rubrik,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{fmtStor(vilaH)}</p>
+                    <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,fontWeight:VIKT.halvfet,color:farg,display:"flex",alignItems:"center",gap:AVSTAND.xs }}>
+                      <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{st==='brott'?'warning':'check'}</span>
                       {st==='brott' ? `under krav ${kravH}h` : st==='nara' ? `nära gränsen · krav ${kravH}h` : `krav ${kravH}h`}
                     </p>
                   </>)}
@@ -3438,26 +3439,26 @@ export default function Arbetsrapport() {
               return (
                 <div
                   onClick={b ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
-                  style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:`1px solid ${ok?"rgba(255,255,255,0.06)":"rgba(255,69,58,0.2)"}`,cursor: b ? "pointer" : "default" }}>
-                  <p style={{ margin:"0 0 6px",...TYPE.bodyList,color:"#fff",textTransform:"capitalize" }}>{fD(d1)}</p>
-                  <p style={{ margin:"0 0 2px",fontSize:13,color:"#8e8e93" }}>Slutade kl {r.slutTid}</p>
-                  <p style={{ margin:"0 0 10px",fontSize:13,color:"#8e8e93" }}>Startade igen: <span style={{ textTransform:"capitalize" }}>{fD(d2)}</span> kl {r.startTid}</p>
-                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                    {!ok&&<span className="material-symbols-outlined" style={{ color:"#ff453a",fontSize:16 }}>warning</span>}
-                    <span style={{ ...TYPE.meta,fontWeight:600,color:ok?"#30d158":"#ff453a",...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
-                    {ok&&<span className="material-symbols-outlined" style={{ color:"#30d158",fontSize:16 }}>check</span>}
-                    {!ok&&<span style={{ fontSize:12,color:"#ff453a" }}>(kräver {krav_h}h)</span>}
+                  style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${ok?FARG.linje:FARG.upphojt}`,cursor: b ? "pointer" : "default" }}>
+                  <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.listtitel,color:FARG.text,textTransform:"capitalize" }}>{fD(d1)}</p>
+                  <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Slutade kl {r.slutTid}</p>
+                  <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.meta,color:FARG.text2 }}>Startade igen: <span style={{ textTransform:"capitalize" }}>{fD(d2)}</span> kl {r.startTid}</p>
+                  <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
+                    {!ok&&<span className="material-symbols-outlined" style={{ color:FARG.rod,fontSize:IKON.text }}>warning</span>}
+                    <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:ok?FARG.gron:FARG.rod,...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
+                    {ok&&<span className="material-symbols-outlined" style={{ color:FARG.gron,fontSize:IKON.text }}>check</span>}
+                    {!ok&&<span style={{ ...TYP.meta,color:FARG.rod }}>(kräver {krav_h}h)</span>}
                   </div>
-                  {r.anledning&&<p style={{ margin:"6px 0 0",fontSize:12,color:"#8e8e93" }}>{r.anledning}</p>}
+                  {r.anledning&&<p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{r.anledning}</p>}
                   {expanderad && b && (
-                    <div style={{ marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
                       {b.besvarat_av_forare ? (
-                        <p style={{ margin:0,fontSize:12,color:"#8e8e93" }}>
+                        <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
                           Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
                           {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
                         </p>
                       ) : (
-                        <p style={{ margin:0,fontSize:12,color:"#ff9f0a" }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
+                        <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
                       )}
                     </div>
                   )}
@@ -3467,64 +3468,66 @@ export default function Arbetsrapport() {
 
             return (<>
             {/* Sammanfattning: faktiska siffror — föraren ser SIN vila, inte bara "uppfylld" */}
-            <section style={{ marginBottom:24 }}>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-                <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} />
-                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} />
+            <section style={{ marginBottom:AVSTAND.xl }}>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:AVSTAND.m }}>
+                <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} brott={!!senasteVilaRad && !!brottForRad(senasteVilaRad)} />
+                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} brott={vvHarProblem} />
               </div>
             </section>
 
             {/* Dygnsvila */}
-            <section style={{ marginBottom:24 }}>
-              <h3 style={secHead}>Dygnsvila</h3>
-              <div style={{ display:"flex",gap:0,marginBottom:16,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2 }}>
+            <section style={{ marginBottom:AVSTAND.xl }}>
+              <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Dygnsvila</h3>
+              <div style={{ display:"flex",gap:0,marginBottom:AVSTAND.l,background:FARG.linje,borderRadius:RADIE.rad,padding:AVSTAND.xs }}>
                 {([['7d','7 dagar'],['30d','30 dagar'],['månad','Månad'],['år','År']] as const).map(([k,l])=>(
-                  <button key={k} onClick={()=>{setVilaPeriod(k);setVisaAllaDygnsvila(false);}} style={{ flex:1,padding:"8px 0",borderRadius:6,border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:vilaPeriod===k?"rgba(255,255,255,0.12)":"transparent",color:vilaPeriod===k?"#fff":"#8e8e93" }}>{l}</button>
+                  <button key={k} onClick={()=>{setVilaPeriod(k);setVisaAllaDygnsvila(false);}} style={{ flex:1,padding:`${AVSTAND.s}px 0`,borderRadius:RADIE.rad,border:"none",...TYP.meta,fontWeight:VIKT.halvfet,cursor:"pointer",fontFamily:"inherit",background:vilaPeriod===k?FARG.fyllning:"transparent",color:vilaPeriod===k?FARG.text:FARG.text2 }}>{l}</button>
                 ))}
               </div>
               {vilaPeriod==='månad'&&(
-                <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:16,marginBottom:16 }}>
-                  <button onClick={()=>setVilaMånad(m=>(m-1+12)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span></button>
-                  <span style={{ ...TYPE.bodyList,color:"#fff",minWidth:120,textAlign:"center",textTransform:"capitalize" }}>{periodLabel}</span>
-                  <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_right</span></button>
+                <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:AVSTAND.l,marginBottom:AVSTAND.l }}>
+                  <button onClick={()=>setVilaMånad(m=>(m-1+12)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:AVSTAND.xs }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span></button>
+                  <span style={{ ...TYP.listtitel,color:FARG.text,minWidth:120,textAlign:"center",textTransform:"capitalize" }}>{periodLabel}</span>
+                  <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:AVSTAND.xs }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_right</span></button>
                 </div>
               )}
 
               {/* Default: kompakt eller problem */}
               {!visaAllaDygnsvila&&vilaPeriod!=='år'?(
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
                   {!harProblem?(
-                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0` }}>
                       {/* Siffrorna bor i sammanfattnings-korten ovanför — här bara vägen till detaljerna */}
-                      <span style={{ ...TYPE.meta,color:"#8e8e93",...TNUM }}>{filtVila.length} {filtVila.length===1?'viloperiod':'viloperioder'} {periodLabel}</span>
-                      <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Se alla nätter →</button>
+                      <span style={{ ...TYP.meta,color:FARG.text2,...TNUM }}>{filtVila.length} {filtVila.length===1?'viloperiod':'viloperioder'} {periodLabel}</span>
+                      <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Se alla nätter →</button>
                     </div>
                   ):(
                     <>
                       {brott.map((r,i)=><VilaKort key={i} r={r} />)}
-                      <div style={{ padding:"10px 0 14px",borderTop:"1px solid rgba(255,255,255,0.04)" }}>
-                        <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Se alla {filtVila.length} nätter →</button>
+                      <div style={{ padding:`${AVSTAND.m}px 0 ${AVSTAND.l}px`,borderTop:`1px solid ${FARG.linje}` }}>
+                        <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Se alla {filtVila.length} nätter →</button>
                       </div>
                     </>
                   )}
                 </div>
               ):vilaPeriod==='år'?(
                 /* Årsvy per månad */
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
                   {(()=>{
-                    const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>r.vila<11).length};}).filter(x=>x.mv.length>0);
-                    return mån.length===0?<p style={{ padding:"14px 0",margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen data</p>:mån.map((x,i)=>{
+                    // Brott ur TABELLEN (samma sanning som Dag-vyn och listan ovan) — inte
+                    // en lokal jämförelse mot hårdkodade 11 h.
+                    const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>!!brottForRad(r)).length};}).filter(x=>x.mv.length>0);
+                    return mån.length===0?<p style={{ padding:`${AVSTAND.l}px 0`,margin:0,...TYP.meta,color:FARG.text2 }}>Ingen data</p>:mån.map((x,i)=>{
                       const nm=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'][x.m];
                       const exp=vilaÅrExpand===x.m;
                       return (<div key={x.m}>
-                        <div onClick={()=>setVilaÅrExpand(exp?null:x.m)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:!exp&&i<mån.length-1?"1px solid rgba(255,255,255,0.04)":"none",cursor:"pointer" }}>
-                          <span style={{ ...TYPE.bodyList }}>{nm}</span>
-                          <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                            <span style={{ fontSize:13,color:x.brott>0?"#ff453a":"#8e8e93",display:"inline-flex",alignItems:"center",gap:4 }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:14 }}>{x.brott>0?'warning':'check'}</span></span>
-                            <span className="material-symbols-outlined" style={{ fontSize:16,color:"#8e8e93",transform:exp?"rotate(180deg)":"",transition:"transform 0.2s" }}>expand_more</span>
+                        <div onClick={()=>setVilaÅrExpand(exp?null:x.m)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:!exp&&i<mån.length-1?`1px solid ${FARG.linje}`:"none",cursor:"pointer" }}>
+                          <span style={{ ...TYP.listtitel }}>{nm}</span>
+                          <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
+                            <span style={{ fontSize:IKON.text,color:x.brott>0?FARG.rod:FARG.text2,display:"inline-flex",alignItems:"center",gap:AVSTAND.xs }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{x.brott>0?'warning':'check'}</span></span>
+                            <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.text2,transform:exp?"rotate(180deg)":"",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>expand_more</span>
                           </div>
                         </div>
-                        {exp&&<div style={{ padding:"8px 0" }}>{x.mv.map((r,j)=><VilaKort key={j} r={r} />)}</div>}
+                        {exp&&<div style={{ padding:`${AVSTAND.s}px 0` }}>{x.mv.map((r,j)=><VilaKort key={j} r={r} />)}</div>}
                       </div>);
                     });
                   })()}
@@ -3532,37 +3535,37 @@ export default function Arbetsrapport() {
               ):(
                 /* Expanderad lista med kort */
                 <div>
-                  {filtVila.length===0?<div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}><p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen data för perioden</p></div>:
+                  {filtVila.length===0?<div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}><p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Ingen data för perioden</p></div>:
                   filtVila.map((r,i)=><VilaKort key={i} r={r} />)}
-                  <button onClick={()=>setVisaAllaDygnsvila(false)} style={{ width:"100%",marginTop:4,background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:"8px 0" }}>Dölj detaljer</button>
+                  <button onClick={()=>setVisaAllaDygnsvila(false)} style={{ width:"100%",marginTop:AVSTAND.xs,background:"none",border:"none",color:FARG.text2,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:`${AVSTAND.s}px 0` }}>Dölj detaljer</button>
                 </div>
               )}
             </section>
 
             {/* Veckovila — rullande fönster från DB:n. Inga ISO-vecka-grupperingar. */}
-            <section style={{ marginBottom:24 }}>
-              <h3 style={secHead}>Veckovila</h3>
+            <section style={{ marginBottom:AVSTAND.xl }}>
+              <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Veckovila</h3>
               {periodLaddar ? (
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                  <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Laddar viloperioder…</p>
+                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
+                  <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Laddar viloperioder…</p>
                 </div>
               ) : !visaAllaVeckovila?(
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
+                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0` }}>
                     {/* Aktuell veckovila-siffra bor i sammanfattnings-kortet ovanför —
                         den här sektionen redovisar BROTT i vald period */}
-                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                      {vvHarProblem&&<span className="material-symbols-outlined" style={{ fontSize:18,color:"#ff453a" }}>warning</span>}
-                      <span style={{ ...TYPE.meta,color:vvHarProblem?"#fff":"#8e8e93" }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:`Inga brott ${periodLabel}`}</span>
+                    <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
+                      {vvHarProblem&&<span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.rod }}>warning</span>}
+                      <span style={{ ...TYP.meta,color:vvHarProblem?FARG.text:FARG.text2 }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:`Inga brott ${periodLabel}`}</span>
                     </div>
-                    {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>}
+                    {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>}
                   </div>
                 </div>
               ):(
                 <div>
                   {dbVeck.length===0 ? (
-                    <div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                      <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inga brott i perioden</p>
+                    <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
+                      <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Inga brott i perioden</p>
                     </div>
                   ) : dbVeck.map(b => {
                     const dt = new Date(b.datum);
@@ -3570,41 +3573,41 @@ export default function Arbetsrapport() {
                     return (
                       <div key={b.id}
                         onClick={() => setVilaKortExpanded(expanderad ? null : b.id)}
-                        style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:"1px solid rgba(255,69,58,0.2)",cursor:"pointer" }}>
-                        <p style={{ margin:"0 0 4px",fontSize:13,fontWeight:600,color:"#fff",textTransform:"capitalize" }}>{fD(dt)}</p>
-                        <p style={{ margin:"0 0 8px",fontSize:13,color:"#8e8e93" }}>{b.beskrivning}</p>
-                        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                          <span className="material-symbols-outlined" style={{ color:"#ff453a",fontSize:16 }}>warning</span>
-                          <span style={{ ...TYPE.meta,fontWeight:600,color:"#ff453a",...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
-                          <span style={{ fontSize:12,color:"#ff453a" }}>(kräver {Number(b.krav_h)}h)</span>
+                        style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${FARG.linje}`,cursor:"pointer" }}>
+                        <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.text,textTransform:"capitalize" }}>{fD(dt)}</p>
+                        <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{b.beskrivning}</p>
+                        <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
+                          <span className="material-symbols-outlined" style={{ color:FARG.rod,fontSize:IKON.text }}>warning</span>
+                          <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.rod,...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
+                          <span style={{ ...TYP.meta,color:FARG.rod }}>(kräver {Number(b.krav_h)}h)</span>
                         </div>
                         {expanderad && (
-                          <div style={{ marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+                          <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
                             {b.besvarat_av_forare ? (
-                              <p style={{ margin:0,fontSize:12,color:"#8e8e93" }}>
+                              <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
                                 Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
                                 {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
                               </p>
                             ) : (
-                              <p style={{ margin:0,fontSize:12,color:"#ff9f0a" }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
+                              <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
                             )}
                           </div>
                         )}
                       </div>
                     );
                   })}
-                  <div style={{ padding:"10px 0 14px",borderTop:"1px solid rgba(255,255,255,0.04)" }}>
-                    <button onClick={()=>setVisaAllaVeckovila(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Dölj detaljer</button>
+                  <div style={{ padding:`${AVSTAND.m}px 0 ${AVSTAND.l}px`,borderTop:`1px solid ${FARG.linje}` }}>
+                    <button onClick={()=>setVisaAllaVeckovila(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Dölj detaljer</button>
                   </div>
                 </div>
               )}
             </section>
 
             {/* Export + Löneunderlag */}
-            <section style={{ paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",flexDirection:"column",gap:12 }}>
-              <button onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",padding:"12px 0",cursor:"pointer",fontFamily:"inherit" }}>
-                <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>print</span>
-                <span style={{ fontSize:15,fontWeight:500,color:"#8e8e93" }}>Exportera PDF →</span>
+            <section style={{ paddingTop:AVSTAND.l,borderTop:`1px solid ${FARG.linje}`,display:"flex",flexDirection:"column",gap:AVSTAND.m }}>
+              <button onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:AVSTAND.s,width:"100%",background:"none",border:"none",padding:`${AVSTAND.m}px 0`,cursor:"pointer",fontFamily:"inherit" }}>
+                <span className="material-symbols-outlined" style={{ color:FARG.text2,fontSize:IKON.text }}>print</span>
+                <span style={{ ...TYP.text,fontWeight:VIKT.normal,color:FARG.text2 }}>Exportera PDF →</span>
               </button>
             </section>
             </>);
@@ -3637,19 +3640,19 @@ export default function Arbetsrapport() {
             return (
               <>
                 {/* Sammanfattning */}
-                <section style={{ marginBottom:24 }}>
-                  <h3 style={secHead}>Senaste 30 dagarna</h3>
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-                    <p style={{ margin:0,...TYPE.h2,color:"#fff",...TNUM }}>{Math.round(totMin/60*10)/10}h <span style={{ ...TYPE.meta,color:"#8e8e93" }}>extra tid totalt</span></p>
-                    <p style={{ margin:"6px 0 0",fontSize:13,color:"#8e8e93" }}>{senaste30.length} aktiviteter över {arbDagar30} arbetsdagar</p>
+                <section style={{ marginBottom:AVSTAND.xl }}>
+                  <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Senaste 30 dagarna</h3>
+                  <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.xl,border:`1px solid ${FARG.linje}` }}>
+                    <p style={{ margin:0,...TYP.rubrik,color:FARG.text,...TNUM }}>{Math.round(totMin/60*10)/10}h <span style={{ ...TYP.meta,color:FARG.text2 }}>extra tid totalt</span></p>
+                    <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{senaste30.length} aktiviteter över {arbDagar30} arbetsdagar</p>
                   </div>
                 </section>
                 {/* Per typ */}
                 {stats.length === 0 ? (
-                  <Card><p style={{ margin:0,...TYPE.meta,color:C.label,textAlign:"center" }}>Ingen extra tid registrerad senaste 30 dagarna</p></Card>
+                  <Card><p style={{ margin:0,...TYP.meta,color:FARG.text2,textAlign:"center" }}>Ingen extra tid registrerad senaste 30 dagarna</p></Card>
                 ) : (
                   <section>
-                    <h3 style={secHead}>Per aktivitet</h3>
+                    <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Per aktivitet</h3>
                     {stats.map(s => {
                       const pct = Math.round(s.antal/arbDagar30*100);
                       const kallEntries: [string, number][] = Object.entries(s.kall) as [string, number][];
@@ -3658,42 +3661,42 @@ export default function Arbetsrapport() {
                         ? (dominantKall[0]==='morgon'?'oftast på morgonen':dominantKall[0]==='kvall'?'oftast på kvällen':'oftast under dagen')
                         : '';
                       return (
-                        <Card key={s.typ} style={{ padding:"16px 18px" }}>
-                          <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:8 }}>
-                            <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:22 }}>{aktIcon(s.typ)}</span>
+                        <Card key={s.typ} style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px` }}>
+                          <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m,marginBottom:AVSTAND.s }}>
+                            <span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>{aktIcon(s.typ)}</span>
                             <div style={{ flex:1 }}>
-                              <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{aktLabel(s.typ)}</p>
-                              <p style={{ margin:"2px 0 0",fontSize:12,color:C.label }}>{pct}% av dagarna · snitt {fmt(s.medel)}</p>
+                              <p style={{ margin:0,...TYP.listtitel,color:FARG.text }}>{aktLabel(s.typ)}</p>
+                              <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>{pct}% av dagarna · snitt {fmt(s.medel)}</p>
                             </div>
-                            <span style={{ ...TYPE.bodyList,color:"#fff" }}>{Math.round(s.minTot/60*10)/10}h</span>
+                            <span style={{ ...TYP.listtitel,color:FARG.text }}>{Math.round(s.minTot/60*10)/10}h</span>
                           </div>
                           {/* Bar */}
-                          <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden",marginBottom:6 }}>
-                            <div style={{ height:"100%",width:`${Math.min(100,pct)}%`,background:"#0a84ff",borderRadius:2 }}/>
+                          <div style={{ height:4,background:FARG.linje,borderRadius:RADIE.rad,overflow:"hidden",marginBottom:AVSTAND.s }}>
+                            <div style={{ height:"100%",width:`${Math.min(100,pct)}%`,background:FARG.bla,borderRadius:RADIE.rad }}/>
                           </div>
-                          <p style={{ margin:0,fontSize:12,color:C.label }}>
+                          <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
                             {s.antal} gånger{s.deb>0?` · ${s.deb} debiterbar${s.deb>1?'a':''}`:''}{kallText?` · ${kallText}`:''}
                           </p>
                         </Card>
                       );
                     })}
                     {/* Stapeldiagram fördelning */}
-                    <h3 style={{ ...secHead,marginTop:24 }}>Fördelning</h3>
-                    <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-                      <div style={{ display:"flex",height:24,borderRadius:6,overflow:"hidden" }}>
+                    <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2,marginTop:AVSTAND.xl }}>Fördelning</h3>
+                    <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.xl,border:`1px solid ${FARG.linje}` }}>
+                      <div style={{ display:"flex",height:24,borderRadius:RADIE.rad,overflow:"hidden" }}>
                         {stats.map((s,i) => {
                           const w = totMin>0 ? (s.minTot/totMin*100) : 0;
-                          const färger = ["#0a84ff","#30d158","#ff9f0a","#ff453a","#bf5af2","#64d2ff"];
+                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.skordare,FARG.skotare];
                           return <div key={s.typ} title={aktLabel(s.typ)} style={{ width:`${w}%`,background:färger[i%färger.length] }}/>;
                         })}
                       </div>
-                      <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginTop:12 }}>
+                      <div style={{ display:"flex",flexWrap:"wrap",gap:AVSTAND.s,marginTop:AVSTAND.m }}>
                         {stats.map((s,i) => {
-                          const färger = ["#0a84ff","#30d158","#ff9f0a","#ff453a","#bf5af2","#64d2ff"];
+                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.skordare,FARG.skotare];
                           return (
-                            <div key={s.typ} style={{ display:"flex",alignItems:"center",gap:6 }}>
-                              <div style={{ width:10,height:10,borderRadius:2,background:färger[i%färger.length] }}/>
-                              <span style={{ fontSize:11,color:"#8e8e93" }}>{aktLabel(s.typ)}</span>
+                            <div key={s.typ} style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
+                              <div style={{ width:10,height:10,borderRadius:RADIE.rad,background:färger[i%färger.length] }}/>
+                              <span style={{ ...TYP.micro,color:FARG.text2 }}>{aktLabel(s.typ)}</span>
                             </div>
                           );
                         })}
@@ -3727,16 +3730,16 @@ export default function Arbetsrapport() {
     const stegLönFram = () => { if (kanLönFram) setLönOffset(o => o + 1); };
     const månadsHistorik = historik.filter(d => d.datum && d.datum.startsWith(lönePeriod));
 
-    // Extra tid filtrerad på månad
+    // Extra tid-POSTERNA för listan i detaljer. Summan kommer ur specen (extra_h).
     const månadsExtraTid = extraTidData.filter(e => e.datum && e.datum.startsWith(lönePeriod));
-    const extraTidMin = månadsExtraTid.reduce((a,e) => a + (e.minuter || 0), 0);
 
     // Månadens summor kommer ur specifikationen (/api/lon/min-manad = samma
     // beräkning som Fortnox-exporten). INGEN lokal månadsberäkning längre —
-    // två sanningar om samma månad är precis det som rensats bort. Dagräkningen
-    // ur historik finns kvar bara för bekräftelse-gaten.
-    const arbetsdagar = månadsHistorik.length;
+    // två sanningar om samma månad är precis det som rensats bort. Även
+    // dagräkningen och bekräftelse-gaten läser specens dagar; historik är bara
+    // reserv tills specen laddat (gaten kräver ändå en laddad spec).
     const spec = minManad.arbetsmanad === lönePeriod && !minManad.laddar ? minManad.data : null;
+    const arbetsdagar = spec ? Number(spec.arbetsdagar) : månadsHistorik.length;
     const specLaddar = minManad.arbetsmanad !== lönePeriod || minManad.laddar;
     const specFel = minManad.arbetsmanad === lönePeriod ? minManad.fel : null;
     const jobbadH = spec ? Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 10) / 10 : 0;
@@ -3769,14 +3772,14 @@ export default function Arbetsrapport() {
     const frånvaroRader = FRANVARO_TYPER
       .map(([typ,label]) => [label, månadsHistorik.filter(d => d.dagtyp === typ).length] as [string,number])
       .filter(([,n]) => n > 0);
-    const frånvaroAntal = frånvaroRader.reduce((a,[,n]) => a + n, 0);
-    const arbetadeDagar = arbetsdagar - frånvaroAntal;
 
     // Bekräftelse-gaten — själva poängen med kontrollsteget: ALLA dagar måste
     // vara bekräftade innan månaden kan godkännas. Ingen "skicka ändå" — lön
-    // är för viktigt för halvgranskad rådata.
-    const bekräftadeDagar = månadsHistorik.filter(d => d.bekraftad).length;
-    const obekräftadeDagar = arbetsdagar - bekräftadeDagar;
+    // är för viktigt för halvgranskad rådata. Räknas ur specens dagar — samma
+    // tal som visas, samma tal som styr knappen.
+    const obekräftadeDagar = spec
+      ? (spec.dagar as any[]).filter((d: any) => !d.bekraftad).length
+      : månadsHistorik.filter(d => !d.bekraftad).length;
 
     const periodStatus = lönStatusPerPeriod[lönePeriod] || null;
     const ärGodkänd = !!periodStatus;
@@ -3817,11 +3820,8 @@ export default function Arbetsrapport() {
     // delarna hålls separata så staplarna kan visa fördelningen.
     const månadsPrefix = lönePeriod; // "YYYY-MM"
     const löneRödaDagar = getRödaDagar(nu.getFullYear());
-    const veckoNrFör = (datum: string) => {
-      const date = new Date(datum);
-      const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(),0,1).getTime()) / 86400000);
-      return Math.ceil((dayOfYear + new Date(date.getFullYear(),0,1).getDay()) / 7);
-    };
+    // ISO-vecka — EN definition i hela appen (lib/vilobrott isoVecka).
+    const veckoNrFör = (datum: string) => isoVecka(new Date(datum + 'T00:00:00')).vecka;
     const veckoData: Record<number, { dagar: {datum:string;min:number;extraMin:number;rödDag?:string}[]; sumH:number; helglönH:number }> = {};
     const extraPerDagMånad = extraMinPerDag(månadsExtraTid);
     historik.filter(d => d.datum && d.datum.startsWith(månadsPrefix)).forEach(d => {
@@ -3880,39 +3880,39 @@ export default function Arbetsrapport() {
     });
     const objektEntries = Object.values(maskinAgg).sort((a,b) => b.dagar-a.dagar);
 
-    const bottomNav = <BottomNavBar aktiv="mintid" onNav={s=>setSteg(s)} />;
+    const bottomNav = <BottomNavBar aktiv="lön" onNav={s=>setSteg(s)} />;
 
     // ─── DETALJER-VY ───
     if(lönVy==='detaljer') {
       const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
       const månNamn = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
       return (
-        <div style={{ minHeight:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased" }}>
+        <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased" }}>
           <style>{css}</style>{timerBanner}
-          <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
-            <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:"8px 12px 8px 8px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4 }}>
-              <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span>
-              <span style={{ color:"#0a84ff",fontSize:15,fontWeight:500 }}>Sammanställning</span>
+          <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:`0 ${AVSTAND.l}px`,height:64 }}>
+            <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:`${AVSTAND.s}px ${AVSTAND.m}px ${AVSTAND.s}px ${AVSTAND.s}px`,fontFamily:"inherit",display:"flex",alignItems:"center",gap:AVSTAND.xs }}>
+              <span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span>
+              <span style={{ color:FARG.bla,...TYP.text,fontWeight:VIKT.normal }}>Sammanställning</span>
             </button>
-            <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8 }}>
-              <button onClick={stegLönBak} disabled={!kanLönBak} style={{ background:"none",border:"none",cursor:kanLönBak?"pointer":"default",padding:4,opacity:kanLönBak?1:0.3 }}>
-                <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span>
+            <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:AVSTAND.s }}>
+              <button onClick={stegLönBak} disabled={!kanLönBak} style={{ background:"none",border:"none",cursor:kanLönBak?"pointer":"default",padding:AVSTAND.xs,opacity:kanLönBak?1:0.3 }}>
+                <span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span>
               </button>
-              <span style={{ ...TYPE.bodyList,color:"#fff",textTransform:"capitalize" }}>{lönMånadsLabel}</span>
-              <button onClick={stegLönFram} disabled={!kanLönFram} style={{ background:"none",border:"none",cursor:kanLönFram?"pointer":"default",padding:4,opacity:kanLönFram?1:0.3 }}>
-                <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_right</span>
+              <span style={{ ...TYP.listtitel,color:FARG.text,textTransform:"capitalize" }}>{lönMånadsLabel}</span>
+              <button onClick={stegLönFram} disabled={!kanLönFram} style={{ background:"none",border:"none",cursor:kanLönFram?"pointer":"default",padding:AVSTAND.xs,opacity:kanLönFram?1:0.3 }}>
+                <span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_right</span>
               </button>
             </div>
           </header>
 
-          <main style={{ paddingTop:80,paddingBottom:128,padding:"80px 16px 128px",maxWidth:640,margin:"0 auto" }}>
+          <main style={{ paddingTop:AVSTAND.xxl,paddingBottom:AVSTAND.xxl,padding:`${AVSTAND.xxl}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:640,margin:"0 auto" }}>
 
             {/* Brandrisk-retroraden bor numera i Sammanställningens "Saknas"-block. */}
 
             {/* Timmar per vecka — veckan som hjälte, staplar visar dagsrytmen */}
-            <section style={{ marginBottom:32 }}>
-              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Timmar per vecka</h2>
-              <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+            <section style={{ marginBottom:AVSTAND.xxl }}>
+              <h2 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2,marginBottom:AVSTAND.l,marginLeft:AVSTAND.xs }}>Timmar per vecka</h2>
+              <div style={{ display:"flex",flexDirection:"column",gap:AVSTAND.l }}>
                 {(()=>{
                   // Svenskt decimalkomma genomgående ("58,5" — inte "58.5")
                   const fmtTim = (h:number) => (Math.round(h*10)/10).toString().replace('.', ',');
@@ -3925,19 +3925,19 @@ export default function Arbetsrapport() {
                   // Veckans längsta dag (maskin + extra) styr stapelskalan
                   const maxMin = Math.max(...week.dagar.map(d => d.min + d.extraMin), 1);
                   return (
-                    <div key={weekNum} style={{ background:"#1c1c1e",borderRadius:12,padding:20 }}>
+                    <div key={weekNum} style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.xl }}>
                       {/* Veckan som hjälte: micro-label + stor totalsiffra, dagarna lugna under */}
-                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:16 }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:AVSTAND.l }}>
                         <div>
-                          <p style={{ margin:"0 0 3px",...TYPE.micro,color:"#8e8e93" }}>Vecka {weekNum}</p>
-                          <p style={{ margin:0,...TYPE.meta,color:"#636366",...TNUM }}>{rangeStr}</p>
+                          <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.micro,color:FARG.text2 }}>Vecka {weekNum}</p>
+                          <p style={{ margin:0,...TYP.meta,color:FARG.text3,...TNUM }}>{rangeStr}</p>
                         </div>
-                        <div style={{ display:"flex",alignItems:"baseline",gap:5 }}>
-                          <span style={{ fontSize:24,fontWeight:700,color:"#fff",...TNUM }}>{fmtTim(week.sumH)}</span>
-                          <span style={{ fontSize:13,color:"#8e8e93" }}>tim</span>
+                        <div style={{ display:"flex",alignItems:"baseline",gap:AVSTAND.xs }}>
+                          <span style={{ ...TYP.rubrik,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{fmtTim(week.sumH)}</span>
+                          <span style={{ ...TYP.meta,color:FARG.text2 }}>tim</span>
                         </div>
                       </div>
-                      <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+                      <div style={{ display:"flex",flexDirection:"column",gap:AVSTAND.m }}>
                         {week.dagar.map(dag => {
                           const dt = new Date(dag.datum);
                           const h = Math.round((dag.min + dag.extraMin)/60*10)/10;
@@ -3948,22 +3948,22 @@ export default function Arbetsrapport() {
                           if(dag.rödDag) {
                             // Röd dag utan arbete — bara flaggan
                             return (
-                            <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
-                              <span style={{ ...TYPE.meta,color:"#ff453a" }}>{dagLabel} · {dag.rödDag}</span>
-                              <span style={{ fontSize:13,color:"#636366" }}>—</span>
+                            <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.s}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                              <span style={{ ...TYP.meta,color:FARG.rod }}>{dagLabel} · {dag.rödDag}</span>
+                              <span style={{ ...TYP.meta,color:FARG.text3 }}>—</span>
                             </div>
                           );}
                           return (
-                            <div key={dag.datum} style={{ padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
-                              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
-                                <span style={{ ...TYPE.meta,color:rödNamn?"#ff453a":undefined }}>{dagLabel}{rödNamn?` · ${rödNamn}`:''}</span>
-                                <span style={{ ...TYPE.bodyList,...TNUM }}>{fmtTim(h)} tim</span>
+                            <div key={dag.datum} style={{ padding:`${AVSTAND.s}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:AVSTAND.s }}>
+                                <span style={{ ...TYP.meta,color:rödNamn?FARG.rod:undefined }}>{dagLabel}{rödNamn?` · ${rödNamn}`:''}</span>
+                                <span style={{ ...TYP.listtitel,...TNUM }}>{fmtTim(h)} tim</span>
                               </div>
                               {/* Delad stapel: mörk grön = maskinarbete, ljus grön = extra tid.
                                   Dag utan extra = bara mörk. Skalad mot veckans längsta dag (totalt). */}
-                              <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.06)",overflow:"hidden",display:"flex" }}>
-                                {dag.min>0&&<div style={{ height:"100%",background:"#30d158",width:`${Math.round(dag.min/maxMin*100)}%` }} />}
-                                {dag.extraMin>0&&<div style={{ height:"100%",background:"#7dd88f",width:`${Math.round(dag.extraMin/maxMin*100)}%` }} />}
+                              <div style={{ height:4,borderRadius:RADIE.rad,background:FARG.linje,overflow:"hidden",display:"flex" }}>
+                                {dag.min>0&&<div style={{ height:"100%",background:FARG.gron,width:`${Math.round(dag.min/maxMin*100)}%` }} />}
+                                {dag.extraMin>0&&<div style={{ height:"100%",background:FARG.gron,width:`${Math.round(dag.extraMin/maxMin*100)}%` }} />}
                               </div>
                             </div>
                           );
@@ -3973,71 +3973,60 @@ export default function Arbetsrapport() {
                   );
                   });
                 })()}
-                {sortedWeeks.length===0&&<p style={{ color:"#8e8e93",...TYPE.meta,padding:20 }}>Ingen data för perioden</p>}
+                {sortedWeeks.length===0&&<p style={{ color:FARG.text2,...TYP.meta,padding:AVSTAND.xl }}>Ingen data för perioden</p>}
                 {/* Förklaringsrad för delade staplar */}
                 {sortedWeeks.length>0&&(
-                  <div style={{ display:"flex",gap:16,padding:"2px 4px 0" }}>
-                    <span style={{ display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:"#8e8e93" }}>
-                      <span style={{ width:10,height:4,borderRadius:2,background:"#30d158" }} />Maskinarbete
+                  <div style={{ display:"flex",gap:AVSTAND.l,padding:`${AVSTAND.xs}px ${AVSTAND.xs}px 0` }}>
+                    <span style={{ display:"inline-flex",alignItems:"center",gap:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>
+                      <span style={{ width:10,height:4,borderRadius:RADIE.rad,background:FARG.gron }} />Maskinarbete
                     </span>
-                    <span style={{ display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:"#8e8e93" }}>
-                      <span style={{ width:10,height:4,borderRadius:2,background:"#7dd88f" }} />Extra tid
+                    <span style={{ display:"inline-flex",alignItems:"center",gap:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>
+                      <span style={{ width:10,height:4,borderRadius:RADIE.rad,background:FARG.gron }} />Extra tid
                     </span>
                   </div>
                 )}
               </div>
             </section>
 
-            {/* Körning — BARA det som blir ersättning (påbörjade mil ur specen, samma
-                lib/kmErsattning som exporten). Rå-km per dag finns i kalendern; två tal
-                för samma sak bjöd in frågan varför de skiljer sig. */}
-            <section style={{ marginBottom:32 }}>
-              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Körning</h2>
-              <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <div>
-                  <p style={{ fontSize:12,color:"#8e8e93",margin:0 }}>Reseersättning</p>
-                  {spec && <p style={{ fontSize:11,color:"#636366",margin:"3px 0 0" }}>påbörjade mil över fri pendling {spec.km_grans} km/dag</p>}
-                </div>
-                <p style={{ ...TYPE.h2,margin:0,...TNUM }}>{spec ? `${spec.kor_mil} mil` : specLaddar ? '…' : '–'}</p>
-              </div>
-            </section>
+            {/* Körning-kortet är borta: milen står redan som löneart 821 i "Går till
+                lönen" (med förklaringen som underrad) och per dag i Dag för dag. */}
 
             {/* Objekt denna månad — objektnamnet störst (det man känner igen),
                 dagarna som tal, stapel visar fördelningen, maskinen lugn underrad */}
             <section>
-              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Objekt denna månad</h2>
-              <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+              <h2 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2,marginBottom:AVSTAND.l,marginLeft:AVSTAND.xs }}>Objekt denna månad</h2>
+              <div style={{ display:"flex",flexDirection:"column",gap:AVSTAND.m }}>
                 {(()=>{
                   const maxDagar = Math.max(...objektEntries.map(o=>o.dagar), 1);
                   return objektEntries.map((o,i) => (
-                    <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px" }}>
-                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:12,marginBottom:8 }}>
-                        <p style={{ margin:0,...TYPE.body,color:"#fff",minWidth:0 }}>{o.namn || (maskinNamnMap[o.maskinId] || o.maskinId)}</p>
+                    <div key={i} style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px` }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:AVSTAND.m,marginBottom:AVSTAND.s }}>
+                        <p style={{ margin:0,...TYP.listtitel,color:FARG.text,minWidth:0 }}>{o.namn || (maskinNamnMap[o.maskinId] || o.maskinId)}</p>
                         <p style={{ margin:0,flexShrink:0 }}>
-                          <span style={{ fontSize:17,fontWeight:700,color:"#fff",...TNUM }}>{o.dagar}</span>
-                          <span style={{ fontSize:12,color:"#8e8e93",marginLeft:4 }}>{o.dagar===1?'dag':'dagar'}</span>
+                          <span style={{ ...TYP.text,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{o.dagar}</span>
+                          <span style={{ ...TYP.meta,color:FARG.text2,marginLeft:AVSTAND.xs }}>{o.dagar===1?'dag':'dagar'}</span>
                         </p>
                       </div>
                       {/* Stapel: objektets dagar relativt objektet med flest */}
-                      <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.06)",overflow:"hidden" }}>
-                        <div style={{ height:"100%",borderRadius:2,background:"#30d158",width:`${Math.round(o.dagar/maxDagar*100)}%` }} />
+                      <div style={{ height:4,borderRadius:RADIE.rad,background:FARG.linje,overflow:"hidden" }}>
+                        <div style={{ height:"100%",borderRadius:RADIE.rad,background:FARG.gron,width:`${Math.round(o.dagar/maxDagar*100)}%` }} />
                       </div>
-                      {o.namn && <p style={{ margin:"8px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>{o.maskinId}</p>}
+                      {o.namn && <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>{o.maskinId}</p>}
                     </div>
                   ));
                 })()}
-                {objektEntries.length===0&&<p style={{ color:"#8e8e93",...TYPE.meta,padding:20 }}>Inga objekt denna månad</p>}
+                {objektEntries.length===0&&<p style={{ color:FARG.text2,...TYP.meta,padding:AVSTAND.xl }}>Inga objekt denna månad</p>}
               </div>
             </section>
 
             {/* Extra tid — arbetstid UTANFÖR maskinen: när maskindatorn är av
                 registrerar MOM inget, så tiden läggs in manuellt för att ge lön.
                 En del kan dessutom faktureras. INGA kronor — Fortnox räknar belopp. */}
-            <section style={{ margin:"32px 0" }}>
-              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Extra tid</h2>
+            <section style={{ margin:`${AVSTAND.xxl}px 0` }}>
+              <h2 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2,marginBottom:AVSTAND.l,marginLeft:AVSTAND.xs }}>Extra tid</h2>
               {månadsExtraTid.length===0 ? (
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px" }}>
-                  <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen extra tid registrerad denna månad</p>
+                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.xl}px` }}>
+                  <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Ingen extra tid registrerad denna månad</p>
                 </div>
               ) : (()=>{
                 const fmtTid = (min:number) => { const h=Math.floor(min/60), m=min%60; return h>0?`${h} tim${m>0?` ${m} min`:''}`:`${m} min`; };
@@ -4046,28 +4035,29 @@ export default function Arbetsrapport() {
                 const poster = [...månadsExtraTid].sort((a,b)=>(b.datum||'').localeCompare(a.datum||''));
                 const aktNamn = (e:any) => e.aktivitet_text || (e.aktivitet_typ ? aktLabel(e.aktivitet_typ) : null) || e.kommentar || 'Extra arbete';
                 return (
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px" }}>
+                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
                   {/* Hjälte: får jag lön för all min tid? */}
-                  <div style={{ textAlign:"center",padding:"18px 0 16px",borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
-                    <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmtDecKomma(extraTidMin)} <span style={{ ...TYPE.h2,color:"#8e8e93",fontWeight:600 }}>tim</span></p>
-                    <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93" }}>arbete när maskinen var avstängd</p>
+                  {/* Hjälten läser SPECEN (extra_h) — samma tal som "varav extra tid" på översikten. */}
+                  <div style={{ textAlign:"center",padding:`${AVSTAND.l}px 0 ${AVSTAND.l}px`,borderBottom:`1px solid ${FARG.linje}` }}>
+                    <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>{extraTidH.toLocaleString('sv-SE')} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span></p>
+                    <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>arbete när maskinen var avstängd</p>
                   </div>
                   {/* Stödrad: arbetsgivarfrågan — vad kan faktureras? */}
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
-                    <span style={{ fontSize:16,color:"#fff" }}>Varav fakturerbart</span>
-                    <span style={{ ...TYPE.bodyList,color:fakturerbarMin>0?"#30d158":"#8e8e93",...TNUM }}>{fmtDecKomma(fakturerbarMin)} tim</span>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                    <span style={{ ...TYP.text,color:FARG.text }}>Varav fakturerbart</span>
+                    <span style={{ ...TYP.listtitel,color:fakturerbarMin>0?FARG.gron:FARG.text2,...TNUM }}>{fmtDecKomma(fakturerbarMin)} tim</span>
                   </div>
                   {/* Poster — grön prick = fakturerbar */}
                   {poster.map((e,i)=>(
-                    <div key={e.id||i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 0",borderBottom:i<poster.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
-                      <div style={{ display:"flex",alignItems:"center",gap:8,minWidth:0,flex:1 }}>
-                        {e.debiterbar&&<span style={{ width:7,height:7,borderRadius:"50%",background:"#30d158",flexShrink:0 }} />}
+                    <div key={e.id||i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",gap:AVSTAND.m,padding:`${AVSTAND.m}px 0`,borderBottom:i<poster.length-1?`1px solid ${FARG.linje}`:"none" }}>
+                      <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s,minWidth:0,flex:1 }}>
+                        {e.debiterbar&&<span style={{ width:7,height:7,borderRadius:RADIE.cirkel,background:FARG.gron,flexShrink:0 }} />}
                         <div style={{ minWidth:0 }}>
-                          <p style={{ margin:0,...TYPE.meta,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{aktNamn(e)}</p>
-                          <p style={{ margin:"1px 0 0",fontSize:11,color:"#636366",...TNUM }}>{e.datum}</p>
+                          <p style={{ margin:0,...TYP.meta,color:FARG.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{aktNamn(e)}</p>
+                          <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.micro,color:FARG.text3,...TNUM }}>{e.datum}</p>
                         </div>
                       </div>
-                      <span style={{ ...TYPE.bodyList,color:"#fff",flexShrink:0,...TNUM }}>{fmtTid(e.minuter||0)}</span>
+                      <span style={{ ...TYP.listtitel,color:FARG.text,flexShrink:0,...TNUM }}>{fmtTid(e.minuter||0)}</span>
                     </div>
                   ))}
                 </div>
@@ -4082,45 +4072,46 @@ export default function Arbetsrapport() {
 
     // ─── ÖVERSIKT-VY ───
     return (
-      <div style={{ minHeight:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
+      <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
         <style>{css}</style>{timerBanner}
 
         {/* Header */}
-        <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",height:64 }}>
-          <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-            <button onClick={stegLönBak} disabled={!kanLönBak} style={{ background:"none",border:"none",cursor:kanLönBak?"pointer":"default",padding:8,borderRadius:"50%",opacity:kanLönBak?1:0.3 }}>
-              <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_left</span>
+        {/* Header: månad + pilar (44 px, blå = navigerar). Kalenderikonen som inte
+            gick att trycka på är borta. */}
+        <header style={{ position:"fixed", top:HEADER_TOP, width:"100%", zIndex:50, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", display:"flex", justifyContent:"center", alignItems:"center", padding:`0 ${AVSTAND.sidmarginal}px`, height:64 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+            <button onClick={stegLönBak} disabled={!kanLönBak} style={{ ...KNAPP.lank, width:TRAFFYTA.min, justifyContent:"center", ...(kanLönBak ? {} : INAKTIV) }}>
+              <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>chevron_left</span>
             </button>
-            <h1 style={{ margin:0,...TYPE.body,color:"#fff",letterSpacing:"-0.02em",textTransform:"capitalize",minWidth:120,textAlign:"center" }}>{lönMånadsLabel}</h1>
-            <button onClick={stegLönFram} disabled={!kanLönFram} style={{ background:"none",border:"none",cursor:kanLönFram?"pointer":"default",padding:8,borderRadius:"50%",opacity:kanLönFram?1:0.3 }}>
-              <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_right</span>
+            <h1 style={{ margin:0, ...TYP.listtitel, color:FARG.text, textTransform:"capitalize", minWidth:120, textAlign:"center" }}>{lönMånadsLabel}</h1>
+            <button onClick={stegLönFram} disabled={!kanLönFram} style={{ ...KNAPP.lank, width:TRAFFYTA.min, justifyContent:"center", ...(kanLönFram ? {} : INAKTIV) }}>
+              <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>chevron_right</span>
             </button>
           </div>
-          <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>calendar_month</span>
         </header>
 
-        <main style={{ paddingTop:96,paddingBottom:192,padding:"96px 16px 192px",maxWidth:448,margin:"0 auto",width:"100%" }}>
+        <main style={{ paddingTop:AVSTAND.xxl,paddingBottom:AVSTAND.xxl,padding:`${AVSTAND.xxl}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:448,margin:"0 auto",width:"100%" }}>
 
           {/* TIDSSPECIFIKATION — exakt det som går till lönen, ur SAMMA beräkning som
               Fortnox-exporten (/api/lon/min-manad). MÄNGDER, aldrig kronor: föraren
               kontrollerar timmar och mil mot sitt lönebesked, Fortnox äger satserna. */}
           {ärGodkänd && (
-            <div style={{ display:"flex",justifyContent:"center",marginBottom:12 }}>
-              <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:12,background:"rgba(48,209,88,0.1)",color:C.green,fontSize:13,fontWeight:600,border:"1px solid rgba(48,209,88,0.2)" }}>
-                <span className="material-symbols-outlined" style={{ fontSize:14 }}>check</span>
+            <div style={{ display:"flex",justifyContent:"center",marginBottom:AVSTAND.m }}>
+              <span style={{ display:"inline-flex",alignItems:"center",gap:AVSTAND.xs,padding:`${AVSTAND.xs}px ${AVSTAND.m}px`,borderRadius:RADIE.kort,background:FARG.upphojt,color:FARG.gron,...TYP.meta,fontWeight:VIKT.halvfet,border:`1px solid ${FARG.linje}` }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>check</span>
                 Godkänd
               </span>
             </div>
           )}
 
           {specFel && (
-            <div style={{ background:"rgba(255,59,48,0.08)",border:"1px solid rgba(255,59,48,0.2)",borderRadius:12,padding:"12px 16px",marginBottom:16 }}>
-              <p style={{ margin:0,...TYPE.meta,color:C.red }}>Kunde inte läsa tidsspecifikationen: {specFel}</p>
+            <div style={{ background:FARG.upphojt,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.kort,padding:`${AVSTAND.m}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l }}>
+              <p style={{ margin:0,...TYP.meta,color:FARG.rod }}>Kunde inte läsa tidsspecifikationen: {specFel}</p>
             </div>
           )}
           {specLaddar && !specFel && (
-            <div style={{ background:"#1c1c1e",borderRadius:12,padding:"18px 20px",marginBottom:16 }}>
-              <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Räknar månaden…</p>
+            <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,marginBottom:AVSTAND.l }}>
+              <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Räknar månaden…</p>
             </div>
           )}
 
@@ -4132,161 +4123,159 @@ export default function Arbetsrapport() {
             return (
               <>
                 {/* Går till lönen */}
-                <section style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",marginBottom:16 }}>
-                  <div style={{ textAlign:"center",padding:"18px 0 16px",borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
-                    <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Går till lönen</p>
-                    <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>
-                      {jobbadH.toLocaleString('sv-SE')} <span style={{ ...TYPE.h2,color:"#8e8e93",fontWeight:600 }}>tim</span>
+                <section style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,marginBottom:AVSTAND.l }}>
+                  <div style={{ textAlign:"center",padding:`${AVSTAND.l}px 0 ${AVSTAND.l}px`,borderBottom:`1px solid ${FARG.linje}` }}>
+                    <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>Går till lönen</p>
+                    <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>
+                      {jobbadH.toLocaleString('sv-SE')} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span>
                     </p>
-                    <p style={{ margin:"8px 0 0",...TYPE.meta,color:"#8e8e93",...TNUM }}>
+                    <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>
                       {spec.arbetsdagar} arbetsdagar{extraTidH > 0 ? ` · varav extra tid ${extraTidH.toLocaleString('sv-SE')} tim` : ''}
                     </p>
                   </div>
                   {(spec.rader as any[]).map((r: any, i: number, arr: any[]) => (
-                    <div key={r.SalaryCode + i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:"1px solid rgba(255,255,255,0.08)",gap:12 }}>
-                      <span style={{ fontSize:16,color:"#fff" }}>{loneartLabel(r.SalaryCode)} <span style={{ fontSize:11,color:"#636366" }}>{r.SalaryCode}</span></span>
-                      <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM,whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ color:"#8e8e93",fontSize:13 }}>{loneartEnhet(r.SalaryCode)}</span></span>
+                    <div key={r.SalaryCode + i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:`${AVSTAND.m}px 0`, borderBottom:`1px solid ${FARG.linje}`, gap:AVSTAND.m }}>
+                      <span style={{ ...TYP.text, color:FARG.text }}>
+                        {loneartLabel(r.SalaryCode)} <span style={{ ...TYP.micro, color:FARG.text3 }}>{r.SalaryCode}</span>
+                        {/* Reseersättning: förklaringen som underrad — förr ett eget kort i detaljer */}
+                        {String(r.SalaryCode) === '821' && <span style={{ display:"block", ...TYP.meta, ...TNUM, color:FARG.text2 }}>påbörjade mil över fri pendling {spec.km_grans} km/dag</span>}
+                      </span>
+                      <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ ...TYP.meta, color:FARG.text2 }}>{loneartEnhet(r.SalaryCode)}</span></span>
                     </div>
                   ))}
                   {spec.rader.length === 0 && (
-                    <p style={{ margin:0,padding:"14px 0",...TYPE.meta,color:"#8e8e93" }}>Inga lönerader den här månaden.</p>
+                    <p style={{ margin:0,padding:`${AVSTAND.l}px 0`,...TYP.meta,color:FARG.text2 }}>Inga lönerader den här månaden.</p>
                   )}
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",gap:12 }}>
-                    <span style={{ fontSize:16,color:"#fff" }}>Brandrisk-OB <span style={{ fontSize:11,color:"#636366" }}>löneart ej fastställd</span></span>
-                    <span style={{ ...TYPE.bodyList,color:spec.ob.timmar > 0 ? "#ffd60a" : "#8e8e93",...TNUM,whiteSpace:"nowrap" }}>{fmtMangd(spec.ob.timmar)} <span style={{ color:"#8e8e93",fontSize:13 }}>tim</span></span>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,gap:AVSTAND.m }}>
+                    <span style={{ ...TYP.text,color:FARG.text }}>Brandrisk-OB <span style={{ ...TYP.micro,color:FARG.text3 }}>löneart ej fastställd</span></span>
+                    <span style={{ ...TYP.listtitel, ...TNUM, color:spec.ob.timmar > 0 ? FARG.orange : FARG.text2, whiteSpace:"nowrap" }}>{fmtMangd(spec.ob.timmar)} <span style={{ ...TYP.meta, color:FARG.text2 }}>tim</span></span>
                   </div>
                 </section>
 
-                {/* Saknas — det föraren själv kan fixa */}
-                {harSaknas && (
-                  <section style={{ background:"rgba(255,149,0,0.06)",border:"1px solid rgba(255,149,0,0.22)",borderRadius:12,padding:"4px 16px",marginBottom:16 }}>
-                    <p style={{ margin:"14px 0 4px",...TYPE.micro,color:C.orange }}>Saknas — du kan fixa det</p>
-                    {obekräftadeDagar > 0 && (
-                      <div style={{ padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
-                        <p style={{ margin:0,fontSize:15,color:"#fff" }}>{obekräftadeDagar} {obekräftadeDagar === 1 ? 'dag är inte bekräftad' : 'dagar är inte bekräftade'}</p>
-                        <p style={{ margin:"3px 0 0",fontSize:12,color:"#8e8e93" }}>Tiden är med i underlaget men ingen har granskat den. Bekräfta i Kalender.</p>
-                      </div>
-                    )}
-                    {obObesDagar.length > 0 && (
-                      <div style={{ padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
-                        <div onClick={()=>setObRetroÖppen(o=>!o)} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer" }}>
-                          <p style={{ margin:0,fontSize:15,color:"#fff" }}>{obObesDagar.length} tidig{obObesDagar.length===1?' dag':'a dagar'} väntar på brandrisk-svar</p>
-                          <span className="material-symbols-outlined" style={{ fontSize:20,color:"rgba(255,255,255,0.4)",transform:obRetroÖppen?"rotate(90deg)":"none",transition:"transform .15s" }}>chevron_right</span>
-                        </div>
-                        {obRetroÖppen && obObesDagar.map((d:any, i:number) => (
-                          <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 0",gap:10 }}>
-                            <span style={{ fontSize:14,color:"#fff",...TNUM }}>{d.datum} · {(d.start_tid||'').slice(0,5)}</span>
-                            <div style={{ display:"flex",gap:8 }}>
-                              <button onClick={()=>svaraBrandriskRetro(d,true)} style={{ padding:"6px 16px",background:C.orange,color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Ja</button>
-                              <button onClick={()=>svaraBrandriskRetro(d,false)} style={{ padding:"6px 16px",background:"rgba(255,255,255,0.08)",color:"#fff",border:"none",borderRadius:8,fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Nej</button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {(spec.synk as any[]).map((s: any, i: number) => (
-                      <div key={`syn${i}`} style={{ padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
-                        <p style={{ margin:0,fontSize:15,color:"#fff",...TNUM }}>{s.datum}: {s.diff_min} min oförklarad tidsavvikelse</p>
-                        <p style={{ margin:"3px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>Du sa {s.bekraftat}, maskinen {s.maskinen}. Öppna dagen i Kalender och förklara.</p>
-                      </div>
-                    ))}
-                    {(spec.ledighetskollision as any[]).map((k: any, i: number) => (
-                      <p key={`led${i}`} style={{ margin:0,padding:"10px 0",fontSize:14,color:"#fff",borderBottom:"1px solid rgba(255,255,255,0.06)",...TNUM }}>{k.datum}: godkänd ledighet ({k.typ}) och {fmtHm(k.arbetad_min)} arbete samma dag</p>
-                    ))}
-                    {(spec.maskin_utan_typ as string[]).map((mid: string) => (
-                      <p key={mid} style={{ margin:0,padding:"10px 0",fontSize:14,color:C.red,borderBottom:"1px solid rgba(255,255,255,0.06)" }}>Maskin {mid} saknar typ i registret — premielön räknas inte. Säg till Martin.</p>
-                    ))}
-                    {ovrigaVarn.map((v: string, i: number) => (
-                      <p key={`v${i}`} style={{ margin:0,padding:"10px 0",fontSize:13,color:"#8e8e93" }}>{v}</p>
-                    ))}
-                    <div style={{ height:8 }} />
-                  </section>
-                )}
-
-                {/* Dag för dag — tidrapporten */}
-                <section style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 16px",marginBottom:16 }}>
-                  <p style={{ margin:"14px 0 6px",...TYPE.micro,color:"#8e8e93" }}>Dag för dag</p>
-                  {(spec.dagar as any[]).map((d: any, i: number, arr: any[]) => {
-                    const dt = new Date(`${d.datum}T12:00:00`);
-                    const flagg = !d.bekraftad;
-                    return (
-                      <div key={d.id} style={{ padding:"9px 0",borderBottom:i < arr.length-1 ? "1px solid rgba(255,255,255,0.06)" : "none" }}>
-                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10 }}>
-                          <span style={{ fontSize:14,color:flagg ? C.orange : "#fff",...TNUM }}>{dagNamnKort[dt.getDay()]} {dt.getDate()}/{dt.getMonth()+1} · {(d.start_tid||'').slice(0,5) || '–'}–{(d.slut_tid||'').slice(0,5) || '–'}{d.rast_min != null ? ` · rast ${d.rast_min}` : ''}</span>
-                          <span style={{ fontSize:14,color:"#fff",fontWeight:600,...TNUM,whiteSpace:"nowrap" }}>{fmtHm(d.arbetad_min)}{d.extra_min ? <span style={{ color:"#7dd88f",fontWeight:400 }}> +{fmtHm(d.extra_min)}</span> : null}</span>
-                        </div>
-                        <div style={{ display:"flex",justifyContent:"space-between",gap:10,marginTop:2 }}>
-                          <span style={{ fontSize:12,color:"#8e8e93",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(d.objekt as string[]).join(', ') || (d.dagtyp && d.dagtyp !== 'normal' ? d.dagtyp : '—')}</span>
-                          <span style={{ fontSize:12,color:"#8e8e93",whiteSpace:"nowrap",...TNUM }}>
-                            {d.ersattningsmil ? `${d.ersattningsmil} mil` : ''}{d.ob_min > 0 ? `${d.ersattningsmil ? ' · ' : ''}OB ${fmtOb(d.ob_min)}` : ''}{flagg ? `${d.ersattningsmil || d.ob_min ? ' · ' : ''}ej bekräftad` : ''}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {spec.dagar.length === 0 && <p style={{ margin:0,padding:"10px 0 14px",...TYPE.meta,color:"#8e8e93" }}>Inga arbetsdagar den här månaden.</p>}
-                  <div style={{ height:6 }} />
-                </section>
-
-                {/* PDF ur samma beräkning — öppnas i appens läsvy; därifrån Dela / spara */}
+                {/* De två vanligaste handlingarna DIREKT under talet — förr låg de under
+                    en lista på upp till 22 dagar. PDF = sekundär, Se detaljer = länk. */}
                 <button type="button"
                   onClick={()=>setSpecPdf({
                     url: `/api/lon/min-manad/pdf?arbetsmanad=${encodeURIComponent(lönePeriod)}`,
                     titel: `Tidsspecifikation ${lönMånadsLabel}`,
                     filnamn: `tidsspecifikation-${lönePeriod}-${(medarbetare?.namn || 'medarbetare').toLowerCase().replace(/[^a-z0-9åäö]+/gi,'-')}.pdf`,
                   })}
-                  style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",height:48,background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:16 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:20,color:"#0a84ff" }}>picture_as_pdf</span>
+                  style={{ ...KNAPP.sekundar, marginBottom:AVSTAND.s }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>picture_as_pdf</span>
                   Öppna som PDF
                 </button>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:AVSTAND.l }}>
+                  <button onClick={()=>setLönVy('detaljer')} style={KNAPP.lank}>
+                    Se detaljer<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>chevron_right</span>
+                  </button>
+                </div>
+
+                {/* Saknas — det föraren själv kan fixa */}
+                {harSaknas && (
+                  <section style={{ background:FARG.upphojt,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l }}>
+                    <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.xs}px`,...TYP.micro,color:FARG.orange }}>Saknas — du kan fixa det</p>
+                    {obekräftadeDagar > 0 && (
+                      <div style={{ padding:`${AVSTAND.m}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                        <p style={{ margin:0,...TYP.text,color:FARG.text }}>{obekräftadeDagar} {obekräftadeDagar === 1 ? 'dag är inte bekräftad' : 'dagar är inte bekräftade'}</p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>Tiden är med i underlaget men ingen har granskat den. Bekräfta i Kalender.</p>
+                      </div>
+                    )}
+                    {obObesDagar.length > 0 && (
+                      <div style={{ padding:`${AVSTAND.m}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                        <div onClick={()=>setObRetroÖppen(o=>!o)} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer" }}>
+                          <p style={{ margin:0,...TYP.text,color:FARG.text }}>{obObesDagar.length} tidig{obObesDagar.length===1?' dag':'a dagar'} väntar på brandrisk-svar</p>
+                          <span className="material-symbols-outlined" style={{ fontSize:IKON.rad,color:FARG.text2,transform:obRetroÖppen?"rotate(90deg)":"none",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
+                        </div>
+                        {obRetroÖppen && obObesDagar.map((d:any, i:number) => (
+                          <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.m}px 0 0`,gap:AVSTAND.m }}>
+                            <span style={{ ...TYP.meta,color:FARG.text,...TNUM }}>{d.datum} · {(d.start_tid||'').slice(0,5)}</span>
+                            <div style={{ display:"flex",gap:AVSTAND.s }}>
+                              <button onClick={()=>svaraBrandriskRetro(d,true)} style={{ ...KNAPP.sekundar, width:"auto", padding:`0 ${AVSTAND.l}px` }}>Ja</button>
+                              <button onClick={()=>svaraBrandriskRetro(d,false)} style={{ ...KNAPP.sekundar, width:"auto", padding:`0 ${AVSTAND.l}px` }}>Nej</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(spec.synk as any[]).map((s: any, i: number) => (
+                      <div key={`syn${i}`} style={{ padding:`${AVSTAND.m}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                        <p style={{ margin:0,...TYP.text,color:FARG.text,...TNUM }}>{s.datum}: {s.diff_min} min oförklarad tidsavvikelse</p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>Du sa {s.bekraftat}, maskinen {s.maskinen}. Öppna dagen i Kalender och förklara.</p>
+                      </div>
+                    ))}
+                    {(spec.ledighetskollision as any[]).map((k: any, i: number) => (
+                      <p key={`led${i}`} style={{ margin:0,padding:`${AVSTAND.m}px 0`,...TYP.meta,color:FARG.text,borderBottom:`1px solid ${FARG.linje}`,...TNUM }}>{k.datum}: godkänd ledighet ({k.typ}) och {fmtHm(k.arbetad_min)} arbete samma dag</p>
+                    ))}
+                    {(spec.maskin_utan_typ as string[]).map((mid: string) => (
+                      <p key={mid} style={{ margin:0,padding:`${AVSTAND.m}px 0`,...TYP.meta,color:FARG.rod,borderBottom:`1px solid ${FARG.linje}` }}>Maskin {mid} saknar typ i registret — premielön räknas inte. Säg till Martin.</p>
+                    ))}
+                    {ovrigaVarn.map((v: string, i: number) => (
+                      <p key={`v${i}`} style={{ margin:0,padding:`${AVSTAND.m}px 0`,...TYP.meta,color:FARG.text2 }}>{v}</p>
+                    ))}
+                    <div style={{ height:8 }} />
+                  </section>
+                )}
+
+                {/* Dag för dag — tidrapporten */}
+                <section style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l }}>
+                  <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.s}px`,...TYP.micro,color:FARG.text2 }}>Dag för dag</p>
+                  {(spec.dagar as any[]).map((d: any, i: number, arr: any[]) => {
+                    const dt = new Date(`${d.datum}T12:00:00`);
+                    const flagg = !d.bekraftad;
+                    return (
+                      <div key={d.id} style={{ padding:`${AVSTAND.s}px 0`,borderBottom:i < arr.length-1 ? `1px solid ${FARG.linje}` : "none" }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:AVSTAND.m }}>
+                          <span style={{ ...TYP.meta,color:flagg ? FARG.orange : FARG.text,...TNUM }}>{dagNamnKort[dt.getDay()]} {dt.getDate()}/{dt.getMonth()+1} · {(d.start_tid||'').slice(0,5) || '–'}–{(d.slut_tid||'').slice(0,5) || '–'}{d.rast_min != null ? ` · rast ${d.rast_min}` : ''}</span>
+                          <span style={{ ...TYP.meta,color:FARG.text,fontWeight:VIKT.halvfet,...TNUM,whiteSpace:"nowrap" }}>{fmtHm(d.arbetad_min)}{d.extra_min ? <span style={{ color:FARG.gron,fontWeight:VIKT.normal }}> +{fmtHm(d.extra_min)}</span> : null}</span>
+                        </div>
+                        <div style={{ display:"flex",justifyContent:"space-between",gap:AVSTAND.m,marginTop:AVSTAND.xs }}>
+                          <span style={{ ...TYP.meta,color:FARG.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(d.objekt as string[]).join(', ') || (d.dagtyp && d.dagtyp !== 'normal' ? d.dagtyp : '—')}</span>
+                          <span style={{ ...TYP.meta,color:FARG.text2,whiteSpace:"nowrap",...TNUM }}>
+                            {d.ersattningsmil ? `${d.ersattningsmil} mil` : ''}{d.ob_min > 0 ? `${d.ersattningsmil ? ' · ' : ''}OB ${fmtOb(d.ob_min)}` : ''}{flagg ? `${d.ersattningsmil || d.ob_min ? ' · ' : ''}ej bekräftad` : ''}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {spec.dagar.length === 0 && <p style={{ margin:0,padding:`${AVSTAND.m}px 0 ${AVSTAND.l}px`,...TYP.meta,color:FARG.text2 }}>Inga arbetsdagar den här månaden.</p>}
+                  <div style={{ height:6 }} />
+                </section>
+
               </>
             );
           })()}
 
-          {/* Bekräftelse-gaten: obekräftade dagar blockerar godkännandet helt */}
-          {arbetsdagar > 0 && obekräftadeDagar > 0 && !ärGodkänd && (
-            <div style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,display:"flex",gap:10,alignItems:"flex-start" }}>
-              <span className="material-symbols-outlined" style={{ fontSize:20,color:C.orange,flexShrink:0 }}>warning</span>
-              <p style={{ margin:0,...TYPE.meta,color:C.orange,lineHeight:1.45 }}>
-                {obekräftadeDagar} {obekräftadeDagar === 1 ? 'dag är inte bekräftad' : 'dagar är inte bekräftade'} — alla dagar måste bekräftas innan du kan skicka. Gå till Kalender och bekräfta.
-              </p>
+          {/* Gate-kortet är borta: "N dagar är inte bekräftade — Bekräfta i Kalender"
+              står redan i Saknas-blocket, och knappen nedan är ändå inaktiv. */}
+          {spec && arbetsdagar === 0 && (
+            <div style={{ ...KORT, marginBottom:AVSTAND.l }}>
+              <p style={{ margin:0, ...TYP.meta, color:FARG.text2 }}>Inga arbetsdagar den här månaden — inget att skicka.</p>
             </div>
           )}
-          {arbetsdagar === 0 && (
-            <div style={{ background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"14px 16px",marginBottom:16 }}>
-              <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Inga arbetsdagar den här månaden — inget att skicka.</p>
-            </div>
-          )}
-
-          {/* Se detaljer-länk */}
-          <div style={{ padding:"0 4px",marginBottom:32 }}>
-            <button onClick={()=>setLönVy('detaljer')} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"none",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"inherit" }}>
-              <span style={{ fontSize:15,fontWeight:500,color:"#0a84ff" }}>Se detaljer</span>
-              <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:18 }}>arrow_forward</span>
-            </button>
-          </div>
 
           {/* Fel */}
           {lönFel&&(
-            <div style={{ background:"rgba(255,59,48,0.08)",borderRadius:12,padding:"12px 16px",marginBottom:16,border:"1px solid rgba(255,59,48,0.2)" }}>
-              <p style={{ margin:0,...TYPE.meta,color:C.red }}>{lönFel}</p>
+            <div style={{ background:FARG.upphojt,borderRadius:RADIE.kort,padding:`${AVSTAND.m}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l,border:`1px solid ${FARG.linje}` }}>
+              <p style={{ margin:0,...TYP.meta,color:FARG.rod }}>{lönFel}</p>
             </div>
           )}
 
           {/* Action — gaten styr: obekräftade dagar (eller tom månad) = inaktiv knapp */}
-          <div style={{ paddingTop:24 }}>
+          <div style={{ paddingTop:AVSTAND.xl }}>
             {ärGodkänd ? (
-              <button disabled style={{ width:"100%",height:56,background:C.green,color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:600,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
-                <span className="material-symbols-outlined" style={{ fontSize:20 }}>check</span>
-                Godkänd
-              </button>
+              /* Status, inte knapp: grön prick + ordet. Förr en fylld grön 56 px-knapp. */
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.gron }}>check_circle</span>
+                <span style={{ ...TYP.listtitel, color:FARG.text }}>Godkänd</span>
+              </div>
             ) : (
+              /* Skärmens ENDA primära. */
               <button onClick={()=>{ if(kanGodkänna && !lönSparar) setLönBekräfta(true); }} disabled={!kanGodkänna || lönSparar}
-                style={{ width:"100%",height:56,background:kanGodkänna?"#0a84ff":"#2c2c2e",color:kanGodkänna?"#fff":"#636366",border:"none",borderRadius:12,fontSize:17,fontWeight:600,cursor:kanGodkänna?"pointer":"default",fontFamily:"inherit",opacity:lönSparar?0.6:1 }}>
-                {lönSparar?"Sparar...":"Godkänn och skicka"}
+                style={{ ...KNAPP.primar, ...(kanGodkänna && !lönSparar ? {} : INAKTIV) }}>
+                {lönSparar?"Sparar…":"Godkänn och skicka"}
               </button>
             )}
-            <p style={{ textAlign:"center",fontSize:13,color:"#8e8e93",margin:"12px 0 0" }}>Fortnox räknar lönen — appen skickar bara rådatan</p>
+            <p style={{ textAlign:"center", ...TYP.meta, color:FARG.text2, margin:`${AVSTAND.m}px 0 0` }}>Fortnox räknar lönen — appen skickar bara rådatan</p>
           </div>
         </main>
         {bottomNav}
@@ -4296,17 +4285,17 @@ export default function Arbetsrapport() {
 
         {/* Bekräftelsedialog innan inskickning */}
         {lönBekräfta && (
-          <div onClick={()=>setLönBekräfta(false)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:24,animation:"dimIn 0.2s ease" }}>
-            <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxWidth:360,background:"#1c1c1e",borderRadius:12,padding:"24px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:"0 0 8px",...TYPE.h2,color:"#fff",textAlign:"center" }}>Godkänn {lönMånadsLabel}?</p>
-              <p style={{ margin:"0 0 20px",fontSize:13,color:"#8e8e93",textAlign:"center",lineHeight:1.4 }}>
+          <div onClick={()=>setLönBekräfta(false)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:AVSTAND.xl }}>
+            <div onClick={e=>e.stopPropagation()} style={{ width:"100%",maxWidth:360,background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xl}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
+              <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.rubrik,color:FARG.text,textAlign:"center" }}>Godkänn {lönMånadsLabel}?</p>
+              <p style={{ margin:`0 0 ${AVSTAND.xl}px`,...TYP.meta,color:FARG.text2,textAlign:"center",lineHeight:1.4 }}>
                 Du intygar att månadens tider och dagar stämmer. Sammanställningen låses och lämnas till lönehanteringen. Det går inte att ångra.
               </p>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
-                <button onClick={()=>setLönBekräfta(false)} style={{ height:48,background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s }}>
+                <button onClick={()=>setLönBekräfta(false)} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>
                   Avbryt
                 </button>
-                <button onClick={async ()=>{ setLönBekräfta(false); await godkännMånad(); }} disabled={lönSparar} style={{ height:48,background:C.green,color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                <button onClick={async ()=>{ setLönBekräfta(false); await godkännMånad(); }} disabled={lönSparar} style={KNAPP.primar}>
                   Godkänn
                 </button>
               </div>
@@ -4758,61 +4747,74 @@ export default function Arbetsrapport() {
     // km-implementationerna: något beräknat FÖR VISNING togs för något GJORT.
     const harÄndrat = redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig||redKm!==redKmOrig||(redObjektId&&redObjektId!==(redDag.objekt_id||null));
 
+    // Underskriften för DEN HÄR dagen. Körs via bekraftaMedForcheck — samma
+    // för-check (vilobrott → orsak) som Dag-vyns Bekräfta. Förr skrev Redigera
+    // under direkt, utan att fråga.
+    const skrivUnderRedDag = async (): Promise<boolean> => {
+      const nuIso = new Date().toISOString();
+      const res = await uppdateraVerifierat(supabase, "arbetsdag",
+        { bekraftad: true, bekraftad_tid: nuIso },
+        { medarbetare_id: medarbetare.id, datum: redDag.datum });
+      if (!res.ok) { setRedFel(res.fel); return false; }
+      setRedFel(null);
+      setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
+      setDagData(dd => ({ ...dd, [redDag.datum]: { ...(dd[redDag.datum]||{}), bekraftad: true, bekraftad_tid: nuIso, status: 'ok' } }));
+      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
+      return true;
+    };
+    // Km ändras på ETT ställe: morgon/kväll-sheeten. (Den gamla "Ändra körning"-
+    // vyn med ett totalt-hjul är borttagen — den kunde inte sätta splitten.)
+    const öppnaRedKmSheet = () => {
+      const harSplit = (redDag.km_morgon||0) > 0 || (redDag.km_kvall||0) > 0;
+      const m = harSplit ? (redDag.km_morgon||0) : Math.round(redKm/2);
+      const k = harSplit ? (redDag.km_kvall||0)  : redKm - Math.round(redKm/2);
+      setRedTmpKmM(m); setRedTmpKmK(k);
+      setVisaRedKmSheet(true);
+    };
+    const tillbakaKnapp = (
+      <div style={{ display:"flex", justifyContent:"center" }}>
+        <button style={KNAPP.lank} onClick={()=>setSteg("kalender")}>Tillbaka</button>
+      </div>
+    );
+    const bekraftadRad = (tidFmt: string | null) => (
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min }}>
+        <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.gron }}>check_circle</span>
+        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>Bekräftad{tidFmt?` kl ${tidFmt}`:''}</span>
+      </div>
+    );
+    const felRad = redFel ? <p style={{ margin:0, ...TYP.meta, color:FARG.rod, textAlign:"center" }}>{redFel}</p> : null;
+
     if(redVy==="tid") return (
       <div style={shell}><style>{css}</style>{timerBanner}
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,...TYPE.h1 }}>Ändra arbetstid</h1></div></div>
-        <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:AVSTAND.l }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,...TYP.titel }}>Ändra arbetstid</h1></div></div>
+        <div style={{ flex:1,overflowY:"auto",paddingTop:AVSTAND.xl }}>
 
           {/* Start, Slut, Rast — iOS-stil scroll-wheels */}
-          <div style={{ background:C.card,borderRadius:12,padding:"20px 16px",marginBottom:16,display:"flex",flexDirection:"column",gap:18 }}>
+          <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xl}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l,display:"flex",flexDirection:"column",gap:AVSTAND.l }}>
             <div>
-              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:redStart!==(redDag.start||"00:00")?C.orange:"#8e8e93" }}>Start</span>
+              <span style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro,display:"block",textAlign:"center",marginBottom:AVSTAND.s,color:redStart!==(redDag.start||"00:00")?FARG.orange:FARG.text2 }}>Start</span>
               <TimePicker value={redStart} onChange={setRedStart}/>
             </div>
-            <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:18 }}>
-              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:redSlut!==(redDag.slut||"00:00")?C.orange:"#8e8e93" }}>Slut</span>
+            <div style={{ borderTop:`1px solid ${FARG.linje}`,paddingTop:AVSTAND.l }}>
+              <span style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro,display:"block",textAlign:"center",marginBottom:AVSTAND.s,color:redSlut!==(redDag.slut||"00:00")?FARG.orange:FARG.text2 }}>Slut</span>
               <TimePicker value={redSlut} onChange={setRedSlut}/>
             </div>
-            <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:18 }}>
-              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:redRast!==(redDag.rast||0)?C.orange:"#8e8e93" }}>Rast</span>
-              <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8,marginBottom:28 }}>
+            <div style={{ borderTop:`1px solid ${FARG.linje}`,paddingTop:AVSTAND.l }}>
+              <span style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro,display:"block",textAlign:"center",marginBottom:AVSTAND.s,color:redRast!==(redDag.rast||0)?FARG.orange:FARG.text2 }}>Rast</span>
+              <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:AVSTAND.s,marginBottom:AVSTAND.xxl }}>
                 <Wheel value={redRast} onChange={setRedRast} min={0} max={120} step={5}/>
-                <span style={{ ...TYPE.meta,color:C.label,fontWeight:600 }}>min</span>
+                <span style={{ ...TYP.meta,color:FARG.text2,fontWeight:VIKT.halvfet }}>min</span>
               </div>
             </div>
           </div>
 
           {/* Resultat */}
-          <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(48,209,88,0.07)",borderRadius:12 }}>
-            <p style={{ margin:"0 0 4px",fontSize:11,fontWeight:600,color:C.label }}>Arbetstid</p>
-            <p style={{ margin:0,...TYPE.bigNum,color:C.green,...TNUM }}>{fmt(redArbMin)}</p>
+          <div style={{ textAlign:"center",padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,background:FARG.upphojt,borderRadius:RADIE.kort }}>
+            <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.micro,fontWeight:VIKT.halvfet,color:FARG.text2 }}>Arbetstid</p>
+            <p style={{ margin:0,...TYP.tal,color:FARG.gron,...TNUM }}>{fmt(redArbMin)}</p>
           </div>
         </div>
-        <div style={bottom}><button style={btn.primary} onClick={()=>setRedVy("översikt")}>Klar</button></div>
-      </div>
-    );
-
-    if(redVy==="km") return (
-      <div style={shell}><style>{css}</style>{timerBanner}
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,...TYPE.h1 }}>Ändra körning</h1></div></div>
-        <div style={{ flex:1,paddingTop:20 }}>
-          <KmPicker value={redKm} onChange={setRedKm} label="Totalt"/>
-          <div style={{ textAlign:"center",padding:20,background:"rgba(48,209,88,0.07)",borderRadius:12 }}>
-            <Label>Körning</Label>
-            <p style={{ margin:0,...TYPE.bigNum,color:C.green,...TNUM }}>{redKm} km</p>
-            {redKmBerakning!=null&&redKmBerakning>0&&(
-              redKmKälla==='fallback'
-                ? <p style={{ margin:"4px 0 0",fontSize:12,color:C.orange,...TNUM }}>Osäker: ~{redKmBerakning} km fågelvägen (ingen vägberäkning)</p>
-                : <p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93",...TNUM }}>Beräknat: {redKmBerakning} km (vägavstånd)</p>
-            )}
-            {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0;
-              return över>0
-                ? <p style={{ margin:"8px 0 0",...TYPE.meta,color:C.green,...TNUM }}>Reseersättning: {över} km över {frikm} km = {mil} påbörjade mil</p>
-                : <p style={{ margin:"8px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
-            })()}
-          </div>
-        </div>
-        <div style={bottom}><button style={btn.primary} onClick={()=>setRedVy("översikt")}>Klar</button></div>
+        <div style={{ ...bottom, alignItems:"center" }}><button style={KNAPP.lank} onClick={()=>setRedVy("översikt")}>Klar</button></div>
       </div>
     );
 
@@ -4820,71 +4822,20 @@ export default function Arbetsrapport() {
     const redDatumDisplay = (() => { const p = redDag.datum?.split('-'); if(!p||p.length<3) return redDag.datum; return `${parseInt(p[2])} ${månNamnKort[parseInt(p[1])-1]}`; })();
     const redMånadDisplay = (() => { const p = redDag.datum?.split('-'); if(!p||p.length<2) return ''; const m=parseInt(p[1])-1; const månader=['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december']; return `${månader[m]} ${p[0]}`; })();
     const tidKort = (t: string|null|undefined) => t ? t.slice(0,5) : '—';
-    const sparadRed: {start:string;slut:string;rast:number;km:number;anl:string} | undefined = redDagar[redDag.datum];
-
-    if(sparadRed && redVy==="översikt") return (
-      <div style={shell}><style>{css}</style>{timerBanner}
-        <div style={topBar}>
-          <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-            <BackBtn onClick={()=>setSteg("kalender")}/>
-            <div>
-              <p style={{ margin:0,fontSize:13,color:C.blue,fontWeight:600 }}>Redigerad</p>
-              <h1 style={{ margin:"4px 0 0",...TYPE.h1 }}>{redDatumDisplay}</h1>
-            </div>
-          </div>
-        </div>
-        <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
-          <Label>Sparade värden</Label>
-          <Card style={{ padding:"4px 20px" }}>
-            {[
-              ["Arbetstid", fmt(Math.max(0,tim(sparadRed.start,sparadRed.slut)-sparadRed.rast))],
-              ["Start", sparadRed.start],
-              ["Slut", sparadRed.slut],
-              ["Rast", `${sparadRed.rast} min`],
-              ["Körning", `${sparadRed.km} km`],
-            ].map(([l,v],i,arr)=>(
-              <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                <span style={{ ...TYPE.meta,color:"#fff" }}>{l}</span>
-                <span style={{ ...TYPE.bodyList,color:"#fff" }}>{v}</span>
-              </div>
-            ))}
-          </Card>
-
-          <div style={{ marginTop:20 }}><Label>Original från MOM</Label></div>
-          <Card style={{ padding:"4px 20px" }}>
-            {[
-              ["Arbetstid", fmt(redDag.arbMin||0)],
-              ["Körning", `${redDag.km||0} km`],
-            ].map(([l,v],i,arr)=>(
-              <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                <span style={{ ...TYPE.meta,color:"#fff" }}>{l}</span>
-                <span style={{ ...TYPE.bodyList,fontWeight:500,color:"rgba(255,255,255,0.5)",textDecoration:"line-through",...TNUM }}>{v}</span>
-              </div>
-            ))}
-          </Card>
-
-          {sparadRed.anl&&(
-            <div style={{ marginTop:20 }}>
-              <Label>Anledning</Label>
-              <Card><p style={{ margin:0,...TYPE.meta }}>{sparadRed.anl}</p></Card>
-            </div>
-          )}
-        </div>
-        <div style={bottom}>
-          <button style={btn.secondary} onClick={()=>setRedVy("tid")}>Ändra igen</button>
-          <button style={btn.secondary} onClick={()=>setSteg("kalender")}>Stäng</button>
-        </div>
-      </div>
-    );
+    // BUGG (fixad): en dag som just sparats i Redigera fick förr en egen
+    // "Redigerad"-vy (sparade värden + överstrukna MOM-original) UTAN Bekräfta —
+    // dagen gick inte att skriva under förrän appen laddats om. Den grenen är
+    // borta: en redigerad dag är samma huvudvy som alla andra, och "Spara
+    // ändring" byter själv till "Bekräfta dagen" på samma knappplats.
 
     return (
       <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}>
-          <div style={{ display:"flex",alignItems:"center",gap:14 }}>
+          <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.l }}>
             <BackBtn onClick={()=>setSteg("kalender")}/>
             <div>
-              <p style={{ margin:0,fontSize:13,color:C.label }}>{redMånadDisplay}</p>
-              <h1 style={{ margin:"4px 0 0",...TYPE.h1 }}>
+              <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>{redMånadDisplay}</p>
+              <h1 style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.titel }}>
                 {arFranvaroDagtyp(redDag?.dagtyp) ? `${FRANVARO_RUBRIK[redDag.dagtyp]} — ${redDatumDisplay}` : redDatumDisplay}
               </h1>
             </div>
@@ -4902,36 +4853,20 @@ export default function Arbetsrapport() {
               ? { icon: 'sick' as string | null, text: 'Krya på dig!' }
               : { icon: null as string | null, text: 'VAB registrerad' };
             return (<>
-              <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"48px 24px" }}>
+              <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:`${AVSTAND.xxl}px ${AVSTAND.xl}px` }}>
                 {meddelande.icon && (
-                  <span className="material-symbols-outlined" style={{ fontSize:72,color:"#fff",marginBottom:20 }}>{meddelande.icon}</span>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.stor,color:FARG.text,marginBottom:AVSTAND.xl }}>{meddelande.icon}</span>
                 )}
-                <p style={{ margin:0,...TYPE.largeTitle,color:"#fff",textAlign:"center" }}>{meddelande.text}</p>
+                <p style={{ margin:0,...TYP.titel,color:FARG.text,textAlign:"center" }}>{meddelande.text}</p>
               </div>
               <div style={bottom}>
-                {bekraftadRedan ? (<>
-                  <div style={{ width:"100%",padding:"14px 16px",background:"rgba(48,209,88,0.10)",border:"1px solid rgba(48,209,88,0.25)",borderRadius:12,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check_circle</span>
-                    <span style={{ ...TYPE.meta,color:"#8e8e93",...TNUM }}>Bekräftad{bekraftadTidFmt?` kl ${bekraftadTidFmt}`:''}</span>
-                  </div>
-                  <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
-                </>) : (<>
-                  <button
-                    style={{ width:"100%",padding:"18px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}
-                    onClick={async ()=>{
-                      const nuIso = new Date().toISOString();
-                      const res = await uppdateraVerifierat(supabase, "arbetsdag",
-                        { bekraftad: true, bekraftad_tid: nuIso },
-                        { medarbetare_id: medarbetare.id, datum: redDag.datum });
-                      if (!res.ok) { alert(res.fel); return; }
-                      setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
-                      setDagData(dd => ({ ...dd, [redDag.datum]: { ...(dd[redDag.datum]||{}), bekraftad: true, bekraftad_tid: nuIso } }));
-                      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
-                    }}>
+                {felRad}
+                {bekraftadRedan ? bekraftadRad(bekraftadTidFmt) : (
+                  <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera")}>
                     Bekräfta dagen
                   </button>
-                  <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
-                </>)}
+                )}
+                {tillbakaKnapp}
               </div>
             </>);
           }
@@ -4953,7 +4888,7 @@ export default function Arbetsrapport() {
             return "Extra";
           };
           return (<>
-        <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
+        <div style={{ flex:1,overflowY:"auto",paddingTop:AVSTAND.s }}>
           {(() => {
             // Maskintiden skiljer sig fran det foraren bekraftade (synk_avvikelse).
             // Fragar bara nar skillnaden i ARBETAD tid >= troskeln. Forarens tider
@@ -4972,14 +4907,14 @@ export default function Arbetsrapport() {
             const hoppaÖver = async () => {
               const nyAvv = { ...a, kvitterad: new Date().toISOString(), val: 'hoppad', aktivitet: null };
               const res = await uppdateraVerifierat(supabase, 'arbetsdag', { synk_avvikelse: nyAvv }, { id: rd.id });
-              if (!res.ok) { alert(res.fel); return; }
+              if (!res.ok) { setRedFel(res.fel); return; }
               setRedDag((d:any) => ({ ...d, synk_avvikelse: nyAvv })); vibrera();
             };
             const uppdateraTider = async () => {
               const res = await uppdateraVerifierat(supabase, 'arbetsdag',
                 { start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null },
                 { id: rd.id });
-              if (!res.ok) { alert(res.fel); return; }
+              if (!res.ok) { setRedFel(res.fel); return; }
               setRedDag((d:any) => ({ ...d, start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null }));
               setDagData(dd => ({ ...dd, [rd.datum]: { ...(dd[rd.datum]||{}), start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null } }));
               setSynkMin(null); vibrera();
@@ -4991,46 +4926,46 @@ export default function Arbetsrapport() {
               !dagSegment.some((x:any) => x.start_tid.slice(0,5) < g.slut && g.start < x.slut_tid.slice(0,5)));
             const nästaGap = gaps[0];
             return (
-              <Card style={{ padding:"16px 20px",border:"1px solid rgba(255,214,10,0.35)",marginBottom:16 }}>
-                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:20,color:"#ffd60a" }}>schedule</span>
-                  <span style={{ ...secHead,color:"#fff" }}>Maskintiden skiljer sig · {avvDatum}</span>
+              <Card style={{ padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}`,marginBottom:AVSTAND.l }}>
+                <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s,marginBottom:AVSTAND.l }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.rad,color:FARG.orange }}>schedule</span>
+                  <span style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro,color:FARG.text }}>Maskintiden skiljer sig · {avvDatum}</span>
                 </div>
-                <div style={{ display:"flex",gap:12,marginBottom:14 }}>
+                <div style={{ display:"flex",gap:AVSTAND.m,marginBottom:AVSTAND.l }}>
                   <div style={{ flex:1 }}>
-                    <p style={{ margin:"0 0 3px",fontSize:12,color:"#8e8e93" }}>Du sa</p>
-                    <p style={{ margin:0,fontSize:14,color:"#fff",...TNUM }}>{a.bekraftad_start}-{a.bekraftad_slut}, {a.bekraftad_rast_min} min rast</p>
-                    <p style={{ margin:"3px 0 0",fontSize:14,fontWeight:700,color:"#30d158",...TNUM }}>{fmt(confArb)}</p>
+                    <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Du sa</p>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.text,...TNUM }}>{a.bekraftad_start}-{a.bekraftad_slut}, {a.bekraftad_rast_min} min rast</p>
+                    <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,fontWeight:VIKT.fet,color:FARG.gron,...TNUM }}>{fmt(confArb)}</p>
                   </div>
                   <div style={{ flex:1 }}>
-                    <p style={{ margin:"0 0 3px",fontSize:12,color:"#8e8e93" }}>Maskinen sager</p>
-                    <p style={{ margin:0,fontSize:14,color:"#fff",...TNUM }}>{a.mom_start}-{a.mom_slut}, {a.mom_rast_min} min rast</p>
-                    <p style={{ margin:"3px 0 0",fontSize:14,fontWeight:700,color:"#8e8e93",...TNUM }}>{fmt(momArb)}</p>
+                    <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Maskinen sager</p>
+                    <p style={{ margin:0,...TYP.meta,color:FARG.text,...TNUM }}>{a.mom_start}-{a.mom_slut}, {a.mom_rast_min} min rast</p>
+                    <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,fontWeight:VIKT.fet,color:FARG.text2,...TNUM }}>{fmt(momArb)}</p>
                   </div>
                 </div>
                 {nästaGap ? (<>
-                  <p style={{ margin:"0 0 4px",fontSize:15,color:"#fff" }}>
+                  <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.text,color:FARG.text }}>
                     Du var inloggad <b style={TNUM}>{nästaGap.start}–{nästaGap.slut}</b> ({fmt(nästaGap.minuter)}) utan att maskinen gick.
                   </p>
-                  <p style={{ margin:"0 0 12px",fontSize:13,color:"#8e8e93" }}>
+                  <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.meta,color:FARG.text2 }}>
                     Tiden är redan betald — märk vad du gjorde så den kan faktureras. Väljer du en aktivitet öppnas perioden ifylld.
                   </p>
-                  <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:14 }}>
+                  <div style={{ display:"flex",flexWrap:"wrap",gap:AVSTAND.s,marginBottom:AVSTAND.l }}>
                     {EXTRA_ARBETE_TYPER.map(t => {
                       const akt = AKTIVITETER.find(x=>x.typ===t)!;
                       return (
                         <button key={t} onClick={()=>öppnaSegForm({ gap: nästaGap, typ: t, fromSynk: true })}
-                          style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 12px",background:"rgba(255,255,255,0.06)",border:"none",borderRadius:10,color:"#fff",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>
-                          <span className="material-symbols-outlined" style={{ fontSize:18 }}>{akt.icon}</span>{akt.label}
+                          style={{ display:"flex",alignItems:"center",gap:AVSTAND.s,padding:`${AVSTAND.s}px ${AVSTAND.m}px`,background:FARG.linje,border:"none",borderRadius:RADIE.rad,color:FARG.text,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>
+                          <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{akt.icon}</span>{akt.label}
                         </button>
                       );
                     })}
                   </div>
                 </>) : (
-                  <p style={{ margin:"0 0 12px",fontSize:15,color:"#fff" }}>{fmt(delta)} var inte maskintid.</p>
+                  <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.text,color:FARG.text }}>{fmt(delta)} var inte maskintid.</p>
                 )}
-                <button onClick={uppdateraTider} style={{ ...btn.secondary,marginBottom:8 }}>Det var fel — använd maskinens tider</button>
-                <button onClick={hoppaÖver} style={{ width:"100%",padding:12,background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
+                <button onClick={uppdateraTider} style={{ ...KNAPP.tertiar, display:"flex", width:"100%",marginBottom:AVSTAND.s }}>Det var fel — använd maskinens tider</button>
+                <button onClick={hoppaÖver} style={{ width:"100%",padding:AVSTAND.m,background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
               </Card>
             );
           })()}
@@ -5053,66 +4988,66 @@ export default function Arbetsrapport() {
             const hoppaÖver = async () => {
               const nyTL = { ...tl, kvitterad: new Date().toISOString(), val: 'hoppad', aktivitet: null };
               const res = await uppdateraVerifierat(supabase, 'arbetsdag', { tidigarelagd_start: nyTL }, { id: rd.id });
-              if (!res.ok) { alert(res.fel); return; }
+              if (!res.ok) { setRedFel(res.fel); return; }
               setRedDag((d:any) => ({ ...d, tidigarelagd_start: nyTL })); vibrera();
             };
             const gap = { start: tl.angiven_start, slut: tl.maskin_start };
             return (
-              <Card style={{ padding:"16px 20px",border:"1px solid rgba(255,214,10,0.35)",marginBottom:16 }}>
-                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:20,color:"#ffd60a" }}>schedule</span>
-                  <span style={{ ...secHead,color:"#fff" }}>Maskinstart · {avvDatum}</span>
+              <Card style={{ padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}`,marginBottom:AVSTAND.l }}>
+                <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s,marginBottom:AVSTAND.l }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.rad,color:FARG.orange }}>schedule</span>
+                  <span style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro,color:FARG.text }}>Maskinstart · {avvDatum}</span>
                 </div>
-                <div style={{ display:"flex",gap:12,marginBottom:14 }}>
+                <div style={{ display:"flex",gap:AVSTAND.m,marginBottom:AVSTAND.l }}>
                   <div style={{ flex:1 }}>
-                    <p style={{ margin:"0 0 3px",fontSize:12,color:"#8e8e93" }}>Du angav</p>
-                    <p style={{ margin:0,fontSize:16,fontWeight:700,color:"#fff",...TNUM }}>{tl.angiven_start}</p>
+                    <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Du angav</p>
+                    <p style={{ margin:0,...TYP.text,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{tl.angiven_start}</p>
                   </div>
                   <div style={{ flex:1 }}>
-                    <p style={{ margin:"0 0 3px",fontSize:12,color:"#8e8e93" }}>Maskinen startade</p>
-                    <p style={{ margin:0,fontSize:16,fontWeight:700,color:"#fff",...TNUM }}>{tl.maskin_start}</p>
+                    <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Maskinen startade</p>
+                    <p style={{ margin:0,...TYP.text,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{tl.maskin_start}</p>
                   </div>
                 </div>
-                <p style={{ margin:"0 0 4px",fontSize:15,color:"#fff" }}>
+                <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.text,color:FARG.text }}>
                   Perioden <b style={TNUM}>{tl.angiven_start}–{tl.maskin_start}</b> ({fmt(tl.gap_min)}) ligger i din dag och är redan betald. Vad var den?
                 </p>
-                <p style={{ margin:"0 0 12px",fontSize:13,color:"#8e8e93" }}>
+                <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.meta,color:FARG.text2 }}>
                   Väljer du en aktivitet öppnas perioden ifylld. Du kan markera den som debiterbar.
                 </p>
-                <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:14 }}>
+                <div style={{ display:"flex",flexWrap:"wrap",gap:AVSTAND.s,marginBottom:AVSTAND.l }}>
                   {EXTRA_ARBETE_TYPER.map(t => {
                     const akt = AKTIVITETER.find(x=>x.typ===t)!;
                     return (
                       <button key={t} onClick={()=>öppnaSegForm({ gap, typ: t, fromTidigarelagd: true })}
-                        style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 12px",background:"rgba(255,255,255,0.06)",border:"none",borderRadius:10,color:"#fff",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>
-                        <span className="material-symbols-outlined" style={{ fontSize:18 }}>{akt.icon}</span>{akt.label}
+                        style={{ display:"flex",alignItems:"center",gap:AVSTAND.s,padding:`${AVSTAND.s}px ${AVSTAND.m}px`,background:FARG.linje,border:"none",borderRadius:RADIE.rad,color:FARG.text,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>
+                        <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{akt.icon}</span>{akt.label}
                       </button>
                     );
                   })}
                 </div>
-                <button onClick={hoppaÖver} style={{ width:"100%",padding:12,background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
+                <button onClick={hoppaÖver} style={{ width:"100%",padding:AVSTAND.m,background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
               </Card>
             );
           })()}
           {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0&&!harExtra?(
-            <Card style={{ padding:"24px 20px",textAlign:"center" as const }}>
+            <Card style={{ padding:`${AVSTAND.xl}px ${AVSTAND.xl}px`,textAlign:"center" as const }}>
               {/* Ärligt tomt: varken maskinpass eller loggad extra-tid. */}
-              <p style={{ margin:"0 0 4px",...TYPE.meta,color:"#fff" }}>Ingen data för den här dagen</p>
-              <p style={{ margin:0,fontSize:13,color:"#fff" }}>Lägg till arbetstid och körning manuellt</p>
+              <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text }}>Ingen data för den här dagen</p>
+              <p style={{ margin:0,...TYP.meta,color:FARG.text }}>Lägg till arbetstid och körning manuellt</p>
             </Card>
           ):!harData&&!harExtra?(
-            <Card style={{ padding:"4px 20px" }}>
-              <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:"#fff" }}>Arbetstid</span>
-                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:600,color:C.orange }}>{fmt(redArbMin)}</span>
+            <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
+              <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}`,cursor:"pointer" }}>
+                <span style={{ ...TYP.text,color:FARG.text }}>Arbetstid</span>
+                <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m }}>
+                  <span style={{ ...TYP.text,fontWeight:VIKT.halvfet,color:FARG.orange }}>{fmt(redArbMin)}</span>
                   <ChevronRight/>
                 </div>
               </div>
-              <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:"#fff" }}>Körning</span>
-                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:600,color:redKm>0?C.orange:"#fff" }}>{redKm} km</span>
+              <div onClick={öppnaRedKmSheet} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,cursor:"pointer" }}>
+                <span style={{ ...TYP.text,color:FARG.text }}>Körning</span>
+                <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m }}>
+                  <span style={{ ...TYP.text,fontWeight:VIKT.halvfet,color:redKm>0?FARG.orange:FARG.text }}>{redKm} km</span>
                   <ChevronRight/>
                 </div>
               </div>
@@ -5121,36 +5056,36 @@ export default function Arbetsrapport() {
             /* Extra-tid finns men inget maskinpass: konstatera det lugnt —
                säg ALDRIG "ingen data" när den loggade tiden listas nedanför.
                Samma ärlighetsprincip som Saldon-tillstånden. */
-            <Card style={{ padding:"16px 20px",textAlign:"center" as const }}>
-              <p style={{ margin:0,...TYPE.meta,color:"#8e8e93" }}>Ingen maskindata den här dagen</p>
+            <Card style={{ padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,textAlign:"center" as const }}>
+              <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Ingen maskindata den här dagen</p>
             </Card>
           ):(
-            <Card style={{ padding:"4px 20px" }}>
+            <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
               {/* Hjälte: Total arbetstid — hela blocket klickbart, öppnar Ändra
                   arbetstid (start/slut/rast-hjulen). Ersätter Arbetstid/Rast/Total-
                   raderna; orange stödrad när tiderna ändrats men inte sparats. */}
-              <div onClick={()=>setRedVy("tid")} style={{ textAlign:"center",padding:"18px 0 16px",cursor:"pointer",borderBottom:`1px solid ${C.line}` }}>
+              <div onClick={()=>setRedVy("tid")} style={{ textAlign:"center",padding:`${AVSTAND.l}px 0 ${AVSTAND.l}px`,cursor:"pointer",borderBottom:`1px solid ${FARG.linje}` }}>
                 {/* "Maskinpass" — siffran är passets tid; extra tid listas nedan
                     och dagens total visas som dämpad rad när extra finns */}
-                <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Maskinpass</p>
-                <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>{fmt(redArbMin)}</p>
-                <p style={{ margin:"8px 0 0",...TYPE.meta,color:(redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig)?C.orange:"#8e8e93",...TNUM }}>
+                <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>Maskinpass</p>
+                <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>{fmt(redArbMin)}</p>
+                <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:(redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig)?FARG.orange:FARG.text2,...TNUM }}>
                   {redStart.slice(0,5)} → {redSlut.slice(0,5)} · rast {redRast} min
-                  <span className="material-symbols-outlined" style={{ fontSize:14,color:"rgba(255,255,255,0.25)",verticalAlign:"-2px",marginLeft:2 }}>chevron_right</span>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.fyllning,verticalAlign:"-2px",marginLeft:AVSTAND.xs }}>chevron_right</span>
                 </p>
-                <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#636366" }}>Rast = tid markerad som Meal break i maskinen</p>
+                <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text3 }}>Rast = tid markerad som Meal break i maskinen</p>
                 {(()=>{
                   const exMinDag = extraTidForDag.reduce((a:number,e:any) => a + (e.minuter||0), 0);
                   return exMinDag > 0 ? (
-                    <p style={{ margin:"6px 0 0",...TYPE.caption,color:"#8e8e93",...TNUM }}>+ {fmt(exMinDag)} extra arbete · totalt {fmt(redArbMin + exMinDag)}</p>
+                    <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>+ {fmt(exMinDag)} extra arbete · totalt {fmt(redArbMin + exMinDag)}</p>
                   ) : null;
                 })()}
               </div>
               {/* Maskin — klickbar */}
-              <div onClick={()=>setVisaRedMaskinVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:"#fff" }}>Maskin</span>
-                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ ...TYPE.bodyList,color:"#fff" }}>{(()=>{const m=redMaskinId?maskinNamnMap[redMaskinId]:null; return m||redDag.maskin_namn||redDag.maskin_id||"—";})()}</span>
+              <div onClick={()=>setVisaRedMaskinVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}`,cursor:"pointer" }}>
+                <span style={{ ...TYP.text,color:FARG.text }}>Maskin</span>
+                <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m }}>
+                  <span style={{ ...TYP.listtitel,color:FARG.text }}>{(()=>{const m=redMaskinId?maskinNamnMap[redMaskinId]:null; return m||redDag.maskin_namn||redDag.maskin_id||"—";})()}</span>
                   <ChevronRight/>
                 </div>
               </div>
@@ -5163,36 +5098,74 @@ export default function Arbetsrapport() {
                       ? ` (${o.start_tid.slice(0,5)}–${o.slut_tid.slice(0,5)})`
                       : o.arbetad_min ? ` (${fmt(o.arbetad_min)})` : '';
                     return (
-                      <div key={o.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
-                        <span style={{ fontSize:16,color:"#fff" }}>{i === 0 ? "Objekt" : ""}</span>
-                        <span style={{ ...TYPE.bodyList,color:"#fff",textAlign:"right" as const }}>
+                      <div key={o.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                        <span style={{ ...TYP.text,color:FARG.text }}>{i === 0 ? "Objekt" : ""}</span>
+                        <span style={{ ...TYP.listtitel,color:FARG.text,textAlign:"right" as const }}>
                           {o.objekt_namn || o.objekt_id}
-                          <span style={{ color:"rgba(255,255,255,0.5)",fontSize:13 }}>{tidStr}</span>
+                          <span style={{ color:FARG.text2,...TYP.meta }}>{tidStr}</span>
                         </span>
                       </div>
                     );
                   });
                 }
                 return (
-                  <div onClick={()=>setVisaRedObjektVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                    <span style={{ fontSize:16,color:"#fff" }}>Objekt</span>
-                    <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                      <span style={{ ...TYPE.bodyList,color:"#fff" }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(formatObjektNamn(redDag.objekt_namn)||redDag.objekt_id||"—");})()}</span>
+                  <div onClick={()=>setVisaRedObjektVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}`,cursor:"pointer" }}>
+                    <span style={{ ...TYP.text,color:FARG.text }}>Objekt</span>
+                    <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m }}>
+                      <span style={{ ...TYP.listtitel,color:FARG.text }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(formatObjektNamn(redDag.objekt_namn)||redDag.objekt_id||"—");})()}</span>
                       <ChevronRight/>
                     </div>
                   </div>
                 );
               })()}
-              {redDag.extra>0&&(
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.trak?`1px solid ${C.line}`:"none" }}>
-                  <span style={{ fontSize:16,color:"#fff" }}>Extra tid</span>
-                  <span style={{ fontSize:16,fontWeight:600,color:"#fff" }}>{redDag.extra} min</span>
-                </div>
-              )}
+              {/* Körning — EN rad i huvudkortet, öppnar morgon/kväll-sheeten. Förr ett
+                  eget kort med morgon/kväll/totalt/källa/ersättning, plus en "Extra
+                  tid N min"-rad här som sa samma sak som periodlistan nedanför. */}
+              {(()=>{
+                const över = Math.max(0, redKm - frikm);
+                const mil  = över>0 ? Math.ceil(över/10) : 0;
+                const segs = redKmChain || [];
+                // Källmärkning — visa ärligt vad siffran ÄR. Beräknat men inte
+                // taget = ett FÖRSLAG föraren själv trycker in; först då blir dagen
+                // ändrad (harÄndrat) — aldrig av att den öppnas.
+                const forslag = redKmBerakning != null && redKmBerakning > 0 && redKm === 0 && !redKmSaknarKoord;
+                const egen = !forslag && redKmBerakning != null && redKm !== redKmBerakning;
+                const kalla = forslag ? null
+                  : egen ? { text: "Egen uppgift", farg: FARG.text2 }
+                  : redKmSaknarKoord ? { text: "Objektet saknar koordinat — går inte att beräkna. Fyll i själv.", farg: FARG.orange }
+                  : redKmKälla === 'fallback' ? { text: "Osäker uppskattning (fågelvägen × 1,4) — kontrollera.", farg: FARG.orange }
+                  : redKmKälla === 'beraknad' ? { text: `Beräknat vägavstånd${redKmKoordKälla === 'maskin' ? ' från maskinens position' : redKmKoordKälla === 'objekt' ? ' från objektets koordinat' : redKmKoordKälla === 'larm' ? ' från objektets larmkoordinat' : ''}`, farg: FARG.text2 }
+                  : null;
+                const delar = segs.length >= 2
+                  ? segs.map((s, i) => `${i === 0 ? 'Morgon' : i === segs.length-1 ? 'Kväll' : 'Flytt'} ${s.km}`).join(' · ')
+                  : null;
+                return (
+                  <div style={{ borderBottom:(redDag as any).trak?`1px solid ${FARG.linje}`:"none", paddingBottom:(redDag as any).trak?AVSTAND.s:0 }}>
+                    <div onClick={öppnaRedKmSheet} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", minHeight:TRAFFYTA.min, padding:`${AVSTAND.m}px 0 ${AVSTAND.xs}px`, cursor:"pointer" }}>
+                      <span style={{ ...TYP.text, color:FARG.text }}>Körning</span>
+                      <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{redKm} km</span>
+                        <ChevronRight/>
+                      </div>
+                    </div>
+                    {forslag && (
+                      <button onClick={()=>setRedKm(redKmBerakning)} style={{ ...KNAPP.tertiar, gap:AVSTAND.xs }}>
+                        <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
+                        <span style={{ ...TNUM }}>Använd beräknat {redKmBerakning} km{redKmKälla === 'fallback' ? ' (osäkert, fågelvägen)' : ' (vägavstånd)'}</span>
+                      </button>
+                    )}
+                    {(delar || kalla || över > 0) && (
+                      <p style={{ margin:0, ...TYP.meta, ...TNUM, color:kalla?.farg ?? FARG.text2 }}>
+                        {[delar, kalla?.text, över > 0 ? `${mil} påbörjade mil (${över} km över ${frikm})` : null].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
               {redDag.trak&&(
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
-                  <span style={{ fontSize:16,color:"#fff" }}>Traktamente</span>
-                  <span style={{ fontSize:16,fontWeight:600,color:"#fff" }}>Heldag</span>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0` }}>
+                  <span style={{ ...TYP.text,color:FARG.text }}>Traktamente</span>
+                  <span style={{ ...TYP.text,fontWeight:VIKT.halvfet,color:FARG.text }}>Heldag</span>
                 </div>
               )}
             </Card>
@@ -5215,30 +5188,30 @@ export default function Arbetsrapport() {
             const formLage = segForm ? klassificeraPeriod({ start: segForm.start, slut: segForm.slut }, pass) : null;
             const formMin = segForm ? periodMin(segForm.start, segForm.slut) : 0;
             return (
-            <div style={{ marginTop:16 }}>
-              <Card style={{ padding:"4px 20px" }}>
-                <div onClick={()=>setSegÖppen(o=>!o)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",cursor:"pointer",borderBottom: öppen ? `1px solid ${C.line}` : "none",minHeight:44 }}>
-                  <span style={{ fontSize:16,color:"#fff" }}>Var du iväg en del av dagen?</span>
-                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                    {antal>0 && <span style={{ fontSize:14,color:C.orange }}>{antal} st</span>}
-                    <span className="material-symbols-outlined" style={{ fontSize:20,color:"rgba(255,255,255,0.35)",transform: öppen?"rotate(90deg)":"none",transition:"transform .15s" }}>chevron_right</span>
+            <div style={{ marginTop:AVSTAND.l }}>
+              <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
+                <div onClick={()=>setSegÖppen(o=>!o)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,cursor:"pointer",borderBottom: öppen ? `1px solid ${FARG.linje}` : "none",minHeight:44 }}>
+                  <span style={{ ...TYP.text,color:FARG.text }}>Var du iväg en del av dagen?</span>
+                  <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m }}>
+                    {antal>0 && <span style={{ ...TYP.meta,color:FARG.orange }}>{antal} st</span>}
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.rad,color:FARG.text2,transform: öppen?"rotate(90deg)":"none",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
                   </div>
                 </div>
 
                 {öppen && perioder.map((p:any, i:number) => (
                   <div key={p.kind+p.id}
                     onClick={p.kind==='extra' ? () => oppnaPeriodRedigera(p.raw) : undefined}
-                    style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom: (i<antal-1||!!segForm) ? `1px solid ${C.line}` : "none",gap:10,cursor: p.kind==='extra'?"pointer":"default" }}>
+                    style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.m}px 0`,borderBottom: (i<antal-1||!!segForm) ? `1px solid ${FARG.linje}` : "none",gap:AVSTAND.m,cursor: p.kind==='extra'?"pointer":"default" }}>
                     <div style={{ minWidth:0 }}>
-                      <span style={{ fontSize:15,color:"#fff" }}>{aktLabel(p.typ)}</span>
-                      {p.kind==='extra' && <span style={{ marginLeft:8,fontSize:12,fontWeight:600,color:"#30d158",...TNUM }}>+{fmt(p.minuter)}</span>}
-                      {p.deb && <span style={{ marginLeft:8,fontSize:12,color:"#30d158" }}>faktureras</span>}
-                      {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:8,fontSize:12,color:"#8e8e93" }}>via maskinavvikelse</span>}
+                      <span style={{ ...TYP.text,color:FARG.text }}>{aktLabel(p.typ)}</span>
+                      {p.kind==='extra' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.gron,...TNUM }}>+{fmt(p.minuter)}</span>}
+                      {p.deb && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.gron }}>faktureras</span>}
+                      {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>via maskinavvikelse</span>}
                       <div style={{ ...TYP.meta, color: p.oppen ? FARG.orange : FARG.text2, ...TNUM }}>{p.oppen ? `${p.start} – sluttid saknas · fyll i eller ta bort` : `${p.start}–${p.slut}${p.kind==='extra' ? ' · läggs till' : ''}`}{p.kommentar?` · ${p.kommentar}`:''}</div>
                     </div>
                     {p.kind==='segment'
-                      ? <button onClick={()=>taBortSegment(p.id)} style={{ background:"none",border:"none",color:"#8e8e93",cursor:"pointer",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",flexShrink:0 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize:20 }}>delete</span>
+                      ? <button onClick={()=>taBortSegment(p.id)} style={{ background:"none",border:"none",color:FARG.text2,cursor:"pointer",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",flexShrink:0 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>delete</span>
                         </button>
                       : <ChevronRight/>}
                   </div>
@@ -5257,123 +5230,17 @@ export default function Arbetsrapport() {
             );
           })()}
 
-          {/* Körning — separat kort med morgon/kväll/total (eller segment-kedja) + färdtidsersättning */}
-          {redDag?.start_tid&&(()=>{
-            const över = Math.max(0, redKm - frikm);
-            const mil  = över>0 ? Math.ceil(över/10) : 0;
-            const segs = redKmChain || [];
-            const harFlerObjekt = segs.length > 2;
-            const öppnaKmSheet = () => {
-              const harSplit = (redDag.km_morgon||0) > 0 || (redDag.km_kvall||0) > 0;
-              const m = harSplit ? (redDag.km_morgon||0) : Math.round(redKm/2);
-              const k = harSplit ? (redDag.km_kvall||0)  : redKm - Math.round(redKm/2);
-              setRedTmpKmM(m); setRedTmpKmK(k);
-              setVisaRedKmSheet(true);
-            };
-
-            // Radformat gemensamt för både 1-objekt- och multi-objekt-vyerna
-            const rad = (label: string, value: string, bold=false, onClick?: () => void) => (
-              <div key={label} onClick={onClick} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
-                <span style={{ color:"#fff",...TYPE.meta,fontWeight:bold?600:500 }}>{label}</span>
-                <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                  <span style={{ color:"#fff",...(bold?TYPE.body:TYPE.bodyList),...TNUM }}>{value}</span>
-                  {onClick && <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.35)" }}>chevron_right</span>}
-                </div>
-              </div>
-            );
-
-            return (
-              <Card style={{ padding:"16px 20px" }}>
-                <p style={{ ...secHead }}>Körning</p>
-
-                {harFlerObjekt ? (
-                  // Multi-objekt: visa varje segment som egen rad
-                  segs.map((s, i) => {
-                    const label = i === 0            ? `Morgon (→ ${s.toLabel})`
-                                : i === segs.length-1 ? `Kväll (${s.fromLabel} →)`
-                                :                       `Flytt (${s.fromLabel} → ${s.toLabel})`;
-                    return rad(label, `${s.km} km`, false, öppnaKmSheet);
-                  })
-                ) : segs.length === 2 ? (
-                  // 1-objekt via chain: segment[0] = morgon, segment[1] = kväll
-                  <>{rad("Morgon", `${segs[0].km} km`, false, öppnaKmSheet)}{rad("Kväll", `${segs[1].km} km`, false, öppnaKmSheet)}</>
-                ) : (
-                  // Fallback: DB-split eller redKm/2
-                  (()=>{
-                    const harSplit = (redDag.km_morgon||0) > 0 || (redDag.km_kvall||0) > 0;
-                    const morgonVisa = harSplit ? (redDag.km_morgon||0) : Math.round(redKm/2);
-                    const kvallVisa  = harSplit ? (redDag.km_kvall||0)  : redKm - Math.round(redKm/2);
-                    return <>{rad("Morgon", `${morgonVisa} km`, false, öppnaKmSheet)}{rad("Kväll", `${kvallVisa} km`, false, öppnaKmSheet)}</>;
-                  })()
-                )}
-
-                <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10 }}>
-                  {rad("Totalt", `${redKm} km`, true, öppnaKmSheet)}
-                </div>
-                {(()=>{
-                  // Källmärkning — visa ärligt vad siffran ÄR:
-                  //  · föraren skrivit över (redKm ≠ beräknat) → "Egen uppgift"
-                  //  · objekt utan koordinat → km går inte att beräkna, OSÄKER
-                  //  · fallback (haversine × 1,4) → fågelvägen, OSÄKER
-                  //  · route_cache/ORS → riktigt beräknat vägavstånd
-                  // Beräknat men inte taget: ett FÖRSLAG föraren själv trycker in.
-                  // Först då blir dagen ändrad (harÄndrat) — aldrig av att den öppnas.
-                  const forslag = redKmBerakning != null && redKmBerakning > 0 && redKm === 0 && !redKmSaknarKoord;
-                  if (forslag) return (
-                    <button onClick={()=>setRedKm(redKmBerakning)} style={{ ...KNAPP.tertiar, marginTop:AVSTAND.xs, gap:AVSTAND.xs }}>
-                      <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
-                      <span style={{ ...TNUM }}>Använd beräknat {redKmBerakning} km{redKmKälla === 'fallback' ? ' (osäkert, fågelvägen)' : ' (vägavstånd)'}</span>
-                    </button>
-                  );
-                  const egen = redKmBerakning != null && redKm !== redKmBerakning;
-                  if (egen) return (
-                    <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>Egen uppgift</p>
-                  );
-                  if (redKmSaknarKoord) return (
-                    <p style={{ margin:"8px 0 0",fontSize:12,color:C.orange }}>
-                      ⚠ Objektet saknar koordinat — går inte att beräkna. Fyll i själv.
-                    </p>
-                  );
-                  if (redKmKälla === 'fallback') return (
-                    <p style={{ margin:"8px 0 0",fontSize:12,color:C.orange }}>
-                      ⚠ Osäker uppskattning (fågelvägen × 1,4) — ingen vägberäkning. Kontrollera.
-                    </p>
-                  );
-                  if (redKmKälla === 'beraknad') {
-                    const frn = redKmKoordKälla === 'maskin' ? ' — från maskinens position'
-                      : redKmKoordKälla === 'objekt' ? ' — från objektets koordinat'
-                      : redKmKoordKälla === 'larm' ? ' — från objektets larmkoordinat'
-                      : '';
-                    return (
-                      <p style={{ margin:"8px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat vägavstånd{frn}</p>
-                    );
-                  }
-                  return null;
-                })()}
-                {över>0&&(
-                  <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:10,paddingTop:10 }}>
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
-                      <span style={{ color:"#fff",...TYPE.meta }}>Reseersättning</span>
-                      <span style={{ color:"#fff",...TYPE.bodyList }}>{mil} påbörjade mil</span>
-                    </div>
-                    <p style={{ margin:"2px 0 0",fontSize:12,color:"#fff" }}>
-                      {över} km över {frikm} km
-                    </p>
-                  </div>
-                )}
-              </Card>
-            );
-          })()}
+          {/* Körning-kortet är borta — körningen är en rad i huvudkortet ovan. */}
 
           {/* Anledning — visas om något ändrats */}
           {harÄndrat&&(
-            <div style={{ marginTop:16 }}>
-              <Label>{harData?"Anledning till ändring":"Kommentar"} <span style={{ color:C.red }}>*</span></Label>
+            <div style={{ marginTop:AVSTAND.l }}>
+              <Label>{harData?"Anledning till ändring":"Kommentar"} <span style={{ color:FARG.rod }}>*</span></Label>
               <input
                 placeholder="Kommentar"
                 value={redAnl}
                 onChange={e=>setRedAnl(e.target.value)}
-                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"none",fontFamily:"inherit",color:"#fff" }}
+                style={{ width:"100%",padding:`${AVSTAND.l}px ${AVSTAND.l}px`,...TYP.text,border:"none",borderRadius:RADIE.kort,background:FARG.kort,outline:"none",boxShadow:"none",fontFamily:"inherit",color:FARG.text }}
               />
             </div>
           )}
@@ -5397,12 +5264,13 @@ export default function Arbetsrapport() {
             const kanBekrafta = !bekraftadRedan && (harSlut || erHelDag || (harExtra && !harStart));
             const passPågår = harStart && !harSlut && !erHelDag;
             if (!harData && redStart==="00:00" && redSlut==="00:00" && redRast===0) {
-              return <button style={btn.primary} onClick={()=>setRedVy("tid")}>Lägg till manuellt</button>;
+              return (<>{felRad}<button style={KNAPP.primar} onClick={()=>setRedVy("tid")}>Lägg till manuellt</button>{tillbakaKnapp}</>);
             }
             if (harÄndrat) {
-              return (
+              return (<>
+                {felRad}
                 <button
-                  style={{ ...btn.primary,opacity:!redAnl?0.35:1 }}
+                  style={{ ...KNAPP.primar, ...(!redAnl ? INAKTIV : {}) }}
                   disabled={!redAnl}
                   onClick={async ()=>{
                     try {
@@ -5457,62 +5325,47 @@ export default function Arbetsrapport() {
                       };
                       setRedDag((d:any) => ({ ...d, ...sparad }));
                       setDagData(dd => ({ ...dd, [(redDag as any).datum]: { ...(dd[(redDag as any).datum]||{}), ...sparad } }));
+                      setRedFel(null);
                       setSparadKvittens(true);
                       if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
                       setTimeout(() => setSparadKvittens(false), 4000);
                     } catch(e) {
-                      alert("Kunde inte spara — kontrollera anslutningen.");
+                      setRedFel(SPARA_FEL);
                     }
                   }}>
                   {harData?"Spara ändring":"Spara"}
                 </button>
-              );
+                {tillbakaKnapp}
+              </>);
             }
             // Ingen ändring gjord. Bekräfta-knapp visas bara för dagar där
             // passet är avslutat (eller saknas). Pågående pass visar väntetext.
             if (kanBekrafta) {
               return (<>
+                {felRad}
                 {sparadKvittens && (
-                  <div style={{ ...TYPE.meta, color:"#30d158", textAlign:"center", marginBottom:10, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:18 }}>check_circle</span>
+                  <div style={{ ...TYP.meta, color:FARG.gron, textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center", gap:AVSTAND.xs }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>check_circle</span>
                     Sparat — tryck Bekräfta för att skriva under
                   </div>
                 )}
-                <button
-                  style={{ width:"100%",padding:"18px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}
-                  onClick={async ()=>{
-                    const nuIso = new Date().toISOString();
-                    const res = await uppdateraVerifierat(supabase, "arbetsdag",
-                      { bekraftad: true, bekraftad_tid: nuIso },
-                      { medarbetare_id: medarbetare.id, datum: redDag.datum });
-                    if (!res.ok) { alert(res.fel); return; }
-                    setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
-                    setDagData(dd => ({ ...dd, [redDag.datum]: { ...(dd[redDag.datum]||{}), bekraftad: true, bekraftad_tid: nuIso, status: 'ok' } }));
-                    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
-                  }}>
+                {/* SAMMA väg som Dag-vyns Bekräfta: för-check → ev. orsak → underskrift. */}
+                <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera")}>
                   Bekräfta dagen
                 </button>
-                <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
+                {tillbakaKnapp}
               </>);
             }
             if (passPågår) {
               return (<>
-                <div style={{ width:"100%",padding:"14px 16px",textAlign:"center" }}>
-                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>Pass pågår — kan bekräftas efter avslut</span>
-                </div>
-                <button style={btn.secondary} onClick={()=>setSteg("kalender")}>Tillbaka</button>
+                <p style={{ margin:0, ...TYP.meta, color:FARG.text2, textAlign:"center" }}>Pass pågår — kan bekräftas efter avslut</p>
+                {tillbakaKnapp}
               </>);
             }
             if (bekraftadRedan) {
-              return (<>
-                <div style={{ width:"100%",padding:"14px 16px",background:"rgba(48,209,88,0.10)",border:"1px solid rgba(48,209,88,0.25)",borderRadius:12,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check_circle</span>
-                  <span style={{ ...TYPE.meta,color:"#8e8e93",...TNUM }}>Bekräftad{bekraftadTidFmt?` kl ${bekraftadTidFmt}`:''}</span>
-                </div>
-                <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
-              </>);
+              return (<>{bekraftadRad(bekraftadTidFmt)}{tillbakaKnapp}</>);
             }
-            return <button style={btn.secondary} onClick={()=>setSteg("kalender")}>Tillbaka</button>;
+            return tillbakaKnapp;
           })()}
         </div>
           </>);
@@ -5525,10 +5378,10 @@ export default function Arbetsrapport() {
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:"#0d0d0f",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
-              <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <h3 style={{ margin:0,...TYPE.h2 }}>Välj objekt</h3>
-                <button onClick={()=>setVisaRedObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+            <div style={{ background:FARG.bg,borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`,width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+              <div style={{ padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,borderBottom:`1px solid ${FARG.linje}`,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <h3 style={{ margin:0,...TYP.rubrik }}>Välj objekt</h3>
+                <button onClick={()=>setVisaRedObjektVäljare(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
               </div>
               <div style={{ flex:1,overflowY:"auto" }}>
                 <ObjektValjarLista
@@ -5544,19 +5397,19 @@ export default function Arbetsrapport() {
         {/* Maskinväljare */}
         {visaRedMaskinVäljare&&(
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:"#1c1c1e",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
-              <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <h3 style={{ margin:0,...TYPE.h2 }}>Välj maskin</h3>
-                <button onClick={()=>setVisaRedMaskinVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",...TYPE.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+            <div style={{ background:FARG.kort,borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`,width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+              <div style={{ padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,borderBottom:`1px solid ${FARG.linje}`,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <h3 style={{ margin:0,...TYP.rubrik }}>Välj maskin</h3>
+                <button onClick={()=>setVisaRedMaskinVäljare(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
               </div>
-              <div style={{ flex:1,overflowY:"auto",padding:"8px 0" }}>
+              <div style={{ flex:1,overflowY:"auto",padding:`${AVSTAND.s}px 0` }}>
                 {Object.entries(maskinNamnMap).map(([mid,namn])=>(
-                  <button key={mid} onClick={()=>{setRedMaskinId(mid);setVisaRedMaskinVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 20px",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+                  <button key={mid} onClick={()=>{setRedMaskinId(mid);setVisaRedMaskinVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,background:"none",border:"none",borderBottom:`1px solid ${FARG.linje}`,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
                     <div>
-                      <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>{namn}</p>
-                      <p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{mid}</p>
+                      <p style={{ margin:0,...TYP.listtitel,color:FARG.text }}>{namn}</p>
+                      <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>{mid}</p>
                     </div>
-                    {redMaskinId===mid&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
+                    {redMaskinId===mid&&<span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:FARG.text }}>check</span>}
                   </button>
                 ))}
               </div>
@@ -5564,62 +5417,49 @@ export default function Arbetsrapport() {
           </div>
         )}
 
-        {/* Rast-picker — centrerad iOS-stil wheel */}
-        {visaRedRastPicker&&(
-          <div onClick={()=>setVisaRedRastPicker(false)} style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center" }}>
-            <div onClick={e=>e.stopPropagation()} style={{ background:"#1c1c1e",borderRadius:12,padding:24,width:240 }}>
-              <p style={{ margin:"0 0 16px",...TYPE.micro,color:"#8e8e93",textAlign:"center" }}>Rast</p>
-              <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8 }}>
-                <Wheel value={redRast} onChange={setRedRast} min={0} max={120} step={5}/>
-                <span style={{ ...TYPE.meta,color:"#8e8e93",fontWeight:600 }}>min</span>
-              </div>
-              <button onClick={()=>setVisaRedRastPicker(false)} style={{ width:"100%",marginTop:16,height:44,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit" }}>Klar</button>
-            </div>
-          </div>
-        )}
+        {/* (Rast-pickern som ingen kunde öppna är borttagen — rasten ändras i
+            Ändra arbetstid tillsammans med start/slut.) */}
 
-        {/* Km-sheet — bottom sheet för att ändra morgon/kväll-km. Klickbar från Körning-kortet. */}
+        {/* Km-sheet — bottom sheet för att ändra morgon/kväll-km. Öppnas från Körning-raden. */}
         {visaRedKmSheet && (()=>{
           const ny = redTmpKmM + redTmpKmK;
           const över = Math.max(0, ny - frikm);
           const mil = över > 0 ? Math.ceil(över/10) : 0;
           const stäng = () => setVisaRedKmSheet(false);
+          // ± i 44 px (skillen: maskinen skakar). Förr 36.
           const KmInp = ({label, value, onChange}: {label: string; value: number; onChange: (v:number)=>void}) => (
-            <div style={{ flex:1,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:"0 0 10px",fontSize:13,color:"#fff",fontWeight:500 }}>{label}</p>
-              <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-                <button onClick={()=>onChange(Math.max(0, value-10))} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.08)",border:"none",color:"#fff",fontSize:20,cursor:"pointer" }}>−</button>
-                <span style={{ fontSize:28,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums" }}>{value}</span>
-                <button onClick={()=>onChange(Math.min(999, value+10))} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.08)",border:"none",color:"#fff",fontSize:20,cursor:"pointer" }}>+</button>
+            <div style={{ flex:1, background:FARG.upphojt, borderRadius:RADIE.kort, padding:`${AVSTAND.m}px ${AVSTAND.l}px` }}>
+              <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>{label}</p>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <button onClick={()=>onChange(Math.max(0, value-10))} style={{ ...KNAPP.sekundar, width:TRAFFYTA.min, padding:0, borderRadius:RADIE.rad, ...TYP.rubrik }}>−</button>
+                <span style={{ ...TYP.tal, color:FARG.text }}>{value}</span>
+                <button onClick={()=>onChange(Math.min(999, value+10))} style={{ ...KNAPP.sekundar, width:TRAFFYTA.min, padding:0, borderRadius:RADIE.rad, ...TYP.rubrik }}>+</button>
               </div>
-              <p style={{ margin:"6px 0 0",textAlign:"center",fontSize:12,color:"#fff" }}>km</p>
+              <p style={{ margin:`${AVSTAND.xs}px 0 0`, textAlign:"center", ...TYP.meta, color:FARG.text2 }}>km</p>
             </div>
           );
           return (
-            <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1500,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-              <div onClick={e=>e.stopPropagation()}
-                style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"12px 12px 0 0",padding:"10px 20px 28px",maxHeight:"85vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)" }}>
-                <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
-                  <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+            <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+              <div onClick={e=>e.stopPropagation()} className="sheet-upp"
+                style={{ width:"100%", maxWidth:560, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.xl}px`, maxHeight:"85vh", overflowY:"auto" }}>
+                <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+                  <div style={{ width:40, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
                 </div>
-                <p style={{ margin:"0 0 16px",...TYPE.h2,color:"#fff" }}>Ändra km</p>
-                <div style={{ display:"flex",gap:10 }}>
+                <p style={{ margin:`0 0 ${AVSTAND.l}px`, ...TYP.rubrik, color:FARG.text }}>Ändra km</p>
+                <div style={{ display:"flex", gap:AVSTAND.s }}>
                   <KmInp label="Morgon" value={redTmpKmM} onChange={setRedTmpKmM}/>
                   <KmInp label="Kväll"  value={redTmpKmK} onChange={setRedTmpKmK}/>
                 </div>
-                <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(48,209,88,0.08)",borderRadius:12 }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                    <span style={{ color:"#fff",...TYPE.meta }}>Totalt</span>
-                    <span style={{ color:"#30d158",...TYPE.h2,...TNUM }}>{ny} km</span>
-                  </div>
-                  {över > 0
-                    ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#30d158",fontWeight:500 }}>Reseersättning: {över} km över {frikm} km = {mil} påbörjade mil</p>
-                    : <p style={{ margin:"8px 0 0",fontSize:13,color:"#fff" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
-                  }
+                <div style={{ marginTop:AVSTAND.l, display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                  <span style={{ ...TYP.meta, color:FARG.text2 }}>Totalt</span>
+                  <span style={{ ...TYP.rubrik, ...TNUM, color:FARG.text }}>{ny} km</span>
                 </div>
-                <div style={{ display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginTop:16 }}>
-                  <button onClick={stäng}
-                    style={{ padding:"16px",background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>
+                  {över > 0 ? `${mil} påbörjade mil (${över} km över ${frikm})` : `Ingen reseersättning (högst ${frikm} km)`}
+                </p>
+                {felRad}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
+                  <button onClick={stäng} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>
                     Avbryt
                   </button>
                   <button
@@ -5634,9 +5474,10 @@ export default function Arbetsrapport() {
                         if (bryterBekräftelse) { payload.bekraftad = false; payload.bekraftad_tid = null; }
                         const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: redDag.id });
                         if (!res.ok) {
-                          alert(res.fel);
+                          setRedFel(res.fel);
                           return;
                         }
+                        setRedFel(null);
                         setDagData(dd => ({
                           ...dd,
                           [redDag.datum]: {
@@ -5655,7 +5496,7 @@ export default function Arbetsrapport() {
                       setRedKm(ny);
                       stäng();
                     }}
-                    style={{ padding:"16px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                    style={KNAPP.primar}>
                     Spara
                   </button>
                 </div>
@@ -5719,45 +5560,17 @@ export default function Arbetsrapport() {
       månadsExtra,
     );
     const jobbadH = Math.round(jobbadMin / 60 * 10) / 10;
-    // Ärlig uppdelning av månaden per dagtyp + veckodag — INTE en äpplen/päron-
-    // kvot (täljare alla jobbade dagar, nämnare bara vardagar gav "25 av 23").
-    // dagtyp: arbete = 'Produktion'/'normal'; frånvaro = 'sjuk'/'semester'/'vab'
-    // (verifierat mot DB). Jobbade dagar = arbetsdagar med maskinpass ELLER
-    // extra tid; vardag/helg ur veckodagen. Frånvaro räknas separat, aldrig
-    // som jobbad. 0-rader döljs i renderingen (visa det som hänt).
-    const FRANVARO_TYPER = new Set(['sjuk', 'semester', 'vab', 'foraldraledig']);
-    const ärHelg = (datum: string) => {
-      const [y, m, dd] = datum.split('-').map(Number);
-      const w = new Date(y, m - 1, dd).getDay(); // lokal veckodag, 0=sön 6=lör
-      return w === 0 || w === 6;
-    };
-    let sjukDagar = 0, semesterDagar = 0, vabDagar = 0, foraldraledigDagar = 0;
+    // Jobbade dagar = arbetsdagar med maskinpass ELLER extra tid — bara talet,
+    // ingen vardags-nämnare (täljare alla jobbade dagar, nämnare bara vardagar
+    // gav "25 av 23"). Frånvarodagar (lib/franvaro) räknas aldrig som jobbade;
+    // de syns per dag i rutnätet och i Löns Saknas-block. Körning står i Lön.
     const jobbadeSet = new Set<string>();
     for (const [datum, d] of månadsDagRader as [string, any][]) {
-      const typ = String(d.dagtyp || '').toLowerCase();
-      if (typ === 'sjuk') { sjukDagar++; continue; }
-      if (typ === 'semester') { semesterDagar++; continue; }
-      if (typ === 'vab') { vabDagar++; continue; }
-      if (typ === 'foraldraledig') { foraldraledigDagar++; continue; }
+      if ((FRANVARO_DAGTYPER_ALLA as readonly string[]).includes(String(d.dagtyp || '').toLowerCase())) continue;
       if ((d.arbMin || 0) > 0) jobbadeSet.add(datum);
     }
     for (const e of månadsExtra) if ((e.minuter || 0) > 0) jobbadeSet.add(e.datum);
-    let vardagar = 0, helgdagar = 0;
-    Array.from(jobbadeSet).forEach(datum => { if (ärHelg(datum)) helgdagar++; else vardagar++; });
-    const jobbadeDagar = jobbadeSet.size; // = vardagar + helgdagar
-    // Uppdelningsrader, 0 döljs. Helg får en diskret prick (helg = OB-dag).
-    const dagtypRader: { label: string; värde: number; helg?: boolean }[] = [
-      { label: 'Vardagar', värde: vardagar },
-      { label: 'Helgdagar', värde: helgdagar, helg: true },
-      { label: 'Sjukdagar', värde: sjukDagar },
-      { label: 'Semesterdagar', värde: semesterDagar },
-      { label: 'VAB-dagar', värde: vabDagar },
-      { label: 'Föräldralediga dagar', värde: foraldraledigDagar },
-    ].filter(r => r.värde > 0);
-    // km hämtas från /api/km-summary som fyller ut saknade DB-värden via ORS
-    const totalKm = kmSummary?.totalKm ?? 0;
-    const ersKm   = kmSummary?.ersattningsKm ?? 0;
-    const ersMil  = kmSummary?.ersattningsMil ?? 0; // påbörjade mil = samma mängd som exporten
+    const jobbadeDagar = jobbadeSet.size;
 
     const statusFärg=(d)=>{
       const k=dagKey(d);
@@ -5784,101 +5597,68 @@ export default function Arbetsrapport() {
       return 'tom';
     };
 
+    // Prickar: statusfärg bara som prick bredvid ett ord (statusförklaringen).
+    // Extra tid är INTE en status → grå prick (blått betyder "navigerar").
+    // Synk-avvikelse = "titta på dagen" → orange, samma som obekräftad.
     const dotFärg: Record<string,string> = {
-      ok:"#30D158",         // grön — bekräftad (tydligare än vit mot mörk bg)
-      saknas:"#ff9f0a",     // orange — data finns men ej bekräftat
-      sjuk:"#ff453a",       // röd
-      vab:"#ff9f0a",         // orange
+      ok:FARG.gron,        // bekräftad
+      saknas:FARG.orange,  // data finns men ej bekräftat
+      sjuk:FARG.rod,
+      vab:FARG.orange,
     };
-    const extraPrickFärg = "#0A84FF"; // blå för extra tid
+    const extraPrickFärg = FARG.text2;
+    const synkPrickFärg = FARG.orange;
+    // (Ingen useRaknaUpp här — vyn ligger bakom ett villkor, hooks får inte det.)
+    const månadHjälte = jobbadH;
 
     return (
-      <div style={{ minHeight:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
+      <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
         <style>{css}</style>{timerBanner}
 
-        {/* Header — sticky nav with month + arrows */}
-        <header style={{ position:"sticky",top:HEADER_TOP,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",zIndex:50,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 24px",height:64 }}>
-          <button onClick={()=>kanBakåt&&navigera(-1)} style={{ background:"none",border:"none",cursor:"pointer",opacity:kanBakåt?1:0.3,padding:4 }}>
-            <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_left</span>
+        {/* Header — månad + pilar (44 px, blå = navigerar). Rubriken var blå
+            fast den inte gick att trycka på. */}
+        <header style={{ position:"sticky", top:HEADER_TOP, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", zIndex:50, display:"flex", alignItems:"center", justifyContent:"space-between", padding:`0 ${AVSTAND.sidmarginal}px`, height:64 }}>
+          <button onClick={()=>kanBakåt&&navigera(-1)} style={{ ...KNAPP.lank, width:TRAFFYTA.min, justifyContent:"center", ...(kanBakåt ? {} : INAKTIV) }}>
+            <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>chevron_left</span>
           </button>
-          <h1 style={{ margin:0,fontSize:18,fontWeight:600,letterSpacing:"-0.02em",color:"#0a84ff" }}>{kalMånadLabel}</h1>
-          <button onClick={()=>kanFramåt&&navigera(1)} style={{ background:"none",border:"none",cursor:"pointer",opacity:kanFramåt?1:0.3,padding:4 }}>
-            <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_right</span>
+          <h1 style={{ margin:0, ...TYP.listtitel, color:FARG.text, textTransform:"capitalize" }}>{kalMånadLabel}</h1>
+          <button onClick={()=>kanFramåt&&navigera(1)} style={{ ...KNAPP.lank, width:TRAFFYTA.min, justifyContent:"center", ...(kanFramåt ? {} : INAKTIV) }}>
+            <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>chevron_right</span>
           </button>
         </header>
 
-        <main style={{ flex:1,padding:"0 16px 128px",overflowY:"auto" }}>
+        <main style={{ flex:1, padding:`0 ${AVSTAND.sidmarginal}px ${SCROLL_BOTTOM}px`, overflowY:"auto" }}>
 
-          {/* Summary card — hjälte: månadens berättelse (jobbat mot mål) överst,
-              resten som lugna stödrader. Målet ingår i hjälten ("av X tim"). */}
-          <section style={{ marginTop:16,marginBottom:32 }}>
-            <div style={{ background:"#1c1c1e",borderRadius:12,padding:24 }}>
-              <div style={{ textAlign:"center" }}>
-                <p style={{ margin:"0 0 8px",...TYPE.meta,color:"#8e8e93" }}>Jobbat i {kalMånadNamn}</p>
-                <p style={{ margin:0,...TYPE.bigNum,color:"#fff",...TNUM }}>
-                  {String(jobbadH).replace('.',',')}
-                  <span style={{ ...TYPE.meta,color:"#8e8e93",marginLeft:6,...TNUM }}>av {målH} tim</span>
-                </p>
-                {/* Progress mot månadsmålet — grön oavsett andel (läge, inte larm), klampad till 100% */}
-                <div style={{ height:5,borderRadius:3,background:"rgba(255,255,255,0.08)",marginTop:14,overflow:"hidden" }}>
-                  <div style={{ height:"100%",borderRadius:3,background:"#30d158",width:`${Math.min(100, målH > 0 ? (jobbadH / målH) * 100 : 0)}%`,minWidth:jobbadH > 0 ? 6 : 0 }}/>
-                </div>
-              </div>
-              <div style={{ borderTop:"1px solid rgba(255,255,255,0.08)",marginTop:18,paddingTop:8 }}>
-                {/* "Varav extra tid" = stödrad till hjältens total (samma
-                    mönster som "Varav fakturerbart" i månadssammanställningen) */}
-                {månExtraMin > 0 && (
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0" }}>
-                    <span style={{ ...TYPE.meta,color:"#8e8e93" }}>Varav extra tid</span>
-                    <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM }}>{String(Math.round(månExtraMin/60*10)/10).replace('.',',')} tim</span>
-                  </div>
-                )}
-                {/* Jobbade dagar — bara talet (ingen vardags-nämnare, det blev
-                    äpplen/päron när helgjobb räknades i täljaren). Under: ärlig
-                    uppdelning per dagtyp, 0-rader döljda. */}
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0" }}>
-                  <span style={{ ...TYPE.meta,color:"#8e8e93" }}>Jobbade dagar</span>
-                  <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM }}>{jobbadeDagar}</span>
-                </div>
-                {dagtypRader.length > 0 && (
-                  <div style={{ paddingLeft:12,paddingBottom:2 }}>
-                    {dagtypRader.map(r=>(
-                      <div key={r.label} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0" }}>
-                        <span style={{ ...TYPE.caption,color:"#636366",display:"flex",alignItems:"center",gap:6 }}>
-                          {r.helg && <span style={{ width:5,height:5,borderRadius:"50%",background:"#0A84FF",display:"inline-block",flexShrink:0 }}/>}
-                          {r.label}
-                        </span>
-                        <span style={{ ...TYPE.caption,color:"#8e8e93",...TNUM }}>{r.värde}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {[
-                  ["Körning",`${totalKm.toLocaleString('sv-SE')} km`],
-                  ["Reseersättning",`${ersMil} påbörjade mil`],
-                ].map(([label,val])=>(
-                  <div key={label as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0" }}>
-                    <span style={{ ...TYPE.meta,color:"#8e8e93" }}>{label}</span>
-                    <span style={{ ...TYPE.bodyList,color:"#fff",...TNUM }}>{val}</span>
-                  </div>
-                ))}
+          {/* Månadskortet: ETT tal (jobbat av mål) + jobbade dagar. Progress-
+              stapeln, "varav extra tid", dagtypsraderna och körningen är borta —
+              de sa samma sak som Lön (specen) eller rutnätet. */}
+          <section style={{ marginTop:AVSTAND.l, marginBottom:AVSTAND.xl }}>
+            <div style={KORT}>
+              <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>Jobbat i {kalMånadNamn}</p>
+              <p style={{ margin:0, ...TYP.tal, color:FARG.text }}>
+                {månadHjälte.toLocaleString('sv-SE')}
+                <span style={{ ...TYP.meta, ...TNUM, color:FARG.text2, marginLeft:AVSTAND.xs }}>av {målH} tim</span>
+              </p>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:AVSTAND.m, paddingTop:AVSTAND.m, borderTop:`1px solid ${FARG.linje}` }}>
+                <span style={{ ...TYP.meta, color:FARG.text2 }}>Jobbade dagar</span>
+                <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{jobbadeDagar}</span>
               </div>
             </div>
           </section>
 
           {/* Calendar grid */}
-          <section style={{ marginBottom:40 }}>
+          <section style={{ marginBottom:AVSTAND.xxl }}>
             {/* Weekday headers */}
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",textAlign:"center",marginBottom:16 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", textAlign:"center", marginBottom:AVSTAND.l }}>
               {veckar.map(v=>(
-                <div key={v} style={{ color:"#8e8e93",fontSize:12,fontWeight:600 }}>{v}</div>
+                <div key={v} style={{ color:FARG.text2, ...TYP.micro }}>{v}</div>
               ))}
             </div>
 
             {/* Day cells */}
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:"24px 0",textAlign:"center" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:`${AVSTAND.xl}px 0`, textAlign:"center" }}>
               {cells.map((d,i)=>{
-                if(!d) return <div key={i} style={{ padding:"8px 0",opacity:0.2 }}>{(() => {
+                if(!d) return <div key={i} style={{ padding:`${AVSTAND.s}px 0`, ...INAKTIV, opacity:0.2 }}>{(() => {
                   // Show prev/next month days faded
                   if(i < startDag) {
                     const prevMonth = new Date(kalÅr, kalMånad, 0);
@@ -5891,7 +5671,6 @@ export default function Arbetsrapport() {
                 const isToday=d===nuDat.getDate()&&kalMånad===nuDat.getMonth()&&kalÅr===nuDat.getFullYear();
                 const k=dagKey(d);
                 const datum=`${kalÅr}-${String(kalMånad+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-                const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
                 const helgNamn = rödaDagar[k] || '';
                 const harExtra = (extraDagData[datum]||[]).length > 0;
                 // Ohanterad synk-avvikelse (bekraftad dag vars maskintider byggts
@@ -5909,33 +5688,33 @@ export default function Arbetsrapport() {
                 return (
                   <div key={i}
                     onClick={()=>öppnaRedigera(datum)}
-                    style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",padding:"8px 0",...(ärLedig?{background:"rgba(120,124,150,0.18)",borderRadius:10}:{}) }}>
-                    {/* Ring: idag=blå, redigerad=gul, idag har prioritet */}
-                    {isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #0a84ff",borderRadius:"50%" }} />}
-                    {erRedigerad && !isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #ffd60a",borderRadius:"50%" }} />}
+                    style={{ position:"relative", display:"flex", flexDirection:"column", alignItems:"center", cursor:"pointer", padding:`${AVSTAND.s}px 0`, minHeight:TRAFFYTA.min, ...(ärLedig?{ background:FARG.linje, borderRadius:RADIE.rad }:{}) }}>
+                    {/* Ring: idag = vit ring (inte blå — blått navigerar). Den gula
+                        "redigerad"-ringen är borta: att en dag rättats är ingen status
+                        föraren ska agera på. */}
+                    {isToday && <div style={{ position:"absolute", top:AVSTAND.xs, width:36, height:36, border:`2px solid ${FARG.text}`, borderRadius:RADIE.cirkel }} />}
                     <span style={{
-                      fontSize:15,
-                      fontWeight: isToday ? 700 : 500,
-                      color: s==="röd" ? "#ff453a" : "#fff",
-                      position:"relative",zIndex:1,
+                      ...TYP.text, ...TNUM,
+                      fontWeight: isToday ? VIKT.fet : VIKT.normal,
+                      color: s==="röd" ? FARG.rod : FARG.text,
+                      position:"relative", zIndex:1,
                       lineHeight:"36px",
                     }}>{d}</span>
-                    {/* Helgdag namn */}
-                    {helgNamn && <span style={{ fontSize:8,color:s==="röd"?"#ff453a":"#8e8e93",marginTop:1,lineHeight:1.2,maxWidth:44,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{helgNamn}</span>}
-                    {/* Ledig dag: typ i klartext (Sem/Sjuk/VAB/Ledig) — annat visuellt språk än prickarna */}
-                    {ärLedig && <span style={{ fontSize:9,fontWeight:600,color:"#b6b9cc",marginTop:2,lineHeight:1,letterSpacing:0.2 }}>{ledEtikett}</span>}
-                    {/* Status dot: bekräftad=grön, saknas=orange, + blå punkt för extra tid.
+                    {/* Helgdag namn / ledig-etikett: micro-steget, aldrig egna storlekar */}
+                    {helgNamn && <span style={{ ...TYP.micro, color:s==="röd"?FARG.rod:FARG.text2, maxWidth:44, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{helgNamn}</span>}
+                    {ärLedig && <span style={{ ...TYP.micro, color:FARG.text2 }}>{ledEtikett}</span>}
+                    {/* Status dot: bekräftad=grön, saknas=orange, + grå punkt för extra tid.
                         Visas även på helgdagar — helgtexten döljer inte pricken. */}
                     {(dotFärg[s]||harExtra||synkOhanterad)?(
-                      <div style={{ display:"flex",gap:3,marginTop:4 }}>
+                      <div style={{ display:"flex", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
                         {dotFärg[s]&&(
-                          <div style={{ width:4,height:4,borderRadius:"50%",background:dotFärg[s] }}/>
+                          <div style={{ width:AVSTAND.xs, height:AVSTAND.xs, borderRadius:RADIE.cirkel, background:dotFärg[s] }}/>
                         )}
                         {harExtra&&(
-                          <div style={{ width:4,height:4,borderRadius:"50%",background:extraPrickFärg }}/>
+                          <div style={{ width:AVSTAND.xs, height:AVSTAND.xs, borderRadius:RADIE.cirkel, background:extraPrickFärg }}/>
                         )}
                         {synkOhanterad&&(
-                          <div style={{ width:4,height:4,borderRadius:"50%",background:"#ffd60a" }}/>
+                          <div style={{ width:AVSTAND.xs, height:AVSTAND.xs, borderRadius:RADIE.cirkel, background:synkPrickFärg }}/>
                         )}
                       </div>
                     ):null}
@@ -5945,35 +5724,19 @@ export default function Arbetsrapport() {
             </div>
           </section>
 
-          {/* Legend */}
-          <section style={{ marginTop:32,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)" }}>
-            <h3 style={{ ...secHead,marginBottom:24 }}>Statusförklaring</h3>
-            <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
-              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:12,height:12,borderRadius:"50%",background:"#30D158" }} />
-                <span style={{ ...TYPE.meta,color:"#fff" }}>Bekräftad</span>
-              </div>
-              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:12,height:12,borderRadius:"50%",background:"#ff9f0a" }} />
-                <span style={{ ...TYPE.meta,color:"#fff" }}>Obekräftad</span>
-              </div>
-              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:12,height:12,borderRadius:"50%",background:"#0A84FF" }} />
-                <span style={{ ...TYPE.meta,color:"#fff" }}>Extra tid</span>
-              </div>
-              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:20,height:20,borderRadius:6,background:"rgba(120,124,150,0.28)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:600,color:"#b6b9cc" }}>Sem</div>
-                <span style={{ ...TYPE.meta,color:"#fff" }}>Ledig (semester / sjuk / VAB)</span>
-              </div>
-              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:20,height:20,border:"2px solid #ffd60a",borderRadius:"50%" }} />
-                <span style={{ ...TYPE.meta,color:"#fff" }}>Redigerad</span>
-              </div>
-              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:20,height:20,border:"2px solid #0a84ff",borderRadius:"50%" }} />
-                <span style={{ ...TYPE.meta,color:"#fff" }}>Idag</span>
-              </div>
-            </div>
+          {/* Statusförklaring — EN rad, prick + ord. Förr sex rader med egna
+              storlekar (12/20 px-prickar, ringar, 8 px-text). */}
+          <section style={{ display:"flex", flexWrap:"wrap", justifyContent:"center", gap:`${AVSTAND.s}px ${AVSTAND.l}px`, paddingTop:AVSTAND.l, borderTop:`1px solid ${FARG.linje}` }}>
+            {([
+              ["Bekräftad", FARG.gron],
+              ["Obekräftad", FARG.orange],
+              ["Extra tid", FARG.text2],
+              ["Frånvaro", FARG.rod],
+            ] as [string, string][]).map(([ord, farg]) => (
+              <span key={ord} style={{ display:"inline-flex", alignItems:"center", gap:AVSTAND.xs, ...TYP.meta, color:FARG.text2 }}>
+                <span style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:farg, display:"inline-block" }} />{ord}
+              </span>
+            ))}
           </section>
         </main>
 
