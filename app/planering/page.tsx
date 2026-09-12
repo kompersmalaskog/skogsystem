@@ -3239,6 +3239,7 @@ export default function PlannerPage() {
   const hyttsparDirtyRef = useRef(false);
   const hyttsparSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hyttsparSealingRef = useRef(false);   // true medan spåret förseglas efter ett glapp (async-fönster)
+  const [hyttsparBasVersion, setHyttsparBasVersion] = useState(0);   // bump när dagens redan loggade punkter laddats → rita om basen (även om kartlagret inte fanns vid livscykel-ritningen)
 
   const uppdateraHyttsparLager = useCallback(() => {
     const map = mapInstanceRef.current; if (!map) return;
@@ -3283,7 +3284,9 @@ export default function PlannerPage() {
         if (avbruten) return;
         if (befintlig) {
           hyttsparRowIdRef.current = befintlig.id;
+          // LADDA DAGENS REDAN LOGGADE PUNKTER som bas (annars ritades eget-spåret bara live från noll).
           hyttsparPointsRef.current = Array.isArray(befintlig.points) ? befintlig.points : [];
+          setHyttsparBasVersion(v => v + 1);   // → rit-effekten nedan ritar basen så fort kartlagret är redo
           await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
         } else {
           const { data: ny, error } = await supabase.from('hyttspar')
@@ -3312,6 +3315,16 @@ export default function PlannerPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, valtObjekt?.id, hyttRoll]);
+
+  // Rita det INLADDADE eget-spåret (dagens redan loggade punkter) så fort kartlagret är redo. Behövs
+  // för att livscykel-effektens första ritning kan köra INNAN hyttspar-egen-source finns (körvy byter
+  // baskarta → style-reset → källor återskapas) → basen syntes annars inte förrän man rörde sig. Fångar
+  // båda ordningarna: mapLibreReady blir true efter inladdning, ELLER inladdning (bas-version) efter att
+  // kartan blev redo. uppdateraHyttsparLager segmenterar (delad hjälpare) → inga fantomlinjer i basen.
+  useEffect(() => {
+    if (korvyActive && mapLibreReady) uppdateraHyttsparLager();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyActive, mapLibreReady, valtObjekt?.id, hyttsparBasVersion]);
 
   // Ackumulering: varje GPS-fix (currentPosition) körs genom vakten (#398) → accepterade punkter läggs
   // till + spåret ritas om. Gejtad på aktiv loggning (rowId satt) → no-op utanför körvy.
