@@ -6,6 +6,7 @@
 import { supabase } from '@/lib/supabase'
 import { medAbortRetry } from '@/lib/supabaseRetry'
 import { hamtaAlla } from '@/lib/supabaseAlla'
+import type { VeckolageData } from './veckolage'
 
 export type Typ = 'slutavverkning' | 'gallring'
 
@@ -324,6 +325,14 @@ export async function sparaOrsak(ar: number, manad: number, typ: Typ, isovecka: 
   } catch (e) {
     return { error: felText(e) }
   }
+}
+
+/** Veckoläget för en dag (helikopter_veckolage): samma payload som onsdagsnotisen. Sidan /helikopter/veckolage. */
+export async function hamtaVeckolage(datum: string): Promise<Svar<VeckolageData>> {
+  const r = await rpc<VeckolageData | null>('helikopter_veckolage', { p_idag: datum })
+  if (r.error) return { data: null, error: r.error }
+  if (!r.data || typeof r.data !== 'object' || !Array.isArray(r.data.spar)) return { data: null, error: 'Tomt svar från helikopter_veckolage' }
+  return { data: r.data, error: null }
 }
 
 /**
