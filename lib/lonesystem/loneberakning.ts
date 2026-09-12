@@ -19,10 +19,16 @@
  *   Övertid = totalt jobbat - ordinarie
  *   Timlön = ordinarie (inte totalt!)
  *   En rad per månad med Date = löneperiodens första dag.
+ *
+ * Arbetsdag = dag med minst 60 min maskintid + extra tid (lib/arbetsdagRegler).
+ * Kortare dagar ("kortpass") är betald tid men ingen arbetsdag: ingen ×8 i
+ * övertidsbasen, ingen vältlappsvecka, ingen reseersättning. De listas i
+ * varningarna så granskningen ser dem.
  */
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
 import { FRANVARO_DAGTYPER_ALLA } from "../franvaro";
+import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 
 type ArbetsdagInput = {
   datum: string;        // YYYY-MM-DD
@@ -78,10 +84,14 @@ export type ExportSammanfattning = {
   valtlappar_veckor: number;
   kor_mil: number;
   obekraftade: number;
-  // Godkänd frånvaro i arbetsperioden (efter "arbete vinner"). Läggs ALDRIG som
-  // lönerad — Fortnox-löneart för frånvaro är ej fastställd; visas för granskning
-  // och sätts manuellt. En rad per typ.
+  // Frånvaro i arbetsperioden (efter "arbete vinner") — ur godkänd ledighet OCH
+  // ur arbetsdag.dagtyp (sjuk/vab/föräldraledig via morgonkortet). Läggs ALDRIG
+  // som lönerad — Fortnox-löneart för frånvaro är ej fastställd; visas för
+  // granskning och sätts manuellt. En rad per typ.
   franvaro: { typ: string; dagar: number; datum: string[] }[];
+  // Dagar under arbetsdagströskeln (lib/arbetsdagRegler): betald tid som inte är
+  // en arbetsdag. Visas i granskningen — oftast inloggningar på annans maskin.
+  kortpass: { datum: string; minuter: number; km_totalt: number }[];
 };
 
 function isoVecka(d: Date): number {
@@ -129,7 +139,21 @@ export function beräknaExport(
 
   // Filtrera bort frånvarodagar — listan ägs av lib/franvaro (sjuk, vab, föräldraledig, semester, atk)
   const FRANVARO = new Set<string>(FRANVARO_DAGTYPER_ALLA);
-  const produktionsDagar = dagar.filter(d => !d.dagtyp || !FRANVARO.has(d.dagtyp));
+  const dagarMedTid = dagar.filter(d => !d.dagtyp || !FRANVARO.has(d.dagtyp.toLowerCase()));
+
+  // ARBETSDAG = minst 60 min maskintid + extra tid samma dag (lib/arbetsdagRegler).
+  // Kortare dagar är kortpass: minuterna räknas i totalH (betald tid) men dagen
+  // ger ingen ×8 i övertidsbasen, ingen vältlappsvecka och ingen reseersättning.
+  // Förr räknade en femminutersinloggning som en hel arbetsdag — Martins två
+  // sådana i augusti 2026 tog bort 16 timmar ur hans övertid.
+  const extraMinPerDatum = new Map<string, number>();
+  for (const e of extraTid) if (e?.datum) extraMinPerDatum.set(e.datum, (extraMinPerDatum.get(e.datum) || 0) + (e.minuter || 0));
+  const dagTotalMin = (d: ArbetsdagInput) => (d.arbetad_min || 0) + (extraMinPerDatum.get(d.datum) || 0);
+  const produktionsDagar = dagarMedTid.filter(d => arArbetsdag(dagTotalMin(d)));
+  const kortpass = dagarMedTid
+    .filter(d => !arArbetsdag(dagTotalMin(d)))
+    .map(d => ({ datum: d.datum, minuter: dagTotalMin(d), km_totalt: d.km_totalt || 0 }))
+    .sort((a, b) => a.datum.localeCompare(b.datum));
   const antalArbetsdagar = produktionsDagar.length;
   const ordinarie = antalArbetsdagar * 8; // timmar
 
@@ -159,6 +183,11 @@ export function beräknaExport(
   const maskinH = Math.round(totalH * 100) / 100;
   const extraH = extraTid.reduce((a, e) => a + (e?.minuter || 0), 0) / 60;
   totalH += extraH;
+  // Kortpassens maskinminuter: betald tid som TIMLÖN, aldrig övertid och aldrig
+  // premie (läggs efter maskinH). Utan detta blev Joacims 26 minuter 0,43 h
+  // övertid — ordinarie var 0 eftersom dagen inte är arbetsdag.
+  const kortpassH = kortpass.reduce((a, k) => a + (dagarMedTid.find(d => d.datum === k.datum)?.arbetad_min || 0), 0) / 60;
+  totalH += kortpassH;
 
   totalH = Math.round(totalH * 100) / 100;
   skordareH = Math.round(skordareH * 100) / 100;
@@ -179,11 +208,12 @@ export function beräknaExport(
     );
   }
 
-  // Övertid = totalt - ordinarie
-  const overtidH = Math.round(Math.max(0, totalH - ordinarie) * 100) / 100;
+  // Övertid = totalt - ordinarie (kortpassens timmar är ordinarie, aldrig övertid)
+  const overtidH = Math.round(Math.max(0, totalH - ordinarie - kortpassH) * 100) / 100;
 
   // Timlön = ordinarie (inte totalt!) — räknas på HELA arbetstiden inkl extra
-  const timlonH = Math.round(Math.min(totalH, ordinarie) * 100) / 100;
+  const timlonH = Math.round(Math.min(totalH, ordinarie + kortpassH) * 100) / 100;
+  const kortpassHRund = Math.round(kortpassH * 100) / 100;
 
   // Premie FRYST till maskintid tills premie-vs-extra-tid-avtalet är utrett.
   // TODO: premie på alla jobbade timmar, olika sats skördare/skotare,
@@ -196,7 +226,7 @@ export function beräknaExport(
 
   // ── 1. TIMLÖN (kod 11) ──
   if (timlonH > 0) {
-    rader.push({ EmployeeId: eid, SalaryCode: "11", Number: timlonH.toFixed(2), Date: loneperiodStart, beskrivning: `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h)` });
+    rader.push({ EmployeeId: eid, SalaryCode: "11", Number: timlonH.toFixed(2), Date: loneperiodStart, beskrivning: `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h${kortpassHRund > 0 ? ` + ${kortpassHRund}h kortpass` : ''})` });
   }
 
   // ── 2. PREMIELÖN (kod 1354/1355) — fördelat proportionellt ──
@@ -249,6 +279,10 @@ export function beräknaExport(
   if (obekraftade > 0) {
     varningar.push(`${obekraftade} av ${antalArbetsdagar} dagar är ej bekräftade.`);
   }
+  if (kortpass.length > 0) {
+    const lista = kortpass.map(k => `${k.datum} ${k.minuter} min${k.km_totalt > 0 ? ` · ${k.km_totalt} km` : ''}`).join(', ');
+    varningar.push(`Kortpass (under ${ARBETSDAG_MIN_MINUTER} min): ${lista} — betald tid men ingen arbetsdag: ingen ×8 i övertidsbasen, ingen vältlappsvecka, ingen reseersättning. Ta bort dagen om den är en felinloggning.`);
+  }
 
   // ── FRÅNVARO ur godkänd ledighet (primär källa) ──
   // Expandera varje ledighet start–slut till datum, begränsa till ARBETSPERIODENS
@@ -279,6 +313,23 @@ export function beräknaExport(
       }
     }
   }
+  // Frånvaro ur arbetsdag.dagtyp (sjuk/vab/föräldraledig från morgonkortet,
+  // lib/franvaro). Förr filtrerades de dagarna bort ovan och nämndes sedan
+  // ALDRIG — Joacims sjukdag 2026-08-19 försvann tyst ur augusti-underlaget.
+  // Nu får de samma behandling som en godkänd ledighet: frånvarorad + varning.
+  // En dag som en ledighet redan täcker räknas inte två gånger. "Arbete vinner"
+  // gäller även här. Flytten till ledighet_ansokningar är eget ärende.
+  const redanFranvaro = new Set(Array.from(franvaroPerTyp.values()).flat());
+  for (const d of dagar) {
+    const typ = (d.dagtyp || '').toLowerCase();
+    if (!FRANVARO.has(typ)) continue;
+    if (!d.datum.startsWith(arbperiod)) continue;
+    if (arbetadeDatum.has(d.datum) || redanFranvaro.has(d.datum)) continue;
+    const arr = franvaroPerTyp.get(typ) || [];
+    arr.push(d.datum);
+    franvaroPerTyp.set(typ, arr);
+    redanFranvaro.add(d.datum);
+  }
   const franvaro = Array.from(franvaroPerTyp.entries())
     .map(([typ, datum]) => ({ typ, dagar: datum.length, datum: datum.sort() }))
     .sort((a, b) => b.dagar - a.dagar);
@@ -304,5 +355,6 @@ export function beräknaExport(
     kor_mil: totalMil,
     obekraftade,
     franvaro,
+    kortpass,
   };
 }
