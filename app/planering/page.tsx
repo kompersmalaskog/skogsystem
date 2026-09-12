@@ -3240,6 +3240,7 @@ export default function PlannerPage() {
   const hyttsparSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hyttsparSealingRef = useRef(false);   // true medan spåret förseglas efter ett glapp (async-fönster)
   const [hyttsparBasVersion, setHyttsparBasVersion] = useState(0);   // bump när dagens redan loggade punkter laddats → rita om basen (även om kartlagret inte fanns vid livscykel-ritningen)
+  const egetHistRef = useRef<any[]>([]);   // tidigare dagars eget-spår (dämpade segment) → eget hist-lager, ritas separat från dagens (fulla) live-spår
 
   const uppdateraHyttsparLager = useCallback(() => {
     const map = mapInstanceRef.current; if (!map) return;
@@ -3322,9 +3323,36 @@ export default function PlannerPage() {
   // båda ordningarna: mapLibreReady blir true efter inladdning, ELLER inladdning (bas-version) efter att
   // kartan blev redo. uppdateraHyttsparLager segmenterar (delad hjälpare) → inga fantomlinjer i basen.
   useEffect(() => {
-    if (korvyActive && mapLibreReady) uppdateraHyttsparLager();
+    if (!(korvyActive && mapLibreReady)) return;
+    uppdateraHyttsparLager();   // DAGENS spår (full färg, byggs live)
+    // TIDIGARE DAGARS spår (dämpade) → eget hist-lager. Ändras inte under körning; ritas i samma
+    // redo-effekt som basen så kartlager-racen fångas för båda.
+    try { const src = mapInstanceRef.current?.getSource('hyttspar-hist-source') as any; if (src) src.setData({ type: 'FeatureCollection', features: egetHistRef.current }); } catch { /* */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, mapLibreReady, valtObjekt?.id, hyttsparBasVersion]);
+
+  // Ladda ALLA tidigare dagars eget-spår för (objekt, roll) vid körvy-öppning → dämpad historik, så
+  // "när jag kört ska spåren ALLTID synas" oavsett vilken dag man öppnar körvyn. Dagens session ritas
+  // fullfärgat av eget-lagret (byggs live); historiken rörs inte under körning. Varje dags rad
+  // segmenteras via samma delade hjälpare (inga fantomlinjer inom/mellan dagar). Gäller BÅDA rollerna.
+  useEffect(() => {
+    if (!(korvyActive && valtObjekt?.id && hyttRoll)) { egetHistRef.current = []; return; }
+    let avbruten = false;
+    const objektId = valtObjekt.id, roll = hyttRoll, idag = new Date().toISOString().slice(0, 10);
+    (async () => {
+      try {
+        const { data } = await supabase.from('hyttspar').select('datum, points').eq('objekt_id', objektId).eq('roll', roll);
+        if (avbruten) return;
+        egetHistRef.current = (data || [])
+          .filter((r: any) => r.datum !== idag)   // dagens = fulla eget-lagret (live), ej dubbelritning
+          .flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []))
+          .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
+        setHyttsparBasVersion(v => v + 1);   // → redo-effekten ovan ritar historiken
+      } catch (e) { console.error('[Hyttspår] eget-historik:', e); }
+    })();
+    return () => { avbruten = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyActive, valtObjekt?.id, hyttRoll]);
 
   // Ackumulering: varje GPS-fix (currentPosition) körs genom vakten (#398) → accepterade punkter läggs
   // till + spåret ritas om. Gejtad på aktiv loggning (rowId satt) → no-op utanför körvy.
@@ -7830,6 +7858,31 @@ export default function PlannerPage() {
         // Lägg precis ovanför bg-korvy (under alla andra basemaps)
         try { map.moveLayer('hillshade-korvy', 'osm-layer'); } catch {}
       } catch (e) { console.error('[Körvy] hillshade-korvy:', e); }
+    }
+    // HYTTSPÅR eget-HISTORIK: tidigare dagars eget-spår, DÄMPAT (gråmare grönton + lägre opacitet) så
+    // historik tydligt skiljs från dagens (fulla) spår. Läggs FÖRE egen-lagren → ritas UNDER dem. Data
+    // sätts av redo-effekten (egetHistRef). Whitelistat via 'hyttspar-'-prefix.
+    if (!map.getSource('hyttspar-hist-source')) {
+      try { map.addSource('hyttspar-hist-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+      catch (e) { console.error('[Hyttspår] hist-source:', e); }
+    }
+    if (!map.getLayer('hyttspar-hist-casing')) {
+      try {
+        map.addLayer({
+          id: 'hyttspar-hist-casing', type: 'line', source: 'hyttspar-hist-source',
+          paint: { 'line-color': '#0b0b0d', 'line-opacity': 0.18, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 5, 19, 7] },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Hyttspår] hist-casing:', e); }
+    }
+    if (!map.getLayer('hyttspar-hist-line')) {
+      try {
+        map.addLayer({
+          id: 'hyttspar-hist-line', type: 'line', source: 'hyttspar-hist-source',
+          paint: { 'line-color': '#5a8064', 'line-opacity': 0.5, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 3.2, 19, 4.5] },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Hyttspår] hist-line:', e); }
     }
     // HYTTSPÅR: eget körspår LIVE (grön, tydligt skild från skördarstråkens blå). Data matas av
     // ackumuleringen; synlighet styrs av körvy-whitelisten ('hyttspar-'-prefix). Default dold.
