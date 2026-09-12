@@ -22,7 +22,7 @@ interface Props {
 function Tag({ children }: { children: React.ReactNode }) {
   return (
     <span style={{
-      fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap',
+      fontSize: 12, fontWeight: 500, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap',
       color: C.t2, background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`,
     }}>{children}</span>
   );
@@ -80,7 +80,7 @@ function DetaljSkeleton() {
 function MarkChip({ label, count, color, bg }: { label: string; count: number; color: string; bg: string }) {
   return (
     <span style={{
-      fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap',
+      fontSize: 12, fontWeight: 500, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap',
       color, background: bg, border: `1px solid ${C.border}`,
     }}>{label}{count > 1 ? ` ×${count}` : ''}</span>
   );
@@ -218,7 +218,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
         borderBottom: `1px solid ${C.border}`, background: C.bg,
       }}>
         <button onClick={stang} aria-label="Tillbaka" style={{
-          width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+          width: 44, height: 44, borderRadius: 10, flexShrink: 0,
           background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: ff,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
@@ -744,17 +744,17 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
               {/* Maskin-chips döljs i grupperat läge — grupprubriken säger redan maskinen (ingen tagg utan syfte) */}
               {!grupperaPerMaskin && maskiner.map(m => (
-                <span key={m} style={{ fontSize: 10.5, fontWeight: 500, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>{m}</span>
+                <span key={m} style={{ fontSize: 12, fontWeight: 500, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>{m}</span>
               ))}
               {o.grot === true && (
-                <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>GROT</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>GROT</span>
               )}
             </div>
           </div>
           {/* Diskret "på backen"-markering — grått (ett tal, ingen status); bara där oskotat finns */}
           {visaBacken && (
             <div style={{ marginTop: 6 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
                 {formatVolym(Math.round(kortBacken))} m³fub på backen
               </span>
             </div>
@@ -765,7 +765,7 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
           {/* Egen skotning — säljaren/markägaren skotar själv. Grå chip (inte vårt jobb, ingen på-backen). */}
           {kortEgen && (
             <div style={{ marginTop: 6 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>Egen skotning</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>Egen skotning</span>
             </div>
           )}
         </div>
@@ -785,12 +785,12 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
           </div>
           {avanceratAktivt && aktivtLage && (
             <span style={{
-              fontSize: 11.5, fontWeight: 500, color: C.t2, flexShrink: 0,
+              fontSize: 12, fontWeight: 500, color: C.t2, flexShrink: 0,
               maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>{aktivtLage}</span>
           )}
           <button onClick={() => setPanelOpen(true)} aria-label="Filter och vy" style={{
-            width: 40, height: 40, borderRadius: 12,
+            width: 44, height: 44, borderRadius: 12,
             background: avanceratAktivt ? 'rgba(255,255,255,0.1)' : 'transparent',
             border: `1px solid ${avanceratAktivt ? C.borderStrong : C.border}`,
             color: avanceratAktivt ? C.t1 : C.t3, cursor: 'pointer',
@@ -799,10 +799,10 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>tune</span>
           </button>
         </div>
-        <div style={{ display: 'flex', gap: 3, background: C.cardGrad, borderRadius: 12, padding: 3, border: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', gap: 6, background: C.cardGrad, borderRadius: 12, padding: 3, border: `1px solid ${C.border}` }}>
           {segment.map(s => (
             <button key={s.k} onClick={() => setStatusF(s.k)} style={{
-              flex: 1, padding: '9px 8px', minHeight: 38,
+              flex: 1, padding: '9px 8px', minHeight: 44,
               background: statusFEff === s.k ? 'rgba(255,255,255,0.1)' : 'transparent',
               color: statusFEff === s.k ? C.t1 : C.t3, border: 'none', borderRadius: 10,
               fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',

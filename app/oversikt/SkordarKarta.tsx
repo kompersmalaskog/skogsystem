@@ -198,7 +198,7 @@ export default function SkordarKarta({ vo, objektId }: { vo?: string | null; obj
       <div style={{ marginBottom: 34 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>Var skördaren kört</div>
         <div style={{ height: 280, borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontSize: 12, color: C.t4 }}>Laddar karta…</span>
+          <span style={{ fontSize: 12, color: C.t3 }}>Laddar karta…</span>
         </div>
       </div>
     );
@@ -208,7 +208,7 @@ export default function SkordarKarta({ vo, objektId }: { vo?: string | null; obj
     <div style={{ marginBottom: 34 }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>Var skördaren kört</div>
       <div ref={containerRef} style={{ height: 280, borderRadius: 14, overflow: 'hidden', border: `1px solid ${C.border}` }} />
-      <div style={{ fontSize: 11.5, color: C.t3, marginTop: 6 }}>
+      <div style={{ fontSize: 12, color: C.t3, marginTop: 6 }}>
         {data.punkter.length.toLocaleString('sv-SE')} avverkade stammar
         {data.grans.length > 0 ? ' · streckad linje = ungefärlig traktgräns' : ''}
       </div>
