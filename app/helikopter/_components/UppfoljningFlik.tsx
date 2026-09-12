@@ -1,6 +1,6 @@
 'use client'
 
-// Flik 3 — Uppföljning. Exakt fem rader per spår:
+// Flik 3 — Uppföljning. Exakt fem rader per spår (stort tal: "Skotat klart 25 sep" grönt bara när både skotat och skördat når beställt):
 //   1 rubrik · 2 stort tal · 3 en mening · 4 stapel (skotat mot beställt) · 5 Veckor › / Per bolag ›
 // Inga objekt i månaden → "Inga objekt" (grått), ingen stapel, "Planera objekt ›".
 import { useState } from 'react'
@@ -72,7 +72,10 @@ function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }:
   let mening: string
   let stapel: { farg: string; plan: number | null } | null = null
 
-  if (ingenPlan) {
+  // Skotaren når beställt (skotar ut föregående månad) fast inget är planerat: visa det, dämpat — inte "Inga objekt".
+  const skotatKlart = status === 'pagaende' && !ingenBest && s.harPrognos && s.prognosSkotat != null && s.prognosSkotat >= s.bestallt
+
+  if (ingenPlan && !skotatKlart) {
     stort = { text: 'Inga objekt', ton: 'dampad' }
     mening = `Skotat ${fmt(s.skotat)} · inget planerat i ${manadNamn}`
   } else if (ingenBest) {
@@ -92,17 +95,23 @@ function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }:
     stapel = { farg: 'rgba(255,255,255,0.6)', plan: s.plan }
   } else {
     const diff = s.prognosSkotat - s.bestallt
-    stort = diff >= 0
-      ? { text: s.klartDatumSkotat ? `Klart ${fmtDag(s.klartDatumSkotat)}` : 'Klart i tid', ton: 'gron' }
-      : { text: fmt(diff), ton: 'orange' }
-    // Relationen skördare/skotare: mer än en dags skotning oskotat i månaden = skotaren är flaskhals.
-    const flaskhals = s.oskotat > (s.taktSkotat ?? 0)
-    const landar = `Landar ${fmt(s.prognosSkotat)}`
-    mening = flaskhals
-      ? `${landar} · skotaren är flaskhals`
-      : s.klartDatumSkordat
-        ? `${landar} · skördaren klar ${fmtDag(s.klartDatumSkordat)}`
-        : `${landar} · i takt`
+    if (diff >= 0) {
+      // Skotat klart. Grönt bara när även skördaren når beställt — annars dämpat: det är
+      // inte grönt när skördaren saknar objekt. Raden under = skördarens läge.
+      const skordarenKlar = s.prognosSkordat != null && s.prognosSkordat >= s.bestallt
+      stort = { text: s.klartDatumSkotat ? `Skotat klart ${fmtDag(s.klartDatumSkotat)}` : 'Skotat klart i tid', ton: skordarenKlar ? 'gron' : 'dampad' }
+      mening = `Skördaren ${fmt(s.skordat)} av ${fmt(s.bestallt)}${antalPlanerade === 0 ? ' · inget planerat' : ''}`
+    } else {
+      stort = { text: fmt(diff), ton: 'orange' }
+      // Relationen skördare/skotare: mer än en dags skotning oskotat i månaden = skotaren är flaskhals.
+      const flaskhals = s.oskotat > (s.taktSkotat ?? 0)
+      const landar = `Landar ${fmt(s.prognosSkotat)}`
+      mening = flaskhals
+        ? `${landar} · skotaren är flaskhals`
+        : s.klartDatumSkordat
+          ? `${landar} · skördaren klar ${fmtDag(s.klartDatumSkordat)}`
+          : `${landar} · i takt`
+    }
     stapel = { farg: TON_FARG[stort.ton], plan: s.plan }
   }
 
