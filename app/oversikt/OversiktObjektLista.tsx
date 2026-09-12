@@ -712,6 +712,10 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     const kortIgang = kortSkotar?.state === 'igang';
     const kortVantar = kortSkotar?.state === 'vantar';
     const kortPaBacken = kortIgang || kortVantar;   // skotar-raden bär fasen (igång / väntar · X på backen)
+    // I grupperat läge bär SkotarRad/egen-chippen fasen → objektets statusord (t.ex. "Klar" på ett
+    // avslutat-men-väntar-objekt) ska inte slåss mot listan. Dölj det bara när något annat bär tillståndet
+    // (aldrig så att ett kort blir helt utan status).
+    const doljStatusord = grupperaPerMaskin && (kortPaBacken || kortEgen);
     const visaBacken = kortSkordat > 0 && kortKand && kortBacken > 0 && !kortPaBacken;   // skotar-raden visar redan "kvar"
     return (
       <div key={o.id} onClick={() => setSel(o.id)} style={{
@@ -720,9 +724,7 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
         background: C.cardGrad, border: `1px solid ${C.border}`,
         borderRadius: 14, marginBottom: 8, cursor: 'pointer',
       }}>
-        {/* Status-prick — färg ur delad statusVisning */}
-        <div style={{ width: 10, height: 10, borderRadius: 5, background: sv.farg, flexShrink: 0 }} />
-        {/* Innehåll */}
+        {/* Innehåll — status bärs av ordet + skotar-raden; ingen separat färgprick (EN indikator per kort) */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{o.namn}</span>
@@ -734,14 +736,15 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
                   style={{ fontSize: 16, color: C.red, fontVariationSettings: "'FILL' 1" }}>warning</span>
               )}
             </span>
-            <span style={{ fontSize: 12, fontWeight: 500, color: sv.farg, flexShrink: 0 }}>{sv.ord}</span>
+            {!doljStatusord && <span style={{ fontSize: 12, fontWeight: 500, color: sv.farg, flexShrink: 0 }}>{sv.ord}</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
             <span style={{ fontSize: 12.5, color: C.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
               {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')}{o.areal ? ` · ${o.areal} ha` : ''}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-              {maskiner.map(m => (
+              {/* Maskin-chips döljs i grupperat läge — grupprubriken säger redan maskinen (ingen tagg utan syfte) */}
+              {!grupperaPerMaskin && maskiner.map(m => (
                 <span key={m} style={{ fontSize: 10.5, fontWeight: 500, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>{m}</span>
               ))}
               {o.grot === true && (
