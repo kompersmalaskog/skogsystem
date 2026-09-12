@@ -102,12 +102,11 @@ export default function OversiktPage() {
     }
 
     // Production data — paginated, can be large
-    const [prodRows, lassRows, skordRows, skotRows, manuellRows, tilldeladRows] = await Promise.all([
-      fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
-        () => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub').order('objekt_id')
-      ),
-      // .order() KRAVS - utan stabil sortering tappar .order('id').range()-pagineringen rader over 1000-radsgransen
-      // (fakt_lass > 1000 rader) -> skotat under-raknas (se project_postgrest_paginering_order).
+    const [lassRows, skordRows, skotRows, manuellRows, tilldeladRows] = await Promise.all([
+      // Rå fakt_produktion hämtas INTE längre — prodMap byggs ur vy_uppf_prod/vy_uppf_lass (aggregatvyerna
+      // nedan) som ger samma per-objekt-summa utan att dra 10k+ rårader (~1,2 s per sidladdning). fakt_lass
+      // RÅ behövs dock kvar för per-maskin-lassen (skotat-regeln, lib/skotat).
+      // .order() KRÄVS — stabil paginering över 1000-radsgränsen (se project_postgrest_paginering_order).
       fetchAllRows<{ objekt_id: string; volym_m3sub: number; maskin_id: string | null }>(
         () => supabase.from('fakt_lass').select('objekt_id, volym_m3sub, maskin_id').order('objekt_id')
       ),
@@ -131,16 +130,20 @@ export default function OversiktPage() {
       ),
     ]);
 
+    // prodMap = per-objekt skördat/skotat ur AGGREGATVYERNA (samma summa som råtabellerna gav, utan
+    // 10k+ rårader): skördat ur vy_uppf_prod (skordRows), skotat ur vy_uppf_lass (skotRows).
     const map: Record<string, ProdAgg> = {};
-    for (const r of prodRows) {
+    for (const r of skordRows) {
       if (!r.objekt_id) continue;
-      if (!map[r.objekt_id]) map[r.objekt_id] = { skordareVol: 0, skotareVol: 0 };
-      map[r.objekt_id].skordareVol += r.volym_m3sub || 0;
+      const k = String(r.objekt_id);
+      if (!map[k]) map[k] = { skordareVol: 0, skotareVol: 0 };
+      map[k].skordareVol += r.volym_m3sub || 0;
     }
-    for (const r of lassRows) {
+    for (const r of skotRows) {
       if (!r.objekt_id) continue;
-      if (!map[r.objekt_id]) map[r.objekt_id] = { skordareVol: 0, skotareVol: 0 };
-      map[r.objekt_id].skotareVol += r.volym_m3sub || 0;
+      const k = String(r.objekt_id);
+      if (!map[k]) map[k] = { skordareVol: 0, skotareVol: 0 };
+      map[k].skotareVol += r.volym_m3sub || 0;
     }
     setProdMap(map);
 

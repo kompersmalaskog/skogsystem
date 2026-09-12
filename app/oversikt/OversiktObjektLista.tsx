@@ -542,8 +542,9 @@ function FilterPanel({ bolag, bolagF, setBolagF, typF, setTypF, sortK, setSortK,
 
 /* Fara-markör i listan: ett objekt "har fara" om det bär >=1 markering med en fara-subtyp
    (samma FARA_SUBTYPER som ObjektDetalj/Karta — EN källa). Byggs som PostgREST-or över de fyra
-   semantik-fälten markeringSub läser (type/zoneType/lineType/arrowType). Frågan scopas ALLTID per
-   objekt_id (billig, som ObjektDetalj) → aldrig bulk-detoast av alla stora path-JSONB (statement-timeout). */
+   semantik-fälten markeringSub läser (type/zoneType/lineType/arrowType). Frågan batchas nu över de
+   SYNLIGA objektens id (.in) — EN round-trip i stället för N+1 per objekt. Detoastar path-JSONB för
+   träffarna; om det blir segt på riktig hårdvara → förberäknad har_fara-flagga (se PR-texten). */
 const FARA_OR_FILTER = ['type', 'zoneType', 'lineType', 'arrowType']
   .map((f) => `data->>${f}.in.(${Array.from(FARA_SUBTYPER).join(',')})`)
   .join(',');
@@ -673,17 +674,15 @@ export default function OversiktObjektLista({ objekt, skordMap }: Props) {
     if (behovs.length === 0) return;
     let avbruten = false;
     (async () => {
-      const par = await Promise.all(behovs.map(async (id) => {
-        const { data, error } = await supabase
-          .from('planering_markeringar').select('objekt_id').eq('objekt_id', id).or(FARA_OR_FILTER).limit(1);
-        if (error) return null;                         // okänt → cachea inte, försök igen senare
-        return [id, !!(data && data.length)] as [string, boolean];
-      }));
-      if (avbruten) return;
-      const giltiga = par.filter(Boolean) as [string, boolean][];
-      if (giltiga.length) setFaraCache((prev) => {
+      // EN batch-query för alla behövda objekt (i stället för en per objekt = N+1). Samma fara-flagga,
+      // en round-trip: returnerar de objekt_id som HAR en fara-markering; övriga sätts false.
+      const { data, error } = await supabase
+        .from('planering_markeringar').select('objekt_id').in('objekt_id', behovs).or(FARA_OR_FILTER);
+      if (error || avbruten) return;                    // fel → cachea inte, försök igen senare
+      const harFara = new Set((data || []).map((r: { objekt_id: string }) => r.objekt_id));
+      setFaraCache((prev) => {
         const n = { ...prev };
-        for (const [id, f] of giltiga) n[id] = f;
+        for (const id of behovs) n[id] = harFara.has(id);
         return n;
       });
     })();
