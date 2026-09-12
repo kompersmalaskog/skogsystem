@@ -96,6 +96,8 @@ export const FARG = {
   gron:     "#30d158",
   orange:   "#ff9f0a",
   rod:      "#ff453a",
+  /** Bara kalenderns markeringar (synk-avvikelse, rättad dag). Aldrig en fjärde larmfärg i text. */
+  gul:      "#ffd60a",
   /** Maskinfärger ur Uppföljning v6. */
   skordare: "#a8d582",
   skotare:  "#f0b24c",
