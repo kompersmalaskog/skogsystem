@@ -68,14 +68,25 @@ function maskinTyp(m: any): 'skordare' | 'skotare' | 'okand' {
 async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
   const egna = new Set(COMBO_IDS[maskinId] || [maskinId])
 
-  const [dimObjekt, dimMaskin, tidRader, manuellRader, prodRader] = await Promise.all([
+  // fakt_tid och fakt_produktion har OPERATÖRS-RLS (förare ser bara egna rader).
+  // Maskinvyn läser dem därför via maskindata_*-RPC (SECURITY DEFINER, bara
+  // maskindata) — aldrig direkt, och aldrig via vy_uppf_prod_per_objekt som är
+  // security_invoker och ärver samma filter. Annars stämmer kvoten för admin
+  // men blir fel för varje förare. Tidsraderna behövs för ALLA maskiner
+  // (skotarna + andra skördare på delat VO); volymen bara för den valda.
+  const dimMaskin = await hamtaAlla<{ maskin_id: string; maskin_typ: string | null }>(
+    () => supabase.from('dim_maskin').select('maskin_id, maskin_typ').order('maskin_id'))
+  const allaMaskinIds = dimMaskin.map(m => m.maskin_id)
+  const egnaIds = Array.from(egna)
+
+  const [dimObjekt, tidRader, manuellRader, prodRader] = await Promise.all([
     hamtaAlla<DimObjektRad>(() => supabase.from('dim_objekt').select('objekt_id, vo_nummer, object_name, huvudtyp, atgard, risskotning, extern_skordning, ovrigt_info, skotning_avslutad, skotning_avslutad_auto').order('objekt_id')),
-    hamtaAlla<{ maskin_id: string; maskin_typ: string | null }>(() => supabase.from('dim_maskin').select('maskin_id, maskin_typ').order('maskin_id')),
     hamtaAlla<{ objekt_id: string | null; maskin_id: string; processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }>(
-      () => supabase.from('fakt_tid').select('objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek').order('id')),
+      () => supabase.rpc('maskindata_tid', { p_maskin_ids: allaMaskinIds, p_datum_start: null, p_datum_slut: null })),
     hamtaAlla<{ objekt_id: string; maskin_id: string | null; g15_timmar: number | null }>(() => supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, g15_timmar').order('id')),
-    // Skördad volym per objekt — DB-aggregerad vy, aldrig råa fakt_produktion-rader.
-    hamtaAlla<{ objekt_id: string; volym_m3sub: number | null }>(() => supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub').order('objekt_id')),
+    // Skördarens EGEN volym per objekt (rimlighetsvakten jämför den med skotartiden på samma VO).
+    hamtaAlla<{ objekt_id: string | null; volym_m3sub: number | null }>(
+      () => supabase.rpc('maskindata_produktion', { p_maskin_ids: egnaIds, p_datum_start: null, p_datum_slut: null })),
   ])
 
   const typAv = new Map<string, 'skordare' | 'skotare' | 'okand'>()
@@ -131,7 +142,7 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
       skordG15h: a.skEgen,
       skotG15h: a.st * andel,
       skotG15hManuell: a.stMan * andel,
-      skordadM3: a.m3 * andel,
+      skordadM3: a.m3,                 // redan skördarens egen volym (RPC på egna maskin-id)
     }
     ut.push(bedomObjekt(rad))
   }
