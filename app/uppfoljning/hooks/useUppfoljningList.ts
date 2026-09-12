@@ -6,6 +6,7 @@ import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
 import { harledTyp } from '@/lib/objekt/typ';
 import { type UppfoljningObjekt } from '../lib/transform';
 import { objektSkotat, type SkotareManuellRad } from '@/lib/skotat';
+import { maskinVisningsnamn } from '@/lib/maskinNamn';
 
 // ── URL-identifierare för ett objekt ─────────────────────────────────────
 // Används av både listsidan (för router.push) och detaljsidan (för find).
@@ -31,10 +32,8 @@ function getMachineType(maskin: any): 'skordare' | 'skotare' | 'unknown' {
   if (cat.includes('skotare') || cat.includes('forwarder')) return 'skotare';
   return 'unknown';
 }
-function getMachineLabel(maskin: any): string {
-  if (!maskin) return '';
-  return (maskin.visningsnamn || '').trim() || [maskin.tillverkare, maskin.modell].filter(Boolean).join(' ');
-}
+// Maskinnamn = appens ENA maskinnamn (lib/maskinNamn → maskinVisningsnamn): visningsnamn först,
+// annars tillverkare + modell. Delas nu med översikten och resten av appen — samma etikett överallt.
 // Paginerad hämtning (PostgREST-taket är 1000 rader) — fakt_lass är rå och kan överstiga det.
 async function hamtaAlla<T>(bygg: () => any): Promise<T[]> {
   const PAGE = 1000; const out: T[] = []; let from = 0;
@@ -340,8 +339,8 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             if (mid) { lassMaskinId = mid; break; }
           }
           const tilldeladId = entries.map((e: any) => e.tilldelad_skotare).find(Boolean) || null;
-          const namnFranLass = lassMaskinId ? getMachineLabel(maskinMap.get(lassMaskinId)) : '';
-          const namnFranTilldelning = tilldeladId ? getMachineLabel(maskinMap.get(tilldeladId)) : '';
+          const namnFranLass = lassMaskinId ? maskinVisningsnamn(maskinMap.get(lassMaskinId)) : '';
+          const namnFranTilldelning = tilldeladId ? maskinVisningsnamn(maskinMap.get(tilldeladId)) : '';
           const skotareKalla: 'lass' | 'tilldelad' | null =
             namnFranLass ? 'lass' : namnFranTilldelning ? 'tilldelad' : null;
           // Lassdatan vinner vid konflikt — men avvikelsen tigs inte ihjäl.
@@ -373,7 +372,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             typ,
             agare,
             areal,
-            skordareModell: skordareEntry ? getMachineLabel(maskinMap.get(skMaskinId)) : null,
+            skordareModell: skordareEntry ? maskinVisningsnamn(maskinMap.get(skMaskinId)) : null,
             skordareStart: skStart,
             skordareSlut: skSlut,
             skordareObjektId: skordareEntry?.objekt_id || null,
@@ -381,7 +380,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             skordareModellMaskinId: skMaskinId || null,
             volymSkordare: skVol,
             stammar: skStammar,
-            skotareModell: skotareEntry ? getMachineLabel(maskinMap.get(stMaskinId)) : null,
+            skotareModell: skotareEntry ? maskinVisningsnamn(maskinMap.get(stMaskinId)) : null,
             skotareStart: stStart,
             skotareSlut: stSlut,
             skotareObjektId: skotareEntry?.objekt_id || null,
