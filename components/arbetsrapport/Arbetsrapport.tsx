@@ -2992,14 +2992,17 @@ export default function Arbetsrapport() {
       årsÖvH+=mÖv/60;
     }
     årsÖvH=Math.round(årsÖvH*10)/10;
-    // Övertidstaket ur AVTALET (gs_avtal.max_overtid_ar) — inte hårdkodat 250
-    // på fem ställen. Varningsnivåerna: nära = inom 50 h, över = inom 20 h.
-    const övertidTak = Number(gsAvtal?.max_overtid_ar ?? 250);
-    const årsKvar = Math.max(0, Math.round((övertidTak-årsÖvH)*10)/10);
-    const årsNiva: 'ok'|'nara'|'over' = årsÖvH > övertidTak-20 ? 'over' : årsÖvH > övertidTak-50 ? 'nara' : 'ok';
-    // Färgen förstärker ett ORD — den bär aldrig ensam (skogsystem-design).
-    const årsFarg = årsNiva==='over' ? FARG.rod : årsNiva==='nara' ? FARG.orange : FARG.gron;
-    const årsOrd = årsNiva==='over' ? `${årsKvar} tim kvar till taket` : årsNiva==='nara' ? `nära taket · ${årsKvar} tim kvar` : `god marginal · ${årsKvar} tim kvar`;
+    // Övertidstaket ur AVTALET (gs_avtal.max_overtid_ar_h — kolumnen heter så;
+    // "max_overtid_ar" fanns inte och gav alltid 250). Taket är en LAGSTADGAD
+    // GRÄNS, inte ett mål: talet visas utan omdöme, stapeln är neutral, och
+    // något sägs först när man närmar sig (inom 50 h: orange) eller är över (röd).
+    // OBS: den här vyn räknar mot kalenderns vardagar — EN av TRE modeller
+    // (lib/lonesystem/arsovertid); exporten räknar mot arbetade dagar och ger ett
+    // högre tal. Vilken som gäller är en avtalsfråga; byts inte här på egen hand.
+    const övertidTak = Number(gsAvtal?.max_overtid_ar_h ?? 250);
+    const årsNiva: 'ok'|'nara'|'over' = årsÖvH >= övertidTak ? 'over' : årsÖvH >= övertidTak-50 ? 'nara' : 'ok';
+    const årsFarg = årsNiva==='over' ? FARG.rod : årsNiva==='nara' ? FARG.orange : FARG.fyllning;
+    const årsOrd = årsNiva==='over' ? `Över taket på ${övertidTak} tim — kräver extra övertid` : årsNiva==='nara' ? `Närmar dig taket på ${övertidTak} tim` : null;
     // Vilovarningar visas på ETT ställe för handling — Dag-vyn (där bekräftelsen
     // sker) — och i Vila-fliken för historik. Inte här också (var tredje kopian).
     // Övertidsvarningarna som låg här sa samma sak som Övertid-kortet nedan.
@@ -3019,38 +3022,9 @@ export default function Arbetsrapport() {
         <main style={{ paddingTop:AVSTAND.xxl,paddingLeft:AVSTAND.sidmarginal,paddingRight:AVSTAND.sidmarginal,paddingBottom:SCROLL_BOTTOM }}>
 
           {minTidFlik==='översikt'&&<>
-          {/* VECKAN — ETT tal per vy: veckans timmar som hjälte i kortets huvud,
-              staplarna som stöd i grå fyllning (blått betyder bara "navigerar").
-              Förr stod samma tal i diagrammet (utan total) OCH som rad i Summering. */}
-          <section style={{ marginBottom:AVSTAND.xl }}>
-            <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Vecka {veckoNr}</h3>
-            <div style={KORT}>
-              <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:AVSTAND.s }}>
-                <span style={{ ...TYP.tal, color:FARG.text }}>{(Math.round(veckoTot*10)/10).toLocaleString('sv-SE')}<span style={{ ...TYP.meta, color:FARG.text2 }}> tim</span></span>
-                <span style={{ ...TYP.meta, ...TNUM, color:FARG.text2 }}>av {veckoMålH} tim</span>
-              </div>
-              <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", height:96, gap:AVSTAND.xs, marginTop:AVSTAND.m }}>
-                {veckoDagar.map(d=>(
-                  <div key={d.datum} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", height:"100%" }}>
-                    <div style={{ flex:1, display:"flex", alignItems:"flex-end", width:"100%" }}>
-                      <div style={{ width:"100%", height:`${d.h>0?Math.max(8,d.h/maxH*100):8}%`, background:d.h>0?FARG.fyllning:FARG.linje, borderRadius:RADIE.rad, transition:`height ${RORELSE.byte}ms ${RORELSE.kurva}` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between", marginTop:AVSTAND.xs }}>
-                {veckoDagar.map(d=>(
-                  <div key={d.datum+'l'} style={{ flex:1, textAlign:"center" }}>
-                    <span style={{ ...TYP.micro, ...TNUM, color:d.h>0?FARG.text2:FARG.text3 }}>{d.h>0 ? d.h.toLocaleString('sv-SE') : (d as any).dagKort}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* Summering — bara rådata som inte finns någon annanstans. Månaden är
-              en LÄNK till Sammanställningen (specen är enda sanningen om
-              månadens timmar och övertid); "Året totalt" är borttagen. */}
+          {/* Staplarna är borta (2026-09-13): fem grå block som krävde en etikett
+              under sig för att läsas, och som visade samma vecka som talet.
+              Dagarna finns i kalendern och dagvyn. Kvar: Idag, Veckan, Månaden. */}
           <section style={{ marginBottom:AVSTAND.xl }}>
             <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Summering</h3>
             <div style={{ ...KORT, paddingTop:0, paddingBottom:0 }}>
@@ -3061,7 +3035,7 @@ export default function Arbetsrapport() {
                 </div>
               )}
               <div style={{ ...RAD, justifyContent:"space-between" }}>
-                <span style={{ ...TYP.meta, color:FARG.text2 }}>Veckan</span>
+                <span style={{ ...TYP.meta, color:FARG.text2 }}>Vecka {veckoNr}</span>
                 <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{(Math.round(veckoTot*10)/10).toLocaleString('sv-SE')} tim <span style={{ ...TYP.meta, color:FARG.text2 }}>av {veckoMålH}</span></span>
               </div>
               <button onClick={()=>setSteg('lön')} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", borderBottom:"none", ...TYP.meta }}>
@@ -3267,7 +3241,9 @@ export default function Arbetsrapport() {
               <div style={{ height:AVSTAND.xs, background:FARG.linje, borderRadius:RADIE.rad, overflow:"hidden" }}>
                 <div style={{ height:"100%", width:`${Math.min(100, övertidTak > 0 ? årsÖvH/övertidTak*100 : 0)}%`, background:årsFarg, borderRadius:RADIE.rad, transition:`width ${RORELSE.tal}ms ${RORELSE.kurva}` }} />
               </div>
-              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:årsFarg }}>{årsOrd}</p>
+              {/* Inget omdöme under taket. Något sägs först när det behöver vetas. */}
+              {årsOrd && <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:årsFarg }}>{årsOrd}</p>}
+              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>Räknat per månad mot kalenderns vardagar × 8 tim</p>
             </div>
           </section>
 
@@ -4565,7 +4541,7 @@ export default function Arbetsrapport() {
             ["Gäller","1 apr 2025 – 31 mar 2027"],
           ]},
           {rubrik:"Övertid",rader:[
-            ["Max övertid",`${gsAvtal?.max_overtid_ar??250} tim/år`],
+            ["Max övertid",`${gsAvtal?.max_overtid_ar_h??250} tim/år`],
           ]},
           // Kr-satser (övertid, OB, färdmedel, färdtid) borttagna — satser ägs av
           // lönesystemet/Fortnox, inte appen. Färdmedelsersättningen (27,50 kr/mil)

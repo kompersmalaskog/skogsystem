@@ -130,6 +130,17 @@ function Loneunderlag() {
   const [skickar, setSkickar] = useState(false);
   const [exportResultat, setExportResultat] = useState<any>(null);
   const [tidigarelagdAlla, setTidigarelagdAlla] = useState<any[]>([]);
+  // Årets övertid per förare — tre modeller, ingen vald (lib/lonesystem/arsovertid).
+  const [arsovertid, setArsovertid] = useState<any>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/lon/arsovertid")
+      .then(r => r.json())
+      .then(j => { if (!cancelled) setArsovertid(j); })
+      .catch(e => { if (!cancelled) setArsovertid({ ok: false, meddelande: e?.message || String(e) }); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,6 +321,54 @@ function Loneunderlag() {
           }}
         >›</button>
       </Card>
+
+      {/* ÅRETS ÖVERTID MOT TAKET — det Martin behöver se som arbetsgivare.
+          Tre modeller, ingen vald: vilken som är "ordinarie tid" för en förare
+          utan schema är en avtalsfråga hos löneansvariga. Tills den är svarad
+          visas alla tre, så frågan kan ställas rätt. Taket är en lagstadgad
+          gräns: orange inom 50 tim, röd över. */}
+      {arsovertid && (
+        <Card>
+          <p style={{ ...secHead, marginTop: 0 }}>Övertid {arsovertid.ar ?? new Date().getFullYear()} mot taket{arsovertid.tak ? ` ${arsovertid.tak} tim` : ""}</p>
+          {!arsovertid.ok ? (
+            <p style={{ margin: 0, fontSize: 13, color: C.red }}>Kunde inte läsa årets övertid: {arsovertid.meddelande || "okänt fel"}</p>
+          ) : (() => {
+            const tak = Number(arsovertid.tak || 250);
+            const modeller: any[] = arsovertid.modeller || [];
+            const farg = (h: number) => h >= tak ? C.red : h >= tak - 50 ? C.orange : C.text;
+            const rader: any[] = [...(arsovertid.medarbetare || [])].sort((a, b) => (b.modeller?.dagar || 0) - (a.modeller?.dagar || 0));
+            const overTak = rader.filter(r => modeller.some(m => (r.modeller?.[m.key] || 0) >= tak));
+            return (
+              <>
+                <p style={{ margin: "0 0 10px", fontSize: 12, color: C.label }}>
+                  Tre modeller, ingen vald — vad som är ordinarie tid för en förare utan schema är en avtalsfråga. Exporten räknar i dag mot arbetade dagar; förarens Min tid mot kalenderns vardagar. T.o.m. {arsovertid.tomDatum}.
+                </p>
+                {overTak.length > 0 && (
+                  <p style={{ margin: "0 0 10px", fontSize: 13, color: C.red, fontWeight: 600 }}>
+                    Över {tak} tim enligt minst en modell: {overTak.map(r => r.namn).join(", ")}. Allmän övertid över taket kräver extra övertid (arbetstidslagen) — ta ställning som arbetsgivare.
+                  </p>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", gap: "4px 8px", fontSize: 12, alignItems: "baseline" }}>
+                  <span style={{ color: C.label }}>Förare</span>
+                  {modeller.map(m => <span key={m.key} style={{ color: C.label, textAlign: "right" }} title={`${m.beskrivning} — ${m.anvandsAv}`}>{m.namn}</span>)}
+                  {rader.map(r => (
+                    <React.Fragment key={r.medarbetare_id}>
+                      <span style={{ color: C.text, fontSize: 13, padding: "5px 0", borderTop: `1px solid ${C.line}` }}>{r.namn} <span style={{ color: C.label, fontSize: 11 }}>{Number(r.timmar).toLocaleString("sv-SE")} tim</span></span>
+                      {modeller.map(m => {
+                        const h = Number(r.modeller?.[m.key] || 0);
+                        return <span key={m.key} style={{ textAlign: "right", fontSize: 13, fontWeight: h >= tak - 50 ? 700 : 400, color: farg(h), padding: "5px 0", borderTop: `1px solid ${C.line}`, fontVariantNumeric: "tabular-nums" }}>{h.toLocaleString("sv-SE")}</span>;
+                      })}
+                    </React.Fragment>
+                  ))}
+                </div>
+                <p style={{ margin: "10px 0 0", fontSize: 11, color: C.label }}>
+                  {modeller.map(m => `${m.namn}: ${m.beskrivning} (${m.anvandsAv})`).join(" · ")}
+                </p>
+              </>
+            );
+          })()}
+        </Card>
+      )}
 
       {!laddar && !fel && (() => {
         // "Maskinstart senare än angiven" — eget uppföljningskort, INGÅR EJ i
