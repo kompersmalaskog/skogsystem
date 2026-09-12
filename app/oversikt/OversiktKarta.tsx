@@ -80,7 +80,7 @@ function segKey(lng1: number, lat1: number, lng2: number, lat2: number): string 
 function Tag({ children, w }: { children: React.ReactNode; w?: boolean }) {
   return (
     <span style={{
-      fontSize: 11, fontWeight: 600, color: w ? C.yellow : 'rgba(255,255,255,0.7)',
+      fontSize: 12, fontWeight: 600, color: w ? C.yellow : 'rgba(255,255,255,0.7)',
       padding: '4px 10px', borderRadius: 100,
       background: w ? 'rgba(234,179,8,0.1)' : 'rgba(255,255,255,0.04)',
       border: w ? '1px solid rgba(234,179,8,0.2)' : '1px solid rgba(255,255,255,0.08)',
@@ -95,7 +95,7 @@ function Tag({ children, w }: { children: React.ReactNode; w?: boolean }) {
 function InfoRow({ label, val, warn }: { label: string; val: string; warn?: boolean }) {
   return (
     <div style={{ flex: 1, background: 'rgba(255,255,255,0.025)', padding: '6px 4px', textAlign: 'center' }}>
-      <div style={{ fontSize: 13, color: C.t4, marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, color: C.t3, marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 13, fontWeight: 600, color: warn ? C.yellow : C.t2 }}>{val}</div>
     </div>
   );
@@ -105,7 +105,7 @@ function InfoRow({ label, val, warn }: { label: string; val: string; warn?: bool
 
 /* ── Körbarhet mapping ── */
 function korbarhetsLabel(barighet?: string): { text: string; color: string } {
-  if (!barighet) return { text: '–', color: C.t4 };
+  if (!barighet) return { text: '–', color: C.t3 };
   const b = barighet.toLowerCase();
   if (b === 'bra' || b === 'god') return { text: 'KÖR', color: '#22c55e' };
   if (b === 'medel' || b === 'normal') return { text: 'BEGRÄNSAD', color: '#eab308' };
@@ -335,10 +335,10 @@ function ObjCard({ obj, warnings, koPlats, devicePos, skotar }: {
           {markTel && (
             <div style={{ display: 'flex', gap: SP.sm, flexShrink: 0 }}>
               <a href={`tel:${markTel}`} onClick={(e) => e.stopPropagation()}
-                style={{ ...BTN.secondary, minHeight: 36, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Ring</a>
+                style={{ ...BTN.secondary, minHeight: 44, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Ring</a>
               {smsHref && (
                 <a href={smsHref} onClick={(e) => e.stopPropagation()}
-                  style={{ ...BTN.secondary, minHeight: 36, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Sms</a>
+                  style={{ ...BTN.secondary, minHeight: 44, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Sms</a>
               )}
             </div>
           )}
@@ -533,7 +533,7 @@ function DriverSheet({ queue, maskinNamn, warningsByObj, onSelect }: {
    orange bara vid varsamhet ("Dålig bärighet"), aldrig röd (rött = fara). ── */
 function chipStyle(orange: boolean): React.CSSProperties {
   return {
-    fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
+    fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
     color: orange ? C.orange : 'rgba(255,255,255,0.7)',
     background: orange ? C.od : 'rgba(255,255,255,0.06)',
     border: `1px solid ${orange ? `${C.orange}40` : C.border}`,
@@ -631,7 +631,7 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
             })}
           </div>
         )}
-        <div style={{ ...T.caption, color: C.t4, marginTop: SP.md }}>Ordningen sätts i Maskiner-fliken — listan är beslutsstöd, inte beslut.</div>
+        <div style={{ ...T.caption, color: C.t3, marginTop: SP.md }}>Ordningen sätts i Maskiner-fliken — listan är beslutsstöd, inte beslut.</div>
       </div>
     </motion.div>
   );
@@ -1620,7 +1620,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
 
       {!mapReady && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.bg, color: C.t3 }}>
-          Laddar karta...
+          Laddar karta…
         </div>
       )}
 
@@ -1685,13 +1685,13 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
             color: showDone ? C.t1 : C.t2, border: 'none', borderRadius: 8, fontSize: 17,
             fontWeight: showDone ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>Avslutade <span style={{ fontSize: 13, color: showDone ? C.green : C.t4 }}>{showDone ? 'På' : 'Av'}</span></button>
+          }}>Avslutade <span style={{ fontSize: 13, color: showDone ? C.green : C.t3 }}>{showDone ? 'På' : 'Av'}</span></button>
           <button onClick={() => { setShowGrot(g => !g); if (showGrot) setSelectedGrotId(null); }} style={{
             padding: '12px 14px', minHeight: 44, background: showGrot ? C.yd : 'transparent',
             color: showGrot ? C.yellow : C.t2, border: 'none', borderRadius: 8, fontSize: 17,
             fontWeight: showGrot ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>GROT <span style={{ fontSize: 13, color: showGrot ? C.yellow : C.t4 }}>{showGrot ? 'På' : 'Av'}</span></button>
+          }}>GROT <span style={{ fontSize: 13, color: showGrot ? C.yellow : C.t3 }}>{showGrot ? 'På' : 'Av'}</span></button>
         </div>
 
         {/* Maskin */}
@@ -1710,7 +1710,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
               return (
                 <div key={typ}>
                   <div style={{
-                    padding: '8px 14px 4px', fontSize: 13, fontWeight: 600, color: C.t4,
+                    padding: '8px 14px 4px', fontSize: 13, fontWeight: 600, color: C.t3,
                     fontFamily: ff,
                   }}>{typ === 'skördare' ? 'Skördare' : 'Skotare'}</div>
                   {group.map(m => {
@@ -1745,7 +1745,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
           backdropFilter: 'blur(12px)', padding: '8px 14px', borderRadius: 12, zIndex: 10,
           alignItems: 'center',
         }}>
-          <span style={{ fontSize: 11, color: C.t2, fontWeight: 600, fontFamily: ff }}>
+          <span style={{ fontSize: 12, color: C.t2, fontWeight: 600, fontFamily: ff }}>
             Total rutt: {totalDistance.anyApprox ? '~' : ''}{totalDistance.total < 1 ? `${Math.round(totalDistance.total * 1000)} m` : `${totalDistance.total.toFixed(1)} km`}
           </span>
         </div>

@@ -69,7 +69,7 @@ function SortableRow({
         {/* Nummer */}
         <div style={{
           width: 40, flexShrink: 0,
-          fontSize: 20, fontWeight: 700, color: C.t4,
+          fontSize: 20, fontWeight: 700, color: C.t3,
           fontVariantNumeric: 'tabular-nums',
         }}>{idx + 1}</div>
 
@@ -254,7 +254,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
                 <div style={{ ...T.caption, marginTop: SP.xs, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                   <span>{isSk ? 'Skördare' : 'Skotare'}</span>
                   {(() => {
-                    if (ko.length === 0) return <span style={{ color: C.t4 }}>· Ledig</span>;
+                    if (ko.length === 0) return <span style={{ color: C.t3 }}>· Ledig</span>;
                     const firstObj = getObj(ko[0].objekt_id);
                     if (!firstObj) return null;
                     const isAct = firstObj.status === 'pagaende' || firstObj.status === 'skordning' || firstObj.status === 'skotning';
@@ -361,7 +361,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
 
                 {/* ── Lägg till objekt ── */}
                 {ko.length === 0 && (
-                  <div style={{ padding: `${SP.xl}px ${SP.xs}px`, ...T.body, color: C.t4 }}>Inga objekt</div>
+                  <div style={{ padding: `${SP.xl}px ${SP.xs}px`, ...T.body, color: C.t3 }}>Inga objekt</div>
                 )}
                 <button
                   onClick={() => { setAddingTo(maskin.maskin_id); setSearchText(''); setMenuOpen(null); }}
@@ -479,7 +479,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
                         width: '100%', padding: `${SP.lg}px`,
                         background: 'none', border: 'none',
                         borderBottom: `1px solid ${C.border}`,
-                        color: alreadyOn ? C.t4 : C.t1,
+                        color: alreadyOn ? C.t3 : C.t1,
                         ...T.body, textAlign: 'left', cursor: 'pointer', fontFamily: ff,
                         display: 'flex', alignItems: 'center', gap: SP.md,
                       }}
@@ -491,7 +491,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
                     </button>
                   );
                 }) : (
-                  <div style={{ padding: `${SP.xxl}px ${SP.lg}px`, color: C.t4, ...T.body, textAlign: 'center' }}>
+                  <div style={{ padding: `${SP.xxl}px ${SP.lg}px`, color: C.t3, ...T.body, textAlign: 'center' }}>
                     Inga planerade objekt
                   </div>
                 );

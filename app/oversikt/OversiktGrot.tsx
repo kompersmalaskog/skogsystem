@@ -250,24 +250,24 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={T.body}>{obj.namn}</span>
                   {skotatDirekt && (
-                    <span style={{ fontSize: 11, fontWeight: 600, color: C.orange, padding: '2px 8px', background: C.od, borderRadius: 20 }}>Direkt</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.orange, padding: '2px 8px', background: C.od, borderRadius: 20 }}>Direkt</span>
                   )}
                   {isOverdue && (
-                    <span style={{ fontSize: 11, fontWeight: 600, color: C.red, padding: '2px 8px', background: C.rd, borderRadius: 20 }}>Försenad</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.red, padding: '2px 8px', background: C.rd, borderRadius: 20 }}>Försenad</span>
                   )}
                   {isUrgent && (
-                    <span style={{ fontSize: 11, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 20 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 20 }}>
                       {deadlineDays === 0 ? 'Idag' : `${deadlineDays}d kvar`}
                     </span>
                   )}
                 </div>
                 {dl && !skotat && (
-                  <div style={{ fontSize: 11, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginTop: 2 }}>
                     Senast: {formatDeadline(dl)}
                   </div>
                 )}
                 {!dl && obj.vo_nummer && (
-                  <div style={{ fontSize: 11, color: C.t3, marginTop: 2 }}>{obj.vo_nummer}</div>
+                  <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>{obj.vo_nummer}</div>
                 )}
               </div>
 
@@ -275,10 +275,10 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
               <div style={{ textAlign: 'right', flexShrink: 0, marginRight: 8 }}>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>
                   {gv ? formatVolym(gv) : '–'}
-                  <span style={{ fontSize: 11, fontWeight: 400, color: C.t4 }}> m³</span>
+                  <span style={{ fontSize: 12, fontWeight: 400, color: C.t3 }}> m³</span>
                 </div>
                 {dagar !== null && dagar >= 0 && (
-                  <div style={{ fontSize: 11, color: C.t3 }}>{dagar}d</div>
+                  <div style={{ fontSize: 12, color: C.t3 }}>{dagar}d</div>
                 )}
               </div>
 
@@ -292,7 +292,7 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
                   border: skotat ? 'none' : `1px solid ${C.border}`,
                   background: skotat ? C.green : 'transparent',
                   color: skotat ? '#fff' : C.t2,
-                  fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: ff,
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: ff,
                   transition: 'all 0.2s', opacity: saving ? 0.5 : 1,
                   minHeight: 44, minWidth: 44,
                 }}
@@ -374,7 +374,7 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
 
                 {/* Deadline — önskat skotningsdatum */}
                 <div style={{ marginBottom: 14 }}>
-                  <label style={{ fontSize: 11, color: C.t4, display: 'block', marginBottom: 4 }}>Önskat skotningsdatum</label>
+                  <label style={{ fontSize: 12, color: C.t3, display: 'block', marginBottom: 4 }}>Önskat skotningsdatum</label>
                   <input
                     type="date"
                     value={deadlines[obj.id] ?? obj.grot_deadline ?? ''}
@@ -417,7 +417,7 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
       })}
 
       {grotObjekt.length === 0 && (
-        <div style={{ textAlign: 'center', padding: `60px ${SP.xl}px`, color: C.t4 }}>
+        <div style={{ textAlign: 'center', padding: `60px ${SP.xl}px`, color: C.t3 }}>
           <div style={T.body}>Inga grotanpassade objekt</div>
           <div style={{ ...T.caption, marginTop: SP.sm }}>Objekt måste vara markerade som grotanpassade i dim_objekt</div>
         </div>
