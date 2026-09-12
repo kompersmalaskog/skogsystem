@@ -3244,6 +3244,12 @@ export default function PlannerPage() {
   // DIAGNOS (?diag=1, tillfälligt — samma mönster som #530): synlig ruta i körvyn som visar VARFÖR
   // eget/hist/skordarstrak-linjerna inte syns. Tas bort i uppföljande commit.
   const [diagOn] = useState<boolean>(() => { try { return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('diag') === '1'; } catch { return false; } });
+  // ?diag=1&cam=trakt: centrera kameran EN gång på datans första punkt (data[0]) vid körvy-öppning
+  // och släpp GPS-följningen tills körvyn stängs → Martin kan verifiera linjerna visuellt HEMIFRÅN
+  // (annars följer kameran GPS:en hemma, 18 km från trakten, och linjerna hamnar utanför vyn).
+  // Ingen påverkan utan parametern. Tas bort med diag-läget när #543 är verifierad.
+  const [diagCamTrakt] = useState<boolean>(() => { try { return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('cam') === 'trakt'; } catch { return false; } });
+  const camTraktDoneRef = useRef(false);
   const [diagHamt, setDiagHamt] = useState<{ rader: number; segPerDag: string; mapReady: boolean } | null>(null);
   const [diagKarta, setDiagKarta] = useState<Record<string, string>>({});
 
@@ -7194,6 +7200,9 @@ export default function PlannerPage() {
   // 2) GPS-following + heading när korvyActive (mjuk easing per uppdatering, behåll offset)
   useEffect(() => {
     if (!korvyActive) return;
+    // DIAG cam=trakt: kameran hålls på trakten (data[0]), följ inte GPS:en (hemma) — så linjerna
+    // kan verifieras visuellt hemifrån. Släpps automatiskt när körvyn stängs (parametern bort).
+    if (diagCamTrakt) return;
     // Skotarläge: har föraren panorerat iväg pausas följet tills "Följ mig" trycks (punkt 5).
     // Bara skotarKorvy — Stefans körvy följer alltid (oförändrat).
     if (skotarKorvy && korvyFollowPaused) return;
@@ -7214,7 +7223,42 @@ export default function PlannerPage() {
       duration: 500,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, korvyActive, korvyNextItems, skotarKorvy, korvyFollowPaused]);
+  }, [currentPosition, korvyHeading, korvyActive, korvyNextItems, skotarKorvy, korvyFollowPaused, diagCamTrakt]);
+
+  // DIAG cam=trakt (?diag=1&cam=trakt): EN gång vid körvy-öppning, centrera på datans första punkt
+  // (data[0], samma zoom körvyn annars använder = KORVY_BASE_ZOOM) så linjerna syns hemifrån. Källorna
+  // fylls av async-effekter EFTER öppning → pollar tills data[0] finns (max 8 s), centrerar en gång.
+  // Nollställs när körvyn stängs. Ingen påverkan utan parametern. Tas bort med diag-läget.
+  useEffect(() => {
+    if (!diagCamTrakt) return;
+    if (!korvyActive) { camTraktDoneRef.current = false; return; }
+    if (!mapLibreReady || camTraktDoneRef.current) return;
+    const map = mapInstanceRef.current; if (!map) return;
+    const forstaKoord = (): [number, number] | null => {
+      for (const id of ['skordarstrak-source', 'hyttspar-egen-source', 'hyttspar-hist-source', 'hyttspar-andras-source']) {
+        try {
+          const raw = (map.getSource(id) as any)?._data;
+          const gj = raw?.geojson ?? raw;                 // v5: {geojson:FC}; v4-fallback: FC
+          const c = gj?.features?.[0]?.geometry?.coordinates?.[0];
+          if (Array.isArray(c) && c.length >= 2 && Number.isFinite(c[0]) && Number.isFinite(c[1])) return [c[0], c[1]];
+        } catch { /* */ }
+      }
+      return null;
+    };
+    const centrera = (): boolean => {
+      if (camTraktDoneRef.current) return true;
+      const c = forstaKoord();
+      if (!c) return false;
+      try { map.easeTo({ center: c, zoom: korvyProximityZoom(null), pitch: 50, bearing: 0, duration: 800 }); } catch { /* */ }
+      camTraktDoneRef.current = true;
+      console.log('[DIAG cam=trakt] centrerar kameran på data[0]', c);
+      return true;
+    };
+    if (centrera()) return;
+    const iv = setInterval(() => { if (centrera()) clearInterval(iv); }, 500);
+    const to = setTimeout(() => clearInterval(iv), 8000);
+    return () => { clearInterval(iv); clearTimeout(to); };
+  }, [diagCamTrakt, korvyActive, mapLibreReady]);
 
   // SKOTARKÖRVY (punkt 5): fingret drar kartan → pausa auto-följet ('dragstart' med originalEvent =
   // äkta gest, inte vår easeTo). Bunden en gång; dörrvaktar på skotarKorvyRef. Rensas vid utträde.
@@ -12084,7 +12128,7 @@ export default function PlannerPage() {
           <div style={{ color: (diagKarta.egenSrc ?? '').startsWith('E✓') ? '#ffd479' : '#ff6b6b' }}>4-5 KÄLLA/VIS  egen: {diagKarta.egenSrc ?? '?'} vis={diagKarta.egenVis ?? '?'}</div>
           <div style={{ color: (diagKarta.histSrc ?? '').startsWith('E✓') ? '#ffd479' : '#ff6b6b' }}>            hist: {diagKarta.histSrc ?? '?'} vis={diagKarta.histVis ?? '?'}</div>
           <div style={{ color: (diagKarta.strakSrc ?? '').startsWith('E✓') && !((diagKarta.strakSrc ?? '').includes(' 0f/')) ? '#ffd479' : '#ff6b6b' }}>6 skordarstrak: {diagKarta.strakSrc ?? '?'} vis={diagKarta.strakVis ?? '?'} · aktiv-vis={diagKarta.strakAktivVis ?? '?'} · strakData={strakData.length} · källa={String(strakKalla)}</div>
-          <div style={{ color: '#c58cff' }}>7 KAMERA {diagKarta.kam ?? '?'}</div>
+          <div style={{ color: '#c58cff' }}>7 KAMERA {diagKarta.kam ?? '?'}{diagCamTrakt ? '  · cam=trakt PÅ (följer ej GPS)' : ''}</div>
           <div style={{ color: '#666', fontSize: 10 }}>E=källa finns · L=worker klar(✓)/laddar(…) · Nf/Np=satta features/punkter · vw=features i vyn · data[0]=lat,lng</div>
         </div>
       )}
