@@ -261,7 +261,7 @@ export async function byggMeddelande(n: any): Promise<{ title: string; body: str
     return {
       title: "Veckoläge",
       body: formateraVeckoNotis(p),
-      url: "/helikopter?flik=uppfoljning",
+      url: p.idag ? `/helikopter/veckolage?datum=${encodeURIComponent(String(p.idag))}` : "/helikopter/veckolage",
       tag: `helikopter-vecka-${n.mottagare_id}-${n.datum || n.id || ""}`,
     };
   }
