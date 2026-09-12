@@ -11,6 +11,7 @@ import Jamforelse from './Jamforelse'
 import OversiktNy from './OversiktNy'
 import ProduktionNy from './ProduktionNy'
 import AvbrottNy from './AvbrottNy'
+import KapacitetNy from './KapacitetNy'
 import IdagNy from './IdagNy'
 import SkotareOversiktNy from './SkotareOversiktNy'
 import SkotareProduktionNy from './SkotareProduktionNy'
@@ -32,6 +33,7 @@ const NY_VYER: { key: string; label: string }[] = [
   { key: 'idag',       label: 'Idag'       },
   { key: 'produktion', label: 'Produktion' },
   { key: 'avbrott',    label: 'Avbrott'    },
+  { key: 'kapacitet',  label: 'Kapacitet'  },
 ]
 
 const SKOTARE_NY_VYER: { key: string; label: string }[] = [
@@ -298,6 +300,7 @@ export default function MaskinvyPage() {
               ? (ny
                   ? (vy === 'produktion' ? <ProduktionNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
                      : vy === 'avbrott'    ? <AvbrottNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
+                     : vy === 'kapacitet'  ? <KapacitetNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
                      : vy === 'idag'       ? <IdagNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
                      : <OversiktNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />)
                   : <Maskinvy />)
