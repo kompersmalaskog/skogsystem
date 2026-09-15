@@ -15,7 +15,7 @@ const C = {
 const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif"
 
 type PeriodTyp = 'vecka' | 'manad' | 'kvartal' | 'ar'
-type Flik = 'dagar' | 'flyttar'
+type Flik = 'dagar' | 'flyttar' | 'fakturering'
 
 // Två nivåer som ALDRIG blandas i samma siffra:
 //  - Dagar: hela dagens körning (tillkörning + flyttar + tomkörning + hemresa)
@@ -68,6 +68,25 @@ interface DagRad {
   hemresa_matt: boolean | null       // true = hem_km mätt via odometer (ej ORS-gissad)
 }
 
+// Fakturaunderlag-rad (kvitto-fliken): en per fakturerbar flytt, auto-skapad av
+// DB-triggern. Redigeras/stryks i faktureringsvyn; kvittot speglar bara status.
+interface UnderlagRad {
+  id: string
+  flytt_id: string
+  km: number | null
+  kund: string | null
+  datum: string | null
+  maskin: string | null              // coalesce(extern_maskin, maskin_id)
+  fran_objekt_id: string | null
+  fran_plats_id: string | null
+  till_objekt_id: string | null
+  till_plats_id: string | null
+  status: string                     // 'aktiv' | 'struken'
+  struken_tid: string | null
+  struken_anledning: string | null
+  fakturerad_tid: string | null
+}
+
 const TYP_ETIKETT: Record<string, string> = {
   produktion: 'Produktion', service: 'Service', kunduppdrag: 'Kunduppdrag', annat: 'Annat',
 }
@@ -117,6 +136,11 @@ function periodIntervall(typ: PeriodTyp, offset: number): { start: Date; slut: D
   return { start, slut, etikett: `${start.getFullYear()}` }
 }
 
+/** Lokalt YYYY-MM-DD för date-kolumn-filter (aldrig toISOString — TZ tappar sista dagen, #320). */
+function ymdLokal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 const PERIOD_KNAPPAR: { typ: PeriodTyp; kort: string }[] = [
   { typ: 'vecka', kort: 'Vecka' },
   { typ: 'manad', kort: 'Månad' },
@@ -151,6 +175,8 @@ export default function SammanstallningClient() {
   const [forareFilter, setForareFilter] = useState('alla')
   const [oppnaDagar, setOppnaDagar] = useState<Set<string>>(new Set())
   const [oppnaFlyttar, setOppnaFlyttar] = useState<Set<string>>(new Set())
+  const [underlag, setUnderlag] = useState<UnderlagRad[] | null>(null)
+  const [underlagFel, setUnderlagFel] = useState(false)
 
   const period = useMemo(() => periodIntervall(periodTyp, offset), [periodTyp, offset])
 
@@ -204,6 +230,25 @@ export default function SammanstallningClient() {
       if (data) setMaskinNamn(new Map(data.map(m => [m.maskin_id, m.visningsnamn || m.modell || m.maskin_id])))
     })
   }, [])
+
+  // Fakturaunderlag (kvitto-fliken) — egen läsning, gejtad på fliken så en ännu ej
+  // påslagen tabell (migrationen inte körd) aldrig fäller resten av Flyttloggen.
+  useEffect(() => {
+    if (flik !== 'fakturering') return
+    let avbruten = false
+    setUnderlag(null); setUnderlagFel(false)
+    ;(async () => {
+      const r = await medAbortRetry(() => supabase.from('fakturaunderlag_flytt')
+        .select('id, flytt_id, km, kund, datum, maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, status, struken_tid, struken_anledning, fakturerad_tid')
+        .gte('datum', ymdLokal(period.start))
+        .lt('datum', ymdLokal(period.slut))
+        .order('datum', { ascending: false }))
+      if (avbruten) return
+      if (r.error) { console.warn('[fakturering] underlag ej påslaget/saknas', r.error); setUnderlag([]); setUnderlagFel(true) }
+      else setUnderlag((r.data as UnderlagRad[]) || [])
+    })()
+    return () => { avbruten = true }
+  }, [flik, period.start.getTime(), period.slut.getTime(), omforsok])
 
   const forare = useMemo(() =>
     Array.from(new Set([
@@ -297,6 +342,24 @@ export default function SammanstallningClient() {
       km: slutforda.filter(f => (f.flytt_typ || 'produktion') === t).reduce((s, f) => s + (f.flytt_km ?? 0), 0),
     })).filter(r => r.antal > 0),
   }), [slutforda])
+
+  // ── Fakturering-nivån (kvitto) ──
+  const underlagStatus = (r: UnderlagRad): 'hos' | 'fakturerad' | 'struken' =>
+    r.status === 'struken' ? 'struken' : r.fakturerad_tid ? 'fakturerad' : 'hos'
+  const underlagSorterat = useMemo(() => {
+    const rank = { hos: 0, fakturerad: 1, struken: 2 }
+    return [...(underlag || [])].sort((a, b) =>
+      rank[underlagStatus(a)] - rank[underlagStatus(b)] || (b.datum || '').localeCompare(a.datum || ''))
+  }, [underlag])
+  const faktSumma = useMemo(() => {
+    const rader = underlag || []
+    const antalMed = (k: 'hos' | 'fakturerad' | 'struken') => rader.filter(r => underlagStatus(r) === k).length
+    return {
+      totalKm: Math.round(rader.reduce((s, r) => s + (r.km ?? 0), 0)),
+      antal: rader.length,
+      hos: antalMed('hos'), fakturerad: antalMed('fakturerad'), struken: antalMed('struken'),
+    }
+  }, [underlag])
 
   function toggle(set: Set<string>, uppdatera: (s: Set<string>) => void, id: string) {
     const ny = new Set(set)
@@ -682,12 +745,80 @@ export default function SammanstallningClient() {
           </>
         )}
 
+        {/* ══ FAKTURERING (kvitto — speglar status, ingen handling) ══ */}
+        {flik === 'fakturering' && !laddar && !fel && (
+          underlag === null ? (
+            <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Laddar …</div>
+          ) : underlagFel ? (
+            <div style={{ textAlign: 'center', padding: '48px 16px', color: C.t3 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 40, opacity: 0.6 }}>receipt_long</span>
+              <div style={{ fontSize: 15, marginTop: 10 }}>Faktureringen är inte påslagen än.</div>
+              <div style={{ fontSize: 13, marginTop: 4 }}>Underlagen skapas när databas-migrationen körts.</div>
+            </div>
+          ) : (
+            <>
+              {/* Ett stort tal: periodens fakturerbara */}
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 18px 16px', marginBottom: 6 }}>
+                <div style={{ fontSize: 12, color: C.t3, fontWeight: 700, letterSpacing: 0.3 }}>FAKTURERBART</div>
+                <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1, marginTop: 4 }}>{faktSumma.totalKm.toLocaleString('sv-SE')} km</div>
+                <div style={{ fontSize: 14, color: C.t3, marginTop: 4 }}>{faktSumma.antal} {faktSumma.antal === 1 ? 'flytt' : 'flyttar'}</div>
+                <div style={{ display: 'flex', gap: 16, marginTop: 13, fontSize: 12, color: C.t3, flexWrap: 'wrap' }}>
+                  <span><i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: C.orange, marginRight: 6 }} /><b style={{ color: C.t1 }}>{faktSumma.hos}</b> hos faktureringen</span>
+                  <span><i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: C.green, marginRight: 6 }} /><b style={{ color: C.t1 }}>{faktSumma.fakturerad}</b> fakturerad</span>
+                  {faktSumma.struken > 0 && <span><i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: C.red, marginRight: 6 }} /><b style={{ color: C.t1 }}>{faktSumma.struken}</b> struken</span>}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.t3, margin: '12px 2px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16, color: C.t2 }}>bolt</span>
+                Går iväg automatiskt när en flytt avslutas fakturerbar — redigera eller stryk i faktureringen.
+              </div>
+
+              {underlagSorterat.length === 0 ? tomLage('Inga fakturerbara flyttar den här perioden.') : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {underlagSorterat.map(r => {
+                    const st = underlagStatus(r)
+                    const fran = namnForAnde(r.fran_objekt_id, r.fran_plats_id) || 'Okänd plats'
+                    const till = namnForAnde(r.till_objekt_id, r.till_plats_id) || '—'
+                    const ikon = st === 'fakturerad' ? 'task_alt' : st === 'struken' ? 'block' : 'fact_check'
+                    const farg = st === 'fakturerad' ? C.green : st === 'struken' ? C.red : C.orange
+                    const stamp = st === 'fakturerad'
+                      ? `Fakturerad${r.fakturerad_tid ? ' ' + new Date(r.fakturerad_tid).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }) : ''}`
+                      : st === 'struken'
+                        ? `Struken${r.struken_tid ? ' ' + new Date(r.struken_tid).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }) : ''}${r.struken_anledning ? ' · ' + r.struken_anledning : ''}`
+                        : 'Hos faktureringen'
+                    return (
+                      <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 13px', opacity: st === 'struken' ? 0.5 : 1 }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 22, color: farg, flex: 'none' }}>{ikon}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14.5, fontWeight: 700 }}>{r.maskin ? (maskinNamn.get(r.maskin) || r.maskin) : '—'}</div>
+                          <div style={{ fontSize: 12.5, color: C.t3, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fran} → {till}</div>
+                          <div style={{ fontSize: 11.5, color: C.t3, marginTop: 3 }}>{r.datum ? new Date(r.datum).toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' }) : ''}</div>
+                          {r.kund && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: '#9cc2ff', background: 'rgba(59,130,246,0.15)', borderRadius: 6, padding: '2px 7px', marginTop: 5 }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>handshake</span>Kund: {r.kund}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ textAlign: 'right', whiteSpace: 'nowrap', flex: 'none' }}>
+                          <div style={{ fontSize: 17, fontWeight: 800, textDecoration: st === 'struken' ? 'line-through' : 'none', color: st === 'struken' ? C.t3 : C.t1 }}>{r.km != null ? `${r.km.toLocaleString('sv-SE')} km` : '—'}</div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: farg, marginTop: 3, maxWidth: 160, whiteSpace: 'normal' }}>{stamp}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          )
+        )}
+
         {/* ── Diskret bottenrad: fliktoggle · förarfilter · CSV ── */}
         {!laddar && !fel && (
           <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', gap: 4, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3 }}>
-                {([['dagar', 'Dagar'], ['flyttar', 'Flyttar']] as [Flik, string][]).map(([f, namn]) => (
+                {([['dagar', 'Dagar'], ['flyttar', 'Flyttar'], ['fakturering', 'Fakturering']] as [Flik, string][]).map(([f, namn]) => (
                   <button key={f} onClick={() => setFlik(f)} style={{
                     background: flik === f ? 'rgba(255,255,255,0.10)' : 'transparent',
                     color: flik === f ? C.t1 : C.t3,
@@ -695,25 +826,27 @@ export default function SammanstallningClient() {
                   }}>{namn}</button>
                 ))}
               </div>
-              {forare.length > 0 && (
+              {flik !== 'fakturering' && forare.length > 0 && (
                 <select className="flytt-select" value={forareFilter} onChange={e => setForareFilter(e.target.value)}>
                   <option value="alla">Alla förare</option>
                   {forare.map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
               )}
               <div style={{ flex: 1 }} />
-              <button
-                onClick={flik === 'dagar' ? exportDagCsv : exportFlyttCsv}
-                disabled={flik === 'dagar' ? kordagar.length === 0 : slutforda.length === 0}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', color: C.t2,
-                  border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 12px', fontSize: 13, fontWeight: 600,
-                  cursor: 'pointer', fontFamily: ff,
-                  opacity: (flik === 'dagar' ? kordagar.length === 0 : slutforda.length === 0) ? 0.4 : 1,
-                }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>
-                CSV
-              </button>
+              {flik !== 'fakturering' && (
+                <button
+                  onClick={flik === 'dagar' ? exportDagCsv : exportFlyttCsv}
+                  disabled={flik === 'dagar' ? kordagar.length === 0 : slutforda.length === 0}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', color: C.t2,
+                    border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 12px', fontSize: 13, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: ff,
+                    opacity: (flik === 'dagar' ? kordagar.length === 0 : slutforda.length === 0) ? 0.4 : 1,
+                  }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>
+                  CSV
+                </button>
+              )}
             </div>
           </div>
         )}
