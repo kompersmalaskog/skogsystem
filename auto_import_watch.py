@@ -145,15 +145,39 @@ def _acquire_single_instance(port: int = _SINGLE_INSTANCE_PORT) -> bool:
 _processed_files: dict[str, float] = {}
 DEDUP_WINDOW = 60  # sekunder — ignorera samma fil inom detta fönster
 
+# EN MOM-import åt gången. Fil-eventen (watchdog-tråden) och den periodiska
+# scannen (egen tråd) anropade båda run_mom_import() utan lås — 2026-09-15
+# (36 filer i kö efter en nattlig Windows-omstart) kördes två importer
+# parallellt på samma filer: "Fil sparad till DB men flytt till Behandlade
+# misslyckades" och "No such file" när den andra processen redan flyttat
+# filen. Datan var säker (upsert + status OK hoppas över), men det var
+# dubbelt arbete. Nu: pågår en körning hoppar nästa anrop över — importen
+# tar ändå ALLA filer i Inkommande i följd, så inget missas.
+_mom_import_lock = threading.Lock()
+
+# Timeout för en MOM-körning. 600 s dödade körningen mitt i en fil när kön
+# var lång (~2 filer/min → 36 filer ≈ 20–25 min); resten togs av nästa
+# periodiska scan. Med låset dräneras en backlog i EN körning — 1800 s
+# räcker för dagens största kö med marginal. Den dödade filen förlorar
+# inget: den saknar status OK och tas om av nästa körning.
+MOM_IMPORT_TIMEOUT = 1800
+
 # UTF-8 environment för subprocess (fixar encoding på Windows)
 _env = os.environ.copy()
 _env['PYTHONUTF8'] = '1'
 
 
 def run_mom_import():
-    """Kör skogsmaskin_import_version_6.py icke-interaktivt."""
-    logger.info("Startar MOM-import: skogsmaskin_import_version_6.py")
+    """Kör skogsmaskin_import_version_6.py icke-interaktivt.
+
+    Bara EN körning åt gången (_mom_import_lock). Anropas från både
+    fil-eventen och den periodiska scannen; pågår en körning redan hoppar
+    detta anrop över — den pågående tar alla filer i Inkommande ändå."""
+    if not _mom_import_lock.acquire(blocking=False):
+        logger.info("MOM-import pågår redan — hoppar över (den pågående tar alla filer i Inkommande)")
+        return
     try:
+        logger.info("Startar MOM-import: skogsmaskin_import_version_6.py")
         result = subprocess.run(
             [PYTHON_EXE, MOM_IMPORT_SCRIPT],
             cwd=SCRIPT_DIR,
@@ -161,7 +185,7 @@ def run_mom_import():
             text=True,
             encoding='utf-8',
             errors='replace',
-            timeout=600,
+            timeout=MOM_IMPORT_TIMEOUT,
             input="n\n",  # svara nej på "Starta övervakning?" prompten
             env=_env,
         )
@@ -173,9 +197,11 @@ def run_mom_import():
             for line in result.stderr.strip().split("\n")[-5:]:
                 logger.warning(f"  stderr: {line}")
     except subprocess.TimeoutExpired:
-        logger.error("MOM-import timeout (>600s)")
+        logger.error(f"MOM-import timeout (>{MOM_IMPORT_TIMEOUT}s) — filen som pågick saknar status OK och tas om av nästa körning")
     except Exception as e:
         logger.error(f"MOM-import fel: {e}")
+    finally:
+        _mom_import_lock.release()
 
 
 def run_hpr_import():
