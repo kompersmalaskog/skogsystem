@@ -3503,6 +3503,14 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
             slut_tid = agg['end'].strftime('%H:%M') if agg['end'] else None
             maskin = max(agg['maskin_sek'], key=agg['maskin_sek'].get) if agg['maskin_sek'] else None
 
+            # RAST kommer ur fakt_tid.rast_sek = summan av MOM-block med
+            # IndividualUnutilizedTimeCategory (alltid "Meal break"; kategorin
+            # särskiljs inte). OBS: Ponsse-SKOTARNA (A110148, A030353) skriver
+            # ALDRIG Meal break, kort stopp eller tomgång i sina filer — deras
+            # dagar får därför alltid rast 0 här (Martin 45/47, Max 48/54 dagar
+            # våren 2026). Det är INTE ett saknat värde: skotarförarna kör i regel
+            # hela dagar utan rast (Martin 2026-09-15), så noll är korrekt.
+            # Skördarna (Scorpion, Rottne) loggar rasten. Utred inte om igen.
             rast_sek = rast_lookup.get((agg['op_id'], datum_str), 0)
             rast_min = int(rast_sek / 60)
             objekt_id = objekt_lookup.get((agg['op_id'], datum_str))
