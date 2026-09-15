@@ -14,6 +14,7 @@ import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
+import { hyttsparTillLinjer, hyttsparDugligaSegment } from '../../lib/hyttspar'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -145,6 +146,25 @@ function korvyProximityZoom(dist: number | null): number {
   const t = (KORVY_ZOOM_START_M - dist) / (KORVY_ZOOM_START_M - FALLNINGSRADIE_M);  // 0..1
   return KORVY_BASE_ZOOM + (KORVY_FULL_ZOOM - KORVY_BASE_ZOOM) * t;
 }
+
+// === HYTTSPÅR-STIL (delad av körvy OCH planeringsvyn) ===
+// Apple-Maps-look: färgad kärna + LJUS casing (vit) som lyfter linjen från busig bakgrund (raster,
+// gränser, basvägar) i den utzoomade planeringsvyn OCH i körvyn. Casing ~2,5 px bredare än linjen.
+// Zoom-interpolerad bredd (Martin: 2 px @ z13, 4 px @ z15, 6 px @ z17) med floors vid låg/hög zoom så
+// bredden aldrig extrapolerar till noll/negativt. Linjens FÄRG behålls per lager/roll.
+const HYTTSPAR_CASING_COLOR = '#ffffff';
+const HYTTSPAR_LINE_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 1.5, 13, 2, 15, 4, 17, 6, 19, 8];
+const HYTTSPAR_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 4, 13, 4.5, 15, 6.5, 17, 8.5, 19, 10.5];
+// Historiken (tidigare dagars eget-spår i körvyn) något smalare + dämpad casing-opacitet.
+const HYTTSPAR_HIST_LINE_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 1, 13, 1.5, 15, 3, 17, 4.5, 19, 6];
+const HYTTSPAR_HIST_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 3, 13, 3.5, 15, 5, 17, 6.5, 19, 8];
+// ABSOLUTA rollfärger (Martin): skotare = grönt, skördare = lila — SAMMA i alla vyer, oberoende av vem
+// som tittar. "Eget spår" markeras med OPACITET (full) och den andres roll dämpas (~0.55), aldrig med
+// färgbyte. Delas av körvyns egen/hist/andras-lager OCH planeringsvyns planspar-lager.
+const ROLLFARG_SKOTARE = '#34c759';
+const ROLLFARG_SKORDARE = '#bf5af2';
+const rollFarg = (roll: 'skordare' | 'skotare' | null | undefined): string =>
+  roll === 'skotare' ? ROLLFARG_SKOTARE : ROLLFARG_SKORDARE;
 
 // === SKOTARKÖRVY (v1): stråk-klumpning + sortimentfärg ===
 // Autopanelens sortimentrader: allt under detta klumpas till EN "Övrigt"-rad sist. Ett halvt
@@ -3211,6 +3231,10 @@ export default function PlannerPage() {
   const [korvyForceRoll, setKorvyForceRoll] = useState<'skordare' | 'skotare' | null>(null);
   type StrakRad = { id: string; maskin_id: string; strak_nr: number; geometri: [number, number][]; langd_m: number };
   const [strakData, setStrakData] = useState<StrakRad[]>([]);
+  // KÄLLBYTE: 'gps' = skördarens RIKTIGA hyttspår (verifierat), 'rekonstruerad' = skordarstrak (arbets-
+  // positioner mellan stopp), null = inget. Driver källmärkningen i skotarpanelen. Data-gejtat: hyttspar
+  // används bara om det har dugliga segment (≥5 pkt & ≥30 m), annars osynlig fallback på skordarstrak.
+  const [strakKalla, setStrakKalla] = useState<'gps' | 'rekonstruerad' | null>(null);
   // Valt/aktivt stråk identifieras med composite-nyckeln "maskin_id|strak_nr" (se strakKeyAv).
   const [valtStrakKey, setValtStrakKey] = useState<string | null>(null);
   // Autopanelen: KOMPAKT är default — hela listan åt halva skärmen i fält. Utfälld = förarens
@@ -3240,13 +3264,19 @@ export default function PlannerPage() {
   const hyttsparDirtyRef = useRef(false);
   const hyttsparSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hyttsparSealingRef = useRef(false);   // true medan spåret förseglas efter ett glapp (async-fönster)
+  const [hyttsparBasVersion, setHyttsparBasVersion] = useState(0);   // bump när dagens redan loggade punkter laddats → rita om basen (även om kartlagret inte fanns vid livscykel-ritningen)
+  const egetHistRef = useRef<any[]>([]);   // tidigare dagars eget-spår (dämpade segment) → eget hist-lager, ritas separat från dagens (fulla) live-spår
 
   const uppdateraHyttsparLager = useCallback(() => {
     const map = mapInstanceRef.current; if (!map) return;
-    const coords = hyttsparPointsRef.current.map(p => [p.lng, p.lat]);
     try {
       const src = map.getSource('hyttspar-egen-source') as any;
-      if (src) src.setData({ type: 'FeatureCollection', features: coords.length >= 2 ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }] : [] });
+      // FANTOMLINJE-FIX (delad hjälpare): dela punkterna i segment vid tidsglapp → ett segment per
+      // sammanhängande körning. Ritas hela arrayen som EN linje bryggas glappen (app stängd) med en
+      // rak fantomlinje. Nu = en LineString per segment, ingen brygga.
+      const features = hyttsparTillLinjer(hyttsparPointsRef.current as any)
+        .map(coords => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
+      if (src) src.setData({ type: 'FeatureCollection', features });
     } catch { /* */ }
   }, []);
 
@@ -3280,7 +3310,9 @@ export default function PlannerPage() {
         if (avbruten) return;
         if (befintlig) {
           hyttsparRowIdRef.current = befintlig.id;
+          // LADDA DAGENS REDAN LOGGADE PUNKTER som bas (annars ritades eget-spåret bara live från noll).
           hyttsparPointsRef.current = Array.isArray(befintlig.points) ? befintlig.points : [];
+          setHyttsparBasVersion(v => v + 1);   // → rit-effekten nedan ritar basen så fort kartlagret är redo
           await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
         } else {
           const { data: ny, error } = await supabase.from('hyttspar')
@@ -3307,6 +3339,43 @@ export default function PlannerPage() {
       if (hyttsparSaveTimerRef.current) { clearInterval(hyttsparSaveTimerRef.current); hyttsparSaveTimerRef.current = null; }
       sparaHyttspar(true);   // körvy stängd / objekt bytt → avsluta dagens spår (resume-bart samma dag)
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyActive, valtObjekt?.id, hyttRoll]);
+
+  // Rita det INLADDADE eget-spåret (dagens redan loggade punkter) så fort kartlagret är redo. Behövs
+  // för att livscykel-effektens första ritning kan köra INNAN hyttspar-egen-source finns (körvy byter
+  // baskarta → style-reset → källor återskapas) → basen syntes annars inte förrän man rörde sig. Fångar
+  // båda ordningarna: mapLibreReady blir true efter inladdning, ELLER inladdning (bas-version) efter att
+  // kartan blev redo. uppdateraHyttsparLager segmenterar (delad hjälpare) → inga fantomlinjer i basen.
+  useEffect(() => {
+    if (!(korvyActive && mapLibreReady)) return;
+    uppdateraHyttsparLager();   // DAGENS spår (full färg, byggs live)
+    // TIDIGARE DAGARS spår (dämpade) → eget hist-lager. Ändras inte under körning; ritas i samma
+    // redo-effekt som basen så kartlager-racen fångas för båda.
+    try { const src = mapInstanceRef.current?.getSource('hyttspar-hist-source') as any; if (src) src.setData({ type: 'FeatureCollection', features: egetHistRef.current }); } catch { /* */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyActive, mapLibreReady, valtObjekt?.id, hyttsparBasVersion]);
+
+  // Ladda ALLA tidigare dagars eget-spår för (objekt, roll) vid körvy-öppning → dämpad historik, så
+  // "när jag kört ska spåren ALLTID synas" oavsett vilken dag man öppnar körvyn. Dagens session ritas
+  // fullfärgat av eget-lagret (byggs live); historiken rörs inte under körning. Varje dags rad
+  // segmenteras via samma delade hjälpare (inga fantomlinjer inom/mellan dagar). Gäller BÅDA rollerna.
+  useEffect(() => {
+    if (!(korvyActive && valtObjekt?.id && hyttRoll)) { egetHistRef.current = []; return; }
+    let avbruten = false;
+    const objektId = valtObjekt.id, roll = hyttRoll, idag = new Date().toISOString().slice(0, 10);
+    (async () => {
+      try {
+        const { data } = await supabase.from('hyttspar').select('datum, points').eq('objekt_id', objektId).eq('roll', roll);
+        if (avbruten) return;
+        egetHistRef.current = (data || [])
+          .filter((r: any) => r.datum !== idag)   // dagens = fulla eget-lagret (live), ej dubbelritning
+          .flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []))
+          .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
+        setHyttsparBasVersion(v => v + 1);   // → redo-effekten ovan ritar historiken
+      } catch (e) { console.error('[Hyttspår] eget-historik:', e); }
+    })();
+    return () => { avbruten = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, valtObjekt?.id, hyttRoll]);
 
@@ -3356,10 +3425,12 @@ export default function PlannerPage() {
       const { data, error } = await supabase.from('hyttspar')
         .select('points').eq('objekt_id', objektId).eq('roll', roll);
       if (error) { console.error('[Hyttspår] andras-hämtning:', error.message); return; }
+      // FANTOMLINJE-FIX (samma delade hjälpare som eget-spåret): varje rad delas dessutom i SEGMENT
+      // vid interna tidsglapp (app stängd mitt i passet) → en LineString per segment, ingen rak brygga
+      // över glappet. Förr: en LineString per rad (bryggade interna glapp — Martins fältfynd).
       const features = (data || [])
-        .map((r: any) => (Array.isArray(r.points) ? r.points : []))
-        .filter((pts: any[]) => pts.length >= 2)
-        .map((pts: any[]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: pts.map((p: any) => [p.lng, p.lat]) }, properties: {} }));
+        .flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []))
+        .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
       const src = map.getSource('hyttspar-andras-source') as any;
       if (src) src.setData({ type: 'FeatureCollection', features });
       setAndrasSparTid(Date.now());
@@ -3376,18 +3447,41 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, valtObjekt?.id, hyttRoll]);
 
-  // Hämta skördarstråk för valt objekt (bara i skotarkörvy). objekt_id = objekt.id (uuid) = valtObjekt.id.
+  // Stråk-KÄLLA för valt objekt (bara i skotarkörvy). objekt_id = objekt.id (uuid) = valtObjekt.id.
+  // KÄLLBYTE: föredra skördarens RIKTIGA hyttspår (roll=skordare) framför den rekonstruerade
+  // skordarstrak (arbetspositioner mellan stopp). Data-gejtat: hyttsparet används bara om det har
+  // DUGLIGA segment (≥5 pkt & ≥30 m efter tidsglapp-segmentering) → annars OSYNLIG fallback på
+  // skordarstrak som förr. Klumpning + rendering är källa-agnostiska (läser bara geometri) → oförändrade.
   useEffect(() => {
-    if (!skotarKorvy || !valtObjekt?.id) { setStrakData([]); return; }
+    if (!skotarKorvy || !valtObjekt?.id) { setStrakData([]); setStrakKalla(null); return; }
     let avbruten = false;
+    const objektId = valtObjekt.id;
     (async () => {
+      // 1) Riktigt hyttspår (skördaren)? Segmentera varje session, behåll dugliga segment.
+      let gpsRader: StrakRad[] = [];
+      try {
+        const { data: hs } = await supabase.from('hyttspar')
+          .select('points').eq('objekt_id', objektId).eq('roll', 'skordare');
+        if (avbruten) return;
+        let nr = 0;
+        for (const rad of (hs || [])) {
+          for (const seg of hyttsparDugligaSegment(Array.isArray((rad as any).points) ? (rad as any).points : [])) {
+            nr += 1;
+            gpsRader.push({ id: `hyttspar-${nr}`, maskin_id: 'hyttspar', strak_nr: nr, geometri: seg.geometri, langd_m: seg.langd_m });
+          }
+        }
+      } catch (e) { console.error('[Skotarkörvy] hyttspår-hämtning:', e); }
+
+      if (gpsRader.length > 0) { setStrakData(gpsRader); setStrakKalla('gps'); return; }
+
+      // 2) Fallback: rekonstruerad skordarstrak (som förr).
       const { data, error } = await supabase
         .from('skordarstrak')
         .select('id, maskin_id, strak_nr, geometri, langd_m')
-        .eq('objekt_id', valtObjekt.id)
+        .eq('objekt_id', objektId)
         .order('strak_nr', { ascending: true });
       if (avbruten) return;
-      if (error) { console.error('[Skotarkörvy] skordarstrak-hämtning:', error); setStrakData([]); return; }
+      if (error) { console.error('[Skotarkörvy] skordarstrak-hämtning:', error); setStrakData([]); setStrakKalla(null); return; }
       const rader: StrakRad[] = (data || []).map((r: any) => ({
         id: String(r.id),
         maskin_id: String(r.maskin_id ?? ''),
@@ -3396,6 +3490,7 @@ export default function PlannerPage() {
         langd_m: r.langd_m ?? 0,
       })).filter((r: StrakRad) => r.geometri.length >= 2);
       setStrakData(rader);
+      setStrakKalla(rader.length > 0 ? 'rekonstruerad' : null);
     })();
     return () => { avbruten = true; };
   }, [skotarKorvy, valtObjekt?.id]);
@@ -7834,6 +7929,33 @@ export default function PlannerPage() {
         try { map.moveLayer('hillshade-korvy', 'osm-layer'); } catch {}
       } catch (e) { console.error('[Körvy] hillshade-korvy:', e); }
     }
+    // HYTTSPÅR eget-HISTORIK: tidigare dagars eget-spår, DÄMPAT (gråmare grönton + lägre opacitet) så
+    // historik tydligt skiljs från dagens (fulla) spår. Läggs FÖRE egen-lagren → ritas UNDER dem. Data
+    // sätts av redo-effekten (egetHistRef). Whitelistat via 'hyttspar-'-prefix.
+    if (!map.getSource('hyttspar-hist-source')) {
+      try { map.addSource('hyttspar-hist-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+      catch (e) { console.error('[Hyttspår] hist-source:', e); }
+    }
+    if (!map.getLayer('hyttspar-hist-casing')) {
+      try {
+        map.addLayer({
+          id: 'hyttspar-hist-casing', type: 'line', source: 'hyttspar-hist-source',
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.45, 'line-width': HYTTSPAR_HIST_CASING_WIDTH },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Hyttspår] hist-casing:', e); }
+    }
+    if (!map.getLayer('hyttspar-hist-line')) {
+      try {
+        map.addLayer({
+          id: 'hyttspar-hist-line', type: 'line', source: 'hyttspar-hist-source',
+          // Eget spår (tidigare dagar): egen rollens färg (sätts av rollfärg-effekten), full opacitet;
+          // tidigare-dagar skiljs från idag via SMALARE bredd (HYTTSPAR_HIST_LINE_WIDTH), inte opacitet.
+          paint: { 'line-color': ROLLFARG_SKOTARE, 'line-opacity': 0.95, 'line-width': HYTTSPAR_HIST_LINE_WIDTH },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Hyttspår] hist-line:', e); }
+    }
     // HYTTSPÅR: eget körspår LIVE (grön, tydligt skild från skördarstråkens blå). Data matas av
     // ackumuleringen; synlighet styrs av körvy-whitelisten ('hyttspar-'-prefix). Default dold.
     if (!map.getSource('hyttspar-egen-source')) {
@@ -7844,7 +7966,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-egen-casing', type: 'line', source: 'hyttspar-egen-source',
-          paint: { 'line-color': '#0b0b0d', 'line-opacity': 0.45, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 4, 17, 7, 19, 10] },
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.8, 'line-width': HYTTSPAR_CASING_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] casing:', e); }
@@ -7853,7 +7975,8 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-egen-line', type: 'line', source: 'hyttspar-egen-source',
-          paint: { 'line-color': '#34c759', 'line-opacity': 0.95, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2.4, 17, 4, 19, 6] },
+          // Eget spår (idag, live): egen rollens färg (sätts av rollfärg-effekten), FULL opacitet.
+          paint: { 'line-color': ROLLFARG_SKOTARE, 'line-opacity': 0.95, 'line-width': HYTTSPAR_LINE_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] line:', e); }
@@ -7868,7 +7991,9 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-casing', type: 'line', source: 'hyttspar-andras-source',
-          paint: { 'line-color': '#0b0b0d', 'line-opacity': 0.4, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3.5, 17, 6, 19, 8.5] },
+          // Casing dämpas ihop med den andres linje (0.5) så hela andras-spåret tonas ned coherent;
+          // vit casing-färg + bredd-formel oförändrade (bara opaciteten följer dämpningen).
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.5, 'line-width': HYTTSPAR_CASING_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-casing:', e); }
@@ -7877,13 +8002,107 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-line', type: 'line', source: 'hyttspar-andras-source',
-          paint: { 'line-color': '#bf5af2', 'line-opacity': 0.9, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 3.4, 19, 5] },
+          // Den ANDRES roll: motpartens färg (sätts av rollfärg-effekten), DÄMPAD opacitet (0.55) så
+          // eget spår sticker ut. Färgen är absolut per roll — aldrig relativ till vem som kör.
+          paint: { 'line-color': ROLLFARG_SKORDARE, 'line-opacity': 0.55, 'line-width': HYTTSPAR_LINE_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-line:', e); }
     }
+    // PLANERINGSVYNS hyttspår (EJ körvy): skotarens + skördarens riktiga körspår ritas i den vanliga
+    // planeringskartan när objekt är valt. Egna lager (planspar-*) — matchar INTE körvyns 'hyttspar-'-
+    // whitelist → döljs automatiskt i körvyn (som har egen egen/hist/andras-visning). Samma Apple-Maps-
+    // stil (ljus casing + zoom-interp-bredd) som körvyns lager; färg per roll (skotare grönt, skördare lila).
+    for (const roll of ['skordare', 'skotare'] as const) {
+      const src = `planspar-${roll}-source`;
+      const farg = rollFarg(roll);
+      if (!map.getSource(src)) {
+        try { map.addSource(src, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+        catch (e) { console.error(`[Planspår] ${roll}-source:`, e); }
+      }
+      if (!map.getLayer(`planspar-${roll}-casing`)) {
+        try {
+          map.addLayer({
+            id: `planspar-${roll}-casing`, type: 'line', source: src,
+            paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.8, 'line-width': HYTTSPAR_CASING_WIDTH },
+            layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+          });
+        } catch (e) { console.error(`[Planspår] ${roll}-casing:`, e); }
+      }
+      if (!map.getLayer(`planspar-${roll}-line`)) {
+        try {
+          map.addLayer({
+            id: `planspar-${roll}-line`, type: 'line', source: src,
+            paint: { 'line-color': farg, 'line-opacity': 0.95, 'line-width': HYTTSPAR_LINE_WIDTH },
+            layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+          });
+        } catch (e) { console.error(`[Planspår] ${roll}-line:`, e); }
+      }
+    }
+    // Håll planspår-linjerna UNDER markörerna (men över raster/gränser/basvägar). skotare flyttas SIST →
+    // hamnar överst av de två (skotarspåret är fokus); casing under sin linje.
+    for (const roll of ['skordare', 'skotare'] as const) {
+      for (const suff of ['casing', 'line'] as const) {
+        try { if (map.getLayer(`planspar-${roll}-${suff}`) && map.getLayer('markers-layer')) map.moveLayer(`planspar-${roll}-${suff}`, 'markers-layer'); } catch { /* */ }
+      }
+    }
     console.log('[Körvy] immersion-layers setup klar');
   }, [mapLibreReady]);
+
+  // PLANERINGSVYNS hyttspår: hämta BÅDA rollernas riktiga körspår för objektet och rita i planeringskartan
+  // (skotare grönt, skördare lila). Segmenteras RUMSLIGT via delade hjälparen (inga fantomlinjer). Laddas
+  // när objekt byts; töms när inget objekt. Synlighet i separat effekt (dold i körvyn).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const objektId = valtObjekt?.id;
+    const tomma = () => { for (const roll of ['skordare', 'skotare'] as const) { try { const s = map.getSource(`planspar-${roll}-source`) as any; if (s) s.setData({ type: 'FeatureCollection', features: [] }); } catch { /* */ } } };
+    if (!objektId) { tomma(); return; }
+    let avbruten = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('hyttspar').select('roll, points').eq('objekt_id', objektId);
+        if (avbruten) return;
+        if (error) { console.error('[Planspår] hämtning:', error.message); return; }
+        const perRoll: { skordare: any[]; skotare: any[] } = { skordare: [], skotare: [] };
+        for (const r of (data || [])) {
+          const roll = (r as any).roll === 'skotare' ? 'skotare' : (r as any).roll === 'skordare' ? 'skordare' : null;
+          if (!roll) continue;
+          for (const coords of hyttsparTillLinjer(Array.isArray((r as any).points) ? (r as any).points : [])) {
+            perRoll[roll].push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} });
+          }
+        }
+        for (const roll of ['skordare', 'skotare'] as const) {
+          try { const s = map.getSource(`planspar-${roll}-source`) as any; if (s) s.setData({ type: 'FeatureCollection', features: perRoll[roll] }); } catch { /* */ }
+        }
+      } catch (e) { console.error('[Planspår] undantag:', e); }
+    })();
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, mapLibreReady]);
+
+  // PLANERINGSVYNS hyttspår: synliga NÄR objekt valt OCH ej i körvy (körvyn har egen visning + whitelisten
+  // döljer planspar-* ändå). Togglas vid körvy-in/ut och objektbyte.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const visa = !korvyActive && !!valtObjekt?.id;
+    for (const roll of ['skordare', 'skotare'] as const) {
+      for (const suff of ['casing', 'line'] as const) {
+        try { if (map.getLayer(`planspar-${roll}-${suff}`)) map.setLayoutProperty(`planspar-${roll}-${suff}`, 'visibility', visa ? 'visible' : 'none'); } catch { /* */ }
+      }
+    }
+  }, [korvyActive, valtObjekt?.id, mapLibreReady]);
+
+  // KÖRVYNS ABSOLUTA rollfärger: eget-spårets (egen + hist) färg = FÖRARENS roll, andras-spårets färg =
+  // MOTPARTENS roll — skotare grönt, skördare lila, SAMMA i båda körvyerna oberoende av vem som kör.
+  // Eget/andras skiljs på OPACITET (lager-defs: egen/hist 0.95, andras 0.55), aldrig på färg.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const set = (layer: string, farg: string) => { try { if (map.getLayer(layer)) map.setPaintProperty(layer, 'line-color', farg); } catch { /* */ } };
+    if (hyttRoll) { set('hyttspar-egen-line', rollFarg(hyttRoll)); set('hyttspar-hist-line', rollFarg(hyttRoll)); }
+    if (andrasRoll) set('hyttspar-andras-line', rollFarg(andrasRoll));
+  }, [hyttRoll, andrasRoll, mapLibreReady, korvyActive]);
 
   // === SKOTARKÖRVY: mata stråk-linjer + kvar-etiketter + toggla synlighet ===
   useEffect(() => {
@@ -12021,6 +12240,15 @@ export default function PlannerPage() {
               borderRadius: 18, padding: '12px 14px', zIndex: 250, color: '#fff', cursor: 'pointer',
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
             }}>
+            {/* KÄLLMÄRKNING: visar OM stråklinjerna är skördarens riktiga hyttspår (verifierat) eller
+                den rekonstruerade skordarstrak (arbetspositioner mellan stopp). Data-gejtat i fetchen. */}
+            {strakKalla && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, fontSize: 11, fontWeight: 600, letterSpacing: 0.3,
+                  color: strakKalla === 'gps' ? '#30d158' : '#8e8e93' }}>
+                <span style={{ width: 7, height: 7, borderRadius: 4, background: strakKalla === 'gps' ? '#30d158' : '#8e8e93', flexShrink: 0 }} aria-hidden="true" />
+                {strakKalla === 'gps' ? 'Verifierat GPS-spår' : 'Uppskattat'}
+              </div>
+            )}
             {/* KOMPAKT rubrik: allt föraren behöver på EN rad — "Stråk N · X m³ kvar".
                 Versaletiketten är utfälld-lägets lyx; i kompakt kostar den en hel rad höjd, och
                 mätt på 375–412 px vred den rubriken till två rader. */}
