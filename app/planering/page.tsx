@@ -147,6 +147,22 @@ function korvyProximityZoom(dist: number | null): number {
   return KORVY_BASE_ZOOM + (KORVY_FULL_ZOOM - KORVY_BASE_ZOOM) * t;
 }
 
+// === HYTTSPÅR-STIL (delad av körvy OCH planeringsvyn) ===
+// Apple-Maps-look: färgad kärna + LJUS casing (vit) som lyfter linjen från busig bakgrund (raster,
+// gränser, basvägar) i den utzoomade planeringsvyn OCH i körvyn. Casing ~2,5 px bredare än linjen.
+// Zoom-interpolerad bredd (Martin: 2 px @ z13, 4 px @ z15, 6 px @ z17) med floors vid låg/hög zoom så
+// bredden aldrig extrapolerar till noll/negativt. Linjens FÄRG behålls per lager/roll.
+const HYTTSPAR_CASING_COLOR = '#ffffff';
+const HYTTSPAR_LINE_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 1.5, 13, 2, 15, 4, 17, 6, 19, 8];
+const HYTTSPAR_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 4, 13, 4.5, 15, 6.5, 17, 8.5, 19, 10.5];
+// Historiken (tidigare dagars eget-spår i körvyn) något smalare + dämpad casing-opacitet.
+const HYTTSPAR_HIST_LINE_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 1, 13, 1.5, 15, 3, 17, 4.5, 19, 6];
+const HYTTSPAR_HIST_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 3, 13, 3.5, 15, 5, 17, 6.5, 19, 8];
+// Planeringsvyns hyttspår-färger per roll (samma palett som körvyerna: grönt = eget-nyansen,
+// lila = andras-nyansen). skotare = grönt (fokus i denna uppgift), skördare = lila.
+const PLANSPAR_FARG_SKOTARE = '#34c759';
+const PLANSPAR_FARG_SKORDARE = '#bf5af2';
+
 // === SKOTARKÖRVY (v1): stråk-klumpning + sortimentfärg ===
 // Autopanelens sortimentrader: allt under detta klumpas till EN "Övrigt"-rad sist. Ett halvt
 // kubikmeter är under vad som är värt att välja lass efter — resten ska inte äta plats i kortet.
@@ -7978,7 +7994,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-hist-casing', type: 'line', source: 'hyttspar-hist-source',
-          paint: { 'line-color': '#0b0b0d', 'line-opacity': 0.18, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 5, 19, 7] },
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.45, 'line-width': HYTTSPAR_HIST_CASING_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] hist-casing:', e); }
@@ -7987,7 +8003,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-hist-line', type: 'line', source: 'hyttspar-hist-source',
-          paint: { 'line-color': '#5a8064', 'line-opacity': 0.5, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 3.2, 19, 4.5] },
+          paint: { 'line-color': '#5a8064', 'line-opacity': 0.6, 'line-width': HYTTSPAR_HIST_LINE_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] hist-line:', e); }
@@ -8002,7 +8018,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-egen-casing', type: 'line', source: 'hyttspar-egen-source',
-          paint: { 'line-color': '#0b0b0d', 'line-opacity': 0.45, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 4, 17, 7, 19, 10] },
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.8, 'line-width': HYTTSPAR_CASING_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] casing:', e); }
@@ -8011,7 +8027,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-egen-line', type: 'line', source: 'hyttspar-egen-source',
-          paint: { 'line-color': '#34c759', 'line-opacity': 0.95, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2.4, 17, 4, 19, 6] },
+          paint: { 'line-color': '#34c759', 'line-opacity': 0.95, 'line-width': HYTTSPAR_LINE_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] line:', e); }
@@ -8026,7 +8042,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-casing', type: 'line', source: 'hyttspar-andras-source',
-          paint: { 'line-color': '#0b0b0d', 'line-opacity': 0.4, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3.5, 17, 6, 19, 8.5] },
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.8, 'line-width': HYTTSPAR_CASING_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-casing:', e); }
@@ -8035,13 +8051,94 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-line', type: 'line', source: 'hyttspar-andras-source',
-          paint: { 'line-color': '#bf5af2', 'line-opacity': 0.9, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 3.4, 19, 5] },
+          paint: { 'line-color': '#bf5af2', 'line-opacity': 0.9, 'line-width': HYTTSPAR_LINE_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-line:', e); }
     }
+    // PLANERINGSVYNS hyttspår (EJ körvy): skotarens + skördarens riktiga körspår ritas i den vanliga
+    // planeringskartan när objekt är valt. Egna lager (planspar-*) — matchar INTE körvyns 'hyttspar-'-
+    // whitelist → döljs automatiskt i körvyn (som har egen egen/hist/andras-visning). Samma Apple-Maps-
+    // stil (ljus casing + zoom-interp-bredd) som körvyns lager; färg per roll (skotare grönt, skördare lila).
+    for (const roll of ['skordare', 'skotare'] as const) {
+      const src = `planspar-${roll}-source`;
+      const farg = roll === 'skotare' ? PLANSPAR_FARG_SKOTARE : PLANSPAR_FARG_SKORDARE;
+      if (!map.getSource(src)) {
+        try { map.addSource(src, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+        catch (e) { console.error(`[Planspår] ${roll}-source:`, e); }
+      }
+      if (!map.getLayer(`planspar-${roll}-casing`)) {
+        try {
+          map.addLayer({
+            id: `planspar-${roll}-casing`, type: 'line', source: src,
+            paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.8, 'line-width': HYTTSPAR_CASING_WIDTH },
+            layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+          });
+        } catch (e) { console.error(`[Planspår] ${roll}-casing:`, e); }
+      }
+      if (!map.getLayer(`planspar-${roll}-line`)) {
+        try {
+          map.addLayer({
+            id: `planspar-${roll}-line`, type: 'line', source: src,
+            paint: { 'line-color': farg, 'line-opacity': 0.95, 'line-width': HYTTSPAR_LINE_WIDTH },
+            layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+          });
+        } catch (e) { console.error(`[Planspår] ${roll}-line:`, e); }
+      }
+    }
+    // Håll planspår-linjerna UNDER markörerna (men över raster/gränser/basvägar). skotare flyttas SIST →
+    // hamnar överst av de två (skotarspåret är fokus); casing under sin linje.
+    for (const roll of ['skordare', 'skotare'] as const) {
+      for (const suff of ['casing', 'line'] as const) {
+        try { if (map.getLayer(`planspar-${roll}-${suff}`) && map.getLayer('markers-layer')) map.moveLayer(`planspar-${roll}-${suff}`, 'markers-layer'); } catch { /* */ }
+      }
+    }
     console.log('[Körvy] immersion-layers setup klar');
   }, [mapLibreReady]);
+
+  // PLANERINGSVYNS hyttspår: hämta BÅDA rollernas riktiga körspår för objektet och rita i planeringskartan
+  // (skotare grönt, skördare lila). Segmenteras RUMSLIGT via delade hjälparen (inga fantomlinjer). Laddas
+  // när objekt byts; töms när inget objekt. Synlighet i separat effekt (dold i körvyn).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const objektId = valtObjekt?.id;
+    const tomma = () => { for (const roll of ['skordare', 'skotare'] as const) { try { const s = map.getSource(`planspar-${roll}-source`) as any; if (s) s.setData({ type: 'FeatureCollection', features: [] }); } catch { /* */ } } };
+    if (!objektId) { tomma(); return; }
+    let avbruten = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('hyttspar').select('roll, points').eq('objekt_id', objektId);
+        if (avbruten) return;
+        if (error) { console.error('[Planspår] hämtning:', error.message); return; }
+        const perRoll: { skordare: any[]; skotare: any[] } = { skordare: [], skotare: [] };
+        for (const r of (data || [])) {
+          const roll = (r as any).roll === 'skotare' ? 'skotare' : (r as any).roll === 'skordare' ? 'skordare' : null;
+          if (!roll) continue;
+          for (const coords of hyttsparTillLinjer(Array.isArray((r as any).points) ? (r as any).points : [])) {
+            perRoll[roll].push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} });
+          }
+        }
+        for (const roll of ['skordare', 'skotare'] as const) {
+          try { const s = map.getSource(`planspar-${roll}-source`) as any; if (s) s.setData({ type: 'FeatureCollection', features: perRoll[roll] }); } catch { /* */ }
+        }
+      } catch (e) { console.error('[Planspår] undantag:', e); }
+    })();
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, mapLibreReady]);
+
+  // PLANERINGSVYNS hyttspår: synliga NÄR objekt valt OCH ej i körvy (körvyn har egen visning + whitelisten
+  // döljer planspar-* ändå). Togglas vid körvy-in/ut och objektbyte.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const visa = !korvyActive && !!valtObjekt?.id;
+    for (const roll of ['skordare', 'skotare'] as const) {
+      for (const suff of ['casing', 'line'] as const) {
+        try { if (map.getLayer(`planspar-${roll}-${suff}`)) map.setLayoutProperty(`planspar-${roll}-${suff}`, 'visibility', visa ? 'visible' : 'none'); } catch { /* */ }
+      }
+    }
+  }, [korvyActive, valtObjekt?.id, mapLibreReady]);
 
   // === SKOTARKÖRVY: mata stråk-linjer + kvar-etiketter + toggla synlighet ===
   useEffect(() => {
