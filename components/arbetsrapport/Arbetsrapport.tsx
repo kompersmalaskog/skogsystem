@@ -3853,11 +3853,13 @@ export default function Arbetsrapport() {
     const löneRödaDagar = getRödaDagar(nu.getFullYear());
     // ISO-vecka — EN definition i hela appen (lib/vilobrott isoVecka).
     const veckoNrFör = (datum: string) => isoVecka(new Date(datum + 'T00:00:00')).vecka;
-    const veckoData: Record<number, { dagar: {datum:string;min:number;extraMin:number;rödDag?:string}[]; sumH:number; helglönH:number }> = {};
+    // (helglönH är borta: helglönen räknas i lib/lonesystem/helglon via specen —
+    // den lokala räkningen här nådde aldrig någon vy och var en andra sanning.)
+    const veckoData: Record<number, { dagar: {datum:string;min:number;extraMin:number;rödDag?:string}[]; sumH:number }> = {};
     const extraPerDagMånad = extraMinPerDag(månadsExtraTid);
     historik.filter(d => d.datum && d.datum.startsWith(månadsPrefix)).forEach(d => {
       const weekNum = veckoNrFör(d.datum);
-      if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0, helglönH:0 };
+      if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0 };
       const m = d.arbetad_min || 0;
       const ex = extraPerDagMånad.get(d.datum) || 0;
       veckoData[weekNum].dagar.push({ datum:d.datum, min:m, extraMin:ex });
@@ -3867,30 +3869,29 @@ export default function Arbetsrapport() {
     for (const [datum, ex] of extraPerDagMånad) {
       if (!datum.startsWith(månadsPrefix) || ex <= 0) continue;
       const weekNum = veckoNrFör(datum);
-      if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0, helglönH:0 };
+      if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0 };
       if (veckoData[weekNum].dagar.find(x => x.datum === datum)) continue; // redan medräknad ovan
       veckoData[weekNum].dagar.push({ datum, min:0, extraMin:ex });
       veckoData[weekNum].sumH += ex/60;
     }
-    // Add röda dagar to weeks
-    const lönÅr=nu.getFullYear(), lönMån=nu.getMonth();
-    const dIMlön=new Date(lönÅr,lönMån+1,0).getDate();
-    for(let d=1;d<=dIMlön;d++){
-      const dt=new Date(lönÅr,lönMån,d);
-      const k=dt.toISOString().split('T')[0];
-      if(!k.startsWith(månadsPrefix)) continue;
-      const rödNamn=löneRödaDagar[k];
-      if(!rödNamn) continue;
-      const dayOfYear=Math.floor((dt.getTime()-new Date(lönÅr,0,1).getTime())/86400000);
-      const weekNum=Math.ceil((dayOfYear+new Date(lönÅr,0,1).getDay())/7);
-      if(!veckoData[weekNum]) veckoData[weekNum]={dagar:[],sumH:0,helglönH:0};
-      // Lägg till röd dag om den inte redan finns som arbetsdag/extra-dag
-      if(!veckoData[weekNum].dagar.find(x=>x.datum===k)){
-        veckoData[weekNum].dagar.push({datum:k,min:0,extraMin:0,rödDag:rödNamn});
+    // Röda dagar som egna rader i veckorna — för den VISADE månaden (lönePeriod),
+    // inte innevarande. Förr räknades här mot dagens månad, med toISOString
+    // (TZ-glapp) och ett eget veckonummer — tre fel i en loop som bara skulle
+    // lägga in namnet på en röd dag.
+    {
+      const [lÅ, lM] = månadsPrefix.split('-').map(Number);
+      const rödaVisadMånad = getRödaDagar(lÅ);
+      const dIMlön = new Date(lÅ, lM, 0).getDate();
+      for (let d = 1; d <= dIMlön; d++) {
+        const k = ymdLokal(new Date(lÅ, lM - 1, d));
+        const rödNamn = rödaVisadMånad[k];
+        if (!rödNamn) continue;
+        const weekNum = veckoNrFör(k);
+        if (!veckoData[weekNum]) veckoData[weekNum] = { dagar: [], sumH: 0 };
+        if (!veckoData[weekNum].dagar.find(x => x.datum === k)) {
+          veckoData[weekNum].dagar.push({ datum: k, min: 0, extraMin: 0, rödDag: rödNamn });
+        }
       }
-      // Helglön: röd dag på vardag
-      const dow=dt.getDay();
-      if(dow!==0&&dow!==6) veckoData[weekNum].helglönH+=8;
     }
     // Sort dagar within each week
     Object.values(veckoData).forEach(w=>w.dagar.sort((a,b)=>a.datum.localeCompare(b.datum)));

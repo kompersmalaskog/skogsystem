@@ -135,7 +135,7 @@ export async function beraknaLoneunderlag(
       .lte("startdatum", arbSlut).gte("slutdatum", arbStart),
     // Fri pendling km/dag — samma fält som appen (km_grans_per_dag), aldrig
     // hårdkodad 60. Fortnox äger kr/mil-satsen, vi skickar bara mil-antalet.
-    supabase.from("gs_avtal").select("km_grans_per_dag")
+    supabase.from("gs_avtal").select("km_grans_per_dag, helglon_dagar")
       .order("giltigt_fran", { ascending: false }).limit(1).maybeSingle(),
   ]);
 
@@ -248,7 +248,7 @@ export async function beraknaLoneunderlag(
     if (dagar.length === 0 && extra.length === 0 && ledigheter.length === 0) continue;
 
     const anstNr = anstMap[med.id] || "";
-    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans); // period = löneperiod
+    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null); // period = löneperiod
 
     let status = "utkast";
     if (redanSkickad.has(med.id)) status = "skickat";
