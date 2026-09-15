@@ -79,11 +79,16 @@ export default function OversiktPage() {
 
     // ── FAS A: kärndata (objekten) — måste lyckas. Fel här = ärlig felruta, ALDRIG ett tyst tomt. ──
     let allObjekt: any[];
+    // Maskinlistan används även i FAS B (skotargruppering). Hissad ut ur try-blocket:
+    // sedan #549 låg den som const INUTI FAS A och FAS B kastade ReferenceError —
+    // fångat mjukt, så /oversikt tappade grupperingen tyst varje laddning.
+    let maskinerData: any[] = [];
     try {
       const [maskinerRes, koRes] = await Promise.all([
         supabase.from('dim_maskin').select('*').order('modell'),
         supabase.from('maskin_ko').select('*').order('ordning'),
       ]);
+      maskinerData = maskinerRes.data || [];
       // Fetch ALL objekt with pagination (Supabase default limit is 1000)
       allObjekt = await fetchAllRows<any>(() => supabase.from('objekt').select(OBJEKT_SELECT).order('namn'));
       if (allObjekt.length === 0) {
@@ -200,7 +205,7 @@ export default function OversiktPage() {
     //    lassdatan (hård) → dim_objekt.tilldelad_skotare (planerad) → null. Grupperar objektet under
     //    skotaren redan innan första lasset. De två vyerna får ALDRIG gruppera olika. ──
     const maskinMap = new Map<string, any>();
-    for (const m of (maskinerRes.data || [])) maskinMap.set(m.maskin_id, m);
+    for (const m of maskinerData) maskinMap.set(m.maskin_id, m);
     const tilldByVo: Record<string, string> = {};
     const egenByVo = new Set<string>();
     for (const r of tilldeladRows) {
