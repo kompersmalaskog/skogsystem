@@ -738,22 +738,26 @@ function FortnoxExportSektion({
         </p>
       </Card>
 
-      {/* Att bekräfta med löneansvarig — två påståenden att godkänna, inte öppna
-          frågor. Martin kan visa skärmen och få ja/nej. */}
+      {/* Att ta med löneansvarig — påståenden att godkänna, inte öppna frågor.
+          Martin kan visa skärmen och få ja/nej. Reseersättningens två frågor
+          (en rad 821, påbörjad mil per dag) besvarades 2026-09-12: koden gjorde
+          rätt. Kvar: de sex nedan. Tills de är svarade läggs OB, sjuk och
+          helglön INTE som lönerader — de står under "påverkar riktigheten". */}
       <Card style={{ padding: "12px 18px", background: "rgba(255,159,10,0.06)", border: "1px solid rgba(255,159,10,0.2)" }}>
-        <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Att bekräfta med löneansvarig</p>
-        <div style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: `1px solid ${C.line}` }}>
-          <span style={{ color: C.orange }}>▸</span>
-          <p style={{ margin: 0, fontSize: 13, color: C.text }}>
-            <strong>Reseersättning</strong> skickas som <strong>en rad</strong> (löneart 821, antal påbörjade mil). Ska den delas i två lönearter — färdtid (10,49) + bilersättning (27,50)? <span style={{ color: C.label }}>Godkänn en rad, eller be om två.</span>
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: 8, padding: "6px 0 0" }}>
-          <span style={{ color: C.orange }}>▸</span>
-          <p style={{ margin: 0, fontSize: 13, color: C.text }}>
-            <strong>Avrundning</strong>: påbörjad mil beräknas <strong>per dag</strong> och summeras över månaden. Ska avrundningen ske på månadssumman istället? <span style={{ color: C.label }}>Godkänn per dag, eller be om månadssumma.</span>
-          </p>
-        </div>
+        <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Att ta med löneansvarig</p>
+        {([
+          ["Löneart för brandrisk-OB", "timmarna räknas (lib/ob) men skickas inte förrän koden är fastställd."],
+          ["Löneart för sjuklön", "sjukdagar ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
+          ["Övertidsmodell", "mot arbetade dagar × 8 (exporten i dag), kalenderns vardagar × 8 (Min tid) eller 40-timmarsveckan? Kortet överst visar alla tre."],
+          ["250-taket", "har någon passerat 250 tim allmän övertid, och vad gör vi? Allmän övertid över taket kräver extra övertid enligt arbetstidslagen."],
+          ["Helglön §10 — närvarokrav", "kräver helglön närvaro dagen före och efter den röda dagen?"],
+          ["Helglön §10 — arbete på röd dag", "ska den som jobbar på en röd dag ha helglön plus OB, eller bara det ena?"],
+        ] as [string, string][]).map(([rubrik, text], i, arr) => (
+          <div key={rubrik} style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${C.line}` }}>
+            <span style={{ color: C.orange }}>▸</span>
+            <p style={{ margin: 0, fontSize: 13, color: C.text }}><strong>{rubrik}</strong> — <span style={{ color: C.label }}>{text}</span></p>
+          </div>
+        ))}
       </Card>
 
       {/* Granskningsvy — per medarbetare: vad som GÅR till Fortnox (löneart, mängd,
@@ -770,13 +774,14 @@ function FortnoxExportSektion({
           const kortpass = m.kortpass || [];
           const orimliga = m.orimliga || [];
           const utanRast = m.utan_rast || { dagar: 0, timmar: 0, datum: [] };
+          const helglon = m.helglon || { dagar: [], timmar: 0 };
           // "saknar typ" och kortpass visas som strukturerade rader — filtrera bort
           // ur textvarningarna så samma sak inte står två gånger.
-          const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ|^Kortpass/i.test(v));
+          const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ|^Kortpass|^Helglön/i.test(v));
           const oen = (fortnoxData.oenighet || []).filter((o: any) => o.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id));
           const harRiktighet = maskinLuckor.length > 0 || synk.length > 0 || ledK.length > 0 ||
             (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0 ||
-            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0;
+            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0 || helglon.dagar.length > 0;
           const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
           return (
             <div key={mi} style={{
@@ -884,6 +889,14 @@ function FortnoxExportSektion({
                     {ob.timmar > 0 && (
                       <p style={{ margin: 0, fontSize: 12, color: C.blue }}>
                         Brandrisk-OB: <strong>{ob.timmar} tim</strong> ({ob.dagar} dag{ob.dagar === 1 ? "" : "ar"}) — <em>löneart ej fastställd</em>, läggs inte som lönerad.
+                      </p>
+                    )}
+                    {/* Helglön §10 (lib/lonesystem/helglon): röda vardagar i arbetsmånaden ur
+                        avtalets tolv namn, 8 tim per dag utan arbete. Samma väg som OB och
+                        sjuk tills lönearten och de två avtalsfrågorna är på plats. */}
+                    {helglon.dagar.length > 0 && (
+                      <p style={{ margin: 0, fontSize: 12, color: C.blue }}>
+                        Helglön §10: <strong>{helglon.timmar} tim</strong> — {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — räknas inte förrän OB-frågan är svarad)" : ""}`).join(", ")} — <em>löneart ej fastställd</em>, läggs inte som lönerad.
                       </p>
                     )}
                     {ob.obesvarade > 0 && (

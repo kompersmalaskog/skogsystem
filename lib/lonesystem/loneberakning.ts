@@ -29,6 +29,7 @@
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
 import { FRANVARO_DAGTYPER_ALLA } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
+import { helglonIManad, HELGLON_TIMMAR, type HelglonDag } from "./helglon";
 
 type ArbetsdagInput = {
   datum: string;        // YYYY-MM-DD
@@ -92,6 +93,11 @@ export type ExportSammanfattning = {
   // Dagar under arbetsdagströskeln (lib/arbetsdagRegler): betald tid som inte är
   // en arbetsdag. Visas i granskningen — oftast inloggningar på annans maskin.
   kortpass: { datum: string; minuter: number; km_totalt: number }[];
+  // Helglön §10 (lib/lonesystem/helglon): röda VARDAGAR i arbetsmånaden ur
+  // avtalets lista. `timmar` = 8 × de dagar föraren INTE arbetat. Läggs ALDRIG
+  // som lönerad — löneart ej fastställd, och två avtalsfrågor är öppna (närvaro
+  // före/efter? helglön + OB vid arbete på röd dag?). Granskningsrad.
+  helglon: { dagar: HelglonDag[]; timmar: number };
 };
 
 function isoVecka(d: Date): number {
@@ -126,6 +132,7 @@ export function beräknaExport(
   extraTid: ExtraTidInput[] = [],  // extra tid i ARBETSPERIODEN för medarbetaren
   ledigheter: LedighetInput[] = [],  // godkänd ledighet (frånvaro) för medarbetaren
   kmGrans: number = KM_GRANS_DEFAULT,  // gs_avtal.km_grans_per_dag (fri pendling km/dag)
+  helglonNamn: string | null = null,   // gs_avtal.helglon_dagar (tolv namn); null = avtalets default
 ): ExportSammanfattning {
   const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
@@ -338,6 +345,21 @@ export function beräknaExport(
     varningar.push(`Frånvaro (${f.typ}): ${f.dagar} dag(ar) ${spann} — löneart för Fortnox ej fastställd; läggs INTE som lönerad, sätt manuellt innan sändning.`);
   }
 
+  // ── HELGLÖN §10 (lib/lonesystem/helglon) ──
+  // Röda vardagar i arbetsmånaden ur avtalets tolv namn. 8 tim per dag föraren
+  // inte arbetat. Arbetade röda dagar listas men räknas inte — avtalsfrågan
+  // "helglön + OB eller bara det ena" är öppen, liksom närvarokravet före/efter.
+  // Ingen lönerad förrän lönearten är fastställd (samma väg som OB och sjuk).
+  const arbetadeInklExtra = new Set<string>(arbetadeDatum);
+  for (const e of extraTid) if (e?.datum && (e.minuter || 0) > 0) arbetadeInklExtra.add(e.datum);
+  const helglonDagarLista = helglonIManad(helglonNamn, arbperiod, arbetadeInklExtra);
+  const helglonTimmar = helglonDagarLista.filter(h => !h.arbetad).length * HELGLON_TIMMAR;
+  const helglon = { dagar: helglonDagarLista, timmar: helglonTimmar };
+  if (helglonDagarLista.length > 0) {
+    const lista = helglonDagarLista.map(h => `${h.datum} ${h.namn}${h.arbetad ? ' (arbetad)' : ''}`).join(', ');
+    varningar.push(`Helglön §10: ${helglonTimmar} tim (${lista}) — löneart ej fastställd; läggs INTE som lönerad. Öppet: närvarokrav före/efter, och helglön + OB vid arbete på röd dag.`);
+  }
+
   return {
     medarbetare_id: medarbetareId,
     namn,
@@ -356,5 +378,6 @@ export function beräknaExport(
     obekraftade,
     franvaro,
     kortpass,
+    helglon,
   };
 }

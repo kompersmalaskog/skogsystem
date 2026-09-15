@@ -25,7 +25,12 @@ export function getRödaDagar(år: number): Record<string, string> {
   const midsommarLör = new Date(år, 5, 20);
   while (midsommarLör.getDay() !== 6) midsommarLör.setDate(midsommarLör.getDate() + 1);
   const midsommarAfton = addD(midsommarLör, -1);
+  // Alla helgons dag = lördagen 31 okt–6 nov. Alltid lördag, som midsommardagen —
+  // påverkar aldrig helglön eller vardagsräkning, bara kalenderns röda namn.
+  const allaHelgons = new Date(år, 9, 31);
+  while (allaHelgons.getDay() !== 6) allaHelgons.setDate(allaHelgons.getDate() + 1);
 
+  // Verifierad datum för datum mot almanackan 2025–2028 (scripts/verifiera-roda-dagar.ts).
   return {
     [`${år}-01-01`]: "Nyårsdagen",
     [`${år}-01-06`]: "Trettondedag jul",
@@ -36,7 +41,9 @@ export function getRödaDagar(år: number): Record<string, string> {
     [fm(addD(påsk, 39))]: "Kristi himmelsfärd",
     [`${år}-06-06`]: "Nationaldagen",
     [fm(midsommarAfton)]: "Midsommarafton",
+    [fm(midsommarLör)]: "Midsommardagen",
     [fm(addD(påsk, 49))]: "Pingstdagen",
+    [fm(allaHelgons)]: "Alla helgons dag",
     [`${år}-12-24`]: "Julafton",
     [`${år}-12-25`]: "Juldagen",
     [`${år}-12-26`]: "Annandag jul",
