@@ -87,6 +87,7 @@ export const FARG = {
   upphojt:  "#2c2c2e",
   linje:    "rgba(255,255,255,0.08)",
   fyllning: "rgba(255,255,255,0.10)", // sekundär knapp
+  tonad:    "rgba(255,255,255,0.04)", // svag yta bakom en kolumn/zon (kalenderns helg)
   text:     "#ffffff",
   text2:    "#8e8e93",
   text3:    "#636366",
@@ -95,6 +96,8 @@ export const FARG = {
   gron:     "#30d158",
   orange:   "#ff9f0a",
   rod:      "#ff453a",
+  /** Bara kalenderns markeringar (synk-avvikelse, rättad dag). Aldrig en fjärde larmfärg i text. */
+  gul:      "#ffd60a",
   /** Maskinfärger ur Uppföljning v6. */
   skordare: "#a8d582",
   skotare:  "#f0b24c",

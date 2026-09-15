@@ -10,7 +10,7 @@ type Avtal = {
   giltigt_till?: string | null;
   timlon_kr?: number | null;
   overtid_vardag_kr?: number | null;
-  max_overtid_ar?: number | null;
+  max_overtid_ar_h?: number | null;
   ob_kvall_kr?: number | null;
   ob_natt_kr?: number | null;
   ob_lordag_kr?: number | null;
@@ -59,7 +59,9 @@ const GRUPPER: FältGrupp[] = [
     rubrik: "Övertid",
     fält: [
       { key: "overtid_vardag_kr", label: "Övertidsersättning vardag", suffix: "kr/tim", step: "0.01" },
-      { key: "max_overtid_ar", label: "Max övertid", suffix: "tim/år", step: "1" },
+      // Kolumnen heter max_overtid_ar_h — förr "max_overtid_ar", som inte finns:
+      // fältet sparade till ingenting och appen föll alltid tillbaka på 250.
+      { key: "max_overtid_ar_h", label: "Max övertid", suffix: "tim/år", step: "1" },
     ],
   },
   {

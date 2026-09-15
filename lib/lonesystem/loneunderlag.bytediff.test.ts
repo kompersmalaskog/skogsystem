@@ -1,4 +1,9 @@
 // BYTE-DIFF-BEVIS för lyftet av salary-export → lib/lonesystem/loneunderlag.ts.
+// FRYST 2026-09-07: beviset gällde lyftet, inte reglerna. Sedan dess har reglerna
+// ÄNDRATS medvetet (2026-09-12: arbetsdagströskel 60 min, dagtyp-frånvaro i
+// underlaget, rast_langa/kortpass i berikningen) — den gamla routen ger därför
+// annat svar och testet FÖRVÄNTAS falla mot .tmp/bytediff/gammal_route.ts.
+// Månadskontrollen är nu scripts/dry-run-loneunderlag.ts.
 // Kör GAMLA routen (origin/main, sparad i .tmp/bytediff/gammal_route.ts) och NYA
 // routen mot SAMMA prod-DB med samma body, och kräver identisk JSON — byte för byte.
 // Auth-vakten mockas i testprocessen (ingen deployad bypass); Fortnox anropas aldrig

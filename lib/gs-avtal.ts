@@ -24,7 +24,10 @@ export type GsAvtal = {
   // Lön & övertid
   timlon_kr?: number | null;
   overtid_vardag_kr?: number | null;
-  max_overtid_ar?: number | null;
+  // Kolumnen heter max_overtid_ar_h (timmar). Typen sa "max_overtid_ar" till
+  // 2026-09-13 — då läste alla ställen undefined och föll tillbaka på 250, och
+  // admin-fältet sparade till en kolumn som inte finns.
+  max_overtid_ar_h?: number | null;
 
   // OB
   ob_kvall_kr?: number | null;
