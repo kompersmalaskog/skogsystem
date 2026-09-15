@@ -12,7 +12,7 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
 import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_RUBRIK, FRANVARO_DAGTYPER_ALLA, arFranvaroDagtyp } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
-import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
+import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet, rastSaknas } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
@@ -1669,6 +1669,12 @@ export default function Arbetsrapport() {
       } else if (orim === "lang") {
         const tim = (Math.round((kontroll.passMin || 0) / 6) / 10).toLocaleString("sv-SE");
         fragor.push({ rubrik: `Passet är ${tim} tim — stämmer det?`, text: `Längre än ${ARBETSDAG_MAX_MINUTER / 60} timmar. En felskriven sluttid ger samma bild — kontrollera start och slut.` });
+      }
+      // Ingen rast på ett långt pass: skotarna loggar aldrig rast i filen, så
+      // noll betyder "ingen tog ställning" — föraren avgör (lib/arbetsdagRegler).
+      if (!orim && rastSaknas(kontroll.passMin, kontroll.minuter)) {
+        const tim = (Math.round((kontroll.passMin || 0) / 6) / 10).toLocaleString("sv-SE");
+        fragor.push({ rubrik: `Ingen rast på ${tim} tim — stämmer det?`, text: `Maskinen loggar ingen rast. Tog du rast, ange den under Ändra tider — annars räknas hela passet som arbetstid, även i övertiden.` });
       }
       if (kontroll.minuter > RAST_FRAGA_MIN) {
         fragor.push({ rubrik: `Rast ${kontroll.minuter} min — stämmer det?`, text: `Maskinen räknar allt som bokförts som Meal break. Stod maskinen still av annan orsak — flytt, väntan, service — är det arbetstid, inte rast.` });

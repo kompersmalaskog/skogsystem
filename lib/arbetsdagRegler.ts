@@ -68,6 +68,24 @@ export function passMinuter(start: string | null | undefined, slut: string | nul
   return diff - (rastMin || 0);
 }
 
+// ─── Ingen rast ──────────────────────────────────────────────
+// Ponsse-skotarna (A110148, A030353) skriver ALDRIG Meal break, kort stopp
+// eller tomgång i sina MOM-filer — Martin hade 45 av 47 Dalarna-dagar på noll
+// rast, Max 48 av 54, medan Rottne och Scorpion loggar rasten (Oskar 1 av 51).
+// Datat kan inte skilja "tog ingen rast" från "maskinen loggar den inte". Så
+// på ett pass utan rast frågar appen föraren vid Bekräfta — samma mekanism som
+// den långa rasten, åt andra hållet. Rasten räknas bort från arbetstiden och
+// påverkar övertid och vilotid; noll som ingen tagit ställning till är fel.
+// Under sex timmar frågas inte — en halvdag utan rast är vanligt.
+
+/** Från den här passlängden är noll rast en fråga. */
+export const RAST_SAKNAS_FRAN_MINUTER = 6 * 60;
+
+/** Pass utan rast som appen ska fråga om: minst sex timmar och rast 0. */
+export function rastSaknas(passMin: number | null | undefined, rastMin: number | null | undefined): boolean {
+  return passMin != null && passMin >= RAST_SAKNAS_FRAN_MINUTER && (rastMin || 0) === 0;
+}
+
 export type PassOrimlighet = "lang" | "negativ";
 
 /** Är passet orimligt? 'lang' = över taket, 'negativ' = rasten längre än passet. */

@@ -769,13 +769,14 @@ function FortnoxExportSektion({
           const rastLanga = m.rast_langa || [];
           const kortpass = m.kortpass || [];
           const orimliga = m.orimliga || [];
+          const utanRast = m.utan_rast || { dagar: 0, timmar: 0, datum: [] };
           // "saknar typ" och kortpass visas som strukturerade rader — filtrera bort
           // ur textvarningarna så samma sak inte står två gånger.
           const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ|^Kortpass/i.test(v));
           const oen = (fortnoxData.oenighet || []).filter((o: any) => o.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id));
           const harRiktighet = maskinLuckor.length > 0 || synk.length > 0 || ledK.length > 0 ||
             (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0 ||
-            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0;
+            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0;
           const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
           return (
             <div key={mi} style={{
@@ -822,6 +823,15 @@ function FortnoxExportSektion({
                     {/* Orimliga pass — en FRÅGA, inte ett påstående om fel: en 16-timmarsdag
                         kan vara äkta (Dalarna). Negativ tid = rasten längre än passet;
                         kläms aldrig till noll, ska synas tills någon rättar. */}
+                    {/* Ingen rast på långa pass — EN summeringsrad, inte en per dag: på
+                        Ponsse-skotarna loggas rasten aldrig i filen, så det är nästan
+                        varje dag. Föraren får frågan vid Bekräfta (lib/arbetsdagRegler). */}
+                    {utanRast.dagar > 0 && (
+                      <p style={{ margin: 0, fontSize: 12, color: C.label }}>
+                        <strong style={{ color: C.text }}>{utanRast.dagar} dag{utanRast.dagar === 1 ? "" : "ar"} över 6 tim utan rast</strong> ({utanRast.timmar.toLocaleString("sv-SE")} tim) — noll rast räknas som hel arbetstid. Skotarna loggar ingen rast i filen; föraren får frågan vid Bekräfta.
+                        <span title={utanRast.datum.join(", ")}> {utanRast.datum.slice(0, 6).map((d: string) => d.slice(5)).join(", ")}{utanRast.datum.length > 6 ? " …" : ""}</span>
+                      </p>
+                    )}
                     {orimliga.map((o: any) => {
                       const tim = (Math.round(Math.abs(o.arbetad_min) / 6) / 10).toLocaleString("sv-SE");
                       const kl = `${String(o.start_tid || "").slice(0, 5)}–${String(o.slut_tid || "").slice(0, 5)}, rast ${o.rast_min} min`;
