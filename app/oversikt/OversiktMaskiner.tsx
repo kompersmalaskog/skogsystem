@@ -22,7 +22,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Maskin, MaskinKoItem, OversiktObjekt, C, T, BTN, SP } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { getMaskinDisplayName, getMaskinTyp } from './oversikt-utils';
+import { getMaskinTyp } from './oversikt-utils';
+import { maskinVisningsnamn } from '@/lib/maskinNamn';
 
 interface Props {
   maskiner: Maskin[];
@@ -242,7 +243,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
         onDragEnd={handleDragEnd}
       >
         {aktivaMaskiner.map((maskin) => {
-          const name = getMaskinDisplayName(maskin);
+          const name = maskinVisningsnamn(maskin);
           const isSk = getMaskinTyp(maskin.typ) === 'skördare';
           const ko = getKo(maskin.maskin_id);
 
@@ -350,7 +351,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
                                     ...T.body, textAlign: 'left', cursor: 'pointer', fontFamily: ff,
                                     borderBottom: `1px solid ${C.border}`,
                                   }}
-                                >{getMaskinDisplayName(m)}</button>
+                                >{maskinVisningsnamn(m)}</button>
                               ))}
                           </div>
                         )}

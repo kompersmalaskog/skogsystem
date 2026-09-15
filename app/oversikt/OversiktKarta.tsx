@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotDeadlineDays, skotarTillstand, type SkotarInfo } from './oversikt-utils';
+import { formatVolym, pc, getMaskinTyp, grotDeadlineDays, skotarTillstand, type SkotarInfo } from './oversikt-utils';
+import { maskinVisningsnamn } from '@/lib/maskinNamn';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
 import {
   FARA_SUBTYPER, HANSYN_SUBTYPER, SUB_LABEL, prettifySub, markeringSub, classifyMarkering,
@@ -1558,7 +1559,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     const plats = maskinPlatser.get(maskinFilter);
     if (!plats || !plats.koordinat) return;
     const m = maskiner.find(x => x.maskin_id === maskinFilter);
-    const namn = m ? getMaskinDisplayName(m) : maskinFilter;
+    const namn = m ? maskinVisningsnamn(m) : maskinFilter;
     const gammal = plats.osaker === 'gammal';
     const frisk = plats.tidpunkt ? (gammal ? `~${dagarSedan(plats.tidpunkt)} dgr sedan` : relativTid(plats.tidpunkt)) : null;
     const el = buildMaskinMarkerEl(namn, frisk, gammal, () => {});
@@ -1724,7 +1725,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
                           display: 'flex', alignItems: 'center', gap: 8, borderRadius: 8,
                         }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: tc, flexShrink: 0 }} />
-                        {getMaskinDisplayName(m)}
+                        {maskinVisningsnamn(m)}
                       </button>
                     );
                   })}
@@ -1766,7 +1767,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       {driverMode && !selectedObj && !selectedGrotObj && (
         <DriverSheet
           queue={driverQueue}
-          maskinNamn={(() => { const m = maskiner.find(x => x.maskin_id === driverMaskinId); return m ? getMaskinDisplayName(m) : (driverMaskinId ?? null); })()}
+          maskinNamn={(() => { const m = maskiner.find(x => x.maskin_id === driverMaskinId); return m ? maskinVisningsnamn(m) : (driverMaskinId ?? null); })()}
           warningsByObj={warningsByObj}
           onSelect={(id) => setSelectedId(id)}
         />
@@ -1775,7 +1776,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       {/* "Härnäst närmast" — planerarens beslutsstöd när en maskin är vald (ej förarläge/GROT/öppet kort) */}
       {!driverMode && maskinFilter && !selectedObj && !selectedGrotObj && !showGrot && (
         <MaskinRuttSheet
-          maskinNamn={(() => { const m = maskiner.find(x => x.maskin_id === maskinFilter); return m ? getMaskinDisplayName(m) : maskinFilter; })()}
+          maskinNamn={(() => { const m = maskiner.find(x => x.maskin_id === maskinFilter); return m ? maskinVisningsnamn(m) : maskinFilter; })()}
           pagaendeNamn={pagaende?.namn ?? null}
           plats={maskinPlatser.get(maskinFilter)}
           laddar={platserLaddar}

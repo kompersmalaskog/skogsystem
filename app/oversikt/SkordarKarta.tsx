@@ -196,7 +196,7 @@ export default function SkordarKarta({ vo, objektId }: { vo?: string | null; obj
     if (!hasFil) return null;
     return (
       <div style={{ marginBottom: 34 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>Var skördaren kört</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: C.t3, marginBottom: 10 }}>Var skördaren kört</div>
         <div style={{ height: 280, borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span style={{ fontSize: 12, color: C.t3 }}>Laddar karta…</span>
         </div>
@@ -206,7 +206,7 @@ export default function SkordarKarta({ vo, objektId }: { vo?: string | null; obj
 
   return (
     <div style={{ marginBottom: 34 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>Var skördaren kört</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: C.t3, marginBottom: 10 }}>Var skördaren kört</div>
       <div ref={containerRef} style={{ height: 280, borderRadius: 14, overflow: 'hidden', border: `1px solid ${C.border}` }} />
       <div style={{ fontSize: 12, color: C.t3, marginTop: 6 }}>
         {data.punkter.length.toLocaleString('sv-SE')} avverkade stammar

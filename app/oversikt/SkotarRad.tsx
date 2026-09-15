@@ -17,7 +17,7 @@ export default function SkotarRad({ info, style }: { info: SkotarInfo | null; st
     : info.state === 'igang' ? `senaste lass ${relativDag(info.sista)} · ${formatVolym(Math.round(info.kvar))} m³fub kvar`
     : `${formatVolym(Math.round(info.kvar))} m³fub på backen`;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, lineHeight: 1.4, fontFamily: ff, flexWrap: 'wrap', ...style }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, lineHeight: 1.4, fontFamily: ff, flexWrap: 'wrap', ...style }}>
       <span style={{ width: 7, height: 7, borderRadius: 4, background: aktiv ? C.green : C.t4, flexShrink: 0 }} />
       <span style={{ color: aktiv ? C.green : C.t2, fontWeight: 600 }}>{label}</span>
       {detalj && <span style={{ color: C.t3 }}>· {detalj}</span>}

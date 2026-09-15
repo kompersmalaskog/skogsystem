@@ -74,7 +74,7 @@ function Rad({ punkt, fotoUrler }: { punkt: EgenkontrollPunkt; fotoUrler: string
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '7px 0' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, color: T.t1 }}>{punkt.rubrik}</div>
+        <div style={{ fontSize: 13, color: T.t1 }}>{punkt.rubrik}</div>
         {underrad && (
           <div style={{ fontSize: 13, color: T.t2, lineHeight: 1.4, marginTop: 2 }}>
             {underrad}
@@ -231,7 +231,7 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
 
   if (fel) {
     return (
-      <div style={{ fontSize: 14, color: T.orange, lineHeight: 1.45 }}>
+      <div style={{ fontSize: 13, color: T.orange, lineHeight: 1.45 }}>
         Kunde inte läsa egenkontrollen. {fel}
       </div>
     );
@@ -241,7 +241,7 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
   // Sag vilket av de tva det ar - de betyder olika saker.
   if (!runda) {
     return (
-      <div style={{ fontSize: 14, color: T.t2, lineHeight: 1.45 }}>
+      <div style={{ fontSize: 13, color: T.t2, lineHeight: 1.45 }}>
         Ingen egenkontroll är gjord på objektet.
       </div>
     );
@@ -249,7 +249,7 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
   if (runda.status !== 'klar') {
     const kvar = punkter.filter((p) => p.status === null).length;
     return (
-      <div style={{ fontSize: 14, color: T.t2, lineHeight: 1.45 }}>
+      <div style={{ fontSize: 13, color: T.t2, lineHeight: 1.45 }}>
         Egenkontrollen pågår — {punkter.length - kvar} av {punkter.length} punkter besvarade.
       </div>
     );
@@ -261,7 +261,7 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
 
   return (
     <div style={{ fontFamily: T.ff }}>
-      <div style={{ fontSize: 14, color: T.t1, marginBottom: 2 }}>
+      <div style={{ fontSize: 13, color: T.t1, marginBottom: 2 }}>
         Klar {datum(runda.klar)} · {typEtikett(runda.objekt_typ)}
       </div>
       <div style={{ fontSize: 13, color: T.t2, marginBottom: 4 }}>

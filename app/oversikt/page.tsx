@@ -251,7 +251,7 @@ export default function OversiktPage() {
       <style>{globalCss}</style>
 
       {loading ? (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.t3, fontSize: 14 }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.t3, fontSize: 13 }}>
           Laddar objekt…
         </div>
       ) : fel ? (
@@ -261,7 +261,7 @@ export default function OversiktPage() {
           <div style={{ fontSize: 13, color: C.t3, maxWidth: 260, lineHeight: 1.5 }}>Kontrollera uppkopplingen och försök igen.</div>
           <button onClick={() => { setLoading(true); fetchAll(); }} style={{
             minHeight: 44, padding: '0 22px', borderRadius: 12, cursor: 'pointer', fontFamily: ff,
-            fontSize: 14, fontWeight: 600, color: C.t1,
+            fontSize: 13, fontWeight: 600, color: C.t1,
             background: 'rgba(255,255,255,0.1)', border: `1px solid ${C.borderStrong}`,
           }}>Försök igen</button>
         </div>
@@ -353,7 +353,7 @@ export default function OversiktPage() {
                 transition: 'all 0.25s',
               }}>{v.icon}</span>
               <span style={{
-                fontSize: 11, fontWeight: active ? 600 : 500, letterSpacing: '-0.01em',
+                fontSize: 12, fontWeight: active ? 600 : 500, letterSpacing: '-0.01em',
                 color: active ? C.t1 : C.t3,
                 transition: 'color 0.25s',
               }}>{v.label}</span>

@@ -55,7 +55,7 @@ function humaniseraRestr(name: string): string {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 34 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: C.t3, marginBottom: 10 }}>{title}</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: C.t3, marginBottom: 10 }}>{title}</div>
       {children}
     </div>
   );
@@ -234,7 +234,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
           {/* Status + metadata */}
           <div style={{ marginBottom: 28 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: sv.farg, padding: '4px 12px', background: sv.bg, borderRadius: 20 }}>{sv.ord}</span>
-            <div style={{ fontSize: 14, color: C.t3, marginTop: 12 }}>
+            <div style={{ fontSize: 13, color: C.t3, marginTop: 12 }}>
               {[
                 obj.bolag,
                 obj.atgard || (obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'),
@@ -246,7 +246,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
             {skotarInfo && <SkotarRad info={skotarInfo} style={{ marginTop: 10 }} />}
             {/* Egen skotning — säljaren/markägaren skotar själv (inte vårt jobb, ingen på-backen). Grå chip. */}
             {egen && (
-              <div style={{ marginTop: 10, display: 'inline-block', fontSize: 12.5, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '4px 12px', borderRadius: 20 }}>Egen skotning</div>
+              <div style={{ marginTop: 10, display: 'inline-block', fontSize: 12, fontWeight: 600, color: C.t2, background: 'rgba(255,255,255,0.06)', padding: '4px 12px', borderRadius: 20 }}>Egen skotning</div>
             )}
           </div>
 
@@ -256,7 +256,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
             <Section title="Kontakt">
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{obj.markagare || 'Markägare'}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{obj.markagare || 'Markägare'}</div>
                 </div>
                 {obj.markagare_tel && (
                   <a href={`tel:${obj.markagare_tel}`} onClick={e => e.stopPropagation()}
@@ -277,7 +277,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
           {harSkord && (
             <div style={{ background: C.cardGrad, borderRadius: 14, padding: 16, border: `1px solid ${C.border}`, marginBottom: 34 }}>
               <div style={{ fontSize: 28, fontWeight: 700, color: C.t1, letterSpacing: '-0.02em' }}>
-                {formatVolym(Math.round(skordat))}<span style={{ fontSize: 14, fontWeight: 400, color: C.t3 }}> m³fub</span>
+                {formatVolym(Math.round(skordat))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³fub</span>
               </div>
               <div style={{ fontSize: 13, color: C.t3, marginTop: 3 }}>Skördat{skord?.sista ? ` · ${skord.sista}` : ''}</div>
 
@@ -292,7 +292,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
                     <div style={{ width: `${Math.min(skotP, 100)}%`, height: '100%', background: 'rgba(255,255,255,0.32)', borderRadius: 3, transition: 'width 0.5s' }} />
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
-                    <span style={{ fontSize: 12.5, color: C.t3 }}>Skotat {formatVolym(Math.round(skotatEff))} m³fub</span>
+                    <span style={{ fontSize: 13, color: C.t3 }}>Skotat {formatVolym(Math.round(skotatEff))} m³fub</span>
                     <span style={{ fontSize: 13, fontWeight: 600, color: C.t2 }}>{formatVolym(Math.round(paBacken))} m³fub på backen</span>
                   </div>
                 </>
@@ -339,7 +339,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
                         <span style={{ fontSize: 13, fontWeight: 600, color: C.red }}>{f.label}{f.count > 1 ? ` ×${f.count}` : ''}</span>
                       </div>
                       {f.comments.map((c, ci) => (
-                        <div key={ci} style={{ fontSize: 12.5, color: C.t1, lineHeight: 1.45, marginTop: 3, paddingLeft: 14 }}>{c}</div>
+                        <div key={ci} style={{ fontSize: 13, color: C.t1, lineHeight: 1.45, marginTop: 3, paddingLeft: 14 }}>{c}</div>
                       ))}
                     </div>
                   ))}
@@ -528,7 +528,7 @@ function FilterPanel({ bolag, bolagF, setBolagF, typF, setTypF, sortK, setSortK,
             width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '13px 16px', minHeight: 48, borderRadius: 12,
             background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`,
-            color: C.t1, fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+            color: C.t1, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
           }}>
             <span>Gruppera per maskin</span>
             <span style={{ width: 44, height: 26, borderRadius: 13, background: groupMaskin ? C.green : 'rgba(255,255,255,0.15)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
@@ -770,7 +770,7 @@ export default function OversiktObjektLista({ objekt, skordMap, skordKlar }: Pro
             {!doljStatusord && <span style={{ fontSize: 12, fontWeight: 500, color: sv.farg, flexShrink: 0 }}>{sv.ord}</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-            <span style={{ fontSize: 12.5, color: C.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 13, color: C.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
               {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')}{o.areal ? ` · ${o.areal} ha` : ''}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
@@ -837,7 +837,7 @@ export default function OversiktObjektLista({ objekt, skordMap, skordKlar }: Pro
               flex: 1, padding: '9px 8px', minHeight: 44,
               background: statusFEff === s.k ? 'rgba(255,255,255,0.1)' : 'transparent',
               color: statusFEff === s.k ? C.t1 : C.t3, border: 'none', borderRadius: 10,
-              fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
+              fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
             }}>{s.l}</button>
           ))}
         </div>
@@ -851,7 +851,7 @@ export default function OversiktObjektLista({ objekt, skordMap, skordKlar }: Pro
         grupper.map(g => (
           <div key={g.maskin || 'ej'} style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '8px 4px 6px' }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: g.maskin ? C.t1 : C.orange }}>{g.maskin || 'Ej tilldelad'}</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: g.maskin ? C.t1 : C.orange }}>{g.maskin || 'Ej tilldelad'}</span>
               {g.backen > 0 && (
                 <span style={{ fontSize: 12, color: C.t3, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatVolym(Math.round(g.backen))} m³fub på backen</span>
               )}
