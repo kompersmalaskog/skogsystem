@@ -158,10 +158,13 @@ const HYTTSPAR_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 4, 
 // Historiken (tidigare dagars eget-spår i körvyn) något smalare + dämpad casing-opacitet.
 const HYTTSPAR_HIST_LINE_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 1, 13, 1.5, 15, 3, 17, 4.5, 19, 6];
 const HYTTSPAR_HIST_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 3, 13, 3.5, 15, 5, 17, 6.5, 19, 8];
-// Planeringsvyns hyttspår-färger per roll (samma palett som körvyerna: grönt = eget-nyansen,
-// lila = andras-nyansen). skotare = grönt (fokus i denna uppgift), skördare = lila.
-const PLANSPAR_FARG_SKOTARE = '#34c759';
-const PLANSPAR_FARG_SKORDARE = '#bf5af2';
+// ABSOLUTA rollfärger (Martin): skotare = grönt, skördare = lila — SAMMA i alla vyer, oberoende av vem
+// som tittar. "Eget spår" markeras med OPACITET (full) och den andres roll dämpas (~0.55), aldrig med
+// färgbyte. Delas av körvyns egen/hist/andras-lager OCH planeringsvyns planspar-lager.
+const ROLLFARG_SKOTARE = '#34c759';
+const ROLLFARG_SKORDARE = '#bf5af2';
+const rollFarg = (roll: 'skordare' | 'skotare' | null | undefined): string =>
+  roll === 'skotare' ? ROLLFARG_SKOTARE : ROLLFARG_SKORDARE;
 
 // === SKOTARKÖRVY (v1): stråk-klumpning + sortimentfärg ===
 // Autopanelens sortimentrader: allt under detta klumpas till EN "Övrigt"-rad sist. Ett halvt
@@ -8003,7 +8006,9 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-hist-line', type: 'line', source: 'hyttspar-hist-source',
-          paint: { 'line-color': '#5a8064', 'line-opacity': 0.6, 'line-width': HYTTSPAR_HIST_LINE_WIDTH },
+          // Eget spår (tidigare dagar): egen rollens färg (sätts av rollfärg-effekten), full opacitet;
+          // tidigare-dagar skiljs från idag via SMALARE bredd (HYTTSPAR_HIST_LINE_WIDTH), inte opacitet.
+          paint: { 'line-color': ROLLFARG_SKOTARE, 'line-opacity': 0.95, 'line-width': HYTTSPAR_HIST_LINE_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] hist-line:', e); }
@@ -8027,7 +8032,8 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-egen-line', type: 'line', source: 'hyttspar-egen-source',
-          paint: { 'line-color': '#34c759', 'line-opacity': 0.95, 'line-width': HYTTSPAR_LINE_WIDTH },
+          // Eget spår (idag, live): egen rollens färg (sätts av rollfärg-effekten), FULL opacitet.
+          paint: { 'line-color': ROLLFARG_SKOTARE, 'line-opacity': 0.95, 'line-width': HYTTSPAR_LINE_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] line:', e); }
@@ -8042,7 +8048,9 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-casing', type: 'line', source: 'hyttspar-andras-source',
-          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.8, 'line-width': HYTTSPAR_CASING_WIDTH },
+          // Casing dämpas ihop med den andres linje (0.5) så hela andras-spåret tonas ned coherent;
+          // vit casing-färg + bredd-formel oförändrade (bara opaciteten följer dämpningen).
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.5, 'line-width': HYTTSPAR_CASING_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-casing:', e); }
@@ -8051,7 +8059,9 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-line', type: 'line', source: 'hyttspar-andras-source',
-          paint: { 'line-color': '#bf5af2', 'line-opacity': 0.9, 'line-width': HYTTSPAR_LINE_WIDTH },
+          // Den ANDRES roll: motpartens färg (sätts av rollfärg-effekten), DÄMPAD opacitet (0.55) så
+          // eget spår sticker ut. Färgen är absolut per roll — aldrig relativ till vem som kör.
+          paint: { 'line-color': ROLLFARG_SKORDARE, 'line-opacity': 0.55, 'line-width': HYTTSPAR_LINE_WIDTH },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-line:', e); }
@@ -8062,7 +8072,7 @@ export default function PlannerPage() {
     // stil (ljus casing + zoom-interp-bredd) som körvyns lager; färg per roll (skotare grönt, skördare lila).
     for (const roll of ['skordare', 'skotare'] as const) {
       const src = `planspar-${roll}-source`;
-      const farg = roll === 'skotare' ? PLANSPAR_FARG_SKOTARE : PLANSPAR_FARG_SKORDARE;
+      const farg = rollFarg(roll);
       if (!map.getSource(src)) {
         try { map.addSource(src, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
         catch (e) { console.error(`[Planspår] ${roll}-source:`, e); }
@@ -8139,6 +8149,17 @@ export default function PlannerPage() {
       }
     }
   }, [korvyActive, valtObjekt?.id, mapLibreReady]);
+
+  // KÖRVYNS ABSOLUTA rollfärger: eget-spårets (egen + hist) färg = FÖRARENS roll, andras-spårets färg =
+  // MOTPARTENS roll — skotare grönt, skördare lila, SAMMA i båda körvyerna oberoende av vem som kör.
+  // Eget/andras skiljs på OPACITET (lager-defs: egen/hist 0.95, andras 0.55), aldrig på färg.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const set = (layer: string, farg: string) => { try { if (map.getLayer(layer)) map.setPaintProperty(layer, 'line-color', farg); } catch { /* */ } };
+    if (hyttRoll) { set('hyttspar-egen-line', rollFarg(hyttRoll)); set('hyttspar-hist-line', rollFarg(hyttRoll)); }
+    if (andrasRoll) set('hyttspar-andras-line', rollFarg(andrasRoll));
+  }, [hyttRoll, andrasRoll, mapLibreReady, korvyActive]);
 
   // === SKOTARKÖRVY: mata stråk-linjer + kvar-etiketter + toggla synlighet ===
   useEffect(() => {
