@@ -16,7 +16,7 @@ import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
 import { ledighetKollisioner } from "@/lib/ledighetKollision";
 import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
-import { RAST_FRAGA_MIN } from "@/lib/arbetsdagRegler";
+import { RAST_FRAGA_MIN, passOrimlighet, type PassOrimlighet } from "@/lib/arbetsdagRegler";
 
 export type LoneunderlagRad = ExportSammanfattning & { status: string };
 
@@ -59,6 +59,9 @@ export type LoneunderlagBerikad = LoneunderlagRad & {
   dagar: LoneunderlagDag[];
   km_grans: number;         // fri pendling km/dag ur gs_avtal — för förklaringstexten
   rast_langa: RastLangRad[];
+  // Pass över ARBETSDAG_MAX_MINUTER ('lang') eller negativa ('negativ' = rast
+  // längre än passet). En FRÅGA i granskningen, inte ett påstående om fel.
+  orimliga: { datum: string; slag: PassOrimlighet; arbetad_min: number; start_tid: string | null; slut_tid: string | null; rast_min: number }[];
 };
 
 export type SynkRad = {
@@ -352,6 +355,10 @@ export async function beraknaLoneunderlag(
     dagar: dagarPerMed.get(r.medarbetare_id) || [],
     km_grans: kmGrans,
     rast_langa: (rastLangaPerMed.get(r.medarbetare_id) || []).sort((a, b) => a.datum.localeCompare(b.datum)),
+    // Orimliga pass ur samma dagrader — arbetad_min är databasens tal (modulo 24 h).
+    orimliga: (dagarPerMed.get(r.medarbetare_id) || [])
+      .filter(d => d.start_tid && d.slut_tid && passOrimlighet(d.arbetad_min))
+      .map(d => ({ datum: d.datum, slag: passOrimlighet(d.arbetad_min)!, arbetad_min: d.arbetad_min, start_tid: d.start_tid, slut_tid: d.slut_tid, rast_min: Number(d.rast_min || 0) })),
   }));
 
   return {

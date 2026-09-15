@@ -43,3 +43,37 @@ export const RAST_FRAGA_MIN = 60;
  *  inte heller att rätta. Ett maskinpass med mer än fyra timmars rast är inte
  *  en rast utan två pass. */
 export const RAST_HJUL_MAX = 240;
+
+// ─── Passets längd ───────────────────────────────────────────
+// arbetad_min i databasen räknas (slut − start) modulo 24 h minus rast (migration
+// 2026-09-15). Modulo gör att ett pass över midnatt blir rätt — men också att en
+// felskriven sluttid (07:00 efter start 08:00) blir 23 timmar i stället för ett
+// uppenbart minus. Fångstnätet: allt över ARBETSDAG_MAX_MINUTER är en FRÅGA till
+// föraren vid Bekräfta och en rad i granskningsvyn. Det är en fråga, inte ett
+// påstående om fel — de längsta äkta dagarna i prod är 15–16,4 timmar (Dalarna
+// maj–juni 2026), så marginalen är en timme. Negativ tid (rasten längre än
+// passet) fixas inte av modulo och flaggas på samma sätt; den kläms ALDRIG till
+// noll — felet ska synas tills någon rättar det.
+
+/** Över det här är passet en fråga, inte ett faktum. */
+export const ARBETSDAG_MAX_MINUTER = 16 * 60;
+
+/** Passets minuter räknade EXAKT som databasen (modulo 24 h, minus rast) —
+ *  så klientens fråga och kolumnen aldrig säger olika. Klockslag "HH:MM" eller
+ *  "HH:MM:SS". null om ett klockslag saknas. */
+export function passMinuter(start: string | null | undefined, slut: string | null | undefined, rastMin: number | null | undefined): number | null {
+  if (!start || !slut) return null;
+  const t = (s: string) => { const [h, m] = s.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+  const diff = ((t(slut) - t(start)) % 1440 + 1440) % 1440;
+  return diff - (rastMin || 0);
+}
+
+export type PassOrimlighet = "lang" | "negativ";
+
+/** Är passet orimligt? 'lang' = över taket, 'negativ' = rasten längre än passet. */
+export function passOrimlighet(min: number | null | undefined): PassOrimlighet | null {
+  if (min == null) return null;
+  if (min < 0) return "negativ";
+  if (min > ARBETSDAG_MAX_MINUTER) return "lang";
+  return null;
+}

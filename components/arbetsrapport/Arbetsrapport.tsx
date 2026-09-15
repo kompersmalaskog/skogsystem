@@ -12,7 +12,7 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
 import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_RUBRIK, FRANVARO_DAGTYPER_ALLA, arFranvaroDagtyp } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
-import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX } from "@/lib/arbetsdagRegler";
+import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
@@ -711,10 +711,13 @@ export default function Arbetsrapport() {
   // dag som startade flödet (Dag-vyn: idag via bekraftaDagen; Redigera: vald
   // dag) och gå tillbaka dit föraren kom ifrån. null = Dag-vyn (idag).
   const [bekraftaMål, setBekraftaMål] = useState<{ datum: string; skriv: () => Promise<boolean>; tillbaka: "morgon" | "redigera" } | null>(null);
-  // Rastfrågan före underskrift: rast över RAST_FRAGA_MIN (lib/arbetsdagRegler)
-  // är troligen stillestånd bokfört som "Meal break". `fortsatt` = föraren sa
-  // ja, `andra` = öppna tidsredigeringen. null = ingen fråga uppe.
-  const [rastFraga, setRastFraga] = useState<{ minuter: number; fortsatt: () => Promise<void>; andra: () => void } | null>(null);
+  // Frågorna före underskrift (lib/arbetsdagRegler): rast över RAST_FRAGA_MIN
+  // (troligen stillestånd bokfört som "Meal break"), pass över
+  // ARBETSDAG_MAX_MINUTER (felskriven sluttid ser ut som 23 timmar efter
+  // midnattsfixen) eller negativ tid (rasten längre än passet). Alltid en FRÅGA,
+  // inte ett påstående om fel — en 16-timmarsdag kan vara äkta. `fortsatt` =
+  // föraren sa ja, `andra` = öppna tidsredigeringen. null = ingen fråga uppe.
+  const [rastFraga, setRastFraga] = useState<{ rubrik: string; text: string; fortsatt: () => Promise<void>; andra: () => void } | null>(null);
   // Felrad i Redigera-vyn — ersätter window.alert (app-egna dialoger).
   const [redFel, setRedFel] = useState<string | null>(null);
   const [visaHelÅrVila, setVisaHelÅrVila] = useState(false);
@@ -1647,23 +1650,38 @@ export default function Arbetsrapport() {
   //   3. Inga brott → `skriv` direkt.
   // För-check-fel blockerar aldrig: då skrivs dagen ändå (som förr i Dag-vyn).
   //
-  //   0. Rastfrågan FÖRST: är dagens rast över RAST_FRAGA_MIN ställs "Rast 128
-  //      min, stämmer det?" och flödet stannar tills föraren svarat ja (då körs
-  //      samma anrop igen med godkand) eller valt att ändra. Fel rast = fel
-  //      betald tid (Stefan aug 2026: 4 h övertid för mycket).
+  //   0. Frågorna FÖRST (lib/arbetsdagRegler): rast över RAST_FRAGA_MIN ("Rast
+  //      128 min, stämmer det?"), pass över ARBETSDAG_MAX_MINUTER ("Passet är
+  //      22,4 tim, stämmer det?") eller negativ tid (rasten längre än passet).
+  //      Flödet stannar tills föraren svarat ja (då körs samma anrop igen med
+  //      godkand) eller valt att ändra. Fel tid = fel betald tid.
   const bekraftaMedForcheck = async (
     datum: string,
     skriv: () => Promise<boolean>,
     tillbaka: "morgon" | "redigera",
-    rast?: { minuter: number; andra: () => void; godkand?: boolean },
+    kontroll?: { minuter: number; passMin?: number | null; andra: () => void; godkand?: boolean },
   ): Promise<void> => {
-    if (rast && rast.minuter > RAST_FRAGA_MIN && !rast.godkand) {
-      setRastFraga({
-        minuter: rast.minuter,
-        andra: rast.andra,
-        fortsatt: () => bekraftaMedForcheck(datum, skriv, tillbaka, { ...rast, godkand: true }),
-      });
-      return;
+    if (kontroll && !kontroll.godkand) {
+      const fragor: { rubrik: string; text: string }[] = [];
+      const orim = passOrimlighet(kontroll.passMin);
+      if (orim === "negativ") {
+        fragor.push({ rubrik: `Rasten är längre än passet — stämmer det?`, text: `Passet blir ${kontroll.passMin} minuter. Tiden räknas som negativ tills den rättas.` });
+      } else if (orim === "lang") {
+        const tim = (Math.round((kontroll.passMin || 0) / 6) / 10).toLocaleString("sv-SE");
+        fragor.push({ rubrik: `Passet är ${tim} tim — stämmer det?`, text: `Längre än ${ARBETSDAG_MAX_MINUTER / 60} timmar. En felskriven sluttid ger samma bild — kontrollera start och slut.` });
+      }
+      if (kontroll.minuter > RAST_FRAGA_MIN) {
+        fragor.push({ rubrik: `Rast ${kontroll.minuter} min — stämmer det?`, text: `Maskinen räknar allt som bokförts som Meal break. Stod maskinen still av annan orsak — flytt, väntan, service — är det arbetstid, inte rast.` });
+      }
+      if (fragor.length > 0) {
+        setRastFraga({
+          rubrik: fragor[0].rubrik,
+          text: fragor.map(f => (fragor.length > 1 ? `${f.rubrik} ${f.text}` : f.text)).join("\n\n"),
+          andra: kontroll.andra,
+          fortsatt: () => bekraftaMedForcheck(datum, skriv, tillbaka, { ...kontroll, godkand: true }),
+        });
+        return;
+      }
     }
     if (medarbetare?.id && trosklar) {
       const fromDt = new Date(datum + "T00:00:00"); fromDt.setDate(fromDt.getDate() - 7);
@@ -1708,12 +1726,10 @@ export default function Arbetsrapport() {
         <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
           <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
         </div>
-        <p style={{ margin:0, ...TYP.rubrik, ...TNUM, color:FARG.text }}>Rast {rastFraga.minuter} min — stämmer det?</p>
-        <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
-          Maskinen räknar allt som bokförts som Meal break. Stod maskinen still av annan orsak — flytt, väntan, service — är det arbetstid, inte rast.
-        </p>
+        <p style={{ margin:0, ...TYP.rubrik, ...TNUM, color:FARG.text }}>{rastFraga.rubrik}</p>
+        <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2, whiteSpace:"pre-line" }}>{rastFraga.text}</p>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
-          <button onClick={()=>{ const f = rastFraga; setRastFraga(null); f.andra(); }} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Ändra rast</button>
+          <button onClick={()=>{ const f = rastFraga; setRastFraga(null); f.andra(); }} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Ändra tider</button>
           <button onClick={async ()=>{ const f = rastFraga; setRastFraga(null); await f.fortsatt(); }} style={KNAPP.primar}>Ja, bekräfta</button>
         </div>
       </div>
@@ -2494,7 +2510,7 @@ export default function Arbetsrapport() {
                 if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
 
                 // Rastfråga + för-check + skrivning — SAMMA funktion som Redigeras Bekräfta.
-                await bekraftaMedForcheck(idagKey, bekraftaDagen, "morgon", { minuter: rast, andra: () => setVisaTiderSheet(true) });
+                await bekraftaMedForcheck(idagKey, bekraftaDagen, "morgon", { minuter: rast, passMin: passMinuter(start, slut, rast), andra: () => setVisaTiderSheet(true) });
               }}
               style={{ ...KNAPP.primar, marginTop:AVSTAND.l }}>
               {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
@@ -4877,7 +4893,7 @@ export default function Arbetsrapport() {
               <div style={bottom}>
                 {felRad}
                 {bekraftadRedan ? bekraftadRad(bekraftadTidFmt) : (
-                  <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, andra: () => setRedVy("tid") })}>
+                  <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, passMin: passMinuter(redStart, redSlut, redRast), andra: () => setRedVy("tid") })}>
                     Bekräfta dagen
                   </button>
                 )}
@@ -5365,7 +5381,7 @@ export default function Arbetsrapport() {
                   </div>
                 )}
                 {/* SAMMA väg som Dag-vyns Bekräfta: för-check → ev. orsak → underskrift. */}
-                <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, andra: () => setRedVy("tid") })}>
+                <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, passMin: passMinuter(redStart, redSlut, redRast), andra: () => setRedVy("tid") })}>
                   Bekräfta dagen
                 </button>
                 {tillbakaKnapp}

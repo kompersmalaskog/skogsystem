@@ -768,13 +768,14 @@ function FortnoxExportSektion({
           const ob = m.ob || { timmar: 0, dagar: 0, obesvarade: 0 };
           const rastLanga = m.rast_langa || [];
           const kortpass = m.kortpass || [];
+          const orimliga = m.orimliga || [];
           // "saknar typ" och kortpass visas som strukturerade rader — filtrera bort
           // ur textvarningarna så samma sak inte står två gånger.
           const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ|^Kortpass/i.test(v));
           const oen = (fortnoxData.oenighet || []).filter((o: any) => o.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id));
           const harRiktighet = maskinLuckor.length > 0 || synk.length > 0 || ledK.length > 0 ||
             (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0 ||
-            rastLanga.length > 0 || kortpass.length > 0;
+            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0;
           const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
           return (
             <div key={mi} style={{
@@ -818,6 +819,21 @@ function FortnoxExportSektion({
                         Maskinens egna avbrott samma dag är stödet — ett "Övrigt" med samma
                         start som rasten är mönstret (lib/arbetsdagRegler). Fel rast = fel
                         betald tid, rakt in i övertiden. */}
+                    {/* Orimliga pass — en FRÅGA, inte ett påstående om fel: en 16-timmarsdag
+                        kan vara äkta (Dalarna). Negativ tid = rasten längre än passet;
+                        kläms aldrig till noll, ska synas tills någon rättar. */}
+                    {orimliga.map((o: any) => {
+                      const tim = (Math.round(Math.abs(o.arbetad_min) / 6) / 10).toLocaleString("sv-SE");
+                      const kl = `${String(o.start_tid || "").slice(0, 5)}–${String(o.slut_tid || "").slice(0, 5)}, rast ${o.rast_min} min`;
+                      return (
+                        <p key={`orim-${o.datum}`} style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                          {o.datum}: {o.slag === "lang"
+                            ? <><strong>passet är {tim} tim</strong> ({kl}) — stämmer det? Längre än någon äkta dag hittills; en felskriven sluttid ger samma bild.</>
+                            : <><strong>rasten är längre än passet</strong> ({kl}, {o.arbetad_min} min) — stämmer det? Tiden räknas som negativ tills den rättas.</>}
+                          <span style={{ color: C.label }}> Rättas i förarens Redigera.</span>
+                        </p>
+                      );
+                    })}
                     {rastLanga.map((r: any) => {
                       const ovrigt = (r.avbrott || []).filter((a: any) => /övrigt|default/i.test(`${a.typ} ${a.kategori || ""}`));
                       const andra = (r.avbrott || []).filter((a: any) => !ovrigt.includes(a));
