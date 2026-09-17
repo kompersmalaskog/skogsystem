@@ -44,6 +44,34 @@ vidgar RLS så egen insert får vara `registrerad` för anmälningstyperna.
 Ingen läsare ändras, ingen rad skrivs. Alla fem läsare filtrerar
 `status = 'godkänd'` och får samma rader som förut. Martin kör migrationen.
 
+**Steg 1 — delta.** Martin körde steg 1 i prod 2026-09-17 med egen SQL ur
+rapporten. Jämfört mot migrationsfilen: typ, status, `ersatter_datum` och
+båda spärrarna lika (spärrnamnen i filen rättade till prods). Två saker
+återstår att köra i prod:
+
+```sql
+-- kalla: filen har NOT NULL DEFAULT 'ansokan' + CHECK; prod har nullable utan spärr
+UPDATE ledighet_ansokningar SET kalla = 'ansokan' WHERE kalla IS NULL;
+ALTER TABLE ledighet_ansokningar ALTER COLUMN kalla SET DEFAULT 'ansokan';
+ALTER TABLE ledighet_ansokningar ALTER COLUMN kalla SET NOT NULL;
+ALTER TABLE ledighet_ansokningar DROP CONSTRAINT IF EXISTS ledighet_ansokningar_kalla_check;
+ALTER TABLE ledighet_ansokningar
+  ADD CONSTRAINT ledighet_ansokningar_kalla_check CHECK (kalla IN ('ansokan', 'morgonkort', 'admin', 'backfill'));
+
+-- RLS: morgonkortet (steg 2) ska få skriva egen rad som 'registrerad'
+DROP POLICY IF EXISTS ledighet_insert_egen ON ledighet_ansokningar;
+CREATE POLICY ledighet_insert_egen ON ledighet_ansokningar
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    medarbetare_id = aktuell_medarbetare_id()
+    AND (status = 'väntar' OR (status = 'registrerad' AND typ IN ('sjuk', 'vab', 'foraldraledig')))
+  );
+```
+
+Prods kolumnkommentar på `kalla` nämner värdena "forare, ansokan, admin,
+fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
+`fortnox`-värde. Lägg till det i CHECK:en den dag något importeras därifrån.
+
 **Steg 2 — morgonkortet skriver hit.** Sjuk/VAB/föräldraledig blir en rad
 med `status = 'registrerad'`, `kalla = 'morgonkort'` i stället för
 `arbetsdag.dagtyp`. Backfill av de rader som finns (två sjuk-rader

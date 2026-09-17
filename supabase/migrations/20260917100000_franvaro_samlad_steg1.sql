@@ -73,9 +73,11 @@ ALTER TABLE ledighet_ansokningar
 
 -- 3) ersatter_datum — bara för inarbetad, och alltid för inarbetad
 ALTER TABLE ledighet_ansokningar ADD COLUMN IF NOT EXISTS ersatter_datum date;
-ALTER TABLE ledighet_ansokningar DROP CONSTRAINT IF EXISTS ledighet_ansokningar_ersatter_datum_check;
+-- Spärrnamnen är de som Martin gav dem när han körde detta i prod 2026-09-17
+-- (skrev SQL:en själv ur rapporten) — filen är rättad så repo = prod.
+ALTER TABLE ledighet_ansokningar DROP CONSTRAINT IF EXISTS ledighet_ersatter_bara_inarbetad;
 ALTER TABLE ledighet_ansokningar
-  ADD CONSTRAINT ledighet_ansokningar_ersatter_datum_check CHECK (
+  ADD CONSTRAINT ledighet_ersatter_bara_inarbetad CHECK (
     (typ = 'inarbetad' AND ersatter_datum IS NOT NULL)
     OR (typ <> 'inarbetad' AND ersatter_datum IS NULL)
   );
@@ -94,9 +96,9 @@ COMMENT ON COLUMN ledighet_ansokningar.kalla IS
 -- morgonkortet). De kan också ansökas (väntar/godkänd/nekad, t.ex. planerad
 -- föräldraledighet). Intjänad ledighet och skoftning kräver alltid
 -- godkännande — aldrig 'registrerad'.
-ALTER TABLE ledighet_ansokningar DROP CONSTRAINT IF EXISTS ledighet_ansokningar_registrerad_check;
+ALTER TABLE ledighet_ansokningar DROP CONSTRAINT IF EXISTS ledighet_registrerad_bara_anmalan;
 ALTER TABLE ledighet_ansokningar
-  ADD CONSTRAINT ledighet_ansokningar_registrerad_check CHECK (
+  ADD CONSTRAINT ledighet_registrerad_bara_anmalan CHECK (
     status <> 'registrerad' OR typ IN ('sjuk', 'vab', 'foraldraledig')
   );
 
@@ -124,7 +126,14 @@ COMMIT;
 --     where table_name = 'ledighet_ansokningar' and column_name in ('ersatter_datum','kalla');
 --     → ersatter_datum date NULL · kalla text 'ansokan'
 --   select conname from pg_constraint where conrelid = 'public.ledighet_ansokningar'::regclass and contype='c' order by 1;
---     → ersatter_datum_check, kalla_check, registrerad_check, status_check, typ_check
+--     → ledighet_ansokningar_kalla_check, ledighet_ansokningar_status_check, ledighet_ansokningar_typ_check,
+--       ledighet_ersatter_bara_inarbetad, ledighet_registrerad_bara_anmalan
+--
+-- PROD-AVVIKELSE 2026-09-17 (Martins egen körning, jämförd mot filen):
+--   typ, status, ersatter_datum, de två spärrarna = lika (bara namnen skiljde, filen rättad).
+--   kalla i prod: nullable, ingen default, ingen CHECK; filen: NOT NULL DEFAULT 'ansokan' + CHECK.
+--   ledighet_insert_egen i prod: bara status = 'väntar'; filen tillåter 'registrerad' för sjuk/vab/foraldraledig.
+--   Deltat att köra i prod står i docs/lonesystem/franvaromodell.md ("Steg 1 — delta").
 --   select polname, pg_get_expr(polwithcheck, polrelid) from pg_policy
 --     where polrelid = 'public.ledighet_ansokningar'::regclass and polname = 'ledighet_insert_egen';
 --     → innehåller 'registrerad'
