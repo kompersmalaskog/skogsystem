@@ -27,7 +27,7 @@
  */
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
-import { FRANVARO_DAGTYPER_ALLA } from "../franvaro";
+import { DAGTYP_FRANVARO_LEGACY } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { helglonIManad, HELGLON_TIMMAR, type HelglonDag } from "./helglon";
 
@@ -48,13 +48,13 @@ type ExtraTidInput = {
   minuter: number | null;
 };
 
-// Godkänd ledighet ur ledighet_ansokningar. PRIMÄR frånvarokälla (arbetsdag.dagtyp
-// är i praktiken oanvänd — 0 semester/vab i datan). Expanderas start–slut till
-// datum i arbetsperioden. "Arbete vinner": en frånvarodag som samtidigt har ett
+// Frånvaro ur ledighet_ansokningar (lib/franvaro: godkänd + registrerad) — ENDA
+// frånvarokällan sedan steg 2 (2026-09-18). Expanderas start–slut till datum i
+// arbetsperioden. "Arbete vinner": en frånvarodag som samtidigt har ett
 // arbetspass (arbetad_min > 0) räknas som ARBETE, inte frånvaro (undviker
 // dubbelräkning + speglar verkligheten).
 type LedighetInput = {
-  typ: string;          // 'semester' | 'sjuk' | 'vab' | 'ledig'
+  typ: string;          // FranvaroTyp (lib/franvaro)
   startdatum: string;   // YYYY-MM-DD
   slutdatum: string;    // YYYY-MM-DD
 };
@@ -85,10 +85,10 @@ export type ExportSammanfattning = {
   valtlappar_veckor: number;
   kor_mil: number;
   obekraftade: number;
-  // Frånvaro i arbetsperioden (efter "arbete vinner") — ur godkänd ledighet OCH
-  // ur arbetsdag.dagtyp (sjuk/vab/föräldraledig via morgonkortet). Läggs ALDRIG
-  // som lönerad — Fortnox-löneart för frånvaro är ej fastställd; visas för
-  // granskning och sätts manuellt. En rad per typ.
+  // Frånvaro i arbetsperioden (efter "arbete vinner") — ur ledighet_ansokningar
+  // (godkänd ledighet + registrerad sjuk/vab/föräldraledig, lib/franvaro).
+  // Läggs ALDRIG som lönerad — Fortnox-löneart för frånvaro är ej fastställd;
+  // visas för granskning och sätts manuellt. En rad per typ.
   franvaro: { typ: string; dagar: number; datum: string[] }[];
   // Dagar under arbetsdagströskeln (lib/arbetsdagRegler): betald tid som inte är
   // en arbetsdag. Visas i granskningen — oftast inloggningar på annans maskin.
@@ -144,9 +144,11 @@ export function beräknaExport(
 
   const eid = anstallningsnummer || "SAKNAS";
 
-  // Filtrera bort frånvarodagar — listan ägs av lib/franvaro (sjuk, vab, föräldraledig, semester, atk)
-  const FRANVARO = new Set<string>(FRANVARO_DAGTYPER_ALLA);
-  const dagarMedTid = dagar.filter(d => !d.dagtyp || !FRANVARO.has(d.dagtyp.toLowerCase()));
+  // Legacy-spärr (lib/franvaro, tas bort i steg 3): de två gamla frånvaro-
+  // raderna i arbetsdag (dagtyp sjuk, 0 min, ingen tid) ska inte bli kortpass.
+  // Dagtyp avgör INTE längre att en dag är frånvaro — det gör `ledigheter`.
+  const LEGACY = new Set<string>(DAGTYP_FRANVARO_LEGACY);
+  const dagarMedTid = dagar.filter(d => !d.dagtyp || !LEGACY.has(d.dagtyp.toLowerCase()));
 
   // ARBETSDAG = minst 60 min maskintid + extra tid samma dag (lib/arbetsdagRegler).
   // Kortare dagar är kortpass: minuterna räknas i totalH (betald tid) men dagen
@@ -298,7 +300,6 @@ export function beräknaExport(
   // ytas som franvaro + varning för manuell hantering.
   const arbperiod = arbetsperiodFrånLöneperiod(loneperiod); // YYYY-MM
   const arbetadeDatum = new Set(dagar.filter(d => (d.arbetad_min || 0) > 0).map(d => d.datum));
-  const dagtypPerDatum = new Map(dagar.map(d => [d.datum, (d.dagtyp || '').toLowerCase()]));
   const franvaroPerTyp = new Map<string, string[]>();
   for (const l of ledigheter) {
     if (!l.startdatum || !l.slutdatum) continue;
@@ -312,31 +313,12 @@ export function beräknaExport(
       const arr = franvaroPerTyp.get(typ) || [];
       if (!arr.includes(iso)) arr.push(iso);
       franvaroPerTyp.set(typ, arr);
-      // Motsägelse: dagen bär en ANNAN frånvaro-dagtyp i arbetsdag (t.ex. sjuk
-      // ur Frånvaro-knappen) än ledighetens typ — ytas, aldrig tyst.
-      const adTyp = dagtypPerDatum.get(iso);
-      if (adTyp && FRANVARO.has(adTyp) && adTyp !== typ) {
-        varningar.push(`Dag ${iso}: arbetsdag säger '${adTyp}' men ledighet säger '${typ}' — granska.`);
-      }
     }
   }
-  // Frånvaro ur arbetsdag.dagtyp (sjuk/vab/föräldraledig från morgonkortet,
-  // lib/franvaro). Förr filtrerades de dagarna bort ovan och nämndes sedan
-  // ALDRIG — Joacims sjukdag 2026-08-19 försvann tyst ur augusti-underlaget.
-  // Nu får de samma behandling som en godkänd ledighet: frånvarorad + varning.
-  // En dag som en ledighet redan täcker räknas inte två gånger. "Arbete vinner"
-  // gäller även här. Flytten till ledighet_ansokningar är eget ärende.
-  const redanFranvaro = new Set(Array.from(franvaroPerTyp.values()).flat());
-  for (const d of dagar) {
-    const typ = (d.dagtyp || '').toLowerCase();
-    if (!FRANVARO.has(typ)) continue;
-    if (!d.datum.startsWith(arbperiod)) continue;
-    if (arbetadeDatum.has(d.datum) || redanFranvaro.has(d.datum)) continue;
-    const arr = franvaroPerTyp.get(typ) || [];
-    arr.push(d.datum);
-    franvaroPerTyp.set(typ, arr);
-    redanFranvaro.add(d.datum);
-  }
+  // (Förr lästes även arbetsdag.dagtyp här. Joacims sjukdag 2026-08-19 låg
+  // BARA där och försvann tyst ur augusti-underlaget tills #546 — och sedan
+  // steg 2 (2026-09-18) ligger den i ledighet_ansokningar som alla andra.
+  // Två källor är borta; `ledigheter` är den enda.)
   const franvaro = Array.from(franvaroPerTyp.entries())
     .map(([typ, datum]) => ({ typ, dagar: datum.length, datum: datum.sort() }))
     .sort((a, b) => b.dagar - a.dagar);
