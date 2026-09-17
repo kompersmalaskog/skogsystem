@@ -5797,15 +5797,36 @@ export default function PlannerPage() {
     })();
     return () => { avbruten = true; };
   }, [valtObjekt?.id]);
-  // Bannerläge (ärligt, aldrig tyst tomhet). STALE-MEN-SANN: finns geometri vinner DATAN — linjen ritas
-  // även om senaste hämtningen föll (vägen har inte flyttat sig); status visas då diskret.
+  // Lästes cachen mitt i en pågående server-hämtning (status='pagar', t.ex. planeraren tryckte precis
+  // hämta) → läs om EN gång efter ~30 s så bannern släpps när hämtningen blivit klar (ok/misslyckad).
+  // Ändrar INTE status igen om den fortfarande är 'pagar' → effekten återutlöses inte (kör bara en gång).
+  // Server-hämtaren rörs inte; detta är bara en om-läsning av cachen. (/objekt läser redan om direkt.)
+  useEffect(() => {
+    if (objektVagdata?.status !== 'pagar' || !valtObjekt?.id) return;
+    const objektId = valtObjekt.id;
+    let avbruten = false;
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from('objekt_vagdata').select('geometri, status').eq('objekt_id', objektId).maybeSingle();
+      if (avbruten) return;
+      setObjektVagdata(data ? { geometri: data.geometri, status: data.status } : { geometri: null, status: 'saknas' });
+      tmaCheckedRef.current = {};
+    }, 30000);
+    return () => { avbruten = true; clearTimeout(t); };
+  }, [objektVagdata?.status, valtObjekt?.id]);
+  // Bannerläge (ärligt, aldrig tyst tomhet). ETT tillstånd per verklig situation — INTE allt-är-"hämtas".
+  // Vägdata är cache-först server-side (lib/vagdata via /api/vagdata-hamta + cron); klienten HÄMTAR inte,
+  // bara läser objekt_vagdata. "hämtas" gäller därför ENDAST status='pagar' (server jobbar just nu).
+  // STALE-MEN-SANN: finns geometri vinner DATAN — linjen ritas även om senaste hämtningen föll; visas diskret.
   const harBoundaries = markers.some(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1);
   const harCachadVagdata = !!(objektVagdata?.geometri?.elements?.length);
-  const vagdataBanner: 'ingen' | 'hamtas' | 'misslyckad' | 'stale' =
+  const vdStatus = objektVagdata?.status;
+  const vagdataBanner: 'ingen' | 'saknas' | 'hamtas' | 'tom' | 'misslyckad' | 'stale' =
     !harBoundaries ? 'ingen'
-    : harCachadVagdata ? (objektVagdata?.status === 'misslyckad' ? 'stale' : 'ingen')
-    : objektVagdata?.status === 'misslyckad' ? 'misslyckad'
-    : 'hamtas';
+    : harCachadVagdata ? (vdStatus === 'misslyckad' ? 'stale' : 'ingen')
+    : vdStatus === 'misslyckad' ? 'misslyckad'
+    : vdStatus === 'pagar' ? 'hamtas'
+    : vdStatus === 'ok' ? 'tom'          // hämtning KLAR men inga vägar i bboxen → äkta tomt, inte "hämtas"
+    : 'saknas';                          // ingen rad än (aldrig hämtad) → 'saknas' från klienten
 
   // Trigga TMA-kontroll per boundary individuellt
   useEffect(() => {
@@ -14301,10 +14322,13 @@ export default function PlannerPage() {
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff453a" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
               <span style={{ fontSize: 13.5, color: '#fff', fontWeight: 600 }}>Vägdata kunde inte hämtas</span>
             </>
-          ) : vagdataBanner === 'stale' ? (
-            <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.6)' }}>Vägdata ej uppdaterad — visar senast kända</span>
           ) : (
-            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>Vägdata hämtas…</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
+              {vagdataBanner === 'hamtas' ? 'Vägdata hämtas…'
+                : vagdataBanner === 'tom' ? 'Inga vägar registrerade'
+                : vagdataBanner === 'saknas' ? 'Vägdata inte hämtad än'
+                : /* stale */ 'Vägdata ej uppdaterad — visar senast kända'}
+            </span>
           )}
         </div>
       )}
