@@ -5830,7 +5830,7 @@ export default function PlannerPage() {
   const vagdataVarde =
     vagdataStatusKod === 'saknas' ? 'Inte hämtad än'
     : vagdataStatusKod === 'pagar' ? 'Hämtas…'
-    : vagdataStatusKod === 'ok' ? `Klar (${vagdataAntalVagar} väg${vagdataAntalVagar === 1 ? '' : 'ar'})`
+    : vagdataStatusKod === 'ok' ? `${vagdataAntalVagar} väg${vagdataAntalVagar === 1 ? '' : 'ar'}`
     : vagdataStatusKod === 'tom' ? 'Inga vägar registrerade'
     : vagdataStatusKod === 'misslyckad' ? 'Kunde inte hämtas'
     : '';
@@ -12996,29 +12996,21 @@ export default function PlannerPage() {
                   { label: 'Checklista', icon: 'check_circle', action: () => { setChecklistOpen(true); } },
                 ],
               },
-              // OBJEKT — Avsluta (alla roller, visas när status=pagaende)
-              ...(valtObjekt?.status === 'pagaende' ? [{
+              // OBJEKT — Vägdata-status (första rad, syns i BÅDE planering och körvy när objekt valt) +
+              // Avsluta (danger, SIST, bara när status=pagaende). Vägdata: cache-först server-side; planerare
+              // (isAdminRiktig) kan trigga om-hämtning (samma /api/vagdata-hamta som /objekt), förare ser bara
+              // statusen. Röd prick på +-knappen vid 'misslyckad' är enda kartsignalen.
+              ...(valtObjekt?.id ? [{
                 title: 'OBJEKT',
                 items: [
-                  { label: 'Avsluta objekt', icon: 'check_circle', avsluta: true, action: () => { setVisarAvslutaConfirmation(true); } },
-                ],
-              }] : []),
-              // VÄGDATA — traktens cachade väggeometri (server-hämtad, cache-först). EN ensam rad UTAN egen
-              // sektionsrubrik (noHeader) — samma stil som övriga rader, syns i BÅDE planeringsvyn och körvyn
-              // (gejtad bara på valt objekt, ej på körvy). Planerare (isAdminRiktig) kan trigga om-hämtning
-              // (samma /api/vagdata-hamta som /objekt), förare ser bara statusen. Röd prick på +-knappen vid
-              // 'misslyckad' är enda kartsignalen.
-              ...(vagdataStatusKod ? [{
-                title: 'Vägdata',   // används bara som React-key; ingen rubrik renderas (noHeader)
-                noHeader: true,
-                items: [
-                  {
+                  ...(vagdataStatusKod ? [{
                     label: 'Vägdata',
                     value: vagdataVarde,
                     icon: vagdataStatusKod === 'misslyckad' ? 'error' : 'route',
                     action: isAdminRiktig ? () => { korOmVagdata(); } : () => {},
                     danger: vagdataStatusKod === 'misslyckad',
-                  },
+                  }] : []),
+                  ...(valtObjekt?.status === 'pagaende' ? [{ label: 'Avsluta objekt', icon: 'check_circle', avsluta: true, action: () => { setVisarAvslutaConfirmation(true); } }] : []),
                 ],
               }] : []),
               {
@@ -13031,16 +13023,14 @@ export default function PlannerPage() {
               },
             ].map(group => (
               <div key={group.title} style={{ marginTop: 12 }}>
-                {!(group as any).noHeader && (
-                  <div style={{
-                    padding: '8px 12px 6px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    color: '#8e8e93',
-                  }}>
-                    {group.title}
-                  </div>
-                )}
+                <div style={{
+                  padding: '8px 12px 6px',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#8e8e93',
+                }}>
+                  {group.title}
+                </div>
                 <div style={{
                   background: 'rgba(255,255,255,0.06)',
                   borderRadius: 14,
