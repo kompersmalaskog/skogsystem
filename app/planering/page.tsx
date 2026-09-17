@@ -5813,20 +5813,41 @@ export default function PlannerPage() {
     }, 30000);
     return () => { avbruten = true; clearTimeout(t); };
   }, [objektVagdata?.status, valtObjekt?.id]);
-  // Bannerläge (ärligt, aldrig tyst tomhet). ETT tillstånd per verklig situation — INTE allt-är-"hämtas".
-  // Vägdata är cache-först server-side (lib/vagdata via /api/vagdata-hamta + cron); klienten HÄMTAR inte,
-  // bara läser objekt_vagdata. "hämtas" gäller därför ENDAST status='pagar' (server jobbar just nu).
-  // STALE-MEN-SANN: finns geometri vinner DATAN — linjen ritas även om senaste hämtningen föll; visas diskret.
-  const harBoundaries = markers.some(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1);
+  // Vägdata-status för +-menyns rad (Martins 5 lägen) — INGEN banner på kartan. Vägdata är cache-först
+  // server-side (lib/vagdata via /api/vagdata-hamta + cron); klienten HÄMTAR inte, bara läser objekt_vagdata.
+  // 'pagar' = server jobbar just nu · cachad geometri = 'ok' (N vägar) · ok utan geometri = 'tom' (äkta tomt) ·
+  // ingen rad = 'saknas'. Enda kartsignal: röd prick på +-knappen vid 'misslyckad' (nedan).
   const harCachadVagdata = !!(objektVagdata?.geometri?.elements?.length);
+  const vagdataAntalVagar: number = objektVagdata?.geometri?.elements?.length ?? 0;
   const vdStatus = objektVagdata?.status;
-  const vagdataBanner: 'ingen' | 'saknas' | 'hamtas' | 'tom' | 'misslyckad' | 'stale' =
-    !harBoundaries ? 'ingen'
-    : harCachadVagdata ? (vdStatus === 'misslyckad' ? 'stale' : 'ingen')
+  const vagdataStatusKod: 'saknas' | 'pagar' | 'ok' | 'tom' | 'misslyckad' | null =
+    !valtObjekt?.id ? null
     : vdStatus === 'misslyckad' ? 'misslyckad'
-    : vdStatus === 'pagar' ? 'hamtas'
-    : vdStatus === 'ok' ? 'tom'          // hämtning KLAR men inga vägar i bboxen → äkta tomt, inte "hämtas"
-    : 'saknas';                          // ingen rad än (aldrig hämtad) → 'saknas' från klienten
+    : vdStatus === 'pagar' ? 'pagar'
+    : harCachadVagdata ? 'ok'
+    : vdStatus === 'ok' ? 'tom'
+    : 'saknas';
+  const vagdataVarde =
+    vagdataStatusKod === 'saknas' ? 'Inte hämtad än'
+    : vagdataStatusKod === 'pagar' ? 'Hämtas…'
+    : vagdataStatusKod === 'ok' ? `Klar (${vagdataAntalVagar} väg${vagdataAntalVagar === 1 ? '' : 'ar'})`
+    : vagdataStatusKod === 'tom' ? 'Inga vägar registrerade'
+    : vagdataStatusKod === 'misslyckad' ? 'Kunde inte hämtas'
+    : '';
+  // Planerarens hämta-knapp i menyn → server-side /api/vagdata-hamta (samma som /objekt), sedan läs om.
+  // Optimistiskt 'pagar' medan anropet pågår (raden visar "Hämtas…"). Förare: raden är bara information.
+  const korOmVagdata = useCallback(async () => {
+    const objektId = valtObjekt?.id;
+    if (!objektId) return;
+    setObjektVagdata(prev => ({ geometri: prev?.geometri ?? null, status: 'pagar' }));
+    try { await fetch(`/api/vagdata-hamta?objekt_id=${objektId}`, { method: 'POST' }); }
+    catch (e) { console.error('[Vägdata] omkörning:', e); }
+    try {
+      const { data } = await supabase.from('objekt_vagdata').select('geometri, status').eq('objekt_id', objektId).maybeSingle();
+      setObjektVagdata(data ? { geometri: data.geometri, status: data.status } : { geometri: null, status: 'saknas' });
+      tmaCheckedRef.current = {};
+    } catch { /* */ }
+  }, [valtObjekt?.id]);
 
   // Trigga TMA-kontroll per boundary individuellt
   useEffect(() => {
@@ -12671,6 +12692,17 @@ export default function PlannerPage() {
                 border: '2px solid rgba(20,20,22,0.72)',
               }} />
           )}
+          {/* VÄGDATA-prick: RÖD när traktens vägdata inte kunde hämtas → TMA/väg-varningarna funkar inte.
+              Enda synliga kartsignalen (statusen bor i +-menyns "Vägdata"-rad). Inget annat läge ger prick. */}
+          {vagdataStatusKod === 'misslyckad' && !plusMenuOpen && (
+            <span aria-label="Vägdata kunde inte hämtas — se menyn"
+              style={{
+                position: 'absolute', bottom: '-2px', right: '-2px',
+                width: 12, height: 12, borderRadius: 6,
+                background: '#ff453a',
+                border: '2px solid rgba(20,20,22,0.72)',
+              }} />
+          )}
         </button>
       )}
 
@@ -12971,6 +13003,21 @@ export default function PlannerPage() {
                   { label: 'Avsluta objekt', icon: 'check_circle', avsluta: true, action: () => { setVisarAvslutaConfirmation(true); } },
                 ],
               }] : []),
+              // VÄGDATA — traktens cachade väggeometri (server-hämtad, cache-först). Statusrad; planerare
+              // (isAdminRiktig) kan trigga om-hämtning (samma /api/vagdata-hamta som /objekt), förare ser
+              // bara statusen. Enda kartsignalen är röd prick på +-knappen vid 'misslyckad'.
+              ...(vagdataStatusKod ? [{
+                title: 'TRAKTENS VÄGDATA',
+                items: [
+                  {
+                    label: 'Vägdata',
+                    value: vagdataVarde,
+                    icon: vagdataStatusKod === 'misslyckad' ? 'error' : 'route',
+                    action: isAdminRiktig ? () => { korOmVagdata(); } : () => {},
+                    danger: vagdataStatusKod === 'misslyckad',
+                  },
+                ],
+              }] : []),
               {
                 title: 'ÖVRIGT',
                 items: [
@@ -13032,6 +13079,11 @@ export default function PlannerPage() {
                         {item.icon}
                       </span>
                       <span style={{ flex: 1 }}>{item.label}</span>
+                      {(item as any).value && (
+                        <span style={{ fontSize: '14px', fontWeight: 400, color: (item as any).danger ? '#ff453a' : 'rgba(255,255,255,0.5)', flexShrink: 0, marginLeft: 8 }}>
+                          {(item as any).value}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -14305,33 +14357,8 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* TMA-VÄGDATA (cache-först): ärligt besked så en trakt VID allmän väg aldrig visar tom karta —
-          antingen ritas röda linjen ur cachen, eller står det att hämtningen pågår / inte kunde hämtas.
-          STALE-MEN-SANN: finns geometri vinner datan (linjen ritas), status visas då diskret. Aldrig tyst tomhet.
-          Markup återbrukad från #417 (skarpt verifierad). */}
-      {vagdataBanner !== 'ingen' && (
-        <div style={{
-          position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', left: '50%', transform: 'translateX(-50%)',
-          zIndex: 340, background: vagdataBanner === 'misslyckad' ? 'rgba(40,10,10,0.92)' : 'rgba(0,0,0,0.82)',
-          border: `1px solid ${vagdataBanner === 'misslyckad' ? 'rgba(255,69,58,0.7)' : 'rgba(255,255,255,0.18)'}`,
-          borderRadius: 12, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 10, maxWidth: '92vw',
-          fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
-        }}>
-          {vagdataBanner === 'misslyckad' ? (
-            <>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff453a" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-              <span style={{ fontSize: 13.5, color: '#fff', fontWeight: 600 }}>Vägdata kunde inte hämtas</span>
-            </>
-          ) : (
-            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
-              {vagdataBanner === 'hamtas' ? 'Vägdata hämtas…'
-                : vagdataBanner === 'tom' ? 'Inga vägar registrerade'
-                : vagdataBanner === 'saknas' ? 'Vägdata inte hämtad än'
-                : /* stale */ 'Vägdata ej uppdaterad — visar senast kända'}
-            </span>
-          )}
-        </div>
-      )}
+      {/* TMA-VÄGDATA: INGEN banner på kartan (borttagen). Statusen bor i +-menyns "Vägdata"-rad, och
+          enda kartsignalen är en röd prick på +-knappen när status='misslyckad' (se +-knappen). */}
 
       {/* APP-EGEN DIALOG — bekräftelse (Avbryt/OK) + besked/fel (OK). Ersätter window.confirm()/alert()
           som tystas i inbäddade lägen. Backdrop/Avbryt = avbryt (kör aldrig onOk); OK stänger och kör onOk. */}
