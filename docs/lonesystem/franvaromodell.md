@@ -73,27 +73,40 @@ Prods kolumnkommentar på `kalla` nämner värdena "forare, ansokan, admin,
 fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
 `fortnox`-värde. Lägg till det i CHECK:en den dag något importeras därifrån.
 
-**Steg 2 — morgonkortet skriver hit.** Sjuk/VAB/föräldraledig blir en rad
-med `status = 'registrerad'`, `kalla = 'morgonkort'` i stället för
-`arbetsdag.dagtyp`. Backfill av de rader som finns (två sjuk-rader
-2026-09-17) med `kalla = 'backfill'`. Ledighetsvyn (`app/ledighet`) måste
-tåla de nya typerna innan de dyker upp där: `TYPINFO` i `tema.ts` täcker bara
-semester/atk och `useLedighetData` läser alla rader.
+**Steg 2 — en skrivare, en läsare (2026-09-18).**
 
-**Steg 3 — en läsare.** `lib/franvaro` får en funktion som läser EN källa
-(godkänd + registrerad) och ger frånvaro per datum. Lön
-(`loneunderlag`/`loneberakning`), Kalender, Min tid, Arbetsrapportens
-`ledighetDagar` och ledighetsvyn byter till den. `FRANVARO_DAGTYPER_ALLA`
-och dagtyp-läsningen tas bort. `arbetsdag.dagtyp` behåller sin andra
+1. `TYPINFO` i `app/ledighet/_components/tema.ts` täcker alla nio typer och
+   `STATUSINFO` har `registrerad` — vidgat FÖRST, annars kraschar
+   ansökningslistan på en rad den inte känner igen. Vad som går att ansöka om
+   i vyn är fortfarande semester/ATK (`ANSOKBARA_TYPER`).
+2. Morgonkortet skriver sjuk/VAB/föräldraledig som en rad med
+   `status = 'registrerad'`, `kalla = 'morgonkort'` (`registreraFranvaro` i
+   `lib/franvaro`). Ingen `arbetsdag`-rad skapas. En registrerad rad kan
+   föraren inte själv ta bort (RLS: egen delete kräver `väntar`) — "arbete
+   vinner" om dagen ändå blir arbetad, annars tar godkännare bort den.
+3. Backfill (migration `20260918110000_franvaro_backfill_dagtyp.sql`): de två
+   dagtyp-raderna (Martin 2026-05-10, Joacim 2026-08-19, båda sjuk) blir rader
+   med `kalla = 'backfill'`. `arbetsdag` rörs inte.
+4. Alla läsare går via `hamtaFranvaro`/`franvaroPerDatum` (godkänd +
+   registrerad): lönen (`loneunderlag` → `loneberakning`), Arbetsrapportens
+   kalender, Kontroll-steg, dagvy och Redigera (`franvaroDagar`), schemavyn
+   (`useSchemaData`). `arbetsdag.dagtyp` läses inte längre som frånvarokälla;
+   `DAGTYP_FRANVARO_LEGACY` finns bara så att de två gamla raderna (0 min,
+   ingen tid) inte räknas som kortpass.
+5. Inget raderat. `dagtyp` behåller sina värden.
+
+**Steg 3 — städning.** `dagtyp` nollas på de två raderna,
+`DAGTYP_FRANVARO_LEGACY` tas bort. `arbetsdag.dagtyp` behåller sin andra
 betydelse (sorts maskindag) tills den delas.
 
-Först efter steg 3: helglönens närvarokrav (§10 mom 4), komp-avdrag i
-årsövertiden, skoftning i lönen (inarbetad dag = ordinarie, ingen övertid).
+Först efter steg 3: helglönens närvarokrav (§10 mom 4), frånvaro-avdrag i
+årsövertidens bas, komp-avdrag, skoftning i lönen (inarbetad dag =
+ordinarie, ingen övertid).
 
-## Läsare i dag (ändras i steg 3)
+## Läsare (alla via lib/franvaro sedan steg 2)
 
-- `lib/lonesystem/loneunderlag.ts` — godkänd ledighet i arbetsperioden
-- `components/arbetsrapport/Arbetsrapport.tsx` — `ledighetDagar` för kalendern
-- `app/ledighet/_components/useSchemaData.ts` — schemavyn
-- `app/ledighet/_components/useLedighetData.ts` — ansökningslistan (alla rader)
-- `app/components/Navigation.tsx` — räknar väntande
+- `lib/lonesystem/loneunderlag.ts` — `hamtaFranvaro` för arbetsperioden
+- `components/arbetsrapport/Arbetsrapport.tsx` — `franvaroDagar` (år + kalendermånad)
+- `app/ledighet/_components/useSchemaData.ts` — schemavyn (`FRANVARO_STATUS_GALLER`)
+- `app/ledighet/_components/useLedighetData.ts` — ansökningslistan (alla rader, alla statusar)
+- `app/components/Navigation.tsx` — räknar väntande (oförändrad)

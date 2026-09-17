@@ -43,7 +43,7 @@
 import { getRödaDagar } from "../roda-dagar";
 import { isoVecka } from "../vilobrott";
 import { arArbetsdag } from "../arbetsdagRegler";
-import { FRANVARO_DAGTYPER_ALLA } from "../franvaro";
+import { DAGTYP_FRANVARO_LEGACY } from "../franvaro";
 
 export type OvertidModell = "vardagar" | "dagar" | "vecka" | "genomsnitt";
 
@@ -96,16 +96,19 @@ export function beraknaArsovertid(
   tomDatum: string,
   perioder: Utjamningsperiod[] = [],
 ): Arsovertid {
-  const FRANVARO = new Set<string>(FRANVARO_DAGTYPER_ALLA);
+  // Legacy-spärr (lib/franvaro, bort i steg 3): gamla dagtyp-frånvarorader
+  // (0 min) räknas inte som arbetsdag. Frånvaro i sig läses inte här än —
+  // veckor med frånvaro dras inte av basen (förbehållet i filhuvudet).
+  const LEGACY = new Set<string>(DAGTYP_FRANVARO_LEGACY);
   const roda = getRödaDagar(ar);
   const arStart = `${ar}-01-01`;
 
-  // Minuter per datum: maskin (frånvarodagar räknas inte) + extra
+  // Minuter per datum: maskin + extra
   const minPerDatum = new Map<string, number>();
   const maskinPerDatum = new Map<string, number>();
   for (const d of dagar) {
     if (!d.datum || d.datum < arStart || d.datum > tomDatum) continue;
-    if (FRANVARO.has(String(d.dagtyp || "").toLowerCase())) continue;
+    if (LEGACY.has(String(d.dagtyp || "").toLowerCase())) continue;
     const m = d.arbetad_min || 0;
     maskinPerDatum.set(d.datum, (maskinPerDatum.get(d.datum) || 0) + m);
     minPerDatum.set(d.datum, (minPerDatum.get(d.datum) || 0) + m);

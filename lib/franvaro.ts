@@ -1,20 +1,22 @@
-// Frånvarons taxonomi — EN lista som Arbetsrapportens morgonkort, Kalendern,
-// Sammanställningen och löneberäkningen läser från.
-//
-// Frånvaro bor i dag på två ställen i databasen (utredning 2026-09-08):
-//   - arbetsdag.dagtyp — OPLANERAD frånvaro som händer idag, skrivs av föraren
-//     på morgonen och bekräftas direkt. Ingen CHECK i prod. Kolumnen betyder
-//     samtidigt "sorts maskindag" (Produktion 899, normal 87) — den dubbla
-//     betydelsen är känd och rörs inte här.
-//   - ledighet_ansokningar.typ — PLANERAD ledighet som ansöks och godkänns
-//     (semester, atk).
+// Frånvaro — EN källa, EN taxonomi. Arbetsrapportens morgonkort, Kalendern,
+// Kontroll-steget, Min tid, löneberäkningen och ledighetsvyn läser härifrån.
 //
 // SAMLAD MODELL (beslut 2026-09-17, docs/lonesystem/franvaromodell.md):
-// ledighet_ansokningar blir den enda frånvarotabellen. Steg 1 (migration
-// 20260917100000) vidgade schemat till alla typer nedan + status 'registrerad'
-// + ersatter_datum (skoftning) + kalla. Steg 2: morgonkortet skriver dit.
-// Steg 3: EN lib läser EN källa; dagtyp-frånvaron slutar läsas. Tills steg 3
-// är kört gäller fortfarande: lön/kalender/Min tid läser BÅDA källorna.
+// ledighet_ansokningar är den enda frånvarotabellen. En rad = en period
+// (startdatum–slutdatum) för en medarbetare.
+//   Steg 1 (migration 20260917100000): schemat vidgat — nio typer, status
+//     'registrerad', ersatter_datum (skoftning), kalla.
+//   Steg 2 (2026-09-18): morgonkortet skriver hit (registreraFranvaro), de två
+//     dagtyp-raderna backfillade (migration 20260918110000), alla läsare går
+//     via hamtaFranvaro/franvaroPerDatum. arbetsdag.dagtyp läses INTE längre
+//     som frånvarokälla — bara som spärr så att de två gamla raderna (0 min,
+//     ingen tid) inte räknas som kortpass (DAGTYP_FRANVARO_LEGACY).
+//   Steg 3: dagtyp-värdena nollas och DAGTYP_FRANVARO_LEGACY tas bort.
+//
+// Vad som RÄKNAS som frånvaro: status 'godkänd' (ansökt och beviljad) eller
+// 'registrerad' (anmäld på morgonen). 'väntar' och 'nekad' är inte frånvaro.
+// "Arbete vinner": en dag med arbetspass räknas som arbete även om en
+// frånvarorad täcker den — det avgörs i läsaren, aldrig här.
 
 /** Alla frånvarotyper i den samlade modellen (= CHECK i ledighet_ansokningar). */
 export const FRANVARO_TYPER = [
@@ -34,16 +36,19 @@ export type FranvaroTyp = (typeof FRANVARO_TYPER)[number];
  *  föräldraledig från morgonkortet) är 'registrerad' direkt — ingen godkännare. */
 export type FranvaroStatus = "väntar" | "godkänd" | "nekad" | "registrerad";
 
+/** Statusar som BETYDER frånvaro. Väntande och nekade rader är det inte. */
+export const FRANVARO_STATUS_GALLER: readonly FranvaroStatus[] = ["godkänd", "registrerad"];
+
 /** Var raden kom ifrån. */
 export type FranvaroKalla = "ansokan" | "morgonkort" | "admin" | "backfill";
 
-/** Typer som anmäls (kan vara 'registrerad'), inte ansöks. */
+/** Typer som anmäls (kan vara 'registrerad'), inte ansöks. = RLS-spärren för egen insert. */
 export const FRANVARO_ANMALS: readonly FranvaroTyp[] = ["sjuk", "vab", "foraldraledig"];
 
 /** Intjänad ledighet — bryter inte helglön även efter 30 dagar (§10 mom 4). */
 export const FRANVARO_INTJANAD: readonly FranvaroTyp[] = ["semester", "atk", "komp"];
 
-/** Rubrik per typ i den samlade modellen. */
+/** Rubrik per typ ("Sjukdag — måndag 7 september"). */
 export const FRANVARO_TYP_RUBRIK: Record<FranvaroTyp, string> = {
   semester: "Semester",
   atk: "ATK",
@@ -56,42 +61,134 @@ export const FRANVARO_TYP_RUBRIK: Record<FranvaroTyp, string> = {
   permission: "Permission",
 };
 
-// ── Det som gäller TILLS steg 2–3 är körda: morgonkortets tre dagtyper ──
+/** Kort ord per typ — kalenderns celler och luck-texter, där utrymmet är litet. */
+export const FRANVARO_ORD: Record<FranvaroTyp, string> = {
+  semester: "Semester",
+  atk: "ATK",
+  komp: "Komp",
+  sjuk: "Sjuk",
+  vab: "VAB",
+  foraldraledig: "Föräldr.",
+  inarbetad: "Inarbetad",
+  tjanstledig: "Tjänstl.",
+  permission: "Permission",
+};
 
-export type FranvaroDagtyp = "sjuk" | "vab" | "foraldraledig";
+export function arFranvaroTyp(typ: string | null | undefined): typ is FranvaroTyp {
+  return !!typ && (FRANVARO_TYPER as readonly string[]).includes(typ);
+}
+
+// ── Morgonkortets val ────────────────────────────────────────
 
 export type FranvaroVal = {
-  id: FranvaroDagtyp;
+  id: FranvaroTyp;
   /** Knapp-/listetikett. */
   label: string;
-  /** Rubrik på en sådan dag ("Sjukdag — måndag 7 september"). */
-  rubrik: string;
   /** Material Symbol. */
   ikon: string;
   /** Helskärmsbekräftelsen efter registrering. */
   meddelande: string;
 };
 
-/** De frånvarotyper föraren kan välja på morgonen. Ordningen är visningsordningen. */
+/** De frånvarotyper föraren kan anmäla på morgonen. Ordningen är visningsordningen.
+ *  Måste vara en delmängd av FRANVARO_ANMALS — RLS släpper bara igenom dem som 'registrerad'. */
 export const FRANVARO_VAL: readonly FranvaroVal[] = [
-  { id: "sjuk",          label: "Sjukfrånvaro",  rubrik: "Sjukdag",       ikon: "medical_services", meddelande: "Krya på dig!" },
-  { id: "vab",           label: "VAB",           rubrik: "VAB",           ikon: "child_care",       meddelande: "VAB registrerad" },
-  { id: "foraldraledig", label: "Föräldraledig", rubrik: "Föräldraledig", ikon: "family_restroom",  meddelande: "Föräldraledighet registrerad" },
+  { id: "sjuk",          label: "Sjukfrånvaro",  ikon: "medical_services", meddelande: "Krya på dig!" },
+  { id: "vab",           label: "VAB",           ikon: "child_care",       meddelande: "VAB registrerad" },
+  { id: "foraldraledig", label: "Föräldraledig", ikon: "family_restroom",  meddelande: "Föräldraledighet registrerad" },
 ] as const;
 
 /** Underraden på frånvarokortet: man ska se vad som finns under utan att trycka. */
 export const FRANVARO_UNDERRAD = FRANVARO_VAL.map((v) => v.label === "Sjukfrånvaro" ? "Sjuk" : v.label).join(", ");
 
-export function arFranvaroDagtyp(dagtyp: string | null | undefined): dagtyp is FranvaroDagtyp {
-  return !!dagtyp && FRANVARO_VAL.some((v) => v.id === dagtyp);
-}
+// ── Läsa ─────────────────────────────────────────────────────
 
-/** Rubrik för alla frånvarovärden som kan förekomma i dagtyp (inkl. äldre semester/atk). */
-export const FRANVARO_RUBRIK: Record<string, string> = {
-  ...Object.fromEntries(FRANVARO_VAL.map((v) => [v.id, v.rubrik])),
-  semester: "Semester",
-  atk: "ATK",
+export type FranvaroRad = {
+  id?: string;
+  medarbetare_id: string;
+  typ: FranvaroTyp;
+  startdatum: string;   // YYYY-MM-DD
+  slutdatum: string;    // YYYY-MM-DD
+  status: FranvaroStatus;
+  ersatter_datum?: string | null;
 };
 
-/** Alla dagtyp-värden som betyder "ingen arbetstid" — för lön, kalender och summering. */
-export const FRANVARO_DAGTYPER_ALLA = ["sjuk", "vab", "foraldraledig", "semester", "atk"] as const;
+/**
+ * Frånvarorader som ÖVERLAPPAR [fran, till] och gäller (godkänd/registrerad).
+ * `medarbetareId` utelämnad = alla (lönen, schemat). Fel returneras, kastas
+ * inte — läsaren avgör om det är stopp (lönen) eller tom lista (kalendern).
+ */
+export async function hamtaFranvaro(
+  supabase: any,
+  p: { medarbetareId?: string; fran: string; till: string },
+): Promise<{ rader: FranvaroRad[]; fel: string | null }> {
+  let q = supabase
+    .from("ledighet_ansokningar")
+    .select("id, medarbetare_id, typ, startdatum, slutdatum, status, ersatter_datum")
+    .in("status", FRANVARO_STATUS_GALLER as string[])
+    .lte("startdatum", p.till)
+    .gte("slutdatum", p.fran);
+  if (p.medarbetareId) q = q.eq("medarbetare_id", p.medarbetareId);
+  const { data, error } = await q;
+  if (error) return { rader: [], fel: error.message || String(error) };
+  return { rader: (data || []) as FranvaroRad[], fel: null };
+}
+
+/**
+ * Expanderar rader till datum → typ inom [fran, till]. Första raden per datum
+ * vinner (två överlappande rader är ett datafel som granskningen får se via
+ * ledighetskollision, inte något som döljs här).
+ */
+export function franvaroPerDatum(rader: FranvaroRad[], fran: string, till: string): Record<string, FranvaroTyp> {
+  const ut: Record<string, FranvaroTyp> = {};
+  for (const r of rader) {
+    if (!r.startdatum || !r.slutdatum || !arFranvaroTyp(r.typ)) continue;
+    const start = new Date(r.startdatum + "T00:00:00");
+    const slut = new Date(r.slutdatum + "T00:00:00");
+    for (const d = new Date(start); d <= slut; d.setDate(d.getDate() + 1)) {
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (iso < fran || iso > till) continue;
+      if (!ut[iso]) ut[iso] = r.typ;
+    }
+  }
+  return ut;
+}
+
+// ── Skriva (morgonkortet) ────────────────────────────────────
+
+/**
+ * Anmäler frånvaro för EN dag: en rad med status 'registrerad', kalla
+ * 'morgonkort'. RLS (ledighet_insert_egen) kräver egen medarbetare_id och
+ * typ i FRANVARO_ANMALS. anvandare_id är visningsnamn, som ledighetsvyn.
+ * En registrerad rad kan föraren inte själv ta bort (delete_egen kräver
+ * 'väntar') — "arbete vinner" om dagen ändå blir arbetad; annars godkännare.
+ */
+export async function registreraFranvaro(
+  supabase: any,
+  p: { medarbetareId: string; namn: string; datum: string; typ: FranvaroTyp },
+): Promise<{ ok: true; rad: FranvaroRad } | { ok: false; fel: string }> {
+  if (!FRANVARO_ANMALS.includes(p.typ)) return { ok: false, fel: `${p.typ} ansöks i Ledighet, anmäls inte här.` };
+  const { data, error } = await supabase
+    .from("ledighet_ansokningar")
+    .insert({
+      medarbetare_id: p.medarbetareId,
+      anvandare_id: p.namn,
+      typ: p.typ,
+      startdatum: p.datum,
+      slutdatum: p.datum,
+      status: "registrerad",
+      kalla: "morgonkort",
+      skapad_av: p.namn,
+    })
+    .select("id, medarbetare_id, typ, startdatum, slutdatum, status, ersatter_datum")
+    .single();
+  if (error || !data) return { ok: false, fel: error?.message || "Kunde inte spara frånvaron." };
+  return { ok: true, rad: data as FranvaroRad };
+}
+
+// ── Legacy: arbetsdag.dagtyp ─────────────────────────────────
+// De två gamla frånvaroraderna i arbetsdag (Martin 2026-05-10, Joacim
+// 2026-08-19, båda sjuk, 0 min, ingen tid) har dagtyp kvar tills steg 3.
+// Den här listan används BARA för att inte räkna sådana rader som arbetsdag/
+// kortpass — aldrig för att avgöra att en dag ÄR frånvaro. Tas bort i steg 3.
+export const DAGTYP_FRANVARO_LEGACY = ["sjuk", "vab", "foraldraledig", "semester", "atk"] as const;

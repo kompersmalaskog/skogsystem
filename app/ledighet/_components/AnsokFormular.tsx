@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { upsertVerifierat, uppdateraVerifierat } from '@/lib/supabase-save';
-import { C, ff, inputStyle, labelStyle, TYPINFO, type LedighetTyp } from './tema';
+import { C, ff, inputStyle, labelStyle, TYPINFO, ANSOKBARA_TYPER, type LedighetTyp } from './tema';
 import { arbetsdagar, fmtDatum, fmtPeriod } from './datum';
 import type { Ansokan } from './typer';
 import ValjKalender from './ValjKalender';
@@ -111,9 +111,10 @@ export default function AnsokFormular({
           {redigerar ? 'Ändra ansökan' : 'Ansök om ledighet'}
         </div>
 
-        {/* Typval — bara Semester/ATK; stopp är en egen modell, inte ledighet */}
+        {/* Typval — bara det som går att ANSÖKA om (tema.ANSOKBARA_TYPER); TYPINFO
+            täcker alla nio typer i tabellen men sjuk/vab anmäls i morgonkortet. */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          {(Object.keys(TYPINFO) as LedighetTyp[]).map(val => {
+          {ANSOKBARA_TYPER.map(val => {
             const aktiv = typ === val;
             return (
               <button key={val} onClick={() => setTyp(val)} style={{

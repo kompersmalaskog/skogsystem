@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag, arbetadTidInklExtra } from "@/lib/arbetstid";
@@ -10,7 +10,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
-import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_RUBRIK, FRANVARO_DAGTYPER_ALLA, arFranvaroDagtyp } from "@/lib/franvaro";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, hamtaFranvaro, franvaroPerDatum, registreraFranvaro, type FranvaroTyp } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
@@ -622,10 +622,24 @@ export default function Arbetsrapport() {
   const [kalÅr, setKalÅr] = useState(new Date().getFullYear());
   const [kalMånad, setKalMånad] = useState(new Date().getMonth());
   const [dagData, setDagData] = useState<Record<string, any>>({});
-  // Godkänd ledighet expanderad till datum (datum -> typ). Frånvaro visas i
-  // kalendern så en ledig dag inte ser ut som en tom dag (ledighet_ansokningar
-  // är helt frånkopplad från arbetsdag). "Arbete vinner" avgörs vid render.
-  const [ledighetDagar, setLedighetDagar] = useState<Record<string, string>>({});
+  // FRÅNVARO — datum → typ, ur ledighet_ansokningar via lib/franvaro (godkänd
+  // + registrerad). ENDA källan sedan steg 2 (2026-09-18): morgonkortet skriver
+  // dit, kalendern, dagvyn, Kontroll-steget och Redigera läser härifrån.
+  // arbetsdag.dagtyp läses inte längre som frånvaro. Laddas för innevarande år
+  // vid start och för kalenderns år när den öppnas; morgonkortets skrivning
+  // lägger till dagen direkt. "Arbete vinner" avgörs vid render.
+  const [franvaroDagar, setFranvaroDagar] = useState<Record<string, FranvaroTyp>>({});
+  const laddaFranvaro = useCallback(async (medId: string, fran: string, till: string) => {
+    const { rader, fel } = await hamtaFranvaro(supabase, { medarbetareId: medId, fran, till });
+    if (fel) { console.error('[franvaro] läsfel:', fel); return; }
+    const karta = franvaroPerDatum(rader, fran, till);
+    // Ersätt intervallet helt — en borttagen rad ska försvinna, inte ligga kvar.
+    setFranvaroDagar(prev => {
+      const ut: Record<string, FranvaroTyp> = {};
+      for (const [k, v] of Object.entries(prev)) if (k < fran || k > till) ut[k] = v;
+      return { ...ut, ...karta };
+    });
+  }, []);
 
   // temp states för ändra tid/km
   const [tS,setTS]=useState("06:12"),[tE,setTE]=useState("16:45"),[tR,setTR]=useState(30);
@@ -1085,33 +1099,18 @@ export default function Arbetsrapport() {
     return () => { cancelled = true; };
   }, [steg, medarbetare?.id, kalÅr, kalMånad]);
 
-  // Godkänd ledighet för månaden → expandera start–slut till datum-map.
-  // status='godkänd' (med ä) — bara beviljad frånvaro visas, aldrig väntande.
+  // Frånvaro för innevarande år (dagvyn, Kontroll-steget, Redigera) — och för
+  // kalenderns år när den öppnas (den kan bläddra bakåt). Samma lib, samma karta.
+  useEffect(() => {
+    if (!medarbetare?.id) return;
+    const år = new Date().getFullYear();
+    laddaFranvaro(medarbetare.id, `${år}-01-01`, `${år}-12-31`);
+  }, [medarbetare?.id, laddaFranvaro]);
   useEffect(() => {
     if (steg !== "kalender" || !medarbetare?.id) return;
-    const förstadag = ymdLokal(new Date(kalÅr, kalMånad, 1));
-    const sistadag = ymdLokal(new Date(kalÅr, kalMånad + 1, 0));
-    let cancelled = false;
-    supabase.from('ledighet_ansokningar')
-      .select('typ, startdatum, slutdatum')
-      .eq('medarbetare_id', medarbetare.id)
-      .eq('status', 'godkänd')
-      .lte('startdatum', sistadag).gte('slutdatum', förstadag)
-      .then(({ data }) => {
-        if (cancelled) return;
-        const karta: Record<string, string> = {};
-        for (const l of (data || [])) {
-          const start = new Date(l.startdatum + 'T00:00:00');
-          const slut = new Date(l.slutdatum + 'T00:00:00');
-          for (let dt = new Date(start); dt <= slut; dt.setDate(dt.getDate() + 1)) {
-            const iso = ymdLokal(dt);
-            if (iso >= förstadag && iso <= sistadag) karta[iso] = (l.typ || 'ledig');
-          }
-        }
-        setLedighetDagar(karta);
-      });
-    return () => { cancelled = true; };
-  }, [steg, medarbetare?.id, kalÅr, kalMånad]);
+    if (kalÅr === new Date().getFullYear()) return; // redan laddat ovan
+    laddaFranvaro(medarbetare.id, `${kalÅr}-01-01`, `${kalÅr}-12-31`);
+  }, [steg, medarbetare?.id, kalÅr, laddaFranvaro]);
 
   // Lazy-hämta semester- och ATK-saldo från Fortnox när Saldon-fliken öppnas.
   // Ärliga tillstånd: ingen väntan får vara oändlig — 10s timeout aborterar
@@ -2152,17 +2151,19 @@ export default function Arbetsrapport() {
        maskin". Passet går (innan första timfilen satt slut_tid): grön puls +
        det faktiska klockslaget systemet registrerat. */
     const tillstandKort = (() => {
-      const typ = idagArb?.dagtyp;
+      // Frånvaro idag ur lib/franvaro (registrerad i morgonkortet eller godkänd
+      // ledighet) — går före maskinläget: en sjukdag är en sjukdag.
+      const franvaroIdag = franvaroDagar[idagKey];
       const startKort = idagArb?.start_tid?.slice(0,5) || '—';
-      const rubrik = !isWorking
-        ? 'Väntar på maskin'
-        : (typ && FRANVARO_RUBRIK[typ])
-          ? FRANVARO_RUBRIK[typ]
+      const rubrik = franvaroIdag
+        ? FRANVARO_TYP_RUBRIK[franvaroIdag]
+        : !isWorking
+          ? 'Väntar på maskin'
           : `Arbetsdagen startade ${startKort}`;
-      const under = !isWorking
-        ? 'Startar automatiskt vid inloggning'
-        : (typ && typ !== 'normal' && typ !== 'Produktion')
-          ? `Startad ${(idagArb?.start_tid||'').slice(0,5)}`
+      const under = franvaroIdag
+        ? 'Registrerad — arbete i dag räknas ändå som arbete'
+        : !isWorking
+          ? 'Startar automatiskt vid inloggning'
           : 'Avslutas automatiskt vid utloggning från maskinen';
       // Maskinens NAMN ur maskiner-tabellen ("Wisent2015"), aldrig koden
       // ("810E") — maskinNamnMap föredrar maskiner.namn. Förarens maskin
@@ -2268,7 +2269,7 @@ export default function Arbetsrapport() {
         : '';
       const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
       const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
-      const typPrefix = idagArb?.dagtyp && FRANVARO_RUBRIK[idagArb.dagtyp] ? FRANVARO_RUBRIK[idagArb.dagtyp] : '';
+      const typPrefix = franvaroDagar[idagKey] ? FRANVARO_TYP_RUBRIK[franvaroDagar[idagKey]] : '';
       const datumRubrik = typPrefix
         ? `${typPrefix} — ${dagNamnLång} ${idag.getDate()} ${månNamnLång}`
         : `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
@@ -2543,8 +2544,9 @@ export default function Arbetsrapport() {
     };
     const fmtTim = (h: number) => (Math.round(h * 10) / 10).toLocaleString('sv-SE');
     const obekraftade: string[] = (årsData || [])
+      // Frånvarodagar har ingen arbetsdag-rad sedan steg 2 — inget att bekräfta.
       .filter((d: any) => d.datum && d.datum >= fran7 && d.datum < idagKey && !d.bekraftad
-        && (d.start_tid || d.slut_tid || arFranvaroDagtyp(d.dagtyp)))
+        && (d.start_tid || d.slut_tid))
       .map((d: any) => d.datum as string)
       .sort();
     const brandriskObesvarade = (årsData || [])
@@ -2686,49 +2688,25 @@ export default function Arbetsrapport() {
 
         {/* KORT 3 — Frånvaro. Underraden visar vad som finns utan att trycka;
             tryck fäller ut valen (lib/franvaro äger listan). sjuk/vab/
-            föräldraledig skrivs till arbetsdag.dagtyp — oplanerad frånvaro
-            idag, bekräftas direkt. Planerad ledighet ansöks i Ledighet-vyn. */}
-        {!isWorking && !idagArb?.bekraftad && (
+            föräldraledig skrivs som en rad i ledighet_ansokningar (status
+            'registrerad', kalla 'morgonkort') — ingen arbetsdag-rad, ingen
+            dagtyp. Planerad ledighet ansöks i Ledighet-vyn. Kortet döljs när
+            dagen redan är frånvaro. */}
+        {!isWorking && !idagArb?.bekraftad && !franvaroDagar[idagKey] && (
           <section style={{ marginTop:AVSTAND.m }}>
             {kortKnapp('Frånvaro', FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
             {visaÖvrigt && (
               <div className="tona-in" style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.s }}>
                 {FRANVARO_VAL.map(s=>(
                   <button key={s.id} onClick={async ()=>{
-                    const nuIso = new Date().toISOString();
-                    // Heldagstyp: bekräftas direkt, ingen tid krävs.
-                    const payload: any = {
-                      medarbetare_id: medarbetare.id,
-                      datum: idagKey,
-                      dagtyp: s.id,
-                      bekraftad: true,
-                      bekraftad_tid: nuIso,
-                    };
-                    const res = await upsertVerifierat(supabase, "arbetsdag", payload, { onConflict: 'medarbetare_id,datum', select: "*" });
+                    const res = await registreraFranvaro(supabase, { medarbetareId: medarbetare.id, namn: medarbetare.namn || '', datum: idagKey, typ: s.id });
                     if (!res.ok) { setBekraftaFel(res.fel); return; }
                     setBekraftaFel(null);
-                    const data = res.rows[0];
-                    if (data) {
-                      setDagTyp(s.id);
-                      setDagData(d => ({ ...d, [idagKey]: {
-                        ...(d[idagKey] || {}),
-                        id: data.id,
-                        status: data.bekraftad ? 'ok' : 'saknas',
-                        dagtyp: data.dagtyp,
-                        start_tid: data.start_tid,
-                        start: data.start_tid ? data.start_tid.slice(0,5) : '',
-                        slut_tid: data.slut_tid || null,
-                        slut: data.slut_tid ? data.slut_tid.slice(0,5) : '',
-                        bekraftad: !!data.bekraftad,
-                        bekraftad_tid: data.bekraftad_tid,
-                        arbMin: 0,
-                        km: 0, km_morgon: 0, km_kvall: 0, km_totalt: 0,
-                      }}));
-                      setVisaÖvrigt(false);
-                      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
-                      setHeldagsMeddelande({ typ: s.id, text: s.meddelande, icon: s.ikon });
-                      setTimeout(() => setHeldagsMeddelande(null), 2500);
-                    }
+                    setFranvaroDagar(prev => ({ ...prev, [idagKey]: s.id }));
+                    setVisaÖvrigt(false);
+                    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
+                    setHeldagsMeddelande({ typ: s.id, text: s.meddelande, icon: s.ikon });
+                    setTimeout(() => setHeldagsMeddelande(null), 2500);
                   }}
                     style={{ ...KNAPP.sekundar, justifyContent:"flex-start", padding:`0 ${AVSTAND.l}px` }}>
                     <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2 }}>{s.ikon}</span>
@@ -3279,11 +3257,9 @@ export default function Arbetsrapport() {
               while(cur<d2){
                 const k=cur.toISOString().split('T')[0];
                 const dow=cur.getDay();
-                const ad=årsData.find(r=>r.datum===k);
-                if(ad?.dagtyp==='sjuk'&&!delar.includes('Sjuk')) delar.push('Sjuk');
-                else if(ad?.dagtyp==='vab'&&!delar.includes('VAB')) delar.push('VAB');
-                else if(ad?.dagtyp==='semester'&&!delar.includes('Semester')) delar.push('Semester');
-                else if(ad?.dagtyp==='atk'&&!delar.includes('ATK')) delar.push('ATK');
+                // Frånvaro ur lib/franvaro (ledighet_ansokningar), inte ur dagtyp
+                const fOrd = franvaroDagar[k] ? FRANVARO_ORD[franvaroDagar[k]] : null;
+                if(fOrd&&!delar.includes(fOrd)) delar.push(fOrd);
                 else if(rödaDagarÅr[k]&&!delar.includes(rödaDagarÅr[k])) delar.push(rödaDagarÅr[k]);
                 else if((dow===0||dow===6)&&!harHelg){harHelg=true;delar.unshift('Helg');}
                 cur.setDate(cur.getDate()+1);
@@ -3798,11 +3774,17 @@ export default function Arbetsrapport() {
       setDagData(dd => ({ ...dd, [d.datum]: { ...(dd[d.datum] || {}), brandrisk_beordrad: val } }));
     };
 
-    // Frånvaro per dagtyp (rad visas bara om typen förekommer)
-    const FRANVARO_TYPER: [string,string][] = [['sjuk','Sjukfrånvaro'],['vab','VAB'],['foraldraledig','Föräldraledig'],['semester','Semester'],['atk','ATK']];
-    const frånvaroRader = FRANVARO_TYPER
-      .map(([typ,label]) => [label, månadsHistorik.filter(d => d.dagtyp === typ).length] as [string,number])
-      .filter(([,n]) => n > 0);
+    // Frånvaro per typ i månaden — ur lib/franvaro (ledighet_ansokningar), samma
+    // källa som lönen. "Arbete vinner": en dag med maskintid räknas inte.
+    // Rad visas bara om typen förekommer.
+    const månadsArbetade = new Set(månadsHistorik.filter(d => (d.arbetad_min || 0) > 0).map(d => d.datum));
+    const frånvaroAntal = new Map<string, number>();
+    for (const [datum, typ] of Object.entries(franvaroDagar)) {
+      if (!datum.startsWith(lönePeriod) || månadsArbetade.has(datum)) continue;
+      const label = FRANVARO_TYP_RUBRIK[typ];
+      frånvaroAntal.set(label, (frånvaroAntal.get(label) || 0) + 1);
+    }
+    const frånvaroRader = Array.from(frånvaroAntal.entries()) as [string,number][];
 
     // Bekräftelse-gaten — själva poängen med kontrollsteget: ALLA dagar måste
     // vara bekräftade innan månaden kan godkännas. Ingen "skicka ändå" — lön
@@ -4868,22 +4850,25 @@ export default function Arbetsrapport() {
             <div>
               <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>{redMånadDisplay}</p>
               <h1 style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.titel }}>
-                {arFranvaroDagtyp(redDag?.dagtyp) ? `${FRANVARO_RUBRIK[redDag.dagtyp]} — ${redDatumDisplay}` : redDatumDisplay}
+                {(franvaroDagar[redDag?.datum] && !redDag?.start_tid) ? `${FRANVARO_TYP_RUBRIK[franvaroDagar[redDag.datum]]} — ${redDatumDisplay}` : redDatumDisplay}
               </h1>
             </div>
           </div>
         </div>
         {(()=>{
-          // Heldagstyp (sjuk/vab/föräldraledig — lib/franvaro) får en minimal vy —
-          // ingen arbetstid/körning, bara statusmeddelande + bekräftad-rad.
-          if (arFranvaroDagtyp(redDag?.dagtyp)) {
-            const bekraftadRedan = !!redDag?.bekraftad;
+          // Frånvarodag (lib/franvaro — ledighet_ansokningar, godkänd/registrerad)
+          // utan maskinpass får en minimal vy: ingen arbetstid/körning, bara
+          // status. Finns ett pass är dagen arbete ("arbete vinner") och visas
+          // som vanligt. Sedan steg 2 skapar morgonkortet ingen arbetsdag-rad,
+          // så det finns inget att bekräfta — raden är registrerad i sig.
+          const redFranvaro = franvaroDagar[redDag?.datum];
+          if (redFranvaro && !redDag?.start_tid) {
+            const bekraftadRedan = !!redDag?.bekraftad; // de två gamla dagtyp-raderna har en bekräftad arbetsdag-rad
             const bekraftadTidFmt = redDag?.bekraftad_tid
               ? new Date(redDag.bekraftad_tid).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})
               : null;
-            const meddelande = redDag.dagtyp === 'sjuk'
-              ? { icon: 'sick' as string | null, text: 'Krya på dig!' }
-              : { icon: null as string | null, text: 'VAB registrerad' };
+            const val = FRANVARO_VAL.find(v => v.id === redFranvaro);
+            const meddelande = { icon: redFranvaro === 'sjuk' ? 'sick' : null, text: val?.meddelande || `${FRANVARO_TYP_RUBRIK[redFranvaro]} registrerad` };
             return (<>
               <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:`${AVSTAND.xxl}px ${AVSTAND.xl}px` }}>
                 {meddelande.icon && (
@@ -4894,9 +4879,10 @@ export default function Arbetsrapport() {
               <div style={bottom}>
                 {felRad}
                 {bekraftadRedan ? bekraftadRad(bekraftadTidFmt) : (
-                  <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, passMin: passMinuter(redStart, redSlut, redRast), andra: () => setRedVy("tid") })}>
-                    Bekräfta dagen
-                  </button>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.gron }}>check_circle</span>
+                    <span style={{ ...TYP.listtitel, color:FARG.text }}>Registrerad — inget att bekräfta</span>
+                  </div>
                 )}
                 {tillbakaKnapp}
               </div>
@@ -5291,7 +5277,7 @@ export default function Arbetsrapport() {
             // väntetext.
             const harStart = !!redDag?.start_tid;
             const harSlut = !!redDag?.slut_tid;
-            const erHelDag = arFranvaroDagtyp(redDag?.dagtyp);
+            const erHelDag = !!franvaroDagar[redDag?.datum] && !harStart; // frånvarodagar utan pass har redan returnerat ovan
             const harExtra = (extraTidData || []).some((e:any) => e.datum === redDag.datum && e.slut_tid);
             const kanBekrafta = !bekraftadRedan && (harSlut || erHelDag || (harExtra && !harStart));
             const passPågår = harStart && !harSlut && !erHelDag;
@@ -5601,7 +5587,6 @@ export default function Arbetsrapport() {
     // tid minst 60 min. Annars säger kalendern ett antal och lönespecen ett annat.
     const minPerDatum = new Map<string, number>();
     for (const [datum, d] of månadsDagRader as [string, any][]) {
-      if ((FRANVARO_DAGTYPER_ALLA as readonly string[]).includes(String(d.dagtyp || '').toLowerCase())) continue;
       minPerDatum.set(datum, (minPerDatum.get(datum) || 0) + (d.arbMin || 0));
     }
     for (const e of månadsExtra) minPerDatum.set(e.datum, (minPerDatum.get(e.datum) || 0) + (e.minuter || 0));
@@ -5616,10 +5601,11 @@ export default function Arbetsrapport() {
     // EN klassning per datum för rutnätet OCH månadskortet:
     //   arbete    → prick: grön bekräftad, orange obekräftad; blå prick extra tid,
     //               gul prick ohanterad synk-avvikelse, gul ring rättad dag
-    //   frånvaro  → ordet (Sjuk/VAB/Semester/Föräldr./ATK) ur BÅDA källorna:
-    //               arbetsdag.dagtyp (morgonkortet) och ledighet_ansokningar
-    //               (godkänd). Läser man bara den ena försvinner sjukdagen här
-    //               precis som den försvann ur lönen. "Arbete vinner".
+    //   frånvaro  → ordet (Sjuk/VAB/Semester/Föräldr./ATK…) ur EN källa:
+    //               ledighet_ansokningar via lib/franvaro (godkänd + registrerad
+    //               — morgonkortet skriver dit sedan steg 2). Förr fanns två
+    //               källor och sjukdagen försvann ur den som bara läste den ena.
+    //               "Arbete vinner".
     //   röd dag   → helgdagsnamnet i rött (lib/roda-dagar, påsk beräknad)
     //   vardag utan rapport → TOM i rutnätet (en tom gången vardag ÄR signalen
     //               när alla andra har prick, ord eller namn); räknas i
@@ -5627,8 +5613,8 @@ export default function Arbetsrapport() {
     //               start, bara gången tid.
     //   helg utan arbete → tomt
     const idagIso = ymdLokal(nuDat);
-    const franvaroOrd: Record<string, string> = { sjuk: "Sjuk", vab: "VAB", semester: "Semester", foraldraledig: "Föräldr.", atk: "ATK", ledig: "Ledig" };
-    const franvaroRubrik: Record<string, string> = { sjuk: "Sjuk", vab: "VAB", semester: "Semester", foraldraledig: "Föräldraledig", atk: "ATK", ledig: "Ledig" };
+    const franvaroOrd: Record<string, string> = FRANVARO_ORD;
+    const franvaroRubrik: Record<string, string> = FRANVARO_TYP_RUBRIK;
     type DagKlass = {
       slag: "arbete" | "franvaro" | "rod" | "saknas" | "tom";
       min: number; bekraftad: boolean; typ?: string; helgNamn?: string; helg: boolean;
@@ -5646,11 +5632,10 @@ export default function Arbetsrapport() {
       const synk = !!_sh?.synk_avvikelse && !_sh.synk_avvikelse.kvitterad && !foreSkarpStart(k);
       const redigerad = !!dag?.redigerad || (!!redDagar[k] && typeof redDagar[k] === "object");
       const bas = { min, helg, extra, synk, redigerad };
-      if (min > 0 || (dag && !arFranvaroDagtyp(dag.dagtyp) && dag.start_tid)) {
+      if (min > 0 || (dag && dag.start_tid)) {
         return { ...bas, slag: "arbete", bekraftad: !!dag?.bekraftad };
       }
-      const dagtyp = String(dag?.dagtyp || "").toLowerCase();
-      const franvaroTyp = (FRANVARO_DAGTYPER_ALLA as readonly string[]).includes(dagtyp) ? dagtyp : (ledighetDagar[k] || null);
+      const franvaroTyp = franvaroDagar[k] || null;
       if (franvaroTyp) return { ...bas, slag: "franvaro", bekraftad: true, typ: franvaroTyp };
       if (rödaDagar[k]) return { ...bas, slag: "rod", bekraftad: true, helgNamn: rödaDagar[k] };
       if (!helg && k < idagIso && !foreSkarpStart(k)) return { ...bas, slag: "saknas", bekraftad: false };
