@@ -323,10 +323,13 @@ function Loneunderlag() {
       </Card>
 
       {/* ÅRETS ÖVERTID MOT TAKET — det Martin behöver se som arbetsgivare.
-          Tre modeller, ingen vald: vilken som är "ordinarie tid" för en förare
-          utan schema är en avtalsfråga hos löneansvariga. Tills den är svarad
-          visas alla tre, så frågan kan ställas rätt. Taket är en lagstadgad
-          gräns: orange inom 50 tim, röd över. */}
+          Fyra modeller: de tre appen räknat med, och AVTALETS (§5 mom 2: 40 tim
+          i genomsnitt över ≤ 16 veckor). Ingen av de tre första är avtalets, och
+          komp-uttag (§8 mom 3, räknas inte som övertid enligt ATL §5 mom 5 anm 3)
+          finns inte i data — talen är sannolikt för höga. Därför INGET rött
+          "passerat taket" (2026-09-17: det larmet var falskt — Stefan låg på
+          34 tim/vecka i snitt när kortet sa 271). Färg bara på avtalskolumnen:
+          orange inom 50 tim, röd över. */}
       {arsovertid && (
         <Card>
           <p style={{ ...secHead, marginTop: 0 }}>Övertid {arsovertid.ar ?? new Date().getFullYear()} mot taket{arsovertid.tak ? ` ${arsovertid.tak} tim` : ""}</p>
@@ -336,27 +339,24 @@ function Loneunderlag() {
             const tak = Number(arsovertid.tak || 250);
             const modeller: any[] = arsovertid.modeller || [];
             const farg = (h: number) => h >= tak ? C.red : h >= tak - 50 ? C.orange : C.text;
-            const rader: any[] = [...(arsovertid.medarbetare || [])].sort((a, b) => (b.modeller?.dagar || 0) - (a.modeller?.dagar || 0));
-            const overTak = rader.filter(r => modeller.some(m => (r.modeller?.[m.key] || 0) >= tak));
+            const rader: any[] = [...(arsovertid.medarbetare || [])].sort((a, b) => (b.modeller?.genomsnitt || 0) - (a.modeller?.genomsnitt || 0));
             return (
               <>
-                <p style={{ margin: "0 0 10px", fontSize: 12, color: C.label }}>
-                  Tre modeller, ingen vald — vad som är ordinarie tid för en förare utan schema är en avtalsfråga. Exporten räknar i dag mot arbetade dagar; förarens Min tid mot kalenderns vardagar. T.o.m. {arsovertid.tomDatum}.
+                <p style={{ margin: "0 0 6px", fontSize: 12, color: C.text }}>
+                  <strong>Ingen av de tre första kolumnerna är avtalets modell.</strong> Skogsavtalet §5 mom 2: ordinarie arbetstid är 40 tim/vecka <em>i genomsnitt över en beräkningsperiod om högst 16 veckor</em> — kolumnen <strong>Genomsnitt 16 v</strong>, räknad med antagna perioder från vecka 1. Vilken period som tillämpas är ett beslut som ska vara överenskommet.
                 </p>
-                {overTak.length > 0 && (
-                  <p style={{ margin: "0 0 10px", fontSize: 13, color: C.red, fontWeight: 600 }}>
-                    Över {tak} tim enligt minst en modell: {overTak.map(r => r.namn).join(", ")}. Allmän övertid över taket kräver extra övertid (arbetstidslagen) — ta ställning som arbetsgivare.
-                  </p>
-                )}
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", gap: "4px 8px", fontSize: 12, alignItems: "baseline" }}>
+                <p style={{ margin: "0 0 10px", fontSize: 12, color: C.label }}>
+                  Tid som kompenserats med ledighet (§8 mom 3, 1,4 tim per övertidstimme) räknas inte som övertid enligt arbetstidslagen (§5 mom 5 anm 3). Komp-uttag finns inte i data än, så alla tal är sannolikt för höga. Exporten räknar i dag mot arbetade dagar, Min tid mot kalenderns vardagar. T.o.m. {arsovertid.tomDatum}.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: `1.4fr repeat(${modeller.length}, 1fr)`, gap: "4px 8px", fontSize: 12, alignItems: "baseline" }}>
                   <span style={{ color: C.label }}>Förare</span>
-                  {modeller.map(m => <span key={m.key} style={{ color: C.label, textAlign: "right" }} title={`${m.beskrivning} — ${m.anvandsAv}`}>{m.namn}</span>)}
+                  {modeller.map(m => <span key={m.key} style={{ color: m.avtalet ? C.text : C.label, fontWeight: m.avtalet ? 700 : 400, textAlign: "right" }} title={`${m.beskrivning} — ${m.anvandsAv}`}>{m.namn}{m.avtalet ? " (avtalet)" : ""}</span>)}
                   {rader.map(r => (
                     <React.Fragment key={r.medarbetare_id}>
                       <span style={{ color: C.text, fontSize: 13, padding: "5px 0", borderTop: `1px solid ${C.line}` }}>{r.namn} <span style={{ color: C.label, fontSize: 11 }}>{Number(r.timmar).toLocaleString("sv-SE")} tim</span></span>
                       {modeller.map(m => {
                         const h = Number(r.modeller?.[m.key] || 0);
-                        return <span key={m.key} style={{ textAlign: "right", fontSize: 13, fontWeight: h >= tak - 50 ? 700 : 400, color: farg(h), padding: "5px 0", borderTop: `1px solid ${C.line}`, fontVariantNumeric: "tabular-nums" }}>{h.toLocaleString("sv-SE")}</span>;
+                        return <span key={m.key} style={{ textAlign: "right", fontSize: 13, fontWeight: m.avtalet ? 700 : 400, color: m.avtalet ? farg(h) : C.label, padding: "5px 0", borderTop: `1px solid ${C.line}`, fontVariantNumeric: "tabular-nums" }}>{h.toLocaleString("sv-SE")}</span>;
                       })}
                     </React.Fragment>
                   ))}
@@ -738,24 +738,29 @@ function FortnoxExportSektion({
         </p>
       </Card>
 
-      {/* Att ta med löneansvarig — påståenden att godkänna, inte öppna frågor.
-          Martin kan visa skärmen och få ja/nej. Reseersättningens två frågor
-          (en rad 821, påbörjad mil per dag) besvarades 2026-09-12: koden gjorde
-          rätt. Kvar: de sex nedan. Tills de är svarade läggs OB, sjuk och
-          helglön INTE som lönerader — de står under "påverkar riktigheten". */}
+      {/* Att ta med löneansvarig — tre slag. Reseersättningens två frågor
+          besvarades 2026-09-12 (koden gjorde rätt). Avtalsboken lästes
+          2026-09-17 (docs/lonesystem/skogsavtalet-arbetstid.md) och svarade på
+          fyra av de tidigare frågorna — de står nu som BEKRÄFTELSER av avtals-
+          text, inte som öppna frågor. Kvar som rena frågor: två lönearter. Två
+          saker är Martins egna beslut som arbetsgivare, inte löneansvarigas.
+          Tills lönearterna är svarade läggs OB, sjuk och helglön INTE som
+          lönerader — de står under "påverkar riktigheten". */}
       <Card style={{ padding: "12px 18px", background: "rgba(255,159,10,0.06)", border: "1px solid rgba(255,159,10,0.2)" }}>
         <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Att ta med löneansvarig</p>
         {([
-          ["Löneart för brandrisk-OB", "timmarna räknas (lib/ob) men skickas inte förrän koden är fastställd."],
-          ["Löneart för sjuklön", "sjukdagar ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
-          ["Övertidsmodell", "mot arbetade dagar × 8 (exporten i dag), kalenderns vardagar × 8 (Min tid) eller 40-timmarsveckan? Kortet överst visar alla tre."],
-          ["250-taket", "har någon passerat 250 tim allmän övertid, och vad gör vi? Allmän övertid över taket kräver extra övertid enligt arbetstidslagen."],
-          ["Helglön §10 — närvarokrav", "kräver helglön närvaro dagen före och efter den röda dagen?"],
-          ["Helglön §10 — arbete på röd dag", "ska den som jobbar på en röd dag ha helglön plus OB, eller bara det ena?"],
-        ] as [string, string][]).map(([rubrik, text], i, arr) => (
+          ["Fråga", "Löneart för brandrisk-OB", "timmarna räknas (lib/ob) men skickas inte förrän koden är fastställd."],
+          ["Fråga", "Löneart för sjuklön", "sjukdagar ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
+          ["Bekräfta", "Ordinarie tid är ett genomsnitt", "§5 mom 2: 40 tim/vecka i genomsnitt över en beräkningsperiod om högst 16 veckor. Ingen av appens tre gamla modeller är avtalets."],
+          ["Bekräfta", "Komp räknas inte mot 250-taket", "§8 mom 3: övertid kan efter överenskommelse tas ut som ledighet, 1,4 tim per övertidstimme. §5 mom 5 anm 3: sådan tid är inte övertid enligt arbetstidslagen. Gävle-modellen (80-timmarsvecka → ledig vecka) är exakt detta."],
+          ["Bekräfta", "Arbetad röd dag ger ingen helglön", "§10 mom 2: helglön är grundlön för timmar som bortfaller. Den som jobbar får lön för timmarna + söndagstillägg (§8 mom 1) — inte helglön dessutom. Närvarokravet står i §10 mom 4."],
+          ["Bekräfta", "Bytesdag är skoftning", "§5 mom 4: ledig vardag mot inarbetning avtalas samtidigt, lön enligt ordinarie schema om totalen är lika. Ingen helglön flyttas."],
+          ["Martins beslut", "Beräkningsperiod och schema", "vilka 16-veckorsperioder som gäller (kortet överst antar v1–16, v17–32, …), och om förarna ska ha ett fastställt schema. Utjämningen ska vara överenskommen."],
+          ["Martins beslut", "Var komp-saldot bor", "i Fortnox (appen rapporterar bara intjänat/uttaget) eller i appen (appen räknar saldot). Appen räknar aldrig kronor — men ett saldo i timmar är en mängd."],
+        ] as [string, string, string][]).map(([slag, rubrik, text], i, arr) => (
           <div key={rubrik} style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${C.line}` }}>
             <span style={{ color: C.orange }}>▸</span>
-            <p style={{ margin: 0, fontSize: 13, color: C.text }}><strong>{rubrik}</strong> — <span style={{ color: C.label }}>{text}</span></p>
+            <p style={{ margin: 0, fontSize: 13, color: C.text }}><span style={{ color: C.label, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginRight: 6 }}>{slag}</span><strong>{rubrik}</strong> — <span style={{ color: C.label }}>{text}</span></p>
           </div>
         ))}
       </Card>
@@ -860,7 +865,7 @@ function FortnoxExportSektion({
                             ? <>Maskinen loggade samtidigt {ovrigt.map(beskriv).join(", ")} — stillestånd bokfört som rast? </>
                             : <>Inget parallellt avbrott loggat. </>}
                           {andra.length > 0 && <span style={{ color: C.label }}>Övriga avbrott den dagen: {andra.map(beskriv).join(", ")}. </span>}
-                          <span style={{ color: C.label }}>Rätt rast = rätt betald tid; rättas i förarens Redigera.</span>
+                          <span style={{ color: C.label }}>Skogsavtalet §5 mom 6: schemalagd rast är högst 75 min per skift. Rätt rast = rätt betald tid; rättas i förarens Redigera.</span>
                         </p>
                       );
                     })}
@@ -896,7 +901,7 @@ function FortnoxExportSektion({
                         sjuk tills lönearten och de två avtalsfrågorna är på plats. */}
                     {helglon.dagar.length > 0 && (
                       <p style={{ margin: 0, fontSize: 12, color: C.blue }}>
-                        Helglön §10: <strong>{helglon.timmar} tim</strong> — {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — räknas inte förrän OB-frågan är svarad)" : ""}`).join(", ")} — <em>löneart ej fastställd</em>, läggs inte som lönerad.
+                        Helglön §10: <strong>{helglon.timmar} tim</strong> — {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — ingen helglön, §10 mom 2: inga timmar bortföll; timmarna lönas + söndagstillägg §8 mom 1)" : ""}`).join(", ")} — <em>löneart ej fastställd</em>, läggs inte som lönerad.
                       </p>
                     )}
                     {ob.obesvarade > 0 && (

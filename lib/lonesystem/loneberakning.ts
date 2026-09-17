@@ -347,9 +347,10 @@ export function beräknaExport(
 
   // ── HELGLÖN §10 (lib/lonesystem/helglon) ──
   // Röda vardagar i arbetsmånaden ur avtalets tolv namn. 8 tim per dag föraren
-  // inte arbetat. Arbetade röda dagar listas men räknas inte — avtalsfrågan
-  // "helglön + OB eller bara det ena" är öppen, liksom närvarokravet före/efter.
-  // Ingen lönerad förrän lönearten är fastställd (samma väg som OB och sjuk).
+  // inte arbetat. Arbetade röda dagar listas men räknas INTE: §10 mom 2 ger
+  // helglön bara för timmar som bortföll, och arbetade timmar bortföll inte —
+  // de lönas som vanlig tid + söndagstillägg (§8 mom 1). Närvarokravet (§10
+  // mom 4) är inte byggt. Ingen lönerad förrän lönearten är fastställd.
   const arbetadeInklExtra = new Set<string>(arbetadeDatum);
   for (const e of extraTid) if (e?.datum && (e.minuter || 0) > 0) arbetadeInklExtra.add(e.datum);
   const helglonDagarLista = helglonIManad(helglonNamn, arbperiod, arbetadeInklExtra);
@@ -357,7 +358,7 @@ export function beräknaExport(
   const helglon = { dagar: helglonDagarLista, timmar: helglonTimmar };
   if (helglonDagarLista.length > 0) {
     const lista = helglonDagarLista.map(h => `${h.datum} ${h.namn}${h.arbetad ? ' (arbetad)' : ''}`).join(', ');
-    varningar.push(`Helglön §10: ${helglonTimmar} tim (${lista}) — löneart ej fastställd; läggs INTE som lönerad. Öppet: närvarokrav före/efter, och helglön + OB vid arbete på röd dag.`);
+    varningar.push(`Helglön §10: ${helglonTimmar} tim (${lista}) — löneart ej fastställd; läggs INTE som lönerad. Arbetad röd dag ger ingen helglön (§10 mom 2), timmarna lönas + söndagstillägg (§8 mom 1). Närvarokravet (§10 mom 4) kontrolleras inte än.`);
   }
 
   return {
