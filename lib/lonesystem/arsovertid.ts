@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-// ÅRETS ÖVERTID — FYRA MODELLER, AVTALETS ÄR DEN FJÄRDE (2026-09-17).
+// ÅRETS ÖVERTID — FYRA MODELLER, AVTALETS ÄR DEN FJÄRDE (2026-09-18).
 //
 // Första dry_run (2026-09-13) visade att systemet svarade olika på "hur mycket
 // övertid har Stefan i år" beroende på var man tittade, och att föraren såg
@@ -13,17 +13,29 @@
 //   genomsnitt  AVTALET, Skogsavtalet §5 mom 2 (docs/lonesystem/skogsavtalet-
 //               arbetstid.md): ordinarie tid är 40 tim/vecka "sett som ett
 //               genomsnitt för en sammanhängande beräkningsperiod av högst 16
-//               veckor". Räknas här per block om 16 ISO-veckor från v1
-//               (v1–16, v17–32, v33–48, v49–) — ANTAGEN period; vilken som
-//               tillämpas är Martins beslut (utjämningen ska vara överenskommen).
+//               veckor". Beräkningsperioderna är:
+//                 - MARKERADE utjämningsperioder (tabellen utjamningsperiod,
+//                   hela ISO-veckor) — fakta om vad som gjordes, och
+//                 - för veckorna däremellan: block om högst 16 veckor räknat
+//                   från blockets första lediga vecka — ANTAGET; vilken period
+//                   som tillämpas är Martins beslut (utjämningen ska vara
+//                   överenskommen).
 //
-// INGEN av de tre första är avtalets. Gävle/Dalarna våren 2026 (80-timmars-
-// veckor växlade med lediga veckor) ger 34–38 tim/vecka i snitt — under 40.
-// Dessutom: tid som kompenseras med ledighet enligt §8 mom 3 (1,4 tim per
-// övertidstimme) "skall inte betraktas som övertid enligt Arbetstidslagen"
-// (§5 mom 5 anm 3). Komp-uttag finns inte i data än (frånvaromodellen), så
-// alla fyra talen är sannolikt FÖR HÖGA. Därför: inget rött "passerat taket"
-// i admin förrän modellen är vald och komp är avdragen. Taket
+// INGEN av de tre första är avtalets. Gävle våren 2026 (v17–27: 72–80 timmar
+// varannan vecka, tom vecka emellan, lön enligt schema) var ordinarie tid
+// utlagd ojämnt enligt §5 mom 2 — INTE kompensationsledighet. Med perioden
+// markerad ger den noll övertid för alla; Stefans tal kommer från v1–16 och
+// från sensommaren, inte från Gävle. Fasta block från v1 kapade perioden mitt
+// itu och gav 92 i stället för 44.
+//
+// FÖRBEHÅLL (står också i tabellens kommentar): en tom vecka räknas i basen
+// bara om den är utjämnad ordinarie tid. Var den semester ska den inte vara
+// med, och då stiger övertiden. Inom en markerad period vet appen vad en tom
+// vecka betyder — utanför vet den det inte. Frånvaro per vecka dras inte av
+// än (frånvaromodellen steg 3).
+//
+// Komp (§8 mom 3, 1,4×) räknas inte som övertid enligt ATL (§5 mom 5 anm 3)
+// och finns inte i data. Därför inget rött "passerat taket" i admin. Taket
 // (gs_avtal.max_overtid_ar_h, 250) är en lagstadgad gräns, inte ett mål.
 //
 // Räknas ALDRIG med skarp-start-golv: kalenderåret är kalenderåret.
@@ -35,37 +47,54 @@ import { FRANVARO_DAGTYPER_ALLA } from "../franvaro";
 
 export type OvertidModell = "vardagar" | "dagar" | "vecka" | "genomsnitt";
 
-/** Avtalets beräkningsperiod (§5 mom 2): högst 16 veckor. Blocken antas börja v1. */
+/** Avtalets längsta beräkningsperiod (§5 mom 2) utan lokal överenskommelse. */
 export const BERAKNINGSPERIOD_VECKOR = 16;
 
 export const OVERTID_MODELLER: { key: OvertidModell; namn: string; beskrivning: string; anvandsAv: string; avtalet: boolean }[] = [
   { key: "vardagar",   namn: "Vardagar × 8",        beskrivning: "per månad: timmar minus kalenderns vardagar × 8", anvandsAv: "Min tid (förarens vy)", avtalet: false },
   { key: "dagar",      namn: "Arbetade dagar × 8",  beskrivning: "per månad: timmar minus arbetade dagar × 8", anvandsAv: "Fortnox-exporten (löneart 1435/1436)", avtalet: false },
   { key: "vecka",      namn: "Över 40 tim/vecka",   beskrivning: "per ISO-vecka: timmar över 40, ingen utjämning", anvandsAv: "ingen", avtalet: false },
-  { key: "genomsnitt", namn: "Genomsnitt 16 v",     beskrivning: `avtalet §5 mom 2: timmar över 40 × veckor per beräkningsperiod om ${BERAKNINGSPERIOD_VECKOR} veckor (antaget v1–16, v17–32, …)`, anvandsAv: "Skogsavtalet — komp-uttag ej avdragna", avtalet: true },
+  { key: "genomsnitt", namn: "Genomsnitt",          beskrivning: `avtalet §5 mom 2: timmar över 40 × veckor per beräkningsperiod — markerade utjämningsperioder som egna, däremellan antagna block om högst ${BERAKNINGSPERIOD_VECKOR} veckor`, anvandsAv: "Skogsavtalet — frånvaro och komp ej avdragna", avtalet: true },
 ];
 
 export type ArsovertidDag = { datum: string; arbetad_min: number | null; dagtyp?: string | null; start_tid?: string | null };
 export type ArsovertidExtra = { datum: string | null; minuter: number | null };
+
+/** En rad ur tabellen utjamningsperiod (anroparen har redan filtrerat på medarbetare). */
+export type Utjamningsperiod = { startdatum: string; slutdatum: string; anteckning?: string | null };
+
+/** En beräkningsperiod i genomsnittsmodellen, för kortets förklaring. */
+export type Berakningsperiod = {
+  fran: number;        // ISO-vecka
+  till: number;        // ISO-vecka (t.o.m. innevarande vecka om perioden pågår)
+  veckor: number;
+  timmar: number;
+  overtid: number;
+  markerad: boolean;   // true = ur utjamningsperiod (faktum), false = antaget block
+  anteckning?: string | null;
+};
 
 export type Arsovertid = {
   ar: number;
   tomDatum: string;
   timmar: number;                       // totalt maskin + extra, hela året hittills
   modeller: Record<OvertidModell, number>;
+  perioder: Berakningsperiod[];         // genomsnittsmodellens perioder, i ordning
 };
 
 const r1 = (x: number) => Math.round(x * 10) / 10;
 
 /**
- * Räknar årets övertid enligt alla tre modeller för EN medarbetare.
+ * Räknar årets övertid enligt alla fyra modeller för EN medarbetare.
  * `dagar` och `extra` = medarbetarens rader för kalenderåret `ar` t.o.m. `tomDatum`.
+ * `perioder` = markerade utjämningsperioder som gäller medarbetaren (alla eller egna).
  */
 export function beraknaArsovertid(
   dagar: ArsovertidDag[],
   extra: ArsovertidExtra[],
   ar: number,
   tomDatum: string,
+  perioder: Utjamningsperiod[] = [],
 ): Arsovertid {
   const FRANVARO = new Set<string>(FRANVARO_DAGTYPER_ALLA);
   const roda = getRödaDagar(ar);
@@ -126,32 +155,58 @@ export function beraknaArsovertid(
   let ovVecka = 0;
   for (const min of Array.from(veckor.values())) ovVecka += Math.max(0, min / 60 - 40);
 
-  // Genomsnitt över beräkningsperiod (avtalet §5 mom 2): block om 16 ISO-veckor
-  // från v1. Basen = 40 × antal veckor i blocket som hunnit börja t.o.m. tomDatum
-  // (ett pågående block räknas på de veckor som gått). Veckor utan arbete räknas
-  // med i basen — det är hela poängen: en ledig vecka efter en 80-timmarsvecka
-  // ger noll, inte 40.
+  // ── Genomsnitt över beräkningsperiod (avtalet §5 mom 2) ──
+  // Veckorna 1..idag delas i beräkningsperioder: markerade utjämningsperioder
+  // först (fakta), resten i block om högst 16 veckor från blockets första
+  // vecka (antaget). Basen = 40 × veckor i perioden t.o.m. idag; veckor utan
+  // arbete räknas med i basen — se förbehållet i filhuvudet.
   const idagV = isoVecka(new Date(tomDatum + "T00:00:00"));
   const sistaVecka = idagV.år === ar ? idagV.vecka : (idagV.år > ar ? 53 : 0);
-  const perBlock = new Map<number, number>(); // blockindex → minuter
-  for (const [k, min] of Array.from(veckor.entries())) {
-    const [vÅr, vNr] = k.split("-").map(Number);
-    if (vÅr !== ar) continue;
-    const block = Math.floor((vNr - 1) / BERAKNINGSPERIOD_VECKOR);
-    perBlock.set(block, (perBlock.get(block) || 0) + min);
+  const minPerVecka = (v: number) => veckor.get(`${ar}-${v}`) || 0;
+
+  const agare = new Map<number, number>(); // vecka → index i `markerade`
+  const markerade: { fran: number; till: number; anteckning?: string | null }[] = [];
+  for (const p of perioder) {
+    const s = isoVecka(new Date(p.startdatum + "T00:00:00"));
+    const e = isoVecka(new Date(p.slutdatum + "T00:00:00"));
+    // Bara den del som ligger i året (en period över årsskiftet räknas per år — approximation, sagd)
+    const fran = s.år < ar ? 1 : s.år > ar ? Infinity : s.vecka;
+    const till = e.år > ar ? 53 : e.år < ar ? -Infinity : e.vecka;
+    if (fran > sistaVecka || till < 1) continue;
+    const idx = markerade.push({ fran: Math.max(1, fran), till: Math.min(till, sistaVecka), anteckning: p.anteckning }) - 1;
+    for (let v = markerade[idx].fran; v <= markerade[idx].till; v++) if (!agare.has(v)) agare.set(v, idx);
   }
-  let ovGenomsnitt = 0;
-  for (const [block, min] of Array.from(perBlock.entries())) {
-    const forsta = block * BERAKNINGSPERIOD_VECKOR + 1;
-    const sista = Math.min(forsta + BERAKNINGSPERIOD_VECKOR - 1, sistaVecka);
-    const veckorIBlock = Math.max(1, sista - forsta + 1);
-    ovGenomsnitt += Math.max(0, min / 60 - 40 * veckorIBlock);
+
+  const perioderUt: Berakningsperiod[] = [];
+  const laggTill = (fran: number, till: number, markerad: boolean, anteckning?: string | null) => {
+    let min = 0;
+    for (let v = fran; v <= till; v++) min += minPerVecka(v);
+    const n = till - fran + 1;
+    perioderUt.push({ fran, till, veckor: n, timmar: r1(min / 60), overtid: r1(Math.max(0, min / 60 - 40 * n)), markerad, anteckning: anteckning ?? undefined });
+  };
+  let v = 1;
+  while (v <= sistaVecka) {
+    const m = agare.get(v);
+    if (m != null) {
+      const p = markerade[m];
+      let till = v;
+      while (till + 1 <= p.till && agare.get(till + 1) === m) till++;
+      laggTill(v, till, true, p.anteckning);
+      v = till + 1;
+    } else {
+      let till = v;
+      while (till + 1 <= sistaVecka && !agare.has(till + 1) && till + 1 - v < BERAKNINGSPERIOD_VECKOR) till++;
+      laggTill(v, till, false);
+      v = till + 1;
+    }
   }
+  const ovGenomsnitt = perioderUt.reduce((s, p) => s + p.overtid, 0);
 
   const timmar = Array.from(minPerDatum.values()).reduce((a, b) => a + b, 0) / 60;
   return {
     ar, tomDatum,
     timmar: r1(timmar),
     modeller: { vardagar: r1(ovVardagar), dagar: r1(ovDagar), vecka: r1(ovVecka), genomsnitt: r1(ovGenomsnitt) },
+    perioder: perioderUt,
   };
 }

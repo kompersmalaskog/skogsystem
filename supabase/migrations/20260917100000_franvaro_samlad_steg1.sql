@@ -7,7 +7,8 @@
 -- semester/atk med ansökan + godkännande). Lön, kalender och Min tid måste
 -- läsa båda, och två saker verksamheten faktiskt gör har inget begrepp alls:
 --   - kompensationsledighet (Skogsavtalet §8 mom 3, 1,4 tim per övertids-
---     timme; Gävle-modellen: 80-timmarsvecka → ledig vecka), och
+--     timme; OBS: Gävle var INTE detta utan utjämnad ordinarie tid enligt
+--     §5 mom 2 — se tabellen utjamningsperiod, migration 20260918100000), och
 --   - skoftning / byte av dag (§5 mom 4: ledig fredag mot arbetad röd onsdag).
 --
 -- Målet: ledighet_ansokningar blir DEN frånvarotabellen. Steg 1 (den här

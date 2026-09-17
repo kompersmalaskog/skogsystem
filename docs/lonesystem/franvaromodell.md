@@ -11,7 +11,8 @@ Frånvaro bor på två ställen och två saker verksamheten gör saknar begrepp:
 |---|---|---|
 | Sjuk, VAB, föräldraledig (morgonkortet) | `arbetsdag.dagtyp` | Kolumnen betyder också "sorts maskindag"; ingen CHECK; lönen läste den inte förrän #546 |
 | Semester, ATK (ansökan) | `ledighet_ansokningar` | Bara två typer i CHECK |
-| Kompensationsledighet (§8 mom 3, 1,4×; Gävle: 80-timmarsvecka → ledig vecka) | ingenstans | Tomma veckor ser ut som "ingen rapport"; 250-taket räknar komp som övertid fast avtalet säger nej (§5 mom 5 anm 3) |
+| Kompensationsledighet (§8 mom 3, 1,4×) | ingenstans | 250-taket räknar komp som övertid fast avtalet säger nej (§5 mom 5 anm 3) |
+| Utjämnad ordinarie tid (§5 mom 2; Gävle: 72–80 tim varannan vecka, tom vecka emellan, lön enligt schema) | `utjamningsperiod` (från 2026-09-18) | Utan markering ser tomma veckor ut som "ingen rapport" och beräkningsperioden blir en gissning |
 | Byte av dag / skoftning (§5 mom 4) | ingenstans | Ledig fredag mot arbetad röd onsdag går inte att uttrycka |
 
 Lön, kalender och Min tid måste i dag läsa båda källorna och slå ihop.

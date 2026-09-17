@@ -68,6 +68,11 @@ export type LoneunderlagBerikad = LoneunderlagRad & {
   // där (ingen fråga till föraren, se lib/arbetsdagRegler). Information till
   // arbetsgivaren: noll rast påverkar övertid och vilotid.
   utan_rast: { dagar: number; timmar: number; datum: string[] };
+  // Markerade utjämningsperioder (tabellen utjamningsperiod, avtalet §5 mom 2)
+  // som överlappar arbetsmånaden — en UPPLYSNING: månadens övertid (arbetade
+  // dagar × 8) är inte avtalets modell i en sådan period; genomsnittet räknas
+  // i årsövertiden. Inga timmar, ingen saldoräkning.
+  utjamning: { startdatum: string; slutdatum: string; anteckning: string }[];
 };
 
 export type SynkRad = {
@@ -108,7 +113,7 @@ export async function beraknaLoneunderlag(
   const arbSlut = sistaDagenIManaden(aÅ, aM); // LOKALT — toISOString tappade sista dagen i UTC+2
 
   // Ladda data
-  const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes] = await Promise.all([
+  const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes, utjRes] = await Promise.all([
     supabase.from("medarbetare").select("id, namn").order("namn"),
     // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
     // för-dag-rader — de påverkar inte beräkningen, som bara ser de gamla fälten.)
@@ -137,10 +142,18 @@ export async function beraknaLoneunderlag(
     // hårdkodad 60. Fortnox äger kr/mil-satsen, vi skickar bara mil-antalet.
     supabase.from("gs_avtal").select("km_grans_per_dag, helglon_dagar")
       .order("giltigt_fran", { ascending: false }).limit(1).maybeSingle(),
+    // Utjämningsperioder (§5 mom 2) som överlappar arbetsmånaden — upplysning i
+    // granskningen. Tål att tabellen saknas (migration 20260918100000 ej körd):
+    // då tom lista, underlaget faller inte.
+    supabase.from("utjamningsperiod")
+      .select("startdatum, slutdatum, medarbetare_id, anteckning")
+      .lte("startdatum", arbSlut).gte("slutdatum", arbStart),
   ]);
 
   if (medRes.error) throw medRes.error;
   if (arbRes.error) throw arbRes.error;
+  const utjamningAlla: { startdatum: string; slutdatum: string; medarbetare_id: string | null; anteckning: string }[] =
+    utjRes?.error ? [] : (utjRes?.data || []);
 
   // Ohanterade synk-avvikelser: bekraftade dagar vars maskintider byggts om
   // till andra varden an de bekraftade, och foraren har inte kvitterat annu.
@@ -369,6 +382,9 @@ export async function beraknaLoneunderlag(
     orimliga: (dagarPerMed.get(r.medarbetare_id) || [])
       .filter(d => d.start_tid && d.slut_tid && passOrimlighet(d.arbetad_min))
       .map(d => ({ datum: d.datum, slag: passOrimlighet(d.arbetad_min)!, arbetad_min: d.arbetad_min, start_tid: d.start_tid, slut_tid: d.slut_tid, rast_min: Number(d.rast_min || 0) })),
+    utjamning: utjamningAlla
+      .filter(u => !u.medarbetare_id || u.medarbetare_id === r.medarbetare_id)
+      .map(u => ({ startdatum: u.startdatum, slutdatum: u.slutdatum, anteckning: u.anteckning })),
   }));
 
   return {
