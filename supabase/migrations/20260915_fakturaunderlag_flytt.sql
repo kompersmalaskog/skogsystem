@@ -83,6 +83,12 @@ where mf.fakturerbar is true
   and coalesce(mf.avbruten, false) = false
 on conflict (flytt_id) do nothing;
 
--- RLS: lägg fakturaunderlag_flytt i admin/ekonomi-listan separat (mönstret i
--- 20260524153759_rls_ekonomi_admin_only_och_push.sql). Triggern skriver ändå
--- tack vare SECURITY DEFINER.
+-- 4. RLS: ekonomidata → admin-only läs/skriv (samma mönster som ekonomitabellerna
+--    i 20260524153759_rls_ekonomi_admin_only_och_push.sql). Utan detta kan varje
+--    inloggad förare läsa underlaget. Triggern skriver ändå via SECURITY DEFINER.
+alter table fakturaunderlag_flytt enable row level security;
+drop policy if exists fakturaunderlag_flytt_admin on fakturaunderlag_flytt;
+create policy fakturaunderlag_flytt_admin on fakturaunderlag_flytt
+  for all to authenticated
+  using (ar_admin())
+  with check (ar_admin());
