@@ -99,3 +99,36 @@ export function hyttsparDugligaSegment(
   }
   return ut;
 }
+
+// === DAGSBYTE (dagsgräns) ========================================================================
+// En hyttspar-rad = ett (objekt, roll, datum). Men appen loggar LIVE så länge körvyn är öppen — och
+// Stefans iPad står på över natten → appen appendade i DAGAR till samma rad (fältfynd: 09-14-raden bar
+// 310 punkter från 14/15/16/17 sept). Dagsgränsen ska vara LOKAL (Europe/Stockholm), inte UTC (som
+// annars flyttar midnatt 1–2 h). Vid varje ny punkt vars lokala datum skiljer sig från radens → försegla
+// gamla raden och öppna en ny för det nya datumet.
+
+/**
+ * Lokalt datum (Europe/Stockholm) som 'YYYY-MM-DD' för en tidsstämpel. EXPLICIT tidszon → samma svar
+ * oavsett var koden kör (iPad svensk / Vercel UTC / Node på servern). sv-SE ger ISO-datumformat.
+ */
+export function lokaltDatumStockholm(tid: string | number | Date): string {
+  const d = tid instanceof Date ? tid : new Date(tid);
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+/**
+ * Gruppera hyttspår-punkter per LOKALT (Europe/Stockholm) datum, i kronologisk datumordning. En rad per
+ * (objekt, roll, datum) i DB → detta är underlaget för dagsbytet (live-loggning) OCH för migreringen av
+ * den befintliga jätteraden. Punkternas inbördes ordning inom dagen bevaras.
+ */
+export function grupperaHyttsparPerDatum(points: HyttPunkt[]): { datum: string; points: HyttPunkt[] }[] {
+  const karta = new Map<string, HyttPunkt[]>();
+  for (const p of points || []) {
+    const datum = lokaltDatumStockholm(p.tid);
+    const lista = karta.get(datum);
+    if (lista) lista.push(p); else karta.set(datum, [p]);
+  }
+  return Array.from(karta.keys()).sort().map(datum => ({ datum, points: karta.get(datum)! }));
+}

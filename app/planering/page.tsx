@@ -14,7 +14,7 @@ import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
-import { hyttsparTillLinjer, hyttsparDugligaSegment } from '../../lib/hyttspar'
+import { hyttsparTillLinjer, hyttsparDugligaSegment, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -3263,7 +3263,9 @@ export default function PlannerPage() {
   const hyttsparLastFixRef = useRef<{ lat: number; lon: number; ts: number } | null>(null);
   const hyttsparDirtyRef = useRef(false);
   const hyttsparSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const hyttsparSealingRef = useRef(false);   // true medan spåret förseglas efter ett glapp (async-fönster)
+  const hyttsparSealingRef = useRef(false);   // true medan spåret förseglas efter ett glapp ELLER dagsbyte (async-fönster)
+  const hyttsparDatumRef = useRef<string | null>(null);   // radens LOKALA (Europe/Stockholm) datum → dagsbyte när en punkt hamnar på ett nytt datum
+  const hyttsparCtxRef = useRef<{ objektId: string; roll: 'skordare' | 'skotare'; maskinId: string | null } | null>(null);   // aktiv loggnings-kontext (för dagsbytes-callbacken, som körs ur ackumuleringen)
   const [hyttsparBasVersion, setHyttsparBasVersion] = useState(0);   // bump när dagens redan loggade punkter laddats → rita om basen (även om kartlagret inte fanns vid livscykel-ritningen)
   const egetHistRef = useRef<any[]>([]);   // tidigare dagars eget-spår (dämpade segment) → eget hist-lager, ritas separat från dagens (fulla) live-spår
 
@@ -3292,8 +3294,42 @@ export default function PlannerPage() {
       const { error } = await supabase.from('hyttspar').update(patch).eq('id', id);
       if (error) console.error('[Hyttspår] spar-fel:', error.message);
     } catch (e) { console.error('[Hyttspår] spar-undantag:', e); }
-    if (final) { hyttsparRowIdRef.current = null; hyttsparPointsRef.current = []; hyttsparLastFixRef.current = null; }
+    if (final) { hyttsparRowIdRef.current = null; hyttsparPointsRef.current = []; hyttsparLastFixRef.current = null; hyttsparDatumRef.current = null; hyttsparCtxRef.current = null; }
   }, []);
+
+  // DAGSBYTE: en punkt hamnar på ett NYTT lokalt datum (Europe/Stockholm) → försegla gamla raden
+  // (completed, avslutad_at = SISTA giltiga punktens tid, ej now()) och öppna en ny rad för det nya
+  // datumet, som börjar med punkten. Körs ur ackumuleringen; hyttsparSealingRef gejtar async-fönstret.
+  // Utan detta appendar en iPad som står på över natten i DAGAR till samma rad (fältfynd: 310 pkt/4 dygn).
+  const rullaTillNyDag = useCallback(async (nyttDatum: string, avslutadAt: string, forstaPunkt: { lat: number; lng: number; tid: string }) => {
+    const ctx = hyttsparCtxRef.current;
+    const gamlaId = hyttsparRowIdRef.current;
+    if (gamlaId) {
+      const thinned = rdpThin(hyttsparPointsRef.current, 3);
+      try { await supabase.from('hyttspar').update({ points: thinned, antal_punkter: thinned.length, status: 'completed', avslutad_at: avslutadAt, uppdaterad_at: new Date().toISOString() }).eq('id', gamlaId); }
+      catch (e) { console.error('[Hyttspår] dagsbyte-försegling:', e); }
+    }
+    if (!ctx) { hyttsparRowIdRef.current = null; return; }
+    hyttsparDatumRef.current = nyttDatum;
+    try {
+      const { data: befintlig } = await supabase.from('hyttspar')
+        .select('id, points').eq('objekt_id', ctx.objektId).eq('roll', ctx.roll).eq('datum', nyttDatum).maybeSingle();
+      if (befintlig) {
+        hyttsparRowIdRef.current = befintlig.id;
+        hyttsparPointsRef.current = [...(Array.isArray(befintlig.points) ? befintlig.points : []), forstaPunkt];
+        await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
+      } else {
+        hyttsparPointsRef.current = [forstaPunkt];
+        const { data: ny, error } = await supabase.from('hyttspar')
+          .insert({ objekt_id: ctx.objektId, roll: ctx.roll, datum: nyttDatum, maskin_id: ctx.maskinId, points: hyttsparPointsRef.current, status: 'recording' })
+          .select('id').single();
+        if (error || !ny) { console.error('[Hyttspår] dagsbyte-insert:', error?.message); hyttsparRowIdRef.current = null; return; }
+        hyttsparRowIdRef.current = ny.id;
+      }
+      hyttsparDirtyRef.current = true;
+      uppdateraHyttsparLager();
+    } catch (e) { console.error('[Hyttspår] dagsbyte-undantag:', e); }
+  }, [uppdateraHyttsparLager]);
 
   // Livscykel: starta loggning när körvyn är öppen på ett objekt med känd roll; stoppa på ALLA utvägar
   // (körvy stängs / objekt byts / unmount = cleanup → completed; telefon låses = pagehide/visibility → spar).
@@ -3302,7 +3338,10 @@ export default function PlannerPage() {
     let avbruten = false;
     const objektId = valtObjekt.id;
     const roll = hyttRoll;
-    const datum = new Date().toISOString().slice(0, 10);
+    const datum = lokaltDatumStockholm(Date.now());   // LOKALT datum (Europe/Stockholm), inte UTC-datum
+    const maskinId = roll === 'skordare' ? ((valtObjekt as any)?.maskin_id ?? null) : null;
+    hyttsparDatumRef.current = datum;
+    hyttsparCtxRef.current = { objektId, roll, maskinId };
     (async () => {
       try {
         const { data: befintlig } = await supabase.from('hyttspar')
@@ -3316,7 +3355,7 @@ export default function PlannerPage() {
           await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
         } else {
           const { data: ny, error } = await supabase.from('hyttspar')
-            .insert({ objekt_id: objektId, roll, datum, maskin_id: roll === 'skordare' ? ((valtObjekt as any)?.maskin_id ?? null) : null, points: [], status: 'recording' })
+            .insert({ objekt_id: objektId, roll, datum, maskin_id: maskinId, points: [], status: 'recording' })
             .select('id').single();
           if (error || !ny) { console.error('[Hyttspår] insert-fel:', error?.message); return; }
           hyttsparRowIdRef.current = ny.id;
@@ -3363,7 +3402,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (!(korvyActive && valtObjekt?.id && hyttRoll)) { egetHistRef.current = []; return; }
     let avbruten = false;
-    const objektId = valtObjekt.id, roll = hyttRoll, idag = new Date().toISOString().slice(0, 10);
+    const objektId = valtObjekt.id, roll = hyttRoll, idag = lokaltDatumStockholm(Date.now());   // lokalt datum → matchar radernas datum
     (async () => {
       try {
         const { data } = await supabase.from('hyttspar').select('datum, points').eq('objekt_id', objektId).eq('roll', roll);
@@ -3399,6 +3438,16 @@ export default function PlannerPage() {
       hyttsparSealingRef.current = true;
       hyttsparLastFixRef.current = null;
       sparaHyttspar(true).finally(() => { hyttsparSealingRef.current = false; });
+      return;
+    }
+    // DAGSBYTE: punktens LOKALA datum (Europe/Stockholm) skiljer sig från radens → försegla gamla raden
+    // vid sista giltiga punkten och öppna en ny rad för det nya datumet (denna punkt blir dess första).
+    if (hyttsparDatumRef.current && lokaltDatumStockholm(cand.ts) !== hyttsparDatumRef.current) {
+      hyttsparSealingRef.current = true;
+      const avslutadAt = last ? new Date(last.ts).toISOString() : new Date(cand.ts).toISOString();
+      hyttsparLastFixRef.current = { lat: cand.lat, lon: cand.lon, ts: cand.ts };
+      rullaTillNyDag(lokaltDatumStockholm(cand.ts), avslutadAt, { lat: cand.lat, lng: cand.lon, tid: new Date(cand.ts).toISOString() })
+        .finally(() => { hyttsparSealingRef.current = false; });
       return;
     }
     hyttsparLastFixRef.current = { lat: cand.lat, lon: cand.lon, ts: cand.ts };
