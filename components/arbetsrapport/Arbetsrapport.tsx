@@ -1671,7 +1671,7 @@ export default function Arbetsrapport() {
         fragor.push({ rubrik: `Passet är ${tim} tim — stämmer det?`, text: `Längre än ${ARBETSDAG_MAX_MINUTER / 60} timmar. En felskriven sluttid ger samma bild — kontrollera start och slut.` });
       }
       if (kontroll.minuter > RAST_FRAGA_MIN) {
-        fragor.push({ rubrik: `Rast ${kontroll.minuter} min — stämmer det?`, text: `Maskinen räknar allt som bokförts som Meal break. Stod maskinen still av annan orsak — flytt, väntan, service — är det arbetstid, inte rast.` });
+        fragor.push({ rubrik: `Rast ${kontroll.minuter} min — stämmer det?`, text: `Maskinen räknar allt som bokförts som Meal break. Stod maskinen still av annan orsak — flytt, väntan, service — är det arbetstid, inte rast. Avtalet räknar med högst 75 minuters rast per pass.` });
       }
       if (fragor.length > 0) {
         setRastFraga({

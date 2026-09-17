@@ -11,11 +11,17 @@
 // 1 maj/Första maj, Långfredagen/Långfredag) — mappningen bor här, på ett ställe.
 //
 // Regeln som byggs: en rad per röd VARDAG i arbetsmånaden där föraren inte
-// arbetat, HELGLON_TIMMAR (8) per dag. Två frågor avgör om det kan bli en riktig
-// Fortnox-rad (Martin tar dem med löneansvariga):
-//   1. kräver helglön närvaro dagen före och efter?
-//   2. ska den som jobbar på en röd dag ha helglön PLUS OB, eller bara det ena?
-// Tills dess: granskningsrad, ingen lönerad — samma väg som OB och sjuk.
+// arbetat, HELGLON_TIMMAR (8) per dag. Avtalet (docs/lonesystem/skogsavtalet-
+// arbetstid.md) svarar på de två frågor som stod här förut:
+//   - Arbetad röd dag: INGEN helglön. §10 mom 2 ger grundlön "för de arbets-
+//     timmar som bortfaller" — arbetade timmar bortföll inte. De lönas i stället
+//     som vanlig tid + söndagstillägg (§8 mom 1). Därför räknas `arbetad`-dagar
+//     aldrig i `timmar`, och de får aldrig OB PLUS helglön.
+//   - Närvarokrav: §10 mom 4 — ingen helglön vid olovlig frånvaro dagen före
+//     eller efter, tjänstledighet som omger dagen, sjuklönedag 1–14 m.m. Det
+//     kravet är INTE byggt än (frånvaromodellen saknar källan).
+// Lönearten är fortfarande ofastställd: granskningsrad, ingen lönerad — samma
+// väg som OB och sjuk.
 // ─────────────────────────────────────────────────────────────
 import { getRödaDagar } from "../roda-dagar";
 

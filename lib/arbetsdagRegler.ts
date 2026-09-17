@@ -35,9 +35,15 @@ export function arArbetsdag(totalMin: number | null | undefined): boolean {
 // i terminalen vid omstart — maskinen loggar då samtidigt ett avbrott "Övrigt"
 // med samma startsekund (Stefan 11/21/28 aug 2026: 98/107/110 min).
 // Fel rast = fel betald tid, rakt in i övertiden.
+// Skogsavtalet §5 mom 6: "Vid fastställande av arbetstidsschema skall rasternas
+// längd begränsas till högst 75 minuter per skift" (docs/lonesystem/
+// skogsavtalet-arbetstid.md). Så 2-timmarsraster är inte bara osannolika —
+// de ligger utanför vad avtalet räknar med.
 
 /** Över det här frågar appen föraren vid Bekräfta och granskningsvyn flaggar dagen. */
 export const RAST_FRAGA_MIN = 60;
+/** Avtalets tak för schemalagd rast per skift (§5 mom 6). */
+export const RAST_AVTAL_MAX_MIN = 75;
 
 /** Rasthjulets tak. Var 120 — då gick en rast på 128 inte ens att visa, alltså
  *  inte heller att rätta. Ett maskinpass med mer än fyra timmars rast är inte
