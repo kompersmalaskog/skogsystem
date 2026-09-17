@@ -13003,11 +13003,14 @@ export default function PlannerPage() {
                   { label: 'Avsluta objekt', icon: 'check_circle', avsluta: true, action: () => { setVisarAvslutaConfirmation(true); } },
                 ],
               }] : []),
-              // VÄGDATA — traktens cachade väggeometri (server-hämtad, cache-först). Statusrad; planerare
-              // (isAdminRiktig) kan trigga om-hämtning (samma /api/vagdata-hamta som /objekt), förare ser
-              // bara statusen. Enda kartsignalen är röd prick på +-knappen vid 'misslyckad'.
+              // VÄGDATA — traktens cachade väggeometri (server-hämtad, cache-först). EN ensam rad UTAN egen
+              // sektionsrubrik (noHeader) — samma stil som övriga rader, syns i BÅDE planeringsvyn och körvyn
+              // (gejtad bara på valt objekt, ej på körvy). Planerare (isAdminRiktig) kan trigga om-hämtning
+              // (samma /api/vagdata-hamta som /objekt), förare ser bara statusen. Röd prick på +-knappen vid
+              // 'misslyckad' är enda kartsignalen.
               ...(vagdataStatusKod ? [{
-                title: 'TRAKTENS VÄGDATA',
+                title: 'Vägdata',   // används bara som React-key; ingen rubrik renderas (noHeader)
+                noHeader: true,
                 items: [
                   {
                     label: 'Vägdata',
@@ -13028,14 +13031,16 @@ export default function PlannerPage() {
               },
             ].map(group => (
               <div key={group.title} style={{ marginTop: 12 }}>
-                <div style={{
-                  padding: '8px 12px 6px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  color: '#8e8e93',
-                }}>
-                  {group.title}
-                </div>
+                {!(group as any).noHeader && (
+                  <div style={{
+                    padding: '8px 12px 6px',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    color: '#8e8e93',
+                  }}>
+                    {group.title}
+                  </div>
+                )}
                 <div style={{
                   background: 'rgba(255,255,255,0.06)',
                   borderRadius: 14,
