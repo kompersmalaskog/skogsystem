@@ -36,9 +36,26 @@ Det som fortfarande är öppet står under **Öppet** längst ned.
 utan när genomsnittet över en beräkningsperiod (≤ 16 veckor) överstiger
 40 tim/vecka. Ingen av appens tre tidigare modeller (vardagar × 8, arbetade
 dagar × 8, > 40 per ISO-vecka) är avtalets. Modellen `genomsnitt` i
-`lib/lonesystem/arsovertid.ts` räknar per 16-veckorsblock från vecka 1 —
-**antagen** period; vilken som gäller är Martins beslut (och ska vara
-överenskommen).
+`lib/lonesystem/arsovertid.ts` räknar per beräkningsperiod: **markerade
+utjämningsperioder** (tabellen `utjamningsperiod`, hela ISO-veckor) är
+fakta om vad som gjordes; veckorna däremellan räknas i antagna block om
+högst 16 veckor. Vilken period som tillämpas är Martins beslut, och avtalet
+förutsätter att utjämningen är överenskommen — en markerad period bevisar
+inte det.
+
+**Gävle våren 2026 är §5 mom 2, inte komp.** Martin: "vi jobbade 72 timmar
+men dom hade betalt för 80 och det täckte den veckan man var hemma så man
+hade 40 timmar varje vecka". Ordinarie tid utlagd ojämnt, lön enligt schema,
+inga komp-timmar. Perioden (22 apr–29 jun, ISO v17–27, sex objekt kring
+Hedemora/Sandviken, 100 arbetsdagar) är första raden i `utjamningsperiod`
+och ger noll övertid för alla — Stefans övertid kommer från v1–16 och
+sensommaren, inte från Gävle.
+
+**Förbehåll.** En tom vecka räknas i basen bara om den är utjämnad ordinarie
+tid. Var den semester ska den inte vara med, och då stiger övertiden. Inom
+en markerad period vet appen vad en tom vecka betyder; utanför vet den det
+inte. Frånvaro per vecka dras inte av förrän frånvaromodellen (steg 3) är på
+plats.
 
 ### Mom 3 — Förläggning av ordinarie arbetstid (s. 16)
 
@@ -165,10 +182,11 @@ en öppen fråga till löneansvarig.
 >
 > Ob-ersättning utgår dessutom i förekommande fall.
 
-**Konsekvens för appen.** Gävle-modellen: en 80-timmarsvecka ger 40 tim
-övertid → 56 tim komp = en ledig vecka. Komp är ett saldo i timmar
-(intjäning 1,4 × övertid, uttag som ledighet). Var saldot bor — Fortnox
-eller appen — är Martins beslut. Frånvaromodellen får typ `komp`.
+**Konsekvens för appen.** Komp är ett saldo i timmar (intjäning 1,4 ×
+övertid, uttag som ledighet). Var saldot bor — Fortnox eller appen — är
+Martins beslut. Frånvaromodellen får typ `komp`. Gävle-upplägget var **inte**
+detta (se § 5 mom 2 ovan): där fanns ingen övertid att kompensera, bara
+ordinarie tid utlagd ojämnt.
 
 ---
 

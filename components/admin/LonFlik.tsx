@@ -324,12 +324,14 @@ function Loneunderlag() {
 
       {/* ÅRETS ÖVERTID MOT TAKET — det Martin behöver se som arbetsgivare.
           Fyra modeller: de tre appen räknat med, och AVTALETS (§5 mom 2: 40 tim
-          i genomsnitt över ≤ 16 veckor). Ingen av de tre första är avtalets, och
-          komp-uttag (§8 mom 3, räknas inte som övertid enligt ATL §5 mom 5 anm 3)
-          finns inte i data — talen är sannolikt för höga. Därför INGET rött
-          "passerat taket" (2026-09-17: det larmet var falskt — Stefan låg på
-          34 tim/vecka i snitt när kortet sa 271). Färg bara på avtalskolumnen:
-          orange inom 50 tim, röd över. */}
+          i genomsnitt över ≤ 16 veckor). Beräkningsperioderna är markerade
+          utjämningsperioder (tabellen utjamningsperiod — Gävle v17–27 2026 var
+          ordinarie tid utlagd ojämnt, INTE komp) plus antagna block däremellan.
+          Ingen av de tre första är avtalets, frånvaro/komp är inte avdragna —
+          talen är sannolikt för höga. Därför INGET rött "passerat taket"
+          (2026-09-17: det larmet var falskt — Stefan låg på 34 tim/vecka i snitt
+          när kortet sa 271). Färg bara på avtalskolumnen: orange inom 50 tim,
+          röd över. */}
       {arsovertid && (
         <Card>
           <p style={{ ...secHead, marginTop: 0 }}>Övertid {arsovertid.ar ?? new Date().getFullYear()} mot taket{arsovertid.tak ? ` ${arsovertid.tak} tim` : ""}</p>
@@ -340,13 +342,29 @@ function Loneunderlag() {
             const modeller: any[] = arsovertid.modeller || [];
             const farg = (h: number) => h >= tak ? C.red : h >= tak - 50 ? C.orange : C.text;
             const rader: any[] = [...(arsovertid.medarbetare || [])].sort((a, b) => (b.modeller?.genomsnitt || 0) - (a.modeller?.genomsnitt || 0));
+            const utjamning: any[] = arsovertid.utjamning || [];
+            const periodText = (p: any) => `v${p.fran}–${p.till}${p.markerad ? " (markerad)" : " (antagen)"}: ${Number(p.timmar).toLocaleString("sv-SE")} tim på ${p.veckor} v → ${Number(p.overtid).toLocaleString("sv-SE")}`;
             return (
               <>
                 <p style={{ margin: "0 0 6px", fontSize: 12, color: C.text }}>
-                  <strong>Ingen av de tre första kolumnerna är avtalets modell.</strong> Skogsavtalet §5 mom 2: ordinarie arbetstid är 40 tim/vecka <em>i genomsnitt över en beräkningsperiod om högst 16 veckor</em> — kolumnen <strong>Genomsnitt 16 v</strong>, räknad med antagna perioder från vecka 1. Vilken period som tillämpas är ett beslut som ska vara överenskommet.
+                  <strong>Ingen av de tre första kolumnerna är avtalets modell.</strong> Skogsavtalet §5 mom 2: ordinarie arbetstid är 40 tim/vecka <em>i genomsnitt över en beräkningsperiod om högst 16 veckor</em> — kolumnen <strong>Genomsnitt</strong>. Perioderna är de markerade utjämningsperioderna nedan; veckorna däremellan räknas i antagna block om högst 16 veckor.
+                </p>
+                {/* Markerade utjämningsperioder = fakta om vad som gjordes. Avtalet
+                    förutsätter att utjämningen är ÖVERENSKOMMEN — raden bevisar inte det. */}
+                {arsovertid.utjamning_fel ? (
+                  <p style={{ margin: "0 0 6px", fontSize: 12, color: C.orange }}>Kunde inte läsa utjämningsperioder ({arsovertid.utjamning_fel}) — allt räknas som antagna block.</p>
+                ) : utjamning.length === 0 ? (
+                  <p style={{ margin: "0 0 6px", fontSize: 12, color: C.label }}>Inga markerade utjämningsperioder {arsovertid.ar} — allt räknas som antagna block från vecka 1.</p>
+                ) : utjamning.map((u: any, ui: number) => (
+                  <p key={ui} style={{ margin: "0 0 6px", fontSize: 12, color: C.text }}>
+                    <strong>Utjämningsperiod {u.startdatum} – {u.slutdatum}</strong>{u.medarbetare_id ? "" : " (alla)"}: <span style={{ color: C.label }}>{u.anteckning}</span>
+                  </p>
+                ))}
+                <p style={{ margin: "0 0 6px", fontSize: 12, color: C.text }}>
+                  Avtalet förutsätter att utjämning över mer än en vecka är <strong>överenskommen</strong>. En markerad period är en anteckning om vad som gjordes, inte ett bevis på att det var avtalat. Längre än 16 veckor kräver lokal överenskommelse.
                 </p>
                 <p style={{ margin: "0 0 10px", fontSize: 12, color: C.label }}>
-                  Tid som kompenserats med ledighet (§8 mom 3, 1,4 tim per övertidstimme) räknas inte som övertid enligt arbetstidslagen (§5 mom 5 anm 3). Komp-uttag finns inte i data än, så alla tal är sannolikt för höga. Exporten räknar i dag mot arbetade dagar, Min tid mot kalenderns vardagar. T.o.m. {arsovertid.tomDatum}.
+                  En tom vecka räknas i basen bara om den är utjämnad ordinarie tid — var den semester ska den inte vara med, och då stiger övertiden; inom en markerad period vet appen vad en tom vecka betyder, utanför vet den det inte. Frånvaro och komp (§8 mom 3, räknas inte som övertid enligt §5 mom 5 anm 3) är inte avdragna, så alla tal är sannolikt för höga. Exporten räknar i dag mot arbetade dagar, Min tid mot kalenderns vardagar. T.o.m. {arsovertid.tomDatum}.
                 </p>
                 <div style={{ display: "grid", gridTemplateColumns: `1.4fr repeat(${modeller.length}, 1fr)`, gap: "4px 8px", fontSize: 12, alignItems: "baseline" }}>
                   <span style={{ color: C.label }}>Förare</span>
@@ -356,11 +374,23 @@ function Loneunderlag() {
                       <span style={{ color: C.text, fontSize: 13, padding: "5px 0", borderTop: `1px solid ${C.line}` }}>{r.namn} <span style={{ color: C.label, fontSize: 11 }}>{Number(r.timmar).toLocaleString("sv-SE")} tim</span></span>
                       {modeller.map(m => {
                         const h = Number(r.modeller?.[m.key] || 0);
-                        return <span key={m.key} style={{ textAlign: "right", fontSize: 13, fontWeight: m.avtalet ? 700 : 400, color: m.avtalet ? farg(h) : C.label, padding: "5px 0", borderTop: `1px solid ${C.line}`, fontVariantNumeric: "tabular-nums" }}>{h.toLocaleString("sv-SE")}</span>;
+                        const title = m.avtalet && Array.isArray(r.perioder) ? r.perioder.map(periodText).join("\n") : undefined;
+                        return <span key={m.key} title={title} style={{ textAlign: "right", fontSize: 13, fontWeight: m.avtalet ? 700 : 400, color: m.avtalet ? farg(h) : C.label, padding: "5px 0", borderTop: `1px solid ${C.line}`, fontVariantNumeric: "tabular-nums" }}>{h.toLocaleString("sv-SE")}</span>;
                       })}
                     </React.Fragment>
                   ))}
                 </div>
+                {/* Per förare: hur genomsnittet fördelar sig på perioderna — så man
+                    ser VAR övertiden kommer ifrån (Stefan: v1–16 och sensommaren, inte Gävle). */}
+                {rader.some(r => Array.isArray(r.perioder) && r.perioder.length > 0) && (
+                  <div style={{ marginTop: 10, fontSize: 11, color: C.label }}>
+                    {rader.filter(r => Array.isArray(r.perioder)).map(r => (
+                      <p key={`per-${r.medarbetare_id}`} style={{ margin: "2px 0" }}>
+                        <span style={{ color: C.text }}>{r.namn.split(" ")[0]}</span>: {r.perioder.map(periodText).join(" · ")}
+                      </p>
+                    ))}
+                  </div>
+                )}
                 <p style={{ margin: "10px 0 0", fontSize: 11, color: C.label }}>
                   {modeller.map(m => `${m.namn}: ${m.beskrivning} (${m.anvandsAv})`).join(" · ")}
                 </p>
@@ -752,7 +782,8 @@ function FortnoxExportSektion({
           ["Fråga", "Löneart för brandrisk-OB", "timmarna räknas (lib/ob) men skickas inte förrän koden är fastställd."],
           ["Fråga", "Löneart för sjuklön", "sjukdagar ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
           ["Bekräfta", "Ordinarie tid är ett genomsnitt", "§5 mom 2: 40 tim/vecka i genomsnitt över en beräkningsperiod om högst 16 veckor. Ingen av appens tre gamla modeller är avtalets."],
-          ["Bekräfta", "Komp räknas inte mot 250-taket", "§8 mom 3: övertid kan efter överenskommelse tas ut som ledighet, 1,4 tim per övertidstimme. §5 mom 5 anm 3: sådan tid är inte övertid enligt arbetstidslagen. Gävle-modellen (80-timmarsvecka → ledig vecka) är exakt detta."],
+          ["Bekräfta", "Komp räknas inte mot 250-taket", "§8 mom 3: övertid kan efter överenskommelse tas ut som ledighet, 1,4 tim per övertidstimme. §5 mom 5 anm 3: sådan tid är inte övertid enligt arbetstidslagen."],
+          ["Bekräfta", "Gävle var utjämnad ordinarie tid", "§5 mom 2: 72–80 tim varannan vecka med tom vecka emellan och lön enligt schema är genomsnittsberäkning av ordinarie tid — inte kompensationsledighet. Perioden (v17–27 2026) är markerad i systemet; att utjämningen var överenskommen är inte bevisat av det."],
           ["Bekräfta", "Arbetad röd dag ger ingen helglön", "§10 mom 2: helglön är grundlön för timmar som bortfaller. Den som jobbar får lön för timmarna + söndagstillägg (§8 mom 1) — inte helglön dessutom. Närvarokravet står i §10 mom 4."],
           ["Bekräfta", "Bytesdag är skoftning", "§5 mom 4: ledig vardag mot inarbetning avtalas samtidigt, lön enligt ordinarie schema om totalen är lika. Ingen helglön flyttas."],
           ["Martins beslut", "Beräkningsperiod och schema", "vilka 16-veckorsperioder som gäller (kortet överst antar v1–16, v17–32, …), och om förarna ska ha ett fastställt schema. Utjämningen ska vara överenskommen."],
@@ -884,6 +915,14 @@ function FortnoxExportSektion({
                     {ledK.map((k: any, ki: number) => (
                       <p key={`led-${ki}`} style={{ margin: 0, fontSize: 12, color: C.orange }}>
                         {k.datum}: godkänd ledighet ({k.typ}) OCH {fmtMin(k.arbetad_min)} registrerat arbete.
+                      </p>
+                    ))}
+                    {/* Utjämningsperiod (§5 mom 2) som överlappar månaden: upplysning, inte
+                        en lönerad. Månadens övertid mot arbetade dagar × 8 är inte avtalets
+                        modell i perioden — genomsnittet står i årsövertiden överst. */}
+                    {(m.utjamning || []).map((u: any, ui: number) => (
+                      <p key={`utj-${ui}`} style={{ margin: 0, fontSize: 12, color: C.label }}>
+                        Utjämningsperiod <strong style={{ color: C.text }}>{u.startdatum} – {u.slutdatum}</strong>: {u.anteckning} Månadens övertidsrad (arbetade dagar × 8) är inte avtalets modell här — se årsövertiden. Avtalet förutsätter att utjämningen är överenskommen; markeringen bevisar inte det.
                       </p>
                     ))}
                     {(m.obekraftade || 0) > 0 && (
