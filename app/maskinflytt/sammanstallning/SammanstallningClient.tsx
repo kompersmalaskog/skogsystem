@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { medAbortRetry } from '@/lib/supabaseRetry'
+import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { vaderIkon } from '../vader'
 
 // ── Tema — samma palett som förarflödet ──
@@ -177,6 +178,12 @@ export default function SammanstallningClient() {
   const [oppnaFlyttar, setOppnaFlyttar] = useState<Set<string>>(new Set())
   const [underlag, setUnderlag] = useState<UnderlagRad[] | null>(null)
   const [underlagFel, setUnderlagFel] = useState(false)
+
+  // Fakturering är ekonomidata (admin-only RLS). Gejta fliken på samma predikat
+  // som RLS (ar_admin = admin/chef) — annars ser en förare en evigt tom flik
+  // (RLS-tomt) i stället för ingen flik alls.
+  const { medarbetare } = useCurrentMedarbetare()
+  const arAdmin = medarbetare?.roll === 'admin' || medarbetare?.roll === 'chef'
 
   const period = useMemo(() => periodIntervall(periodTyp, offset), [periodTyp, offset])
 
@@ -745,8 +752,8 @@ export default function SammanstallningClient() {
           </>
         )}
 
-        {/* ══ FAKTURERING (kvitto — speglar status, ingen handling) ══ */}
-        {flik === 'fakturering' && !laddar && !fel && (
+        {/* ══ FAKTURERING (kvitto — speglar status, ingen handling; admin-only) ══ */}
+        {flik === 'fakturering' && arAdmin && !laddar && !fel && (
           underlag === null ? (
             <div style={{ color: C.t3, fontSize: 14, padding: 24, textAlign: 'center' }}>Laddar …</div>
           ) : underlagFel ? (
@@ -818,7 +825,7 @@ export default function SammanstallningClient() {
           <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', gap: 4, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3 }}>
-                {([['dagar', 'Dagar'], ['flyttar', 'Flyttar'], ['fakturering', 'Fakturering']] as [Flik, string][]).map(([f, namn]) => (
+                {([['dagar', 'Dagar'], ['flyttar', 'Flyttar'], ...(arAdmin ? [['fakturering', 'Fakturering']] : [])] as [Flik, string][]).map(([f, namn]) => (
                   <button key={f} onClick={() => setFlik(f)} style={{
                     background: flik === f ? 'rgba(255,255,255,0.10)' : 'transparent',
                     color: flik === f ? C.t1 : C.t3,
