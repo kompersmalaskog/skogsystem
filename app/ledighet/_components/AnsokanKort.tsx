@@ -72,12 +72,16 @@ export default function AnsokanKort({
     ? { label: tidigare ? 'Togs ut' : 'Godkänd', color: tidigare ? C.t3 : C.green, bg: tidigare ? 'rgba(156,163,175,0.12)' : C.greenDim, ikon: <IkonBock color={tidigare ? C.t3 : C.green} /> }
     : a.status === 'nekad'
       ? { label: 'Nekad', color: C.nekad, bg: C.nekadDim, ikon: <IkonKryss color={C.nekad} /> }
-      : { label: 'Väntar', color: C.yellow, bg: C.yellowDim, ikon: <IkonKlocka color={C.yellow} /> };
+      // Anmäld i morgonkortet (sjuk/vab/föräldraledig) — ingen godkännare, gäller direkt
+      : a.status === 'registrerad'
+        ? { label: 'Registrerad', color: tidigare ? C.t3 : C.blue, bg: tidigare ? 'rgba(156,163,175,0.12)' : C.blueDim, ikon: <IkonBock color={tidigare ? C.t3 : C.blue} /> }
+        : { label: 'Väntar', color: C.yellow, bg: C.yellowDim, ikon: <IkonKlocka color={C.yellow} /> };
 
   // Kantremsa: status-färg, grå för tidigare
   const remsa = tidigare ? 'rgba(156,163,175,0.5)'
     : a.status === 'godkänd' ? C.green
     : a.status === 'nekad' ? C.nekad
+    : a.status === 'registrerad' ? C.blue
     : C.yellow;
 
   const kanAndras = arEgen && a.status === 'väntar';

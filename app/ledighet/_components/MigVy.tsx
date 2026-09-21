@@ -40,8 +40,9 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
       .sort((a, b) => a.startdatum.localeCompare(b.startdatum)),
     [mina, idag],
   );
+  // 'registrerad' = anmäld i morgonkortet (sjuk/vab/föräldraledig) — gäller som godkänd
   const kommandeLedighet = useMemo(
-    () => mina.filter(a => a.status === 'godkänd' && a.slutdatum >= idag)
+    () => mina.filter(a => (a.status === 'godkänd' || a.status === 'registrerad') && a.slutdatum >= idag)
       .sort((a, b) => a.startdatum.localeCompare(b.startdatum)),
     [mina, idag],
   );

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { FRANVARO_STATUS_GALLER } from '@/lib/franvaro';
 
 export interface SchemaPerson {
   id: string;
@@ -50,9 +51,11 @@ export function useSchemaData() {
 
     const [pers, led, mask, st, stMask] = await Promise.all([
       supabase.from('medarbetare_namn').select('id, fornamn').order('fornamn'),
+      // Frånvaro som GÄLLER (lib/franvaro): godkänd ledighet och registrerad
+      // sjuk/vab/föräldraledig från morgonkortet — schemat ska visa båda.
       supabase.from('ledighet_ansokningar')
         .select('medarbetare_id, typ, startdatum, slutdatum')
-        .eq('status', 'godkänd'),
+        .in('status', FRANVARO_STATUS_GALLER as string[]),
       supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, aktiv_till'),
       supabase.from('stopp').select('id, fran_datum, till_datum, orsak, kommentar'),
       supabase.from('stopp_maskin').select('stopp_id, maskin_id'),

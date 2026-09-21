@@ -1,5 +1,6 @@
 // Delad visuell grund för ledighetsvyn — samma mörka palett som resten av appen.
 import type React from 'react';
+import { FRANVARO_TYP_RUBRIK, type FranvaroStatus, type FranvaroTyp } from '@/lib/franvaro';
 
 export const ff =
   "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',system-ui,sans-serif";
@@ -29,19 +30,35 @@ export const C = {
   nekadDim: 'rgba(190,24,93,0.15)',
 } as const;
 
-// Bara personledighet — stopp är en egen modell (tabellen stopp), inte en ledighetstyp.
-export type LedighetTyp = 'semester' | 'atk';
-export type LedighetStatus = 'väntar' | 'godkänd' | 'nekad';
+// Typen är den samlade frånvaromodellens (lib/franvaro) — tabellen bär nio
+// typer sedan steg 1, och morgonkortets sjuk/vab/föräldraledig hamnar här
+// sedan steg 2. Listan måste tåla alla nio, annars kraschar den på en rad
+// den inte känner igen. Vad som går att ANSÖKA om här är en mindre lista.
+export type LedighetTyp = FranvaroTyp;
+export type LedighetStatus = FranvaroStatus;
+
+/** Det föraren kan ansöka om i den här vyn. Komp/tjänstledigt/permission/
+ *  inarbetad väntar på beslut (komp-saldots hemvist; skoftningens ersätter-datum). */
+export const ANSOKBARA_TYPER: readonly LedighetTyp[] = ['semester', 'atk'];
 
 export const TYPINFO: Record<LedighetTyp, { label: string; color: string; bg: string }> = {
-  semester: { label: 'Semester', color: C.green, bg: C.greenDim },
-  atk: { label: 'ATK', color: C.blue, bg: C.blueDim },
+  semester:      { label: FRANVARO_TYP_RUBRIK.semester,      color: C.green,  bg: C.greenDim },
+  atk:           { label: FRANVARO_TYP_RUBRIK.atk,           color: C.blue,   bg: C.blueDim },
+  komp:          { label: FRANVARO_TYP_RUBRIK.komp,          color: C.blue,   bg: C.blueDim },
+  sjuk:          { label: FRANVARO_TYP_RUBRIK.sjuk,          color: C.orange, bg: C.orangeDim },
+  vab:           { label: FRANVARO_TYP_RUBRIK.vab,           color: C.orange, bg: C.orangeDim },
+  foraldraledig: { label: FRANVARO_TYP_RUBRIK.foraldraledig, color: C.orange, bg: C.orangeDim },
+  inarbetad:     { label: FRANVARO_TYP_RUBRIK.inarbetad,     color: C.t2,     bg: 'rgba(255,255,255,0.08)' },
+  tjanstledig:   { label: FRANVARO_TYP_RUBRIK.tjanstledig,   color: C.t2,     bg: 'rgba(255,255,255,0.08)' },
+  permission:    { label: FRANVARO_TYP_RUBRIK.permission,    color: C.t2,     bg: 'rgba(255,255,255,0.08)' },
 };
 
 export const STATUSINFO: Record<LedighetStatus, { label: string; color: string; bg: string }> = {
   'väntar': { label: 'Väntar', color: C.yellow, bg: C.yellowDim },
   'godkänd': { label: 'Godkänd', color: C.green, bg: C.greenDim },
   'nekad': { label: 'Nekad', color: C.nekad, bg: C.nekadDim },
+  // Anmäld på morgonen — ingen godkännare, gäller direkt
+  'registrerad': { label: 'Registrerad', color: C.blue, bg: C.blueDim },
 };
 
 export const labelStyle: React.CSSProperties = {
