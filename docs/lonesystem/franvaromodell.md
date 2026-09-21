@@ -95,6 +95,31 @@ fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
    ingen tid) inte räknas som kortpass.
 5. Inget raderat. `dagtyp` behåller sina värden.
 
+**Bytesdag (inarbetad, §5 mom 4) — byggt 2026-09-21.**
+
+- Ansöks i Ledighet-vyn: typ *Inarbetad dag*, EN ledig vardag, och vilken
+  röd vardag den ersätter — listan kommer ur `lib/roda-dagar` (samma källa
+  som kalendern och helglönen), inom ett halvår från den lediga dagen, minus
+  röda dagar personen redan bytt bort. Godkänns som annan ledighet (avtalet:
+  överenskoms samtidigt). Migration `20260921100000`: en vardag mot en
+  vardag, unik per person och röd dag (nekade räknas inte); olika personer
+  kan byta samma dag.
+- Kalendern: den lediga dagen visar ordet *Inarbetad*; Redigera säger vilken
+  röd dag den ersätter. Den röda dagen visas som arbetad (prick) och Redigera
+  säger "Röd dag (namn) — arbetad, byts mot ledig …. Ingen helglön."
+- Lönen: den röda dagens timmar är ordinarie tid (vanlig arbetsdag i
+  exporten) + söndagstillägg om beordrat (löneart OB öppen); den lediga dagen
+  är ledighet utan avdrag och listas INTE under "Frånvaro (löneart ej
+  fastställd)" utan som egen upplysningsrad; helglönen flyttas inte (den röda
+  dagen är arbetad → ingen helglön, som förut). `byten` i
+  `ExportSammanfattning`.
+- Över månadsskifte: bytet syns i båda månadernas granskning. Den röda
+  dagens arbetstid hämtas även utanför arbetsperioden.
+- Om den lediga dagen ändå har arbete: "arbete vinner", raden flaggas som
+  ledighetskollision + "bytet togs inte ut". Om den röda dagen saknar
+  arbetstid: flaggas "inarbetningen saknas" — ingen automatisk omtypning,
+  godkännare byter typ.
+
 **Steg 3 — städning.** `dagtyp` nollas på de två raderna,
 `DAGTYP_FRANVARO_LEGACY` tas bort. `arbetsdag.dagtyp` behåller sin andra
 betydelse (sorts maskindag) tills den delas.

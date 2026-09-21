@@ -10,7 +10,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
-import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, hamtaFranvaro, franvaroPerDatum, registreraFranvaro, type FranvaroTyp } from "@/lib/franvaro";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, hamtaFranvaro, franvaroPerDatum, registreraFranvaro, bytenPerDatum, type FranvaroTyp, type Byte } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
@@ -629,6 +629,9 @@ export default function Arbetsrapport() {
   // vid start och för kalenderns år när den öppnas; morgonkortets skrivning
   // lägger till dagen direkt. "Arbete vinner" avgörs vid render.
   const [franvaroDagar, setFranvaroDagar] = useState<Record<string, FranvaroTyp>>({});
+  // Bytesdagar (inarbetad, §5 mom 4): ledig dag → röd dag och röd dag → ledig
+  // dag, så kalendern och Redigera kan förklara båda dagarna.
+  const [franvaroByten, setFranvaroByten] = useState<{ ledig: Record<string, Byte>; rod: Record<string, Byte> }>({ ledig: {}, rod: {} });
   const laddaFranvaro = useCallback(async (medId: string, fran: string, till: string) => {
     const { rader, fel } = await hamtaFranvaro(supabase, { medarbetareId: medId, fran, till });
     if (fel) { console.error('[franvaro] läsfel:', fel); return; }
@@ -638,6 +641,13 @@ export default function Arbetsrapport() {
       const ut: Record<string, FranvaroTyp> = {};
       for (const [k, v] of Object.entries(prev)) if (k < fran || k > till) ut[k] = v;
       return { ...ut, ...karta };
+    });
+    const byten = bytenPerDatum(rader);
+    setFranvaroByten(prev => {
+      const ledig: Record<string, Byte> = {}, rod: Record<string, Byte> = {};
+      for (const [k, v] of Object.entries(prev.ledig)) if (k < fran || k > till) ledig[k] = v;
+      for (const [k, v] of Object.entries(prev.rod)) if (v.ledig < fran || v.ledig > till) rod[k] = v;
+      return { ledig: { ...ledig, ...byten.ledig }, rod: { ...rod, ...byten.rod } };
     });
   }, []);
 
@@ -4852,6 +4862,19 @@ export default function Arbetsrapport() {
               <h1 style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.titel }}>
                 {(franvaroDagar[redDag?.datum] && !redDag?.start_tid) ? `${FRANVARO_TYP_RUBRIK[franvaroDagar[redDag.datum]]} — ${redDatumDisplay}` : redDatumDisplay}
               </h1>
+              {/* Arbetad röd dag: säg det, och om den byts mot en ledig dag (§5 mom 4).
+                  Ingen helglön i båda fallen — timmarna bortföll inte. */}
+              {(() => {
+                const rd: any = redDag; // useState(null) — samma "any" som resten av Redigera
+                const rodNamn = rd?.datum ? getRödaDagar(Number(String(rd.datum).slice(0, 4)))[rd.datum] : null;
+                if (!rodNamn || !rd?.start_tid) return null;
+                const byte = franvaroByten.rod[rd.datum];
+                return (
+                  <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
+                    Röd dag ({rodNamn}) — arbetad{byte ? `, byts mot ledig ${byte.ledig.slice(8)}/${Number(byte.ledig.slice(5, 7))}` : ''}. Ingen helglön.
+                  </p>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -4868,7 +4891,14 @@ export default function Arbetsrapport() {
               ? new Date(redDag.bekraftad_tid).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})
               : null;
             const val = FRANVARO_VAL.find(v => v.id === redFranvaro);
-            const meddelande = { icon: redFranvaro === 'sjuk' ? 'sick' : null, text: val?.meddelande || `${FRANVARO_TYP_RUBRIK[redFranvaro]} registrerad` };
+            // Bytesdag: säg vilken röd dag den ersätter — det är hela förklaringen
+            const byte = redFranvaro === 'inarbetad' ? franvaroByten.ledig[(redDag as any).datum] : undefined;
+            const meddelande = {
+              icon: redFranvaro === 'sjuk' ? 'sick' : null,
+              text: byte
+                ? `Inarbetad — ersätter ${byte.ersatterNamn} ${byte.ersatter.slice(8)}/${Number(byte.ersatter.slice(5, 7))} som du jobbade. Lön enligt schemat, helglönen flyttas inte.`
+                : (val?.meddelande || `${FRANVARO_TYP_RUBRIK[redFranvaro]} registrerad`),
+            };
             return (<>
               <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:`${AVSTAND.xxl}px ${AVSTAND.xl}px` }}>
                 {meddelande.icon && (
@@ -5654,7 +5684,8 @@ export default function Arbetsrapport() {
     const kortRader: { ord: string; antal: number; farg?: string }[] = [
       { ord: "Vardagar", antal: vardagarJobbade },
       { ord: "Helgdagar", antal: helgdagarJobbade },
-      ...(["sjuk", "vab", "semester", "foraldraledig", "atk", "ledig"] as const).map(t => ({ ord: franvaroRubrik[t], antal: franvaroAntal.get(t) || 0 })),
+      // Alla typer ur lib/franvaro — inarbetad dag (bytesdag) får sin egen rad
+      ...FRANVARO_TYPER.map(t => ({ ord: franvaroRubrik[t], antal: franvaroAntal.get(t) || 0 })),
       { ord: "Vardagar utan rapport", antal: utanRapport, farg: FARG.orange },
     ].filter(r => r.antal > 0);
     const månadHjälte = jobbadH;

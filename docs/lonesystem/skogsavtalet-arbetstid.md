@@ -81,10 +81,23 @@ Arbete på dem är beordrat arbete med söndagstillägg (§ 8 mom 1), aldrig
 > Detta innebär inte någon inskränkning i den enskilde arbetstagarens rätt till
 > annan ledighet i enlighet med lag och/eller avtal.
 
-**Konsekvens för appen.** "Byte av röd dag" (jobba onsdagens röda dag,
-ledig fredag) är skoftning: en ledig dag med `ersatter_datum`, lön enligt
-schemat. Ingen helglön flyttas — onsdagens timmar lönas med söndagstillägg,
-fredagen är inarbetad. Byggs i frånvaromodellen (typ `inarbetad`).
+**Konsekvens för appen (byggt 2026-09-21).** "Byte av röd dag" (jobba
+onsdagens röda dag, ledig fredag) är skoftning: en rad i
+`ledighet_ansokningar` med typ `inarbetad`, den lediga vardagen som
+`startdatum = slutdatum` och den röda vardagen som `ersatter_datum`.
+Ansöks i Ledighet-vyn (bara röda vardagar ur `lib/roda-dagar`, inom ett
+halvår) och godkänns av godkännare — avtalet: ledighet och inarbetning
+överenskoms samtidigt. Databasen: en vardag mot en vardag, unik per person
+och röd dag (migration `20260921100000`).
+
+Lönen: onsdagens timmar är ordinarie tid (en vanlig arbetsdag i exporten)
+plus söndagstillägg om beordrat (§ 8 mom 1, löneart OB öppen); fredagen
+är ledighet utan avdrag (appen skickar aldrig avdrag); **ingen helglön
+flyttas** — onsdagen är arbetad, timmarna bortföll inte (§ 10 mom 2).
+Annars betalas 48 timmar för en 40-timmarsvecka. Granskningen visar bytet
+i båda månaderna om det går över ett månadsskifte, och flaggar när den
+lediga dagen ändå arbetades (bytet togs inte ut) eller när den röda dagen
+saknar arbetstid (inarbetningen saknas).
 
 ### Mom 5 — Övertid och obekväm arbetstid (s. 17)
 

@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { C, ff, TYPINFO } from './tema';
-import { arbetsdagar, fmtPeriod } from './datum';
+import { arbetsdagar, fmtDatum, fmtPeriod } from './datum';
+import { rodVardagNamn } from '@/lib/franvaro';
 import type { Ansokan } from './typer';
 
 // === Små statusikoner ===
@@ -113,6 +114,13 @@ export default function AnsokanKort({
           <div style={{ fontSize: 12, color: C.t3, marginTop: 3 }}>
             {fmtLangdTyp(a)}
           </div>
+          {/* Bytesdag (skoftning §5 mom 4): vilken röd dag som arbetas i stället.
+              Godkännaren ska se det utan att öppna något. */}
+          {a.typ === 'inarbetad' && a.ersatter_datum && (
+            <div style={{ fontSize: 12, color: C.t2, marginTop: 3 }}>
+              Ersätter {rodVardagNamn(a.ersatter_datum) ?? 'röd dag'} {fmtDatum(a.ersatter_datum)} — jobbar den, ledig här. Helglönen flyttas inte.
+            </div>
+          )}
         </div>
 
         <span style={{

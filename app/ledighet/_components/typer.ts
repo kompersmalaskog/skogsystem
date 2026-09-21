@@ -10,6 +10,8 @@ export interface Ansokan {
   status: LedighetStatus;
   kommentar: string | null;
   skapad_at: string;
+  /** Bara typ 'inarbetad' (skoftning §5 mom 4): den röda vardag som arbetades i stället. */
+  ersatter_datum?: string | null;
 }
 
 export interface Saldo {

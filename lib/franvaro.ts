@@ -17,6 +17,7 @@
 // 'registrerad' (anmäld på morgonen). 'väntar' och 'nekad' är inte frånvaro.
 // "Arbete vinner": en dag med arbetspass räknas som arbete även om en
 // frånvarorad täcker den — det avgörs i läsaren, aldrig här.
+import { getRödaDagar } from "./roda-dagar";
 
 /** Alla frånvarotyper i den samlade modellen (= CHECK i ledighet_ansokningar). */
 export const FRANVARO_TYPER = [
@@ -152,6 +153,62 @@ export function franvaroPerDatum(rader: FranvaroRad[], fran: string, till: strin
     }
   }
   return ut;
+}
+
+// ── Bytesdag (skoftning §5 mom 4) ────────────────────────────
+// typ 'inarbetad': startdatum = den lediga vardagen, ersatter_datum = den röda
+// vardagen som arbetades i stället. Lönen: den röda dagens timmar är
+// ordinarie tid (+ söndagstillägg om beordrat), den lediga dagen är ledighet
+// utan avdrag, helglönen flyttas INTE. Reglerna i DB: migration
+// 20260921100000 (en vardag, unik per person och röd dag).
+
+export type Byte = { ledig: string; ersatter: string; ersatterNamn: string };
+
+/**
+ * Röda VARDAGAR (mån–fre) ur lib/roda-dagar som kan bytas mot en ledig dag —
+ * samma källa som kalendern och helglönen. Inom ±183 dagar från `kringDatum`
+ * (avtalet: ledighet och inarbetning överenskoms "lämpligen vid ett och samma
+ * tillfälle" — ett byte över ett halvår är inte det).
+ */
+export function rodaVardagarForByte(kringDatum: string): { datum: string; namn: string }[] {
+  const ar = Number(kringDatum.slice(0, 4));
+  if (!Number.isInteger(ar)) return [];
+  const mitt = new Date(kringDatum + "T00:00:00").getTime();
+  const ut: { datum: string; namn: string }[] = [];
+  for (const y of [ar - 1, ar, ar + 1]) {
+    for (const [datum, namn] of Object.entries(getRödaDagar(y))) {
+      const d = new Date(datum + "T00:00:00");
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) continue;
+      if (Math.abs(d.getTime() - mitt) > 183 * 86400000) continue;
+      ut.push({ datum, namn });
+    }
+  }
+  return ut.sort((a, b) => a.datum.localeCompare(b.datum));
+}
+
+/** Är datumet en röd vardag enligt lib/roda-dagar? Namnet om ja. */
+export function rodVardagNamn(datum: string): string | null {
+  const namn = getRödaDagar(Number(datum.slice(0, 4)))[datum];
+  if (!namn) return null;
+  const dow = new Date(datum + "T00:00:00").getDay();
+  return dow === 0 || dow === 6 ? null : namn;
+}
+
+/**
+ * Bytena ur raderna: ledig dag → röd dag, och röd dag → ledig dag. Bara typ
+ * 'inarbetad' med ersatter_datum. Anroparen väljer statusar (kalendern:
+ * godkänd; formuläret: även väntar för att stoppa dubbelval).
+ */
+export function bytenPerDatum(rader: FranvaroRad[]): { ledig: Record<string, Byte>; rod: Record<string, Byte> } {
+  const ledig: Record<string, Byte> = {}, rod: Record<string, Byte> = {};
+  for (const r of rader) {
+    if (r.typ !== "inarbetad" || !r.ersatter_datum) continue;
+    const b: Byte = { ledig: r.startdatum, ersatter: r.ersatter_datum, ersatterNamn: rodVardagNamn(r.ersatter_datum) || "röd dag" };
+    if (!ledig[b.ledig]) ledig[b.ledig] = b;
+    if (!rod[b.ersatter]) rod[b.ersatter] = b;
+  }
+  return { ledig, rod };
 }
 
 // ── Skriva (morgonkortet) ────────────────────────────────────

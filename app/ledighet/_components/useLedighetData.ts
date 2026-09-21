@@ -30,7 +30,7 @@ export function useLedighetData(medarbetareId: string | null) {
         .maybeSingle(),
       supabase
         .from('ledighet_ansokningar')
-        .select('id, medarbetare_id, anvandare_id, typ, startdatum, slutdatum, status, kommentar, skapad_at')
+        .select('id, medarbetare_id, anvandare_id, typ, startdatum, slutdatum, status, kommentar, skapad_at, ersatter_datum')
         .order('startdatum', { ascending: false }),
     ]);
 
