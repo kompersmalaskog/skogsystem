@@ -15,6 +15,7 @@ import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, hyttsparDugligaSegment, lokaltDatumStockholm } from '../../lib/hyttspar'
+import { skaEmittaHeading } from '../../lib/kompass'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -3581,6 +3582,8 @@ export default function PlannerPage() {
   const centreLongPressRef = useRef<NodeJS.Timeout | null>(null);
   const centreLongPressFiredRef = useRef(false);
   const lastHeadingRef = useRef(0); // För smooth rotation
+  const kompassSisteRawRef = useRef<number | null>(null);   // senast EMITTERADE råa heading (throttle/dedup)
+  const kompassSisteTsRef = useRef(0);                       // tidsstämpel för senaste emit (10 Hz-throttle)
   
   // Zoom funktioner - delegerar till MapLibre
   const zoomIn = () => {
@@ -5588,7 +5591,14 @@ export default function PlannerPage() {
     if (heading !== null && !isNaN(heading)) {
       // Normalisera till 0-360
       heading = ((heading % 360) + 360) % 360;
-      
+
+      // BATTERI: deviceorientation fyrar ~60 Hz. Emitera bara max 10 Hz OCH vid verklig ändring > 3°
+      // (annars 60 setDeviceHeading/sek → 60 re-renders + i körvy 60 easeTo/sek). Ren gate i lib/kompass.
+      const nu = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      if (!skaEmittaHeading(heading, kompassSisteRawRef.current, nu, kompassSisteTsRef.current)) return;
+      kompassSisteRawRef.current = heading;
+      kompassSisteTsRef.current = nu;
+
       // Smooth rotation - hitta kortaste vägen
       let lastHeading = lastHeadingRef.current;
       // Normalisera lastHeading också
@@ -7581,9 +7591,11 @@ export default function PlannerPage() {
           type: 'circle',
           source: 'gps-position',
           paint: {
-            'circle-radius': 22,
+            // STATISK halo (batteri: puls-loopen borttagen). Mjuk fast glow — mellanläge av den gamla
+            // pulsen (22→50 px / 0.4→0) så pricken fortfarande har en lugn ring utan repaint-loop.
+            'circle-radius': 30,
             'circle-color': '#0a84ff',
-            'circle-opacity': 0.4,
+            'circle-opacity': 0.22,
             'circle-pitch-alignment': 'viewport',
           },
         });
@@ -8393,31 +8405,10 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
 
-  // Pulse-animation för gps-halo (22→50px). Körvy-markören (maskin-halo) pulsar EJ — den är en
-  // lugn skugga så pricken inte drar uppmärksamhet från symbolerna/faran.
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    let raf: number = 0;
-    let start = performance.now();
-    let lastTickTs = 0;
-    const tick = (now: number) => {
-      raf = requestAnimationFrame(tick);
-      // Throttla till ~30 fps för batteri-vänligt
-      if (now - lastTickTs < 33) return;
-      lastTickTs = now;
-      const tg = ((now - start) % 2000) / 2000;          // gps-halo-fas
-      try {
-        if (map.getLayer('gps-halo')) {
-          map.setPaintProperty('gps-halo', 'circle-radius', 22 + tg * 28);
-          map.setPaintProperty('gps-halo', 'circle-opacity', 0.4 * (1 - tg));
-        }
-        // maskin-halo pulsar INTE längre (statisk skugga i paint-definitionen).
-      } catch { /* layer not ready */ }
-    };
-    raf = requestAnimationFrame(tick);
-    return () => { if (raf) cancelAnimationFrame(raf); };
-  }, [mapLibreReady]);
+  // BATTERI: gps-halons puls-rAF-loop BORTTAGEN. Den körde alltid (båda vyer, gejtad bara på
+  // mapLibreReady) och tvingade MapLibre-repaint 30 ggr/sek KONTINUERLIGT — även i stilla
+  // planeringsvy. Halon är nu STATISK (radie/opacitet i gps-halo-lagrets paint-definition). Ingen
+  // kontinuerlig repaint. (Körvy-markörens maskin-halo var redan statisk skugga.)
 
   // 9c) GEOFENCE: detektera när maskinen är inne i wet/steep/noentry-zon
   // Triggar varningskort + vibration. Försvinner när maskinen lämnar zonen.
@@ -8819,21 +8810,26 @@ export default function PlannerPage() {
     } catch (e) { /* source not ready */ }
   }, [tmaWithRoads, markers, mapLibreReady]);
 
-  // 3b) TMA varningslinje – pulserande animation (glow oscillation)
+  // 3b) TMA varningslinje – pulserande animation (glow oscillation). BATTERI: throttlad till ~15 fps
+  // (setPaintProperty = repaint, den dyra delen). Fasen är TIDSBASERAD (2,4 rad/sek = samma hastighet
+  // som gamla 0,04/frame × 60 fps) så oscillationen ser likadan ut trots färre repaints.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || tmaWithRoads.length === 0) return;
     let frame: number;
-    let t = 0;
-    const animate = () => {
-      t += 0.04;
-      const opacity = 0.25 + 0.35 * Math.sin(t); // oscillerar 0.25–0.60
+    const start = performance.now();
+    let lastTs = 0;
+    const animate = (now: number) => {
+      frame = requestAnimationFrame(animate);
+      if (now - lastTs < 66) return;                    // ~15 fps
+      lastTs = now;
+      const t = ((now - start) / 1000) * 2.4;
+      const opacity = 0.25 + 0.35 * Math.sin(t);        // oscillerar 0.25–0.60
       try {
         if (map.getLayer('tma-warning-glow')) {
           map.setPaintProperty('tma-warning-glow', 'line-opacity', Math.max(0, opacity));
         }
       } catch { /* layer not ready */ }
-      frame = requestAnimationFrame(animate);
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
