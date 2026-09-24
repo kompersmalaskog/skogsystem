@@ -116,6 +116,12 @@ export default function AnsokanKort({
           </div>
           {/* Bytesdag (skoftning §5 mom 4): vilken röd dag som arbetas i stället.
               Godkännaren ska se det utan att öppna något. */}
+          {/* Deldag (sjuk från 11:30): dagen är arbete OCH frånvaro — säg klockslaget */}
+          {(a.fran_tid || a.till_tid) && (
+            <div style={{ fontSize: 12, color: C.t2, marginTop: 3 }}>
+              Del av dag — {a.fran_tid ? `från ${String(a.fran_tid).slice(0, 5)}` : ''}{a.fran_tid && a.till_tid ? ' ' : ''}{a.till_tid ? `till ${String(a.till_tid).slice(0, 5)}` : ''}. Förmiddagen räknas som arbete.
+            </div>
+          )}
           {a.typ === 'inarbetad' && a.ersatter_datum && (
             <div style={{ fontSize: 12, color: C.t2, marginTop: 3 }}>
               Ersätter {rodVardagNamn(a.ersatter_datum) ?? 'röd dag'} {fmtDatum(a.ersatter_datum)} — jobbar den, ledig här. Helglönen flyttas inte.

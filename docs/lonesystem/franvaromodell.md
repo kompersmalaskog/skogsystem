@@ -144,6 +144,33 @@ fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
   arbetstid: flaggas "inarbetningen saknas" — ingen automatisk omtypning,
   godkännare byter typ.
 
+**Deldag (sjuk mitt på dagen) — byggt 2026-09-25.**
+
+- Lagras som **klockslag** på ledighetsraden: `fran_tid`/`till_tid`
+  (migration `20260925100000`), EN dag, bara typer som kan vara del av dag
+  (sjuk, vab, foraldraledig, atk, komp, permission, tjanstledig — semester
+  är hela dagar enligt semesterlagen, inarbetad alltid hel). Klockslaget är
+  det föraren vet; timmarna **härleds** (`deldagTimmar` = schematimmar per
+  dag − arbetade) och lagras aldrig.
+- **Regeln "arbete vinner" gäller bara heldagsrader.** En heldagsfrånvaro
+  på en arbetad dag är arbete, som förut. En deldagsrad betyder arbete PLUS
+  frånvaro. Sagt i `lib/franvaro` där kartan byggs; `franvaroPerDatum` tar
+  bara heldagar, `deldagarPerDatum` deldagar.
+- **Registrering**: Dag-vyns frånvarokort blir "Åker hem" medan passet
+  pågår och registrerar från nu. Reserv i Redigera ("Åkte hem sjuk, VAB
+  eller föräldraledig?" med typ + klockslag, förvalt passets slut). Ingen
+  fråga vid Bekräfta: 14 av 166 dagar sedan skarp start slutar före 13, och
+  de är tidiga nattpass eller medvetna halvdagar — nej-andelen hade varit
+  för hög.
+- **Lönen** (§12 mom 3): dagen förblir arbetsdag; `deldagar` i
+  `ExportSammanfattning` med härledda timmar mot `ordinarie_vecka_h / 5`,
+  sagt som ANTAGANDE i granskningen tills schema beslutats (anm 2 = samma
+  beslut som beräkningsperioden). Ingen lönerad. Ingen ledighetskollision
+  för deldagar. Tredje frågan till löneansvarig: levereras sjukfrånvaro i
+  timmar, och räknar Fortnox karens och 80 % själv?
+- Kalendern: dagen visar arbete (prick); månadskortet och Kontroll-steget
+  räknar "Sjukdag (del av dag)". Ledighetsvyn visar "Del av dag — från 11:30".
+
 **Steg 3 — städning.** `dagtyp` nollas på de två raderna,
 `DAGTYP_FRANVARO_LEGACY` tas bort. `arbetsdag.dagtyp` behåller sin andra
 betydelse (sorts maskindag) tills den delas.

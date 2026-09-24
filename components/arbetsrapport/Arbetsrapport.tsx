@@ -10,7 +10,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
-import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte } from "@/lib/franvaro";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte, type Deldag } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
@@ -633,17 +633,27 @@ export default function Arbetsrapport() {
   // Bytesdagar (inarbetad, §5 mom 4): ledig dag → röd dag och röd dag → ledig
   // dag, så kalendern och Redigera kan förklara båda dagarna.
   const [franvaroByten, setFranvaroByten] = useState<{ ledig: Record<string, Byte>; rod: Record<string, Byte> }>({ ledig: {}, rod: {} });
+  // DELDAGAR (sjuk/VAB från ett klockslag): dagen är arbete OCH frånvaro.
+  // "Arbete vinner" gäller bara heldagsrader (franvaroDagar) — sagt i lib/franvaro.
+  const [deldagar, setDeldagar] = useState<Record<string, Deldag>>({});
   const laddaFranvaro = useCallback(async (medId: string, fran: string, till: string) => {
     // Även 'väntar': ett bytesdags-svar som väntar på godkännande ska synas i
     // dagssammanfattningen. Frånvarokartan tar bara det som GÄLLER.
     const { rader, fel } = await hamtaFranvaro(supabase, { medarbetareId: medId, fran, till, statusar: [...FRANVARO_STATUS_GALLER, "väntar"] });
     if (fel) { console.error('[franvaro] läsfel:', fel); return; }
-    const karta = franvaroPerDatum(rader.filter(r => (FRANVARO_STATUS_GALLER as readonly string[]).includes(r.status)), fran, till);
+    const gallande = rader.filter(r => (FRANVARO_STATUS_GALLER as readonly string[]).includes(r.status));
+    const karta = franvaroPerDatum(gallande, fran, till);
     // Ersätt intervallet helt — en borttagen rad ska försvinna, inte ligga kvar.
     setFranvaroDagar(prev => {
       const ut: Record<string, FranvaroTyp> = {};
       for (const [k, v] of Object.entries(prev)) if (k < fran || k > till) ut[k] = v;
       return { ...ut, ...karta };
+    });
+    const del = deldagarPerDatum(gallande, fran, till);
+    setDeldagar(prev => {
+      const ut: Record<string, Deldag> = {};
+      for (const [k, v] of Object.entries(prev)) if (k < fran || k > till) ut[k] = v;
+      return { ...ut, ...del };
     });
     const byten = bytenPerDatum(rader);
     setFranvaroByten(prev => {
@@ -1829,6 +1839,51 @@ export default function Arbetsrapport() {
     );
   })();
 
+  // DELDAGS-SHEETEN (Redigera, reserv): typ + klockslaget man åkte hem.
+  // Samma rad som Dag-vyns "Åker hem" skapar; timmarna härleds i libben.
+  const [deldagSheet, setDeldagSheet] = useState<{ datum: string; typ: FranvaroTyp | null; tid: string; fel: string | null; sparar: boolean } | null>(null);
+  const sparaDeldag = async () => {
+    if (!deldagSheet || !medarbetare?.id) return;
+    const s = deldagSheet;
+    if (!s.typ) { setDeldagSheet({ ...s, fel: "Välj sjuk, VAB eller föräldraledig." }); return; }
+    if (!/^\d{2}:\d{2}$/.test(s.tid)) { setDeldagSheet({ ...s, fel: "Ange klockslaget du åkte hem." }); return; }
+    setDeldagSheet({ ...s, sparar: true, fel: null });
+    const res = await registreraFranvaro(supabase, { medarbetareId: medarbetare.id, namn: medarbetare.namn || "", datum: s.datum, typ: s.typ, franTid: s.tid });
+    if (!res.ok) { setDeldagSheet({ ...s, sparar: false, fel: res.fel }); return; }
+    setDeldagar(prev => ({ ...prev, [s.datum]: { typ: s.typ!, fran_tid: s.tid, till_tid: null, status: "registrerad" } }));
+    setDeldagSheet(null);
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
+  };
+  const deldagSheetUI = deldagSheet && (() => {
+    const s = deldagSheet;
+    return (
+      <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+        <div className="sheet-upp" style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))` }}>
+          <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+            <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
+          </div>
+          <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Åkte hem {s.datum.slice(8)}/{Number(s.datum.slice(5, 7))} — resten av dagen</p>
+          <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>Förmiddagen räknas som arbete. Frånvarotimmarna räknas mot 8 tim per dag tills schema är beslutat.</p>
+          <div style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
+            {FRANVARO_VAL.map(v => (
+              <button key={v.id} onClick={()=>setDeldagSheet({ ...s, typ: v.id, fel: null })} style={{ ...(s.typ === v.id ? KNAPP.primar : KNAPP.sekundar), justifyContent:"flex-start", padding:`0 ${AVSTAND.l}px` }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{v.ikon}</span>
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <input type="time" value={s.tid} onChange={e => setDeldagSheet({ ...s, tid: e.target.value, fel: null })}
+            style={{ marginTop:AVSTAND.l, width:"100%", boxSizing:"border-box", background:FARG.fyllning, color:FARG.text, border:"none", borderRadius:RADIE.rad, padding:`${AVSTAND.m}px ${AVSTAND.l}px`, ...TYP.listtitel, fontFamily:"inherit", colorScheme:"dark" }} />
+          {s.fel && <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod }}>{s.fel}</p>}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
+            <button onClick={()=>setDeldagSheet(null)} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Avbryt</button>
+            <button disabled={s.sparar} onClick={sparaDeldag} style={{ ...KNAPP.primar, opacity: s.sparar ? 0.5 : 1 }}>{s.sparar ? "Sparar…" : "Registrera"}</button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
   // Rastfrågans sheet — renderas i Dag OCH Redigera (båda har Bekräfta).
   // Ordet bär budskapet, inte färgen: rasten står som tal, valen är tydliga.
   const rastFragaUI = rastFraga && (
@@ -2272,11 +2327,14 @@ export default function Arbetsrapport() {
         : !isWorking
           ? 'Väntar på maskin'
           : `Arbetsdagen startade ${startKort}`;
+      const delIdag = deldagar[idagKey];
       const under = franvaroIdag
         ? 'Registrerad — arbete i dag räknas ändå som arbete'
-        : !isWorking
-          ? 'Startar automatiskt vid inloggning'
-          : 'Avslutas automatiskt vid utloggning från maskinen';
+        : delIdag
+          ? `${FRANVARO_TYP_RUBRIK[delIdag.typ]} från ${fmtKlockslag(delIdag.fran_tid)} — förmiddagen räknas som arbete`
+          : !isWorking
+            ? 'Startar automatiskt vid inloggning'
+            : 'Avslutas automatiskt vid utloggning från maskinen';
       // Maskinens NAMN ur maskiner-tabellen ("Wisent2015"), aldrig koden
       // ("810E") — maskinNamnMap föredrar maskiner.namn. Förarens maskin
       // först; saknas den (admin, vikarie) maskinen på senaste arbetsdagen.
@@ -2444,6 +2502,13 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.gron }}>check_circle</span>
                 <span style={{ ...TYP.meta, ...TNUM, color:FARG.gron }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
+              </div>
+            )}
+            {/* Deldag: sjuk/VAB från ett klockslag — dagen är arbete OCH frånvaro */}
+            {deldagar[idagKey] && (
+              <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2 }}>{FRANVARO_VAL.find(v => v.id === deldagar[idagKey].typ)?.ikon || 'event_busy'}</span>
+                <span style={{ ...TYP.meta, color:FARG.text2 }}>{FRANVARO_TYP_RUBRIK[deldagar[idagKey].typ]} från {fmtKlockslag(deldagar[idagKey].fran_tid)} — förmiddagen räknas som arbete</span>
               </div>
             )}
             {/* Bytesdag gjord för en arbetad röd dag: föraren ska se att det gick
@@ -2824,20 +2889,31 @@ export default function Arbetsrapport() {
             'registrerad', kalla 'morgonkort') — ingen arbetsdag-rad, ingen
             dagtyp. Planerad ledighet ansöks i Ledighet-vyn. Kortet döljs när
             dagen redan är frånvaro. */}
-        {!isWorking && !idagArb?.bekraftad && !franvaroDagar[idagKey] && (
+        {/* Samma kort i två lägen: före passet = HEL dag; medan passet pågår =
+            "Åker hem" = DELDAG från nu (klockslag), dagen förblir arbetsdag.
+            Ingen fråga vid Bekräfta — nästan alla korta dagar i prod är
+            medvetna halvdagar eller tidiga nattpass (14 av 166, 2026-09-24). */}
+        {(() => {
+          const delDag = !!(isWorking || idagArb?.start_tid); // passet har startat → resten av dagen
+          if (franvaroDagar[idagKey] || deldagar[idagKey]) return null;
+          if (!delDag && idagArb?.bekraftad) return null;
+          return (
           <section style={{ marginTop:AVSTAND.m }}>
-            {kortKnapp('Frånvaro', FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
+            {kortKnapp(delDag ? 'Åker hem' : 'Frånvaro', delDag ? `${FRANVARO_UNDERRAD} — resten av dagen` : FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
             {visaÖvrigt && (
               <div className="tona-in" style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.s }}>
                 {FRANVARO_VAL.map(s=>(
                   <button key={s.id} onClick={async ()=>{
-                    const res = await registreraFranvaro(supabase, { medarbetareId: medarbetare.id, namn: medarbetare.namn || '', datum: idagKey, typ: s.id });
+                    const nu = new Date();
+                    const franTid = delDag ? `${String(nu.getHours()).padStart(2, "0")}:${String(nu.getMinutes()).padStart(2, "0")}` : null;
+                    const res = await registreraFranvaro(supabase, { medarbetareId: medarbetare.id, namn: medarbetare.namn || '', datum: idagKey, typ: s.id, franTid });
                     if (!res.ok) { setBekraftaFel(res.fel); return; }
                     setBekraftaFel(null);
-                    setFranvaroDagar(prev => ({ ...prev, [idagKey]: s.id }));
+                    if (franTid) setDeldagar(prev => ({ ...prev, [idagKey]: { typ: s.id, fran_tid: franTid, till_tid: null, status: "registrerad" } }));
+                    else setFranvaroDagar(prev => ({ ...prev, [idagKey]: s.id }));
                     setVisaÖvrigt(false);
                     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
-                    setHeldagsMeddelande({ typ: s.id, text: s.meddelande, icon: s.ikon });
+                    setHeldagsMeddelande({ typ: s.id, text: franTid ? `${FRANVARO_TYP_RUBRIK[s.id]} från ${franTid} — förmiddagen räknas som arbete` : s.meddelande, icon: s.ikon });
                     setTimeout(() => setHeldagsMeddelande(null), 2500);
                   }}
                     style={{ ...KNAPP.sekundar, justifyContent:"flex-start", padding:`0 ${AVSTAND.l}px` }}>
@@ -2851,7 +2927,8 @@ export default function Arbetsrapport() {
               <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod }}>{bekraftaFel}</p>
             )}
           </section>
-        )}
+          );
+        })()}
 
         {/* Objektväljare — sheet */}
         {visaObjektVäljare&&(
@@ -3919,6 +3996,11 @@ export default function Arbetsrapport() {
     for (const [datum, typ] of Object.entries(franvaroDagar)) {
       if (!datum.startsWith(lönePeriod) || månadsArbetade.has(datum)) continue;
       const label = FRANVARO_TYP_RUBRIK[typ];
+      frånvaroAntal.set(label, (frånvaroAntal.get(label) || 0) + 1);
+    }
+    for (const [datum, dd] of Object.entries(deldagar)) {
+      if (!datum.startsWith(lönePeriod)) continue;
+      const label = `${FRANVARO_TYP_RUBRIK[dd.typ]} (del av dag)`;
       frånvaroAntal.set(label, (frånvaroAntal.get(label) || 0) + 1);
     }
     const frånvaroRader = Array.from(frånvaroAntal.entries()) as [string,number][];
@@ -5005,6 +5087,24 @@ export default function Arbetsrapport() {
                   </p>
                 );
               })()}
+              {/* DELDAG i Redigera — reserven för dagen efter ("glömde trycka Åker hem").
+                  Visar registrerad deldag, annars länken för en arbetad dag utan frånvaro. */}
+              {(() => {
+                const rd: any = redDag;
+                if (!rd?.datum) return null;
+                const dd = deldagar[rd.datum];
+                if (dd) return (
+                  <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
+                    {FRANVARO_TYP_RUBRIK[dd.typ]} från {fmtKlockslag(dd.fran_tid)} — förmiddagen räknas som arbete{dd.status === "väntar" ? " (väntar på godkännande)" : ""}.
+                  </p>
+                );
+                if (!rd.start_tid || franvaroDagar[rd.datum] || foreSkarpStart(rd.datum)) return null;
+                return (
+                  <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
+                    <button onClick={()=>setDeldagSheet({ datum: rd.datum, typ: null, tid: fmtKlockslag(rd.slut_tid) || "12:00", fel: null, sparar: false })} style={{ ...KNAPP.lank, display:"inline-flex", padding:0, minHeight:0, height:"auto" }}>Åkte hem sjuk, VAB eller föräldraledig?</button>
+                  </p>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -5562,6 +5662,7 @@ export default function Arbetsrapport() {
         {efterStoppUI}
         {rastFragaUI}
         {byteFragaUI}
+        {deldagSheetUI}
 
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(
@@ -5825,6 +5926,9 @@ export default function Arbetsrapport() {
       { ord: "Helgdagar", antal: helgdagarJobbade },
       // Alla typer ur lib/franvaro — inarbetad dag (bytesdag) får sin egen rad
       ...FRANVARO_TYPER.map(t => ({ ord: franvaroRubrik[t], antal: franvaroAntal.get(t) || 0 })),
+      // Deldagar: dagen är redan räknad som arbetad ovan — här bara antalet, så
+      // en halv sjukdag inte försvinner ur månadens bild
+      ...FRANVARO_TYPER.map(t => ({ ord: `${franvaroRubrik[t]} (del av dag)`, antal: Object.entries(deldagar).filter(([k, v]) => k.startsWith(`${kalÅr}-${String(kalMånad + 1).padStart(2, "0")}`) && v.typ === t).length })),
       { ord: "Vardagar utan rapport", antal: utanRapport, farg: FARG.orange },
     ].filter(r => r.antal > 0);
     const månadHjälte = jobbadH;

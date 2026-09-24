@@ -261,12 +261,71 @@ ordinarie tid utlagd ojämnt.
 
 ---
 
+## § 12 Sjuklön — mom 3 Sjuklönens storlek (s. 46–47)
+
+> En sjuklöneperiod omfattar de första 14 kalenderdagarna i en sjukperiod då
+> medarbetarens arbetsförmåga är nedsatt på grund av sjukdom.
+>
+> Karensperiod
+> För sjukfrånvaro upp till 20 procent av genomsnittlig veckoarbetstid i sjuk-
+> perioden utges ingen sjuklön. Under karensperioden görs ett helt löneavdrag.
+>
+> Beräkning av sjuklön
+> Sjuklön utgör nedan angiven del av den lön för sådan fastlagd ordinarie
+> arbetstid, inklusive hithörande lönetillägg enligt § 8, som arbetstagaren gått
+> miste om till följd av nedsättningen av arbetsförmågan under sjuklöne-
+> perioden. Övertidsersättning och kostnadsersättningar är inte sjuklöne-
+> grundande.
+>
+> Timlön
+> Under karensperioden görs helt löneavdrag per timme som den anställde
+> skulle ha arbetat. Efter karensavdrag enligt ovan utgör 80 procent av ordinarie
+> timlön sjuklön.
+>
+> Anmärkning
+> 1. Arbetstagare, för vilken Försäkringskassan fattat beslut enligt 13 § Lagen om
+>    sjuklön, äger rätt till sjuklön om 80 procent av inkomstbortfallet redan från
+>    och med första dagen med sjuklön. (I dessa fall gäller ingen karensdag).
+> 2. Med genomsnittlig veckoarbetstid avses arbetstagarens arbetstid i timmar
+>    under en normalvecka. Om medarbetaren har oregelbunden arbetstid
+>    beräknas veckoarbetstiden i genomsnitt per månad eller annan
+>    förläggningscykel.
+> 3. Återinsjuknande inom fem kalenderdagar räknas som fortsättning på den
+>    tidigare sjukperioden. Återinsjuknande innebär att karensperioden kan
+>    komma att fortsätta upp till 20 procent av medarbetarens genomsnittliga
+>    veckoarbetstid.
+> 4. Antal karensperioder begränsas till tio under en tolvmånadersperiod.
+>    Karensperiod som sträcker sig över flera dagar i en och samma sjukperiod
+>    räknas som en (1) karensperiod.
+
+**Konsekvens för appen (deldag, byggd 2026-09-25).** Karensen är **timmar**,
+inte en dag: 20 % av 40 tim = 8 tim, som kan spridas över flera sjukdagar.
+Blir man sjuk klockan 11:30 är eftermiddagens timmar karens, och resten av
+karensen dras nästa sjukdag. Därför spelar det roll hur många timmar man
+hann jobba — en halv sjukdag lagras med klockslag (`fran_tid`/`till_tid` i
+`ledighet_ansokningar`, migration `20260925100000`) och timmarna härleds i
+`lib/franvaro.deldagTimmar` som schematimmar per dag minus arbetade.
+Förmiddagen är vanlig arbetstid, dagen förblir arbetsdag (60-minutersregeln,
+vältlappsvecka, reseersättning). Appen räknar aldrig karensavdrag eller
+80 procent — det är belopp, Fortnox gör det; appen levererar sjuktimmar per
+dag som mängd.
+
+**"Timmar som den anställde skulle ha arbetat"** förutsätter ett schema.
+Appen antar `ordinarie_vecka_h / 5` = 8 tim per dag och säger det i
+granskningen. Anmärkning 2 (oregelbunden tid → genomsnitt per månad eller
+förläggningscykel) är samma beslut som beräkningsperioden för övertid —
+Martins lista.
+
+---
+
 ## Öppet (Martin tar med löneansvarig / beslutar själv)
 
 Rena frågor till löneansvarig:
 
 1. Löneart för brandrisk-OB (och övrig OB när den räknas).
-2. Löneart för sjuklön.
+2. Löneart för sjuklön, VAB och föräldraledig.
+3. Levereras sjukfrånvaro i timmar per dag, och räknar Fortnox karensavdraget
+   (20 % av veckoarbetstiden) och de 80 procenten själv? (§ 12 mom 3)
 
 Bekräftelser av avtalstexten ovan (ja/nej):
 
