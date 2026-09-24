@@ -12,6 +12,7 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
 import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
+import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
@@ -1746,6 +1747,7 @@ export default function Arbetsrapport() {
   const fragaOmByte = (datum: string) => {
     const namn = rodVardagNamn(datum);
     if (!namn || franvaroByten.rod[datum]) return;
+    if (foreSkarpStart(datum)) return; // redan utbetalt — "nu och framåt" (Martin 2026-09-24)
     if ((årsData || []).some((r: any) => r.datum === datum && r.bytesdag_avbojd_at)) return;
     setByteFraga({ datum, namn, valjer: false, ledig: "", fel: null, sparar: false });
   };
@@ -5304,10 +5306,18 @@ export default function Arbetsrapport() {
                 // Källmärkning — visa ärligt vad siffran ÄR. Beräknat men inte
                 // taget = ett FÖRSLAG föraren själv trycker in; först då blir dagen
                 // ändrad (harÄndrat) — aldrig av att den öppnas.
-                const forslag = redKmBerakning != null && redKmBerakning > 0 && redKm === 0 && !redKmSaknarKoord;
-                const egen = !forslag && redKmBerakning != null && redKm !== redKmBerakning;
+                // Förslaget får ALDRIG kringgå km_kalla-skyddet: km_kalla='forare' med
+                // 0 km är en medveten nolla (boende på plats — Gävle) som helpern och
+                // nattjobbet aldrig rör; då ska appen inte heller FÖRESLÅ ett tal vi vet
+                // är fel. Och aldrig över MAX_BEN_KM per ben — samma gräns som helpern
+                // själv vägrar räkna (trolig felkoordinat). Ändra går via km-arket.
+                const medvetenNolla = redKm === 0 && (redDag as any).km_kalla === 'forare';
+                const benOver = segs.some((s: any) => Number(s.km) > MAX_BEN_KM);
+                const forslag = redKmBerakning != null && redKmBerakning > 0 && redKm === 0 && !redKmSaknarKoord && !medvetenNolla && !benOver;
+                const egen = !forslag && !benOver && redKmBerakning != null && redKm !== redKmBerakning;
                 const kalla = forslag ? null
-                  : egen ? { text: "Egen uppgift", farg: FARG.text2 }
+                  : benOver ? { text: `Avståndet överstiger ${MAX_BEN_KM} km enkel väg — föreslås inte (trolig felkoordinat). Fyll i själv om det stämmer.`, farg: FARG.orange }
+                  : egen ? { text: medvetenNolla ? "Egen uppgift — 0 km medvetet satt" : "Egen uppgift", farg: FARG.text2 }
                   : redKmSaknarKoord ? { text: "Objektet saknar koordinat — går inte att beräkna. Fyll i själv.", farg: FARG.orange }
                   : redKmKälla === 'fallback' ? { text: "Osäker uppskattning (fågelvägen × 1,4) — kontrollera.", farg: FARG.orange }
                   : redKmKälla === 'beraknad' ? { text: `Beräknat vägavstånd${redKmKoordKälla === 'maskin' ? ' från maskinens position' : redKmKoordKälla === 'objekt' ? ' från objektets koordinat' : redKmKoordKälla === 'larm' ? ' från objektets larmkoordinat' : ''}`, farg: FARG.text2 }

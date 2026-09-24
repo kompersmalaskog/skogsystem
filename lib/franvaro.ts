@@ -18,6 +18,7 @@
 // "Arbete vinner": en dag med arbetspass räknas som arbete även om en
 // frånvarorad täcker den — det avgörs i läsaren, aldrig här.
 import { getRödaDagar } from "./roda-dagar";
+import { SKARP_START } from "./skarpStart";
 
 /** Alla frånvarotyper i den samlade modellen (= CHECK i ledighet_ansokningar). */
 export const FRANVARO_TYPER = [
@@ -174,7 +175,9 @@ export const BYTE_MAX_DAGAR = 183;
  * Röda VARDAGAR (mån–fre) ur lib/roda-dagar som kan bytas mot en ledig dag —
  * samma källa som kalendern och helglönen. Inom ±183 dagar från `kringDatum`
  * (avtalet: ledighet och inarbetning överenskoms "lämpligen vid ett och samma
- * tillfälle" — ett byte över ett halvår är inte det).
+ * tillfälle" — ett byte över ett halvår är inte det), och ALDRIG före skarp
+ * start (Martin 2026-09-24: "det är kört, det är betalt och färdigt, det får
+ * vara nu och framåt" — gamla röda dagar är redan utbetalda).
  */
 export function rodaVardagarForByte(kringDatum: string): { datum: string; namn: string }[] {
   const ar = Number(kringDatum.slice(0, 4));
@@ -183,6 +186,7 @@ export function rodaVardagarForByte(kringDatum: string): { datum: string; namn: 
   const ut: { datum: string; namn: string }[] = [];
   for (const y of [ar - 1, ar, ar + 1]) {
     for (const [datum, namn] of Object.entries(getRödaDagar(y))) {
+      if (datum < SKARP_START) continue;
       const d = new Date(datum + "T00:00:00");
       const dow = d.getDay();
       if (dow === 0 || dow === 6) continue;
@@ -220,7 +224,8 @@ export function bytenPerDatum(rader: FranvaroRad[]): { ledig: Record<string, Byt
 /**
  * Arbetade röda vardagar som fortfarande KAN bytas mot en ledig dag: röd
  * vardag enligt lib/roda-dagar, arbetad, inte redan bytt (byten.rod), inte
- * avböjd (arbetsdag.bytesdag_avbojd_at), inom BYTE_MAX_DAGAR bakåt från idag.
+ * avböjd (arbetsdag.bytesdag_avbojd_at), inom BYTE_MAX_DAGAR bakåt från idag
+ * och aldrig före SKARP_START (redan utbetalt — "nu och framåt").
  * Samma regler som #572; används av Dag-vyns väntar-kort och Redigera så
  * bytet når även dagar som bekräftades innan man tänkte på det.
  */
@@ -232,7 +237,7 @@ export function bytbaraRodaDagar(
   const idagMs = new Date(idag + "T00:00:00").getTime();
   const ut: { datum: string; namn: string }[] = [];
   for (const d of dagar) {
-    if (!d.datum || d.datum > idag) continue;
+    if (!d.datum || d.datum > idag || d.datum < SKARP_START) continue;
     if (!((d.arbetad_min || 0) > 0 || d.start_tid)) continue;
     if (d.bytesdag_avbojd_at || bytenRod[d.datum]) continue;
     const namn = rodVardagNamn(d.datum);
@@ -256,6 +261,7 @@ export function bytesdagFel(ledig: string, ersatter: string, franvaroDagar: Reco
   if (rodNamn) return `${ledig} är redan röd dag (${rodNamn}) — välj en vanlig vardag.`;
   if (ledig === ersatter) return "Den lediga dagen kan inte vara samma som den röda.";
   if (!rodVardagNamn(ersatter)) return `${ersatter} är ingen röd vardag.`;
+  if (ersatter < SKARP_START) return `${ersatter} är redan utbetald — byten gäller från ${SKARP_START} och framåt.`;
   const diff = Math.abs(new Date(ledig + "T00:00:00").getTime() - new Date(ersatter + "T00:00:00").getTime()) / 86400000;
   if (diff > BYTE_MAX_DAGAR) return `Högst ett halvår från den röda dagen (${BYTE_MAX_DAGAR} dagar).`;
   if (franvaroDagar[ledig]) return `${ledig} är redan ${FRANVARO_TYP_RUBRIK[franvaroDagar[ledig]].toLowerCase()}.`;
