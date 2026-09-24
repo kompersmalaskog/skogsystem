@@ -6,7 +6,7 @@
 // volym_m3sub = m³fub. Ingen omräkning sker här.
 
 import type { Arbetsdagar, Avvikelse, BolagRad, Maskin, PlaneringObjekt, SparRad, StoppRad, Typ } from './queries'
-import { dagarText, fmt, kortNamn } from './format'
+import { dagarText, fmt, kortNamn, saknarData, sedanText } from './format'
 
 // ── Trösklar: EN fil — trosklar.ts. Återexporteras här för anroparna. ──────
 import {
@@ -365,7 +365,7 @@ export function manadStatus(ar: number, manad: number, idag: string): ManadStatu
 }
 
 // ── Svarsrader: det viktigaste överst, max en avvikelse ─────────────────────
-export type Svar = { rubrik: string; rad: string | null; avvikelse: boolean }
+export type Svar = { rubrik: string; rad: string | null; avvikelse: boolean; /** Orange tredje rad: registrering som saknas (manuell datakälla). */ varning?: string | null }
 
 /**
  * Flödet skördare→skotare i månaden, ur gap = månadens skördat − skotat på spåret.
@@ -425,6 +425,25 @@ export function lageSvar(spar: SparLage[], antalPlanerade: Record<Typ, number>, 
     return { rubrik: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, rad: dagar ? `arbetsdag ${dagar.gangna + 1} av ${dagar.totalt}` : null, avvikelse: false }
   }
   return { rubrik: aktiva.length > 1 ? 'På plan · båda spåren' : `På plan · ${TYP_NAMN[aktiva[0].typ].toLowerCase()}`, rad: null, avvikelse: false }
+}
+
+/**
+ * Läge-varning för maskiner med manuell datakälla (datakalla 'manuell', JD810E) som saknar
+ * registrerade lass någon av de två senaste arbetsdagarna (maskinens egna, t.o.m. i dag —
+ * samma regel som "inga lass sedan" i notisen): "John Deere 810E · inga lass registrerade
+ * sedan tisdag". Flera maskiner skiljs med " · ". null = inget att varna för.
+ */
+export function registreringsVarning(manuella: Maskin[], senasteLass: Record<string, string | null>, arbetsdagar: Arbetsdagar[], idag: string, manadNamn: string): string | null {
+  const rader: string[] = []
+  for (const m of manuella) {
+    if (m.aktiv_till && m.aktiv_till < idag) continue
+    const egna = arbetsdagar.find(a => a.maskin_id === m.maskin_id) ?? globalaArbetsdagar(arbetsdagar)
+    const dagar = egna ? [...egna.gangna_datum, ...egna.kvar_datum].filter(d => d <= idag) : []
+    const senast = senasteLass[m.maskin_id] ?? null
+    if (!saknarData({ senast_datum: senast, dagar_tom_idag: dagar }, dagar)) continue
+    rader.push(`${maskinNamn(m)} · inga lass registrerade ${sedanText(senast, idag, manadNamn)}`)
+  }
+  return rader.length > 0 ? rader.join(' · ') : null
 }
 
 /** Underraden i MOT BESTÄLLNING: "Kör 94/dag · behöver 252 · oskotat växer 247/dag". */

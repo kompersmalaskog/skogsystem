@@ -64,3 +64,26 @@ export function fmtPeriod(franIso: string, tillIso: string): string {
   if (fm === tm) return fd === td ? `${fd} ${MANAD_KORT[fm - 1]}` : `${fd}–${td} ${MANAD_KORT[fm - 1]}`
   return `${fd} ${MANAD_KORT[fm - 1]}–${td} ${MANAD_KORT[tm - 1]}`
 }
+
+// ── Veckodag och "sedan …" (delas av veckoläget, notisen och Läge-varningen) ─────
+const VECKODAG = ['söndag', 'måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag']
+
+export function veckodag(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return VECKODAG[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
+}
+
+/** "sedan måndag" inom en vecka bakåt, annars "sedan 3 sep"; utan datum alls "i september". */
+export function sedanText(senast: string | null, idag: string, manadNamn: string): string {
+  if (!senast) return `i ${manadNamn}`
+  const dagar = Math.round((Date.parse(idag) - Date.parse(senast)) / 86400000)
+  return dagar >= 0 && dagar <= 6 ? `sedan ${veckodag(senast)}` : `sedan ${fmtDag(senast)}`
+}
+
+/** Maskin utan fakt-data någon av de två senaste arbetsdagarna (maskinens egna, t.o.m. i dag). Färre än två dagar: går inte att avgöra → false. */
+export function saknarData(m: { senast_datum: string | null; dagar_tom_idag: string[] }, globalaDagar: string[]): boolean {
+  const dagar = m.dagar_tom_idag.length > 0 ? m.dagar_tom_idag : globalaDagar
+  if (dagar.length < 2) return false
+  const forstaAvDeTva = dagar[dagar.length - 2]
+  return !m.senast_datum || m.senast_datum < forstaAvDeTva
+}

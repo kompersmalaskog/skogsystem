@@ -77,6 +77,8 @@ export type Maskin = {
   klarar_typ: string | null
   extramaskin: boolean | null
   aktiv_till: string | null
+  /** 'manuell' = inga maskinfiler; föraren registrerar lass i arbetsrapporten (20260924). Fylls av hamtaManuellaMaskiner. */
+  datakalla?: 'auto' | 'manuell' | null
 }
 
 export type MaskinLage = {
@@ -324,6 +326,37 @@ export async function sparaOrsak(ar: number, manad: number, typ: Typ, isovecka: 
     return { error: error ? felText(error) : null }
   } catch (e) {
     return { error: felText(e) }
+  }
+}
+
+/**
+ * Maskiner med manuell datakälla (dim_maskin.datakalla = 'manuell'). Egen fråga som tål att
+ * kolumnen saknas (migration 20260924100000 inte körd): då tom mängd, aldrig ett fel som
+ * fäller vyn — etiketten "manuell" och Läge-varningen uteblir bara.
+ */
+export async function hamtaManuellaMaskiner(): Promise<Set<string>> {
+  try {
+    const { data, error } = await medAbortRetry(() => supabase.from('dim_maskin').select('maskin_id').eq('datakalla', 'manuell'))
+    if (error) { console.warn('[helikopter] dim_maskin.datakalla kunde inte läsas', error.message); return new Set() }
+    return new Set(((data as { maskin_id: string }[]) ?? []).map(r => r.maskin_id))
+  } catch (e) {
+    console.warn('[helikopter] hamtaManuellaMaskiner', e)
+    return new Set()
+  }
+}
+
+/** Senaste lassdatum per maskin (fakt_lass), för "inga lass registrerade sedan …" i Läge. null = inga lass alls. */
+export async function hamtaSenasteLass(maskinIds: string[]): Promise<Svar<Record<string, string | null>>> {
+  try {
+    const ut: Record<string, string | null> = {}
+    for (const id of maskinIds) {
+      const { data, error } = await medAbortRetry(() => supabase.from('fakt_lass').select('datum').eq('maskin_id', id).order('datum', { ascending: false }).limit(1))
+      if (error) { console.error('[helikopter] fakt_lass senaste', error); return { data: null, error: felText(error) } }
+      ut[id] = (data as { datum: string }[])?.[0]?.datum ?? null
+    }
+    return { data: ut, error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
   }
 }
 
