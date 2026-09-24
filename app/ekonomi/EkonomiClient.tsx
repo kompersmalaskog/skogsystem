@@ -26,6 +26,7 @@ import {
 } from '@/lib/ekonomi/acord';
 import { type PeriodType, getPeriodDates, fetchAllRows } from '@/lib/ekonomi/period';
 import { skotningsavstandM } from '@/lib/skotningsavstand';
+import { prisPerM3 } from '@/lib/ekonomi/prisPerM3';
 import {
   EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad,
   Laddar, FelRuta, Tomt, BARNSTEN,
@@ -192,9 +193,17 @@ export default function EkonomiClient() {
       // taxor ur prislistan, uppslag på periodslutet. Funktion (inte map) så
       // även objekt utan produktion/sortiment (GROT/skotare-only) täcks.
       const ovrigtList: OvrigtRad[] = ovrigtRes.data || [];
-      const ovrigKrFor = (oid: string) =>
-        ovrigtKrPerM3('kvalitetssakring', ovrigtList, end)
-        + (Number(objMap[oid]?.terrang_kr_manuell) || 0);
+      // Kvalitet och terräng hölls ihop som ett tal förut. De delas här eftersom
+      // härledningen (delar[]) behöver dem som två poster — summan är densamma,
+      // och prisPerM3 återskapar den ursprungliga grupperingen vid summeringen.
+      // OBS: uppslagsdatumet är fortfarande `end` (periodslut) medan
+      // objektJamforelse använder avräkningsdagen. Den skillnaden är ett känt
+      // aktivt fel som rättas när taxornas giltig_fran backdaterats (#570) —
+      // den här ändringen är en ren flytt och rör inte datumvalet.
+      const kvalitetKrFor = (_oid: string) =>
+        ovrigtKrPerM3('kvalitetssakring', ovrigtList, end);
+      const terrangKrFor = (oid: string) =>
+        Number(objMap[oid]?.terrang_kr_manuell) || 0;
 
       const objSortTillaggKr: Record<string, number> = {};
       const objTraktKr: Record<string, number> = {};
@@ -363,12 +372,15 @@ export default function EkonomiClient() {
         }
         ackordRaderFinns = true;
         const medelstam = medelstamOverride(objekt_id) ?? (h.stammar > 0 ? h.vol / h.stammar : ANTAGEN_MEDELSTAM);
-        const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skordare || 0;
-        const extraKr = (objSortTillaggKr[objekt_id] || 0) + (objTraktKr[objekt_id] || 0) + ovrigKrFor(objekt_id);
+        const pris = prisPerM3({
+          roll: 'skordare', medelstam, acordList,
+          sortKr: objSortTillaggKr[objekt_id] || 0, traktKr: objTraktKr[objekt_id] || 0,
+          kvalitetKr: kvalitetKrFor(objekt_id), terrangKr: terrangKrFor(objekt_id),
+        });
         const meta = objMap[objekt_id];
         const undTimpris = timprisList.find(p => p.maskin_id === maskin_id)?.timpris || 0;
         const und = tillampaTimpengUndantag(h.vol, meta?.timpeng_undantag_timmar_skordare, meta?.timpeng_undantag_dra_skordare !== false, meta?.timpeng_undantag_volym, undTimpris);
-        const acord = und.volymEfterUndantag * (grundpris + extraKr) + und.undantagKr;
+        const acord = und.volymEfterUndantag * pris.krPerM3 + und.undantagKr;
         m.intakt += acord;
         ta.intakt += acord;
         ta.ackordKr += acord;
@@ -396,12 +408,18 @@ export default function EkonomiClient() {
         const harMedelstam = msMan != null || objMedelstam[objekt_id] != null;
         if (!harMedelstam) antagenVolSum += f.vol;
         const medelstam = msMan ?? (objMedelstam[objekt_id] || ANTAGEN_MEDELSTAM);
-        const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skotare || 0;
-        const extraKr = (objSortTillaggKr[objekt_id] || 0) + (objTraktKr[objekt_id] || 0) + ovrigKrFor(objekt_id);
+        const pris = prisPerM3({
+          roll: 'skotare', medelstam, acordList,
+          sortKr: objSortTillaggKr[objekt_id] || 0, traktKr: objTraktKr[objekt_id] || 0,
+          kvalitetKr: kvalitetKrFor(objekt_id), terrangKr: terrangKrFor(objekt_id),
+          // Avståndet i härledningen men ALDRIG i krPerM3 — kronor per lass,
+          // skalas inte av timpeng-undantaget. Se prisPerM3-huvudet.
+          avstand: { kr: f.skotavstand_kr, volym: f.vol, enhetligtSteg: false },
+        });
         const metaF = objMap[objekt_id];
         const undTimprisF = timprisList.find(p => p.maskin_id === maskin_id)?.timpris || 0;
         const undF = tillampaTimpengUndantag(f.vol, metaF?.timpeng_undantag_timmar_skotare, metaF?.timpeng_undantag_dra_skotare !== false, metaF?.timpeng_undantag_volym, undTimprisF);
-        const acord = undF.volymEfterUndantag * (grundpris + extraKr) + f.skotavstand_kr + undF.undantagKr;
+        const acord = undF.volymEfterUndantag * pris.krPerM3 + f.skotavstand_kr + undF.undantagKr;
         m.intakt += acord;
         taF.intakt += acord;
         taF.ackordKr += acord;
