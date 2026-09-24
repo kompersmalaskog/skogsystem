@@ -113,7 +113,11 @@ fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
   himmelsfärd 14 maj arbetad — byt mot ledig dag?", och Redigera har länken
   "Byt mot ledig dag" under röd dag-raden. Samma sheet. Villkor
   (`bytbaraRodaDagar`): röd vardag, arbetad, inget byte, inte avböjd, inom
-  ett halvår bakåt. **Nej** sparas i `arbetsdag.bytesdag_avbojd_at`
+  ett halvår bakåt — och **aldrig före skarp start** (2026-08-01). Martin
+  2026-09-24: "det är kört, det är betalt och färdigt, det får vara nu och
+  framåt" — gamla röda dagar är redan utbetalda. Samma golv i
+  ledighetsvyns röda-dag-lista och i `bytesdagFel`; halvårsgränsen framåt
+  för den lediga dagen står kvar. **Nej** sparas i `arbetsdag.bytesdag_avbojd_at`
   (migration `20260924100000`) så raden försvinner — samma mönster som
   brandriskfrågans svar; ett svar som ska gälla föraren och inte enheten
   hör hemma i databasen, inte i localStorage.
