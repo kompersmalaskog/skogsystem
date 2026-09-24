@@ -85,6 +85,10 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   traktGrans: true,
   hansyn: true,
   korFara: true,
+  // PR A: Vida/SKS/RAÄ-referensgeometri (envz-vektor, ej WMS). Default PÅ (datadrivna knappar).
+  // Traktdelar (L_TRAKTDEL) är ALLTID tända och har ingen toggle. I körvyn tänds alla via whitelist.
+  traktNyckelbiotop: true,
+  traktLamning: true,
 }
 
 /**
