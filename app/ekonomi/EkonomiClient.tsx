@@ -16,7 +16,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaExkluderadeObjektId, utanExkluderade } from '@/lib/objekt/exkludera';
-import { arSlutavraknad } from '@/lib/objekt/avrakning';
+import { arSlutavraknad, avrakningsdatum } from '@/lib/objekt/avrakning';
 import { harledTyp } from '@/lib/objekt/typ';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
@@ -124,8 +124,10 @@ export default function EkonomiClient() {
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
         supabase.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till').not('grundavstand_m', 'is', null),
-        supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
-        supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
+        // OFILTRERAT: datumfiltret ligger i prisPerM3, på ett ställe. Ett
+        // giltig_till-filter här hade gjort uppslaget blint för generationer.
+        supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').not('grundantal', 'is', null),
+        supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').order('fran_m3fub'),
         supabase.from('acord_ovrigt').select('nyckel, varde, giltig_fran, giltig_till'),
         hamtaExkluderadeObjektId(),
       ]);
@@ -150,6 +152,7 @@ export default function EkonomiClient() {
       const acordList: AcordPris[] = acordRes.data || [];
       const avstandList: AvstandConfig[] = (avstandRes.data || []).filter((a: any) => a.grundavstand_m != null && a.kr_per_100m != null);
       const traktBrackets: TraktBracket[] = traktRes.data || [];
+      const sortConfList: SortConfig[] = (sortTillaggRes.data || []) as any;
       const sortConf: SortConfig | null = (sortTillaggRes.data && sortTillaggRes.data[0])
         ? { grundantal: Number(sortTillaggRes.data[0].grundantal), kr_per_extra_sortiment: Number(sortTillaggRes.data[0].kr_per_extra_sortiment) }
         : null;
@@ -193,24 +196,15 @@ export default function EkonomiClient() {
       // taxor ur prislistan, uppslag på periodslutet. Funktion (inte map) så
       // även objekt utan produktion/sortiment (GROT/skotare-only) täcks.
       const ovrigtList: OvrigtRad[] = ovrigtRes.data || [];
-      // Kvalitet och terräng hölls ihop som ett tal förut. De delas här eftersom
-      // härledningen (delar[]) behöver dem som två poster — summan är densamma,
-      // och prisPerM3 återskapar den ursprungliga grupperingen vid summeringen.
-      // OBS: uppslagsdatumet är fortfarande `end` (periodslut) medan
-      // objektJamforelse använder avräkningsdagen. Den skillnaden är ett känt
-      // aktivt fel som rättas när taxornas giltig_fran backdaterats (#570) —
-      // den här ändringen är en ren flytt och rör inte datumvalet.
-      const kvalitetKrFor = (_oid: string) =>
-        ovrigtKrPerM3('kvalitetssakring', ovrigtList, end);
+      // UPPSLAGSDATUM = AVRÄKNINGSDAGEN, inte periodslut. Vyn slog förut upp på
+      // `end` medan objektJamforelse använde avräkningsdagen — två definitioner
+      // av samma tidpunkt är samma felklass som två priser. Datumet ligger nu i
+      // prisPerM3 tillsammans med sortiment, traktstorlek och kvalitetssäkring.
+      // Kvar här är bara terrängen: ett manuellt VAL i spannet 1–8 kr/m³fub,
+      // inte en datumstyrd taxa.
       const terrangKrFor = (oid: string) =>
         Number(objMap[oid]?.terrang_kr_manuell) || 0;
 
-      const objSortTillaggKr: Record<string, number> = {};
-      const objTraktKr: Record<string, number> = {};
-      for (const objekt_id of Object.keys({ ...objGrupper, ...objVol })) {
-        objSortTillaggKr[objekt_id] = sortimentTillagg(grupperFor(objekt_id), sortConf);
-        objTraktKr[objekt_id] = traktTillagg(objVol[objekt_id]?.vol || 0, traktBrackets).krPerM3;
-      }
 
       // G15-tid + timpeng per (objekt, maskin) via motorn (g15Sek inuti)
       const tidRowsPerKey: Record<string, any[]> = {};
@@ -374,8 +368,10 @@ export default function EkonomiClient() {
         const medelstam = medelstamOverride(objekt_id) ?? (h.stammar > 0 ? h.vol / h.stammar : ANTAGEN_MEDELSTAM);
         const pris = prisPerM3({
           roll: 'skordare', medelstam, acordList,
-          sortKr: objSortTillaggKr[objekt_id] || 0, traktKr: objTraktKr[objekt_id] || 0,
-          kvalitetKr: kvalitetKrFor(objekt_id), terrangKr: terrangKrFor(objekt_id),
+          datum: avrakningsdatum(objMap[objekt_id]) || end,
+          traktBrackets, sortConfList, ovrigtList,
+          sortimentgrupper: grupperFor(objekt_id), volymM3fub: objVol[objekt_id]?.vol || 0,
+          terrangKr: terrangKrFor(objekt_id),
         });
         const meta = objMap[objekt_id];
         const undTimpris = timprisList.find(p => p.maskin_id === maskin_id)?.timpris || 0;
@@ -410,8 +406,10 @@ export default function EkonomiClient() {
         const medelstam = msMan ?? (objMedelstam[objekt_id] || ANTAGEN_MEDELSTAM);
         const pris = prisPerM3({
           roll: 'skotare', medelstam, acordList,
-          sortKr: objSortTillaggKr[objekt_id] || 0, traktKr: objTraktKr[objekt_id] || 0,
-          kvalitetKr: kvalitetKrFor(objekt_id), terrangKr: terrangKrFor(objekt_id),
+          datum: avrakningsdatum(objMap[objekt_id]) || end,
+          traktBrackets, sortConfList, ovrigtList,
+          sortimentgrupper: grupperFor(objekt_id), volymM3fub: objVol[objekt_id]?.vol || 0,
+          terrangKr: terrangKrFor(objekt_id),
           // Avståndet i härledningen men ALDRIG i krPerM3 — kronor per lass,
           // skalas inte av timpeng-undantaget. Se prisPerM3-huvudet.
           avstand: { kr: f.skotavstand_kr, volym: f.vol, enhetligtSteg: false },

@@ -305,9 +305,19 @@ export function fordelaSkotadVolym(
 
 export type OvrigtRad = { nyckel: string; varde: number | string; giltig_fran: string | null; giltig_till: string | null };
 
+// INGEN FALLBACK. Funktionen föll förut tillbaka på första raden med rätt
+// nyckel när ingen var datumgiltig — den ljög tyst och dolde precis det som
+// datummärkningen finns för att fånga (en sats från fel generation såg ut som
+// en giltig sats). En sats som saknas ska ge 0 OCH synas som ett tillstånd;
+// prisPerM3 rapporterar det i `saknas`, radbyggaren mappar det till
+// faktura_rad.fel_kod = 'pris_saknas'.
+//
+// Borttagningen är verifierad som no-op mot prod 2026-09-24 mot KÄLLORNAS
+// ytterkanter (2023-02-24 → 2026-09-24), inklusive exkluderade objekt: av 133
+// prövade datum avviker bara sondens ytterkant 2023-02-24, där inget objekt
+// finns. Taxorna täcker hela objektspannet efter backdateringen (#570).
 export function ovrigtKrPerM3(nyckel: string, rader: OvrigtRad[], datum: string): number {
-  const rad = rader.find(r => r.nyckel === nyckel && isValidOn(datum, r.giltig_fran, r.giltig_till))
-    || rader.find(r => r.nyckel === nyckel);
+  const rad = rader.find(r => r.nyckel === nyckel && isValidOn(datum, r.giltig_fran, r.giltig_till));
   return rad ? (Number(rad.varde) || 0) : 0;
 }
 

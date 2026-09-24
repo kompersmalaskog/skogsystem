@@ -1,19 +1,31 @@
-// EN assemblering av ackordets à-pris per m³fub. Delad av ekonomivyns dagvy
-// (app/ekonomi/EkonomiClient), per-objekt-jämförelsen (lib/ekonomi/objektJamforelse)
-// och — när den byggs — fakturaunderlagets radbyggare.
+// EN assemblering av ackordets à-pris per m³fub, DATUMSTYRD och UTAN FALLBACK.
+// Delad av ekonomivyns dagvy (app/ekonomi/EkonomiClient), per-objekt-jämförelsen
+// (lib/ekonomi/objektJamforelse) och fakturaunderlagets radbyggare.
 //
 // VARFÖR DEN FINNS: summeringen av prisdelarna var skriven två gånger, ord för
 // ord, i EkonomiClient och objektJamforelse. Två kopior av samma uträkning
-// divergerar tyst — och gjorde det redan: den ena slår upp kvalitetssäkringen
-// på periodslut, den andra på avräkningsdagen, vilket ger 0 mot 1,50 kr/m³ på
-// 24 objekt. En tredje konsument (fakturan) hade gett ett tredje svar, och den
-// är den som går till kund.
+// divergerar tyst, och en tredje konsument (fakturan) hade gett ett tredje svar
+// — den som går till kund.
 //
-// Prisdelarna kommer FÄRDIGA in. Den här funktionen slår bara upp grundpriset
-// och sätter ihop delarna — uppslagen (sortimentTillagg, traktTillagg,
-// ovrigtKrPerM3) ligger kvar hos anroparna, som äger sina datumval. Det gör
-// införandet till en ren kodflytt utan beteendeändring; datumstyrningen är ett
-// eget steg efter att taxornas giltig_fran är backdaterad (PR #570).
+// ─────────────────────────────────────────────────────────────────────────
+// UPPSLAGSDATUM = AVRÄKNINGSDAGEN, och det är ANROPARENS ansvar att skicka
+// rätt datum (lib/objekt/avrakning.avrakningsdatum). EkonomiClient slog förut
+// upp på periodslut och objektJamforelse på avräkningsdagen — två definitioner
+// av samma tidpunkt är samma felklass som två priser.
+//
+// INGEN FALLBACK. Saknas datumgiltig sats returneras 0 OCH komponenten listas i
+// `saknas`. Den gamla ovrigtKrPerM3 föll tillbaka på första raden med rätt
+// nyckel oavsett datum — den ljög tyst, och den dolde precis det som
+// datummärkningen finns för att fånga. En sats som saknas är ett TILLSTÅND,
+// inte ett tal som ser rimligt ut: radbyggaren mappar `saknas` till
+// faktura_rad.fel_kod = 'pris_saknas', och spärren ligger på UNDERLAGET —
+// en rad som inte kan prissättas gör att hela underlaget inte går att skicka.
+//
+// Borttagningen är verifierad som no-op mot prod 2026-09-24, mot KÄLLORNAS
+// ytterkanter (2023-02-24 → 2026-09-24) och inklusive exkluderade objekt:
+// 133 datum prövade, enda avvikelsen är sondens ytterkant 2023-02-24 där inget
+// objekt finns. Taxorna täcker hela objektspannet efter backdateringen (#570).
+// ─────────────────────────────────────────────────────────────────────────
 //
 // ⚠️ AVSTÅNDET INGÅR INTE I krPerM3, OCH DET ÄR AVSIKTLIGT.
 // Skotningsavståndstillägget är KRONOR som summeras per lass, inte en sats per
@@ -27,7 +39,13 @@
 // `delar` ÄR fakturaradens harledning-jsonb. Vida får delarna som egna
 // nollrader i dokumentet, så de måste vara en lista — inte en hopslagen sträng.
 
-import { lookupAcordPris, type AcordPris } from '@/lib/ekonomi/acord';
+import {
+  isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg,
+  type AcordPris, type TraktBracket, type SortConfig, type OvrigtRad,
+} from '@/lib/ekonomi/acord';
+
+/** Giltighetsfönstret finns på de hämtade raderna även när typen inte säger det. */
+type Giltighet = { giltig_fran?: string | null; giltig_till?: string | null };
 
 export type Prisdel = {
   etikett: string;
@@ -35,6 +53,8 @@ export type Prisdel = {
   /** true = talet är ett viktat snitt, inte en sats. Måste synas i vyn. */
   ungefarlig?: boolean;
 };
+
+export type SaknadSats = 'grundpris' | 'kvalitet' | 'trakt' | 'sortiment';
 
 export type PrisPerM3 = {
   /** Grundpris + tillägg per m³fub. INNEHÅLLER INTE avståndet — se huvudet. */
@@ -45,13 +65,24 @@ export type PrisPerM3 = {
   klass: number | null;
   /** Medelstammen som användes (override ?? mätt ?? antagen). */
   medelstam: number;
+  /**
+   * Komponenter utan datumgiltig sats. Tom lista = allt hittades.
+   * INTE detsamma som att en sats är 0 — traktspannet 800–1500 ÄR 0 kr, och
+   * artikel 8 på fakturan är 1 st à 0. "0 kr" och "sats saknas" får aldrig se
+   * likadana ut, varken här eller i vyn.
+   */
+  saknas: SaknadSats[];
 };
 
 const tal = (n: number) => n.toFixed(2).replace(/0+$/, '').replace(/[.,]$/, '').replace('.', ',');
 
+const giltiga = <T extends Giltighet>(rader: T[] | null | undefined, datum: string): T[] =>
+  (rader || []).filter(r => isValidOn(datum, r.giltig_fran ?? null, r.giltig_till ?? null));
+
 /**
- * Sätter ihop à-priset. Alla tillägg kommer färdiguträknade in — den här
- * funktionen äger bara grundprisuppslaget och hopsättningen.
+ * Sätter ihop à-priset på ett givet datum. Listorna kommer OFILTRERADE in —
+ * datumfiltret ligger här, på ett ställe, så att nästa prisgeneration inte kan
+ * blandas in av en anropare som glömt filtrera.
  *
  * `avstand` är skotarens avståndstillägg i KRONOR plus volymen det avser, så
  * härledningen kan visa det som kr/m³ utan att det hamnar i krPerM3.
@@ -62,28 +93,53 @@ const tal = (n: number) => n.toFixed(2).replace(/0+$/, '').replace(/[.,]$/, '').
 export function prisPerM3(p: {
   roll: 'skordare' | 'skotare';
   medelstam: number;
-  acordList: AcordPris[];
-  sortKr: number;
-  traktKr: number;
-  kvalitetKr: number;
+  /** Avräkningsdagen. lib/objekt/avrakning.avrakningsdatum(objekt). */
+  datum: string;
+  acordList: (AcordPris & Giltighet)[];
+  traktBrackets: (TraktBracket & Giltighet)[];
+  sortConfList: (SortConfig & Giltighet)[];
+  ovrigtList: OvrigtRad[];
+  /** Antal sortimentgrupper (override ?? mätt). */
+  sortimentgrupper: number;
+  /** Objektets totala volym — traktstorlekens spann slås upp på den. */
+  volymM3fub: number;
+  /** dim_objekt.terrang_kr_manuell. Ett VAL i spannet 1–8, inte en taxa. */
   terrangKr: number;
   avstand?: { kr: number; volym: number; enhetligtSteg: boolean } | null;
 }): PrisPerM3 {
-  const rad = lookupAcordPris(p.medelstam, p.acordList);
+  const saknas: SaknadSats[] = [];
+
+  const acordGiltiga = giltiga(p.acordList, p.datum);
+  const rad = acordGiltiga.length ? lookupAcordPris(p.medelstam, acordGiltiga) : null;
+  if (!acordGiltiga.length) saknas.push('grundpris');
   const klass = rad ? Number(rad.medelstam) : null;
   const grundpris = rad
     ? Number(p.roll === 'skordare' ? rad.pris_skordare : rad.pris_skotare) || 0
     : 0;
 
-  // SUMMERINGSORDNINGEN ÄR DAGENS, INTE DELARNAS ORDNING.
+  const traktGiltiga = giltiga(p.traktBrackets, p.datum);
+  if (!traktGiltiga.length) saknas.push('trakt');
+  const traktKr = traktTillagg(p.volymM3fub, traktGiltiga).krPerM3;
+
+  const sortGiltig = giltiga(p.sortConfList, p.datum)[0] || null;
+  if (!sortGiltig) saknas.push('sortiment');
+  const sortKr = sortimentTillagg(p.sortimentgrupper, sortGiltig);
+
+  // Ingen fallback: bara en rad som faktiskt gäller på datumet duger.
+  const kvalitetRad = (p.ovrigtList || []).find(
+    r => r.nyckel === 'kvalitetssakring' && isValidOn(p.datum, r.giltig_fran, r.giltig_till),
+  );
+  if (!kvalitetRad) saknas.push('kvalitet');
+  const kvalitetKr = kvalitetRad ? Number(kvalitetRad.varde) || 0 : 0;
+
+  // SUMMERINGSORDNINGEN ÄR DEN URSPRUNGLIGA, INTE DELARNAS ORDNING.
   // Flyttalsaddition är inte associativ: (a+b)+(c+d) kan skilja sig i sista
   // biten från a+b+c+d. Anroparna räknade
   //     grundpris + (sortKr + traktKr + (kvalitetKr + terrangKr))
   // och den grupperingen behålls exakt, så att införandet är ett bevisbart
-  // no-op och inte "samma tal så när som på avrundning". Ändras ordningen
-  // måste no-op-testet i prisPerM3.test.ts räknas om först.
-  const ovrigKr = p.kvalitetKr + p.terrangKr;
-  const krPerM3 = grundpris + (p.sortKr + p.traktKr + ovrigKr);
+  // no-op och inte "samma tal så när som på avrundning".
+  const ovrigKr = kvalitetKr + p.terrangKr;
+  const krPerM3 = grundpris + (sortKr + traktKr + ovrigKr);
 
   // Grundpriset bär prisuppslagets semantik i etiketten: prislistan slutar vid
   // 0,60 och avtalet säger ingenting däröver, så "närmaste klass" är en
@@ -93,10 +149,10 @@ export function prisPerM3(p: {
     : `Grund (medelstam ${tal(p.medelstam)})`;
 
   const delar: Prisdel[] = [{ etikett: grundEtikett, belopp: grundpris }];
-  if (p.kvalitetKr) delar.push({ etikett: 'Krönt', belopp: p.kvalitetKr });
-  if (p.traktKr)    delar.push({ etikett: 'Storlek', belopp: p.traktKr });
+  if (kvalitetKr)   delar.push({ etikett: 'Krönt', belopp: kvalitetKr });
+  if (traktKr)      delar.push({ etikett: 'Storlek', belopp: traktKr });
   if (p.terrangKr)  delar.push({ etikett: 'Terräng', belopp: p.terrangKr });
-  if (p.sortKr)     delar.push({ etikett: 'Sortiment', belopp: p.sortKr });
+  if (sortKr)       delar.push({ etikett: 'Sortiment', belopp: sortKr });
 
   if (p.avstand && p.avstand.volym > 0 && p.avstand.kr !== 0) {
     delar.push({
@@ -106,5 +162,5 @@ export function prisPerM3(p: {
     });
   }
 
-  return { krPerM3, delar, klass, medelstam: p.medelstam };
+  return { krPerM3, delar, klass, medelstam: p.medelstam, saknas };
 }

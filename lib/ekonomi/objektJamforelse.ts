@@ -85,8 +85,10 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
     supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
     supabase.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till').not('grundavstand_m', 'is', null),
-    supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
-    supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
+    // OFILTRERAT: datumfiltret ligger i prisPerM3, på ett ställe. Ett
+    // giltig_till-filter här hade gjort uppslaget blint för generationer.
+    supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').not('grundantal', 'is', null),
+    supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').order('fran_m3fub'),
     supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
     supabase.from('acord_ovrigt').select('nyckel, varde, giltig_fran, giltig_till'),
     hamtaExkluderadeObjektId(),
@@ -170,6 +172,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   const acordList: AcordPris[] = acordRes.data || [];
   const avstandList: AvstandConfig[] = (avstandRes.data || []).filter((a: any) => a.grundavstand_m != null && a.kr_per_100m != null);
   const traktBrackets: TraktBracket[] = traktRes.data || [];
+  const sortConfList: SortConfig[] = (sortTillaggRes.data || []) as any;
   const sortConf: SortConfig | null = (sortTillaggRes.data && sortTillaggRes.data[0])
     ? { grundantal: Number(sortTillaggRes.data[0].grundantal), kr_per_extra_sortiment: Number(sortTillaggRes.data[0].kr_per_extra_sortiment) }
     : null;
@@ -207,20 +210,16 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
 
   const ovrigtList: OvrigtRad[] = ovrigtRes.data || [];
 
-  const objSortKr: Record<string, number> = {};
-  const objTraktKr: Record<string, number> = {};
   // Kvalitetssäkring (alltid, alla objekt) + terräng (manuellt kr-värde,
   // annars 0) — uppslag på avräkningsdagen
   // Kvalitet och terräng hölls ihop som ett tal förut. De delas här eftersom
   // härledningen (delar[]) behöver dem som två poster — summan är densamma,
   // och prisPerM3 återskapar den ursprungliga grupperingen vid summeringen.
-  const objKvalitetKr: Record<string, number> = {};
+  // Sortiment, traktstorlek och kvalitetssäkring slås numera upp INUTI
+  // prisPerM3, datumstyrt på avräkningsdagen. Kvar här är bara terrängen —
+  // den är ett manuellt VAL i spannet 1–8 kr/m³fub, inte en datumstyrd taxa.
   const objTerrangKr: Record<string, number> = {};
   for (const oid of ids) {
-    objSortKr[oid] = sortimentTillagg(grupperFor(oid), sortConf);
-    objTraktKr[oid] = traktTillagg(objVol[oid]?.vol || 0, traktBrackets).krPerM3;
-    const dag = avrakningsdatum(objMeta[oid]) || '';
-    objKvalitetKr[oid] = ovrigtKrPerM3('kvalitetssakring', ovrigtList, dag);
     objTerrangKr[oid] = Number(objMeta[oid]?.terrang_kr_manuell) || 0;
   }
 
@@ -324,8 +323,10 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     const medelstam = medelstamOverride(oid) ?? (h.stammar > 0 ? h.vol / h.stammar : ANTAGEN_MEDELSTAM);
     const pris = prisPerM3({
       roll: 'skordare', medelstam, acordList,
-      sortKr: objSortKr[oid] || 0, traktKr: objTraktKr[oid] || 0,
-      kvalitetKr: objKvalitetKr[oid] || 0, terrangKr: objTerrangKr[oid] || 0,
+      datum: avrakningsdatum(objMeta[oid]) || '',
+      traktBrackets, sortConfList, ovrigtList,
+      sortimentgrupper: grupperFor(oid), volymM3fub: objVol[oid]?.vol || 0,
+      terrangKr: objTerrangKr[oid] || 0,
     });
     const meta = objMeta[oid];
     const undTp = timprisList.find(p => p.maskin_id === mid)?.timpris || 0;
@@ -338,8 +339,10 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     const medelstam = medelstamOverride(oid) ?? (objMedelstam[oid] || ANTAGEN_MEDELSTAM);
     const pris = prisPerM3({
       roll: 'skotare', medelstam, acordList,
-      sortKr: objSortKr[oid] || 0, traktKr: objTraktKr[oid] || 0,
-      kvalitetKr: objKvalitetKr[oid] || 0, terrangKr: objTerrangKr[oid] || 0,
+      datum: avrakningsdatum(objMeta[oid]) || '',
+      traktBrackets, sortConfList, ovrigtList,
+      sortimentgrupper: grupperFor(oid), volymM3fub: objVol[oid]?.vol || 0,
+      terrangKr: objTerrangKr[oid] || 0,
       // Avståndet ligger i härledningen men ALDRIG i krPerM3 — det är kronor
       // per lass och skalas inte av timpeng-undantaget. Se prisPerM3-huvudet.
       avstand: { kr: f.skotKr, volym: f.vol, enhetligtSteg: false },
