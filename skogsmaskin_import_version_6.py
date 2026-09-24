@@ -4560,6 +4560,10 @@ def save_fpr_to_supabase(data: Dict) -> bool:
     try:
         fel = []
 
+        # Maskiner med manuell datakälla får inga lass ur filer (se fpr_avvisas_manuell).
+        if fpr_avvisas_manuell(data):
+            return False
+
         if data.get('maskin'):
             log_if_new_maskin(data['maskin'].get('maskin_id', ''), data['maskin'].get('maskin_typ', 'Okänd'))
             if upsert_maskin(data['maskin']) == 0:
@@ -4705,6 +4709,37 @@ def maskin_ar_bekraftad(maskin_id: str) -> bool:
     except Exception:
         pass
     return False
+
+def maskin_datakalla(maskin_id: str) -> str:
+    """dim_maskin.datakalla: 'auto' (maskinfiler) eller 'manuell' (föraren registrerar
+    lass i appen — FPR-filer för maskinen AVVISAS). Osäkert svar (nätfel, kolumnen
+    saknas) → 'auto' = importen kör som vanligt; hellre en fil för mycket än en tappad."""
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/dim_maskin?maskin_id=eq.{maskin_id}&select=datakalla",
+            headers=SUPABASE_HEADERS, timeout=10
+        )
+        if r.status_code == 200:
+            rows = r.json()
+            if rows and rows[0].get('datakalla') == 'manuell':
+                return 'manuell'
+    except Exception:
+        pass
+    return 'auto'
+
+
+def fpr_avvisas_manuell(data: Dict) -> bool:
+    """True (+ loggrad) om FPR-filens maskin har datakalla='manuell': lassen för den
+    maskinen registreras av föraren i arbetsrapporten (fakt_lass, filnamn 'manuell'),
+    och en fil skulle dubblera dem. En maskin har EN källa."""
+    maskin_id = (data.get('maskin') or {}).get('maskin_id') or ''
+    if maskin_id and maskin_datakalla(maskin_id) == 'manuell':
+        logger.warning(
+            f"  ⚠ FPR-fil AVVISAD: {maskin_id} har datakalla='manuell' — lassen registreras "
+            f"i appen, filen importeras inte (byt datakalla i admin → Maskiner om det är fel)")
+        return True
+    return False
+
 
 def upsert_maskin(maskin: dict) -> int:
     """Upsert dim_maskin med människa-vinner-guard. Bekräftade maskiner behåller
@@ -4861,6 +4896,13 @@ def process_file(filepath: str) -> bool:
             success = save_hqc_to_supabase(data)
         elif ext == '.fpr':
             data = parse_fpr_file(filepath)
+            if fpr_avvisas_manuell(data):
+                # Ut ur Inkommande så den inte plockas upp varje scan; märkt AVVISAD i meta.
+                maskin_id = data.get('maskin', {}).get('maskin_id', 'Okand')
+                moved = move_to_behandlade(filepath, maskin_id, 'FPR')
+                mark_file_imported(filnamn, 'FPR', maskin_id, 'AVVISAD',
+                                   "datakalla='manuell' — lass registreras i appen, filen importeras inte")
+                return moved
             success = save_fpr_to_supabase(data)
         else:
             logger.warning(f"  Okänd filtyp: {ext}")

@@ -17,6 +17,9 @@ type Maskin = {
   modell: string | null;
   maskin_typ: string | null;
   sander_filer: boolean;
+
+  /** auto = maskinfiler, manuell = föraren registrerar lass i arbetsrapporten (20260924). */
+  datakalla?: "auto" | "manuell" | null;
   aktiv_fran: string | null;
   aktiv_till: string | null;
   bekraftad: boolean;
@@ -75,7 +78,7 @@ export default function MaskinerFlik() {
     try {
       const { data, error } = await supabase
         .from("dim_maskin")
-        .select("maskin_id, visningsnamn, tillverkare, modell, maskin_typ, sander_filer, aktiv_fran, aktiv_till, bekraftad")
+        .select("maskin_id, visningsnamn, tillverkare, modell, maskin_typ, sander_filer, datakalla, aktiv_fran, aktiv_till, bekraftad")
         .order("visningsnamn", { nullsFirst: false });
       if (error) throw error;
       const rader = (data || []) as Maskin[];
@@ -247,6 +250,7 @@ function DetaljVy({
   const [tillverkare, setTillverkare] = useState(maskin.tillverkare || "");
   const [maskinTyp, setMaskinTyp] = useState(maskin.maskin_typ || "");
   const [sanderFiler, setSanderFiler] = useState(maskin.sander_filer);
+  const [manuellKalla, setManuellKalla] = useState(maskin.datakalla === "manuell");
   const [aktivFran, setAktivFran] = useState(maskin.aktiv_fran || "");
   const [aktivTill, setAktivTill] = useState(maskin.aktiv_till || "");
   const [sparar, setSparar] = useState(false);
@@ -260,6 +264,7 @@ function DetaljVy({
     tillverkare !== (maskin.tillverkare || "") ||
     maskinTyp !== (maskin.maskin_typ || "") ||
     sanderFiler !== maskin.sander_filer ||
+    manuellKalla !== (maskin.datakalla === "manuell") ||
     aktivFran !== (maskin.aktiv_fran || "") ||
     aktivTill !== (maskin.aktiv_till || "");
 
@@ -268,6 +273,7 @@ function DetaljVy({
     tillverkare: tillverkare.trim() || null,
     maskin_typ: maskinTyp || null,
     sander_filer: sanderFiler,
+    datakalla: manuellKalla ? "manuell" : "auto",
     aktiv_fran: aktivFran || null,
     aktiv_till: aktivTill || null,
   });
@@ -376,6 +382,8 @@ function DetaljVy({
         ]} />
         <ToggleField label="Sänder filer" value={sanderFiler} onChange={setSanderFiler}
           hint="Av för maskiner som aldrig skickar maskinfiler (t.ex. JD810E) — då förväntas ingen data." />
+        <ToggleField label="Manuell datakälla" value={manuellKalla} onChange={setManuellKalla}
+          hint="På för maskiner utan maskinfiler (JD810E): föraren registrerar lass i arbetsrapporten och importen avvisar FPR-filer för maskinen. En maskin har en källa." />
       </Card>
 
       {/* Driftperiod */}
