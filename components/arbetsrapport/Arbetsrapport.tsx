@@ -10,7 +10,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
-import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, type FranvaroTyp, type Byte } from "@/lib/franvaro";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
@@ -1740,10 +1740,27 @@ export default function Arbetsrapport() {
   // Efter bekräftelse av en arbetad RÖD VARDAG (lib/roda-dagar) som inte redan
   // är bytt: ställ bytesdags-frågan. Aldrig före skrivningen — frågan blockerar
   // inte bekräftelsen. Samma väg från Dag, Redigera och vilobrott-flödet.
+  // Frågan når även REDAN BEKRÄFTADE dagar (väntar-kortet och Redigera) — de
+  // flesta bekräftar samma kväll, långt innan de tänker på att byta. Har
+  // föraren redan svarat nej (arbetsdag.bytesdag_avbojd_at) tjatar den inte.
   const fragaOmByte = (datum: string) => {
     const namn = rodVardagNamn(datum);
     if (!namn || franvaroByten.rod[datum]) return;
+    if ((årsData || []).some((r: any) => r.datum === datum && r.bytesdag_avbojd_at)) return;
     setByteFraga({ datum, namn, valjer: false, ledig: "", fel: null, sparar: false });
+  };
+  // "Nej" sparas på arbetsdag-raden så frågan försvinner — samma mönster som
+  // brandrisk_beordrad. Ett misslyckat sparande stänger ändå sheeten (dagen är
+  // redan bekräftad; frågan får hellre komma igen än blockera).
+  const avbojByte = async () => {
+    if (!byteFraga) return;
+    const datum = byteFraga.datum;
+    setByteFraga(null);
+    if (!medarbetare?.id) return;
+    const nu = new Date().toISOString();
+    const res = await uppdateraVerifierat(supabase, "arbetsdag", { bytesdag_avbojd_at: nu }, { medarbetare_id: medarbetare.id, datum });
+    if (!res.ok) { console.error("[bytesdag] kunde inte spara nej:", res.fel); return; }
+    setÅrsData((a: any[]) => a.map((r: any) => r.datum === datum ? { ...r, bytesdag_avbojd_at: nu } : r));
   };
   const skickaByte = async () => {
     if (!byteFraga || !medarbetare?.id) return;
@@ -1800,7 +1817,7 @@ export default function Arbetsrapport() {
             </>
           )}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
-            <button onClick={()=>setByteFraga(null)} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>{f.valjer ? "Avbryt" : "Nej"}</button>
+            <button onClick={()=>{ if (f.valjer) setByteFraga(null); else avbojByte(); }} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>{f.valjer ? "Avbryt" : "Nej"}</button>
             {f.valjer
               ? <button disabled={f.sparar || !f.ledig || !!bytesdagFel(f.ledig, f.datum, franvaroDagar)} onClick={skickaByte} style={{ ...KNAPP.primar, opacity: (f.sparar || !f.ledig || !!bytesdagFel(f.ledig, f.datum, franvaroDagar)) ? 0.5 : 1 }}>{f.sparar ? "Sparar…" : "Skicka ansökan"}</button>
               : <button onClick={()=>setByteFraga({ ...f, valjer: true })} style={KNAPP.primar}>Ja, välj dag</button>}
@@ -2678,6 +2695,16 @@ export default function Arbetsrapport() {
       vantarRader.push({ nyckel:'brand', farg:FARG.orange,
         text: brandriskObesvarade.length === 1 ? '1 brandriskfråga obesvarad' : `${brandriskObesvarade.length} brandriskfrågor obesvarade`,
         onClick:()=>setSteg('lön') });
+    }
+    // Arbetade röda vardagar som kan bytas mot ledig dag (skoftning §5 mom 4)
+    // och som inte fått något svar — frågan vid Bekräfta missar normalfallet
+    // (man bekräftar samma kväll). En rad per dag, de är några om året;
+    // försvinner vid ja (byte finns) eller nej (bytesdag_avbojd_at). Neutral
+    // prick: ett erbjudande, inte ett larm.
+    for (const b of bytbaraRodaDagar(årsData || [], franvaroByten.rod, idagKey)) {
+      vantarRader.push({ nyckel:`byte-${b.datum}`, farg:FARG.text3,
+        text:`${b.namn} ${fmtDatumKort(b.datum)} arbetad — byt mot ledig dag?`,
+        onClick:()=>fragaOmByte(b.datum) });
     }
     // Extra arbete från en tidigare dag utan sluttid — leder till Redigera för
     // den dagen där posten kan fyllas i eller tas bort. Aldrig mer föräldralös.
@@ -4967,9 +4994,12 @@ export default function Arbetsrapport() {
                 const rodNamn = rd?.datum ? getRödaDagar(Number(String(rd.datum).slice(0, 4)))[rd.datum] : null;
                 if (!rodNamn || !rd?.start_tid) return null;
                 const byte = franvaroByten.rod[rd.datum];
+                const bytbar = !byte && bytbaraRodaDagar([rd], franvaroByten.rod, idagKey).length > 0;
                 return (
                   <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
-                    Röd dag ({rodNamn}) — arbetad{byte ? `, byts mot ledig ${byte.ledig.slice(8)}/${Number(byte.ledig.slice(5, 7))}` : ''}. Ingen helglön.
+                    Röd dag ({rodNamn}) — arbetad{byte ? `, byts mot ledig ${byte.ledig.slice(8)}/${Number(byte.ledig.slice(5, 7))}${byte.status === "väntar" ? " (väntar på godkännande)" : ""}` : ''}. Ingen helglön.
+                    {/* Erbjudandet även här — dagen är oftast redan bekräftad när man tänker på bytet */}
+                    {bytbar && <> <button onClick={()=>fragaOmByte(rd.datum)} style={{ ...KNAPP.lank, display:"inline-flex", padding:0, minHeight:0, height:"auto" }}>Byt mot ledig dag</button></>}
                   </p>
                 );
               })()}

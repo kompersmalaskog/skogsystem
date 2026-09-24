@@ -107,6 +107,16 @@ fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
   blockerar aldrig bekräftelsen. Dagssammanfattningen visar sedan "Bytt mot
   ledig fredag 16 maj — väntar på godkännande". Fråga bara där svaret
   varierar: röda vardagar man jobbar är några om året.
+- **Även i efterhand** (Martin: Kristi himmelsfärd 14 maj var redan
+  bekräftad — de flesta bekräftar samma kväll). Dag-vyns väntar-kort visar
+  en rad per arbetad röd vardag som inte fått något svar: "Kristi
+  himmelsfärd 14 maj arbetad — byt mot ledig dag?", och Redigera har länken
+  "Byt mot ledig dag" under röd dag-raden. Samma sheet. Villkor
+  (`bytbaraRodaDagar`): röd vardag, arbetad, inget byte, inte avböjd, inom
+  ett halvår bakåt. **Nej** sparas i `arbetsdag.bytesdag_avbojd_at`
+  (migration `20260924100000`) så raden försvinner — samma mönster som
+  brandriskfrågans svar; ett svar som ska gälla föraren och inte enheten
+  hör hemma i databasen, inte i localStorage.
 - **Reserv i Ledighet-vyn** för den som vill planera i förväg: typ
   *Inarbetad dag*, EN ledig vardag, och vilken röd vardag den ersätter —
   listan kommer ur `lib/roda-dagar` (samma källa som kalendern och
