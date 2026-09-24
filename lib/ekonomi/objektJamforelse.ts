@@ -28,6 +28,7 @@ import {
 import { fetchAllRows } from '@/lib/ekonomi/period';
 import { medelstamAuto, sortimentgrupperAuto, skotavstandVagtAuto } from '@/lib/ekonomi/ackordgrund';
 import { skotningsavstandM } from '@/lib/skotningsavstand';
+import { prisPerM3 } from '@/lib/ekonomi/prisPerM3';
 
 // Under så här många G15-timmar är ett kr/tim- eller kr/m³-tal brus, inte
 // fakta. Delas av kr/tim-märkningen (mot-ackord) och klass-märkningen
@@ -210,13 +211,17 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   const objTraktKr: Record<string, number> = {};
   // Kvalitetssäkring (alltid, alla objekt) + terräng (manuellt kr-värde,
   // annars 0) — uppslag på avräkningsdagen
-  const objOvrigKr: Record<string, number> = {};
+  // Kvalitet och terräng hölls ihop som ett tal förut. De delas här eftersom
+  // härledningen (delar[]) behöver dem som två poster — summan är densamma,
+  // och prisPerM3 återskapar den ursprungliga grupperingen vid summeringen.
+  const objKvalitetKr: Record<string, number> = {};
+  const objTerrangKr: Record<string, number> = {};
   for (const oid of ids) {
     objSortKr[oid] = sortimentTillagg(grupperFor(oid), sortConf);
     objTraktKr[oid] = traktTillagg(objVol[oid]?.vol || 0, traktBrackets).krPerM3;
     const dag = avrakningsdatum(objMeta[oid]) || '';
-    objOvrigKr[oid] = ovrigtKrPerM3('kvalitetssakring', ovrigtList, dag)
-      + (Number(objMeta[oid]?.terrang_kr_manuell) || 0);
+    objKvalitetKr[oid] = ovrigtKrPerM3('kvalitetssakring', ovrigtList, dag);
+    objTerrangKr[oid] = Number(objMeta[oid]?.terrang_kr_manuell) || 0;
   }
 
   const tidPerKey: Record<string, any[]> = {};
@@ -317,23 +322,32 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     const [oid, mid] = key.split('|');
     if (h.vol <= 0) continue;
     const medelstam = medelstamOverride(oid) ?? (h.stammar > 0 ? h.vol / h.stammar : ANTAGEN_MEDELSTAM);
-    const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skordare || 0;
-    const extra = (objSortKr[oid] || 0) + (objTraktKr[oid] || 0) + (objOvrigKr[oid] || 0);
+    const pris = prisPerM3({
+      roll: 'skordare', medelstam, acordList,
+      sortKr: objSortKr[oid] || 0, traktKr: objTraktKr[oid] || 0,
+      kvalitetKr: objKvalitetKr[oid] || 0, terrangKr: objTerrangKr[oid] || 0,
+    });
     const meta = objMeta[oid];
     const undTp = timprisList.find(p => p.maskin_id === mid)?.timpris || 0;
     const und = tillampaTimpengUndantag(h.vol, meta?.timpeng_undantag_timmar_skordare, meta?.timpeng_undantag_dra_skordare !== false, meta?.timpeng_undantag_volym, undTp);
-    laggTill(oid, mid, 'skördare', h.vol, und.volymEfterUndantag * (grundpris + extra) + und.undantagKr);
+    laggTill(oid, mid, 'skördare', h.vol, und.volymEfterUndantag * pris.krPerM3 + und.undantagKr);
   }
   for (const [key, f] of Object.entries(fwdAgg)) {
     const [oid, mid] = key.split('|');
     if (f.vol <= 0) continue;
     const medelstam = medelstamOverride(oid) ?? (objMedelstam[oid] || ANTAGEN_MEDELSTAM);
-    const grundpris = lookupAcordPris(medelstam, acordList)?.pris_skotare || 0;
-    const extra = (objSortKr[oid] || 0) + (objTraktKr[oid] || 0) + (objOvrigKr[oid] || 0);
+    const pris = prisPerM3({
+      roll: 'skotare', medelstam, acordList,
+      sortKr: objSortKr[oid] || 0, traktKr: objTraktKr[oid] || 0,
+      kvalitetKr: objKvalitetKr[oid] || 0, terrangKr: objTerrangKr[oid] || 0,
+      // Avståndet ligger i härledningen men ALDRIG i krPerM3 — det är kronor
+      // per lass och skalas inte av timpeng-undantaget. Se prisPerM3-huvudet.
+      avstand: { kr: f.skotKr, volym: f.vol, enhetligtSteg: false },
+    });
     const meta = objMeta[oid];
     const undTp = timprisList.find(p => p.maskin_id === mid)?.timpris || 0;
     const und = tillampaTimpengUndantag(f.vol, meta?.timpeng_undantag_timmar_skotare, meta?.timpeng_undantag_dra_skotare !== false, meta?.timpeng_undantag_volym, undTp);
-    laggTill(oid, mid, 'skotare', f.vol, und.volymEfterUndantag * (grundpris + extra) + f.skotKr + und.undantagKr);
+    laggTill(oid, mid, 'skotare', f.vol, und.volymEfterUndantag * pris.krPerM3 + f.skotKr + und.undantagKr);
   }
 
   const rader: ObjektRad[] = valda.map((o: any) => {
