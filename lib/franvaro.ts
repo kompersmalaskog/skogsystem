@@ -113,7 +113,72 @@ export type FranvaroRad = {
   slutdatum: string;    // YYYY-MM-DD
   status: FranvaroStatus;
   ersatter_datum?: string | null;
+  /** Deldag (migration 20260925100000): frånvaron började/slutade mitt på dagen. "HH:MM[:SS]". */
+  fran_tid?: string | null;
+  till_tid?: string | null;
 };
+
+/** Kolumnerna libben läser — EN lista så select och typ inte glider isär. */
+const FRANVARO_KOLUMNER = "id, medarbetare_id, typ, startdatum, slutdatum, status, ersatter_datum, fran_tid, till_tid";
+
+// ── Deldag ───────────────────────────────────────────────────
+// En rad med minst ett klockslag är en DELDAG: frånvaro från fran_tid (eller
+// dagens början) till till_tid (eller dagens slut), på EN dag. Skogsavtalet
+// §12 mom 3 räknar karens och sjuklön i timmar ("per timme som den anställde
+// skulle ha arbetat"), så det spelar roll hur många timmar man hann jobba.
+//
+// REGELN "ARBETE VINNER" GÄLLER BARA HELDAGSRADER. En heldagsfrånvaro på en
+// arbetad dag är arbete (som förut — annars lägger sig en gammal heldagsrad
+// ovanpå en arbetad dag och ger både lön och frånvaro för samma timmar).
+// En deldagsrad betyder arbete PLUS frånvaro: förmiddagen är arbetstid,
+// eftermiddagen är frånvaro. Timmarna HÄRLEDS (deldagTimmar), lagras aldrig.
+
+/** Typer som får vara del av dag (= CHECK ledighet_deldag_regler). Semester är hela dagar, inarbetad alltid hel. */
+export const FRANVARO_DELDAG_TYPER: readonly FranvaroTyp[] = ["sjuk", "vab", "foraldraledig", "atk", "komp", "permission", "tjanstledig"];
+
+export function arDeldag(r: { fran_tid?: string | null; till_tid?: string | null }): boolean {
+  return !!(r.fran_tid || r.till_tid);
+}
+
+export type Deldag = { typ: FranvaroTyp; fran_tid: string | null; till_tid: string | null; status?: FranvaroStatus };
+
+/** "11:30:00" → "11:30" */
+export function fmtKlockslag(t: string | null | undefined): string {
+  return t ? String(t).slice(0, 5) : "";
+}
+
+/**
+ * Deldagsrader per datum (bara sådana som gäller — anroparen filtrerar status).
+ * Första raden per datum vinner.
+ */
+export function deldagarPerDatum(rader: FranvaroRad[], fran: string, till: string): Record<string, Deldag> {
+  const ut: Record<string, Deldag> = {};
+  for (const r of rader) {
+    if (!arDeldag(r) || !arFranvaroTyp(r.typ)) continue;
+    const d = r.startdatum;
+    if (d < fran || d > till || ut[d]) continue;
+    ut[d] = { typ: r.typ, fran_tid: r.fran_tid ?? null, till_tid: r.till_tid ?? null, status: r.status };
+  }
+  return ut;
+}
+
+/**
+ * Frånvarotimmar för en deldag = timmar föraren SKULLE ha arbetat minus
+ * arbetade. Schematimmar per dag = ordinarie_vecka_h / 5 (8 vid 40) — ett
+ * ANTAGANDE tills Martin beslutat schema/förläggningscykel (§12 mom 3 anm 2:
+ * oregelbunden tid → genomsnitt per månad eller cykel; samma beslut som
+ * beräkningsperioden för övertid). Aldrig negativt, aldrig över schemat.
+ */
+export function deldagTimmar(schemaTimmarPerDag: number, arbetadMin: number | null | undefined): number {
+  const h = schemaTimmarPerDag - (arbetadMin || 0) / 60;
+  return Math.round(Math.max(0, Math.min(schemaTimmarPerDag, h)) * 10) / 10;
+}
+
+/** Schematimmar per dag ur avtalets ordinarie veckoarbetstid (40 → 8). */
+export function schemaTimmarPerDag(ordinarieVeckaH: number | null | undefined): number {
+  const v = Number(ordinarieVeckaH);
+  return Number.isFinite(v) && v > 0 ? v / 5 : 8;
+}
 
 /**
  * Frånvarorader som ÖVERLAPPAR [fran, till] och gäller (godkänd/registrerad).
@@ -126,7 +191,7 @@ export async function hamtaFranvaro(
 ): Promise<{ rader: FranvaroRad[]; fel: string | null }> {
   let q = supabase
     .from("ledighet_ansokningar")
-    .select("id, medarbetare_id, typ, startdatum, slutdatum, status, ersatter_datum")
+    .select(FRANVARO_KOLUMNER)
     // Default: bara det som GÄLLER. Arbetsrapporten tar även 'väntar' för att
     // visa ett bytesdags-svar som väntar på godkännande — men filtrerar själv
     // bort väntande ur frånvarokartan.
@@ -140,14 +205,17 @@ export async function hamtaFranvaro(
 }
 
 /**
- * Expanderar rader till datum → typ inom [fran, till]. Första raden per datum
- * vinner (två överlappande rader är ett datafel som granskningen får se via
- * ledighetskollision, inte något som döljs här).
+ * Expanderar HELDAGSRADER till datum → typ inom [fran, till]. Deldagsrader
+ * (klockslag) hör inte hit — de bor i deldagarPerDatum, för på en deldag är
+ * dagen arbete OCH frånvaro. Första raden per datum vinner (två överlappande
+ * rader är ett datafel som granskningen får se via ledighetskollision, inte
+ * något som döljs här).
  */
 export function franvaroPerDatum(rader: FranvaroRad[], fran: string, till: string): Record<string, FranvaroTyp> {
   const ut: Record<string, FranvaroTyp> = {};
   for (const r of rader) {
     if (!r.startdatum || !r.slutdatum || !arFranvaroTyp(r.typ)) continue;
+    if (arDeldag(r)) continue;
     const start = new Date(r.startdatum + "T00:00:00");
     const slut = new Date(r.slutdatum + "T00:00:00");
     for (const d = new Date(start); d <= slut; d.setDate(d.getDate() + 1)) {
@@ -294,7 +362,7 @@ export async function ansokBytesdag(
       skapad_av: p.namn,
       kommentar: `Jobbade ${rodVardagNamn(p.ersatter)} ${p.ersatter}, ledig ${p.ledig} i stället (via Bekräfta)`,
     })
-    .select("id, medarbetare_id, typ, startdatum, slutdatum, status, ersatter_datum")
+    .select(FRANVARO_KOLUMNER)
     .single();
   if (error || !data) {
     const m = String(error?.message || "");
@@ -314,9 +382,12 @@ export async function ansokBytesdag(
  */
 export async function registreraFranvaro(
   supabase: any,
-  p: { medarbetareId: string; namn: string; datum: string; typ: FranvaroTyp },
+  p: { medarbetareId: string; namn: string; datum: string; typ: FranvaroTyp; franTid?: string | null; tillTid?: string | null },
 ): Promise<{ ok: true; rad: FranvaroRad } | { ok: false; fel: string }> {
   if (!FRANVARO_ANMALS.includes(p.typ)) return { ok: false, fel: `${p.typ} ansöks i Ledighet, anmäls inte här.` };
+  const deldag = !!(p.franTid || p.tillTid);
+  if (deldag && !FRANVARO_DELDAG_TYPER.includes(p.typ)) return { ok: false, fel: `${FRANVARO_TYP_RUBRIK[p.typ]} kan inte vara del av dag.` };
+  if (p.franTid && p.tillTid && p.franTid >= p.tillTid) return { ok: false, fel: "Från-tiden måste vara före till-tiden." };
   const { data, error } = await supabase
     .from("ledighet_ansokningar")
     .insert({
@@ -328,8 +399,11 @@ export async function registreraFranvaro(
       status: "registrerad",
       kalla: "morgonkort",
       skapad_av: p.namn,
+      // Deldag: klockslaget föraren vet. Timmarna härleds, lagras aldrig.
+      fran_tid: p.franTid || null,
+      till_tid: p.tillTid || null,
     })
-    .select("id, medarbetare_id, typ, startdatum, slutdatum, status, ersatter_datum")
+    .select(FRANVARO_KOLUMNER)
     .single();
   if (error || !data) return { ok: false, fel: error?.message || "Kunde inte spara frånvaron." };
   return { ok: true, rad: data as FranvaroRad };

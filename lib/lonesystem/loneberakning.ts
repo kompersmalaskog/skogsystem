@@ -27,7 +27,7 @@
  */
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
-import { DAGTYP_FRANVARO_LEGACY, rodVardagNamn } from "../franvaro";
+import { DAGTYP_FRANVARO_LEGACY, rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { helglonIManad, HELGLON_TIMMAR, type HelglonDag } from "./helglon";
 
@@ -58,6 +58,19 @@ type LedighetInput = {
   startdatum: string;   // YYYY-MM-DD
   slutdatum: string;    // YYYY-MM-DD
   ersatter_datum?: string | null; // bara typ 'inarbetad': den röda vardag som arbetades i stället
+  fran_tid?: string | null;       // deldag: frånvaron började mitt på dagen (§12 mom 3 räknar timmar)
+  till_tid?: string | null;
+};
+
+/** Deldag i granskningen: arbete PLUS frånvaro samma dag, timmarna härledda. */
+export type DeldagRad = {
+  datum: string;
+  typ: string;
+  fran_tid: string | null;
+  till_tid: string | null;
+  arbetad_min: number;
+  timmar: number;          // schematimmar/dag − arbetade (lib/franvaro.deldagTimmar)
+  schema_timmar: number;   // antagandet timmarna räknats mot
 };
 
 // Bytesdag (skoftning §5 mom 4) i granskningen. Aldrig en lönerad, aldrig
@@ -102,6 +115,11 @@ export type ExportSammanfattning = {
   // Läggs ALDRIG som lönerad — Fortnox-löneart för frånvaro är ej fastställd;
   // visas för granskning och sätts manuellt. En rad per typ.
   franvaro: { typ: string; dagar: number; datum: string[] }[];
+  // Deldagar (sjuk/VAB/… från ett klockslag): dagen är arbetsdag OCH frånvaro.
+  // Timmar = schematimmar − arbetade, mot antagandet ordinarie_vecka_h/5 tills
+  // schema beslutats (§12 mom 3 anm 2). Aldrig lönerad — löneart öppen, och
+  // frågan "levereras sjukfrånvaro i timmar?" ligger hos löneansvarig.
+  deldagar: DeldagRad[];
   // Dagar under arbetsdagströskeln (lib/arbetsdagRegler): betald tid som inte är
   // en arbetsdag. Visas i granskningen — oftast inloggningar på annans maskin.
   kortpass: { datum: string; minuter: number; km_totalt: number }[];
@@ -149,6 +167,7 @@ export function beräknaExport(
   kmGrans: number = KM_GRANS_DEFAULT,  // gs_avtal.km_grans_per_dag (fri pendling km/dag)
   helglonNamn: string | null = null,   // gs_avtal.helglon_dagar (tolv namn); null = avtalets default
   arbetadeUtanforPerioden: Set<string> = new Set(), // datum med arbete UTANFÖR arbetsperioden (bytesdagars röda dag i annan månad)
+  ordinarieVeckaH: number | null = null,            // gs_avtal.ordinarie_vecka_h — deldagens schematimmar/dag (40 → 8)
 ): ExportSammanfattning {
   const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
@@ -344,15 +363,40 @@ export function beräknaExport(
       varningar.push(`Bytesdag (§5 mom 4): ${b.ledig} är inarbetad ledighet — ersätter ${rod} som arbetades. Ingen lönerad, inget avdrag; den röda dagens timmar är ordinarie tid (+ söndagstillägg om beordrat), helglönen flyttas inte.`);
     }
   }
+  // ── DELDAGAR (klockslag på raden) — arbete PLUS frånvaro samma dag ──
+  // "Arbete vinner" gäller BARA heldagsrader (nedan). En deldag är förmiddag
+  // arbete, eftermiddag frånvaro; timmarna härleds mot schematimmar/dag.
+  const schemaH = schemaTimmarPerDag(ordinarieVeckaH);
+  const arbetadMinPerDatum = new Map(dagar.map(d => [d.datum, d.arbetad_min || 0]));
+  const deldagar: DeldagRad[] = [];
+  for (const l of ledigheter) {
+    if (!arDeldag(l) || l.typ === 'inarbetad' || !l.startdatum) continue;
+    if (!l.startdatum.startsWith(arbperiod)) continue;
+    const arbetadMin = arbetadMinPerDatum.get(l.startdatum) || 0;
+    deldagar.push({
+      datum: l.startdatum, typ: (l.typ || 'ledig').toLowerCase(),
+      fran_tid: l.fran_tid ? String(l.fran_tid).slice(0, 5) : null, till_tid: l.till_tid ? String(l.till_tid).slice(0, 5) : null,
+      arbetad_min: arbetadMin, timmar: deldagTimmar(schemaH, arbetadMin), schema_timmar: schemaH,
+    });
+  }
+  deldagar.sort((a, b) => a.datum.localeCompare(b.datum));
+  for (const dd of deldagar) {
+    const nar = dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`;
+    const arb = Math.round(dd.arbetad_min / 6) / 10;
+    varningar.push(`Deldag (${dd.typ}) ${dd.datum} ${nar}: ${dd.timmar} tim frånvaro (arbetade ${arb} tim, räknat mot ${dd.schema_timmar} tim/dag — ANTAGANDE tills schema beslutats, §12 mom 3 anm 2). Dagen är arbetsdag. Löneart ej fastställd; läggs INTE som lönerad.`);
+  }
+
+  // ── HELDAGSRADER — "arbete vinner" ──
   for (const l of ledigheter) {
     if (l.typ === 'inarbetad') continue; // bytesdagar ovan — aldrig "frånvaro att sätta löneart på"
+    if (arDeldag(l)) continue;           // deldagar ovan
     if (!l.startdatum || !l.slutdatum) continue;
     const start = new Date(l.startdatum + "T00:00:00");
     const slut = new Date(l.slutdatum + "T00:00:00");
     for (let d = new Date(start); d <= slut; d.setDate(d.getDate() + 1)) {
       const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       if (!iso.startsWith(arbperiod)) continue;      // bara arbetsperiodens månad
-      if (arbetadeDatum.has(iso)) continue;          // arbete vinner
+      if (arbetadeDatum.has(iso)) continue;          // arbete vinner — BARA för heldagsrader
       const typ = (l.typ || 'ledig').toLowerCase();
       const arr = franvaroPerTyp.get(typ) || [];
       if (!arr.includes(iso)) arr.push(iso);
@@ -411,5 +455,6 @@ export function beräknaExport(
     kortpass,
     helglon,
     byten,
+    deldagar,
   };
 }

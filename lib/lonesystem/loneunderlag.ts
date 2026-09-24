@@ -14,7 +14,7 @@ import { beräknaExport, arbetsperiodFrånLöneperiod, type ExportSammanfattning
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
 import { ledighetKollisioner } from "@/lib/ledighetKollision";
-import { hamtaFranvaro } from "@/lib/franvaro";
+import { hamtaFranvaro, arDeldag } from "@/lib/franvaro";
 import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { RAST_FRAGA_MIN, passOrimlighet, rastSaknas, RAST_SAKNAS_FRAN_MINUTER, type PassOrimlighet } from "@/lib/arbetsdagRegler";
@@ -138,7 +138,7 @@ export async function beraknaLoneunderlag(
     hamtaFranvaro(supabase, { fran: arbStart, till: arbSlut }),
     // Fri pendling km/dag — samma fält som appen (km_grans_per_dag), aldrig
     // hårdkodad 60. Fortnox äger kr/mil-satsen, vi skickar bara mil-antalet.
-    supabase.from("gs_avtal").select("km_grans_per_dag, helglon_dagar")
+    supabase.from("gs_avtal").select("km_grans_per_dag, helglon_dagar, ordinarie_vecka_h")
       .order("giltigt_fran", { ascending: false }).limit(1).maybeSingle(),
     // Utjämningsperioder (§5 mom 2) som överlappar arbetsmånaden — upplysning i
     // granskningen. Tål att tabellen saknas (migration 20260918100000 ej körd):
@@ -177,7 +177,9 @@ export async function beraknaLoneunderlag(
 
   // Ledighet + registrerat arbete samma dag (delad lib — samma sanning som
   // Lön-flikens kort). Grupperas per medarbetare för granskningsvyn.
-  const ledKollAlla = ledighetKollisioner(ledRes.rader as any[], (arbRes.data || []) as any[]);
+  // Kollision = HELDAGSfrånvaro på en arbetad dag. En deldag (klockslag) är
+  // arbete plus frånvaro med avsikt — ingen kollision (lib/franvaro).
+  const ledKollAlla = ledighetKollisioner(ledRes.rader.filter(r => !arDeldag(r)) as any[], (arbRes.data || []) as any[]);
   const ledKollMap = new Map<string, typeof ledKollAlla>();
   for (const k of ledKollAlla) {
     if (!ledKollMap.has(k.medarbetare_id)) ledKollMap.set(k.medarbetare_id, []);
@@ -230,11 +232,11 @@ export async function beraknaLoneunderlag(
 
   // Gruppera frånvaro per medarbetare (medarbetare_id bär identiteten —
   // anvandare_id är fritext och används aldrig för koppling)
-  const ledPerMed = new Map<string, { typ: string; startdatum: string; slutdatum: string; ersatter_datum?: string | null }[]>();
+  const ledPerMed = new Map<string, { typ: string; startdatum: string; slutdatum: string; ersatter_datum?: string | null; fran_tid?: string | null; till_tid?: string | null }[]>();
   for (const l of ledRes.rader) {
     if (!l.medarbetare_id) continue;
     if (!ledPerMed.has(l.medarbetare_id)) ledPerMed.set(l.medarbetare_id, []);
-    ledPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum, ersatter_datum: l.ersatter_datum ?? null });
+    ledPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum, ersatter_datum: l.ersatter_datum ?? null, fran_tid: l.fran_tid ?? null, till_tid: l.till_tid ?? null });
   }
 
   // Bytesdagar (inarbetad) vars RÖDA dag ligger utanför arbetsperioden: hämta
@@ -282,7 +284,7 @@ export async function beraknaLoneunderlag(
     if (dagar.length === 0 && extra.length === 0 && ledigheter.length === 0) continue;
 
     const anstNr = anstMap[med.id] || "";
-    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set()); // period = löneperiod
+    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set(), avtalRes.data?.ordinarie_vecka_h ?? null); // period = löneperiod
 
     let status = "utkast";
     if (redanSkickad.has(med.id)) status = "skickat";

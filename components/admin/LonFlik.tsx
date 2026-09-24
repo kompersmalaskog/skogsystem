@@ -780,13 +780,14 @@ function FortnoxExportSektion({
         <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Att ta med löneansvarig</p>
         {([
           ["Fråga", "Löneart för brandrisk-OB", "timmarna räknas (lib/ob) men skickas inte förrän koden är fastställd."],
-          ["Fråga", "Löneart för sjuklön", "sjukdagar ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
+          ["Fråga", "Löneart för sjuklön, VAB och föräldraledig", "dagarna ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
+          ["Fråga", "Levereras sjukfrånvaro i timmar per dag?", "§12 mom 3 räknar karens i timmar (20 % av veckoarbetstiden = 8 tim vid 40) och sjuklön per timme som skulle ha arbetats. En halv sjukdag är 3 tim, inte en dag. Räknar Fortnox karensavdraget och de 80 procenten själv när appen skickar timmarna?"],
           ["Bekräfta", "Ordinarie tid är ett genomsnitt", "§5 mom 2: 40 tim/vecka i genomsnitt över en beräkningsperiod om högst 16 veckor. Ingen av appens tre gamla modeller är avtalets."],
           ["Bekräfta", "Komp räknas inte mot 250-taket", "§8 mom 3: övertid kan efter överenskommelse tas ut som ledighet, 1,4 tim per övertidstimme. §5 mom 5 anm 3: sådan tid är inte övertid enligt arbetstidslagen."],
           ["Bekräfta", "Gävle var utjämnad ordinarie tid", "§5 mom 2: 72–80 tim varannan vecka med tom vecka emellan och lön enligt schema är genomsnittsberäkning av ordinarie tid — inte kompensationsledighet. Perioden (v17–27 2026) är markerad i systemet; att utjämningen var överenskommen är inte bevisat av det."],
           ["Bekräfta", "Arbetad röd dag ger ingen helglön", "§10 mom 2: helglön är grundlön för timmar som bortfaller. Den som jobbar får lön för timmarna + söndagstillägg (§8 mom 1) — inte helglön dessutom. Närvarokravet står i §10 mom 4."],
           ["Bekräfta", "Bytesdag är skoftning", "§5 mom 4: ledig vardag mot inarbetning avtalas samtidigt, lön enligt ordinarie schema om totalen är lika. Ingen helglön flyttas."],
-          ["Martins beslut", "Beräkningsperiod och schema", "vilka 16-veckorsperioder som gäller (kortet överst antar v1–16, v17–32, …), och om förarna ska ha ett fastställt schema. Utjämningen ska vara överenskommen."],
+          ["Martins beslut", "Beräkningsperiod och schema", "vilka 16-veckorsperioder som gäller (kortet överst antar v1–16, v17–32, …), och om förarna ska ha ett fastställt schema. Utjämningen ska vara överenskommen. Samma beslut avgör deldagens \"timmar som skulle ha arbetats\" (§12 mom 3 anm 2) — tills dess antar granskningen 8 tim/dag."],
           ["Martins beslut", "Var komp-saldot bor", "i Fortnox (appen rapporterar bara intjänat/uttaget) eller i appen (appen räknar saldot). Appen räknar aldrig kronor — men ett saldo i timmar är en mängd."],
         ] as [string, string, string][]).map(([slag, rubrik, text], i, arr) => (
           <div key={rubrik} style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${C.line}` }}>
@@ -812,13 +813,14 @@ function FortnoxExportSektion({
           const utanRast = m.utan_rast || { dagar: 0, timmar: 0, datum: [] };
           const helglon = m.helglon || { dagar: [], timmar: 0 };
           const byten: any[] = m.byten || []; // bytesdagar (inarbetad, §5 mom 4) som rör månaden
+          const deldagar: any[] = m.deldagar || []; // sjuk/VAB från ett klockslag — arbete plus frånvaro (§12 mom 3 räknar timmar)
           // "saknar typ" och kortpass visas som strukturerade rader — filtrera bort
           // ur textvarningarna så samma sak inte står två gånger.
           const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ|^Kortpass|^Helglön/i.test(v));
           const oen = (fortnoxData.oenighet || []).filter((o: any) => o.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id));
           const harRiktighet = maskinLuckor.length > 0 || synk.length > 0 || ledK.length > 0 ||
             (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0 ||
-            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0 || helglon.dagar.length > 0 || byten.length > 0;
+            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0 || helglon.dagar.length > 0 || byten.length > 0 || deldagar.length > 0;
           const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
           return (
             <div key={mi} style={{
@@ -944,6 +946,13 @@ function FortnoxExportSektion({
                         Helglön §10: <strong>{helglon.timmar} tim</strong> — {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — ingen helglön, §10 mom 2: inga timmar bortföll; timmarna lönas + söndagstillägg §8 mom 1)" : ""}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig.slice(5)}, inarbetad)` : ""}`).join(", ")} — <em>löneart ej fastställd</em>, läggs inte som lönerad.
                       </p>
                     )}
+                    {/* Deldagar: arbete PLUS frånvaro samma dag. Timmarna härledda mot
+                        schematimmar/dag (antagande tills schema beslutats). Löneart öppen. */}
+                    {deldagar.map((dd: any, di: number) => (
+                      <p key={`deldag-${di}`} style={{ margin: 0, fontSize: 12, color: C.blue }}>
+                        Deldag {dd.datum.slice(5)}: <strong>{dd.typ} {dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`}</strong> — {Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro, arbetade {(Math.round(dd.arbetad_min / 6) / 10).toLocaleString("sv-SE")} tim. Räknat mot {dd.schema_timmar} tim/dag — <em>antagande tills schema beslutats</em> (§12 mom 3 anm 2). Dagen är arbetsdag. <em>Löneart ej fastställd</em>, läggs inte som lönerad.
+                      </p>
+                    ))}
                     {/* Bytesdagar (skoftning §5 mom 4): upplysning, aldrig lönerad, aldrig avdrag.
                         Orange när något inte stämmer (arbete på den lediga dagen, eller ingen
                         arbetstid på den röda), annars dämpad. */}
