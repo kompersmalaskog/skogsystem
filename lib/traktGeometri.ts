@@ -4,7 +4,8 @@
 // INTE SV_BESKRIVNINGSENHET_FL (markägarens skogsbruksplan → renderas ej).
 
 export type TraktKategori =
-  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'ignorera';
+  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'ignorera';
+//   'omrade' = planerarens egna ritade område (planering_markeringar, ej objekt_geometri) — PR B.
 
 // _lager → kategori (+ källa). Allt som inte mappas → 'ignorera' (renderas/tappas inte).
 // Ej renderade med flit: SV_BESKRIVNINGSENHET_FL (skogsbruksplan), SV_FASTIGHET, NVV/SKS-områden.
@@ -84,6 +85,23 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
     rubrik = 'Trakt-objekt';
   }
   return { kategori, kalla, rubrik, nr, arealHa, rader };
+}
+
+/** Stabil yta-nyckel för per-yta-anteckning (tabell objekt_yta_anteckning). Måste ÖVERLEVA omimport,
+ *  därför bygger vi på Vida/SKS/RAÄ:s egna id-fält (LOPNR/TRDEL_ID/Beteckn/lamningsnu) — aldrig på
+ *  geometri-radens interna id. Egna områden nycklas separat i page.tsx som `omrade:<marker_id>`.
+ *  Returnerar null när nyckelfältet saknas (då kan ingen anteckning knytas stabilt → dölj skrivfältet). */
+export function ytaNyckel(props: Record<string, any> | null | undefined): string | null {
+  const { kategori } = klassaTraktFeature(props);
+  const p = props || {};
+  switch (kategori) {
+    case 'hansyn':       { const v = txt(p.LOPNR);                       return v ? `hansyn:${v}` : null; }
+    case 'traktdel':     { const v = txt(p.TRDEL_ID) || txt(p.TRDEL_NR_K); return v ? `traktdel:${v}` : null; }
+    case 'nyckelbiotop': { const v = txt(p.Beteckn);                     return v ? `nb:${v}` : null; }
+    case 'lamning':      { const v = txt(p.lamningsnu);                  return v ? `raa:${v}` : null; }
+    case 'punkt':        { const v = txt(p.EXTRA_LABE) || txt(p.LOPNR);  return v ? `punkt:${v}` : null; }
+    default:             return null;
+  }
 }
 
 /** Vid överlapp: välj den MINSTA ytan (hänsynsyta före traktdel). Punkter/linjer (areal null) vinner
