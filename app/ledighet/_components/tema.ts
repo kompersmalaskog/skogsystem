@@ -37,9 +37,10 @@ export const C = {
 export type LedighetTyp = FranvaroTyp;
 export type LedighetStatus = FranvaroStatus;
 
-/** Det föraren kan ansöka om i den här vyn. Komp/tjänstledigt/permission/
- *  inarbetad väntar på beslut (komp-saldots hemvist; skoftningens ersätter-datum). */
-export const ANSOKBARA_TYPER: readonly LedighetTyp[] = ['semester', 'atk'];
+/** Det föraren kan ansöka om i den här vyn. Inarbetad = bytesdag (skoftning
+ *  §5 mom 4), kräver ersatter_datum. Komp/tjänstledigt/permission väntar på
+ *  beslut (komp-saldots hemvist). */
+export const ANSOKBARA_TYPER: readonly LedighetTyp[] = ['semester', 'atk', 'inarbetad'];
 
 export const TYPINFO: Record<LedighetTyp, { label: string; color: string; bg: string }> = {
   semester:      { label: FRANVARO_TYP_RUBRIK.semester,      color: C.green,  bg: C.greenDim },
@@ -48,7 +49,7 @@ export const TYPINFO: Record<LedighetTyp, { label: string; color: string; bg: st
   sjuk:          { label: FRANVARO_TYP_RUBRIK.sjuk,          color: C.orange, bg: C.orangeDim },
   vab:           { label: FRANVARO_TYP_RUBRIK.vab,           color: C.orange, bg: C.orangeDim },
   foraldraledig: { label: FRANVARO_TYP_RUBRIK.foraldraledig, color: C.orange, bg: C.orangeDim },
-  inarbetad:     { label: FRANVARO_TYP_RUBRIK.inarbetad,     color: C.t2,     bg: 'rgba(255,255,255,0.08)' },
+  inarbetad:     { label: FRANVARO_TYP_RUBRIK.inarbetad,     color: C.green,  bg: C.greenDim },
   tjanstledig:   { label: FRANVARO_TYP_RUBRIK.tjanstledig,   color: C.t2,     bg: 'rgba(255,255,255,0.08)' },
   permission:    { label: FRANVARO_TYP_RUBRIK.permission,    color: C.t2,     bg: 'rgba(255,255,255,0.08)' },
 };

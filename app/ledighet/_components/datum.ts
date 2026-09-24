@@ -1,5 +1,8 @@
-// Datumhjälpare för ledighet. Röda dagar beräknas (Gauss påskalgoritm) i
-// stället för att hårdkodas per år — gamla vyn hade bara 2026 inskrivet.
+// Datumhjälpare för ledighet. Röda dagar kommer från lib/roda-dagar — EN
+// källa för kalendern, helglönen, bytesdagen och den här vyn. (Förr hade den
+// här filen en egen påskalgoritm och egen lista: två källor för samma sak är
+// samma fälla som tre veckonummer.)
+import { getRödaDagar } from '@/lib/roda-dagar';
 
 export const MANADSNAMN = [
   'januari', 'februari', 'mars', 'april', 'maj', 'juni',
@@ -25,61 +28,33 @@ export function fmtTidpunkt(ts: string): string {
   return fmtDatum(ts.substring(0, 10));
 }
 
-/** Påskdagen enligt anonym gregoriansk algoritm (Gauss). */
-export function paskdagen(ar: number): Date {
-  const a = ar % 19;
-  const b = Math.floor(ar / 100);
-  const c = ar % 100;
-  const d = Math.floor(b / 4);
-  const e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4);
-  const k = c % 4;
-  const l = (32 + 2 * e + 2 * i - h - k) % 7;
-  const m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const manad = Math.floor((h + l - 7 * m + 114) / 31); // 3 = mars, 4 = april
-  const dag = ((h + l - 7 * m + 114) % 31) + 1;
-  return new Date(ar, manad - 1, dag);
+const aftnarCache = new Map<number, Set<string>>();
+
+/**
+ * Arbetsfria aftnar: julafton, nyårsafton och midsommarafton. Inte formellt
+ * röda, men lediga i praktiken — kapacitets- och ledighetsräkningen ska räkna
+ * dem lika över hela appen. lib/roda-dagar listar dem bland de röda (de ger
+ * helglön); här hålls de isär så "röd" och "afton" kan färgas olika.
+ */
+export function arbetsfriaAftnar(ar: number): Set<string> {
+  const cached = aftnarCache.get(ar);
+  if (cached) return cached;
+  const s = new Set<string>();
+  for (const [datum, namn] of Object.entries(getRödaDagar(ar))) {
+    if (namn === 'Julafton' || namn === 'Nyårsafton' || namn === 'Midsommarafton') s.add(datum);
+  }
+  aftnarCache.set(ar, s);
+  return s;
 }
 
 const rodaDagarCache = new Map<number, Set<string>>();
 
-/** Svenska röda dagar (allmänna helgdagar) för ett år. */
+/** Svenska röda dagar (allmänna helgdagar) för ett år — lib/roda-dagar minus aftnarna. */
 export function rodaDagar(ar: number): Set<string> {
   const cached = rodaDagarCache.get(ar);
   if (cached) return cached;
-
-  const s = new Set<string>();
-  const pask = paskdagen(ar);
-  const plus = (dagar: number) => {
-    const d = new Date(pask);
-    d.setDate(d.getDate() + dagar);
-    return toISO(d);
-  };
-
-  s.add(`${ar}-01-01`); // Nyårsdagen
-  s.add(`${ar}-01-06`); // Trettondedag jul
-  s.add(plus(-2));      // Långfredagen
-  s.add(plus(0));       // Påskdagen
-  s.add(plus(1));       // Annandag påsk
-  s.add(`${ar}-05-01`); // Första maj
-  s.add(plus(39));      // Kristi himmelsfärdsdag
-  s.add(plus(49));      // Pingstdagen
-  s.add(`${ar}-06-06`); // Nationaldagen
-  // Midsommardagen: lördagen 20–26 juni
-  for (let d = 20; d <= 26; d++) {
-    if (new Date(ar, 5, d).getDay() === 6) { s.add(toISO(new Date(ar, 5, d))); break; }
-  }
-  // Alla helgons dag: lördagen 31 okt–6 nov
-  for (let d = 0; d <= 6; d++) {
-    const dat = new Date(ar, 9, 31 + d);
-    if (dat.getDay() === 6) { s.add(toISO(dat)); break; }
-  }
-  s.add(`${ar}-12-25`); // Juldagen
-  s.add(`${ar}-12-26`); // Annandag jul
-
+  const aftnar = arbetsfriaAftnar(ar);
+  const s = new Set<string>(Object.keys(getRödaDagar(ar)).filter(d => !aftnar.has(d)));
   rodaDagarCache.set(ar, s);
   return s;
 }
@@ -89,22 +64,6 @@ export function arRodDag(iso: string): boolean {
 }
 
 const ledigaDagarCache = new Map<number, Set<string>>();
-
-/**
- * Arbetsfria aftnar: julafton, nyårsafton och midsommarafton. Inte formellt
- * röda, men lediga i praktiken — kapacitets- och ledighetsräkningen ska räkna
- * dem lika över hela appen (helikoptervyn hade tidigare en egen lista).
- */
-export function arbetsfriaAftnar(ar: number): Set<string> {
-  const s = new Set<string>();
-  s.add(`${ar}-12-24`); // julafton
-  s.add(`${ar}-12-31`); // nyårsafton
-  // Midsommarafton: fredagen 19–25 juni (dagen före midsommardagen).
-  for (let d = 19; d <= 25; d++) {
-    if (new Date(ar, 5, d).getDay() === 5) { s.add(toISO(new Date(ar, 5, d))); break; }
-  }
-  return s;
-}
 
 /** Röda dagar + arbetsfria aftnar. EN källa för "räknas inte som arbetsdag". */
 export function ledigaDagar(ar: number): Set<string> {

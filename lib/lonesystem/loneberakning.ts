@@ -27,7 +27,7 @@
  */
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
-import { DAGTYP_FRANVARO_LEGACY } from "../franvaro";
+import { DAGTYP_FRANVARO_LEGACY, rodVardagNamn } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { helglonIManad, HELGLON_TIMMAR, type HelglonDag } from "./helglon";
 
@@ -57,6 +57,18 @@ type LedighetInput = {
   typ: string;          // FranvaroTyp (lib/franvaro)
   startdatum: string;   // YYYY-MM-DD
   slutdatum: string;    // YYYY-MM-DD
+  ersatter_datum?: string | null; // bara typ 'inarbetad': den röda vardag som arbetades i stället
+};
+
+// Bytesdag (skoftning §5 mom 4) i granskningen. Aldrig en lönerad, aldrig
+// ett avdrag: den röda dagens timmar är ordinarie tid, den lediga dagen är
+// inarbetad, helglönen flyttas inte.
+export type ByteRad = {
+  ledig: string;            // den lediga vardagen (typ inarbetad)
+  ersatter: string;         // den röda vardagen som arbetades
+  ersatterNamn: string;
+  ersatterArbetad: boolean; // finns arbetstid på den röda dagen? (kan ligga i annan månad)
+  ledigArbetad: boolean;    // registrerat arbete på den lediga dagen → bytet togs inte ut
 };
 
 type MaskinTypMap = Record<string, "skordare" | "skotare">;
@@ -98,6 +110,9 @@ export type ExportSammanfattning = {
   // som lönerad — löneart ej fastställd, och två avtalsfrågor är öppna (närvaro
   // före/efter? helglön + OB vid arbete på röd dag?). Granskningsrad.
   helglon: { dagar: HelglonDag[]; timmar: number };
+  // Bytesdagar (inarbetad, §5 mom 4) som rör arbetsmånaden — den lediga dagen
+  // ELLER den röda dagen ligger i månaden. Upplysning, ingen lönerad.
+  byten: ByteRad[];
 };
 
 function isoVecka(d: Date): number {
@@ -133,6 +148,7 @@ export function beräknaExport(
   ledigheter: LedighetInput[] = [],  // godkänd ledighet (frånvaro) för medarbetaren
   kmGrans: number = KM_GRANS_DEFAULT,  // gs_avtal.km_grans_per_dag (fri pendling km/dag)
   helglonNamn: string | null = null,   // gs_avtal.helglon_dagar (tolv namn); null = avtalets default
+  arbetadeUtanforPerioden: Set<string> = new Set(), // datum med arbete UTANFÖR arbetsperioden (bytesdagars röda dag i annan månad)
 ): ExportSammanfattning {
   const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
@@ -301,7 +317,35 @@ export function beräknaExport(
   const arbperiod = arbetsperiodFrånLöneperiod(loneperiod); // YYYY-MM
   const arbetadeDatum = new Set(dagar.filter(d => (d.arbetad_min || 0) > 0).map(d => d.datum));
   const franvaroPerTyp = new Map<string, string[]>();
+  // ── BYTESDAGAR (inarbetad, §5 mom 4) — inte frånvaro att sätta löneart på ──
+  // Den lediga dagen är ledighet UTAN avdrag (lönen följer schemat); den röda
+  // dagen är en vanlig arbetsdag i ordinarie (+ söndagstillägg om beordrat,
+  // löneart OB öppen) och ger INGEN helglön (§10 mom 2). Listas separat med
+  // upplysning; ett byte kan spänna över månadsskiftet — då syns det i båda.
+  const byten: ByteRad[] = [];
   for (const l of ledigheter) {
+    if (l.typ !== 'inarbetad' || !l.ersatter_datum || !l.startdatum) continue;
+    const ledig = l.startdatum, ersatter = l.ersatter_datum;
+    if (!ledig.startsWith(arbperiod) && !ersatter.startsWith(arbperiod)) continue;
+    byten.push({
+      ledig, ersatter,
+      ersatterNamn: rodVardagNamn(ersatter) || 'röd dag',
+      ersatterArbetad: arbetadeDatum.has(ersatter) || arbetadeUtanforPerioden.has(ersatter),
+      ledigArbetad: arbetadeDatum.has(ledig),
+    });
+  }
+  for (const b of byten) {
+    const rod = `${b.ersatterNamn} ${b.ersatter}`;
+    if (b.ledigArbetad) {
+      varningar.push(`Bytesdag: ${b.ledig} skulle vara inarbetad ledighet (ersätter ${rod}) men har registrerat arbete — bytet togs inte ut; ${b.ersatter} är då en vanlig arbetad röd dag. Granska.`);
+    } else if (!b.ersatterArbetad) {
+      varningar.push(`Bytesdag: ${b.ledig} är inarbetad ledighet som ersätter ${rod} — men INGEN arbetstid finns registrerad ${b.ersatter}. Inarbetningen saknas; granska (byt typ om dagen ska räknas som annan ledighet).`);
+    } else {
+      varningar.push(`Bytesdag (§5 mom 4): ${b.ledig} är inarbetad ledighet — ersätter ${rod} som arbetades. Ingen lönerad, inget avdrag; den röda dagens timmar är ordinarie tid (+ söndagstillägg om beordrat), helglönen flyttas inte.`);
+    }
+  }
+  for (const l of ledigheter) {
+    if (l.typ === 'inarbetad') continue; // bytesdagar ovan — aldrig "frånvaro att sätta löneart på"
     if (!l.startdatum || !l.slutdatum) continue;
     const start = new Date(l.startdatum + "T00:00:00");
     const slut = new Date(l.slutdatum + "T00:00:00");
@@ -335,11 +379,15 @@ export function beräknaExport(
   // mom 4) är inte byggt. Ingen lönerad förrän lönearten är fastställd.
   const arbetadeInklExtra = new Set<string>(arbetadeDatum);
   for (const e of extraTid) if (e?.datum && (e.minuter || 0) > 0) arbetadeInklExtra.add(e.datum);
-  const helglonDagarLista = helglonIManad(helglonNamn, arbperiod, arbetadeInklExtra);
+  // Bytesdag: en arbetad röd dag som byts mot en ledig dag — märks så att
+  // granskningen ser att den INTE ska ha helglön OCH att ledigheten finns.
+  const bytesLedigPerRod = new Map(byten.map(b => [b.ersatter, b.ledig]));
+  const helglonDagarLista = helglonIManad(helglonNamn, arbperiod, arbetadeInklExtra)
+    .map(h => bytesLedigPerRod.has(h.datum) ? { ...h, bytesLedig: bytesLedigPerRod.get(h.datum) } : h);
   const helglonTimmar = helglonDagarLista.filter(h => !h.arbetad).length * HELGLON_TIMMAR;
   const helglon = { dagar: helglonDagarLista, timmar: helglonTimmar };
   if (helglonDagarLista.length > 0) {
-    const lista = helglonDagarLista.map(h => `${h.datum} ${h.namn}${h.arbetad ? ' (arbetad)' : ''}`).join(', ');
+    const lista = helglonDagarLista.map(h => `${h.datum} ${h.namn}${h.arbetad ? ' (arbetad)' : ''}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig})` : ''}`).join(', ');
     varningar.push(`Helglön §10: ${helglonTimmar} tim (${lista}) — löneart ej fastställd; läggs INTE som lönerad. Arbetad röd dag ger ingen helglön (§10 mom 2), timmarna lönas + söndagstillägg (§8 mom 1). Närvarokravet (§10 mom 4) kontrolleras inte än.`);
   }
 
@@ -362,5 +410,6 @@ export function beräknaExport(
     franvaro,
     kortpass,
     helglon,
+    byten,
   };
 }

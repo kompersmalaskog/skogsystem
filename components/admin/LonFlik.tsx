@@ -811,13 +811,14 @@ function FortnoxExportSektion({
           const orimliga = m.orimliga || [];
           const utanRast = m.utan_rast || { dagar: 0, timmar: 0, datum: [] };
           const helglon = m.helglon || { dagar: [], timmar: 0 };
+          const byten: any[] = m.byten || []; // bytesdagar (inarbetad, §5 mom 4) som rör månaden
           // "saknar typ" och kortpass visas som strukturerade rader — filtrera bort
           // ur textvarningarna så samma sak inte står två gånger.
           const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ|^Kortpass|^Helglön/i.test(v));
           const oen = (fortnoxData.oenighet || []).filter((o: any) => o.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id));
           const harRiktighet = maskinLuckor.length > 0 || synk.length > 0 || ledK.length > 0 ||
             (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0 ||
-            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0 || helglon.dagar.length > 0;
+            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0 || helglon.dagar.length > 0 || byten.length > 0;
           const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
           return (
             <div key={mi} style={{
@@ -940,9 +941,25 @@ function FortnoxExportSektion({
                         sjuk tills lönearten och de två avtalsfrågorna är på plats. */}
                     {helglon.dagar.length > 0 && (
                       <p style={{ margin: 0, fontSize: 12, color: C.blue }}>
-                        Helglön §10: <strong>{helglon.timmar} tim</strong> — {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — ingen helglön, §10 mom 2: inga timmar bortföll; timmarna lönas + söndagstillägg §8 mom 1)" : ""}`).join(", ")} — <em>löneart ej fastställd</em>, läggs inte som lönerad.
+                        Helglön §10: <strong>{helglon.timmar} tim</strong> — {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — ingen helglön, §10 mom 2: inga timmar bortföll; timmarna lönas + söndagstillägg §8 mom 1)" : ""}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig.slice(5)}, inarbetad)` : ""}`).join(", ")} — <em>löneart ej fastställd</em>, läggs inte som lönerad.
                       </p>
                     )}
+                    {/* Bytesdagar (skoftning §5 mom 4): upplysning, aldrig lönerad, aldrig avdrag.
+                        Orange när något inte stämmer (arbete på den lediga dagen, eller ingen
+                        arbetstid på den röda), annars dämpad. */}
+                    {byten.map((b: any, bi: number) => {
+                      const fel = b.ledigArbetad || !b.ersatterArbetad;
+                      return (
+                        <p key={`byte-${bi}`} style={{ margin: 0, fontSize: 12, color: fel ? C.orange : C.label }}>
+                          Bytesdag: <strong style={{ color: C.text }}>{b.ledig.slice(5)}</strong> inarbetad ledighet ersätter {b.ersatterNamn} {b.ersatter.slice(5)}
+                          {b.ledigArbetad
+                            ? <> — men den lediga dagen har registrerat arbete: bytet togs inte ut, den röda dagen är en vanlig arbetad röd dag. Granska.</>
+                            : !b.ersatterArbetad
+                              ? <> — men ingen arbetstid finns registrerad den röda dagen: inarbetningen saknas. Granska; byt typ om dagen ska räknas som annan ledighet.</>
+                              : <> (arbetad). Ingen lönerad, inget avdrag; den röda dagens timmar är ordinarie tid + söndagstillägg om beordrat (löneart OB öppen). Helglönen flyttas inte.</>}
+                        </p>
+                      );
+                    })}
                     {ob.obesvarade > 0 && (
                       <p style={{ margin: 0, fontSize: 12, color: C.label }}>
                         {ob.obesvarade} obesvarad{ob.obesvarade === 1 ? "" : "e"} tidig start väntar på förarens brandrisk-svar.

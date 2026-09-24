@@ -3,8 +3,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { upsertVerifierat, uppdateraVerifierat } from '@/lib/supabase-save';
+import { rodaVardagarForByte, rodVardagNamn, bytesdagFel } from '@/lib/franvaro';
 import { C, ff, inputStyle, labelStyle, TYPINFO, ANSOKBARA_TYPER, type LedighetTyp } from './tema';
-import { arbetsdagar, fmtDatum, fmtPeriod } from './datum';
+import { arbetsdagar, arHelg, fmtDatum, fmtPeriod, toISO } from './datum';
 import type { Ansokan } from './typer';
 import ValjKalender from './ValjKalender';
 
@@ -12,6 +13,12 @@ import ValjKalender from './ValjKalender';
  * Ansökningsformulär som bottom sheet. Skapar (status='väntar',
  * medarbetare_id=egen — RLS kräver båda) eller redigerar en egen väntande rad.
  * Saldot blockerar ALDRIG ansökan — det är informativt, inte en spärr.
+ *
+ * Inarbetad dag (bytesdag, Skogsavtalet §5 mom 4): man jobbar en röd vardag
+ * och är ledig en annan vardag i stället. EN ledig dag + vilken röd dag den
+ * ersätter (bara röda VARDAGAR ur lib/roda-dagar, samma källa som kalendern
+ * och helglönen). Helglönen flyttas inte. Ansöks och godkänns som annan
+ * ledighet — avtalet: ledighet och inarbetning överenskoms samtidigt.
  */
 export default function AnsokFormular({
   redigerar, egenId, egenNamn, ansokningar, onStang, onSparad,
@@ -27,13 +34,39 @@ export default function AnsokFormular({
   // Periodval via tryck-kalendern: start utan slut = endagsperiod tills vidare
   const [start, setStart] = useState<string | null>(redigerar?.startdatum ?? null);
   const [slut, setSlut] = useState<string | null>(redigerar?.slutdatum ?? null);
+  const [ersatter, setErsatter] = useState<string | null>(redigerar?.ersatter_datum ?? null);
   const [kommentar, setKommentar] = useState(redigerar?.kommentar ?? '');
   const [sparar, setSparar] = useState(false);
   const [sparfel, setSparfel] = useState<string | null>(null);
 
-  useEffect(() => { setSparfel(null); }, [typ, start, slut]);
+  useEffect(() => { setSparfel(null); }, [typ, start, slut, ersatter]);
 
-  const effektivtSlut = slut ?? start ?? '';
+  const arByte = typ === 'inarbetad';
+  // Bytesdag är alltid EN dag — slut följer start
+  const effektivtSlut = arByte ? (start ?? '') : (slut ?? start ?? '');
+
+  // Röda vardagar att välja bland: kring den lediga dagen (eller idag), minus
+  // dem den här personen redan bytt bort (väntar/godkänd, inte den här raden).
+  const rodaVal = useMemo(() => {
+    if (!arByte) return [];
+    const kring = start ?? toISO(new Date());
+    const upptagna = new Set(
+      ansokningar
+        .filter(a => a.id !== redigerar?.id && a.medarbetare_id === egenId && a.typ === 'inarbetad' && a.status !== 'nekad' && a.ersatter_datum)
+        .map(a => a.ersatter_datum as string),
+    );
+    return rodaVardagarForByte(kring).filter(r => !upptagna.has(r.datum));
+  }, [arByte, start, ansokningar, egenId, redigerar]);
+
+  // Den lediga dagen i ett byte måste vara en vanlig vardag — samma regler som
+  // Arbetsrapportens Bekräfta-fråga (lib/franvaro.bytesdagFel).
+  const ledigDagFel = useMemo(() => {
+    if (!arByte || !start) return null;
+    if (arHelg(start)) return 'Den lediga dagen måste vara en vardag (mån–fre).';
+    if (rodVardagNamn(start)) return `${fmtDatum(start)} är redan röd dag (${rodVardagNamn(start)}) — välj en vanlig vardag.`;
+    if (ersatter) return bytesdagFel(start, ersatter);
+    return null;
+  }, [arByte, start, ersatter]);
 
   // Blockerande: egen godkänd ledighet i intervallet (dubbelbokning)
   const dubbelbokning = useMemo(() => {
@@ -41,13 +74,13 @@ export default function AnsokFormular({
     const overlap = ansokningar.find(a =>
       a.id !== redigerar?.id &&
       a.medarbetare_id === egenId &&
-      a.status === 'godkänd' &&
+      (a.status === 'godkänd' || a.status === 'registrerad') &&
       a.startdatum <= effektivtSlut &&
       a.slutdatum >= start
     );
     if (!overlap) return null;
     const ti = TYPINFO[overlap.typ] ?? TYPINFO.semester;
-    return `Du har redan godkänd ${ti.label.toLowerCase()} ${fmtDatum(overlap.startdatum)} – ${fmtDatum(overlap.slutdatum)}`;
+    return `Du har redan ${overlap.status === 'registrerad' ? 'registrerad' : 'godkänd'} ${ti.label.toLowerCase()} ${fmtDatum(overlap.startdatum)} – ${fmtDatum(overlap.slutdatum)}`;
   }, [start, effektivtSlut, ansokningar, egenId, redigerar]);
 
   // Icke-blockerande: andras godkända ledighet samma datum (kollision)
@@ -67,26 +100,32 @@ export default function AnsokFormular({
   // Dubbelbokning behöver ingen rad: den visar redan sin egen varningsruta.
   const saknas: string[] = [];
   if (!typ) saknas.push('typ');
-  if (!start) saknas.push('datum');
-  const kanSkicka = saknas.length === 0 && !dubbelbokning && !sparar;
+  if (!start) saknas.push(arByte ? 'ledig dag' : 'datum');
+  if (arByte && !ersatter) saknas.push('röd dag');
+  const kanSkicka = saknas.length === 0 && !dubbelbokning && !ledigDagFel && !sparar;
+
+  const valjTyp = (val: LedighetTyp) => {
+    setTyp(val);
+    if (val !== 'inarbetad') setErsatter(null);
+    else if (start) setSlut(start);
+  };
 
   const spara = async () => {
     if (!kanSkicka || !start) return;
     setSparar(true);
     setSparfel(null);
 
+    const falt = {
+      typ, startdatum: start, slutdatum: effektivtSlut, kommentar: kommentar || null,
+      ersatter_datum: arByte ? ersatter : null,
+    };
     const res = redigerar
-      ? await uppdateraVerifierat(supabase, 'ledighet_ansokningar', {
-          typ, startdatum: start, slutdatum: effektivtSlut, kommentar: kommentar || null,
-        }, { id: redigerar.id, medarbetare_id: egenId })
+      ? await uppdateraVerifierat(supabase, 'ledighet_ansokningar', falt, { id: redigerar.id, medarbetare_id: egenId })
       : await upsertVerifierat(supabase, 'ledighet_ansokningar', {
           medarbetare_id: egenId,
           anvandare_id: egenNamn,
-          typ,
-          startdatum: start,
-          slutdatum: effektivtSlut,
+          ...falt,
           status: 'väntar',
-          kommentar: kommentar || null,
           skapad_av: egenNamn,
         });
 
@@ -117,7 +156,7 @@ export default function AnsokFormular({
           {ANSOKBARA_TYPER.map(val => {
             const aktiv = typ === val;
             return (
-              <button key={val} onClick={() => setTyp(val)} style={{
+              <button key={val} onClick={() => valjTyp(val)} style={{
                 flex: 1, height: 48, borderRadius: 12,
                 background: aktiv ? '#fff' : 'rgba(255,255,255,0.06)',
                 border: aktiv ? 'none' : '1px solid rgba(255,255,255,0.1)',
@@ -130,15 +169,24 @@ export default function AnsokFormular({
           })}
         </div>
 
-        {/* Tryck-kalender: tryck startdag, tryck slutdag — spannet fylls i */}
+        {arByte && (
+          <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`, marginBottom: 10 }}>
+            <span style={{ fontSize: 12, color: C.t2, lineHeight: 1.5 }}>
+              Du jobbar en röd vardag och är ledig en annan vardag i stället (Skogsavtalet §5 mom 4). Lön enligt schemat, inget avdrag för den lediga dagen. Helglönen flyttas inte.
+            </span>
+          </div>
+        )}
+
+        {/* Tryck-kalender: tryck startdag, tryck slutdag — spannet fylls i.
+            Bytesdag: en dag, slut = start. */}
         <div style={{
           background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`,
           borderRadius: 12, padding: '12px 10px 8px', marginBottom: 10,
         }}>
           <ValjKalender
             valdStart={start}
-            valdSlut={slut}
-            onValj={(s, e) => { setStart(s); setSlut(e); }}
+            valdSlut={arByte ? start : slut}
+            onValj={(s, e) => { setStart(s); setSlut(arByte ? s : e); }}
           />
         </div>
 
@@ -147,17 +195,17 @@ export default function AnsokFormular({
           {start ? (
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>
-                {fmtPeriod(start, effektivtSlut)}
+                {arByte ? `Ledig ${fmtPeriod(start, start)}` : fmtPeriod(start, effektivtSlut)}
               </div>
-              <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>
-                {(() => {
+              <div style={{ fontSize: 12, color: ledigDagFel ? C.red : C.t3, marginTop: 2 }}>
+                {ledigDagFel ?? (arByte ? 'en vardag som byts mot den röda dagen nedan' : (() => {
                   const ad = arbetsdagar(start, effektivtSlut);
                   return `${ad} arbetsdag${ad === 1 ? '' : 'ar'} · helg och röda dagar räknas inte`;
-                })()}
+                })())}
               </div>
             </div>
           ) : (
-            <div style={{ fontSize: 13, color: C.t3 }}>Tryck på en dag i kalendern för att välja period</div>
+            <div style={{ fontSize: 13, color: C.t3 }}>{arByte ? 'Tryck på den vardag du vill vara ledig' : 'Tryck på en dag i kalendern för att välja period'}</div>
           )}
           {start && (
             <button
@@ -173,6 +221,34 @@ export default function AnsokFormular({
             </button>
           )}
         </div>
+
+        {/* Bytesdag: vilken röd vardag som arbetas i stället — bara ur lib/roda-dagar */}
+        {arByte && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={labelStyle}>ERSÄTTER RÖD DAG</div>
+            {rodaVal.length === 0 ? (
+              <div style={{ fontSize: 13, color: C.t3 }}>Ingen röd vardag inom ett halvår som inte redan är bytt.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {rodaVal.map(r => {
+                  const aktiv = ersatter === r.datum;
+                  return (
+                    <button key={r.datum} type="button" onClick={() => setErsatter(r.datum)} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '10px 14px', borderRadius: 10, textAlign: 'left',
+                      background: aktiv ? '#fff' : 'rgba(255,255,255,0.06)',
+                      border: aktiv ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                      color: aktiv ? '#111' : '#fff', fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
+                    }}>
+                      <span>{r.namn}</span>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: aktiv ? '#444' : C.t3 }}>{fmtDatum(r.datum)} {r.datum.slice(0, 4)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={{ marginBottom: 14 }}>
           <div style={labelStyle}>KOMMENTAR</div>

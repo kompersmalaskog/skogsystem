@@ -73,7 +73,11 @@ export function helglonDagar(avtalText: string | null | undefined, ar: number): 
   return ut;
 }
 
-export type HelglonDag = { datum: string; namn: string; arbetad: boolean };
+export type HelglonDag = {
+  datum: string; namn: string; arbetad: boolean;
+  /** Bytesdag (skoftning §5 mom 4): den lediga dag som den arbetade röda dagen byts mot. Sätts i loneberakning. */
+  bytesLedig?: string;
+};
 
 /**
  * Helglönedagar i en arbetsmånad (YYYY-MM): röda VARDAGAR ur avtalets lista.

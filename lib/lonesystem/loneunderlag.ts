@@ -230,11 +230,32 @@ export async function beraknaLoneunderlag(
 
   // Gruppera frånvaro per medarbetare (medarbetare_id bär identiteten —
   // anvandare_id är fritext och används aldrig för koppling)
-  const ledPerMed = new Map<string, { typ: string; startdatum: string; slutdatum: string }[]>();
+  const ledPerMed = new Map<string, { typ: string; startdatum: string; slutdatum: string; ersatter_datum?: string | null }[]>();
   for (const l of ledRes.rader) {
     if (!l.medarbetare_id) continue;
     if (!ledPerMed.has(l.medarbetare_id)) ledPerMed.set(l.medarbetare_id, []);
-    ledPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum });
+    ledPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum, ersatter_datum: l.ersatter_datum ?? null });
+  }
+
+  // Bytesdagar (inarbetad) vars RÖDA dag ligger utanför arbetsperioden: hämta
+  // om den dagen arbetades, så granskningen kan säga "inarbetningen saknas"
+  // även över ett månadsskifte. Liten fråga, bara de datumen.
+  const ersatterUtanfor = Array.from(new Set(
+    ledRes.rader
+      .filter(l => l.typ === "inarbetad" && l.ersatter_datum && (l.ersatter_datum < arbStart || l.ersatter_datum > arbSlut))
+      .map(l => l.ersatter_datum as string),
+  ));
+  const arbetadeUtanforPerMed = new Map<string, Set<string>>();
+  if (ersatterUtanfor.length > 0) {
+    const { data: rodRader, error: rodFel } = await supabase.from("arbetsdag")
+      .select("medarbetare_id, datum, arbetad_min")
+      .in("datum", ersatterUtanfor);
+    if (rodFel) throw new Error(`Kunde inte läsa bytesdagarnas röda dagar: ${rodFel.message}`);
+    for (const r of (rodRader || []) as any[]) {
+      if ((r.arbetad_min || 0) <= 0) continue;
+      if (!arbetadeUtanforPerMed.has(r.medarbetare_id)) arbetadeUtanforPerMed.set(r.medarbetare_id, new Set());
+      arbetadeUtanforPerMed.get(r.medarbetare_id)!.add(r.datum);
+    }
   }
 
   // Fri pendling km/dag ur avtalet (fallback 60) — matas in i beräkningen
@@ -261,7 +282,7 @@ export async function beraknaLoneunderlag(
     if (dagar.length === 0 && extra.length === 0 && ledigheter.length === 0) continue;
 
     const anstNr = anstMap[med.id] || "";
-    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null); // period = löneperiod
+    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set()); // period = löneperiod
 
     let status = "utkast";
     if (redanSkickad.has(med.id)) status = "skickat";
