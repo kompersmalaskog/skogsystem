@@ -5,7 +5,7 @@
 // öppnar sheets. Inga stora tal, färg bara på en stapel som ligger under plan idag.
 import { useState } from 'react'
 import { Trees, Truck } from 'lucide-react'
-import { kapacitetsMaskiner, lageSvar, motBestallningRad, TYP_NAMN, type ManadStatus, type SparLage } from '../_lib/berakningar'
+import { kapacitetsMaskiner, lageSvar, motBestallningRad, registreringsVarning, TYP_NAMN, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, dagarText, fmt, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, BestallningRad, Maskin, MaskinLage, Typ, UtanTypRad } from '../_lib/queries'
 import { KANT, ListLank, ListRad, Lista, MatarRad, Sektion, Svarsrad, TEXT_MUTED } from './Lista'
@@ -26,12 +26,22 @@ type Props = {
   utanTyp: UtanTypRad[] | null
   antalPlanerade: Record<Typ, number>
   dinMaskin: { maskinNamn: string; lage: MaskinLage | null; fel: string | null; onRetry: () => void } | null
+  /** Maskiner med manuell datakälla (dim_maskin.datakalla) — Läge varnar när lass inte registrerats. */
+  manuella: Set<string>
+  /** Senaste lassdatum per manuell maskin (null = inga lass); null = inte hämtat/kunde inte läsas. */
+  senasteLass: Record<string, string | null> | null
+  /** Alla arbetsdagsrader (global + per maskin) — varningen räknar på maskinens egna dagar. */
+  arbetsdagar: Arbetsdagar[]
 }
 
-export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, utanTyp, antalPlanerade, dinMaskin }: Props) {
+export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, utanTyp, antalPlanerade, dinMaskin, manuella, senasteLass, arbetsdagar }: Props) {
   const [sheet, setSheet] = useState<'maskiner' | 'utan' | null>(null)
   const manadNamn = MANAD_NAMN[manad - 1]
   const svar = lageSvar(spar, antalPlanerade, status, dagar, manadNamn)
+  // Manuell datakälla utan registrerade lass de två senaste arbetsdagarna → orange rad under svaret.
+  if (status === 'pagaende' && senasteLass) {
+    svar.varning = registreringsVarning(maskiner.filter(m => manuella.has(m.maskin_id)), senasteLass, arbetsdagar, idag, manadNamn)
+  }
   const utanSumma = (utanTyp ?? []).reduce((s, r) => s + r.volym, 0)
 
   return (

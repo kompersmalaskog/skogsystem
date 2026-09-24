@@ -15,7 +15,7 @@ import { T } from '@/lib/utbildning'
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaMaskiner,
+  hamtaBolag, hamtaFast, hamtaManadsdata, hamtaManuellaMaskiner, hamtaMaskinLage, hamtaMaskiner, hamtaSenasteLass,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type MaskinManad,
 } from '../_lib/queries'
 import { TYPER, globalaArbetsdagar, manadStatus, maskinNamn, raknaSpar, valjBas, type SparLage } from '../_lib/berakningar'
@@ -72,6 +72,9 @@ export default function HelikopterVy() {
   const { medarbetare } = useCurrentMedarbetare()
   const [version, setVersion] = useState(0) // räknas upp vid "Försök igen" → alla lager hämtas om
   const [fast, setFast] = useState<FastData | null>(null)
+  // Manuell datakälla (JD810E): etiketten "manuell" i Uppföljning/Veckor och Läge-varningen "inga lass registrerade".
+  const [manuella, setManuella] = useState<Set<string>>(() => new Set())
+  const [senasteLass, setSenasteLass] = useState<Record<string, string | null> | null>(null)
   const [fastFel, setFastFel] = useState<string | null>(null)
   const [manadsdata, setManadsdata] = useState<Manadsdata | null>(null)
   const [manadFel, setManadFel] = useState<string | null>(null)
@@ -91,6 +94,14 @@ export default function HelikopterVy() {
       if (avbruten) return
       if (r.error != null) setFastFel(r.error)
       else setFast(r.data)
+    })
+    hamtaManuellaMaskiner().then(async m => {
+      if (avbruten) return
+      setManuella(m)
+      if (m.size === 0) { setSenasteLass({}); return }
+      const r = await hamtaSenasteLass(Array.from(m))
+      if (avbruten) return
+      setSenasteLass(r.error != null ? null : r.data)
     })
     return () => { avbruten = true }
   }, [version])
@@ -243,6 +254,9 @@ export default function HelikopterVy() {
             utanTyp={manadsdata.utanTyp}
             antalPlanerade={antalPlanerade}
             dinMaskin={dinMaskinNamn ? { maskinNamn: maskinNamn(dinMaskinNamn), lage: maskinLage, fel: maskinLageFel, onRetry: () => setVersion(v => v + 1) } : null}
+            manuella={manuella}
+            senasteLass={senasteLass}
+            arbetsdagar={manadsdata.arbetsdagar}
           />
         ) : flik === 'planering' ? (
           <PlaneringFlik manadsdata={manadsdata} fast={fast} spar={spar} status={status} dagar={dagar} idag={idag} ar={ar} manad={manad} />
@@ -260,6 +274,7 @@ export default function HelikopterVy() {
             antalPlanerade={antalPlanerade}
             ar={ar}
             manad={manad}
+            manuella={manuella}
             arAdmin={medarbetare?.roll === 'admin' || medarbetare?.roll === 'chef'}
           />
         )}

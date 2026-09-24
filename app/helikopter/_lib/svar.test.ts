@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { atgardForMaskin, belaggning, flodesText, lageSvar, motBestallningRad, planeratPerTyp, planeringSvar, raknaSpar, valjBas, type PlaneratResultat } from './berakningar'
+import { atgardForMaskin, belaggning, flodesText, lageSvar, motBestallningRad, planeratPerTyp, planeringSvar, raknaSpar, registreringsVarning, valjBas, type PlaneratResultat } from './berakningar'
 import type { Arbetsdagar, Maskin, PlaneringObjekt, SparRad, Typ } from './queries'
 
 const dagar: Arbetsdagar = { maskin_id: null, totalt: 22, gangna: 6, kvar: 16, gangna_datum: [], kvar_datum: [] }
@@ -103,5 +103,25 @@ describe('Planering svarsrad', () => {
 describe('valjBas oförändrad', () => {
   it('bestallt före totalt', () => {
     expect(valjBas([rad('gallring', { bas: 'totalt', bestallt: 0, skordat: 9 }), rad('gallring', { bas: 'bestallt', bestallt: 10, skordat: 3 })], 'gallring')?.skordat).toBe(3)
+  })
+})
+
+describe('registreringsVarning — manuell datakälla utan registrerade lass', () => {
+  const jd: Maskin = { maskin_id: 'JD810E', modell: '810E', visningsnamn: 'John Deere 810E', maskin_typ: 'Forwarder', klarar_typ: null, extramaskin: false, aktiv_till: null, datakalla: 'manuell' }
+  const sept = ['2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24']
+  const dagarRader: Arbetsdagar[] = [
+    { maskin_id: null, totalt: 22, gangna: 3, kvar: 19, gangna_datum: sept.slice(0, 3), kvar_datum: ['2026-09-24', '2026-09-25'] },
+    { maskin_id: 'JD810E', totalt: 22, gangna: 3, kvar: 19, gangna_datum: sept.slice(0, 3), kvar_datum: ['2026-09-24', '2026-09-25'] },
+  ]
+  it('inga lass tisdag + onsdag (senast måndag) → varning med veckodag', () => {
+    expect(registreringsVarning([jd], { JD810E: '2026-09-21' }, dagarRader, '2026-09-23', 'september')).toBe('John Deere 810E · inga lass registrerade sedan måndag')
+  })
+  it('lass i går räcker → ingen varning; inga lass alls → "i september"', () => {
+    expect(registreringsVarning([jd], { JD810E: '2026-09-22' }, dagarRader, '2026-09-23', 'september')).toBeNull()
+    expect(registreringsVarning([jd], { JD810E: null }, dagarRader, '2026-09-23', 'september')).toBe('John Deere 810E · inga lass registrerade i september')
+  })
+  it('utan manuella maskiner eller såld maskin → null', () => {
+    expect(registreringsVarning([], {}, dagarRader, '2026-09-23', 'september')).toBeNull()
+    expect(registreringsVarning([{ ...jd, aktiv_till: '2026-08-31' }], { JD810E: null }, dagarRader, '2026-09-23', 'september')).toBeNull()
   })
 })

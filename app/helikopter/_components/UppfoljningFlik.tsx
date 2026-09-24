@@ -9,7 +9,7 @@ import { PROGNOS_FRAN_ARBETSDAG, prognosPerBolag, type ManadStatus, type SparLag
 import { MANAD_NAMN, fmt, fmtDag, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, BolagRad, MaskinManad, Typ } from '../_lib/queries'
 import { Kort, KortLank, SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton } from './SparKort'
-import { ListRad, Lista, Sektion } from './Lista'
+import { ListRad, Lista, Sektion, TEXT_MUTED } from './Lista'
 import { knapp } from './Tillstand'
 import BolagSheet from './BolagSheet'
 import { skickaVeckoNotis } from '../_lib/queries'
@@ -29,16 +29,18 @@ type Props = {
   manad: number
   /** Admin/chef ser "Skicka veckoläge nu" (onsdagsnotisen). */
   arAdmin: boolean
+  /** Maskiner med manuell datakälla — "manuell" i text-muted efter volymen. */
+  manuella: Set<string>
 }
 
-export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad, arAdmin }: Props) {
+export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad, arAdmin, manuella }: Props) {
   const [oppen, setOppen] = useState<Typ | null>(null)
   return (
     <>
       {spar.map(s => (
         <UppfoljningKort key={s.typ} s={s} status={status} antalPlanerade={antalPlanerade[s.typ]} ar={ar} manad={manad} onOppnaBolag={() => setOppen(s.typ)} />
       ))}
-      <MaskinSektion maskiner={maskiner} fel={maskinerFel} onRetry={onRetryMaskiner} manadNamn={MANAD_NAMN[manad - 1]} />
+      <MaskinSektion maskiner={maskiner} fel={maskinerFel} onRetry={onRetryMaskiner} manadNamn={MANAD_NAMN[manad - 1]} manuella={manuella} />
       {arAdmin && <VeckoNotisSektion />}
       {oppen && (
         <BolagSheet
@@ -136,7 +138,7 @@ function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }:
 }
 
 /** MASKINER: en rad per aktiv maskin — månadens volym, var den senast producerade, takt, oskotat på objektet. Ingen stapel, ingen färg. */
-function MaskinSektion({ maskiner, fel, onRetry, manadNamn }: { maskiner: MaskinManad[] | null; fel: string | null; onRetry: () => void; manadNamn: string }) {
+function MaskinSektion({ maskiner, fel, onRetry, manadNamn, manuella }: { maskiner: MaskinManad[] | null; fel: string | null; onRetry: () => void; manadNamn: string; manuella: Set<string> }) {
   const rubrik = manadNamn.toUpperCase()
   if (fel) {
     return (
@@ -171,7 +173,7 @@ function MaskinSektion({ maskiner, fel, onRetry, manadNamn }: { maskiner: Maskin
                 <ListRad
                   key={m.maskin_id}
                   namn={m.namn}
-                  tal={har ? <>{fmt(m.volym_manad)}<span style={{ color: T.t2 }}> m³fub</span></> : '–'}
+                  tal={har ? <>{fmt(m.volym_manad)}<span style={{ color: T.t2 }}> m³fub</span>{manuella.has(m.maskin_id) && <span style={{ color: TEXT_MUTED }}> · manuell</span>}</> : '–'}
                   talTon={har ? 'normal' : 'muted'}
                   under={har ? delar.join(' · ') : `Ingen produktion i ${manadNamn}`}
                   underMuted={!har}

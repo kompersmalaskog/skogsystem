@@ -12,8 +12,9 @@ import { T } from '@/lib/utbildning'
 import { ymdLokal } from '@/lib/datumLokal'
 import { TYPER, TYP_NAMN } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik } from '../_lib/format'
-import { hamtaVeckor, type Typ, type VeckaRad } from '../_lib/queries'
+import { hamtaManuellaMaskiner, hamtaVeckor, type Typ, type VeckaRad } from '../_lib/queries'
 import { Fel, Laddar, Tomt } from './Tillstand'
+import { TEXT_MUTED } from './Lista'
 import { KortLank, STORT_TAL_STIL } from './SparKort'
 import VeckoDiagram, { veckaFarg } from './VeckoDiagram'
 import OrsakSheet from './OrsakSheet'
@@ -49,6 +50,9 @@ export default function VeckorVy() {
   const [vald, setVald] = useState<number | null>(null)
   const [roll, setRoll] = useState<Roll | null>(null)
   const [orsakOppen, setOrsakOppen] = useState(false)
+  // Maskiner med manuell datakälla — "manuell" efter volymen i veckoraden.
+  const [manuella, setManuella] = useState<Set<string>>(() => new Set())
+  useEffect(() => { let avbruten = false; hamtaManuellaMaskiner().then(m => { if (!avbruten) setManuella(m) }); return () => { avbruten = true } }, [])
 
   useEffect(() => {
     let avbruten = false
@@ -138,7 +142,7 @@ export default function VeckorVy() {
             {vecka && (
               <section style={{ background: T.group, borderRadius: 12, padding: '16px 16px 8px', marginBottom: 14 }}>
                 {roll ? (
-                  <PerMaskin vecka={vecka} roll={roll} onTillbaka={() => setRoll(null)} />
+                  <PerMaskin vecka={vecka} roll={roll} onTillbaka={() => setRoll(null)} manuella={manuella} />
                 ) : (
                   <VeckoDetalj vecka={vecka} harBest={best} onAndraOrsak={() => setOrsakOppen(true)} />
                 )}
@@ -219,7 +223,7 @@ function Spalt({ ikon, label, varde, vecka, harBest }: { ikon: React.ReactNode; 
   )
 }
 
-function PerMaskin({ vecka, roll, onTillbaka }: { vecka: VeckaRad; roll: Roll; onTillbaka: () => void }) {
+function PerMaskin({ vecka, roll, onTillbaka, manuella }: { vecka: VeckaRad; roll: Roll; onTillbaka: () => void; manuella: Set<string> }) {
   const rader = vecka.maskiner.filter(m => m.roll === roll).sort((a, b) => b.volym - a.volym)
   return (
     <>
@@ -233,7 +237,7 @@ function PerMaskin({ vecka, roll, onTillbaka }: { vecka: VeckaRad; roll: Roll; o
           {rader.map(m => (
             <div key={m.maskin_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, fontSize: 15, borderTop: `1px solid ${T.sep}`, fontVariantNumeric: 'tabular-nums' }}>
               <span style={{ color: T.t1 }}>{m.namn}</span>
-              <span style={{ color: T.t2 }}>{fmt(m.volym)}</span>
+              <span style={{ color: T.t2 }}>{fmt(m.volym)}{manuella.has(m.maskin_id) && <span style={{ color: TEXT_MUTED }}> · manuell</span>}</span>
             </div>
           ))}
         </div>

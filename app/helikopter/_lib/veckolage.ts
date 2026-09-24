@@ -3,7 +3,8 @@
 // (veckoNotis.ts) bygger på. Inga imports av React eller Supabase; testad i
 // veckolage.test.ts. Siffrorna räknas med raknaSpar/valjBas — samma som Läge/Uppföljning.
 import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, dagarEfter, raknaSpar, valjBas, type Lage, type SparLage } from './berakningar'
-import { MANAD_NAMN, dagarText, fmt, fmtDag, kortNamn } from './format'
+import { MANAD_NAMN, dagarText, fmt, fmtDag, kortNamn, saknarData, sedanText, veckodag } from './format'
+export { saknarData, sedanText, veckodag }
 import type { Arbetsdagar, MaskinManad, SparRad, Typ, VeckaRad } from './queries'
 
 // ── Payloaden ur SQL ────────────────────────────────────────────────────────
@@ -36,7 +37,6 @@ export type VeckolageData = {
 // ── Gemensamma hjälpfunktioner (sidan + notisen) ────────────────────────────
 /** Spårens ordning: slutavverkning först, sedan gallring. */
 export const ORDNING: Typ[] = ['slutavverkning', 'gallring']
-const VECKODAG = ['söndag', 'måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag']
 export const TOM_DAGAR: Arbetsdagar = { maskin_id: null, totalt: 0, gangna: 0, kvar: 0, gangna_datum: [], kvar_datum: [] }
 
 /** " till Vida" · " till Vida och Södra" · " till Vida, Södra och Privat". Tomt utan bolag. */
@@ -50,26 +50,6 @@ export function bolagText(bolag: string[]): string {
 /** "ca 2 400": närmaste hundratal. */
 export function ca(n: number): string {
   return fmt(Math.round(n / 100) * 100)
-}
-
-export function veckodag(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  return VECKODAG[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
-}
-
-/** "sedan måndag" inom en vecka bakåt, annars "sedan 3 sep"; utan datum alls "i september". */
-export function sedanText(senast: string | null, idag: string, manadNamn: string): string {
-  if (!senast) return `i ${manadNamn}`
-  const dagar = Math.round((Date.parse(idag) - Date.parse(senast)) / 86400000)
-  return dagar >= 0 && dagar <= 6 ? `sedan ${veckodag(senast)}` : `sedan ${fmtDag(senast)}`
-}
-
-/** Aktiv maskin utan fakt-data någon av de två senaste arbetsdagarna (maskinens egna, t.o.m. i dag). Färre än två dagar: går inte att avgöra → false. */
-export function saknarData(m: Pick<VeckolageMaskin, 'senast_datum' | 'dagar_tom_idag'>, globalaDagar: string[]): boolean {
-  const dagar = m.dagar_tom_idag.length > 0 ? m.dagar_tom_idag : globalaDagar
-  if (dagar.length < 2) return false
-  const forstaAvDeTva = dagar[dagar.length - 2]
-  return !m.senast_datum || m.senast_datum < forstaAvDeTva
 }
 
 /** "Wisent · inga lass sedan måndag" / "Ponsse Scorpion · ingen produktion sedan fredag". */

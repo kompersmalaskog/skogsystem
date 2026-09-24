@@ -20,6 +20,7 @@ export function Svarsrad({ svar }: { svar: Svar }) {
         <div style={{ fontSize: 17, fontWeight: 500, color: svar.avvikelse ? T.t1 : T.t2, lineHeight: 1.3 }}>{svar.rubrik}</div>
       </div>
       {svar.rad && <div style={{ fontSize: 14, color: T.t2, marginTop: 4, lineHeight: 1.4, paddingLeft: svar.avvikelse ? 30 : 0 }}>{svar.rad}</div>}
+      {svar.varning && <div style={{ fontSize: 14, color: T.orange, marginTop: 4, lineHeight: 1.4, paddingLeft: svar.avvikelse ? 30 : 0 }}>{svar.varning}</div>}
     </section>
   )
 }
