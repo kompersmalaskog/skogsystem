@@ -218,6 +218,32 @@ export function bytenPerDatum(rader: FranvaroRad[]): { ledig: Record<string, Byt
 }
 
 /**
+ * Arbetade röda vardagar som fortfarande KAN bytas mot en ledig dag: röd
+ * vardag enligt lib/roda-dagar, arbetad, inte redan bytt (byten.rod), inte
+ * avböjd (arbetsdag.bytesdag_avbojd_at), inom BYTE_MAX_DAGAR bakåt från idag.
+ * Samma regler som #572; används av Dag-vyns väntar-kort och Redigera så
+ * bytet når även dagar som bekräftades innan man tänkte på det.
+ */
+export function bytbaraRodaDagar(
+  dagar: { datum: string; arbetad_min?: number | null; start_tid?: string | null; bytesdag_avbojd_at?: string | null }[],
+  bytenRod: Record<string, Byte>,
+  idag: string,
+): { datum: string; namn: string }[] {
+  const idagMs = new Date(idag + "T00:00:00").getTime();
+  const ut: { datum: string; namn: string }[] = [];
+  for (const d of dagar) {
+    if (!d.datum || d.datum > idag) continue;
+    if (!((d.arbetad_min || 0) > 0 || d.start_tid)) continue;
+    if (d.bytesdag_avbojd_at || bytenRod[d.datum]) continue;
+    const namn = rodVardagNamn(d.datum);
+    if (!namn) continue;
+    if ((idagMs - new Date(d.datum + "T00:00:00").getTime()) / 86400000 > BYTE_MAX_DAGAR) continue;
+    ut.push({ datum: d.datum, namn });
+  }
+  return ut.sort((a, b) => a.datum.localeCompare(b.datum));
+}
+
+/**
  * Får `ledig` bytas mot den röda vardagen `ersatter`? null = ja, annars
  * skälet i klartext (för formuläret och Bekräfta-frågan — samma regler som
  * databasens spärr plus röd-dag-kunskapen som bara koden har).
