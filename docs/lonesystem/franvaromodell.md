@@ -97,13 +97,23 @@ fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
 
 **Bytesdag (inarbetad, §5 mom 4) — byggt 2026-09-21.**
 
-- Ansöks i Ledighet-vyn: typ *Inarbetad dag*, EN ledig vardag, och vilken
-  röd vardag den ersätter — listan kommer ur `lib/roda-dagar` (samma källa
-  som kalendern och helglönen), inom ett halvår från den lediga dagen, minus
-  röda dagar personen redan bytt bort. Godkänns som annan ledighet (avtalet:
-  överenskoms samtidigt). Migration `20260921100000`: en vardag mot en
-  vardag, unik per person och röd dag (nekade räknas inte); olika personer
-  kan byta samma dag.
+- **Huvudvägen är Arbetsrapporten** (Martin: "jag jobbar onsdagen som är
+  röd och är ledig fredagen i stället"). När föraren bekräftar en dag som är
+  en röd vardag enligt `lib/roda-dagar` och som inte redan är bytt kommer
+  frågan "Du jobbade Kristi himmelsfärd — vill du ta ledigt en annan dag i
+  stället?" i samma sheet som rast- och passfrågorna. Ja → välj vardag (före
+  eller efter, inom ett halvår) → samma inarbetad-rad, status väntar, Martin
+  godkänner. Nej → inget händer. Frågan kommer EFTER skrivningen och
+  blockerar aldrig bekräftelsen. Dagssammanfattningen visar sedan "Bytt mot
+  ledig fredag 16 maj — väntar på godkännande". Fråga bara där svaret
+  varierar: röda vardagar man jobbar är några om året.
+- **Reserv i Ledighet-vyn** för den som vill planera i förväg: typ
+  *Inarbetad dag*, EN ledig vardag, och vilken röd vardag den ersätter —
+  listan kommer ur `lib/roda-dagar` (samma källa som kalendern och
+  helglönen), inom ett halvår, minus röda dagar personen redan bytt bort.
+  Samma regler i båda vägarna (`bytesdagFel`). Migration `20260921100000`:
+  en vardag mot en vardag, unik per person och röd dag (nekade räknas inte);
+  olika personer kan byta samma dag.
 - Kalendern: den lediga dagen visar ordet *Inarbetad*; Redigera säger vilken
   röd dag den ersätter. Den röda dagen visas som arbetad (prick) och Redigera
   säger "Röd dag (namn) — arbetad, byts mot ledig …. Ingen helglön."

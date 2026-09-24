@@ -10,7 +10,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
-import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, hamtaFranvaro, franvaroPerDatum, registreraFranvaro, bytenPerDatum, type FranvaroTyp, type Byte } from "@/lib/franvaro";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, type FranvaroTyp, type Byte } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
@@ -633,9 +633,11 @@ export default function Arbetsrapport() {
   // dag, så kalendern och Redigera kan förklara båda dagarna.
   const [franvaroByten, setFranvaroByten] = useState<{ ledig: Record<string, Byte>; rod: Record<string, Byte> }>({ ledig: {}, rod: {} });
   const laddaFranvaro = useCallback(async (medId: string, fran: string, till: string) => {
-    const { rader, fel } = await hamtaFranvaro(supabase, { medarbetareId: medId, fran, till });
+    // Även 'väntar': ett bytesdags-svar som väntar på godkännande ska synas i
+    // dagssammanfattningen. Frånvarokartan tar bara det som GÄLLER.
+    const { rader, fel } = await hamtaFranvaro(supabase, { medarbetareId: medId, fran, till, statusar: [...FRANVARO_STATUS_GALLER, "väntar"] });
     if (fel) { console.error('[franvaro] läsfel:', fel); return; }
-    const karta = franvaroPerDatum(rader, fran, till);
+    const karta = franvaroPerDatum(rader.filter(r => (FRANVARO_STATUS_GALLER as readonly string[]).includes(r.status)), fran, till);
     // Ersätt intervallet helt — en borttagen rad ska försvinna, inte ligga kvar.
     setFranvaroDagar(prev => {
       const ut: Record<string, FranvaroTyp> = {};
@@ -742,6 +744,13 @@ export default function Arbetsrapport() {
   // inte ett påstående om fel — en 16-timmarsdag kan vara äkta. `fortsatt` =
   // föraren sa ja, `andra` = öppna tidsredigeringen. null = ingen fråga uppe.
   const [rastFraga, setRastFraga] = useState<{ rubrik: string; text: string; fortsatt: () => Promise<void>; andra: () => void } | null>(null);
+  // BYTESDAG-FRÅGAN (skoftning §5 mom 4) — efter att en arbetad röd vardag är
+  // bekräftad: "Du jobbade Kristi himmelsfärd — vill du ta ledigt en annan dag
+  // i stället?" Ja → välj vardag → rad i ledighet_ansokningar (inarbetad,
+  // väntar, Martin godkänner). Nej → inget händer. Blockerar aldrig
+  // bekräftelsen. Fråga bara där svaret varierar: röda vardagar man jobbar är
+  // några om året, och svaret är verkligen ja eller nej.
+  const [byteFraga, setByteFraga] = useState<{ datum: string; namn: string; valjer: boolean; ledig: string; fel: string | null; sparar: boolean } | null>(null);
   // Felrad i Redigera-vyn — ersätter window.alert (app-egna dialoger).
   const [redFel, setRedFel] = useState<string | null>(null);
   const [visaHelÅrVila, setVisaHelÅrVila] = useState(false);
@@ -1724,8 +1733,82 @@ export default function Arbetsrapport() {
         console.error("Vilo-för-check misslyckades:", err);
       }
     }
-    await skriv();
+    const ok = await skriv();
+    if (ok !== false) fragaOmByte(datum);
   };
+
+  // Efter bekräftelse av en arbetad RÖD VARDAG (lib/roda-dagar) som inte redan
+  // är bytt: ställ bytesdags-frågan. Aldrig före skrivningen — frågan blockerar
+  // inte bekräftelsen. Samma väg från Dag, Redigera och vilobrott-flödet.
+  const fragaOmByte = (datum: string) => {
+    const namn = rodVardagNamn(datum);
+    if (!namn || franvaroByten.rod[datum]) return;
+    setByteFraga({ datum, namn, valjer: false, ledig: "", fel: null, sparar: false });
+  };
+  const skickaByte = async () => {
+    if (!byteFraga || !medarbetare?.id) return;
+    const fel = bytesdagFel(byteFraga.ledig, byteFraga.datum, franvaroDagar);
+    if (fel) { setByteFraga({ ...byteFraga, fel }); return; }
+    setByteFraga({ ...byteFraga, sparar: true, fel: null });
+    const res = await ansokBytesdag(supabase, { medarbetareId: medarbetare.id, namn: medarbetare.namn || "", ledig: byteFraga.ledig, ersatter: byteFraga.datum });
+    if (!res.ok) { setByteFraga({ ...byteFraga, sparar: false, fel: res.fel }); return; }
+    const b: Byte = { ledig: byteFraga.ledig, ersatter: byteFraga.datum, ersatterNamn: byteFraga.namn, status: "väntar" };
+    setFranvaroByten(prev => ({ ledig: { ...prev.ledig, [b.ledig]: b }, rod: { ...prev.rod, [b.ersatter]: b } }));
+    setByteFraga(null);
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
+  };
+  const fmtLedigDag = (iso: string) => {
+    const d = new Date(iso + "T00:00:00");
+    return `${["söndag","måndag","tisdag","onsdag","torsdag","fredag","lördag"][d.getDay()]} ${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`;
+  };
+
+  // Bytesdags-sheeten — samma form som rastfrågan. Steg 1: Ja/Nej. Steg 2 (Ja):
+  // välj ledig vardag, före eller efter den röda, inom ett halvår.
+  const byteFragaUI = byteFraga && (() => {
+    const f = byteFraga;
+    const mitt = new Date(f.datum + "T00:00:00");
+    const min = new Date(mitt); min.setDate(min.getDate() - BYTE_MAX_DAGAR);
+    const max = new Date(mitt); max.setDate(max.getDate() + BYTE_MAX_DAGAR);
+    return (
+      <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+        <div className="sheet-upp" style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))` }}>
+          <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+            <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
+          </div>
+          <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Du jobbade {f.namn} — vill du ta ledigt en annan dag i stället?</p>
+          <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
+            {f.valjer
+              ? "Välj en vardag, före eller efter den röda dagen, inom ett halvår. Ansökan går till Martin."
+              : "Byte enligt avtalet: lön som vanligt, den lediga dagen dras inte. Helglönen flyttas inte. Dagen är bekräftad oavsett."}
+          </p>
+          {f.valjer && (
+            <>
+              <input
+                type="date"
+                value={f.ledig}
+                min={ymdLokal(min)}
+                max={ymdLokal(max)}
+                onChange={e => setByteFraga({ ...f, ledig: e.target.value, fel: null })}
+                style={{ marginTop:AVSTAND.l, width:"100%", boxSizing:"border-box", background:FARG.fyllning, color:FARG.text, border:"none", borderRadius:RADIE.rad, padding:`${AVSTAND.m}px ${AVSTAND.l}px`, ...TYP.listtitel, fontFamily:"inherit", colorScheme:"dark" }}
+              />
+              {f.ledig && !f.fel && !bytesdagFel(f.ledig, f.datum, franvaroDagar) && (
+                <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>Ledig {fmtLedigDag(f.ledig)}, jobbade {f.namn} {f.datum.slice(8)}/{Number(f.datum.slice(5, 7))}.</p>
+              )}
+              {(f.fel || (f.ledig && bytesdagFel(f.ledig, f.datum, franvaroDagar))) && (
+                <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod }}>{f.fel || bytesdagFel(f.ledig, f.datum, franvaroDagar)}</p>
+              )}
+            </>
+          )}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
+            <button onClick={()=>setByteFraga(null)} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>{f.valjer ? "Avbryt" : "Nej"}</button>
+            {f.valjer
+              ? <button disabled={f.sparar || !f.ledig || !!bytesdagFel(f.ledig, f.datum, franvaroDagar)} onClick={skickaByte} style={{ ...KNAPP.primar, opacity: (f.sparar || !f.ledig || !!bytesdagFel(f.ledig, f.datum, franvaroDagar)) ? 0.5 : 1 }}>{f.sparar ? "Sparar…" : "Skicka ansökan"}</button>
+              : <button onClick={()=>setByteFraga({ ...f, valjer: true })} style={KNAPP.primar}>Ja, välj dag</button>}
+          </div>
+        </div>
+      </div>
+    );
+  })();
 
   // Rastfrågans sheet — renderas i Dag OCH Redigera (båda har Bekräfta).
   // Ordet bär budskapet, inte färgen: rasten står som tal, valen är tydliga.
@@ -1793,7 +1876,7 @@ export default function Arbetsrapport() {
       // knappen. Orsak-svaret är redan persistat i DB så det går inte
       // förlorat — föraren fixar tiderna och bekräftar igen.
       const mål = bekraftaMål;
-      if (mål) await mål.skriv(); else await bekraftaDagen();
+      if (mål) { const ok = await mål.skriv(); if (ok !== false) fragaOmByte(mål.datum); } else await bekraftaDagen();
       setBekraftaMål(null);
       setVilobrottKö([]);
       setVilobrottIdx(0);
@@ -2344,6 +2427,16 @@ export default function Arbetsrapport() {
                 <span style={{ ...TYP.meta, ...TNUM, color:FARG.gron }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
               </div>
             )}
+            {/* Bytesdag gjord för en arbetad röd dag: föraren ska se att det gick
+                igenom — och att det väntar på Martin tills det är godkänt. */}
+            {franvaroByten.rod[idagKey] && (
+              <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2 }}>swap_horiz</span>
+                <span style={{ ...TYP.meta, color:FARG.text2 }}>
+                  Bytt mot ledig {fmtLedigDag(franvaroByten.rod[idagKey].ledig)}{franvaroByten.rod[idagKey].status === "väntar" ? " — väntar på godkännande" : ""}
+                </span>
+              </div>
+            )}
             {ändradSedan && (
               <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.orange }}>edit</span>
@@ -2755,6 +2848,11 @@ export default function Arbetsrapport() {
 
       {/* "Vad gjorde du?"-sheeten + objektväljare — delad UI, se efterStoppUI */}
       {efterStoppUI}
+      {/* Bekräfta-frågorna (rast/pass) och bytesdags-frågan — Dag-vyn anropar
+          samma bekraftaMedForcheck som Redigera och måste rendera samma sheets;
+          rastfrågan saknades här (satte state utan att något syntes). */}
+      {rastFragaUI}
+      {byteFragaUI}
 
       {/* Sheet: Ändra tider */}
       {visaTiderSheet && (()=>{
@@ -5423,6 +5521,7 @@ export default function Arbetsrapport() {
             faktiskt öppnar redigering även för historiska dagar */}
         {efterStoppUI}
         {rastFragaUI}
+        {byteFragaUI}
 
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(

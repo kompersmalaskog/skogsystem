@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { upsertVerifierat, uppdateraVerifierat } from '@/lib/supabase-save';
-import { rodaVardagarForByte, rodVardagNamn } from '@/lib/franvaro';
+import { rodaVardagarForByte, rodVardagNamn, bytesdagFel } from '@/lib/franvaro';
 import { C, ff, inputStyle, labelStyle, TYPINFO, ANSOKBARA_TYPER, type LedighetTyp } from './tema';
 import { arbetsdagar, arHelg, fmtDatum, fmtPeriod, toISO } from './datum';
 import type { Ansokan } from './typer';
@@ -58,12 +58,13 @@ export default function AnsokFormular({
     return rodaVardagarForByte(kring).filter(r => !upptagna.has(r.datum));
   }, [arByte, start, ansokningar, egenId, redigerar]);
 
-  // Den lediga dagen i ett byte måste vara en vanlig vardag
+  // Den lediga dagen i ett byte måste vara en vanlig vardag — samma regler som
+  // Arbetsrapportens Bekräfta-fråga (lib/franvaro.bytesdagFel).
   const ledigDagFel = useMemo(() => {
     if (!arByte || !start) return null;
     if (arHelg(start)) return 'Den lediga dagen måste vara en vardag (mån–fre).';
-    if (rodVardagNamn(start)) return `${start.slice(8)} ${fmtDatum(start).split(' ')[1]} är redan röd dag (${rodVardagNamn(start)}) — välj en vanlig vardag.`;
-    if (ersatter && ersatter === start) return 'Den lediga dagen kan inte vara samma som den röda.';
+    if (rodVardagNamn(start)) return `${fmtDatum(start)} är redan röd dag (${rodVardagNamn(start)}) — välj en vanlig vardag.`;
+    if (ersatter) return bytesdagFel(start, ersatter);
     return null;
   }, [arByte, start, ersatter]);
 

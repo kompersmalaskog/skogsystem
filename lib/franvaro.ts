@@ -121,12 +121,15 @@ export type FranvaroRad = {
  */
 export async function hamtaFranvaro(
   supabase: any,
-  p: { medarbetareId?: string; fran: string; till: string },
+  p: { medarbetareId?: string; fran: string; till: string; statusar?: readonly FranvaroStatus[] },
 ): Promise<{ rader: FranvaroRad[]; fel: string | null }> {
   let q = supabase
     .from("ledighet_ansokningar")
     .select("id, medarbetare_id, typ, startdatum, slutdatum, status, ersatter_datum")
-    .in("status", FRANVARO_STATUS_GALLER as string[])
+    // Default: bara det som GÄLLER. Arbetsrapporten tar även 'väntar' för att
+    // visa ett bytesdags-svar som väntar på godkännande — men filtrerar själv
+    // bort väntande ur frånvarokartan.
+    .in("status", (p.statusar ?? FRANVARO_STATUS_GALLER) as string[])
     .lte("startdatum", p.till)
     .gte("slutdatum", p.fran);
   if (p.medarbetareId) q = q.eq("medarbetare_id", p.medarbetareId);
@@ -162,7 +165,10 @@ export function franvaroPerDatum(rader: FranvaroRad[], fran: string, till: strin
 // utan avdrag, helglönen flyttas INTE. Reglerna i DB: migration
 // 20260921100000 (en vardag, unik per person och röd dag).
 
-export type Byte = { ledig: string; ersatter: string; ersatterNamn: string };
+export type Byte = { ledig: string; ersatter: string; ersatterNamn: string; status?: FranvaroStatus };
+
+/** Avtalets "vid ett och samma tillfälle": så långt isär får den lediga och den röda dagen ligga. */
+export const BYTE_MAX_DAGAR = 183;
 
 /**
  * Röda VARDAGAR (mån–fre) ur lib/roda-dagar som kan bytas mot en ledig dag —
@@ -180,7 +186,7 @@ export function rodaVardagarForByte(kringDatum: string): { datum: string; namn: 
       const d = new Date(datum + "T00:00:00");
       const dow = d.getDay();
       if (dow === 0 || dow === 6) continue;
-      if (Math.abs(d.getTime() - mitt) > 183 * 86400000) continue;
+      if (Math.abs(d.getTime() - mitt) > BYTE_MAX_DAGAR * 86400000) continue;
       ut.push({ datum, namn });
     }
   }
@@ -204,11 +210,65 @@ export function bytenPerDatum(rader: FranvaroRad[]): { ledig: Record<string, Byt
   const ledig: Record<string, Byte> = {}, rod: Record<string, Byte> = {};
   for (const r of rader) {
     if (r.typ !== "inarbetad" || !r.ersatter_datum) continue;
-    const b: Byte = { ledig: r.startdatum, ersatter: r.ersatter_datum, ersatterNamn: rodVardagNamn(r.ersatter_datum) || "röd dag" };
+    const b: Byte = { ledig: r.startdatum, ersatter: r.ersatter_datum, ersatterNamn: rodVardagNamn(r.ersatter_datum) || "röd dag", status: r.status };
     if (!ledig[b.ledig]) ledig[b.ledig] = b;
     if (!rod[b.ersatter]) rod[b.ersatter] = b;
   }
   return { ledig, rod };
+}
+
+/**
+ * Får `ledig` bytas mot den röda vardagen `ersatter`? null = ja, annars
+ * skälet i klartext (för formuläret och Bekräfta-frågan — samma regler som
+ * databasens spärr plus röd-dag-kunskapen som bara koden har).
+ */
+export function bytesdagFel(ledig: string, ersatter: string, franvaroDagar: Record<string, FranvaroTyp> = {}): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ledig)) return "Välj en dag.";
+  const dow = new Date(ledig + "T00:00:00").getDay();
+  if (dow === 0 || dow === 6) return "Den lediga dagen måste vara en vardag (mån–fre).";
+  const rodNamn = rodVardagNamn(ledig);
+  if (rodNamn) return `${ledig} är redan röd dag (${rodNamn}) — välj en vanlig vardag.`;
+  if (ledig === ersatter) return "Den lediga dagen kan inte vara samma som den röda.";
+  if (!rodVardagNamn(ersatter)) return `${ersatter} är ingen röd vardag.`;
+  const diff = Math.abs(new Date(ledig + "T00:00:00").getTime() - new Date(ersatter + "T00:00:00").getTime()) / 86400000;
+  if (diff > BYTE_MAX_DAGAR) return `Högst ett halvår från den röda dagen (${BYTE_MAX_DAGAR} dagar).`;
+  if (franvaroDagar[ledig]) return `${ledig} är redan ${FRANVARO_TYP_RUBRIK[franvaroDagar[ledig]].toLowerCase()}.`;
+  return null;
+}
+
+/**
+ * Ansöker om bytesdag från Arbetsrapporten (Bekräfta-frågan): typ 'inarbetad',
+ * status 'väntar' (godkännare godkänner — avtalet: ledighet och inarbetning
+ * överenskoms samtidigt), kalla 'morgonkort' = förarens egen registrering i
+ * arbetsrapporten. Samma rad som Ledighet-vyns formulär skapar.
+ */
+export async function ansokBytesdag(
+  supabase: any,
+  p: { medarbetareId: string; namn: string; ledig: string; ersatter: string },
+): Promise<{ ok: true; rad: FranvaroRad } | { ok: false; fel: string }> {
+  const fel = bytesdagFel(p.ledig, p.ersatter);
+  if (fel) return { ok: false, fel };
+  const { data, error } = await supabase
+    .from("ledighet_ansokningar")
+    .insert({
+      medarbetare_id: p.medarbetareId,
+      anvandare_id: p.namn,
+      typ: "inarbetad",
+      startdatum: p.ledig,
+      slutdatum: p.ledig,
+      ersatter_datum: p.ersatter,
+      status: "väntar",
+      kalla: "morgonkort",
+      skapad_av: p.namn,
+      kommentar: `Jobbade ${rodVardagNamn(p.ersatter)} ${p.ersatter}, ledig ${p.ledig} i stället (via Bekräfta)`,
+    })
+    .select("id, medarbetare_id, typ, startdatum, slutdatum, status, ersatter_datum")
+    .single();
+  if (error || !data) {
+    const m = String(error?.message || "");
+    return { ok: false, fel: /idx_ledighet_inarbetad_unik/.test(m) ? "Den röda dagen är redan bytt." : (m || "Kunde inte spara bytet.") };
+  }
+  return { ok: true, rad: data as FranvaroRad };
 }
 
 // ── Skriva (morgonkortet) ────────────────────────────────────
