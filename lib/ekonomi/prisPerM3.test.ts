@@ -89,17 +89,39 @@ describe('klass bär tolkningen som saknar avtalsstöd', () => {
     expect(p.delar[0].etikett).not.toContain('→')
   })
 
-  it('Åbogens skördningspris reproduceras: 56 + 1,5 + 2 + 2 = 61,50', () => {
-    // Faktura 2026142: "Skördning Gigant 700 m3fub à 61,50" med härledningen
-    // Medel 0,8 / Krönt +1,5kr / Storlek +2kr / Blött +2kr.
+  it('Åbogen ur APPENS data ger 59,50 — fakturans 61,50 innehåller en manuell post', () => {
+    // Objekt 11217413, verifierat mot prod 2026-09-24:
+    //   medelstam 742/919 = 0,807  → klass 0,60 → pris_skordare 56
+    //   sortimentgrupper 4, grundantal 6        → 0 kr
+    //   742 m³fub i traktspannet 400–800        → 2 kr
+    //   kvalitetssäkring (avräkning 2026-08-10) → 1,5 kr
+    //   terrang_kr_manuell = NULL               → 0 kr
     const p = prisPerM3({
+      roll: 'skordare', medelstam: 0.807, acordList: ACORD,
+      sortKr: 0, traktKr: 2, kvalitetKr: 1.5, terrangKr: 0,
+    })
+    expect(p.krPerM3).toBe(59.5)
+    expect(p.delar.map(d => d.etikett)).toEqual([
+      'Grund (medelstam 0,81 → 0,6)', 'Krönt', 'Storlek',
+    ])
+
+    // Faktura 2026142 säger 61,50 med textraden "Blött +2kr". De två kronorna
+    // finns INTE i appens data — de är Martins bedömning av förhållandena, och
+    // avtalets terrängspann är 1–8 kr/m³fub, alltså ett val och inte en formel.
+    // Endast TVÅ objekt i hela databasen har terrang_kr_manuell satt, och
+    // Åbogen är inte ett av dem.
+    //
+    // Skillnaden ska alltså bäras som en MANUELL POST i fakturaunderlaget, inte
+    // tryckas in i ackordspriset — annars försvinner två kronor per kubik tyst
+    // på varje svår trakt. Det här testet låser fast gapet så att den dagen
+    // någon "får" 61,50 ur koden är det för att posten byggts, inte för att
+    // ett värde smugit in i formeln.
+    const medTerrang = prisPerM3({
       roll: 'skordare', medelstam: 0.807, acordList: ACORD,
       sortKr: 0, traktKr: 2, kvalitetKr: 1.5, terrangKr: 2,
     })
-    expect(p.krPerM3).toBe(61.5)
-    expect(p.delar.map(d => d.etikett)).toEqual([
-      'Grund (medelstam 0,81 → 0,6)', 'Krönt', 'Storlek', 'Terräng',
-    ])
+    expect(medTerrang.krPerM3).toBe(61.5)
+    expect(medTerrang.krPerM3 - p.krPerM3).toBe(2)
   })
 
   it('tom prislista ger 0 och klass null — aldrig ett gissat pris', () => {
