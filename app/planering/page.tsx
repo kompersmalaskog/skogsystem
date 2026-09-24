@@ -16,6 +16,7 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, hyttsparDugligaSegment, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { skaEmittaHeading } from '../../lib/kompass'
+import { klassaTraktFeature, byggTraktKort, valjMinstaYta, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -1073,6 +1074,10 @@ export default function PlannerPage() {
   // === MapLibre state ===
   const [mapLibreReady, setMapLibreReady] = useState(false);
   const [geoTyper, setGeoTyper] = useState<Set<string>>(new Set()); // vilka _typ trakt-geometrin har → datadrivna lagerknappar
+  // Vilka referenskategorier (traktdel/nyckelbiotop/lämning) geometrin har. Klassas på _lager via
+  // lib/traktGeometri (importen sätter _typ='okänt' för referenslagren, så geoTyper räcker inte). Driver
+  // de nya lagerknapparna (nyckelbiotop/lämning). Traktdelar har ingen knapp — de är alltid tända.
+  const [geoKategorier, setGeoKategorier] = useState<Set<TraktKategori>>(new Set());
   const [traktGeo, setTraktGeo] = useState<any>(null); // hela FeatureCollection för valt objekt → snabbpanelen räknar faror/hänsyn/basväg ur den
 
   // MapLibre map style config (stable constant)
@@ -1557,10 +1562,12 @@ export default function PlannerPage() {
     // kartbilden (som infogas under zone-/line-lagren) så geometrin syns på kartbilden.
     map.addSource('trakt-geo-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     const FLB = ['downcase', ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]] as any;
-    // Traktgräns — grön fylld yta + kontur (MultiPolygon: ALLA delytor ritas)
-    // VIDA:s egen färg (_farg, satt vid import) om den finns, annars appens fallback.
-    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#22c55e'], 'fill-opacity': 0.12 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'traktgräns'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#22c55e'], 'line-width': 2.5 }, layout: { visibility: 'none' } });
+    // Traktdelar (L_TRAKTDEL, Vida) — tunn grön fyllning + kontur (MultiPolygon: ALLA delytor ritas).
+    // Filtrerar på _lager (importen sätter _typ='traktgräns' på L_TRAKTDEL men SV_BESKRIVNINGSENHET_FL
+    // = markägarens skogsbruksplan ska ALDRIG renderas — därför _lager, inte _typ). Alltid tända
+    // (se toggle-effekten). Tappbara → gemensamt trakt-kort. VIDA:s _farg om den finns, annars fallback.
+    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_TRAKTDEL'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#22c55e'], 'fill-opacity': 0.08 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_TRAKTDEL'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#22c55e'], 'line-width': 2 }, layout: { visibility: 'none' } });
     // Hänsynsytor — blå fylld yta + kontur
     map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'line-width': 1.5 }, layout: { visibility: 'none' } });
@@ -1605,6 +1612,21 @@ export default function PlannerPage() {
     // Etikett UNDER avläggsmarkören (larmets "Larm" ligger OVANFÖR sin pin). Höjdseparation gör
     // att "01-1" och "Larm" aldrig krockar när avlägg och larm sammanfaller — de växer åt var sitt håll.
     map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 2.0], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-optional': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
+
+    // === Nyckelbiotoper (SV_SKS_NYCKELBIOTOP_101, Skogsstyrelsen) — svag grön fyllning + STRECKAD kontur ===
+    // Streckningen skiljer dem från traktdelens heldragna gröna kontur. Tappbara → gemensamt kort.
+    map.addLayer({ id: 'trakt-nb-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.10 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-nb-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'line-color': '#16a34a', 'line-width': 2, 'line-dasharray': [3, 2] }, layout: { visibility: 'none' } });
+
+    // === RAÄ-lämningar (L_RAA_POLY/LINE/POINT_101, Riksantikvarieämbetet) — amber kontur/symbol ===
+    // Poly: svag fyllning + kontur. Line: amber streck. Point: liten amber prick med mörk kant.
+    // Samma amber som fornlämning i LEGEND (starkt lagskydd). Tappbara → gemensamt kort.
+    map.addLayer({ id: 'trakt-raa-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POLY_101'], paint: { 'fill-color': '#b45309', 'fill-opacity': 0.14 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-raa-line', type: 'line', source: 'trakt-geo-source', filter: ['in', ['get', '_lager'], ['literal', ['L_RAA_POLY_101', 'L_RAA_LINE_101']]], paint: { 'line-color': '#b45309', 'line-width': 2.5 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-raa-point', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': '#b45309', 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 }, layout: { visibility: 'none' } });
+
+    // Traktdelsnummer (TRDEL_NR_K) i mitten av varje traktdel — läggs SIST så det ligger överst.
+    map.addLayer({ id: 'trakt-gr-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_TRAKTDEL'], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'TRDEL_NR_K'], '']], 'text-size': 13, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#dcfce7', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.6 } });
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -2168,9 +2190,9 @@ export default function PlannerPage() {
   const [larmPlacering, setLarmPlacering] = useState(false); // "Peka på karta"-läge (larmkoordinat)
   const larmPlaceringFromRef = useRef<'trakt' | 'karta'>('trakt'); // varifrån flytten startades
   const [larmPopupOpen, setLarmPopupOpen] = useState(false); // popup vid tryck på märket
-  // Tryck på en trakt-feature (hänsynsyta/linje/avlägg) → kort med nr, typ, areal och ÅTGÄRD-texten
-  // (traktdirektivets hänsyns-/körinstruktion, som ligger i ATGARD — inte ANTECKNING).
-  const [traktInfo, setTraktInfo] = useState<{ typ: string; lopnr: string; flbeskr: string; arealHa: number | null; atgard: string; anteckning: string } | null>(null);
+  // Tryck på en trakt-feature (traktdel/hänsyn/avlägg/nyckelbiotop/lämning) → gemensamt kort.
+  // Innehållet (rubrik, källa, nr, areal, textrader) byggs av byggTraktKort i lib/traktGeometri.
+  const [traktInfo, setTraktInfo] = useState<TraktKort | null>(null);
   const [larmConfirmDelete, setLarmConfirmDelete] = useState(false);
   const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
   const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
@@ -3762,7 +3784,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const src = map.getSource('trakt-geo-source') as any;
     if (!src) return;
-    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setTraktGeo(null); return; }
+    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); return; }
     let avbruten = false;
     (async () => {
       const { data, error } = await supabase
@@ -3772,6 +3794,7 @@ export default function PlannerPage() {
       if (error || !fc || !Array.isArray(fc.features) || fc.features.length === 0) {
         src.setData({ type: 'FeatureCollection', features: [] });
         setGeoTyper(new Set());
+        setGeoKategorier(new Set());
         setTraktGeo(null);
         return;
       }
@@ -3779,8 +3802,15 @@ export default function PlannerPage() {
       setTraktGeo(fc);
       // Vilka _typ finns faktiskt (driver knapparna — iterera över det som kom, aldrig anta).
       const typer = new Set<string>();
-      for (const f of fc.features) { const t = f?.properties?._typ; if (t) typer.add(t); }
+      // Referenskategorier klassade på _lager (nyckelbiotop/lämning syns inte i _typ='okänt').
+      const kategorier = new Set<TraktKategori>();
+      for (const f of fc.features) {
+        const t = f?.properties?._typ; if (t) typer.add(t);
+        const { kategori } = klassaTraktFeature(f?.properties);
+        if (kategori !== 'ignorera') kategorier.add(kategori);
+      }
       setGeoTyper(typer);
+      setGeoKategorier(kategorier);
       // Zooma till geometrins utsträckning (inte till pinen) — bbox över alla features.
       let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
       const scan = (c: any): void => {
@@ -3802,17 +3832,25 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const set = (id: string, on: boolean) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); };
-    set('trakt-gr-fill', !!overlays.traktGrans);
-    set('trakt-gr-line', !!overlays.traktGrans);
+    // Traktdelar ALLTID tända (Martin) — ingen toggle. Kontexten för allt annat.
+    set('trakt-gr-fill', true);
+    set('trakt-gr-line', true);
+    set('trakt-gr-label', true);
     set('trakt-hansyn-fill', !!overlays.hansyn);
     set('trakt-hansyn-line', !!overlays.hansyn);
     set('trakt-hansyn-label', !!overlays.hansyn);
+    // Nyckelbiotoper (Skogsstyrelsen) + RAÄ-lämningar — egna toggles, default PÅ.
+    set('trakt-nb-fill', !!overlays.traktNyckelbiotop);
+    set('trakt-nb-line', !!overlays.traktNyckelbiotop);
+    set('trakt-raa-fill', !!overlays.traktLamning);
+    set('trakt-raa-line', !!overlays.traktLamning);
+    set('trakt-raa-point', !!overlays.traktLamning);
     // Kör & fara: basväg + kraftledning + punkter (avlägg/larm) i samma lager.
     set('trakt-basvag-line', !!overlays.korFara);
     set('trakt-kraftledning-line', !!overlays.korFara);
     set('trakt-punkt-circle', !!overlays.korFara);
     set('trakt-punkt-label', !!overlays.korFara);
-  }, [overlays.traktGrans, overlays.hansyn, overlays.korFara, mapLibreReady, geoTyper]);
+  }, [overlays.hansyn, overlays.korFara, overlays.traktNyckelbiotop, overlays.traktLamning, mapLibreReady, geoTyper]);
 
   // === Kör & fara får aldrig vara sparad släckt ===
   // Lagret bär kraftledningen (fara, inte hänsyn — släcker man Hänsyn ska den inte försvinna).
@@ -4935,33 +4973,30 @@ export default function PlannerPage() {
     };
   }, [mapLibreReady, larmPlacering]);
 
-  // === Tryck på trakt-feature → kort med nr/typ/areal + ÅTGÄRD-texten ===
-  // Datan finns redan i geometrin (ATGARD = instruktionen). queryRenderedFeatures i
-  // prioritetsordning: avlägg (punkt) > linje > hänsynsyta, så en punkt ovanpå en yta vinner.
+  // === Tryck på trakt-feature → gemensamt kort (typ + källa + text) ===
+  // Alla tappbara Vida/SKS/RAÄ-lager. Vid överlapp väljs MINSTA ytan (hänsynsyta före traktdel;
+  // punkt/linje vinner över yta) via valjMinstaYta. Kortinnehållet byggs av byggTraktKort (lib).
   // Larmet har egen popup (fångas av larm-pin-hit före detta), så det listas inte här.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const LAGER = ['trakt-punkt-circle', 'trakt-basvag-line', 'trakt-kraftledning-line', 'trakt-hansyn-fill'];
+    const LAGER = [
+      'trakt-punkt-circle', 'trakt-raa-point', 'trakt-basvag-line', 'trakt-kraftledning-line',
+      'trakt-raa-line', 'trakt-hansyn-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill',
+    ];
     const onKlick = (e: any) => {
       if (skotningDrawingRef.current) return;   // urvalsritning: tryck = hörn
       if (larmPlacering) return;                 // mitt i en larmflytt
       const lager = LAGER.filter((l) => map.getLayer(l));
       const träffar = lager.length ? map.queryRenderedFeatures(e.point, { layers: lager }) : [];
       if (!träffar.length) return;
+      // Bara klassade (renderade) features är tappbara — hoppa ev. okänt.
+      const kandidater = träffar.filter((f: any) => klassaTraktFeature(f.properties).kategori !== 'ignorera');
+      if (!kandidater.length) return;
+      const vald = valjMinstaYta(kandidater);
+      if (!vald) return;
       featureClickedRef.current = true;          // hindra att tom-yta-klicket stänger paneler
-      const p = träffar[0].properties || {};
-      const areaRaw = p['SHAPE.STAr'] ?? p['SHAPE_STAr'] ?? p['Shape_Area'];
-      const area = parseFloat(String(areaRaw ?? '').replace(',', '.'));
-      const txt = (v: any) => (v == null ? '' : String(v).trim());
-      setTraktInfo({
-        typ: txt(p._typ),
-        lopnr: txt(p.LOPNR) || txt(p.EXTRA_LABE),   // hänsyn = LOPNR, avlägg = EXTRA_LABE (01-1)
-        flbeskr: txt(p.FLBESKR),
-        arealHa: Number.isFinite(area) && area > 0 ? area / 10000 : null,
-        atgard: txt(p.ATGARD),
-        anteckning: txt(p.ANTECKNING),
-      });
+      setTraktInfo(byggTraktKort(vald.properties || {}));
     };
     const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
     const onLeave = () => { map.getCanvas().style.cursor = ''; };
@@ -7407,7 +7442,10 @@ export default function PlannerPage() {
       // (zone-fill/zone-outline/zone-label) — MÅSTE vara med annars döljs zonerna i körvy. Förr
       // visades zoner i körvy bara via 'zones-korvy-*-extrusion' (3D-pelaren, nu borttagen); utan
       // 'zone-' i whitelisten försvann den platta zonen (RISA syntes i planering men ej i körvy).
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skordarstrak-', 'skotar-hogar-', 'hyttspar-'];
+      // 'trakt-' = Vida/SKS/RAÄ-referensgeometrin. Traktdelar alltid tända; hänsyn tänds i båda
+      // körvyerna; nyckelbiotoper + lämningar tänds i körvyn. Synligheten per lager styrs av toggle-
+      // effekten (som kör i planeringsläget); whitelisten släpper bara igenom dem så de inte döljs här.
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skordarstrak-', 'skotar-hogar-', 'hyttspar-', 'trakt-'];
       for (const l of allLayers) {
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
@@ -14044,41 +14082,47 @@ export default function PlannerPage() {
       )}
 
       {/* Larmkoordinat: popup vid tryck på märket — tillfartsväg (SAMMA fält som Larm-fliken), flytta, ta bort */}
-      {/* Trakt-feature-kort: nr, typ, areal + ÅTGÄRD-texten (traktdirektivets instruktion) */}
+      {/* Gemensamt trakt-kort: rubrik + typ/källa (Vida/Skogsstyrelsen/RAÄ) + nr/areal + textrader */}
       {traktInfo && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}
           onClick={() => setTraktInfo(null)}
         >
           <div
-            style={{ background: '#000', borderRadius: '24px', padding: '28px', width: '90%', maxWidth: '500px', border: '1px solid rgba(255,255,255,0.15)' }}
+            style={{ background: '#000', borderRadius: '24px', padding: '28px', width: '90%', maxWidth: '500px', border: '1px solid rgba(255,255,255,0.15)', maxHeight: '80vh', overflowY: 'auto' }}
             onClick={(e) => e.stopPropagation()}
           >
             {(() => {
-              const rubrik = traktInfo.flbeskr
-                || (traktInfo.typ === 'hänsynsyta' ? 'Hänsynsyta' : traktInfo.typ === 'linje' ? 'Linje' : traktInfo.typ === 'punkt' ? 'Avlägg' : 'Trakt-objekt');
+              const TYP_NAMN: Record<TraktKategori, string> = {
+                traktdel: 'Traktdel', hansyn: 'Hänsynsyta', punkt: 'Avlägg',
+                nyckelbiotop: 'Nyckelbiotop', lamning: 'Fornlämning', ignorera: '',
+              };
+              const typNamn = TYP_NAMN[traktInfo.kategori] || 'Trakt-objekt';
+              // Typ + källa som en dämpad etikett ("Nyckelbiotop · Skogsstyrelsen").
+              const typKalla = traktInfo.kalla ? `${typNamn} · ${traktInfo.kalla}` : typNamn;
               const kontext: string[] = [];
-              if (traktInfo.lopnr) kontext.push(`Nr ${traktInfo.lopnr}`);
+              if (traktInfo.nr) kontext.push(`Nr ${traktInfo.nr}`);
               if (traktInfo.arealHa != null) kontext.push(`${traktInfo.arealHa.toFixed(2)} ha`);
-              const visaAnteckning = traktInfo.anteckning && traktInfo.anteckning !== traktInfo.atgard;
-              const harText = traktInfo.atgard || traktInfo.anteckning;
               return (
                 <>
-                  <div style={{ fontSize: '19px', fontWeight: 700, color: '#fff', marginBottom: kontext.length ? '2px' : '14px' }}>{rubrik}</div>
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.6px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{typKalla}</div>
+                  <div style={{ fontSize: '19px', fontWeight: 700, color: '#fff', marginBottom: kontext.length ? '2px' : '14px' }}>{traktInfo.rubrik}</div>
                   {kontext.length > 0 && (
                     <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', marginBottom: '16px' }}>{kontext.join(' · ')}</div>
                   )}
-                  {traktInfo.atgard && (
-                    <div style={{ fontSize: '15px', lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap', marginBottom: visaAnteckning ? '14px' : '20px' }}>{traktInfo.atgard}</div>
-                  )}
-                  {visaAnteckning && (
-                    <div style={{ marginBottom: '20px' }}>
-                      <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.3)', marginBottom: '4px' }}>Anteckning</div>
-                      <div style={{ fontSize: '14px', lineHeight: 1.5, color: 'rgba(255,255,255,0.75)', whiteSpace: 'pre-wrap' }}>{traktInfo.anteckning}</div>
+                  {traktInfo.rader.length > 0 ? (
+                    <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {traktInfo.rader.map((r, i) => (
+                        <div key={i}>
+                          {r.etikett && (
+                            <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.3)', marginBottom: '3px' }}>{r.etikett}</div>
+                          )}
+                          <div style={{ fontSize: '15px', lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{r.text}</div>
+                        </div>
+                      ))}
                     </div>
-                  )}
-                  {!harText && (
-                    <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)', marginBottom: '20px' }}>Ingen åtgärdstext i traktdirektivet för den här ytan.</div>
+                  ) : (
+                    <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)', marginBottom: '20px' }}>Ingen beskrivning för den här {typNamn.toLowerCase()}en.</div>
                   )}
                   <button onClick={() => setTraktInfo(null)}
                     style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '15px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -15988,8 +16032,10 @@ export default function PlannerPage() {
               {[
                 { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
                 // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
-                ...(geoTyper.has('traktgräns') ? [{ id: 'traktGrans', name: 'Traktgräns', desc: 'Trakthandlingens gräns', enabled: true }] : []),
+                // Traktdelar har ingen knapp — de är alltid tända (kontexten för allt annat).
                 ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsyn', desc: 'Hänsynsytor att spara', enabled: true }] : []),
+                ...(geoKategorier.has('nyckelbiotop') ? [{ id: 'traktNyckelbiotop', name: 'Nyckelbiotoper', desc: 'Skogsstyrelsens registrerade', enabled: true }] : []),
+                ...(geoKategorier.has('lamning') ? [{ id: 'traktLamning', name: 'Fornlämningar', desc: 'Riksantikvarieämbetet (RAÄ)', enabled: true }] : []),
                 ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
