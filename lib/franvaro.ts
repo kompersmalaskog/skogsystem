@@ -8,10 +8,11 @@
 //     'registrerad', ersatter_datum (skoftning), kalla.
 //   Steg 2 (2026-09-18): morgonkortet skriver hit (registreraFranvaro), de två
 //     dagtyp-raderna backfillade (migration 20260918110000), alla läsare går
-//     via hamtaFranvaro/franvaroPerDatum. arbetsdag.dagtyp läses INTE längre
-//     som frånvarokälla — bara som spärr så att de två gamla raderna (0 min,
-//     ingen tid) inte räknas som kortpass (DAGTYP_FRANVARO_LEGACY).
-//   Steg 3: dagtyp-värdena nollas och DAGTYP_FRANVARO_LEGACY tas bort.
+//     via hamtaFranvaro/franvaroPerDatum.
+//   Steg 3 (2026-09-25): arbetsdag.dagtyp läses INGENSTANS som frånvaro. De
+//     två gamla raderna sattes till 'normal' (migration 20260925110000) och
+//     kolumnen fick en CHECK på Produktion/normal — dagtyp betyder bara "sorts
+//     maskindag" igen. Det döda skärmparet som skrev dagtyp togs bort.
 //
 // Vad som RÄKNAS som frånvaro: status 'godkänd' (ansökt och beviljad) eller
 // 'registrerad' (anmäld på morgonen). 'väntar' och 'nekad' är inte frånvaro.
@@ -408,10 +409,3 @@ export async function registreraFranvaro(
   if (error || !data) return { ok: false, fel: error?.message || "Kunde inte spara frånvaron." };
   return { ok: true, rad: data as FranvaroRad };
 }
-
-// ── Legacy: arbetsdag.dagtyp ─────────────────────────────────
-// De två gamla frånvaroraderna i arbetsdag (Martin 2026-05-10, Joacim
-// 2026-08-19, båda sjuk, 0 min, ingen tid) har dagtyp kvar tills steg 3.
-// Den här listan används BARA för att inte räkna sådana rader som arbetsdag/
-// kortpass — aldrig för att avgöra att en dag ÄR frånvaro. Tas bort i steg 3.
-export const DAGTYP_FRANVARO_LEGACY = ["sjuk", "vab", "foraldraledig", "semester", "atk"] as const;

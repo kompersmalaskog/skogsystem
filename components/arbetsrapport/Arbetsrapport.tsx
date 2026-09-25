@@ -565,7 +565,6 @@ export default function Arbetsrapport() {
   const [betald,setBetald] = useState(0);
   const [trak,  setTrak]   = useState<{summa:number}|null>(null);
   const [trakÖppen, setTrakÖppen] = useState(false);
-  const [dagTyp,setDagTyp] = useState("normal");
   const [hemadress, setHemadress] = useState("");
   const [redigHem, setRedigHem] = useState("");
   const [kvAvTyp,  setKvAvTyp]  = useState(null);
@@ -4835,68 +4834,17 @@ export default function Arbetsrapport() {
 
 
 
-  /* ─── FRÅNVARO ─── */
-  if(steg==="bekräftaFrånvaro") return (
-    <div style={shell}><style>{css}</style>{timerBanner}
-      <div style={topBar}><p style={{ margin:0,...TYPE.meta,color:C.label }}>{datumStr}</p></div>
-      <div style={mid}>
-        <div style={{ width:80,height:80,borderRadius:12,background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:28,animation:"scalePop 0.4s ease" }}>
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
-            <path d={dagTyp==="sjuk"?"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z":"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"} fill="#8e8e93"/>
-          </svg>
-        </div>
-        <h1 style={{ ...TYPE.h1,margin:"0 0 10px" }}>{dagTyp==="sjuk"?"Krya på dig":dagTyp==="atk"?"ATK-dag":dagTyp==="semester"?"Semester":"Hoppas barnet mår bättre"}</h1>
-        <p style={{ ...TYPE.meta,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":dagTyp==="atk"?"ATK":dagTyp==="semester"?"Semester":"VAB"} registreras för {datumStr}</p>
-      </div>
-      <div style={bottom}>
-        <button style={btn.primary} onClick={async()=>{
-          // onConflict saknades här — fanns dagen redan (t.ex. MOM-skapad rad)
-          // krockade upserten tyst och "Registrerat" visades ändå.
-          const res = await upsertVerifierat(supabase, "arbetsdag", {
-            medarbetare_id:medarbetare.id,
-            datum:new Date().toISOString().split("T")[0],
-            dagtyp:dagTyp,
-            bekraftad:true,
-            bekraftad_tid:new Date().toISOString(),
-          }, { onConflict: 'medarbetare_id,datum' });
-          if (!res.ok) { alert(res.fel); return; }
-          setSteg("klarFrånvaro");
-        }}>Bekräfta</button>
-        <button style={{ ...btn.textBack, marginTop:2 }} onClick={()=>setSteg("morgon")}>Ångra och gå tillbaka</button>
-      </div>
-    </div>
-  );
-
-  if(steg==="klarFrånvaro") return (
-    <div style={shell}><style>{css}</style>{timerBanner}
-      <div style={topBar}><p style={{ margin:0,...TYPE.meta,color:C.label }}>{datumStr}</p></div>
-      <div style={mid}>
-        <div style={{ animation:"scalePop 0.4s ease",marginBottom:28 }}><CheckCircle/></div>
-        <h1 style={{ ...TYPE.h1,margin:"0 0 10px" }}>Registrerat</h1>
-        <p style={{ ...TYPE.meta,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":dagTyp==="atk"?"ATK":dagTyp==="semester"?"Semester":"VAB"} för {datumStr}</p>
-      </div>
-      <div style={bottom}><button style={btn.secondary} onClick={()=>setSteg("morgon")}>Tillbaka</button></div>
-    </div>
-  );
+  /* (Skärmarna "bekräftaFrånvaro"/"klarFrånvaro" togs bort 2026-09-25, steg 3
+     i frånvaromodellen: de nåddes inte från någon knapp men skrev arbetsdag.
+     dagtyp — även atk och semester — och var därmed en andra skrivare till
+     frånvaron. All frånvaro går via lib/franvaro → ledighet_ansokningar.) */
 
   /* ─── MANUELL DAG ─── */
   if(steg==="manuellDag"){
-    const titlar: Record<string,string> = {
-      normal: "Manuell arbetsdag",
-      service: "Service",
-      utbildning: "Utbildning",
-      annat: "Annat arbete",
-      möte: "Möte",
-    };
-    const platsh: Record<string,string> = {
-      normal: "Vad gjorde du? (t.ex. avverkning, skotning, markberedning)",
-      service: "Vad servade du? (t.ex. kedjebyte, hydraulik, smörjning)",
-      utbildning: "Vad lärde du dig? (t.ex. säkerhetskurs, ny maskin)",
-      annat: "Beskriv arbetet (t.ex. röjning, vägunderhåll)",
-      möte: "Vem mötte du? Vad handlade det om?",
-    };
-    const titel = titlar[dagTyp] || "Manuell arbetsdag";
-    const platshold = platsh[dagTyp] || "Vad gjorde du?";
+    // (Titel/platshållare per "dagTyp" — service, utbildning, möte — togs bort
+    // 2026-09-25: inget satte den, den var alltid "normal".)
+    const titel = "Manuell arbetsdag";
+    const platshold = "Vad gjorde du? (t.ex. avverkning, skotning, markberedning)";
     return (
       <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("morgon")}/><h1 style={{ margin:0,...TYPE.h1 }}>{titel}</h1></div></div>
@@ -4927,10 +4875,7 @@ export default function Arbetsrapport() {
   }
 
   if(steg==="manuellPågår") {
-    const dagTypVisa: Record<string,string> = {
-      utbildning:'Utbildning pågår', service:'Service pågår', möte:'Möte pågår', annat:'Annat arbete pågår',
-    };
-    const statusText = dagTypVisa[dagTyp] || 'Arbetsdag startad';
+    const statusText = 'Arbetsdag startad';
     return (
     <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}>
