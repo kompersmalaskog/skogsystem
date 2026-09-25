@@ -16,45 +16,53 @@ const ACORD: AcordPris[] = [
   { medelstam: 0.60, pris_total: 100, pris_skordare: 56, pris_skotare: 44, giltig_fran: null, giltig_till: null },
 ]
 
-/** Exakt den aritmetik EkonomiClient och objektJamforelse hade FÖRE flytten. */
+/** Aritmetiken EkonomiClient och objektJamforelse hade FÖRE rättelsen:
+ *  rollens grundpris PLUS HELA tillägget — på varje roll. */
 function gammalKrPerM3(
   roll: 'skordare' | 'skotare',
   medelstam: number,
   sortKr: number, traktKr: number, kvalitetKr: number, terrangKr: number,
 ): number {
   const grundpris = lookupAcordPris(medelstam, ACORD)?.[roll === 'skordare' ? 'pris_skordare' : 'pris_skotare'] || 0
-  const ovrigKr = kvalitetKr + terrangKr           // ovrigKrFor / objOvrigKr
-  const extra = sortKr + traktKr + ovrigKr
-  return grundpris + extra
+  return grundpris + (sortKr + traktKr + (kvalitetKr + terrangKr))
 }
 
-describe('prisPerM3 är ett no-op mot den gamla aritmetiken', () => {
+describe('rättelsen är en AVSIKTLIG ändring — och skillnaden är exakt tillägget', () => {
 
-  it('identiskt på BIT-nivå över hela matrisen — inte "ungefär lika"', () => {
+  it('gamla formeln gav pris_total + 2×tillägg, nya ger pris_total + tillägg', () => {
+    // Det här testet ersätter no-op-beviset från 1a. Då var kravet att
+    // ingenting fick ändras; nu SKA tal ändras, och kravet är att ändringen
+    // är exakt den påstådda — inte "ungefär mindre".
     const medelstammar = [0.18, 0.2, 0.23, 0.35, 0.4, 0.55, 0.6, 0.807, 1.2]
     const sortiment    = [0, 2, 4, 6]
     const trakt        = [-2, -1, 0, 2, 4, 5]
     const kvalitet     = [0, 1.5, 2]
     const terrang      = [0, 1, 4, 8]
     let fall = 0
-    for (const roll of ['skordare', 'skotare'] as const)
-      for (const ms of medelstammar)
-        for (const s of sortiment)
-          for (const t of trakt)
-            for (const k of kvalitet)
-              for (const te of terrang) {
-                const gammal = gammalKrPerM3(roll, ms, s, t, k, te)
-                const ny = prisPerM3({
-                  roll, medelstam: ms, acordList: ACORD,
-                  sortKr: s, traktKr: t, kvalitetKr: k, terrangKr: te,
-                }).krPerM3
-                // Object.is, inte toBeCloseTo: flyttalsaddition är inte
-                // associativ, så en omkastad summeringsordning hade gett
-                // skillnader i sista biten som toBeCloseTo döljer.
-                expect(Object.is(ny, gammal)).toBe(true)
-                fall++
-              }
-    expect(fall).toBe(2 * 9 * 4 * 6 * 3 * 4)
+    const ore = (n: number) => Math.round(n * 100)
+    for (const ms of medelstammar)
+      for (const so of sortiment)
+        for (const t of trakt)
+          for (const k of kvalitet)
+            for (const te of terrang) {
+              const arg = { medelstam: ms, acordList: ACORD, sortKr: so, traktKr: t, kvalitetKr: k, terrangKr: te }
+              const nySk  = prisPerM3({ roll: 'skordare', ...arg })
+              const nySko = prisPerM3({ roll: 'skotare',  ...arg })
+              const ovrigt = so + t + k + te
+
+              // 1. De två rollerna summerar till pris_total + tillägget, EN gång.
+              expect(ore(nySk.krPerM3 + nySko.krPerM3)).toBe(ore(nySk.total))
+
+              // 2. Fördelningen tappar aldrig ett öre.
+              expect(ore(nySk.andelSkordare + nySk.andelSkotare)).toBe(ore(ovrigt))
+
+              // 3. Gamla formeln låg exakt ETT tillägg för högt på paret.
+              const gammalPar = gammalKrPerM3('skordare', ms, so, t, k, te)
+                              + gammalKrPerM3('skotare',  ms, so, t, k, te)
+              expect(ore(gammalPar - (nySk.krPerM3 + nySko.krPerM3))).toBe(ore(ovrigt))
+              fall++
+            }
+    expect(fall).toBe(9 * 4 * 6 * 3 * 4)
   })
 
   it('avståndet ingår ALDRIG i krPerM3 — bara i härledningen', () => {
@@ -66,18 +74,23 @@ describe('prisPerM3 är ett no-op mot den gamla aritmetiken', () => {
     expect(med.delar.find(d => d.etikett === 'Avstånd')?.ungefarlig).toBe(true)
   })
 
-  it('delarna summerar till krPerM3 när avståndet inte är med', () => {
+  it('delarna summerar till TOTALEN, inte till rollens pris', () => {
+    // Härledningen beskriver objektets pris, inte skördarens del av det —
+    // så visar Vida den på fakturan ("Medel 0,57=101", sedan tilläggen i
+    // sin helhet). Rollens andel syns bara i à-priset.
     const p = prisPerM3({ roll: 'skordare', medelstam: 0.807, acordList: ACORD, sortKr: 2, traktKr: 2, kvalitetKr: 1.5, terrangKr: 0 })
     const summa = p.delar.reduce((s, d) => s + d.belopp, 0)
-    expect(summa).toBeCloseTo(p.krPerM3, 10)
+    expect(summa).toBeCloseTo(p.total, 10)
+    expect(p.krPerM3).toBeLessThan(p.total)
   })
 })
 
 describe('klass bär tolkningen som saknar avtalsstöd', () => {
 
-  it('medelstam över prislistans tak slås upp på närmaste klass, och det syns', () => {
+  it('medelstam över prislistans tak klampas till högsta klassen, och det syns', () => {
     // Åbogen: 0,807 prissatt på 0,60-raden. Avtalets tabell slutar vid 0,60 och
-    // säger ingenting däröver — "närmaste klass" är en TOLKNING, inte en regel.
+    // säger ingenting däröver — klampningen är en TOLKNING, inte en regel.
+    // Bekräftad på faktura 2026011 (medelstam 0,86 → 56/44 = takets priser).
     const p = prisPerM3({ roll: 'skordare', medelstam: 0.807, acordList: ACORD, sortKr: 2, traktKr: 2, kvalitetKr: 1.5, terrangKr: 0 })
     expect(p.klass).toBe(0.6)
     expect(p.delar[0].etikett).toContain('0,81')
@@ -89,39 +102,35 @@ describe('klass bär tolkningen som saknar avtalsstöd', () => {
     expect(p.delar[0].etikett).not.toContain('→')
   })
 
-  it('Åbogen ur APPENS data ger 59,50 — fakturans 61,50 innehåller en manuell post', () => {
+  it('Åbogen: appens data ger totalen 103,50 — fakturans 105,50 bär en manuell post', () => {
     // Objekt 11217413, verifierat mot prod 2026-09-24:
-    //   medelstam 742/919 = 0,807  → klass 0,60 → pris_skordare 56
+    //   medelstam 742/919 = 0,807  → klampas till 0,60 → pris_total 100
     //   sortimentgrupper 4, grundantal 6        → 0 kr
     //   742 m³fub i traktspannet 400–800        → 2 kr
     //   kvalitetssäkring (avräkning 2026-08-10) → 1,5 kr
     //   terrang_kr_manuell = NULL               → 0 kr
-    const p = prisPerM3({
-      roll: 'skordare', medelstam: 0.807, acordList: ACORD,
-      sortKr: 0, traktKr: 2, kvalitetKr: 1.5, terrangKr: 0,
-    })
-    expect(p.krPerM3).toBe(59.5)
-    expect(p.delar.map(d => d.etikett)).toEqual([
+    const arg = { medelstam: 0.807, acordList: ACORD, sortKr: 0, traktKr: 2, kvalitetKr: 1.5, terrangKr: 0 }
+    const sk  = prisPerM3({ roll: 'skordare', ...arg })
+    const sko = prisPerM3({ roll: 'skotare',  ...arg })
+    expect(sk.total).toBe(103.5)
+    expect(sk.krPerM3).toBe(57.5)      // 56 + 1,50 (halva 3,50 nedåt)
+    expect(sko.krPerM3).toBe(46)       // 44 + 2,00 (resten)
+    expect(sk.delar.map(d => d.etikett)).toEqual([
       'Grund (medelstam 0,81 → 0,6)', 'Krönt', 'Storlek',
     ])
 
-    // Faktura 2026142 säger 61,50 med textraden "Blött +2kr". De två kronorna
-    // finns INTE i appens data — de är Martins bedömning av förhållandena, och
-    // avtalets terrängspann är 1–8 kr/m³fub, alltså ett val och inte en formel.
-    // Endast TVÅ objekt i hela databasen har terrang_kr_manuell satt, och
-    // Åbogen är inte ett av dem.
+    // Faktura 2026142 har härledningen Krönt +1,5 · Storlek +2 · Blött +2 ·
+    // Avstånd +16, alltså 105,50 utan avståndet. De två kronorna "Blött"
+    // finns INTE i appens data — bara två objekt i hela databasen har
+    // terrang_kr_manuell satt, och Åbogen är inte ett av dem.
     //
-    // Skillnaden ska alltså bäras som en MANUELL POST i fakturaunderlaget, inte
-    // tryckas in i ackordspriset — annars försvinner två kronor per kubik tyst
-    // på varje svår trakt. Det här testet låser fast gapet så att den dagen
-    // någon "får" 61,50 ur koden är det för att posten byggts, inte för att
-    // ett värde smugit in i formeln.
-    const medTerrang = prisPerM3({
-      roll: 'skordare', medelstam: 0.807, acordList: ACORD,
-      sortKr: 0, traktKr: 2, kvalitetKr: 1.5, terrangKr: 2,
-    })
-    expect(medTerrang.krPerM3).toBe(61.5)
-    expect(medTerrang.krPerM3 - p.krPerM3).toBe(2)
+    // Skillnaden ska bäras som en MANUELL POST med redigerbar etikett, inte
+    // tryckas in i ackordspriset — annars försvinner två kronor per kubik
+    // tyst på varje svår trakt. Testet låser fast gapet: den dagen någon
+    // "får" 105,50 ur koden ska det vara för att posten byggts.
+    const medBlott = prisPerM3({ roll: 'skordare', ...arg, terrangKr: 2 })
+    expect(medBlott.total).toBe(105.5)
+    expect(medBlott.total - sk.total).toBe(2)
   })
 
   it('tom prislista ger 0 och klass null — aldrig ett gissat pris', () => {

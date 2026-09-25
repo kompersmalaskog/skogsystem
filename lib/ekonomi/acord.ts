@@ -55,13 +55,33 @@ export function isValidOn(d: string, giltig_fran: string | null, giltig_till: st
 // lower-threshold som dim_sortiment_pris).
 export function lookupAcordPris(medelstam: number, acord: AcordPris[]): AcordPris | null {
   if (!acord.length) return null;
-  let best = acord[0];
-  let bestDiff = Math.abs(acord[0].medelstam - medelstam);
-  for (const p of acord) {
-    const d = Math.abs(p.medelstam - medelstam);
-    if (d < bestDiff) { bestDiff = d; best = p; }
+
+  // KLASSEN UNDER, inte den närmaste. Prislistans medelstam är en NEDRE
+  // TRÖSKEL: 0,49 betalas som 0,45-klassen, inte som 0,50. Samma
+  // StanForD-konvention som dim_sortiment_pris redan använder.
+  //
+  // Verifierat mot 30 Vida-fakturor 2026-09-25 genom att dra härledningens
+  // tillägg från à-prissumman — kvar blir grundpriset som faktiskt användes:
+  //     0,44 → 107 (klassen under 107, närmaste 104)   EXAKT
+  //     0,49 → 104 (under 104, närmaste 103)           EXAKT
+  //     0,53 → 103 (under 103, närmaste 101)           EXAKT
+  // Tre träffar på kronan, noll motexempel. Närmaste-regeln gav för LÅGT
+  // pris på 11 av 40 avräknade objekt, alltså till vår nackdel.
+  const sorterad = [...acord].sort((a, b) => Number(a.medelstam) - Number(b.medelstam));
+
+  let vald: AcordPris | null = null;
+  for (const p of sorterad) {
+    if (Number(p.medelstam) <= medelstam) vald = p;
+    else break;
   }
-  return best;
+
+  // Utanför listan i UNDERKANT klampas till lägsta klassen — precis som
+  // överkanten redan klampas till den högsta (0,86 → 0,60, bekräftat på
+  // faktura 2026011). Avtalet säger ingenting utanför spannet, så båda
+  // ändarna är en TOLKNING. Den syns i prisPerM3:s etikett ("medelstam
+  // 0,05 → 0,2") och får aldrig bli en tyst nolla: returneras null i
+  // stället blir grundpriset 0 och raden ser ut som en riktig uträkning.
+  return vald ?? sorterad[0];
 }
 
 // Traktstorlekstillägg: bracket på objektets TOTALA skördarvolym (m³fub).
