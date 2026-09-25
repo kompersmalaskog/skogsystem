@@ -13,20 +13,28 @@
 -- Avräkningsdatumen spänner 2025-12-12 → 2026-09-17. 44 av 130 objekt (34 %)
 -- avräknades alltså FÖRE det datum taxorna påstår att de började gälla.
 --
--- TVÅ AKTIVA FEL FÖLJER AV DET, och båda rättas här:
+-- ⚠️ RÄTTELSE 2026-09-25, EFTER ATT MIGRATIONEN KÖRTS.
+-- Den här filen påstod ursprungligen att TVÅ aktiva fel rättades. Det var ETT.
 --
---  1. KVALITETSSÄKRINGEN. acord_ovrigt slås redan upp datumstyrt
---     (ovrigtKrPerM3). För de 24 ackordobjekt som avräknades före april ger
---     objektJamforelse 0 kr medan EkonomiClient ger 1,50 — den senare slår upp
---     på periodslut och råkar hamna efter april. 14 922 m³fub × 1,50 =
---     ~22 383 kr som två vyer är oense om PÅ SAMMA OBJEKT, i dag.
+-- DET PÅSTÅDDA FELET SOM INTE FANNS: "kvalitetssäkringen ger 0 kr i
+-- objektJamforelse men 1,50 i EkonomiClient, ~22 383 kr på 24 objekt."
+-- Fel. ovrigtKrPerM3 hade en FALLBACK som förbisågs vid läsningen:
+--     rader.find(datumgiltig) || rader.find(nyckel)
+-- Hittades ingen datumgiltig rad togs första raden med rätt nyckel ändå, och
+-- acord_ovrigt har exakt EN kvalitetssakring-rad. BÅDA vyerna gav alltså 1,50
+-- hela tiden. Ingen divergens fanns. (Fallbacken är sedan borttagen i steg 1b
+-- — den ljög tyst och dolde det datummärkningen finns för att fånga.)
 --
---  2. SKOTNINGSAVSTÅNDET. skotAvstandKr datumfiltrerar PER LASS, och enda
---     formelraden börjar 2026-04-21. 605 lass från 2025-12-11 och framåt
---     (7 899 m³) får därför NOLL avståndstillägg. Storleksordning ~142 tkr
---     med halverade avstånd — men den perioden har opålitlig lassdata
---     (oregistrerade lass före juli), så det är en storleksordning, inte ett
---     belopp.
+-- DET VERKLIGA FELET, som migrationen rättade:
+--  SKOTNINGSAVSTÅNDET. skotAvstandKr datumfiltrerar PER LASS och har INGEN
+--  fallback — utan giltig config returnerar den 0. Enda formelraden började
+--  2026-04-21, så 605 lass från 2025-12-11 (7 899 m³) fick noll
+--  avståndstillägg. Storleksordning ~142 tkr med halverade avstånd, men den
+--  perioden har opålitlig lassdata (oregistrerade lass före juli) — en
+--  storleksordning, inte ett belopp.
+--
+-- Migrationen var värd att köra ändå: avståndsfelet var reellt, och de 11
+-- aldrig-giltiga raderna behövde bort oavsett. Men den fixade EN sak, inte två.
 --
 -- Övriga tabeller ändrar INGENTING i dag, eftersom vyerna hämtar dem utan
 -- datumfilter (acord_priser helt ofiltrerat) eller som "bara nuvarande"
