@@ -77,7 +77,21 @@ async function hamtaObjektFranSupabase() {
     .select('*')
     .order('object_name', { ascending: true, nullsFirst: true })
   if (error) throw new Error('Kunde inte hämta data: ' + error.message)
-  return data || []
+  const rows = data || []
+  // Steg B: planeringsflaggan bor på objekt-tabellen (objekt.saknar_planering).
+  // Häng på den per dim-rad (join på dim_objekt_id, annars vo_nummer) så listan kan
+  // filtreras på "Saknar planering". Fel här får inte tömma listan → tyst false.
+  try {
+    const { data: planRader } = await supabase
+      .from('objekt').select('vo_nummer, dim_objekt_id, saknar_planering')
+    const perDim = new Map<string, boolean>(); const perVo = new Map<string, boolean>()
+    for (const p of (planRader || [])) {
+      if (p.dim_objekt_id) perDim.set(String(p.dim_objekt_id), p.saknar_planering === true)
+      if (p.vo_nummer) perVo.set(String(p.vo_nummer), p.saknar_planering === true)
+    }
+    for (const r of rows) r.saknar_planering = perDim.get(String(r.objekt_id)) ?? perVo.get(String(r.vo_nummer)) ?? false
+  } catch { /* flaggan är valfri — utan den är chippen bara borta */ }
+  return rows
 }
 
 async function hamtaMaskinerFranSupabase() {
@@ -444,6 +458,11 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
       }))
     )
     if (insManuellErr) return { ok: false, message: 'Skotarvolym (ny tabell): ' + insManuellErr.message }
+  }
+  // Steg B: objektet har nu fått trakt-uppgifter i redigeringen → det saknar inte längre
+  // planering. Nollar flaggan på objekt-tabellen. Fel här får aldrig fälla saven (valfri flagga).
+  if (obj?.vo_nummer) {
+    try { await supabase.from('objekt').update({ saknar_planering: false }).eq('vo_nummer', obj.vo_nummer) } catch { /* valfri flagga */ }
   }
   return { ok: true, message: '' }
 }
@@ -4125,6 +4144,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   const [filterBolag, setFilterBolag] = useState(null)
   const [filterHuvudtyp, setFilterHuvudtyp] = useState<string | null>(null)
   const [filterInkopare, setFilterInkopare] = useState(null)
+  const [filterSaknarPlanering, setFilterSaknarPlanering] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [redigerObj, setRedigerObj] = useState<any>(null)
   const [backHover, setBackHover] = useState(false)
@@ -4138,6 +4158,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   const allaAktiva = objekt.filter(o => o.exkludera !== true)
   const unikaBolag = [...new Set(allaAktiva.map(o => o.bolag).filter(Boolean))].sort()
   const unikaInkopare = [...new Set(allaAktiva.map(o => o.inkopare).filter(Boolean))].sort()
+  const finnsSaknarPlan = allaAktiva.some((o: any) => o.saknar_planering === true)
 
   let filtered = grupperaPerVo(objekt).filter(g => g.rader.some((o: any) => o.exkludera !== true))
 
@@ -4155,13 +4176,15 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   if (filterBolag) filtered = filtered.filter(g => g.rader.some((o: any) => o.bolag === filterBolag))
   if (filterHuvudtyp) filtered = filtered.filter(g => g.rader.some((o: any) => filterHuvudtyp === 'Grot' ? arRisjobb(o) : o.huvudtyp === filterHuvudtyp))
   if (filterInkopare) filtered = filtered.filter(g => g.rader.some((o: any) => o.inkopare === filterInkopare))
+  if (filterSaknarPlanering) filtered = filtered.filter(g => g.rader.some((o: any) => o.saknar_planering === true))
 
-  const hasActiveFilters = filterBolag || filterHuvudtyp || filterInkopare || search.trim()
+  const hasActiveFilters = filterBolag || filterHuvudtyp || filterInkopare || filterSaknarPlanering || search.trim()
 
   function clearFilters() {
     setFilterBolag(null)
     setFilterHuvudtyp(null)
     setFilterInkopare(null)
+    setFilterSaknarPlanering(false)
     setSearch('')
   }
 
@@ -4217,6 +4240,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
               <FilterChip label="Slutavverkning" active={filterHuvudtyp === 'Slutavverkning'} onClick={() => setFilterHuvudtyp(filterHuvudtyp === 'Slutavverkning' ? null : 'Slutavverkning')} />
               <FilterChip label="Gallring" active={filterHuvudtyp === 'Gallring'} onClick={() => setFilterHuvudtyp(filterHuvudtyp === 'Gallring' ? null : 'Gallring')} />
               <FilterChip label="Grot" active={filterHuvudtyp === 'Grot'} onClick={() => setFilterHuvudtyp(filterHuvudtyp === 'Grot' ? null : 'Grot')} />
+              {finnsSaknarPlan && <FilterChip label="Saknar planering" active={filterSaknarPlanering} onClick={() => setFilterSaknarPlanering(!filterSaknarPlanering)} />}
             </div>
           </div>
 
