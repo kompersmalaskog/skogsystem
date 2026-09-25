@@ -126,6 +126,73 @@ export async function refreshFortnoxToken(refreshToken: string): Promise<{
   return res.json();
 }
 
+/* ─── Artikelpris: Fortnox äger det, appen hämtar det vid visning ─── */
+
+export type ArtikelprisFel = 'fortnox_svarade_inte' | 'artikel_saknas' | 'pris_saknas';
+
+export type Artikelpris =
+  | { ok: true; pris: number; benamning: string | null; enhet: string | null; prislista: string | null }
+  | { ok: false; fel: ArtikelprisFel; detalj: string };
+
+/**
+ * Klassificerar ETT artikelsvar. Ren funktion — hela vitsen är att de tre
+ * tillstånden går att pröva utan nätverk, eftersom de leder till tre olika
+ * åtgärder i granskningen:
+ *
+ *   fortnox_svarade_inte  försök igen / kolla anslutningen  (vårt fel)
+ *   artikel_saknas        lägg upp artikeln i Fortnox       (Martins fel)
+ *   pris_saknas           sätt priset på artikeln           (Martins fel)
+ *
+ * ⚠️ 0 KR ÄR ETT PRIS, INTE ETT SAKNAT PRIS.
+ * Artikel 8 (krönt mätning) faktureras 1 st à 0. Skulle noll klassas som
+ * "saknas" blockeras varje underlag som innehåller den, för alltid. Samma
+ * skillnad som traktspannet 800–1500 i prisPerM3: ett nollvärde är ett svar.
+ * Därför prövas `== null` och tom sträng — aldrig falsy.
+ */
+export function tolkaArtikelsvar(
+  status: number,
+  kropp: string,
+  prislista: string | null,
+): Artikelpris {
+  if (status === 404) {
+    return { ok: false, fel: 'artikel_saknas', detalj: `Fortnox svarade 404.` };
+  }
+  if (status !== 200) {
+    // 401/403 (scope saknas), 5xx, 0 (nätverk) — alla "Fortnox svarade inte
+    // med ett pris". De skiljer sig för oss, inte för Martin: ingen av dem
+    // åtgärdas genom att röra artikelregistret.
+    return { ok: false, fel: 'fortnox_svarade_inte', detalj: `HTTP ${status}: ${kropp.slice(0, 200)}` };
+  }
+
+  let a: any;
+  try {
+    const json = JSON.parse(kropp);
+    a = json?.Article ?? json?.Price ?? null;
+  } catch {
+    return { ok: false, fel: 'fortnox_svarade_inte', detalj: `Kunde inte tolka svaret: ${kropp.slice(0, 200)}` };
+  }
+  if (!a) {
+    return { ok: false, fel: 'fortnox_svarade_inte', detalj: 'Svaret saknade Article/Price.' };
+  }
+
+  const ra = a.SalesPrice ?? a.Price;
+  if (ra == null || ra === '') {
+    return { ok: false, fel: 'pris_saknas', detalj: 'Artikeln finns men har inget pris satt i Fortnox.' };
+  }
+  const pris = Number(ra);
+  if (!Number.isFinite(pris)) {
+    return { ok: false, fel: 'fortnox_svarade_inte', detalj: `Priset gick inte att tolka som tal: ${String(ra)}` };
+  }
+
+  return {
+    ok: true,
+    pris,
+    benamning: a.Description ?? null,
+    enhet: a.Unit ?? null,
+    prislista,
+  };
+}
+
 /* ─── API-klient (instans med access_token) ─── */
 
 export class FortnoxClient {
@@ -212,5 +279,49 @@ export class FortnoxClient {
       method: "POST",
       body: JSON.stringify({ SalaryTransaction: transaction }),
     });
+  }
+
+  /**
+   * Hämtar à-priset för en artikel. KASTAR INTE — se tolkaArtikelsvar.
+   *
+   * KUNDEN BÄRS I SIGNATUREN, trots att den i dag inte ändrar svaret.
+   * Fortnox artikelpriser kan ligga i kundspecifika prislistor. Sonden
+   * /api/fortnox/kund-prislista (#431) visade att ingen av våra kunder har
+   * en egen lista — alla ligger på standard, och då ÄR artikelns SalesPrice
+   * priset. Men "ingen kund har det i dag" är ett tillstånd i Fortnox, inte
+   * en egenskap hos modellen: den dagen Vida läggs på en egen lista ska
+   * ändringen ske HÄR, inte på varje anropsställe. Därför bär signaturen och
+   * cachenyckeln kunden redan nu.
+   *
+   * CACHE I MINNET, per klientinstans = per anrop. Ett underlag med tio
+   * flyttrader ska ge ett artikelanrop, inte tio. Aldrig i databasen: en
+   * lagrad kopia vet inte när Fortnox ändras, och då är vi tillbaka i
+   * acord_flyttkostnad (borttagen i #423).
+   */
+  private artikelCache = new Map<string, Artikelpris>();
+
+  async hamtaArtikelpris(kund: string | number, artikelnr: string | number): Promise<Artikelpris> {
+    const nyckel = `${kund}|${artikelnr}`;
+    const cachad = this.artikelCache.get(nyckel);
+    if (cachad) return cachad;
+
+    let svar: Artikelpris;
+    try {
+      const res = await fetch(
+        `${FORTNOX_API_BASE}/articles/${encodeURIComponent(String(artikelnr))}`,
+        { headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" } },
+      );
+      svar = tolkaArtikelsvar(res.status, await res.text(), null);
+    } catch (e: any) {
+      // Nätverksfel når aldrig en HTTP-status. status 0 håller ihop
+      // klassificeringen på ett ställe i stället för att duplicera den här.
+      svar = tolkaArtikelsvar(0, e?.message || String(e), null);
+    }
+
+    // Även felen cachas. Svarar Fortnox 404 på artikel 9 ska ett underlag med
+    // tre sådana rader ge ETT anrop och tre likadana fel — inte tre anrop som
+    // kan ge tre olika svar och en rapport som motsäger sig själv.
+    this.artikelCache.set(nyckel, svar);
+    return svar;
   }
 }
