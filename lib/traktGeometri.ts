@@ -104,6 +104,44 @@ export function ytaNyckel(props: Record<string, any> | null | undefined): string
   }
 }
 
+/** Stabil traktdels-nyckel (utan prefix) = TRDEL_ID (fallback TRDEL_NR_K). Används för att koppla
+ *  Vidas L_TRAKTDEL till syntetiska analys-id, cache i trakt_data och "Justera gräns"-markörer. */
+export function traktdelNyckel(props: Record<string, any> | null | undefined): string | null {
+  const p = props || {};
+  const v = txt(p.TRDEL_ID) || txt(p.TRDEL_NR_K);
+  return v || null;
+}
+
+/** Största yttre ringen ur en (Multi)Polygon-geometri, som [lng,lat][]. En traktdel som ska
+ *  behandlas som EN traktgräns → vi kör analysen på den dominerande delytan (bbox-paddas ändå i
+ *  /api/tract-analysis). Returnerar null om geometrin saknar en giltig ring (≥3 hörn). */
+export function storstaYttreRing(geometry: any): [number, number][] | null {
+  if (!geometry) return null;
+  const ringArea = (ring: number[][]): number => {
+    let a = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      a += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+    }
+    return Math.abs(a / 2);
+  };
+  if (geometry.type === 'Polygon') {
+    const r = geometry.coordinates && geometry.coordinates[0];
+    return Array.isArray(r) && r.length >= 3 ? (r as [number, number][]) : null;
+  }
+  if (geometry.type === 'MultiPolygon') {
+    let best: [number, number][] | null = null;
+    let bestA = -1;
+    for (const poly of geometry.coordinates || []) {
+      const r = poly && poly[0];
+      if (!Array.isArray(r) || r.length < 3) continue;
+      const a = ringArea(r);
+      if (a > bestA) { bestA = a; best = r as [number, number][]; }
+    }
+    return best;
+  }
+  return null;
+}
+
 /** Vid överlapp: välj den MINSTA ytan (hänsynsyta före traktdel). Punkter/linjer (areal null) vinner
  *  över polygoner (de är små och ligger "ovanpå"). Returnerar valt features props. */
 export function valjMinstaYta<T extends { properties?: Record<string, any> }>(traffar: T[]): T | null {
