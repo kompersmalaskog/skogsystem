@@ -16,7 +16,7 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, hyttsparDugligaSegment, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { skaEmittaHeading } from '../../lib/kompass'
-import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
+import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, ringCentroid, numreraObjekt, traktArealHa, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
 import { startaPolygonRitning, type PolygonRitningHandle } from '../../lib/polygonRitning'
 import { upsertVerifierat, raderaVerifierat } from '../../lib/supabase-save'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -792,7 +792,7 @@ export default function PlannerPage() {
     const uppdaterad = { ...m, nummer: nyttNr };
     setMarkers((prev: any[]) => prev.map((mm: any) => String(mm.id) === oidStr ? uppdaterad : mm));
     saveMarkerToDb(uppdaterad);
-    setTraktInfo(prev => prev ? { ...prev, rubrik: `Område ${nyttNr}`, nr: String(nyttNr) } : prev);
+    setTraktInfo(prev => prev ? { ...prev, rubrik: `Område ${nyttNr}`, nr: '' } : prev);
   };
   // Radera ett egna område (markering + ev. anteckning) och stäng kortet.
   const raderaOmrade = (oidStr: string) => {
@@ -1678,7 +1678,7 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'line-width': 1.5 }, layout: { visibility: 'none' } });
     // LOPNR mitt i varje hänsynsyta (symbol på polygon = centroid). Numret kopplar ytan till
     // traktdirektivets hänsynstabell; tryck på ytan öppnar åtgärdstexten (se handleTraktKlick).
-    map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'LOPNR'], '']], 'text-size': 13, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 1.6 } });
+    map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'LOPNR'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
     // Kör & fara — basväg (brun HELDRAGEN, tjock) vs kraftledning (röd STRECKAD, tunnare).
     // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
     map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#a16207'], 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
@@ -1731,7 +1731,7 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-raa-point', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': '#b45309', 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 }, layout: { visibility: 'none' } });
 
     // Traktdelsnummer (TRDEL_NR_K) i mitten av varje traktdel — läggs SIST så det ligger överst.
-    map.addLayer({ id: 'trakt-gr-label', type: 'symbol', source: 'traktdel-parts-source', layout: { 'text-field': ['to-string', ['coalesce', ['get', 'TRDEL_NR_K'], '']], 'text-size': 13, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#dcfce7', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.6 } });
+    map.addLayer({ id: 'trakt-gr-label', type: 'symbol', source: 'traktdel-parts-source', layout: { 'text-field': ['to-string', ['coalesce', ['get', '_bitNr'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -4003,6 +4003,19 @@ export default function PlannerPage() {
   const traktdelDelarRef = useRef(traktdelDelar);
   useEffect(() => { traktdelDelarRef.current = traktdelDelar; }, [traktdelDelar]);
 
+  // EN nummerserie per objekt: Vidas hänsyn-LOPNR = facit; traktdel-delar numreras efter dem (centroid
+  // N→S, V→Ö); egna områden fortsätter efter delarna. numreringRef → stale-fri läsning i klick/rit-handlers.
+  const objektNumrering = useMemo(() => {
+    const hansynLopnr = (traktGeo?.features || [])
+      .filter((f: any) => klassaTraktFeature(f?.properties).kategori === 'hansyn')
+      .map((f: any) => f?.properties?.LOPNR);
+    const bitar = traktdelDelar.map(d => ({ partKey: d.partKey, centroid: ringCentroid(d.ringLngLat) }));
+    const omradeNummer = markers.filter((m: any) => m.isOmrade).map((m: any) => m.nummer);
+    return numreraObjekt({ hansynLopnr, bitar, omradeNummer });
+  }, [traktGeo, traktdelDelar, markers]);
+  const numreringRef = useRef(objektNumrering);
+  useEffect(() => { numreringRef.current = objektNumrering; }, [objektNumrering]);
+
   // Pumpa delytorna till traktdel-parts-source (varje del = egen Polygon-feature med _partKey).
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -4013,11 +4026,12 @@ export default function PlannerPage() {
       type: 'FeatureCollection',
       features: traktdelDelar.map(d => ({
         type: 'Feature',
-        properties: { ...d.props, _lager: 'L_TRAKTDEL', _partKey: d.partKey },
+        // _bitNr = delens nummer i objektets serie (tom sträng när en ensam bit utan Vida-nr → ingen siffra).
+        properties: { ...d.props, _lager: 'L_TRAKTDEL', _partKey: d.partKey, _bitNr: objektNumrering.visaBitNummer ? String(objektNumrering.bitNr.get(d.partKey) ?? '') : '' },
         geometry: { type: 'Polygon', coordinates: [d.ringLngLat] },
       })),
     });
-  }, [traktdelDelar, mapLibreReady]);
+  }, [traktdelDelar, objektNumrering, mapLibreReady]);
 
   // Justerade delar (en boundary-markör med fromVidaTd=<partKey> finns) döljs PER del.
   const justeradeTraktdelar = useMemo(
@@ -5191,16 +5205,36 @@ export default function PlannerPage() {
       if (traktKand.length) {
         const vald = valjMinstaYta(traktKand);
         if (vald) {
-          const kat = klassaTraktFeature(vald.properties).kategori;
+          const props: any = vald.properties || {};
+          const kat = klassaTraktFeature(props).kategori;
+          const num = numreringRef.current;
+          const txt = (v: any) => (v == null ? '' : String(v).trim());
           let vida: { key: string; synthId: string; ringLatLon: { lat: number; lon: number }[] } | null = null;
+          let kort = byggTraktKort(props);
+          let nyckel = ytaNyckel(props);
           if (kat === 'traktdel') {
-            // vald är nu en DELYTA-feature (traktdel-parts-source) med _partKey → visa DEN delens resultat.
-            // Ring hämtas oklippt ur traktdelDelarRef (queryRenderedFeatures-geometrin kan vara tile-klippt).
-            const partKey = String((vald.properties as any)?._partKey ?? '');
+            // vald = DELYTA (_partKey) → DEN delens nummer/ring/analys + per-DEL anteckning. Titel: "Område <nr>"
+            // (serien) med undertext "Traktdel <TRDEL_NR_K>"; en ensam bit utan Vida-nr visar ingen siffra.
+            const partKey = txt(props._partKey);
             const del = traktdelDelarRef.current.find((d: any) => d.partKey === partKey);
             if (del) vida = { key: partKey, synthId: 'vida-td:' + partKey, ringLatLon: del.ringLatLon };
+            const bitNr = num.visaBitNummer ? num.bitNr.get(partKey) : undefined;
+            const trdel = txt(props.TRDEL_NR_K);
+            kort = {
+              kategori: 'traktdel', arealHa: null, rader: [],   // numret ligger i rubriken; area/analys separat
+              rubrik: bitNr != null ? `Område ${bitNr}` : (trdel ? `Traktdel ${trdel}` : 'Traktdel'),
+              kalla: bitNr != null ? (trdel ? `Traktdel ${trdel}` : 'Vida') : 'Vida',
+              nr: '',
+            };
+            nyckel = partKey ? `traktdel:${partKey}` : null;
+          } else if (kat === 'hansyn') {
+            const lopnr = txt(props.LOPNR);
+            const rader: { etikett?: string; text: string }[] = [];
+            if (txt(props.FLBESKR)) rader.push({ text: txt(props.FLBESKR) });
+            if (txt(props.ATGARD)) rader.push({ text: txt(props.ATGARD) });
+            kort = { kategori: 'hansyn', kalla: 'Vida', arealHa: traktArealHa(props), rader, rubrik: lopnr ? `Hänsynsyta ${lopnr}` : 'Hänsynsyta', nr: '' };
           }
-          oppnaKort(byggTraktKort(vald.properties || {}), ytaNyckel(vald.properties || {}), null, vida);
+          oppnaKort(kort, nyckel, null, vida);
         }
         return;
       }
@@ -5209,7 +5243,7 @@ export default function PlannerPage() {
       if (omr) {
         const oid = String(omr.properties?.id ?? '');
         const nr = omr.properties?.omradeNr || '';
-        oppnaKort({ kategori: 'omrade', kalla: 'Kompersmåla Skog', rubrik: nr ? `Område ${nr}` : 'Område', nr: String(nr), arealHa: null, rader: [] }, `omrade:${oid}`, oid);
+        oppnaKort({ kategori: 'omrade', kalla: 'Kompersmåla Skog', rubrik: nr ? `Område ${nr}` : 'Område', nr: '', arealHa: null, rader: [] }, `omrade:${oid}`, oid);
       }
     };
     const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
@@ -5548,8 +5582,8 @@ export default function PlannerPage() {
       onKlar: (coords) => {
         // Nästa lediga nummer bland objektets egna områden (nummer återanvänds inte tanklöst men
         // fyller lägsta lediga så listan hålls tät). Redigerbart i kortet efteråt.
-        const anvanda = new Set(markers.filter((m: any) => m.isOmrade && typeof m.nummer === 'number').map((m: any) => m.nummer));
-        let nummer = 1; while (anvanda.has(nummer)) nummer++;
+        // Nästa lediga i objektets ENA serie (efter Vidas hänsyn-nr + traktdel-delarna). Redigerbart efteråt.
+        const nummer = numreringRef.current.nastaOmradeNr;
         const path = coords.map(([lng, lat]) => latLonToSvg(lat, lng));
         const nyttOmrade: any = { id: Date.now(), isOmrade: true, nummer, path };
         saveToHistory([...markers]);
@@ -5557,7 +5591,7 @@ export default function PlannerPage() {
         saveMarkerToDb(nyttOmrade);
         setOmradeRitning(false);
         // Öppna kortet i skrivläge (bara admin kan starta ritning → alltid tillåtet här).
-        setTraktInfo({ kategori: 'omrade', kalla: 'Kompersmåla Skog', rubrik: `Område ${nummer}`, nr: String(nummer), arealHa: null, rader: [] });
+        setTraktInfo({ kategori: 'omrade', kalla: 'Kompersmåla Skog', rubrik: `Område ${nummer}`, nr: '', arealHa: null, rader: [] });
         setTraktKortNyckel(`omrade:${nyttOmrade.id}`);
         setTraktKortOmradeId(String(nyttOmrade.id));
         setAnteckningUtkast('');
@@ -14413,7 +14447,10 @@ export default function PlannerPage() {
           nyckelbiotop: 'Nyckelbiotop', lamning: 'Fornlämning', omrade: 'Område', ignorera: '',
         };
         const typNamn = TYP_NAMN[traktInfo.kategori] || 'Trakt-objekt';
-        const typKalla = traktInfo.kalla ? `${typNamn} · ${traktInfo.kalla}` : typNamn;
+        // Numrerade ytor (hänsyn/traktdel/område): rubriken bär redan typ+nummer → undertexten = bara källan
+        // (t.ex. "Vida", "Traktdel 0526", "Kompersmåla Skog"). Övriga: "<Typ> · <källa>" som förr.
+        const arNumrerad = traktInfo.kategori === 'hansyn' || traktInfo.kategori === 'traktdel' || traktInfo.kategori === 'omrade';
+        const typKalla = arNumrerad ? (traktInfo.kalla || typNamn) : (traktInfo.kalla ? `${typNamn} · ${traktInfo.kalla}` : typNamn);
         const kontext: string[] = [];
         if (traktInfo.nr) kontext.push(`Nr ${traktInfo.nr}`);
         if (traktInfo.arealHa != null) kontext.push(`${traktInfo.arealHa.toFixed(2)} ha`);
