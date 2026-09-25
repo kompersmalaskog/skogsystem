@@ -437,7 +437,7 @@ def los_upp_objekt_id(vo_nummer, maskin_id, obj_key, object_name=None, datum=Non
     fil = filnamn or object_name
     if len(traffar) == 1:
         matchat = next(iter(traffar))
-        logger.info(f"Steg B {tagg}skulle kopplat: {fil} → {matchat}")
+        logger.info(f"Steg B {'kopplade' if STEG_B_LAGE == 'skriv' else '[logga] skulle kopplat'}: {fil} → {matchat}")
         if STEG_B_LAGE == 'skriv':
             return matchat
         return make_objekt_id(vo_nummer, maskin_id, obj_key)  # logga: nyckeln oförändrad (som före #579)
@@ -3305,9 +3305,8 @@ def _sakerstall_objekt_rad(nyfodda, objekt_rows):
                    'status': 'pagaende', 'saknar_planering': True,
                    'skordare_maskin_id': o.get('maskin_id'), 'dim_objekt_id': oid,
                    'ar': ar, 'manad': manad}
-            tagg = '' if STEG_B_LAGE == 'skriv' else '[logga] '
             dstr = f"{ar}-{manad:02d}" if (ar and manad) else (_datum_iso(sd) or '?')
-            logger.info(f"Steg B {tagg}skulle skapat objekt: {namn} {vo} {o.get('maskin_id')} {dstr}")
+            logger.info(f"Steg B {'skapade' if STEG_B_LAGE == 'skriv' else '[logga] skulle skapat'} objekt: {namn} {vo} {o.get('maskin_id')} {dstr}")
             if STEG_B_LAGE != 'skriv':
                 continue  # logga: skriv inget till objekt
             resp = requests.post(
