@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { MASKINER, type Maskin } from './OversiktShared'
 import Maskinvy from '../../maskinvy'
 import SkotareVy from '../../skotare'
 import MaskinLogg from './MaskinLogg'
@@ -16,6 +17,12 @@ import SkotareIdagNy from './SkotareIdagNy'
 import SkotareJamforelseNy from './SkotareJamforelseNy'
 
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
+
+type SkotareMaskin = { id: string; namn: string }
+const SKOTARE: SkotareMaskin[] = [
+  { id: 'A030353', namn: 'Ponsse Wisent' },
+  { id: 'A110148', namn: 'Ponsse Elephant King AF' },
+]
 
 // ──────────────────────────────────────────────────────────────
 // Vy-nav för den nya maskinvyn (?ny=1).
@@ -41,6 +48,8 @@ export default function MaskinvyPage() {
   const [mode, setMode] = useState<Mode>('skordare')
   const [ny, setNy] = useState(false)
   const [vy, setVy] = useState<string>('')
+  const [maskinSkordare, setMaskinSkordare] = useState<Maskin>(MASKINER[0])
+  const [maskinSkotare,  setMaskinSkotare]  = useState<SkotareMaskin>(SKOTARE[0])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -213,17 +222,17 @@ export default function MaskinvyPage() {
           <div className={`mv-wrapper${showVyNav ? ' with-vy-nav' : ''}`}>
             {mode === 'skordare'
               ? (ny
-                  ? (vy === 'produktion' ? <ProduktionNy />
-                     : vy === 'avbrott'    ? <AvbrottNy />
-                     : vy === 'idag'       ? <IdagNy />
-                     : <OversiktNy />)
+                  ? (vy === 'produktion' ? <ProduktionNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
+                     : vy === 'avbrott'    ? <AvbrottNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
+                     : vy === 'idag'       ? <IdagNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
+                     : <OversiktNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />)
                   : <Maskinvy />)
               : (ny
-                  ? (vy === 'produktion'  ? <SkotareProduktionNy />
-                     : vy === 'avbrott'   ? <SkotareAvbrottNy />
-                     : vy === 'idag'      ? <SkotareIdagNy />
+                  ? (vy === 'produktion'  ? <SkotareProduktionNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
+                     : vy === 'avbrott'   ? <SkotareAvbrottNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
+                     : vy === 'idag'      ? <SkotareIdagNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
                      : vy === 'jamforelse' ? <SkotareJamforelseNy />
-                     : <SkotareOversiktNy />)
+                     : <SkotareOversiktNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />)
                   : <SkotareVy />)}
           </div>
           {!(ny && (mode === 'skordare' || mode === 'skotare')) && <MaskinLogg mode={mode} />}

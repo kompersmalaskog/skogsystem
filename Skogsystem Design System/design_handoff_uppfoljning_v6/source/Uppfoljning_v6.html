@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Uppföljning v6 — Oskotat + redesign</title>
+<style>
+html,body{margin:0;padding:0;background:#0a0a0c;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter',system-ui,sans-serif;color:#fff;min-height:100vh;}
+.stage{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:48px 24px;gap:40px;flex-wrap:wrap;}
+.phone{width:390px;height:844px;background:#000;border-radius:48px;border:9px solid #0e0e10;position:relative;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);}
+.phone::before{content:'';position:absolute;top:11px;left:50%;transform:translateX(-50%);width:120px;height:30px;background:#000;border-radius:20px;z-index:200;}
+.screen{position:absolute;inset:0;overflow:hidden;}
+.caption{text-align:center;color:rgba(255,255,255,.5);font-size:12px;margin-top:14px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;}
+/* Hide horizontal scrollbars (sortiment) */
+.v4-hscroll::-webkit-scrollbar{display:none;}
+.v4-hscroll{scrollbar-width:none;}
+/* Inputs */
+input:focus{outline:none;}
+::placeholder{color:#8e8e93;}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div>
+    <div class="phone"><div id="list" class="screen"></div></div>
+    <div class="caption">Lista</div>
+  </div>
+  <div>
+    <div class="phone"><div id="detail" class="screen"></div></div>
+    <div class="caption">Detalj</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="./Uppfoljning_v4_Data.jsx?v=1005"></script>
+<script type="text/babel" src="./Uppfoljning_v6_List.jsx?v=1005"></script>
+<script type="text/babel" src="./Uppfoljning_v6_Detail.jsx?v=1005"></script>
+
+<script type="text/babel" data-presets="env,react">
+function ListApp() {
+  const [valt, setValt] = React.useState(null);
+  return (
+    <>
+      <UppfoljningListV6 onOpen={setValt} />
+      {valt && (
+        <div style={{ position: 'absolute', inset: 0, background: '#000', zIndex: 50 }}>
+          <UppfoljningDetailV6 obj={valt} onBack={() => setValt(null)} />
+        </div>
+      )}
+    </>
+  );
+}
+
+function DetailApp() {
+  const obj = OBJEKT_V4[0];
+  return <UppfoljningDetailV6 obj={obj} onBack={() => {}} />;
+}
+
+ReactDOM.createRoot(document.getElementById('list')).render(<ListApp />);
+ReactDOM.createRoot(document.getElementById('detail')).render(<DetailApp />);
+</script>
+</body>
+</html>

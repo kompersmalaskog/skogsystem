@@ -94,7 +94,8 @@ export type Period = 'V' | 'M' | 'K' | 'Å'
 
 export const MASKINER: Maskin[] = [
   { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion Giant 8W' },
-  { id: 'R64101',            namn: 'Rottne H8E (ny)' },
+  { id: 'R64428',            namn: 'Rottne H8E (ny)' },
+  { id: 'R64101',            namn: 'Rottne H8E (gammal)' },
   { id: 'R64101+R64428',     namn: 'Rottne H8E (båda)' },
 ]
 

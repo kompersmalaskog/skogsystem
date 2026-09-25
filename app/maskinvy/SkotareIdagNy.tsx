@@ -532,8 +532,10 @@ function HintRad() {
 }
 
 // ── Root-komponent ─────────────────────────────────────────────
-export default function SkotareIdagNy() {
-  const [maskin,       setMaskin]       = useState(SKOTARE[0])
+export default function SkotareIdagNy({ maskin, onMaskinChange }: {
+  maskin: typeof SKOTARE[number]
+  onMaskinChange: (m: typeof SKOTARE[number]) => void
+}) {
   const [maskinOpen,   setMaskinOpen]   = useState(false)
   const [data,         setData]         = useState<SkotareIdagData | null>(null)
   const [loading,      setLoading]      = useState(true)
@@ -597,7 +599,7 @@ export default function SkotareIdagNy() {
               {SKOTARE.map(m => (
                 <button
                   key={m.id}
-                  onClick={() => { setMaskin(m); setMaskinOpen(false) }}
+                  onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
                     background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',

@@ -751,9 +751,10 @@ function SkotareOperatorDeepView({
 }
 
 // ── Huvud-komponent ───────────────────────────────────────────
-export default function SkotareOversiktNy() {
-  type Maskin = typeof SKOTARE[number]
-  const [maskin, setMaskin]             = useState<Maskin>(SKOTARE[0])
+export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
+  maskin: typeof SKOTARE[number]
+  onMaskinChange: (m: typeof SKOTARE[number]) => void
+}) {
   const [period, setPeriod]             = useState<Period>('M')
   const [offset, setOffset]             = useState(0)
   const [data,     setData]             = useState<SkotareData | null>(null)
@@ -842,7 +843,7 @@ export default function SkotareOversiktNy() {
               {SKOTARE.map(m => (
                 <button
                   key={m.id}
-                  onClick={() => { setMaskin(m); setMaskinOpen(false) }}
+                  onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
                     background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',

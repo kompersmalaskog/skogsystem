@@ -10,8 +10,10 @@ import {
 import OperatorDeepView from './OperatorDeepView'
 import VolymDeepView from './VolymDeepView'
 
-export default function OversiktNy() {
-  const [maskin, setMaskin] = useState<Maskin>(MASKINER[0])
+export default function OversiktNy({ maskin, onMaskinChange }: {
+  maskin: Maskin
+  onMaskinChange: (m: Maskin) => void
+}) {
   const [period, setPeriod] = useState<Period>('M')
   const [offset, setOffset] = useState(0)
   const [data, setData] = useState<Data | null>(null)
@@ -103,7 +105,7 @@ export default function OversiktNy() {
               {MASKINER.map(m => (
                 <button
                   key={m.id}
-                  onClick={() => { setMaskin(m); setMaskinOpen(false) }}
+                  onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
                     background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',

@@ -69,16 +69,31 @@ export async function POST(req: NextRequest) {
       skift.map(s => opMap[s.operator_id]).filter(Boolean)
     )];
 
-    const { data: redigerade } = await supabase
+    // Hämta befintliga rader i fönstret. Redigerade dagar skyddas HELT (raderas
+    // aldrig). Icke-redigerade byggs om — men MÄNNISKO-fälten (bekraftad,
+    // bekraftad_tid, kommentar, traktamente, frånvaro-dagtyp) ska FÖLJA MED
+    // ombyggnaden i stället för att återställas till default. Maskinen äger
+    // start/slut/rast/objekt/maskin (byggs om); människan äger sin bekräftelse.
+    // Vi läser också gamla maskinfält + synk_avvikelse för att kunna flagga när
+    // en BEKRÄFTAD dags tider ändras efter att föraren skrev under.
+    const { data: befintliga } = await supabase
       .from('arbetsdag')
-      .select('medarbetare_id, datum')
+      .select('medarbetare_id, datum, redigerad, bekraftad, bekraftad_tid, kommentar, traktamente, dagtyp, start_tid, slut_tid, rast_min, objekt_id, synk_avvikelse')
       .in('datum', datumSet)
-      .in('medarbetare_id', medarbetareIds)
-      .eq('redigerad', true);
+      .in('medarbetare_id', medarbetareIds);
 
     const skyddade = new Set(
-      (redigerade || []).map(r => `${r.medarbetare_id}_${r.datum}`)
+      (befintliga || []).filter(r => r.redigerad === true).map(r => `${r.medarbetare_id}_${r.datum}`)
     );
+    // Människo-fält per (medarbetare, datum) — bärs över vid ombyggnad.
+    const manniskoFalt = new Map<string, any>();
+    for (const r of befintliga || []) manniskoFalt.set(`${r.medarbetare_id}_${r.datum}`, r);
+
+    // Frånvaro-dagtyp är människosatt (ej maskin) → bärs över. 'normal'/'Produktion'
+    // är maskin-etiketter och byggs om. HH:MM-normalisering för tidsjämförelse
+    // (DB-kolumnen är time → 'HH:MM:SS', vår insert skriver 'HH:MM').
+    const FRANVARO = new Set(['sjuk', 'semester', 'vab', 'atk']);
+    const normTid = (t: any): string | null => (t ? String(t).slice(0, 5) : null);
 
     // 4. Hämta rast_sek och objekt_id från fakt_tid per operator+datum
     const operatorIds = [...new Set(skift.map(s => s.operator_id).filter(Boolean))];
@@ -221,20 +236,66 @@ export async function POST(req: NextRequest) {
       return m ? `${m[1]}:${m[2]}` : '00:00';
     };
 
+    const nu = new Date().toISOString();
     const rows = Object.values(dagMap).map(agg => {
       const rastKey = `${agg.medarbetare_id}_${agg.datum}`;
       const rastSek = rastMap[rastKey] || 0;
       const rastMin = Math.round(rastSek / 60);
+
+      // ── MASKINEN ÄGER (byggs om varje synk) ──
+      const start_tid = hhmm(agg.earliestStart);
+      const slut_tid = hhmm(agg.latestEnd);
+      const objekt_id = objektMap[rastKey] || null;
+
+      // ── MÄNNISKAN ÄGER (bärs över, återställs aldrig till default) ──
+      const prev = manniskoFalt.get(rastKey);
+      const bekraftad = prev?.bekraftad ?? false;
+      const bekraftad_tid = prev?.bekraftad_tid ?? null;
+      const kommentar = prev?.kommentar ?? null;
+      const traktamente = prev?.traktamente ?? false;
+      // Frånvaro-dagtyp bärs över; annars maskin-etiketten 'Produktion' (matchar
+      // Python-importern — två maskinskrivare ska inte vara oense om etiketten).
+      const dagtyp = prev && FRANVARO.has(prev.dagtyp) ? prev.dagtyp : 'Produktion';
+
+      // ── synk_avvikelse: bekräftad dag vars maskintider ändrats efter under-
+      //    skrift. Sparar vad föraren skrev under på (fore) och vad det blev
+      //    (efter) per fält. Det signerade 'fore' bevaras genom upprepade
+      //    ombyggnader; löser upp sig självt om värdet återgår. ──
+      let synk_avvikelse: any = null;
+      if (prev && prev.bekraftad === true) {
+        const forra = prev.synk_avvikelse && typeof prev.synk_avvikelse === 'object' ? prev.synk_avvikelse.andrat || {} : {};
+        const jamfor: [string, any, any][] = [
+          ['start_tid', normTid(prev.start_tid), start_tid],
+          ['slut_tid', normTid(prev.slut_tid), slut_tid],
+          ['rast_min', prev.rast_min ?? 0, rastMin],
+          ['objekt_id', prev.objekt_id ?? null, objekt_id],
+        ];
+        const andrat: Record<string, { fore: any; efter: any }> = {};
+        for (const [falt, prevVal, nyVal] of jamfor) {
+          // Signerat värde = det första 'fore' vi sett (om fältet redan avvek),
+          // annars nuvarande DB-värde (= det bekräftade, aldrig ändrat än).
+          const signerat = falt in forra ? forra[falt].fore : prevVal;
+          if (String(signerat) !== String(nyVal)) andrat[falt] = { fore: signerat, efter: nyVal };
+        }
+        if (Object.keys(andrat).length > 0) {
+          synk_avvikelse = { bekraftad_tid, upptackt: nu, andrat };
+        }
+      }
+
       return {
         medarbetare_id: agg.medarbetare_id,
         datum: agg.datum,
-        dagtyp: 'normal',
-        start_tid: hhmm(agg.earliestStart),
-        slut_tid: hhmm(agg.latestEnd),
+        dagtyp,
+        start_tid,
+        slut_tid,
         rast_min: rastMin,
         maskin_id: agg.maskin_id,
-        objekt_id: objektMap[rastKey] || null,
-        bekraftad: false,
+        objekt_id,
+        bekraftad,
+        bekraftad_tid,
+        kommentar,
+        traktamente,
+        synk_avvikelse,
       };
     });
 
@@ -370,10 +431,12 @@ export async function POST(req: NextRequest) {
         .map(([, agg]) => {
           const arbetadMin = Math.round(agg.g15sek / 60);
           const rastMin = Math.round(agg.rastSek / 60);
+          // Fallback = helt nya dagar (finns ej i arbetsdag) → inga människo-fält
+          // att bära över. Maskin-etikett 'Produktion' (matchar Python + steg 7).
           return {
             medarbetare_id: agg.medarbetare_id,
             datum: agg.datum,
-            dagtyp: 'normal',
+            dagtyp: 'Produktion',
             maskin_id: agg.maskin_id,
             objekt_id: agg.objekt_id,
             arbetad_min: arbetadMin,

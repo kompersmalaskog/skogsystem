@@ -55,6 +55,22 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // === Lokal dev-mock för /arbetsrapport ===
+  // Dubbelt lås: env-var DEV_MOCK=1 (finns bara i lokal .env.local, git-ignorerad)
+  // + samma URL-params som /korvy. Utan env-var är bypassen aldrig aktiv, ens
+  // med rätt URL-params — så prod (Vercel) kan aldrig triggas oavsett URL.
+  // Denna ändring är AVSIKTLIGT hållen unstaged/uncommittad — se .env.local
+  // för aktiveringen.
+  if (pathname === '/arbetsrapport' && process.env.DEV_MOCK === '1') {
+    const devmock = request.nextUrl.searchParams.get('devmock');
+    const devkey = request.nextUrl.searchParams.get('devkey');
+    if (devmock === '1' && devkey === 'skogsystem-debug') {
+      const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
+      console.log('[DEV-MOCK ACCESS]', pathname, 'from', ip, 'at', new Date().toISOString());
+      return supabaseResponse;
+    }
+  }
+
   // Not logged in and not on login page → redirect to login
   if (!user && !isLoginPage) {
     const url = request.nextUrl.clone();

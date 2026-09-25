@@ -64,7 +64,7 @@ async function hamtaPrisscenarier() {
   return data || []
 }
 
-async function sparaObjektTillSupabase(obj) {
+async function sparaObjektTillSupabase(obj, originalVo) {
   // Build ovrigt_info JSON from extern skotning fields
   let ovrigtInfo = null;
   if (obj._extern_skotning) {
@@ -92,7 +92,10 @@ async function sparaObjektTillSupabase(obj) {
     } catch { ovrigtInfo = obj.ovrigt_info; }
   }
 
-  const { error } = await supabase
+  // dim_objekt — VERIFIERAD sparning: .select() + kräv att en rad faktiskt kom tillbaka.
+  // En update().eq() UTAN .select() ger error=null ÄVEN när 0 rader matchas → falsk "Sparad".
+  // Det tysta 0-rads-felet har bitit förr; kräv bevis på att raden fanns.
+  const { data: dimRader, error } = await supabase
     .from('dim_objekt')
     .update({
       object_name: obj.object_name, vo_nummer: obj.vo_nummer, skogsagare: obj.skogsagare,
@@ -111,7 +114,29 @@ async function sparaObjektTillSupabase(obj) {
       ovrigt_info: ovrigtInfo,
     })
     .eq('objekt_id', obj.objekt_id)
-  return !error
+    .select('objekt_id')
+  if (error) return { ok: false, error: error.message, objektSynk: 0 }
+  if (!dimRader || dimRader.length === 0) return { ok: false, error: `ingen dim_objekt-rad för objekt_id ${obj.objekt_id}`, objektSynk: 0 }
+
+  // Håll den OPERATIVA objekt-raden i synk — det är DEN appen läser för produktion/karta/listor.
+  // Redigering ägde tidigare bara dim_objekt, så vo/namn kunde driva isär (Rössmåla-buggen: appen
+  // pekade på gammalt vo och produktionen blev osynlig). Matcha objekt-raden på ORIGINAL-vo:t (den
+  // bär fortfarande det gamla vo:t före ändringen). Ingen matchande objekt-rad (objektet ej upplagt
+  // operativt) → objektSynk=0, inget fel. Blankar aldrig: synkar bara när ett nytt vo faktiskt finns.
+  const matchVo = (originalVo || '').trim() || (obj.vo_nummer || '').trim()
+  let objektSynk = 0
+  if (matchVo && (obj.vo_nummer || '').trim()) {
+    const patch: any = { vo_nummer: obj.vo_nummer }
+    if ((obj.object_name || '').trim()) patch.namn = obj.object_name
+    const { data: objRader, error: objErr } = await supabase
+      .from('objekt')
+      .update(patch)
+      .eq('vo_nummer', matchVo)
+      .select('id')
+    if (objErr) return { ok: false, error: `objekt-synk misslyckades: ${objErr.message}`, objektSynk: 0 }
+    objektSynk = objRader ? objRader.length : 0
+  }
+  return { ok: true, error: '', objektSynk }
 }
 // === SLUT SUPABASE ===
 
@@ -1499,13 +1524,13 @@ export default function ObjektRedigering() {
     if (!valtObjekt) return
     setSaving(true)
     setSaveError('')
-    let ok = false
+    let res = { ok: false, error: '', objektSynk: 0 }
     try {
-      ok = await sparaObjektTillSupabase(valtObjekt)
+      res = await sparaObjektTillSupabase(valtObjekt, originalObjekt?.vo_nummer)
     } catch (err) {
-      ok = false
+      res = { ok: false, error: (err as any)?.message || 'okänt fel', objektSynk: 0 }
     }
-    if (ok) {
+    if (res.ok) {
       setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
       setSaved(true)
       setTimeout(() => {
@@ -1514,7 +1539,7 @@ export default function ObjektRedigering() {
         setSaved(false)
       }, 600)
     } else {
-      setSaveError('Kunde inte spara — försök igen')
+      setSaveError(res.error ? `Kunde inte spara — ${res.error}` : 'Kunde inte spara — försök igen')
       setTimeout(() => setSaveError(''), 4500)
     }
     setSaving(false)
@@ -1774,13 +1799,13 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
     if (!valtObjekt) return
     setSaving(true)
     setSaveError('')
-    let ok = false
+    let res = { ok: false, error: '', objektSynk: 0 }
     try {
-      ok = await sparaObjektTillSupabase(valtObjekt)
+      res = await sparaObjektTillSupabase(valtObjekt, originalObjekt?.vo_nummer)
     } catch (err) {
-      ok = false
+      res = { ok: false, error: (err as any)?.message || 'okänt fel', objektSynk: 0 }
     }
-    if (ok) {
+    if (res.ok) {
       setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
       setSaved(true)
       setTimeout(() => {
@@ -1789,7 +1814,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         setSaved(false)
       }, 600)
     } else {
-      setSaveError('Kunde inte spara — försök igen')
+      setSaveError(res.error ? `Kunde inte spara — ${res.error}` : 'Kunde inte spara — försök igen')
       setTimeout(() => setSaveError(''), 4500)
     }
     setSaving(false)
