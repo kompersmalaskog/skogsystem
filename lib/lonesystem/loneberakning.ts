@@ -27,7 +27,7 @@
  */
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
-import { DAGTYP_FRANVARO_LEGACY, rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag } from "../franvaro";
+import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { helglonIManad, HELGLON_TIMMAR, type HelglonDag } from "./helglon";
 
@@ -179,12 +179,6 @@ export function beräknaExport(
 
   const eid = anstallningsnummer || "SAKNAS";
 
-  // Legacy-spärr (lib/franvaro, tas bort i steg 3): de två gamla frånvaro-
-  // raderna i arbetsdag (dagtyp sjuk, 0 min, ingen tid) ska inte bli kortpass.
-  // Dagtyp avgör INTE längre att en dag är frånvaro — det gör `ledigheter`.
-  const LEGACY = new Set<string>(DAGTYP_FRANVARO_LEGACY);
-  const dagarMedTid = dagar.filter(d => !d.dagtyp || !LEGACY.has(d.dagtyp.toLowerCase()));
-
   // ARBETSDAG = minst 60 min maskintid + extra tid samma dag (lib/arbetsdagRegler).
   // Kortare dagar är kortpass: minuterna räknas i totalH (betald tid) men dagen
   // ger ingen ×8 i övertidsbasen, ingen vältlappsvecka och ingen reseersättning.
@@ -193,6 +187,11 @@ export function beräknaExport(
   const extraMinPerDatum = new Map<string, number>();
   for (const e of extraTid) if (e?.datum) extraMinPerDatum.set(e.datum, (extraMinPerDatum.get(e.datum) || 0) + (e.minuter || 0));
   const dagTotalMin = (d: ArbetsdagInput) => (d.arbetad_min || 0) + (extraMinPerDatum.get(d.datum) || 0);
+  // En rad utan någon tid alls (0 min maskin, 0 min extra) är ingen dag — varken
+  // arbetsdag eller kortpass. arbetsdag.dagtyp läses inte här: frånvaro kommer
+  // ur `ledigheter` (lib/franvaro), dagtyp betyder bara sorts maskindag (steg 3,
+  // 2026-09-25). De två gamla frånvaroraderna (0 min, ingen tid) faller på det.
+  const dagarMedTid = dagar.filter(d => dagTotalMin(d) > 0);
   const produktionsDagar = dagarMedTid.filter(d => arArbetsdag(dagTotalMin(d)));
   const kortpass = dagarMedTid
     .filter(d => !arArbetsdag(dagTotalMin(d)))

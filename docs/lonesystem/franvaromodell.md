@@ -171,9 +171,17 @@ fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
 - Kalendern: dagen visar arbete (prick); månadskortet och Kontroll-steget
   räknar "Sjukdag (del av dag)". Ledighetsvyn visar "Del av dag — från 11:30".
 
-**Steg 3 — städning.** `dagtyp` nollas på de två raderna,
-`DAGTYP_FRANVARO_LEGACY` tas bort. `arbetsdag.dagtyp` behåller sin andra
-betydelse (sorts maskindag) tills den delas.
+**Steg 3 — städning (2026-09-25).** Inget ställe läser `arbetsdag.dagtyp`
+för frånvaro längre (kontrollerat: lön, årsövertid, kalender, Kontroll,
+Min tid, granskningsvyn, ledighetsvyn — allt via `lib/franvaro`; dagtyp
+förekommer bara som visningsetikett i granskningens dagrader och
+tidsspecens PDF). `DAGTYP_FRANVARO_LEGACY` borttagen; en rad utan någon tid
+räknas varken som arbetsdag eller kortpass. Det döda skärmparet
+`bekräftaFrånvaro`/`klarFrånvaro` i Arbetsrapporten (skrev dagtyp, även atk
+och semester, nåddes aldrig) borttaget. Migration `20260925110000`: de två
+gamla raderna → `'normal'`, och `dagtyp` får sin första CHECK: bara
+`Produktion` och `normal`. `arbetsdag.dagtyp` betyder bara "sorts
+maskindag" igen.
 
 Först efter steg 3: helglönens närvarokrav (§10 mom 4), frånvaro-avdrag i
 årsövertidens bas, komp-avdrag, skoftning i lönen (inarbetad dag =
