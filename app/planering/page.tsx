@@ -16,7 +16,7 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, hyttsparDugligaSegment, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { skaEmittaHeading } from '../../lib/kompass'
-import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelNyckel, storstaYttreRing, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
+import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
 import { startaPolygonRitning, type PolygonRitningHandle } from '../../lib/polygonRitning'
 import { upsertVerifierat, raderaVerifierat } from '../../lib/supabase-save'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -1176,8 +1176,6 @@ export default function PlannerPage() {
   // de nya lagerknapparna (nyckelbiotop/lämning). Traktdelar har ingen knapp — de är alltid tända.
   const [geoKategorier, setGeoKategorier] = useState<Set<TraktKategori>>(new Set());
   const [traktGeo, setTraktGeo] = useState<any>(null); // hela FeatureCollection för valt objekt → snabbpanelen räknar faror/hänsyn/basväg ur den
-  const traktGeoRef = useRef<any>(null); // spegel för stale-closure-fri läsning i map-klickhanterare
-  useEffect(() => { traktGeoRef.current = traktGeo; }, [traktGeo]);
 
   // MapLibre map style config (stable constant)
   const mapStyleConfig = useRef({
@@ -1660,6 +1658,10 @@ export default function PlannerPage() {
     // synlighet av toggle-effekten. Alla börjar 'none'. Lagren läggs sist -> ovanpå VIDA-
     // kartbilden (som infogas under zone-/line-lagren) så geometrin syns på kartbilden.
     map.addSource('trakt-geo-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    // Egen källa för traktdelarnas ENSKILDA delytor — varje MultiPolygon-del blir en Polygon-feature med
+    // stabil _partKey (<TRDEL_ID>:<idx>). Krävs för att kunna tappa/analysera/dölja PER del (Martin: alla
+    // bitar, inte bara största). trakt-gr-* renderas från denna, ej från trakt-geo-source.
+    map.addSource('traktdel-parts-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     const FLB = ['downcase', ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]] as any;
     // Traktdelar (L_TRAKTDEL, Vida) — ritas som en EGENRITAD TRAKTGRÄNS (röd/gul snitsel), inte ett
     // eget tunt lager. Faint fyllning kvar BARA för tappbarhet (hela ytan öppnar kortet). Snitseln =
@@ -1667,10 +1669,10 @@ export default function PlannerPage() {
     // Filtrerar på _lager (SV_BESKRIVNINGSENHET_FL delar _typ='traktgräns' men ska ALDRIG renderas).
     const trTdW = ['interpolate', ['linear'], ['zoom'], 8, 3, 14, 5, 17, 8] as any;
     const trTdCasingW = ['interpolate', ['linear'], ['zoom'], 8, 5, 14, 8, 17, 12] as any;
-    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_TRAKTDEL'], paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-gr-casing', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_TRAKTDEL'], paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-width': trTdCasingW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_TRAKTDEL'], paint: { 'line-color': LEGEND.fara, 'line-width': trTdW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'trakt-gr-stripe', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_TRAKTDEL'], paint: { 'line-color': LEGEND.gul, 'line-width': trTdW, 'line-dasharray': [2, 2] }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'traktdel-parts-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-gr-casing', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-width': trTdCasingW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.fara, 'line-width': trTdW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'trakt-gr-stripe', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.gul, 'line-width': trTdW, 'line-dasharray': [2, 2] }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     // Hänsynsytor — blå fylld yta + kontur
     map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'line-width': 1.5 }, layout: { visibility: 'none' } });
@@ -1729,7 +1731,7 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-raa-point', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': '#b45309', 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 }, layout: { visibility: 'none' } });
 
     // Traktdelsnummer (TRDEL_NR_K) i mitten av varje traktdel — läggs SIST så det ligger överst.
-    map.addLayer({ id: 'trakt-gr-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_TRAKTDEL'], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'TRDEL_NR_K'], '']], 'text-size': 13, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#dcfce7', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.6 } });
+    map.addLayer({ id: 'trakt-gr-label', type: 'symbol', source: 'traktdel-parts-source', layout: { 'text-field': ['to-string', ['coalesce', ['get', 'TRDEL_NR_K'], '']], 'text-size': 13, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#dcfce7', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.6 } });
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -3988,19 +3990,46 @@ export default function PlannerPage() {
     set('trakt-punkt-label', !!overlays.korFara);
   }, [overlays.hansyn, overlays.korFara, overlays.traktNyckelbiotop, overlays.traktLamning, mapLibreReady, geoTyper]);
 
-  // Justerade traktdelar (planeraren tryckt "Justera gräns" → en riktig boundary-markör finns) döljs.
-  // Deklareras här (före dölj-filter-effekten) och används även av byggVidaTraktdelBoundaries nedan.
+  // === Traktdelarnas ENSKILDA delytor (per MultiPolygon-del) ===
+  // Varje del = { partKey '<TRDEL_ID>:<idx>', tdKey, props, ring }. ALLA delar med ≥3 hörn tas med (Martin:
+  // analysera alla bitar, ingen area-tröskel). Enda källan för rendering, analys, kort och Justera gräns.
+  const traktdelDelar = useMemo(
+    () => traktdelDelytor(traktGeo?.features || []).map(d => ({
+      ...d,
+      ringLatLon: d.ringLngLat.map(([lng, lat]) => ({ lat, lon: lng })),
+    })),
+    [traktGeo],
+  );
+  const traktdelDelarRef = useRef(traktdelDelar);
+  useEffect(() => { traktdelDelarRef.current = traktdelDelar; }, [traktdelDelar]);
+
+  // Pumpa delytorna till traktdel-parts-source (varje del = egen Polygon-feature med _partKey).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource('traktdel-parts-source') as any;
+    if (!src || !src.setData) return;
+    src.setData({
+      type: 'FeatureCollection',
+      features: traktdelDelar.map(d => ({
+        type: 'Feature',
+        properties: { ...d.props, _lager: 'L_TRAKTDEL', _partKey: d.partKey },
+        geometry: { type: 'Polygon', coordinates: [d.ringLngLat] },
+      })),
+    });
+  }, [traktdelDelar, mapLibreReady]);
+
+  // Justerade delar (en boundary-markör med fromVidaTd=<partKey> finns) döljs PER del.
   const justeradeTraktdelar = useMemo(
     () => new Set(markers.filter((m: any) => m.fromVidaTd).map((m: any) => String(m.fromVidaTd))),
     [markers],
   );
-  // Dölj traktdelar som planeraren har "Justerat" till en egen boundary-markör (annars dubbel snitsel).
+  // Dölj de delytor som justerats (per _partKey) — annars dubbel snitsel mot den nya markören.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const hidden = Array.from(justeradeTraktdelar);
-    const keyExpr = ['to-string', ['coalesce', ['get', 'TRDEL_ID'], ['get', 'TRDEL_NR_K'], '']];
-    const filter = ['all', ['==', ['get', '_lager'], 'L_TRAKTDEL'], ['!', ['in', keyExpr, ['literal', hidden]]]] as any;
+    const filter = ['!', ['in', ['get', '_partKey'], ['literal', hidden]]] as any;
     for (const id of ['trakt-gr-fill', 'trakt-gr-casing', 'trakt-gr-line', 'trakt-gr-stripe', 'trakt-gr-label']) {
       if (map.getLayer(id)) { try { map.setFilter(id, filter); } catch { /* */ } }
     }
@@ -5165,13 +5194,11 @@ export default function PlannerPage() {
           const kat = klassaTraktFeature(vald.properties).kategori;
           let vida: { key: string; synthId: string; ringLatLon: { lat: number; lon: number }[] } | null = null;
           if (kat === 'traktdel') {
-            // Hela ringen ur källan (traktGeoRef) — queryRenderedFeatures-geometrin kan vara tile-klippt.
-            const key = traktdelNyckel(vald.properties);
-            if (key) {
-              const full = (traktGeoRef.current?.features || []).find((f: any) => traktdelNyckel(f?.properties) === key);
-              const ring = full ? storstaYttreRing(full.geometry) : null;
-              if (ring && ring.length >= 3) vida = { key, synthId: 'vida-td:' + key, ringLatLon: ring.map(([lng, lat]) => ({ lat, lon: lng })) };
-            }
+            // vald är nu en DELYTA-feature (traktdel-parts-source) med _partKey → visa DEN delens resultat.
+            // Ring hämtas oklippt ur traktdelDelarRef (queryRenderedFeatures-geometrin kan vara tile-klippt).
+            const partKey = String((vald.properties as any)?._partKey ?? '');
+            const del = traktdelDelarRef.current.find((d: any) => d.partKey === partKey);
+            if (del) vida = { key: partKey, synthId: 'vida-td:' + partKey, ringLatLon: del.ringLatLon };
           }
           oppnaKort(byggTraktKort(vald.properties || {}), ytaNyckel(vald.properties || {}), null, vida);
         }
@@ -6169,22 +6196,15 @@ export default function PlannerPage() {
   // Syntetiska "boundaries" ur objektets L_TRAKTDEL: id 'vida-td:<nyckel>', ring i lat/lon + SVG-path.
   // Anropas INNE i trigger-effekterna så latLonToSvg/svgToLatLon delar samma mapCenter-closure (exakt round-trip).
   const byggVidaTraktdelBoundaries = (): { id: string; key: string; ringLatLon: { lat: number; lon: number }[]; path: Point[] }[] => {
-    const fc = traktGeo;
-    if (!fc || !Array.isArray(fc.features)) return [];
-    const res: { id: string; key: string; ringLatLon: { lat: number; lon: number }[]; path: Point[] }[] = [];
-    for (const f of fc.features) {
-      if (klassaTraktFeature(f?.properties).kategori !== 'traktdel') continue;
-      const key = traktdelNyckel(f?.properties);
-      if (!key || justeradeTraktdelar.has(key)) continue;
-      const ring = storstaYttreRing(f.geometry);
-      if (!ring || ring.length < 3) continue;
-      res.push({
-        id: 'vida-td:' + key, key,
-        ringLatLon: ring.map(([lng, lat]) => ({ lat, lon: lng })),
-        path: ring.map(([lng, lat]) => latLonToSvg(lat, lng)),
-      });
-    }
-    return res;
+    // EN boundary per DELYTA (partKey). Justerade delar hoppas över (den nya markören bär analysen).
+    return traktdelDelar
+      .filter(d => !justeradeTraktdelar.has(d.partKey))
+      .map(d => ({
+        id: 'vida-td:' + d.partKey,
+        key: d.partKey,
+        ringLatLon: d.ringLatLon,
+        path: d.ringLatLon.map(p => latLonToSvg(p.lat, p.lon)),
+      }));
   };
 
   // Trigga TMA-kontroll per boundary individuellt (egenritade + Vidas traktdelar)

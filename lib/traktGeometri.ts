@@ -112,6 +112,29 @@ export function traktdelNyckel(props: Record<string, any> | null | undefined): s
   return v || null;
 }
 
+/** Dela upp objektets traktdelar i ENSKILDA delytor — en post per (Multi)Polygon-del med ≥3 hörn.
+ *  Martin: analysera ALLA bitar, inte bara största. partKey='<TRDEL_ID>:<idx>' är stabil per del.
+ *  Returnerar delens yttre ring i [lng,lat] + källfeaturens props (för rendering/kort). */
+export function traktdelDelytor(
+  features: any[],
+): { partKey: string; tdKey: string; idx: number; ringLngLat: [number, number][]; props: Record<string, any> }[] {
+  const res: { partKey: string; tdKey: string; idx: number; ringLngLat: [number, number][]; props: Record<string, any> }[] = [];
+  for (const f of features || []) {
+    if (klassaTraktFeature(f && f.properties).kategori !== 'traktdel') continue;
+    const tdKey = traktdelNyckel(f && f.properties);
+    if (!tdKey) continue;
+    const geom = f && f.geometry;
+    const polys: any[] = geom && geom.type === 'MultiPolygon' ? geom.coordinates
+      : geom && geom.type === 'Polygon' ? [geom.coordinates] : [];
+    polys.forEach((poly, idx) => {
+      const ring = poly && poly[0];
+      if (!Array.isArray(ring) || ring.length < 3) return;
+      res.push({ partKey: tdKey + ':' + idx, tdKey, idx, ringLngLat: ring as [number, number][], props: (f && f.properties) || {} });
+    });
+  }
+  return res;
+}
+
 /** Största yttre ringen ur en (Multi)Polygon-geometri, som [lng,lat][]. En traktdel som ska
  *  behandlas som EN traktgräns → vi kör analysen på den dominerande delytan (bbox-paddas ändå i
  *  /api/tract-analysis). Returnerar null om geometrin saknar en giltig ring (≥3 hörn). */
