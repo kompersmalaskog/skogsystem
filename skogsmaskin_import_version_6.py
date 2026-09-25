@@ -111,6 +111,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 # gräns fanns för att hindra, fast via den här andra skrivvägen.
 MOM_SYNK_FRAN = _env.get('MOM_SYNK_FRAN') or os.getenv('MOM_SYNK_FRAN') or '2026-07-14'
 
+# Steg B-läge: 'logga' (DEFAULT) kör hela regeln men SKRIVER INGET till objekt/nycklar —
+# produktionen importeras under samma nycklar som före #579, och varje beslut loggas som
+# "Steg B [logga] skulle …". 'skriv' gör det på riktigt (samma loggrader utan [logga]).
+# Läses ur .env.local (STEG_B_LAGE=logga|skriv) i driftklonen; saknas → 'logga'.
+STEG_B_LAGE = (_env.get('STEG_B_LAGE') or os.getenv('STEG_B_LAGE') or 'logga').strip().lower()
+
 # OneDrive-mappar
 ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
 INKOMMANDE = os.path.join(ONEDRIVE_BASE, "Inkommande")
@@ -402,7 +408,7 @@ def _datum_iso(datum):
     except Exception:
         return None
 
-def los_upp_objekt_id(vo_nummer, maskin_id, obj_key, object_name=None, datum=None) -> str:
+def los_upp_objekt_id(vo_nummer, maskin_id, obj_key, object_name=None, datum=None, filnamn=None) -> str:
     """Normalt make_objekt_id. Men SAKNAR filen kontraktsnr och namnet matchar (snävt)
     exakt ETT befintligt objekt (samma skördare, datum inom 30 dgr) → returnera det
     objektets vo_nummer så produktionen hamnar under rätt objekt. Tvetydigt → hemlös."""
@@ -427,10 +433,16 @@ def los_upp_objekt_id(vo_nummer, maskin_id, obj_key, object_name=None, datum=Non
             except Exception:
                 pass
         traffar.add(o['vo_nummer'])
+    tagg = '' if STEG_B_LAGE == 'skriv' else '[logga] '
+    fil = filnamn or object_name
     if len(traffar) == 1:
         matchat = next(iter(traffar))
-        logger.info(f"  Steg B koppling: '{object_name}' utan kontraktsnr → objekt {matchat}")
-        return matchat
+        logger.info(f"Steg B {tagg}skulle kopplat: {fil} → {matchat}")
+        if STEG_B_LAGE == 'skriv':
+            return matchat
+        return make_objekt_id(vo_nummer, maskin_id, obj_key)  # logga: nyckeln oförändrad (som före #579)
+    orsak = 'flera träffar' if len(traffar) > 1 else 'ingen träff'
+    logger.info(f"Steg B {tagg}hemlös: {fil} ({orsak})")
     return make_objekt_id(vo_nummer, maskin_id, obj_key)
 
 def ar_tidsstampelnamn(namn) -> bool:
@@ -914,7 +926,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         start_date = parse_datetime(get_text(obj_def, 'StartDate', ns))
         end_date = parse_datetime(get_text(obj_def, 'EndDate', ns))
         
-        objekt_id = los_upp_objekt_id(vo_nummer, maskin_id, obj_key, obj_name, start_date)
+        objekt_id = los_upp_objekt_id(vo_nummer, maskin_id, obj_key, obj_name, start_date, filnamn)
         obj_key_map[obj_key] = objekt_id
         objektnr = get_text(obj_def, 'ObjectUserID', ns)
 
@@ -1617,7 +1629,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         end_date = parse_datetime(get_text(obj_def, 'EndDate', ns))
         
         objekt_id = los_upp_objekt_id(vo_nummer, maskin_id, obj_key,
-                                      harled_objektnamn(filnamn, get_text(obj_def, 'ObjectName', ns)), start_date)
+                                      harled_objektnamn(filnamn, get_text(obj_def, 'ObjectName', ns)), start_date, filnamn)
         if objekt_id and objekt_id not in hpr_objekt_ids:
             hpr_objekt_ids.append(objekt_id)
         obj_key_map[obj_key] = objekt_id
@@ -2703,7 +2715,7 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
                         cutting_method = cm.text or ''
                     break
         
-        objekt_id = los_upp_objekt_id(vo_nummer, maskin_id, obj_key, object_name, start_date)
+        objekt_id = los_upp_objekt_id(vo_nummer, maskin_id, obj_key, object_name, start_date, filnamn)
         obj_key_map[obj_key] = objekt_id
 
         # Koordinater: försök från ObjectDefinition, annars från LocationCoordinates
@@ -3293,14 +3305,17 @@ def _sakerstall_objekt_rad(nyfodda, objekt_rows):
                    'status': 'pagaende', 'saknar_planering': True,
                    'skordare_maskin_id': o.get('maskin_id'), 'dim_objekt_id': oid,
                    'ar': ar, 'manad': manad}
+            tagg = '' if STEG_B_LAGE == 'skriv' else '[logga] '
+            dstr = f"{ar}-{manad:02d}" if (ar and manad) else (_datum_iso(sd) or '?')
+            logger.info(f"Steg B {tagg}skulle skapat objekt: {namn} {vo} {o.get('maskin_id')} {dstr}")
+            if STEG_B_LAGE != 'skriv':
+                continue  # logga: skriv inget till objekt
             resp = requests.post(
                 f"{SUPABASE_URL}/rest/v1/objekt",
                 headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'},
                 json={k: v for k, v in rad.items() if v is not None}, timeout=30)
-            if resp.status_code in (200, 201):
-                logger.info(f"  Steg B: skapade objekt {vo} '{namn}' (pagaende, saknar_planering)")
-            else:
-                logger.warning(f"  Steg B: kunde inte skapa objekt {vo}: {resp.status_code} {resp.text[:120]}")
+            if resp.status_code not in (200, 201):
+                logger.warning(f"Steg B: POST objekt {vo} misslyckades: {resp.status_code} {resp.text[:120]}")
         except Exception as e:
             logger.warning(f"  Steg B: skapa objekt {vo} hoppades över ({e})")
 
