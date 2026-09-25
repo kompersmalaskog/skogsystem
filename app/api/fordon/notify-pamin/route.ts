@@ -15,7 +15,13 @@ export const maxDuration = 60;
  * dagar_fore). Mätarbaserade kontroller (nasta_forfall NULL) hanteras inte här
  * — de har inget datum att schemalägga mot.
  *
- * Autentisering: Bearer <FORDON_NOTIFY_SECRET>. Körs dagligen via pg_cron.
+ * Autentisering: Vercel-cron (vercel.json, 05:00 UTC) skickar Authorization:
+ * Bearer $CRON_SECRET automatiskt — det är den enda bearer som middleware
+ * släpper igenom utan session. pg_cron-jobbet fordon-daily-notify skickade
+ * Bearer <vault fordon_notify_secret> och fick 401 "Ej inloggad" av
+ * middleware varje morgon sedan API-låsningen (#489/#490) — påminnelserna
+ * var döda utan att cronet märkte det (net.http_post = "succeeded").
+ * FORDON_NOTIFY_SECRET accepteras fortfarande för manuell körning.
  */
 
 function idagStr() {
@@ -28,11 +34,13 @@ function addDagar(dagar: number) {
 }
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.FORDON_NOTIFY_SECRET;
   const auth = req.headers.get("authorization") || "";
   const url = new URL(req.url);
   const manuellKey = url.searchParams.get("key") === "skogsystem-debug";
-  if (!manuellKey && (!secret || auth !== `Bearer ${secret}`)) {
+  // CRON_SECRET = Vercel-cron (samma mönster som fortnox/sync-*); FORDON_NOTIFY_SECRET = manuell/pg_cron.
+  const godkand = [process.env.CRON_SECRET, process.env.FORDON_NOTIFY_SECRET]
+    .some((s) => s && auth === `Bearer ${s}`);
+  if (!manuellKey && !godkand) {
     return NextResponse.json({ ok: false, error: "Obehörig" }, { status: 401 });
   }
 

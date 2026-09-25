@@ -1,3 +1,12 @@
+-- REDAN APPLICERAD I PROD — KÖR INTE OM.
+-- Applicerad 2026-07-25 (supabase_migrations.schema_migrations:
+-- 20260725162902 resurs_kontroll_handelse) från grenen
+-- fordon-resurs-kontroll-modell, som landade på main först 2026-09-25 (403
+-- commits senare). Under tiden läste main tabellen `fordon`, som den här
+-- migrationen döpt om till `fordon_gammal` — /fordonsoversikt var trasig i
+-- prod hela perioden. Filen är idempotent (IF NOT EXISTS, ON CONFLICT DO
+-- NOTHING) och skulle inte skada, men den ska inte köras om.
+--
 -- Fordonsvyn: ny datamodell — resurs / kontroll / händelse.
 -- Ersätter gamla `fordon` med fyra fasta datumkolumner. Skatt & försäkring
 -- utgår (autogiro / rullande avtal). Gamla tabellen bevaras orörd som

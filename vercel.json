@@ -32,6 +32,10 @@
     {
       "path": "/api/vagdata-cron",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/fordon/notify-pamin",
+      "schedule": "0 5 * * *"
     }
   ]
 }
