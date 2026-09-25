@@ -119,8 +119,8 @@ export function ringCentroid(ring: [number, number][]): { lat: number; lng: numb
 export function numreraObjekt(input: {
   hansynLopnr: (number | string | null | undefined)[];
   bitar: { partKey: string; centroid: { lat: number; lng: number } }[];
-  omradeNummer?: (number | null | undefined)[];
-}): { vidaMax: number; bitNr: Map<string, number>; nastaOmradeNr: number; visaBitNummer: boolean; usedNummer: Set<number> } {
+  omraden?: { id: string | number; nummer?: number | null }[];
+}): { vidaMax: number; bitNr: Map<string, number>; omradeNr: Map<string, number>; nastaOmradeNr: number; visaBitNummer: boolean; usedNummer: Set<number> } {
   const toInt = (v: any) => { const n = parseInt(String(v ?? '').trim(), 10); return Number.isFinite(n) ? n : NaN; };
   const vidaMax = (input.hansynLopnr || []).reduce<number>((m, v) => { const n = toInt(v); return Number.isFinite(n) && n > m ? n : m; }, 0);
   const sorted = [...(input.bitar || [])].sort((a, b) =>
@@ -131,10 +131,18 @@ export function numreraObjekt(input: {
   const used = new Set<number>();
   for (const v of input.hansynLopnr || []) { const n = toInt(v); if (Number.isFinite(n)) used.add(n); }
   for (const n of Array.from(bitNr.values())) used.add(n);
-  for (const v of input.omradeNummer || []) { const n = toInt(v); if (Number.isFinite(n)) used.add(n); }
+  // Egna områden: VISNINGSNUMMER kommer alltid härifrån (aldrig tomt). Lagrat nummer vinner (redigerbart);
+  // saknas det → tilldela nästa lediga efter delarna, i markörernas ordning. Så en ritad markör utan
+  // korrekt lagrat nummer får ändå en siffra på kartan.
+  const omraden = input.omraden || [];
+  const omradeNr = new Map<string, number>();
+  for (const o of omraden) { const n = toInt(o.nummer); if (Number.isFinite(n)) { omradeNr.set(String(o.id), n); used.add(n); } }
+  let cursor = vidaMax + numBitar + 1;
+  const nastaLediga = () => { while (used.has(cursor)) cursor++; const v = cursor; used.add(v); return v; };
+  for (const o of omraden) { const k = String(o.id); if (!omradeNr.has(k)) omradeNr.set(k, nastaLediga()); }
   let nastaOmradeNr = vidaMax + numBitar + 1;
   while (used.has(nastaOmradeNr)) nastaOmradeNr++;
-  return { vidaMax, bitNr, nastaOmradeNr, visaBitNummer: !(numBitar === 1 && vidaMax === 0), usedNummer: used };
+  return { vidaMax, bitNr, omradeNr, nastaOmradeNr, visaBitNummer: !(numBitar === 1 && vidaMax === 0), usedNummer: used };
 }
 
 /** Stabil traktdels-nyckel (utan prefix) = TRDEL_ID (fallback TRDEL_NR_K). Används för att koppla

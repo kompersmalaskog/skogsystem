@@ -4010,8 +4010,8 @@ export default function PlannerPage() {
       .filter((f: any) => klassaTraktFeature(f?.properties).kategori === 'hansyn')
       .map((f: any) => f?.properties?.LOPNR);
     const bitar = traktdelDelar.map(d => ({ partKey: d.partKey, centroid: ringCentroid(d.ringLngLat) }));
-    const omradeNummer = markers.filter((m: any) => m.isOmrade).map((m: any) => m.nummer);
-    return numreraObjekt({ hansynLopnr, bitar, omradeNummer });
+    const omraden = markers.filter((m: any) => m.isOmrade).map((m: any) => ({ id: m.id, nummer: m.nummer }));
+    return numreraObjekt({ hansynLopnr, bitar, omraden });
   }, [traktGeo, traktdelDelar, markers]);
   const numreringRef = useRef(objektNumrering);
   useEffect(() => { numreringRef.current = objektNumrering; }, [objektNumrering]);
@@ -7304,15 +7304,18 @@ export default function PlannerPage() {
             const f = coords[0]; const l = coords[coords.length - 1];
             if (f[0] !== l[0] || f[1] !== l[1]) coords.push(coords[0]);
           }
+          // Visningsnummer ALLTID från den levande numreringen (aldrig tomt) — lagrat m.nummer används
+          // som indata där men en markör utan korrekt lagrat nummer får ändå en siffra. Fix: #587-bugg.
+          const nr = objektNumrering.omradeNr.get(String(m.id));
           features.push({
             type: 'Feature',
-            properties: { id: m.id, omradeNr: m.nummer != null ? String(m.nummer) : '' },
+            properties: { id: m.id, omradeNr: nr != null ? String(nr) : '' },
             geometry: { type: 'Polygon', coordinates: [coords] },
           });
         });
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, objektSaknarPosition]);
+  }, [markers, mapLibreReady, mapCenter, objektSaknarPosition, objektNumrering]);
 
   // 2b) Synka markeringar → MapLibre markers-source (GPU-renderad symbol layer)
   // Inkluderar opacity per feature baserat på proximity
