@@ -408,6 +408,13 @@ export default function Sortimentsutfall() {
                   kan avvika något.
                 </p>
               )}
+              {/* Kalkylunderlaget: vad kan man vänta sig vid en given medelstam. */}
+              <Link href="/affarsuppfoljning/medelstam"
+                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                         borderTop: LINJE, padding: '14px 0', minHeight: 48, fontSize: 13, color: TEXT, textDecoration: 'none' }}>
+                <span>Utfall per medelstam</span>
+                <span style={{ color: SEKUNDAR, fontSize: 16 }}>›</span>
+              </Link>
               <div style={{ borderTop: LINJE }} />
             </div>
           )}
