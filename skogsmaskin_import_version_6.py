@@ -111,6 +111,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 # gräns fanns för att hindra, fast via den här andra skrivvägen.
 MOM_SYNK_FRAN = _env.get('MOM_SYNK_FRAN') or os.getenv('MOM_SYNK_FRAN') or '2026-07-14'
 
+# Steg B-läge: 'logga' (DEFAULT) kör hela regeln men SKRIVER INGET till objekt/nycklar —
+# produktionen importeras under samma nycklar som före #579, och varje beslut loggas som
+# "Steg B [logga] skulle …". 'skriv' gör det på riktigt (samma loggrader utan [logga]).
+# Läses ur .env.local (STEG_B_LAGE=logga|skriv) i driftklonen; saknas → 'logga'.
+STEG_B_LAGE = (_env.get('STEG_B_LAGE') or os.getenv('STEG_B_LAGE') or 'logga').strip().lower()
+
 # OneDrive-mappar
 ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
 INKOMMANDE = os.path.join(ONEDRIVE_BASE, "Inkommande")
@@ -356,6 +362,88 @@ def make_objekt_id(vo_nummer: str, maskin_id: str, obj_key: str) -> str:
     if vo.isdigit():
         return vo
     return f"{maskin_id}_{obj_key}"
+
+# ── Steg B: koppla en fil UTAN kontraktsnr till ett redan planerat/skapat objekt ──
+# SNÄV namnmatchning: gemener + splitta på mellanslag/skiljetecken + synonymerna
+# vindf/VF/vindfällen. ALDRIG hela-ord-strykning, ALDRIG tvetydig koppling. Exakt EN
+# träff (samma skördare, produktionsdatum inom 30 dgr) → använd det objektets vo_nummer,
+# annars make_objekt_id som förr (produktionen förblir hemlös). Verifierat i dry-run.
+_OBJEKT_SYN = {'vindf': 'vf', 'vindfällen': 'vf', 'vf': 'vf'}
+def _norm_objektnamn(s) -> str:
+    import re
+    toks = [t for t in re.split(r'[^a-zåäö0-9]+', (s or '').lower()) if t]
+    return ''.join(_OBJEKT_SYN.get(t, t) for t in toks)
+
+def _har_kontraktsnr(vo_nummer) -> bool:
+    v = str(vo_nummer or '')
+    return v.isdigit() and len(v) >= 6
+
+_objekt_koppling_cache = None
+def _objekt_for_koppling():
+    """Objekt-tabellen läst EN gång per körning (namn, vo, skördare, datum)."""
+    global _objekt_koppling_cache
+    if _objekt_koppling_cache is None:
+        _objekt_koppling_cache = []
+        try:
+            resp = requests.get(f"{SUPABASE_URL}/rest/v1/objekt",
+                params={'select': 'namn,vo_nummer,skordare_maskin_id,created_at,ar,manad'},
+                headers=SUPABASE_HEADERS, timeout=30)
+            if resp.status_code == 200:
+                _objekt_koppling_cache = [o for o in (resp.json() or []) if o.get('vo_nummer')]
+        except Exception as e:
+            logger.warning(f"  Steg B koppling: kunde inte läsa objekt ({e})")
+    return _objekt_koppling_cache
+
+def _objekt_datum(o):
+    if o.get('ar') and o.get('manad'):
+        return f"{int(o['ar'])}-{int(o['manad']):02d}-15"
+    c = o.get('created_at')
+    return c[:10] if c else None
+
+def _datum_iso(datum):
+    if datum is None:
+        return None
+    try:
+        return datum.date().isoformat() if hasattr(datum, 'date') else str(datum)[:10]
+    except Exception:
+        return None
+
+def los_upp_objekt_id(vo_nummer, maskin_id, obj_key, object_name=None, datum=None, filnamn=None) -> str:
+    """Normalt make_objekt_id. Men SAKNAR filen kontraktsnr och namnet matchar (snävt)
+    exakt ETT befintligt objekt (samma skördare, datum inom 30 dgr) → returnera det
+    objektets vo_nummer så produktionen hamnar under rätt objekt. Tvetydigt → hemlös."""
+    if _har_kontraktsnr(vo_nummer) or not object_name:
+        return make_objekt_id(vo_nummer, maskin_id, obj_key)
+    n = _norm_objektnamn(object_name)
+    if not n:
+        return make_objekt_id(vo_nummer, maskin_id, obj_key)
+    d0 = _datum_iso(datum)
+    traffar = set()
+    for o in _objekt_for_koppling():
+        if _norm_objektnamn(o.get('namn')) != n:
+            continue
+        if o.get('skordare_maskin_id') and maskin_id and o['skordare_maskin_id'] != maskin_id:
+            continue
+        od = _objekt_datum(o)
+        if d0 and od:
+            try:
+                from datetime import date as _date
+                if abs((_date.fromisoformat(d0) - _date.fromisoformat(od)).days) > 30:
+                    continue
+            except Exception:
+                pass
+        traffar.add(o['vo_nummer'])
+    tagg = '' if STEG_B_LAGE == 'skriv' else '[logga] '
+    fil = filnamn or object_name
+    if len(traffar) == 1:
+        matchat = next(iter(traffar))
+        logger.info(f"Steg B {'kopplade' if STEG_B_LAGE == 'skriv' else '[logga] skulle kopplat'}: {fil} → {matchat}")
+        if STEG_B_LAGE == 'skriv':
+            return matchat
+        return make_objekt_id(vo_nummer, maskin_id, obj_key)  # logga: nyckeln oförändrad (som före #579)
+    orsak = 'flera träffar' if len(traffar) > 1 else 'ingen träff'
+    logger.info(f"Steg B {tagg}hemlös: {fil} ({orsak})")
+    return make_objekt_id(vo_nummer, maskin_id, obj_key)
 
 def ar_tidsstampelnamn(namn) -> bool:
     """True om 'namnet' bara är siffror/datumskiljetecken — ett autogenererat
@@ -838,7 +926,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         start_date = parse_datetime(get_text(obj_def, 'StartDate', ns))
         end_date = parse_datetime(get_text(obj_def, 'EndDate', ns))
         
-        objekt_id = make_objekt_id(vo_nummer, maskin_id, obj_key)
+        objekt_id = los_upp_objekt_id(vo_nummer, maskin_id, obj_key, obj_name, start_date, filnamn)
         obj_key_map[obj_key] = objekt_id
         objektnr = get_text(obj_def, 'ObjectUserID', ns)
 
@@ -1540,7 +1628,8 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         start_date = parse_datetime(get_text(obj_def, 'StartDate', ns))
         end_date = parse_datetime(get_text(obj_def, 'EndDate', ns))
         
-        objekt_id = make_objekt_id(vo_nummer, maskin_id, obj_key)
+        objekt_id = los_upp_objekt_id(vo_nummer, maskin_id, obj_key,
+                                      harled_objektnamn(filnamn, get_text(obj_def, 'ObjectName', ns)), start_date, filnamn)
         if objekt_id and objekt_id not in hpr_objekt_ids:
             hpr_objekt_ids.append(objekt_id)
         obj_key_map[obj_key] = objekt_id
@@ -2626,7 +2715,7 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
                         cutting_method = cm.text or ''
                     break
         
-        objekt_id = make_objekt_id(vo_nummer, maskin_id, obj_key)
+        objekt_id = los_upp_objekt_id(vo_nummer, maskin_id, obj_key, object_name, start_date, filnamn)
         obj_key_map[obj_key] = objekt_id
 
         # Koordinater: försök från ObjectDefinition, annars från LocationCoordinates
@@ -3178,6 +3267,57 @@ def _arv_skotartilldelning(nyfodda: List[str]):
     except Exception as e:
         logger.warning(f"  tilldelad_skotare: arv hoppades over ({e})")
 
+def _sakerstall_objekt_rad(nyfodda, objekt_rows):
+    """Steg B: en NYFÖDD dim_objekt-rad MED kontraktsnr och UTAN objekt-rad → skapa en
+    objekt-rad (status 'pagaende', saknar_planering=true) så filens produktion får ett
+    hem. Kör bara på nyfödda (aldrig historiska objekt → inga historiska stubbar) och
+    ÄNDRAR aldrig en befintlig objekt-rad. Utan kontraktsnr skapas inget (koppling sker
+    redan vid nyckel-upplägget via los_upp_objekt_id; annars förblir produktionen hemlös)."""
+    if not nyfodda:
+        return
+    by_id = {o['objekt_id']: o for o in objekt_rows if o.get('objekt_id')}
+    for oid in nyfodda:
+        o = by_id.get(oid)
+        if not o or not _har_kontraktsnr(o.get('vo_nummer')):
+            continue
+        vo = str(o['vo_nummer'])
+        try:
+            enc = requests.utils.quote(vo, safe='')
+            r = requests.get(
+                f"{SUPABASE_URL}/rest/v1/objekt"
+                f"?or=(vo_nummer.eq.{enc},kontraktsnummer.eq.{enc})&select=id&limit=1",
+                headers=SUPABASE_HEADERS, timeout=30)
+            if r.status_code == 200 and (r.json() or []):
+                continue  # objekt-rad finns redan → rör aldrig
+            namn = o.get('object_name')
+            if ar_tidsstampelnamn(namn):
+                namn = None  # aldrig ett klockslag som namn
+            ar = manad = None
+            sd = o.get('start_date')
+            if sd is not None:
+                try:
+                    d = sd.date() if hasattr(sd, 'date') else None
+                    if d:
+                        ar, manad = d.year, d.month
+                except Exception:
+                    pass
+            rad = {'vo_nummer': vo, 'kontraktsnummer': vo, 'namn': namn,
+                   'status': 'pagaende', 'saknar_planering': True,
+                   'skordare_maskin_id': o.get('maskin_id'), 'dim_objekt_id': oid,
+                   'ar': ar, 'manad': manad}
+            dstr = f"{ar}-{manad:02d}" if (ar and manad) else (_datum_iso(sd) or '?')
+            logger.info(f"Steg B {'skapade' if STEG_B_LAGE == 'skriv' else '[logga] skulle skapat'} objekt: {namn} {vo} {o.get('maskin_id')} {dstr}")
+            if STEG_B_LAGE != 'skriv':
+                continue  # logga: skriv inget till objekt
+            resp = requests.post(
+                f"{SUPABASE_URL}/rest/v1/objekt",
+                headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'},
+                json={k: v for k, v in rad.items() if v is not None}, timeout=30)
+            if resp.status_code not in (200, 201):
+                logger.warning(f"Steg B: POST objekt {vo} misslyckades: {resp.status_code} {resp.text[:120]}")
+        except Exception as e:
+            logger.warning(f"  Steg B: skapa objekt {vo} hoppades över ({e})")
+
 def upsert_dim_objekt(objekt_rows: List[Dict]) -> int:
     """ALL skrivning till dim_objekt går genom denna (MOM/HPR/FPR).
     Upsertar per rad (aldrig batch — batch-normalisering fyller None som
@@ -3244,6 +3384,7 @@ def upsert_dim_objekt(objekt_rows: List[Dict]) -> int:
     # Skotartilldelning foljer med fran planeringen vid FODSEL — sa Martins
     # planering inte tappas nar maskindatan skapar objektets dim_objekt-rad.
     _arv_skotartilldelning(nyfodda)
+    _sakerstall_objekt_rad(nyfodda, objekt_rows)
     return sparade
 
 # Fält som en ombyggnad ALDRIG får röra på en skyddad dag (tid + bekräftelse).
