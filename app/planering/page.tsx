@@ -15,6 +15,7 @@ import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, hyttsparDugligaSegment, lokaltDatumStockholm } from '../../lib/hyttspar'
+import { hamtaServerVersion, arNyVersion, laddaOmMedCacheBust, skaAutoUppdatera } from '../../lib/autoUppdatering'
 import { skaEmittaHeading } from '../../lib/kompass'
 import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
 import { startaPolygonRitning, type PolygonRitningHandle } from '../../lib/polygonRitning'
@@ -533,6 +534,20 @@ export default function PlannerPage() {
   const { medarbetare: currentMedarbetare } = useCurrentMedarbetare();
   const [startarKorning, setStartarKorning] = useState(false);
   const autoValjGjordRef = useRef(false);
+  // AUTO-UPPDATERING: läs (och rensa) ev. sparat läge från en auto-omladdning SYNKRONT vid render, så
+  // det hinner blockera förar-auto-välj (nedan) innan det plockar ett annat objekt. Engångs, < 5 min.
+  const [pendingRestore] = useState<{ objektId: string; korvyActive: boolean; korvyForceRoll: 'skordare' | 'skotare' | null } | null>(() => {
+    try {
+      const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('planering_autoreload') : null;
+      if (!raw) return null;
+      sessionStorage.removeItem('planering_autoreload');
+      const s = JSON.parse(raw);
+      if (s?.objektId && typeof s.ts === 'number' && Date.now() - s.ts < 5 * 60 * 1000) {
+        return { objektId: String(s.objektId), korvyActive: !!s.korvyActive, korvyForceRoll: s.korvyForceRoll ?? null };
+      }
+    } catch { /* */ }
+    return null;
+  });
 
   // STEG 4: admin-växling till "Visa som <förare>"-läge.
   // simuleradForareId är lokal state — försvinner vid reload (färskt läge per session).
@@ -3052,6 +3067,7 @@ export default function PlannerPage() {
   // triggar auto-välj igen — föraren ska kunna nå sina andra objekt. Re-mount
   // (navigera bort + tillbaka, hård reload) återställer ref:en naturligt.
   useEffect(() => {
+    if (pendingRestore) return;   // auto-uppdatering återställer objektet (nedan) → hoppa auto-välj
     if (!isForare || !effectiveMedarbetare?.id || valtObjekt) return;
     if (autoValjGjordRef.current) return;
 
@@ -3589,6 +3605,91 @@ export default function PlannerPage() {
     uppdateraHyttsparLager();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, gpsAccuracy]);
+
+  // ═══ AUTOMATISK APP-UPPDATERING ══════════════════════════════════════════════════════════════════
+  // Förare trycker inte på "Ladda om"-rutan (Stefans iPad körde samma kod en vecka). När en ny version
+  // finns laddar appen om SIG SJÄLV vid ett OFARLIGT tillfälle (skaAutoUppdatera i lib/autoUppdatering):
+  // körvy-GPS-idle 10 min / lokalt dagsbyte / planeringsvy-idle 5 min. Före omladdning: STOPPA GPS-
+  // ackumuleringen (hyttsparSealingRef) + FLUSHA bufferten (await) → ingen punkt i flykt tappas. Efter
+  // omladdning: tillbaka till samma objekt + vy (sessionStorage, återställs via pendingRestore ovan).
+  // Rutan (VersionChecker) finns kvar för den som vill uppdatera direkt.
+  const nyVersionRef = useRef<string | null>(null);
+  const sistaInteraktionRef = useRef<number>(Date.now());
+  const sessionStartDatumRef = useRef<string>(lokaltDatumStockholm(Date.now()));
+  const autoReloadPagarRef = useRef(false);
+  const korvyActiveRef = useRef(korvyActive);
+  const korvyForceRollRef = useRef(korvyForceRoll);
+  const valtObjektIdRef = useRef<string | null>(null);
+  useEffect(() => { korvyActiveRef.current = korvyActive; }, [korvyActive]);
+  useEffect(() => { korvyForceRollRef.current = korvyForceRoll; }, [korvyForceRoll]);
+  useEffect(() => { valtObjektIdRef.current = (valtObjekt as any)?.id ?? null; }, [valtObjekt]);
+
+  // Registrera senaste interaktion (planeringsvyns 5-min-idle).
+  useEffect(() => {
+    const ror = () => { sistaInteraktionRef.current = Date.now(); };
+    const ev: (keyof WindowEventMap)[] = ['pointerdown', 'touchstart', 'keydown', 'wheel'];
+    for (const e of ev) window.addEventListener(e, ror, { passive: true } as any);
+    return () => { for (const e of ev) window.removeEventListener(e, ror); };
+  }, []);
+
+  // Poll: finns en ny serverversion? (samma no-store-koll som rutan; var 15 min + när sidan blir synlig.)
+  useEffect(() => {
+    let avbruten = false;
+    const koll = async () => { const sv = await hamtaServerVersion(); if (!avbruten && arNyVersion(sv)) nyVersionRef.current = sv; };
+    koll();
+    const iv = setInterval(koll, 15 * 60 * 1000);
+    const onVis = () => { if (document.visibilityState === 'visible') koll(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { avbruten = true; clearInterval(iv); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+
+  // Beslut var 30 s: ny version + ofarligt läge → auto-uppdatera. All statesläsning FRÄSK via refs.
+  useEffect(() => {
+    const utfor = async (serverSha: string) => {
+      if (autoReloadPagarRef.current) return;
+      autoReloadPagarRef.current = true;
+      hyttsparSealingRef.current = true;              // 1) stoppa GPS-ackumuleringen (ingen punkt i flykt)
+      try { await sparaHyttspar(false); } catch { /* */ }  // 2) flusha bufferten → persisterad före omladdning
+      try {                                            // 3) spara objekt + vy för återgång efter omladdning
+        sessionStorage.setItem('planering_autoreload', JSON.stringify({
+          objektId: valtObjektIdRef.current, korvyActive: korvyActiveRef.current, korvyForceRoll: korvyForceRollRef.current, ts: Date.now(),
+        }));
+      } catch { /* */ }
+      await laddaOmMedCacheBust(serverSha);            // 4) cache-bust + location.replace
+    };
+    const tick = () => {
+      const serverSha = nyVersionRef.current;
+      const anledning = skaAutoUppdatera({
+        nyVersion: arNyVersion(serverSha),
+        korvyActive: korvyActiveRef.current,
+        nu: Date.now(),
+        sistaGpsTs: hyttsparLastFixRef.current?.ts ?? null,
+        sistaInteraktionTs: sistaInteraktionRef.current,
+        sessionStartDatum: sessionStartDatumRef.current,
+        nuvarandeDatum: lokaltDatumStockholm(Date.now()),
+      });
+      if (anledning && serverSha) { console.log('[Auto-uppdatering] laddar om —', anledning); utfor(serverSha); }
+    };
+    const iv = setInterval(tick, 30 * 1000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Återgång efter auto-omladdning: hämta det sparade objektet + återställ vy (körvy/roll). En gång.
+  useEffect(() => {
+    if (!pendingRestore) return;
+    autoValjGjordRef.current = true;   // säkerställ att förar-auto-välj inte kör
+    let avbruten = false;
+    (async () => {
+      const { data } = await supabase.from('objekt').select('*').eq('id', pendingRestore.objektId).maybeSingle();
+      if (avbruten || !data) return;
+      setValtObjekt(data);
+      if (pendingRestore.korvyForceRoll) setKorvyForceRoll(pendingRestore.korvyForceRoll);
+      if (pendingRestore.korvyActive) setKorvyActive(true);
+    })();
+    return () => { avbruten = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // HYTTSPÅR steg 2: ANDRAS spår (den andra maskinens/rollens körspår på objektet) — via UPPDATERA-
   // TRYCK, inte poll/realtime. Skotaren behöver inte skördarens spår sekundfärskt; vyn ska vara lätt.
