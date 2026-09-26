@@ -42,6 +42,34 @@
 //    De 16 fakturor som HAR olika antal är alla timpeng, där antalet är
 //    TIMMAR och maskinerna självklart kört olika länge.
 
+// ─────────────────────────────────────────────────────────────────────────
+// TVÅ LUCKOR I REGISTREN SOM RADBYGGAREN INTE KAN LAGA SJÄLV (2026-09-26)
+//
+// 1. KOSTNADSSTÄLLET HAR BYTT ÖVER TID, och maskin_kostnadsstalle saknar
+//    giltighetsdatum. Ur fortnox_invoice_rows:
+//      Scorpion:  M13  2026-01-09 → 2026-02-17,  sedan SCO  2026-03-09 →
+//      Flytt:     M8   2026-01-09 → 2026-04-17,  sedan TRA  2026-08-07 →
+//    Registret kan bara svara "vad gäller NU". Bygger man ett underlag för
+//    januari sätts SCO på en rad som bokfördes på M13, och fakturan stämmer
+//    inte med bokföringen för den perioden. Samma felklass som taxornas
+//    giltig_fran (#570) — kostnadsstället behöver fran/till.
+//
+// 2. FLYTTRADENS KOSTNADSSTÄLLE FINNS INTE I NÅGOT REGISTER. Fakturorna
+//    sätter TRA (tidigare M8) på flytt- och traillerrader, men det är inte
+//    en MASKIN och står därför inte i maskin_kostnadsstalle. Raden lämnas
+//    med null här tills det finns en källa — hellre tomt än gissat.
+//
+// Och ett icke-fynd: smeknamnet behöver INGEN ny kolumn. dim_maskin.
+// visningsnamn finns redan. Den stämmer inte med fakturan för två maskiner
+// ("Ponsse Scorpion" mot "Gigant", "Elefant" mot "King"), men fakturatexten
+// är ändå inte ett namn — den bär vad raden avser ("Skotning Wisent Virke",
+// "Skördning Gigant special (37m3f)"). Radbyggaren FÖRESLÅR texten ur
+// visningsnamn, och faktura_rad.benamning är en vanlig text-kolumn som
+// redigeras på raden. "King" är dessutom tvetydigt — både A110148 och
+// A130743 heter så på faktura — så namnet kan aldrig bära identiteten.
+// Det gör kostnadsstället.
+// ─────────────────────────────────────────────────────────────────────────
+
 import { prisPerM3, fordelaOvrigt, type Prisdel } from '@/lib/ekonomi/prisPerM3';
 import type { AcordPris } from '@/lib/ekonomi/acord';
 

@@ -39,6 +39,22 @@ const SORTCONF = { grundantal: 6, kr_per_extra_sortiment: 2, giltig_fran: '2025-
 const AVSTAND = [{ grundavstand_m: 200, kr_per_100m: 4, giltig_fran: '2025-06-03', giltig_till: null }];
 const KVALITET = 1.5;
 
+/* ── dim_maskin.visningsnamn, avläst ur prod 2026-09-26 ────────────────
+ * INGEN ny kolumn behövs — fältet finns. Men det stämmer INTE med vad Vida
+ * ser på fakturan för två maskiner, och det är Martins val vilket som gäller:
+ *   PONS20SDJAA270231  visningsnamn "Ponsse Scorpion"  fakturan "Gigant"
+ *   A110148            visningsnamn "Elefant"          fakturan "King"
+ *   A130743            visningsnamn "Elephant King 2026"  fakturan "King"
+ *   A030353            visningsnamn "Wisent"           fakturan "Wisent"  ✓
+ * Radbyggaren FÖRESLÅR texten ur visningsnamn; faktura_rad.benamning är en
+ * vanlig text-kolumn och redigeras på raden i granskningen. */
+const VISNINGSNAMN = {
+  PONS20SDJAA270231: 'Ponsse Scorpion',
+  A030353: 'Wisent',
+  A110148: 'Elefant',
+  A130743: 'Elephant King 2026',
+} as const;
+
 /* ── VO 11226833 Brokamåla — ACKORD ──────────────────────────────────── */
 const BROK_VOL = 2186.79;
 const BROK_STAM = 3153;
@@ -62,8 +78,8 @@ const brokamala: VoUnderlag = {
   traktKr: traktTillagg(BROK_VOL, TRAKT as any).krPerM3,
   kvalitetKr: KVALITET,
   maskiner: [
-    { maskin_id: 'PONS20SDJAA270231', namn: 'Gigant', roll: 'skordare', kostnadsstalle: 'SCO', g15h: 50.99, timpris: 1920 },
-    { maskin_id: 'A030353', namn: 'Wisent', roll: 'skotare', kostnadsstalle: 'M14', g15h: 111.56, timpris: 1015 },
+    { maskin_id: 'PONS20SDJAA270231', namn: VISNINGSNAMN.PONS20SDJAA270231, roll: 'skordare', kostnadsstalle: 'SCO', g15h: 50.99, timpris: 1920 },
+    { maskin_id: 'A030353', namn: VISNINGSNAMN.A030353, roll: 'skotare', kostnadsstalle: 'M14', g15h: 111.56, timpris: 1015 },
   ],
   flyttar: [
     { id: '3b7aece4-9429-4ee9-bddb-2002462d25be', datum: '2026-09-25', maskin: 'A030353', km: 44 },
@@ -89,9 +105,9 @@ const jatsbygd: VoUnderlag = {
   acordList: ACORD,
   sortKr: 0, traktKr: 0, kvalitetKr: 0,
   maskiner: [
-    { maskin_id: 'PONS20SDJAA270231', namn: 'Gigant', roll: 'skordare', kostnadsstalle: 'SCO', g15h: 49.46, timpris: 1920 },
-    { maskin_id: 'A030353', namn: 'Wisent', roll: 'skotare', kostnadsstalle: 'M14', g15h: 61.58, timpris: 1015 },
-    { maskin_id: 'A130743', namn: 'King', roll: 'skotare', kostnadsstalle: 'EP', g15h: 45.71, timpris: 1285 },
+    { maskin_id: 'PONS20SDJAA270231', namn: VISNINGSNAMN.PONS20SDJAA270231, roll: 'skordare', kostnadsstalle: 'SCO', g15h: 49.46, timpris: 1920 },
+    { maskin_id: 'A030353', namn: VISNINGSNAMN.A030353, roll: 'skotare', kostnadsstalle: 'M14', g15h: 61.58, timpris: 1015 },
+    { maskin_id: 'A130743', namn: VISNINGSNAMN.A130743, roll: 'skotare', kostnadsstalle: 'EP', g15h: 45.71, timpris: 1285 },
   ],
   flyttar: [],
   manuellaPoster: [],
