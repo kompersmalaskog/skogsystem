@@ -17,15 +17,15 @@ export default function SectionHeader({
         alignItems: 'flex-end',
         justifyContent: 'space-between',
         gap: 12,
-        padding: '0 16px 6px',
-        margin: '24px 0 0',
+        padding: '0 16px 7px',
+        margin: '22px 0 0',
       }}
     >
       <span
         style={{
           fontSize: 13,
           fontWeight: 400,
-          letterSpacing: 0.2,
+          letterSpacing: 0.4,
           textTransform: 'uppercase',
           color: T.t2,
           fontFamily: T.ff,

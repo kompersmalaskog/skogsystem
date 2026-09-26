@@ -17,32 +17,32 @@ export function UtbHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div style={{ padding: '8px 16px 4px', fontFamily: T.ff }}>
-      {back && (
-        <Link
-          href={back.href}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 2,
-            color: T.blue,
-            textDecoration: 'none',
-            fontSize: 17,
-            marginBottom: 6,
-            marginLeft: -6,
-          }}
-        >
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 24 }}>
-            chevron_left
-          </span>
-          {back.label ?? 'Tillbaka'}
-        </Link>
-      )}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
-        <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: -0.5, margin: 0, color: T.t1 }}>{title}</h1>
-        {action}
+    <div style={{ padding: 'calc(env(safe-area-inset-top) + 8px) 16px 4px', fontFamily: T.ff }}>
+      {/* Rad 1: bakåtlänk (blå 17px) + åtgärd i högra hörnet */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 30 }}>
+        {back ? (
+          <Link
+            href={back.href}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: T.blue, textDecoration: 'none', fontSize: 17, marginLeft: -8 }}
+          >
+            <svg width="11" height="18" viewBox="0 0 11 18" fill="none" aria-hidden="true" style={{ display: 'block' }}>
+              <path d="M9 1.5L2 9L9 16.5" stroke={T.blue} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {back.label ?? 'Tillbaka'}
+          </Link>
+        ) : (
+          <span />
+        )}
+        {action ?? <span />}
       </div>
-      {subtitle && <div style={{ fontSize: 15, color: T.t2, marginTop: 4 }}>{subtitle}</div>}
+
+      {/* Rad 2: stor titel */}
+      <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: 0.3, margin: '2px 0 0', color: T.t1, lineHeight: 1.1 }}>
+        {title}
+      </h1>
+
+      {/* Rad 3: undertitel */}
+      {subtitle && <div style={{ fontSize: 15, fontWeight: 400, color: T.t2, marginTop: 3 }}>{subtitle}</div>}
     </div>
   );
 }

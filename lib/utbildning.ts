@@ -43,12 +43,13 @@ export type Medarbetare = {
   aktiv?: boolean | null;
 };
 
-// ---- Tema (iOS-mörkt) ----
+// ---- Tema (iOS-mörkt, exakta värden) ----
 export const T = {
   bg: '#000000',
   group: '#1C1C1E',
   groupHi: '#2C2C2E',
-  sep: 'rgba(84,84,88,0.34)',
+  sep: '#38383A',
+  chevron: '#48484A',
   t1: '#FFFFFF',
   t2: '#8E8E93',
   green: '#30D158',
@@ -100,4 +101,50 @@ export function formatDatum(d: string | null): string {
 // Namn att visa när medarbetare_namn saknas.
 export function visaNamn(namn: string | null | undefined): string {
   return namn && namn.trim() ? namn : 'Namnlös';
+}
+
+// ---- Presentation (ren formatering av redan hämtad data) ----
+
+const MANAD_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+const MANAD_LANG = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
+
+// "vart 5:e år" / "ingen utgång" / "vart 18 mån" — räknar om jämna år.
+export function fornyelseText(giltighet_manader: number | null): string {
+  if (giltighet_manader == null) return 'ingen utgång';
+  if (giltighet_manader % 12 === 0) return `vart ${giltighet_manader / 12}:e år`;
+  return `vart ${giltighet_manader} mån`;
+}
+
+// "gäller alla" / "4 personer"
+export function omfattningText(galler_alla: boolean, antalPersoner: number): string {
+  if (galler_alla) return 'gäller alla';
+  return `${antalPersoner} ${antalPersoner === 1 ? 'person' : 'personer'}`;
+}
+
+export function manadKort(dateStr: string | null): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  return MANAD_KORT[d.getMonth()];
+}
+
+// "3 mars"
+export function dagManad(dateStr: string | null): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getDate()} ${MANAD_LANG[d.getMonth()]}`;
+}
+
+// Prickfärg på startvyns aggregat: saknas OCH utgången = röd (behöver åtgärd).
+export function aggregatFarg(status: UtbStatus): string {
+  switch (status) {
+    case 'utgangen':
+    case 'saknas':
+      return T.red;
+    case 'gar_ut_snart':
+      return T.orange;
+    case 'giltig':
+      return T.green;
+  }
 }
