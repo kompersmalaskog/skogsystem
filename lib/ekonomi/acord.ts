@@ -51,8 +51,10 @@ export function isValidOn(d: string, giltig_fran: string | null, giltig_till: st
   return true;
 }
 
-// Närmaste medelstamsklass — acordprislistans semantik (INTE StanForD
-// lower-threshold som dim_sortiment_pris).
+// Medelstamsklassen UNDER — samma StanForD lower-threshold som
+// dim_sortiment_pris. (Kommentaren sa tidigare motsatsen: att prislistan
+// använde närmaste klass. Det var vad koden GJORDE, och det var fel — se
+// #588, verifierat mot sex Vida-fakturor.)
 export function lookupAcordPris(medelstam: number, acord: AcordPris[]): AcordPris | null {
   if (!acord.length) return null;
 
