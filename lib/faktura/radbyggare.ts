@@ -45,19 +45,21 @@
 // ─────────────────────────────────────────────────────────────────────────
 // TVÅ LUCKOR I REGISTREN SOM RADBYGGAREN INTE KAN LAGA SJÄLV (2026-09-26)
 //
-// 1. KOSTNADSSTÄLLET HAR BYTT ÖVER TID, och maskin_kostnadsstalle saknar
-//    giltighetsdatum. Ur fortnox_invoice_rows:
-//      Scorpion:  M13  2026-01-09 → 2026-02-17,  sedan SCO  2026-03-09 →
-//      Flytt:     M8   2026-01-09 → 2026-04-17,  sedan TRA  2026-08-07 →
-//    Registret kan bara svara "vad gäller NU". Bygger man ett underlag för
-//    januari sätts SCO på en rad som bokfördes på M13, och fakturan stämmer
-//    inte med bokföringen för den perioden. Samma felklass som taxornas
-//    giltig_fran (#570) — kostnadsstället behöver fran/till.
+// 1. KOSTNADSSTÄLLET HAR BYTT ÖVER TID — ÅTGÄRDAT.
+//    Scorpionen låg på M13 (2026-01-09 → 2026-02-17) och på SCO från
+//    2026-03-09; två Rottne delade M12. maskin_kostnadsstalle saknade
+//    tidsaxel och kunde bara svara "vad gäller NU", så ett underlag byggt
+//    för januari hade fått SCO på en rad som bokfördes på M13.
+//    Migration 20260926_maskin_kostnadsstalle_giltighet ger registret
+//    giltig_fran/giltig_till, och lib/ekonomi/kostnadsstalle slår upp per
+//    DATUM. Anroparen ska fylla Maskinrad.kostnadsstalle därifrån — aldrig
+//    ur "maskinens enda rad".
 //
 // 2. FLYTTRADENS KOSTNADSSTÄLLE FINNS INTE I NÅGOT REGISTER. Fakturorna
 //    sätter TRA (tidigare M8) på flytt- och traillerrader, men det är inte
 //    en MASKIN och står därför inte i maskin_kostnadsstalle. Raden lämnas
-//    med null här tills det finns en källa — hellre tomt än gissat.
+//    med null här tills det finns en källa — hellre tomt än gissat. Att det
+//    SAKNAS ska synas i granskningen, inte tyst bli tomt på fakturan.
 //
 // Och ett icke-fynd: smeknamnet behöver INGEN ny kolumn. dim_maskin.
 // visningsnamn finns redan. Den stämmer inte med fakturan för två maskiner
