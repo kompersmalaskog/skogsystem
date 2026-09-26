@@ -122,7 +122,7 @@ export function numreraObjekt(input: {
   // Egna områden + egenritade traktgränser = boundary-markörer (isLine). Alla får ett nummer i serien.
   // fromVidaTd satt = "Justera gräns"-kopia → ÄRVER bitens nummer. Annars: lagrat nummer vinner, saknas → nästa lediga.
   granser?: { id: string | number; nummer?: number | null; fromVidaTd?: string | null }[];
-}): { vidaMax: number; bitNr: Map<string, number>; gransNr: Map<string, number>; nastaGransNr: number; visaBitNummer: boolean; usedNummer: Set<number> } {
+}): { vidaMax: number; bitNr: Map<string, number>; gransNr: Map<string, number>; nastaGransNr: number; visaBitNummer: boolean; visaGransNummer: boolean; usedNummer: Set<number> } {
   const toInt = (v: any) => { const n = parseInt(String(v ?? '').trim(), 10); return Number.isFinite(n) ? n : NaN; };
   const vidaMax = (input.hansynLopnr || []).reduce<number>((m, v) => { const n = toInt(v); return Number.isFinite(n) && n > m ? n : m; }, 0);
   const sorted = [...(input.bitar || [])].sort((a, b) =>
@@ -148,7 +148,11 @@ export function numreraObjekt(input: {
   for (const g of granser) { const k = String(g.id); if (!gransNr.has(k)) gransNr.set(k, nastaLediga()); }
   let nastaGransNr = vidaMax + numBitar + 1;
   while (used.has(nastaGransNr)) nastaGransNr++;
-  return { vidaMax, bitNr, gransNr, nastaGransNr, visaBitNummer: !(numBitar === 1 && vidaMax === 0), usedNummer: used };
+  // ENSAM YTA: inga Vida-nummer (vidaMax=0) OCH högst en bit OCH högst en egen gräns (ej ärvd) → ingen
+  // siffra alls. Gäller BÅDE bitar och egna områden: en ensam yta behöver inget nummer (den ÄR trakten).
+  const antalGranserEgna = granser.filter(g => { const ft = g.fromVidaTd ? String(g.fromVidaTd) : ''; return !(ft && bitNr.has(ft)); }).length;
+  const ensamYta = vidaMax === 0 && numBitar <= 1 && antalGranserEgna <= 1;
+  return { vidaMax, bitNr, gransNr, nastaGransNr, visaBitNummer: !ensamYta, visaGransNummer: !ensamYta, usedNummer: used };
 }
 
 /** Stabil traktdels-nyckel (utan prefix) = TRDEL_ID (fallback TRDEL_NR_K). Används för att koppla
