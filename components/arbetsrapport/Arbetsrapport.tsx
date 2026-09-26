@@ -17,7 +17,7 @@ import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, pass
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
-import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib/dagsegment";
+import { harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
 import PdfLasare from "@/app/planering/PdfLasare";
@@ -1399,7 +1399,10 @@ export default function Arbetsrapport() {
   const igårDate = new Date(); igårDate.setDate(igårDate.getDate()-1);
   const igårKey = igårDate.toISOString().split('T')[0];
   const igårObekräftad = dagData[igårKey] && !dagData[igårKey].status?.includes?.('ok') && dagData[igårKey].start_tid && !historik.find(d => d.datum === igårKey && d.bekraftad);
-  const isWorking = !!dagData[idagKey];
+  // "Passet pågår" = raden HAR en starttid — inte "raden finns". En skalrad
+  // (dag skapad av sin första period, utan klockslag) ritades annars som ett
+  // startat pass med Avsluta-knapp som skrev slut_tid utan start_tid.
+  const isWorking = !!dagData[idagKey]?.start_tid;
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
   // Synka dagens tider/rast/traktamente från arbetsdag-tabellen till lokala state.
@@ -1573,6 +1576,48 @@ export default function Arbetsrapport() {
     setDagSegment(d => d.filter((x:any) => x.id !== id));
   };
 
+  // ── SKALRADEN: en dag som skapas av sin första period ──────────────────
+  // Joacims dagar har inget maskinpass. Lönens 60-minutersregel körs bara över
+  // arbetsdag-rader (loneberakning: dagTotalMin = arbetad_min + extra samma
+  // datum), så perioder utan rad blir betald tid men aldrig ARBETSDAG — ordinarie
+  // höjs inte och allt lutar mot övertid. Raden skapas därför av första perioden,
+  // UTAN klockslag: tiden bor i perioderna, och klockslag här vore dubbelräkning
+  // (se passKrockarMedPerioder). Samma form som sjuk-backfillen i prod (Joacim
+  // 2026-08-19). Idempotent: finns raden (maskindag, tidigare period) rörs den
+  // inte — ignoreDuplicates gör INSERT … ON CONFLICT DO NOTHING.
+  const sakerstallArbetsdagRad = async (datum: string): Promise<string | null> => {
+    if (!medarbetare?.id) return null;
+    const finns = dagData[datum]?.id;
+    if (finns) return finns;
+    const { error } = await supabase.from('arbetsdag')
+      .upsert({ medarbetare_id: medarbetare.id, datum }, { onConflict: 'medarbetare_id,datum', ignoreDuplicates: true });
+    if (error) { console.error('[skalrad] arbetsdag insert misslyckades', error); return null; }
+    // Läs tillbaka VÄRDET — ignoreDuplicates returnerar inget för en rad som
+    // redan fanns i DB men inte i dagData (annan månad laddad, race med synk).
+    const { data } = await supabase.from('arbetsdag').select('*')
+      .eq('medarbetare_id', medarbetare.id).eq('datum', datum).maybeSingle();
+    if (!data?.id) return null;
+    setDagData(d => d[datum]?.id ? d : ({ ...d, [datum]: {
+      ...(d[datum] || {}),
+      id: data.id,
+      status: data.bekraftad ? 'ok' : 'saknas',
+      arbMin: data.arbetad_min || 0,
+      km: data.km_totalt || 0, km_morgon: data.km_morgon || 0, km_kvall: data.km_kvall || 0, km_totalt: data.km_totalt || 0,
+      trak: !!data.traktamente, traktamente: !!data.traktamente,
+      dagtyp: data.dagtyp,
+      bekraftad: !!data.bekraftad, bekraftad_tid: data.bekraftad_tid,
+      start_tid: data.start_tid || null, slut_tid: data.slut_tid || null, rast_min: data.rast_min ?? 0,
+      start: data.start_tid ? data.start_tid.slice(0,5) : '', slut: data.slut_tid ? data.slut_tid.slice(0,5) : '', rast: data.rast_min ?? 0,
+      maskin_id: data.maskin_id, maskin_namn: maskinNamnMap[data.maskin_id] || data.maskin_id || null,
+      objekt_id: data.objekt_id || null,
+      objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || data.objekt_id || null,
+      objekt_ägare: null, objekt_lista: [],
+    } }));
+    setRedDag((rd: any) => rd?.datum === datum && !rd.id ? { ...rd, ...data } : rd);
+    return data.id;
+  };
+  const SKALRAD_FEL = 'Kunde inte koppla perioden till dagen — inget sparat. Försök igen.';
+
   const öppnaRedigera = (datum: string) => {
     const d2 = dagData[datum];
     setRedDag({ ...(d2 || {}), datum });
@@ -1602,12 +1647,21 @@ export default function Arbetsrapport() {
   const bekraftaDagen = async (): Promise<boolean> => {
     if (!medarbetare?.id) return false;
 
+    // PERIODDAG (Joacim): perioder finns men inget pass — dagen bekräftas UTAN
+    // klockslag på raden. Tiden bor i extra_tid som lönen adderar; hade start/
+    // slut skrivits hit räknades den två gånger (arbetad_min + extra_tid).
+    const extraFardigaIdag = (extraTidData || []).filter((e: any) => e.datum === idagKey && e.slut_tid);
+    const perioddag = extraFardigaIdag.length > 0 && !dagData[idagKey]?.start_tid && !start && !slut;
     // Guard: tomma tider ska aldrig skrivas till DB. Föraren måste fylla
     // i start- och sluttid (Avsluta pass eller Ändra tider) innan bekräftelse.
-    if (!start || !slut) {
+    if (!perioddag && (!start || !slut)) {
       setBekraftaFel('Tiderna saknas — fyll i start- och sluttid innan du bekräftar.');
       return false;
     }
+    // KROCK-VAKTEN (lib/dagsegment): passet får aldrig täcka en period — det är
+    // den enda vägen till dubbelräkning, och den stängs där klockslagen skrivs.
+    const krock = perioddag ? null : passKrockarMedPerioder({ start, slut }, extraFardigaIdag);
+    if (krock) { setBekraftaFel(passKrockText(krock)); return false; }
     setBekraftaFel(null);
 
     const idagArb = dagData[idagKey];
@@ -1620,7 +1674,7 @@ export default function Arbetsrapport() {
     const uppRes = await upsertVerifierat(supabase, "arbetsdag", {
       medarbetare_id: medarbetare.id,
       datum: idagKey,
-      start_tid: start, slut_tid: slut, rast_min: rast,
+      ...(perioddag ? {} : { start_tid: start, slut_tid: slut, rast_min: rast }),
       // Skriv ALDRIG lokal tom-värde över synkad/beräknad data. maskin_id
       // och km kom från synken (rätt maskin ur skiftet, beräknat vägavstånd)
       // och fanns inte i lokal state — bekräftelsen NULL:ade/nollade dem
@@ -1629,7 +1683,8 @@ export default function Arbetsrapport() {
       // för multi-maskin-förare). km: skriv inte 0 över ett befintligt värde.
       km_morgon: kmM?.km ?? idagArb?.km_morgon ?? 0,
       km_kvall: kmK?.km ?? idagArb?.km_kvall ?? 0,
-      maskin_id: idagArb?.maskin_id || medarbetare.maskin_id || null,
+      // Perioddag: ingen maskin — förarens defaultmaskin har inget här att göra.
+      maskin_id: perioddag ? (idagArb?.maskin_id || null) : (idagArb?.maskin_id || medarbetare.maskin_id || null),
       objekt_id: dagObjId,
       traktamente: trak, bekraftad: true,
       bekraftad_tid: nuBekrIso,
@@ -1647,9 +1702,7 @@ export default function Arbetsrapport() {
     const slutMedSek  = slut.length === 5  ? slut  + ':00' : slut;
     setDagData(d => ({ ...d, [idagKey]: {
       ...d[idagKey],
-      start_tid: startMedSek,
-      slut_tid: slutMedSek,
-      rast_min: rast,
+      ...(perioddag ? {} : { start_tid: startMedSek, slut_tid: slutMedSek, rast_min: rast }),
       traktamente: !!trak,
       bekraftad: true,
       bekraftad_tid: nuBekrIso,
@@ -2041,9 +2094,13 @@ export default function Arbetsrapport() {
     try {
       if (periodForm.lage === 'redigera') {
         // Befintlig extra_tid-post: förblir extra_tid. minuter räknas om — INTE genererad.
+        // Timer-startade poster saknar arbetsdag_id tills de avslutas här.
+        const arbetsdagId = periodForm.rad.arbetsdag_id || await sakerstallArbetsdagRad(periodForm.rad.datum || periodForm.datum);
+        if (!arbetsdagId) { setPeriodFel(SKALRAD_FEL); return; }
         const payload = {
           start_tid: v.start + ':00', slut_tid: v.slut + ':00', minuter: min,
           aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb, kommentar: v.kommentar.trim() || null,
+          arbetsdag_id: arbetsdagId,
         };
         const res = await uppdateraVerifierat(supabase, "extra_tid", payload, { id: periodForm.rad.id }, "*");
         if (!res.ok) { setPeriodFel(res.fel); return; }
@@ -2095,8 +2152,11 @@ export default function Arbetsrapport() {
         const val = valideraSegment({ start: v.start, slut: v.slut }, { start_tid: null, slut_tid: null }, befintliga);
         if (!val.ok) { setPeriodFel(val.fel); return; }
         const kalla = lage === 'utanfor_fore' ? 'morgon' : lage === 'utanfor_efter' ? 'kvall' : 'under_dagen';
+        // Första perioden på en dag utan pass SKAPAR dagen (skalrad utan klockslag).
+        const arbetsdagId = await sakerstallArbetsdagRad(periodForm.datum);
+        if (!arbetsdagId) { setPeriodFel(SKALRAD_FEL); return; }
         const { data, error } = await supabase.from('extra_tid').insert({
-          medarbetare_id: medarbetare.id, datum: periodForm.datum,
+          medarbetare_id: medarbetare.id, datum: periodForm.datum, arbetsdag_id: arbetsdagId,
           start_tid: v.start + ':00', slut_tid: v.slut + ':00',
           minuter: min, // INTE genererad
           aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb,
@@ -2273,6 +2333,9 @@ export default function Arbetsrapport() {
     const idagArb: any = dagData[idagKey];
     const extraFärdiga = (extraTidData || []).filter((e: any) => e.datum === idagKey && e.slut_tid);
     const harMaskinPass = !!idagArb?.slut_tid;
+    // PERIODDAG: färdiga perioder men inget pass (Joacim: planering, restid,
+    // manuellt). Bekräftas utan klockslag — se bekraftaDagen.
+    const perioddag = extraFärdiga.length > 0 && !idagArb?.start_tid;
     const redanBekräftad = !!idagArb?.bekraftad;
     const varBekräftad   = !!idagArb?.bekraftad_tid;
     const ändradSedan    = varBekräftad && !redanBekräftad;
@@ -2562,8 +2625,16 @@ export default function Arbetsrapport() {
                 })()}
               </div>
             )}
-            {/* Körning — bara för maskinpass. Talet räknar upp när km fylls i. */}
-            {harMaskinPass && (
+            {/* Perioddag: summan av perioderna är dagens tid — inget pass att visa. */}
+            {perioddag && (
+              <div style={{ textAlign:"center", padding:`${AVSTAND.l}px 0`, ...linjeUnder(true) }}>
+                <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>Perioder</p>
+                <p style={{ margin:0, ...TYP.tal, ...TNUM, color:FARG.text }}>{fmt(extraFärdiga.reduce((a: number, e: any) => a + (e.minuter||0), 0))}</p>
+                <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>Ingen maskin — tiden ligger i perioderna nedan</p>
+              </div>
+            )}
+            {/* Körning — maskinpass eller perioddag. Talet räknar upp när km fylls i. */}
+            {(harMaskinPass || perioddag) && (
               <div style={linjeUnder(true)}>
                 {sammanRad("Körning", `${Math.round(totKmVisad)} km`, öppnaKm)}
                 {milPåbörjade > 0 && sammanRad("Reseersättning", `${milPåbörjade} påbörjade mil`)}
@@ -2578,6 +2649,7 @@ export default function Arbetsrapport() {
               const arbSt = idagArb?.start_tid;
               const arbEn = idagArb?.slut_tid;
               const prefixFör = (e: any): string => {
+                if (!arbSt && !arbEn) return "Period"; // perioddag: inget pass att vara före/efter
                 if (arbSt && e.slut_tid && e.slut_tid <= arbSt) return "Morgon";
                 if (arbEn && e.start_tid && e.start_tid >= arbEn) return "Kväll";
                 return "Extra";
@@ -2676,7 +2748,7 @@ export default function Arbetsrapport() {
             );
           })()}
           {/* Skärmens ENDA primära: Bekräfta dagen. Bekräftad dag → sekundär "Ändra rapport". */}
-          {harMaskinPass && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
+          {(harMaskinPass || perioddag) && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
             <button onClick={()=>setVisaTiderSheet(false)} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.l }}>
               Ändra rapport
             </button>
@@ -2873,9 +2945,13 @@ export default function Arbetsrapport() {
           <div style={{ marginTop:AVSTAND.m }}>
             {kortKnapp('Extra arbete', 'Reservdelar, service, brandkontroll', async ()=>{
               const startTid = nuKlock();
+              // Trycket kan vara dagens första händelse — skalraden skapas här.
+              const arbetsdagId = await sakerstallArbetsdagRad(idagKey);
+              if (!arbetsdagId) { setBekraftaFel(SKALRAD_FEL); return; }
               const { data, error } = await supabase.from("extra_tid").insert({
                 medarbetare_id: medarbetare.id,
                 datum: idagKey,
+                arbetsdag_id: arbetsdagId,
                 start_tid: startTid + ":00",
                 slut_tid: null,
                 minuter: 0,
@@ -4944,9 +5020,12 @@ export default function Arbetsrapport() {
     // under direkt, utan att fråga.
     const skrivUnderRedDag = async (): Promise<boolean> => {
       const nuIso = new Date().toISOString();
-      const res = await uppdateraVerifierat(supabase, "arbetsdag",
-        { bekraftad: true, bekraftad_tid: nuIso },
-        { medarbetare_id: medarbetare.id, datum: redDag.datum });
+      // UPSERT, inte update: en perioddag från före skalraden (extra_tid utan
+      // arbetsdag-rad) hade träffat 0 rader och aldrig gått att skriva under.
+      // Bara nyckeln + underskriften skickas — inga klockslag, inga andra fält.
+      const res = await upsertVerifierat(supabase, "arbetsdag",
+        { medarbetare_id: medarbetare.id, datum: redDag.datum, bekraftad: true, bekraftad_tid: nuIso },
+        { onConflict: 'medarbetare_id,datum' });
       if (!res.ok) { setRedFel(res.fel); return false; }
       setRedFel(null);
       setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
@@ -5120,6 +5199,7 @@ export default function Arbetsrapport() {
           const prefixFörExtra = (e: any): string => {
             const arbSt = redDag?.start_tid;
             const arbEn = redDag?.slut_tid;
+            if (!arbSt && !arbEn) return "Period"; // perioddag: inget pass att vara före/efter
             if (arbSt && e.slut_tid && e.slut_tid <= arbSt) return "Morgon";
             if (arbEn && e.start_tid && e.start_tid >= arbEn) return "Kväll";
             return "Extra";
@@ -5290,11 +5370,20 @@ export default function Arbetsrapport() {
               </div>
             </Card>
           ):!harData?(
-            /* Extra-tid finns men inget maskinpass: konstatera det lugnt —
-               säg ALDRIG "ingen data" när den loggade tiden listas nedanför.
-               Samma ärlighetsprincip som Saldon-tillstånden. */
-            <Card style={{ padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,textAlign:"center" as const }}>
-              <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Ingen maskindata den här dagen</p>
+            /* PERIODDAG: perioder finns men inget maskinpass. Konstatera det
+               lugnt — säg ALDRIG "ingen data" när den loggade tiden listas
+               nedanför. MEDVETET INGEN Arbetstid-rad här: klockslag på raden
+               ovanpå perioderna räknar tiden två gånger (arbetad_min +
+               extra_tid). Körning finns — perioddagen har km som alla andra. */
+            <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
+              <p style={{ margin:0,padding:`${AVSTAND.l}px 0`,...TYP.meta,color:FARG.text2,textAlign:"center" as const,borderBottom:`1px solid ${FARG.linje}` }}>Ingen maskin — tiden ligger i perioderna</p>
+              <div onClick={öppnaRedKmSheet} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,cursor:"pointer" }}>
+                <span style={{ ...TYP.text,color:FARG.text }}>Körning</span>
+                <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m }}>
+                  <span style={{ ...TYP.text,fontWeight:VIKT.halvfet,color:redKm>0?FARG.orange:FARG.text }}>{redKm} km</span>
+                  <ChevronRight/>
+                </div>
+              </div>
             </Card>
           ):(
             <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
@@ -5520,7 +5609,9 @@ export default function Arbetsrapport() {
             const harExtra = (extraTidData || []).some((e:any) => e.datum === redDag.datum && e.slut_tid);
             const kanBekrafta = !bekraftadRedan && (harSlut || erHelDag || (harExtra && !harStart));
             const passPågår = harStart && !harSlut && !erHelDag;
-            if (!harData && redStart==="00:00" && redSlut==="00:00" && redRast===0) {
+            // "Lägg till manuellt" (klockslag på raden) visas ALDRIG när perioder
+            // finns — en perioddag går direkt till Bekräfta (kanBekrafta nedan).
+            if (!harData && !harExtra && redStart==="00:00" && redSlut==="00:00" && redRast===0) {
               return (<>{felRad}<button style={KNAPP.primar} onClick={()=>setRedVy("tid")}>Lägg till manuellt</button>{tillbakaKnapp}</>);
             }
             if (harÄndrat) {
@@ -5553,10 +5644,17 @@ export default function Arbetsrapport() {
                       // äger hen värdet (km_kalla='forare', inkl. medveten 0).
                       const bryterBekräftelse = !!(redDag as any)?.bekraftad;
                       const kmÄndrad = redKm !== redKmOrig;
+                      // PERIODDAG (inget pass, perioder finns): klockslagen skrivs
+                      // ALDRIG till raden — 00:00/00:00 från hjulen hade gjort
+                      // skalraden till ett pass. KROCK-VAKTEN för passdagar: ett
+                      // pass som täcker en period = dubbelräkning, stoppas här.
+                      const redPerioddag = !harData && harExtra;
+                      const krock = redPerioddag ? null : passKrockarMedPerioder({ start: redStart, slut: redSlut }, extraTidForDag);
+                      if (krock) { setRedFel(passKrockText(krock)); return; }
                       const res = await upsertVerifierat(supabase, "arbetsdag", {
                         medarbetare_id: medarbetare.id,
                         datum: redDag.datum,
-                        start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
+                        ...(redPerioddag ? {} : { start_tid: redStart, slut_tid: redSlut, rast_min: redRast }),
                         km_morgon: kmMorg, km_kvall: kmKvall,
                         ...(kmÄndrad ? { km_kalla: 'forare' } : {}),
                         objekt_id: redObjektId || redDag.objekt_id || null,
@@ -5572,7 +5670,7 @@ export default function Arbetsrapport() {
                       // dagen". Rätta → spara → bekräfta, utan att lämna dagen.
                       // redigerad förblir true (både rättad OCH underskriven).
                       const sparad = {
-                        start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
+                        ...(redPerioddag ? {} : { start_tid: redStart, slut_tid: redSlut, rast_min: redRast }),
                         km_morgon: kmMorg, km_kvall: kmKvall, km_totalt: kmMorg + kmKvall,
                         ...(kmÄndrad ? { km_kalla: 'forare' } : {}),
                         objekt_id: redObjektId || (redDag as any).objekt_id || null,
