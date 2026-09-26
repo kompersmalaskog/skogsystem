@@ -10,7 +10,8 @@ const TABS: Tab[] = [
   { href: '/ekonomi/per-klass', icon: 'layers', label: 'Per klass', match: p => p.startsWith('/ekonomi/per-klass') },
   { href: '/ekonomi/mot-ackord', icon: 'balance', label: 'Mot ackord', match: p => p.startsWith('/ekonomi/mot-ackord') },
   { href: '/ekonomi/resultat', icon: 'account_balance', label: 'Resultat', match: p => p.startsWith('/ekonomi/resultat') },
-  { href: '/ekonomi/installningar', icon: 'settings', label: 'Inställningar', match: p => p.startsWith('/ekonomi/installningar') },
+  { href: '/ekonomi/fakturaunderlag', icon: 'receipt_long', label: 'Faktura', match: p => p.startsWith('/ekonomi/fakturaunderlag') },
+  { href: '/ekonomi/installningar', icon: 'settings', label: 'Inst.', match: p => p.startsWith('/ekonomi/installningar') },
 ];
 
 export default function EkonomiBottomNav() {
