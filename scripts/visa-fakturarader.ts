@@ -82,7 +82,7 @@ const brokamala: VoUnderlag = {
     { maskin_id: 'A030353', namn: VISNINGSNAMN.A030353, roll: 'skotare', kostnadsstalle: 'M14', g15h: 111.56, timpris: 1015 },
   ],
   flyttar: [
-    { id: '3b7aece4-9429-4ee9-bddb-2002462d25be', datum: '2026-09-25', maskin: 'A030353', km: 44 },
+    { id: '3b7aece4-9429-4ee9-bddb-2002462d25be', datum: '2026-09-25', maskin: 'A030353', km: 44, traillertimmar: 3.5 },
   ],
   manuellaPoster: [],
 };
