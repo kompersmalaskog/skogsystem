@@ -12460,7 +12460,9 @@ export default function PlannerPage() {
           const hansyn = hansynA > 0 && traktA > 0
             ? `${svN(hansynA / traktA * 100, 1)} % (${svN(hansynA / 10000, 2)} ha) · ${hAntal} ${hAntal === 1 ? 'yta' : 'ytor'}${hBeskr.size === 1 ? ' · ' + Array.from(hBeskr)[0] : ''}`
             : null;
-          return { hansyn, basvag: basvag > 0 ? `${Math.round(basvag)} m` : null };
+          // Basväglängd som liten fakta-rad: km (sv-decimal, 1 dec) från 1 km, annars meter.
+          const basvagKm = basvag <= 0 ? null : (basvag >= 1000 ? `${svN(basvag / 1000, 1)} km` : `${Math.round(basvag)} m`);
+          return { hansyn, basvag: basvag > 0 ? `${Math.round(basvag)} m` : null, basvagKm };
         })();
         const certTxt = (valtObjekt.cert || '').trim() || null;
         const grotHeader = valtObjekt.grot == null ? null : (valtObjekt.grot ? 'GROT' : 'ingen GROT'); // rad under namnet
@@ -12513,7 +12515,7 @@ export default function PlannerPage() {
         const dokBlad = (Array.isArray(valtObjekt.traktkartor) && valtObjekt.traktkartor.length > 0) ? valtObjekt.traktkartor.length : (valtObjekt.traktkarta_url ? 1 : 0);
         const dokAntal = (valtObjekt.traktdirektiv_url ? 1 : 0) + dokBlad + (valtObjekt.oversiktskarta_url ? 1 : 0) + (valtObjekt.stamplingslangd_url ? 1 : 0) + (valtObjekt.valtlapp_url ? 1 : 0) + (Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument.length : 0);
 
-        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr || harDok || faroLinjer.length || ytor.length;
+        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || paTrakten.basvagKm || larmSatt || larmBeskr || harDok || faroLinjer.length || ytor.length;
 
         return (
           <>
@@ -12773,7 +12775,7 @@ export default function PlannerPage() {
                 </div>
               )}
 
-              {(volymTxt || infoBarighet || infoTerrang) && (
+              {(volymTxt || infoBarighet || infoTerrang || paTrakten.basvagKm) && (
                 <div>
                   <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Fakta</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -12781,6 +12783,10 @@ export default function PlannerPage() {
                     {infoBarighet && <div style={{ background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 14px' }}><span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Bärighet </span><span style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{infoBarighet}</span></div>}
                     {infoTerrang && <div style={{ background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 14px' }}><span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Terräng </span><span style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{infoTerrang}</span></div>}
                   </div>
+                  {/* Basväglängd — liten rad under fakta-chipsen (ur geometrins SHAPE.STLe; hänsynsandel utgår). */}
+                  {paTrakten.basvagKm && (
+                    <div style={{ marginTop: 8, fontSize: 12.5, color: 'rgba(255,255,255,0.5)' }}>Basväg {paTrakten.basvagKm}</div>
+                  )}
                 </div>
               )}
 
