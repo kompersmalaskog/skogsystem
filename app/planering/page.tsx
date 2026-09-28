@@ -859,6 +859,19 @@ export default function PlannerPage() {
     setTraktInfo(null); setTraktKortNyckel(null); setTraktKortVida(null);
     setAnteckningSkrivlage(false); setAnteckningFel(null); setTraktKortSvepY(0);
   };
+  // Öppna Vida-ytkortet (hänsyn/traktdel) programmatiskt — SAMMA bottom sheet som kartklicket ger.
+  // Används av objektinfo-sheetens YTOR-lista. (Kartklicket har en egen kopia i map-effekten; egna
+  // områden/boundary öppnas via oppnaGranskort.) anteckningsutkastet fylls ur ref → aldrig stale.
+  const oppnaYtaKort = (kort: TraktKort, nyckel: string | null, vida: { key: string; synthId: string; ringLatLon: { lat: number; lon: number }[] } | null = null) => {
+    featureClickedRef.current = true;
+    setMarkerMenuOpen(null);
+    setTraktInfo(kort);
+    setTraktKortNyckel(nyckel);
+    setTraktKortVida(vida);
+    setAnteckningUtkast(nyckel ? (anteckningarRef.current[nyckel]?.text || '') : '');
+    setAnteckningSkrivlage(false);
+    setTraktKortSvepY(0);
+  };
   // Öppna EGET OMRÅDE / traktgräns (boundary-markör) i SAMMA bottom sheet som Vida-bitarna — ett kort,
   // inte två. Kortet visar traktanalys + TMA + Beräkna volym + anteckning (objekt_yta_anteckning, yta_nyckel
   // 'omrade:<id>') PLUS markörens egna funktioner (redigera hörn/ändra nummer/radera) som rader längst ner.
@@ -2381,6 +2394,7 @@ export default function PlannerPage() {
   // Traktöversikten (fälls ner från objektnamnet) — Stefans snabbkoll, i planering + körvy.
   const [traktOversiktOpen, setTraktOversiktOpen] = useState(false);
   const [oversiktSymbolTyp, setOversiktSymbolTyp] = useState<string | null>(null);
+  const [dokExpanderad, setDokExpanderad] = useState(false); // objektinfo: DOKUMENT hopfälld → "Dokument (N)"
   const [vidaDirektiv, setVidaDirektiv] = useState(''); // objekt.anteckningar (Vida/kontoret), read-only i översikten
   const [traktData, setTraktData] = useState<TraktData>({
     volym: 649, // m³fub - från VIDA
@@ -12449,9 +12463,57 @@ export default function PlannerPage() {
           return { hansyn, basvag: basvag > 0 ? `${Math.round(basvag)} m` : null };
         })();
         const certTxt = (valtObjekt.cert || '').trim() || null;
-        const grotTxt = valtObjekt.grot == null ? null : (valtObjekt.grot ? 'Ja' : 'Nej');
-        const harPaTrakten = !!(certTxt || paTrakten.hansyn || paTrakten.basvag || grotTxt);
-        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr || harDok || faroLinjer.length || harPaTrakten;
+        const grotHeader = valtObjekt.grot == null ? null : (valtObjekt.grot ? 'GROT' : 'ingen GROT'); // rad under namnet
+
+        // === YTOR — en rad per NUMRERAD yta (Vidas hänsynsytor + traktdel-bitar + egna områden), i
+        // nummerordning. Nummer/typ/nyckel ur SAMMA numrering (numreraObjekt) som kartan. Radtext =
+        // Vidas text först, annars Kompersmålas anteckning; tryck → samma ytkort som på kartan. ===
+        const foersta = (s: any) => { const t = String(s ?? '').trim(); return t ? t.split(/\r?\n/)[0].trim() : ''; };
+        const ytor: { nr: number; typ: string; typLabel: string; nyckel: string; vidaText: string | null; open: () => void }[] = [];
+        for (const f of (traktGeo?.features || [])) {
+          const p = f?.properties || {};
+          if (klassaTraktFeature(p).kategori !== 'hansyn') continue;
+          const lopnrRaw = p.LOPNR;
+          const nr = typeof lopnrRaw === 'number' ? lopnrRaw : parseInt(String(lopnrRaw), 10);
+          if (!Number.isFinite(nr)) continue;
+          const nyckel = ytaNyckel(p) || `hansyn:${lopnrRaw}`;
+          const vidaText = foersta(p.FLBESKR) || foersta(p.ATGARD) || null;
+          ytor.push({ nr, typ: 'hansyn', typLabel: 'Hänsynsyta', nyckel, vidaText, open: () => {
+            setTraktOversiktOpen(false);
+            const rader: { etikett?: string; text: string }[] = [];
+            if (String(p.FLBESKR || '').trim()) rader.push({ text: String(p.FLBESKR).trim() });
+            if (String(p.ATGARD || '').trim()) rader.push({ text: String(p.ATGARD).trim() });
+            oppnaYtaKort({ kategori: 'hansyn', kalla: 'Vida', arealHa: traktArealHa(p), rader, rubrik: `Hänsynsyta ${lopnrRaw}`, nr: '' }, nyckel, null);
+          } });
+        }
+        if (objektNumrering.visaBitNummer) {
+          for (const d of traktdelDelar) {
+            const nr = objektNumrering.bitNr.get(d.partKey);
+            if (nr == null) continue;
+            const nyckel = `traktdel:${d.partKey}`;
+            const trdel = String((d.props as any)?.TRDEL_NR_K ?? '').trim();
+            const vidaText = foersta((d.props as any)?.FLBESKR) || null;
+            ytor.push({ nr, typ: 'traktdel', typLabel: 'Traktdel', nyckel, vidaText, open: () => {
+              setTraktOversiktOpen(false);
+              oppnaYtaKort({ kategori: 'traktdel', arealHa: null, rader: [], rubrik: `Område ${nr}`, kalla: trdel ? `Traktdel ${trdel}` : 'Vida', nr: '' }, nyckel, { key: d.partKey, synthId: 'vida-td:' + d.partKey, ringLatLon: d.ringLatLon });
+            } });
+          }
+        }
+        if (objektNumrering.visaGransNummer) {
+          for (const m of markers as any[]) {
+            if (!(m.isLine && m.lineType === 'boundary')) continue;
+            const nr = objektNumrering.gransNr.get(String(m.id));
+            if (nr == null) continue;
+            ytor.push({ nr, typ: 'omrade', typLabel: 'Eget område', nyckel: `omrade:${m.id}`, vidaText: null, open: () => { setTraktOversiktOpen(false); oppnaGranskort(m); } });
+          }
+        }
+        ytor.sort((a, b) => a.nr - b.nr);
+
+        // Dokument-antal (samma chips som DokumentChips renderar) → "Dokument (N)".
+        const dokBlad = (Array.isArray(valtObjekt.traktkartor) && valtObjekt.traktkartor.length > 0) ? valtObjekt.traktkartor.length : (valtObjekt.traktkarta_url ? 1 : 0);
+        const dokAntal = (valtObjekt.traktdirektiv_url ? 1 : 0) + dokBlad + (valtObjekt.oversiktskarta_url ? 1 : 0) + (valtObjekt.stamplingslangd_url ? 1 : 0) + (valtObjekt.valtlapp_url ? 1 : 0) + (Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument.length : 0);
+
+        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || larmSatt || larmBeskr || harDok || faroLinjer.length || ytor.length;
 
         return (
           <>
@@ -12466,7 +12528,7 @@ export default function PlannerPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valtObjekt.namn}</div>
-                  <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)' }}>{[valtObjekt.areal ? `${valtObjekt.areal} ha` : '', valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : valtObjekt.typ === 'gallring' ? 'Gallring' : valtObjekt.typ].filter(Boolean).join(' · ')}</div>
+                  <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)' }}>{[valtObjekt.areal ? `${valtObjekt.areal} ha` : '', valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : valtObjekt.typ === 'gallring' ? 'Gallring' : valtObjekt.typ, certTxt, grotHeader].filter(Boolean).join(' · ')}</div>
                 </div>
                 <button type="button" onClick={stang} aria-label="Stäng" style={{ width: 34, height: 34, borderRadius: 17, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 16, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit' }}>✕</button>
               </div>
@@ -12496,19 +12558,8 @@ export default function PlannerPage() {
                 </div>
               )}
 
-              {/* PÅ TRAKTEN — "var kör jag / vad ska jag spara". Cert hör ihop med hänsynsraden:
-                  certet säger kravet, hänsynsprocenten vad som är planerat. Rad döljs när data saknas. */}
-              {harPaTrakten && (
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>På trakten</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7, background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '12px 14px' }}>
-                    {certTxt && ptRad('Certifiering', certTxt)}
-                    {paTrakten.hansyn && ptRad('Hänsyn', paTrakten.hansyn)}
-                    {paTrakten.basvag && ptRad('Basväg', paTrakten.basvag)}
-                    {grotTxt && ptRad('GROT', grotTxt)}
-                  </div>
-                </div>
-              )}
+              {/* (PÅ TRAKTEN-raden med cert/hänsyn/basväg/GROT borttagen — certifiering + GROT ligger nu
+                  på raden under namnet högst upp.) */}
 
               {vida && (
                 <div style={{ marginBottom: 14, background: 'rgba(10,132,255,0.08)', border: '1px solid rgba(10,132,255,0.3)', borderRadius: 14, padding: '13px 15px' }}>
@@ -12520,21 +12571,63 @@ export default function PlannerPage() {
                 </div>
               )}
 
-              {/* DOKUMENT — kontorets underlag som chips (TD/traktkarta/stämplingslängd/vältlappar + övriga
-                  dokument), delad DokumentChips med /objekt. Öppnas i in-app PdfLasare (aldrig window.open i
-                  PWA:n — privat bucket signeras i komponenten). */}
+              {/* YTOR — en rad per numrerad yta (hänsyn + traktdel-bitar + egna områden), i nummerordning.
+                  Siffra i badge, typ, första raden av texten (Vidas först, annars Kompersmålas). Ikon om
+                  ljud/foto finns. Utan text → dämpad "Ingen anteckning". Tryck → samma ytkort som på kartan. */}
+              {ytor.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Ytor</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {ytor.map((y) => {
+                      const yMedia = ytaMedia[y.nyckel] || [];
+                      const harLjud = yMedia.some(mm => mm.typ === 'audio');
+                      const harFoto = yMedia.some(mm => mm.typ === 'foto');
+                      const text = y.vidaText || foersta(anteckningar[y.nyckel]?.text) || null;
+                      return (
+                        <button key={y.nyckel} type="button" className="btn-press" onClick={y.open}
+                          style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                          <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 13, background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>{y.nr}</span>
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: '#fff' }}>{y.typLabel}</span>
+                            <span style={{ display: 'block', fontSize: 12.5, color: text ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text || 'Ingen anteckning'}</span>
+                          </span>
+                          {(harLjud || harFoto) && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, fontSize: 13 }}>
+                              {harLjud && <span role="img" aria-label="Ljud">🎤</span>}
+                              {harFoto && <span role="img" aria-label="Foto">📷</span>}
+                            </span>
+                          )}
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 6 L15 12 L9 18" /></svg>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* DOKUMENT — hopfälld rad "Dokument (N)"; expanderar till samma chips (delad DokumentChips
+                  med /objekt). Öppnas i in-app PdfLasare (aldrig window.open i PWA:n — privat bucket signeras). */}
               {harDok && (
                 <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Dokument</div>
-                  <DokumentChips
-                    traktdirektivUrl={valtObjekt.traktdirektiv_url} traktkartaUrl={valtObjekt.traktkarta_url}
-                    traktkartor={Array.isArray(valtObjekt.traktkartor) ? valtObjekt.traktkartor : null}
-                    oversiktskartaUrl={valtObjekt.oversiktskarta_url}
-                    stamplingslangdUrl={valtObjekt.stamplingslangd_url} valtlappUrl={valtObjekt.valtlapp_url}
-                    ovrigaDokument={Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null}
-                    typ={valtObjekt.typ}
-                    onOppna={(s, titel) => setPdfDok({ url: s, titel })}
-                  />
+                  <button type="button" onClick={() => setDokExpanderad(v => !v)} className="btn-press" aria-expanded={dokExpanderad}
+                    style={{ display: 'flex', alignItems: 'center', gap: 11, width: '100%', textAlign: 'left', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '11px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                    <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#fff' }}>Dokument ({dokAntal})</span>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" style={{ flexShrink: 0, transform: dokExpanderad ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}><path d="M9 6 L15 12 L9 18" /></svg>
+                  </button>
+                  {dokExpanderad && (
+                    <div style={{ marginTop: 8 }}>
+                      <DokumentChips
+                        traktdirektivUrl={valtObjekt.traktdirektiv_url} traktkartaUrl={valtObjekt.traktkarta_url}
+                        traktkartor={Array.isArray(valtObjekt.traktkartor) ? valtObjekt.traktkartor : null}
+                        oversiktskartaUrl={valtObjekt.oversiktskarta_url}
+                        stamplingslangdUrl={valtObjekt.stamplingslangd_url} valtlappUrl={valtObjekt.valtlapp_url}
+                        ovrigaDokument={Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null}
+                        typ={valtObjekt.typ}
+                        onOppna={(s, titel) => setPdfDok({ url: s, titel })}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
