@@ -104,6 +104,118 @@ export function ytaNyckel(props: Record<string, any> | null | undefined): string
   }
 }
 
+/** Centroid (medel-lat/lng) för en ring [lng,lat][]. Räcker för N→S / V→Ö-ordning. */
+export function ringCentroid(ring: [number, number][]): { lat: number; lng: number } {
+  let la = 0, lo = 0;
+  const n = ring.length || 1;
+  for (const [lng, lat] of ring) { la += lat; lo += lng; }
+  return { lat: la / n, lng: lo / n };
+}
+
+/** EN nummerserie per objekt. Vidas hänsyn-LOPNR är FACIT (behåller sina nummer; högsta = vidaMax).
+ *  Traktdel-delarna numreras vidaMax+1.. sorterade centroid N→S (lat fallande) sedan V→Ö (lng stigande),
+ *  stabilt vid omimport (tie → partKey). Egna områden fortsätter efter delarna (nastaOmradeNr).
+ *  visaBitNummer=false när det finns EXAKT en del OCH inga Vida-nummer (en ensam bit → ingen siffra). */
+export function numreraObjekt(input: {
+  hansynLopnr: (number | string | null | undefined)[];
+  bitar: { partKey: string; centroid: { lat: number; lng: number } }[];
+  // Egna områden + egenritade traktgränser = boundary-markörer (isLine). Alla får ett nummer i serien.
+  // fromVidaTd satt = "Justera gräns"-kopia → ÄRVER bitens nummer. Annars: lagrat nummer vinner, saknas → nästa lediga.
+  granser?: { id: string | number; nummer?: number | null; fromVidaTd?: string | null }[];
+}): { vidaMax: number; bitNr: Map<string, number>; gransNr: Map<string, number>; nastaGransNr: number; visaBitNummer: boolean; visaGransNummer: boolean; usedNummer: Set<number> } {
+  const toInt = (v: any) => { const n = parseInt(String(v ?? '').trim(), 10); return Number.isFinite(n) ? n : NaN; };
+  const vidaMax = (input.hansynLopnr || []).reduce<number>((m, v) => { const n = toInt(v); return Number.isFinite(n) && n > m ? n : m; }, 0);
+  const sorted = [...(input.bitar || [])].sort((a, b) =>
+    (b.centroid.lat - a.centroid.lat) || (a.centroid.lng - b.centroid.lng) || a.partKey.localeCompare(b.partKey));
+  const bitNr = new Map<string, number>();
+  sorted.forEach((b, i) => bitNr.set(b.partKey, vidaMax + 1 + i));
+  const numBitar = sorted.length;
+  const used = new Set<number>();
+  for (const v of input.hansynLopnr || []) { const n = toInt(v); if (Number.isFinite(n)) used.add(n); }
+  for (const n of Array.from(bitNr.values())) used.add(n);
+  // Boundary-markörernas VISNINGSNUMMER kommer alltid härifrån (aldrig tomt). Stabil ordning (id) så att
+  // en gräns utan lagrat nummer får SAMMA serienummer vid varje inläsning.
+  const granser = [...(input.granser || [])].sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const gransNr = new Map<string, number>();
+  // 1) "Justera gräns"-kopior ärver bitens nummer (fromVidaTd = bitens partKey).
+  for (const g of granser) { const ft = g.fromVidaTd ? String(g.fromVidaTd) : ''; if (ft && bitNr.has(ft)) gransNr.set(String(g.id), bitNr.get(ft)!); }
+  // 2) Lagrat nummer (ej ärvt) vinner (redigerbart) → reservera.
+  for (const g of granser) { const k = String(g.id); if (gransNr.has(k)) continue; const n = toInt(g.nummer); if (Number.isFinite(n)) { gransNr.set(k, n); used.add(n); } }
+  // 3) Saknar nummer → nästa lediga efter delarna (i markörernas ordning). En ritad gräns utan korrekt
+  //    lagrat nummer får ändå en siffra. Befintliga traktgränser utan nummer numreras här (vid inläsning).
+  let cursor = vidaMax + numBitar + 1;
+  const nastaLediga = () => { while (used.has(cursor)) cursor++; const v = cursor; used.add(v); return v; };
+  for (const g of granser) { const k = String(g.id); if (!gransNr.has(k)) gransNr.set(k, nastaLediga()); }
+  let nastaGransNr = vidaMax + numBitar + 1;
+  while (used.has(nastaGransNr)) nastaGransNr++;
+  // ENSAM YTA: inga Vida-nummer (vidaMax=0) OCH högst en bit OCH högst en egen gräns (ej ärvd) → ingen
+  // siffra alls. Gäller BÅDE bitar och egna områden: en ensam yta behöver inget nummer (den ÄR trakten).
+  const antalGranserEgna = granser.filter(g => { const ft = g.fromVidaTd ? String(g.fromVidaTd) : ''; return !(ft && bitNr.has(ft)); }).length;
+  const ensamYta = vidaMax === 0 && numBitar <= 1 && antalGranserEgna <= 1;
+  return { vidaMax, bitNr, gransNr, nastaGransNr, visaBitNummer: !ensamYta, visaGransNummer: !ensamYta, usedNummer: used };
+}
+
+/** Stabil traktdels-nyckel (utan prefix) = TRDEL_ID (fallback TRDEL_NR_K). Används för att koppla
+ *  Vidas L_TRAKTDEL till syntetiska analys-id, cache i trakt_data och "Justera gräns"-markörer. */
+export function traktdelNyckel(props: Record<string, any> | null | undefined): string | null {
+  const p = props || {};
+  const v = txt(p.TRDEL_ID) || txt(p.TRDEL_NR_K);
+  return v || null;
+}
+
+/** Dela upp objektets traktdelar i ENSKILDA delytor — en post per (Multi)Polygon-del med ≥3 hörn.
+ *  Martin: analysera ALLA bitar, inte bara största. partKey='<TRDEL_ID>:<idx>' är stabil per del.
+ *  Returnerar delens yttre ring i [lng,lat] + källfeaturens props (för rendering/kort). */
+export function traktdelDelytor(
+  features: any[],
+): { partKey: string; tdKey: string; idx: number; ringLngLat: [number, number][]; props: Record<string, any> }[] {
+  const res: { partKey: string; tdKey: string; idx: number; ringLngLat: [number, number][]; props: Record<string, any> }[] = [];
+  for (const f of features || []) {
+    if (klassaTraktFeature(f && f.properties).kategori !== 'traktdel') continue;
+    const tdKey = traktdelNyckel(f && f.properties);
+    if (!tdKey) continue;
+    const geom = f && f.geometry;
+    const polys: any[] = geom && geom.type === 'MultiPolygon' ? geom.coordinates
+      : geom && geom.type === 'Polygon' ? [geom.coordinates] : [];
+    polys.forEach((poly, idx) => {
+      const ring = poly && poly[0];
+      if (!Array.isArray(ring) || ring.length < 3) return;
+      res.push({ partKey: tdKey + ':' + idx, tdKey, idx, ringLngLat: ring as [number, number][], props: (f && f.properties) || {} });
+    });
+  }
+  return res;
+}
+
+/** Största yttre ringen ur en (Multi)Polygon-geometri, som [lng,lat][]. En traktdel som ska
+ *  behandlas som EN traktgräns → vi kör analysen på den dominerande delytan (bbox-paddas ändå i
+ *  /api/tract-analysis). Returnerar null om geometrin saknar en giltig ring (≥3 hörn). */
+export function storstaYttreRing(geometry: any): [number, number][] | null {
+  if (!geometry) return null;
+  const ringArea = (ring: number[][]): number => {
+    let a = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      a += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+    }
+    return Math.abs(a / 2);
+  };
+  if (geometry.type === 'Polygon') {
+    const r = geometry.coordinates && geometry.coordinates[0];
+    return Array.isArray(r) && r.length >= 3 ? (r as [number, number][]) : null;
+  }
+  if (geometry.type === 'MultiPolygon') {
+    let best: [number, number][] | null = null;
+    let bestA = -1;
+    for (const poly of geometry.coordinates || []) {
+      const r = poly && poly[0];
+      if (!Array.isArray(r) || r.length < 3) continue;
+      const a = ringArea(r);
+      if (a > bestA) { bestA = a; best = r as [number, number][]; }
+    }
+    return best;
+  }
+  return null;
+}
+
 /** Vid överlapp: välj den MINSTA ytan (hänsynsyta före traktdel). Punkter/linjer (areal null) vinner
  *  över polygoner (de är små och ligger "ovanpå"). Returnerar valt features props. */
 export function valjMinstaYta<T extends { properties?: Record<string, any> }>(traffar: T[]): T | null {
