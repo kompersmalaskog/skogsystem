@@ -2,17 +2,20 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card, btnSecondary } from "./design";
-import { analyseraVilobrott, type Vilobrott, type VilaTrosklar } from "@/lib/vilobrott";
+import { analyseraVilobrott, medPerioddagSpann, type Vilobrott, type VilaTrosklar } from "@/lib/vilobrott";
 import { hamtaGiltigtAvtal, vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 
 type Medarbetare = { id: string; namn: string | null };
 type ArbetsdagDb = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
+/** Perioder (extra_tid) — perioddagens klockslag när raden saknar egna (lib/vilobrott medPerioddagSpann). */
+type PeriodDb = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
 
 type BrottMedNamn = Vilobrott & { medarbetare_id: string; namn: string };
 
 export default function VilobrottUnderflik() {
   const [medarbetare, setMedarbetare] = useState<Medarbetare[]>([]);
   const [arbetsdagar, setArbetsdagar] = useState<ArbetsdagDb[]>([]);
+  const [perioder, setPerioder] = useState<PeriodDb[]>([]);
   const [trosklar, setTrosklar] = useState<VilaTrosklar | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
@@ -26,21 +29,30 @@ export default function VilobrottUnderflik() {
         const trMånSedan = new Date(idag.getFullYear(), idag.getMonth() - 3, 1);
         const från = trMånSedan.toISOString().slice(0, 10);
 
-        const [medRes, arbRes, avtal] = await Promise.all([
+        const [medRes, arbRes, perRes, avtal] = await Promise.all([
           supabase.from("medarbetare").select("id, namn").order("namn"),
           supabase.from("arbetsdag")
             .select("medarbetare_id, datum, start_tid, slut_tid")
             .gte("datum", från)
             .order("datum"),
+          // Perioddagarna: arbetstidslagen gäller all arbetstid, inte bara maskintid.
+          supabase.from("extra_tid")
+            .select("medarbetare_id, datum, start_tid, slut_tid")
+            .gte("datum", från)
+            .not("slut_tid", "is", null),
           hamtaGiltigtAvtal(idag),
         ]);
 
         if (cancelled) return;
         if (medRes.error) throw medRes.error;
         if (arbRes.error) throw arbRes.error;
+        // Ett läsfel på perioderna får inte tysta hela vyn — men det får inte
+        // heller tystas: perioddagarna saknas då, och det ska stå.
+        if (perRes.error) throw new Error(`Kunde inte läsa perioderna (extra_tid): ${perRes.error.message}`);
 
         setMedarbetare(medRes.data || []);
         setArbetsdagar(arbRes.data || []);
+        setPerioder((perRes.data as PeriodDb[]) || []);
         setTrosklar(vilaTrosklarFromAvtal(avtal));
       } catch (e: any) {
         if (!cancelled) setFel(e.message || String(e));
@@ -60,14 +72,22 @@ export default function VilobrottUnderflik() {
       if (!dagPerMed.has(d.medarbetare_id)) dagPerMed.set(d.medarbetare_id, []);
       dagPerMed.get(d.medarbetare_id)!.push(d);
     }
+    const perPerMed = new Map<string, PeriodDb[]>();
+    for (const p of perioder) {
+      if (!p.medarbetare_id) continue;
+      if (!perPerMed.has(p.medarbetare_id)) perPerMed.set(p.medarbetare_id, []);
+      perPerMed.get(p.medarbetare_id)!.push(p);
+    }
+    // Medarbetare som BARA har perioder (ingen arbetsdag-rad i fönstret) ska också analyseras.
+    for (const medId of Array.from(perPerMed.keys())) if (!dagPerMed.has(medId)) dagPerMed.set(medId, []);
     const ut: BrottMedNamn[] = [];
     for (const [medId, dagar] of dagPerMed.entries()) {
-      const brott = analyseraVilobrott(dagar, trosklar);
+      const brott = analyseraVilobrott(medPerioddagSpann(dagar, perPerMed.get(medId) || []), trosklar);
       for (const b of brott) ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8) });
     }
     // Sortera senaste först
     return ut.sort((a, b) => b.datum.localeCompare(a.datum));
-  }, [arbetsdagar, medarbetare, trosklar]);
+  }, [arbetsdagar, perioder, medarbetare, trosklar]);
 
   const grupperatPerMed = useMemo(() => {
     const map = new Map<string, BrottMedNamn[]>();

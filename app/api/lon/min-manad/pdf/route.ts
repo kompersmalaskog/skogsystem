@@ -134,7 +134,8 @@ async function ritaPdf(arbetsmanad: string, m: LoneunderlagBerikad | null): Prom
   for (const d of m.dagar) {
     if (y - 14 < MB) { nySida(); huvud(); }
     // dagtyp "normal" är default-bruset — bara avvikande dagtyper (sjuk, vab, semester…) flaggas
-    const flagg = [!d.bekraftad ? "ej bekräftad" : "", d.brandrisk_beordrad === true ? "OB" : "", d.dagtyp && d.dagtyp !== "normal" ? d.dagtyp : ""].filter(Boolean).join(", ");
+    // "perioder" = dag utan maskin: tiden står i Arbetad och kommer ur perioderna.
+    const flagg = [!d.bekraftad ? "ej bekräftad" : "", d.perioddag ? "perioder" : "", d.brandrisk_beordrad === true ? "OB" : "", d.dagtyp && d.dagtyp !== "normal" ? d.dagtyp : ""].filter(Boolean).join(", ");
     text(d.datum.slice(5), kol.datum, 9); text(t5(d.start_tid), kol.start, 9); text(t5(d.slut_tid), kol.slut, 9);
     text(d.rast_min != null ? `${d.rast_min} min` : "-", kol.rast, 9);
     text(fmtMin(d.arbetad_min), kol.arb, 9); text(d.extra_min ? fmtMin(d.extra_min) : "-", kol.extra, 9);
@@ -147,7 +148,7 @@ async function ritaPdf(arbetsmanad: string, m: LoneunderlagBerikad | null): Prom
   rad(2); hr(); rad(12);
   text("Summa", kol.datum, 9, bold); text(fmtMin(sumArb), kol.arb, 9, bold); text(sumExtra ? fmtMin(sumExtra) : "-", kol.extra, 9, bold); text(sumMil ? String(sumMil) : "-", kol.mil, 9, bold);
   rad(16);
-  text(`Mil = påbörjade mil över fri pendling (${m.km_grans} km/dag). Arbetad = maskintid; Extra = arbete utanför maskinen.`, ML, 8, font, grå);
+  text(`Mil = påbörjade mil över fri pendling (${m.km_grans} km/dag). Arbetad = maskintid; Extra = arbete utanför maskinen. (perioder) = dag utan maskin, tiden ur perioderna.`, ML, 8, font, grå);
   rad(11);
   text(`Skapad ${new Date().toISOString().slice(0, 16).replace("T", " ")} ur samma beräkning som löneunderlaget.`, ML, 8, font, grå);
 

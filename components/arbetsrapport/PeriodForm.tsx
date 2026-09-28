@@ -51,6 +51,12 @@ type Props = {
   objektNamn?: string | null;
   /** Renderar objektväljaren (föräldern äger ObjektValjarLista). */
   renderObjektValjare?: (valtId: string | null, onValj: (id: string | null) => void, stang: () => void) => ReactNode;
+  /** KEDJAN: perioder som redan sparats i den här omgången ("07:00–12:00 Planering · Rössmåla").
+   *  Föräldern öppnar formuläret igen efter Spara med Från = föregående Till — tiden
+   *  är KÄND, inte gissad. Tre trakter blir en handling i stället för tre. */
+  sparade?: string[];
+  /** "Klar" — stänger kedjan. Tertiär under Spara, så ingen fastnar i en loop. */
+  onKlar?: () => void;
 };
 
 const fmtMin = (m: number) => {
@@ -95,6 +101,17 @@ export default function PeriodForm(p: Props) {
           <button onClick={p.onAvbryt} style={KNAPP.lank}>Avbryt</button>
         </div>
         {p.datumText && <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{p.datumText}</p>}
+        {/* Kedjan: det som redan är sparat i omgången, dämpat — så man ser var man är. */}
+        {!!p.sparade?.length && (
+          <div style={{ marginTop: AVSTAND.m, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, background: FARG.upphojt, borderRadius: RADIE.rad }}>
+            {p.sparade.map((s, i) => (
+              <p key={i} style={{ margin: 0, ...TYP.meta, ...TNUM, color: FARG.text2, display: "flex", alignItems: "center", gap: AVSTAND.xs }}>
+                <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.gron }}>check</span>
+                Sparat: {s}
+              </p>
+            ))}
+          </div>
+        )}
 
         {/* Två klockslag. Sluttid tom = "sluttid saknas" (föräldralös post som ska rättas). */}
         <div style={{ display: "flex", gap: AVSTAND.s, marginTop: AVSTAND.l }}>
@@ -162,6 +179,12 @@ export default function PeriodForm(p: Props) {
         <button onClick={() => { if (kanSpara) p.onSpara(); }} style={{ ...KNAPP.primar, marginTop: AVSTAND.l, ...(kanSpara ? {} : INAKTIV) }}>
           {p.sparar ? "Sparar…" : "Spara"}
         </button>
+        {/* Kedjans utgång — tertiär, aldrig automatisk stängning. */}
+        {p.onKlar && !!p.sparade?.length && (
+          <div style={{ display: "flex", justifyContent: "center", marginTop: AVSTAND.s }}>
+            <button onClick={p.onKlar} style={KNAPP.tertiar}>Klar</button>
+          </div>
+        )}
 
         {/* Ta bort — synligt tvåstegsval, ingen window.confirm. */}
         {p.onTaBort && (bekraftaBort ? (

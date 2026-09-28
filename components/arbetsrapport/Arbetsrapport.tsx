@@ -17,7 +17,7 @@ import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, pass
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
-import { harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
+import { harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText, perioderPerObjekt } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
 import PdfLasare from "@/app/planering/PdfLasare";
@@ -608,7 +608,9 @@ export default function Arbetsrapport() {
   // ingångar. 'ny' = lägg till period för ett datum (systemet avgör segment/
   // extra_tid mot passet); 'redigera' = befintlig extra_tid-post (tider,
   // aktivitet, objekt, faktureras, kommentar, ta bort).
-  const [periodForm, setPeriodForm] = useState<null | { lage: 'ny' | 'redigera'; datum: string; rad?: any; varden: PeriodVarden; pass: { start_tid: string | null; slut_tid: string | null } | null }>(null);
+  // `sparade` = kedjan: perioder sparade i samma omgång (formuläret öppnas igen
+  // efter Spara med Från = föregående Till). Bara för 'ny', aldrig synk/tidigarelagd.
+  const [periodForm, setPeriodForm] = useState<null | { lage: 'ny' | 'redigera'; datum: string; rad?: any; varden: PeriodVarden; pass: { start_tid: string | null; slut_tid: string | null } | null; sparade?: string[] }>(null);
   const [periodSparar, setPeriodSparar] = useState(false);
   const [periodFel, setPeriodFel] = useState<string | null>(null);
   const [heldagsMeddelande, setHeldagsMeddelande] = useState<{text:string;icon?:string;typ:string}|null>(null);
@@ -2042,6 +2044,18 @@ export default function Arbetsrapport() {
     const d: any = dagData[datum];
     return d ? { start_tid: d.start_tid || null, slut_tid: d.slut_tid || null } : null;
   };
+  // PERIODDAGENS RADER — objekt och tid ur perioderna (lib/dagsegment
+  // perioderPerObjekt): "Rössmåla · 3 tim planering", "Restid · 1 tim". Samma
+  // rader i Dag-vyns bekräftelsekort och Redigera. Man ska se vad man skriver
+  // under; radens objekt är tomt på en perioddag.
+  const perioddagRader = (perioder: any[]): { nyckel: string; text: string }[] =>
+    perioderPerObjekt(perioder).map(r => {
+      const namn = r.objektId ? (objektLista.find(o => o.id === r.objektId)?.namn || r.objektId) : null;
+      return {
+        nyckel: `${r.objektId ?? ''}|${r.aktivitetTyp ?? ''}`,
+        text: namn ? `${namn} · ${fmt(r.minuter)} ${aktLabel(r.aktivitetTyp).toLowerCase()}` : `${aktLabel(r.aktivitetTyp)} · ${fmt(r.minuter)}`,
+      };
+    });
   /** Öppna en befintlig extra_tid-post för redigering (tider, aktivitet, objekt, faktureras, ta bort). */
   const oppnaPeriodRedigera = (rad: any) => {
     setPeriodFel(null);
@@ -2165,7 +2179,19 @@ export default function Arbetsrapport() {
         speglaExtra(data);
       }
       if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
-      stangPeriodForm();
+      // KEDJAN: efter Spara öppnas formuläret igen med Från = den här periodens
+      // Till (känd tid, inte gissad), samma aktivitet och objekt förvalda, Till
+      // tom. Tre trakter blir en handling. Utgång: Klar eller Avbryt — aldrig
+      // automatisk stängning. Inte för synk-/tidigarelagd-perioder (en och klar).
+      if (segForm) { stangPeriodForm(); return; }
+      const objNamn = v.objektId ? (objektLista.find(o => o.id === v.objektId)?.namn || v.objektId) : null;
+      const kvitto = `${v.start}–${v.slut} ${aktLabel(v.typ)}${objNamn ? ` · ${objNamn}` : ''}`;
+      setPeriodFel(null);
+      setPeriodForm(f => f ? {
+        ...f,
+        sparade: [...(f.sparade || []), kvitto],
+        varden: { start: v.slut, slut: '', typ: v.typ, deb: v.deb, kommentar: '', objektId: v.objektId },
+      } : f);
     } finally {
       setPeriodSparar(false);
     }
@@ -2204,6 +2230,8 @@ export default function Arbetsrapport() {
       onSpara={sparaPeriod}
       onTaBort={periodForm.lage === 'redigera' ? taBortPeriod : undefined}
       onAvbryt={stangPeriodForm}
+      sparade={periodForm.sparade}
+      onKlar={stangPeriodForm}
       objektNamn={periodForm.varden.objektId ? (objektLista.find(o => o.id === periodForm.varden.objektId)?.namn || periodForm.varden.objektId) : null}
       renderObjektValjare={(valtId, onValj) => (
         <ObjektValjarLista objekt={objektLista} valtId={valtId} onVälj={o => onValj(o ? o.id : null)} tillåtInget />
@@ -2335,6 +2363,12 @@ export default function Arbetsrapport() {
     // PERIODDAG: färdiga perioder men inget pass (Joacim: planering, restid,
     // manuellt). Bekräftas utan klockslag — se bekraftaDagen.
     const perioddag = extraFärdiga.length > 0 && !idagArb?.start_tid;
+    // ORDET: "Extra arbete" stämmer på en maskindag (arbete utöver passet). När
+    // dagen redan består av perioder, eller när den som saknar egen maskin inte
+    // har något pass igång, är det inte extra — det är arbetet. Då heter det
+    // "Arbete" / "Lägg till arbete". Startar ett pass (MOM eller knappen) byter
+    // ordet tillbaka: då är resten extra.
+    const arbeteUtanMaskin = perioddag || (!medarbetare?.maskin_id && !idagArb?.start_tid);
     const redanBekräftad = !!idagArb?.bekraftad;
     const varBekräftad   = !!idagArb?.bekraftad_tid;
     const ändradSedan    = varBekräftad && !redanBekräftad;
@@ -2344,8 +2378,13 @@ export default function Arbetsrapport() {
     // löpande utan bekräfta-knapp; länken låter föraren bekräfta ändå.
     const dagPågår = harMaskinPass && !redanBekräftad && !bekraftaÄndå
       && !arDagAvslutad(idagKey, idagArb?.slut_tid);
-    const visaTillstand = !redanBekräftad && !harMaskinPass;
-    const visaSammanfattning = harMaskinPass || extraFärdiga.length > 0;
+    // Perioddagen har inget tillstånd att vänta på — "Väntar på maskin" ovanför
+    // tre sparade perioder sa fel sak. Kvar blir bekräftelsekortet.
+    const visaTillstand = !redanBekräftad && !harMaskinPass && !perioddag;
+    // En bekräftad dag visas ALLTID — även utan pass och utan perioder (en
+    // skalrad som bekräftats efter att perioderna tagits bort). Förr blev det
+    // en tom sida: bara hälsningen. Ärligt tomt är ett kort som säger det.
+    const visaSammanfattning = harMaskinPass || extraFärdiga.length > 0 || redanBekräftad;
     const tillstandNyckel = [
       visaTillstand ? (isWorking ? 'pagar' : 'vantar') : '-',
       visaSammanfattning ? (redanBekräftad ? 'bekraftad' : dagPågår ? 'pagar-kort' : 'avslutad') : '-',
@@ -2566,6 +2605,10 @@ export default function Arbetsrapport() {
                 <span style={{ ...TYP.meta, ...TNUM, color:FARG.gron }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
               </div>
             )}
+            {/* Ärligt tomt: bekräftad utan pass och utan perioder — säg det, göm inte sidan. */}
+            {!harMaskinPass && !perioddag && (
+              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.orange }}>Ingen tid registrerad — varken maskinpass eller perioder. Ändra i Kalender → dagen.</p>
+            )}
             {/* Deldag: sjuk/VAB från ett klockslag — dagen är arbete OCH frånvaro */}
             {deldagar[idagKey] && (
               <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
@@ -2624,12 +2667,18 @@ export default function Arbetsrapport() {
                 })()}
               </div>
             )}
-            {/* Perioddag: summan av perioderna är dagens tid — inget pass att visa. */}
+            {/* Perioddag: objekt och tid ur perioderna, summerat per objekt och
+                aktivitet — det man skriver under. "Perioder 6 tim" utan objekt
+                var att bekräfta i blindo (Martin 2026-09-28). */}
             {perioddag && (
-              <div style={{ textAlign:"center", padding:`${AVSTAND.l}px 0`, ...linjeUnder(true) }}>
-                <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>Perioder</p>
-                <p style={{ margin:0, ...TYP.tal, ...TNUM, color:FARG.text }}>{fmt(extraFärdiga.reduce((a: number, e: any) => a + (e.minuter||0), 0))}</p>
-                <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>Ingen maskin — tiden ligger i perioderna nedan</p>
+              <div style={linjeUnder(true)}>
+                <p style={{ margin:`0 0 ${AVSTAND.xs}px`, ...TYP.meta, color:FARG.text2 }}>Dagens arbete</p>
+                {perioddagRader(extraFärdiga).map(r => (
+                  <p key={r.nyckel} style={{ margin:0, minHeight:TRAFFYTA.min, display:"flex", alignItems:"center", ...TYP.listtitel, ...TNUM, color:FARG.text }}>{r.text}</p>
+                ))}
+                <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>
+                  Totalt {fmt(extraFärdiga.reduce((a: number, e: any) => a + (e.minuter||0), 0))} · ingen maskin
+                </p>
               </div>
             )}
             {/* Körning — maskinpass eller perioddag. Talet räknar upp när km fylls i. */}
@@ -2672,7 +2721,8 @@ export default function Arbetsrapport() {
                 </div>
               );
             })()}
-            {harMaskinPass && (
+            {/* Traktamente — maskinpass ELLER perioddag; en planeringsdag borta är lika mycket borta. */}
+            {(harMaskinPass || perioddag) && (
               <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
                 <span style={{ ...TYP.meta, color:FARG.text2 }}>Traktamente</span>
                 <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs }}>
@@ -2681,7 +2731,7 @@ export default function Arbetsrapport() {
                 </div>
               </div>
             )}
-            {harMaskinPass && trakÖppen&&(
+            {(harMaskinPass || perioddag) && trakÖppen&&(
               <div className="tona-in" style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:AVSTAND.s, marginTop:AVSTAND.s }}>
                 {/* Mängder, inte kronor: Inget / Halv / Hel. Beloppet äger Fortnox (#377). */}
                 {[{k:'inget',l:'Inget',v:null},{k:'halv',l:'Halv',v:{summa:halvKr}},{k:'hel',l:'Hel',v:{summa:helKr}}].map(opt=>{
@@ -2934,7 +2984,7 @@ export default function Arbetsrapport() {
           </section>
         ) : (
           <div style={{ marginTop:AVSTAND.m }}>
-            {kortKnapp('Extra arbete', 'Reservdelar, service, brandkontroll', async ()=>{
+            {kortKnapp(arbeteUtanMaskin ? 'Arbete' : 'Extra arbete', arbeteUtanMaskin ? 'Planering, restid, manuellt' : 'Reservdelar, service, brandkontroll', async ()=>{
               const startTid = nuKlock();
               // Trycket kan vara dagens första händelse — skalraden skapas här.
               const arbetsdagId = await sakerstallArbetsdagRad(idagKey);
@@ -2957,7 +3007,7 @@ export default function Arbetsrapport() {
             <div style={{ display:"flex", justifyContent:"center" }}>
               <button onClick={()=>oppnaPeriodNy(idagKey)} style={KNAPP.tertiar}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>schedule</span>
-                Lägg till i efterhand
+                {arbeteUtanMaskin ? 'Lägg till arbete' : 'Lägg till i efterhand'}
               </button>
             </div>
           </div>
@@ -4143,16 +4193,20 @@ export default function Arbetsrapport() {
       if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0 };
       const m = d.arbetad_min || 0;
       const ex = extraPerDagMånad.get(d.datum) || 0;
-      veckoData[weekNum].dagar.push({ datum:d.datum, min:m, extraMin:ex });
+      // PERIODDAG (rad utan klockslag): perioderna ÄR dagens arbete — mörk
+      // stapel, inte "extra". Ljusgrönt betyder utöver ett maskinpass.
+      const perioddag = !d.start_tid && ex > 0;
+      veckoData[weekNum].dagar.push({ datum:d.datum, min: perioddag ? ex : m, extraMin: perioddag ? 0 : ex });
       veckoData[weekNum].sumH += (m + ex)/60;
     });
-    // Extra tid på dagar UTAN maskinpass — egen dagrad (bara ljusgrön stapel)
+    // Perioder på datum UTAN arbetsdag-rad (extra tid före skalraden 2026-09-26)
+    // — egen dagrad, räknas som dagens arbete precis som perioddagen ovan.
     for (const [datum, ex] of extraPerDagMånad) {
       if (!datum.startsWith(månadsPrefix) || ex <= 0) continue;
       const weekNum = veckoNrFör(datum);
       if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0 };
       if (veckoData[weekNum].dagar.find(x => x.datum === datum)) continue; // redan medräknad ovan
-      veckoData[weekNum].dagar.push({ datum, min:0, extraMin:ex });
+      veckoData[weekNum].dagar.push({ datum, min:ex, extraMin:0 });
       veckoData[weekNum].sumH += ex/60;
     }
     // Röda dagar som egna rader i veckorna — för den VISADE månaden (lönePeriod),
@@ -4191,7 +4245,22 @@ export default function Arbetsrapport() {
       }
       maskinAgg[key].dagar++;
     });
-    const objektEntries = Object.values(maskinAgg).sort((a,b) => b.dagar-a.dagar);
+    // PERIODDAGARNA: objekten bor i perioderna (raden har varken maskin eller
+    // objekt). Ett kort per objekt, aktiviteterna som underrad där maskinen
+    // annars står. Dagar = antal datum med perioder på objektet.
+    const passDatum = new Set(månadsHistorik.filter(d => d.start_tid).map(d => d.datum));
+    const periodAgg: Record<string,{namn:string;datum:Set<string>;akt:Set<string>}> = {};
+    for (const e of månadsExtraTid) {
+      if (!e.objekt_id || !e.slut_tid || passDatum.has(e.datum)) continue;
+      const key = e.objekt_id;
+      if (!periodAgg[key]) periodAgg[key] = { namn: objektLista.find(o=>o.id===e.objekt_id)?.namn || e.objekt_id, datum: new Set(), akt: new Set() };
+      periodAgg[key].datum.add(e.datum);
+      if (e.aktivitet_typ) periodAgg[key].akt.add(aktLabel(e.aktivitet_typ));
+    }
+    const objektEntries = [
+      ...Object.values(maskinAgg),
+      ...Object.values(periodAgg).map(p => ({ namn: p.namn, maskinId: Array.from(p.akt).join(' · ') || 'Perioder', dagar: p.datum.size })),
+    ].sort((a,b) => b.dagar-a.dagar);
 
     const bottomNav = <BottomNavBar aktiv="lön" onNav={s=>setSteg(s)} />;
 
@@ -5195,6 +5264,61 @@ export default function Arbetsrapport() {
             if (arbEn && e.start_tid && e.start_tid >= arbEn) return "Kväll";
             return "Extra";
           };
+          // KÖRNING — EN rad, ritad i BÅDA dagkorten (maskindag och perioddag). Öppnar
+          // morgon/kväll-sheeten. Källmärkning: visa ärligt vad siffran ÄR. Beräknat men
+          // inte taget = ett FÖRSLAG föraren själv trycker in; först då blir dagen ändrad
+          // (harÄndrat) — aldrig av att den öppnas. Förslaget får ALDRIG kringgå
+          // km_kalla-skyddet: km_kalla='forare' med 0 km är en medveten nolla (boende på
+          // plats — Gävle) som helpern och nattjobbet aldrig rör; då ska appen inte
+          // heller FÖRESLÅ ett tal vi vet är fel. Och aldrig över MAX_BEN_KM per ben —
+          // samma gräns som helpern själv vägrar räkna (trolig felkoordinat).
+          const korningRadRed = (()=>{
+            const över = Math.max(0, redKm - frikm);
+            const mil  = över>0 ? Math.ceil(över/10) : 0;
+            const segs = redKmChain || [];
+            const medvetenNolla = redKm === 0 && (redDag as any).km_kalla === 'forare';
+            const benOver = segs.some((s: any) => Number(s.km) > MAX_BEN_KM);
+            const forslag = redKmBerakning != null && redKmBerakning > 0 && redKm === 0 && !redKmSaknarKoord && !medvetenNolla && !benOver;
+            const egen = !forslag && !benOver && redKmBerakning != null && redKm !== redKmBerakning;
+            const kalla = forslag ? null
+              : benOver ? { text: `Avståndet överstiger ${MAX_BEN_KM} km enkel väg — föreslås inte (trolig felkoordinat). Fyll i själv om det stämmer.`, farg: FARG.orange }
+              : egen ? { text: medvetenNolla ? "Egen uppgift — 0 km medvetet satt" : "Egen uppgift", farg: FARG.text2 }
+              : redKmSaknarKoord ? { text: "Objektet saknar koordinat — går inte att beräkna. Fyll i själv.", farg: FARG.orange }
+              : redKmKälla === 'fallback' ? { text: "Osäker uppskattning (fågelvägen × 1,4) — kontrollera.", farg: FARG.orange }
+              : redKmKälla === 'beraknad' ? { text: `Beräknat vägavstånd${redKmKoordKälla === 'maskin' ? ' från maskinens position' : redKmKoordKälla === 'objekt' ? ' från objektets koordinat' : redKmKoordKälla === 'larm' ? ' från objektets larmkoordinat' : ''}`, farg: FARG.text2 }
+              : null;
+            const delar = segs.length >= 2
+              ? segs.map((s: any, i: number) => `${i === 0 ? 'Morgon' : i === segs.length-1 ? 'Kväll' : 'Flytt'} ${s.km}`).join(' · ')
+              : null;
+            return (
+              <div style={{ borderBottom:(redDag as any).trak?`1px solid ${FARG.linje}`:"none", paddingBottom:(redDag as any).trak?AVSTAND.s:0 }}>
+                <div onClick={öppnaRedKmSheet} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", minHeight:TRAFFYTA.min, padding:`${AVSTAND.m}px 0 ${AVSTAND.xs}px`, cursor:"pointer" }}>
+                  <span style={{ ...TYP.text, color:FARG.text }}>Körning</span>
+                  <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+                    <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{redKm} km</span>
+                    <ChevronRight/>
+                  </div>
+                </div>
+                {forslag && (
+                  <button onClick={()=>setRedKm(redKmBerakning)} style={{ ...KNAPP.tertiar, gap:AVSTAND.xs }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
+                    <span style={{ ...TNUM }}>Använd beräknat {redKmBerakning} km{redKmKälla === 'fallback' ? ' (osäkert, fågelvägen)' : ' (vägavstånd)'}</span>
+                  </button>
+                )}
+                {(delar || kalla || över > 0) && (
+                  <p style={{ margin:0, ...TYP.meta, ...TNUM, color:kalla?.farg ?? FARG.text2 }}>
+                    {[delar, kalla?.text, över > 0 ? `${mil} påbörjade mil (${över} km över ${frikm})` : null].filter(Boolean).join(' · ')}
+                  </p>
+                )}
+              </div>
+            );
+          })();
+          const traktamenteRadRed = (redDag as any).trak ? (
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0` }}>
+              <span style={{ ...TYP.text,color:FARG.text }}>Traktamente</span>
+              <span style={{ ...TYP.text,fontWeight:VIKT.halvfet,color:FARG.text }}>Heldag</span>
+            </div>
+          ) : null;
           return (<>
         <div style={{ flex:1,overflowY:"auto",paddingTop:AVSTAND.s }}>
           {(() => {
@@ -5367,14 +5491,18 @@ export default function Arbetsrapport() {
                ovanpå perioderna räknar tiden två gånger (arbetad_min +
                extra_tid). Körning finns — perioddagen har km som alla andra. */
             <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
-              <p style={{ margin:0,padding:`${AVSTAND.l}px 0`,...TYP.meta,color:FARG.text2,textAlign:"center" as const,borderBottom:`1px solid ${FARG.linje}` }}>Ingen maskin — tiden ligger i perioderna</p>
-              <div onClick={öppnaRedKmSheet} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,cursor:"pointer" }}>
-                <span style={{ ...TYP.text,color:FARG.text }}>Körning</span>
-                <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m }}>
-                  <span style={{ ...TYP.text,fontWeight:VIKT.halvfet,color:redKm>0?FARG.orange:FARG.text }}>{redKm} km</span>
-                  <ChevronRight/>
-                </div>
+              {/* Dagens arbete ur perioderna — objekt och tid, det man skriver under. */}
+              <div style={{ padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Dagens arbete</p>
+                {perioddagRader(extraTidForDag).map(r => (
+                  <p key={r.nyckel} style={{ margin:0,minHeight:TRAFFYTA.min,display:"flex",alignItems:"center",...TYP.listtitel,...TNUM,color:FARG.text }}>{r.text}</p>
+                ))}
+                <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,...TNUM,color:FARG.text2 }}>
+                  Totalt {fmt(extraTidForDag.reduce((a:number,e:any) => a + (e.minuter||0), 0))} · ingen maskin
+                </p>
               </div>
+              {korningRadRed}
+              {traktamenteRadRed}
             </Card>
           ):(
             <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
@@ -5435,64 +5563,11 @@ export default function Arbetsrapport() {
                   </div>
                 );
               })()}
-              {/* Körning — EN rad i huvudkortet, öppnar morgon/kväll-sheeten. Förr ett
-                  eget kort med morgon/kväll/totalt/källa/ersättning, plus en "Extra
-                  tid N min"-rad här som sa samma sak som periodlistan nedanför. */}
-              {(()=>{
-                const över = Math.max(0, redKm - frikm);
-                const mil  = över>0 ? Math.ceil(över/10) : 0;
-                const segs = redKmChain || [];
-                // Källmärkning — visa ärligt vad siffran ÄR. Beräknat men inte
-                // taget = ett FÖRSLAG föraren själv trycker in; först då blir dagen
-                // ändrad (harÄndrat) — aldrig av att den öppnas.
-                // Förslaget får ALDRIG kringgå km_kalla-skyddet: km_kalla='forare' med
-                // 0 km är en medveten nolla (boende på plats — Gävle) som helpern och
-                // nattjobbet aldrig rör; då ska appen inte heller FÖRESLÅ ett tal vi vet
-                // är fel. Och aldrig över MAX_BEN_KM per ben — samma gräns som helpern
-                // själv vägrar räkna (trolig felkoordinat). Ändra går via km-arket.
-                const medvetenNolla = redKm === 0 && (redDag as any).km_kalla === 'forare';
-                const benOver = segs.some((s: any) => Number(s.km) > MAX_BEN_KM);
-                const forslag = redKmBerakning != null && redKmBerakning > 0 && redKm === 0 && !redKmSaknarKoord && !medvetenNolla && !benOver;
-                const egen = !forslag && !benOver && redKmBerakning != null && redKm !== redKmBerakning;
-                const kalla = forslag ? null
-                  : benOver ? { text: `Avståndet överstiger ${MAX_BEN_KM} km enkel väg — föreslås inte (trolig felkoordinat). Fyll i själv om det stämmer.`, farg: FARG.orange }
-                  : egen ? { text: medvetenNolla ? "Egen uppgift — 0 km medvetet satt" : "Egen uppgift", farg: FARG.text2 }
-                  : redKmSaknarKoord ? { text: "Objektet saknar koordinat — går inte att beräkna. Fyll i själv.", farg: FARG.orange }
-                  : redKmKälla === 'fallback' ? { text: "Osäker uppskattning (fågelvägen × 1,4) — kontrollera.", farg: FARG.orange }
-                  : redKmKälla === 'beraknad' ? { text: `Beräknat vägavstånd${redKmKoordKälla === 'maskin' ? ' från maskinens position' : redKmKoordKälla === 'objekt' ? ' från objektets koordinat' : redKmKoordKälla === 'larm' ? ' från objektets larmkoordinat' : ''}`, farg: FARG.text2 }
-                  : null;
-                const delar = segs.length >= 2
-                  ? segs.map((s, i) => `${i === 0 ? 'Morgon' : i === segs.length-1 ? 'Kväll' : 'Flytt'} ${s.km}`).join(' · ')
-                  : null;
-                return (
-                  <div style={{ borderBottom:(redDag as any).trak?`1px solid ${FARG.linje}`:"none", paddingBottom:(redDag as any).trak?AVSTAND.s:0 }}>
-                    <div onClick={öppnaRedKmSheet} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", minHeight:TRAFFYTA.min, padding:`${AVSTAND.m}px 0 ${AVSTAND.xs}px`, cursor:"pointer" }}>
-                      <span style={{ ...TYP.text, color:FARG.text }}>Körning</span>
-                      <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
-                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{redKm} km</span>
-                        <ChevronRight/>
-                      </div>
-                    </div>
-                    {forslag && (
-                      <button onClick={()=>setRedKm(redKmBerakning)} style={{ ...KNAPP.tertiar, gap:AVSTAND.xs }}>
-                        <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
-                        <span style={{ ...TNUM }}>Använd beräknat {redKmBerakning} km{redKmKälla === 'fallback' ? ' (osäkert, fågelvägen)' : ' (vägavstånd)'}</span>
-                      </button>
-                    )}
-                    {(delar || kalla || över > 0) && (
-                      <p style={{ margin:0, ...TYP.meta, ...TNUM, color:kalla?.farg ?? FARG.text2 }}>
-                        {[delar, kalla?.text, över > 0 ? `${mil} påbörjade mil (${över} km över ${frikm})` : null].filter(Boolean).join(' · ')}
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
-              {redDag.trak&&(
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0` }}>
-                  <span style={{ ...TYP.text,color:FARG.text }}>Traktamente</span>
-                  <span style={{ ...TYP.text,fontWeight:VIKT.halvfet,color:FARG.text }}>Heldag</span>
-                </div>
-              )}
+              {/* Körning + traktamente — SAMMA rader som perioddagens kort (korningRadRed/
+                  traktamenteRadRed ovan). Förr ett eget kort med morgon/kväll/totalt/källa/
+                  ersättning, plus en "Extra tid N min"-rad som sa samma sak som periodlistan. */}
+              {korningRadRed}
+              {traktamenteRadRed}
             </Card>
           )}
 
@@ -5504,9 +5579,9 @@ export default function Arbetsrapport() {
           {redDag && (harData || dagSegment.length > 0 || harExtra) && (() => {
             const pass = { start_tid: (redDag as any).start_tid || null, slut_tid: (redDag as any).slut_tid || null };
             const perioder: any[] = [
-              ...dagSegment.map((sg:any) => ({ kind:'segment', id:sg.id, start:(sg.start_tid||'').slice(0,5), slut:(sg.slut_tid||'').slice(0,5), typ:sg.aktivitet_typ, deb:sg.debiterbar, kommentar:sg.kommentar, kalla:sg.kalla })),
-              ...extraTidForDag.map((e:any) => ({ kind:'extra', id:e.id, start:(e.start_tid||'').slice(0,5), slut:(e.slut_tid||'').slice(0,5), typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:e.minuter||0, raw:e })),
-              ...extraOppnaForDag.map((e:any) => ({ kind:'extra', oppen:true, id:e.id, start:(e.start_tid||'').slice(0,5), slut:'', typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:0, raw:e })),
+              ...dagSegment.map((sg:any) => ({ kind:'segment', id:sg.id, start:(sg.start_tid||'').slice(0,5), slut:(sg.slut_tid||'').slice(0,5), typ:sg.aktivitet_typ, deb:sg.debiterbar, kommentar:sg.kommentar, kalla:sg.kalla, objektId: sg.objekt_id || null })),
+              ...extraTidForDag.map((e:any) => ({ kind:'extra', id:e.id, start:(e.start_tid||'').slice(0,5), slut:(e.slut_tid||'').slice(0,5), typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:e.minuter||0, raw:e, objektId: e.objekt_id || null })),
+              ...extraOppnaForDag.map((e:any) => ({ kind:'extra', oppen:true, id:e.id, start:(e.start_tid||'').slice(0,5), slut:'', typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:0, raw:e, objektId: e.objekt_id || null })),
             ].sort((a,b)=>a.start.localeCompare(b.start));
             const antal = perioder.length;
             const öppen = segÖppen || antal > 0;
@@ -5516,7 +5591,7 @@ export default function Arbetsrapport() {
             <div style={{ marginTop:AVSTAND.l }}>
               <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
                 <div onClick={()=>setSegÖppen(o=>!o)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,cursor:"pointer",borderBottom: öppen ? `1px solid ${FARG.linje}` : "none",minHeight:44 }}>
-                  <span style={{ ...TYP.text,color:FARG.text }}>Var du iväg en del av dagen?</span>
+                  <span style={{ ...TYP.text,color:FARG.text }}>{harData ? "Var du iväg en del av dagen?" : "Dagens arbete"}</span>
                   <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m }}>
                     {antal>0 && <span style={{ ...TYP.meta,color:FARG.orange }}>{antal} st</span>}
                     <span className="material-symbols-outlined" style={{ fontSize:IKON.rad,color:FARG.text2,transform: öppen?"rotate(90deg)":"none",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
@@ -5529,6 +5604,8 @@ export default function Arbetsrapport() {
                     style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.m}px 0`,borderBottom: (i<antal-1||!!segForm) ? `1px solid ${FARG.linje}` : "none",gap:AVSTAND.m,cursor: p.kind==='extra'?"pointer":"default" }}>
                     <div style={{ minWidth:0 }}>
                       <span style={{ ...TYP.text,color:FARG.text }}>{aktLabel(p.typ)}</span>
+                      {/* Objektet syns på raden — utan det skrev man under en perioddag i blindo. */}
+                      {p.objektId && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>{objektLista.find(o=>o.id===p.objektId)?.namn || p.objektId}</span>}
                       {p.kind==='extra' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.gron,...TNUM }}>+{fmt(p.minuter)}</span>}
                       {p.deb && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.gron }}>faktureras</span>}
                       {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>via maskinavvikelse</span>}
@@ -5944,7 +6021,9 @@ export default function Arbetsrapport() {
       const dow = new Date(kalÅr, kalMånad, d).getDay();
       const helg = dow === 0 || dow === 6;
       const min = minPerDatum.get(k) || 0;
-      const extra = (extraDagData[k] || []).length > 0;
+      // Blå prick = extra tid UTÖVER ett maskinpass. På en perioddag är
+      // perioderna hela dagen — då räcker statuspricken.
+      const extra = (extraDagData[k] || []).length > 0 && !!dag?.start_tid;
       const _sh = historik.find((x: any) => x.datum === k);
       // Gul synk-prick bara från skarp start (lib/skarpStart) — före golvet visas dagen, larmas inte.
       const synk = !!_sh?.synk_avvikelse && !_sh.synk_avvikelse.kvitterad && !foreSkarpStart(k);

@@ -30,9 +30,12 @@ export type LoneunderlagDag = {
   start_tid: string | null;
   slut_tid: string | null;
   rast_min: number | null;
-  arbetad_min: number;      // maskintid (arbetsdag.arbetad_min)
-  extra_min: number;        // extra tid samma dag (extra_tid)
-  objekt: string[];         // objektnamn i dagens ordning
+  arbetad_min: number;      // maskintid (arbetsdag.arbetad_min) — på en perioddag: perioderna
+  extra_min: number;        // extra tid samma dag (extra_tid) — 0 på en perioddag (tiden står i arbetad_min)
+  objekt: string[];         // objektnamn i dagens ordning — på en perioddag: ur perioderna
+  /** PERIODDAG: raden saknar klockslag, tiden bor i perioderna. Visning, inte
+   *  beräkning — beräknaExport ser samma arbetsdag/extra_tid som förr. */
+  perioddag: boolean;
   km_totalt: number;
   ersattningsmil: number;   // påbörjade mil över fri pendling — det som ersätts
   traktamente: boolean;
@@ -123,8 +126,10 @@ export async function beraknaLoneunderlag(
       .gte("datum", arbStart).lte("datum", arbSlut),
     // Extra tid = arbete när maskinen var av — arbetstid rakt av,
     // ska in i timlön/övertid (arbetad_min ser den inte)
+    // (objekt_id/aktivitet_typ/klockslag läses för perioddagens dag-för-dag-rad
+    // — beräkningen ser bara minuter.)
     supabase.from("extra_tid")
-      .select("medarbetare_id, datum, minuter")
+      .select("medarbetare_id, datum, minuter, objekt_id, aktivitet_typ, start_tid, slut_tid")
       .gte("datum", arbStart).lte("datum", arbSlut),
     supabase.from("maskiner").select("maskin_id, typ"),
     supabase.from("medarbetare_lonesystem")
@@ -320,6 +325,7 @@ export async function beraknaLoneunderlag(
   const objektIds = Array.from(new Set<string>([
     ...dagRader.map(d => d.objekt_id).filter(Boolean).map(String),
     ...((aoRes.data as any[]) || []).map(r => r.objekt_id).filter(Boolean).map(String),
+    ...((extraRes.data || []) as any[]).map(e => e.objekt_id).filter(Boolean).map(String),
   ]));
   const dimRes = objektIds.length
     ? await supabase.from("dim_objekt").select("objekt_id, object_name").in("objekt_id", objektIds)
@@ -331,25 +337,42 @@ export async function beraknaLoneunderlag(
     aoByArb.get(r.arbetsdag_id)!.push(r);
   }
   const extraMinPerDag = new Map<string, number>(); // `${med}|${datum}` → min
+  const extraPerDag = new Map<string, any[]>();       // `${med}|${datum}` → perioder (för perioddagens rad)
   for (const e of (extraRes.data || []) as any[]) {
     if (!e.medarbetare_id || !e.datum) continue;
     const k = `${e.medarbetare_id}|${e.datum}`;
     extraMinPerDag.set(k, (extraMinPerDag.get(k) || 0) + (e.minuter || 0));
+    if (!extraPerDag.has(k)) extraPerDag.set(k, []);
+    extraPerDag.get(k)!.push(e);
   }
   const dagarPerMed = new Map<string, LoneunderlagDag[]>();
   for (const d of dagRader) {
+    const k = `${d.medarbetare_id}|${d.datum}`;
+    const exMin = extraMinPerDag.get(k) || 0;
+    // PERIODDAG: raden saknar klockslag, tiden bor i perioderna. Visa tiden som
+    // Arbetad (det ÄR dagens arbete, inte "extra") och objekten ur perioderna.
+    // Bara visning — beräkningen (beräknaExport) läser samma rader som förr.
+    const perioddag = !d.start_tid && !d.slut_tid && exMin > 0;
     const ao = (aoByArb.get(d.id) || []).sort((a: { ordning: number | null }, b: { ordning: number | null }) => (a.ordning ?? 0) - (b.ordning ?? 0));
-    const objekt = ao.length
+    const objektUrRad = ao.length
       ? ao.map(r => r.objekt_namn || (r.objekt_id ? objNamn.get(String(r.objekt_id)) : null) || "").filter(Boolean)
       : (d.objekt_id ? [objNamn.get(String(d.objekt_id)) || String(d.objekt_id)] : []);
+    const objektUrPerioder = Array.from(new Set(
+      (extraPerDag.get(k) || [])
+        .sort((a: any, b: any) => String(a.start_tid || "").localeCompare(String(b.start_tid || "")))
+        .map((e: any) => e.objekt_id ? (objNamn.get(String(e.objekt_id)) || String(e.objekt_id)) : "")
+        .filter(Boolean),
+    ));
+    const objekt = perioddag && objektUrRad.length === 0 ? objektUrPerioder : objektUrRad;
     const km = Number(d.km_totalt || 0);
     const rad: LoneunderlagDag = {
       id: d.id, datum: d.datum, start_tid: d.start_tid, slut_tid: d.slut_tid, rast_min: d.rast_min,
-      arbetad_min: Number(d.arbetad_min || 0),
-      extra_min: extraMinPerDag.get(`${d.medarbetare_id}|${d.datum}`) || 0,
+      arbetad_min: perioddag ? exMin : Number(d.arbetad_min || 0),
+      extra_min: perioddag ? 0 : exMin,
       objekt, km_totalt: km, ersattningsmil: ersattningsMilDag(km, kmGrans),
       traktamente: !!d.traktamente, dagtyp: d.dagtyp ?? null, bekraftad: !!d.bekraftad,
       brandrisk_beordrad: d.brandrisk_beordrad ?? null, ob_min: obMinuter(d),
+      perioddag,
     };
     if (!dagarPerMed.has(d.medarbetare_id)) dagarPerMed.set(d.medarbetare_id, []);
     dagarPerMed.get(d.medarbetare_id)!.push(rad);
