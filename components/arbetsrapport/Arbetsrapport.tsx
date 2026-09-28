@@ -14,10 +14,10 @@ import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRA
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
-import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
+import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, faktureringsEtikett, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
-import { harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText, perioderPerObjekt } from "@/lib/dagsegment";
+import { harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
 import PdfLasare from "@/app/planering/PdfLasare";
@@ -2044,18 +2044,6 @@ export default function Arbetsrapport() {
     const d: any = dagData[datum];
     return d ? { start_tid: d.start_tid || null, slut_tid: d.slut_tid || null } : null;
   };
-  // PERIODDAGENS RADER — objekt och tid ur perioderna (lib/dagsegment
-  // perioderPerObjekt): "Rössmåla · 3 tim planering", "Restid · 1 tim". Samma
-  // rader i Dag-vyns bekräftelsekort och Redigera. Man ska se vad man skriver
-  // under; radens objekt är tomt på en perioddag.
-  const perioddagRader = (perioder: any[]): { nyckel: string; text: string }[] =>
-    perioderPerObjekt(perioder).map(r => {
-      const namn = r.objektId ? (objektLista.find(o => o.id === r.objektId)?.namn || r.objektId) : null;
-      return {
-        nyckel: `${r.objektId ?? ''}|${r.aktivitetTyp ?? ''}`,
-        text: namn ? `${namn} · ${fmt(r.minuter)} ${aktLabel(r.aktivitetTyp).toLowerCase()}` : `${aktLabel(r.aktivitetTyp)} · ${fmt(r.minuter)}`,
-      };
-    });
   /** Öppna en befintlig extra_tid-post för redigering (tider, aktivitet, objekt, faktureras, ta bort). */
   const oppnaPeriodRedigera = (rad: any) => {
     setPeriodFel(null);
@@ -2196,19 +2184,61 @@ export default function Arbetsrapport() {
       setPeriodSparar(false);
     }
   };
+  // ── DEN TOMMA SKALRADEN ────────────────────────────────────────────────
+  // En perioddag vars perioder tagits bort lämnade en rad utan innehåll — tom
+  // och ibland bekräftad — som inte gick att göra något med (Martin satt fast
+  // 2026-09-28, tre rader fick raderas i databasen). Regeln: raderas sista
+  // perioden försvinner skalraden med, om dagen saknar maskin och inte har
+  // något annat innehåll (km, traktamente, kommentar). Har den det står den kvar
+  // — då är den inte tom. Radering kräver RLS-policyn
+  // arbetsdag_forare_delete_skalrad (20260928); saknas den (0 rader) nollas
+  // bekräftelsen i stället, så dagen aldrig blir låst.
+  const skalradTom = (r: any): boolean =>
+    !!r && !r.start_tid && !r.slut_tid && !r.maskin_id
+    && !(r.km_morgon || 0) && !(r.km_kvall || 0) && !(r.km_totalt || 0)
+    && !r.traktamente && !r.trak && !r.kommentar;
+  const taBortTomSkalrad = async (datum: string, id: string): Promise<{ ok: true; raderad: boolean } | { ok: false; fel: string }> => {
+    if (!medarbetare?.id) return { ok: false, fel: SPARA_FEL };
+    const del = await raderaVerifierat(supabase, "arbetsdag", { id });
+    let raderad = true;
+    if (!del.ok) {
+      // Policyn inte körd (eller inte egen rad): nolla underskriften i stället.
+      const upd = await uppdateraVerifierat(supabase, "arbetsdag", { bekraftad: false, bekraftad_tid: null }, { id });
+      if (!upd.ok) return { ok: false, fel: upd.fel };
+      raderad = false;
+    }
+    setDagData(d => {
+      if (!d[datum]) return d;
+      if (raderad) { const kopia = { ...d }; delete kopia[datum]; return kopia; }
+      return { ...d, [datum]: { ...d[datum], bekraftad: false, bekraftad_tid: null, status: 'saknas' } };
+    });
+    setRedDag((rd: any) => rd?.datum === datum ? (raderad ? { datum } : { ...rd, bekraftad: false, bekraftad_tid: null }) : rd);
+    setHistorik(h => raderad ? h.filter((x: any) => x.datum !== datum) : h.map((x: any) => x.datum === datum ? { ...x, bekraftad: false, bekraftad_tid: null } : x));
+    setÅrsData((a: any[]) => raderad ? a.filter((x: any) => x.datum !== datum) : a.map((x: any) => x.datum === datum ? { ...x, bekraftad: false, bekraftad_tid: null } : x));
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+    return { ok: true, raderad };
+  };
+
   // Ta bort — VERIFIERAT (0 träffade rader = ärligt fel, aldrig tyst "borttaget").
   const taBortPeriod = async () => {
     if (!periodForm?.rad) return;
     const id = periodForm.rad.id;
+    const datum: string = periodForm.rad.datum;
     const res = await raderaVerifierat(supabase, "extra_tid", { id });
     if (!res.ok) { setPeriodFel(res.fel); return; }
+    const kvar = (extraTidData || []).filter((x: any) => x.id !== id && x.datum === datum);
     setExtraTidData(d => d.filter(x => x.id !== id));
     setExtraDagData(m => {
-      const datum = periodForm.rad.datum;
       if (!datum || !m[datum]) return m;
       return { ...m, [datum]: m[datum].filter((x: any) => x.id !== id) };
     });
     setPagaendeAktiviteter(arr => arr.filter(x => x.id !== id));
+    // Sista perioden borta → skalraden med (se ovan). Segment finns bara med pass.
+    const rad: any = dagData[datum];
+    if (kvar.length === 0 && rad?.id && skalradTom(rad)) {
+      const t = await taBortTomSkalrad(datum, rad.id);
+      if (!t.ok) { setPeriodFel(t.fel); return; }
+    }
     stangPeriodForm();
   };
   const periodDatumText = (datum: string) => {
@@ -2219,7 +2249,7 @@ export default function Arbetsrapport() {
   // DELAD UI (renderas i både Dag-vyn och Redigera): periodformuläret.
   const efterStoppUI = periodForm ? (
     <PeriodForm
-      rubrik={periodForm.lage === 'ny' ? 'Lägg till period' : 'Extra arbete'}
+      rubrik={periodForm.lage === 'ny' ? 'Lägg till period' : periodForm.pass?.start_tid ? 'Extra arbete' : 'Period'}
       datumText={periodDatumText(periodForm.datum)}
       varden={periodForm.varden}
       onAndra={v => setPeriodForm(f => f ? { ...f, varden: v } : f)}
@@ -2605,9 +2635,19 @@ export default function Arbetsrapport() {
                 <span style={{ ...TYP.meta, ...TNUM, color:FARG.gron }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
               </div>
             )}
-            {/* Ärligt tomt: bekräftad utan pass och utan perioder — säg det, göm inte sidan. */}
+            {/* Ärligt tomt: bekräftad utan pass och utan perioder — säg det, och ge
+                vägen ut. En tom bekräftad dag är ett misstag (perioderna togs bort
+                efter underskriften); den tas bort, och morgonen börjar om. */}
             {!harMaskinPass && !perioddag && (
-              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.orange }}>Ingen tid registrerad — varken maskinpass eller perioder. Ändra i Kalender → dagen.</p>
+              <div style={{ marginTop:AVSTAND.s }}>
+                <p style={{ margin:0, ...TYP.meta, color:FARG.orange }}>Ingen tid registrerad — varken maskinpass eller perioder.</p>
+                <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.s }}>
+                  <button onClick={async ()=>{ if (!idagArb?.id) return; const t = await taBortTomSkalrad(idagKey, idagArb.id); if (!t.ok) setBekraftaFel(t.fel); }} style={KNAPP.destruktiv}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>delete</span>
+                    Ta bort den tomma dagen
+                  </button>
+                </div>
+              </div>
             )}
             {/* Deldag: sjuk/VAB från ett klockslag — dagen är arbete OCH frånvaro */}
             {deldagar[idagKey] && (
@@ -2667,15 +2707,34 @@ export default function Arbetsrapport() {
                 })()}
               </div>
             )}
-            {/* Perioddag: objekt och tid ur perioderna, summerat per objekt och
-                aktivitet — det man skriver under. "Perioder 6 tim" utan objekt
-                var att bekräfta i blindo (Martin 2026-09-28). */}
+            {/* PERIODDAG: EN rad per period — det man skriver under (Martin
+                2026-09-28: "innan jag bekräftar vill man se vad man gjort så det
+                inte blir fel"). Trakt och tid på första raden; aktivitet, klockslag
+                och fakturering i TEXT på andra. Raden öppnar perioden. Summeringen
+                per objekt togs bort — samma period stod två gånger. */}
             {perioddag && (
               <div style={linjeUnder(true)}>
                 <p style={{ margin:`0 0 ${AVSTAND.xs}px`, ...TYP.meta, color:FARG.text2 }}>Dagens arbete</p>
-                {perioddagRader(extraFärdiga).map(r => (
-                  <p key={r.nyckel} style={{ margin:0, minHeight:TRAFFYTA.min, display:"flex", alignItems:"center", ...TYP.listtitel, ...TNUM, color:FARG.text }}>{r.text}</p>
-                ))}
+                {extraFärdiga.map((e: any) => {
+                  const objNamn = e.objekt_id ? (objektLista.find(o => o.id === e.objekt_id)?.namn || e.objekt_id) : null;
+                  const akt = aktLabel(e.aktivitet_typ);
+                  const fakt = faktureringsEtikett(e.aktivitet_typ, !!e.debiterbar, !!e.objekt_id);
+                  const klock = `${(e.start_tid||'').slice(0,5)}–${(e.slut_tid||'').slice(0,5)}`;
+                  return (
+                    <div key={e.id} onClick={()=>oppnaPeriodRedigera(e)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
+                      <div style={{ minWidth:0 }}>
+                        <p style={{ margin:0, ...TYP.listtitel, color:FARG.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{objNamn || akt}</p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>
+                          {objNamn ? `${akt} · ` : ''}{klock} · <span style={{ color: fakt.varna ? FARG.orange : FARG.text2 }}>{fakt.text}</span>
+                        </p>
+                      </div>
+                      <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, flexShrink:0 }}>
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{fmt(e.minuter||0)}</span>
+                        <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3 }}>chevron_right</span>
+                      </div>
+                    </div>
+                  );
+                })}
                 <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>
                   Totalt {fmt(extraFärdiga.reduce((a: number, e: any) => a + (e.minuter||0), 0))} · ingen maskin
                 </p>
@@ -2688,8 +2747,10 @@ export default function Arbetsrapport() {
                 {milPåbörjade > 0 && sammanRad("Reseersättning", `${milPåbörjade} påbörjade mil`)}
               </div>
             )}
-            {/* Extra tid-rader för idag — klickbara för att redigera typ/objekt/deb/kommentar. */}
+            {/* Extra tid-rader för idag (MASKINDAG) — klickbara för att redigera
+                typ/objekt/deb/kommentar. Perioddagen har sina rader ovan. */}
             {(()=>{
+              if (perioddag) return null;
               const extraIdag = (extraTidData || [])
                 .filter((e: any) => e.datum === idagKey && e.slut_tid)
                 .sort((a: any, b: any) => (a.start_tid||'').localeCompare(b.start_tid||''));
@@ -5491,15 +5552,12 @@ export default function Arbetsrapport() {
                ovanpå perioderna räknar tiden två gånger (arbetad_min +
                extra_tid). Körning finns — perioddagen har km som alla andra. */
             <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
-              {/* Dagens arbete ur perioderna — objekt och tid, det man skriver under. */}
-              <div style={{ padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
-                <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Dagens arbete</p>
-                {perioddagRader(extraTidForDag).map(r => (
-                  <p key={r.nyckel} style={{ margin:0,minHeight:TRAFFYTA.min,display:"flex",alignItems:"center",...TYP.listtitel,...TNUM,color:FARG.text }}>{r.text}</p>
-                ))}
-                <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,...TNUM,color:FARG.text2 }}>
-                  Totalt {fmt(extraTidForDag.reduce((a:number,e:any) => a + (e.minuter||0), 0))} · ingen maskin
-                </p>
+              {/* Perioderna står EN gång — i listan "Dagens arbete" nedanför (med
+                  objekt och fakturering). Här bara summan, körning och traktamente. */}
+              <div style={{ textAlign:"center",padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>Dagens arbete</p>
+                <p style={{ margin:0,...TYP.tal,...TNUM,color:FARG.text }}>{fmt(extraTidForDag.reduce((a:number,e:any) => a + (e.minuter||0), 0))}</p>
+                <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text3 }}>Ingen maskin — {extraTidForDag.length} {extraTidForDag.length === 1 ? 'period' : 'perioder'} nedan</p>
               </div>
               {korningRadRed}
               {traktamenteRadRed}
@@ -5576,7 +5634,10 @@ export default function Arbetsrapport() {
               betald, märks bara). Period UTANFÖR → extra_tid (läggs till, ger
               ersättning). Föraren säger bara "jag gjorde det här mellan de här
               klockslagen" — samma formulär, samma knappar. */}
-          {redDag && (harData || dagSegment.length > 0 || harExtra) && (() => {
+          {/* Ritas för varje dag som HAR en rad — även en skalrad utan perioder, så
+              att "Lägg till period" alltid finns (annars var enda vägen "Lägg till
+              manuellt" = klockslag, fel flöde för en perioddag). */}
+          {redDag && (harData || dagSegment.length > 0 || harExtra || !!(redDag as any).id) && (() => {
             const pass = { start_tid: (redDag as any).start_tid || null, slut_tid: (redDag as any).slut_tid || null };
             const perioder: any[] = [
               ...dagSegment.map((sg:any) => ({ kind:'segment', id:sg.id, start:(sg.start_tid||'').slice(0,5), slut:(sg.slut_tid||'').slice(0,5), typ:sg.aktivitet_typ, deb:sg.debiterbar, kommentar:sg.kommentar, kalla:sg.kalla, objektId: sg.objekt_id || null })),
@@ -5607,7 +5668,7 @@ export default function Arbetsrapport() {
                       {/* Objektet syns på raden — utan det skrev man under en perioddag i blindo. */}
                       {p.objektId && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>{objektLista.find(o=>o.id===p.objektId)?.namn || p.objektId}</span>}
                       {p.kind==='extra' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.gron,...TNUM }}>+{fmt(p.minuter)}</span>}
-                      {p.deb && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.gron }}>faktureras</span>}
+                      {(()=>{ const f = faktureringsEtikett(p.typ, !!p.deb, !!p.objektId); return <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:f.varna?FARG.orange:FARG.text2 }}>{f.text}</span>; })()}
                       {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>via maskinavvikelse</span>}
                       <div style={{ ...TYP.meta, color: p.oppen ? FARG.orange : FARG.text2, ...TNUM }}>{p.oppen ? `${p.start} – sluttid saknas · fyll i eller ta bort` : `${p.start}–${p.slut}${p.kind==='extra' ? ' · läggs till' : ''}`}{p.kommentar?` · ${p.kommentar}`:''}</div>
                     </div>
@@ -5774,7 +5835,21 @@ export default function Arbetsrapport() {
               </>);
             }
             if (bekraftadRedan) {
-              return (<>{bekraftadRad(bekraftadTidFmt)}{tillbakaKnapp}</>);
+              // Tom bekräftad skalrad: ge vägen ut här också (samma som Dag-vyn).
+              const tomSkalrad = !harData && !harExtra && dagSegment.length === 0 && skalradTom(redDag);
+              return (<>
+                {felRad}
+                {bekraftadRad(bekraftadTidFmt)}
+                {tomSkalrad && (
+                  <div style={{ display:"flex", justifyContent:"center" }}>
+                    <button onClick={async ()=>{ const t = await taBortTomSkalrad((redDag as any).datum, (redDag as any).id); if (!t.ok) setRedFel(t.fel); else setSteg("kalender"); }} style={KNAPP.destruktiv}>
+                      <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>delete</span>
+                      Ta bort den tomma dagen
+                    </button>
+                  </div>
+                )}
+                {tillbakaKnapp}
+              </>);
             }
             return tillbakaKnapp;
           })()}
