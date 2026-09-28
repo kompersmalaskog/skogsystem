@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
-import { analyseraVilobrott, type Arbetsdag, type VilaTrosklar } from "@/lib/vilobrott";
+import { analyseraVilobrott, medPerioddagSpann, type Arbetsdag, type VilaTrosklar } from "@/lib/vilobrott";
 import { franGolv } from "@/lib/skarpStart";
+import { ymdLokal } from "@/lib/datumLokal";
 
 /**
  * Storage-lagret för vilobrott-tabellen. Håller lib/vilobrott.ts fri från
@@ -126,7 +127,23 @@ export async function analyseraOchSpara(
   // Besvarade brott före golvet finns kvar i DB (revisionsspår) och rörs ej.
   fonsterFromDatum = franGolv(fonsterFromDatum);
   if (fonsterToDatum < fonsterFromDatum) return;
-  const nyaBrott = analyseraVilobrott(dagar, trosklar);
+  // PERIODDAGAR (lib/vilobrott medPerioddagSpann): arbetstidslagen gäller all
+  // arbetstid. Dagar utan klockslag får sitt spann ur perioderna. Hämtas här,
+  // en gång, så BÅDA anroparna i Arbetsrapport (synk efter mutation, för-check
+  // vid Bekräfta) får dem — 7 dagar bakom fönstret, som `dagar` ska täcka.
+  const perFrom = new Date(fonsterFromDatum + "T00:00:00");
+  perFrom.setDate(perFrom.getDate() - 7);
+  const { data: perioder, error: perFel } = await supabase
+    .from("extra_tid")
+    .select("datum, start_tid, slut_tid")
+    .eq("medarbetare_id", medarbetareId)
+    .gte("datum", ymdLokal(perFrom))
+    .lte("datum", fonsterToDatum)
+    .not("slut_tid", "is", null);
+  // Ett läsfel får inte tyst ge "ingen perioddag" — då analyseras (och
+  // raderas!) brott på fel underlag. Kasta, anroparen loggar.
+  if (perFel) throw new Error(`Kunde inte läsa perioderna (extra_tid): ${perFel.message}`);
+  const nyaBrott = analyseraVilobrott(medPerioddagSpann(dagar, (perioder || []) as any[]), trosklar);
   // Begränsa till analysfönstret — brott utanför är inte vår jurisdiktion.
   const nyaIFonster = nyaBrott.filter(
     (b) => b.datum >= fonsterFromDatum && b.datum <= fonsterToDatum,

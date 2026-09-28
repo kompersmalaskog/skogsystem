@@ -29,5 +29,24 @@ export const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debD
  *  domänen men gick inte att välja — bifynd 2026-09-26. */
 export const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['planering','restid','manuellt','mote','markagare','flytt','reservdelar','service','reparation','utbildning','brandkontroll','annat'];
 
+/**
+ * Faktureringsetiketten på en periodrad — i TEXT, aldrig bara färg (grönt betyder
+ * redan "bekräftad" i kalendern). `varna` = orange: det man ska UPPTÄCKA är det
+ * oväntade, inte det vanliga. Oväntat är (1) en period som INTE faktureras fast
+ * aktiviteten normalt gör det (planering/manuellt/markägare/flytt utan kryss —
+ * troligen glömt), (2) "faktureras" utan objekt — går inte att fakturera.
+ * Service som inte faktureras är normalt och står i grått. Restid har inget
+ * objekt och ska inte debiteras: "inget objekt", grått.
+ */
+export function faktureringsEtikett(typ: string|null|undefined, debiterbar: boolean, harObjekt: boolean): { text: string; varna: boolean } {
+  const akt = AKTIVITETER.find(a => a.typ === typ);
+  if (!harObjekt) {
+    if (debiterbar && typ !== 'restid') return { text: 'faktureras · inget objekt', varna: true };
+    return { text: 'inget objekt', varna: false };
+  }
+  if (debiterbar) return { text: 'faktureras', varna: false };
+  return { text: 'faktureras inte', varna: !!akt?.debDefault };
+}
+
 export const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
 export const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';

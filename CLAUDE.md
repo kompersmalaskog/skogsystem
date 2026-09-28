@@ -34,6 +34,17 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 - **`hpr_filer` / `hpr_stammar` (filnivå)** — vid visning/summering: använd BARA filen med högst `stammar_count` per objekt, aldrig alla filer.
 - **`detalj_stock` (radnivå)** — UNIQUE-constraint på `(maskin_id, stem_key, log_key)` (migration `20260507_detalj_stock_dedupe_keys.sql`) gör att importen UPSERT:ar — samma logiska stock från olika kumulativa filer skrivs över istället för att duplicera.
 
+### arbetsdag — TRE sorters dagar
+En rad i `arbetsdag` är en av tre saker, och en vy som läser raden måste klara alla tre:
+
+| Sort | Kännetecken | Var tiden bor |
+|------|-------------|---------------|
+| **Maskindag** | `start_tid`/`slut_tid`/`maskin_id` satta (MOM-synk eller Starta arbetspass) | `arbetad_min` på raden; objekt i `arbetsdag_objekt` |
+| **Perioddag** | raden är ett SKAL: `start_tid`, `slut_tid`, `maskin_id` alla NULL, ändå `bekraftad` | perioderna i `extra_tid` (klockslag, objekt, aktivitet, debiterbar); raden finns för att lönens 60-minutersregel ska se dagen |
+| **Frånvarodag** | ingen rad alls (sjuk/VAB/semester ligger i `ledighet_ansokningar`); gamla backfill-rader utan tid kan finnas | `lib/franvaro` |
+
+Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26) är den nya. Regeln: **klockslag på en perioddags rad = dubbelräkning** (`arbetad_min` + `extra_tid`), spärrad av `passKrockarMedPerioder` i `lib/dagsegment.ts`. Visa en perioddag med `perioderPerObjekt` (objekt och tid ur perioderna), räkna vilotid med `medPerioddagSpann` (`lib/vilobrott.ts`). Antagandet "raden har klockslag och maskin" gav tio tomma vyer på en gång (2026-09-28) — läs perioderna när raden är tom, säg aldrig "ingen data".
+
 ---
 
 ## Maskiner med data
