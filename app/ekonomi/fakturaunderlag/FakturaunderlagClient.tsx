@@ -46,11 +46,9 @@ type OversiktsRad = {
   avtalsform: 'ackord' | 'timpeng'; avrakningsdatum: string | null;
   mangd: number; mangd_enhet: 'm3fub' | 'h'; summa: number; orsak?: string;
 };
-type HemlosFlytt = { id: string; datum: string; maskin: string; km: number | null; traillertimmar: number | null };
 type Oversikt = {
   fonster: { dagar: number; max: number; byggda: number; klara_totalt: number; utanfor: number };
   grupper: { klara: OversiktsRad[]; atgard: OversiktsRad[]; vantar: OversiktsRad[]; pagar: OversiktsRad[] };
-  flyttar_utan_trakt: HemlosFlytt[];
 };
 
 const DAGAR = 90;
@@ -135,8 +133,6 @@ export default function FakturaunderlagClient() {
           <Grupp titel="Pågår" rader={oversikt.grupper.pagar} oppna={oppna} visaOrsak dampad
             tomText="Ingen trakt är påbörjad men oavslutad." />
 
-          <FlyttarUtanTrakt flyttar={oversikt.flyttar_utan_trakt} />
-
           {oversikt.fonster.utanfor > 0 && (
             <p style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xl }}>
               {oversikt.fonster.utanfor} slutavräknade trakter ligger utanför fönstret på{' '}
@@ -209,36 +205,6 @@ function Grupp({ titel, rader, oppna, visaOrsak, dampad, tomText }: {
                 </>
               )}
             </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Flytten bärs av trakten man LÄMNAR. Saknas fran_objekt_id hör raden till
- * ingen trakt och skulle aldrig synas — tre av sex aktiva flyttar är så.
- * Att falla tillbaka på "till" hade lagt dem på FEL trakt, och de hade sett
- * rätt ut. Därför en egen grupp i stället.
- */
-function FlyttarUtanTrakt({ flyttar }: { flyttar: HemlosFlytt[] }) {
-  if (!flyttar?.length) return null;
-  return (
-    <div style={{ marginTop: AVSTAND.xl }}>
-      <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>
-        Flyttar utan trakt
-      </p>
-      <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
-        {flyttar.map((f, i) => (
-          <div key={f.id}>
-            {i > 0 && <div style={{ height: 1, background: FARG.linje, marginLeft: AVSTAND.l }} />}
-            <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, minHeight: TRAFFYTA.min }}>
-              <span style={{ ...TYP.text }}>{f.maskin} · {f.km ?? '?'} km · {f.datum}</span>
-              <p style={{ ...TYP.meta, color: FARG.orange, margin: `${AVSTAND.xs}px 0 0` }}>
-                Saknar avreseobjekt — flytten hamnar inte på någon trakt
-              </p>
-            </div>
           </div>
         ))}
       </div>

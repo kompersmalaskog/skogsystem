@@ -147,6 +147,13 @@ export type Flyttrad = {
    * maskin_flytt.tid_flytt_min mäter fel sak och används ALDRIG här.
    */
   traillertimmar: number | null;
+  /** true = raden är ompekad hit vid granskning, inte där flytten
+   *  registrerades. Visas som en not — ett val ska aldrig vara osynligt. */
+  omdirigerad?: boolean;
+  /** Avreseobjektets namn, BARA för texten: "Traillerflytt Wisent från
+   *  Kämpamåla". Saknas det utelämnas frasen — raden hör ändå till trakten
+   *  maskinen kom TILL, så ett tomt avreseobjekt gör den aldrig hemlös. */
+  franNamn?: string | null;
 };
 
 /** En post Martin lagt in för hand: fällning, GROT-skotning, papp. */
@@ -384,7 +391,8 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
     if (km > 0 && km <= FLYTT_TIMDEBITERING_KM) {
       lagg({
         artikelnr: '5',
-        benamning: `Flytt av maskin ${f.maskin}`,
+        benamning: `Flytt av maskin ${f.maskin}`
+          + (f.franNamn ? ` från ${f.franNamn}` : ''),
         antal: 1, enhet: 'st',
         prisagare: 'fortnox', a_pris: null,
         harledning: [{ etikett: `${km} km ${f.datum}`, belopp: 0 }],
@@ -401,7 +409,8 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
     const saknasTid = timmar == null || timmar <= 0;
     lagg({
       artikelnr: '3',
-      benamning: `Traillerflytt ${f.maskin}, ${km} km`,
+      benamning: `Traillerflytt ${f.maskin}`
+        + (f.franNamn ? ` från ${f.franNamn}` : '') + `, ${km} km`,
       antal: saknasTid ? null : tvaDec(timmar!),
       enhet: 'h',
       prisagare: 'fortnox', a_pris: null,

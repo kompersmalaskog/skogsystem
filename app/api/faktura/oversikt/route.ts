@@ -145,23 +145,8 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // ── Flyttar som inte hör till någon trakt ────────────────────────
-    // Flytten bärs av objektet man LÄMNAR (fran_objekt_id). Saknas det hamnar
-    // raden på ingen trakt alls och blir osynlig — tre av sex aktiva flyttar
-    // är i det läget. Att i stället falla tillbaka på till_objekt_id hade
-    // lagt dem på FEL trakt, och de hade sett rätt ut. De listas här.
-    const { data: hemlosa } = await sb.from('fakturaunderlag_flytt')
-      .select('id, datum, maskin, km, traillertimmar')
-      .is('fran_objekt_id', null).eq('status', 'aktiv')
-      .is('fakturerad_tid', null).order('datum');
-
     return NextResponse.json({
       ok: true,
-      flyttar_utan_trakt: (hemlosa || []).map((f: any) => ({
-        id: f.id, datum: f.datum, maskin: f.maskin,
-        km: f.km == null ? null : Number(f.km),
-        traillertimmar: f.traillertimmar == null ? null : Number(f.traillertimmar),
-      })),
       fonster: {
         dagar, max,
         byggda: iFonster.length,

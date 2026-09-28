@@ -221,32 +221,51 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     noter.push({ niva: 'varning', text: `VO:t har flera kontraktsnummer: ${Array.from(new Set(kontrakt)).join(', ')}` });
   }
 
-  // ── Flyttar: bärs av trakten man LÄMNAR ───────────────────────────────
+  // ── Flyttar: bärs av trakten maskinen kom TILL ────────────────────────
   //
-  // Alla arton historiska artikel-3-rader säger "från": "Traillerflytt
-  // Gigant från Åkarp", "King från Tjuvön", "Wisent från Brokamåla".
-  // Flytten hör alltså till avreseobjektet, inte destinationen.
+  // Fakturatexten "Traillerflytt Wisent från Brokamåla" beskriver VARIFRÅN
+  // maskinen kom — den talar inte om vilken trakt raden hör till. Raden
+  // ligger på trakten maskinen kom till, för det är den trakten flytten
+  // utfördes för.
   //
-  // ⚠️ INGEN FALLBACK PÅ till_objekt_id. Tre av sex aktiva flyttar saknar
-  // fran_objekt_id. Att då ta "till" hade lagt flytten på FEL trakt — och
-  // den hade sett rätt ut. De raderna ytas i stället av översikten, som en
-  // egen post utan trakt.
+  // Det gör också kopplingen hel: alla sex aktiva flyttar har
+  // till_objekt_id, medan tre saknar fran_objekt_id. Ett tomt avreseobjekt
+  // gör bara BENÄMNINGEN ofullständig, aldrig raden hemlös.
   //
   // Kopplingen går via objekt.id (uuid som TEXT i kolumnen), aldrig mot
   // dim_objekt.objekt_id: objekt.dim_objekt_id är NULL på varenda rad.
   const objektUuids = (objektRes.data || []).map((o: any) => String(o.id));
   let flyttar: VoUnderlag['flyttar'] = [];
   if (objektUuids.length) {
+    // faktura_objekt_id VINNER över till_objekt_id när den är satt: flytten
+    // kan ha registrerats på fel objekt för att måltrakten inte var upplagd
+    // än (Brokamålas GROT-flytt), och då pekas den om vid granskningen.
+    // Flyttloggen skrivs aldrig om — registreringen var riktig när den
+    // gjordes, det är faktureringen som ska peka rätt.
+    const lista = objektUuids.map((x: string) => `"${x}"`).join(",");
     const { data: fl, error: flFel } = await sb.from('fakturaunderlag_flytt')
-      .select('id, datum, maskin, km, traillertimmar, status, fakturerad_tid, fran_objekt_id')
-      .in('fran_objekt_id', objektUuids).eq('status', 'aktiv')
-      .is('fakturerad_tid', null).order('datum');
+      .select('id, datum, maskin, km, traillertimmar, status, fakturerad_tid, '
+        + 'fran_objekt_id, till_objekt_id, faktura_objekt_id')
+      .or(`faktura_objekt_id.in.(${lista}),`
+        + `and(faktura_objekt_id.is.null,till_objekt_id.in.(${lista}))`)
+      .eq('status', 'aktiv').is('fakturerad_tid', null).order('datum');
     if (flFel) throw new Error('Kunde inte läsa flyttar: ' + flFel.message);
+
+    // Avreseobjektets namn, bara för texten. Saknas det utelämnas "från …"
+    // och Martin kan skriva dit resten — raden är ändå komplett.
+    const franIds = Array.from(new Set((fl || []).map((f: any) => f.fran_objekt_id).filter(Boolean)));
+    const franNamn = new Map<string, string>();
+    if (franIds.length) {
+      const { data: fo } = await sb.from('objekt').select('id, namn').in('id', franIds);
+      for (const o of fo || []) if (o.namn) franNamn.set(String(o.id), o.namn);
+    }
 
     flyttar = (fl || []).map((f: any) => ({
       id: f.id, datum: f.datum, maskin: f.maskin,
       km: f.km == null ? null : Number(f.km),
       traillertimmar: f.traillertimmar == null ? null : Number(f.traillertimmar),
+      franNamn: f.fran_objekt_id ? (franNamn.get(String(f.fran_objekt_id)) ?? null) : null,
+      omdirigerad: !!f.faktura_objekt_id,
     }));
 
     // Lastbilens dygnssummor som STÖD för den inskrivna tiden — aldrig som
@@ -254,27 +273,34 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     const dagar = Array.from(new Set(flyttar.map(f => f.datum))).filter(Boolean);
     for (const dag of dagar) {
       const { data: lb } = await sb.from('lastbil_logg')
-        .select('tidpunkt, odometer_m, hastighet')
+        .select('tidpunkt, odometer_m')
         .gte('tidpunkt', `${dag}T00:00:00`).lte('tidpunkt', `${dag}T23:59:59`)
         .order('tidpunkt');
-      const p = lb || [];
-      if (!p.length) continue;
-      const tim = (new Date(p[p.length - 1].tidpunkt).getTime() - new Date(p[0].tidpunkt).getTime()) / 3600000;
-      const od = p.map((x: any) => Number(x.odometer_m)).filter((n: number) => Number.isFinite(n));
+      const pkt = lb || [];
+      if (!pkt.length) continue;
+      const tim = (new Date(pkt[pkt.length - 1].tidpunkt).getTime()
+                 - new Date(pkt[0].tidpunkt).getTime()) / 3600000;
+      const od = pkt.map((x: any) => Number(x.odometer_m)).filter((n: number) => Number.isFinite(n));
       const km = od.length ? Math.round((Math.max(...od) - Math.min(...od)) / 1000) : null;
-      const antalFlyttar = flyttar.filter(f => f.datum === dag).length;
       noter.push({
         niva: 'info',
         text: `Lastbilen rullade ${tim.toFixed(1).replace('.', ',')} tim`
-          + (km != null ? ` och ${km} km` : '') + ` den ${dag}`
-          + (antalFlyttar > 1 ? `, ${antalFlyttar} flyttar på samma runda.` : '.')
+          + (km != null ? ` och ${km} km` : '') + ` den ${dag}.`
           + ' Stöd för den inskrivna traillertiden, inte källa.',
       });
     }
 
     for (const f of flyttar) {
-      if (f.km == null) noter.push({ niva: 'varning', text: `Flytten ${f.datum} saknar km — radtypen kan inte avgöras.` });
-      else if (f.km > 30 && f.traillertimmar == null) {
+      if (f.omdirigerad) {
+        noter.push({
+          niva: 'info',
+          text: `Flytten ${f.datum} (${f.maskin}) är ompekad hit vid granskning — `
+            + 'den registrerades på ett annat objekt.',
+        });
+      }
+      if (f.km == null) {
+        noter.push({ niva: 'varning', text: `Flytten ${f.datum} saknar km — radtypen kan inte avgöras.` });
+      } else if (f.km > 30 && f.traillertimmar == null) {
         noter.push({
           niva: 'varning',
           text: `Flytten ${f.datum} (${f.maskin}, ${f.km} km) faktureras på tid, och timmarna är inte ifyllda.`,
