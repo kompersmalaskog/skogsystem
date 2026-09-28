@@ -736,6 +736,95 @@ export default function PlannerPage() {
     return () => { avbruten = true; };
   }, [valtObjekt?.id]);
 
+  // Ladda per-yta-MEDIA för objektet (tabell objekt_yta_media). Grupperas per yta_nyckel i
+  // skapelseordning. Fel/saknad tabell (innan migrationen körts) eller RLS → tomt (kortet visar
+  // då bara text). Samma mönster som anteckningar-laddaren ovan.
+  useEffect(() => {
+    if (!valtObjekt?.id) { setYtaMedia({}); return; }
+    let avbruten = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('objekt_yta_media')
+        .select('id, yta_nyckel, typ, url, skapad_at, medarbetare:skapad_av(namn)')
+        .eq('objekt_id', valtObjekt.id)
+        .order('skapad_at', { ascending: true });
+      if (avbruten) return;
+      if (error || !data) { setYtaMedia({}); return; }
+      const karta: Record<string, { id: string; typ: 'audio' | 'foto'; url: string; namn: string | null; skapad_at: string }[]> = {};
+      for (const r of data as any[]) {
+        (karta[r.yta_nyckel] ||= []).push({ id: r.id, typ: r.typ, url: r.url, namn: (r.medarbetare as any)?.namn ?? null, skapad_at: r.skapad_at });
+      }
+      setYtaMedia(karta);
+    })();
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id]);
+
+  // yta_nyckel → säker storage-path-del ('omrade:123' → 'omrade_123'; kolon m.m. är otryggt i URL/nyckel).
+  const ytaNyckelPath = (nyckel: string) => nyckel.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+  // Ladda upp ett foto till bucketen 'ytfoto' (public) → publik URL. Samma mönster som
+  // uploadAudioToStorage; markörernas base64-foton kopieras INTE (Martins beslut).
+  const uploadFotoToStorage = useCallback(async (file: File, nyckel: string): Promise<string | null> => {
+    if (!valtObjekt?.id) return null;
+    const ext = (file.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+    const path = `yta/${valtObjekt.id}/${ytaNyckelPath(nyckel)}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from('ytfoto').upload(path, file, { contentType: file.type, upsert: false });
+    if (error) { console.error('[Ytfoto] Upload fel:', error); return null; }
+    const { data: urlData } = supabase.storage.from('ytfoto').getPublicUrl(path);
+    return urlData.publicUrl;
+  }, [valtObjekt?.id]);
+
+  // Ta bort en fil ur rätt bucket utifrån dess publika URL (audio → 'audio', foto → 'ytfoto').
+  const raderaMediaFil = useCallback(async (url: string) => {
+    if (!url || url.startsWith('data:')) return;
+    try {
+      const m = url.match(/\/object\/public\/(audio|ytfoto)\/(.+)$/) || url.match(/\/(audio|ytfoto)\/(.+)$/);
+      if (!m) return;
+      const bucket = m[1]; const path = decodeURIComponent(m[2]);
+      const { error } = await supabase.storage.from(bucket).remove([path]);
+      if (error) console.error('[Media] Delete fel:', error);
+    } catch (err) { console.error('[Media] Delete fel:', err); }
+  }, []);
+
+  // Spara en media-rad (ljud/foto) för en yta. Verifierat (RLS-block/0 rader = fel). Lägger till i cachen.
+  const sparaYtaMedia = useCallback(async (nyckel: string, typ: 'audio' | 'foto', url: string): Promise<boolean> => {
+    if (!valtObjekt?.id || !nyckel || !url) return false;
+    const res = await upsertVerifierat(supabase, 'objekt_yta_media', {
+      objekt_id: valtObjekt.id, yta_nyckel: nyckel, typ, url,
+      skapad_av: currentMedarbetare?.id ?? null,
+    }, { select: 'id, skapad_at' });
+    if (!res.ok) { setYtaMediaFel(res.fel); return false; }
+    const rad = (res.rows as any[])[0];
+    setYtaMedia(prev => ({ ...prev, [nyckel]: [ ...(prev[nyckel] || []), { id: rad.id, typ, url, namn: currentMedarbetare?.namn ?? null, skapad_at: rad.skapad_at } ] }));
+    return true;
+  }, [valtObjekt?.id, currentMedarbetare?.id, currentMedarbetare?.namn]);
+
+  // Ta bort en media-rad (rad + fil). Verifierat delete; filen städas ur bucketen.
+  const raderaYtaMedia = useCallback(async (nyckel: string, rad: { id: string; url: string }) => {
+    const res = await raderaVerifierat(supabase, 'objekt_yta_media', { id: rad.id });
+    if (!res.ok) { setYtaMediaFel(res.fel); return; }
+    raderaMediaFil(rad.url);
+    setYtaMedia(prev => ({ ...prev, [nyckel]: (prev[nyckel] || []).filter(m => m.id !== rad.id) }));
+  }, [raderaMediaFil]);
+
+  // Dold foto-input (planeraren väljer/tar bild) → ladda upp till 'ytfoto' + spara media-rad.
+  const handleYtaFotoCapture = useCallback(async (e: any) => {
+    const file = e.target.files?.[0];
+    const nyckel = pendingFotoNyckelRef.current;
+    if (e.target) e.target.value = ''; // så samma bild kan väljas igen
+    if (!file || !nyckel) return;
+    setYtaMediaFel(null);
+    setYtaMediaSparar(true);
+    try {
+      const url = await uploadFotoToStorage(file, nyckel);
+      if (!url) { setYtaMediaFel('Kunde inte ladda upp fotot — försök igen.'); return; }
+      await sparaYtaMedia(nyckel, 'foto', url);
+    } finally {
+      setYtaMediaSparar(false);
+      pendingFotoNyckelRef.current = null;
+    }
+  }, [uploadFotoToStorage, sparaYtaMedia]);
+
   // PR B: spara/uppdatera (eller radera vid tom text) en anteckning. Verifierat sparande
   // (lib/supabase-save) — RLS-block eller 0 rader = fel, aldrig tyst "sparat".
   const sparaAnteckning = useCallback(async (nyckel: string, text: string): Promise<boolean> => {
@@ -2108,6 +2197,7 @@ export default function PlannerPage() {
     setIsRecordingAudio(false);
     setRecordingNoteId(null);
     setRecordingMarkerId(null);
+    setRecordingYtaNyckel(null);
     setRecordingSeconds(0);
     mediaRecorderRef.current = null;
   }, []);
@@ -2195,6 +2285,42 @@ export default function PlannerPage() {
   // Legacy aliases
   const startNoteAudioRecording = toggleNoteAudioRecording;
   const stopNoteAudioRecording = stopAnyRecording;
+
+  // Spela in ljud för en YTA (ytkortet) → bucketen 'audio' + rad i objekt_yta_media. Samma
+  // inspelnings-/upload-flöde som markörernas ljud (uploadAudioToStorage); ingen base64-fallback
+  // (media-raden kräver en URL, och foto/ljud ska ligga i storage per beslut).
+  const toggleYtaAudioRecording = useCallback(async (nyckel: string) => {
+    if (isRecordingAudio) { stopAnyRecording(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (audioChunksRef.current.length === 0) return;
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        setYtaMediaSparar(true);
+        try {
+          const url = await uploadAudioToStorage(blob, `yta_${ytaNyckelPath(nyckel)}`);
+          if (url) { setYtaMediaFel(null); await sparaYtaMedia(nyckel, 'audio', url); }
+          else { setYtaMediaFel('Kunde inte ladda upp ljudet — försök igen.'); }
+        } finally { setYtaMediaSparar(false); }
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecordingAudio(true);
+      setRecordingYtaNyckel(nyckel);
+      setRecordingMarkerId(null);
+      setRecordingNoteId(null);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds(s => s + 1), 1000);
+      audioTimeoutRef.current = setTimeout(() => stopAnyRecording(), 60000);
+    } catch (err) {
+      console.error('Kunde inte starta ljudinspelning:', err);
+    }
+  }, [isRecordingAudio, stopAnyRecording, uploadAudioToStorage, sparaYtaMedia]);
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
@@ -2349,6 +2475,14 @@ export default function PlannerPage() {
   const [anteckningSkrivlage, setAnteckningSkrivlage] = useState(false);
   const [anteckningSparar, setAnteckningSparar] = useState(false);
   const [anteckningFel, setAnteckningFel] = useState<string | null>(null);
+  // Per-yta MEDIA (tabell objekt_yta_media): ljud + foto knutna till ytan, FLERA rader per yta i ordning.
+  // Cachas per objekt: yta_nyckel → lista. Förare ser + spelar upp; bara admin (planerare) lägger till/tar bort.
+  const [ytaMedia, setYtaMedia] = useState<Record<string, { id: string; typ: 'audio' | 'foto'; url: string; namn: string | null; skapad_at: string }[]>>({});
+  const [ytaMediaSparar, setYtaMediaSparar] = useState(false); // ljud-upload / foto-upload pågår
+  const [ytaMediaFel, setYtaMediaFel] = useState<string | null>(null);
+  const [recordingYtaNyckel, setRecordingYtaNyckel] = useState<string | null>(null); // inspelning för denna yta
+  const pendingFotoNyckelRef = useRef<string | null>(null); // vilken yta väntar på foto (dold input)
+  const ytaFotoInputRef = useRef<HTMLInputElement>(null);
   const [traktKortSvepY, setTraktKortSvepY] = useState(0); // svep-ner-att-stänga (bottom sheet)
   const traktKortSvepStartRef = useRef<number | null>(null);
   const [larmConfirmDelete, setLarmConfirmDelete] = useState(false);
@@ -14544,6 +14678,9 @@ export default function PlannerPage() {
         const harAnteckning = !!(befintlig && befintlig.text.trim());
         const kanSkriva = isAdminRiktig && !!nyckel;   // bara planerare skriver; kräver stabil nyckel
         const datumStr = befintlig?.uppdaterad_at ? new Date(befintlig.uppdaterad_at).toLocaleDateString('sv-SE') : '';
+        const media = nyckel ? (ytaMedia[nyckel] || []) : [];   // ljud + foto för ytan, i skapelseordning
+        const harMedia = media.length > 0;
+        const isRecYta = isRecordingAudio && recordingYtaNyckel === nyckel;
         return (
           <div
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
@@ -14594,24 +14731,51 @@ export default function PlannerPage() {
                 {traktKortVida && (() => {
                   const vA = tractAnalysis[traktKortVida.synthId];
                   const vT = tmaResults[traktKortVida.synthId];
-                  const restr = vA?.status === 'done' ? vA.hits : [];
                   const vagar = vT?.status === 'done' ? vT.roads : [];
+                  // De SJU delkontrollerna i tract-analysis (samma ordning som API:t kör dem). felPrefix
+                  // = check-namnet API:t sätter framför felmeddelandet → en kontroll som FELADE visar
+                  // "Kunde inte kontrollera", ALDRIG "Ingen träff" (0 får bara betyda 0, aldrig ett tyst fel).
+                  const KONTROLLER: { type: string; label: string; felPrefix: string }[] = [
+                    { type: 'vattenskydd', label: 'Vatten', felPrefix: 'Vattenskyddsområde' },
+                    { type: 'naturreservat', label: 'Reservat', felPrefix: 'Naturreservat' },
+                    { type: 'natura2000', label: 'Natura 2000', felPrefix: 'Natura 2000' },
+                    { type: 'fornlamning', label: 'Fornlämning', felPrefix: 'Fornlämningar' },
+                    { type: 'nyckelbiotop', label: 'Nyckelbiotop', felPrefix: 'Nyckelbiotoper' },
+                    { type: 'biotopskydd', label: 'Biotopskydd', felPrefix: 'Biotopskydd' },
+                    { type: 'skogochhistoria', label: 'Skog & historia', felPrefix: 'Skog och Historia' },
+                  ];
                   return (
                     <div style={{ marginBottom: '18px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                      <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.35)', marginBottom: '8px' }}>Traktanalys</div>
+                      <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.35)', marginBottom: '8px' }}>Traktanalys — 7 kontroller</div>
                       {(!vA || vA.status === 'loading') ? (
                         <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)' }}>Analyserar…</div>
                       ) : vA.status === 'error' ? (
                         <div style={{ fontSize: '14px', color: '#ff9f0a' }}>Kunde inte köra analysen — försök igen.</div>
-                      ) : restr.length === 0 ? (
-                        <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)' }}>Inga kända restriktioner.{vA.errors && vA.errors.length ? ' (vissa källor svarade inte)' : ''}</div>
                       ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {restr.map((h, i) => (
-                            <div key={i} style={{ fontSize: '14px', color: '#fff', lineHeight: 1.4 }}>
-                              <span style={{ color: '#ff453a', fontWeight: 700 }}>●</span> {h.name}{h.details ? <span style={{ color: 'rgba(255,255,255,0.5)' }}> · {h.details}</span> : null}
-                            </div>
-                          ))}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                          {KONTROLLER.map((k) => {
+                            const felad = (vA.errors || []).some(e => e.startsWith(k.felPrefix));
+                            const traffar = vA.hits.filter(h => h.type === k.type);
+                            const lage = felad ? 'osaker' : traffar.length > 0 ? 'traff' : 'ingen';
+                            const sym = lage === 'traff' ? '●' : lage === 'osaker' ? '!' : '–';
+                            const symFarg = lage === 'traff' ? '#ff453a' : lage === 'osaker' ? '#ff9f0a' : 'rgba(255,255,255,0.3)';
+                            const statusText = lage === 'traff' ? `${traffar.length} träff${traffar.length > 1 ? 'ar' : ''}` : lage === 'osaker' ? 'Kunde inte kontrollera' : 'Ingen träff';
+                            const statusFarg = lage === 'traff' ? '#ff453a' : lage === 'osaker' ? '#ff9f0a' : 'rgba(255,255,255,0.4)';
+                            return (
+                              <div key={k.type} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                                  <span style={{ color: symFarg, fontWeight: 700, width: '12px', textAlign: 'center', flexShrink: 0 }}>{sym}</span>
+                                  <span style={{ color: '#fff', flex: 1 }}>{k.label}</span>
+                                  <span style={{ color: statusFarg, fontSize: '13px', fontWeight: lage === 'traff' ? 600 : 400 }}>{statusText}</span>
+                                </div>
+                                {lage === 'traff' && traffar.map((h, i) => (
+                                  <div key={i} style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', lineHeight: 1.4, paddingLeft: '20px' }}>
+                                    {h.name}{h.details ? <span style={{ color: 'rgba(255,255,255,0.4)' }}> · {h.details}</span> : null}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                       {vagar.length > 0 && (
@@ -14678,10 +14842,11 @@ export default function PlannerPage() {
                     </div>
                   );
                 })()}
-                {/* Kompersmåla Skog — planerarens anteckning (förare läser, admin skriver) */}
-                {nyckel && (harAnteckning || kanSkriva) && (
+                {/* Kompersmåla Skog — planerarens anteckning: text + ljud + foto (förare ser/spelar upp, admin skapar) */}
+                {nyckel && (harAnteckning || kanSkriva || harMedia) && (
                   <div style={{ marginBottom: '18px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.35)', marginBottom: '8px' }}>Kompersmåla Skog</div>
+                    {/* TEXT */}
                     {anteckningSkrivlage ? (
                       <>
                         <textarea
@@ -14714,15 +14879,49 @@ export default function PlannerPage() {
                           </button>
                         )}
                       </>
-                    ) : (
+                    ) : kanSkriva ? (
                       <button onClick={() => { setAnteckningUtkast(''); setAnteckningSkrivlage(true); setAnteckningFel(null); }}
                         style={{ padding: '10px 16px', borderRadius: '12px', border: '1px dashed rgba(255,255,255,0.2)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                         + Lägg till anteckning
                       </button>
+                    ) : null}
+
+                    {/* LJUD + FOTO — samma flöde som markörernas media. Visas i ordning; admin kan ta bort. */}
+                    {(harMedia || kanSkriva) && (
+                      <div style={{ marginTop: (harAnteckning || kanSkriva) ? '14px' : 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {media.map((mm) => (
+                          <div key={mm.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {mm.typ === 'audio' ? (
+                              <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
+                            ) : (
+                              <img src={mm.url} alt="Foto" onClick={() => setFullscreenPhoto(mm.url)}
+                                style={{ flex: 1, maxHeight: '180px', width: '100%', objectFit: 'cover', borderRadius: '12px', cursor: 'pointer', display: 'block' }} />
+                            )}
+                            {kanSkriva && (
+                              <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
+                                style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                            )}
+                          </div>
+                        ))}
+                        {ytaMediaFel && (<div style={{ fontSize: '13px', color: '#ff453a' }}>{ytaMediaFel}</div>)}
+                        {kanSkriva && (
+                          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                            <button disabled={ytaMediaSparar} onClick={() => toggleYtaAudioRecording(nyckel)}
+                              style={{ padding: '9px 14px', borderRadius: '10px', border: isRecYta ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(255,255,255,0.15)', background: isRecYta ? 'rgba(239,68,68,0.18)' : 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '7px', animation: isRecYta ? 'pulse 1s infinite' : 'none' }}>
+                              {isRecYta ? <>⏹ <span style={{ color: '#ff453a', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span></> : <>🎤 Spela in</>}
+                            </button>
+                            <button disabled={ytaMediaSparar || isRecYta} onClick={() => { pendingFotoNyckelRef.current = nyckel; ytaFotoInputRef.current?.click(); }}
+                              style={{ padding: '9px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                              📷 Foto
+                            </button>
+                            {ytaMediaSparar && (<span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', alignSelf: 'center' }}>Laddar upp…</span>)}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
-                {traktInfo.rader.length === 0 && !harAnteckning && !kanSkriva && (
+                {traktInfo.rader.length === 0 && !harAnteckning && !kanSkriva && !harMedia && (
                   <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)', marginBottom: '18px' }}>Ingen beskrivning för den här {typNamn.toLowerCase()}en.</div>
                 )}
                 <button onClick={stangTraktKort}
@@ -21378,6 +21577,16 @@ export default function PlannerPage() {
         accept="image/*"
         capture="environment"
         onChange={handlePhotoCapture}
+        style={{ display: 'none' }}
+      />
+
+      {/* === DOLD FOTO-INPUT för yt-media (ytkortets foton) === */}
+      <input
+        ref={ytaFotoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleYtaFotoCapture}
         style={{ display: 'none' }}
       />
 
