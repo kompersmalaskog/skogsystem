@@ -31,6 +31,14 @@ export const FONT =
 /** Fasta siffrbredder — siffror som ändras får aldrig flytta text runt sig. */
 export const TNUM: CSSProperties = { fontVariantNumeric: "tabular-nums" };
 
+/** Talkolumner: monospace + tabulära siffror, så kolumner står rakt och
+ *  siffror inte hoppar i sidled mellan rader. Systemstack — ingen ny
+ *  webbfont. Används där tal staplas under varandra, inte i löptext. */
+export const TAL_FONT: CSSProperties = {
+  fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace',
+  fontVariantNumeric: "tabular-nums",
+};
+
 /** Tre vikter. 500 finns inte. */
 export const VIKT = { normal: 400, halvfet: 600, fet: 700 } as const;
 
