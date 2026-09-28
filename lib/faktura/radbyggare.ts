@@ -21,7 +21,8 @@
 //   'leverantor'  vidarefakturerad kostnad (manuell fällning). ENDA radtypen
 //                 som bär ett belopp — och den bär det för att beloppet
 //                 kommer från någon annans faktura. FLYTT hör INTE hit:
-//                 trailern är vår egen och priset ägs av Fortnox (artikel 3).
+//                 trailern är vår egen och priset ägs av Fortnox (artikel
+//                 5 under 3 mil, artikel 3 däröver).
 //
 // TIMPENGSARTIKLARNA 11/12 FRÅGAR ALDRIG FORTNOX. De har tomt pris där med
 // flit: priset ägs av maskin_timpris och maskinen identifieras av
@@ -140,8 +141,12 @@ export type Flyttrad = {
   datum: string;
   maskin: string;
   km: number | null;
-  /** maskin_flytt.tid_flytt_min — sjalva flyttens tid, utan tillkorning. */
-  tidFlyttMin: number | null;
+  /**
+   * fakturaunderlag_flytt.traillertimmar — INSKRIVNA av Martin.
+   * Lastbilens rundresa från LBC och tillbaka, inte maskinens förflyttning.
+   * maskin_flytt.tid_flytt_min mäter fel sak och används ALDRIG här.
+   */
+  traillertimmar: number | null;
 };
 
 /** En post Martin lagt in för hand: fällning, GROT-skotning, papp. */
@@ -187,12 +192,12 @@ export type VoUnderlag = {
 };
 
 /**
- * Under denna sträcka är flytten inte fakturerbar enligt maskin_flytt:
- * alla sexton genomförda flyttar har fakturerbar=true på exakt de sex som är
- * över 30 km. Korta flyttar når därför aldrig fakturaunderlag_flytt.
- * Avtalet har ett fast pris för dem, men OM de ska faktureras är obesvarat.
+ * Gränsen mellan de två flyttradtyperna. Till och med denna sträcka är
+ * flytten ett fast belopp per maskin (artikel 5); däröver betalas den per
+ * timme (artikel 3). Stämmer mot maskin_flytt: fakturerbar är sann på exakt
+ * de sex flyttar som är över 30 km och falsk på de elva under.
  */
-export const FLYTT_EGEN_MAX_KM = 30;
+export const FLYTT_TIMDEBITERING_KM = 30;
 
 const tvaDec = (n: number) => Math.round(n * 100) / 100;
 
@@ -353,62 +358,62 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
     });
   }
 
-  // ── 4. Flyttar: EGEN TRAILER, artikel 3, betald PER TIMME ─────────────
+  // ── 4. Flyttar: EGEN TRAILER, TVÅ RADTYPER EFTER STRÄCKA ─────────────
   //
-  // RÄTTAT 2026-09-28. Raden byggdes först som prisagare='leverantor' med
-  // status 'vantar_leverantorsfaktura', på premissen att långa flyttar körs
-  // av en inhyrd åkare. Den premissen höll inte: trailern är vår egen.
-  // Artikel 3 "Traillerflytt" ligger i Fortnox på 1 350 kr/tim, och 17 av 18
-  // historiska artikel-3-rader är just 1 350 (en enda, 2026-04-17, är 1 500).
+  //   under 3 mil  artikel 5 "Flytt av maskin"  1 500 kr PER MASKIN
+  //                Två maskiner blir 3 000 kr, alltså avtalets fasta belopp.
+  //   över 3 mil   artikel 3 "Traillerflytt"    timmar à 1 350
   //
-  // Priset ägs alltså av FORTNOX och hämtas live — inte av en leverantör.
+  // Båda ägs av FORTNOX — trailern är vår egen, inte en inhyrd åkare.
   // leverantor-radtypen finns kvar för manuell fällning, där priset varierar
   // med vem som lejs in.
   //
-  // ⚠️ TIMMARNA STÄMMER INTE MED HISTORIKEN, OCH DET ÄR INTE LÖST.
-  // Antalet här är tid_flytt_min/60. Men varenda fakturerad artikel-3-rad är
-  // en HEL HALVTIMME och aldrig under 2 h (2; 2,5; 3; 3,5; 4; 7), medan
-  // tid_flytt_min på de sexton genomförda flyttarna ligger på 0,55–1,63 h.
-  // tid_hem_min är NULL på varenda rad — hemresan bor på flyttdagen, inte på
-  // flytten. Talen mäter alltså inte samma sak. Anroparen lägger en not på
-  // underlaget; ingen avrundning gissas här.
+  // fakturerbar-flaggan i maskin_flytt betyder alltså inte "ska faktureras"
+  // utan "ska faktureras PÅ TID". Korta flyttar faktureras också, som
+  // artikel 5.
+  //
+  // ⚠️ TIMMARNA SKRIVS IN, DE HÄRLEDS INTE.
+  // Fakturan avser lastbilens rundresa från LBC och tillbaka — därför är
+  // ingen historisk rad under två timmar. maskin_flytt.tid_flytt_min mäter
+  // MASKINENS förflyttning (33–98 min) och är fel källa. Var LBC ligger och
+  // hur en dag med flera flyttar delas upp är inte bestämt, så en härledning
+  // vore en gissning. Anroparen visar lastbilens dygnssummor bredvid fältet.
   for (const f of u.flyttar) {
     const km = Number(f.km) || 0;
-    const timmar = f.tidFlyttMin == null ? null : Number(f.tidFlyttMin) / 60;
 
-    // Korta flyttar: REGELN ÄR OBESVARAD. Avtalet har ett fast pris, men
-    // alla flyttar under 30 km har fakturerbar=false och når aldrig hit.
-    // Dyker en ändå upp ska underlaget STOPPA, inte gissa mellan fast pris
-    // och timpris.
-    if (km > 0 && km <= FLYTT_EGEN_MAX_KM) {
+    if (km > 0 && km <= FLYTT_TIMDEBITERING_KM) {
       lagg({
-        artikelnr: null,
-        benamning: `Flytt ${f.maskin} ${f.datum} (${km} km) — regel för korta flyttar obesvarad`,
-        antal: 1, enhet: 'st', prisagare: 'app', a_pris: null,
-        harledning: [{ etikett: `${km} km`, belopp: 0 }],
+        artikelnr: '5',
+        benamning: `Flytt av maskin ${f.maskin}`,
+        antal: 1, enhet: 'st',
+        prisagare: 'fortnox', a_pris: null,
+        harledning: [{ etikett: `${km} km ${f.datum}`, belopp: 0 }],
         kalla: 'flytt', kalla_id: f.id,
-        status: 'fel', fel_kod: 'pris_saknas', kostnadsstalle: null,
+        status: 'klar', fel_kod: null,
+        // Fakturorna bokför flytt på TRA (tidigare M8). Det är ingen maskin
+        // och finns inte i maskin_kostnadsstalle — lämnas tomt och ytas.
+        kostnadsstalle: null,
       });
       continue;
     }
 
-    const utanTid = timmar == null || timmar <= 0;
+    const timmar = f.traillertimmar == null ? null : Number(f.traillertimmar);
+    const saknasTid = timmar == null || timmar <= 0;
     lagg({
       artikelnr: '3',
       benamning: `Traillerflytt ${f.maskin}, ${km} km`,
-      antal: utanTid ? null : tvaDec(timmar!),
+      antal: saknasTid ? null : tvaDec(timmar!),
       enhet: 'h',
-      prisagare: 'fortnox',
-      a_pris: null,                      // hämtas live, lagras aldrig
-      harledning: [
-        { etikett: `${km} km`, belopp: 0 },
-        { etikett: utanTid ? 'Tid saknas' : `${f.tidFlyttMin} minuter ${f.datum}`, belopp: 0 },
-      ],
+      prisagare: 'fortnox', a_pris: null,
+      harledning: [{
+        etikett: saknasTid
+          ? `${km} km ${f.datum} — timmarna är inte ifyllda`
+          : `${km} km ${f.datum}`,
+        belopp: 0,
+      }],
       kalla: 'traillerflytt', kalla_id: f.id,
-      status: utanTid ? 'fel' : 'klar',
-      fel_kod: utanTid ? 'pris_saknas' : null,
-      // Fakturorna bokför flytt på TRA (tidigare M8). Det är inte en maskin
-      // och finns inte i maskin_kostnadsstalle — lämnas tomt och ytas.
+      status: saknasTid ? 'fel' : 'klar',
+      fel_kod: saknasTid ? 'pris_saknas' : null,
       kostnadsstalle: null,
     });
   }

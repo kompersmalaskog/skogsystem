@@ -135,49 +135,62 @@ describe('timpeng frågar aldrig Fortnox om priset', () => {
   })
 })
 
-describe('flytten: egen trailer, artikel 3, betald per timme', () => {
+describe('flytten: egen trailer, två radtyper efter sträcka', () => {
 
-  const flytt = (km: number, tidFlyttMin: number | null) => byggRader({
+  const flytt = (km: number, traillertimmar: number | null) => byggRader({
     ...brokamala(),
-    flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km, tidFlyttMin }],
+    flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km, traillertimmar }],
   }).find(r => r.kalla === 'flytt' || r.kalla === 'traillerflytt')!
 
-  it('Brokamålas flytt: 77 min blir 1,28 h på artikel 3, priset ägs av Fortnox', () => {
-    // Trailern är VÅR EGEN. Raden byggdes först som en leverantörsrad på
-    // premissen att långa flyttar körs av inhyrd åkare — den premissen höll
-    // inte. Artikel 3 ligger i Fortnox på 1 350 kr/tim.
-    const r = flytt(44, 77)
+  it('under 3 mil: artikel 5, ETT fast belopp per maskin', () => {
+    // Två maskiner ger två rader à 1 500 = 3 000, alltså avtalets fasta
+    // belopp. Därför antal 1 och inte "en halv flytt".
+    const r = flytt(18, null)
+    expect(r.artikelnr).toBe('5')
+    expect(r.prisagare).toBe('fortnox')
+    expect(r.antal).toBe(1)
+    expect(r.enhet).toBe('st')
+    expect(r.status).toBe('klar')     // timmarna spelar ingen roll här
+  })
+
+  it('över 3 mil: artikel 3 med de INSKRIVNA timmarna', () => {
+    const r = flytt(44, 3.5)
     expect(r.artikelnr).toBe('3')
     expect(r.prisagare).toBe('fortnox')
+    expect(r.antal).toBe(3.5)
     expect(r.enhet).toBe('h')
-    expect(r.antal).toBe(1.28)
-    expect(r.a_pris).toBeNull()        // hämtas live, lagras aldrig
+    expect(r.a_pris).toBeNull()       // hämtas live, lagras aldrig
     expect(r.status).toBe('klar')
   })
 
-  it('utan tid går raden inte att prissätta — artikel 3 betalas per timme', () => {
+  it('timmarna kommer ALDRIG ur maskinens egen flyttid', () => {
+    // tid_flytt_min mäter maskinens förflyttning (33–98 min). Fakturan avser
+    // lastbilens rundresa från LBC, och ingen historisk rad är under två
+    // timmar. Byggaren tar bara emot det inskrivna talet — finns det inte
+    // går raden inte att prissätta.
     const r = flytt(44, null)
     expect(r.status).toBe('fel')
     expect(r.fel_kod).toBe('pris_saknas')
     expect(r.antal).toBeNull()
+    expect(r.harledning![0].etikett).toContain('inte ifyllda')
   })
 
-  it('kort flytt STOPPAR underlaget i stället för att gissa regeln', () => {
-    // Alla flyttar under 30 km har fakturerbar=false och når aldrig
-    // fakturaunderlag_flytt. Avtalet har ett fast pris, men OM de ska
-    // faktureras är obesvarat. Dyker en upp ska den synas, inte prissättas.
+  it('en lång flytt utan timmar blockerar underlaget', () => {
     const u = {
       ...brokamala(),
-      flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km: 18, tidFlyttMin: 57 }],
+      flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km: 44, traillertimmar: null }],
     }
-    const r = byggRader(u).find(x => x.kalla === 'flytt')!
-    expect(r.status).toBe('fel')
-    expect(r.benamning).toContain('obesvarad')
     expect(garAttSkicka(u, byggRader(u)).ok).toBe(false)
   })
 
   it('flyttraden lämnar kostnadsstället tomt — TRA är ingen maskin', () => {
-    expect(flytt(44, 77).kostnadsstalle).toBeNull()
+    expect(flytt(44, 3.5).kostnadsstalle).toBeNull()
+    expect(flytt(18, null).kostnadsstalle).toBeNull()
+  })
+
+  it('gränsen går vid 30 km', () => {
+    expect(flytt(30, null).artikelnr).toBe('5')
+    expect(flytt(31, 2).artikelnr).toBe('3')
   })
 })
 
@@ -186,7 +199,7 @@ describe('spärrar som ska synas i stället för att gissa', () => {
   /** Alla radtyper på en gång: ackord, lång flytt, manuell post. */
   const alltPa = (): VoUnderlag => ({
     ...brokamala(),
-    flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km: 44, tidFlyttMin: 77 }],
+    flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km: 44, traillertimmar: 3.5 }],
     manuellaPoster: [
       { etikett: 'Fällning', antal: 1.5, enhet: 'h' as const, a_pris: 490, kalla: 'manuell_fallning' as const },
       { etikett: 'Skotning Grot', antal: 1, enhet: 'st' as const, a_pris: null, kalla: 'manuell' as const },

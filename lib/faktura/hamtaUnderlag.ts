@@ -221,51 +221,63 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     noter.push({ niva: 'varning', text: `VO:t har flera kontraktsnummer: ${Array.from(new Set(kontrakt)).join(', ')}` });
   }
 
-  // ── Flyttar: uuid mot objekt.id, ALDRIG mot dim_objekt.objekt_id ───────
-  // fakturaunderlag_flytt pekar på objekt.id (uuid). objekt.dim_objekt_id är
-  // NULL på varenda rad, så enda vägen till dim_objekt är vo_nummer.
-  const objektUuids = (objektRes.data || []).map((o: any) => o.id);
+  // ── Flyttar: bärs av trakten man LÄMNAR ───────────────────────────────
+  //
+  // Alla arton historiska artikel-3-rader säger "från": "Traillerflytt
+  // Gigant från Åkarp", "King från Tjuvön", "Wisent från Brokamåla".
+  // Flytten hör alltså till avreseobjektet, inte destinationen.
+  //
+  // ⚠️ INGEN FALLBACK PÅ till_objekt_id. Tre av sex aktiva flyttar saknar
+  // fran_objekt_id. Att då ta "till" hade lagt flytten på FEL trakt — och
+  // den hade sett rätt ut. De raderna ytas i stället av översikten, som en
+  // egen post utan trakt.
+  //
+  // Kopplingen går via objekt.id (uuid som TEXT i kolumnen), aldrig mot
+  // dim_objekt.objekt_id: objekt.dim_objekt_id är NULL på varenda rad.
+  const objektUuids = (objektRes.data || []).map((o: any) => String(o.id));
   let flyttar: VoUnderlag['flyttar'] = [];
   if (objektUuids.length) {
     const { data: fl, error: flFel } = await sb.from('fakturaunderlag_flytt')
-      .select('id, datum, maskin, km, status, fakturerad_tid, till_objekt_id, flytt_id')
-      .in('till_objekt_id', objektUuids).eq('status', 'aktiv')
+      .select('id, datum, maskin, km, traillertimmar, status, fakturerad_tid, fran_objekt_id')
+      .in('fran_objekt_id', objektUuids).eq('status', 'aktiv')
       .is('fakturerad_tid', null).order('datum');
     if (flFel) throw new Error('Kunde inte läsa flyttar: ' + flFel.message);
-
-    // Tiden bor på maskin_flytt, inte på underlagsraden. Artikel 3 betalas
-    // PER TIMME, så utan den kan raden inte prissättas.
-    const flyttIds = (fl || []).map((f: any) => f.flytt_id).filter(Boolean);
-    const tidPerFlytt = new Map<string, number | null>();
-    if (flyttIds.length) {
-      const { data: mf, error: mfFel } = await sb.from('maskin_flytt')
-        .select('id, tid_flytt_min').in('id', flyttIds);
-      if (mfFel) throw new Error('Kunde inte läsa maskin_flytt: ' + mfFel.message);
-      for (const m of mf || []) tidPerFlytt.set(m.id, m.tid_flytt_min == null ? null : Number(m.tid_flytt_min));
-    }
 
     flyttar = (fl || []).map((f: any) => ({
       id: f.id, datum: f.datum, maskin: f.maskin,
       km: f.km == null ? null : Number(f.km),
-      tidFlyttMin: f.flytt_id ? (tidPerFlytt.get(f.flytt_id) ?? null) : null,
+      traillertimmar: f.traillertimmar == null ? null : Number(f.traillertimmar),
     }));
+
+    // Lastbilens dygnssummor som STÖD för den inskrivna tiden — aldrig som
+    // källa. Fakturan avser rundresan från LBC, och den syns här i stort.
+    const dagar = Array.from(new Set(flyttar.map(f => f.datum))).filter(Boolean);
+    for (const dag of dagar) {
+      const { data: lb } = await sb.from('lastbil_logg')
+        .select('tidpunkt, odometer_m, hastighet')
+        .gte('tidpunkt', `${dag}T00:00:00`).lte('tidpunkt', `${dag}T23:59:59`)
+        .order('tidpunkt');
+      const p = lb || [];
+      if (!p.length) continue;
+      const tim = (new Date(p[p.length - 1].tidpunkt).getTime() - new Date(p[0].tidpunkt).getTime()) / 3600000;
+      const od = p.map((x: any) => Number(x.odometer_m)).filter((n: number) => Number.isFinite(n));
+      const km = od.length ? Math.round((Math.max(...od) - Math.min(...od)) / 1000) : null;
+      const antalFlyttar = flyttar.filter(f => f.datum === dag).length;
+      noter.push({
+        niva: 'info',
+        text: `Lastbilen rullade ${tim.toFixed(1).replace('.', ',')} tim`
+          + (km != null ? ` och ${km} km` : '') + ` den ${dag}`
+          + (antalFlyttar > 1 ? `, ${antalFlyttar} flyttar på samma runda.` : '.')
+          + ' Stöd för den inskrivna traillertiden, inte källa.',
+      });
+    }
+
     for (const f of flyttar) {
-      if (avrDatum && f.datum > avrDatum) {
-        noter.push({ niva: 'varning', text: `Flytten ${f.datum} (${f.maskin}) är EFTER avräkningsdagen ${avrDatum}.` });
-      }
       if (f.km == null) noter.push({ niva: 'varning', text: `Flytten ${f.datum} saknar km — radtypen kan inte avgöras.` });
-      if (f.tidFlyttMin == null) {
-        noter.push({ niva: 'varning', text: `Flytten ${f.datum} saknar tid — artikel 3 betalas per timme.` });
-      } else if (f.tidFlyttMin < 120) {
-        // Varenda fakturerad artikel-3-rad är en hel halvtimme och aldrig
-        // under 2 h. tid_flytt_min ligger på 33–98 min, och hemresan (som
-        // bor på flyttdagen) ingår inte. Talen mäter inte samma sak — visa
-        // det i stället för att avrunda åt något håll.
+      else if (f.km > 30 && f.traillertimmar == null) {
         noter.push({
           niva: 'varning',
-          text: `Flytten ${f.datum} ger ${(f.tidFlyttMin / 60).toFixed(2).replace('.', ',')} tim ur tid_flytt_min. `
-            + 'Fakturerade traillertimmar har alltid varit hela halvtimmar och aldrig under 2 — '
-            + 'hemresan registreras på flyttdagen, inte på flytten.',
+          text: `Flytten ${f.datum} (${f.maskin}, ${f.km} km) faktureras på tid, och timmarna är inte ifyllda.`,
         });
       }
     }
