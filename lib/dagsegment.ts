@@ -87,4 +87,33 @@ export function valideraSegment(
   return { ok: true }
 }
 
+/**
+ * KROCK-VAKTEN: ett maskinpass får aldrig läggas ÖVER en extra_tid-period.
+ * Lönen adderar extra_tid ovanpå arbetad_min — får passet klockslag som
+ * täcker en period räknas den tiden TVÅ gånger, och båda talen ser rimliga
+ * ut var för sig. Perioder INOM ett pass ska vara segment (klassificeraPeriod
+ * → 'inne'), aldrig extra_tid; den här funktionen är samma regel sedd från
+ * passets håll. Returnerar första perioden som överlappar, annars null.
+ * Tomt klockslag = inget pass = ingen krock.
+ */
+export function passKrockarMedPerioder(
+  pass: { start: string | null | undefined; slut: string | null | undefined },
+  perioder: { start_tid: string | null; slut_tid: string | null }[],
+): { start_tid: string; slut_tid: string } | null {
+  if (!pass.start || !pass.slut) return null
+  const s = tMin(pass.start), e = tMin(pass.slut)
+  if (e <= s) return null
+  for (const p of perioder) {
+    if (!p.start_tid || !p.slut_tid) continue
+    if (s < tMin(p.slut_tid) && tMin(p.start_tid) < e) return { start_tid: p.start_tid, slut_tid: p.slut_tid }
+  }
+  return null
+}
+
+/** Feltexten för en krock — samma ord i Dag och Redigera. */
+export function passKrockText(k: { start_tid: string; slut_tid: string }): string {
+  return `Passets tider täcker en period du redan lagt in (${hhmm(k.start_tid)}–${hhmm(k.slut_tid)}). ` +
+    `Perioden är redan arbetstid — ta bort den eller ändra passets tider, annars räknas tiden två gånger.`
+}
+
 export const segHhmm = hhmm
