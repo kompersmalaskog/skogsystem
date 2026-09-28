@@ -770,6 +770,37 @@ export default function PlannerPage() {
     setTraktInfo(null); setTraktKortNyckel(null); setTraktKortVida(null);
     setAnteckningSkrivlage(false); setAnteckningFel(null); setTraktKortSvepY(0);
   };
+  // Öppna EGET OMRÅDE / traktgräns (boundary-markör) i SAMMA bottom sheet som Vida-bitarna — ett kort,
+  // inte två. Kortet visar traktanalys + TMA + Beräkna volym + anteckning (objekt_yta_anteckning, yta_nyckel
+  // 'omrade:<id>') PLUS markörens egna funktioner (redigera hörn/ändra nummer/radera) som rader längst ner.
+  // Analys/TMA cachas per String(id) (samma nyckel som markörens effekter fyller) → synthId = String(id).
+  const oppnaGranskort = (marker: any) => {
+    if (!marker || !marker.isLine || marker.lineType !== 'boundary') return;
+    const num = numreringRef.current;
+    const nr = num.visaGransNummer ? num.gransNr.get(String(marker.id)) : null;
+    const ringLatLon = (marker.path || []).map((p: any) => svgToLatLon(p.x, p.y));
+    // fromVidaTd-kopia → undertext "Traktdel <nr>" (ärver Vida-bitens ursprung); annars eget område.
+    let kalla = 'Kompersmåla Skog';
+    if (marker.fromVidaTd) {
+      const del = traktdelDelarRef.current.find((d: any) => d.partKey === String(marker.fromVidaTd));
+      const trdel = del?.props?.TRDEL_NR_K != null ? String(del.props.TRDEL_NR_K).trim() : '';
+      kalla = trdel ? `Traktdel ${trdel}` : 'Justerad traktgräns';
+    }
+    const kort: TraktKort = {
+      kategori: 'omrade', arealHa: null, rader: [],
+      rubrik: nr != null ? `Område ${nr}` : 'Traktgräns',   // titeln räknas live i kortet (följer numret vid ändring)
+      kalla, nr: '',
+    };
+    const nyckel = 'omrade:' + marker.id;
+    featureClickedRef.current = true;
+    setMarkerMenuOpen(null);
+    setTraktInfo(kort);
+    setTraktKortNyckel(nyckel);
+    setTraktKortVida({ key: String(marker.id), synthId: String(marker.id), ringLatLon, boundaryMarkerId: marker.id });
+    setAnteckningUtkast(anteckningarRef.current[nyckel]?.text || '');
+    setAnteckningSkrivlage(false);
+    setTraktKortSvepY(0);
+  };
   // "Justera gräns": kopiera Vida-traktdelens ring till en egen redigerbar traktgräns-markering
   // (planering_markeringar), tagga med fromVidaTd → Vida-biten döljs, och de vanliga effekterna kör
   // om TMA + traktanalys på den nya markören. Bara planerare.
@@ -782,7 +813,7 @@ export default function PlannerPage() {
     setMarkers((prev: any[]) => [...prev, nyGrans]);
     saveMarkerToDb(nyGrans);
     stangTraktKort();
-    setMarkerMenuOpen(nyGrans.id);   // öppna markörkortet för den nya, redigerbara gränsen
+    oppnaGranskort(nyGrans);   // öppna SAMMA yt-kort som Vida-bitarna för den nya, redigerbara gränsen
   };
   // Redigera en boundary-markörs (eget område / traktgräns) nummer. Sätter m.nummer (lagras) → serien
   // uppdateras och kartsiffran + kortets titel följer med. Redigerbart utan kollision (serien hoppar upptagna).
@@ -1721,7 +1752,7 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-raa-point', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': '#b45309', 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 }, layout: { visibility: 'none' } });
 
     // Traktdelsnummer (TRDEL_NR_K) i mitten av varje traktdel — läggs SIST så det ligger överst.
-    map.addLayer({ id: 'trakt-gr-label', type: 'symbol', source: 'traktdel-parts-source', layout: { 'text-field': ['to-string', ['coalesce', ['get', '_bitNr'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': false, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
+    // (bit-numret ritas via yta-nr-source — en punkt per del, aldrig dubblerat vid inzoomning)
 
     // === Pulsring för vald hög ===
     map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1772,13 +1803,20 @@ export default function PlannerPage() {
       layout: { 'line-cap': 'round' },
     });
 
-    // === Egna områden / traktgränser = boundary-markörer: yta-fyllning + nummer ===
+    // === Egna områden / traktgränser = boundary-markörer: osynlig yta-fyllning (tappyta) ===
     // Snitsel-KONTUREN ritas av line-boundary-* (från lines-source). HÄR ligger en nästan osynlig fyllning
-    // (som Vida-bitarnas trakt-gr-fill) så HELA ytan är tappbar (öppnar markörkortet), inte bara linjen —
-    // plus siffran i mitten (symbol på polygon → centroid). Tom nr = ingen siffra (ensam-yta-regeln).
+    // (som Vida-bitarnas trakt-gr-fill) så HELA ytan är tappbar (öppnar traktInfo-kortet via oppnaGranskort),
+    // inte bara linjen. Siffran ligger på yta-nr-source (punktkälla, centroid) — aldrig på polygonen.
     map.addSource('grans-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    map.addLayer({ id: 'grans-fill', type: 'fill', source: 'grans-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05 } });
-    map.addLayer({ id: 'grans-label', type: 'symbol', source: 'grans-source', layout: { 'text-field': ['to-string', ['coalesce', ['get', 'nr'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
+    // Bara den osynliga tappytan (fyllningen). fill-outline-color transparent → INGEN tunn orange kant;
+    // snitseln ritas enbart av line-boundary-*. Siffran ligger på egen punktkälla (yta-nr-source), ej här.
+    map.addLayer({ id: 'grans-fill', type: 'fill', source: 'grans-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05, 'fill-outline-color': 'rgba(0,0,0,0)' } });
+
+    // === Yta-nummer (bitar + egna gränser) på EN punktkälla (centroid) — en siffra per yta, ingen dubblering ===
+    // Symbol på polygon dubblerar etiketten när polygonen spänner flera tiles (två 8:or vid inzoomning).
+    // Därför: en Point per yta vid centroiden → exakt en etikett oavsett zoom. Bit + gräns i samma källa.
+    map.addSource('yta-nr-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'yta-nr-label', type: 'symbol', source: 'yta-nr-source', layout: { 'text-field': ['to-string', ['coalesce', ['get', 'nr'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
 
     // Ensure base map layer visibility matches current mapType.
     // Tidigare hårdkodade satellite=visible/terrain=none här — det överskred
@@ -2300,8 +2338,10 @@ export default function PlannerPage() {
   // för den öppna ytan (null = ytan saknar stabil nyckel → ingen anteckningssektion). anteckningar cachas
   // per objekt (yta_nyckel → text/namn/tid). Skrivläge bara för admin (planerare).
   const [traktKortNyckel, setTraktKortNyckel] = useState<string | null>(null);
-  // Öppet kort visar en Vida-traktdel → bär dess nyckel + ring (lat/lon) för analys-visning, volym och "Justera gräns".
-  const [traktKortVida, setTraktKortVida] = useState<{ key: string; synthId: string; ringLatLon: { lat: number; lon: number }[] } | null>(null);
+  // Öppet kort visar en Vida-traktdel ELLER en egen boundary-markör (eget område/traktgräns) → bär dess nyckel
+  // + ring (lat/lon) för analys-visning, volym och "Justera gräns". boundaryMarkerId satt = egen boundary-markör
+  // (då visas markörens funktioner — redigera hörn/ändra nummer/radera — som rader i SAMMA kort; ett kort, inte två).
+  const [traktKortVida, setTraktKortVida] = useState<{ key: string; synthId: string; ringLatLon: { lat: number; lon: number }[]; boundaryMarkerId?: string | number } | null>(null);
   const [anteckningar, setAnteckningar] = useState<Record<string, { text: string; namn: string | null; uppdaterad_at: string | null }>>({});
   const anteckningarRef = useRef(anteckningar); // spegel för stale-closure-fri läsning i map-klickhanterare
   useEffect(() => { anteckningarRef.current = anteckningar; }, [anteckningar]);
@@ -3961,7 +4001,6 @@ export default function PlannerPage() {
     set('trakt-gr-casing', true);
     set('trakt-gr-line', true);
     set('trakt-gr-stripe', true);
-    set('trakt-gr-label', true);
     set('trakt-hansyn-fill', !!overlays.hansyn);
     set('trakt-hansyn-line', !!overlays.hansyn);
     set('trakt-hansyn-label', !!overlays.hansyn);
@@ -4015,8 +4054,7 @@ export default function PlannerPage() {
       type: 'FeatureCollection',
       features: traktdelDelar.map(d => ({
         type: 'Feature',
-        // _bitNr = delens nummer i objektets serie (tom sträng när en ensam bit utan Vida-nr → ingen siffra).
-        properties: { ...d.props, _lager: 'L_TRAKTDEL', _partKey: d.partKey, _bitNr: objektNumrering.visaBitNummer ? String(objektNumrering.bitNr.get(d.partKey) ?? '') : '' },
+        properties: { ...d.props, _lager: 'L_TRAKTDEL', _partKey: d.partKey },
         geometry: { type: 'Polygon', coordinates: [d.ringLngLat] },
       })),
     });
@@ -4033,7 +4071,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const hidden = Array.from(justeradeTraktdelar);
     const filter = ['!', ['in', ['get', '_partKey'], ['literal', hidden]]] as any;
-    for (const id of ['trakt-gr-fill', 'trakt-gr-casing', 'trakt-gr-line', 'trakt-gr-stripe', 'trakt-gr-label']) {
+    for (const id of ['trakt-gr-fill', 'trakt-gr-casing', 'trakt-gr-line', 'trakt-gr-stripe']) {
       if (map.getLayer(id)) { try { map.setFilter(id, filter); } catch { /* */ } }
     }
   }, [justeradeTraktdelar, mapLibreReady]);
@@ -5253,7 +5291,7 @@ export default function PlannerPage() {
       const m = markers.find((mm: any) => String(mm.id) === String(fid));
       if (!m) return;
       featureClickedRef.current = true;
-      setMarkerMenuOpen(m.id === markerMenuOpen ? null : m.id);
+      oppnaGranskort(m);   // egen boundary-markör → SAMMA yt-kort som Vida-bitarna (ett kort, inte två)
     };
     const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
     const onLeave = () => { map.getCanvas().style.cursor = ''; };
@@ -5592,13 +5630,18 @@ export default function PlannerPage() {
         // typ. Då hänger allt som redan finns för traktgräns på den: snitsel-rendering, TMA + traktanalys,
         // volym, redigera hörn (Förläng), radera. Nummer LAGRAS (kodbevis: DB-rad = isLine boundary + nummer).
         const nummer = numreringRef.current.nastaGransNr;
-        const path = coords.map(([lng, lat]) => latLonToSvg(lat, lng));
+        // Slut ringen (polygonRitning lämnar den öppen) → snitsel-linjen ritar även sista kanten (tillbaka
+        // till första hörnet), annars saknas en sida i röd-gula snitseln. Fyllningen sluts redan i grans-source.
+        const ringCoords = coords.slice();
+        const f0 = ringCoords[0], l0 = ringCoords[ringCoords.length - 1];
+        if (f0 && l0 && (f0[0] !== l0[0] || f0[1] !== l0[1])) ringCoords.push([f0[0], f0[1]]);
+        const path = ringCoords.map(([lng, lat]) => latLonToSvg(lat, lng));
         const nyGrans: any = { id: Date.now(), isLine: true, lineType: 'boundary', nummer, path };
         saveToHistory([...markers]);
         setMarkers((prev: any[]) => [...prev, nyGrans]);
         saveMarkerToDb(nyGrans);
         setOmradeRitning(false);
-        setMarkerMenuOpen(nyGrans.id);   // öppna det vanliga markörkortet (analys/volym/redigera/radera)
+        oppnaGranskort(nyGrans);   // öppna SAMMA yt-kort som Vida-bitarna (analys/volym/anteckning/redigera/radera)
       },
     });
     omradeRitningHandleRef.current = handle;
@@ -5821,6 +5864,8 @@ export default function PlannerPage() {
           setMatVagId(prev => prev === String(marker.id) ? null : String(marker.id));
           return;
         }
+        // Egna områden/traktgränser (boundary) → SAMMA yt-kort som Vida-bitarna (ett kort, inte två).
+        if (marker.isLine && marker.lineType === 'boundary') { oppnaGranskort(marker); return; }
         setMarkerMenuOpen(marker.id === markerMenuOpen ? null : marker.id);
       }
     };
@@ -7288,9 +7333,8 @@ export default function PlannerPage() {
     } catch (e) { /* source not ready */ }
   }, [markers, mapLibreReady, mapCenter, visibleZones, objektSaknarPosition]);
 
-  // 2a) Egna områden / traktgränser → grans-source (polygon per boundary-markör). Fyllningen gör HELA ytan
-  // tappbar (grans-fill-klick → markörkort); siffran placeras i centroiden (symbol på polygon). Numret ur den
-  // levande numreringen; tomt när ensam-yta-regeln säger ingen siffra (visaGransNummer=false).
+  // 2a) Egna områden / traktgränser → grans-source (polygon per boundary-markör = osynlig TAPPYTA). Snitseln
+  // ritas av line-boundary-*; siffran ligger på yta-nr-source (nedan). Här bara ytan så hela området är tappbart.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -7305,12 +7349,47 @@ export default function PlannerPage() {
           const coords = m.path.map((p: any) => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat]; });
           const f = coords[0], l = coords[coords.length - 1];
           if (f[0] !== l[0] || f[1] !== l[1]) coords.push(coords[0]);   // slut ringen
-          const nr = objektNumrering.visaGransNummer ? objektNumrering.gransNr.get(String(m.id)) : null;
-          features.push({ type: 'Feature', properties: { id: m.id, nr: nr != null ? String(nr) : '' }, geometry: { type: 'Polygon', coordinates: [coords] } });
+          features.push({ type: 'Feature', properties: { id: m.id }, geometry: { type: 'Polygon', coordinates: [coords] } });
         });
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, objektSaknarPosition, objektNumrering]);
+  }, [markers, mapLibreReady, mapCenter, objektSaknarPosition]);
+
+  // 2a-nr) EN siffra per yta på yta-nr-source: bit-centroider (traktdel-delar, ej justerade) + boundary-centroider.
+  // Punktkälla → aldrig dubblerad vid inzoomning. Tom siffra = ensam-yta-regeln (visa*Nummer=false) → hoppas över.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      const src = map.getSource('yta-nr-source') as any;
+      if (!src) return;
+      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; }
+      const features: any[] = [];
+      // Bitar (Vidas L_TRAKTDEL-delar) — hoppa justerade (deras nummer bärs av boundary-kopian).
+      if (objektNumrering.visaBitNummer) {
+        for (const d of traktdelDelar) {
+          if (justeradeTraktdelar.has(d.partKey)) continue;
+          const nr = objektNumrering.bitNr.get(d.partKey);
+          if (nr == null) continue;
+          const c = ringCentroid(d.ringLngLat);
+          features.push({ type: 'Feature', properties: { nr: String(nr) }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } });
+        }
+      }
+      // Egna gränser / traktgränser (boundary-markörer).
+      if (objektNumrering.visaGransNummer) {
+        for (const m of markers as any[]) {
+          if (!(m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1)) continue;
+          const nr = objektNumrering.gransNr.get(String(m.id));
+          if (nr == null) continue;
+          let sx = 0, sy = 0;
+          for (const p of m.path) { sx += p.x; sy += p.y; }
+          const c = svgToLatLon(sx / m.path.length, sy / m.path.length);
+          features.push({ type: 'Feature', properties: { nr: String(nr) }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
+        }
+      }
+      src.setData({ type: 'FeatureCollection', features });
+    } catch (e) { /* source not ready */ }
+  }, [markers, traktdelDelar, justeradeTraktdelar, mapLibreReady, mapCenter, objektSaknarPosition, objektNumrering]);
 
   // 2b) Synka markeringar → MapLibre markers-source (GPU-renderad symbol layer)
   // Inkluderar opacity per feature baserat på proximity
@@ -7792,7 +7871,7 @@ export default function PlannerPage() {
       // 'trakt-' = Vida/SKS/RAÄ-referensgeometrin. Traktdelar alltid tända; hänsyn tänds i båda
       // körvyerna; nyckelbiotoper + lämningar tänds i körvyn. Synligheten per lager styrs av toggle-
       // effekten (som kör i planeringsläget); whitelisten släpper bara igenom dem så de inte döljs här.
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skordarstrak-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-'];
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skordarstrak-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-'];
       for (const l of allLayers) {
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
@@ -14447,8 +14526,16 @@ export default function PlannerPage() {
         const typNamn = TYP_NAMN[traktInfo.kategori] || 'Trakt-objekt';
         // Numrerade ytor (hänsyn/traktdel/område): rubriken bär redan typ+nummer → undertexten = bara källan
         // (t.ex. "Vida", "Traktdel 0526", "Kompersmåla Skog"). Övriga: "<Typ> · <källa>" som förr.
-        const arNumrerad = traktInfo.kategori === 'hansyn' || traktInfo.kategori === 'traktdel';
+        const arNumrerad = traktInfo.kategori === 'hansyn' || traktInfo.kategori === 'traktdel' || traktInfo.kategori === 'omrade';
         const typKalla = arNumrerad ? (traktInfo.kalla || typNamn) : (traktInfo.kalla ? `${typNamn} · ${traktInfo.kalla}` : typNamn);
+        // Egen boundary-markör: titeln räknas LIVE ur numreringen → följer med när numret ändras och
+        // visar rätt siffra även direkt efter "Justera gräns" (kopian numreras vid nästa render). Ensam
+        // yta (visaGransNummer=false) → ingen siffra ("Traktgräns").
+        const boundaryId = traktKortVida?.boundaryMarkerId;
+        const rubrikVisad = boundaryId != null
+          ? ((objektNumrering.visaGransNummer && objektNumrering.gransNr.get(String(boundaryId)) != null)
+              ? `Område ${objektNumrering.gransNr.get(String(boundaryId))}` : 'Traktgräns')
+          : traktInfo.rubrik;
         const kontext: string[] = [];
         if (traktInfo.nr) kontext.push(`Nr ${traktInfo.nr}`);
         if (traktInfo.arealHa != null) kontext.push(`${traktInfo.arealHa.toFixed(2)} ha`);
@@ -14488,7 +14575,7 @@ export default function PlannerPage() {
               </div>
               <div style={{ overflowY: 'auto', padding: '4px 22px 22px' }}>
                 <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.6px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{typKalla}</div>
-                <div style={{ fontSize: '19px', fontWeight: 700, color: '#fff', marginBottom: kontext.length ? '2px' : '14px' }}>{traktInfo.rubrik}</div>
+                <div style={{ fontSize: '19px', fontWeight: 700, color: '#fff', marginBottom: kontext.length ? '2px' : '14px' }}>{rubrikVisad}</div>
                 {kontext.length > 0 && (
                   <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', marginBottom: '16px' }}>{kontext.join(' · ')}</div>
                 )}
@@ -14533,17 +14620,60 @@ export default function PlannerPage() {
                           <div style={{ fontSize: '14px', color: '#fff' }}>Väg nära gränsen: {vagar.map(r => r.ref ? `${r.ref} ${r.name}` : r.name).filter(Boolean).slice(0, 3).join(', ')}</div>
                         </div>
                       )}
+                      {/* Egen boundary-markör: ändra serienummer (planerare) — bara när ytan faktiskt numreras
+                          (ensam yta = visaGransNummer=false → ingen siffra, ingen editor). Följer live i titeln. */}
+                      {boundaryId != null && isAdminRiktig && objektNumrering.visaGransNummer && (() => {
+                        const nr = objektNumrering.gransNr.get(String(boundaryId));
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '14px' }}>
+                            <label style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Nummer</label>
+                            <input type="number" min={1} defaultValue={nr != null ? String(nr) : ''} key={`grnr-sheet-${boundaryId}-${nr}`}
+                              onBlur={(e) => redigeraGransNummer(boundaryId, parseInt(e.target.value, 10))}
+                              style={{ width: '72px', padding: '8px 10px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '15px', outline: 'none', textAlign: 'center', fontFamily: 'inherit' }} />
+                          </div>
+                        );
+                      })()}
                       <div style={{ display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap' }}>
                         <button onClick={() => runVolymBerakning(traktKortVida.ringLatLon)}
                           style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                           Beräkna volym
                         </button>
-                        {isAdminRiktig && (
+                        {/* Vida-bit → "Justera gräns" (skapar en egen redigerbar kopia). Egen boundary → redigera hörn direkt. */}
+                        {isAdminRiktig && boundaryId == null && (
                           <button onClick={() => justeraGrans(traktKortVida.key, traktKortVida.ringLatLon)}
                             style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.28)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                             Justera gräns
                           </button>
                         )}
+                        {isAdminRiktig && boundaryId != null && (() => {
+                          const bMarker: any = markers.find((mm: any) => String(mm.id) === String(boundaryId));
+                          return (
+                            <>
+                              <button onClick={() => {
+                                  if (!bMarker || !bMarker.path) return;
+                                  // "Redigera hörn" = Förläng-logiken: öppna ritläget med gränsens path, ta bort markören
+                                  // (återskapas när ritningen sluts). Stäng kortet.
+                                  setCurrentPath([...bMarker.path]);
+                                  const lngLatCoords: [number, number][] = bMarker.path.map((p: any) => { const { lat, lon } = svgToLatLon(p.x, p.y); return [lon, lat] as [number, number]; });
+                                  setCurrentDrawCoords(lngLatCoords);
+                                  setDrawType(bMarker.lineType);
+                                  setIsDrawMode(true);
+                                  setDrawPaused(true);
+                                  saveToHistory([...markers]);
+                                  deleteMarkerFromDb(bMarker.id);
+                                  setMarkers(prev => prev.filter(m => m.id !== bMarker.id));
+                                  stangTraktKort();
+                                }}
+                                style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.28)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                                Redigera hörn
+                              </button>
+                              <button onClick={() => { deleteMarker(boundaryId); stangTraktKort(); }}
+                                style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,69,58,0.4)', background: 'rgba(255,69,58,0.12)', color: '#ff6961', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                                Radera
+                              </button>
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -14980,7 +15110,10 @@ export default function PlannerPage() {
       {markerMenuOpen && (() => {
         const marker = markers.find(m => m.id === markerMenuOpen);
         if (!marker) return null;
-        
+        // Egna områden/traktgränser (boundary) visas ALDRIG i markörkortet — de öppnas i traktInfo-sheeten
+        // via oppnaGranskort ("ett kort, inte två"). Defensiv vakt ifall en gammal väg sätter markerMenuOpen.
+        if (marker.isLine && marker.lineType === 'boundary') return null;
+
         const getMarkerName = () => {
           if (marker.isMarker) return markerTypes.find(t => t.id === marker.type)?.name || 'Markering';
           if (marker.isLine) {
