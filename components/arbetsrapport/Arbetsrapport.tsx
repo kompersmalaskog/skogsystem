@@ -27,7 +27,6 @@ import PdfLasare from "@/app/planering/PdfLasare";
 // rättas när de rörs.
 import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
-import LassIdag from "./LassIdag";
 import { useRaknaUppVarde } from "@/lib/design/raknaUpp";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
@@ -2838,18 +2837,10 @@ export default function Arbetsrapport() {
           {sammanfattningKort}
         </Tillstand>
 
-        {/* LASS IDAG — bara maskiner utan automatisk källa (dim_maskin.datakalla 'manuell',
-            JD810E). Komponenten avgör själv om den ska synas; skriver fakt_lass. */}
-        <LassIdag
-          datum={idagKey}
-          idag={ymdLokal(new Date())}
-          maskinId={idagArb?.maskin_id || medarbetare?.maskin_id || null}
-          medarbetareId={medarbetare?.id ?? null}
-          arAdmin={medarbetare?.roll === 'admin'}
-          dagensObjektId={idagArb?.objekt_id || valtObjektId || null}
-          objektLista={objektLista}
-          harTimmar={harMaskinPass || (idagArb?.arbMin || 0) > 0}
-        />
+        {/* Lassregistrering (LassIdag, PR 580) låg här 24–26 sept 2026 och togs bort:
+            arbetsrapporten handlar om TID (timmar, km, frånvaro, lön); lass är
+            PRODUKTION och hör hemma där produktionen följs. Regeln "en vy ägs av
+            ett spår" i CLAUDE.md kommer härifrån. */}
 
         {/* KORT 2 — Extra arbete. Två klockslag, ingen timer: trycket noterar
             starten, "Avsluta" noterar slutet och öppnar periodformuläret där
@@ -5355,18 +5346,6 @@ export default function Arbetsrapport() {
                   </div>
                 );
               })()}
-              {/* Lass — bara maskiner med manuell datakälla; redigerbart 7 dagar bakåt, admin alltid. */}
-              <LassIdag
-                variant="rad"
-                datum={(redDag as any).datum}
-                idag={ymdLokal(new Date())}
-                maskinId={redMaskinId || (redDag as any).maskin_id || medarbetare?.maskin_id || null}
-                medarbetareId={medarbetare?.id ?? null}
-                arAdmin={medarbetare?.roll === 'admin'}
-                dagensObjektId={redObjektId || (redDag as any).objekt_id || null}
-                objektLista={objektLista}
-                harTimmar={redArbMin > 0}
-              />
               {/* Körning — EN rad i huvudkortet, öppnar morgon/kväll-sheeten. Förr ett
                   eget kort med morgon/kväll/totalt/källa/ersättning, plus en "Extra
                   tid N min"-rad här som sa samma sak som periodlistan nedanför. */}

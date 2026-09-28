@@ -1,5 +1,20 @@
 'use client';
 
+// ⚠ INTE MONTERAD SEDAN 2026-09-26. Låg i arbetsrapportens dagsvy och Redigera (#580,
+// 24 sept) och togs bort: arbetsrapporten är TID, lass är PRODUKTION. Filen ligger kvar
+// som byggblock för planeringsvyns lassregistrering (planeringsspåret bygger den).
+// Två saker att rätta INNAN den monteras igen — de är ärvda från #580, inte fel i lib:
+//   1. Förifyllningen (senasteVarden → antal + m³ per lass, annars 12) föreslår ett tal
+//      appen inte vet. Samma mönster som km-förslaget som spärrades 2026-09-25. Tomt
+//      fält, Spara inaktiv tills värdet är satt.
+//   2. Fältet heter "m³fub per lass" men används som DAGSSUMMA: alla fyra raderna i
+//      prod (sept 2026) är 1 lass med dagens totalvolym (314, 141, 250, 273), och
+//      273 förifylldes sedan som "per lass". Fälten bör vara antal lass + m³fub totalt
+//      för dagen; lagringen (N rader i fakt_lass, volymen delad) kan vara oförändrad.
+// Vad som är värt att behålla: dataflödet (datakalla-gate, dagens rader, RLS-anpassat
+// spar/ta bort via lib/lass/manuellaLass, 7-dagarsregeln, tvåstegs-ta-bort, objekt-
+// väljaren) — allt mot tokens. Det som ska bytas är ~15 rader default + etiketter.
+//
 // "Lass idag" — lassregistrering i arbetsrapporten för maskiner utan automatisk källa
 // (dim_maskin.datakalla = 'manuell', JD810E). Ett block per objekt: objekt, antal lass
 // (stepper), m³fub per lass (stepper), summa. Spara ersätter dagens manuella rader i
