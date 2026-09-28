@@ -48,6 +48,9 @@ export default async function Page() {
 
   return (
     <>
+      {/* IBM Plex ur skissen. Appen i övrigt kör Geist — avvikelsen är
+          medveten och samlad i ./stil.ts, där den också är motiverad. */}
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;450&family=IBM+Plex+Sans:wght@400;500&display=swap" />
       <FakturaunderlagClient />
       <EkonomiBottomNav />
     </>

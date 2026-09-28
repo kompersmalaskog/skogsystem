@@ -68,7 +68,14 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   // ── Avräkningsdag: hela gruppen ska vara klar ──────────────────────────
   const avrPerObjekt = objekt.map((o: any) => avrakningsdatum(o));
   const oavraknade = objekt.filter((_: any, i: number) => !avrPerObjekt[i]);
-  const avrDatum = avrPerObjekt.filter(Boolean).sort().slice(-1)[0] || null;
+  // HELA gruppen måste vara klar. Räckte det med att NÅGON objektrad var
+  // avräknad skulle Jätsbygd se slutavräknad ut trots att A130743_7 saknar
+  // skördningsdatum — och översikten, som kräver alla, hade sagt "pågår" om
+  // samma VO som detaljen kallade klart. Två vyer oense om samma trakt är
+  // värre än en trakt som får vänta.
+  const avrDatum = oavraknade.length
+    ? null
+    : (avrPerObjekt.filter(Boolean).sort().slice(-1)[0] || null);
   if (oavraknade.length) {
     noter.push({
       niva: 'varning',
@@ -221,18 +228,46 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   let flyttar: VoUnderlag['flyttar'] = [];
   if (objektUuids.length) {
     const { data: fl, error: flFel } = await sb.from('fakturaunderlag_flytt')
-      .select('id, datum, maskin, km, status, fakturerad_tid, till_objekt_id')
+      .select('id, datum, maskin, km, status, fakturerad_tid, till_objekt_id, flytt_id')
       .in('till_objekt_id', objektUuids).eq('status', 'aktiv')
       .is('fakturerad_tid', null).order('datum');
     if (flFel) throw new Error('Kunde inte läsa flyttar: ' + flFel.message);
+
+    // Tiden bor på maskin_flytt, inte på underlagsraden. Artikel 3 betalas
+    // PER TIMME, så utan den kan raden inte prissättas.
+    const flyttIds = (fl || []).map((f: any) => f.flytt_id).filter(Boolean);
+    const tidPerFlytt = new Map<string, number | null>();
+    if (flyttIds.length) {
+      const { data: mf, error: mfFel } = await sb.from('maskin_flytt')
+        .select('id, tid_flytt_min').in('id', flyttIds);
+      if (mfFel) throw new Error('Kunde inte läsa maskin_flytt: ' + mfFel.message);
+      for (const m of mf || []) tidPerFlytt.set(m.id, m.tid_flytt_min == null ? null : Number(m.tid_flytt_min));
+    }
+
     flyttar = (fl || []).map((f: any) => ({
-      id: f.id, datum: f.datum, maskin: f.maskin, km: f.km == null ? null : Number(f.km),
+      id: f.id, datum: f.datum, maskin: f.maskin,
+      km: f.km == null ? null : Number(f.km),
+      tidFlyttMin: f.flytt_id ? (tidPerFlytt.get(f.flytt_id) ?? null) : null,
     }));
     for (const f of flyttar) {
       if (avrDatum && f.datum > avrDatum) {
         noter.push({ niva: 'varning', text: `Flytten ${f.datum} (${f.maskin}) är EFTER avräkningsdagen ${avrDatum}.` });
       }
       if (f.km == null) noter.push({ niva: 'varning', text: `Flytten ${f.datum} saknar km — radtypen kan inte avgöras.` });
+      if (f.tidFlyttMin == null) {
+        noter.push({ niva: 'varning', text: `Flytten ${f.datum} saknar tid — artikel 3 betalas per timme.` });
+      } else if (f.tidFlyttMin < 120) {
+        // Varenda fakturerad artikel-3-rad är en hel halvtimme och aldrig
+        // under 2 h. tid_flytt_min ligger på 33–98 min, och hemresan (som
+        // bor på flyttdagen) ingår inte. Talen mäter inte samma sak — visa
+        // det i stället för att avrunda åt något håll.
+        noter.push({
+          niva: 'varning',
+          text: `Flytten ${f.datum} ger ${(f.tidFlyttMin / 60).toFixed(2).replace('.', ',')} tim ur tid_flytt_min. `
+            + 'Fakturerade traillertimmar har alltid varit hela halvtimmar och aldrig under 2 — '
+            + 'hemresan registreras på flyttdagen, inte på flytten.',
+        });
+      }
     }
   }
 

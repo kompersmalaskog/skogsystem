@@ -18,9 +18,10 @@
 //                 timpengen (maskin_timpris). Räknas fram, lagras ALDRIG.
 //   'fortnox'     fasta artikelpriser (flytt, kontraktsnr). Hämtas live med
 //                 FortnoxClient.hamtaArtikelpris, lagras ALDRIG.
-//   'leverantor'  vidarefakturerad kostnad (manuell fällning, lång flytt).
-//                 ENDA radtypen som bär ett belopp — och den bär det för att
-//                 beloppet kommer från någon annans faktura.
+//   'leverantor'  vidarefakturerad kostnad (manuell fällning). ENDA radtypen
+//                 som bär ett belopp — och den bär det för att beloppet
+//                 kommer från någon annans faktura. FLYTT hör INTE hit:
+//                 trailern är vår egen och priset ägs av Fortnox (artikel 3).
 //
 // TIMPENGSARTIKLARNA 11/12 FRÅGAR ALDRIG FORTNOX. De har tomt pris där med
 // flit: priset ägs av maskin_timpris och maskinen identifieras av
@@ -110,6 +111,16 @@ export type FakturaRad = {
    * null för 'fortnox'-rader — där äger Fortnox talet och det hämtas live.
    */
   a_pris_beraknat: number | null;
+  /**
+   * À-prisets tre delar, för vyn. Skickas med i stället för att härledas ur
+   * harledning: grundpriset där bär TOTALPRISET (så visar Vida det), och
+   * rollens andel går inte att räkna baklänges när fördelningen inte är
+   * hälften — Brokamåla är 2,00/0,50. En vy som gissar visar fel tal.
+   * Alla tre är null på rader som inte är ackord eller timpeng.
+   */
+  delar_grundpris: number | null;
+  delar_andel: number | null;
+  delar_avstand: number | null;
 };
 
 export type Maskinrad = {
@@ -129,6 +140,8 @@ export type Flyttrad = {
   datum: string;
   maskin: string;
   km: number | null;
+  /** maskin_flytt.tid_flytt_min — sjalva flyttens tid, utan tillkorning. */
+  tidFlyttMin: number | null;
 };
 
 /** En post Martin lagt in för hand: fällning, GROT-skotning, papp. */
@@ -173,7 +186,12 @@ export type VoUnderlag = {
   manuellaPoster: ManuellPost[];
 };
 
-/** Över denna sträcka körs flytten av åkeri och vidarefaktureras. */
+/**
+ * Under denna sträcka är flytten inte fakturerbar enligt maskin_flytt:
+ * alla sexton genomförda flyttar har fakturerbar=true på exakt de sex som är
+ * över 30 km. Korta flyttar når därför aldrig fakturaunderlag_flytt.
+ * Avtalet har ett fast pris för dem, men OM de ska faktureras är obesvarat.
+ */
 export const FLYTT_EGEN_MAX_KM = 30;
 
 const tvaDec = (n: number) => Math.round(n * 100) / 100;
@@ -187,8 +205,12 @@ const tvaDec = (n: number) => Math.round(n * 100) / 100;
 export function byggRader(u: VoUnderlag): FakturaRad[] {
   const rader: FakturaRad[] = [];
   let n = 0;
-  const lagg = (r: Omit<FakturaRad, 'radnr' | 'a_pris_beraknat'> & { a_pris_beraknat?: number | null }) =>
-    { rader.push({ radnr: ++n, a_pris_beraknat: null, ...r }); };
+  type Ny = Omit<FakturaRad, 'radnr' | 'a_pris_beraknat' | 'delar_grundpris' | 'delar_andel' | 'delar_avstand'>
+    & Partial<Pick<FakturaRad, 'a_pris_beraknat' | 'delar_grundpris' | 'delar_andel' | 'delar_avstand'>>;
+  const lagg = (r: Ny) => {
+    rader.push({ radnr: ++n, a_pris_beraknat: null,
+      delar_grundpris: null, delar_andel: null, delar_avstand: null, ...r });
+  };
 
   // ── 1. Rubrikraden: objektets namn, noll kronor ────────────────────────
   lagg({
@@ -243,6 +265,7 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
         fel_kod: utanPris ? 'pris_saknas' : null,
         kostnadsstalle: m.kostnadsstalle,
         a_pris_beraknat: m.timpris,
+        delar_grundpris: m.timpris,
       });
     }
   } else {
@@ -314,6 +337,7 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
       fel_kod: saknasPris ? 'pris_saknas' : null,
       kostnadsstalle: skordare[0]?.kostnadsstalle ?? null,
       a_pris_beraknat: aSkordare,
+      delar_grundpris: grundSk, delar_andel: andelSk, delar_avstand: null,
     });
     lagg({
       artikelnr: '2', benamning: `Skotning ackord ${namnSko}`,
@@ -324,30 +348,67 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
       fel_kod: saknasPris ? 'pris_saknas' : null,
       kostnadsstalle: skotare[0]?.kostnadsstalle ?? null,
       a_pris_beraknat: aSkotare,
+      delar_grundpris: grundSko, delar_andel: andelSko,
+      delar_avstand: tvaDec(avstandPerM3),
     });
   }
 
-  // ── 4. Flyttar ─────────────────────────────────────────────────────────
-  // ≤ 30 km kör vi själva  → artikel 5, priset ägs av Fortnox.
-  // >  30 km kör ett åkeri → vidarefaktureras, priset ägs av LEVERANTÖREN
-  //    och är inte känt förrän deras faktura kommit. Raden blockerar INTE
-  //    underlaget — den flyttas till nästa faktureringstillfälle.
+  // ── 4. Flyttar: EGEN TRAILER, artikel 3, betald PER TIMME ─────────────
+  //
+  // RÄTTAT 2026-09-28. Raden byggdes först som prisagare='leverantor' med
+  // status 'vantar_leverantorsfaktura', på premissen att långa flyttar körs
+  // av en inhyrd åkare. Den premissen höll inte: trailern är vår egen.
+  // Artikel 3 "Traillerflytt" ligger i Fortnox på 1 350 kr/tim, och 17 av 18
+  // historiska artikel-3-rader är just 1 350 (en enda, 2026-04-17, är 1 500).
+  //
+  // Priset ägs alltså av FORTNOX och hämtas live — inte av en leverantör.
+  // leverantor-radtypen finns kvar för manuell fällning, där priset varierar
+  // med vem som lejs in.
+  //
+  // ⚠️ TIMMARNA STÄMMER INTE MED HISTORIKEN, OCH DET ÄR INTE LÖST.
+  // Antalet här är tid_flytt_min/60. Men varenda fakturerad artikel-3-rad är
+  // en HEL HALVTIMME och aldrig under 2 h (2; 2,5; 3; 3,5; 4; 7), medan
+  // tid_flytt_min på de sexton genomförda flyttarna ligger på 0,55–1,63 h.
+  // tid_hem_min är NULL på varenda rad — hemresan bor på flyttdagen, inte på
+  // flytten. Talen mäter alltså inte samma sak. Anroparen lägger en not på
+  // underlaget; ingen avrundning gissas här.
   for (const f of u.flyttar) {
     const km = Number(f.km) || 0;
-    const egen = km > 0 && km <= FLYTT_EGEN_MAX_KM;
+    const timmar = f.tidFlyttMin == null ? null : Number(f.tidFlyttMin) / 60;
+
+    // Korta flyttar: REGELN ÄR OBESVARAD. Avtalet har ett fast pris, men
+    // alla flyttar under 30 km har fakturerbar=false och når aldrig hit.
+    // Dyker en ändå upp ska underlaget STOPPA, inte gissa mellan fast pris
+    // och timpris.
+    if (km > 0 && km <= FLYTT_EGEN_MAX_KM) {
+      lagg({
+        artikelnr: null,
+        benamning: `Flytt ${f.maskin} ${f.datum} (${km} km) — regel för korta flyttar obesvarad`,
+        antal: 1, enhet: 'st', prisagare: 'app', a_pris: null,
+        harledning: [{ etikett: `${km} km`, belopp: 0 }],
+        kalla: 'flytt', kalla_id: f.id,
+        status: 'fel', fel_kod: 'pris_saknas', kostnadsstalle: null,
+      });
+      continue;
+    }
+
+    const utanTid = timmar == null || timmar <= 0;
     lagg({
-      artikelnr: egen ? '5' : null,
-      benamning: egen
-        ? `Flytt av maskin ${f.maskin}`
-        : `Traillerflytt ${f.maskin} ${f.datum} (${km} km)`,
-      antal: 1, enhet: 'st',
-      prisagare: egen ? 'fortnox' : 'leverantor',
-      a_pris: null,
-      harledning: [{ etikett: `${km} km`, belopp: 0 }],
-      kalla: egen ? 'flytt' : 'traillerflytt',
-      kalla_id: f.id,
-      status: egen ? 'klar' : 'vantar_leverantorsfaktura',
-      fel_kod: null,
+      artikelnr: '3',
+      benamning: `Traillerflytt ${f.maskin}, ${km} km`,
+      antal: utanTid ? null : tvaDec(timmar!),
+      enhet: 'h',
+      prisagare: 'fortnox',
+      a_pris: null,                      // hämtas live, lagras aldrig
+      harledning: [
+        { etikett: `${km} km`, belopp: 0 },
+        { etikett: utanTid ? 'Tid saknas' : `${f.tidFlyttMin} minuter ${f.datum}`, belopp: 0 },
+      ],
+      kalla: 'traillerflytt', kalla_id: f.id,
+      status: utanTid ? 'fel' : 'klar',
+      fel_kod: utanTid ? 'pris_saknas' : null,
+      // Fakturorna bokför flytt på TRA (tidigare M8). Det är inte en maskin
+      // och finns inte i maskin_kostnadsstalle — lämnas tomt och ytas.
       kostnadsstalle: null,
     });
   }

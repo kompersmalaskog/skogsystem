@@ -135,33 +135,49 @@ describe('timpeng frågar aldrig Fortnox om priset', () => {
   })
 })
 
-describe('flytten: kilometern avgör vem som äger priset', () => {
+describe('flytten: egen trailer, artikel 3, betald per timme', () => {
 
-  const medFlytt = (km: number) => byggRader({
+  const flytt = (km: number, tidFlyttMin: number | null) => byggRader({
     ...brokamala(),
-    flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km }],
+    flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km, tidFlyttMin }],
   }).find(r => r.kalla === 'flytt' || r.kalla === 'traillerflytt')!
 
-  it('30 km eller kortare: artikel 5, priset ägs av Fortnox, raden är klar', () => {
-    const r = medFlytt(30)
-    expect(r.artikelnr).toBe('5')
+  it('Brokamålas flytt: 77 min blir 1,28 h på artikel 3, priset ägs av Fortnox', () => {
+    // Trailern är VÅR EGEN. Raden byggdes först som en leverantörsrad på
+    // premissen att långa flyttar körs av inhyrd åkare — den premissen höll
+    // inte. Artikel 3 ligger i Fortnox på 1 350 kr/tim.
+    const r = flytt(44, 77)
+    expect(r.artikelnr).toBe('3')
     expect(r.prisagare).toBe('fortnox')
-    expect(r.status).toBe('klar')
+    expect(r.enhet).toBe('h')
+    expect(r.antal).toBe(1.28)
     expect(r.a_pris).toBeNull()        // hämtas live, lagras aldrig
+    expect(r.status).toBe('klar')
   })
 
-  it('över 30 km: åkeri, priset ägs av leverantören, raden väntar', () => {
-    const r = medFlytt(31)
-    expect(r.artikelnr).toBeNull()
-    expect(r.prisagare).toBe('leverantor')
-    expect(r.status).toBe('vantar_leverantorsfaktura')
+  it('utan tid går raden inte att prissätta — artikel 3 betalas per timme', () => {
+    const r = flytt(44, null)
+    expect(r.status).toBe('fel')
+    expect(r.fel_kod).toBe('pris_saknas')
+    expect(r.antal).toBeNull()
   })
 
-  it('en väntande leverantörsrad BLOCKERAR INTE underlaget', () => {
-    // Ett objekts fakturering ska inte stoppas av en underleverantör som
-    // inte skickat sin faktura. Bara status='fel' blockerar.
-    const u = { ...brokamala(), flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km: 44 }] }
-    expect(garAttSkicka(u, byggRader(u)).ok).toBe(true)
+  it('kort flytt STOPPAR underlaget i stället för att gissa regeln', () => {
+    // Alla flyttar under 30 km har fakturerbar=false och når aldrig
+    // fakturaunderlag_flytt. Avtalet har ett fast pris, men OM de ska
+    // faktureras är obesvarat. Dyker en upp ska den synas, inte prissättas.
+    const u = {
+      ...brokamala(),
+      flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km: 18, tidFlyttMin: 57 }],
+    }
+    const r = byggRader(u).find(x => x.kalla === 'flytt')!
+    expect(r.status).toBe('fel')
+    expect(r.benamning).toContain('obesvarad')
+    expect(garAttSkicka(u, byggRader(u)).ok).toBe(false)
+  })
+
+  it('flyttraden lämnar kostnadsstället tomt — TRA är ingen maskin', () => {
+    expect(flytt(44, 77).kostnadsstalle).toBeNull()
   })
 })
 
@@ -170,7 +186,7 @@ describe('spärrar som ska synas i stället för att gissa', () => {
   /** Alla radtyper på en gång: ackord, lång flytt, manuell post. */
   const alltPa = (): VoUnderlag => ({
     ...brokamala(),
-    flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km: 44 }],
+    flyttar: [{ id: 'f1', datum: '2026-09-25', maskin: 'A030353', km: 44, tidFlyttMin: 77 }],
     manuellaPoster: [
       { etikett: 'Fällning', antal: 1.5, enhet: 'h' as const, a_pris: 490, kalla: 'manuell_fallning' as const },
       { etikett: 'Skotning Grot', antal: 1, enhet: 'st' as const, a_pris: null, kalla: 'manuell' as const },
@@ -223,12 +239,14 @@ describe('spärrar som ska synas i stället för att gissa', () => {
     }
   })
 
-  it('prisägaren byter INTE när leverantörens faktura kommer', () => {
-    // Frestelsen är att sätta prisagare='app' medan man väntar, för att
-    // slippa constrainten. Det vore en lögn: ägaren är leverantören hela
-    // vägen, och en 'app'-rad betyder "vi räknade ut talet".
-    const utan = byggRader(alltPa()).find(r => r.kalla === 'traillerflytt')!
-    expect(utan.prisagare).toBe('leverantor')
-    expect(utan.a_pris).toBeNull()
+  it('leverantörsraden finns kvar — för manuell fällning, inte för flytt', () => {
+    // Migrationen 20260926 var inte bortkastad när flytten flyttade till
+    // artikel 3: manuell fällning betalas med det pris underleverantören
+    // tar, och det varierar med vem som lejs in.
+    const fallning = byggRader(alltPa()).find(r => r.kalla === 'manuell_fallning')!
+    expect(fallning.prisagare).toBe('leverantor')
+    expect(fallning.a_pris).toBe(490)
+    const grot = byggRader(alltPa()).find(r => r.benamning === 'Skotning Grot')!
+    expect(grot.status).toBe('vantar_leverantorsfaktura')
   })
 })
