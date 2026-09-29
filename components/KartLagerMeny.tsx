@@ -2,14 +2,18 @@
 
 // Kart- och lagermenyn. DELAD komponent.
 //
-// JSX:EN AR ORDAGRANT FLYTTAD ur app/planering/page.tsx (rad 14551-15147).
-// Den ar KOPIERAD, inte omskriven: varje rad ar identisk sa nar som pa att sex
-// planeringsspecifika sektioner har fatt en grind runt sig. Skickas inte deras
-// props ritas de inte, och egenkontrollen far bara det som hor dit.
+// JSX:EN AR ORDAGRANT FLYTTAD ur app/planering/page.tsx. Den ar KOPIERAD, inte
+// omskriven: varje rad ar identisk sa nar som pa sex planeringsspecifika
+// sektioner som fatt en grind runt sig, och en rad dar z-index blivit en
+// parameter (se zIndex nedan).
+//
+// KOPIAN GENERERAS AV ETT SKRIPT SOM ANKRAR PA INNEHALL, inte radnummer.
+// Menyn har flyttat 2 600 rader i planeringsvyn pa en manad - ett radankrat
+// bevis ar obsolet nasta vecka. Vill du verifiera: plocka blocket ur bada
+// filerna pa gate-raden och jamfor radvis efter strip().
 //
 // VARFOR EN KOMPONENT: en andra implementation glider isar fran den forsta och
-// ingen marker det forran nagon andrar i den ena. Driften har redan borjat -
-// 27 lager beskrevs pa tva stallen innan lib/mapLayers.ts slogs ihop.
+// ingen marker det forran nagon andrar i den ena.
 //
 // PLANERINGSVYN ANVANDER DEN INTE AN. Den kor vidare pa sin egen inbakade meny
 // tills PR B, sa att menyn hinner provas i egenkontrollen innan den vy forarna
@@ -34,15 +38,18 @@ type Typ = {
   egnaVarden?: Record<string, boolean>;
   setEgnaVarden?: (f: (prev: Record<string, boolean>) => Record<string, boolean>) => void;
   // --- Planeringsspecifikt. Utelamnas -> sektionen ritas inte. ---
+  /** Trakt-geometrins TYPER (traktgrans, hansynsyta, linje, punkt). */
   geoTyper?: Set<string>;
+  /** Trakt-geometrins KATEGORIER (nyckelbiotop, lamning). Tillkom i #587. */
+  geoKategorier?: Set<string>;
   visibleLayers?: Record<string, boolean>;
   setVisibleLayers?: (f: (prev: any) => any) => void;
   visibleLines?: Record<string, boolean>;
   setVisibleLines?: (f: (prev: any) => any) => void;
   visibleZones?: Record<string, boolean>;
   setVisibleZones?: (f: (prev: any) => any) => void;
-  // Formen ar planeringsvyns egen (rad 6043/6060) - den kopierade JSX:en
-  // laser striped/color2/dashed, sa typen maste bara dem.
+  // Formen ar planeringsvyns egen - den kopierade JSX:en laser
+  // striped/color2/dashed, sa typen maste bara dem.
   lineTypes?: { id: string; name: string; color: string; color2?: string; striped?: boolean; dashed?: boolean; isBackRoad?: boolean }[];
   zoneTypes?: { id: string; name: string; color: string; icon?: string }[];
   visaBrandrisk?: boolean;
@@ -84,6 +91,7 @@ export default function KartLagerMeny(p: Typ) {
   // Tom mangd -> de datadrivna raderna i Overlay-sektionen faller bort av sig
   // sjalva. Ingen grind behovs inne i den kopierade listan.
   const geoTyper = p.geoTyper ?? new Set<string>();
+  const geoKategorier = p.geoKategorier ?? new Set<string>();
   const visibleLayers = p.visibleLayers ?? {};
   const visibleLines = p.visibleLines ?? {};
   const visibleZones = p.visibleZones ?? {};
@@ -212,8 +220,10 @@ export default function KartLagerMeny(p: Typ) {
               {[
                 { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
                 // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
-                ...(geoTyper.has('traktgräns') ? [{ id: 'traktGrans', name: 'Traktgräns', desc: 'Trakthandlingens gräns', enabled: true }] : []),
+                // Traktdelar har ingen knapp — de är alltid tända (kontexten för allt annat).
                 ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsyn', desc: 'Hänsynsytor att spara', enabled: true }] : []),
+                ...(geoKategorier.has('nyckelbiotop') ? [{ id: 'traktNyckelbiotop', name: 'Nyckelbiotoper', desc: 'Skogsstyrelsens registrerade', enabled: true }] : []),
+                ...(geoKategorier.has('lamning') ? [{ id: 'traktLamning', name: 'Fornlämningar', desc: 'Riksantikvarieämbetet (RAÄ)', enabled: true }] : []),
                 ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
