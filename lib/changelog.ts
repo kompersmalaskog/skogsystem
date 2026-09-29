@@ -9,7 +9,12 @@
 //
 // För att släppa en ny version: lägg en NY post ÖVERST med höjt versionsnummer, dagens
 // datum och korta rader om vad som ändrats. Skriv för FÖRAREN, inte teknikern — t.ex.
-// "GPS fungerar nu i skogen", inte commit-sprak. Generera ALDRIG från commit-meddelanden.
+// "GPS fungerar nu i skogen", inte commit-sprak.
+//
+// Kopplat till deploy-gaten (2026-09-29): `node scripts/release-material.mjs` drar PR-titlar +
+// brödtext för det som ligger i main men inte i production, som UNDERLAG. Regeln: skriv ett
+// UTKAST ur PR-titlarna, skriv om det för föraren, GODKÄNN MANUELLT. Publicera aldrig
+// commit-språk oredigerat — den mänskliga grinden är hela poängen.
 
 export interface ChangelogEntry {
   version: string    // t.ex. "0.9.4"
