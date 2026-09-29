@@ -3670,6 +3670,7 @@ export default function PlannerPage() {
   const hyttsparCtxRef = useRef<{ objektId: string; roll: 'skordare' | 'skotare'; maskinId: string | null } | null>(null);   // aktiv loggnings-kontext (för dagsbytes-callbacken, som körs ur ackumuleringen)
   const hyttsparInitKlarRef = useRef(false);   // livscykelns resume-koll klar → ackumuleringen får skapa raden vid första punkten (undviker race)
   const hyttsparSkaparRef = useRef(false);     // true medan raden skapas vid första GPS-punkten (async-fönster → ingen dubbel-insert)
+  const hyttsparSyncedRef = useRef(0);         // antal RAW-punkter (av hyttsparPointsRef) som redan lagrats server-side → append skickar bara resten
   const [hyttsparBasVersion, setHyttsparBasVersion] = useState(0);   // bump när dagens redan loggade punkter laddats → rita om basen (även om kartlagret inte fanns vid livscykel-ritningen)
   const egetHistRef = useRef<any[]>([]);   // tidigare dagars eget-spår (dämpade segment) → eget hist-lager, ritas separat från dagens (fulla) live-spår
 
@@ -3686,25 +3687,43 @@ export default function PlannerPage() {
     } catch { /* */ }
   }, []);
 
-  // Sparar (RDP-gallrat) till hyttspar. final=true → status completed. Läser BARA refs (stabil).
+  // Sparar hyttspår som APPEND: bara punkter sedan senaste LYCKADE skrivning skickas till RPC:n
+  // hyttspar_append (server-side `points || nya` → ingen full omskrivning, O(N) i st.f. O(N²)). En
+  // misslyckad batch avancerar INTE synced → punkterna ligger kvar i minnet och skickas igen nästa tick
+  // (implicit kö). Två klienter som skriver till samma rad appendar var för sig → inga punkter skrivs över.
+  // final=true → status completed (rör INTE points → ingen tung skrivning). Läser bara refs (stabil).
   const sparaHyttspar = useCallback(async (final: boolean) => {
     const id = hyttsparRowIdRef.current;
     if (!id) {
       // Ingen rad skapades (öppna-och-stäng utan GPS-punkter). Vid stängning: nollställ
       // loggningskontexten så ackumuleringen no-op:ar tills körvyn öppnas igen.
-      if (final) { hyttsparPointsRef.current = []; hyttsparLastFixRef.current = null; hyttsparDatumRef.current = null; hyttsparCtxRef.current = null; hyttsparInitKlarRef.current = false; }
+      if (final) { hyttsparPointsRef.current = []; hyttsparLastFixRef.current = null; hyttsparDatumRef.current = null; hyttsparCtxRef.current = null; hyttsparInitKlarRef.current = false; hyttsparSyncedRef.current = 0; }
       return;
     }
-    if (!final && !hyttsparDirtyRef.current) return;
+    // Nya (osynkade) punkter sedan senast — tunnas relativt sista sända punkten (RDP 3 m) så raka
+    // sträckor komprimeras även över batch-gränsen; ankaret (redan lagrat) droppas.
+    const raw = hyttsparPointsRef.current;
+    const consumed = raw.length - hyttsparSyncedRef.current;   // fångas FÖRE await (arrayen är append-only inom passet)
+    if (consumed > 0) {
+      const osynkade = raw.slice(hyttsparSyncedRef.current);
+      const ankar = hyttsparSyncedRef.current > 0 ? raw[hyttsparSyncedRef.current - 1] : null;
+      const tunnad = ankar ? rdpThin([ankar, ...osynkade], 3).slice(1) : rdpThin(osynkade, 3);
+      if (tunnad.length > 0) {
+        try {
+          const { error } = await supabase.rpc('hyttspar_append', { p_id: id, p_punkter: tunnad });
+          if (error) { console.error('[Hyttspår] append-fel:', error.message); }   // synced ej framflyttad → skickas om
+          else { hyttsparSyncedRef.current += consumed; }
+        } catch (e) { console.error('[Hyttspår] append-undantag:', e); }
+      } else {
+        hyttsparSyncedRef.current += consumed;   // allt bortgallrat (kollinjärt) → markera konsumerat
+      }
+    }
     hyttsparDirtyRef.current = false;
-    const thinned = rdpThin(hyttsparPointsRef.current, 3);   // 3 m — full array kvar i minnet, bara skriv gallrat
-    const patch: Record<string, unknown> = { points: thinned, antal_punkter: thinned.length, uppdaterad_at: new Date().toISOString() };
-    if (final) { patch.status = 'completed'; patch.avslutad_at = new Date().toISOString(); }
-    try {
-      const { error } = await supabase.from('hyttspar').update(patch).eq('id', id);
-      if (error) console.error('[Hyttspår] spar-fel:', error.message);
-    } catch (e) { console.error('[Hyttspår] spar-undantag:', e); }
-    if (final) { hyttsparRowIdRef.current = null; hyttsparPointsRef.current = []; hyttsparLastFixRef.current = null; hyttsparDatumRef.current = null; hyttsparCtxRef.current = null; hyttsparInitKlarRef.current = false; }
+    if (final) {
+      try { await supabase.from('hyttspar').update({ status: 'completed', avslutad_at: new Date().toISOString(), uppdaterad_at: new Date().toISOString() }).eq('id', id); }
+      catch (e) { console.error('[Hyttspår] final-status-fel:', e); }
+      hyttsparRowIdRef.current = null; hyttsparPointsRef.current = []; hyttsparLastFixRef.current = null; hyttsparDatumRef.current = null; hyttsparCtxRef.current = null; hyttsparInitKlarRef.current = false; hyttsparSyncedRef.current = 0;
+    }
   }, []);
 
   // DAGSBYTE: en punkt hamnar på ett NYTT lokalt datum (Europe/Stockholm) → försegla gamla raden
@@ -3715,26 +3734,37 @@ export default function PlannerPage() {
     const ctx = hyttsparCtxRef.current;
     const gamlaId = hyttsparRowIdRef.current;
     if (gamlaId) {
-      const thinned = rdpThin(hyttsparPointsRef.current, 3);
-      try { await supabase.from('hyttspar').update({ points: thinned, antal_punkter: thinned.length, status: 'completed', avslutad_at: avslutadAt, uppdaterad_at: new Date().toISOString() }).eq('id', gamlaId); }
+      // Försegla gamla raden: append ev. osynkade punkter (rör inte hela points) + sätt completed.
+      const raw = hyttsparPointsRef.current;
+      if (raw.length - hyttsparSyncedRef.current > 0) {
+        const osynkade = raw.slice(hyttsparSyncedRef.current);
+        const ankar = hyttsparSyncedRef.current > 0 ? raw[hyttsparSyncedRef.current - 1] : null;
+        const tunnad = ankar ? rdpThin([ankar, ...osynkade], 3).slice(1) : rdpThin(osynkade, 3);
+        if (tunnad.length > 0) { try { await supabase.rpc('hyttspar_append', { p_id: gamlaId, p_punkter: tunnad }); } catch (e) { console.error('[Hyttspår] dagsbyte-append:', e); } }
+      }
+      try { await supabase.from('hyttspar').update({ status: 'completed', avslutad_at: avslutadAt, uppdaterad_at: new Date().toISOString() }).eq('id', gamlaId); }
       catch (e) { console.error('[Hyttspår] dagsbyte-försegling:', e); }
     }
-    if (!ctx) { hyttsparRowIdRef.current = null; return; }
+    if (!ctx) { hyttsparRowIdRef.current = null; hyttsparSyncedRef.current = 0; return; }
     hyttsparDatumRef.current = nyttDatum;
     try {
       const { data: befintlig } = await supabase.from('hyttspar')
         .select('id, points').eq('objekt_id', ctx.objektId).eq('roll', ctx.roll).eq('datum', nyttDatum).maybeSingle();
       if (befintlig) {
+        const bas = Array.isArray(befintlig.points) ? befintlig.points : [];
         hyttsparRowIdRef.current = befintlig.id;
-        hyttsparPointsRef.current = [...(Array.isArray(befintlig.points) ? befintlig.points : []), forstaPunkt];
+        hyttsparPointsRef.current = [...bas, forstaPunkt];
+        hyttsparSyncedRef.current = bas.length;   // basen redan lagrad; forstaPunkt appendas
+        try { await supabase.rpc('hyttspar_append', { p_id: befintlig.id, p_punkter: [forstaPunkt] }); hyttsparSyncedRef.current = hyttsparPointsRef.current.length; } catch (e) { console.error('[Hyttspår] dagsbyte-resume-append:', e); }
         await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
       } else {
         hyttsparPointsRef.current = [forstaPunkt];
         const { data: ny, error } = await supabase.from('hyttspar')
           .insert({ objekt_id: ctx.objektId, roll: ctx.roll, datum: nyttDatum, maskin_id: ctx.maskinId, points: hyttsparPointsRef.current, status: 'recording' })
           .select('id').single();
-        if (error || !ny) { console.error('[Hyttspår] dagsbyte-insert:', error?.message); hyttsparRowIdRef.current = null; return; }
+        if (error || !ny) { console.error('[Hyttspår] dagsbyte-insert:', error?.message); hyttsparRowIdRef.current = null; hyttsparSyncedRef.current = 0; return; }
         hyttsparRowIdRef.current = ny.id;
+        hyttsparSyncedRef.current = 1;   // forstaPunkt lagrad via insert
       }
       hyttsparDirtyRef.current = true;
       uppdateraHyttsparLager();
@@ -3753,10 +3783,12 @@ export default function PlannerPage() {
       const { data: befintlig } = await supabase.from('hyttspar')
         .select('id, points').eq('objekt_id', ctx.objektId).eq('roll', ctx.roll).eq('datum', datum).maybeSingle();
       if (befintlig) {
-        hyttsparPointsRef.current = [...(Array.isArray(befintlig.points) ? befintlig.points : []), forstaPunkt];
+        const bas = Array.isArray(befintlig.points) ? befintlig.points : [];
+        hyttsparPointsRef.current = [...bas, forstaPunkt];
         hyttsparRowIdRef.current = befintlig.id;
-        const thinned = rdpThin(hyttsparPointsRef.current, 3);
-        await supabase.from('hyttspar').update({ points: thinned, antal_punkter: thinned.length, status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
+        hyttsparSyncedRef.current = bas.length;   // basen redan lagrad; forstaPunkt appendas
+        try { await supabase.rpc('hyttspar_append', { p_id: befintlig.id, p_punkter: [forstaPunkt] }); hyttsparSyncedRef.current = hyttsparPointsRef.current.length; } catch (e) { console.error('[Hyttspår] första-punkt-resume-append:', e); }
+        await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
       } else {
         hyttsparPointsRef.current = [forstaPunkt];
         const { data: ny, error } = await supabase.from('hyttspar')
@@ -3764,6 +3796,7 @@ export default function PlannerPage() {
           .select('id').single();
         if (error || !ny) { console.error('[Hyttspår] första-punkt-insert:', error?.message); return; }
         hyttsparRowIdRef.current = ny.id;
+        hyttsparSyncedRef.current = 1;   // forstaPunkt lagrad via insert
       }
       hyttsparDatumRef.current = datum;
       hyttsparLastFixRef.current = { lat: cand.lat, lon: cand.lon, ts: cand.ts };
@@ -3784,6 +3817,7 @@ export default function PlannerPage() {
     hyttsparDatumRef.current = datum;
     hyttsparCtxRef.current = { objektId, roll, maskinId };
     hyttsparInitKlarRef.current = false;   // resume-kollen inte klar än → ackumuleringen väntar med att skapa raden
+    hyttsparSyncedRef.current = 0;          // ren start; sätts till basens längd vid resume
     (async () => {
       try {
         const { data: befintlig } = await supabase.from('hyttspar')
@@ -3794,6 +3828,7 @@ export default function PlannerPage() {
           // eget-spåret bara live från noll). En ny, TOM rad skapas INTE här.
           hyttsparRowIdRef.current = befintlig.id;
           hyttsparPointsRef.current = Array.isArray(befintlig.points) ? befintlig.points : [];
+          hyttsparSyncedRef.current = hyttsparPointsRef.current.length;   // hela basen redan lagrad server-side
           setHyttsparBasVersion(v => v + 1);   // → rit-effekten nedan ritar basen så fort kartlagret är redo
           await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
         }
