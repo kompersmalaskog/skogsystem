@@ -2,9 +2,24 @@
 
 // Mätvyn — ingången och flödets nav.
 //
-// Steg 1 mäter grundyta och trädslagsfördelning kvar efter gallring. Punkt.
-// Flödet: välj trakt → tio lottade punkter → gå dit → mät → besked direkt →
-// sammanfattning när varvet är gjort.
+// TVÅ ARBETSSÄTT, SAMMA MÄTNING.
+//
+//   Mät här       — under körning. Martin kliver ur, går bakåt i det han just
+//                   gallrat och mäter där han står. Ingen lottning, och inget
+//                   beroende på traktgräns eller kartbild.
+//   Lotta punkter — efterkontroll av en avslutad trakt. Tio lottade lägen att
+//                   beta av, som förut.
+//
+// Båda skriver till TRAKTENS löpande mätning. Den återupptas så länge den inte
+// avslutats, så beskedet jämför mot trakten och inte mot dagens pass — och när
+// trakten är klar finns sammanfattningen redan.
+//
+// PUNKTNUMRET ÄR MÄTNINGENS LÖPANDE ORDNING, inte lottningens. Lottningen
+// numrerar sina tio lägen 1..10 som en gångordning; användes de numren rakt av
+// skulle en lottad punkt 3 krocka med en mät här-punkt 3 i samma mätning, och
+// unique(matning_id, punkt_nummer) avvisa den. Det lottade LÄGET bevaras i
+// lat/lng — det är där punkten skulle ha tagits. Där Martin faktiskt stod
+// hamnar i matt_lat/matt_lng, alltid.
 //
 // MÄTNING ÄR SPÄRRAD TILLS ENHETEN KALIBRERATS. Utan kalibrering motsvarar
 // cirkeln en gissad vinkel, och då mäter man systematiskt fel utan att se det.
@@ -15,12 +30,6 @@
 // ögonblick varvet sluts, innan något nätanrop försöks. Går synken inte igenom
 // står det hur många punkter som väntar — en osynkad punkt får aldrig se ut
 // som sparad.
-//
-// EN MÄTNING PER TRAKTBESÖK. Mätningen ligger kvar lokalt även efter att den
-// synkats, med sitt matning_id, och punkterna läggs till den. Rensades den vid
-// varje synk skulle nästa punkt starta en ny mätning, och sammanfattningen
-// hade räknat medel över en punkt i taget. Den rensas när Martin avslutar
-// trakten — och bara om allt ligger i databasen.
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -30,6 +39,7 @@ import {
   beskedForPunkt,
   enhetsNamn,
   lasKalibrering,
+  nastaPunktNummer,
   osynkadeAntal,
   punktGrundyta,
   varvSlutet,
@@ -41,8 +51,8 @@ import {
 import {
   avslutaMatning,
   laggTillPunkt,
+  oppnaTrakt,
   osynkadMatning,
-  startaMatning,
   synka,
 } from '@/lib/matning/sparande';
 import type { Matpunkt } from '@/lib/matning/punkter';
@@ -50,9 +60,9 @@ import Kalibrering from './Kalibrering';
 import Kamera from './Kamera';
 import Punktval from './Punktval';
 import Sammanfattning from './Sammanfattning';
+import Traktval, { type Trakt } from './Traktval';
 
-type Trakt = { id: string; namn: string; areal: number | null };
-type Lage = 'oversikt' | 'kalibrerar' | 'valjer' | 'matar' | 'sammanfattar';
+type Lage = 'oversikt' | 'kalibrerar' | 'valjer_trakt' | 'lottar' | 'matar' | 'sammanfattar';
 
 /** Var Martin faktiskt står när varvet sluts. Skilt från punktens lottade
  *  läge — under krontak är GPS 5-15 m och att lagra det lottade läget som
@@ -74,11 +84,14 @@ export default function MatningPage() {
   const [kal, setKal] = useState<KalTyp | null>(null);
   const [laddat, setLaddat] = useState(false);
   const [matning, setMatning] = useState<PagaendeMatning | null>(null);
-  const [trakt, setTrakt] = useState<Trakt | null>(null);
-  const [punkt, setPunkt] = useState<Matpunkt | null>(null);
+  const [lottadPunkt, setLottadPunkt] = useState<Matpunkt | null>(null);
   const [senaste, setSenaste] = useState<{ rad: string; avvikande: boolean; grundyta: number } | null>(null);
   const [synkfel, setSynkfel] = useState<string | null>(null);
   const [synkar, setSynkar] = useState(false);
+  const [oppnar, setOppnar] = useState(false);
+  const [aterupptagen, setAterupptagen] = useState(false);
+  const [avslutfel, setAvslutfel] = useState<string | null>(null);
+  const [faktorKrock, setFaktorKrock] = useState<number | null>(null);
 
   // localStorage får läsas först efter mount — annars ger servern och klienten
   // olika första rendering.
@@ -96,11 +109,34 @@ export default function MatningPage() {
     // landat. Bara felet växlar.
     setMatning(r.matning);
     setSynkfel(r.fel);
-    return r;
   }, [medarbetare?.id]);
+
+  /** Öppnar trakten: återupptar den löpande mätningen eller startar en ny. */
+  const valjTrakt = useCallback(async (t: Trakt, sedan: Lage) => {
+    if (!kal) return;
+    setOppnar(true);
+    try {
+      // Byter han trakt med osynkade punkter kvar, synkas de först — annars
+      // skulle de hamna under fel objekt.
+      if (matning && matning.objekt_id !== t.id && osynkadeAntal(matning) > 0) {
+        await korSynk(matning);
+      }
+      if (matning && matning.objekt_id === t.id) { setLage(sedan); return; }
+      const r = await oppnaTrakt(t.id, t.namn, kal.relaskop_faktor, kal.synfalt_grader, enhetsNamn());
+      setMatning(r.matning);
+      setAterupptagen(r.aterupptagen);
+      setFaktorKrock(r.faktorKrock);
+      setSenaste(null);
+      setAvslutfel(null);
+      setLage(sedan);
+    } finally {
+      setOppnar(false);
+    }
+  }, [kal, matning, korSynk]);
 
   const matta = matning?.punkter ?? [];
   const kvar = osynkadeAntal(matning);
+  const punktNummer = matning ? nastaPunktNummer(matning) : 1;
 
   if (lage === 'kalibrerar') {
     return (
@@ -115,46 +151,51 @@ export default function MatningPage() {
     return (
       <Sammanfattning
         matningId={matning.matning_id}
-        traktNamn={trakt?.namn ?? 'Mätning'}
+        traktNamn={matning.objekt_namn}
         onStang={() => setLage('oversikt')}
       />
     );
   }
 
-  if (lage === 'valjer') {
+  if (lage === 'valjer_trakt') {
+    return (
+      <Traktval
+        onAvbryt={() => setLage('oversikt')}
+        onValj={(t) => { void valjTrakt(t, 'oversikt'); }}
+      />
+    );
+  }
+
+  if (lage === 'lottar') {
     return (
       <Punktval
         onAvbryt={() => setLage('oversikt')}
         onMat={(t, p) => {
-          setTrakt(t);
-          setPunkt(p);
-          // Ny trakt = ny mätning. Byter han trakt mitt i synkas den gamla
-          // först, annars skulle punkterna hamna under fel objekt.
-          if (!matning || matning.objekt_id !== t.id) {
-            if (matning && osynkadeAntal(matning) > 0) void korSynk(matning);
-            setMatning(startaMatning(t.id, kal!.relaskop_faktor, kal!.synfalt_grader, enhetsNamn()));
-            setSenaste(null);
-          }
-          setLage('matar');
+          setLottadPunkt(p);
+          void valjTrakt({ id: t.id, namn: t.namn, areal: t.areal }, 'matar');
         }}
       />
     );
   }
 
-  if (lage === 'matar' && kal && punkt) {
+  if (lage === 'matar' && kal && matning) {
     return (
       <Kamera
-        punktNummer={punkt.nummer}
+        punktNummer={punktNummer}
+        traktNamn={matning.objekt_namn}
         faktor={kal.relaskop_faktor}
         synfaltGrader={kal.synfalt_grader}
-        onAvbryt={() => setLage('oversikt')}
+        onAvbryt={() => { setLottadPunkt(null); setLage('oversikt'); }}
         onKlar={(trad: MattTrad[], varv: number) => {
           void (async () => {
             const pos = await hamtaPosition();
             const ny: MattPunkt = {
-              punkt_nummer: punkt.nummer,
-              lat: punkt.lat,
-              lng: punkt.lng,
+              punkt_nummer: punktNummer,
+              // Lottat läge bara när punkten kom ur en lottning. Mät här har
+              // inget lottat läge, och att fylla det med GPS-positionen vore
+              // att påstå att den lottats där.
+              lat: lottadPunkt?.lat ?? null,
+              lng: lottadPunkt?.lng ?? null,
               matt_lat: pos?.coords.latitude ?? null,
               matt_lng: pos?.coords.longitude ?? null,
               gps_noggrannhet_m: pos?.coords.accuracy ?? null,
@@ -162,27 +203,39 @@ export default function MatningPage() {
               matt_tid: new Date().toISOString(),
               trad,
             };
-            const bas = matning ?? startaMatning(trakt!.id, kal.relaskop_faktor, kal.synfalt_grader, enhetsNamn());
-            const uppdaterad = laggTillPunkt(bas, ny);   // lokalt FÖRST
+            const uppdaterad = laggTillPunkt(matning, ny);   // lokalt FÖRST
             setMatning(uppdaterad);
+            // Beskedet jämför mot TRAKTEN: tidigare pass ur databasen plus
+            // passets egna slutna varv. Bara slutna — ett halvt varv är en
+            // underskattning som skulle få nästa punkt att se för hög ut.
             setSenaste(beskedForPunkt(
               punktGrundyta(ny, kal.relaskop_faktor),
-              bas.punkter.map((p) => punktGrundyta(p, kal.relaskop_faktor)),
+              [
+                ...matning.tidigare_grundytor,
+                ...matning.punkter
+                  .filter((p) => varvSlutet(p.varv_grader))
+                  .map((p) => punktGrundyta(p, kal.relaskop_faktor)),
+              ],
             ));
-            setPunkt(null);
+            setLottadPunkt(null);
             setLage('oversikt');
-            void korSynk(uppdaterad);                    // databasen sedan
+            void korSynk(uppdaterad);                        // databasen sedan
           })();
         }}
       />
     );
   }
 
+  const knapp: React.CSSProperties = {
+    width: '100%', borderRadius: 16, border: 'none', fontSize: 17, fontWeight: 600,
+    minHeight: 60, background: 'rgba(255,255,255,0.14)', color: '#fff', fontFamily: T.ff,
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff, padding: '16px 16px 120px' }}>
       <h1 style={{ fontSize: 32, fontWeight: 700, letterSpacing: -0.6, margin: '8px 0 4px' }}>Mätning</h1>
       <p style={{ fontSize: 17, color: '#C7C7CC', margin: '0 0 22px', lineHeight: 1.45 }}>
-        Kvarvarande grundyta efter gallring, med telefonen som relaskop.
+        Kvarvarande grundyta, med telefonen som relaskop.
       </p>
 
       {!laddat ? (
@@ -197,8 +250,7 @@ export default function MatningPage() {
           </p>
           <button
             onClick={() => setLage('kalibrerar')}
-            style={{ width: '100%', minHeight: 76, borderRadius: 16, border: 'none',
-              background: '#0A84FF', color: '#fff', fontSize: 21, fontWeight: 700 }}
+            style={{ ...knapp, minHeight: 76, background: '#0A84FF', fontSize: 21, fontWeight: 700 }}
           >
             Kalibrera mot mitt relaskop
           </button>
@@ -222,6 +274,47 @@ export default function MatningPage() {
             </div>
           )}
 
+          {/* Vilken trakt. Väljs en gång och gäller resten av passet, så det är
+              här det går att upptäcka att man bytt skifte efter lunch utan att
+              ha bytt i appen. */}
+          {matning && (
+            <div style={{ background: '#1C1C1E', borderRadius: 16, padding: '16px 18px', marginBottom: 12 }}>
+              <div style={{ fontSize: 14, letterSpacing: 0.6, color: '#C7C7CC' }}>MÄTER I</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#fff', margin: '4px 0 2px' }}>
+                {matning.objekt_namn}
+              </div>
+              <div style={{ fontSize: 16, color: '#C7C7CC' }}>
+                {matning.db_hogsta_punkt + matta.length > 0
+                  ? `${matning.db_hogsta_punkt + matta.length} punkter i mätningen`
+                  : 'Inga punkter än'}
+                {aterupptagen && matning.db_hogsta_punkt > 0 && ' · återupptagen'}
+              </div>
+            </div>
+          )}
+
+          {/* Trakten hade en pågående mätning med en annan relaskopfaktor. Den
+              kunde inte återupptas — grundytan räknas med mätningens faktor, och
+              nya punkter i den gamla mätningen hade tyst räknats med den gamla.
+              Att bara starta en ny utan att säga det hade gjort att
+              sammanfattningen visade halva trakten och såg komplett ut. */}
+          {faktorKrock != null && (
+            <div
+              style={{
+                background: '#1C1C1E', border: '2px solid #FF9F0A', borderRadius: 14,
+                padding: '14px 16px', marginBottom: 14, fontSize: 16, lineHeight: 1.5,
+                color: '#E5E5EA',
+              }}
+            >
+              <strong style={{ color: '#fff', display: 'block', marginBottom: 4 }}>
+                Ny mätning startad på trakten
+              </strong>
+              Trakten har en pågående mätning gjord med faktor {faktorKrock}, och du mäter
+              med faktor {kal.relaskop_faktor}. De går inte att blanda — grundytan räknas
+              med mätningens faktor. De tidigare punkterna ligger kvar i sin mätning och
+              räknas inte med här.
+            </div>
+          )}
+
           {/* Osynkat är normalläget halva dagen — men det ska SYNAS. */}
           {(kvar > 0 || synkar) && (
             <div
@@ -240,8 +333,7 @@ export default function MatningPage() {
                   {synkfel && <div style={{ color: '#FF9F0A', marginTop: 4 }}>{synkfel}</div>}
                   <button
                     onClick={() => matning && korSynk(matning)}
-                    style={{ width: '100%', minHeight: 60, marginTop: 10, borderRadius: 12, border: 'none',
-                      background: 'rgba(255,255,255,0.16)', color: '#fff', fontSize: 17, fontWeight: 600 }}
+                    style={{ ...knapp, marginTop: 10, borderRadius: 12, background: 'rgba(255,255,255,0.16)' }}
                   >
                     Försök spara nu
                   </button>
@@ -250,38 +342,48 @@ export default function MatningPage() {
             </div>
           )}
 
+          {/* Huvudhandlingen: mät där du står. */}
           <button
-            onClick={() => setLage('valjer')}
-            style={{ width: '100%', minHeight: 84, borderRadius: 18, border: 'none',
-              background: '#30D158', color: '#04240F', fontSize: 24, fontWeight: 700 }}
+            onClick={() => (matning ? setLage('matar') : setLage('valjer_trakt'))}
+            disabled={oppnar}
+            style={{
+              ...knapp, minHeight: 96, borderRadius: 18, background: '#30D158',
+              color: '#04240F', fontSize: 26, fontWeight: 700,
+            }}
           >
-            {trakt ? `Mät i ${trakt.namn}` : 'Välj trakt och punkt'}
+            {oppnar ? 'Öppnar trakten…' : matning ? 'Mät här' : 'Välj trakt och mät'}
           </button>
 
-          {/* Sammanfattningen räknas i databasen och kräver därför att punkterna
-              ligger där. Står det inte att den väntar på täckning vore knappen
-              en återvändsgränd. */}
-          {matta.length > 0 && (
+          {matning && (
+            <button onClick={() => setLage('valjer_trakt')} style={{ ...knapp, marginTop: 10 }}>
+              Byt trakt
+            </button>
+          )}
+
+          {/* Efterkontrollen finns kvar — det är ett annat arbetssätt, inte ett
+              sämre. Lottade lägen kräver inritad gräns och kartbild. */}
+          <button onClick={() => setLage('lottar')} style={{ ...knapp, marginTop: 10 }}>
+            Lotta tio punkter (efterkontroll)
+          </button>
+
+          {matning?.matning_id && (
             <button
-              onClick={() => matning?.matning_id && setLage('sammanfattar')}
-              disabled={!matning?.matning_id}
-              style={{
-                width: '100%', minHeight: 68, marginTop: 12, borderRadius: 16, border: 'none',
-                background: matning?.matning_id ? '#0A84FF' : 'rgba(255,255,255,0.10)',
-                color: matning?.matning_id ? '#fff' : '#8E8E93',
-                fontSize: 19, fontWeight: 700,
-              }}
+              onClick={() => setLage('sammanfattar')}
+              style={{ ...knapp, marginTop: 10, background: '#0A84FF', fontSize: 19, fontWeight: 700, minHeight: 68 }}
             >
-              {matning?.matning_id
-                ? `Sammanfattning (${matta.length} ${matta.length === 1 ? 'punkt' : 'punkter'})`
-                : 'Sammanfattning — väntar på täckning'}
+              Sammanfattning
+            </button>
+          )}
+          {matning && !matning.matning_id && matta.length > 0 && (
+            <button disabled style={{ ...knapp, marginTop: 10, background: 'rgba(255,255,255,0.10)', color: '#8E8E93' }}>
+              Sammanfattning — väntar på täckning
             </button>
           )}
 
           {matta.length > 0 && kal && (
             <div style={{ marginTop: 22 }}>
               <div style={{ fontSize: 14, letterSpacing: 0.6, color: '#C7C7CC', marginBottom: 8 }}>
-                MÄTTA PUNKTER
+                MÄTT I DET HÄR PASSET
               </div>
               {matta.map((p) => (
                 <div
@@ -314,31 +416,39 @@ export default function MatningPage() {
             </div>
           )}
 
-          {/* Avsluta trakten. Rensar bara när allt ligger i databasen — annars
-              vore knappen ett sätt att kasta en dags mätning av misstag. */}
-          {matta.length > 0 && (
-            <button
-              onClick={() => {
-                if (avslutaMatning(matning)) {
-                  setMatning(null); setTrakt(null); setSenaste(null); setSynkfel(null);
-                }
-              }}
-              disabled={kvar > 0}
-              style={{
-                width: '100%', minHeight: 60, marginTop: 18, borderRadius: 14, border: 'none',
-                background: 'rgba(255,255,255,0.14)',
-                color: kvar > 0 ? '#8E8E93' : '#fff', fontSize: 17, fontWeight: 600,
-              }}
-            >
-              {kvar > 0 ? 'Avsluta trakten — spara punkterna först' : 'Avsluta trakten'}
-            </button>
+          {/* Avsluta trakten STÄNGER den löpande mätningen. Först då börjar
+              nästa besök en ny — annars skulle en gallring i höst fortsätta
+              fylla på en mätning från i våras. */}
+          {matning && (
+            <>
+              <button
+                onClick={() => {
+                  void (async () => {
+                    const r = await avslutaMatning(matning);
+                    if (r.status === 'avslutad') {
+                      setMatning(null); setSenaste(null); setSynkfel(null);
+                      setAterupptagen(false); setAvslutfel(null); setFaktorKrock(null);
+                    } else if (r.status === 'osynkat') {
+                      setAvslutfel(`${r.kvar} ${r.kvar === 1 ? 'punkt väntar' : 'punkter väntar'} på att sparas.`);
+                    } else {
+                      setAvslutfel(r.meddelande);
+                    }
+                  })();
+                }}
+                disabled={kvar > 0}
+                style={{ ...knapp, marginTop: 18, color: kvar > 0 ? '#8E8E93' : '#fff' }}
+              >
+                {kvar > 0 ? 'Avsluta trakten — spara punkterna först' : 'Avsluta trakten'}
+              </button>
+              {avslutfel && (
+                <div style={{ fontSize: 16, color: '#FF9F0A', marginTop: 8, lineHeight: 1.45 }}>
+                  {avslutfel}
+                </div>
+              )}
+            </>
           )}
 
-          <button
-            onClick={() => setLage('kalibrerar')}
-            style={{ width: '100%', minHeight: 60, marginTop: 12, borderRadius: 14, border: 'none',
-              background: 'rgba(255,255,255,0.14)', color: '#fff', fontSize: 17, fontWeight: 600 }}
-          >
+          <button onClick={() => setLage('kalibrerar')} style={{ ...knapp, marginTop: 12 }}>
             Kalibrera om ({kal.synfalt_grader.toFixed(1)}°, faktor {kal.relaskop_faktor})
           </button>
         </>

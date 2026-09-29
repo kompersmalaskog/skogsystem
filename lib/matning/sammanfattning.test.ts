@@ -11,8 +11,8 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../supabase', () => ({ supabase: {} }));
 
 import { spridningsText, type Sammanfattning } from './sammanfattning';
-import { osynkadeAntal, type MattPunkt, type PagaendeMatning } from './lager';
-import { avslutaMatning } from './sparande';
+import { nastaPunktNummer, osynkadeAntal, type MattPunkt, type PagaendeMatning } from './lager';
+import { avslutaMatning, renumreraOsynkade } from './sparande';
 
 function sam(over: Partial<Sammanfattning>): Sammanfattning {
   return {
@@ -67,10 +67,11 @@ function punkt(nr: number, synkad: boolean): MattPunkt {
   };
 }
 
-function matning(punkter: MattPunkt[]): PagaendeMatning {
+function matning(punkter: MattPunkt[], dbHogsta = 0): PagaendeMatning {
   return {
-    lokal_id: 'lokal-1', matning_id: null, objekt_id: 'o1', datum: '2026-08-26',
-    relaskop_faktor: 1, synfalt_grader: 65, enhet: null, punkter, synkad: false,
+    lokal_id: 'lokal-1', matning_id: null, objekt_id: 'o1', objekt_namn: 'Testtrakten',
+    datum: '2026-09-29', relaskop_faktor: 1, synfalt_grader: 65, enhet: null,
+    db_hogsta_punkt: dbHogsta, tidigare_grundytor: [], punkter, synkad: false,
   };
 }
 
@@ -88,9 +89,39 @@ describe('synkens bokföring', () => {
     expect(osynkadeAntal(gammal)).toBe(1);
   });
 
-  it('vägrar avsluta trakten så länge punkter väntar', () => {
-    expect(avslutaMatning(matning([punkt(1, true), punkt(2, false)]))).toBe(false);
-    expect(avslutaMatning(matning([punkt(1, true), punkt(2, true)]))).toBe(true);
-    expect(avslutaMatning(null)).toBe(true);
+  it('vägrar avsluta trakten så länge punkter väntar', async () => {
+    // Att avsluta stänger mätningen i databasen. Görs det med punkter kvar
+    // lokalt skulle de aldrig nå fram — mätningen är stängd och lagret rensat.
+    const r = await avslutaMatning(matning([punkt(1, true), punkt(2, false)]));
+    expect(r.status).toBe('osynkat');
+    expect(r.status === 'osynkat' && r.kvar).toBe(1);
+    expect((await avslutaMatning(null)).status).toBe('avslutad');
+  });
+});
+
+describe('punktnumreringen över flera pass', () => {
+  it('fortsätter efter det som redan ligger i databasen', () => {
+    // Mätning under körning återupptas. Började numreringen om på 1 varje pass
+    // vore två olika punkter "punkt 1" i samma mätning.
+    expect(nastaPunktNummer(matning([], 7))).toBe(8);
+    expect(nastaPunktNummer(matning([punkt(8, true)], 7))).toBe(9);
+    expect(nastaPunktNummer(matning([]))).toBe(1);
+  });
+
+  it('räknar om osynkade punkter som krockar med databasen', () => {
+    // Mätt utan täckning: lokalt 1-2, medan databasen redan har 1-5.
+    const ut = renumreraOsynkade([punkt(1, false), punkt(2, false)], 5);
+    expect(ut.map((p) => p.punkt_nummer)).toEqual([6, 7]);
+  });
+
+  it('rör inte punkter som redan ligger i databasen', () => {
+    const ut = renumreraOsynkade([punkt(3, true), punkt(1, false)], 0);
+    expect(ut.map((p) => p.punkt_nummer)).toEqual([3, 4]);
+    expect(ut[0]).toEqual(punkt(3, true));
+  });
+
+  it('behåller nummer som redan är höga nog', () => {
+    const ut = renumreraOsynkade([punkt(9, false), punkt(10, false)], 5);
+    expect(ut.map((p) => p.punkt_nummer)).toEqual([9, 10]);
   });
 });
