@@ -189,9 +189,12 @@ export default function OversiktV2Page() {
           try {
             const r = await fetch(`/api/routing?fromLat=${from.lat}&fromLng=${from.lng}&toLat=${to.lat}&toLng=${to.lng}`);
             const j = await r.json();
-            return [mid, typeof j.km === 'number' ? j.km : Math.round(haversineKm(from, to) * 1.4)];
+            // BARA riktigt vägavstånd (ORS cache/ors). Endpointens haversine-fallback (source:'fallback')
+            // och alla fel → null → "–" i UI. Aldrig fågelväg i v2.
+            const km = (typeof j.km === 'number' && (j.source === 'cache' || j.source === 'ors')) ? j.km : null;
+            return [mid, km];
           } catch {
-            return [mid, Math.round(haversineKm(from, to) * 1.4)];
+            return [mid, null];
           }
         })());
       });
@@ -248,9 +251,12 @@ export default function OversiktV2Page() {
     } else setMapReady(true);
   }, []);
 
+  // Etiketten: NU-objekt → NÄSTA · km. "→ X" ensamt lästes som position, så nu-objektet står först.
+  // Saknas nu → "? → X". Saknas nästa → "<nu> · inget planerat". km-miss → "–" (aldrig fågelväg).
   const sublabelText = useCallback((f: MaskinForslag, km: number | null): string => {
-    if (!f.nasta) return 'inget planerat';
-    return `→ ${f.nasta.namn}${km != null ? ` · ${Math.round(km)} km` : ''}`;
+    const nu = f.nuObjekt?.namn ?? '?';
+    if (!f.nasta) return `${nu} · inget planerat`;
+    return `${nu} → ${f.nasta.namn} · ${km != null ? `${Math.round(km)} km` : '–'}`;
   }, []);
 
   // Etikett-kollision: skjut ned överlappande etiketter (facit: får aldrig ligga på varandra)
@@ -461,10 +467,10 @@ export default function OversiktV2Page() {
         nameChip.textContent = f.nasta.namn;
         onMapRef.current.push(new window.maplibregl.Marker({ element: nameChip, anchor: 'bottom', offset: [0, -16] }).setLngLat([f.nasta.lng, f.nasta.lat]).addTo(map));
         const km = kmRef.current[S];
-        if (f.koordinat && km != null) {
+        if (f.koordinat) {
           const kmChip = document.createElement('div');
           kmChip.style.cssText = `padding:3px 8px;background:${CHIP_BG};border-radius:8px;font-size:13px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
-          kmChip.textContent = `${Math.round(km)} km`;
+          kmChip.textContent = km != null ? `${Math.round(km)} km` : '–';
           const mid: [number, number] = [(f.koordinat.lng + f.nasta.lng) / 2, (f.koordinat.lat + f.nasta.lat) / 2];
           onMapRef.current.push(new window.maplibregl.Marker({ element: kmChip, anchor: 'center' }).setLngLat(mid).addTo(map));
         }
@@ -574,7 +580,7 @@ function Ark({ f, namn, km, skord, warnings, telefon, onClose }: {
         ? (nastaAgg && nastaAgg.skordat > 0 ? paBackenKvar(nastaAgg.skordat, nastaAgg.skotat, nastaAgg.egenSkotning) : null)
         : (f.nasta.volym_planerad ?? (f.nasta.volym || null)))
     : null;
-  const nastaHoger = [nastaVol != null ? `${fmt(nastaVol)} m³` : null, km != null ? `${Math.round(km)} km` : null].filter(Boolean).join(' · ');
+  const nastaHoger = f.nasta ? [nastaVol != null ? `${fmt(nastaVol)} m³` : null, km != null ? `${Math.round(km)} km` : '–'].filter(Boolean).join(' · ') : '';
 
   const w = f.nasta ? warnings[f.nasta.id] : undefined;
   const varn: { text: string; color: string } | null =
