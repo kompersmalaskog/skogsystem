@@ -18,7 +18,8 @@ import { hyttsparTillLinjer, hyttsparDugligaSegment, lokaltDatumStockholm } from
 import { skaEmittaHeading } from '../../lib/kompass'
 import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, ringCentroid, numreraObjekt, traktArealHa, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
 import { startaPolygonRitning, type PolygonRitningHandle } from '../../lib/polygonRitning'
-import { upsertVerifierat, raderaVerifierat } from '../../lib/supabase-save'
+import { upsertVerifierat, raderaVerifierat, uppdateraVerifierat } from '../../lib/supabase-save'
+import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -745,14 +746,14 @@ export default function PlannerPage() {
     (async () => {
       const { data, error } = await supabase
         .from('objekt_yta_media')
-        .select('id, yta_nyckel, typ, url, skapad_at, medarbetare:skapad_av(namn)')
+        .select('id, yta_nyckel, typ, url, text, skapad_at, medarbetare:skapad_av(namn)')
         .eq('objekt_id', valtObjekt.id)
         .order('skapad_at', { ascending: true });
       if (avbruten) return;
       if (error || !data) { setYtaMedia({}); return; }
-      const karta: Record<string, { id: string; typ: 'audio' | 'foto'; url: string; namn: string | null; skapad_at: string }[]> = {};
+      const karta: Record<string, { id: string; typ: 'audio' | 'foto'; url: string; text: string | null; namn: string | null; skapad_at: string }[]> = {};
       for (const r of data as any[]) {
-        (karta[r.yta_nyckel] ||= []).push({ id: r.id, typ: r.typ, url: r.url, namn: (r.medarbetare as any)?.namn ?? null, skapad_at: r.skapad_at });
+        (karta[r.yta_nyckel] ||= []).push({ id: r.id, typ: r.typ, url: r.url, text: r.text ?? null, namn: (r.medarbetare as any)?.namn ?? null, skapad_at: r.skapad_at });
       }
       setYtaMedia(karta);
     })();
@@ -795,9 +796,19 @@ export default function PlannerPage() {
     }, { select: 'id, skapad_at' });
     if (!res.ok) { setYtaMediaFel(res.fel); return false; }
     const rad = (res.rows as any[])[0];
-    setYtaMedia(prev => ({ ...prev, [nyckel]: [ ...(prev[nyckel] || []), { id: rad.id, typ, url, namn: currentMedarbetare?.namn ?? null, skapad_at: rad.skapad_at } ] }));
+    setYtaMedia(prev => ({ ...prev, [nyckel]: [ ...(prev[nyckel] || []), { id: rad.id, typ, url, text: null, namn: currentMedarbetare?.namn ?? null, skapad_at: rad.skapad_at } ] }));
     return true;
   }, [valtObjekt?.id, currentMedarbetare?.id, currentMedarbetare?.namn]);
+
+  // Sätt/ändra bildtext på en media-rad (planerare). Verifierat update; tom text → null. Uppdaterar cachen.
+  // Oförändrat-kollen görs av anroparen (mm.text finns i scope där) → ingen ytaMedia-läsning här (TDZ-fritt).
+  const sparaYtaMediaText = useCallback(async (nyckel: string, mediaId: string, text: string) => {
+    const rensad = text.trim();
+    const nyText = rensad === '' ? null : rensad;
+    const res = await uppdateraVerifierat(supabase, 'objekt_yta_media', { text: nyText }, { id: mediaId }, 'id');
+    if (!res.ok) { setYtaMediaFel(res.fel); return; }
+    setYtaMedia(prev => ({ ...prev, [nyckel]: (prev[nyckel] || []).map(m => m.id === mediaId ? { ...m, text: nyText } : m) }));
+  }, []);
 
   // Ta bort en media-rad (rad + fil). Verifierat delete; filen städas ur bucketen.
   const raderaYtaMedia = useCallback(async (nyckel: string, rad: { id: string; url: string }) => {
@@ -1944,6 +1955,19 @@ export default function PlannerPage() {
     map.addSource('yta-nr-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'yta-nr-label', type: 'symbol', source: 'yta-nr-source', layout: { 'text-field': ['to-string', ['coalesce', ['get', 'nr'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
 
+    // === "Redigera hörn" (dra hörnen): live-preview (snitsel + siffra) + hörn-/mittpunkts-handtag. ===
+    // Tomma källor tills corner-drag är aktivt (hornEditActive) → inget ritas annars. Layren flyttas överst
+    // vid aktivering så handtagen är tappbara. Snitsel = polygonens outline (casing+bas+streck).
+    map.addSource('hornedit-poly-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'hornedit-fill', type: 'fill', source: 'hornedit-poly-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.06, 'fill-outline-color': 'rgba(0,0,0,0)' } });
+    map.addLayer({ id: 'hornedit-casing', type: 'line', source: 'hornedit-poly-source', paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 5, 13, 7, 17, 10] as any }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'hornedit-base', type: 'line', source: 'hornedit-poly-source', paint: { 'line-color': LEGEND.fara, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 13, 5, 17, 8] as any }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'hornedit-stripe', type: 'line', source: 'hornedit-poly-source', paint: { 'line-color': LEGEND.gul, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 13, 5, 17, 8] as any, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addSource('hornedit-pts-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'hornedit-mid', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'mid'], paint: { 'circle-radius': 6, 'circle-color': 'rgba(255,255,255,0.5)', 'circle-stroke-color': 'rgba(0,0,0,0.6)', 'circle-stroke-width': 1.5 } });
+    map.addLayer({ id: 'hornedit-vertex', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'vertex'], paint: { 'circle-radius': 8, 'circle-color': '#fff', 'circle-stroke-color': LEGEND.fara, 'circle-stroke-width': 2.5 } });
+    map.addLayer({ id: 'hornedit-nr', type: 'symbol', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'nr'], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'nr'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
+
     // Ensure base map layer visibility matches current mapType.
     // Tidigare hårdkodade satellite=visible/terrain=none här — det överskred
     // mapType-state och gjorde att terrain-default inte syntes (bug 2026-05).
@@ -2517,7 +2541,7 @@ export default function PlannerPage() {
   const [anteckningFel, setAnteckningFel] = useState<string | null>(null);
   // Per-yta MEDIA (tabell objekt_yta_media): ljud + foto knutna till ytan, FLERA rader per yta i ordning.
   // Cachas per objekt: yta_nyckel → lista. Förare ser + spelar upp; bara admin (planerare) lägger till/tar bort.
-  const [ytaMedia, setYtaMedia] = useState<Record<string, { id: string; typ: 'audio' | 'foto'; url: string; namn: string | null; skapad_at: string }[]>>({});
+  const [ytaMedia, setYtaMedia] = useState<Record<string, { id: string; typ: 'audio' | 'foto'; url: string; text: string | null; namn: string | null; skapad_at: string }[]>>({});
   const [ytaMediaSparar, setYtaMediaSparar] = useState(false); // ljud-upload / foto-upload pågår
   const [ytaMediaFel, setYtaMediaFel] = useState<string | null>(null);
   const [recordingYtaNyckel, setRecordingYtaNyckel] = useState<string | null>(null); // inspelning för denna yta
@@ -2875,10 +2899,17 @@ export default function PlannerPage() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawPaused, setDrawPaused] = useState(false); // Pausad mellan drag
   // "Redigera hörn" på ett eget område: redigera path på BEFINTLIG boundary-markör (behåll id → nummer,
-  // anteckning och media följer med automatiskt). Ref = markörens ögonblicksbild (finishLineFromCoords läser
-  // den stale-fritt); state = id:t som döljs i renderingen medan man ritar om. Null = ingen pågående redigering.
+  // anteckning och media följer med automatiskt). redigeraGransRef = markörens ögonblicksbild; redigeraGransId
+  // (state) = id:t som döljs i renderingen (3 sync-effekter) medan man redigerar. Null = ingen redigering.
   const redigeraGransRef = useRef<any | null>(null);
   const [redigeraGransId, setRedigeraGransId] = useState<string | number | null>(null);
+  // Corner-drag ("dra hörnen"): aktivt läge + live-ring (öppen, [lng,lat]) i ref (pekar-handlarna läser
+  // stale-fritt) + siffran som visas live. hornEditNrRef fångas vid start (ändras inte under redigering).
+  const [hornEditActive, setHornEditActive] = useState(false);
+  const hornEditActiveRef = useRef(false);
+  useEffect(() => { hornEditActiveRef.current = hornEditActive; }, [hornEditActive]);
+  const hornEditRingRef = useRef<[number, number][]>([]);   // öppen ring i [lng,lat]
+  const hornEditNrRef = useRef<string>('');
   // Freehand drawing refs (avoid stale closures in document-level listeners)
   const freehandCoordsRef = useRef<[number, number][]>([]);
   const freehandActiveRef = useRef(false);
@@ -4346,7 +4377,7 @@ export default function PlannerPage() {
     };
 
     const handleHogarClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current) return; // urvalsritning: tryck = hörn, ej multi-select (hög-tryck-valet gäller UTANFÖR ritning)
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, ej multi-select (hög-tryck-valet gäller UTANFÖR ritning)
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
       featureClickedRef.current = true;
@@ -4381,7 +4412,7 @@ export default function PlannerPage() {
 
     // Kluster-klick → zooma in
     const handleClusterClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current) return; // urvalsritning: tryck = hörn, ingen kluster-zoom
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, ingen kluster-zoom
       featureClickedRef.current = true;
       const features = map.queryRenderedFeatures(e.point, { layers: ['hogar-cluster'] });
       if (!features.length) return;
@@ -4397,6 +4428,7 @@ export default function PlannerPage() {
 
     // Stäng panel vid klick på tom kartyta
     const handleMapClick = (e: any) => {
+      if (hornEditActiveRef.current) return;   // corner-drag: tryck styr hörnen, aldrig avmarkering/kort
       // Om en feature-handler redan hanterat klicket, skippa
       if (featureClickedRef.current) {
         featureClickedRef.current = false;
@@ -4416,7 +4448,7 @@ export default function PlannerPage() {
     // Symbol/pil-TAP → öppna kortet (drag borttaget). Läs id ur feature-props, hitta markören i
     // markersRef och öppna dess kort. I stickväg-översikt: välj för översikt istället (som förr).
     const handleMarkerFeatureClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current) return; // urvalsritning: tryck = hörn, aldrig symbol-/pil-kort
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig symbol-/pil-kort
       featureClickedRef.current = true;
       const rawId = e.features?.[0]?.properties?.id;
       if (rawId == null) return;
@@ -4468,7 +4500,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
 
     const handleGrotClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current) return; // urvalsritning: tryck = hörn, aldrig GROT-kort
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig GROT-kort
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
       featureClickedRef.current = true;
@@ -5331,6 +5363,96 @@ export default function PlannerPage() {
     };
   }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen, currentDrawCoords, larmPlacering]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // === "Redigera hörn" (corner-drag): pekar-handtag på hörnen. Dra hörn = flytta, tryck mittpunkt =
+  // lägg till hörn, håll på hörn = ta bort. Snitsel + siffra uppdateras live ur ringen (ritaHornEdit).
+  // Samma DOM-event-mönster som freehand (canvas mousedown/touchstart + document move/up + dragPan).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !hornEditActive) return;
+    const canvas = map.getCanvas();
+    // Handtagslagren överst så de är tappbara ovanpå allt annat.
+    for (const id of ['hornedit-fill', 'hornedit-casing', 'hornedit-base', 'hornedit-stripe', 'hornedit-mid', 'hornedit-vertex', 'hornedit-nr']) {
+      if (map.getLayer(id)) { try { map.moveLayer(id); } catch { /* */ } }
+    }
+    ritaHornEdit();
+
+    const toCanvas = (clientX: number, clientY: number) => { const r = canvas.getBoundingClientRect(); return { x: clientX - r.left, y: clientY - r.top }; };
+    const VERTEX_HIT = 22, MID_HIT = 18;
+    let dragIndex: number | null = null;
+    let longPress: any = null;
+    let downAt = { x: 0, y: 0 };
+
+    const narmasteHorn = (cx: number, cy: number) => {
+      const ring = hornEditRingRef.current; let best = -1, bd = VERTEX_HIT;
+      ring.forEach((p, i) => { const s = map.project([p[0], p[1]] as any); const d = Math.hypot(s.x - cx, s.y - cy); if (d < bd) { bd = d; best = i; } });
+      return best;
+    };
+    const narmasteKant = (cx: number, cy: number) => {
+      let bestKant = -1, bd = MID_HIT;
+      for (const m of kantMittpunkter(hornEditRingRef.current)) { const s = map.project([m.pt[0], m.pt[1]] as any); const d = Math.hypot(s.x - cx, s.y - cy); if (d < bd) { bd = d; bestKant = m.kantIndex; } }
+      return bestKant;
+    };
+
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      const { x, y } = toCanvas(clientX, clientY);
+      downAt = { x, y };
+      const vi = narmasteHorn(x, y);
+      if (vi >= 0) {
+        dragIndex = vi;
+        map.dragPan.disable();
+        // Håll (utan att röra) → ta bort hörnet.
+        longPress = setTimeout(() => {
+          const ny = taBortHorn(hornEditRingRef.current, vi);
+          if (ny.length !== hornEditRingRef.current.length) { hornEditRingRef.current = ny; ritaHornEdit(); if (navigator.vibrate) navigator.vibrate(15); }
+          dragIndex = null; longPress = null; map.dragPan.enable();
+        }, 550);
+        return;
+      }
+      const kant = narmasteKant(x, y);
+      if (kant >= 0) {
+        // Tryck på kantens mitt → lägg till hörn där.
+        const m = kantMittpunkter(hornEditRingRef.current).find(mm => mm.kantIndex === kant);
+        if (m) { hornEditRingRef.current = laggTillHorn(hornEditRingRef.current, kant, m.pt); ritaHornEdit(); if (navigator.vibrate) navigator.vibrate(10); }
+        return;
+      }
+      // Inte på ett handtag → låt kartan panorera (dragPan kvar på).
+    };
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      if (dragIndex == null) return;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      const { x, y } = toCanvas(clientX, clientY);
+      if (longPress && Math.hypot(x - downAt.x, y - downAt.y) > 6) { clearTimeout(longPress); longPress = null; }   // rörelse → drag, inte "håll"
+      const ll = map.unproject([x, y] as any);
+      hornEditRingRef.current = flyttaHorn(hornEditRingRef.current, dragIndex, [ll.lng, ll.lat]);
+      ritaHornEdit();
+    };
+    const onUp = () => {
+      if (longPress) { clearTimeout(longPress); longPress = null; }
+      if (dragIndex != null) { dragIndex = null; map.dragPan.enable(); }
+    };
+
+    canvas.addEventListener('mousedown', onDown);
+    canvas.addEventListener('touchstart', onDown, { passive: true });
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('touchmove', onMove, { passive: true });
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchend', onUp);
+    return () => {
+      canvas.removeEventListener('mousedown', onDown);
+      canvas.removeEventListener('touchstart', onDown);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchend', onUp);
+      if (longPress) clearTimeout(longPress);
+      if (map.dragPan) map.dragPan.enable();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hornEditActive, mapLibreReady]);
+
   // === Larmkoordinat-märke: dödcentrerad RÖD prick + vitt kors — mitten på koordinaten ===
   // Röd = akut (larm), blå är reserverat för arbete. Ligger ÖVERST i z-ordningen (moveLayer
   // nedan) så inget arbetslager kan dölja den vid en olycka — ingen ska behöva zooma för att
@@ -5408,7 +5530,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const onLarmClick = () => {
-      if (skotningDrawingRef.current || omradeRitningRef.current) return; // urvalsritning: tryck = hörn, aldrig larm-popup
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig larm-popup
       if (larmPlacering) return; // mitt i en flytt — öppna inte popupen
       featureClickedRef.current = true;
       setLarmConfirmDelete(false);
@@ -5449,7 +5571,7 @@ export default function PlannerPage() {
       setTraktKortSvepY(0);
     };
     const onKlick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current) return;   // urvalsritning: tryck = hörn
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return;   // urvalsritning: tryck = hörn
       if (larmPlacering) return;                 // mitt i en larmflytt
       const lager = LAGER.filter((l) => map.getLayer(l));
       const träffar = lager.length ? map.queryRenderedFeatures(e.point, { layers: lager }) : [];
@@ -5513,7 +5635,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const onKlick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current) return;
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return;
       if (isDrawMode || isZoneMode || larmPlacering) return;
       const fid = e.features?.[0]?.properties?.id;
       if (fid == null) return;
@@ -5956,29 +6078,66 @@ export default function PlannerPage() {
     } catch { /* ok */ }
   };
 
-  const finishLineFromCoords = (coords: [number, number][]) => {
-    // REDIGERA HÖRN (eget område): uppdatera path på BEFINTLIG markör med samma id → nummer, anteckning
-    // och media (nyckel omrade:<id>) följer med automatiskt; ingen radering, inget nytt id.
-    const redigerar = redigeraGransRef.current;
-    if (redigerar) {
-      if (coords.length > 1) {
-        saveToHistory([...markers]);
-        const svgPath = coords.map(([lng, lat]) => latLonToSvg(lat, lng));
-        const uppdaterad = { ...redigerar, path: svgPath };
-        setMarkers((prev: any[]) => prev.map((m: any) => String(m.id) === String(redigerar.id) ? uppdaterad : m));
-        saveMarkerToDb(uppdaterad);
+  // === "Redigera hörn" (dra hörnen) — corner-drag på en boundary-markör. Behåller markörens id →
+  // nummer, anteckning och media (nyckel omrade:<id>) följer med. Ring-operationerna är rena (lib/ringEdit).
+  // Rita live-preview (snitsel + siffra) + handtag ur den öppna ringen (hornEditRingRef, [lng,lat]).
+  const ritaHornEdit = () => {
+    const map = mapInstanceRef.current; if (!map) return;
+    const ring = hornEditRingRef.current;
+    try {
+      const polySrc = map.getSource('hornedit-poly-source') as any;
+      if (polySrc) {
+        const closed = ring.length >= 3 ? slutRing(ring) : [];
+        polySrc.setData({ type: 'FeatureCollection', features: closed.length ? [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [closed] } }] : [] });
       }
-      redigeraGransRef.current = null;
-      setRedigeraGransId(null);
-      clearDrawingPreview();
-      setCurrentDrawCoords([]);
-      setCurrentPath([]);
-      setIsDrawMode(false);
-      setDrawType(null);
-      setIsDrawing(false);
-      setDrawPaused(false);
-      return;
+      const ptsSrc = map.getSource('hornedit-pts-source') as any;
+      if (ptsSrc) {
+        const feats: any[] = [];
+        ring.forEach((p, i) => feats.push({ type: 'Feature', properties: { kind: 'vertex', i }, geometry: { type: 'Point', coordinates: [p[0], p[1]] } }));
+        for (const m of kantMittpunkter(ring)) feats.push({ type: 'Feature', properties: { kind: 'mid', kantIndex: m.kantIndex }, geometry: { type: 'Point', coordinates: [m.pt[0], m.pt[1]] } });
+        if (hornEditNrRef.current) { const c = ringMitt(ring); feats.push({ type: 'Feature', properties: { kind: 'nr', nr: hornEditNrRef.current }, geometry: { type: 'Point', coordinates: [c[0], c[1]] } }); }
+        ptsSrc.setData({ type: 'FeatureCollection', features: feats });
+      }
+    } catch { /* source not ready */ }
+  };
+  // Starta corner-drag på en boundary-markör. Öppnar ringen (unika hörn), döljer originalet, tänder handtagen.
+  const startaHornEdit = (marker: any) => {
+    if (!marker || !marker.path || marker.path.length < 3) return;
+    const ringLL = oppnaRing(marker.path.map((p: any) => { const { lat, lon } = svgToLatLon(p.x, p.y); return [lon, lat] as [number, number]; }));
+    if (ringLL.length < 3) return;
+    hornEditRingRef.current = ringLL;
+    redigeraGransRef.current = { ...marker };
+    const num = numreringRef.current;
+    const n = num.visaGransNummer ? num.gransNr.get(String(marker.id)) : null;
+    hornEditNrRef.current = n != null ? String(n) : '';
+    saveToHistory([...markers]);
+    setRedigeraGransId(marker.id);   // dölj originalets snitsel/tappyta/siffra medan man redigerar
+    setHornEditActive(true);
+    stangTraktKort();
+  };
+  // Avsluta corner-drag. spara=true → uppdatera path på BEFINTLIG markör (samma id) + verifierat spara.
+  const avslutaHornEdit = (spara: boolean) => {
+    const ring = hornEditRingRef.current;
+    const marker = redigeraGransRef.current;
+    if (spara && marker && ring.length >= 3) {
+      const svgPath = slutRing(ring).map(([lng, lat]) => latLonToSvg(lat, lng));
+      const uppdaterad = { ...marker, path: svgPath };
+      setMarkers((prev: any[]) => prev.map((m: any) => String(m.id) === String(marker.id) ? uppdaterad : m));
+      saveMarkerToDb(uppdaterad);
     }
+    setHornEditActive(false);
+    redigeraGransRef.current = null;
+    hornEditRingRef.current = [];
+    hornEditNrRef.current = '';
+    setRedigeraGransId(null);
+    const map = mapInstanceRef.current;
+    try {
+      (map?.getSource('hornedit-poly-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
+      (map?.getSource('hornedit-pts-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
+    } catch { /* */ }
+  };
+
+  const finishLineFromCoords = (coords: [number, number][]) => {
     if (coords.length > 1 && drawType) {
       saveToHistory([...markers]);
       const svgPath = coords.map(([lng, lat]) => latLonToSvg(lat, lng));
@@ -6100,7 +6259,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
 
     const onLineClick = (e: any) => {
-      if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing) return;
+      if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing || hornEditActiveRef.current) return;
       // Prioritet symbol > zon > linje: ligger trycket också på en symbol/pil/zon → avstå (den vinner).
       // Symbolen är liten och avsiktligt placerad; linjen träffas av misstag längs hela sin sträckning.
       const overLine = ['markers-hit', 'arrows-hit', 'zone-fill'].filter(l => map.getLayer(l));
@@ -9556,7 +9715,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const onClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current) return; // urvalsritning: tryck = hörn, aldrig TMA-panel
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig TMA-panel
       if (e.features && e.features.length > 0) {
         const bmId = e.features[0].properties.markerId;
         if (bmId) setTmaOpen(bmId);
@@ -11155,14 +11314,6 @@ export default function PlannerPage() {
   };
 
   const finishLine = () => {
-    // REDIGERA HÖRN: routa ALLTID genom finishLineFromCoords (som uppdaterar befintlig markör och städar
-    // edit-läget) → aldrig fallbacken nedan som skulle skapa en NY markör med nytt id.
-    if (redigeraGransRef.current) {
-      let ec = [...currentDrawCoords];
-      if (drawType && POLYGON_LINE_TYPES.has(drawType) && ec.length >= 3) ec.push(ec[0]);
-      finishLineFromCoords(ec);
-      return;
-    }
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 1 && drawType) {
       const shouldClose = POLYGON_LINE_TYPES.has(drawType);
@@ -15030,22 +15181,7 @@ export default function PlannerPage() {
                           const bMarker: any = markers.find((mm: any) => String(mm.id) === String(boundaryId));
                           return (
                             <>
-                              <button onClick={() => {
-                                  if (!bMarker || !bMarker.path) return;
-                                  // "Redigera hörn": öppna ritläget med gränsens path. Markören RADERAS INTE — den
-                                  // uppdateras i finishLineFromCoords med SAMMA id (nummer/anteckning/media följer med).
-                                  // Originalet döljs i renderingen (redigeraGransId) medan man ritar om; stäng kortet.
-                                  setCurrentPath([...bMarker.path]);
-                                  const lngLatCoords: [number, number][] = bMarker.path.map((p: any) => { const { lat, lon } = svgToLatLon(p.x, p.y); return [lon, lat] as [number, number]; });
-                                  setCurrentDrawCoords(lngLatCoords);
-                                  setDrawType(bMarker.lineType);
-                                  setIsDrawMode(true);
-                                  setDrawPaused(true);
-                                  saveToHistory([...markers]);
-                                  redigeraGransRef.current = { ...bMarker };
-                                  setRedigeraGransId(bMarker.id);
-                                  stangTraktKort();
-                                }}
+                              <button onClick={() => startaHornEdit(bMarker)}
                                 style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.28)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                                 Redigera hörn
                               </button>
@@ -15108,17 +15244,27 @@ export default function PlannerPage() {
                     {(harMedia || kanSkriva) && (
                       <div style={{ marginTop: (harAnteckning || kanSkriva) ? '14px' : 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {media.map((mm) => (
-                          <div key={mm.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {mm.typ === 'audio' ? (
-                              <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
-                            ) : (
-                              <img src={mm.url} alt="Foto" onClick={() => setFullscreenPhoto(mm.url)}
-                                style={{ flex: 1, maxHeight: '180px', width: '100%', objectFit: 'cover', borderRadius: '12px', cursor: 'pointer', display: 'block' }} />
-                            )}
-                            {kanSkriva && (
-                              <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
-                                style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-                            )}
+                          <div key={mm.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {mm.typ === 'audio' ? (
+                                <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
+                              ) : (
+                                <img src={mm.url} alt="Foto" onClick={() => setFullscreenPhoto(mm.url)}
+                                  style={{ flex: 1, maxHeight: '180px', width: '100%', objectFit: 'cover', borderRadius: '12px', cursor: 'pointer', display: 'block' }} />
+                              )}
+                              {kanSkriva && (
+                                <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
+                                  style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                              )}
+                            </div>
+                            {/* Bildtext under mediat: admin redigerar (spar vid blur), förare läser. */}
+                            {kanSkriva ? (
+                              <input type="text" defaultValue={mm.text ?? ''} placeholder="Bildtext…" key={`bt-${mm.id}-${mm.text ?? ''}`}
+                                onBlur={(e) => { if ((mm.text ?? '') !== e.target.value.trim()) sparaYtaMediaText(nyckel, mm.id, e.target.value); }}
+                                style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none', fontFamily: 'inherit' }} />
+                            ) : (mm.text ? (
+                              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', lineHeight: 1.4, padding: '0 2px' }}>{mm.text}</div>
+                            ) : null)}
                           </div>
                         ))}
                         {ytaMediaFel && (<div style={{ fontSize: '13px', color: '#ff453a' }}>{ytaMediaFel}</div>)}
@@ -15216,6 +15362,15 @@ export default function PlannerPage() {
         <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: '50%', transform: 'translateX(-50%)', zIndex: 400, display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(10,132,255,0.96)', color: '#fff', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderRadius: '14px', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', maxWidth: '92vw' }}>
           <span>Tryck på kartan där räddningstjänsten kan mötas</span>
           <button onClick={() => { setLarmPlacering(false); if (larmPlaceringFromRef.current === 'trakt') setTraktOpen(true); }} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: '9px', border: 'none', background: 'rgba(255,255,255,0.22)', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
+        </div>
+      )}
+
+      {/* "Redigera hörn" (corner-drag) — instruktion + Klar/Avbryt. Dra hörn, tryck mittpunkt för nytt hörn, håll för att ta bort. */}
+      {hornEditActive && (
+        <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: '50%', transform: 'translateX(-50%)', zIndex: 400, display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(20,20,22,0.96)', color: '#fff', fontSize: '13.5px', fontWeight: 500, padding: '10px 12px', borderRadius: '14px', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', maxWidth: '94vw', border: '1px solid rgba(255,255,255,0.12)' }}>
+          <span style={{ lineHeight: 1.35 }}>Dra hörn · tryck mittpunkt = nytt hörn · håll = ta bort</span>
+          <button onClick={() => avslutaHornEdit(true)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: '10px', border: 'none', background: '#1d9e75', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Klar</button>
+          <button onClick={() => avslutaHornEdit(false)} style={{ flexShrink: 0, padding: '7px 12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: '#fff', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
         </div>
       )}
 
