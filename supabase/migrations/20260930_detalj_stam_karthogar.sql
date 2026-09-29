@@ -32,7 +32,7 @@ FROM (
   GROUP BY maskin_id, stem_key
 ) sub
 WHERE ds.maskin_id = sub.maskin_id
-  AND ds.stem_key = sub.stem_key
+  AND ds.stam_key = sub.stem_key   -- OBS: detalj_stam.stam_key == detalj_stock.stem_key (olika kolumnnamn, samma värde)
   AND ds.total_volym IS NULL;
 
 -- === Backfill 2: bio_energy_adaption + sortiment ur hpr_stammar ===
