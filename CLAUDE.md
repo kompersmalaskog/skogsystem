@@ -301,16 +301,30 @@ pagineringsbuggen, dar ett testverktyg gav 8 falsklarm av samma familj.
 
 ## Repo
 - GitHub: kompersmalaskog/skogsystem
-- Vercel bygger automatiskt vid push till main
+- Vercel: push till `main` bygger PREVIEW, produktion uppdateras bara när `production`-branchen förs fram (se Deploy-flöde). Production-branch = `production`.
 - Rätt repo: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude
 - OneDrive-mapp: C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer
 - Filtyper: MOM, HPR, HQC, FPR — aldrig PRL
 
 ## Deploy-flöde
 
-**Default: feature-branch + PR.** Claude commitar på en egen branch och pushar. Martin granskar Vercel-preview, mergear PR:en själv. Detta är standardflödet för alla planerade ändringar — UI, refactors, nya features, bugfixar.
+**Produktion är gated (sedan 2026-09-29).** `main` är integrationsbranch — varje merge bygger PREVIEW, inte produktion. Förarna får en ändring först när Martin för fram `production`-branchen. Poängen: skilja *merga* (integrera, granska preview) från *släppa* (förarna får det), så ändringar kan samlas och släppas när Martin bestämmer — helst när förarna inte sitter mitt i (kväll/helg).
 
-**Hot-fix-undantag: direkt till main.** När prod är trasig och förare inte kan jobba — skippa PR-flödet, commita direkt till main. Hot-fix definieras som "förarna kan inte använda appen just nu". Allt annat är planerad ändring och ska gå via PR.
+**Default: feature-branch + PR till `main`.** Claude commitar på en egen branch och pushar. Martin granskar Vercel-preview, mergear PR:en till `main` själv. Standardflöde för alla planerade ändringar — UI, refactors, features, bugfixar. Detta når INTE förarna förrän `production` förs fram.
+
+**Släppa till produktion** (Martin gör det):
+```bash
+node scripts/vad-slapps.mjs        # visa vad som släpps + ev. migrationer FÖRST
+git checkout production && git merge --ff-only main && git push
+```
+Rollback: Vercel dashboard → Instant Rollback till förra prod-bygget.
+
+**Migrationer — den enda riktiga risken med gaten** (kod och schema kan glida isär utan att någon ser det):
+1. **Varje PR som kräver en migration ska säga det uttryckligen i beskrivningen, med filnamnet** (t.ex. `supabase/migrations/20260908_...sql`).
+2. **Migrationer körs FÖRE production förs fram, aldrig efter.** De är additiva (`ADD COLUMN IF NOT EXISTS`), så tidigt är alltid säkert — kör dem så snart PR:en mergats till main.
+3. **Innan production förs fram: lista migrationerna som tillkommit i main sedan förra releasen** så Martin kan bekräfta att de är körda. `node scripts/vad-slapps.mjs` gör det (commits + migrationer i `origin/production..origin/main`); rått: `git diff --name-only origin/production..origin/main -- supabase/migrations/`.
+
+**Hot-fix-undantag: fixa på `main`, för fram `production` direkt.** När prod är trasig och förare inte kan jobba — gaten får inte stå i vägen. Primärvägen är samma som en release men gjord med en gång: committa fixen till `main` (direkt eller via snabb-PR), kör sedan `git checkout production && git merge --ff-only main && git push`. Då förblir `production` en ren fast-forward av `main`. Bara om `main` av någon anledning är oanvändbar: committa till `production`, och **merga sedan tillbaka `production` → `main`** så de inte glider isär (annars slutar `--ff-only` fungera vid nästa release). En hot-fix som bara ligger i `main` men inte förts fram hjälper ingen förare. "Hot-fix" = "förarna kan inte använda appen just nu"; allt annat väntar på nästa release.
 
 **Branch-namn ska beskriva vad som ändras.** Exempel: `arbetsrapport-dag-stadrunda`, `fix-hpr-import-dedup`, `add-helikopter-v2`. Inte de auto-genererade `claude/optimistic-elion-904505`-namnen från worktree-systemet — om worktreen ger ett sådant, byt branch-namn innan första push.
 
