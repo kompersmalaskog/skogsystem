@@ -2867,6 +2867,11 @@ export default function PlannerPage() {
   const [currentDrawCoords, setCurrentDrawCoords] = useState<[number, number][]>([]); // [lng, lat] coords för MapLibre-ritning
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawPaused, setDrawPaused] = useState(false); // Pausad mellan drag
+  // "Redigera hörn" på ett eget område: redigera path på BEFINTLIG boundary-markör (behåll id → nummer,
+  // anteckning och media följer med automatiskt). Ref = markörens ögonblicksbild (finishLineFromCoords läser
+  // den stale-fritt); state = id:t som döljs i renderingen medan man ritar om. Null = ingen pågående redigering.
+  const redigeraGransRef = useRef<any | null>(null);
+  const [redigeraGransId, setRedigeraGransId] = useState<string | number | null>(null);
   // Freehand drawing refs (avoid stale closures in document-level listeners)
   const freehandCoordsRef = useRef<[number, number][]>([]);
   const freehandActiveRef = useRef(false);
@@ -5945,6 +5950,28 @@ export default function PlannerPage() {
   };
 
   const finishLineFromCoords = (coords: [number, number][]) => {
+    // REDIGERA HÖRN (eget område): uppdatera path på BEFINTLIG markör med samma id → nummer, anteckning
+    // och media (nyckel omrade:<id>) följer med automatiskt; ingen radering, inget nytt id.
+    const redigerar = redigeraGransRef.current;
+    if (redigerar) {
+      if (coords.length > 1) {
+        saveToHistory([...markers]);
+        const svgPath = coords.map(([lng, lat]) => latLonToSvg(lat, lng));
+        const uppdaterad = { ...redigerar, path: svgPath };
+        setMarkers((prev: any[]) => prev.map((m: any) => String(m.id) === String(redigerar.id) ? uppdaterad : m));
+        saveMarkerToDb(uppdaterad);
+      }
+      redigeraGransRef.current = null;
+      setRedigeraGransId(null);
+      clearDrawingPreview();
+      setCurrentDrawCoords([]);
+      setCurrentPath([]);
+      setIsDrawMode(false);
+      setDrawType(null);
+      setIsDrawing(false);
+      setDrawPaused(false);
+      return;
+    }
     if (coords.length > 1 && drawType) {
       saveToHistory([...markers]);
       const svgPath = coords.map(([lng, lat]) => latLonToSvg(lat, lng));
@@ -7415,7 +7442,7 @@ export default function PlannerPage() {
       const features: any[] = [];
       const korvyPos = korvyActive ? (currentPosition as any) : null;
       markers
-        .filter((m: any) => m.isLine && m.path && m.path.length > 1)
+        .filter((m: any) => m.isLine && m.path && m.path.length > 1 && String(m.id) !== String(redigeraGransId))   // dölj gränsen som redigeras (ritas som preview i st.)
         .forEach((m: any) => {
         const coords = m.path.map((p: any) => {
           const ll = svgToLatLon(p.x, p.y);
@@ -7457,7 +7484,7 @@ export default function PlannerPage() {
         console.log('[MapLibre] lines-source synced:', features.length, 'features', types);
       }
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition]);
+  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition, redigeraGransId]);
 
   // 1b) Basväg-NUMRERING: varje mainRoad utan `nummer` får ett stabilt löpnummer i skapelseordning
   // (via id). Backfill av de befintliga + nytt när en basväg ritas. Numret sparas på markören (JSONB)
@@ -7561,7 +7588,7 @@ export default function PlannerPage() {
       if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; }
       const features: any[] = [];
       markers
-        .filter((m: any) => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 2)
+        .filter((m: any) => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 2 && String(m.id) !== String(redigeraGransId))   // dölj tappytan för gränsen som redigeras
         .forEach((m: any) => {
           const coords = m.path.map((p: any) => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat]; });
           const f = coords[0], l = coords[coords.length - 1];
@@ -7570,7 +7597,7 @@ export default function PlannerPage() {
         });
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, objektSaknarPosition]);
+  }, [markers, mapLibreReady, mapCenter, objektSaknarPosition, redigeraGransId]);
 
   // 2a-nr) EN siffra per yta på yta-nr-source: bit-centroider (traktdel-delar, ej justerade) + boundary-centroider.
   // Punktkälla → aldrig dubblerad vid inzoomning. Tom siffra = ensam-yta-regeln (visa*Nummer=false) → hoppas över.
@@ -7596,6 +7623,7 @@ export default function PlannerPage() {
       if (objektNumrering.visaGransNummer) {
         for (const m of markers as any[]) {
           if (!(m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1)) continue;
+          if (String(m.id) === String(redigeraGransId)) continue;   // dölj siffran för gränsen som redigeras
           const nr = objektNumrering.gransNr.get(String(m.id));
           if (nr == null) continue;
           let sx = 0, sy = 0;
@@ -7606,7 +7634,7 @@ export default function PlannerPage() {
       }
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
-  }, [markers, traktdelDelar, justeradeTraktdelar, mapLibreReady, mapCenter, objektSaknarPosition, objektNumrering]);
+  }, [markers, traktdelDelar, justeradeTraktdelar, mapLibreReady, mapCenter, objektSaknarPosition, objektNumrering, redigeraGransId]);
 
   // 2b) Synka markeringar → MapLibre markers-source (GPU-renderad symbol layer)
   // Inkluderar opacity per feature baserat på proximity
@@ -11120,6 +11148,14 @@ export default function PlannerPage() {
   };
 
   const finishLine = () => {
+    // REDIGERA HÖRN: routa ALLTID genom finishLineFromCoords (som uppdaterar befintlig markör och städar
+    // edit-läget) → aldrig fallbacken nedan som skulle skapa en NY markör med nytt id.
+    if (redigeraGransRef.current) {
+      let ec = [...currentDrawCoords];
+      if (drawType && POLYGON_LINE_TYPES.has(drawType) && ec.length >= 3) ec.push(ec[0]);
+      finishLineFromCoords(ec);
+      return;
+    }
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 1 && drawType) {
       const shouldClose = POLYGON_LINE_TYPES.has(drawType);
@@ -11336,6 +11372,8 @@ export default function PlannerPage() {
     setIsDrawing(false);
     setDrawPaused(false);
     setDrawCursor(null);
+    // Avbruten "Redigera hörn" → återställ det dolda originalet oförändrat (ingen radering skedde).
+    if (redigeraGransRef.current) { redigeraGransRef.current = null; setRedigeraGransId(null); }
   };
 
   // Pan
@@ -14987,8 +15025,9 @@ export default function PlannerPage() {
                             <>
                               <button onClick={() => {
                                   if (!bMarker || !bMarker.path) return;
-                                  // "Redigera hörn" = Förläng-logiken: öppna ritläget med gränsens path, ta bort markören
-                                  // (återskapas när ritningen sluts). Stäng kortet.
+                                  // "Redigera hörn": öppna ritläget med gränsens path. Markören RADERAS INTE — den
+                                  // uppdateras i finishLineFromCoords med SAMMA id (nummer/anteckning/media följer med).
+                                  // Originalet döljs i renderingen (redigeraGransId) medan man ritar om; stäng kortet.
                                   setCurrentPath([...bMarker.path]);
                                   const lngLatCoords: [number, number][] = bMarker.path.map((p: any) => { const { lat, lon } = svgToLatLon(p.x, p.y); return [lon, lat] as [number, number]; });
                                   setCurrentDrawCoords(lngLatCoords);
@@ -14996,8 +15035,8 @@ export default function PlannerPage() {
                                   setIsDrawMode(true);
                                   setDrawPaused(true);
                                   saveToHistory([...markers]);
-                                  deleteMarkerFromDb(bMarker.id);
-                                  setMarkers(prev => prev.filter(m => m.id !== bMarker.id));
+                                  redigeraGransRef.current = { ...bMarker };
+                                  setRedigeraGransId(bMarker.id);
                                   stangTraktKort();
                                 }}
                                 style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.28)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
