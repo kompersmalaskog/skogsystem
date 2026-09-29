@@ -45,11 +45,16 @@ type OversiktsRad = {
   vo_nummer: string; namn: string; bolag: string | null; fortnox_kundnr: number | null;
   avtalsform: 'ackord' | 'timpeng'; tillstand: string; avrakningsdatum: string | null;
   objekt_antal: number; volym_m3fub: number; g15h: number; hinder: string | null;
+  hinder_typ: 'kund' | 'traillertimmar' | 'kontraktsnr' | null;
+  saknar_objektrad: boolean;
 };
 type Oversikt = {
   ms: number; antal: number;
   grupper: {
-    klara: OversiktsRad[]; atgard: OversiktsRad[]; ingen_gemensam_kund: OversiktsRad[];
+    klara: OversiktsRad[];
+    gar_inte_att_prissatta: OversiktsRad[];
+    saknar_kontraktsnr: OversiktsRad[];
+    ingen_gemensam_kund: OversiktsRad[];
     pagar: OversiktsRad[]; ej_paborjad: OversiktsRad[];
   };
 };
@@ -125,8 +130,24 @@ export default function FakturaunderlagClient() {
           <Grupp titel="Klara att fakturera" rader={oversikt.grupper.klara} oppna={oppna}
             tomText="Ingen trakt är klar att fakturera just nu." />
 
-          <Grupp titel="Behöver åtgärd" rader={oversikt.grupper.atgard} oppna={oppna} visaHinder
-            tomText="Inget underlag stoppas av kund, kontraktsnummer eller flyttimmar." />
+          <Grupp titel="Går inte att prissätta" rader={oversikt.grupper.gar_inte_att_prissatta}
+            oppna={oppna} visaHinder
+            tomText="Alla rader går att prissätta." />
+
+          {/* Kontraktsnumren fylls i HÄR, inte en trakt i taget. Fyrtiofyra
+              fält som kräver fyrtiofyra öppningar blir aldrig gjorda. */}
+          <Kontraktsgrupp rader={oversikt.grupper.saknar_kontraktsnr} oppna={oppna}
+            sparad={(vo, nr) => setOversikt(o => o && {
+              ...o,
+              grupper: {
+                ...o.grupper,
+                saknar_kontraktsnr: o.grupper.saknar_kontraktsnr.filter(r => r.vo_nummer !== vo),
+                // Raden flyttas till "klara" först vid nästa laddning —
+                // listan vet inte om trakten har andra hinder, och att gissa
+                // hade gjort den oense med sig själv. Den försvinner ur
+                // högen, det räcker.
+              },
+            })} />
 
           <Grupp titel="Faktureras inte på vo-nummer" rader={oversikt.grupper.ingen_gemensam_kund}
             oppna={oppna} visaHinder dampad
@@ -219,6 +240,115 @@ function Grupp({ titel, rader, oppna, visaHinder, dampad, tomText }: {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Kontraktsnumren fylls i direkt i listan — fyrtiofyra fält, en sittning.
+ * Att öppna varje trakt för sig hade gjort samma arbete fyrtiofyra gånger,
+ * och då blir det inte gjort.
+ *
+ * VARJE RAD SPARAR FÖR SIG, mot /api/faktura/kontraktsnr som läser tillbaka
+ * värdet. Ingen samlad spara-knapp: ett halvt sparat formulär där några
+ * rader gick igenom och andra inte är värre än fyrtiofyra små besked.
+ */
+function Kontraktsgrupp({ rader, oppna, sparad }: {
+  rader: OversiktsRad[]; oppna: (vo: string) => void;
+  sparad: (vo: string, nr: string) => void;
+}) {
+  const [utkast, setUtkast] = useState<Record<string, string>>({});
+  const [sparar, setSparar] = useState<string | null>(null);
+  const [fel, setFel] = useState<Record<string, string>>({});
+
+  async function spara(r: OversiktsRad) {
+    const nr = (utkast[r.vo_nummer] || '').trim();
+    if (!nr) return;
+    setSparar(r.vo_nummer);
+    setFel(f => { const n = { ...f }; delete n[r.vo_nummer]; return n; });
+    try {
+      const res = await fetch('/api/faktura/kontraktsnr', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vo_nummer: r.vo_nummer, kontraktsnummer: nr }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.ok) { setFel(f => ({ ...f, [r.vo_nummer]: j?.meddelande || `Servern svarade ${res.status}.` })); return; }
+      sparad(r.vo_nummer, nr);
+    } catch (e: any) {
+      setFel(f => ({ ...f, [r.vo_nummer]: e?.message || 'Anropet gick inte fram.' }));
+    } finally {
+      setSparar(null);
+    }
+  }
+
+  const utanRad = rader.filter(r => r.saknar_objektrad).length;
+
+  return (
+    <div style={{ marginTop: AVSTAND.xl }}>
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>
+        Saknar kontraktsnummer{rader.length > 0 ? ` · ${rader.length}` : ''}
+      </p>
+      <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+        {rader.length === 0 ? (
+          <p style={{ ...TYP.meta, color: FARG.text3, margin: 0, padding: `${AVSTAND.l}px` }}>
+            Alla avslutade trakter har ett kontraktsnummer.
+          </p>
+        ) : rader.map((r, i) => (
+          <div key={r.vo_nummer}>
+            {i > 0 && <div style={{ height: 1, background: FARG.linje, marginLeft: AVSTAND.l }} />}
+            <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m,
+                          padding: `${AVSTAND.m}px ${AVSTAND.l}px`, flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => oppna(r.vo_nummer)}
+                style={{ ...TYP.text, flexGrow: 1, minWidth: 160, background: 'none',
+                         border: 'none', color: FARG.text, textAlign: 'left',
+                         fontFamily: FONT, cursor: 'pointer', padding: 0,
+                         minHeight: TRAFFYTA.min }}>
+                {r.namn}
+              </button>
+              <span style={{ ...TYP.meta, ...TAL_FONT, color: FARG.text2, minWidth: 100 }}>
+                VO {r.vo_nummer}
+              </span>
+              <input
+                inputMode="numeric"
+                placeholder="kontraktsnr"
+                value={utkast[r.vo_nummer] ?? ''}
+                onChange={e => setUtkast(u => ({ ...u, [r.vo_nummer]: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') spara(r); }}
+                style={{ ...TYP.text, ...TAL_FONT, width: 130, minHeight: TRAFFYTA.min,
+                         padding: `0 ${AVSTAND.m}px`, borderRadius: RADIE.rad,
+                         border: `1px solid ${FARG.linje}`, background: FARG.upphojt,
+                         color: FARG.text, boxSizing: 'border-box' }} />
+              <button type="button" onClick={() => spara(r)}
+                disabled={!((utkast[r.vo_nummer] || '').trim()) || sparar === r.vo_nummer}
+                style={{ ...TYP.text, fontFamily: FONT, padding: `0 ${AVSTAND.l}px`,
+                         minHeight: TRAFFYTA.min, border: 'none', borderRadius: RADIE.knapp,
+                         background: FARG.gron, color: FARG.bg,
+                         opacity: (utkast[r.vo_nummer] || '').trim() && sparar !== r.vo_nummer ? 1 : 0.4,
+                         cursor: (utkast[r.vo_nummer] || '').trim() ? 'pointer' : 'default' }}>
+                {sparar === r.vo_nummer ? 'Sparar…' : 'Spara'}
+              </button>
+              {/* Att trakten LÄGGS UPP ska stå innan någon trycker, inte
+                  upptäckas efteråt i planeringsvyn. */}
+              {r.saknar_objektrad && (
+                <span style={{ ...TYP.meta, color: FARG.text3, flexBasis: '100%' }}>
+                  Trakten finns inte upplagd — den skapas när numret sparas
+                </span>
+              )}
+              {fel[r.vo_nummer] && (
+                <span style={{ ...TYP.meta, color: FARG.orange, flexBasis: '100%' }}>
+                  {fel[r.vo_nummer]}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {utanRad > 0 && (
+        <p style={{ ...TYP.meta, color: FARG.text3, margin: `${AVSTAND.s}px 0 0 ${AVSTAND.xs}px` }}>
+          {utanRad} av {rader.length} har ingen traktrad än. Att spara ett nummer lägger upp
+          trakten, märkt som oplanerad.
+        </p>
+      )}
     </div>
   );
 }
