@@ -60,12 +60,18 @@ type Kameralage = 'startar' | 'pa' | 'nekad' | 'saknas';
 
 export default function Kamera({
   punktNummer,
+  traktNamn,
   faktor,
   synfaltGrader,
   onKlar,
   onAvbryt,
 }: {
   punktNummer: number;
+  /** Traktens namn, utskrivet medan han mäter. Mäter han under körning har
+   *  han valt trakt en gång och mäter sedan hela dagen — står han kvar på fel
+   *  trakt efter lunch är det här enda stället det kan upptäckas, eftersom
+   *  skärmen annars bara visar skog. */
+  traktNamn: string;
   faktor: number;
   synfaltGrader: number;
   onKlar: (trad: MattTrad[], varv: number) => void;
@@ -379,6 +385,22 @@ export default function Kamera({
           />
           <span style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>{sisteTradslag}</span>
           <span style={{ color: '#fff', fontSize: 16, opacity: 0.85 }}>· punkt {punktNummer}</span>
+        </div>
+      )}
+
+      {/* Trakten. Egen rad, alltid synlig medan kameran är igång — inte inbakad
+          i trädslagschipet, för det är frågan "vilken trakt" som ska gå att
+          besvara med en blick utan att leta. */}
+      {orientering === 'pa' && (
+        <div
+          style={{
+            position: 'absolute', left: 12, right: 12, top: 'calc(52px + env(safe-area-inset-top))',
+            pointerEvents: 'none', background: 'rgba(0,0,0,0.55)', borderRadius: 12,
+            padding: '7px 12px', color: '#fff', fontSize: 17, fontWeight: 700,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+        >
+          {traktNamn}
         </div>
       )}
 

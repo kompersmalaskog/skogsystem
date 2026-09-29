@@ -86,6 +86,32 @@ export async function hamtaSammanfattning(matningId: string): Promise<Sammanfatt
   };
 }
 
+/**
+ * Grundytorna för de punkter som redan ligger i mätningen.
+ *
+ * Beskedet efter varje sveep ska jämföra mot TRAKTEN, inte mot appsessionen.
+ * Mäter Martin under körning kommer han tillbaka pass efter pass, och de
+ * punkter han tog i tisdags finns bara i databasen — utan dem hade jämförelsen
+ * börjat om på "Första punkten" varje morgon.
+ *
+ * Bara slutna varv räknas. Ett halvt varv är en underskattning, och att ha med
+ * det i medianen hade gjort att nästa riktiga punkt såg för hög ut.
+ *
+ * Hämtas EN gång när trakten öppnas och bärs sedan lokalt — ett nätanrop per
+ * punkt hade inte fungerat där mätningen görs.
+ */
+export async function tidigareGrundytor(matningId: string): Promise<number[]> {
+  const { data, error } = await supabase
+    .from('matning_punkt_grundyta')
+    .select('grundyta_m2_per_ha, varv_slutet')
+    .eq('matning_id', matningId);
+  if (error || !data) return [];
+  return (data as { grundyta_m2_per_ha: number | string; varv_slutet: boolean }[])
+    .filter((r) => r.varv_slutet)
+    .map((r) => Number(r.grundyta_m2_per_ha))
+    .filter((n) => Number.isFinite(n));
+}
+
 /** Senaste mätningen för en trakt, om någon finns. */
 export async function senasteMatning(objektUuid: string): Promise<string | null> {
   const { data, error } = await supabase

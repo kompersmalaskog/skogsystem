@@ -64,10 +64,30 @@ export type PagaendeMatning = {
    */
   matning_id: string | null;
   objekt_id: string;
+  /** Traktens namn. Lagras lokalt för att kunna VISAS på mätskärmen utan
+   *  nätanrop — står man kvar på fel trakt efter lunch är det enda stället
+   *  det kan upptäckas. Ett namn som bara finns i databasen syns inte i skogen. */
+  objekt_namn: string;
   datum: string;
   relaskop_faktor: number;
   synfalt_grader: number;
   enhet: string | null;
+  /**
+   * Högsta punkt_nummer som redan ligger i databasen för den här mätningen.
+   *
+   * En mätning under körning återupptas över flera pass, så numreringen kan
+   * inte börja om på 1 — unique(matning_id, punkt_nummer) hade avvisat den, och
+   * hade den släppts igenom vore två olika punkter "punkt 1" i samma mätning.
+   * Noll tills något hämtats; synken rättar den mot databasen.
+   */
+  db_hogsta_punkt: number;
+  /**
+   * Grundytorna från tidigare pass på trakten, hämtade när trakten öppnades.
+   *
+   * Bärs lokalt därför att beskedet ska fungera utan täckning. Ett nätanrop
+   * per punkt hade inte gjort det där mätningen faktiskt görs.
+   */
+  tidigare_grundytor: number[];
   punkter: MattPunkt[];
   synkad: boolean;
 };
@@ -209,6 +229,18 @@ export function punktGrundyta(p: MattPunkt, faktor: number): number {
  */
 export function varvSlutet(varvGrader: number | null): boolean {
   return varvGrader != null && Math.abs(varvGrader) >= 330;
+}
+
+/**
+ * Nästa punktnummer i mätningen — löpande, aldrig återanvänt.
+ *
+ * Räknar både det som ligger i databasen sedan tidigare pass och det som
+ * mätts lokalt sedan dess. Tar man bara det lokala börjar numreringen om på 1
+ * varje gång appen startas om ute i skogen.
+ */
+export function nastaPunktNummer(m: PagaendeMatning): number {
+  const lokalt = m.punkter.reduce((h, p) => Math.max(h, p.punkt_nummer), 0);
+  return Math.max(m.db_hogsta_punkt, lokalt) + 1;
 }
 
 /** Nästa ordningsnummer i varvet. */

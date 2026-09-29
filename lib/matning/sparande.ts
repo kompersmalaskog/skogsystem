@@ -8,12 +8,19 @@
 // En punkt som ligger osynkad är inte ett fel — det är det normala läget
 // halva arbetsdagen. Men den ska SYNAS som osynkad, aldrig se ut som sparad.
 //
-// EN MÄTNING, INTE EN PER PUNKT
-// Synken körs efter varje punkt. Skapade den en ny matningsrad varje gång blev
-// tio punkter i samma trakt till tio mätningar med en punkt var, och
-// sammanfattningen hade sagt "medel över 1 punkt" utan spridning — alltså
-// exakt det den finns till för att visa. Därför bär den pågående mätningen
-// sitt matning_id så fort raden skapats, och synken återanvänder det.
+// EN LÖPANDE MÄTNING PER TRAKT
+// Mäts det under körning återkommer Martin till samma trakt pass efter pass.
+// Varje pass fick INTE bli en egen mätning: då jämför beskedet bara mot dagens
+// punkter, och sammanfattningen visar ett pass i stället för trakten. Därför
+// letas traktens öppna mätning upp (`avslutad is null`) och återupptas. Den
+// stängs när han trycker Avsluta trakten, och först då börjar en ny.
+//
+// FAKTORN FÅR INTE BLANDAS
+// Grundytan räknas i databasen som antal träd gånger MÄTNINGENS relaskop_faktor.
+// Har Martin kalibrerat om till en annan faktor sedan förra passet skulle hans
+// nya punkter tyst räknas med den gamla — ett fel som inte syns på siffran,
+// det bara förskjuter den. Därför återupptas en mätning bara när faktorn
+// stämmer; annars börjar en ny, och vyn säger varför — se faktorKrock.
 //
 // VERIFIERAT SPARANDE
 // En Supabase-skrivning som träffar noll rader svarar 200 med tom lista. Att
@@ -42,6 +49,7 @@
 // gjord", inte som ett fel. Namnet är skyddet; en kommentar räcker inte.
 
 import { supabase } from '../supabase';
+import { tidigareGrundytor } from './sammanfattning';
 import {
   lasPagaende,
   osynkadeAntal,
@@ -57,10 +65,75 @@ function lokaltId(): string {
   return `lokal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export type OppenMatning = {
+  id: string;
+  relaskop_faktor: number;
+  hogsta_punkt: number;
+};
+
+/**
+ * Varför en mätning inte återupptogs måste gå att skilja från att det inte
+ * fanns någon. En faktorkrock betyder att trakten HAR tidigare punkter som nu
+ * hänger i en annan mätning — det ska sägas, inte tigas bort. Återges bara
+ * "ingen" börjar en ny mätning tyst och sammanfattningen visar hälften av
+ * trakten utan att någon vet om det.
+ */
+export type OppenResultat =
+  | { status: 'ingen' }
+  | { status: 'oppen'; matning: OppenMatning }
+  | { status: 'faktor_krock'; faktor: number };
+
+/** Högsta punktnummer som redan ligger i mätningen. 0 om den är tom. */
+async function hogstaPunktIDb(matningId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('matning_punkt')
+    .select('punkt_nummer')
+    .eq('matning_id', matningId)
+    .order('punkt_nummer', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return 0;
+  return (data.punkt_nummer as number) ?? 0;
+}
+
+/**
+ * Traktens öppna mätning, om den finns och går att återuppta.
+ *
+ * `avslutad is null` är vad som gör en mätning löpande. Faktorn måste stämma —
+ * se filhuvudet; en återupptagen mätning med fel faktor räknar nya punkter med
+ * den gamla utan att någon ser det.
+ *
+ * Returnerar null både när ingen finns och när nätet är nere. Anroparen börjar
+ * då en ny lokalt, och synken gör om uppslaget när täckning finns — så en
+ * mätning som startats offline ändå hittar hem till rätt rad.
+ */
+export async function oppenMatning(
+  objektUuid: string,
+  relaskopFaktor: number,
+): Promise<OppenResultat> {
+  const { data, error } = await supabase
+    .from('matning')
+    .select('id, relaskop_faktor')
+    .eq('objekt_uuid', objektUuid)
+    .is('avslutad', null)
+    .order('datum', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return { status: 'ingen' };
+  const faktor = Number(data.relaskop_faktor);
+  if (faktor !== relaskopFaktor) return { status: 'faktor_krock', faktor };
+  const id = data.id as string;
+  return {
+    status: 'oppen',
+    matning: { id, relaskop_faktor: faktor, hogsta_punkt: await hogstaPunktIDb(id) },
+  };
+}
+
 /** Startar en mätning lokalt. Databasraden skapas vid första synken — en
  *  mätning utan punkter är inget att spara. */
 export function startaMatning(
   objektId: string,
+  objektNamn: string,
   relaskopFaktor: number,
   synfaltGrader: number,
   enhet: string | null,
@@ -69,10 +142,13 @@ export function startaMatning(
     lokal_id: lokaltId(),
     matning_id: null,
     objekt_id: objektId,
+    objekt_namn: objektNamn,
     datum: new Date().toISOString().slice(0, 10),
     relaskop_faktor: relaskopFaktor,
     synfalt_grader: synfaltGrader,
     enhet,
+    db_hogsta_punkt: 0,
+    tidigare_grundytor: [],
     punkter: [],
     synkad: false,
   };
@@ -80,19 +156,54 @@ export function startaMatning(
   return m;
 }
 
+/**
+ * Öppnar trakten: återupptar den löpande mätningen om det finns en, annars
+ * startar en ny.
+ *
+ * Utan täckning blir det alltid en ny lokal mätning med `matning_id: null` —
+ * och det är avsiktligt. Synken gör om uppslaget och adopterar traktens öppna
+ * rad i stället för att skapa en andra. Se `synka`.
+ */
+export async function oppnaTrakt(
+  objektId: string,
+  objektNamn: string,
+  relaskopFaktor: number,
+  synfaltGrader: number,
+  enhet: string | null,
+): Promise<{ matning: PagaendeMatning; aterupptagen: boolean; faktorKrock: number | null }> {
+  const m = startaMatning(objektId, objektNamn, relaskopFaktor, synfaltGrader, enhet);
+  let r: OppenResultat = { status: 'ingen' };
+  try {
+    r = await oppenMatning(objektId, relaskopFaktor);
+  } catch {
+    /* ingen täckning — synken gör om uppslaget */
+  }
+  if (r.status === 'faktor_krock') {
+    return { matning: m, aterupptagen: false, faktorKrock: r.faktor };
+  }
+  if (r.status === 'ingen') return { matning: m, aterupptagen: false, faktorKrock: null };
+
+  let tidigare: number[] = [];
+  try {
+    tidigare = await tidigareGrundytor(r.matning.id);
+  } catch {
+    /* utan täckning blir jämförelsen sessionens egna punkter — inte fel, bara mindre */
+  }
+  const nytt: PagaendeMatning = {
+    ...m,
+    matning_id: r.matning.id,
+    db_hogsta_punkt: r.matning.hogsta_punkt,
+    tidigare_grundytor: tidigare,
+  };
+  sparaPagaende(nytt);
+  return { matning: nytt, aterupptagen: true, faktorKrock: null };
+}
+
 /** Lägger punkten till den pågående mätningen och skriver den lokalt DIREKT. */
 export function laggTillPunkt(m: PagaendeMatning, punkt: MattPunkt): PagaendeMatning {
   const nytt: PagaendeMatning = { ...m, punkter: [...m.punkter, punkt], synkad: false };
   sparaPagaende(nytt);
   return nytt;
-}
-
-/** Avslutar traktbesöket. Rensar bara när allt ligger i databasen — annars
- *  vore det att kasta mätdata för att någon tryckte fel. */
-export function avslutaMatning(m: PagaendeMatning | null): boolean {
-  if (m && osynkadeAntal(m) > 0) return false;
-  rensaPagaende();
-  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +277,26 @@ async function skrivTrad(punktId: string, trad: MattTrad[], omforsok: boolean): 
   }
 }
 
+/**
+ * Ger osynkade punkter nummer som inte krockar med dem som redan ligger inne.
+ *
+ * Mäter Martin utan täckning börjar numreringen lokalt på 1, medan databasen
+ * redan kan ha punkt 1-7 från förra passet. Skrevs de som de är skulle
+ * unique(matning_id, punkt_nummer) avvisa dem — och utan den spärren hade två
+ * olika punkter hetat "punkt 1" i samma mätning. Numret är bara en ordning, så
+ * det är rätt sak att räkna om; mätvärdet rörs inte.
+ */
+export function renumreraOsynkade(punkter: MattPunkt[], hogstaIDb: number): MattPunkt[] {
+  let nasta = punkter.reduce((h, p) => (p.synkad ? Math.max(h, p.punkt_nummer) : h), hogstaIDb) + 1;
+  return punkter.map((p) => {
+    if (p.synkad) return p;
+    if (p.punkt_nummer >= nasta) { nasta = p.punkt_nummer + 1; return p; }
+    const nytt = { ...p, punkt_nummer: nasta };
+    nasta += 1;
+    return nytt;
+  });
+}
+
 export type SynkResultat = {
   synkade: number;
   kvar: number;
@@ -204,8 +335,19 @@ export async function synka(
   try {
     let matningId = aktuell.matning_id;
     if (!matningId) {
-      matningId = await skapaMatningsrad(aktuell, utforare);
-      aktuell = { ...aktuell, matning_id: matningId };
+      // Mätningen startades utan täckning. Innan en ny rad skapas: har trakten
+      // redan en öppen mätning? Annars vore varje offline-pass en egen mätning,
+      // och hela poängen med en löpande per trakt vore borta.
+      const r = await oppenMatning(aktuell.objekt_id, aktuell.relaskop_faktor);
+      const oppen = r.status === 'oppen' ? r.matning : null;
+      matningId = oppen?.id ?? (await skapaMatningsrad(aktuell, utforare));
+      aktuell = {
+        ...aktuell,
+        matning_id: matningId,
+        db_hogsta_punkt: oppen?.hogsta_punkt ?? 0,
+        tidigare_grundytor: oppen ? await tidigareGrundytor(oppen.id) : [],
+        punkter: renumreraOsynkade(aktuell.punkter, oppen?.hogsta_punkt ?? 0),
+      };
       spara();  // FÖRE punkterna: annars skapas en andra matningsrad vid krasch
     }
 
@@ -240,6 +382,44 @@ export async function synka(
       matning: aktuell,
     };
   }
+}
+
+export type AvslutResultat =
+  | { status: 'avslutad' }
+  | { status: 'osynkat'; kvar: number }
+  | { status: 'fel'; meddelande: string };
+
+/**
+ * Avslutar trakten: stänger den löpande mätningen i databasen och släpper den
+ * lokalt.
+ *
+ * Stängningen är vad som gör att NÄSTA besök börjar en ny mätning. Skrivs den
+ * inte fortsätter trakten samla punkter i all framtid, och en gallring i höst
+ * blandas med en mätning från i våras.
+ *
+ * Rensar bara lokalt när allt ligger i databasen — annars vore det att kasta
+ * mätdata för att någon tryckte fel.
+ */
+export async function avslutaMatning(m: PagaendeMatning | null): Promise<AvslutResultat> {
+  if (!m) { rensaPagaende(); return { status: 'avslutad' }; }
+  const kvar = osynkadeAntal(m);
+  if (kvar > 0) return { status: 'osynkat', kvar };
+
+  if (m.matning_id) {
+    const { data, error } = await supabase
+      .from('matning')
+      .update({ avslutad: new Date().toISOString() })
+      .eq('id', m.matning_id)
+      .select('id');
+    if (error) return { status: 'fel', meddelande: error.message };
+    // Radräkning bevisar inte att rätt värde landade, men noll rader bevisar
+    // att inget gjorde det — och då får den inte se avslutad ut.
+    if ((data?.length ?? 0) === 0) {
+      return { status: 'fel', meddelande: 'Mätningen kunde inte stängas — ingen rad träffades.' };
+    }
+  }
+  rensaPagaende();
+  return { status: 'avslutad' };
 }
 
 /** Mätning som ligger kvar lokalt från ett tidigare pass, om någon gör det. */
