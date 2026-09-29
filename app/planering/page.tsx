@@ -20,6 +20,7 @@ import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDe
 import { startaPolygonRitning, type PolygonRitningHandle } from '../../lib/polygonRitning'
 import { upsertVerifierat, raderaVerifierat, uppdateraVerifierat } from '../../lib/supabase-save'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
+import { startaGpsKalla, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -3036,6 +3037,25 @@ export default function PlannerPage() {
   // Minns att föraren aktiverat plats (localStorage) → GPS auto-startar nästa gång appen öppnas,
   // precis som "Aktivera kompass". På iOS standalone gejtar detta det passiva mount-anropet nedan.
   const [platsAktiverad, setPlatsAktiverad] = useState<boolean>(() => { try { return typeof localStorage !== 'undefined' && localStorage.getItem('gps-aktiverad') === '1'; } catch { return false; } });
+  // GPS-KÄLLA (lib/gpsKalla): Web Serial (maskindator) eller geolocation (telefon). gpsFixFarsk=false →
+  // fix tappad (serial: ingen giltig RMC på 5 s) → pricken dämpas, "Ingen GPS-fix", inga punkter loggas.
+  const [gpsFixFarsk, setGpsFixFarsk] = useState(true);
+  const [gpsKallaTyp, setGpsKallaTyp] = useState<'serial' | 'geolocation' | 'ingen'>('ingen');
+  const [serialGpsAktiv, setSerialGpsAktiv] = useState<boolean>(() => serialGpsVald());   // användaren har valt serial-GPS
+  const [valjerPort, setValjerPort] = useState(false);   // portval pågår (knapp i inställningar)
+  const [portFel, setPortFel] = useState<string | null>(null);
+  const [webSerialStott, setWebSerialStott] = useState(false);   // client-only → undvik hydration-mismatch
+  useEffect(() => { setWebSerialStott(harWebSerial()); }, []);
+  // Portval (kräver användargest): requestPort → testa 5 s → spara. Fel visas tydligt, låt välja om.
+  const valjGpsPort = useCallback(async () => {
+    setPortFel(null); setValjerPort(true);
+    try {
+      const res = await valjSerialPort();
+      if (res.ok) { setSerialGpsAktiv(true); setPortFel(null); }   // dep → passiva watchern startar om på serial
+      else { setPortFel(res.fel || 'Ingen GPS på denna port.'); }
+    } finally { setValjerPort(false); }
+  }, []);
+  const kopplaBortGpsPort = useCallback(() => { glomSerialGps(); setSerialGpsAktiv(false); setPortFel(null); setGpsFixFarsk(true); }, []);
 
   // === PASSIV GPS-WATCHER (sätter currentPosition automatiskt vid mount) ===
   // Befintliga toggleTracking/startGpsTracking startar SINA EGNA watchers för
@@ -3043,35 +3063,35 @@ export default function PlannerPage() {
   // GPS-pricken, Körvy och proximity-systemet alltid har en position att jobba med.
   // Matchar /gps-test-mönstret som bevisat fungerar på telefon.
   useEffect(() => {
-    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return;
+    if (typeof navigator === 'undefined') return;
     // iOS STANDALONE-GEJT: hoppa över detta icke-gest-anrop tills föraren tryckt "Aktivera plats"
     // (annars avfärdar iOS tyst UTAN prompt → ingen Plats-rad, ingen GPS). Har hen redan aktiverat
     // (localStorage) är tillståndet beviljat → auto-start OK. Desktop/Safari-flik: kör alltid.
-    if (isIOSStandalonePWA() && !platsAktiverad) return;
-    // Snabb första prick: hämta en (ev. cachad) position DIREKT vid mount så pricken syns
-    // omedelbart efter en reload/remount istället för att vänta på watchens första fix.
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCurrentPosition({ lat: pos.coords.latitude, lon: pos.coords.longitude } as any);
-        setGpsPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setGpsAccuracy(pos.coords.accuracy);
-      },
-      () => { /* ignorera — watchen nedan tar över */ },
-      { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
-    );
-    const id = navigator.geolocation.watchPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        setCurrentPosition({ lat, lon } as any);
-        setGpsPosition({ lat, lng: lon });
-        setGpsAccuracy(pos.coords.accuracy);
-      },
-      (err) => console.warn('[GPS passiv]', err.code, err.message),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-    );
-    return () => { try { navigator.geolocation.clearWatch(id); } catch {} };
-  }, [platsAktiverad]); // re-kör när föraren aktiverat → startar watchen
+    // (Serial-GPS behöver ingen geolocation-behörighet, men gejten är ofarlig — den släpper igenom desktop.)
+    if (isIOSStandalonePWA() && !platsAktiverad && !serialGpsAktiv) return;
+    // GPS-KÄLLAN väljer Web Serial (maskindator) eller geolocation (telefon) internt. onFix sätter samma
+    // state som förr; giltig=false → dämpa (uppdatera INTE currentPosition → inga punkter loggas).
+    const sisteGiltig = { t: 0 };
+    const handle: GpsKallaHandle = startaGpsKalla((fix) => {
+      if (fix.giltig && fix.lat != null && fix.lng != null) {
+        setCurrentPosition({ lat: fix.lat, lon: fix.lng } as any);
+        setGpsPosition({ lat: fix.lat, lng: fix.lng });
+        setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
+        sisteGiltig.t = Date.now();
+        setGpsFixFarsk(true);
+      } else if (!fix.giltig) {
+        setGpsFixFarsk(false);   // fix tappad → dämpa; currentPosition rörs ej (inga punkter loggas)
+      }
+    }, { highAccuracy: true });
+    setGpsKallaTyp(handle.typ);
+    // Färskhets-timer BARA för serial (NMEA skickar RMC löpande → uteblir = verklig fix-förlust). För
+    // geolocation dämpar vi aldrig på tystnad (stillastående telefon = giltig fix, dagens beteende).
+    let iv: ReturnType<typeof setInterval> | null = null;
+    if (handle.typ === 'serial') {
+      iv = setInterval(() => { if (sisteGiltig.t && Date.now() - sisteGiltig.t > FIX_MAX_ALDER_MS) setGpsFixFarsk(false); }, 1000);
+    }
+    return () => { handle.stop(); if (iv) clearInterval(iv); };
+  }, [platsAktiverad, serialGpsAktiv]); // re-kör när föraren aktiverat plats / valt serial-GPS
 
   // === ROBUST GPS-HÄMTNING (Körvy + "Försök igen") ===
   // Hög noggrannhet först; MISSLYCKAS den (tät skog) → falla tillbaka på lägre noggrannhet
@@ -8552,13 +8572,19 @@ export default function PlannerPage() {
       try { map.moveLayer('gps-halo'); } catch {}
       try { map.moveLayer('gps-ring'); } catch {}
       try { map.moveLayer('gps-dot'); } catch {}
+      // Fix tappad (gpsFixFarsk=false) → DÄMPA pricken (rule 4: "Ingen GPS-fix"). Full opacitet vid färsk fix.
+      try {
+        map.setPaintProperty('gps-halo', 'circle-opacity', gpsFixFarsk ? 0.22 : 0.06);
+        map.setPaintProperty('gps-ring', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
+        map.setPaintProperty('gps-dot', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
+      } catch {}
       if (draw) {
         console.log('[GPS-prick] setData + moveLayer', [draw.lon.toFixed(6), draw.lat.toFixed(6)]);
       }
     } catch (e) {
       console.error('[GPS-prick] source/layers update failed:', e);
     }
-  }, [currentPosition, mapLibreReady]);
+  }, [currentPosition, mapLibreReady, gpsFixFarsk]);
 
   // === KÖRVY 3D-IMMERSION: setup engångsadditioner av sources/layers ===
   // Skapas vid mapLibreReady. Default visibility: 'none'. Toggleras av separat effekt.
@@ -15416,6 +15442,13 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* "Ingen GPS-fix" — serial-GPS (maskindator) har tappat fix (rule 4). Pricken är redan dämpad. */}
+      {serialGpsAktiv && !gpsFixFarsk && (drivingMode || korvyActive) && (
+        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(255,159,10,0.92)', color: '#000', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+          Ingen GPS-fix
+        </div>
+      )}
+
       {/* === ANTAL-PROMPT vid utsättning (evighetsträd/naturhörna/högstubbe) === */}
       {antalPrompt && (() => {
         const m = markers.find(mm => String(mm.id) === antalPrompt.markerId);
@@ -19124,6 +19157,30 @@ export default function PlannerPage() {
             {/* === INSTÄLLNINGAR === */}
             {activeCategory === 'settings' && (
               <div style={{ padding: '12px' }}>
+                {/* GPS-källa — bara på maskindatorn (Web Serial-stöd). Telefonen använder inbyggd GPS automatiskt. */}
+                {webSerialStott && (
+                  <div style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '16px 20px', marginBottom: '16px' }}>
+                    <div style={{ fontSize: '15px', color: '#fff', marginBottom: '4px' }}>GPS-källa</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '12px' }}>
+                      {serialGpsAktiv
+                        ? (gpsKallaTyp === 'serial' ? 'Maskindatorns GPS (serieport)' + (gpsFixFarsk ? '' : ' — söker fix…') : 'Serieport vald (ansluter…)')
+                        : 'Inbyggd GPS. Välj serieport för maskindatorns 4G-GPS.'}
+                    </div>
+                    {portFel && (<div style={{ fontSize: '13px', color: '#ff453a', marginBottom: '10px' }}>{portFel}</div>)}
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      <button type="button" disabled={valjerPort} onClick={valjGpsPort}
+                        style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: valjerPort ? 'rgba(255,255,255,0.06)' : 'rgba(10,132,255,0.15)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: valjerPort ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                        {valjerPort ? 'Testar port…' : (serialGpsAktiv ? 'Välj om port' : 'Välj GPS-port')}
+                      </button>
+                      {serialGpsAktiv && !valjerPort && (
+                        <button type="button" onClick={kopplaBortGpsPort}
+                          style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.8)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          Använd inbyggd GPS
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {/* Lägen */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
