@@ -291,7 +291,8 @@ function Kontraktsgrupp({ rader, oppna, sparad }: {
       <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
         {rader.length === 0 ? (
           <p style={{ ...TYP.meta, color: FARG.text3, margin: 0, padding: `${AVSTAND.l}px` }}>
-            Alla avslutade trakter har ett kontraktsnummer.
+            Alla Vida-trakter har ett kontraktsnummer. Privata markägare och Karl Hedin
+            har inga — begreppet finns inte där.
           </p>
         ) : rader.map((r, i) => (
           <div key={r.vo_nummer}>

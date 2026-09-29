@@ -69,7 +69,18 @@ as $$
            round(coalesce(t.g15h, 0)::numeric, 1) as g15h,
            k.kontrakt,
            k.finns_rad,
-           fl.flytt_utan_timmar
+           fl.flytt_utan_timmar,
+           -- KONTRAKTSNUMMER ÄR ETT VIDA-BEGREPP. Privata markägare har inga,
+           -- och Karl Hedin har aldrig haft något: av 36 slutavräknade
+           -- icke-Vida-objekt har INGET någonsin haft ett nummer.
+           -- Uteslutningen var tidigare en SLUMP — Privat saknar kundnummer,
+           -- så kund-kontrollen fyrade först. Ger Martin Privat ett
+           -- kundnummer hade 21 trakter plötsligt krävt ett nummer de aldrig
+           -- kan ha. Regeln står nu på bolaget, inte på ordningen.
+           -- ATA ÄR OBESVARAT: ett enda slutavräknat objekt, utan nummer.
+           -- ATA är inte Vida, så regeln släpper det. Visar det sig att ATA
+           -- har kontraktsnummer läggs bolaget till här.
+           (v.bolag in ('Vida', 'Vida Energi')) as kraver_kontraktsnr
       from vo v
       left join bolag b on b.namn = v.bolag
       left join lateral (
@@ -117,7 +128,8 @@ as $$
              when not e.alla_klara         then null
              when e.fortnox_kundnr is null then 'kund'
              when e.flytt_utan_timmar      then 'traillertimmar'
-             when e.kontrakt is null       then 'kontraktsnr'
+             when e.kraver_kontraktsnr
+              and e.kontrakt is null       then 'kontraktsnr'
              else null
            end as h_typ
       from berikad e
@@ -156,7 +168,8 @@ comment on function faktura_oversikt() is
   'G15-timmar. INGA PRISER — beloppet kräver hela prisformeln, och den får '
   'finnas på ETT ställe (lib/ekonomi/prisPerM3). hinder_typ skiljer det som '
   'inte går att prissätta (traillertimmar) från det som bara är ofyllt '
-  '(kontraktsnr). saknar_objektrad = trakten har ingen rad i objekt, och att '
+  '(kontraktsnr). KONTRAKTSNUMMER KRÄVS BARA AV VIDA och Vida Energi. '
+  'saknar_objektrad = trakten har ingen rad i objekt, och att '
   'fylla i ett kontraktsnummer lägger då upp den. Hindren är en delmängd av '
   'radbyggarens: "klar" betyder inget KÄNT hinder.';
 
