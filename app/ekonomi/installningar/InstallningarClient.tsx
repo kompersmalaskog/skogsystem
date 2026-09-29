@@ -191,7 +191,7 @@ export default function InstallningarClient() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [mRes, aRes, avRes, trRes, teRes, soRes, ovRes, dimMaskinRes, ksRes, omappadRes, objektValRes, sortGruppRes] = await Promise.all([
+    const [mRes, aRes, avRes, trRes, teRes, soRes, ovRes, dimMaskinRes, omappadRes, objektValRes, sortGruppRes] = await Promise.all([
       supabase.from('maskin_timpris').select('id, maskin_id, maskin_namn, timpris, giltig_fran, giltig_till').is('giltig_till', null).order('maskin_namn'),
       supabase.from('acord_priser').select('id, medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till').is('giltig_till', null).order('medelstam'),
       supabase.from('acord_skotningsavstand').select('id, grundavstand_m, kr_per_100m, giltig_fran, giltig_till').is('giltig_till', null).not('grundavstand_m', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
@@ -200,7 +200,6 @@ export default function InstallningarClient() {
       supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
       supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum').order('visningsnamn', { nullsFirst: false }),
-      supabase.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod'),
       supabase.from('fortnox_invoice_rows')
         .select('id, document_number, invoice_date, description, total, matched_objekt_id, manual_objekt_id')
         .is('matched_objekt_id', null)
@@ -520,7 +519,7 @@ export default function InstallningarClient() {
     const body = await r.json();
     setSavingCcMap(false);
     if (!r.ok || !body.ok) { flashMsg(`Fel: ${body.error || r.status}`); return; }
-    flashMsg('Mappning borttagen');
+    flashMsg('Mappning avslutad — historiken bevaras');
     await fetchData();
   };
 
