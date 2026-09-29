@@ -1,159 +1,97 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { serverSupabase } from '@/lib/lonesystem/server';
 import { kravRoll, ADMIN_ROLLER } from '@/lib/auth/server';
-import { hamtaVoUnderlag } from '@/lib/faktura/hamtaUnderlag';
-import { byggRader, garAttSkicka } from '@/lib/faktura/radbyggare';
-import { arSlutavraknad } from '@/lib/objekt/avrakning';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/faktura/oversikt?dagar=90&max=25
+ * En gräns som inte är satt är en gräns ingen valt. Utan den slog routen i
+ * Vercels förval och 504:ade utan att något syntes — samma tysta felklass
+ * som en nollställd km-siffra. Listan är EN fråga på ~120 ms; 15 sekunder är
+ * gott om marginal och ger ett synligt fel om något ändå drar iväg.
+ */
+export const maxDuration = 15;
+
+/**
+ * GET /api/faktura/oversikt
  *
- * Trakterna grupperade på TILLSTÅND, med summan på dem som är klara.
+ * Trakterna grupperade på tillstånd. EN databasfråga, inget fönster.
  *
  * ─────────────────────────────────────────────────────────────────────────
- * VARFÖR ETT FÖNSTER, OCH VARFÖR DET SYNS
+ * DEN HÄR RUTTEN KÖR INTE RADBYGGAREN, OCH DET ÄR HELA POÄNGEN.
  *
- * 94 vo-nummer är slutavräknade. Att bygga underlag för alla vid varje
- * sidladdning är ~1 400 frågor mot databasen, och de flesta är historik som
- * Martin redan fakturerat för hand — appen kan inte veta vilka, eftersom
- * faktura_underlag är tom och de gamla fakturorna inte är kopplade.
+ * Förut byggde den ett fullt underlag per trakt för att kunna visa ett
+ * belopp: 362 ms styck, ~24 sekunder för de 64 som låg i 90-dagarsfönstret,
+ * och 504 i produktion. Tio av de nitton frågorna per trakt var dessutom
+ * samma globala register hämtade om och om igen.
  *
- * Därför byggs bara de som avräknats inom fönstret, och vyn SKRIVER UT hur
- * många som ligger utanför. En avgränsning som inte syns är en lögn om vad
- * listan innehåller.
+ * Nu gör faktura_oversikt() allt i en fråga på ~120 ms för alla 123
+ * vo-nummer. Fönstret behövdes bara för att dölja kostnaden och är borta.
+ *
+ * INGET BELOPP. Det hade krävt hela prisformeln en gång till, i SQL — två
+ * implementationer av samma pris är den felklass acord_flyttkostnad var.
+ * Listan visar volym och timmar; beloppet räknas av radbyggaren när en trakt
+ * öppnas, och kommer tillbaka hit den dag status finns och "klara" är en
+ * handfull i stället för 64.
  * ─────────────────────────────────────────────────────────────────────────
  */
+
+export type Tillstand = 'klar' | 'atgard' | 'ingen_gemensam_kund' | 'pagar' | 'ej_paborjad';
 
 export type OversiktsRad = {
   vo_nummer: string;
   namn: string;
   bolag: string | null;
-  kund: number | null;
+  fortnox_kundnr: number | null;
   avtalsform: 'ackord' | 'timpeng';
+  tillstand: Tillstand;
   avrakningsdatum: string | null;
-  /** m³fub för ackord, timmar för timpeng. Enheten följer med. */
-  mangd: number;
-  mangd_enhet: 'm3fub' | 'h';
-  summa: number;
-  /** Första hindret, för raderna som behöver åtgärd. */
-  orsak?: string;
+  objekt_antal: number;
+  volym_m3fub: number;
+  g15h: number;
+  hinder: string | null;
 };
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const vakt = await kravRoll(ADMIN_ROLLER);
   if (!vakt.ok) return vakt.res;
 
   try {
-    const sp = new URL(req.url).searchParams;
-    const dagar = Math.min(3650, Math.max(1, Number(sp.get('dagar')) || 90));
-    const max = Math.min(60, Math.max(1, Number(sp.get('max')) || 25));
-
     const sb = serverSupabase();
-    const { data: objekt, error } = await sb.from('dim_objekt')
-      .select('objekt_id, object_name, vo_nummer, bolag, timpeng, huvudtyp, exkludera, '
-        + 'skordning_avslutad, skotning_avslutad, egen_skotning')
-      .not('vo_nummer', 'is', null)
-      .order('vo_nummer');
-    if (error) throw new Error('Kunde inte läsa dim_objekt: ' + error.message);
+    const t0 = Date.now();
+    const { data, error } = await sb.rpc('faktura_oversikt');
+    if (error) throw new Error('faktura_oversikt(): ' + error.message);
 
-    // Gruppera på VO. Ett VO är klart först när ALLA dess objektrader är det
-    // — Jätsbygd har två, och en av dem saknar skördningsdatum.
-    type Grupp = { vo: string; namn: string; bolag: string | null; timpeng: boolean;
-                   klar: boolean; nagonKlar: boolean; avr: string | null };
-    const per = new Map<string, Grupp>();
-    for (const o of (objekt || []) as any[]) {
-      if (o.exkludera) continue;
-      const g = per.get(o.vo_nummer) || {
-        vo: o.vo_nummer, namn: o.object_name || o.vo_nummer, bolag: o.bolag,
-        timpeng: !!o.timpeng || (o.huvudtyp || '') === 'Gallring',
-        klar: true, nagonKlar: false, avr: null,
-      };
-      const klar = arSlutavraknad(o as any);
-      g.klar = g.klar && klar;
-      g.nagonKlar = g.nagonKlar || klar;
-      const d = o.skotning_avslutad || o.skordning_avslutad || null;
-      if (d && (!g.avr || d > g.avr)) g.avr = d;
-      if (o.bolag && !g.bolag) g.bolag = o.bolag;
-      per.set(o.vo_nummer, g);
-    }
-    const alla = Array.from(per.values());
+    const rader: OversiktsRad[] = (data || []).map((r: any) => ({
+      vo_nummer: r.vo_nummer,
+      namn: r.namn || r.vo_nummer,
+      bolag: r.bolag,
+      fortnox_kundnr: r.fortnox_kundnr == null ? null : Number(r.fortnox_kundnr),
+      avtalsform: r.avtalsform,
+      tillstand: r.tillstand,
+      avrakningsdatum: r.avrakningsdatum,
+      objekt_antal: Number(r.objekt_antal) || 0,
+      volym_m3fub: Number(r.volym_m3fub) || 0,
+      g15h: Number(r.g15h) || 0,
+      hinder: r.hinder,
+    }));
 
-    const grans = new Date(Date.now() - dagar * 86400000).toISOString().slice(0, 10);
-    const klaraAlla = alla.filter(g => g.klar).sort((a, b) => (b.avr || '').localeCompare(a.avr || ''));
-    const iFonster = klaraAlla.filter(g => (g.avr || '') >= grans).slice(0, max);
-
-    const klara: OversiktsRad[] = [];
-    const atgard: OversiktsRad[] = [];
-
-    for (const g of iFonster) {
-      try {
-        const { underlag } = await hamtaVoUnderlag(sb as any, g.vo);
-        const rader = byggRader(underlag);
-        const kan = garAttSkicka(underlag, rader);
-        const medPris = rader.filter(r => (r.a_pris ?? r.a_pris_beraknat) != null && r.antal != null);
-        const timmar = underlag.maskiner.reduce((s, m) => s + m.g15h, 0);
-        const rad: OversiktsRad = {
-          vo_nummer: g.vo, namn: underlag.objektnamn, bolag: underlag.bolag,
-          kund: underlag.fortnox_kundnr,
-          avtalsform: underlag.timpeng ? 'timpeng' : 'ackord',
-          avrakningsdatum: underlag.avrakningsdatum,
-          mangd: underlag.timpeng ? timmar : underlag.volymM3fub,
-          mangd_enhet: underlag.timpeng ? 'h' : 'm3fub',
-          summa: medPris.reduce((s, r) => s + (r.a_pris ?? r.a_pris_beraknat)! * r.antal!, 0),
-        };
-        if (kan.ok) klara.push(rad);
-        else atgard.push({ ...rad, orsak: kan.hinder[0] });
-      } catch (e: any) {
-        atgard.push({
-          vo_nummer: g.vo, namn: g.namn, bolag: g.bolag, kund: null,
-          avtalsform: g.timpeng ? 'timpeng' : 'ackord', avrakningsdatum: g.avr,
-          mangd: 0, mangd_enhet: g.timpeng ? 'h' : 'm3fub', summa: 0,
-          orsak: e?.message || String(e),
-        });
-      }
-    }
-
-    // Pågår: något är avslutat men inte allt. Ingen summa — trakten är inte
-    // färdig, och ett halvt belopp är värre än inget.
-    const pagar: OversiktsRad[] = alla
-      .filter(g => !g.klar && g.nagonKlar)
-      .sort((a, b) => (b.avr || '').localeCompare(a.avr || ''))
-      .map(g => ({
-        vo_nummer: g.vo, namn: g.namn, bolag: g.bolag, kund: null,
-        avtalsform: g.timpeng ? 'timpeng' : 'ackord', avrakningsdatum: g.avr,
-        mangd: 0, mangd_enhet: g.timpeng ? 'h' : 'm3fub', summa: 0,
-        orsak: 'Skotningen är inte avslutad',
-      }));
-
-    // Väntar på inmätning: à conto skickat, slutredovisning kvar. Kräver
-    // faktura_underlag — tom i dag, och de gamla fakturorna är inte kopplade
-    // till VO. Gruppen visas tom med den förklaringen i stället för att
-    // utelämnas, så det syns att den inte är glömd.
-    const { data: skickade } = await sb.from('faktura_underlag')
-      .select('vo_nummer, typ, status').eq('typ', 'a_conto').eq('status', 'skickat');
-    const vantar: OversiktsRad[] = (skickade || []).map((u: any) => {
-      const g = per.get(u.vo_nummer);
-      return {
-        vo_nummer: u.vo_nummer, namn: g?.namn || u.vo_nummer, bolag: g?.bolag || null,
-        kund: null, avtalsform: g?.timpeng ? 'timpeng' : 'ackord',
-        avrakningsdatum: g?.avr || null, mangd: 0,
-        mangd_enhet: g?.timpeng ? 'h' : 'm3fub', summa: 0,
-        orsak: 'À conto skickat, slutredovisning kvar',
-      };
-    });
+    const av = (t: Tillstand) => rader.filter(r => r.tillstand === t);
 
     return NextResponse.json({
       ok: true,
-      fonster: {
-        dagar, max,
-        byggda: iFonster.length,
-        klara_totalt: klaraAlla.length,
-        utanfor: klaraAlla.length - iFonster.length,
+      // Tiden går med i svaret. Blir listan långsam igen ska det synas i
+      // samma andetag som listan, inte upptäckas av att någon väntar.
+      ms: Date.now() - t0,
+      antal: rader.length,
+      grupper: {
+        klara: av('klar'),
+        atgard: av('atgard'),
+        ingen_gemensam_kund: av('ingen_gemensam_kund'),
+        pagar: av('pagar'),
+        ej_paborjad: av('ej_paborjad'),
       },
-      grupper: { klara, atgard, vantar, pagar },
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, meddelande: e?.message || String(e) }, { status: 500 });
