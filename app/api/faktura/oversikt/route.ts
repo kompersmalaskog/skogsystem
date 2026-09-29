@@ -51,6 +51,10 @@ export type OversiktsRad = {
   volym_m3fub: number;
   g15h: number;
   hinder: string | null;
+  /** Skiljer det som inte går att prissätta från det som bara är ofyllt. */
+  hinder_typ: 'kund' | 'traillertimmar' | 'kontraktsnr' | null;
+  /** true = trakten finns inte i objekt; att spara ett nummer lägger upp den. */
+  saknar_objektrad: boolean;
 };
 
 export async function GET() {
@@ -75,9 +79,15 @@ export async function GET() {
       volym_m3fub: Number(r.volym_m3fub) || 0,
       g15h: Number(r.g15h) || 0,
       hinder: r.hinder,
+      hinder_typ: r.hinder_typ,
+      saknar_objektrad: !!r.saknar_objektrad,
     }));
 
     const av = (t: Tillstand) => rader.filter(r => r.tillstand === t);
+    // Traillertimmar och kontraktsnummer är OLIKA slags väntan. Den första
+    // gör raden omöjlig att prissätta; den andra är ett ofyllt fält. Blandas
+    // de går de fem som faktiskt stoppar upp i de fyrtiofyra.
+    const atgard = av('atgard');
 
     return NextResponse.json({
       ok: true,
@@ -87,7 +97,8 @@ export async function GET() {
       antal: rader.length,
       grupper: {
         klara: av('klar'),
-        atgard: av('atgard'),
+        gar_inte_att_prissatta: atgard.filter(r => r.hinder_typ === 'traillertimmar'),
+        saknar_kontraktsnr: atgard.filter(r => r.hinder_typ === 'kontraktsnr'),
         ingen_gemensam_kund: av('ingen_gemensam_kund'),
         pagar: av('pagar'),
         ej_paborjad: av('ej_paborjad'),
