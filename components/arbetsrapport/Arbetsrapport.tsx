@@ -21,6 +21,7 @@ import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, typ
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
+import { attTittaPa, dagAvvikelser, datumLang, minText } from "@/lib/lonesystem/forarText";
 import PdfLasare from "@/app/planering/PdfLasare";
 // Designvärden — EN källa (lib/design/tokens.ts). Dagsvyn är piloten: den
 // importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
@@ -714,6 +715,8 @@ export default function Arbetsrapport() {
   // PDF:en öppnas INNE i appen (PdfLasare) — aldrig ny flik/nedladdning som slänger
   // ut föraren ur den installerade appen. Han bläddrar först, delar/sparar sedan.
   const [specPdf, setSpecPdf] = useState<{ url: string; titel: string; filnamn: string } | null>(null);
+  // Dag för dag: vilken dag som är öppnad (klockslag, rast, mil bakom trycket).
+  const [lönDagÖppen, setLönDagÖppen] = useState<string | null>(null);
   useEffect(() => {
     if (steg !== "lön" || !medarbetare?.id) return;
     const ref = new Date();
@@ -4626,7 +4629,8 @@ export default function Arbetsrapport() {
     // ─── ÖVERSIKT-VY ───
     return (
       <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
-        <style>{css}</style>{timerBanner}
+        {/* designCss: Dag för dag-radens detaljer tonar in (.tona-in). */}
+        <style>{css}{designCss}</style>{timerBanner}
 
         {/* Header */}
         {/* Header: månad + pilar (44 px, blå = navigerar). Kalenderikonen som inte
@@ -4672,8 +4676,33 @@ export default function Arbetsrapport() {
           {spec && (() => {
             const dagNamnKort = ['sön','mån','tis','ons','tor','fre','lör'];
             const fmtHm = (min: number) => { const h = Math.floor(min/60), mm = min%60; return mm ? `${h}:${String(mm).padStart(2,'0')}` : `${h}:00`; };
-            const ovrigaVarn: string[] = (spec.varningar || []).filter((v: string) => !/saknar typ|ej bekräftade/i.test(v));
-            const harSaknas = obekräftadeDagar > 0 || obObesDagar.length > 0 || (spec.synk?.length ?? 0) > 0 || (spec.ledighetskollision?.length ?? 0) > 0 || (spec.maskin_utan_typ?.length ?? 0) > 0 || ovrigaVarn.length > 0;
+            // Förarens ord ur specens strukturerade fält (lib/lonesystem/forarText) —
+            // motorns varningstexter är skrivna för granskaren och visas inte här.
+            const tittaPoster = attTittaPa(spec);
+            const harSaknas = obekräftadeDagar > 0 || obObesDagar.length > 0 || tittaPoster.length > 0;
+            // Dag för dag: timmar per rad avrundas FÖRST, summan är summan av raderna.
+            const specÅr = Number(String(lönePeriod).slice(0,4));
+            const rödaSpec: Record<string,string> = { ...getRödaDagar(specÅr-1), ...getRödaDagar(specÅr) };
+            const deldagPerDatum = new Map<string, any>(((spec.deldagar || []) as any[]).map((x: any) => [x.datum, x]));
+            const ledigPerDatum = new Map<string, string>(((spec.ledighetskollision || []) as any[]).map((x: any) => [x.datum, x.typ]));
+            const dagRader = ((spec.dagar || []) as any[]).map((d: any) => ({
+              d,
+              h: Math.round(((d.arbetad_min || 0) + (d.extra_min || 0)) / 6) / 10,
+              avv: dagAvvikelser(d, { rodaDagar: rödaSpec, deldag: deldagPerDatum.get(d.datum) || null, ledig: ledigPerDatum.get(d.datum) || null }),
+            }));
+            const dagSummaH = Math.round(dagRader.reduce((s, r) => s + r.h, 0) * 10) / 10;
+            // En rad i "Att titta på": datum/vad till vänster, avvikelsen i orange
+            // till höger, vad man kan göra under. Samma form för alla sorter.
+            const tittaRad = (nyckel: string, rubrik: string, hoger: string | undefined, text: ReactNode, efter?: ReactNode) => (
+              <div key={nyckel} style={{ padding:`${AVSTAND.m}px 0`, borderBottom:`1px solid ${FARG.linje}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.m }}>
+                  <span style={{ ...TYP.listtitel, color:FARG.text, ...TNUM }}>{rubrik}</span>
+                  {hoger && <span style={{ ...TYP.meta, color:FARG.orange, textAlign:"right", ...TNUM }}>{hoger}</span>}
+                </div>
+                <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{text}</p>
+                {efter}
+              </div>
+            );
             return (
               <>
                 {/* Går till lönen */}
@@ -4724,25 +4753,27 @@ export default function Arbetsrapport() {
                   </button>
                 </div>
 
-                {/* Saknas — det föraren själv kan fixa */}
+                {/* Att titta på — skrivet för föraren: datum, vad det gäller, vad man
+                    kan göra. Paragrafer och systemkonsekvenser hör till admin-
+                    granskningen (samma fakta, motorns varningstexter). */}
                 {harSaknas && (
                   <section style={{ background:FARG.upphojt,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l }}>
-                    <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.xs}px`,...TYP.micro,color:FARG.orange }}>Saknas — du kan fixa det</p>
-                    {obekräftadeDagar > 0 && (
-                      <div style={{ padding:`${AVSTAND.m}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
-                        <p style={{ margin:0,...TYP.text,color:FARG.text }}>{obekräftadeDagar} {obekräftadeDagar === 1 ? 'dag är inte bekräftad' : 'dagar är inte bekräftade'}</p>
-                        <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>Tiden är med i underlaget men ingen har granskat den. Bekräfta i Kalender.</p>
-                      </div>
-                    )}
+                    <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.xs}px`,...TYP.micro,color:FARG.text2 }}>Att titta på</p>
+                    {obekräftadeDagar > 0 && tittaRad('obekr', `${obekräftadeDagar} ${obekräftadeDagar === 1 ? 'dag' : 'dagar'}`, 'ej bekräftade',
+                      'Tiden är med i underlaget men ingen har granskat den. Bekräfta i Kalender.')}
                     {obObesDagar.length > 0 && (
                       <div style={{ padding:`${AVSTAND.m}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
-                        <div onClick={()=>setObRetroÖppen(o=>!o)} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer" }}>
-                          <p style={{ margin:0,...TYP.text,color:FARG.text }}>{obObesDagar.length} tidig{obObesDagar.length===1?' dag':'a dagar'} väntar på brandrisk-svar</p>
+                        <button type="button" onClick={()=>setObRetroÖppen(o=>!o)} aria-expanded={obRetroÖppen}
+                          style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:AVSTAND.m,width:"100%",minHeight:TRAFFYTA.min,padding:0,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+                          <span>
+                            <span style={{ display:"block",...TYP.listtitel,color:FARG.text }}>{obObesDagar.length} tidig{obObesDagar.length===1?' morgon':'a morgnar'}</span>
+                            <span style={{ display:"block",marginTop:AVSTAND.xs,...TYP.meta,color:FARG.text2 }}>Var det beordrat för brandrisk? Svara per dag.</span>
+                          </span>
                           <span className="material-symbols-outlined" style={{ fontSize:IKON.rad,color:FARG.text2,transform:obRetroÖppen?"rotate(90deg)":"none",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
-                        </div>
-                        {obRetroÖppen && obObesDagar.map((d:any, i:number) => (
+                        </button>
+                        {obRetroÖppen && obObesDagar.map((d:any) => (
                           <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.m}px 0 0`,gap:AVSTAND.m }}>
-                            <span style={{ ...TYP.meta,color:FARG.text,...TNUM }}>{d.datum} · {(d.start_tid||'').slice(0,5)}</span>
+                            <span style={{ ...TYP.text,color:FARG.text,...TNUM }}>{datumLang(d.datum)} <span style={{ ...TYP.meta,color:FARG.text2 }}>{(d.start_tid||'').slice(0,5)}</span></span>
                             <div style={{ display:"flex",gap:AVSTAND.s }}>
                               <button onClick={()=>svaraBrandriskRetro(d,true)} style={{ ...KNAPP.sekundar, width:"auto", padding:`0 ${AVSTAND.l}px` }}>Ja</button>
                               <button onClick={()=>svaraBrandriskRetro(d,false)} style={{ ...KNAPP.sekundar, width:"auto", padding:`0 ${AVSTAND.l}px` }}>Nej</button>
@@ -4751,48 +4782,60 @@ export default function Arbetsrapport() {
                         ))}
                       </div>
                     )}
-                    {(spec.synk as any[]).map((s: any, i: number) => (
-                      <div key={`syn${i}`} style={{ padding:`${AVSTAND.m}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
-                        <p style={{ margin:0,...TYP.text,color:FARG.text,...TNUM }}>{s.datum}: {s.diff_min} min oförklarad tidsavvikelse</p>
-                        <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>Du sa {s.bekraftat}, maskinen {s.maskinen}. Öppna dagen i Kalender och förklara.</p>
-                      </div>
-                    ))}
-                    {(spec.ledighetskollision as any[]).map((k: any, i: number) => (
-                      <p key={`led${i}`} style={{ margin:0,padding:`${AVSTAND.m}px 0`,...TYP.meta,color:FARG.text,borderBottom:`1px solid ${FARG.linje}`,...TNUM }}>{k.datum}: godkänd ledighet ({k.typ}) och {fmtHm(k.arbetad_min)} arbete samma dag</p>
-                    ))}
-                    {(spec.maskin_utan_typ as string[]).map((mid: string) => (
-                      <p key={mid} style={{ margin:0,padding:`${AVSTAND.m}px 0`,...TYP.meta,color:FARG.rod,borderBottom:`1px solid ${FARG.linje}` }}>Maskin {mid} saknar typ i registret — premielön räknas inte. Säg till Martin.</p>
-                    ))}
-                    {ovrigaVarn.map((v: string, i: number) => (
-                      <p key={`v${i}`} style={{ margin:0,padding:`${AVSTAND.m}px 0`,...TYP.meta,color:FARG.text2 }}>{v}</p>
-                    ))}
-                    <div style={{ height:8 }} />
+                    {tittaPoster.map(p => tittaRad(p.nyckel, p.rubrik, p.hoger, p.text))}
+                    <div style={{ height:AVSTAND.s }} />
                   </section>
                 )}
 
-                {/* Dag för dag — tidrapporten */}
+                {/* Dag för dag — LUGN: dag, objekt, timmar. Det normala är tyst grått;
+                    det som avviker står i orange i objektets ställe. Klockslag, rast,
+                    extra tid, mil och OB ligger bakom ett tryck på raden. */}
                 <section style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l }}>
-                  <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.s}px`,...TYP.micro,color:FARG.text2 }}>Dag för dag</p>
-                  {(spec.dagar as any[]).map((d: any, i: number, arr: any[]) => {
+                  <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.xs}px`,...TYP.micro,color:FARG.text2 }}>Dag för dag</p>
+                  {dagRader.map(({ d, h, avv }) => {
                     const dt = new Date(`${d.datum}T12:00:00`);
-                    const flagg = !d.bekraftad;
+                    const öppen = lönDagÖppen === d.id;
+                    const objekt = (d.objekt as string[]).join(', ');
+                    const tid = d.start_tid || d.slut_tid
+                      ? `${(d.start_tid||'').slice(0,5) || '–'}–${(d.slut_tid||'').slice(0,5) || '–'}${d.rast_min > 0 ? ` · rast ${minText(d.rast_min)}` : ''}`
+                      : (d.perioddag ? 'Tiden ligger i perioder' : null);
+                    const detaljer = [
+                      tid,
+                      d.extra_min > 0 ? `varav extra tid ${fmtHm(d.extra_min)}` : null,
+                      avv.length > 0 && objekt ? objekt : null,
+                      d.ersattningsmil ? `${d.ersattningsmil} mil reseersättning` : null,
+                      d.ob_min > 0 ? `OB ${fmtOb(d.ob_min)}` : null,
+                    ].filter(Boolean) as string[];
                     return (
-                      <div key={d.id} style={{ padding:`${AVSTAND.s}px 0`,borderBottom:i < arr.length-1 ? `1px solid ${FARG.linje}` : "none" }}>
-                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:AVSTAND.m }}>
-                          <span style={{ ...TYP.meta,color:flagg ? FARG.orange : FARG.text,...TNUM }}>{dagNamnKort[dt.getDay()]} {dt.getDate()}/{dt.getMonth()+1} · {(d.start_tid||'').slice(0,5) || '–'}–{(d.slut_tid||'').slice(0,5) || '–'}{d.rast_min != null ? ` · rast ${d.rast_min}` : ''}</span>
-                          <span style={{ ...TYP.meta,color:FARG.text,fontWeight:VIKT.halvfet,...TNUM,whiteSpace:"nowrap" }}>{fmtHm(d.arbetad_min)}{d.extra_min ? <span style={{ color:FARG.gron,fontWeight:VIKT.normal }}> +{fmtHm(d.extra_min)}</span> : null}</span>
-                        </div>
-                        <div style={{ display:"flex",justifyContent:"space-between",gap:AVSTAND.m,marginTop:AVSTAND.xs }}>
-                          <span style={{ ...TYP.meta,color:FARG.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(d.objekt as string[]).join(', ') || (d.dagtyp && d.dagtyp !== 'normal' ? d.dagtyp : '—')}</span>
-                          <span style={{ ...TYP.meta,color:FARG.text2,whiteSpace:"nowrap",...TNUM }}>
-                            {d.ersattningsmil ? `${d.ersattningsmil} mil` : ''}{d.ob_min > 0 ? `${d.ersattningsmil ? ' · ' : ''}OB ${fmtOb(d.ob_min)}` : ''}{flagg ? `${d.ersattningsmil || d.ob_min ? ' · ' : ''}ej bekräftad` : ''}
+                      <div key={d.id} style={{ borderBottom:`1px solid ${FARG.linje}` }}>
+                        <button type="button" onClick={()=>setLönDagÖppen(öppen ? null : d.id)} aria-expanded={öppen}
+                          style={{ display:"flex",alignItems:"center",gap:AVSTAND.m,width:"100%",minHeight:TRAFFYTA.min,padding:0,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+                          <span style={{ ...TYP.text,color:FARG.text,...TNUM,whiteSpace:"nowrap" }}>{dagNamnKort[dt.getDay()]} {dt.getDate()}</span>
+                          <span style={{ flex:1,minWidth:0,...TYP.meta,color:avv.length ? FARG.orange : FARG.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+                            {avv.length ? avv.join(' · ') : (objekt || '—')}
                           </span>
-                        </div>
+                          <span style={{ ...TYP.text,color:FARG.text,...TNUM,whiteSpace:"nowrap" }}>{h.toLocaleString('sv-SE')}</span>
+                          <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.text3,transform:öppen?"rotate(90deg)":"none",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
+                        </button>
+                        {öppen && (
+                          <div className="tona-in" style={{ paddingBottom:AVSTAND.m }}>
+                            {detaljer.length > 0
+                              ? detaljer.map((t, i) => <p key={i} style={{ margin:i ? `${AVSTAND.xs}px 0 0` : 0,...TYP.meta,color:FARG.text2,...TNUM }}>{t}</p>)
+                              : <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Inga klockslag på dagen.</p>}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
-                  {spec.dagar.length === 0 && <p style={{ margin:0,padding:`${AVSTAND.m}px 0 ${AVSTAND.l}px`,...TYP.meta,color:FARG.text2 }}>Inga arbetsdagar den här månaden.</p>}
-                  <div style={{ height:6 }} />
+                  {dagRader.length === 0
+                    ? <p style={{ margin:0,padding:`${AVSTAND.m}px 0 ${AVSTAND.l}px`,...TYP.meta,color:FARG.text2 }}>Inga arbetsdagar den här månaden.</p>
+                    : (
+                      /* Summan av raderna ovan — kontrollräkningsbar med miniräknare. */
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:AVSTAND.m,padding:`${AVSTAND.m}px 0` }}>
+                        <span style={{ ...TYP.listtitel,color:FARG.text,...TNUM }}>{dagRader.length} {dagRader.length === 1 ? 'dag' : 'dagar'}</span>
+                        <span style={{ ...TYP.listtitel,color:FARG.text,...TNUM }}>{dagSummaH.toLocaleString('sv-SE')} tim</span>
+                      </div>
+                    )}
                 </section>
 
               </>
