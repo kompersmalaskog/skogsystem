@@ -1,5 +1,6 @@
 'use client'
 import { maskinVisningsnamn } from '@/lib/maskinNamn'
+import { underTopbar } from '@/lib/design/tokens' // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -34,7 +35,8 @@ const EMPTY_KPI: KPIData = {
   otherPct: 0, idlePct: 0,
 }
 
-const TOPBAR_H = 56 // pixels, from layout.tsx TopBar
+// Toppfältets höjd är 56 px + iPhones systemfält — hämtas ur tokens (underTopbar),
+// aldrig som tal här: på iPhone började panelerna 47–59 px under toppfältet.
 
 const SUPABASE_TIMEOUT = 10_000
 
@@ -316,7 +318,7 @@ export default function MaskinvyNyPage() {
 
         {/* ===== SIDEBAR ===== */}
         <aside style={{
-          position: 'fixed', left: 0, top: TOPBAR_H, bottom: 0,
+          position: 'fixed', left: 0, top: underTopbar(), bottom: 0,
           width: SIDEBAR_W, background: '#0e0e0e',
           fontFamily: "'Geist', system-ui, sans-serif",
           display: 'flex', flexDirection: 'column',
@@ -387,7 +389,7 @@ export default function MaskinvyNyPage() {
 
         {/* ===== HEADER ===== */}
         <header style={{
-          position: 'fixed', top: TOPBAR_H, right: 0,
+          position: 'fixed', top: underTopbar(), right: 0,
           width: `calc(100% - ${SIDEBAR_W}px)`,
           height: 64, background: 'rgba(19,19,19,0.85)',
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
@@ -416,7 +418,7 @@ export default function MaskinvyNyPage() {
         </header>
 
         {/* ===== MAIN CONTENT ===== */}
-        <main style={{ marginLeft: SIDEBAR_W, paddingTop: TOPBAR_H + 64, minHeight: '100vh' }}>
+        <main style={{ marginLeft: SIDEBAR_W, paddingTop: underTopbar(64), minHeight: '100vh' }}>
           <div style={{ padding: '24px 28px', maxWidth: 1400, margin: '0 auto' }}>
 
             {loading ? (
@@ -487,7 +489,7 @@ export default function MaskinvyNyPage() {
               <>
 
                 {/* KPI Cards */}
-                <div id="section-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>
+                <div id="section-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20, scrollMarginTop: underTopbar(80) }}>
                   <KPICard label="Total volym" value={fmt(kpi.totalVolym)} unit="m³fub" />
                   <KPICard label="Effektivitet" value={fmt(kpi.effektivitet, 0)} unit="%" accent />
                   <KPICard label="Medelstam" value={fmt(kpi.medelstam, 3)} unit="m³/st" />
@@ -495,7 +497,7 @@ export default function MaskinvyNyPage() {
                 </div>
 
                 {/* Chart */}
-                <div id="section-chart" style={{ ...cardStyle, padding: 24, marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>
+                <div id="section-chart" style={{ ...cardStyle, padding: 24, marginBottom: 20, scrollMarginTop: underTopbar(80) }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                     <div>
                       <p style={labelStyle}>Daglig produktion</p>
@@ -521,7 +523,7 @@ export default function MaskinvyNyPage() {
                 </div>
 
                 {/* Time + Stats row */}
-                <div id="section-time" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>
+                <div id="section-time" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20, scrollMarginTop: underTopbar(80) }}>
                   {/* Time Distribution */}
                   <div style={{ ...cardStyle, padding: 24 }}>
                     <p style={labelStyle}>Tidsfördelning</p>
@@ -558,7 +560,7 @@ export default function MaskinvyNyPage() {
                 </div>
 
                 {/* Table */}
-                <div id="section-table" style={{ ...cardStyle, overflow: 'hidden', marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>
+                <div id="section-table" style={{ ...cardStyle, overflow: 'hidden', marginBottom: 20, scrollMarginTop: underTopbar(80) }}>
                   <div style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontFamily: "'Geist', system-ui, sans-serif", fontWeight: 700 }}>Dagsdata</span>
                     <span style={{ fontSize: 11, color: '#8e8e93' }}>{daily.filter(d => d.volym > 0).length} produktionsdagar</span>

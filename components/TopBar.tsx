@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { CURRENT_VERSION } from '@/lib/changelog'
+import { LAYOUT } from '@/lib/design/tokens' // toppfältets höjd bor BARA i tokens
 
 const pageNames: Record<string, string> = {
   '/': 'Kompersmåla Skog',
@@ -74,8 +75,8 @@ export default function TopBar() {
       top: 0,
       left: 0,
       right: 0,
-      height: 'calc(56px + env(safe-area-inset-top))',
-      paddingTop: 'env(safe-area-inset-top)',
+      height: LAYOUT.topbar,
+      paddingTop: LAYOUT.safeTopp,
       background: 'rgba(13,13,15,0.92)',
       backdropFilter: 'blur(20px)',
       WebkitBackdropFilter: 'blur(20px)',

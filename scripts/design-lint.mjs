@@ -49,6 +49,17 @@ const REGLER = [
   { namn: "vit alfa", re: /rgba\(255,\s*255,\s*255,\s*([\d.]+)\)/g, ok: (m) => ALFA.has(m[1]) },
   { namn: "rörelsetid", re: /(\d+(?:\.\d+)?)(ms|s)\b(?=[^;"']*(?:ease|linear|cubic|,|"|'))/g, ok: (m) => TIDER.has(m[2] === "s" ? Number(m[1]) * 1000 : Number(m[1])) },
   { namn: "egen @keyframes", re: /@keyframes\s+(\w+)/g, ok: () => false },
+  // LAYOUTMÅTT ÄR INTE AVSTÅND (lib/design/tokens LAYOUT). Ett naket `top:` med tal
+  // är nästan alltid toppfältets höjd skriven för hand — och fel på iPhone, där
+  // toppfältet är 56 + 47–59 px. Paneler satt på top: 56 i fem månader (maj–sep 2026).
+  // `top: 0` är tillåtet (overlays, sticky i en egen scrollbox), liksom små
+  // förskjutningar inne i ett `position: absolute`-element (en ikon i ett kort)
+  // — de är placering i komponenten, inte ett mått mot skärmens kanter.
+  { namn: "naket layoutmått (top)", re: /\btop:\s*['"`]?(-?\d+)(?:px)?['"`]?\s*[,}]/g, ok: (m, rad) => Number(m[1]) === 0 || /position:\s*['"]absolute['"]/.test(rad) },
+  // En FAST rubrik med `top` (utom helskärmspaneler som även har bottom: 0/inset)
+  // ska vara `sticky` i flödet: då reserverar den sin egen höjd och inget mått kan
+  // bli fel. #540 hade fixed + AVSTAND.xxl som mått → 92 px innehåll under flikraden.
+  { namn: "fixed rubrik med top", re: /position:\s*['"]fixed['"][^}]*?\btop:\s*([^,}]+)/g, ok: (m, rad) => /^\s*0\s*$/.test(m[1]) || /\bbottom:\s*0\b|\binset:/.test(rad) },
   { namn: "window.alert", re: /(^|[^A-Za-z.])alert\(/g, ok: () => false },
 ];
 

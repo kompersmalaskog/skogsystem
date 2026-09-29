@@ -1,4 +1,5 @@
 'use client';
+import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 import { maskinVisningsnamn } from '@/lib/maskinNamn'
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -597,7 +598,7 @@ export default function Maskinvy2Page() {
   // ── Toggle bar (always visible) ──
   const toggleBar = (
     <div style={{
-      position: 'fixed', top: 56, left: 0, right: 0, height: 52,
+      position: 'fixed', top: underTopbar(), left: 0, right: 0, height: 52,
       background: 'rgba(0,0,0,0.85)', backdropFilter: 'saturate(180%) blur(24px)', WebkitBackdropFilter: 'saturate(180%) blur(24px)',
       borderBottom: `1px solid ${C.border}`,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 16px',
@@ -632,7 +633,7 @@ export default function Maskinvy2Page() {
       <>
         {toggleBar}
         <div style={{
-          position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
+          position: 'fixed', top: underTopbar(52), left: 0, right: 0, bottom: 0,
           background: C.bg, fontFamily: ff, zIndex: 1, overflow: 'auto', padding: '24px 28px',
         }}>
           <style>{`@keyframes mv2Skel { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } } .mv2-skel { background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%); background-size: 200px 100%; border-radius: 8px; animation: mv2Skel 1.4s ease-in-out infinite; }`}</style>
@@ -665,7 +666,7 @@ export default function Maskinvy2Page() {
     <>
       {toggleBar}
       <div style={{
-        position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
+        position: 'fixed', top: underTopbar(52), left: 0, right: 0, bottom: 0,
         overflow: 'auto', WebkitOverflowScrolling: 'touch' as any,
         background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
       }}>

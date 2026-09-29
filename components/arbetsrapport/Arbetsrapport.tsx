@@ -25,7 +25,7 @@ import PdfLasare from "@/app/planering/PdfLasare";
 // importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
 // Lön, Kalender, Redigera) använder ännu den lokala TYPE-skalan nedan och
 // rättas när de rörs.
-import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss } from "@/lib/design/tokens";
+import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss, LAYOUT, medSafeBotten } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
 import { useRaknaUppVarde } from "@/lib/design/raknaUpp";
 
@@ -118,9 +118,11 @@ const TYPE = {
   // Utanför v6-skalan — medvetet undantag: timer-klockan på pågående pass.
   display:    { fontSize:72, fontWeight:600, letterSpacing:"-3px" },
 } satisfies Record<string, CSSProperties>;
-// Interna vy-headers (fixed/sticky) ska börja UNDER appens globala TopBar
-// (56px + safe-area, zIndex 1000) — inte på viewportens y=0 som TopBar äger.
-const HEADER_TOP = "calc(56px + env(safe-area-inset-top))";
+// Interna vy-rubriker är STICKY och fastnar under appens globala TopBar
+// (56px + safe-area, zIndex 1000). Layoutmåttet bor i tokens (LAYOUT.topbar) —
+// aldrig ett tal här, och aldrig fixed + uppmätt paddingTop: #540 bytte Min tids
+// uppmätta 126 mot AVSTAND.xxl och 92 px innehåll hamnade under flikraden.
+const HEADER_TOP = LAYOUT.topbar;
 // Sidmarginal ur tokens (16) — förr 20 här och 16 i Dag/Kalender, så innehållet
 // hoppade 4 px i sidled vid varje vybyte.
 const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:`0 ${AVSTAND.sidmarginal}px`, boxSizing:"border-box" as const, width:"100%" };
@@ -131,8 +133,9 @@ const bottom: CSSProperties = { paddingBottom:36, display:"flex", flexDirection:
 
 // BottomNavBar-höjd inkl. safe-area-padding. Scrollbara vyer behöver
 // `SCROLL_BOTTOM` som paddingBottom så sista innehållet inte skärs av navet.
+// Layoutmått (inte avstånd): navet + hemindikatorns zon på iPhone.
 const NAV_HEIGHT = 80;
-const SCROLL_BOTTOM = NAV_HEIGHT + 40;
+const SCROLL_BOTTOM = `calc(${NAV_HEIGHT + 40}px + env(safe-area-inset-bottom))`;
 
 const btn = {
   primary:   { width:"100%", height:56, padding:"0 24px", background:"#2a2a2a", color:"#fff", border:"none", borderRadius:12, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
@@ -239,7 +242,7 @@ const secHead: CSSProperties = { margin:"0 0 10px",...TYPE.micro,color:"#8e8e93"
 
 function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => void }) {
   return (
-    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"12px 16px 24px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
+    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
       {[
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
@@ -2417,7 +2420,6 @@ export default function Arbetsrapport() {
      så bytet väntar → pågår → avslutad → bekräftad tonar över på samma plats.
      Inga literaler här — allt ur tokens. */
   if(steg==="morgon"||steg==="dag"||steg==="meny") {
-    const DAG_HUVUD = 64;   // fast rubrikrad överst (layoutmått, inte typ/avstånd)
     const idagArb: any = dagData[idagKey];
     const extraFärdiga = (extraTidData || []).filter((e: any) => e.datum === idagKey && e.slut_tid);
     const harMaskinPass = !!idagArb?.slut_tid;
@@ -3012,12 +3014,9 @@ export default function Arbetsrapport() {
     <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
       <style>{css}{designCss}</style>{timerBanner}
 
-      {/* Rubrikraden */}
-      <header style={{ position:"fixed", top:0, width:"100%", height:DAG_HUVUD, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)", zIndex:50, display:"flex", justifyContent:"center", alignItems:"center", padding:`0 ${AVSTAND.sidmarginal}px`, boxSizing:"border-box" }}>
-        <span style={{ ...TYP.listtitel, color:FARG.text }}>Dag</span>
-      </header>
-
-      <main style={{ paddingTop:DAG_HUVUD + AVSTAND.xxl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
+      {/* Ingen egen rubrikrad: den satt på top:0 BAKOM appens toppfält (PR 518) —
+          osynlig, 64 px tomrum. Toppfältet säger redan "Arbetsrapport". */}
+      <main style={{ paddingTop:AVSTAND.xl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
 
         {/* VAD SOM VÄNTAR — ovanför hälsningen, bara när något finns. */}
         {vantarRader.length > 0 && (
@@ -3442,7 +3441,9 @@ export default function Arbetsrapport() {
     return (
       <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",paddingBottom:AVSTAND.xxl }}>
         <style>{css}</style>{timerBanner}
-        <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:`0 ${AVSTAND.sidmarginal}px`,paddingTop:AVSTAND.l }}>
+        {/* STICKY i flödet: rubriken reserverar sin egen höjd, så inget innehåll
+            kan hamna under flikraden (PR 540 hade fixed + ett avstånd som mått). */}
+        <header style={{ position:"sticky",top:HEADER_TOP,zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:`0 ${AVSTAND.sidmarginal}px`,paddingTop:AVSTAND.l }}>
           <h1 style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.titel,color:FARG.text }}>Min tid</h1>
           <div style={{ display:"flex",gap:0,background:FARG.linje,borderRadius:RADIE.rad,padding:AVSTAND.xs,marginBottom:AVSTAND.m,overflowX:"auto" }}>
             {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['monster','Mönster']] as const).map(([k,l])=>(
@@ -3451,7 +3452,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ paddingTop:AVSTAND.xxl,paddingLeft:AVSTAND.sidmarginal,paddingRight:AVSTAND.sidmarginal,paddingBottom:SCROLL_BOTTOM }}>
+        <main style={{ paddingTop:AVSTAND.l,paddingLeft:AVSTAND.sidmarginal,paddingRight:AVSTAND.sidmarginal,paddingBottom:SCROLL_BOTTOM }}>
 
           {minTidFlik==='översikt'&&<>
           {/* Staplarna är borta (2026-09-13): fem grå block som krävde en etikett
@@ -4365,7 +4366,8 @@ export default function Arbetsrapport() {
       return (
         <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased" }}>
           <style>{css}</style>{timerBanner}
-          <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:`0 ${AVSTAND.l}px`,height:64 }}>
+          {/* Sticky i flödet — se Min tid. */}
+          <header style={{ position:"sticky",top:HEADER_TOP,zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:`0 ${AVSTAND.l}px`,minHeight:64 }}>
             <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:`${AVSTAND.s}px ${AVSTAND.m}px ${AVSTAND.s}px ${AVSTAND.s}px`,fontFamily:"inherit",display:"flex",alignItems:"center",gap:AVSTAND.xs }}>
               <span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span>
               <span style={{ color:FARG.bla,...TYP.text,fontWeight:VIKT.normal }}>Sammanställning</span>
@@ -4381,7 +4383,7 @@ export default function Arbetsrapport() {
             </div>
           </header>
 
-          <main style={{ paddingTop:AVSTAND.xxl,paddingBottom:AVSTAND.xxl,padding:`${AVSTAND.xxl}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:640,margin:"0 auto" }}>
+          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:640,margin:"0 auto" }}>
 
             {/* Brandrisk-retroraden bor numera i Sammanställningens "Saknas"-block. */}
 
@@ -4554,7 +4556,8 @@ export default function Arbetsrapport() {
         {/* Header */}
         {/* Header: månad + pilar (44 px, blå = navigerar). Kalenderikonen som inte
             gick att trycka på är borta. */}
-        <header style={{ position:"fixed", top:HEADER_TOP, width:"100%", zIndex:50, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", display:"flex", justifyContent:"center", alignItems:"center", padding:`0 ${AVSTAND.sidmarginal}px`, height:64 }}>
+        {/* Sticky i flödet — se Min tid. */}
+        <header style={{ position:"sticky", top:HEADER_TOP, zIndex:50, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", display:"flex", justifyContent:"center", alignItems:"center", padding:`0 ${AVSTAND.sidmarginal}px`, minHeight:64 }}>
           <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
             <button onClick={stegLönBak} disabled={!kanLönBak} style={{ ...KNAPP.lank, width:TRAFFYTA.min, justifyContent:"center", ...(kanLönBak ? {} : INAKTIV) }}>
               <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>chevron_left</span>
@@ -4566,7 +4569,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ paddingTop:AVSTAND.xxl,paddingBottom:AVSTAND.xxl,padding:`${AVSTAND.xxl}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:448,margin:"0 auto",width:"100%" }}>
+        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:448,margin:"0 auto",width:"100%",boxSizing:"border-box" }}>
 
           {/* TIDSSPECIFIKATION — exakt det som går till lönen, ur SAMMA beräkning som
               Fortnox-exporten (/api/lon/min-manad). MÄNGDER, aldrig kronor: föraren
@@ -6201,7 +6204,7 @@ export default function Arbetsrapport() {
           </button>
         </header>
 
-        <main style={{ flex:1, padding:`0 ${AVSTAND.sidmarginal}px ${SCROLL_BOTTOM}px`, overflowY:"auto" }}>
+        <main style={{ flex:1, padding:`0 ${AVSTAND.sidmarginal}px ${SCROLL_BOTTOM}`, overflowY:"auto" }}>
 
           {/* Månadskortet: ETT tal (jobbat av mål, centrerat) + uppdelningen —
               vardagar, helgdagar, frånvaro per typ, vardagar utan rapport.

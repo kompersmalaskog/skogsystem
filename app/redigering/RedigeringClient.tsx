@@ -1,4 +1,5 @@
 "use client"
+import { underTopbar, medSafeBotten } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useState, useEffect, useRef, Fragment, Children, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -4316,7 +4317,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
 }
 
 const styles = {
-  container: { position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: '#000', fontFamily: "'Geist', system-ui, -apple-system, BlinkMacSystemFont, sans-serif", color: '#fff', padding: '16px 20px 100px', WebkitFontSmoothing: 'antialiased', overflowY: 'auto' },
+  container: { position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: '#000', fontFamily: "'Geist', system-ui, -apple-system, BlinkMacSystemFont, sans-serif", color: '#fff', padding: '16px 20px 100px', WebkitFontSmoothing: 'antialiased', overflowY: 'auto' },
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
   headerCenter: { textAlign: 'center', flex: 1 },
   backBtn: { width: 48, height: 48, borderRadius: 24, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 24, cursor: 'pointer', transition: 'all 0.2s ease' },
@@ -4413,7 +4414,7 @@ const styles = {
   sheetHeader: { padding: '4px 24px 20px', transition: 'border-color 0.2s ease' },
   sheetTitel: { fontSize: 22, fontWeight: 700 },
   scrollFade: { position: 'absolute', top: 80, left: 0, right: 0, height: 30, background: 'linear-gradient(to bottom, #1c1c1e, transparent)', zIndex: 1, pointerEvents: 'none', transition: 'opacity 0.2s ease' },
-  sheetContent: { flex: 1, overflowY: 'auto', padding: '0 24px 24px' },
+  sheetContent: { flex: 1, overflowY: 'auto', padding: `0 24px ${medSafeBotten(24)}` },
   sheetFooter: { padding: '16px 24px 40px' },
   saveBtn: { width: '100%', padding: '18px', borderRadius: 16, border: 'none', background: '#adc6ff', color: '#000', fontSize: 17, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s ease' },
   progressHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' },
