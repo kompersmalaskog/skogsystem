@@ -26,6 +26,7 @@ import { useEffect, useState } from 'react';
 import {
   FARG, TYP, AVSTAND, RADIE, TRAFFYTA, VY_ROT, KORT, FONT, TAL_FONT,
 } from '@/lib/design/tokens';
+import { delaHalften, type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 
 type Rad = {
   radnr: number; artikelnr: string | null; benamning: string;
@@ -34,6 +35,8 @@ type Rad = {
   harledning: { etikett: string; belopp: number; ungefarlig?: boolean }[] | null;
   kalla: string; status: string; fel_kod: string | null; kostnadsstalle: string | null;
   delar_grundpris: number | null; delar_andel: number | null; delar_avstand: number | null;
+  prislista: { medelstam: number; klass: number; total: number; skordare: number; skotare: number } | null;
+  tillaggsposter: Tillaggspost[] | null;
 };
 type Detalj = {
   vo_nummer: string; objektnamn: string; kund: number | null; bolag: string | null;
@@ -262,10 +265,14 @@ function TraktInnehall({ d }: { d: Detalj }) {
   // Traktens tillägg står i ackordraden. Grundraden och avståndet hör till
   // maskinen, resten till trakten.
   const harl = maskinRader.find(r => r.artikelnr === '1')?.harledning || [];
-  const traktensTillagg = harl.filter(h =>
-    h.belopp !== 0 && !h.etikett.startsWith('Grund') && h.etikett !== 'Avstånd');
-  const attFordela = traktensTillagg.reduce((s, h) => s + h.belopp, 0);
   const fordelningsnot = harl.find(h => h.etikett.startsWith('Fördelning ändrad'));
+  const skordarrad = maskinRader.find(r => r.artikelnr === '1');
+  const poster = skordarrad?.tillaggsposter || [];
+  // Bara det som faktiskt DELAS står kvar som traktens post. Krönt, terräng
+  // och sortiment hör till var sin maskin och visas på maskinens kort.
+  const delade = poster.filter(pp => pp.mottagare === 'delas' && pp.belopp !== 0);
+  const attFordela = delade.reduce((s, pp) => s + pp.belopp, 0);
+  const prislista = skordarrad?.prislista || null;
   const kontrakt = d.rader.find(r => r.artikelnr === '8')?.benamning || '';
 
   return (
@@ -288,21 +295,38 @@ function TraktInnehall({ d }: { d: Detalj }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: AVSTAND.l, marginTop: AVSTAND.xl, flexWrap: 'wrap' }}>
+      {/* VAD PRISLISTAN GER, innan tilläggen. Utan den ser 57,00 och 44,00
+          ut som tal appen hittat på i stället för en rad i avtalet — och
+          klampningen "0,57 → klass 0,55" är en TOLKNING som ska synas. */}
+      {prislista && (
+        <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xl}px 0 0` }}>
+          <span style={TAL_FONT}>
+            Prislistan, medelstam {kr2(prislista.medelstam)} → klass {kr2(prislista.klass)}:{' '}
+            {kr2(prislista.total)} kr/m³fub — skördare {kr2(prislista.skordare)} · skotare{' '}
+            {kr2(prislista.skotare)}
+          </span>
+        </p>
+      )}
+
+      <div style={{ display: 'flex', gap: AVSTAND.l, marginTop: AVSTAND.l, flexWrap: 'wrap' }}>
         {maskinRader.map(r => <Maskinkort key={r.radnr} r={r} />)}
       </div>
 
-      {traktensTillagg.length > 0 && (
+      {(delade.length > 0 || fordelningsnot) && (
         <div style={{ marginTop: AVSTAND.xl }}>
           <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>
-            Traktens tillägg — delas mellan maskinerna
+            Delas mellan maskinerna
           </p>
           <div style={{ ...KORT, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-            {traktensTillagg.map((h, i) => (
-              <Prisrad key={i} etikett={h.etikett} belopp={h.belopp} dampad tecken />
+            {delade.map((pp, i) => (
+              <Prisrad key={i} etikett={pp.etikett} belopp={pp.belopp} dampad tecken />
             ))}
-            <div style={{ height: 1, background: FARG.linje }} />
-            <Prisrad etikett="Att fördela" belopp={attFordela} stor />
+            {delade.length > 1 && (
+              <>
+                <div style={{ height: 1, background: FARG.linje }} />
+                <Prisrad etikett="Att fördela" belopp={attFordela} stor />
+              </>
+            )}
             {fordelningsnot && (
               <p style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>{fordelningsnot.etikett}</p>
             )}
@@ -388,9 +412,29 @@ function Maskinkort({ r }: { r: Rad }) {
   const pris = r.a_pris_beraknat;
   const grund = r.harledning?.find(h => h.etikett.startsWith('Grund'));
   const arTimpeng = r.artikelnr === '11' || r.artikelnr === '12';
-  const verb = r.artikelnr === '1' || r.artikelnr === '11' ? 'Skördning' : 'Skotning';
+  const roll: 'skordare' | 'skotare' =
+    r.artikelnr === '1' || r.artikelnr === '11' ? 'skordare' : 'skotare';
+  const verb = roll === 'skordare' ? 'Skördning' : 'Skotning';
   // Benämningen är "Skördning ackord Gigant" — maskinnamnet är resten.
   const namn = r.benamning.split(' ').slice(2).join(' ') || r.benamning;
+
+  // VARJE POST HÖR TILL EN MASKIN. Krönt står på skördarens kort, terräng
+  // och sortiment på skotarens, och traktstorleken delas. Ingen rad som
+  // heter "andel av en pott" — den dolde vem som fick vad.
+  const egnaPoster = (r.tillaggsposter || [])
+    .map(pp => ({
+      etikett: pp.etikett,
+      belopp: pp.mottagare === 'delas' ? delaHalften(pp.belopp)[roll]
+            : pp.mottagare === roll ? pp.belopp : 0,
+      delad: pp.mottagare === 'delas',
+    }))
+    .filter(pp => pp.belopp !== 0);
+
+  // Är fördelningen överskriven stämmer inte uppdelningen längre. Då visas
+  // EN rad med det faktiska beloppet i stället för en uppställning som ser
+  // exakt ut men inte summerar till à-priset.
+  const summaEgna = Math.round(egnaPoster.reduce((s, pp) => s + pp.belopp, 0) * 100);
+  const overskriven = r.delar_andel != null && summaEgna !== Math.round(r.delar_andel * 100);
 
   return (
     <div style={{ ...KORT, flexGrow: 1, flexBasis: 300, minWidth: 260,
@@ -408,7 +452,11 @@ function Maskinkort({ r }: { r: Rad }) {
             etikett={arTimpeng ? 'Timpris'
               : (grund?.etikett.replace('Grund ', '').replace(/[()]/g, '') || 'Grundpris')} />
         )}
-        {!arTimpeng && !!r.delar_andel && (
+        {!arTimpeng && !overskriven && egnaPoster.map((pp, i) => (
+          <Prisrad key={i} dampad tecken belopp={pp.belopp}
+            etikett={pp.delad ? `${pp.etikett}, halva` : pp.etikett} />
+        ))}
+        {!arTimpeng && overskriven && r.delar_andel !== 0 && (
           <Prisrad dampad tecken etikett="Andel av traktens tillägg" belopp={r.delar_andel} />
         )}
         {!arTimpeng && !!r.delar_avstand && (

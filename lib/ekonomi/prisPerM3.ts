@@ -60,6 +60,17 @@ export type PrisPerM3 = {
   andelSkotare: number;
   /** pris_total(klass) + ovrigt. Summan av båda rollernas à-pris, utan avstånd. */
   total: number;
+  /**
+   * Prislistans rad, oförändrad. Vyn ska kunna visa VAD AVTALET GER innan
+   * tilläggen: "medelstam 0,57 → klass 0,55: 101 kr/m³fub — skördare 57 ·
+   * skotare 44". Utan den ser korten 57,00 och 44,00 ut som tal appen hittat
+   * på, i stället för en rad i avtalet.
+   * Klassuppslaget är NÄRMASTE UNDER, inte närmaste — en tolkning som ska
+   * synas, inte gömmas.
+   */
+  prislista: { medelstam: number; klass: number; total: number; skordare: number; skotare: number } | null;
+  /** Tilläggen med sin mottagare, för vyn. Summerar till `ovrigt`. */
+  tillaggsposter: Tillaggspost[];
 };
 
 /**
@@ -68,29 +79,71 @@ export type PrisPerM3 = {
  * ⚠️ TILLÄGGET LÄGGS PÅ TOTALEN EN GÅNG. Det adderas INTE till båda rollerna.
  * Verifierat mot 30 Vida-fakturor 2026-09-25:
  *     pris(artikel 1) + pris(artikel 2) = pris_total(klass) + Σ tillägg
- * Den gamla koden la hela tillägget på VARJE roll och gav pris_total + 2×
- * tillägg — 3,48 kr/m³ för mycket i snitt, 73 066 kr över 40 avräknade objekt.
  *
- * REGELN: hälften var, avrundat NEDÅT till närmaste femtioöring, med
+ * VARJE POST HAR EN MOTTAGARE — det finns ingen pott att dela (Martins
+ * uppdelning, 2026-09-29):
+ *
+ *     Krönt (kvalitetssäkring, ForestLink)   SKÖRDAREN
+ *     Traktstorlek                           DELAS
+ *     Terräng                                SKOTAREN
+ *     Sortimentstillägg                      SKOTAREN
+ *     Skotningsavstånd                       SKOTAREN (utanför krPerM3)
+ *
+ * Då står "Krönt +1,50" på skördarens kort och "Terräng +2,00" på skotarens,
+ * i stället för "Andel av traktens tillägg" på båda. Bara traktstorleken
+ * delas, och den delas hälften var avrundat NEDÅT till femtioöring med
  * överskottet till skotaren.
- *     5,50 → 2,50 / 3,00     (halva 2,75)
- *     3,50 → 1,50 / 2,00     (halva 1,75)
- * Mönstret återkommer på minst åtta fakturor; ingen faktura har 2,75.
  *
- * Detta är ett FÖRSLAG, inte en formel. Flera fakturor avviker (7,50 delat
- * 2,50/5,00; 6,50 delat 4,00/2,50) — det är Martins bedömning per objekt,
- * som terrängposten. Överskrivningen bor på fakturaraden, inte här.
+ * REGELN TRÄFFAR INTE ALLTID, OCH DET ÄR INSKRIVET MED FLIT.
+ * Prövad mot 14 fakturor med fullständig härledning: fyra träffar exakt på
+ * BÅDA raderna, flera till på den ena. Bättre än hälftendelningen, men inte
+ * hela vägen. Avvikelsen har ett läsbart mönster — skördaren får mer än
+ * regeln säger när TERRÄNGEN ÄR STOR:
+ *     medelstam 0,46, terräng 8 kr → regeln 61,50, fakturan 67,50
+ *     medelstam 0,49, terräng 7 kr → regeln 61,50, fakturan 66,50
+ *     medelstam 0,30, terräng 5 kr → regeln 71,50, fakturan 71,50  (träff)
+ * Vid 2–3 kr stämmer regeln; vid 5–8 kr har Martin gett skördaren en del,
+ * för blöt mark drabbar båda när den är riktigt svår.
  *
- * Räknar i ÖRE som heltal: 2.75/0.5 är exakt i binärt, men summan av flera
- * halvkronor behöver inte vara det, och en flyttalsfloor som slinter ett steg
- * flyttar femtio öre per kubik.
+ * DET BYGGS INTE IN. Ett mönster i fjorton rader är ett stickprov, och vi
+ * har grävt oss ur tre sådana. Fördelningen ändras i stället per trakt med
+ * dim_objekt.acord_andel_skordare_manuell, som anger hur mycket av HELA
+ * tillägget som ligger på skördaren.
  */
-export function fordelaOvrigt(ovrigt: number): { skordare: number; skotare: number } {
-  const ore = Math.round(ovrigt * 100);
-  const halva = Math.floor(ore / 2);              // heltalsdivision, nedåt
-  const skordareOre = Math.floor(halva / 50) * 50; // ned till hel femtioöring
+export type Tillaggspost = {
+  etikett: string;
+  belopp: number;
+  /** Vem posten hör till. 'delas' = hälften var, nedåt till femtioöring. */
+  mottagare: 'skordare' | 'skotare' | 'delas';
+};
+
+/** Hälften var av ett delat belopp, nedåt till femtioöring, resten till
+ *  skotaren. Räknar i ÖRE som heltal: summan av flera halvkronor behöver
+ *  inte vara exakt i flyttal, och en floor som slinter ett steg flyttar
+ *  femtio öre per kubik. */
+export function delaHalften(belopp: number): { skordare: number; skotare: number } {
+  const ore = Math.round(belopp * 100);
+  const halva = Math.floor(ore / 2);
+  const skordareOre = Math.floor(halva / 50) * 50;
   return { skordare: skordareOre / 100, skotare: (ore - skordareOre) / 100 };
 }
+
+/** Fördelar posterna efter sin mottagare. Summan är alltid hela tillägget. */
+export function fordelaTillagg(poster: Tillaggspost[]): {
+  skordare: number; skotare: number; ovrigt: number;
+} {
+  let sk = 0, sko = 0, allt = 0;
+  for (const post of poster) {
+    allt += post.belopp;
+    if (post.mottagare === 'skordare') sk += post.belopp;
+    else if (post.mottagare === 'skotare') sko += post.belopp;
+    else { const d = delaHalften(post.belopp); sk += d.skordare; sko += d.skotare; }
+  }
+  const ore = (n: number) => Math.round(n * 100);
+  return { skordare: ore(sk) / 100, skotare: ore(sko) / 100, ovrigt: ore(allt) / 100 };
+}
+
+
 
 const tal = (n: number) => n.toFixed(2).replace(/0+$/, '').replace(/[.,]$/, '').replace('.', ',');
 
@@ -120,9 +173,16 @@ export function prisPerM3(p: {
     ? Number(p.roll === 'skordare' ? rad.pris_skordare : rad.pris_skotare) || 0
     : 0;
 
-  // Tilläggen summeras EN gång och fördelas — se fordelaOvrigt.
-  const ovrigt = p.sortKr + p.traktKr + p.kvalitetKr + p.terrangKr;
-  const andel = fordelaOvrigt(ovrigt);
+  // Varje post har en mottagare — se fordelaTillagg. Ingen pott.
+  const poster: Tillaggspost[] = [
+    { etikett: 'Krönt',      belopp: p.kvalitetKr, mottagare: 'skordare' },
+    { etikett: 'Storlek',    belopp: p.traktKr,    mottagare: 'delas'    },
+    { etikett: 'Terräng',    belopp: p.terrangKr,  mottagare: 'skotare'  },
+    { etikett: 'Sortiment',  belopp: p.sortKr,     mottagare: 'skotare'  },
+  ];
+  const fordelat = fordelaTillagg(poster);
+  const ovrigt = fordelat.ovrigt;
+  const andel = { skordare: fordelat.skordare, skotare: fordelat.skotare };
   const krPerM3 = grundpris + (p.roll === 'skordare' ? andel.skordare : andel.skotare);
 
   // Totalen är prislistans pris_total, inte summan av de två rollpriserna:
@@ -160,5 +220,13 @@ export function prisPerM3(p: {
   return {
     krPerM3, delar, klass, medelstam: p.medelstam,
     ovrigt, andelSkordare: andel.skordare, andelSkotare: andel.skotare, total,
+    prislista: rad ? {
+      medelstam: p.medelstam,
+      klass: Number(rad.medelstam),
+      total: Number(rad.pris_total) || 0,
+      skordare: Number(rad.pris_skordare) || 0,
+      skotare: Number(rad.pris_skotare) || 0,
+    } : null,
+    tillaggsposter: poster.filter(x => x.belopp !== 0),
   };
 }
