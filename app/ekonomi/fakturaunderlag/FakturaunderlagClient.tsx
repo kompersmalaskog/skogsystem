@@ -42,16 +42,17 @@ type Detalj = {
   gar_att_skicka: boolean; summa_kant: number; rader_utan_pris: number; fel?: string;
 };
 type OversiktsRad = {
-  vo_nummer: string; namn: string; bolag: string | null; kund: number | null;
-  avtalsform: 'ackord' | 'timpeng'; avrakningsdatum: string | null;
-  mangd: number; mangd_enhet: 'm3fub' | 'h'; summa: number; orsak?: string;
+  vo_nummer: string; namn: string; bolag: string | null; fortnox_kundnr: number | null;
+  avtalsform: 'ackord' | 'timpeng'; tillstand: string; avrakningsdatum: string | null;
+  objekt_antal: number; volym_m3fub: number; g15h: number; hinder: string | null;
 };
 type Oversikt = {
-  fonster: { dagar: number; max: number; byggda: number; klara_totalt: number; utanfor: number };
-  grupper: { klara: OversiktsRad[]; atgard: OversiktsRad[]; vantar: OversiktsRad[]; pagar: OversiktsRad[] };
+  ms: number; antal: number;
+  grupper: {
+    klara: OversiktsRad[]; atgard: OversiktsRad[]; ingen_gemensam_kund: OversiktsRad[];
+    pagar: OversiktsRad[]; ej_paborjad: OversiktsRad[];
+  };
 };
-
-const DAGAR = 90;
 
 const nr = (n: number, dec = 0) =>
   n.toLocaleString('sv-SE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -68,7 +69,7 @@ export default function FakturaunderlagClient() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`/api/faktura/oversikt?dagar=${DAGAR}`);
+        const r = await fetch('/api/faktura/oversikt');
         const j = await r.json();
         if (!r.ok || !j.ok) { setListFel(j?.meddelande || `Servern svarade ${r.status}.`); return; }
         setOversikt(j);
@@ -112,34 +113,38 @@ export default function FakturaunderlagClient() {
       {listFel && <Ruta titel="Kunde inte läsa underlagen" text={listFel} varning />}
       {!listFel && !oversikt && (
         <p style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xl }}>
-          Bygger underlagen för trakter avräknade de senaste {DAGAR} dagarna…
+          Läser trakterna…
         </p>
       )}
 
       {oversikt && (
         <>
           <Huvudtal antal={oversikt.grupper.klara.length}
-            summa={oversikt.grupper.klara.reduce((s, r) => s + r.summa, 0)} />
+            volym={oversikt.grupper.klara.reduce((s, r) => s + r.volym_m3fub, 0)} />
 
           <Grupp titel="Klara att fakturera" rader={oversikt.grupper.klara} oppna={oppna}
-            tomText={`Ingen trakt är klar bland dem som avräknats de senaste ${DAGAR} dagarna.`} />
+            tomText="Ingen trakt är klar att fakturera just nu." />
 
-          <Grupp titel="Behöver åtgärd" rader={oversikt.grupper.atgard} oppna={oppna} visaOrsak
-            tomText="Inget underlag stoppas av något just nu." />
+          <Grupp titel="Behöver åtgärd" rader={oversikt.grupper.atgard} oppna={oppna} visaHinder
+            tomText="Inget underlag stoppas av kund, kontraktsnummer eller flyttimmar." />
 
-          <Grupp titel="Väntar på inmätning" rader={oversikt.grupper.vantar} oppna={oppna} visaOrsak
-            tomText="Inget à conto är skickat från appen än. Fakturor skickade för hand syns inte här — de är inte kopplade till sitt vo-nummer." />
+          <Grupp titel="Faktureras inte på vo-nummer" rader={oversikt.grupper.ingen_gemensam_kund}
+            oppna={oppna} visaHinder dampad
+            tomText="Alla bolag med avslutade trakter har kundnummer i Fortnox." />
 
-          <Grupp titel="Pågår" rader={oversikt.grupper.pagar} oppna={oppna} visaOrsak dampad
+          <Grupp titel="Pågår" rader={oversikt.grupper.pagar} oppna={oppna} dampad
             tomText="Ingen trakt är påbörjad men oavslutad." />
 
-          {oversikt.fonster.utanfor > 0 && (
-            <p style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xl }}>
-              {oversikt.fonster.utanfor} slutavräknade trakter ligger utanför fönstret på{' '}
-              {oversikt.fonster.dagar} dagar och är inte byggda. Av{' '}
-              {oversikt.fonster.klara_totalt} slutavräknade visas {oversikt.fonster.byggda}.
-            </p>
-          )}
+          <Grupp titel="Inte påbörjade" rader={oversikt.grupper.ej_paborjad} oppna={oppna} dampad
+            tomText="Alla upplagda trakter är påbörjade." />
+
+          {/* Listan kontrollerar kund, kontraktsnummer och flyttimmar. En
+              saknad prissats syns först när trakten öppnas — det ska stå,
+              inte antydas. */}
+          <p style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xl }}>
+            {oversikt.antal} trakter, lästa på {oversikt.ms} ms. Listan kontrollerar kund,
+            kontraktsnummer och traillertimmar — priserna räknas när du öppnar en trakt.
+          </p>
         </>
       )}
     </div>
@@ -148,7 +153,7 @@ export default function FakturaunderlagClient() {
 
 /* ── Delar ─────────────────────────────────────────────────────────────── */
 
-function Huvudtal({ antal, summa }: { antal: number; summa: number }) {
+function Huvudtal({ antal, volym }: { antal: number; volym: number }) {
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.m,
                   margin: `${AVSTAND.xxl}px 0 0`, flexWrap: 'wrap' }}>
@@ -157,21 +162,27 @@ function Huvudtal({ antal, summa }: { antal: number; summa: number }) {
         <p style={{ ...TYP.rubrik, margin: 0 }}>
           {antal === 1 ? 'trakt klar att fakturera' : 'trakter klara att fakturera'}
         </p>
+        {/* Volym i stället för kronor. Beloppet hade krävt hela prisformeln
+            en gång till i SQL — två priser är samma felklass som
+            acord_flyttkostnad. Det kommer tillbaka när status finns och
+            "klara" är en handfull. */}
         <p style={{ ...TYP.meta, ...TAL_FONT, margin: `${AVSTAND.xs}px 0 0`, color: FARG.text2 }}>
-          {nr(summa)} kr
+          {nr(volym)} m³fub
         </p>
       </div>
     </div>
   );
 }
 
-function Grupp({ titel, rader, oppna, visaOrsak, dampad, tomText }: {
+function Grupp({ titel, rader, oppna, visaHinder, dampad, tomText }: {
   titel: string; rader: OversiktsRad[]; oppna: (vo: string) => void;
-  visaOrsak?: boolean; dampad?: boolean; tomText: string;
+  visaHinder?: boolean; dampad?: boolean; tomText: string;
 }) {
   return (
     <div style={{ marginTop: AVSTAND.xl }}>
-      <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>{titel}</p>
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>
+        {titel}{rader.length > 0 ? ` · ${rader.length}` : ''}
+      </p>
       <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
         {rader.length === 0 ? (
           <p style={{ ...TYP.meta, color: FARG.text3, margin: 0, padding: `${AVSTAND.l}px` }}>{tomText}</p>
@@ -188,21 +199,21 @@ function Grupp({ titel, rader, oppna, visaOrsak, dampad, tomText }: {
               }}>
               <span style={{ ...TYP.text, flexGrow: 1, minWidth: 180,
                              color: dampad ? FARG.text2 : FARG.text }}>{r.namn}</span>
-              {visaOrsak ? (
+              <span style={{ ...TYP.meta, color: FARG.text2, minWidth: 90 }}>{r.bolag || '—'}</span>
+              {/* Både volym och timmar visas när båda finns. Ett timpengsobjekt
+                  faktureras på timmar men har ändå en volym, och tvärtom —
+                  att välja åt Martin döljer hälften. */}
+              <span style={{ ...TYP.meta, ...TAL_FONT, color: FARG.text2,
+                             minWidth: 110, textAlign: 'right' }}>
+                {r.volym_m3fub > 0 ? `${nr(r.volym_m3fub)} m³fub` : ''}
+              </span>
+              <span style={{ ...TYP.meta, ...TAL_FONT, color: FARG.text2,
+                             minWidth: 80, textAlign: 'right' }}>
+                {r.g15h > 0 ? `${nr(r.g15h, 1)} tim` : ''}
+              </span>
+              {visaHinder && r.hinder && (
                 <span style={{ ...TYP.meta, flexBasis: '100%',
-                               color: dampad ? FARG.text3 : FARG.orange }}>{r.orsak}</span>
-              ) : (
-                <>
-                  <span style={{ ...TYP.meta, color: FARG.text2, minWidth: 90 }}>{r.bolag || '—'}</span>
-                  <span style={{ ...TYP.meta, ...TAL_FONT, color: FARG.text2,
-                                 minWidth: 110, textAlign: 'right' }}>
-                    {nr(r.mangd, r.mangd_enhet === 'h' ? 1 : 0)}{' '}
-                    {r.mangd_enhet === 'h' ? 'tim' : 'm³fub'}
-                  </span>
-                  <span style={{ ...TYP.text, ...TAL_FONT, minWidth: 90, textAlign: 'right' }}>
-                    {nr(r.summa)}
-                  </span>
-                </>
+                               color: dampad ? FARG.text3 : FARG.orange }}>{r.hinder}</span>
               )}
             </button>
           </div>
