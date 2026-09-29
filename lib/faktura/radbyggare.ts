@@ -74,7 +74,7 @@
 // Det gör kostnadsstället.
 // ─────────────────────────────────────────────────────────────────────────
 
-import { prisPerM3, fordelaOvrigt, type Prisdel } from '@/lib/ekonomi/prisPerM3';
+import { prisPerM3, type Prisdel, type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 import type { AcordPris } from '@/lib/ekonomi/acord';
 
 export type Prisagare = 'fortnox' | 'app' | 'leverantor';
@@ -122,6 +122,12 @@ export type FakturaRad = {
   delar_grundpris: number | null;
   delar_andel: number | null;
   delar_avstand: number | null;
+  /** Prislistans rad oförändrad, så vyn kan visa vad AVTALET ger före
+   *  tilläggen. Bara på ackordrader. */
+  prislista: { medelstam: number; klass: number; total: number; skordare: number; skotare: number } | null;
+  /** Tilläggen med sin mottagare — skördaren, skotaren eller delas.
+   *  Bara på ackordrader; identisk på båda, det är TRAKTENS tillägg. */
+  tillaggsposter: Tillaggspost[] | null;
 };
 
 export type Maskinrad = {
@@ -217,11 +223,13 @@ const tvaDec = (n: number) => Math.round(n * 100) / 100;
 export function byggRader(u: VoUnderlag): FakturaRad[] {
   const rader: FakturaRad[] = [];
   let n = 0;
-  type Ny = Omit<FakturaRad, 'radnr' | 'a_pris_beraknat' | 'delar_grundpris' | 'delar_andel' | 'delar_avstand'>
-    & Partial<Pick<FakturaRad, 'a_pris_beraknat' | 'delar_grundpris' | 'delar_andel' | 'delar_avstand'>>;
+  type Valfria = 'a_pris_beraknat' | 'delar_grundpris' | 'delar_andel' | 'delar_avstand'
+               | 'prislista' | 'tillaggsposter';
+  type Ny = Omit<FakturaRad, 'radnr' | Valfria> & Partial<Pick<FakturaRad, Valfria>>;
   const lagg = (r: Ny) => {
     rader.push({ radnr: ++n, a_pris_beraknat: null,
-      delar_grundpris: null, delar_andel: null, delar_avstand: null, ...r });
+      delar_grundpris: null, delar_andel: null, delar_avstand: null,
+      prislista: null, tillaggsposter: null, ...r });
   };
 
   // ── 1. Rubrikraden: objektets namn, noll kronor ────────────────────────
@@ -301,7 +309,10 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
     // 'app'-rad, så en överskriven à-pris går inte att lagra där. Den är
     // dessutom samma sorts bedömning som terrang_kr_manuell och gäller båda
     // raderna: lagrad på varje rad hade de kunnat glida isär.
-    const forslag = fordelaOvrigt(psk.ovrigt);
+    // Förslaget kommer nu från prisPerM3, som vet vem varje post hör till.
+    // Radbyggaren räknar inte om fördelningen — två uträkningar av samma
+    // delning är samma felklass som två priser.
+    const forslag = { skordare: psk.andelSkordare, skotare: psk.andelSkotare };
     const overskriven = u.andelSkordareManuell != null;
     const andelSk = overskriven ? u.andelSkordareManuell! : forslag.skordare;
     const andelSko = tvaDec(psk.ovrigt - andelSk);
@@ -350,6 +361,7 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
       kostnadsstalle: skordare[0]?.kostnadsstalle ?? null,
       a_pris_beraknat: aSkordare,
       delar_grundpris: grundSk, delar_andel: andelSk, delar_avstand: null,
+      prislista: psk.prislista, tillaggsposter: psk.tillaggsposter,
     });
     lagg({
       artikelnr: '2', benamning: `Skotning ackord ${namnSko}`,
@@ -362,6 +374,7 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
       a_pris_beraknat: aSkotare,
       delar_grundpris: grundSko, delar_andel: andelSko,
       delar_avstand: tvaDec(avstandPerM3),
+      prislista: psko.prislista, tillaggsposter: psko.tillaggsposter,
     });
   }
 

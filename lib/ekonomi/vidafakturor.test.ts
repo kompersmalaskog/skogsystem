@@ -3,7 +3,7 @@ import {
   VIDAFAKTUROR, ACORD_PRISER, medelstamUr, tillaggUr, arAvstand,
 } from './__fixtures__/vidafakturor'
 import { lookupAcordPris } from './acord'
-import { fordelaOvrigt, prisPerM3 } from './prisPerM3'
+import { fordelaTillagg, delaHalften, prisPerM3, type Tillaggspost } from './prisPerM3'
 
 /**
  * ACCEPTANSTESTET: ackordsformeln mot 31 riktiga Vida-fakturor.
@@ -17,7 +17,29 @@ import { fordelaOvrigt, prisPerM3 } from './prisPerM3'
 type Utfall = {
   dn: number; ms: number; klass: number; total: number;
   ovrigt: number; avstand: number;
-  restTotal: number; restSkordare: number;
+  restTotal: number; restSkordare: number; provbar: boolean;
+}
+
+/**
+ * Vem posten hör till, av etiketten på fakturan. Krönt är skördarens,
+ * terräng och sortiment skotarens, traktstorleken delas. En okänd post
+ * (Avlägg, "Liten skotare band", "Gallring och dåliga avlägg") går inte att
+ * placera — då prövas inte delningen på den fakturan, den GISSAS inte.
+ */
+function mottagareUr(etikett: string): Tillaggspost['mottagare'] | null {
+  const e = etikett.toLowerCase()
+  if (/kr[öo]nt/.test(e)) return 'skordare'
+  if (/storlek/.test(e)) return 'delas'
+  if (/terr[äa]ng|bl[öo]tt/.test(e)) return 'skotare'
+  if (/sort/.test(e)) return 'skotare'
+  return null
+}
+
+function posterUr(till: { etikett: string; kr: number }[]): Tillaggspost[] {
+  return till
+    .filter(t => !arAvstand(t.etikett))
+    .map(t => ({ etikett: t.etikett, belopp: t.kr, mottagare: mottagareUr(t.etikett) }))
+    .filter((t): t is Tillaggspost => t.mottagare !== null)
 }
 
 /** Räknar ut modellen för en faktura ur dess egen härledning. */
@@ -28,12 +50,13 @@ function kor(f: typeof VIDAFAKTUROR[number]): Utfall {
   const till = tillaggUr(f.harledning)
   const avstand = till.filter(t => arAvstand(t.etikett)).reduce((s, t) => s + t.kr, 0)
   const ovrigt = till.filter(t => !arAvstand(t.etikett)).reduce((s, t) => s + t.kr, 0)
-  const forslag = fordelaOvrigt(ovrigt)
+  const forslag = fordelaTillagg(posterUr(till))
   const ore = (n: number) => Math.round(n * 100)
   return {
     dn: f.dn, ms, klass: rad.medelstam, total: rad.pris_total, ovrigt, avstand,
     restTotal: (ore(f.skordare + f.skotare) - ore(rad.pris_total + ovrigt + avstand)) / 100,
     restSkordare: (ore(f.skordare) - ore(rad.pris_skordare + forslag.skordare)) / 100,
+    provbar: till.filter(t => !arAvstand(t.etikett)).every(t => mottagareUr(t.etikett) !== null),
   }
 }
 
@@ -131,46 +154,112 @@ describe('klassen under — inte den närmaste', () => {
   })
 })
 
-describe('fördelningen är ett FÖRSLAG — och förslaget är hälften nedåt till 50 öre', () => {
+describe('varje tillägg hör till en maskin — det finns ingen pott', () => {
 
-  it('delar hälften, avrundat ned till femtioöring, överskottet till skotaren', () => {
-    expect(fordelaOvrigt(5.5)).toEqual({ skordare: 2.5, skotare: 3 })
-    expect(fordelaOvrigt(3.5)).toEqual({ skordare: 1.5, skotare: 2 })
-    expect(fordelaOvrigt(2.5)).toEqual({ skordare: 1, skotare: 1.5 })
-    expect(fordelaOvrigt(4)).toEqual({ skordare: 2, skotare: 2 })
-    expect(fordelaOvrigt(0)).toEqual({ skordare: 0, skotare: 0 })
-    // Summan är ALLTID hela tillägget — aldrig mer, aldrig mindre.
-    for (let ore = -400; ore <= 4000; ore += 25) {
-      const d = fordelaOvrigt(ore / 100)
-      expect(Math.round((d.skordare + d.skotare) * 100)).toBe(ore)
+  it('krönt till skördaren, terräng och sortiment till skotaren, storleken delas', () => {
+    const poster: Tillaggspost[] = [
+      { etikett: 'Krönt', belopp: 1.5, mottagare: 'skordare' },
+      { etikett: 'Storlek', belopp: 2, mottagare: 'delas' },
+      { etikett: 'Terräng', belopp: 2, mottagare: 'skotare' },
+      { etikett: 'Sortiment', belopp: 4, mottagare: 'skotare' },
+    ]
+    const d = fordelaTillagg(poster)
+    expect(d.skordare).toBe(2.5)     // 1,50 + halva storleken
+    expect(d.skotare).toBe(7)        // 2 + 4 + halva storleken
+    expect(d.ovrigt).toBe(9.5)
+  })
+
+  it('summan är ALLTID hela tillägget, vad posterna än är', () => {
+    for (let ore = -400; ore <= 2000; ore += 25) {
+      const d = fordelaTillagg([
+        { etikett: 'a', belopp: ore / 100, mottagare: 'delas' },
+        { etikett: 'b', belopp: 1.5, mottagare: 'skordare' },
+        { etikett: 'c', belopp: 2, mottagare: 'skotare' },
+      ])
+      expect(Math.round((d.skordare + d.skotare) * 100)).toBe(Math.round(d.ovrigt * 100))
     }
   })
 
-  it('11 av 31 fakturor följer förslaget rakt av — resten är Martins överskrivning', () => {
-    // Att det är 11 och inte 31 är POÄNGEN: fördelningen är en bedömning per
-    // objekt, precis som terrängposten. Förslaget ska stämma på normalfallet
-    // och gå att skriva över på raden. Skulle siffran krypa mot 31 har någon
-    // gjort förslaget till en formel som inte finns i avtalet.
-    const enligtForslag = VIDAFAKTUROR
-      .map(kor)
-      .filter(u => u.restTotal === 0 && u.restSkordare === 0)
-      .map(u => u.dn)
-    expect(enligtForslag).toEqual([
-      2026011, 2026014, 2026016, 2026036, 2026037,
-      2026053, 2026076, 2026082, 2026141, 2026143, 2026146,
-    ])
+  it('en NEGATIV traktstorlek delas också — stora trakter drar ner båda', () => {
+    // Spannen över 1 500 m³fub ger −1 och −2. Delningen måste tåla det;
+    // annars hamnar hela avdraget på en maskin.
+    expect(delaHalften(-1)).toEqual({ skordare: -0.5, skotare: -0.5 })
+    expect(delaHalften(-2)).toEqual({ skordare: -1, skotare: -1 })
   })
 
-  it('överskrivningarna är små — 16 av 17 ligger inom 2,50 kr', () => {
-    const avvikelser = VIDAFAKTUROR.map(kor)
-      .filter(u => u.restTotal === 0 && u.restSkordare !== 0)
-      .map(u => Math.abs(u.restSkordare))
-    expect(avvikelser.filter(a => a <= 2.5)).toHaveLength(16)
-    // Den enda stora: 2026066 Krampamåla, −9,50. Objektet har "Liten skotare
-    // band 10kr" i härledningen — ett tillägg som helt tillfaller skotaren,
-    // precis som avståndet. Den dagen fler sådana dyker upp är det ett skäl
-    // att märka enskilda tillägg med mottagare, inte att ändra förslaget.
-    expect(Math.max(...avvikelser)).toBe(9.5)
+  it('delningen av storleken går nedåt till femtioöring, resten till skotaren', () => {
+    expect(delaHalften(5)).toEqual({ skordare: 2.5, skotare: 2.5 })
+    expect(delaHalften(4)).toEqual({ skordare: 2, skotare: 2 })
+    expect(delaHalften(3)).toEqual({ skordare: 1.5, skotare: 1.5 })
+    expect(delaHalften(2.5)).toEqual({ skordare: 1, skotare: 1.5 })
+    expect(delaHalften(0)).toEqual({ skordare: 0, skotare: 0 })
+  })
+})
+
+describe('regeln träffar bättre än hälftendelningen — men inte hela vägen', () => {
+
+  it('15 av 26 prövbara fakturor stämmer på BÅDA raderna', () => {
+    // Hälftendelningen träffade 11 av 31. Att det blev bättre är inte skäl
+    // att kalla regeln färdig: tretton fakturor avviker fortfarande, och
+    // fördelningen ändras per trakt med acord_andel_skordare_manuell.
+    const provbara = VIDAFAKTUROR.map(kor).filter(u => u.provbar && u.restTotal === 0)
+    const bada = provbara.filter(u => u.restSkordare === 0)
+    expect(provbara).toHaveLength(26)
+    expect(bada).toHaveLength(15)
+  })
+
+  it('avvikelsen följer TERRÄNGEN — och det är därför den inte byggs in', () => {
+    // Skördaren får mer än regeln säger när terrängen är stor:
+    //   terräng 8 kr → +6,00 till skördaren
+    //   terräng 7 kr → +5,00
+    //   terräng 3 kr → +2,00
+    // Vid 0–2 kr stämmer regeln oftast. Blöt mark drabbar båda när den är
+    // riktigt svår, och då har Martin flyttat en del till skördaren.
+    //
+    // ETT MÖNSTER I TJUGOÅTTA RADER ÄR ETT STICKPROV. Vi har grävt oss ur
+    // tre sådana: acord_flyttkostnad, skotningsavståndets två generationer
+    // och taxornas giltig_fran. Testet LÅSER FAST mönstret så att det syns
+    // om det ändras — det gör det inte till en formel.
+    const medStorTerrang = VIDAFAKTUROR.map(f => {
+      const u = kor(f)
+      const terrang = tillaggUr(f.harledning)
+        .filter(t => /terr[äa]ng|bl[öo]tt/i.test(t.etikett))
+        .reduce((s, t) => s + t.kr, 0)
+      return { dn: f.dn, terrang, restSkordare: u.restSkordare, provbar: u.provbar }
+    }).filter(x => x.provbar && x.terrang >= 7)
+
+    expect(medStorTerrang.map(x => `${x.dn}: terräng ${x.terrang} → +${x.restSkordare}`))
+      .toEqual(['2026015: terräng 8 → +6', '2026151: terräng 7 → +5'])
+  })
+})
+
+describe('prislistans rad ska gå att visa', () => {
+
+  it('prisPerM3 lämnar tillbaka klassen och båda rollpriserna', () => {
+    // "medelstam 0,57 → klass 0,55: 101 kr/m³fub — skördare 57 · skotare 44".
+    // Utan den ser 57,00 och 44,00 ut som tal appen hittat på i stället för
+    // en rad i avtalet.
+    const p = prisPerM3({
+      roll: 'skordare', medelstam: 0.57, acordList: ACORD_PRISER as any,
+      sortKr: 0, traktKr: 0, kvalitetKr: 0, terrangKr: 0,
+    })
+    expect(p.prislista).toEqual({ medelstam: 0.57, klass: 0.55, total: 101, skordare: 57, skotare: 44 })
+    // Klassen är NÄRMASTE UNDER, inte närmaste — 0,57 ger 0,55, inte 0,60.
+    expect(p.klass).toBe(0.55)
+  })
+
+  it('skördare + skotare = total på VARENDA rad i prislistan', () => {
+    for (const r of ACORD_PRISER) {
+      expect(r.pris_skordare + r.pris_skotare, `klass ${r.medelstam}`).toBe(r.pris_total)
+    }
+  })
+
+  it('tom prislista ger null — inget påhittat avtal', () => {
+    const p = prisPerM3({
+      roll: 'skordare', medelstam: 0.5, acordList: [],
+      sortKr: 0, traktKr: 0, kvalitetKr: 0, terrangKr: 0,
+    })
+    expect(p.prislista).toBeNull()
   })
 })
 

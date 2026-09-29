@@ -113,8 +113,9 @@ describe('klass bär tolkningen som saknar avtalsstöd', () => {
     const sk  = prisPerM3({ roll: 'skordare', ...arg })
     const sko = prisPerM3({ roll: 'skotare',  ...arg })
     expect(sk.total).toBe(103.5)
-    expect(sk.krPerM3).toBe(57.5)      // 56 + 1,50 (halva 3,50 nedåt)
-    expect(sko.krPerM3).toBe(46)       // 44 + 2,00 (resten)
+    // Krönt hör till SKÖRDAREN i sin helhet; bara traktstorleken delas.
+    expect(sk.krPerM3).toBe(58.5)      // 56 + 1,50 krönt + 1,00 halva storleken
+    expect(sko.krPerM3).toBe(45)       // 44 + 1,00 halva storleken
     expect(sk.delar.map(d => d.etikett)).toEqual([
       'Grund (medelstam 0,81 → 0,6)', 'Krönt', 'Storlek',
     ])
