@@ -565,6 +565,14 @@ export default function Arbetsrapport() {
   const [trak,  setTrak]   = useState<{summa:number}|null>(null);
   const [trakÖppen, setTrakÖppen] = useState(false);
   const [hemadress, setHemadress] = useState("");
+  // Vad den sparade hemadressen hamnade på (lib/geokod via /api/medarbetare/geokoda).
+  const [hemGeokod, setHemGeokod] = useState<{ text: string; varna: boolean } | null>(null);
+  // Inloggad men ingen medarbetare kopplad (user_id saknas → RLS ger 0 rader).
+  // Förr: evig "Laddar...". Nu: e-posten, så det går att säga vad som är fel.
+  const [medSaknas, setMedSaknas] = useState<string | null>(null);
+  // Maskinen skickar inga filer (dim_maskin.datakalla='manuell', JD810E): dagen
+  // startar INTE av sig själv — föraren måste trycka Starta arbetspass.
+  const [maskinManuell, setMaskinManuell] = useState(false);
   const [redigHem, setRedigHem] = useState("");
   const [kvAvTyp,  setKvAvTyp]  = useState(null);
   const [kvAvBesk, setKvAvBesk] = useState("");
@@ -793,18 +801,26 @@ export default function Arbetsrapport() {
   const [extraDagData, setExtraDagData] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
+    let inloggadEpost: string | null = null;
     Promise.all([
-      supabase.auth.getUser().then(({ data: { user } }) =>
-        user?.email
-          ? supabase.from("medarbetare").select("*").eq("epost", user.email).single()
-          : supabase.from("medarbetare").select("*").limit(1).single()
-      ),
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        inloggadEpost = user?.email ?? null;
+        // Uppslag på user_id, inte e-post: kopplingen görs i databasen på e-post
+        // UTAN skiftläge (20260929), medan eq('epost') är skiftlägeskänslig — en
+        // kopplad förare med "Oscar@…" i ena tabellen hade annars fått felskärmen.
+        return user?.id
+          ? supabase.from("medarbetare").select("*").eq("user_id", user.id).maybeSingle()
+          : supabase.from("medarbetare").select("*").limit(1).maybeSingle();
+      }),
       (()=>{ const idag=new Date().toISOString().slice(0,10); return supabase.from("gs_avtal").select("*").lte("giltigt_fran",idag).or(`giltigt_till.is.null,giltigt_till.gte.${idag}`).order("giltigt_fran",{ascending:false}).limit(1).maybeSingle(); })(),
       supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare, huvudtyp, atgard, latitude, longitude").order("object_name"),
       // Status för objektväljarens gruppering (pågående/planerade/avslutade).
       // objekt-tabellen matchas mot dim_objekt via vo_nummer — exakt likhet.
       supabase.from("objekt").select("vo_nummer, status"),
     ]).then(([med, avt, obj, objStatus]) => {
+      // Ingen medarbetare för inloggningen (user_id saknas, eller läsfel) → säg
+      // det i stället för att ladda för evigt. Oscar 2026-09-29.
+      if (!med.data) setMedSaknas(inloggadEpost || "okänd e-post");
       if(med.data) {
         setMedarbetare(med.data);
         setHemadress(med.data.hemadress || "");
@@ -812,6 +828,9 @@ export default function Arbetsrapport() {
         if(med.data.maskin_id) {
           supabase.from("maskiner").select("namn").eq("maskin_id", med.data.maskin_id).single()
             .then(r => { if(r.data?.namn) setMaskinNamn(r.data.namn); });
+          // Skickar maskinen inga filer? Då startar dagen bara med knappen.
+          supabase.from("dim_maskin").select("datakalla").eq("maskin_id", med.data.maskin_id).maybeSingle()
+            .then(r => setMaskinManuell((r.data as any)?.datakalla === "manuell"));
         }
         // Fetch historik for this medarbetare
         supabase.from("arbetsdag").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(60)
@@ -2014,6 +2033,18 @@ export default function Arbetsrapport() {
     }
   };
 
+  // Inloggad men ingen medarbetare kopplad — säg vad som är fel och vad man gör.
+  if(!medarbetare && medSaknas) return (
+    <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, display:"flex", flexDirection:"column", justifyContent:"center", padding:`0 ${AVSTAND.sidmarginal}px` }}>
+      <style>{designCss}</style>
+      <h1 style={{ margin:0, ...TYP.titel, color:FARG.text }}>Kontot är inte kopplat</h1>
+      <p style={{ margin:`${AVSTAND.m}px 0 0`, ...TYP.text, color:FARG.text2 }}>
+        Du är inloggad som <span style={{ color:FARG.text }}>{medSaknas}</span>, men kontot är inte kopplat till någon medarbetare. Utan koppling kan appen inte visa din arbetsrapport.
+      </p>
+      <p style={{ margin:`${AVSTAND.m}px 0 0`, ...TYP.text, color:FARG.text2 }}>Ring Martin och be honom kontrollera din e-postadress under Admin → Medarbetare. Logga sedan ut och in igen.</p>
+      <button onClick={async ()=>{ await supabase.auth.signOut(); window.location.href='/login'; }} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.xl }}>Logga ut</button>
+    </div>
+  );
   // Loading fallback
   if(!medarbetare) return (
     <div style={shell}>
@@ -2464,8 +2495,10 @@ export default function Arbetsrapport() {
         : delIdag
           ? `${FRANVARO_TYP_RUBRIK[delIdag.typ]} från ${fmtKlockslag(delIdag.fran_tid)} — förmiddagen räknas som arbete`
           : !isWorking
-            ? 'Startar automatiskt vid inloggning'
-            : 'Avslutas automatiskt vid utloggning från maskinen';
+            // En maskin utan filer (JD810E) startar ingenting själv — säg det,
+            // annars väntar föraren på en dag som aldrig kommer.
+            ? (maskinManuell ? 'Maskinen skickar inga filer — tryck Starta arbetspass när du börjar' : 'Startar automatiskt vid inloggning')
+            : (maskinManuell ? 'Tryck Avsluta pass när du slutar' : 'Avslutas automatiskt vid utloggning från maskinen');
       // Maskinens NAMN ur maskiner-tabellen ("Wisent2015"), aldrig koden
       // ("810E") — maskinNamnMap föredrar maskiner.namn. Förarens maskin
       // först; saknas den (admin, vikarie) maskinen på senaste arbetsdagen.
@@ -4763,6 +4796,18 @@ export default function Arbetsrapport() {
         setHemadress(val);
         setMedarbetare((m:any)=>({ ...m, hemadress: val }));
         setSparatToast(true); setTimeout(()=>setSparatToast(false),2000);
+        // Geokoda direkt och säg var adressen hamnade (lib/geokod). En GPS-satt
+        // hembas skyddas och används i stället.
+        setHemGeokod({ text: "Söker adressen…", varna: false });
+        try {
+          const r = await fetch("/api/medarbetare/geokoda", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j.ok) setHemGeokod({ text: `Adressen kunde inte sökas: ${j.error || r.status} — km räknas inte förrän den hittas.`, varna: true });
+          else if (j.status === "klar") setHemGeokod({ text: `Hittad: ${j.etikett}. Km räknas härifrån.`, varna: false });
+          else if (j.status === "hoppad") setHemGeokod({ text: "Din hembas är satt med GPS och används i stället för adressen.", varna: false });
+          else if (j.status === "osaker") setHemGeokod({ text: `Hittades bara ungefär (${j.etikett}). Martin kontrollerar punkten — tills dess räknas inte km.`, varna: true });
+          else setHemGeokod({ text: "Adressen hittades inte — kontrollera stavningen. Km räknas inte förrän den hittas.", varna: true });
+        } catch { setHemGeokod({ text: "Adressen kunde inte sökas just nu — den söks igen i natt.", varna: true }); }
       }
     };
     return (
@@ -4785,6 +4830,7 @@ export default function Arbetsrapport() {
             style={{ width:"100%",padding:"13px 14px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.06)",color:"#fff",fontFamily:"inherit" }}
           />
         </Card>
+        {hemGeokod && <p style={{ margin:`${AVSTAND.xs}px 0 ${AVSTAND.s}px`, ...TYP.meta, color: hemGeokod.varna ? FARG.orange : FARG.text2 }}>{hemGeokod.text}</p>}
         <p style={{ margin:"0 0 32px",fontSize:13,color:C.label }}>Adressen används bara för att räkna ut avstånd — aldrig delad med andra.</p>
         <Label>Maskin</Label>
         <Card style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>

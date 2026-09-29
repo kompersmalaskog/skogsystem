@@ -2,6 +2,9 @@
 import React, { useState, useEffect, CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card, inputStyle, btnPrimary, btnSecondary, btnDanger, ChevronRight } from "./design";
+import MedarbetareKontroller from "./MedarbetareKontroller";
+import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
+import { precisionText } from "@/lib/geokod";
 
 type Medarbetare = {
   id: string;
@@ -13,6 +16,17 @@ type Medarbetare = {
   timlon_kr: number | null;
   manadslon_kr: number | null;
   anstallningsdatum: string | null;
+  // Kopplingen till inloggningskontot (sätts automatiskt i databasen sedan 20260929).
+  user_id: string | null;
+  // Hempunkten och varifrån den kom (migration 20260929_medarbetare_hem_geokod).
+  hem_lat: number | null;
+  hem_lng: number | null;
+  hem_koord_kalla: string | null;
+  hem_geokod_status: string | null;
+  hem_geokod_etikett: string | null;
+  hem_geokod_precision: string | null;
+  hem_geokod_lat: number | null;
+  hem_geokod_lng: number | null;
 };
 
 type OperatorRad = {
@@ -33,14 +47,21 @@ export default function MedarbetareFlik() {
   const [maskiner, setMaskiner] = useState<Record<string, string>>({});
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
+  const [kontroller, setKontroller] = useState<MedarbetarKontroller | null>(null);
+  const [kontrollFel, setKontrollFel] = useState<string | null>(null);
 
   const ladda = async () => {
     setLaddar(true);
     setFel(null);
+    // Kontrollerna hämtas vid sidan av — ett fel där får inte fälla listan,
+    // men det ska stå (MedarbetareKontroller visar det).
+    fetch("/api/medarbetare/kontroller", { cache: "no-store" })
+      .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`); setKontroller(j); setKontrollFel(null); })
+      .catch(e => { setKontroller(null); setKontrollFel(e?.message || String(e)); });
     try {
       const [medRes, opMedRes, dimOpRes, maskinRes] = await Promise.all([
         supabase.from("medarbetare")
-          .select("id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum")
+          .select("id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng")
           .order("namn"),
         supabase.from("operator_medarbetare").select("operator_id, medarbetare_id"),
         supabase.from("dim_operator").select("operator_id, operator_namn, operator_key, maskin_id"),
@@ -97,19 +118,28 @@ export default function MedarbetareFlik() {
         operatorer={operatorerPerMed[m.id] || []}
         maskiner={maskiner}
         onKlar={() => { setVy({ typ: "lista" }); ladda(); }}
+        onLadda={() => ladda()}
         onTillbaka={() => setVy({ typ: "lista" })}
       />
     );
   }
 
   return (
-    <ListaVy
-      medarbetare={medarbetare}
-      operatorerPerMed={operatorerPerMed}
-      maskiner={maskiner}
-      onValj={(id) => setVy({ typ: "detalj", id })}
-      onNy={() => setVy({ typ: "ny" })}
-    />
+    <>
+      <MedarbetareKontroller
+        kontroller={kontroller}
+        fel={kontrollFel}
+        maskiner={maskiner}
+        onValj={(id) => setVy({ typ: "detalj", id })}
+      />
+      <ListaVy
+        medarbetare={medarbetare}
+        operatorerPerMed={operatorerPerMed}
+        maskiner={maskiner}
+        onValj={(id) => setVy({ typ: "detalj", id })}
+        onNy={() => setVy({ typ: "ny" })}
+      />
+    </>
   );
 }
 
@@ -202,18 +232,23 @@ function RolBadge({ roll }: { roll: string }) {
 /* ─── DETALJ ─── */
 
 function DetaljVy({
-  medarbetare, operatorer, maskiner, onKlar, onTillbaka,
+  medarbetare, operatorer, maskiner, onKlar, onLadda, onTillbaka,
 }: {
   medarbetare: Medarbetare;
   operatorer: OperatorRad[];
   maskiner: Record<string, string>;
   onKlar: () => void;
+  /** Ladda om och STANNA på personen (efter geokodning — se var adressen hamnade). */
+  onLadda: () => void;
   onTillbaka: () => void;
 }) {
   const [namn, setNamn] = useState(medarbetare.namn || "");
   const [epost, setEpost] = useState(medarbetare.epost || "");
   const [hemadress, setHemadress] = useState(medarbetare.hemadress || "");
   const [roll, setRoll] = useState(medarbetare.roll);
+  // Maskinen på medarbetarraden — fanns inte i formuläret alls förut, fast
+  // Dag-vyn och "Starta arbetspass" läser den (Oscar, JD810E 2026-09-29).
+  const [maskinId, setMaskinId] = useState(medarbetare.maskin_id || "");
   const [timlon, setTimlon] = useState<string>(medarbetare.timlon_kr != null ? String(medarbetare.timlon_kr) : "");
   const [manadslon, setManadslon] = useState<string>(medarbetare.manadslon_kr != null ? String(medarbetare.manadslon_kr) : "");
   const [anstallningsdatum, setAnstallningsdatum] = useState(medarbetare.anstallningsdatum || "");
@@ -227,6 +262,7 @@ function DetaljVy({
     epost !== (medarbetare.epost || "") ||
     hemadress !== (medarbetare.hemadress || "") ||
     roll !== medarbetare.roll ||
+    maskinId !== (medarbetare.maskin_id || "") ||
     timlon !== (medarbetare.timlon_kr != null ? String(medarbetare.timlon_kr) : "") ||
     manadslon !== (medarbetare.manadslon_kr != null ? String(medarbetare.manadslon_kr) : "") ||
     anstallningsdatum !== (medarbetare.anstallningsdatum || "");
@@ -239,13 +275,22 @@ function DetaljVy({
       epost: epost.trim() || null,
       hemadress: hemadress.trim() || null,
       roll,
+      maskin_id: maskinId || null,
       timlon_kr: timlon === "" ? null : parseFloat(timlon),
       manadslon_kr: manadslon === "" ? null : parseFloat(manadslon),
       anstallningsdatum: anstallningsdatum || null,
     };
-    const { error } = await supabase.from("medarbetare").update(update).eq("id", medarbetare.id);
+    const { data: skrivet, error } = await supabase.from("medarbetare").update(update).eq("id", medarbetare.id).select("id");
+    if (error || !skrivet?.length) { setSparar(false); setSparFel(error?.message || "Inget sparades — raden träffades inte"); return; }
+    // Ny hemadress → geokoda direkt och STANNA, så man ser var adressen hamnade.
+    // (Triggern har redan märkt raden 'vantar' — nattjobbet tar den annars i natt.)
+    if ((hemadress.trim() || null) !== (medarbetare.hemadress || null) && hemadress.trim()) {
+      await fetch("/api/medarbetare/geokoda", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: medarbetare.id }) }).catch(() => null);
+      setSparar(false);
+      onLadda();
+      return;
+    }
     setSparar(false);
-    if (error) { setSparFel(error.message); return; }
     onKlar();
   };
 
@@ -279,13 +324,27 @@ function DetaljVy({
       <Card>
         <Field label="Namn" value={namn} onChange={setNamn} placeholder="För- och efternamn"/>
         <Field label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email"/>
+        {/* Inloggningen — kopplas i databasen på e-post (20260929), här syns bara läget. */}
+        <p style={{ margin: "-4px 0 12px", fontSize: 12, color: medarbetare.user_id ? C.label : C.orange }}>
+          {medarbetare.user_id
+            ? "Inloggning kopplad."
+            : "Ingen inloggning kopplad — kopplas automatiskt när ett konto med samma e-post finns. Utan koppling kommer personen inte in i appen."}
+        </p>
         <Field label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Gata, ort"/>
         <SelectField label="Roll" value={roll} onChange={setRoll} options={[
           { value: "forare", label: "Förare" },
           { value: "chef", label: "Chef" },
           { value: "admin", label: "Admin" },
         ]}/>
+        <SelectField label="Maskin" value={maskinId} onChange={setMaskinId} options={[
+          { value: "", label: "Ingen maskin" },
+          ...Object.entries(maskiner).sort((a, b) => a[1].localeCompare(b[1])).map(([id, n]) => ({ value: id, label: `${n} (${id})` })),
+        ]}/>
       </Card>
+
+      {/* Hempunkten — var km räknas ifrån. Visar VAR adressen hamnade. */}
+      <p style={{ ...secHead, marginTop: 22 }}>Hempunkt för km</p>
+      <HempunktKort m={medarbetare} onLadda={onLadda} />
 
       {/* Löneuppgifter */}
       <p style={{ ...secHead, marginTop: 22 }}>Löneuppgifter</p>
@@ -390,6 +449,78 @@ function DetaljVy({
         />
       )}
     </>
+  );
+}
+
+/* ─── HEMPUNKT ─── */
+// Var km räknas ifrån, varifrån punkten kom och — viktigast — VAR adressen
+// hamnade. En landsbygdsadress i tätortens mitt ger fel km varje dag utan att
+// någon märker det (Idekulla 6 ligger flera km utanför Ryd). Bara en träff på
+// adressnivå används automatiskt (lib/geokod); allt grövre väntar här.
+function HempunktKort({ m, onLadda }: { m: Medarbetare; onLadda: () => void }) {
+  const [kör, setKör] = useState(false);
+  const [fel, setFel] = useState<string | null>(null);
+  const karta = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
+  const anropa = async (opt: { tvinga?: boolean; acceptera?: boolean } = {}) => {
+    setKör(true); setFel(null);
+    const r = await fetch("/api/medarbetare/geokoda", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id, ...opt }) });
+    const j = await r.json().catch(() => ({}));
+    setKör(false);
+    if (!r.ok || !j.ok) { setFel(j.error || `Geokodningen misslyckades (HTTP ${r.status})`); return; }
+    onLadda();
+  };
+  const knapp = (text: string, onClick: () => void) => (
+    <button onClick={onClick} disabled={kör} style={{ ...btnSecondary, marginTop: 10, opacity: kör ? 0.4 : 1 }}>{kör ? "Geokodar…" : text}</button>
+  );
+  const länk = (lat: number, lng: number, text: string) => (
+    <a href={karta(lat, lng)} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, color: C.blue, fontSize: 13 }}>{text}</a>
+  );
+  const kalla = m.hem_koord_kalla === "gps" ? "satt med GPS i Maskinflytt"
+    : m.hem_koord_kalla === "geokod" ? `från adressen — ${m.hem_geokod_etikett || "okänd etikett"} (${precisionText(m.hem_geokod_precision)})`
+    : "satt för hand";
+  const s = m.hem_geokod_status;
+  return (
+    <Card>
+      {!m.hemadress?.trim() && m.hem_lat == null ? (
+        <p style={{ margin: 0, fontSize: 14, color: C.orange }}>Ingen hemadress — km räknas inte. Fyll i adressen ovan och spara.</p>
+      ) : m.hem_lat != null && m.hem_lng != null ? (
+        <>
+          <p style={{ margin: 0, fontSize: 14, color: C.text }}>Punkten är {kalla}.</p>
+          {länk(m.hem_lat, m.hem_lng, "Visa punkten på kartan")}
+          {s === "hoppad" && (
+            <>
+              <p style={{ margin: "10px 0 0", fontSize: 13, color: C.label }}>Adressen har ändrats men punkten är {m.hem_koord_kalla === "gps" ? "satt med GPS" : "satt för hand"} och skrivs inte över automatiskt.</p>
+              {knapp("Geokoda adressen ändå", () => anropa({ tvinga: true }))}
+            </>
+          )}
+          {s === "osaker" && m.hem_geokod_lat != null && m.hem_geokod_lng != null && (
+            <p style={{ margin: "10px 0 0", fontSize: 13, color: C.label }}>
+              Adressen hittades bara som {precisionText(m.hem_geokod_precision)} ({m.hem_geokod_etikett}) — punkten ovan används.
+            </p>
+          )}
+        </>
+      ) : s === "osaker" && m.hem_geokod_lat != null && m.hem_geokod_lng != null ? (
+        <>
+          <p style={{ margin: 0, fontSize: 14, color: C.orange }}>
+            Adressen hittades bara som {precisionText(m.hem_geokod_precision)}: {m.hem_geokod_etikett}. Används den blir km fel om personen bor utanför. Km räknas inte förrän du valt.
+          </p>
+          {länk(m.hem_geokod_lat, m.hem_geokod_lng, "Visa förslaget på kartan")}
+          {knapp("Använd förslaget ändå", () => anropa({ acceptera: true }))}
+          <p style={{ margin: "10px 0 0", fontSize: 12, color: C.label }}>Exaktare: personen trycker "spara nuvarande plats som hembas" hemma i Maskinflytt, eller justera adressen ovan.</p>
+        </>
+      ) : s === "misslyckad" ? (
+        <>
+          <p style={{ margin: 0, fontSize: 14, color: C.orange }}>Adressen hittades inte ({m.hem_geokod_etikett || "okänt fel"}). Kontrollera stavningen — km räknas inte.</p>
+          {knapp("Försök igen", () => anropa())}
+        </>
+      ) : (
+        <>
+          <p style={{ margin: 0, fontSize: 14, color: C.label }}>Adressen väntar på geokodning — sker i natt, eller nu.</p>
+          {knapp("Geokoda nu", () => anropa())}
+        </>
+      )}
+      {fel && <p style={{ margin: "10px 0 0", fontSize: 13, color: C.red }}>{fel}</p>}
+    </Card>
   );
 }
 
