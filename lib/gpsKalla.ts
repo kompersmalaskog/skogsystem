@@ -177,33 +177,41 @@ export async function valjSerialPort(): Promise<{ ok: boolean; fel?: string }> {
   }
 }
 
-export interface GpsKallaHandle { stop(): void; typ: 'serial' | 'geolocation' | 'ingen'; }
+export type GpsKallaTyp = 'serial' | 'geolocation' | 'ingen';
+export interface GpsKallaHandle { stop(): void; typ: GpsKallaTyp; }
 
-// Starta GPS-strömmen: Web Serial (om vald + tillgänglig) annars geolocation. onFix får varje fix.
-// Serial: öppnar en beviljad port, läser löpande; tappas den → försök igen var 10 s. Geolocation:
-// getCurrentPosition (snabb första prick) + watchPosition, EXAKT dagens beteende.
-export function startaGpsKalla(
-  onFix: (fix: GpsFix) => void,
-  opts?: { highAccuracy?: boolean },
-): GpsKallaHandle {
-  // --- Serial-grenen ---
+// EN DELAD KÄLLA (hub). Web Serial kan bara ha EN läsare per port → alla konsumenter (passiv watcher,
+// körspår-inspelning, centrera/försök-igen) MÅSTE dela samma ström. `navigator.geolocation` anropas
+// ALDRIG utanför denna fil (annars ger Windows IP-position som klobbar serial-pricken).
+const abonnenter = new Set<(fix: GpsFix) => void>();
+let senasteFix: GpsFix | null = null;
+let underliggande: { stop(): void } | null = null;
+let hubTyp: GpsKallaTyp = 'ingen';
+
+function aktuellTyp(): GpsKallaTyp {
+  if (harWebSerial() && serialGpsVald()) return 'serial';
+  if (typeof navigator !== 'undefined' && 'geolocation' in navigator) return 'geolocation';
+  return 'ingen';
+}
+
+function notifiera(fix: GpsFix) { senasteFix = fix; for (const a of Array.from(abonnenter)) { try { a(fix); } catch { /* */ } } }
+
+// Öppna den underliggande källan EN gång (serial eller geolocation). notifiera() sprider till abonnenter.
+function startaUnderliggande(highAccuracy: boolean): { stop(): void } {
+  // --- Serial ---
   if (harWebSerial() && serialGpsVald()) {
     const avbryt = { current: false };
     let aktivPort: any = null;
     let retryTimer: any = null;
-    const state = { current: nyNmeaState() };
-
+    let state = nyNmeaState();
     const kor = async () => {
       if (avbryt.current) return;
       let portar: any[] = [];
       try { portar = await (navigator as any).serial.getPorts(); } catch { portar = []; }
-      // Bara beviljade portar (aldrig COM6/COM7 som aldrig beviljats oss). Öppna den/dem som svarar.
-      for (const port of portar) {
+      for (const port of portar) {   // bara BEVILJADE portar (aldrig COM6/COM7 som aldrig beviljats oss)
         if (avbryt.current) return;
-        try { await port.open({ baudRate: 4800 }); }
-        catch { continue; }   // upptagen/redan öppen → prova nästa
+        try { await port.open({ baudRate: 4800 }); } catch { continue; }   // upptagen/öppen → nästa
         aktivPort = port;
-        // Löpande läsning: mata parsern rad för rad, emitta fix.
         let buffert = '';
         const dec = new TextDecoder();
         try {
@@ -218,44 +226,61 @@ export function startaGpsKalla(
                 const rad = buffert.slice(0, nl).trim();
                 buffert = buffert.slice(nl + 1);
                 if (!rad.startsWith('$') || !nmeaChecksumOk(rad)) continue;
-                state.current = matNmeaRad(state.current, rad);
-                onFix(nmeaStateTillFix(state.current));
+                state = matNmeaRad(state, rad);
+                notifiera(nmeaStateTillFix(state));
               }
             }
           } finally { try { reader.releaseLock(); } catch { /* */ } }
         } catch { /* läsfel → porten tappades */ }
         try { await port.close(); } catch { /* */ }
         aktivPort = null;
-        break;   // en port räcker
+        break;
       }
-      // Tappad/ingen port → försök igen var 10 s tills den svarar.
-      if (!avbryt.current) retryTimer = setTimeout(kor, 10000);
+      if (!avbryt.current) retryTimer = setTimeout(kor, 10000);   // tappad → försök igen var 10 s
     };
     kor();
-    return {
-      typ: 'serial',
-      stop() { avbryt.current = true; if (retryTimer) clearTimeout(retryTimer); if (aktivPort) { try { aktivPort.close(); } catch { /* */ } } },
-    };
+    return { stop() { avbryt.current = true; if (retryTimer) clearTimeout(retryTimer); if (aktivPort) { try { aktivPort.close(); } catch { /* */ } } } };
   }
-
-  // --- Geolocation-grenen (fallback, dagens beteende) ---
-  if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return { typ: 'ingen', stop() { /* */ } };
-  const hog = opts?.highAccuracy !== false;
-  const emit = (pos: GeolocationPosition) => {
-    onFix({
-      lat: pos.coords.latitude, lng: pos.coords.longitude,
-      kurs: pos.coords.heading != null && !Number.isNaN(pos.coords.heading) ? pos.coords.heading : null,
-      fart: pos.coords.speed != null && !Number.isNaN(pos.coords.speed) ? pos.coords.speed * 3.6 : null,
-      satelliter: null, hdop: null, noggrannhetM: pos.coords.accuracy ?? null,
-      giltig: true, tid: Date.now(),
-    });
-  };
-  try {
-    navigator.geolocation.getCurrentPosition(emit, () => { /* watchen tar över */ }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 });
-  } catch { /* */ }
+  // --- Geolocation (fallback, dagens beteende) ---
+  if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return { stop() { /* */ } };
+  const emit = (pos: GeolocationPosition) => notifiera({
+    lat: pos.coords.latitude, lng: pos.coords.longitude,
+    kurs: pos.coords.heading != null && !Number.isNaN(pos.coords.heading) ? pos.coords.heading : null,
+    fart: pos.coords.speed != null && !Number.isNaN(pos.coords.speed) ? pos.coords.speed * 3.6 : null,
+    satelliter: null, hdop: null, noggrannhetM: pos.coords.accuracy ?? null,
+    giltig: true, tid: Date.now(),
+  });
+  try { navigator.geolocation.getCurrentPosition(emit, () => { /* watchen tar över */ }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }); } catch { /* */ }
   let watchId: number | null = null;
-  try {
-    watchId = navigator.geolocation.watchPosition(emit, (err) => console.warn('[GPS geolocation]', err.code, err.message), { enableHighAccuracy: hog, maximumAge: 0, timeout: 15000 });
-  } catch { /* */ }
-  return { typ: 'geolocation', stop() { if (watchId != null) { try { navigator.geolocation.clearWatch(watchId); } catch { /* */ } } } };
+  try { watchId = navigator.geolocation.watchPosition(emit, (err) => console.warn('[GPS geolocation]', err.code, err.message), { enableHighAccuracy: highAccuracy, maximumAge: 0, timeout: 15000 }); } catch { /* */ }
+  return { stop() { if (watchId != null) { try { navigator.geolocation.clearWatch(watchId); } catch { /* */ } } } };
+}
+
+// Prenumerera på GPS-strömmen. Första abonnenten startar den delade källan; sista som slutar stänger den.
+// Ny abonnent får senaste kända fix direkt. Alla får SAMMA källa (serial ELLER geolocation).
+export function startaGpsKalla(onFix: (fix: GpsFix) => void, opts?: { highAccuracy?: boolean }): GpsKallaHandle {
+  abonnenter.add(onFix);
+  if (!underliggande) { hubTyp = aktuellTyp(); underliggande = startaUnderliggande(opts?.highAccuracy !== false); }
+  if (senasteFix) { try { onFix(senasteFix); } catch { /* */ } }
+  return {
+    typ: hubTyp,
+    stop() {
+      abonnenter.delete(onFix);
+      if (abonnenter.size === 0 && underliggande) { underliggande.stop(); underliggande = null; hubTyp = 'ingen'; senasteFix = null; }
+    },
+  };
+}
+
+// Hämta EN fix (centrera / försök igen / engångskoll). Har hubben en färsk fix → returnera den direkt
+// (öppnar aldrig porten en andra gång). Annars: prenumerera tillfälligt tills första giltiga fix / timeout.
+export function hamtaEnGpsFix(timeoutMs = 8000): Promise<GpsFix | null> {
+  if (senasteFix && senasteFix.giltig) return Promise.resolve(senasteFix);
+  return new Promise((resolve) => {
+    let klar = false;
+    const handle = startaGpsKalla((fix) => {
+      if (klar) return;
+      if (fix.giltig && fix.lat != null && fix.lng != null) { klar = true; clearTimeout(t); handle.stop(); resolve(fix); }
+    });
+    const t = setTimeout(() => { if (!klar) { klar = true; handle.stop(); resolve(senasteFix ?? null); } }, timeoutMs);
+  });
 }
