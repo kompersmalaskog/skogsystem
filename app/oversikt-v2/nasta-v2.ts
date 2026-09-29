@@ -18,7 +18,7 @@
 // bolag=null är signalen för "ej skarpt kundjobb".
 
 import {
-  foreslaNasta, type Kandidat, type MaskinLage, type MaskinTyp, type AvstandKm,
+  foreslaNasta, VIKT, TROSKEL, type Kandidat, type MaskinLage, type MaskinTyp, type AvstandKm,
   type Koordinat, type Konfidens,
 } from '@/lib/nastaObjekt';
 import { paBackenKvar } from '@/lib/skotat';
@@ -54,6 +54,49 @@ export function arSkotare(m: MaskinRad): boolean {
 /** Aktiv (ej avställd/såld) idag? aktiv_till NULL eller >= idag (YYYY-MM-DD). */
 export function maskinAktiv(m: MaskinRad, todayISO: string): boolean {
   return !m.aktiv_till || m.aktiv_till >= todayISO;
+}
+
+function normalisera(varden: number[]): (v: number) => number {
+  const min = Math.min(...varden), max = Math.max(...varden);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max === min) return () => 0.5;
+  return (v: number) => (v - min) / (max - min);
+}
+
+/**
+ * Skotarförslag v2 (Martins regel 2026-09-29 — libets FPR-gate var för hård för v2). Kandidat =
+ * backen kvar (skördat > skotat ⇔ paBackenKvar > 0, egen skotning ger 0) OCH inte avslutat OCH
+ * (nyligen avverkat ≤45 dgr — då litar vi på backen även utan lass-rader — ELLER äldre men
+ * FPR-täckt, dvs skotat!=null ⇒ backenPalitlig). Vikt som libet: liggetid 0.4 / volym 0.35 / närhet 0.25.
+ * Egen v2-kopia så [[lib/nastaObjekt]] (delad av #589) inte rörs.
+ */
+function foreslaSkotareV2(
+  m: MaskinLage, kandidater: Kandidat[], avstand: AvstandKm, upptagna: string[],
+): { vald: Kandidat | null; skal: string; konfidens: Konfidens } {
+  const km = (k: Kandidat) => (m.koordinat && k.koordinat ? avstand(m.koordinat, k.koordinat) : null);
+  const taken = new Set([...upptagna, m.nuvarandeObjektKey].filter(Boolean) as string[]);
+  // backen ≥ 30 m³ (libets golv, ~2 lass) — utan golvet föreslås högar med ~0 m³ kvar
+  // (redan utkörda). "skördat > skotat" ensamt gav 810E → Betet med 0 m³ i dry-run.
+  const kand = kandidater.filter((k) =>
+    !taken.has(k.key) && k.backen >= TROSKEL.skotareBackenMin && k.status !== 'avslutat'
+    && k.legatDagar != null && (k.legatDagar <= 45 || k.backenPalitlig),
+  );
+  if (!kand.length) return { vald: null, skal: `Ingen skotbar backen (behöver ≥${TROSKEL.skotareBackenMin} m³ kvar, ≤45 dgr eller FPR-täckt äldre)`, konfidens: 'ingen' };
+  const nBacken = normalisera(kand.map((k) => k.backen));
+  const nLegat = normalisera(kand.map((k) => k.legatDagar ?? 0));
+  const avstV = kand.map((k) => km(k)).filter((d): d is number => d != null);
+  const nAvst = avstV.length ? normalisera(avstV) : () => 0.5;
+  const poang = (k: Kandidat) => {
+    const d = km(k);
+    const narhet = d != null ? 1 - nAvst(d) : 0.3;
+    return VIKT.liggetid * nLegat(k.legatDagar ?? 0) + VIKT.volym * nBacken(k.backen) + VIKT.narhet * narhet;
+  };
+  const rankad = kand.map((k) => ({ k, p: poang(k), d: km(k) })).sort((a, b) => b.p - a.p);
+  const vald = rankad[0];
+  return {
+    vald: vald.k,
+    skal: `${Math.round(vald.k.backen)} m³fub kvar · ${vald.k.legatDagar ?? '?'} d liggetid${vald.d != null ? ` · ${Math.round(vald.d)} km` : ''}`,
+    konfidens: vald.d != null ? 'hog' : 'lag',
+  };
 }
 
 export interface MaskinForslag {
@@ -131,18 +174,25 @@ export function beraknaForslag(args: {
   // Girig deconflict för maskiner av SAMMA roll: den vars topp-pick ligger närmast väljer
   // först, nästa maskin får sin bästa återstående (upptagna-nyckeln växer). initialTaken =
   // objekt redan pinnade (förmannens kö-val).
-  const deconflict = (rad: MaskinRad[], initialTaken: string[]) => {
+  type Pick = (lage: MaskinLage, taken: string[]) => { vald: Kandidat | null; skal: string; konfidens: Konfidens };
+  const pickSkordare: Pick = (lage, taken) => {
+    const f = foreslaNasta(lage, kandidater, avstandKm, taken);
+    return { vald: f.vald, skal: f.skal, konfidens: f.konfidens };
+  };
+  const pickSkotare: Pick = (lage, taken) => foreslaSkotareV2(lage, kandidater, avstandKm, taken);
+
+  const deconflict = (rad: MaskinRad[], initialTaken: string[], pick: Pick) => {
     const taken = [...initialTaken];
     const ordnad = rad
       .map((m) => {
         const lage = lageFor(m);
-        const f0 = foreslaNasta(lage, kandidater, avstandKm, taken);
+        const f0 = pick(lage, taken);
         const d = lage.koordinat && f0.vald?.koordinat ? avstandKm(lage.koordinat, f0.vald.koordinat) : null;
         return { m, lage, d: d ?? Infinity };
       })
       .sort((a, b) => a.d - b.d);
     for (const { m, lage } of ordnad) {
-      const f = foreslaNasta(lage, kandidater, avstandKm, taken);
+      const f = pick(lage, taken);
       const nasta = f.vald ? objById.get(f.vald.key) ?? null : null;
       if (f.vald) taken.push(f.vald.key);
       set(m, lage, nasta, f.skal, f.konfidens);
@@ -157,10 +207,10 @@ export function beraknaForslag(args: {
     if (val) { set(m, lageFor(m), val, 'Förmannens kö', 'hog'); pinnade.push(val.id); }
     else utanVal.push(m);
   }
-  deconflict(utanVal, pinnade);
+  deconflict(utanVal, pinnade, pickSkordare);
 
-  // ── Skotare: girig deconflict (foreslaNasta filtrerar backenPalitlig → aldrig planerade) ──
-  deconflict(maskiner.filter((m) => arSkotare(m)), []);
+  // ── Skotare: girig deconflict, v2-regel (recent backen utan FPR + äldre FPR-täckt) ──
+  deconflict(maskiner.filter((m) => arSkotare(m)), [], pickSkotare);
 
   return out;
 }
