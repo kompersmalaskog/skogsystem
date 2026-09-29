@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Senaste ÖVERST.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.0.0',
+    date: '29 september 2026',
+    changes: [
+      'Ytkortet: skriv en bildtext under varje foto och ljud, som alla ser.',
+      'Rita om ett eget område genom att dra i hörnen — lägg till, flytta eller ta bort ett hörn.',
+      'Raderar du ett eget område försvinner nu även dess foton och anteckningar.',
+      'Band-uppgifterna på trakten sparas korrekt.',
+      'Inloggningen fastnar inte längre på "Laddar".',
+      'Operatörer kopplas automatiskt till rätt konto, och hemadresser geokodas för restidsberäkning.',
+    ],
+  },
+  {
     version: '0.9.5',
     date: '21 juli 2026',
     changes: [
