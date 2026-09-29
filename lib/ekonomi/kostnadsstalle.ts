@@ -41,6 +41,28 @@ export function kostnadsstalleFor(
   return traff[0].kostnadsstalle_kod;
 }
 
+/**
+ * OMVÄNDA uppslaget: vilken maskin ägde kostnadsstället på datumet?
+ * Det är resultatrapportens fråga — varje Fortnox-RADS transaktionsdatum
+ * avgör vilken maskin dess kostnad hörde till DÅ. M12 var R64101 t.o.m.
+ * 2026-03-11 och R64428 från 2026-03-12; utan datum smetas januari-
+ * kostnader på fel maskin.
+ * null = ingen maskin ägde koden den dagen (eller två samtidigt — samma
+ * datafel som ovan: ytas, gissas aldrig). Raden ska då redovisas under
+ * "övriga kostnadsställen", inte tappas.
+ */
+export function maskinForKostnadsstalle(
+  kod: string,
+  datum: string,
+  rader: KostnadsstalleRad[] | null | undefined,
+): string | null {
+  const traff = (rader || []).filter(
+    r => r.kostnadsstalle_kod === kod && isValidOn(datum, r.giltig_fran, r.giltig_till),
+  );
+  if (traff.length !== 1) return null;
+  return traff[0].maskin_id;
+}
+
 /** true när maskinen har flera giltiga rader samma dag — ett datafel att yta. */
 export function harKrockandeKostnadsstalle(
   maskinId: string,

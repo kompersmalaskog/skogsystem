@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
+import { maskinForKostnadsstalle, type KostnadsstalleRad } from "@/lib/ekonomi/kostnadsstalle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,7 +65,9 @@ export async function GET(req: NextRequest) {
     // ── Mappning + costcenters ──
     const supabase = serverSupabase();
     const [mapRes, maskinRes, ccRes, syncRes] = await Promise.all([
-      supabase.from("maskin_kostnadsstalle").select("maskin_id, kostnadsstalle_kod"),
+      // MED giltighetsdatum — koder återanvänds mellan maskiner över tid
+      // (M12: R64101 → R64428 vid 2026-03-12). Radens datum avgör ägaren.
+      supabase.from("maskin_kostnadsstalle").select("maskin_id, kostnadsstalle_kod, giltig_fran, giltig_till"),
       supabase.from("dim_maskin").select("maskin_id, visningsnamn, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum"),
       // Fortnox costcenters är liten och statisk — vi kan kalla den direkt.
       (async () => {
@@ -83,7 +86,7 @@ export async function GET(req: NextRequest) {
       })(),
       supabase.from("fortnox_sync_state").select("*").eq("id", 1).maybeSingle(),
     ]);
-    const mappningar: { maskin_id: string; kostnadsstalle_kod: string }[] = mapRes.data || [];
+    const mappningar: KostnadsstalleRad[] = mapRes.data || [];
     const maskinMap: Record<string, any> = {};
     for (const m of (maskinRes.data || [])) maskinMap[m.maskin_id] = m;
     const costCenters: { Code: string; Description?: string; Active?: boolean }[] = ccRes.data || [];
@@ -93,13 +96,13 @@ export async function GET(req: NextRequest) {
     // Läs ALLA rader i perioden (oavsett costcenter) — vi behöver helheten
     // för "Företaget totalt" och "Utan kostnadsställe". Paginering för att
     // komma runt Supabase default-limit 1000.
-    type Rad = { account: string; debit: number; credit: number; costcenter: string | null };
+    type Rad = { account: string; debit: number; credit: number; costcenter: string | null; transaction_date: string };
     const rader: Rad[] = [];
     const sidStorlek = 1000;
     for (let offset = 0; ; offset += sidStorlek) {
       const { data, error: err } = await supabase
         .from("fortnox_voucher_rows")
-        .select("account, debit, credit, costcenter")
+        .select("account, debit, credit, costcenter, transaction_date")
         .gte("transaction_date", fromdate)
         .lte("transaction_date", todate)
         .order('id')  // unik tiebreaker — .range() kräver total ordning
@@ -114,6 +117,7 @@ export async function GET(req: NextRequest) {
           debit: Number(r.debit) || 0,
           credit: Number(r.credit) || 0,
           costcenter: r.costcenter || null,
+          transaction_date: String(r.transaction_date || ""),
         });
       }
       if (data.length < sidStorlek) break;
@@ -156,17 +160,32 @@ export async function GET(req: NextRequest) {
     const totalRader = aggrPerKonto(() => true);
     const foretagetTotalt = { ok: true, konton: totalRader, ...grupperaKonto(totalRader) };
 
-    // 2) Per maskin — aggregera över ALLA kopplade kostnadsställen per maskin.
-    // En maskin kan ha flera CC (Scorpion Gigant har t.ex. SCO + M13).
-    const mappadeKoder = new Set(mappningar.map(m => m.kostnadsstalle_kod));
+    // 2) Per maskin — varje Fortnox-RADS transaktionsdatum avgör vilken
+    // maskin dess kostnadsställe hörde till DÅ (giltig_fran/giltig_till).
+    // Koder återanvänds mellan maskiner (M12: R64101 → R64428) — "alla
+    // koder maskinen någonsin haft" smetade gamla kostnader på nya ägaren
+    // och räknade delade koder DUBBELT (samma rad hos båda maskinerna).
+    // Uppslaget cachas per kod|datum; null (ingen/eller tvetydig ägare
+    // den dagen) → raden redovisas under "övriga", tappas aldrig.
+    const agareCache = new Map<string, string | null>();
+    const maskinForRad = (r: Rad): string | null => {
+      if (!r.costcenter || !r.transaction_date) return null;
+      const nyckel = `${r.costcenter}|${r.transaction_date}`;
+      if (!agareCache.has(nyckel)) {
+        agareCache.set(nyckel, maskinForKostnadsstalle(r.costcenter, r.transaction_date, mappningar));
+      }
+      return agareCache.get(nyckel)!;
+    };
+    // Kodlistan per maskin (alla generationer) behålls som BESKRIVNING för
+    // UI-chips och för att alla mappade maskiner ska listas även utan rader.
     const koderPerMaskin: Record<string, string[]> = {};
     for (const m of mappningar) {
-      (koderPerMaskin[m.maskin_id] = koderPerMaskin[m.maskin_id] || []).push(m.kostnadsstalle_kod);
+      const lista = (koderPerMaskin[m.maskin_id] = koderPerMaskin[m.maskin_id] || []);
+      if (!lista.includes(m.kostnadsstalle_kod)) lista.push(m.kostnadsstalle_kod);
     }
     const maskiner: any[] = [];
     for (const [maskinId, koder] of Object.entries(koderPerMaskin)) {
-      const koderSet = new Set(koder);
-      const kontoRader = aggrPerKonto(r => !!r.costcenter && koderSet.has(r.costcenter));
+      const kontoRader = aggrPerKonto(r => maskinForRad(r) === maskinId);
       const grupp = grupperaKonto(kontoRader);
       const maskinInfo = maskinMap[maskinId];
       const kostnadsstallen = koder.map(k => {
@@ -199,12 +218,17 @@ export async function GET(req: NextRequest) {
     const utanKostRader = aggrPerKonto(r => !r.costcenter || r.costcenter === "");
     const utanKostnadsstalle = { ok: true, konton: utanKostRader, ...grupperaKonto(utanKostRader) };
 
-    // 4) Övriga kostnadsställen (finns i rader men inte mappade). M8 (Lastbil),
-    //    TRA (VM Trailer), EWA — egna kostnadsobjekt som inte är maskiner.
+    // 4) Övriga kostnadsställen — rader vars kod INGEN maskin ägde på radens
+    //    datum: aldrig mappade koder (M8 Lastbil, TRA VM Trailer, EWA) men
+    //    också rader från perioder där mappningen inte gällde. Testet måste
+    //    vara per rad (inte "koden är mappad någon gång") — annars tappas
+    //    sådana rader tyst: koden är mappad så de går inte hit, men ingen
+    //    maskin matchar datumet. Varje rad hamnar i exakt en av
+    //    maskin/övriga/utan-CC → summan är alltid företagstotalen.
     const ovrigaMap: Record<string, { account: string; sum: number }[]> = {};
     for (const r of rader) {
       if (!r.costcenter) continue;
-      if (mappadeKoder.has(r.costcenter)) continue;
+      if (maskinForRad(r) !== null) continue;
       if (!ovrigaMap[r.costcenter]) ovrigaMap[r.costcenter] = [];
       const accList = ovrigaMap[r.costcenter];
       const hittad = accList.find(a => a.account === r.account);

@@ -53,7 +53,12 @@ export async function GET() {
 
   const supabase = supaService();
   const [mapRes, maskinRes, aktivaCcRes] = await Promise.all([
-    supabase.from("maskin_kostnadsstalle").select("id, maskin_id, kostnadsstalle_kod").order("maskin_id"),
+    // BARA öppna rader (giltig_till IS NULL) — Inställningar visar och
+    // redigerar NU-läget. Historiska generationer (M12 → R64101 t.o.m.
+    // 2026-03-11) läses av resultatrapporten per datum, inte här.
+    // Följd: "omappade" = koder utan ÖPPEN mappning — en avslutad kod
+    // dyker korrekt upp som mappningsbar igen.
+    supabase.from("maskin_kostnadsstalle").select("id, maskin_id, kostnadsstalle_kod, giltig_fran, giltig_till").is("giltig_till", null).order("maskin_id"),
     supabase.from("dim_maskin").select("maskin_id, visningsnamn, modell, maskin_typ").order("modell"),
     supabase.from("fortnox_voucher_rows")
       .select("costcenter")
@@ -119,9 +124,30 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = supaService();
+
+  // En kod får bara ha EN öppen mappning — två öppna samtidigt är exakt
+  // det datafel som kostnadsstalleFor/maskinForKostnadsstalle vägrar
+  // svara på (ägaren blir tvetydig och raderna hamnar i "övriga").
+  const { data: oppen, error: kollFel } = await supabase
+    .from("maskin_kostnadsstalle")
+    .select("id, maskin_id")
+    .eq("kostnadsstalle_kod", kostnadsstalle_kod)
+    .is("giltig_till", null)
+    .maybeSingle();
+  if (kollFel) return NextResponse.json({ ok: false, error: kollFel.message }, { status: 500 });
+  if (oppen) {
+    return NextResponse.json(
+      { ok: false, error: `${kostnadsstalle_kod} har redan en öppen mappning till ${oppen.maskin_id} — avsluta den först.` },
+      { status: 409 },
+    );
+  }
+
+  // giltig_fran = idag: den nya generationen gäller från och med nu,
+  // gamla perioder fortsätter peka på sin dåvarande ägare.
+  const idag = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("maskin_kostnadsstalle")
-    .insert({ maskin_id, kostnadsstalle_kod })
+    .insert({ maskin_id, kostnadsstalle_kod, giltig_fran: idag })
     .select()
     .single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
