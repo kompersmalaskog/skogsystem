@@ -44,8 +44,8 @@ WHERE ds.maskin_id = sub.maskin_id
 -- samma koordinat (7 decimaler ≈ 1 cm) i skilda objekt, så maskin+position är entydig.
 -- Verifierat mot Hålabäck au 2025: 251 positionsgrupper med >1 stam, 0 där bio_energy
 -- skiljer sig. DISTINCT ON (…, h.id) gör valet deterministiskt vid ev. kollision.
--- Kapade extra-stammar (finns ej i hpr_stammar, t.ex. Hålabäcks 246 sista) förblir NULL
--- tills objektet omimporteras med den uppdaterade parsern.
+-- Kapade extra-stammar (finns ej i hpr_stammar, t.ex. Hålabäcks 246 sista) får sitt
+-- sortiment i backfill 3 nedan; bara bio_energy förblir NULL för dem tills omimport.
 UPDATE detalj_stam ds
 SET bio_energy_adaption = pick.bio_energy_adaption,
     sortiment = pick.sortiment
@@ -66,3 +66,36 @@ WHERE ds.maskin_id = pick.maskin_id
   AND round(ds.latitude::numeric, 7) = pick.rlat
   AND round(ds.longitude::numeric, 7) = pick.rlng
   AND ds.bio_energy_adaption IS NULL;
+
+-- === Backfill 3: sortiment ur detalj_stock för stammar som fortfarande saknar det ===
+-- De kapade extra-stammarna finns inte i hpr_stammar → sortiment NULL efter backfill 2.
+-- Utan sortiment blir hela HÖGAR sortiment-lösa på kartan → grå pie-ikon utan färg och
+-- tom sortimentfördelning i popupen (Hålabäck: 44 av 283 högar). detalj_stock HAR dock
+-- per-stock sortiment_namn för dem. Dominant sortiment = flest stockar (som hpr:s
+-- Counter.most_common), med artprefix ur dim_tradslag.namn kapitaliserat
+-- ("GRAN"→"Gran", "ÖVR_LÖV"→"Övr_löv") → exakt samma format som hpr_stammar.sortiment
+-- ("Gran Massa: BmavFall_V3"). Rör bara rader där sortiment ännu är NULL (idempotent).
+UPDATE detalj_stam ds
+SET sortiment = pick.sortiment
+FROM (
+  SELECT g.maskin_id, g.stem_key,
+         btrim(
+           upper(left(COALESCE(dt.namn, ''), 1)) || lower(substr(COALESCE(dt.namn, ''), 2))
+           || ' ' || g.sortiment_namn
+         ) AS sortiment
+  FROM (
+    SELECT DISTINCT ON (maskin_id, stem_key) maskin_id, stem_key, sortiment_namn
+    FROM (
+      SELECT maskin_id, stem_key, sortiment_namn, count(*) AS c
+      FROM detalj_stock
+      WHERE stem_key IS NOT NULL AND sortiment_namn IS NOT NULL
+      GROUP BY maskin_id, stem_key, sortiment_namn
+    ) grp
+    ORDER BY maskin_id, stem_key, c DESC, sortiment_namn
+  ) g
+  JOIN detalj_stam d2 ON d2.maskin_id = g.maskin_id AND d2.stam_key = g.stem_key
+  LEFT JOIN dim_tradslag dt ON dt.tradslag_id = d2.tradslag_id
+) pick
+WHERE ds.maskin_id = pick.maskin_id
+  AND ds.stam_key = pick.stem_key
+  AND ds.sortiment IS NULL;
