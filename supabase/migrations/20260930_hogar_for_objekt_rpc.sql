@@ -86,4 +86,8 @@ AS $$
   WHERE grp.volym > 0.01;
 $$;
 
-GRANT EXECUTE ON FUNCTION hogar_for_objekt(text) TO anon, authenticated;
+-- Bara inloggade användare: planeringsvyn kräver auth och detalj_stam är inte
+-- anon-läsbart, så anon/public behöver aldrig funktionen. CREATE ger EXECUTE till
+-- PUBLIC by default → revoka det (täcker anon) och ge bara authenticated.
+REVOKE EXECUTE ON FUNCTION hogar_for_objekt(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION hogar_for_objekt(text) TO authenticated;
