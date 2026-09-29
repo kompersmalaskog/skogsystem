@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
-import { extraMinPerDag, arbetadTidInklExtra } from "@/lib/arbetstid";
+import { extraMinPerDag, arbetadTidInklExtra, schemaTimmar } from "@/lib/arbetstid";
+import TimmarGraf, { type GrafDag, type GrafManad } from "./TimmarGraf";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { ymdLokal } from "@/lib/datumLokal";
@@ -730,6 +731,47 @@ export default function Arbetsrapport() {
       .catch(e => { if (!avbruten) setMinManad({ arbetsmanad, laddar: false, fel: e?.message || String(e), data: null }); });
     return () => { avbruten = true; };
   }, [steg, lönOffset, medarbetare?.id]);
+  // Min tids månadsrad ("152 tim ›") — SAMMA lönebibliotek som specen, för
+  // innevarande arbetsmånad. Egen state: Lön-flikens minManad följer lönOffset
+  // och får inte skrivas över när man står i Min tid. Blockerar aldrig vyn.
+  const [minTidManad, setMinTidManad] = useState<{ laddar: boolean; h: number | null }>({ laddar: false, h: null });
+  // Årets extra tid för årsstaplarna. extraTidData är bara de 200 senaste
+  // posterna — januari saknas då. Hämtas när Min tid öppnas; vyn ritas direkt
+  // och staplarna fylls när datan kommer.
+  const [årsExtra, setÅrsExtra] = useState<{ datum: string; minuter: number }[] | null>(null);
+  useEffect(() => {
+    if (steg !== "mintid" || !medarbetare?.id) return;
+    let avbruten = false;
+    const nu = new Date();
+    const arbetsmanad = `${nu.getFullYear()}-${String(nu.getMonth() + 1).padStart(2, "0")}`;
+    setMinTidManad(m => ({ ...m, laddar: true }));
+    fetch("/api/lon/min-manad", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ arbetsmanad }), cache: "no-store" })
+      .then(async r => {
+        const j = await r.json().catch(() => ({}));
+        if (avbruten) return;
+        const m = j?.medarbetare;
+        // Fel eller ingen rad → h = null: raden faller tillbaka på "Se lönespecen"
+        // i stället för att visa en nolla som inte är sann.
+        setMinTidManad({ laddar: false, h: r.ok && j.ok && m ? (Number(m.timlon_h) || 0) + (Number(m.overtid_h) || 0) : null });
+      })
+      .catch(() => { if (!avbruten) setMinTidManad({ laddar: false, h: null }); });
+    (async () => {
+      const rader: { datum: string; minuter: number }[] = [];
+      const SIDA = 1000;
+      for (let fran = 0; ; fran += SIDA) {
+        const { data, error } = await supabase.from("extra_tid").select("id, datum, minuter")
+          .eq("medarbetare_id", medarbetare.id).gte("datum", `${nu.getFullYear()}-01-01`)
+          .order("datum", { ascending: true }).order("id", { ascending: true })
+          .range(fran, fran + SIDA - 1);
+        if (avbruten) return;
+        if (error) { console.error("[min tid] årets extra tid:", error.message); return; }
+        rader.push(...(data || []));
+        if (!data || data.length < SIDA) break;
+      }
+      setÅrsExtra(rader);
+    })();
+    return () => { avbruten = true; };
+  }, [steg, medarbetare?.id]);
   const [dagensObjekt, setDagensObjekt] = useState<string | null>(null);
   const [valtObjektId, setValtObjektId] = useState<string | null>(null);
   const [visaObjektVäljare, setVisaObjektVäljare] = useState(false);
@@ -3349,7 +3391,6 @@ export default function Arbetsrapport() {
   /* ─── MIN TID ─── */
   if(steg==="mintid") {
     const nu = new Date();
-    const dagKort = ['SÖN','MÅN','TIS','ONS','TOR','FRE','LÖR'];
     const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
     const månNamn2 = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 
@@ -3372,23 +3413,48 @@ export default function Arbetsrapport() {
     // EN veckonummerdefinition i hela appen: ISO (lib/vilobrott isoVecka). Förr
     // fanns tre — samma dagar kunde heta vecka 41 här och 42 i Sammanställningen.
     const veckoNr = isoVecka(nu).vecka;
-    const rödaDagarVecka = getRödaDagar(nu.getFullYear());
-    const veckoDagar: {datum:string;dag:string;h:number}[] = [];
+    // Röda dagar för veckans och årets schema — en vecka runt nyår spänner två år.
+    const rödaDagarÅr: Record<string, unknown> = { ...getRödaDagar(nu.getFullYear()-1), ...getRödaDagar(nu.getFullYear()), ...getRödaDagar(nu.getFullYear()+1) };
+    const ärRöd = (k: string) => !!rödaDagarÅr[k];
+    const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const veckoDagar: GrafDag[] = [];
     let veckoTot = 0;
-    let veckoArbDagar = 0;
     for(let i=0;i<7;i++){
       const d=new Date(veckStart); d.setDate(veckStart.getDate()+i);
-      const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const k=ymd(d);
       const ad=årsData.find(r=>r.datum===k);
       // Extra tid räknas även på dagar UTAN maskinpass (ad saknas då)
       const h=Math.round(((ad?.arbetad_min||0)+(extraPerDag.get(k)||0))/60*10)/10;
       veckoTot+=h;
-      const dow=d.getDay();
-      if(dow!==0&&dow!==6&&!rödaDagarVecka[k]) veckoArbDagar++;
-      veckoDagar.push({datum:k,dag:dagNamn[d.getDay()],dagKort:dagKort[d.getDay()],h});
+      veckoDagar.push({ datum:k, etikett:dagNamn[d.getDay()].slice(0,3), h, idag: i===dagIdx });
     }
-    const veckoMålH = veckoArbDagar * 8;
-    const maxH = Math.max(...veckoDagar.map(d=>d.h),1);
+    // "av 40" = veckans schema — samma definition som årsstaplarnas markering.
+    const veckoMålH = schemaTimmar(ymd(veckStart), ymd(veckSlut), ärRöd);
+
+    // År: en stapel per månad = maskintid + extra tid (lib/arbetstid). Årets extra
+    // tid (årsExtra) kommer efter att vyn ritats; tills dess används de senaste
+    // 200 posterna, och staplarna fylls på när resten kommer. Innevarande månad
+    // tar lönebibliotekets tal när det finns — samma som månadsraden under, så
+    // stapeln och raden aldrig säger olika.
+    const extraFörÅret = årsExtra ?? extraTidData;
+    const årsStaplar: GrafManad[] = månNamn2.map((_, m) => {
+      const mp = `${nu.getFullYear()}-${String(m+1).padStart(2,'0')}`;
+      const framtid = m > nu.getMonth();
+      const aktuell = m === nu.getMonth();
+      const { totalMin } = arbetadTidInklExtra(
+        årsData.filter(d => d.datum && d.datum.startsWith(mp)),
+        extraFörÅret.filter((e: any) => e.datum && e.datum.startsWith(mp)),
+      );
+      const h = aktuell && minTidManad.h != null ? minTidManad.h : Math.round(totalMin/60*10)/10;
+      const sista = new Date(nu.getFullYear(), m+1, 0).getDate();
+      return {
+        namn: new Date(nu.getFullYear(), m, 1).toLocaleDateString('sv-SE', { month: 'long' }),
+        h: framtid ? 0 : h,
+        schemaH: framtid ? null : schemaTimmar(`${mp}-01`, `${mp}-${String(sista).padStart(2,'0')}`, ärRöd),
+        framtid, aktuell,
+      };
+    });
+    const månNamnLång = (s => s.charAt(0).toUpperCase() + s.slice(1))(nu.toLocaleDateString('sv-SE', { month: 'long' }));
 
     // Idag
     const idagKey2 = nu.toISOString().split('T')[0];
@@ -3455,9 +3521,9 @@ export default function Arbetsrapport() {
         <main style={{ paddingTop:AVSTAND.l,paddingLeft:AVSTAND.sidmarginal,paddingRight:AVSTAND.sidmarginal,paddingBottom:SCROLL_BOTTOM }}>
 
           {minTidFlik==='översikt'&&<>
-          {/* Staplarna är borta (2026-09-13): fem grå block som krävde en etikett
-              under sig för att läsas, och som visade samma vecka som talet.
-              Dagarna finns i kalendern och dagvyn. Kvar: Idag, Veckan, Månaden. */}
+          {/* Staplarna tillbaka (2026-09-29) — nu med talet över, dagen under och
+              dagens stapel vit, så de läses utan etikett (TimmarGraf). */}
+          <TimmarGraf vecka={veckoDagar} ar={årsStaplar} />
           <section style={{ marginBottom:AVSTAND.xl }}>
             <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Summering</h3>
             <div style={{ ...KORT, paddingTop:0, paddingBottom:0 }}>
@@ -3472,8 +3538,17 @@ export default function Arbetsrapport() {
                 <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{(Math.round(veckoTot*10)/10).toLocaleString('sv-SE')} tim <span style={{ ...TYP.meta, color:FARG.text2 }}>av {veckoMålH}</span></span>
               </div>
               <button onClick={()=>setSteg('lön')} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", borderBottom:"none", ...TYP.meta }}>
-                <span style={{ color:FARG.text2 }}>Månaden</span>
-                <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, color:FARG.bla }}>Se lönespecen<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>chevron_right</span></span>
+                <span style={{ color:FARG.text2 }}>{månNamnLång}</span>
+                {/* Timmarna ur lönebiblioteket — samma tal som specen. Inget "av":
+                    månadens ordinarie är arbetade dagar × 8, inte schemat. */}
+                {minTidManad.h != null ? (
+                  <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs }}>
+                    <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{(Math.round(minTidManad.h*10)/10).toLocaleString('sv-SE')} tim</span>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3 }}>chevron_right</span>
+                  </span>
+                ) : (
+                  <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, color:minTidManad.laddar ? FARG.text3 : FARG.bla }}>{minTidManad.laddar ? '…' : 'Se lönespecen'}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>chevron_right</span></span>
+                )}
               </button>
             </div>
           </section>
