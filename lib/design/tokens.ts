@@ -124,7 +124,11 @@ export function medSafeBotten(px: number): string {
 }
 
 /** Radie: rad och fält 10, knapp och kort 12, sheet 16. Cirklar 50 %. */
-export const RADIE = { rad: 10, knapp: 12, kort: 12, sheet: 16, cirkel: "50%" } as const;
+export const RADIE = {
+  rad: 10, knapp: 12, kort: 12, sheet: 16, cirkel: "50%",
+  /** Stapeltopp i diagram — smala staplar (20–28 px) blir piller med 10. */
+  stapel: 4,
+} as const;
 
 /** Träffyta. Skillen: minst 44 pt, maskinen skakar. Primärknappen 48. */
 export const TRAFFYTA = { min: 44, primar: 48 } as const;

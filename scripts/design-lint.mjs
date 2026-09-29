@@ -23,7 +23,7 @@ const ROT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TYP_STORLEKAR = new Set([32, 30, 20, 17, 13, 11]);
 const VIKTER = new Set([400, 600, 700]);
 const AVSTAND = new Set([0, 4, 8, 12, 16, 24, 32]);
-const RADIER = new Set([10, 12, 16]);
+const RADIER = new Set([4, 10, 12, 16]); // 4 = RADIE.stapel (diagramstaplar)
 const TIDER = new Set([150, 250, 350, 400]);
 const FARGER = new Set([
   "#000000", "#000", "#1c1c1e", "#2c2c2e", "#ffffff", "#fff", "#8e8e93", "#636366",
