@@ -23,16 +23,16 @@ import { STATUS_AKTIV, STATUS_AVSLUTADE } from '../oversikt/oversikt-types';
 import { hamtaSenastePlatser, dagarSedan, type PlatsForslag } from '../maskinflytt/senastePlats';
 import { paBackenKvar } from '@/lib/skotat';
 import { hamtaSkordMapV2, type SkordAggV2 } from './skord-data';
-import { beraknaForslag, type MaskinForslag } from './nasta-v2';
+import { beraknaForslag, maskinAktiv, type MaskinForslag } from './nasta-v2';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, designCss } from '@/lib/design/tokens';
 
 declare global { interface Window { maplibregl: any } }
 
 // Facitens mörka chip/ark ligger ovanpå den ljusa kartan.
 const CHIP_BG = 'rgba(28,28,30,0.94)';
-const GRAY_LINE = 'rgba(142,142,147,0.9)';
+const GRAY_LINE = 'rgba(72,72,74,0.95)'; // streckad rutt — mörk nog att läsas på den ljusa kartan
 const LIT_LINE = '#1c1c1e';        // "tänd" rutt — mörk för kontrast på ljus karta (facitens vita blir mörk)
-const GRAY_DOT = '#8e8e93';
+const GRAY_DOT = '#636366';        // objekt-prick — mörkare grå så den syns på ljust
 
 // ── små format-hjälpare ───────────────────────────────────────────────────────
 const fmt = (n: number) => Math.round(n).toLocaleString('sv-SE');
@@ -79,17 +79,19 @@ function buildWarnings(rows: MarkeringRow[]): { byObj: Record<string, ObjWarn>; 
   return { byObj, faraSet };
 }
 
-// avslutade tonar ut linjärt 0–180 dgr; utan datum eller >180 dgr visas de inte.
-function dotOpacity(o: OversiktObjekt): number | null {
-  if (o.status === 'planerad' || STATUS_AKTIV.includes(o.status)) return 0.9;
+// Prick per objekt: pågående FULL, planerad TYDLIG, avslutade tonar ut linjärt 0–180 dgr.
+// oplanerad/importerad visas inte (håller kartan om "vart ska de"). null = ingen prick.
+function dotStyle(o: OversiktObjekt): { opacity: number; size: number } | null {
+  if (STATUS_AKTIV.includes(o.status)) return { opacity: 1, size: 18 };   // pågående
+  if (o.status === 'planerad') return { opacity: 0.95, size: 16 };        // planerad — tydlig
   if (STATUS_AVSLUTADE.includes(o.status)) {
     const d = (o as any).avslutad_timestamp || o.faktisk_slut || null;
     if (!d) return null;
     const age = dagarSedan(d);
     if (age > 180) return null;
-    return Math.max(0.1, 0.45 - (age / 180) * 0.35);
+    return { opacity: Math.max(0.1, 0.42 - (age / 180) * 0.32), size: 13 };
   }
-  return null; // oplanerad/importerad visas inte (håller kartan om "vart ska de")
+  return null;
 }
 
 export default function OversiktV2Page() {
@@ -154,12 +156,14 @@ export default function OversiktV2Page() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Aktiv flotta = maskiner vi faktiskt kör: i kön ELLER med känd plats. Håller
-  // gamla/sålda maskiner (varken kö eller position) borta från kartan och listan.
+  // Aktiv flotta = ej avställd (aktiv_till NULL/framtid) OCH vi kör den (i kön ELLER känd plats).
+  // Avställda maskiner (A110148 aktiv_till 2026-07-08, R64101 2026-03-11) faller helt bort.
   const maskinKoIds = useMemo(() => new Set(maskinKo.map((k) => k.maskin_id)), [maskinKo]);
+  const todayISO = useMemo(() => new Date().toLocaleDateString('sv-SE'), []);
   const aktivaMaskiner = useMemo(
-    () => maskiner.filter((m) => positions.get(m.maskin_id)?.koordinat != null || maskinKoIds.has(m.maskin_id)),
-    [maskiner, positions, maskinKoIds],
+    () => maskiner.filter((m) =>
+      maskinAktiv(m, todayISO) && (positions.get(m.maskin_id)?.koordinat != null || maskinKoIds.has(m.maskin_id))),
+    [maskiner, positions, maskinKoIds, todayISO],
   );
 
   // ── förslag (nu + nästa per maskin), haversine för rangordning ──
@@ -327,25 +331,26 @@ export default function OversiktV2Page() {
   // Objekt-prickar (skapa/synka)
   useEffect(() => {
     const map = mapRef.current; if (!map || !mapStyleLoaded) return;
-    const want = new Map<string, number>();
+    const want = new Map<string, { opacity: number; size: number }>();
     for (const o of objekt) {
       if (o.lat == null || o.lng == null) continue;
-      const op = dotOpacity(o);
-      if (op == null) continue;
-      want.set(o.id, op);
+      const st = dotStyle(o);
+      if (!st) continue;
+      want.set(o.id, st);
     }
     dotsRef.current.forEach((d, id) => { if (!want.has(id)) { d.marker.remove(); dotsRef.current.delete(id); } });
-    want.forEach((op, id) => {
+    want.forEach((st, id) => {
       const o = objekt.find((x) => x.id === id)!;
       let entry = dotsRef.current.get(id);
       if (!entry) {
         const el = document.createElement('div');
-        el.style.cssText = `width:16px;height:16px;border-radius:50%;background:${GRAY_DOT};pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,0.2)`;
+        el.style.cssText = `border-radius:50%;background:${GRAY_DOT};pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,0.25)`;
         const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([o.lng!, o.lat!]).addTo(map);
         entry = { marker, el };
         dotsRef.current.set(id, entry);
       }
-      entry.el.dataset.op = String(op);
+      entry.el.dataset.op = String(st.opacity);
+      entry.el.dataset.size = String(st.size);
     });
     restyleSelection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -428,10 +433,12 @@ export default function OversiktV2Page() {
       mm.label.style.display = S ? 'none' : 'flex';
     });
     dotsRef.current.forEach((d, id) => {
-      const base = Number(d.el.dataset.op || '0.9');
-      if (!S) { d.el.style.background = GRAY_DOT; d.el.style.opacity = String(base); d.el.style.width = '16px'; d.el.style.height = '16px'; }
-      else if (id === nastaId) { d.el.style.background = FARG.gron; d.el.style.opacity = '1'; d.el.style.width = '22px'; d.el.style.height = '22px'; }
-      else { d.el.style.background = GRAY_DOT; d.el.style.opacity = '0.12'; d.el.style.width = '16px'; d.el.style.height = '16px'; }
+      const baseOp = Number(d.el.dataset.op || '0.9');
+      const baseSize = Number(d.el.dataset.size || '16');
+      const setSize = (px: number) => { d.el.style.width = `${px}px`; d.el.style.height = `${px}px`; };
+      if (!S) { d.el.style.background = GRAY_DOT; d.el.style.opacity = String(baseOp); setSize(baseSize); }
+      else if (id === nastaId) { d.el.style.background = FARG.gron; d.el.style.opacity = '1'; setSize(22); }
+      else { d.el.style.background = GRAY_DOT; d.el.style.opacity = '0.12'; setSize(baseSize); }
     });
     if (map.getLayer('routes')) {
       if (S) {
@@ -479,8 +486,8 @@ export default function OversiktV2Page() {
 
   // ── härledd data till arket ──
   const utanPosition = useMemo(
-    () => maskiner.filter((m) => !positions.get(m.maskin_id)?.koordinat),
-    [maskiner, positions],
+    () => aktivaMaskiner.filter((m) => !positions.get(m.maskin_id)?.koordinat),
+    [aktivaMaskiner, positions],
   );
   const valt = selMaskin ? forslag.get(selMaskin) ?? null : null;
 
@@ -528,7 +535,8 @@ export default function OversiktV2Page() {
           km={kmByMaskin[selMaskin!] ?? null}
           skord={skord}
           warnings={warnings.byObj}
-          telefon={telByMaskin[selMaskin!] ?? null}
+          // Ring döljs på egen maskin i förarläge (att ringa sig själv är meningslöst)
+          telefon={(isDriver && selMaskin === driverMaskinId) ? null : (telByMaskin[selMaskin!] ?? null)}
           onClose={() => setSelMaskin(null)}
         />
       )}
