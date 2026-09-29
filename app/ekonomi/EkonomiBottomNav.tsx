@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-
+import { medSafeBotten } from '@/lib/design/tokens'; // hemindikatorn på iPhone
 type Tab = { href: string; icon: string; label: string; match: (p: string) => boolean };
 
 const TABS: Tab[] = [
@@ -20,7 +20,7 @@ export default function EkonomiBottomNav() {
     <nav style={{
       position: 'fixed', bottom: 0, left: 0, width: '100%', zIndex: 50,
       display: 'flex', justifyContent: 'space-around', alignItems: 'center',
-      padding: '12px 16px 24px',
+      padding: `12px 16px ${medSafeBotten(24)}`,
       background: 'rgba(31,31,31,0.7)',
       backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
       borderRadius: '16px 16px 0 0',

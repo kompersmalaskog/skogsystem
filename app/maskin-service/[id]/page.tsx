@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
+import { medSafeBotten } from '@/lib/design/tokens'; // hemindikatorn på iPhone
 
 const f = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
 const card = { backgroundColor: '#1c1c1e', borderRadius: 12 } as const;
@@ -388,7 +389,7 @@ export default function MaskinDetailPage() {
             position: 'fixed', bottom: 0, left: 0, right: 0,
             backgroundColor: '#1c1c1e',
             borderRadius: '20px 20px 0 0',
-            padding: '24px 20px 40px',
+            padding: `24px 20px ${medSafeBotten(40)}`,
             zIndex: 100,
             maxHeight: '85vh', overflowY: 'auto',
           }}>

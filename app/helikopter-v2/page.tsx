@@ -1,4 +1,5 @@
 'use client'
+import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
@@ -687,7 +688,7 @@ export default function HelikopterV2Page() {
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
-      style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: bg, color: text, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}
+      style={{ position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: bg, color: text, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}
     >
       {(pullDistance > 0 || refreshing) && (
         <div style={{ height: pullDistance, display: 'flex', alignItems: 'center', justifyContent: 'center', color: muted, fontSize: 13, transition: refreshing ? 'height 0.2s' : 'none' }}>

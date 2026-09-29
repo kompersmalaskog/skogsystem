@@ -1,4 +1,5 @@
 'use client';
+import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 // STARTA JOBB — den ENDA födelsevägen för objekt (Martins beslut: /objekt-vyns
 // eget skapande är borttaget och länkar hit).
@@ -222,7 +223,7 @@ export default function StartaJobbPage() {
   // ── VO-visning för tidigare tilldelat ──
   if (visaVo) {
     return (
-      <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
         <div style={{ fontSize: 14, color: C.t3, marginBottom: 8 }}>{visaVo.namn}</div>
         <div style={{ fontSize: 15, color: C.t2, marginBottom: 24 }}>VO-nummer:</div>
         <div style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-1px', marginBottom: 40, color: C.green }}>{visaVo.vo}</div>
@@ -236,7 +237,7 @@ export default function StartaJobbPage() {
   // ── Resultatvy efter skapande/tilldelning ──
   if (resultat) {
     return (
-      <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
         <div style={{ fontSize: 14, color: C.t3, marginBottom: 8 }}>{resultat.namn}</div>
         <div style={{ fontSize: 15, color: C.t2, marginBottom: 24, textAlign: 'center' }}>Mata in detta nummer i terminalen — i båda maskinerna:</div>
         <div style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-1px', marginBottom: 24, color: C.green }}>{resultat.vo_nummer}</div>
@@ -253,7 +254,7 @@ export default function StartaJobbPage() {
   const forvaltObjekt = forvalt ? objekt.find(o => o.objekt_id === forvalt) : null;
 
   return (
-    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, overflowY: 'auto' }}>
       <div style={{ padding: '24px 20px 0', maxWidth: 700, margin: '0 auto' }}>
         <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 4 }}>Starta jobb</div>
         <div style={{ fontSize: 13, color: C.t3, marginBottom: 20 }}>Skapa objekt och få VO-nummer — knappa in det i båda maskinerna.</div>

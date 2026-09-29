@@ -1,4 +1,5 @@
 'use client';
+import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -334,7 +335,7 @@ export default function Jamforelse() {
   if (loading) {
     return (
       <div style={{
-        position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
+        position: 'fixed', top: underTopbar(52), left: 0, right: 0, bottom: 0,
         background: C.bg, display: 'flex', alignItems: 'center',
         justifyContent: 'center', color: C.t3, fontFamily: ff, fontSize: 13, zIndex: 1,
       }}>
@@ -345,7 +346,7 @@ export default function Jamforelse() {
 
   return (
     <div style={{
-      position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
+      position: 'fixed', top: underTopbar(52), left: 0, right: 0, bottom: 0,
       overflow: 'auto', WebkitOverflowScrolling: 'touch' as const,
       background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
     }}>

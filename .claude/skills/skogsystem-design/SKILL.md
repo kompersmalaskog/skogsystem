@@ -98,6 +98,45 @@ Skalan är **4 / 8 / 12 / 16 / 24 / 32** (`AVSTAND`). Sidmarginal 16, mellan
 sektioner 24, mellan rader 12, inuti en rad 8. Radie (`RADIE`): rad och fält
 10, knapp och kort 12, sheet 16, cirklar 50 %. Träffyta minst 44, primärknapp 48.
 
+### Layoutmått är inte avstånd
+
+Ett **avstånd** säger hur mycket luft det är mellan två saker: 4, 8, 12, 16, 24,
+32. Ett **layoutmått** säger var ett fast element slutar: toppfältets höjd,
+bottenradens höjd, iPhones systemfält. Det är två olika sorters tal. De får
+aldrig bytas mot varandra, och ett layoutmått får aldrig "rättas" till närmaste
+steg på avståndsskalan.
+
+**Varför:** i PR #540 (2026-09-12) fick Min tid sina värden rättade mot tokens.
+Rubriken med flikraden var fast (`position: fixed`), och innehållet under hade
+`paddingTop: 126`, rubrikens uppmätta höjd. Passet bytte 126 mot `AVSTAND.xxl`
+= 32, eftersom 32 fanns på skalan och 126 inte gjorde det. Rubriken är 124 px,
+så 92 px innehåll hamnade under flikraden, på dator och i telefon: summeringen
+och veckan helt dolda, Månaden till hälften. Samma byte gjordes i Lön (96 och 80
+blev 32). Talet såg ut som ett avstånd. Det var ett mått.
+
+Och i fem månader (maj–sep 2026) satt 27 helskärmspaneler på `top: 56`,
+toppfältets höjd på en dator. På iPhone är toppfältet 56 + 47–59 px, eftersom
+systemfältet ritas under det. Panelerna började alltså under toppfältet, med sin
+egen flikrad dold, och ingen märkte det, för ingen testade i telefonen.
+
+**Reglerna:**
+
+1. **Toppfältets och bottenradens mått finns bara i tokens**, med safe-area
+   inräknad: `LAYOUT.topbar`, `underTopbar(extra)`, `medSafeBotten(px)`. Aldrig
+   `56` eller `calc(56px …)` i en vy.
+2. **En rubrik inne i en vy är `position: sticky`** i flödet. Den reserverar
+   sin egen höjd, så det finns inget mått att räkna fel, och inget att "rätta"
+   senare. Aldrig `fixed` + uppmätt `paddingTop` under. Kalendern har alltid
+   gjort så och har aldrig haft felet.
+3. **En helskärmspanel under toppfältet** sitter på `top: underTopbar()`, med
+   `underTopbar(52)` om panelen har en egen fast rad på 52 px ovanför.
+4. **En fast bottenrad eller ett sheet** har `medSafeBotten(px)` som nedre
+   padding. Annars ritas den in i hemindikatorn på iPhone.
+5. **Testa i telefonen.** Safe-area är 0 på datorn, så fel 3 och 4 syns aldrig där.
+
+`design-lint` larmar på ett naket `top:` med tal (utom 0) och på `fixed` med
+`top` (utom helskärmspaneler med `bottom: 0`/`inset`).
+
 ### Hierarki — fem nivåer, högst en primär per skärm
 
 | Nivå | Utseende | När |
