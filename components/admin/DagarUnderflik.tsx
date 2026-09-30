@@ -105,6 +105,25 @@ export default function DagarUnderflik() {
   const visade = baraAvv ? medAvv : rader;
   const arNu = arbetsmanad >= arbetsmanadNu();
 
+  // SUMMERINGEN räknas ur SAMMA rader som listan visar — filtret påverkar den,
+  // annars säger den emot listan. Varje rad avrundas först (hela minuter, hela
+  // km), summan sedan — så den går att räkna efter för hand. "Dagar" = rader
+  // med tid; tomma skalrader räknas som rader men inte som dagar.
+  const summa = useMemo(() => {
+    const perForare = new Map<string, { namn: string; dagar: number; min: number; km: number; obekr: number }>();
+    for (const r of visade) {
+      const s = perForare.get(r.namn) || { namn: r.namn, dagar: 0, min: 0, km: 0, obekr: 0 };
+      if (r.min > 0) s.dagar++;
+      s.min += r.min;
+      s.km += Math.round(r.d.km_totalt || 0);
+      if (!r.d.bekraftad) s.obekr++;
+      perForare.set(r.namn, s);
+    }
+    const lista = Array.from(perForare.values()).sort((a, b) => b.min - a.min);
+    const tot = lista.reduce((t, s) => ({ dagar: t.dagar + s.dagar, min: t.min + s.min, km: t.km + s.km, obekr: t.obekr + s.obekr }), { dagar: 0, min: 0, km: 0, obekr: 0 });
+    return { lista, ...tot };
+  }, [visade]);
+
   return (
     <div style={{ color: FARG.text }}>
       <style>{designCss}</style>
@@ -137,7 +156,7 @@ export default function DagarUnderflik() {
               först, sedan zooma in. */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, marginBottom: AVSTAND.l }}>
             <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>
-              {antalForare} förare · {rader.length} {rader.length === 1 ? "dag" : "dagar"} · <span style={{ color: medAvv.length ? FARG.orange : FARG.text2 }}>{medAvv.length} med avvikelse</span>
+              {antalForare} förare · {rader.length} {rader.length === 1 ? "rad" : "rader"} · <span style={{ color: medAvv.length ? FARG.orange : FARG.text2 }}>{medAvv.length} med avvikelse</span>
             </span>
             <button onClick={() => setBaraAvv(b => !b)} aria-pressed={baraAvv}
               style={{ ...KNAPP.sekundar, width: "auto", flexShrink: 0, whiteSpace: "nowrap", padding: `0 ${AVSTAND.l}px`, background: baraAvv ? FARG.text : KNAPP.sekundar.background, color: baraAvv ? FARG.bg : FARG.text }}>
@@ -200,6 +219,30 @@ export default function DagarUnderflik() {
                 );
               })}
               <div style={{ height: AVSTAND.s }} />
+            </div>
+          )}
+
+          {/* SUMMERINGEN längst ner, som förarens Dag för dag. Per förare först
+              ("vem jobbade mest" utan att räkna), månaden sist som huvudtal. */}
+          {visade.length > 0 && (
+            <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0, marginTop: AVSTAND.l }}>
+              <p style={{ margin: 0, paddingTop: AVSTAND.l, paddingBottom: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
+                {baraAvv ? "Summering av avvikelserna" : `Summering ${manadLabel(arbetsmanad)}`}
+              </p>
+              {summa.lista.map(s => (
+                <div key={s.namn} style={{ display: "flex", alignItems: "baseline", gap: AVSTAND.m, minHeight: TRAFFYTA.min, borderBottom: `1px solid ${FARG.linje}` }}>
+                  <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.namn.split(" ")[0]}</span>
+                  <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, whiteSpace: "nowrap" }}>{s.dagar} {s.dagar === 1 ? "dag" : "dagar"} · {s.km.toLocaleString("sv-SE")} km{s.obekr ? <span style={{ color: FARG.orange }}> · {s.obekr} obekr.</span> : null}</span>
+                  <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(s.min)}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", alignItems: "baseline", gap: AVSTAND.m, padding: `${AVSTAND.m}px 0` }}>
+                <span style={{ flex: 1, ...TYP.listtitel, ...TNUM, color: FARG.text }}>{summa.dagar} {summa.dagar === 1 ? "dag" : "dagar"} · {summa.km.toLocaleString("sv-SE")} km</span>
+                <span style={{ ...TYP.listtitel, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(summa.min)}</span>
+              </div>
+              {summa.obekr > 0 && (
+                <p style={{ margin: 0, paddingBottom: AVSTAND.m, ...TYP.meta, color: FARG.orange }}>{summa.obekr} {summa.obekr === 1 ? "dag är inte bekräftad" : "dagar är inte bekräftade"}</p>
+              )}
             </div>
           )}
           <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
