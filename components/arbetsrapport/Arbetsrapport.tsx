@@ -623,7 +623,9 @@ export default function Arbetsrapport() {
   // aktivitet, objekt, faktureras, kommentar, ta bort).
   // `sparade` = kedjan: perioder sparade i samma omgång (formuläret öppnas igen
   // efter Spara med Från = föregående Till). Bara för 'ny', aldrig synk/tidigarelagd.
-  const [periodForm, setPeriodForm] = useState<null | { lage: 'ny' | 'redigera'; datum: string; rad?: any; varden: PeriodVarden; pass: { start_tid: string | null; slut_tid: string | null } | null; sparade?: string[] }>(null);
+  // tabell: vilken rad som redigeras — 'segment' (arbetsdag_segment, inom passet)
+  // eller 'extra' (extra_tid). Ny period avgörs av systemet i sparaPeriod.
+  const [periodForm, setPeriodForm] = useState<null | { lage: 'ny' | 'redigera'; tabell?: 'segment' | 'extra'; datum: string; rad?: any; varden: PeriodVarden; pass: { start_tid: string | null; slut_tid: string | null } | null; sparade?: string[] }>(null);
   const [periodSparar, setPeriodSparar] = useState(false);
   const [periodFel, setPeriodFel] = useState<string | null>(null);
   const [heldagsMeddelande, setHeldagsMeddelande] = useState<{text:string;icon?:string;typ:string}|null>(null);
@@ -1638,11 +1640,9 @@ export default function Arbetsrapport() {
     setSegÖppen(true);
     oppnaPeriodNy(rd.datum, { ...opts, typ: opts?.typ || 'markagare' });
   };
-  const taBortSegment = async (id: string) => {
-    const { error } = await supabase.from('arbetsdag_segment').delete().eq('id', id);
-    if (error) { alert('Kunde inte ta bort perioden.'); return; }
-    setDagSegment(d => d.filter((x:any) => x.id !== id));
-  };
+  // (Papperskorgen på segmentraden är borta: ett segment öppnas i period-
+  // formuläret som allt annat — tider, objekt, faktureras, ta bort. En rad man
+  // bara kan slänga är inte en rad man äger; Martin fick skapa om 2026-09-15.)
 
   // ── SKALRADEN: en dag som skapas av sin första period ──────────────────
   // Joacims dagar har inget maskinpass. Lönens 60-minutersregel körs bara över
@@ -2126,7 +2126,26 @@ export default function Arbetsrapport() {
   /** Öppna en befintlig extra_tid-post för redigering (tider, aktivitet, objekt, faktureras, ta bort). */
   const oppnaPeriodRedigera = (rad: any) => {
     setPeriodFel(null);
-    setPeriodForm({ lage: 'redigera', datum: rad.datum, rad, varden: periodVardenFran(rad), pass: passFor(rad.datum) });
+    setPeriodForm({ lage: 'redigera', tabell: 'extra', datum: rad.datum, rad, varden: periodVardenFran(rad), pass: passFor(rad.datum) });
+  };
+  /** Öppna ett befintligt segment (period inom passet) — samma formulär, UPDATE mot arbetsdag_segment. */
+  const oppnaSegmentRedigera = (sg: any) => {
+    setPeriodFel(null);
+    setPeriodForm({ lage: 'redigera', tabell: 'segment', datum: sg.datum, rad: sg, varden: periodVardenFran(sg), pass: passFor(sg.datum) });
+  };
+  // KVITTOT byggs av det SPARADE svaret, aldrig av formulärets värden. Objektet
+  // på segment tappades tyst i fyra dagar (2026-09-26..30) medan kvittot sa
+  // "Betet gallring 2026" varje gång — appen bekräftade något den inte visste
+  // hade hänt. Saknas ett fält i svaret som fanns i formuläret är det ett FEL.
+  const kvittoFranRad = (rad: any) => {
+    const objNamn = rad?.objekt_id ? (objektLista.find(o => o.id === rad.objekt_id)?.namn || rad.objekt_id) : null;
+    return `${(rad?.start_tid || '').slice(0, 5)}–${(rad?.slut_tid || '').slice(0, 5)} ${aktLabel(rad?.aktivitet_typ)}${objNamn ? ` · ${objNamn}` : ''}`;
+  };
+  const sparatSkiljerSig = (v: PeriodVarden, rad: any): string | null => {
+    if (v.objektId && rad?.objekt_id !== v.objektId) return 'Perioden sparades, men objektet följde inte med. Öppna perioden och välj objektet igen — händer det igen, säg till Martin.';
+    if ((rad?.aktivitet_typ || null) !== v.typ) return 'Perioden sparades, men aktiviteten följde inte med. Öppna perioden och kontrollera.';
+    if (!!rad?.debiterbar !== v.deb) return 'Perioden sparades, men "Faktureras" följde inte med. Öppna perioden och kontrollera.';
+    return null;
   };
   /** Öppna ett tomt formulär för ett datum (lägg till i efterhand / Redigera "Lägg till period"). */
   const oppnaPeriodNy = (datum: string, opts?: { gap?: { start: string; slut: string }; typ?: AktivitetTyp; fromSynk?: boolean; fromTidigarelagd?: boolean }) => {
@@ -2172,6 +2191,33 @@ export default function Arbetsrapport() {
     if (!v.start || !v.slut || min <= 0) { setPeriodFel('Sluttiden måste vara efter starttiden.'); return; }
     setPeriodSparar(true);
     try {
+      if (periodForm.lage === 'redigera' && periodForm.tabell === 'segment') {
+        // Befintligt SEGMENT (inom passet): förblir segment. Måste ligga kvar
+        // inom passet och inte överlappa dagens övriga perioder (utom sig självt).
+        const pass = periodForm.pass || { start_tid: null, slut_tid: null };
+        if (klassificeraPeriod({ start: v.start, slut: v.slut }, pass) !== 'inne') {
+          setPeriodFel(`Perioden måste ligga inom maskinpasset (${(pass.start_tid || '').slice(0, 5)}–${(pass.slut_tid || '').slice(0, 5)}). Ta bort den och lägg till på nytt om den ska ligga utanför.`);
+          return;
+        }
+        const andra = [
+          ...dagSegment.filter((x: any) => x.id !== periodForm.rad.id).map((x: any) => ({ start_tid: x.start_tid, slut_tid: x.slut_tid })),
+          ...(extraTidData || []).filter((e: any) => e.datum === periodForm.datum && e.slut_tid).map((e: any) => ({ start_tid: e.start_tid, slut_tid: e.slut_tid })),
+        ];
+        const val = valideraSegment({ start: v.start, slut: v.slut }, pass, andra);
+        if (!val.ok) { setPeriodFel(val.fel); return; }
+        const payload = {
+          start_tid: v.start, slut_tid: v.slut,
+          aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb, kommentar: v.kommentar.trim() || null,
+        };
+        const res = await uppdateraVerifierat(supabase, "arbetsdag_segment", payload, { id: periodForm.rad.id }, "*");
+        if (!res.ok) { setPeriodFel(/23P01|overlap/i.test(res.fel) ? 'Perioden överlappar en du redan märkt.' : res.fel); return; }
+        const sparad = res.rows[0] || { ...periodForm.rad, ...payload };
+        setDagSegment(d => d.map((x: any) => x.id === sparad.id ? sparad : x).sort((x: any, y: any) => (x.start_tid || '').localeCompare(y.start_tid || '')));
+        const avvik = sparatSkiljerSig(v, sparad);
+        if (avvik) { setPeriodFel(avvik); return; }
+        stangPeriodForm();
+        return;
+      }
       if (periodForm.lage === 'redigera') {
         // Befintlig extra_tid-post: förblir extra_tid. minuter räknas om — INTE genererad.
         // Timer-startade poster saknar arbetsdag_id tills de avslutas här.
@@ -2184,7 +2230,10 @@ export default function Arbetsrapport() {
         };
         const res = await uppdateraVerifierat(supabase, "extra_tid", payload, { id: periodForm.rad.id }, "*");
         if (!res.ok) { setPeriodFel(res.fel); return; }
-        speglaExtra(res.rows[0] || { ...periodForm.rad, ...payload });
+        const sparad = res.rows[0] || { ...periodForm.rad, ...payload };
+        speglaExtra(sparad);
+        const avvik = sparatSkiljerSig(v, sparad);
+        if (avvik) { setPeriodFel(avvik); return; }
         stangPeriodForm();
         return;
       }
@@ -2199,17 +2248,21 @@ export default function Arbetsrapport() {
       ];
       const lage = klassificeraPeriod({ start: v.start, slut: v.slut }, pass);
       if (lage === 'korsar') { setPeriodFel(`Perioden korsar maskinpassets gräns (${(pass.start_tid || '').slice(0, 5)}–${(pass.slut_tid || '').slice(0, 5)}). Dela upp den.`); return; }
+      let sparadRad: any = null;
       if (lage === 'inne') {
         const val = valideraSegment({ start: v.start, slut: v.slut }, pass, befintliga);
         if (!val.ok) { setPeriodFel(val.fel); return; }
         const { data, error } = await supabase.from('arbetsdag_segment').insert({
           medarbetare_id: medarbetare.id, datum: periodForm.datum,
           start_tid: v.start, slut_tid: v.slut,
-          aktivitet_typ: v.typ, debiterbar: v.deb,
+          // objekt_id saknades här 2026-09-26..30: formuläret hade objektet, raden
+          // fick det aldrig. Samma nummer som extra_tid (dim_objekt.objekt_id).
+          aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb,
           kommentar: v.kommentar.trim() || null,
           kalla: (segForm?.fromSynk || segForm?.fromTidigarelagd) ? 'synk' : 'forare',
         }).select().single();
         if (error || !data) { setPeriodFel((error as any)?.code === '23P01' ? 'Perioden överlappar en du redan märkt.' : SPARA_FEL); return; }
+        sparadRad = data;
         const nyaSegment = [...dagSegment, data].sort((x: any, y: any) => (x.start_tid || '').localeCompare(y.start_tid || ''));
         setDagSegment(nyaSegment);
         // Tidigarelagd-start: segmentet ÄR kvittensen. Rör aldrig start_tid.
@@ -2243,16 +2296,21 @@ export default function Arbetsrapport() {
           kommentar: v.kommentar.trim() || null, kalla,
         }).select().single();
         if (error || !data) { setPeriodFel(SPARA_FEL); return; }
+        sparadRad = data;
         speglaExtra(data);
       }
+      // Kvittot och kedjan bygger på RADEN databasen gav tillbaka. Skiljer den
+      // sig från formuläret stannar formuläret öppet med ett fel — aldrig ett
+      // kvitto som säger att något sparades som inte sparades.
+      const avvik = sparatSkiljerSig(v, sparadRad);
+      if (avvik) { setPeriodFel(avvik); return; }
       if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
       // KEDJAN: efter Spara öppnas formuläret igen med Från = den här periodens
       // Till (känd tid, inte gissad), samma aktivitet och objekt förvalda, Till
       // tom. Tre trakter blir en handling. Utgång: Klar eller Avbryt — aldrig
       // automatisk stängning. Inte för synk-/tidigarelagd-perioder (en och klar).
       if (segForm) { stangPeriodForm(); return; }
-      const objNamn = v.objektId ? (objektLista.find(o => o.id === v.objektId)?.namn || v.objektId) : null;
-      const kvitto = `${v.start}–${v.slut} ${aktLabel(v.typ)}${objNamn ? ` · ${objNamn}` : ''}`;
+      const kvitto = kvittoFranRad(sparadRad);
       setPeriodFel(null);
       setPeriodForm(f => f ? {
         ...f,
@@ -2303,6 +2361,14 @@ export default function Arbetsrapport() {
     if (!periodForm?.rad) return;
     const id = periodForm.rad.id;
     const datum: string = periodForm.rad.datum;
+    if (periodForm.tabell === 'segment') {
+      // Segment finns bara med pass — skalraden berörs aldrig.
+      const res = await raderaVerifierat(supabase, "arbetsdag_segment", { id });
+      if (!res.ok) { setPeriodFel(res.fel); return; }
+      setDagSegment(d => d.filter((x: any) => x.id !== id));
+      stangPeriodForm();
+      return;
+    }
     const res = await raderaVerifierat(supabase, "extra_tid", { id });
     if (!res.ok) { setPeriodFel(res.fel); return; }
     const kvar = (extraTidData || []).filter((x: any) => x.id !== id && x.datum === datum);
@@ -2328,7 +2394,7 @@ export default function Arbetsrapport() {
   // DELAD UI (renderas i både Dag-vyn och Redigera): periodformuläret.
   const efterStoppUI = periodForm ? (
     <PeriodForm
-      rubrik={periodForm.lage === 'ny' ? 'Lägg till period' : periodForm.pass?.start_tid ? 'Extra arbete' : 'Period'}
+      rubrik={periodForm.lage === 'ny' ? 'Lägg till period' : periodForm.tabell === 'segment' ? 'Period inom passet' : periodForm.pass?.start_tid ? 'Extra arbete' : 'Period'}
       datumText={periodDatumText(periodForm.datum)}
       varden={periodForm.varden}
       onAndra={v => setPeriodForm(f => f ? { ...f, varden: v } : f)}
@@ -5807,7 +5873,7 @@ export default function Arbetsrapport() {
           {redDag && (harData || dagSegment.length > 0 || harExtra || !!(redDag as any).id) && (() => {
             const pass = { start_tid: (redDag as any).start_tid || null, slut_tid: (redDag as any).slut_tid || null };
             const perioder: any[] = [
-              ...dagSegment.map((sg:any) => ({ kind:'segment', id:sg.id, start:(sg.start_tid||'').slice(0,5), slut:(sg.slut_tid||'').slice(0,5), typ:sg.aktivitet_typ, deb:sg.debiterbar, kommentar:sg.kommentar, kalla:sg.kalla, objektId: sg.objekt_id || null })),
+              ...dagSegment.map((sg:any) => ({ kind:'segment', id:sg.id, start:(sg.start_tid||'').slice(0,5), slut:(sg.slut_tid||'').slice(0,5), typ:sg.aktivitet_typ, deb:sg.debiterbar, kommentar:sg.kommentar, kalla:sg.kalla, raw:sg, objektId: sg.objekt_id || null })),
               ...extraTidForDag.map((e:any) => ({ kind:'extra', id:e.id, start:(e.start_tid||'').slice(0,5), slut:(e.slut_tid||'').slice(0,5), typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:e.minuter||0, raw:e, objektId: e.objekt_id || null })),
               ...extraOppnaForDag.map((e:any) => ({ kind:'extra', oppen:true, id:e.id, start:(e.start_tid||'').slice(0,5), slut:'', typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:0, raw:e, objektId: e.objekt_id || null })),
             ].sort((a,b)=>a.start.localeCompare(b.start));
@@ -5828,8 +5894,8 @@ export default function Arbetsrapport() {
 
                 {öppen && perioder.map((p:any, i:number) => (
                   <div key={p.kind+p.id}
-                    onClick={p.kind==='extra' ? () => oppnaPeriodRedigera(p.raw) : undefined}
-                    style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.m}px 0`,borderBottom: (i<antal-1||!!segForm) ? `1px solid ${FARG.linje}` : "none",gap:AVSTAND.m,cursor: p.kind==='extra'?"pointer":"default" }}>
+                    onClick={p.kind==='extra' ? () => oppnaPeriodRedigera(p.raw) : () => oppnaSegmentRedigera(p.raw)}
+                    style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.m}px 0`,borderBottom: (i<antal-1||!!segForm) ? `1px solid ${FARG.linje}` : "none",gap:AVSTAND.m,cursor:"pointer" }}>
                     <div style={{ minWidth:0 }}>
                       <span style={{ ...TYP.text,color:FARG.text }}>{aktLabel(p.typ)}</span>
                       {/* Objektet syns på raden — utan det skrev man under en perioddag i blindo. */}
@@ -5839,11 +5905,7 @@ export default function Arbetsrapport() {
                       {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>via maskinavvikelse</span>}
                       <div style={{ ...TYP.meta, color: p.oppen ? FARG.orange : FARG.text2, ...TNUM }}>{p.oppen ? `${p.start} – sluttid saknas · fyll i eller ta bort` : `${p.start}–${p.slut}${p.kind==='extra' ? ' · läggs till' : ''}`}{p.kommentar?` · ${p.kommentar}`:''}</div>
                     </div>
-                    {p.kind==='segment'
-                      ? <button onClick={()=>taBortSegment(p.id)} style={{ background:"none",border:"none",color:FARG.text2,cursor:"pointer",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",flexShrink:0 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>delete</span>
-                        </button>
-                      : <ChevronRight/>}
+                    <ChevronRight/>
                   </div>
                 ))}
 
