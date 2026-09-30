@@ -89,7 +89,7 @@ export type TittaPost = {
 // för föraren). Prefix, inte hela texter — datum och tal varierar.
 const ERSATTA = [
   /^Kortpass /, /^Deldag /, /^Frånvaro /, /^Helglön /, /^Bytesdag/,
-  /ej bekräftade/, /saknar typ/, /^Anställningsnummer saknas/,
+  /ej bekräftade/, /saknar typ/, /^Anställningsnummer saknas/, /^Ingen premielön/,
   // Extra tid på dagar utan maskinpass: en granskningsnotis om övertidsbasen.
   // Perioddagar (Joacim) har alltid det — för föraren är det ingen avvikelse.
   /extra tid ligger på dagar utan maskinpass/,
@@ -109,6 +109,9 @@ export function attTittaPa(spec: any): TittaPost[] {
 
   if (varn.some(v => /^Anställningsnummer saknas/.test(v))) {
     ut.push({ nyckel: "anstnr", datum: "", rubrik: "Anställningsnummer", text: "Ditt anställningsnummer saknas i registret, så lönen kan inte skickas. Säg till Martin." });
+  }
+  if (varn.some(v => /^Ingen premielön/.test(v))) {
+    ut.push({ nyckel: "premie", datum: "", rubrik: "Premielön", hoger: "saknas", text: "Du har ingen maskintid den här månaden och ingen maskin på din rad i registret, så premien kan inte räknas. Säg till Martin." });
   }
   for (const mid of (spec?.maskin_utan_typ || []) as string[]) {
     ut.push({ nyckel: `typ${mid}`, datum: "", rubrik: `Maskin ${mid}`, text: "Maskinen saknar typ i registret, så premielönen räknas inte. Säg till Martin." });

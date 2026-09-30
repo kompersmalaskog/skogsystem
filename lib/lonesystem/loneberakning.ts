@@ -14,6 +14,11 @@
  *   Skördare:   1355 premielön, 1435 övertid betald 4
  *   Skotare:    1354 premielön 1, 1436 övertid betald 5
  *
+ * Premielön (1354/1355) är FÖRETAGETS EGEN konstruktion — den står inte i
+ * Skogsavtalet. Regeln (premie på alla timlönetimmar, fördelad efter
+ * månadens maskintyp) är Martins arbetsgivarbeslut 2026-09-29:
+ * docs/lonesystem/premielon.md. Leta inte efter en paragraf.
+ *
  * Övertid:
  *   Ordinarie tid = antal arbetsdagar × 8h
  *   Övertid = totalt jobbat - ordinarie
@@ -168,6 +173,7 @@ export function beräknaExport(
   helglonNamn: string | null = null,   // gs_avtal.helglon_dagar (tolv namn); null = avtalets default
   arbetadeUtanforPerioden: Set<string> = new Set(), // datum med arbete UTANFÖR arbetsperioden (bytesdagars röda dag i annan månad)
   ordinarieVeckaH: number | null = null,            // gs_avtal.ordinarie_vecka_h — deldagens schematimmar/dag (40 → 8)
+  radMaskinTyp: "skordare" | "skotare" | null = null, // typen på förarens medarbetarrad-maskin — premiens fördelning en månad utan maskintid
 ): ExportSammanfattning {
   const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
@@ -220,15 +226,13 @@ export function beräknaExport(
     if (!d.bekraftad) obekraftade++;
   }
 
-  // Extra tid (utanför maskinen) — in i totalH så timlön OCH övertid
+  // Extra tid (utanför maskinen) — in i totalH så timlön, övertid OCH premie
   // räknas på förarens hela arbetstid.
-  // maskinH (totalH FÖRE extra) sparas separat: premien räknas på den.
-  const maskinH = Math.round(totalH * 100) / 100;
   const extraH = extraTid.reduce((a, e) => a + (e?.minuter || 0), 0) / 60;
   totalH += extraH;
-  // Kortpassens maskinminuter: betald tid som TIMLÖN, aldrig övertid och aldrig
-  // premie (läggs efter maskinH). Utan detta blev Joacims 26 minuter 0,43 h
-  // övertid — ordinarie var 0 eftersom dagen inte är arbetsdag.
+  // Kortpassens maskinminuter: betald tid som TIMLÖN (och därmed premie),
+  // aldrig övertid. Utan detta blev Joacims 26 minuter 0,43 h övertid —
+  // ordinarie var 0 eftersom dagen inte är arbetsdag.
   const kortpassH = kortpass.reduce((a, k) => a + (dagarMedTid.find(d => d.datum === k.datum)?.arbetad_min || 0), 0) / 60;
   totalH += kortpassH;
 
@@ -258,26 +262,50 @@ export function beräknaExport(
   const timlonH = Math.round(Math.min(totalH, ordinarie + kortpassH) * 100) / 100;
   const kortpassHRund = Math.round(kortpassH * 100) / 100;
 
-  // Premie FRYST till maskintid tills premie-vs-extra-tid-avtalet är utrett.
-  // TODO: premie på alla jobbade timmar, olika sats skördare/skotare,
-  // extra tid-sats oklar. Frysningen = exakt beteendet före extra-tid-fixen:
-  // bas min(maskinH, ordinarie), fördelad på maskintypernas andel av
-  // MASKINTIDEN — extra tid påverkar timlön+övertid men ALDRIG premien.
-  const premieBas = Math.round(Math.min(maskinH, ordinarie) * 100) / 100;
-  const premieSkordare = maskinH > 0 ? Math.round(premieBas * (skordareH / maskinH) * 100) / 100 : 0;
-  const premieSkotare = maskinH > 0 ? Math.round(premieBas * (skotareH / maskinH) * 100) / 100 : 0;
+  // ── PREMIELÖN (1354/1355) — ER EGEN KONSTRUKTION, INTE KOLLEKTIVAVTALET ──
+  // Premien finns inte i Skogsavtalet (docs/lonesystem/premielon.md). Regeln
+  // är Martins beslut som arbetsgivare, 2026-09-29: premie på ALLA arbetade
+  // timmar — maskin, planering, service, möten, flyttar, manuellt arbete.
+  // "Ingen ska tappa pengar på att göra något annat än att sitta i maskinen."
+  //
+  //   premietimmar = timlönetimmarna (ordinarie + kortpass; övertid ger ingen
+  //                  premie, som förr)
+  //   fördelning   = månadens andel skördar-/skotartid (maskintid på dagar
+  //                  MED typad maskin)
+  //   ingen maskintid i månaden → typen på förarens medarbetarrad
+  //   ingen maskin där heller  → ingen premie + varning (syns i granskningen)
+  //
+  // Förr: bas = min(maskintid, ordinarie) fördelad på maskintidens andel. En
+  // dag UTAN maskin_id räknades i basen men hörde till ingen typ → timmarna
+  // tappade premien tyst (Martin sep 2026: 19,96 tim; Max: 7 tim). Extra tid
+  // gav aldrig premie. Båda är borta med den här regeln.
+  const typadH = skordareH + skotareH;
+  const premieBas = timlonH;
+  let premieSkordare = 0, premieSkotare = 0;
+  if (premieBas > 0) {
+    const andelSkordare = typadH > 0 ? skordareH / typadH
+      : radMaskinTyp === "skordare" ? 1 : radMaskinTyp === "skotare" ? 0 : null;
+    if (andelSkordare === null) {
+      varningar.push(`Ingen premielön: ingen maskintid i månaden och ingen maskin på medarbetarraden (${premieBas} tim utan premie). Sätt förarens maskin i admin.`);
+    } else {
+      // Avrunda den ena, låt den andra ta resten — summan är exakt premiebasen.
+      premieSkordare = Math.round(premieBas * andelSkordare * 100) / 100;
+      premieSkotare = Math.round((premieBas - premieSkordare) * 100) / 100;
+    }
+  }
 
   // ── 1. TIMLÖN (kod 11) ──
   if (timlonH > 0) {
     rader.push({ EmployeeId: eid, SalaryCode: "11", Number: timlonH.toFixed(2), Date: loneperiodStart, beskrivning: `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h${kortpassHRund > 0 ? ` + ${kortpassHRund}h kortpass` : ''})` });
   }
 
-  // ── 2. PREMIELÖN (kod 1354/1355) — fördelat proportionellt ──
+  // ── 2. PREMIELÖN (kod 1354/1355) — på alla timlönetimmar, fördelat efter månadens maskintyp ──
+  const premieGrund = typadH > 0 ? `${skordareH}h skördare / ${skotareH}h skotare i maskin` : `ingen maskintid, typ ur medarbetarraden (${radMaskinTyp})`;
   if (premieSkordare > 0) {
-    rader.push({ EmployeeId: eid, SalaryCode: "1355", Number: premieSkordare.toFixed(2), Date: loneperiodStart, beskrivning: `Premielön skördare: ${premieSkordare}h` });
+    rader.push({ EmployeeId: eid, SalaryCode: "1355", Number: premieSkordare.toFixed(2), Date: loneperiodStart, beskrivning: `Premielön skördare: ${premieSkordare}h av ${premieBas}h timlön (${premieGrund})` });
   }
   if (premieSkotare > 0) {
-    rader.push({ EmployeeId: eid, SalaryCode: "1354", Number: premieSkotare.toFixed(2), Date: loneperiodStart, beskrivning: `Premielön skotare: ${premieSkotare}h` });
+    rader.push({ EmployeeId: eid, SalaryCode: "1354", Number: premieSkotare.toFixed(2), Date: loneperiodStart, beskrivning: `Premielön skotare: ${premieSkotare}h av ${premieBas}h timlön (${premieGrund})` });
   }
 
   // ── 3. ÖVERTID (kod 1435/1436) — en rad per månad ──
