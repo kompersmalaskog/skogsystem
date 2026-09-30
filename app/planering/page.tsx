@@ -2948,7 +2948,7 @@ export default function PlannerPage() {
   const [sistaUttag, setSistaUttag] = useState<{ count: number; volym: number; registrerad_at: string } | null>(null);
   const hogarFeaturesRef = useRef<any[]>([]);
   const grotFeaturesRef = useRef<any[]>([]);
-  const generatePieIconRef = useRef<((sortimentData: Record<string, number>, size: number) => ImageData) | null>(null);
+  const generatePieIconRef = useRef<((sortimentData: Record<string, number>, size: number, fallbackColor?: string) => ImageData) | null>(null);
   const [valdHog, setValdHog] = useState<{
     volym: number; stammar: number; datum: string; tradslag: string;
     sortimentVolym: Record<string, number>; coords: [number, number];
@@ -4665,7 +4665,7 @@ export default function PlannerPage() {
       return '#6b7c3a';
     };
 
-    const generatePieIcon = (sortimentData: Record<string, number>, size: number): ImageData => {
+    const generatePieIcon = (sortimentData: Record<string, number>, size: number, fallbackColor = '#6b7c3a'): ImageData => {
       const canvas = document.createElement('canvas');
       canvas.width = size;
       canvas.height = size;
@@ -4681,9 +4681,11 @@ export default function PlannerPage() {
       // Pie slices
       const total = Object.values(sortimentData).reduce((a, b) => a + b, 0);
       if (total === 0) {
+        // Ingen sortimentfördelning (stammar utan sortiment, t.ex. gamla stockar
+        // utan stem_key) → rita hela cirkeln i trädslagsfärgen, aldrig en naken oliv.
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-        ctx.fillStyle = '#6b7c3a';
+        ctx.fillStyle = fallbackColor;
         ctx.fill();
       } else {
         let startAngle = -Math.PI / 2;
@@ -4733,137 +4735,53 @@ export default function PlannerPage() {
     const loadHogar = async () => {
       console.log('[HPR] Laddar stammar för objekt', valtObjekt.id);
 
-      // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78) — frikopplad från objekt_id-FK.
-      // EXAKT vo-segment-jämförelse klientsida (split ':' + ===): ingen LIKE/mönster-
-      // matchning (krock-benägen). ~1 rad per objekt i tabellen → hämta alla är försumbart.
-      // OBS: hpr_filer.stammar_count är opålitlig — läs aldrig den; räkna hämtade rader.
+      // Kartans produktionshögar läser detalj_stam (okapad) i st.f. hpr_stammar.
+      // hpr_stammar/hpr_filer kapas per fil (Scorpion delar exporten i huvudfil ≤4000
+      // stammar + _1-fil), och kartan läste bara EN fil → slutavverkningar >4000 stammar
+      // visades ofullständigt. detalj_stam är UPSERTad över alla filer + MOM (okapad) och
+      // bär nu total_volym/sortiment/bio_energy_adaption (migration 20260930_detalj_stam_
+      // karthogar.sql). Filtrera på objekt_id = vo (samma numeriska nyckel som förr).
       const vo = String(valtObjekt.vo_nummer ?? '').trim();
-      const { data: kandidatFiler, error: filErr } = /^\d+$/.test(vo)
-        ? await supabase
-            .from('hpr_filer')
-            .select('id, fil_datum, objekt_nyckel')
-            .order('fil_datum', { ascending: false, nullsFirst: false })
-        : { data: [] as { id: string; fil_datum: string | null; objekt_nyckel: string | null }[], error: null };
-      const filer = (kandidatFiler ?? [])
-        .filter(f => String(f.objekt_nyckel ?? '').split(':')[1] === vo)
-        .slice(0, 1);
-
-      if (filErr || !filer || filer.length === 0) {
-        console.log('[HPR] Inga HPR-filer för detta objekt');
-        if (map.getSource('hogar-source')) {
-          (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: [] });
-        }
-        if (map.getSource('grot-source')) {
-          (map.getSource('grot-source') as any).setData({ type: 'FeatureCollection', features: [] });
-        }
+      if (!/^\d+$/.test(vo)) {
+        console.log('[HOGAR] Ingen numerisk vo — inga stammar');
+        (map.getSource('hogar-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
+        (map.getSource('grot-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
         return;
       }
 
-      const senasteFil = filer[0];
-      const filDatum: Record<string, string> = {};
-      if (senasteFil.fil_datum) filDatum[senasteFil.id] = senasteFil.fil_datum.slice(0, 10);
+      // Trädslagsnamn per tradslag_id (detalj_stam har bara tradslag_id; färg/etikett
+      // behöver namnet 'GRAN'/'TALL'/… som matchar TRADSLAG_COLOR).
+      const tsNamn = new Map<string, string>();
+      try {
+        const { data: dts } = await supabase.from('dim_tradslag').select('tradslag_id, namn');
+        for (const d of dts || []) tsNamn.set(d.tradslag_id, d.namn);
+      } catch { /* */ }
 
-      // Hämta stammar från senaste filen i batchar (max 1000 per request)
-      let allStammar: any[] = [];
-      let offset = 0;
-      while (true) {
-        const { data, error } = await supabase
-          .from('hpr_stammar')
-          .select('lat, lng, total_volym, tradslag, hpr_fil_id, bio_energy_adaption, sortiment')
-          .eq('hpr_fil_id', senasteFil.id)
-          .not('lat', 'is', null)
-          .order('id')  // unik tiebreaker — .range() kräver total ordning
-          .range(offset, offset + 999);
-        if (error || !data || data.length === 0) break;
-        allStammar = allStammar.concat(data);
-        if (data.length < 1000) break;
-        offset += 1000;
-      }
-
-      console.log(`[HPR] vo=${vo}, fil=${senasteFil.id}`);
-
-      const dedupStammar = allStammar.filter(s => s.lat && s.lng);
-      console.log(`[HPR] ${dedupStammar.length} stammar med koordinater (av ${allStammar.length} totalt)`);
-
-      // Klustra stammar inom ~10m radie
-      // 10m ≈ 0.00009 grader lat, 0.00016 grader lng vid 56°N
-      const CLUSTER_RAD_LAT = 0.00009;
-      const CLUSTER_RAD_LNG = 0.00016;
-      const used = new Uint8Array(dedupStammar.length);
       const hogar: any[] = [];
       const grotHogar: any[] = [];
 
-      for (let i = 0; i < dedupStammar.length; i++) {
-        if (used[i]) continue;
-        const s = dedupStammar[i];
-        if (!s.lat || !s.lng) continue;
-
-        const cluster = [i];
-        used[i] = 1;
-        let sumLat = s.lat, sumLng = s.lng;
-
-        for (let j = i + 1; j < dedupStammar.length; j++) {
-          if (used[j]) continue;
-          const t = dedupStammar[j];
-          if (!t.lat || !t.lng) continue;
-          if (Math.abs(t.lat - s.lat) < CLUSTER_RAD_LAT && Math.abs(t.lng - s.lng) < CLUSTER_RAD_LNG) {
-            cluster.push(j);
-            used[j] = 1;
-            sumLat += t.lat;
-            sumLng += t.lng;
-          }
-        }
-
-        // Centroid
-        const n = cluster.length;
-        const cLat = sumLat / n;
-        const cLng = sumLng / n;
-
-        // Summera volym och trädslag, räkna GROT-stammar, samla sortiment-volymer
-        let volym = 0;
-        const tradslagCount: Record<string, number> = {};
-        const sortimentVolym: Record<string, number> = {};
-        let datum = '';
-        let grotCount = 0;
-
-        for (const idx of cluster) {
-          const st = dedupStammar[idx];
-          const stVol = st.total_volym || 0;
-          volym += stVol;
-          const ts = st.tradslag || 'OKÄNT';
-          tradslagCount[ts] = (tradslagCount[ts] || 0) + 1;
-          if (st.sortiment) {
-            sortimentVolym[st.sortiment] = (sortimentVolym[st.sortiment] || 0) + stVol;
-          }
-          if (!datum && st.hpr_fil_id && filDatum[st.hpr_fil_id]) {
-            datum = filDatum[st.hpr_fil_id];
-          }
-          if (st.bio_energy_adaption) {
-            grotCount++;
-          }
-        }
-
-        // Dominant trädslag
+      // Gemensam formattering — delas av klient-klustring och RPC-vägen, identisk med
+      // tidigare hpr-väg (dominant trädslag → färg/etikett, dominant sortiment, pie-json,
+      // GROT-hög med offset). Skjuter in i hogar/grotHogar ovan.
+      const byggHog = (
+        cLat: number, cLng: number, n: number, volym: number,
+        tradslagCount: Record<string, number>, sortimentVolym: Record<string, number>,
+        grotCount: number, datum: string,
+      ) => {
         const sorted = Object.entries(tradslagCount).sort((a, b) => b[1] - a[1]);
-        const dominant = sorted[0][0];
-        const dominantPct = sorted[0][1] / n;
+        const dominant = sorted.length > 0 ? sorted[0][0] : 'OKÄNT';
+        const dominantPct = sorted.length > 0 ? sorted[0][1] / n : 0;
         const tradslag = sorted.map(([k, v]) => `${k} ${Math.round(100 * v / n)}%`).join(', ');
         const color = dominantPct > 0.7 ? (TRADSLAG_COLOR[dominant] || BLANDAT_COLOR) : BLANDAT_COLOR;
-
-        // Dominant sortiment
         const sortimentSorted = Object.entries(sortimentVolym).sort((a, b) => b[1] - a[1]);
         const sortiment = sortimentSorted.length > 0 ? sortimentSorted[0][0] : (dominant || 'Okänt');
-
         if (volym > 0.01) {
-          // Timmer/massa-hög (alltid)
           const pieIdx = hogar.length;
           hogar.push({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [cLng, cLat] },
             properties: { volym: Math.round(volym * 100) / 100, tradslag, sortiment, stammar: n, datum, color, sortimentVolymJson: JSON.stringify(sortimentVolym), pieIcon: `pie-${pieIdx}` },
           });
-
-          // GROT-hög (om minst en stam har bio_energy_adaption)
           if (grotCount > 0) {
             grotHogar.push({
               type: 'Feature' as const,
@@ -4871,6 +4789,114 @@ export default function PlannerPage() {
               properties: { volym: Math.round(volym * 100) / 100, tradslag, stammar: grotCount, datum, color: '#f59e0b' },
             });
           }
+        }
+      };
+
+      // Perf-gate: > 20 000 stammar → klustra SERVER-side (RPC hogar_for_objekt), annars
+      // som idag i klienten. Inget nuvarande objekt når taket (störst ~12,5k), men det
+      // skyddar mot att en framtida mega-slutavverkning laddar hundratusentals rader.
+      const STAM_TAK = 20000;
+      const { count: stamAntal } = await supabase
+        .from('detalj_stam').select('id', { count: 'exact', head: true })
+        .eq('objekt_id', vo).not('latitude', 'is', null);
+
+      if ((stamAntal ?? 0) > STAM_TAK) {
+        console.log(`[HOGAR] vo=${vo}, ${stamAntal} stammar > ${STAM_TAK} → server-side RPC`);
+        const { data: celler, error: rpcErr } = await supabase.rpc('hogar_for_objekt', { p_objekt_id: vo });
+        if (rpcErr) console.error('[HOGAR] RPC-fel:', rpcErr);
+        for (const c of celler || []) {
+          const tj = (c.tradslag_json || {}) as Record<string, number>;
+          const sj = (c.sortiment_json || {}) as Record<string, number>;
+          byggHog(c.lat, c.lng, c.stammar || 0, Number(c.volym) || 0, tj, sj, c.grot_stammar || 0, c.datum ? String(c.datum).slice(0, 10) : '');
+        }
+      } else {
+        // Klient-klustring — hämta detalj_stam i batchar (max 1000 per request)
+        let allStammar: any[] = [];
+        let offset = 0;
+        while (true) {
+          const { data, error } = await supabase
+            .from('detalj_stam')
+            .select('latitude, longitude, total_volym, tradslag_id, sortiment, bio_energy_adaption, tidpunkt')
+            .eq('objekt_id', vo)
+            .not('latitude', 'is', null)
+            .order('id')  // unik tiebreaker — .range() kräver total ordning
+            .range(offset, offset + 999);
+          if (error || !data || data.length === 0) break;
+          allStammar = allStammar.concat(data);
+          if (data.length < 1000) break;
+          offset += 1000;
+        }
+
+        const dedupStammar = allStammar
+          .filter(s => s.latitude && s.longitude)
+          .map(s => ({
+            lat: s.latitude as number,
+            lng: s.longitude as number,
+            total_volym: s.total_volym,
+            tradslag: tsNamn.get(s.tradslag_id) || 'OKÄNT',
+            sortiment: s.sortiment,
+            bio_energy_adaption: s.bio_energy_adaption,
+            datum: s.tidpunkt ? String(s.tidpunkt).slice(0, 10) : '',
+          }));
+        console.log(`[HOGAR] vo=${vo}, ${dedupStammar.length} stammar (detalj_stam, okapad)`);
+
+        // Klustra stammar inom ~10m radie
+        // 10m ≈ 0.00009 grader lat, 0.00016 grader lng vid 56°N
+        const CLUSTER_RAD_LAT = 0.00009;
+        const CLUSTER_RAD_LNG = 0.00016;
+        const used = new Uint8Array(dedupStammar.length);
+
+        for (let i = 0; i < dedupStammar.length; i++) {
+          if (used[i]) continue;
+          const s = dedupStammar[i];
+          if (!s.lat || !s.lng) continue;
+
+          const cluster = [i];
+          used[i] = 1;
+          let sumLat = s.lat, sumLng = s.lng;
+
+          for (let j = i + 1; j < dedupStammar.length; j++) {
+            if (used[j]) continue;
+            const t = dedupStammar[j];
+            if (!t.lat || !t.lng) continue;
+            if (Math.abs(t.lat - s.lat) < CLUSTER_RAD_LAT && Math.abs(t.lng - s.lng) < CLUSTER_RAD_LNG) {
+              cluster.push(j);
+              used[j] = 1;
+              sumLat += t.lat;
+              sumLng += t.lng;
+            }
+          }
+
+          // Centroid
+          const n = cluster.length;
+          const cLat = sumLat / n;
+          const cLng = sumLng / n;
+
+          // Summera volym och trädslag, räkna GROT-stammar, samla sortiment-volymer
+          let volym = 0;
+          const tradslagCount: Record<string, number> = {};
+          const sortimentVolym: Record<string, number> = {};
+          let datum = '';
+          let grotCount = 0;
+
+          for (const idx of cluster) {
+            const st = dedupStammar[idx];
+            const stVol = st.total_volym || 0;
+            volym += stVol;
+            const ts = st.tradslag || 'OKÄNT';
+            tradslagCount[ts] = (tradslagCount[ts] || 0) + 1;
+            if (st.sortiment) {
+              sortimentVolym[st.sortiment] = (sortimentVolym[st.sortiment] || 0) + stVol;
+            }
+            if (!datum && st.datum) {
+              datum = st.datum;
+            }
+            if (st.bio_energy_adaption) {
+              grotCount++;
+            }
+          }
+
+          byggHog(cLat, cLng, n, volym, tradslagCount, sortimentVolym, grotCount, datum);
         }
       }
 
@@ -4914,7 +4940,7 @@ export default function PlannerPage() {
         const iconId = `pie-${i}`;
         try {
           const sv = JSON.parse(filteredHogar[i].properties.sortimentVolymJson || '{}');
-          const iconData = generatePieIcon(sv, 48);
+          const iconData = generatePieIcon(sv, 48, filteredHogar[i].properties.color);
           if (map.hasImage(iconId)) map.removeImage(iconId);
           map.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
         } catch { /* */ }
@@ -7959,7 +7985,7 @@ export default function PlannerPage() {
           for (let i = 0; i < feats.length; i++) {
             const iconId = `pie-${i}`;
             const sv = JSON.parse(feats[i].properties.sortimentVolymJson || '{}');
-            const iconData = genPie(sv, 48);
+            const iconData = genPie(sv, 48, feats[i].properties.color);
             if (m.hasImage(iconId)) m.removeImage(iconId);
             m.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
           }
@@ -22777,10 +22803,18 @@ export default function PlannerPage() {
         };
         // Summera sortiment från valda högar
         const sortimentMap: Record<string, { volym: number; color: string }> = {};
+        let volymUtanSortiment = 0;   // högar med okänt sortiment (t.ex. gamla stockar utan stem_key)
         for (const idx of selectedHogarIdx) {
           if (idx < 0 || idx >= features.length) continue;
-          const sv: Record<string, number> = JSON.parse(features[idx].properties?.sortimentVolymJson || '{}');
-          for (const [sort, vol] of Object.entries(sv)) {
+          const props = features[idx].properties;
+          const sv: Record<string, number> = JSON.parse(props?.sortimentVolymJson || '{}');
+          const entries = Object.entries(sv);
+          if (entries.length === 0) {
+            // Ingen sortimentfördelning → visa volymen ändå, aldrig en tom/0-hög.
+            volymUtanSortiment += parseFloat(String(props?.volym)) || 0;
+            continue;
+          }
+          for (const [sort, vol] of entries) {
             const v = typeof vol === 'number' ? vol : parseFloat(String(vol)) || 0;
             if (sortimentMap[sort]) sortimentMap[sort].volym += v;
             else sortimentMap[sort] = { volym: v, color: getSortColor(sort) };
@@ -22789,7 +22823,8 @@ export default function PlannerPage() {
         const grouped = Object.entries(sortimentMap)
           .map(([sortiment, d]) => ({ sortiment, volym: Math.round(d.volym * 10) / 10, color: d.color }))
           .sort((a, b) => b.volym - a.volym);
-        const totalVol = grouped.reduce((s, h) => s + h.volym, 0);
+        volymUtanSortiment = Math.round(volymUtanSortiment * 10) / 10;
+        const totalVol = grouped.reduce((s, h) => s + h.volym, 0) + volymUtanSortiment;
 
         // Initiera checked om tom
         if (grouped.length > 0 && Object.keys(multiSelectChecked).length === 0) {
@@ -22867,11 +22902,12 @@ export default function PlannerPage() {
             {/* Sortiment list */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
               {grouped.length === 0 ? (
-                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '13px' }}>
-                  Inga sortiment i valda högar.
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>
+                  Sortiment saknas{volymUtanSortiment > 0 ? ` · ${volymUtanSortiment.toFixed(1)} m³` : ''}
                 </div>
               ) : (
-                grouped.map((h, i) => (
+                <>
+                {grouped.map((h, i) => (
                   <div
                     key={i}
                     onClick={() => setMultiSelectChecked(prev => ({ ...prev, [i]: !prev[i] }))}
@@ -22910,7 +22946,23 @@ export default function PlannerPage() {
                       {h.volym.toFixed(1)} m³
                     </div>
                   </div>
-                ))
+                ))}
+                {volymUtanSortiment > 0 && (
+                  <div style={{
+                    padding: '14px 12px', display: 'flex', alignItems: 'center', gap: '12px',
+                    borderBottom: '1px solid rgba(255,255,255,0.08)', opacity: 0.6,
+                  }}>
+                    <div style={{ width: '22px', flexShrink: 0 }} />
+                    <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#6b7c3a', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0, fontSize: '13px', color: 'rgba(255,255,255,0.6)', fontStyle: 'italic' }}>
+                      Sortiment saknas
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#8e8e93', flexShrink: 0 }}>
+                      {volymUtanSortiment.toFixed(1)} m³
+                    </div>
+                  </div>
+                )}
+                </>
               )}
             </div>
 
@@ -23025,7 +23077,7 @@ export default function PlannerPage() {
                             for (let i = 0; i < newFeatures.length; i++) {
                               const iconId = `pie-${i}`;
                               const sv = JSON.parse(newFeatures[i].properties.sortimentVolymJson || '{}');
-                              const iconData = genPie(sv, 48);
+                              const iconData = genPie(sv, 48, newFeatures[i].properties.color);
                               if (m.hasImage(iconId)) m.removeImage(iconId);
                               m.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
                             }

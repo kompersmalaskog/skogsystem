@@ -4482,10 +4482,25 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 
         # Stammar (batcha, ej kritiskt att stoppa vid fel)
         if data.get('stammar'):
-            # Filtrera bort hpr_*-fält som inte finns i detalj_stam
-            hpr_keys = {'hpr_stam_nummer', 'hpr_tradslag_namn', 'hpr_antal_stockar',
-                        'hpr_total_volym', 'hpr_bio_energy_adaption', 'hpr_sortiment'}
-            clean_stammar = [{k: v for k, v in s.items() if k not in hpr_keys} for s in data['stammar']]
+            # Kartans produktionshögar läser detalj_stam (okapad) i st.f. hpr_stammar
+            # (som kapas per fil). Mappa därför de tre HPR-aggregaten till detalj_stam-
+            # kolumner: hpr_total_volym→total_volym, hpr_sortiment→sortiment,
+            # hpr_bio_energy_adaption→bio_energy_adaption. Se migration
+            # 20260930_detalj_stam_karthogar.sql. Övriga hpr_*-fält finns inte i
+            # detalj_stam och tas bort. MOM-batchar saknar dessa nycklar helt, så
+            # deras payload rör aldrig kolumnerna (befintlig HPR-volym skrivs ej över).
+            drop_keys = {'hpr_stam_nummer', 'hpr_tradslag_namn', 'hpr_antal_stockar'}
+            rename_keys = {'hpr_total_volym': 'total_volym',
+                           'hpr_bio_energy_adaption': 'bio_energy_adaption',
+                           'hpr_sortiment': 'sortiment'}
+            clean_stammar = []
+            for s in data['stammar']:
+                row = {}
+                for k, v in s.items():
+                    if k in drop_keys:
+                        continue
+                    row[rename_keys.get(k, k)] = v
+                clean_stammar.append(row)
             batch_size = 500
             for i in range(0, len(clean_stammar), batch_size):
                 batch = clean_stammar[i:i+batch_size]
