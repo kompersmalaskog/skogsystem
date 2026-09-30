@@ -2948,7 +2948,7 @@ export default function PlannerPage() {
   const [sistaUttag, setSistaUttag] = useState<{ count: number; volym: number; registrerad_at: string } | null>(null);
   const hogarFeaturesRef = useRef<any[]>([]);
   const grotFeaturesRef = useRef<any[]>([]);
-  const generatePieIconRef = useRef<((sortimentData: Record<string, number>, size: number) => ImageData) | null>(null);
+  const generatePieIconRef = useRef<((sortimentData: Record<string, number>, size: number, fallbackColor?: string) => ImageData) | null>(null);
   const [valdHog, setValdHog] = useState<{
     volym: number; stammar: number; datum: string; tradslag: string;
     sortimentVolym: Record<string, number>; coords: [number, number];
@@ -4665,7 +4665,7 @@ export default function PlannerPage() {
       return '#6b7c3a';
     };
 
-    const generatePieIcon = (sortimentData: Record<string, number>, size: number): ImageData => {
+    const generatePieIcon = (sortimentData: Record<string, number>, size: number, fallbackColor = '#6b7c3a'): ImageData => {
       const canvas = document.createElement('canvas');
       canvas.width = size;
       canvas.height = size;
@@ -4681,9 +4681,11 @@ export default function PlannerPage() {
       // Pie slices
       const total = Object.values(sortimentData).reduce((a, b) => a + b, 0);
       if (total === 0) {
+        // Ingen sortimentfördelning (stammar utan sortiment, t.ex. gamla stockar
+        // utan stem_key) → rita hela cirkeln i trädslagsfärgen, aldrig en naken oliv.
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-        ctx.fillStyle = '#6b7c3a';
+        ctx.fillStyle = fallbackColor;
         ctx.fill();
       } else {
         let startAngle = -Math.PI / 2;
@@ -4938,7 +4940,7 @@ export default function PlannerPage() {
         const iconId = `pie-${i}`;
         try {
           const sv = JSON.parse(filteredHogar[i].properties.sortimentVolymJson || '{}');
-          const iconData = generatePieIcon(sv, 48);
+          const iconData = generatePieIcon(sv, 48, filteredHogar[i].properties.color);
           if (map.hasImage(iconId)) map.removeImage(iconId);
           map.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
         } catch { /* */ }
@@ -7983,7 +7985,7 @@ export default function PlannerPage() {
           for (let i = 0; i < feats.length; i++) {
             const iconId = `pie-${i}`;
             const sv = JSON.parse(feats[i].properties.sortimentVolymJson || '{}');
-            const iconData = genPie(sv, 48);
+            const iconData = genPie(sv, 48, feats[i].properties.color);
             if (m.hasImage(iconId)) m.removeImage(iconId);
             m.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
           }
@@ -22801,10 +22803,18 @@ export default function PlannerPage() {
         };
         // Summera sortiment från valda högar
         const sortimentMap: Record<string, { volym: number; color: string }> = {};
+        let volymUtanSortiment = 0;   // högar med okänt sortiment (t.ex. gamla stockar utan stem_key)
         for (const idx of selectedHogarIdx) {
           if (idx < 0 || idx >= features.length) continue;
-          const sv: Record<string, number> = JSON.parse(features[idx].properties?.sortimentVolymJson || '{}');
-          for (const [sort, vol] of Object.entries(sv)) {
+          const props = features[idx].properties;
+          const sv: Record<string, number> = JSON.parse(props?.sortimentVolymJson || '{}');
+          const entries = Object.entries(sv);
+          if (entries.length === 0) {
+            // Ingen sortimentfördelning → visa volymen ändå, aldrig en tom/0-hög.
+            volymUtanSortiment += parseFloat(String(props?.volym)) || 0;
+            continue;
+          }
+          for (const [sort, vol] of entries) {
             const v = typeof vol === 'number' ? vol : parseFloat(String(vol)) || 0;
             if (sortimentMap[sort]) sortimentMap[sort].volym += v;
             else sortimentMap[sort] = { volym: v, color: getSortColor(sort) };
@@ -22813,7 +22823,8 @@ export default function PlannerPage() {
         const grouped = Object.entries(sortimentMap)
           .map(([sortiment, d]) => ({ sortiment, volym: Math.round(d.volym * 10) / 10, color: d.color }))
           .sort((a, b) => b.volym - a.volym);
-        const totalVol = grouped.reduce((s, h) => s + h.volym, 0);
+        volymUtanSortiment = Math.round(volymUtanSortiment * 10) / 10;
+        const totalVol = grouped.reduce((s, h) => s + h.volym, 0) + volymUtanSortiment;
 
         // Initiera checked om tom
         if (grouped.length > 0 && Object.keys(multiSelectChecked).length === 0) {
@@ -22891,11 +22902,12 @@ export default function PlannerPage() {
             {/* Sortiment list */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
               {grouped.length === 0 ? (
-                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '13px' }}>
-                  Inga sortiment i valda högar.
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>
+                  Sortiment saknas{volymUtanSortiment > 0 ? ` · ${volymUtanSortiment.toFixed(1)} m³` : ''}
                 </div>
               ) : (
-                grouped.map((h, i) => (
+                <>
+                {grouped.map((h, i) => (
                   <div
                     key={i}
                     onClick={() => setMultiSelectChecked(prev => ({ ...prev, [i]: !prev[i] }))}
@@ -22934,7 +22946,23 @@ export default function PlannerPage() {
                       {h.volym.toFixed(1)} m³
                     </div>
                   </div>
-                ))
+                ))}
+                {volymUtanSortiment > 0 && (
+                  <div style={{
+                    padding: '14px 12px', display: 'flex', alignItems: 'center', gap: '12px',
+                    borderBottom: '1px solid rgba(255,255,255,0.08)', opacity: 0.6,
+                  }}>
+                    <div style={{ width: '22px', flexShrink: 0 }} />
+                    <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#6b7c3a', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0, fontSize: '13px', color: 'rgba(255,255,255,0.6)', fontStyle: 'italic' }}>
+                      Sortiment saknas
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#8e8e93', flexShrink: 0 }}>
+                      {volymUtanSortiment.toFixed(1)} m³
+                    </div>
+                  </div>
+                )}
+                </>
               )}
             </div>
 
@@ -23049,7 +23077,7 @@ export default function PlannerPage() {
                             for (let i = 0; i < newFeatures.length; i++) {
                               const iconId = `pie-${i}`;
                               const sv = JSON.parse(newFeatures[i].properties.sortimentVolymJson || '{}');
-                              const iconData = genPie(sv, 48);
+                              const iconData = genPie(sv, 48, newFeatures[i].properties.color);
                               if (m.hasImage(iconId)) m.removeImage(iconId);
                               m.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
                             }
