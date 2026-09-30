@@ -279,22 +279,21 @@ export default function OversiktV2Page() {
     };
   }, [mapReady, layoutLabels]);
 
-  // Rutt-linjer: hela kön nu→1→2→… per maskin (fler segment).
+  // Rutt-linjer ritas ENBART för vald maskin (hela kön nu→1→2→…). Översiktsläget har
+  // inga linjer alls — fem korsande rutter var brus.
   useEffect(() => {
     const map = mapRef.current; if (!map || !mapStyleLoaded) return;
     const src = map.getSource('routes'); if (!src) return;
-    const S = selMaskin;
     const features: any[] = [];
-    forslag.forEach((f, mid) => {
-      if (!f.koordinat || !f.ko.length) return;
-      const sel = mid === S;
+    const f = selMaskin ? forslag.get(selMaskin) : null;
+    if (f?.koordinat && f.ko.length) {
       const pts: ([number, number] | null)[] = [[f.koordinat.lng, f.koordinat.lat], ...f.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? [p.objekt.lng, p.objekt.lat] as [number, number] : null))];
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i]; if (!a || !b) continue;
         const dimmed = i > 1; // ben 1 (nu→1) fast, ben 2+ dämpat
-        features.push({ type: 'Feature', properties: { clr: sel ? LIT_LINE : GRAY_LINE, op: S ? (sel ? (dimmed ? 0.5 : 1) : 0.1) : (dimmed ? 0.4 : 0.7), w: sel ? (dimmed ? 2 : 3) : 2 }, geometry: { type: 'LineString', coordinates: [a, b] } });
+        features.push({ type: 'Feature', properties: { clr: LIT_LINE, op: dimmed ? 0.5 : 1, w: dimmed ? 2 : 3 }, geometry: { type: 'LineString', coordinates: [a, b] } });
       }
-    });
+    }
     try { src.setData({ type: 'FeatureCollection', features }); } catch { /* race */ }
   }, [forslag, mapStyleLoaded, selMaskin]);
 
@@ -437,14 +436,12 @@ export default function OversiktV2Page() {
     await refetchKo();
   }, [maskinKo, refetchKo]);
   const taBortKo = useCallback(async (koId: string) => { await supabase.from('maskin_ko').delete().eq('id', koId); await refetchKo(); }, [refetchKo]);
-  const bytOrdning = useCallback(async (maskinId: string, koId: string, riktning: -1 | 1) => {
-    const rad = maskinKo.filter((k) => k.maskin_id === maskinId).sort((a, b) => a.ordning - b.ordning);
-    const i = rad.findIndex((k) => k.id === koId); const j = i + riktning;
-    if (i < 0 || j < 0 || j >= rad.length) return;
-    await Promise.all([
-      supabase.from('maskin_ko').update({ ordning: rad[j].ordning }).eq('id', rad[i].id),
-      supabase.from('maskin_ko').update({ ordning: rad[i].ordning }).eq('id', rad[j].id),
-    ]);
+  // Varje släpp sparar: skriv om ordning (0..n). De synliga i ny ordning först, dolda
+  // (avslutade/nu) läggs efter så gamla vyns kö inte tappar rader. Ingen Spara-knapp.
+  const skrivOrdning = useCallback(async (maskinId: string, orderedVisibleKoIds: string[]) => {
+    const rest = maskinKo.filter((k) => k.maskin_id === maskinId && !orderedVisibleKoIds.includes(k.id)).sort((a, b) => a.ordning - b.ordning).map((k) => k.id);
+    const full = [...orderedVisibleKoIds, ...rest];
+    await Promise.all(full.map((id, i) => supabase.from('maskin_ko').update({ ordning: i }).eq('id', id)));
     await refetchKo();
   }, [maskinKo, refetchKo]);
 
@@ -495,9 +492,8 @@ export default function OversiktV2Page() {
           telefon={arForareVy ? null : (telByMaskin[selMaskin!] ?? null)}
           forare={arForareVy}
           onClose={() => setSelMaskin(null)}
-          onBytOrdning={(koId, r) => bytOrdning(selMaskin!, koId, r)}
+          onReorder={(ids) => skrivOrdning(selMaskin!, ids)}
           koRader={maskinKo.filter((k) => k.maskin_id === selMaskin).sort((a, b) => a.ordning - b.ordning)}
-          onTaBort={taBortKo}
         />
       )}
 
@@ -539,10 +535,55 @@ function Grabber({ onClose }: { onClose: () => void }) {
   return <button onClick={onClose} aria-label="Stäng" style={{ display: 'flex', justifyContent: 'center', border: 'none', background: 'none', padding: `${AVSTAND.xs}px 0`, cursor: 'pointer' }}><div style={{ width: 36, height: 5, borderRadius: 3, background: '#48484a' }} /></button>;
 }
 
-function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, onBytOrdning, koRader, onTaBort }: {
+const HROW = 60; // px per rad i drag-listan
+function ReorderLista({ rows, onDrop }: { rows: { koId: string; namn: string; hoger: string }[]; onDrop: (order: string[]) => void }) {
+  const nyckel = rows.map((r) => r.koId).join(',');
+  const [order, setOrder] = useState<string[]>(() => rows.map((r) => r.koId));
+  useEffect(() => { setOrder(rows.map((r) => r.koId)); }, [nyckel]); // eslint-disable-line react-hooks/exhaustive-deps
+  const orderRef = useRef(order); orderRef.current = order;
+  const [dragId, setDragId] = useState<string | null>(null);
+  const dragRef = useRef<string | null>(null);
+  const [relY, setRelY] = useState(0);
+  const contRef = useRef<HTMLDivElement>(null);
+  const byId = new Map(rows.map((r) => [r.koId, r]));
+
+  const move = (clientY: number) => {
+    const id = dragRef.current; const cont = contRef.current; if (!id || !cont) return;
+    const y = clientY - cont.getBoundingClientRect().top; setRelY(y);
+    const cur = orderRef.current; const target = Math.max(0, Math.min(cur.length - 1, Math.floor(y / HROW)));
+    const d = cur.indexOf(id);
+    if (d >= 0 && d !== target) { const n = cur.filter((x) => x !== id); n.splice(target, 0, id); setOrder(n); }
+  };
+  const start = (e: React.PointerEvent, koId: string) => { e.preventDefault(); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); dragRef.current = koId; setDragId(koId); const cont = contRef.current; if (cont) setRelY(e.clientY - cont.getBoundingClientRect().top); };
+  const end = () => { const id = dragRef.current; if (!id) return; dragRef.current = null; setDragId(null); onDrop(orderRef.current); };
+
+  return (
+    <div ref={contRef} style={{ position: 'relative', height: order.length * HROW, touchAction: 'none' }}>
+      {order.map((koId, i) => {
+        const r = byId.get(koId); if (!r) return null;
+        const dragged = koId === dragId;
+        const top = dragged ? Math.max(0, Math.min((order.length - 1) * HROW, relY - (HROW - 8) / 2)) : i * HROW;
+        return (
+          <div key={koId} style={{ position: 'absolute', left: 0, right: 0, top, height: HROW - 8, display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `0 ${AVSTAND.s}px`, boxSizing: 'border-box', background: FARG.upphojt, borderRadius: RADIE.rad, boxShadow: dragged ? '0 8px 22px rgba(0,0,0,0.55)' : 'none', transform: dragged ? 'scale(1.03)' : 'none', zIndex: dragged ? 2 : 1, transition: dragged ? 'none' : 'top 180ms cubic-bezier(0.2,0,0,1)', ...TYP.text, ...TNUM }}>
+            <div style={{ width: 20, color: FARG.text2, fontWeight: 600 }}>{i + 1}</div>
+            <div style={{ flexGrow: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.namn}</div>
+            <div style={{ ...TYP.meta, color: FARG.text2, whiteSpace: 'nowrap' }}>{r.hoger}</div>
+            <div onPointerDown={(e) => start(e, koId)} onPointerMove={(e) => move(e.clientY)} onPointerUp={end} onPointerCancel={end}
+              role="button" aria-label="Dra för att ändra ordning"
+              style={{ width: 44, height: 44, minWidth: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none', color: FARG.text2, marginRight: -AVSTAND.s }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 8h16M4 16h16" /></svg>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, onReorder, koRader }: {
   f: MaskinForslag; namn: string; legs: (number | null)[]; skord: Record<string, SkordAggV2>; warnings: Record<string, ObjWarn>;
   telefon: string | null; forare: boolean; onClose: () => void;
-  onBytOrdning: (koId: string, r: -1 | 1) => void; koRader: MaskinKoItem[]; onTaBort: (koId: string) => void;
+  onReorder: (orderedKoIds: string[]) => void; koRader: MaskinKoItem[];
 }) {
   const [ordnaLage, setOrdnaLage] = useState(false);
   const nuAgg = aggFor(f.nuObjekt, skord);
@@ -552,6 +593,8 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
   const nasta = f.ko[0]?.objekt ?? null;
   const arSkordare = f.typ === 'skordare';
   const koIdForObjekt = (objId: string) => koRader.find((k) => k.objekt_id === objId)?.id ?? null;
+  const hogerFor = (p: KoPost, i: number) => { const agg = aggFor(p.objekt, skord); const vol = volFor(f, p.objekt, agg); const km = legs[i]; return [vol != null ? `${fmt(vol)} m³` : null, km != null ? `${Math.round(km)} km` : '–'].filter(Boolean).join(' · '); };
+  const dragRader = arSkordare ? f.ko.map((p, i) => ({ koId: koIdForObjekt(p.objekt.id) || '', namn: p.objekt.namn, hoger: hogerFor(p, i) })).filter((r) => r.koId) : [];
 
   return (
     <div className="sheet-upp" style={SheetBas}>
@@ -561,49 +604,43 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
         <div style={{ ...TYP.meta, color: FARG.text2 }}>{forare ? 'din maskin · ' : ''}{rollLabel}{f.manuellKo ? ' · manuell kö' : ''}</div>
       </div>
 
-      {/* Nu + numrerad kö */}
+      {/* Nu */}
       <div style={{ display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr) auto', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text, ...TNUM }}>
         <div style={{ color: FARG.text2 }}>Nu</div>
         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.nuObjekt ? f.nuObjekt.namn : <span style={{ color: FARG.text2 }}>okänd plats</span>}</div>
         <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{nuVarde}</div>
         {rowMeta(nuAgg) && (<><div /><div style={{ ...TYP.meta, color: FARG.text2, gridColumn: '2 / 4' }}>{rowMeta(nuAgg)}</div></>)}
-
-        {f.ko.length === 0 && (<><div style={{ color: FARG.text2, marginTop: AVSTAND.s }}>Nästa</div><div style={{ color: FARG.text2, marginTop: AVSTAND.s, gridColumn: '2 / 4' }}>inget planerat</div></>)}
-
-        {f.ko.map((p, i) => {
-          const o = p.objekt; const agg = aggFor(o, skord); const vol = volFor(f, o, agg); const km = legs[i];
-          const hoger = [vol != null ? `${fmt(vol)} m³` : null, km != null ? `${Math.round(km)} km` : '–'].filter(Boolean).join(' · ');
-          const v = varnText(warnings[o.id]); const meta = rowMeta(agg);
-          const koId = koIdForObjekt(o.id);
-          return (
-            <React.Fragment key={o.id}>
-              <div style={{ color: FARG.text2, marginTop: AVSTAND.s, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>{i + 1}</span>
-                {ordnaLage && arSkordare && koId && (
-                  <span style={{ display: 'inline-flex', flexDirection: 'column' }}>
-                    <button onClick={() => onBytOrdning(koId, -1)} aria-label="Upp" style={{ border: 'none', background: 'none', color: FARG.bla, cursor: 'pointer', lineHeight: 1, padding: 0 }}>▲</button>
-                    <button onClick={() => onBytOrdning(koId, 1)} aria-label="Ner" style={{ border: 'none', background: 'none', color: FARG.bla, cursor: 'pointer', lineHeight: 1, padding: 0 }}>▼</button>
-                  </span>
-                )}
-              </div>
-              <div style={{ fontWeight: p.troligt ? 400 : 600, color: p.troligt ? FARG.text2 : FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: AVSTAND.s }}>{o.namn}</div>
-              <div style={{ color: FARG.text2, whiteSpace: 'nowrap', marginTop: AVSTAND.s }}>{hoger}</div>
-              {(meta || v || p.troligt) && (<><div /><div style={{ ...TYP.meta, color: FARG.text2, gridColumn: '2 / 4' }}>
-                {p.troligt ? 'troligt — kan ändras' : <>{meta}{meta && v ? ' · ' : ''}{v && <span style={{ color: v.color }}>{v.text}</span>}</>}
-              </div></>)}
-            </React.Fragment>
-          );
-        })}
       </div>
+
+      {/* Kö */}
+      {f.ko.length === 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '52px minmax(0,1fr)', columnGap: AVSTAND.m, ...TYP.text }}><div style={{ color: FARG.text2 }}>Nästa</div><div style={{ color: FARG.text2 }}>inget planerat</div></div>
+      ) : (ordnaLage && arSkordare) ? (
+        <ReorderLista rows={dragRader} onDrop={onReorder} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) auto', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text, ...TNUM }}>
+          {f.ko.map((p, i) => {
+            const v = varnText(warnings[p.objekt.id]); const meta = rowMeta(aggFor(p.objekt, skord));
+            return (
+              <React.Fragment key={p.objekt.id}>
+                <div style={{ color: FARG.text2 }}>{i + 1}</div>
+                <div style={{ fontWeight: p.troligt ? 400 : 600, color: p.troligt ? FARG.text2 : FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.objekt.namn}</div>
+                <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{hogerFor(p, i)}</div>
+                {(meta || v || p.troligt) && (<><div /><div style={{ ...TYP.meta, color: FARG.text2, gridColumn: '2 / 4' }}>
+                  {p.troligt ? 'troligt — kan ändras' : <>{meta}{meta && v ? ' · ' : ''}{v && <span style={{ color: v.color }}>{v.text}</span>}</>}
+                </div></>)}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
 
       {/* Knappar */}
       {forare ? (
         mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={{ ...KNAPP, marginTop: AVSTAND.xs }}><SvgVag />Vägbeskrivning{nasta ? ` till ${nasta.namn}` : ''}</a>
       ) : (<>
-        {arSkordare && (
-          <div style={{ display: 'flex', gap: AVSTAND.s }}>
-            <button onClick={() => setOrdnaLage((v) => !v)} style={{ ...KNAPP_LITEN, borderColor: ordnaLage ? FARG.bla : '#48484a', color: ordnaLage ? FARG.bla : FARG.text }}>{ordnaLage ? 'Klar' : 'Ändra ordning'}</button>
-          </div>
+        {arSkordare && f.ko.length > 1 && (
+          <button onClick={() => setOrdnaLage((v) => !v)} style={{ ...KNAPP_LITEN, borderColor: ordnaLage ? FARG.bla : '#48484a', color: ordnaLage ? FARG.bla : FARG.text }}>{ordnaLage ? 'Klar' : 'Ändra ordning'}</button>
         )}
         <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.xs }}>
           {telefon && <a href={`tel:${telefon}`} style={KNAPP}><SvgRing />Ring</a>}
