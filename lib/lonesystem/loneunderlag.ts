@@ -118,7 +118,7 @@ export async function beraknaLoneunderlag(
 
   // Ladda data
   const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes, utjRes] = await Promise.all([
-    supabase.from("medarbetare").select("id, namn").order("namn"),
+    supabase.from("medarbetare").select("id, namn, maskin_id").order("namn"),
     // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
     // för-dag-rader — de påverkar inte beräkningen, som bara ser de gamla fälten.)
     supabase.from("arbetsdag")
@@ -269,7 +269,7 @@ export async function beraknaLoneunderlag(
   const kmGrans = avtalRes.data?.km_grans_per_dag ?? 60;
 
   // Beräkna per medarbetare
-  const medarbetare = (medRes.data || []) as { id: string; namn: string }[];
+  const medarbetare = (medRes.data || []) as { id: string; namn: string; maskin_id?: string | null }[];
   const resultat: LoneunderlagRad[] = [];
   // Granskningsdata som INTE går till Fortnox men syns i granskningsvyn:
   // OB-timmar (löneart ej fastställd) + maskiner som saknar typ (tyst borttagen
@@ -289,7 +289,9 @@ export async function beraknaLoneunderlag(
     if (dagar.length === 0 && extra.length === 0 && ledigheter.length === 0) continue;
 
     const anstNr = anstMap[med.id] || "";
-    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set(), avtalRes.data?.ordinarie_vecka_h ?? null); // period = löneperiod
+    // Premiens fördelning en månad utan maskintid: typen på förarens rad-maskin.
+    const radMaskinTyp = med.maskin_id ? (maskinTypMap[med.maskin_id] ?? null) : null;
+    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set(), avtalRes.data?.ordinarie_vecka_h ?? null, radMaskinTyp); // period = löneperiod
 
     let status = "utkast";
     if (redanSkickad.has(med.id)) status = "skickat";
