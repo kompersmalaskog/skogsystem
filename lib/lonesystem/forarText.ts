@@ -12,7 +12,7 @@
  */
 
 import { FRANVARO_TYP_RUBRIK, arFranvaroTyp } from "@/lib/franvaro";
-import { ARBETSDAG_MIN_MINUTER, RAST_FRAGA_MIN } from "@/lib/arbetsdagRegler";
+import { ARBETSDAG_MIN_MINUTER, RAST_FRAGA_MIN, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { arTidigVardag } from "@/lib/ob";
 
 const MANAD = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
@@ -178,8 +178,19 @@ function deldagRubrik(typ: string): string {
  * vanlig dag — då visas objektet, tyst grått.
  */
 export function dagAvvikelser(
-  d: { datum: string; start_tid?: string | null; rast_min?: number | null; arbetad_min: number; extra_min?: number; bekraftad?: boolean },
-  ctx: { rodaDagar: Record<string, string>; deldag?: { typ: string; fran_tid: string | null; till_tid: string | null } | null; ledig?: string | null },
+  d: { datum: string; start_tid?: string | null; slut_tid?: string | null; rast_min?: number | null; arbetad_min: number; extra_min?: number; bekraftad?: boolean; maskin_id?: string | null; objekt?: string[]; perioddag?: boolean },
+  ctx: {
+    rodaDagar: Record<string, string>;
+    deldag?: { typ: string; fran_tid: string | null; till_tid: string | null } | null;
+    ledig?: string | null;
+    /** Tidsavvikelse mot maskinen (synk), minuter. */
+    synkMin?: number | null;
+    /** Vilobrott den dagen (tabellen vilobrott). */
+    vilobrott?: { typ: string; vila_h: number; krav_h: number }[];
+    /** KONTROLLVYN (chefen): larma också på maskindag utan maskin / utan objekt.
+     *  Av för förarens spec tills vi vet hur många av hans dagar det träffar. */
+    kontroll?: boolean;
+  },
 ): string[] {
   const ut: string[] = [];
   const totalMin = (d.arbetad_min || 0) + (d.extra_min || 0);
@@ -187,10 +198,24 @@ export function dagAvvikelser(
   if (ctx.rodaDagar[d.datum]) ut.push(ctx.rodaDagar[d.datum].toLowerCase());
   else if (dow === 0 || dow === 6) ut.push("helg");
   if (totalMin > 0 && totalMin < ARBETSDAG_MIN_MINUTER) ut.push(totalMin === 1 ? "1 minut" : `${totalMin} minuter`);
+  // Pass över ARBETSDAG_MAX_MINUTER eller negativt (rast längre än passet) —
+  // samma regel som granskningens `orimliga` (lib/arbetsdagRegler).
+  const orimligt = d.start_tid && d.slut_tid ? passOrimlighet(d.arbetad_min) : null;
+  if (orimligt === "lang") ut.push(`pass ${minText(d.arbetad_min)}`);
+  else if (orimligt === "negativ") ut.push("negativ tid");
   if (ctx.deldag) ut.push(deldagText(ctx.deldag));
   else if (ctx.ledig) ut.push(`${franvaroOrd(ctx.ledig)} och jobb`);
   if (arTidigVardag({ datum: d.datum, start_tid: d.start_tid ?? null, brandrisk_beordrad: null })) ut.push(`började ${hm(d.start_tid)}`);
   if ((d.rast_min || 0) > RAST_FRAGA_MIN) ut.push(`rast ${minText(d.rast_min || 0)}`);
+  if (ctx.synkMin) ut.push(`${minText(Math.abs(ctx.synkMin))} mot maskinen`);
+  for (const v of ctx.vilobrott || []) ut.push(`${v.typ === "dygnsvila" ? "dygnsvila" : "veckovila"} ${fmtH(v.vila_h)} av ${fmtH(v.krav_h)} tim`);
+  if (ctx.kontroll) {
+    const maskindag = !!(d.start_tid || d.slut_tid) && !d.perioddag;
+    if (maskindag && !d.maskin_id) ut.push("utan maskin");
+    if (totalMin > 0 && (d.objekt || []).length === 0) ut.push("utan objekt");
+  }
   if (d.bekraftad === false) ut.push("ej bekräftad");
   return ut;
 }
+
+const fmtH = (h: number) => (Math.round(h * 10) / 10).toLocaleString("sv-SE");

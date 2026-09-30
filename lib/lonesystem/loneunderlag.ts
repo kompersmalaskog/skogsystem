@@ -36,6 +36,9 @@ export type LoneunderlagDag = {
   /** PERIODDAG: raden saknar klockslag, tiden bor i perioderna. Visning, inte
    *  beräkning — beräknaExport ser samma arbetsdag/extra_tid som förr. */
   perioddag: boolean;
+  /** Dagens maskin (arbetsdag.maskin_id) — null på perioddag, eller en maskindag
+   *  som saknar maskin (kontrollvyn Dagar larmar på det). */
+  maskin_id: string | null;
   km_totalt: number;
   ersattningsmil: number;   // påbörjade mil över fri pendling — det som ersätts
   traktamente: boolean;
@@ -77,6 +80,9 @@ export type LoneunderlagBerikad = LoneunderlagRad & {
   // dagar × 8) är inte avtalets modell i en sådan period; genomsnittet räknas
   // i årsövertiden. Inga timmar, ingen saldoräkning.
   utjamning: { startdatum: string; slutdatum: string; anteckning: string }[];
+  // Vilobrott i arbetsmånaden ur tabellen vilobrott (det förarens app upptäckt
+  // och sparat, lib/vilobrott-storage) — kontrollvyn Dagar visar dem per dag.
+  vilobrott: { datum: string; typ: string; vila_h: number; krav_h: number; besvarat: boolean }[];
 };
 
 export type SynkRad = {
@@ -117,7 +123,7 @@ export async function beraknaLoneunderlag(
   const arbSlut = sistaDagenIManaden(aÅ, aM); // LOKALT — toISOString tappade sista dagen i UTC+2
 
   // Ladda data
-  const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes, utjRes] = await Promise.all([
+  const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes, utjRes, viloRes] = await Promise.all([
     supabase.from("medarbetare").select("id, namn, maskin_id").order("namn"),
     // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
     // för-dag-rader — de påverkar inte beräkningen, som bara ser de gamla fälten.)
@@ -151,7 +157,14 @@ export async function beraknaLoneunderlag(
     supabase.from("utjamningsperiod")
       .select("startdatum, slutdatum, medarbetare_id, anteckning")
       .lte("startdatum", arbSlut).gte("slutdatum", arbStart),
+    // Vilobrott som förarens app upptäckt i arbetsmånaden — kontrollvyn Dagar.
+    // Granskningsstöd, aldrig underlag; ett läsfel ger tom lista.
+    supabase.from("vilobrott")
+      .select("medarbetare_id, datum, typ, vila_h, krav_h, besvarat_av_forare")
+      .gte("datum", arbStart).lte("datum", arbSlut),
   ]);
+  const vilobrottAlla: { medarbetare_id: string; datum: string; typ: string; vila_h: number; krav_h: number; besvarat_av_forare: boolean | null }[] =
+    viloRes?.error ? [] : (viloRes?.data || []);
 
   if (medRes.error) throw medRes.error;
   if (arbRes.error) throw arbRes.error;
@@ -371,7 +384,7 @@ export async function beraknaLoneunderlag(
       id: d.id, datum: d.datum, start_tid: d.start_tid, slut_tid: d.slut_tid, rast_min: d.rast_min,
       arbetad_min: perioddag ? exMin : Number(d.arbetad_min || 0),
       extra_min: perioddag ? 0 : exMin,
-      objekt, km_totalt: km, ersattningsmil: ersattningsMilDag(km, kmGrans),
+      objekt, maskin_id: d.maskin_id ?? null, km_totalt: km, ersattningsmil: ersattningsMilDag(km, kmGrans),
       traktamente: !!d.traktamente, dagtyp: d.dagtyp ?? null, bekraftad: !!d.bekraftad,
       brandrisk_beordrad: d.brandrisk_beordrad ?? null, ob_min: obMinuter(d),
       perioddag,
@@ -433,6 +446,10 @@ export async function beraknaLoneunderlag(
     utjamning: utjamningAlla
       .filter(u => !u.medarbetare_id || u.medarbetare_id === r.medarbetare_id)
       .map(u => ({ startdatum: u.startdatum, slutdatum: u.slutdatum, anteckning: u.anteckning })),
+    vilobrott: vilobrottAlla
+      .filter(v => v.medarbetare_id === r.medarbetare_id)
+      .map(v => ({ datum: v.datum, typ: v.typ, vila_h: Number(v.vila_h), krav_h: Number(v.krav_h), besvarat: !!v.besvarat_av_forare }))
+      .sort((a, b) => a.datum.localeCompare(b.datum)),
   }));
 
   return {
