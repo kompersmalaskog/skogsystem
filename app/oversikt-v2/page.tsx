@@ -122,6 +122,18 @@ export default function OversiktV2Page() {
   const [selMaskin, setSelMaskin] = useState<string | null>(null);
   const [selObjekt, setSelObjekt] = useState<string | null>(null); // förman tryckte på en prick
   const [zoomNiva, setZoomNiva] = useState(9);
+  const [koPreview, setKoPreview] = useState<OversiktObjekt[] | null>(null); // live drag-ordning för vald maskin
+
+  // Klient-cache av vägavstånd (nyckel = avrundade koordinatpar). Under drag läses BARA härifrån
+  // (inga routing-anrop mitt i ett drag); vagKmCached fyller den, legKmCache slår upp synkront.
+  const kmCacheRef = useRef<Map<string, number | null>>(new Map());
+  const cacheKey = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => `${a.lat.toFixed(3)},${a.lng.toFixed(3)};${b.lat.toFixed(3)},${b.lng.toFixed(3)}`;
+  const vagKmCached = useCallback(async (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
+    const k = cacheKey(from, to); const c = kmCacheRef.current;
+    if (c.has(k)) return c.get(k) ?? null;
+    const km = await vagKm(from, to); c.set(k, km); return km;
+  }, []);
+  const legKmCache = useCallback((from: { lat: number; lng: number } | null, to: { lat: number; lng: number } | null): number | null => (from && to ? kmCacheRef.current.get(cacheKey(from, to)) ?? null : null), []);
 
   const refetchKo = useCallback(async () => {
     const { data } = await supabase.from('maskin_ko').select('*').order('ordning');
@@ -185,7 +197,7 @@ export default function OversiktV2Page() {
         const punkter = [f.koordinat, ...f.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? { lat: p.objekt.lat, lng: p.objekt.lng } : null))];
         jobs.push((async () => {
           const legs: (number | null)[] = [];
-          for (let i = 1; i < punkter.length; i++) { const a = punkter[i - 1], b = punkter[i]; legs.push(a && b ? await vagKm(a, b) : null); }
+          for (let i = 1; i < punkter.length; i++) { const a = punkter[i - 1], b = punkter[i]; legs.push(a && b ? await vagKmCached(a, b) : null); }
           return [mid, legs];
         })());
       });
@@ -218,6 +230,13 @@ export default function OversiktV2Page() {
   const selRef = useRef(selMaskin); selRef.current = selMaskin;
   const kmLegRef = useRef(kmByLeg); kmLegRef.current = kmByLeg;
   const zoomRef = useRef(zoomNiva); zoomRef.current = zoomNiva;
+  const koPreviewRef = useRef(koPreview); koPreviewRef.current = koPreview;
+  // Vald maskins kö-objekt — live-preview under drag, annars ur forslag.
+  const valdKoObjekt = useCallback((mid: string | null): OversiktObjekt[] => {
+    if (!mid) return [];
+    if (koPreviewRef.current) return koPreviewRef.current;
+    return (forslagRef.current.get(mid)?.ko ?? []).map((p) => p.objekt);
+  }, []);
 
   useEffect(() => {
     if (!document.getElementById('maplibre-css-oversiktv2')) {
@@ -286,8 +305,9 @@ export default function OversiktV2Page() {
     const src = map.getSource('routes'); if (!src) return;
     const features: any[] = [];
     const f = selMaskin ? forslag.get(selMaskin) : null;
-    if (f?.koordinat && f.ko.length) {
-      const pts: ([number, number] | null)[] = [[f.koordinat.lng, f.koordinat.lat], ...f.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? [p.objekt.lng, p.objekt.lat] as [number, number] : null))];
+    if (f?.koordinat) {
+      const koObj = koPreview ?? f.ko.map((p) => p.objekt); // live drag-ordning om aktiv
+      const pts: ([number, number] | null)[] = [[f.koordinat.lng, f.koordinat.lat], ...koObj.map((o) => (o.lat != null && o.lng != null ? [o.lng, o.lat] as [number, number] : null))];
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i]; if (!a || !b) continue;
         const dimmed = i > 1; // ben 1 (nu→1) fast, ben 2+ dämpat
@@ -295,7 +315,7 @@ export default function OversiktV2Page() {
       }
     }
     try { src.setData({ type: 'FeatureCollection', features }); } catch { /* race */ }
-  }, [forslag, mapStyleLoaded, selMaskin]);
+  }, [forslag, mapStyleLoaded, selMaskin, koPreview]);
 
   // Objekt-prickar/ringar
   useEffect(() => {
@@ -369,7 +389,10 @@ export default function OversiktV2Page() {
   const restyleSelection = useCallback(() => {
     const map = mapRef.current; if (!map) return;
     const S = selRef.current;
-    const koIds = new Set<string>(); if (S) (forslagRef.current.get(S)?.ko ?? []).forEach((p) => koIds.add(p.objekt.id));
+    const koObj = valdKoObjekt(S); // live preview under drag, annars ur forslag
+    const forslagKo = S ? (forslagRef.current.get(S)?.ko ?? []) : [];
+    const troligtSet = new Set(koPreviewRef.current ? [] : forslagKo.filter((p) => p.troligt).map((p) => p.objekt.id));
+    const koIds = new Set<string>(koObj.map((o) => o.id));
 
     machMarkersRef.current.forEach((mm, mid) => {
       const sel = mid === S;
@@ -391,26 +414,26 @@ export default function OversiktV2Page() {
 
     stopMarkersRef.current.forEach((m) => m.remove()); stopMarkersRef.current = [];
     if (S) {
-      const f = forslagRef.current.get(S); const legs = kmLegRef.current[S] || [];
-      (f?.ko ?? []).forEach((p, i) => {
-        const o = p.objekt; if (o.lat == null || o.lng == null) return;
-        // numrerad cirkel (grön), dämpad om troligt
+      const f = forslagRef.current.get(S);
+      koObj.forEach((o, i) => {
+        if (o.lat == null || o.lng == null) return;
+        const troligt = troligtSet.has(o.id);
         const circ = document.createElement('div');
-        circ.style.cssText = `width:26px;height:26px;border-radius:50%;background:${FARG.gron};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;opacity:${p.troligt ? 0.6 : 1};pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
+        circ.style.cssText = `width:26px;height:26px;border-radius:50%;background:${FARG.gron};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;opacity:${troligt ? 0.6 : 1};pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
         circ.textContent = String(i + 1);
         stopMarkersRef.current.push(new window.maplibregl.Marker({ element: circ, anchor: 'center' }).setLngLat([o.lng, o.lat]).addTo(map));
-        // namn-chip ovanför
         const nameChip = document.createElement('div');
-        nameChip.style.cssText = `padding:3px 8px;background:${CHIP_BG};border-radius:8px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;opacity:${p.troligt ? 0.8 : 1};box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
+        nameChip.style.cssText = `padding:3px 8px;background:${CHIP_BG};border-radius:8px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;opacity:${troligt ? 0.8 : 1};box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
         nameChip.textContent = o.namn;
         stopMarkersRef.current.push(new window.maplibregl.Marker({ element: nameChip, anchor: 'bottom', offset: [0, -18] }).setLngLat([o.lng, o.lat]).addTo(map));
-        // km-chip på benets mitt
-        const from = i === 0 ? f!.koordinat : (f!.ko[i - 1].objekt.lat != null ? { lat: f!.ko[i - 1].objekt.lat!, lng: f!.ko[i - 1].objekt.lng! } : null);
-        if (from) {
-          const km = legs[i]; const kmChip = document.createElement('div');
-          kmChip.style.cssText = `padding:2px 7px;background:${CHIP_BG};border-radius:8px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;opacity:${p.troligt ? 0.8 : 1}`;
+        // km ur klient-cachen (route-cache); miss → '–' (inga routing-anrop mitt i ett drag)
+        const prev = i === 0 ? (f?.koordinat ?? null) : (koObj[i - 1].lat != null ? { lat: koObj[i - 1].lat!, lng: koObj[i - 1].lng! } : null);
+        const to = { lat: o.lat, lng: o.lng };
+        if (prev) {
+          const km = legKmCache(prev, to); const kmChip = document.createElement('div');
+          kmChip.style.cssText = `padding:2px 7px;background:${CHIP_BG};border-radius:8px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;opacity:${troligt ? 0.8 : 1}`;
           kmChip.textContent = km != null ? `${Math.round(km)} km` : '–';
-          stopMarkersRef.current.push(new window.maplibregl.Marker({ element: kmChip, anchor: 'center' }).setLngLat([(from.lng + o.lng) / 2, (from.lat + o.lat) / 2]).addTo(map));
+          stopMarkersRef.current.push(new window.maplibregl.Marker({ element: kmChip, anchor: 'center' }).setLngLat([(prev.lng + o.lng) / 2, (prev.lat + o.lat) / 2]).addTo(map));
         }
       });
     }
@@ -444,6 +467,29 @@ export default function OversiktV2Page() {
     await Promise.all(full.map((id, i) => supabase.from('maskin_ko').update({ ordning: i }).eq('id', id)));
     await refetchKo();
   }, [maskinKo, refetchKo]);
+
+  // Live-preview under drag: koId-ordning → objekt → koPreview (kartan ritar om direkt, ingen skrivning).
+  const hanteraOrderChange = useCallback((koIds: string[]) => {
+    const objs = koIds.map((koId) => { const k = maskinKo.find((x) => x.id === koId); return k ? objekt.find((o) => o.id === k.objekt_id) ?? null : null; }).filter((o): o is OversiktObjekt => !!o);
+    setKoPreview(objs);
+  }, [maskinKo, objekt]);
+  // Redigeringsläge på/av: sätt preview, förhämta par-ben till km-cachen, krymp arket-fit på kartan.
+  const hanteraOrdnaLage = useCallback((active: boolean) => {
+    const map = mapRef.current;
+    const f = selMaskin ? forslag.get(selMaskin) : null;
+    if (!active || !f?.koordinat) { setKoPreview(null); return; }
+    const koObj = f.ko.map((p) => p.objekt);
+    setKoPreview(koObj);
+    const punkter = [f.koordinat, ...koObj.filter((o) => o.lat != null && o.lng != null).map((o) => ({ lat: o.lat!, lng: o.lng! }))];
+    (async () => { for (let i = 0; i < punkter.length; i++) for (let j = 0; j < punkter.length; j++) if (i !== j) await vagKmCached(punkter[i], punkter[j]); })();
+    if (map && punkter.length) {
+      const b = new window.maplibregl.LngLatBounds(); punkter.forEach((p) => b.extend([p.lng, p.lat]));
+      const h = mapContainerRef.current?.offsetHeight ?? 600;
+      map.fitBounds(b, { padding: { top: 80, left: 50, right: 50, bottom: Math.round(h * 0.45) + 48 }, maxZoom: 14, duration: 500 });
+    }
+  }, [selMaskin, forslag, vagKmCached]);
+  useEffect(() => { setKoPreview(null); }, [selMaskin]); // byte av maskin nollar preview
+  useEffect(() => { restyleSelection(); }, [koPreview, restyleSelection]); // rita om numren live
 
   // härlett
   const utanPosition = useMemo(() => aktivaMaskiner.filter((m) => !positions.get(m.maskin_id)?.koordinat), [aktivaMaskiner, positions]);
@@ -493,6 +539,8 @@ export default function OversiktV2Page() {
           forare={arForareVy}
           onClose={() => setSelMaskin(null)}
           onReorder={(ids) => skrivOrdning(selMaskin!, ids)}
+          onOrdnaLage={hanteraOrdnaLage}
+          onOrderChange={hanteraOrderChange}
           koRader={maskinKo.filter((k) => k.maskin_id === selMaskin).sort((a, b) => a.ordning - b.ordning)}
         />
       )}
@@ -536,7 +584,7 @@ function Grabber({ onClose }: { onClose: () => void }) {
 }
 
 const HROW = 60; // px per rad i drag-listan
-function ReorderLista({ rows, onDrop }: { rows: { koId: string; namn: string; hoger: string }[]; onDrop: (order: string[]) => void }) {
+function ReorderLista({ rows, onDrop, onOrderChange }: { rows: { koId: string; namn: string; hoger: string }[]; onDrop: (order: string[]) => void; onOrderChange?: (order: string[]) => void }) {
   const nyckel = rows.map((r) => r.koId).join(',');
   const [order, setOrder] = useState<string[]>(() => rows.map((r) => r.koId));
   useEffect(() => { setOrder(rows.map((r) => r.koId)); }, [nyckel]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -552,7 +600,7 @@ function ReorderLista({ rows, onDrop }: { rows: { koId: string; namn: string; ho
     const y = clientY - cont.getBoundingClientRect().top; setRelY(y);
     const cur = orderRef.current; const target = Math.max(0, Math.min(cur.length - 1, Math.floor(y / HROW)));
     const d = cur.indexOf(id);
-    if (d >= 0 && d !== target) { const n = cur.filter((x) => x !== id); n.splice(target, 0, id); setOrder(n); }
+    if (d >= 0 && d !== target) { const n = cur.filter((x) => x !== id); n.splice(target, 0, id); setOrder(n); onOrderChange?.(n); }
   };
   const start = (e: React.PointerEvent, koId: string) => { e.preventDefault(); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); dragRef.current = koId; setDragId(koId); const cont = contRef.current; if (cont) setRelY(e.clientY - cont.getBoundingClientRect().top); };
   const end = () => { const id = dragRef.current; if (!id) return; dragRef.current = null; setDragId(null); onDrop(orderRef.current); };
@@ -571,7 +619,7 @@ function ReorderLista({ rows, onDrop }: { rows: { koId: string; namn: string; ho
             <div onPointerDown={(e) => start(e, koId)} onPointerMove={(e) => move(e.clientY)} onPointerUp={end} onPointerCancel={end}
               role="button" aria-label="Dra för att ändra ordning"
               style={{ width: 44, height: 44, minWidth: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none', color: FARG.text2, marginRight: -AVSTAND.s }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 8h16M4 16h16" /></svg>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
             </div>
           </div>
         );
@@ -580,10 +628,10 @@ function ReorderLista({ rows, onDrop }: { rows: { koId: string; namn: string; ho
   );
 }
 
-function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, onReorder, koRader }: {
+function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, onReorder, onOrdnaLage, onOrderChange, koRader }: {
   f: MaskinForslag; namn: string; legs: (number | null)[]; skord: Record<string, SkordAggV2>; warnings: Record<string, ObjWarn>;
   telefon: string | null; forare: boolean; onClose: () => void;
-  onReorder: (orderedKoIds: string[]) => void; koRader: MaskinKoItem[];
+  onReorder: (orderedKoIds: string[]) => void; onOrdnaLage: (active: boolean) => void; onOrderChange: (koIds: string[]) => void; koRader: MaskinKoItem[];
 }) {
   const [ordnaLage, setOrdnaLage] = useState(false);
   const nuAgg = aggFor(f.nuObjekt, skord);
@@ -596,8 +644,10 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
   const hogerFor = (p: KoPost, i: number) => { const agg = aggFor(p.objekt, skord); const vol = volFor(f, p.objekt, agg); const km = legs[i]; return [vol != null ? `${fmt(vol)} m³` : null, km != null ? `${Math.round(km)} km` : '–'].filter(Boolean).join(' · '); };
   const dragRader = arSkordare ? f.ko.map((p, i) => ({ koId: koIdForObjekt(p.objekt.id) || '', namn: p.objekt.namn, hoger: hogerFor(p, i) })).filter((r) => r.koId) : [];
 
+  const toggleOrdna = () => setOrdnaLage((v) => { const nv = !v; onOrdnaLage(nv); return nv; });
+
   return (
-    <div className="sheet-upp" style={SheetBas}>
+    <div className="sheet-upp" style={{ ...SheetBas, ...(ordnaLage ? { maxHeight: '45vh', overflowY: 'auto' } : null) }}>
       <Grabber onClose={onClose} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <div style={{ ...TYP.rubrik }}>{namn}</div>
@@ -616,7 +666,7 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
       {f.ko.length === 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: '52px minmax(0,1fr)', columnGap: AVSTAND.m, ...TYP.text }}><div style={{ color: FARG.text2 }}>Nästa</div><div style={{ color: FARG.text2 }}>inget planerat</div></div>
       ) : (ordnaLage && arSkordare) ? (
-        <ReorderLista rows={dragRader} onDrop={onReorder} />
+        <ReorderLista rows={dragRader} onDrop={onReorder} onOrderChange={onOrderChange} />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) auto', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text, ...TNUM }}>
           {f.ko.map((p, i) => {
@@ -640,7 +690,7 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
         mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={{ ...KNAPP, marginTop: AVSTAND.xs }}><SvgVag />Vägbeskrivning{nasta ? ` till ${nasta.namn}` : ''}</a>
       ) : (<>
         {arSkordare && f.ko.length > 1 && (
-          <button onClick={() => setOrdnaLage((v) => !v)} style={{ ...KNAPP_LITEN, borderColor: ordnaLage ? FARG.bla : '#48484a', color: ordnaLage ? FARG.bla : FARG.text }}>{ordnaLage ? 'Klar' : 'Ändra ordning'}</button>
+          <button onClick={toggleOrdna} style={{ ...KNAPP_LITEN, borderColor: ordnaLage ? FARG.bla : '#48484a', color: ordnaLage ? FARG.bla : FARG.text }}>{ordnaLage ? 'Klar' : 'Ändra ordning'}</button>
         )}
         <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.xs }}>
           {telefon && <a href={`tel:${telefon}`} style={KNAPP}><SvgRing />Ring</a>}
