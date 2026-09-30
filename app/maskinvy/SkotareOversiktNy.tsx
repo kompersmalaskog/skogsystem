@@ -13,6 +13,7 @@ import {
   type ManuellRad, type LassRad, type TidRad,
 } from '@/lib/maskinvy/skotarvolym'
 import { FLYTT_KATEGORI } from '../../lib/avbrott-kategorier'
+import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT } from '@/lib/g15'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 
 // ─────────────────────────────────────────────────────────────
@@ -59,6 +60,11 @@ type SkotareData = {
   kortStoppSek: number
   engineSek:    number
   harManuell:   boolean  // true = volym är manuell-korrigerad via skotare_objekt_manuell
+  // TU (lib/g15.ts): G15 / (G15 + avbr). avbr är redan exkl. flytt (Skogforsks
+  // avbrottstid = service, underhåll, reparation, störning). Delen < 15 min
+  // hör till G15 och flyttas till täljaren.
+  kortaAvbrSek: number
+  tu:           number | null
 }
 
 // Per-operatör i djupvyn
@@ -136,10 +142,13 @@ async function fetchSkotareData(
   // hinken är bara Övrigt+Reparation (Underhåll/Störning ligger i
   // maintenance_sek/disturbance_sek) och gav en annan total än
   // avbrottsvyn för samma period.
-  let avbr = 0, flytt = 0
+  let avbr = 0, flytt = 0, kortaAvbrSek = 0
   for (const r of avbrottRows) {
     if (r.kategori_kod === FLYTT_KATEGORI) flytt += r.langd_sek || 0
-    else                                   avbr  += r.langd_sek || 0
+    else {
+      avbr += r.langd_sek || 0
+      if ((r.langd_sek || 0) < G15_GRANS_SEK) kortaAvbrSek += r.langd_sek || 0
+    }
   }
 
   return {
@@ -163,6 +172,8 @@ async function fetchSkotareData(
     kortStoppSek,
     engineSek,
     harManuell: false,
+    kortaAvbrSek,
+    tu: tuProcent(proc + terr + ow, kortaAvbrSek, avbr),
   }
 }
 
@@ -446,7 +457,9 @@ function SkotareKpiList({
   type Row = {
     label: string; val: number | null; prevVal: number | null
     unit: string; dec: number; lowerIsBetter?: boolean; display?: string; muted?: boolean
+    hint?: string; varna?: boolean // TU: branschsnitt under etiketten, orange under snittet
   }
+  const tuRef = TU_BRANSCHSNITT.skotare
   // Korta stopp: mätt (rå kort_stopp_sek, andel av motortid) OM maskinen
   // rapporterar det — annars "rapporteras inte". Villkoret avläses ur datan
   // (kort_stopp === 0), inte ur maskintypen. Skotarna saknar signalen; skulle
@@ -466,6 +479,7 @@ function SkotareKpiList({
     { label: 'Lass/G15h',    val: data?.lassPerG15h    ?? null, prevVal: prev?.lassPerG15h    ?? null, unit: 'st/G15h', dec: 1 },
     { label: 'G15-tid',      val: data && data.g15h > 0 ? data.g15h : null, prevVal: prev && prev.g15h > 0 ? prev.g15h : null, unit: 'h', dec: 1 },
     { label: 'Korta stopp',  val: kortAndel(data),              prevVal: kortAndel(prev),              unit: '%',       dec: 1, lowerIsBetter: true, display: kortDisplay, muted: kortSaknas },
+    { label: 'TU',           val: data?.tu ?? null,             prevVal: prev?.tu ?? null,             unit: '%',       dec: 1, hint: `bransch ${tuRef} %`, varna: data?.tu != null && data.tu < tuRef },
   ]
 
   return (
@@ -481,10 +495,13 @@ function SkotareKpiList({
             borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
           }}
         >
-          <div style={{ fontSize: 15, color: C.text }}>{r.label}</div>
+          <div style={{ fontSize: 15, color: C.text }}>
+            {r.label}
+            {r.hint && <div style={{ fontSize: 11, color: C.muted, marginTop: 4, whiteSpace: 'nowrap' }}>{r.hint}</div>}
+          </div>
           <div style={{
             fontSize: r.muted ? 13 : 16, fontWeight: r.muted ? 400 : 500,
-            color: r.muted ? C.muted : C.text,
+            color: r.muted ? C.muted : r.varna && !loading ? C.orange : C.text,
             fontVariantNumeric: 'tabular-nums', textAlign: 'right',
           }}>
             {loading ? '—' : r.display ?? (r.val !== null ? fmtSv(r.val, r.dec) : '—')}

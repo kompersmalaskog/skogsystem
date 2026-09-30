@@ -3,6 +3,7 @@ import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import TuTabell from '@/components/maskinvy/TuTabell';
 
 const EK_ID = 'A110148';
 const WI_ID = 'A030353';
@@ -351,6 +352,10 @@ export default function Jamforelse() {
       background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
     }}>
       <div style={{ padding: '20px 20px 60px', maxWidth: 900, margin: '0 auto' }}>
+
+      {/* TU för ALLA maskiner (skördare + skotare) — resten av fliken jämför
+          bara de två skotarna. Egen komponent mot tokens (components/maskinvy). */}
+      <TuTabell />
 
       {/* ── HEADER ── */}
       <div style={{ marginBottom: 24 }}>
