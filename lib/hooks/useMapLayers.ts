@@ -78,6 +78,10 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   // HPR-högar
   produktionshogar: false,
   grothogar: false,
+  // Körvy-spår (default PÅ). Sparas per enhet som övriga toggles (mapLayers_v4).
+  mittSpar: true,               // eget hyttspår (hist + live)
+  andrasSpar: true,             // andra maskinens hyttspår (skördare/skotare-motpart)
+  rekonstrueradeStrak: true,    // skordarstrak-* + skotar-hogar-dots
   // Trakt-geometri (envz-import). Default PÅ — finns geometri ska den synas. Knapparna är
   // datadrivna (visas bara när lagret faktiskt har data), så PÅ-default stör inte de 42
   // objekt som saknar geometri. korFara forcas dessutom PÅ när ett objekt öppnas (se
