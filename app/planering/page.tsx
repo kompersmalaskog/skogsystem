@@ -3611,6 +3611,17 @@ export default function PlannerPage() {
   // Kompass-rotation
   const [compassMode, setCompassMode] = useState(false);
   const [deviceHeading, setDeviceHeading] = useState(0);
+  // Maskindatorn (serial-GPS) har ingen kompass → "Rotera kartan" ska vara PÅ som standard
+  // så kartan följer GPS-kursen direkt. Slås på EN gång per serial-session; föraren kan
+  // stänga av den efteråt (ref:en hindrar att den tänds igen). Telefon (ej serial): orörd.
+  const serialRotateAutoRef = useRef(false);
+  useEffect(() => {
+    if (serialGpsAktiv) {
+      if (!serialRotateAutoRef.current) { serialRotateAutoRef.current = true; setCompassMode(true); }
+    } else {
+      serialRotateAutoRef.current = false;
+    }
+  }, [serialGpsAktiv]);
   // Körvyns kompass-rotation (deviceorientation): 'av' = ej aktiverad, 'aktiv' = roterar,
   // 'nekad' = iOS-tillstånd nekat, 'saknas' = ingen sensor (t.ex. dator). Aldrig tyst död —
   // vid 'nekad'/'saknas' ligger kartan kvar i norr-upp (fungerar, roterar bara inte).
