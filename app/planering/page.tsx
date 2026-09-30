@@ -20,6 +20,7 @@ import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDe
 import { startaPolygonRitning, type PolygonRitningHandle } from '../../lib/polygonRitning'
 import { upsertVerifierat, raderaVerifierat, uppdateraVerifierat } from '../../lib/supabase-save'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
+import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
@@ -523,6 +524,17 @@ function isIOSStandalonePWA(): boolean {
     const standalone = (navigator as any).standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
     return iOS && !!standalone;
   } catch { return false; }
+}
+
+// Vinnande klick-kategori vid en tryckpunkt: fråga alla prioriterings-lager som finns
+// på kartan och låt lib/klickPrioritet avgöra vilken kategori som vinner. Varje
+// click-handler kallar denna och avstår när den inte är vinnaren → exakt EN sak öppnas.
+function vinnandeKategoriForKarta(map: any, point: any): KlickKategori | null {
+  if (!map) return null;
+  const lager = ALLA_KLICK_LAGER.filter((l) => map.getLayer(l));
+  if (!lager.length) return null;
+  const feats = map.queryRenderedFeatures(point, { layers: lager });
+  return valjKlickKategori(feats.map((f: any) => f.layer?.id).filter(Boolean));
 }
 
 export default function PlannerPage() {
@@ -1954,6 +1966,10 @@ export default function PlannerPage() {
     // Symbol på polygon dubblerar etiketten när polygonen spänner flera tiles (två 8:or vid inzoomning).
     // Därför: en Point per yta vid centroiden → exakt en etikett oavsett zoom. Bit + gräns i samma källa.
     map.addSource('yta-nr-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    // Osynlig träffyta runt siffran (radie 22 px = 44 px diameter) — HÖGST prioritet efter larmet:
+    // tryck på numret öppnar alltid ytkortet, även när högar täcker ytan. Ritas FÖRE label så
+    // siffran syns ovanpå; klick-prioriteten styrs av lib/klickPrioritet, inte lagerordning.
+    map.addLayer({ id: 'yta-nr-hit', type: 'circle', source: 'yta-nr-source', paint: { 'circle-radius': 22, 'circle-color': 'rgba(0,0,0,0)' } });
     map.addLayer({ id: 'yta-nr-label', type: 'symbol', source: 'yta-nr-source', layout: { 'text-field': ['to-string', ['coalesce', ['get', 'nr'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
 
     // === "Redigera hörn" (dra hörnen): live-preview (snitsel + siffra) + hörn-/mittpunkts-handtag. ===
@@ -4411,6 +4427,7 @@ export default function PlannerPage() {
 
     const handleHogarClick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, ej multi-select (hög-tryck-valet gäller UTANFÖR ritning)
+      if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
       featureClickedRef.current = true;
@@ -4446,6 +4463,7 @@ export default function PlannerPage() {
     // Kluster-klick → zooma in
     const handleClusterClick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, ingen kluster-zoom
+      if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
       featureClickedRef.current = true;
       const features = map.queryRenderedFeatures(e.point, { layers: ['hogar-cluster'] });
       if (!features.length) return;
@@ -4482,6 +4500,7 @@ export default function PlannerPage() {
     // markersRef och öppna dess kort. I stickväg-översikt: välj för översikt istället (som förr).
     const handleMarkerFeatureClick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig symbol-/pil-kort
+      if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
       featureClickedRef.current = true;
       const rawId = e.features?.[0]?.properties?.id;
       if (rawId == null) return;
@@ -4534,6 +4553,7 @@ export default function PlannerPage() {
 
     const handleGrotClick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig GROT-kort
+      if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
       featureClickedRef.current = true;
@@ -5629,9 +5649,32 @@ export default function PlannerPage() {
       setAnteckningSkrivlage(false);
       setTraktKortSvepY(0);
     };
+    // Öppna en Vida-traktdels ytkort utifrån dess partKey — delas av tryck-på-ytan (onKlick)
+    // och tryck-på-numret (yta-nr-hit). Samma kort, en källa.
+    const oppnaTraktdelKort = (partKey: string) => {
+      const num = numreringRef.current;
+      const del = traktdelDelarRef.current.find((d: any) => d.partKey === partKey);
+      if (!del) return;
+      const props: any = del.props || {};
+      const txt = (v: any) => (v == null ? '' : String(v).trim());
+      const bitNr = num.visaBitNummer ? num.bitNr.get(partKey) : undefined;
+      const trdel = txt(props.TRDEL_NR_K);
+      const kort: TraktKort = {
+        kategori: 'traktdel', arealHa: null, rader: [],
+        rubrik: bitNr != null ? `Område ${bitNr}` : (trdel ? `Traktdel ${trdel}` : 'Traktdel'),
+        kalla: bitNr != null ? (trdel ? `Traktdel ${trdel}` : 'Vida') : 'Vida',
+        nr: '',
+      };
+      oppnaKort(kort, partKey ? `traktdel:${partKey}` : null, { key: partKey, synthId: 'vida-td:' + partKey, ringLatLon: del.ringLatLon });
+    };
     const onKlick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return;   // urvalsritning: tryck = hörn
       if (larmPlacering) return;                 // mitt i en larmflytt
+      // Prioritet (lib/klickPrioritet): avstå om ett HÖGRE lager utanför trakt-setet vann
+      // (hög/markör över en traktdels-yta, ytnummer, larm). valjMinstaYta väljer redan den
+      // vassaste trakt-featuren (punkt<linje<yta), så vinnare === dess kategori = vår tur.
+      const vinnare = vinnandeKategoriForKarta(map, e.point);
+      if (vinnare === 'larm' || vinnare === 'yta-nr') return;
       const lager = LAGER.filter((l) => map.getLayer(l));
       const träffar = lager.length ? map.queryRenderedFeatures(e.point, { layers: lager }) : [];
       if (!träffar.length) return;
@@ -5639,6 +5682,8 @@ export default function PlannerPage() {
       if (traktKand.length) {
         const vald = valjMinstaYta(traktKand);
         if (vald) {
+          const valdKat = kategoriForLager((vald as any).layer?.id) ?? 'yta';
+          if (vinnare && vinnare !== valdKat) return;   // en icke-trakt-punkt/linje slog vår yta → avstå
           const props: any = vald.properties || {};
           const kat = klassaTraktFeature(props).kategori;
           const num = numreringRef.current;
@@ -5674,17 +5719,40 @@ export default function PlannerPage() {
     };
     const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
     const onLeave = () => { map.getCanvas().style.cursor = ''; };
+    // Tryck på ytans SIFFRA (yta-nr-hit, 44 px träffyta) → öppnar ALLTID ytkortet, även när
+    // högar täcker ytan. Högst prioritet efter larmet (lib/klickPrioritet). Dispatchar på
+    // feature-identiteten (boundary → markörens gränskort, traktdel → Vida-bitens kort).
+    const onYtaNrKlick = (e: any) => {
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return;
+      if (larmPlacering) return;
+      if (vinnandeKategoriForKarta(map, e.point) !== 'yta-nr') return;   // bara larmet är högre
+      const p = e.features?.[0]?.properties;
+      if (!p) return;
+      featureClickedRef.current = true;
+      if (p.slag === 'boundary') {
+        const m = markersRef.current.find((x: any) => String(x.id) === String(p.mid));
+        if (m) oppnaGranskort(m);
+      } else if (p.slag === 'traktdel') {
+        oppnaTraktdelKort(String(p.partKey));
+      }
+    };
     for (const l of LAGER) {
       map.on('click', l, onKlick);
       map.on('mouseenter', l, onEnter);
       map.on('mouseleave', l, onLeave);
     }
+    map.on('click', 'yta-nr-hit', onYtaNrKlick);
+    map.on('mouseenter', 'yta-nr-hit', onEnter);
+    map.on('mouseleave', 'yta-nr-hit', onLeave);
     return () => {
       for (const l of LAGER) {
         map.off('click', l, onKlick);
         map.off('mouseenter', l, onEnter);
         map.off('mouseleave', l, onLeave);
       }
+      map.off('click', 'yta-nr-hit', onYtaNrKlick);
+      map.off('mouseenter', 'yta-nr-hit', onEnter);
+      map.off('mouseleave', 'yta-nr-hit', onLeave);
     };
   }, [mapLibreReady, larmPlacering]);
 
@@ -5696,6 +5764,7 @@ export default function PlannerPage() {
     const onKlick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return;
       if (isDrawMode || isZoneMode || larmPlacering) return;
+      if (vinnandeKategoriForKarta(map, e.point) !== 'yta') return;   // hög/linje/ytnummer högre → avstå (annars öppnades ytkortet ovanpå högens popup, #587-krocken)
       const fid = e.features?.[0]?.properties?.id;
       if (fid == null) return;
       const m = markers.find((mm: any) => String(mm.id) === String(fid));
@@ -6319,10 +6388,9 @@ export default function PlannerPage() {
 
     const onLineClick = (e: any) => {
       if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing || hornEditActiveRef.current) return;
-      // Prioritet symbol > zon > linje: ligger trycket också på en symbol/pil/zon → avstå (den vinner).
-      // Symbolen är liten och avsiktligt placerad; linjen träffas av misstag längs hela sin sträckning.
-      const overLine = ['markers-hit', 'arrows-hit', 'zone-fill'].filter(l => map.getLayer(l));
-      if (overLine.length && map.queryRenderedFeatures(e.point, { layers: overLine }).length > 0) return;
+      // Prioritet (lib/klickPrioritet): larm > ytnummer > punkt > LINJE > yta. Ligger trycket på något
+      // högre (symbol/pil/hög/ytnummer) → avstå. Linjen träffas lätt av misstag längs hela sträckningen.
+      if (vinnandeKategoriForKarta(map, e.point) !== 'linje') return;
       if (e.features && e.features.length > 0) {
         const featureId = e.features[0].properties.id;
         const marker = markers.find(m => String(m.id) === String(featureId));
@@ -6341,9 +6409,8 @@ export default function PlannerPage() {
 
     const onZoneClick = (e: any) => {
       if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing) return;
-      // Prioritet symbol > zon: ligger trycket också på en symbol/pil → avstå (symbolen vinner).
-      const overZone = ['markers-hit', 'arrows-hit'].filter(l => map.getLayer(l));
-      if (overZone.length && map.queryRenderedFeatures(e.point, { layers: overZone }).length > 0) return;
+      // Zon = yta (lägst prioritet, lib/klickPrioritet). Avstå om något högre (punkt/linje/ytnummer) träffas.
+      if (vinnandeKategoriForKarta(map, e.point) !== 'yta') return;
       if (e.features && e.features.length > 0) {
         const featureId = e.features[0].properties.id;
         const marker = markers.find(m => String(m.id) === String(featureId));
@@ -7841,7 +7908,8 @@ export default function PlannerPage() {
           const nr = objektNumrering.bitNr.get(d.partKey);
           if (nr == null) continue;
           const c = ringCentroid(d.ringLngLat);
-          features.push({ type: 'Feature', properties: { nr: String(nr) }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } });
+          // slag/partKey → yta-nr-hit-handlern vet vilket ytkort numret ska öppna.
+          features.push({ type: 'Feature', properties: { nr: String(nr), slag: 'traktdel', partKey: d.partKey }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } });
         }
       }
       // Egna gränser / traktgränser (boundary-markörer).
@@ -7854,7 +7922,7 @@ export default function PlannerPage() {
           let sx = 0, sy = 0;
           for (const p of m.path) { sx += p.x; sy += p.y; }
           const c = svgToLatLon(sx / m.path.length, sy / m.path.length);
-          features.push({ type: 'Feature', properties: { nr: String(nr) }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
+          features.push({ type: 'Feature', properties: { nr: String(nr), slag: 'boundary', mid: String(m.id) }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
         }
       }
       src.setData({ type: 'FeatureCollection', features });
