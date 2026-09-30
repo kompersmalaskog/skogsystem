@@ -85,20 +85,21 @@ const harMaskin = (o: OversiktObjekt) => !!((o as any).skordare_maskin_id || (o 
 
 // Prick/ring per objekt. form:'ring' = väntar (planerad utan maskin). 'fill' = fylld.
 // utzoom = visas även utzoomad (maskiner-nivå: pågående + väntande ringar).
-interface DotDesc { form: 'ring' | 'fill'; color: string; opacity: number; size: number; utzoom: boolean }
+// namnbar = får namn-etikett vid inzoomning (pågår/planerad/väntar). Avslutade aldrig.
+interface DotDesc { form: 'ring' | 'fill'; color: string; opacity: number; size: number; utzoom: boolean; namnbar: boolean }
 function dotDesc(o: OversiktObjekt): DotDesc | null {
-  if (STATUS_AKTIV.includes(o.status)) return { form: 'fill', color: FARG.gron, opacity: 1, size: 18, utzoom: true }; // pågår = grön
+  if (STATUS_AKTIV.includes(o.status)) return { form: 'fill', color: FARG.gron, opacity: 1, size: 18, utzoom: true, namnbar: true }; // pågår = grön
   if (o.status === 'planerad') {
     return harMaskin(o)
-      ? { form: 'fill', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: false }  // planerad m. maskin = grå
-      : { form: 'ring', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: true };  // väntar = ihålig ring
+      ? { form: 'fill', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: false, namnbar: true }  // planerad m. maskin = grå
+      : { form: 'ring', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: true, namnbar: true };  // väntar = ihålig ring
   }
   if (STATUS_AVSLUTADE.includes(o.status)) {
     const d = (o as any).avslutad_timestamp || o.faktisk_slut || null;
     if (!d) return null;
     const age = dagarSedan(d);
     if (age > 180) return null;
-    return { form: 'fill', color: GRAY_DOT, opacity: Math.max(0.1, 0.42 - (age / 180) * 0.32), size: 13, utzoom: false }; // avslutad, bleknar
+    return { form: 'fill', color: GRAY_DOT, opacity: Math.max(0.1, 0.42 - (age / 180) * 0.32), size: 13, utzoom: false, namnbar: false }; // avslutad, bleknar — aldrig namn
   }
   return null;
 }
@@ -223,7 +224,8 @@ export default function OversiktV2Page() {
   const [mapReady, setMapReady] = useState(false);
   const [mapStyleLoaded, setMapStyleLoaded] = useState(false);
   const machMarkersRef = useRef<Map<string, { marker: any; square: HTMLDivElement; label: HTMLDivElement; sub: HTMLDivElement }>>(new Map());
-  const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; desc: DotDesc }>>(new Map());
+  const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; circle: HTMLDivElement; label: HTMLDivElement; desc: DotDesc }>>(new Map());
+  const ordnaRef = useRef(false); // true medan "Ändra ordning" är öppet → kartan rör sig inte av sig själv
   const stopMarkersRef = useRef<any[]>([]); // numrerade rutt-cirklar + on-map-etiketter
   const didFitRef = useRef(false);
   const forslagRef = useRef(forslag); forslagRef.current = forslag;
@@ -271,6 +273,22 @@ export default function OversiktV2Page() {
       while (guard++ < 24) { const hit = placed.find((r) => !(left > r.x2 || left + LW < r.x1 || top > r.y2 || top + LH < r.y1)); if (!hit) break; top = hit.y2 + GAP; }
       it.label.style.transform = `translateY(${Math.round(top - (it.y - LH / 2))}px)`;
       placed.push({ x1: left, y1: top, x2: left + LW, y2: top + LH });
+    }
+    // Objekt-namn placeras EFTER maskin-etiketterna (som därmed vinner en kollision → ett dot-namn
+    // hamnar aldrig ovanpå en maskinetikett). Bara synliga namn, de-överlappas vertikalt mot varandra.
+    const DLEFT = 12, DH = 18, DGAP = 4;
+    const dotItems: { label: HTMLDivElement; x: number; y: number; w: number }[] = [];
+    dotsRef.current.forEach((d) => {
+      if (d.label.style.display === 'none') return;
+      const p = map.project(d.marker.getLngLat());
+      dotItems.push({ label: d.label, x: p.x, y: p.y, w: d.label.offsetWidth || 90 });
+    });
+    dotItems.sort((a, b) => a.y - b.y);
+    for (const it of dotItems) {
+      const left = it.x + DLEFT; const natTop = it.y - DH / 2; let top = natTop; let guard = 0;
+      while (guard++ < 20) { const hit = placed.find((r) => !(left > r.x2 || left + it.w < r.x1 || top > r.y2 || top + DH < r.y1)); if (!hit) break; top = hit.y2 + DGAP; }
+      it.label.style.transform = `translateY(${Math.round(top - natTop)}px)`;
+      placed.push({ x1: left, y1: top, x2: left + it.w, y2: top + DH });
     }
   }, []);
 
@@ -327,14 +345,17 @@ export default function OversiktV2Page() {
       const o = objekt.find((x) => x.id === id)!;
       let entry = dotsRef.current.get(id);
       if (!entry) {
-        const el = document.createElement('div');
-        el.style.cssText = 'border-radius:50%;cursor:pointer';
+        const el = document.createElement('div'); el.style.cssText = 'position:relative;width:0;height:0;cursor:pointer';
+        const circle = document.createElement('div'); circle.style.position = 'absolute';
+        const label = document.createElement('div');
+        label.style.cssText = `position:absolute;padding:2px 6px;background:${CHIP_BG};border-radius:6px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;box-shadow:0 1px 5px rgba(0,0,0,0.3);display:none`;
+        el.appendChild(circle); el.appendChild(label);
         const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([o.lng!, o.lat!]).addTo(map);
         el.addEventListener('click', (e) => { e.stopPropagation(); if (!selRef.current) setSelObjekt((p) => (p === id ? null : id)); });
-        entry = { marker, el, desc };
+        entry = { marker, el, circle, label, desc };
         dotsRef.current.set(id, entry);
       }
-      entry.desc = desc;
+      entry.desc = desc; entry.label.textContent = o.namn;
     });
     restyleSelection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -381,10 +402,18 @@ export default function OversiktV2Page() {
     else { const b = new window.maplibregl.LngLatBounds(); pts.forEach((p) => b.extend(p)); map.fitBounds(b, { padding: { top: 60, left: 40, right: 40, bottom: 140 }, maxZoom: 13, duration: 500 }); }
   }, [forslag, mapStyleLoaded]);
 
-  // Zoom-täthet: utzoomad → dölj prickar där !utzoom.
-  useEffect(() => {
-    dotsRef.current.forEach((d) => { const doljUtzoom = zoomNiva < THRESHOLD_ZOOM && !d.desc.utzoom; d.el.style.display = doljUtzoom ? 'none' : 'block'; });
-  }, [zoomNiva]);
+  // Zoom-/urvals-styrd synlighet. Prick: visas om inzoomad ELLER utzoom-flagga. Namn-etikett:
+  // bara utan vald maskin (då sköter rutt-chips namnen), bara namnbara (ej avslutade), bara ≥ tröskel.
+  const syncDotVisibility = useCallback(() => {
+    const map = mapRef.current; if (!map) return;
+    const z = map.getZoom(); const S = selRef.current;
+    dotsRef.current.forEach((d) => {
+      const dotVisible = z >= THRESHOLD_ZOOM || d.desc.utzoom;
+      d.el.style.display = dotVisible ? 'block' : 'none';
+      d.label.style.display = (dotVisible && !S && d.desc.namnbar && z >= THRESHOLD_ZOOM) ? 'block' : 'none';
+    });
+  }, []);
+  useEffect(() => { syncDotVisibility(); layoutLabels(); }, [zoomNiva, syncDotVisibility, layoutLabels]);
 
   const restyleSelection = useCallback(() => {
     const map = mapRef.current; if (!map) return;
@@ -406,10 +435,12 @@ export default function OversiktV2Page() {
       const desc = d.desc; const dimNarVald = S && !koIds.has(id);
       const op = dimNarVald ? 0.1 : desc.opacity;
       const px = desc.size;
-      if (desc.form === 'ring') d.el.style.cssText = `border-radius:50%;cursor:pointer;width:${px}px;height:${px}px;background:transparent;border:2px solid ${desc.color};opacity:${op};box-shadow:0 0 0 1px rgba(255,255,255,0.5)`;
-      else d.el.style.cssText = `border-radius:50%;cursor:pointer;width:${px}px;height:${px}px;background:${desc.color};opacity:${op};box-shadow:0 0 0 1px rgba(0,0,0,0.25)`;
-      d.el.style.display = (zoomRef.current < THRESHOLD_ZOOM && !desc.utzoom) ? 'none' : 'block'; // cssText nollställer display → återställ zoom-filtret
+      const base = `position:absolute;left:${-px / 2}px;top:${-px / 2}px;width:${px}px;height:${px}px;border-radius:50%;`;
+      if (desc.form === 'ring') d.circle.style.cssText = base + `background:transparent;border:2px solid ${desc.color};opacity:${op};box-shadow:0 0 0 1px rgba(255,255,255,0.5)`;
+      else d.circle.style.cssText = base + `background:${desc.color};opacity:${op};box-shadow:0 0 0 1px rgba(0,0,0,0.25)`;
+      d.label.style.left = `${Math.round(px / 2) + 4}px`; d.label.style.top = '-9px'; d.label.style.opacity = String(op);
     });
+    syncDotVisibility();
     if (map.getLayer('routes')) map.getSource('routes'); // paint är data-driven (uppdateras i rutt-effekten)
 
     stopMarkersRef.current.forEach((m) => m.remove()); stopMarkersRef.current = [];
@@ -442,7 +473,7 @@ export default function OversiktV2Page() {
   useEffect(() => {
     restyleSelection(); layoutLabels();
     const map = mapRef.current;
-    if (map && selMaskin) { const f = forslag.get(selMaskin); if (f?.koordinat) map.easeTo({ center: [f.koordinat.lng, f.koordinat.lat], offset: [0, -150], zoom: Math.max(map.getZoom(), 12), duration: 500 }); }
+    if (map && selMaskin && !ordnaRef.current) { const f = forslag.get(selMaskin); if (f?.koordinat) map.easeTo({ center: [f.koordinat.lng, f.koordinat.lat], offset: [0, -150], zoom: Math.max(map.getZoom(), 12), duration: 500 }); } // aldrig auto-flytt medan ordningen redigeras
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selMaskin, kmByLeg, forslag, restyleSelection, layoutLabels]);
 
@@ -477,7 +508,8 @@ export default function OversiktV2Page() {
   const hanteraOrdnaLage = useCallback((active: boolean) => {
     const map = mapRef.current;
     const f = selMaskin ? forslag.get(selMaskin) : null;
-    if (!active || !f?.koordinat) { setKoPreview(null); return; }
+    if (!active || !f?.koordinat) { ordnaRef.current = false; setKoPreview(null); return; }
+    ordnaRef.current = true; // hädanefter rör kartan sig inte av sig själv förrän Klar
     const koObj = f.ko.map((p) => p.objekt);
     setKoPreview(koObj);
     const punkter = [f.koordinat, ...koObj.filter((o) => o.lat != null && o.lng != null).map((o) => ({ lat: o.lat!, lng: o.lng! }))];
@@ -488,7 +520,7 @@ export default function OversiktV2Page() {
       map.fitBounds(b, { padding: { top: 80, left: 50, right: 50, bottom: Math.round(h * 0.45) + 48 }, maxZoom: 14, duration: 500 });
     }
   }, [selMaskin, forslag, vagKmCached]);
-  useEffect(() => { setKoPreview(null); }, [selMaskin]); // byte av maskin nollar preview
+  useEffect(() => { ordnaRef.current = false; setKoPreview(null); }, [selMaskin]); // byte/stängning av maskin nollar preview + redigeringslås
   useEffect(() => { restyleSelection(); }, [koPreview, restyleSelection]); // rita om numren live
 
   // härlett
