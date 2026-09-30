@@ -21,6 +21,7 @@ import { startaPolygonRitning, type PolygonRitningHandle } from '../../lib/polyg
 import { upsertVerifierat, raderaVerifierat, uppdateraVerifierat } from '../../lib/supabase-save'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
+import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
@@ -3062,6 +3063,35 @@ export default function PlannerPage() {
   const [portFel, setPortFel] = useState<string | null>(null);
   const [webSerialStott, setWebSerialStott] = useState(false);   // client-only → undvik hydration-mismatch
   useEffect(() => { setWebSerialStott(harWebSerial()); }, []);
+  // === PWA-install på skrivbordet (Chrome/Edge) ===
+  // Fånga beforeinstallprompt → spara eventet så vi kan trigga install-dialogen från
+  // en egen knapp. Rad visas bara när prompten fångats OCH ej standalone (installerad).
+  const installPromptRef = useRef<any>(null);
+  const [installPromptFangad, setInstallPromptFangad] = useState(false);
+  const [arStandalone, setArStandalone] = useState(false);
+  useEffect(() => {
+    const onBeforeInstall = (e: any) => { e.preventDefault(); installPromptRef.current = e; setInstallPromptFangad(true); };
+    const onInstalled = () => { installPromptRef.current = null; setInstallPromptFangad(false); setArStandalone(true); };
+    const uppdateraStandalone = () => setArStandalone(erStandalone());
+    uppdateraStandalone();
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('appinstalled', onInstalled);
+    let mq: MediaQueryList | null = null;
+    try { mq = window.matchMedia('(display-mode: standalone)'); mq.addEventListener?.('change', uppdateraStandalone); } catch { /* */ }
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('appinstalled', onInstalled);
+      try { mq?.removeEventListener?.('change', uppdateraStandalone); } catch { /* */ }
+    };
+  }, []);
+  const installeraApp = useCallback(async () => {
+    const ev: any = installPromptRef.current;
+    if (!ev) return;
+    try { ev.prompt(); await ev.userChoice; } catch { /* användaren avbröt */ }
+    // Prompt-eventet kan bara användas en gång → nolla oavsett val.
+    installPromptRef.current = null;
+    setInstallPromptFangad(false);
+  }, []);
   // Portval (kräver användargest): requestPort → testa 5 s → spara. Fel visas tydligt, låt välja om.
   const valjGpsPort = useCallback(async () => {
     setPortFel(null); setValjerPort(true);
@@ -19254,6 +19284,18 @@ export default function PlannerPage() {
                         </button>
                       )}
                     </div>
+                    {/* Installera appen på skrivbordet (Chrome/Edge). Visas bara när webbläsaren
+                        erbjuder installation (beforeinstallprompt fångad) och appen inte redan
+                        körs installerad. Kortet är webSerialStott-gated → bara maskindatorn. */}
+                    {skaVisaInstallera(installPromptFangad, arStandalone) && (
+                      <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '10px' }}>Kör appen som eget fönster på maskindatorn.</div>
+                        <button type="button" onClick={installeraApp}
+                          style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(10,132,255,0.15)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          Installera på skrivbordet
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
                 {/* Lägen */}
