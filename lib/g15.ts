@@ -42,3 +42,42 @@ export const g15Sek = (
   terrain_sek: number | null | undefined,
   other_work_sek: number | null | undefined,
 ) => (processing_sek || 0) + (terrain_sek || 0) + (other_work_sek || 0)
+
+// ─────────────────────────────────────────────────────────────
+// TU — TEKNISK UTNYTTJANDEGRAD (Skogforsk). Branschens standardmått för
+// maskinen: hur stor del av den utnyttjade tiden som är grundtid.
+//
+//   TU = G15 / U-tid,  U-tid = G15 + avbrott
+//
+// AVBROTTEN KOMMER UR fakt_avbrott — samma källa som Avbrott-fliken, alla längder,
+// men UTAN flytt (Trailer transportation): Skogforsks avbrottstid är service,
+// underhåll, reparation och störningar. Inte fakt_tid:s DOWN-hinkar — de saknar
+// segment på skördarna (Scorpion 57,8 mot 65,7 h, Rottne 28,7 mot 37,5 h sedan
+// aug 2026; skotarna exakta). G15 räknar per definition IN avbrott kortare än
+// 15 min, så den delen (langd_sek < G15_GRANS_SEK) flyttas över till täljaren.
+// kort_stopp_sek ligger redan INUTI G15 och rörs inte. Rast (rast_sek) är utanför
+// både G15 och avbrott — aldrig i nämnaren. Tomgång finns inte i StanForD.
+//
+// TU är ett mått på MASKINEN (underhåll, störning, reparation), inte på föraren
+// och inte på hur lönetiden används — det senare är lönekvoten (maskintid per
+// lönetimme), ett annat tal. Se docs/tu.md.
+//
+// Empiri sep 2026 (sedan 1 aug): rast i nämnaren drog ner skördarna 4–6 enheter,
+// flytt i nämnaren drog ner Scorpion 3 (84,8 → 87,9). Två enheter TU ≈ 8 % vinst
+// vid 3 000 timmar/år (Martin).
+export function tuProcent(
+  g15Sek: number,
+  kortaAvbrottSek: number, // fakt_avbrott < G15_GRANS_SEK (exkl. flytt) — hör till G15
+  avbrottSek: number,      // fakt_avbrott alla längder (exkl. flytt) — inkl. de korta
+): number | null {
+  const taljare = g15Sek + kortaAvbrottSek
+  const namnare = g15Sek + avbrottSek
+  if (namnare <= 0) return null
+  return Math.round((taljare / namnare) * 1000) / 10
+}
+
+/** Branschsnitt TU enligt Skogforsk (skördare 85 %, skotare 90 % — skördaren är
+ *  mer tekniskt komplex). Referens i vyer som en dämpad markering, aldrig ett
+ *  omdöme. Källa: Skogforsk, uppföljning av maskinutnyttjande; angivet av
+ *  Joacim 2026-09-30. */
+export const TU_BRANSCHSNITT = { skordare: 85, skotare: 90 } as const

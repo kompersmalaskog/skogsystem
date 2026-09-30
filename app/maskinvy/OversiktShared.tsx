@@ -10,8 +10,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { translateKategori } from '@/lib/avbrott-kategorier'
-import { G15_GRANS_SEK } from '@/lib/g15'
+import { translateKategori, FLYTT_KATEGORI } from '@/lib/avbrott-kategorier'
+import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT } from '@/lib/g15'
 
 // ─────────────────────────────────────────────────────────────
 // iOS systemfärger (exakt) + bas-tokens
@@ -233,6 +233,13 @@ export type Data = {
   // avbr + avbrottPerKat = ENBART avbrott ≥ G15-gränsen. DownTime UNDER gränsen
   // räknas in i 'kort' (Korta pauser) — samma fenomen som kort_stopp_sek
   // (objektbytesglapp m.m.; 0 väggklocke-överlapp, verifierat i MOM-källor).
+  // TU (lib/g15.ts tuProcent): ur fakt_avbrott — SAMMA källa som Avbrott-fliken,
+  // aldrig fakt_tid:s DOWN-hinkar (saknar segment på skördarna: Scorpion 57,8 mot
+  // 65,7 h sedan aug 2026). Flytt (Trailer transportation) ingår inte — Skogforsks
+  // avbrottstid är service, underhåll, reparation och störningar.
+  tuAvbrSek: number        // alla fakt_avbrott-rader exkl. flytt, alla längder
+  tuKortaAvbrSek: number   // delen < G15_GRANS_SEK av dem — hör till G15
+  tu: number | null
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -350,9 +357,14 @@ export async function fetchData(
   // fenomen som kort_stopp_sek; väggklocke-separata → adderbara utan dubbelräkning.
   let avbr = 0
   let kortaAvbrottSek = 0
+  let tuAvbrSek = 0, tuKortaAvbrSek = 0
   const katAgg: Record<string, { sek: number; antal: number }> = {}
   for (const r of avbrRows) {
     const sek = r.langd_sek || 0
+    if (r.kategori_kod !== FLYTT_KATEGORI) {
+      tuAvbrSek += sek
+      if (sek < G15_GRANS_SEK) tuKortaAvbrSek += sek
+    }
     if (sek < G15_GRANS_SEK) {
       kortaAvbrottSek += sek
       continue
@@ -401,6 +413,8 @@ export async function fetchData(
     proc, terr, kort: kort + kortaAvbrottSek, avbr, rast,
     dagar: prodDays.size,
     operatorer, avbrottPerKat,
+    tuAvbrSek, tuKortaAvbrSek,
+    tu: tuProcent(proc + terr + ow, tuKortaAvbrSek, tuAvbrSek),
   }
 }
 
@@ -418,6 +432,7 @@ export type PeriodKpi = {
   stammarPerG15h: number | null
   g15h: number | null
   kortStoppAndel: number | null   // korta stopp som % av motortid (mätt)
+  tu: number | null               // teknisk utnyttjandegrad (lib/g15.ts)
 }
 
 const MIN_DAYS_PER_PERIOD = 2
@@ -433,9 +448,11 @@ export async function fetchSeries(
   const spanStart = ranges[0].start
   const spanEnd   = ranges[ranges.length - 1].end
 
-  const [prodRows, tidRows] = await Promise.all([
+  const [prodRows, tidRows, avbrRows] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar', ids, spanStart, spanEnd, operatorId),
     fetchAll('fakt_tid', 'datum, processing_sek, terrain_sek, other_work_sek, bransle_liter, kort_stopp_sek, engine_time_sek', ids, spanStart, spanEnd, operatorId),
+    // TU-minigrafen: avbrott per period ur fakt_avbrott (samma källa som Avbrott-fliken).
+    fetchAll('fakt_avbrott', 'datum, kategori_kod, langd_sek', ids, spanStart, spanEnd, operatorId),
   ])
 
   const bucketOf = (datum: string): number => {
@@ -447,9 +464,16 @@ export async function fetchSeries(
 
   const buckets = ranges.map(() => ({
     volym: 0, stammar: 0, proc: 0, terr: 0, ow: 0, bransle: 0,
-    kortStopp: 0, engine: 0,
+    kortStopp: 0, engine: 0, tuAvbr: 0, tuKorta: 0,
     prodDays: new Set<string>(),
   }))
+  for (const r of avbrRows) {
+    const b = bucketOf(r.datum); if (b < 0) continue
+    if (r.kategori_kod === FLYTT_KATEGORI) continue
+    const sek = r.langd_sek || 0
+    buckets[b].tuAvbr += sek
+    if (sek < G15_GRANS_SEK) buckets[b].tuKorta += sek
+  }
 
   for (const r of prodRows) {
     const b = bucketOf(r.datum); if (b < 0) continue
@@ -477,6 +501,7 @@ export async function fetchSeries(
         medelstam: null, branslePerM3: null, stammarPerG15h: null,
         g15h: null,
         kortStoppAndel: null,
+        tu: null,
       }
     }
     return {
@@ -489,6 +514,7 @@ export async function fetchSeries(
       stammarPerG15h:  (g15h > 0 && b.stammar > 0)    ? b.stammar / g15h    : null,
       g15h:            g15h > 0                       ? g15h                : null,
       kortStoppAndel:  b.engine > 0                   ? (b.kortStopp / b.engine) * 100 : null,
+      tu:              tuProcent(b.proc + b.terr + b.ow, b.tuKorta, b.tuAvbr),
     }
   })
 }
@@ -782,7 +808,7 @@ export function HeroCard({
 // jämförelse-kolumnen visar procentdelta ('previous'/'machine' för
 // hastighetsmått) eller andel ('machine' för totalmått Volym/Stammar).
 // ─────────────────────────────────────────────────────────────
-type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h' | 'g15h' | 'kortStoppAndel'
+type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h' | 'g15h' | 'kortStoppAndel' | 'tu'
 
 export function KpiList({
   data, prev, series, loading,
@@ -805,7 +831,13 @@ export function KpiList({
     kind: 'rate' | 'total'
     display?: string       // ersätter fmtSv(cur)+unit i värdecellen (t.ex. "72h · 5,9%")
     mutedDisplay?: boolean // display renderas dämpad (t.ex. "rapporteras inte")
+    hint?: string          // dämpad rad under etiketten (TU: "bransch 85 %")
+    varna?: boolean        // värdet i orange (TU under branschsnittet)
   }
+  // TU (teknisk utnyttjandegrad, Skogforsk) — lib/g15.ts. Branschsnittet står
+  // som dämpad referens under etiketten; under snittet blir talet orange.
+  // Samma synlighet som G15-tid och Korta stopp (beslut 2026-09-30).
+  const tuRef = TU_BRANSCHSNITT.skordare
   // Korta stopp (mätt): rå kort_stopp_sek, andel av motortid. Ponsse-validerat
   // (G15 − G0). Ersätter den härledda "tomgången" — som varken StanForD eller
   // Opti4G har någon post för. Visas mätt OM maskinen rapporterar signalen,
@@ -827,6 +859,7 @@ export function KpiList({
     { label: 'Stammar/G15h',  metric: 'stammarPerG15h', cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false, kind: 'rate'  },
     { label: 'G15-tid',       metric: 'g15h',           cur: data && data.g15h > 0 ? data.g15h : null,  prev: prev && prev.g15h > 0 ? prev.g15h : null,  unit: 'h',       dec: 1, lowerIsBetter: false, kind: 'total' },
     { label: 'Korta stopp',   metric: 'kortStoppAndel', cur: kortStoppAndel(data),          prev: kortStoppAndel(prev),          unit: '%',       dec: 1, lowerIsBetter: true,  kind: 'rate',  display: kortStoppDisplay, mutedDisplay: kortSaknas },
+    { label: 'TU',            metric: 'tu',             cur: data?.tu ?? null,              prev: prev?.tu ?? null,              unit: '%',       dec: 1, lowerIsBetter: false, kind: 'rate',  hint: `bransch ${tuRef} %`, varna: data?.tu != null && data.tu < tuRef },
   ]
 
   return (
@@ -871,8 +904,11 @@ export function KpiList({
               textAlign: 'left',
             }}
           >
-            <div style={{ fontSize: 15, color: C.text }}>{r.label}</div>
-            <div style={{ fontSize: r.mutedDisplay ? 13 : 16, fontWeight: r.mutedDisplay ? 400 : 500, color: r.mutedDisplay ? C.muted : C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+            <div style={{ fontSize: 15, color: C.text }}>
+              {r.label}
+              {r.hint && <div style={{ fontSize: 11, color: C.muted, marginTop: 4, whiteSpace: 'nowrap' }}>{r.hint}</div>}
+            </div>
+            <div style={{ fontSize: r.mutedDisplay ? 13 : 16, fontWeight: r.mutedDisplay ? 400 : 500, color: r.mutedDisplay ? C.muted : r.varna && !loading ? C.orange : C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
               {loading ? '—' : r.display ?? (r.cur !== null ? fmtSv(r.cur, r.dec) : '—')}
               {!(!loading && r.display) && (
                 <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>{r.unit}</span>
