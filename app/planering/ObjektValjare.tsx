@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { hamtaEnGpsFix } from '@/lib/gpsKalla';
 
 interface ObjektValjareProps {
   onSelectObjekt: (objekt: any) => void;
@@ -92,15 +93,19 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
   }, []);
 
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => setUserPos({ lat: 56.40, lng: 14.70 }),
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
-      );
-    } else {
-      setUserPos({ lat: 56.40, lng: 14.70 });
-    }
+    // Via GPS-KÄLLAN (delad hub) — aldrig navigator.geolocation direkt. På
+    // maskindatorn ger geolocation IP-position (mil fel); serial-fixen används
+    // när den finns. Faller tillbaka till verksamhetens mitt om ingen fix.
+    let avbruten = false;
+    hamtaEnGpsFix(10000).then((fix) => {
+      if (avbruten) return;
+      if (fix && fix.giltig && fix.lat != null && fix.lng != null) {
+        setUserPos({ lat: fix.lat, lng: fix.lng });
+      } else {
+        setUserPos({ lat: 56.40, lng: 14.70 });
+      }
+    });
+    return () => { avbruten = true; };
   }, []);
 
   // Fetch road distances one by one via OSRM

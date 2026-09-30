@@ -20,6 +20,7 @@ import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDe
 import { startaPolygonRitning, type PolygonRitningHandle } from '../../lib/polygonRitning'
 import { upsertVerifierat, raderaVerifierat, uppdateraVerifierat } from '../../lib/supabase-save'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
+import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -3036,6 +3037,25 @@ export default function PlannerPage() {
   // Minns att föraren aktiverat plats (localStorage) → GPS auto-startar nästa gång appen öppnas,
   // precis som "Aktivera kompass". På iOS standalone gejtar detta det passiva mount-anropet nedan.
   const [platsAktiverad, setPlatsAktiverad] = useState<boolean>(() => { try { return typeof localStorage !== 'undefined' && localStorage.getItem('gps-aktiverad') === '1'; } catch { return false; } });
+  // GPS-KÄLLA (lib/gpsKalla): Web Serial (maskindator) eller geolocation (telefon). gpsFixFarsk=false →
+  // fix tappad (serial: ingen giltig RMC på 5 s) → pricken dämpas, "Ingen GPS-fix", inga punkter loggas.
+  const [gpsFixFarsk, setGpsFixFarsk] = useState(true);
+  const [gpsKallaTyp, setGpsKallaTyp] = useState<'serial' | 'geolocation' | 'ingen'>('ingen');
+  const [serialGpsAktiv, setSerialGpsAktiv] = useState<boolean>(() => serialGpsVald());   // användaren har valt serial-GPS
+  const [valjerPort, setValjerPort] = useState(false);   // portval pågår (knapp i inställningar)
+  const [portFel, setPortFel] = useState<string | null>(null);
+  const [webSerialStott, setWebSerialStott] = useState(false);   // client-only → undvik hydration-mismatch
+  useEffect(() => { setWebSerialStott(harWebSerial()); }, []);
+  // Portval (kräver användargest): requestPort → testa 5 s → spara. Fel visas tydligt, låt välja om.
+  const valjGpsPort = useCallback(async () => {
+    setPortFel(null); setValjerPort(true);
+    try {
+      const res = await valjSerialPort();
+      if (res.ok) { setSerialGpsAktiv(true); setPortFel(null); }   // dep → passiva watchern startar om på serial
+      else { setPortFel(res.fel || 'Ingen GPS på denna port.'); }
+    } finally { setValjerPort(false); }
+  }, []);
+  const kopplaBortGpsPort = useCallback(() => { glomSerialGps(); setSerialGpsAktiv(false); setPortFel(null); setGpsFixFarsk(true); }, []);
 
   // === PASSIV GPS-WATCHER (sätter currentPosition automatiskt vid mount) ===
   // Befintliga toggleTracking/startGpsTracking startar SINA EGNA watchers för
@@ -3043,75 +3063,57 @@ export default function PlannerPage() {
   // GPS-pricken, Körvy och proximity-systemet alltid har en position att jobba med.
   // Matchar /gps-test-mönstret som bevisat fungerar på telefon.
   useEffect(() => {
-    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return;
+    if (typeof navigator === 'undefined') return;
     // iOS STANDALONE-GEJT: hoppa över detta icke-gest-anrop tills föraren tryckt "Aktivera plats"
     // (annars avfärdar iOS tyst UTAN prompt → ingen Plats-rad, ingen GPS). Har hen redan aktiverat
     // (localStorage) är tillståndet beviljat → auto-start OK. Desktop/Safari-flik: kör alltid.
-    if (isIOSStandalonePWA() && !platsAktiverad) return;
-    // Snabb första prick: hämta en (ev. cachad) position DIREKT vid mount så pricken syns
-    // omedelbart efter en reload/remount istället för att vänta på watchens första fix.
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCurrentPosition({ lat: pos.coords.latitude, lon: pos.coords.longitude } as any);
-        setGpsPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setGpsAccuracy(pos.coords.accuracy);
-      },
-      () => { /* ignorera — watchen nedan tar över */ },
-      { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
-    );
-    const id = navigator.geolocation.watchPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        setCurrentPosition({ lat, lon } as any);
-        setGpsPosition({ lat, lng: lon });
-        setGpsAccuracy(pos.coords.accuracy);
-      },
-      (err) => console.warn('[GPS passiv]', err.code, err.message),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-    );
-    return () => { try { navigator.geolocation.clearWatch(id); } catch {} };
-  }, [platsAktiverad]); // re-kör när föraren aktiverat → startar watchen
+    // (Serial-GPS behöver ingen geolocation-behörighet, men gejten är ofarlig — den släpper igenom desktop.)
+    if (isIOSStandalonePWA() && !platsAktiverad && !serialGpsAktiv) return;
+    // GPS-KÄLLAN väljer Web Serial (maskindator) eller geolocation (telefon) internt. onFix sätter samma
+    // state som förr; giltig=false → dämpa (uppdatera INTE currentPosition → inga punkter loggas).
+    const sisteGiltig = { t: 0 };
+    const handle: GpsKallaHandle = startaGpsKalla((fix) => {
+      if (fix.giltig && fix.lat != null && fix.lng != null) {
+        setCurrentPosition({ lat: fix.lat, lon: fix.lng } as any);
+        setGpsPosition({ lat: fix.lat, lng: fix.lng });
+        setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
+        sisteGiltig.t = Date.now();
+        setGpsFixFarsk(true);
+      } else if (!fix.giltig) {
+        setGpsFixFarsk(false);   // fix tappad → dämpa; currentPosition rörs ej (inga punkter loggas)
+      }
+    }, { highAccuracy: true });
+    setGpsKallaTyp(handle.typ);
+    // Färskhets-timer BARA för serial (NMEA skickar RMC löpande → uteblir = verklig fix-förlust). För
+    // geolocation dämpar vi aldrig på tystnad (stillastående telefon = giltig fix, dagens beteende).
+    let iv: ReturnType<typeof setInterval> | null = null;
+    if (handle.typ === 'serial') {
+      iv = setInterval(() => { if (sisteGiltig.t && Date.now() - sisteGiltig.t > FIX_MAX_ALDER_MS) setGpsFixFarsk(false); }, 1000);
+    }
+    return () => { handle.stop(); if (iv) clearInterval(iv); };
+  }, [platsAktiverad, serialGpsAktiv]); // re-kör när föraren aktiverat plats / valt serial-GPS
 
   // === ROBUST GPS-HÄMTNING (Körvy + "Försök igen") ===
   // Hög noggrannhet först; MISSLYCKAS den (tät skog) → falla tillbaka på lägre noggrannhet
   // som accepterar senast kända fix. Hellre en sämre position än "hämtar…" i evighet. Felen
   // SURFAS till gpsStatus, sväljs aldrig.
   const acquireGpsWithFallback = useCallback(() => {
-    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
-      setGpsStatus({ kind: 'error', code: 2, at: Date.now() });
-      return;
-    }
+    // Går via GPS-KÄLLAN (lib/gpsKalla) → serial när den är vald, annars geolocation. Aldrig
+    // navigator.geolocation direkt (skulle klobba serial-pricken med IP-position på Windows).
     setGpsStatus({ kind: 'searching', at: Date.now() });
-    const onOk = (pos: GeolocationPosition) => {
-      setCurrentPosition({ lat: pos.coords.latitude, lon: pos.coords.longitude } as any);
-      setGpsPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      setGpsAccuracy(pos.coords.accuracy);
-      setGpsFixAt(Date.now());
-      setGpsStatus({ kind: 'ok', at: Date.now() });
-      // Första lyckade fixen (via gest-knappen på iOS) → tillståndet är beviljat. Minns det så GPS
-      // auto-startar nästa gång appen öppnas (localStorage) och passiva watchen startar (state).
-      try { localStorage.setItem('gps-aktiverad', '1'); } catch {}
-      setPlatsAktiverad(true);
-      console.log('[GPS] fix, noggrannhet', Math.round(pos.coords.accuracy), 'm');
-    };
-    // 1) Hög noggrannhet, tålmodig timeout
-    navigator.geolocation.getCurrentPosition(
-      onOk,
-      (err1) => {
-        console.warn('[GPS] hög noggrannhet misslyckades', err1.code, err1.message, '→ fallback lägre noggrannhet');
-        // 2) FALLBACK — lägre noggrannhet, återanvänd senast kända fix (maximumAge > 0)
-        navigator.geolocation.getCurrentPosition(
-          onOk,
-          (err2) => {
-            console.error('[GPS] fallback misslyckades också', err2.code, err2.message);
-            setGpsStatus({ kind: 'error', code: err2.code, at: Date.now() });
-          },
-          { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 }
-        );
-      },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
-    );
+    hamtaEnGpsFix(20000).then((fix) => {
+      if (fix && fix.giltig && fix.lat != null && fix.lng != null) {
+        setCurrentPosition({ lat: fix.lat, lon: fix.lng } as any);
+        setGpsPosition({ lat: fix.lat, lng: fix.lng });
+        setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
+        setGpsFixAt(Date.now());
+        setGpsStatus({ kind: 'ok', at: Date.now() });
+        try { localStorage.setItem('gps-aktiverad', '1'); } catch {}
+        setPlatsAktiverad(true);
+      } else {
+        setGpsStatus({ kind: 'error', code: 2, at: Date.now() });
+      }
+    });
   }, []);
 
   // "Aktivera plats"-gesten: anropar getCurrentPosition SYNKRONT i onClick → iOS visar plats-dialogen
@@ -3136,7 +3138,7 @@ export default function PlannerPage() {
   const gpsLineTypeRef = useRef<string | null>(null); // Ref för callback
   const [gpsPath, setGpsPath] = useState<Point[]>([]); // Spårad linje i kartkoordinater
   const [gpsStartPos, setGpsStartPos] = useState<{lat: number, lon: number, x: number, y: number} | null>(null); // Startposition för konvertering
-  const watchIdRef = useRef<number | null>(null);
+  const watchIdRef = useRef<GpsKallaHandle | null>(null);
   const gpsMapPositionRef = useRef<Point>({ x: 200, y: 300 });
   const gpsPathRef = useRef<Point[]>([]);
   const gpsHistoryRef = useRef<Point[]>([]); // Senaste 20 positioner för medelvärde
@@ -3150,7 +3152,7 @@ export default function PlannerPage() {
   // === KÖRSPÅRNING (separat från manuell ritning) ===
   const [korspårActive, setKorspårActive] = useState(false);
   const [korspårTracks, setKorspårTracks] = useState<Array<{lat: number, lng: number}[]>>([]);
-  const korspårWatchRef = useRef<number | null>(null);
+  const korspårWatchRef = useRef<GpsKallaHandle | null>(null);
   const korspårIdRef = useRef<string | null>(null);        // gps_tracks.id (uuid)
   const korspårPointsRef = useRef<Array<{lat: number, lng: number, tid: string}>>([]);
   const korspårSaveRef = useRef<NodeJS.Timeout | null>(null);
@@ -3201,16 +3203,14 @@ export default function PlannerPage() {
     console.log('[Körspår] INSERT OK, id:', data.id);
     korspårIdRef.current = data.id;
 
-    // Start GPS
-    korspårWatchRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        if (pos.coords.accuracy > 20) return;
-        korspårPointsRef.current = [...korspårPointsRef.current, {
-          lat: pos.coords.latitude, lng: pos.coords.longitude, tid: new Date().toISOString(),
-        }];
+    // Start GPS via GPS-KÄLLAN (delad hub — serial eller geolocation, aldrig navigator.geolocation direkt)
+    korspårWatchRef.current = startaGpsKalla(
+      (fix: GpsFix) => {
+        const acc = fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? fix.hdop * 5 : 99);
+        if (!fix.giltig || fix.lat == null || fix.lng == null || acc > 20) return;
+        korspårPointsRef.current = [...korspårPointsRef.current, { lat: fix.lat, lng: fix.lng, tid: new Date().toISOString() }];
       },
-      (err) => console.error('[Körspår] GPS error:', err),
-      { enableHighAccuracy: true }
+      { highAccuracy: true }
     );
 
     // Save points every 15 seconds — UPDATE by id (uuid)
@@ -3228,7 +3228,7 @@ export default function PlannerPage() {
 
   // Stop körspårning
   const stopKorspårning = useCallback(async () => {
-    if (korspårWatchRef.current != null) { navigator.geolocation.clearWatch(korspårWatchRef.current); korspårWatchRef.current = null; }
+    if (korspårWatchRef.current != null) { korspårWatchRef.current.stop(); korspårWatchRef.current = null; }
     if (korspårSaveRef.current) { clearInterval(korspårSaveRef.current); korspårSaveRef.current = null; }
 
     // Add to completed tracks immediately
@@ -3252,7 +3252,7 @@ export default function PlannerPage() {
 
   // Cleanup
   useEffect(() => () => {
-    if (korspårWatchRef.current != null) navigator.geolocation.clearWatch(korspårWatchRef.current);
+    if (korspårWatchRef.current != null) korspårWatchRef.current.stop();
     if (korspårSaveRef.current) clearInterval(korspårSaveRef.current);
   }, []);
 
@@ -3355,25 +3355,23 @@ export default function PlannerPage() {
   // Background geolocation check every 60 seconds
   useEffect(() => {
     const check = () => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const myLat = pos.coords.latitude;
-          const myLng = pos.coords.longitude;
-          const now = Date.now();
-          const TWO_HOURS = 2 * 60 * 60 * 1000;
-          for (const obj of planneradeObjektRef.current) {
-            // Skip if dismissed within 2 hours
-            if (geofenceDismissedRef.current[obj.id] && (now - geofenceDismissedRef.current[obj.id]) < TWO_HOURS) continue;
-            const dist = haversineM(myLat, myLng, obj.lat, obj.lng);
-            if (dist < 500) {
-              setGeofencePrompt({ id: obj.id, namn: obj.namn });
-              return;
-            }
+      // Via GPS-KÄLLAN (delad hub) — aldrig navigator.geolocation direkt.
+      hamtaEnGpsFix(10000).then((fix) => {
+        if (!fix || !fix.giltig || fix.lat == null || fix.lng == null) return;
+        const myLat = fix.lat;
+        const myLng = fix.lng;
+        const now = Date.now();
+        const TWO_HOURS = 2 * 60 * 60 * 1000;
+        for (const obj of planneradeObjektRef.current) {
+          // Skip if dismissed within 2 hours
+          if (geofenceDismissedRef.current[obj.id] && (now - geofenceDismissedRef.current[obj.id]) < TWO_HOURS) continue;
+          const dist = haversineM(myLat, myLng, obj.lat, obj.lng);
+          if (dist < 500) {
+            setGeofencePrompt({ id: obj.id, namn: obj.namn });
+            return;
           }
-        },
-        () => {}, // ignore errors silently
-        { enableHighAccuracy: false, maximumAge: 30000, timeout: 10000 }
-      );
+        }
+      });
     };
     check(); // initial check
     const interval = setInterval(check, 60000);
@@ -8578,13 +8576,19 @@ export default function PlannerPage() {
       try { map.moveLayer('gps-halo'); } catch {}
       try { map.moveLayer('gps-ring'); } catch {}
       try { map.moveLayer('gps-dot'); } catch {}
+      // Fix tappad (gpsFixFarsk=false) → DÄMPA pricken (rule 4: "Ingen GPS-fix"). Full opacitet vid färsk fix.
+      try {
+        map.setPaintProperty('gps-halo', 'circle-opacity', gpsFixFarsk ? 0.22 : 0.06);
+        map.setPaintProperty('gps-ring', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
+        map.setPaintProperty('gps-dot', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
+      } catch {}
       if (draw) {
         console.log('[GPS-prick] setData + moveLayer', [draw.lon.toFixed(6), draw.lat.toFixed(6)]);
       }
     } catch (e) {
       console.error('[GPS-prick] source/layers update failed:', e);
     }
-  }, [currentPosition, mapLibreReady]);
+  }, [currentPosition, mapLibreReady, gpsFixFarsk]);
 
   // === KÖRVY 3D-IMMERSION: setup engångsadditioner av sources/layers ===
   // Skapas vid mapLibreReady. Default visibility: 'none'. Toggleras av separat effekt.
@@ -10558,8 +10562,12 @@ export default function PlannerPage() {
     // Annars starta GPS
     setIsTracking(true);
     
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
+    watchIdRef.current = startaGpsKalla(
+      (fix: GpsFix) => {
+        if (!fix.giltig || fix.lat == null || fix.lng == null) return;
+        // Adaptera GpsFix → pos.coords.*-form så resten av callbacken är oförändrad (delad hub-källa;
+        // aldrig navigator.geolocation direkt). accuracy: geolocation-meter, annars hdop×5.
+        const pos: any = { coords: { latitude: fix.lat, longitude: fix.lng, accuracy: fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? fix.hdop * 5 : 99), speed: fix.fart != null ? fix.fart / 3.6 : null, heading: fix.kurs }, timestamp: fix.tid };
         const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
         const accuracy = pos.coords.accuracy; // meter
 
@@ -10678,8 +10686,7 @@ export default function PlannerPage() {
           return prev;
         });
       },
-      (err) => console.log('GPS error:', err),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      { highAccuracy: true }
     );
   };
 
@@ -10853,7 +10860,7 @@ export default function PlannerPage() {
     if (isTracking) {
       // Stoppa GPS helt
       if (watchIdRef.current) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current.stop();
         watchIdRef.current = null;
       }
       setIsTracking(false);
@@ -10868,14 +10875,16 @@ export default function PlannerPage() {
       setGpsPaused(false);
       gpsPausedRef.current = false;
     } else {
-      // Starta GPS-visning (utan linjespårning)
-      if ('geolocation' in navigator) {
+      // Starta GPS-visning (utan linjespårning) via GPS-KÄLLAN (delad hub, aldrig geolocation direkt)
+      {
         setIsTracking(true);
         setGpsStartPos(null); // Återställ så första positionen blir startpunkt
         gpsHistoryRef.current = [];
-        
-        watchIdRef.current = navigator.geolocation.watchPosition(
-          (pos) => {
+
+        watchIdRef.current = startaGpsKalla(
+          (fix: GpsFix) => {
+            if (!fix.giltig || fix.lat == null || fix.lng == null) return;
+            const pos: any = { coords: { latitude: fix.lat, longitude: fix.lng, accuracy: fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? fix.hdop * 5 : 99), speed: fix.fart != null ? fix.fart / 3.6 : null, heading: fix.kurs }, timestamp: fix.tid };
             const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
             const accuracy = pos.coords.accuracy;
 
@@ -10957,8 +10966,7 @@ export default function PlannerPage() {
               return prev;
             });
           },
-          (err) => console.log('GPS error:', err),
-          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+          { highAccuracy: true }
         );
       }
     }
@@ -15442,6 +15450,13 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* "Ingen GPS-fix" — serial-GPS (maskindator) har tappat fix (rule 4). Pricken är redan dämpad. */}
+      {serialGpsAktiv && !gpsFixFarsk && (drivingMode || korvyActive) && (
+        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(255,159,10,0.92)', color: '#000', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+          Ingen GPS-fix
+        </div>
+      )}
+
       {/* === ANTAL-PROMPT vid utsättning (evighetsträd/naturhörna/högstubbe) === */}
       {antalPrompt && (() => {
         const m = markers.find(mm => String(mm.id) === antalPrompt.markerId);
@@ -15572,24 +15587,21 @@ export default function PlannerPage() {
                 duration: 600,
               });
               if (navigator.vibrate) navigator.vibrate(15);
-            } else if (map && 'geolocation' in navigator) {
-              // Ingen fix → ljug ALDRIG genom att centrera på objektet. Visa "Hämtar position…"
-              // och hämta en engångs-fix; recentrera först när den kommer. Misslyckas den → gör
-              // inget (visa aldrig en plats som inte är din). Objekt-centrering finns på LÅNGT tryck.
+            } else if (map) {
+              // Ingen fix → ljug ALDRIG genom att centrera på objektet. Visa "Hämtar position…" och
+              // hämta en engångs-fix via GPS-KÄLLAN (serial eller geolocation, aldrig navigator.geolocation
+              // direkt); recentrera först när den kommer. Misslyckas den → gör inget.
               setGpsSokerPosition(true);
-              navigator.geolocation.getCurrentPosition(
-                (p) => {
-                  setGpsSokerPosition(false);
-                  const lon = p.coords.longitude, lat = p.coords.latitude;
-                  setCurrentPosition({ lat, lon } as any);
-                  setGpsPosition({ lat, lng: lon });
-                  setGpsAccuracy(p.coords.accuracy);
-                  map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 16), duration: 600 });
-                  if (navigator.vibrate) navigator.vibrate(15);
-                },
-                () => { setGpsSokerPosition(false); },
-                { enableHighAccuracy: true, maximumAge: 10000, timeout: 12000 }
-              );
+              hamtaEnGpsFix(12000).then((fix) => {
+                setGpsSokerPosition(false);
+                if (!fix || !fix.giltig || fix.lat == null || fix.lng == null) return;
+                const lon = fix.lng, lat = fix.lat;
+                setCurrentPosition({ lat, lon } as any);
+                setGpsPosition({ lat, lng: lon });
+                setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
+                map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 16), duration: 600 });
+                if (navigator.vibrate) navigator.vibrate(15);
+              });
             }
           }}
           onPointerLeave={() => {
@@ -18893,10 +18905,13 @@ export default function PlannerPage() {
                       setMenuHeight(0);
                       setActiveCategory(null);
                       
-                      // Starta GPS-spårning om inte redan igång
+                      // Starta GPS-spårning om inte redan igång — via GPS-KÄLLAN (delad hub, aldrig
+                      // navigator.geolocation direkt). Handeln sparas så toggleTracking kan stoppa den.
                       if (!isTracking && !watchIdRef.current) {
-                        navigator.geolocation.watchPosition(
-                          (pos) => {
+                        watchIdRef.current = startaGpsKalla(
+                          (fix: GpsFix) => {
+                            if (!fix.giltig || fix.lat == null || fix.lng == null) return;
+                            const pos: any = { coords: { latitude: fix.lat, longitude: fix.lng, accuracy: fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? fix.hdop * 5 : 99) } };
                             const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
                             const accuracy = pos.coords.accuracy;
 
@@ -18928,8 +18943,7 @@ export default function PlannerPage() {
                               return prev;
                             });
                           },
-                          (err) => console.log('GPS error:', err),
-                          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+                          { highAccuracy: true }
                         );
                       }
                     }}
@@ -19150,6 +19164,30 @@ export default function PlannerPage() {
             {/* === INSTÄLLNINGAR === */}
             {activeCategory === 'settings' && (
               <div style={{ padding: '12px' }}>
+                {/* GPS-källa — bara på maskindatorn (Web Serial-stöd). Telefonen använder inbyggd GPS automatiskt. */}
+                {webSerialStott && (
+                  <div style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '16px 20px', marginBottom: '16px' }}>
+                    <div style={{ fontSize: '15px', color: '#fff', marginBottom: '4px' }}>GPS-källa</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '12px' }}>
+                      {serialGpsAktiv
+                        ? (gpsKallaTyp === 'serial' ? 'Maskindatorns GPS (serieport)' + (gpsFixFarsk ? '' : ' — söker fix…') : 'Serieport vald (ansluter…)')
+                        : 'Inbyggd GPS. Välj serieport för maskindatorns 4G-GPS.'}
+                    </div>
+                    {portFel && (<div style={{ fontSize: '13px', color: '#ff453a', marginBottom: '10px' }}>{portFel}</div>)}
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      <button type="button" disabled={valjerPort} onClick={valjGpsPort}
+                        style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: valjerPort ? 'rgba(255,255,255,0.06)' : 'rgba(10,132,255,0.15)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: valjerPort ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                        {valjerPort ? 'Testar port…' : (serialGpsAktiv ? 'Välj om port' : 'Välj GPS-port')}
+                      </button>
+                      {serialGpsAktiv && !valjerPort && (
+                        <button type="button" onClick={kopplaBortGpsPort}
+                          style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.8)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          Använd inbyggd GPS
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {/* Lägen */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
@@ -21982,10 +22020,11 @@ export default function PlannerPage() {
                     );
                   })()}
                   <button onClick={() => {
-                    if (!navigator.geolocation) return;
-                    navigator.geolocation.getCurrentPosition(pos => {
-                      setInfoLarmLat(pos.coords.latitude.toFixed(6));
-                      setInfoLarmLng(pos.coords.longitude.toFixed(6));
+                    // Via GPS-KÄLLAN (delad hub) — aldrig navigator.geolocation direkt.
+                    hamtaEnGpsFix(12000).then((fix) => {
+                      if (!fix || !fix.giltig || fix.lat == null || fix.lng == null) return;
+                      setInfoLarmLat(fix.lat.toFixed(6));
+                      setInfoLarmLng(fix.lng.toFixed(6));
                       setInfoLarmKalla('egen');
                     });
                   }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#0a84ff', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
