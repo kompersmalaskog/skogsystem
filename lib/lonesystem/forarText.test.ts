@@ -59,4 +59,18 @@ describe("dagAvvikelser — det normala är tyst", () => {
     expect(dagAvvikelser({ datum: "2026-09-29", arbetad_min: 444, bekraftad: true }, { rodaDagar: roda, deldag: { typ: "sjuk", fran_tid: "12:03", till_tid: null } })).toEqual(["jobbade till 12:03, sedan sjuk"]);
     expect(dagAvvikelser({ datum: "2026-06-06", arbetad_min: 480, bekraftad: true }, { rodaDagar: roda })).toEqual(["sveriges nationaldag"]);
   });
+  it("pass över 16 tim, negativ tid, tidsavvikelse och vilobrott — samma regler som granskningen", () => {
+    expect(dagAvvikelser({ datum: "2026-09-02", start_tid: "06:00", slut_tid: "23:30", arbetad_min: 1020, bekraftad: true }, { rodaDagar: roda })).toEqual(["pass 17 tim"]);
+    expect(dagAvvikelser({ datum: "2026-09-02", start_tid: "08:00", slut_tid: "07:00", arbetad_min: -60, bekraftad: true }, { rodaDagar: roda })).toEqual(["negativ tid"]);
+    expect(dagAvvikelser({ datum: "2026-09-02", arbetad_min: 480, bekraftad: true }, { rodaDagar: roda, synkMin: 37 })).toEqual(["37 min mot maskinen"]);
+    expect(dagAvvikelser({ datum: "2026-09-02", arbetad_min: 480, bekraftad: true }, { rodaDagar: roda, vilobrott: [{ typ: "dygnsvila", vila_h: 8.5, krav_h: 11 }] })).toEqual(["dygnsvila 8,5 av 11 tim"]);
+  });
+  it("kontrollvyn: utan maskin och utan objekt — bara när kontroll är på", () => {
+    const maskindagUtan = { datum: "2026-09-10", start_tid: "09:00", slut_tid: "17:00", arbetad_min: 480, bekraftad: true, maskin_id: null, objekt: [] as string[] };
+    expect(dagAvvikelser(maskindagUtan, { rodaDagar: roda })).toEqual([]);
+    expect(dagAvvikelser(maskindagUtan, { rodaDagar: roda, kontroll: true })).toEqual(["utan maskin", "utan objekt"]);
+    // Perioddag: ingen maskin är normalt, men objekt ska finnas.
+    expect(dagAvvikelser({ datum: "2026-09-10", arbetad_min: 360, bekraftad: true, maskin_id: null, objekt: [], perioddag: true }, { rodaDagar: roda, kontroll: true })).toEqual(["utan objekt"]);
+    expect(dagAvvikelser({ datum: "2026-09-10", start_tid: "07:00", slut_tid: "16:00", arbetad_min: 480, bekraftad: true, maskin_id: "JD810E", objekt: ["Betet"] }, { rodaDagar: roda, kontroll: true })).toEqual([]);
+  });
 });

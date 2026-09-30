@@ -10,12 +10,16 @@ import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 import LonesystemUnderflik from "./LonesystemUnderflik";
 import AtkUnderflik from "./AtkUnderflik";
 import VilobrottUnderflik from "./VilobrottUnderflik";
+// Dagar = kontrollvyn: alla förares dagar ur samma dry_run, larm på befintliga
+// regler. Byggd mot lib/design/tokens — första admin-ytan som är det.
+import DagarUnderflik from "./DagarUnderflik";
 
-type Underflik = "underlag" | "system" | "atk" | "vila";
+type Underflik = "underlag" | "dagar" | "system" | "atk" | "vila";
 type CurrentUser = { id: string; namn?: string | null; roll: string };
 
 const UNDERFLIKAR: { key: Underflik; label: string }[] = [
   { key: "underlag", label: "Löneunderlag" },
+  { key: "dagar",    label: "Dagar" },
   { key: "system",   label: "Lönesystem" },
   { key: "atk",      label: "ATK-val" },
   { key: "vila",     label: "Vilobrott" },
@@ -30,6 +34,7 @@ export default function LonFlik({ currentUser }: { currentUser: CurrentUser }) {
     <>
       <UnderflikTabs aktiv={aktiv} onValj={setAktiv} />
       {aktiv === "underlag" && <Loneunderlag />}
+      {aktiv === "dagar"    && <DagarUnderflik />}
       {aktiv === "system"   && <LonesystemUnderflik />}
       {aktiv === "atk"      && <AtkUnderflik currentUser={currentUser} />}
       {aktiv === "vila"     && <VilobrottUnderflik />}
