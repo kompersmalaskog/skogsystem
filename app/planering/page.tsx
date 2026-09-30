@@ -22,6 +22,7 @@ import { upsertVerifierat, raderaVerifierat, uppdateraVerifierat } from '../../l
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
+import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
@@ -3123,6 +3124,9 @@ export default function PlannerPage() {
         setCurrentPosition({ lat: fix.lat, lon: fix.lng } as any);
         setGpsPosition({ lat: fix.lat, lng: fix.lng });
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
+        // GPS-KURSEN (NMEA VTG/RMC) matar körvyns rotation när kompassen saknas (maskindator).
+        // Utan detta stod kartan norr-upp på PC (deviceorientation finns inte där).
+        if (fix.kurs != null) setGpsHeading(((fix.kurs % 360) + 360) % 360);
         sisteGiltig.t = Date.now();
         setGpsFixFarsk(true);
       } else if (!fix.giltig) {
@@ -3607,6 +3611,17 @@ export default function PlannerPage() {
   // Kompass-rotation
   const [compassMode, setCompassMode] = useState(false);
   const [deviceHeading, setDeviceHeading] = useState(0);
+  // Maskindatorn (serial-GPS) har ingen kompass → "Rotera kartan" ska vara PÅ som standard
+  // så kartan följer GPS-kursen direkt. Slås på EN gång per serial-session; föraren kan
+  // stänga av den efteråt (ref:en hindrar att den tänds igen). Telefon (ej serial): orörd.
+  const serialRotateAutoRef = useRef(false);
+  useEffect(() => {
+    if (serialGpsAktiv) {
+      if (!serialRotateAutoRef.current) { serialRotateAutoRef.current = true; setCompassMode(true); }
+    } else {
+      serialRotateAutoRef.current = false;
+    }
+  }, [serialGpsAktiv]);
   // Körvyns kompass-rotation (deviceorientation): 'av' = ej aktiverad, 'aktiv' = roterar,
   // 'nekad' = iOS-tillstånd nekat, 'saknas' = ingen sensor (t.ex. dator). Aldrig tyst död —
   // vid 'nekad'/'saknas' ligger kartan kvar i norr-upp (fungerar, roterar bara inte).
@@ -8281,8 +8296,13 @@ export default function PlannerPage() {
     return [coords];
   };
 
-  // Effective heading för Körvy: GPS-heading prioriteras (faktisk rörelse), annars enhetens kompass
-  const korvyHeading: number = gpsHeading != null ? gpsHeading : (deviceHeading || 0);
+  // Effective heading för Körvy. Serial-GPS (maskindator) el. saknad kompass → GPS-kurs;
+  // telefon med aktiv kompass → kompassen. Se lib/korvyHeading (ren + testad). Används av
+  // riktningskonen (visar alltid färdriktningen, oberoende av rotations-toggeln).
+  const korvyHeading: number = valjKorvyHeading({ serialAktiv: serialGpsAktiv, kompassAktiv: compassMode, gpsKurs: gpsHeading, deviceHeading });
+  // Kart-bearing: "Rotera kartan"-toggeln (compassMode) styr om kartan följer färdriktningen
+  // (heading-up) eller ligger norr-upp. På maskindatorn ger den nu rotation via GPS-kursen.
+  const kartBearing: number = compassMode ? korvyHeading : 0;
 
   // 1) Camera setup när korvyActive togglas: spara nuvarande kamera, sätt 3D-perspektiv. Avsluta → restore.
   useEffect(() => {
@@ -8314,7 +8334,7 @@ export default function PlannerPage() {
         // (terräng-exaggeration 1.0, ej 1.8 — se effekten nedan) gör att stenmurar/markeringar
         // inte förvrängs. Heading-up + följande = "det känns som att köra", ej statisk norr-upp.
         pitch: 28,
-        bearing: korvyHeading,
+        bearing: kartBearing,
         padding: { top: topPad, bottom: 0, left: 0, right: 0 },
         duration: 800,
       });
@@ -8344,13 +8364,13 @@ export default function PlannerPage() {
     korvyZoomRef.current += (rawZoom - korvyZoomRef.current) * 0.35;
     map.easeTo({
       center: [pos.lon, pos.lat],   // pricken centreras; padding.top skjuter ner den i nedre tredjedelen
-      bearing: korvyHeading,
+      bearing: kartBearing,
       zoom: korvyZoomRef.current,
       padding: { top: topPad, bottom: 0, left: 0, right: 0 },
       duration: 500,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, korvyActive, korvyNextItems, skotarKorvy, korvyFollowPaused]);
+  }, [currentPosition, korvyHeading, kartBearing, korvyActive, korvyNextItems, skotarKorvy, korvyFollowPaused]);
 
   // SKOTARKÖRVY (punkt 5): fingret drar kartan → pausa auto-följet ('dragstart' med originalEvent =
   // äkta gest, inte vår easeTo). Bunden en gång; dörrvaktar på skotarKorvyRef. Rensas vid utträde.
@@ -9187,6 +9207,19 @@ export default function PlannerPage() {
         try { if (map.getLayer(`planspar-${roll}-${suff}`) && map.getLayer('markers-layer')) map.moveLayer(`planspar-${roll}-${suff}`, 'markers-layer'); } catch { /* */ }
       }
     }
+    // === Körvyns z-ordning (nerifrån och upp) ===
+    // rekonstruerade stråk < andras hyttspår < eget hyttspår < produktionshögar/GROT < markörer/punkter/ytnummer.
+    // moveLayer(id) utan beforeId flyttar lagret ÖVERST → iterera nerifrån-och-upp så det sista hamnar högst.
+    // (GPS-pricken + larm flyttas överst separat varje tick → ligger kvar över allt.)
+    const KORVY_Z_ORDNING = [
+      'skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-line-aktiv', 'skordarstrak-label', 'skotar-hogar-dots',
+      'hyttspar-andras-casing', 'hyttspar-andras-line',
+      'hyttspar-hist-casing', 'hyttspar-hist-line', 'hyttspar-egen-casing', 'hyttspar-egen-line',
+      'grot-shadow', 'grot-circle', 'grot-label', 'hogar-cluster', 'hogar-cluster-label', 'hogar-hit', 'hogar-circle',
+      'markers-layer', 'markers-hit', 'markers-korvy-label', 'arrows-layer', 'arrows-hit',
+      'yta-nr-hit', 'yta-nr-label', 'trakt-punkt-circle', 'trakt-punkt-label',
+    ];
+    for (const id of KORVY_Z_ORDNING) { try { if (map.getLayer(id)) map.moveLayer(id); } catch { /* */ } }
     console.log('[Körvy] immersion-layers setup klar');
   }, [mapLibreReady]);
 
@@ -9249,7 +9282,7 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const vis = skotarKorvy ? 'visible' : 'none';
+    const vis = (skotarKorvy && overlays.rekonstrueradeStrak) ? 'visible' : 'none';   // lager-toggle "Rekonstruerade stråk"
     const lineFeatures: any[] = [];
     const labelFeatures: any[] = [];
     for (const s of strakData) {
@@ -9280,7 +9313,7 @@ export default function PlannerPage() {
     for (const id of ['skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-line-aktiv', 'skordarstrak-label']) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch { /* */ }
     }
-  }, [skotarKorvy, strakData, strakKvar, aktivStrakKey, mapLibreReady]);
+  }, [skotarKorvy, strakData, strakKvar, aktivStrakKey, mapLibreReady, overlays.rekonstrueradeStrak, korvyActive, korvyBasKarta]);
 
   // SKOTARKÖRVY (punkt 3): mata hög-prickarna. Varje redan-kvar-reducerad hög → punkt i sortiment-
   // färg (properties.color); aktiv-flagga = närmaste stråk ≤ STRAK_KLUMP_M OCH = aktiva stråket → större.
@@ -9305,9 +9338,26 @@ export default function PlannerPage() {
     try {
       const src = map.getSource('skotar-hogar-source') as any;
       if (src) src.setData({ type: 'FeatureCollection', features: feats });
-      if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', skotarKorvy ? 'visible' : 'none');
+      if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', (skotarKorvy && overlays.rekonstrueradeStrak) ? 'visible' : 'none');
     } catch (e) { console.error('[Skotarkörvy] hogar-dots setData:', e); }
-  }, [skotarKorvy, hogarVersion, aktivStrakKey, strakData, mapLibreReady]);
+  }, [skotarKorvy, hogarVersion, aktivStrakKey, strakData, mapLibreReady, overlays.rekonstrueradeStrak, korvyActive, korvyBasKarta]);
+
+  // === Körvy-lager-toggles: hyttspår (Mitt spår + andras spår) ===
+  // KEEP_PREFIX-whitelisten tänder alla hyttspar-* när körvyn aktiveras; dessa toggles släcker
+  // igen per enhet. korvyBasKarta i deps → applicera OM efter att whitelisten kört (körs efter
+  // den i filordningen → vinner). Utanför körvyn hålls de släckta (planeringsvyn ritar planspår).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const mitt = (overlays.mittSpar && korvyActive) ? 'visible' : 'none';
+    const andras = (overlays.andrasSpar && korvyActive) ? 'visible' : 'none';
+    for (const id of ['hyttspar-egen-casing', 'hyttspar-egen-line', 'hyttspar-hist-casing', 'hyttspar-hist-line']) {
+      try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', mitt); } catch { /* */ }
+    }
+    for (const id of ['hyttspar-andras-casing', 'hyttspar-andras-line']) {
+      try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', andras); } catch { /* */ }
+    }
+  }, [overlays.mittSpar, overlays.andrasSpar, korvyActive, korvyBasKarta, skotarKorvy, mapLibreReady]);
 
   // SKOTARKÖRVY: tryck på ett stråk → välj det (autopanelen visar dess sortiment). Bunden en gång;
   // dörrvaktar på skotarKorvyRef så den är passiv i övriga lägen.
@@ -13619,7 +13669,7 @@ export default function PlannerPage() {
             const map = mapInstanceRef.current; const pos = currentPosition as any;
             if (map && pos && pos.lon != null && pos.lat != null) {
               const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
-              map.easeTo({ center: [pos.lon, pos.lat], bearing: korvyHeading, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 500 });
+              map.easeTo({ center: [pos.lon, pos.lat], bearing: kartBearing, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 500 });
             }
           }}
           aria-label="Följ mig"
@@ -17725,6 +17775,23 @@ export default function PlannerPage() {
                   }} />
                 </div>
               </div>
+              {/* Körvy-spår: mitt spår, andras spår, rekonstruerade stråk. Default på, sparas per enhet. */}
+              {[
+                { key: 'mittSpar' as const, label: 'Mitt spår', farg: '#30d158' },
+                { key: 'andrasSpar' as const, label: andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', farg: '#a78bfa' },
+                { key: 'rekonstrueradeStrak' as const, label: 'Rekonstruerade stråk', farg: '#0a84ff' },
+              ].map(rad => (
+                <div key={rad.key}
+                  onClick={() => setOverlays(prev => ({ ...prev, [rad.key]: !prev[rad.key] }))}
+                  style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '16px', borderRadius: '12px', cursor: 'pointer' }}
+                >
+                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: overlays[rad.key] ? rad.farg : 'rgba(255,255,255,0.1)', transition: 'all 0.2s ease' }} />
+                  <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{rad.label}</span>
+                  <div style={{ width: '44px', height: '26px', borderRadius: '13px', background: overlays[rad.key] ? '#30d158' : 'rgba(255,255,255,0.1)', padding: '2px', transition: 'background 0.2s ease' }}>
+                    <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: overlays[rad.key] ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                  </div>
+                </div>
+              ))}
               {/* Kvar att köra — flyttad till huvudmenyn */}
             </div>
 
