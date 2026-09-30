@@ -3696,23 +3696,11 @@ export default function PlannerPage() {
   // positioner mellan stopp), null = inget. Driver källmärkningen i skotarpanelen. Data-gejtat: hyttspar
   // används bara om det har dugliga segment (≥5 pkt & ≥30 m), annars osynlig fallback på skordarstrak.
   const [strakKalla, setStrakKalla] = useState<'gps' | 'rekonstruerad' | null>(null);
-  // Valt/aktivt stråk identifieras med composite-nyckeln "maskin_id|strak_nr" (se strakKeyAv).
-  const [valtStrakKey, setValtStrakKey] = useState<string | null>(null);
-  // Autopanelen: KOMPAKT är default — hela listan åt halva skärmen i fält. Utfälld = förarens
-  // eget val, aldrig ett läge panelen hamnar i själv. Nollställs när man rullar till nästa stråk,
-  // annars ligger den kvar utfälld och äter kartan igen utan att någon bad om det.
-  const [panelUtfalld, setPanelUtfalld] = useState(false);
-  const panelSvepY = useRef<number | null>(null);   // touchstart-Y för svep-ner-fäller-ihop
   // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
   const [hogarVersion, setHogarVersion] = useState(0);
-  // Avbockade sortiment i utfällda autopanelen (nyckel "strakKey|kortnamn") → raden visas "Utkörd ✓"
-  // istället för "Klar här". Transient bekräftelse; nollställs vid stråkbyte (kvar-avdraget bor i DB).
-  const [klaradeStrakSort, setKlaradeStrakSort] = useState<Set<string>>(new Set());
-  const [klararStrakSort, setKlararStrakSort] = useState<string | null>(null);  // pågående skriv → knappen "Sparar…"
   const skotarKorvy = korvyActive && (korvyForceRoll ? korvyForceRoll === 'skotare' : minRoll === 'skotare');
   const skotarKorvyRef = useRef(false);
   useEffect(() => { skotarKorvyRef.current = skotarKorvy; }, [skotarKorvy]);
-  useEffect(() => { if (!skotarKorvy) setValtStrakKey(null); }, [skotarKorvy]);
 
   // ═══ HYTTSPÅR (realtids-körspår, steg 1) ════════════════════════════════════════════════════════
   // Appen loggar körvägen LIVE medan körvyn är öppen på ett objekt (BÅDA maskinerna). En rad per
@@ -7996,20 +7984,7 @@ export default function PlannerPage() {
     return null;
   }, [simulatedPos, currentPosition]);
 
-  // Närmaste stråk till föraren (autopanelens default-stråk), som composite-nyckel. Per GPS-tick.
-  const narmasteStrakKey = useMemo(() => {
-    if (!skotarKorvy || !korvyEffectivePos || strakData.length === 0) return null;
-    let key: string | null = null, bastD = Infinity;
-    for (const s of strakData) {
-      const d = avstandPunktTillStrak(korvyEffectivePos.lat, korvyEffectivePos.lon, s.geometri);
-      if (d < bastD) { bastD = d; key = strakKeyAv(s.maskin_id, s.strak_nr); }
-    }
-    return key;
-  }, [skotarKorvy, korvyEffectivePos, strakData]);
-
-  // Aktivt stråk (composite-nyckel): valt trumfar närmaste. Delas av kart-highlight (punkt 2),
-  // hög-prickarnas storlek (punkt 3) och autopanelen → panel och karta pekar på SAMMA stråk.
-  const aktivStrakKey = valtStrakKey ?? narmasteStrakKey;
+  // (Närmaste/aktivt stråk-beräkningen borttagen med autopanelen — ingen stråk-emfas längre.)
 
   // REN SKÄRM (fältfynd): GPS- och kartdata-statusraderna låg och krockade uppe t.v. i körvyn. De
   // flyttas in i +-menyn (som labels på uppdatera-raderna) + en TYST prick på +-knappen vid problem.
@@ -8033,86 +8008,6 @@ export default function PlannerPage() {
     const harVarning = !harProblem && (gpsGammal || dataGammal || !korvyEffectivePos); // GULT: gammal fix/kartdata eller ännu ingen fix (söker)
     return { gpsText, felKod, soker, gpsGammal, dataText, dataGammal, harProblem, harVarning };
   })();
-
-  // Fäll ihop autopanelen så fort man byter stråk (rullar vidare, trycker på ett annat stråk,
-  // lämnar skotarläget). Utfällt är ett tillfälligt uppslag, inte ett läge man fastnar i.
-  useEffect(() => { setPanelUtfalld(false); setKlaradeStrakSort(new Set()); }, [narmasteStrakKey, valtStrakKey, skotarKorvy]);
-
-  // "Klar här": registrera ETT sortiment på ETT stråk som utkört. Skriver skotning_uttag med RINGENS
-  // exakta radform (objekt_id, lat, lng, tradslag, volym, polygon_coords) — men en liten cirkel PER hög
-  // istället för en dragen polygon, så avdraget träffar exakt stråkets högar (två maskiners stråk kan
-  // ligga tätt; en hull-polygon skulle svälja grannstråkets högar). En .insert(rows) → delad
-  // registrerad_at (samma batch ⇒ ångras av den befintliga "Ångra"-knappen). Optimistisk kart-
-  // uppdatering via lib/skotat (draAvSparatSortiment) per cirkel; loadHogar skriver om kanoniskt strax.
-  const klarStrakSortiment = async (
-    aktKey: string,
-    kortnamn: string,
-    post: { hogar: { lng: number; lat: number; sv: Record<string, number> }[] },
-  ) => {
-    if (!valtObjekt?.id || klararStrakSort) return;
-    setKlararStrakSort(`${aktKey}|${kortnamn}`);
-    try {
-      const alla = hogarFeaturesRef.current;
-      // Adaptiv cirkelradie per hög: strax under avståndet till närmaste ANNAN hög → cirkeln rymmer
-      // bara sin egen hög (annars kunde ett grannuttag dras av). Golv 1 m, tak 8 m.
-      const narmasteM = (lng: number, lat: number): number => {
-        let d = Infinity;
-        for (const g of alla) {
-          const c = g?.geometry?.coordinates; if (!c) continue;
-          if (c[0] === lng && c[1] === lat) continue;
-          const dd = haversineM(lat, lng, c[1], c[0]);
-          if (dd < d) d = dd;
-        }
-        return d;
-      };
-      const cirkel = (lng: number, lat: number, rM: number): [number, number][] => {
-        const rLat = rM / 111320, rLng = rM / ((111320 * Math.cos(lat * Math.PI / 180)) || 1e-6);
-        return Array.from({ length: 8 }, (_, i) => { const a = (i / 8) * 2 * Math.PI; return [lng + rLng * Math.cos(a), lat + rLat * Math.sin(a)] as [number, number]; });
-      };
-      const rows: any[] = [];
-      const polyPerHog: [number, number][][] = [];
-      const rawSet = new Set<string>();
-      for (const h of post.hogar) {
-        const rawMatch = Object.entries(h.sv).filter(([raw, v]) => (Number(v) || 0) > 0 && kortSortiment(raw) === kortnamn);
-        if (rawMatch.length === 0) continue;
-        const rM = Math.max(1, Math.min(8, 0.45 * narmasteM(h.lng, h.lat)));
-        const poly = cirkel(h.lng, h.lat, rM);
-        polyPerHog.push(poly);
-        for (const [raw, v] of rawMatch) { rows.push({ objekt_id: valtObjekt.id, lat: h.lat, lng: h.lng, tradslag: raw, volym: Number(v) || 0, polygon_coords: poly }); rawSet.add(raw); }
-      }
-      if (rows.length === 0) { setKlaradeStrakSort(prev => new Set(prev).add(`${aktKey}|${kortnamn}`)); return; }
-      const { error } = await supabase.from('skotning_uttag').insert(rows);
-      if (error) { console.error('[Klar här] sparfel:', error); visaBesked('Kunde inte spara: ' + error.message); return; }
-      if (navigator.vibrate) navigator.vibrate(50);
-      setKlaradeStrakSort(prev => new Set(prev).add(`${aktKey}|${kortnamn}`));
-      // Optimistisk kart-uppdatering: dra av rå-sortimenten i varje högs cirkel (samma polygon som DB).
-      let feats = hogarFeaturesRef.current;
-      for (const poly of polyPerHog) feats = draAvSparatSortiment(feats, poly, rawSet);
-      for (let i = 0; i < feats.length; i++) feats[i].properties.pieIcon = `pie-${i}`;
-      try {
-        const m = mapInstanceRef.current;
-        const genPie = generatePieIconRef.current;
-        if (m && genPie) {
-          for (let i = 0; i < feats.length; i++) {
-            const iconId = `pie-${i}`;
-            const sv = JSON.parse(feats[i].properties.sortimentVolymJson || '{}');
-            const iconData = genPie(sv, 48, feats[i].properties.color);
-            if (m.hasImage(iconId)) m.removeImage(iconId);
-            m.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
-          }
-        }
-      } catch { /* */ }
-      hogarFeaturesRef.current = feats;
-      setHogarVersion(v => v + 1);   // stråk-etiketten + panelen räknas om (kvar sjunker direkt)
-      try {
-        const m = mapInstanceRef.current;
-        if (m?.getSource('hogar-source')) (m.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: feats });
-      } catch { /* */ }
-      setSkotningReload(prev => prev + 1);   // sistaUttag (ångra-knappen) + kvar-sidebaren
-    } finally {
-      setKlararStrakSort(null);
-    }
-  };
 
   const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
@@ -8816,23 +8711,7 @@ export default function PlannerPage() {
         });
       } catch (e) { console.error('[Skotarkörvy] line:', e); }
     }
-    // Aktiva stråket (punkt 2): ljusare + bredare blå ovanpå bas-linjen, filtrerat på 'aktiv'.
-    // Synkat med autopanelen (aktivStrakKey) så karta och panel pekar på SAMMA stråk.
-    if (!map.getLayer('skordarstrak-line-aktiv')) {
-      try {
-        map.addLayer({
-          id: 'skordarstrak-line-aktiv', type: 'line', source: 'skordarstrak-source',
-          filter: ['==', ['get', 'aktiv'], true],
-          paint: {
-            'line-color': '#4da3ff',
-            'line-opacity': 0.98,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3.4, 17, 6.5, 19, 9.5],
-            'line-blur': 0.4,
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
-        });
-      } catch (e) { console.error('[Skotarkörvy] line-aktiv:', e); }
-    }
+    // (Aktiv-stråk-emfasen borttagen — högarna/stråken ser likadana ut oavsett var maskinen står.)
     if (!map.getSource('skordarstrak-label-source')) {
       try { map.addSource('skordarstrak-label-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
       catch (e) { console.error('[Skotarkörvy] label-source:', e); }
@@ -8853,7 +8732,8 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Skotarkörvy] label:', e); }
     }
     // Produktionshögar som små prickar i sortiment-färg (punkt 3) — INTE fulla pie-ikoner (för rörigt
-    // i körfart). Aktiva stråkets högar större (×1.7). Data + synlighet i egen effekt (skotarKorvy).
+    // i körfart). Data + synlighet i egen effekt (skotarKorvy). Alla prickar samma storlek — ingen
+    // förstoring av "aktiva" stråket (togs bort: högarna ska se likadana ut oavsett maskinens läge).
     if (!map.getSource('skotar-hogar-source')) {
       try { map.addSource('skotar-hogar-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
       catch (e) { console.error('[Skotarkörvy] hogar-source:', e); }
@@ -8866,14 +8746,8 @@ export default function PlannerPage() {
             'circle-color': ['get', 'color'],
             'circle-stroke-color': 'rgba(255,255,255,0.85)',
             'circle-stroke-width': 1,
-            // Top-level zoom-interpolate (zoom MÅSTE vara direkt input till top-level interpolate/step —
-            // nästlat i t.ex. '*' förkastar MapLibre lagret TYST). Aktiv-förstoringen (×1.7) läggs i
-            // varje stops DATA-DRIVNA utdata istället → samma effekt, giltigt uttryck.
-            'circle-radius': ['interpolate', ['linear'], ['zoom'],
-              13, ['case', ['get', 'aktiv'], 3.4, 2],
-              16, ['case', ['get', 'aktiv'], 6.8, 4],
-              19, ['case', ['get', 'aktiv'], 11.9, 7],
-            ],
+            // Konstant storlek per zoom — ingen aktiv-förstoring (alla högar lika, oavsett maskinläge).
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 2, 16, 4, 19, 7],
             'circle-opacity': 0.95,
           },
           layout: { 'visibility': 'none' },
@@ -9212,7 +9086,7 @@ export default function PlannerPage() {
     // moveLayer(id) utan beforeId flyttar lagret ÖVERST → iterera nerifrån-och-upp så det sista hamnar högst.
     // (GPS-pricken + larm flyttas överst separat varje tick → ligger kvar över allt.)
     const KORVY_Z_ORDNING = [
-      'skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-line-aktiv', 'skordarstrak-label', 'skotar-hogar-dots',
+      'skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-label', 'skotar-hogar-dots',
       'hyttspar-andras-casing', 'hyttspar-andras-line',
       'hyttspar-hist-casing', 'hyttspar-hist-line', 'hyttspar-egen-casing', 'hyttspar-egen-line',
       'grot-shadow', 'grot-circle', 'grot-label', 'hogar-cluster', 'hogar-cluster-label', 'hogar-hit', 'hogar-circle',
@@ -9293,7 +9167,7 @@ export default function PlannerPage() {
       lineFeatures.push({
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: s.geometri },
-        properties: { strakKey: sKey, strak_nr: s.strak_nr, maskin_id: s.maskin_id, utkort, small, aktiv: sKey === aktivStrakKey },
+        properties: { strakKey: sKey, strak_nr: s.strak_nr, maskin_id: s.maskin_id, utkort, small },
       });
       if (!utkort && !small) {
         const mid = s.geometri[Math.floor(s.geometri.length / 2)];
@@ -9310,13 +9184,13 @@ export default function PlannerPage() {
       const lsrc = map.getSource('skordarstrak-label-source') as any;
       if (lsrc) lsrc.setData({ type: 'FeatureCollection', features: labelFeatures });
     } catch (e) { console.error('[Skotarkörvy] setData:', e); }
-    for (const id of ['skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-line-aktiv', 'skordarstrak-label']) {
+    for (const id of ['skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-label']) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch { /* */ }
     }
-  }, [skotarKorvy, strakData, strakKvar, aktivStrakKey, mapLibreReady, overlays.rekonstrueradeStrak, korvyActive, korvyBasKarta]);
+  }, [skotarKorvy, strakData, strakKvar, mapLibreReady, overlays.rekonstrueradeStrak, korvyActive, korvyBasKarta]);
 
   // SKOTARKÖRVY (punkt 3): mata hög-prickarna. Varje redan-kvar-reducerad hög → punkt i sortiment-
-  // färg (properties.color); aktiv-flagga = närmaste stråk ≤ STRAK_KLUMP_M OCH = aktiva stråket → större.
+  // färg (properties.color). Alla prickar lika stora — ingen aktiv-förstoring (borttagen).
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -9325,14 +9199,7 @@ export default function PlannerPage() {
       for (const f of hogarFeaturesRef.current) {
         const c = f?.geometry?.coordinates;
         if (!c || c.length < 2) continue;
-        const lng = c[0], lat = c[1];
-        let bastKey: string | null = null, bastD = Infinity;
-        for (const s of strakData) {
-          const d = avstandPunktTillStrak(lat, lng, s.geometri);
-          if (d < bastD) { bastD = d; bastKey = strakKeyAv(s.maskin_id, s.strak_nr); }
-        }
-        const aktiv = bastKey != null && bastD <= STRAK_KLUMP_M && bastKey === aktivStrakKey;
-        feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: { color: f.properties?.color || '#6b7c3a', aktiv } });
+        feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [c[0], c[1]] }, properties: { color: f.properties?.color || '#6b7c3a' } });
       }
     }
     try {
@@ -9340,7 +9207,7 @@ export default function PlannerPage() {
       if (src) src.setData({ type: 'FeatureCollection', features: feats });
       if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', (skotarKorvy && overlays.rekonstrueradeStrak) ? 'visible' : 'none');
     } catch (e) { console.error('[Skotarkörvy] hogar-dots setData:', e); }
-  }, [skotarKorvy, hogarVersion, aktivStrakKey, strakData, mapLibreReady, overlays.rekonstrueradeStrak, korvyActive, korvyBasKarta]);
+  }, [skotarKorvy, hogarVersion, strakData, mapLibreReady, overlays.rekonstrueradeStrak, korvyActive, korvyBasKarta]);
 
   // === Körvy-lager-toggles: hyttspår (Mitt spår + andras spår) ===
   // KEEP_PREFIX-whitelisten tänder alla hyttspar-* när körvyn aktiveras; dessa toggles släcker
@@ -9359,21 +9226,8 @@ export default function PlannerPage() {
     }
   }, [overlays.mittSpar, overlays.andrasSpar, korvyActive, korvyBasKarta, skotarKorvy, mapLibreReady]);
 
-  // SKOTARKÖRVY: tryck på ett stråk → välj det (autopanelen visar dess sortiment). Bunden en gång;
-  // dörrvaktar på skotarKorvyRef så den är passiv i övriga lägen.
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    const onStrakClick = (e: any) => {
-      if (!skotarKorvyRef.current) return;
-      const f = e.features?.[0];
-      if (!f) return;
-      const key = f.properties?.strakKey;
-      if (key != null) setValtStrakKey(String(key));
-    };
-    map.on('click', 'skordarstrak-line', onStrakClick);
-    return () => { try { map.off('click', 'skordarstrak-line', onStrakClick); } catch { /* */ } };
-  }, [mapLibreReady]);
+  // (Tryck-på-stråk för att "välja stråk" borttaget tillsammans med autopanelen — högarna +
+  // hög-tryck-popupen är enda vägen; inget stråk-val, ingen emfas.)
 
   // === KÖRVY: visibility-toggle för alla immersion-layers + markers-layer alignment ===
   useEffect(() => {
@@ -13454,209 +13308,7 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === SKOTARKÖRVY: AUTOPANEL — närmaste stråkets sortimentsfördelning (byts när man rullar
-           över till nästa stråk). Tryck på ett stråk visar samma panel för stråk man inte står på. === */}
-      {skotarKorvy && (() => {
-        const aktivKey = valtStrakKey ?? narmasteStrakKey;
-        if (aktivKey == null) return null;
-        const post = strakKvar.get(aktivKey);
-        if (!post) return null;
-        // Namnen kommer råa ur sortimentVolymJson ("Björk Massa: BjörkmavFall_V3"). Kör dem genom
-        // SAMMA kortnamnskälla som skotningspanelen (kortSortiment) — två råa apteringsnamn kan
-        // falla ut på samma kortnamn, så summera EFTER förkortningen, aldrig före.
-        const perKort: Record<string, number> = {};
-        for (const [ra, v] of Object.entries(post.sortiment)) {
-          const vol = Number(v) || 0;
-          if (vol <= 0) continue;
-          const k = kortSortiment(ra);
-          perKort[k] = (perKort[k] || 0) + vol;
-        }
-        // Störst först. Allt under OVRIGT_M3 slås ihop till en "Övrigt"-rad sist — en skotare ska
-        // se de sortiment som är värda ett lass, inte en lista med decimalrester.
-        const sorterade = Object.entries(perKort).sort((a, b) => b[1] - a[1]);
-        const rader = sorterade.filter(([, v]) => v >= OVRIGT_M3);
-        const ovrigt = sorterade.reduce((s, [, v]) => s + (v < OVRIGT_M3 ? v : 0), 0);
-        const visaOvrigt = ovrigt > 0.05;
-        const arValt = valtStrakKey != null && valtStrakKey !== narmasteStrakKey;
-        const utkort = post.total <= 0.05;
-        // KOMPAKT: de tre största sortimenten på en rad. Fler än så ryms inte utan att kartan
-        // försvinner — resten finns kvar ett tryck bort i den utfällda listan.
-        const topp3 = rader.slice(0, 3);
-        // Avbockning (utfällt): aktiva rader = ännu ej "Klar här"-markerade (efter avbockning droppar
-        // sortimentet ur kvar → ur rader, men vi visar det kvar som "Utkörd ✓" ur klaradeStrakSort).
-        const aktivaRader = rader.filter(([namn]) => !klaradeStrakSort.has(`${aktivKey}|${namn}`));
-        const doneKort = [...klaradeStrakSort].filter(k => k.startsWith(`${aktivKey}|`)).map(k => k.slice(String(aktivKey).length + 1));
-        return (
-          <div
-            role="button" tabIndex={0}
-            aria-expanded={panelUtfalld}
-            aria-label={panelUtfalld ? 'Fäll ihop stråkpanelen' : 'Visa alla sortiment för stråket'}
-            onClick={() => { if (navigator.vibrate) navigator.vibrate(8); setPanelUtfalld(v => !v); }}
-            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPanelUtfalld(v => !v); } }}
-            onTouchStart={e => { panelSvepY.current = e.touches[0]?.clientY ?? null; }}
-            onTouchEnd={e => {
-              // Svep NER fäller ihop. Bara när listan redan är uppe vid toppen, annars krockar
-              // svepet med att skrolla i en lång sortimentlista.
-              const start = panelSvepY.current; panelSvepY.current = null;
-              if (start == null || !panelUtfalld) return;
-              const slut = e.changedTouches[0]?.clientY ?? start;
-              if (slut - start > 40 && (e.currentTarget as HTMLDivElement).scrollTop <= 0) setPanelUtfalld(false);
-            }}
-            style={{
-              position: 'fixed', left: 12, right: 92,
-              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-              maxWidth: 520,
-              // Kompakt har ingen höjdspärr — den behöver ingen. Innehållet ÄR två rader
-              // (rubrikrad + tre sortiment), så panelen kan inte växa. En vh-spärr hade i stället
-              // klippt bort sortimenten på låga skärmar, vilket är värre än några pixlar extra.
-              maxHeight: panelUtfalld ? '42vh' : undefined,
-              overflowY: panelUtfalld ? 'auto' : 'hidden',
-              background: 'rgba(28,28,30,0.92)',
-              backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-              border: `1px solid ${utkort ? 'rgba(255,255,255,0.08)' : 'rgba(10,132,255,0.55)'}`,
-              borderRadius: 18, padding: '12px 14px', zIndex: 250, color: '#fff', cursor: 'pointer',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-            }}>
-            {/* KÄLLMÄRKNING: visar OM stråklinjerna är skördarens riktiga hyttspår (verifierat) eller
-                den rekonstruerade skordarstrak (arbetspositioner mellan stopp). Data-gejtat i fetchen. */}
-            {strakKalla && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, fontSize: 11, fontWeight: 600, letterSpacing: 0.3,
-                  color: strakKalla === 'gps' ? '#30d158' : '#8e8e93' }}>
-                <span style={{ width: 7, height: 7, borderRadius: 4, background: strakKalla === 'gps' ? '#30d158' : '#8e8e93', flexShrink: 0 }} aria-hidden="true" />
-                {strakKalla === 'gps' ? 'Verifierat GPS-spår' : 'Uppskattat'}
-              </div>
-            )}
-            {/* KOMPAKT rubrik: allt föraren behöver på EN rad — "Stråk N · X m³ kvar".
-                Versaletiketten är utfälld-lägets lyx; i kompakt kostar den en hel rad höjd, och
-                mätt på 375–412 px vred den rubriken till två rader. */}
-            {!panelUtfalld ? (
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: topp3.length ? 7 : 0 }}>
-                {arValt && (
-                  <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: '#0a84ff', textTransform: 'uppercase', flexShrink: 0 }}>Valt</span>
-                )}
-                <span style={{ fontSize: 17, fontWeight: 700, flexShrink: 0 }}>Stråk {post.strak_nr}</span>
-                <span style={{ color: '#5a5a5f', fontSize: 15, flexShrink: 0 }} aria-hidden="true">·</span>
-                {utkort ? (
-                  <span style={{ fontSize: 15, fontWeight: 700, color: '#8e8e93' }}>Utkört ✓</span>
-                ) : (
-                  <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                    {post.total.toFixed(1)} <span style={{ fontSize: 13, fontWeight: 600, color: '#8e8e93' }}>m³ kvar</span>
-                  </span>
-                )}
-                <span style={{ flex: 1 }} />
-                {(rader.length || visaOvrigt) ? (
-                  <span className="material-symbols-outlined" aria-hidden="true"
-                    style={{ flexShrink: 0, fontSize: 20, color: '#8e8e93', alignSelf: 'center' }}>expand_less</span>
-                ) : null}
-                {arValt && (
-                  <button type="button" aria-label="Tillbaka till närmaste stråk"
-                    onClick={e => { e.stopPropagation(); setValtStrakKey(null); }}
-                    style={{ flexShrink: 0, alignSelf: 'center', width: 30, height: 30, borderRadius: 15, border: 'none', cursor: 'pointer',
-                      background: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
-                  </button>
-                )}
-              </div>
-            ) : (
-            /* UTFÄLLD rubrik: Stråk N + total kvar, med etiketten som säger vilket stråk det är */
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: (rader.length || visaOvrigt) ? 8 : 0 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: utkort ? '#8e8e93' : '#0a84ff', textTransform: 'uppercase' }}>
-                  {arValt ? 'Valt stråk' : 'Vid stråket'}
-                </div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>Stråk {post.strak_nr}</div>
-              </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                {utkort ? (
-                  <span style={{ fontSize: 15, fontWeight: 700, color: '#8e8e93' }}>Utkört ✓</span>
-                ) : (
-                  <span style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                    {post.total.toFixed(1)} <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93' }}>m³ kvar</span>
-                  </span>
-                )}
-              </div>
-              {(rader.length || visaOvrigt) ? (
-                <span className="material-symbols-outlined" aria-hidden="true"
-                  style={{ flexShrink: 0, fontSize: 20, color: '#8e8e93' }}>expand_more</span>
-              ) : null}
-              {arValt && (
-                <button type="button" aria-label="Tillbaka till närmaste stråk"
-                  onClick={e => { e.stopPropagation(); setValtStrakKey(null); }}
-                  style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 15, border: 'none', cursor: 'pointer',
-                    background: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
-                </button>
-              )}
-            </div>
-            )}
-            {/* KOMPAKT: de tre största. Posterna WRAPPAR hellre än kortas — mätt på 320–412 px blev
-                "Gran timmer" till "Gran ti…" när de tvingades dela raden lika. Ett halvt namn är
-                värdelöst för en skotare; en extra rad kostar 18 px. */}
-            {!panelUtfalld && topp3.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '3px 12px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 7 }}>
-                {topp3.map(([namn, vol]) => (
-                  <div key={namn} style={{ display: 'flex', alignItems: 'center', gap: 5, flex: '0 1 auto', minWidth: 0 }}>
-                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: sortimentFargKorvy(namn), flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
-                    <span style={{ minWidth: 0, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{namn}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{vol.toFixed(1)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {/* UTFÄLLT: hela listan — kortnamn + samma färger som skotningspanelen, störst först.
-                Varje rad har "Klar här" → registrerar det sortimentets högar på stråket som utkörda
-                (ringens skrivväg). Knapparna finns BARA utfällt; kompakta laget rörs inte. */}
-            {panelUtfalld && aktivaRader.map(([namn, vol]) => {
-              const sparar = klararStrakSort === `${aktivKey}|${namn}`;
-              return (
-                <div key={namn} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <span style={{ width: 16, height: 16, borderRadius: '50%', background: sortimentFargKorvy(namn), flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{namn}</span>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{vol.toFixed(1)} m³</span>
-                  <button type="button"
-                    onClick={e => { e.stopPropagation(); if (!sparar) klarStrakSortiment(String(aktivKey), namn, post); }}
-                    disabled={sparar}
-                    aria-label={`Markera ${namn} som utkört på stråk ${post.strak_nr}`}
-                    style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(48,209,88,0.5)',
-                      background: 'rgba(48,209,88,0.15)', color: '#30d158', fontSize: 13, fontWeight: 700,
-                      cursor: sparar ? 'default' : 'pointer', fontFamily: 'inherit', opacity: sparar ? 0.6 : 1 }}>
-                    {sparar ? 'Sparar…' : 'Klar här'}
-                  </button>
-                </div>
-              );
-            })}
-            {/* Avbockade sortiment: dämpad "Utkörd ✓"-rad (bekräftelse; kvar sjönk redan på kartan). */}
-            {panelUtfalld && doneKort.map(namn => (
-              <div key={`done-${namn}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)', opacity: 0.55 }}>
-                <span style={{ width: 16, height: 16, borderRadius: '50%', background: sortimentFargKorvy(namn), flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: 'line-through' }}>{namn}</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#30d158', flexShrink: 0 }}>Utkörd ✓</span>
-              </div>
-            ))}
-            {panelUtfalld && visaOvrigt && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid rgba(255,255,255,0.06)', opacity: 0.65 }}>
-                <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#8e8e93', flexShrink: 0, border: '1px solid rgba(0,0,0,0.25)' }} aria-hidden="true" />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Övrigt</span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: '#8e8e93', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{ovrigt.toFixed(1)} m³</span>
-              </div>
-            )}
-            {/* Ångra-livlina i hytten: undo av senaste uttags-batchen (samma angraSenasteUttag som
-                skotningspanelen; raderar exakt registrerad_at-batchen, 0 rader = synligt fel). Surfad
-                här så avbockningen kan ångras utan att lämna körvyn. Bara utfällt. */}
-            {panelUtfalld && sistaUttag && (
-              <button type="button"
-                onClick={e => { e.stopPropagation(); angraSenasteUttag(); setKlaradeStrakSort(new Set()); }}
-                aria-label="Ångra senaste uttag"
-                style={{ marginTop: 8, width: '100%', padding: '9px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'transparent', color: '#8e8e93', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 17 }}>undo</span>
-                Ångra senaste ({sistaUttag.count} st · {sistaUttag.volym.toFixed(1)} m³)
-              </button>
-            )}
-          </div>
-        );
-      })()}
+      {/* Skotarkörvyns stråk-autopanel (närmaste stråkets sortiment) borttagen — pekade på fel stråk / visade redan utkört virke (Daniel, fältfynd). Högarna på kartan + tryck-popupen räcker. */}
 
       {/* SKOTARKÖRVY (punkt 5): "Följ mig" — visas bara när föraren panorerat iväg (följet pausat).
           Tryck återupptar auto-följet + recentrerar direkt på GPS. Ovanför +-knappen, klar av panelen. */}
