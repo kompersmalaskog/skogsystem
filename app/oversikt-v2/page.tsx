@@ -68,6 +68,7 @@ async function vagRutt(from: { lat: number; lng: number }, to: { lat: number; ln
     const r = await fetch(`/api/routing?fromLat=${from.lat}&fromLng=${from.lng}&toLat=${to.lat}&toLng=${to.lng}&withGeometry=1`);
     const j = await r.json();
     const geom: [number, number][] | null = Array.isArray(j.geometry) ? j.geometry : null;
+    if (!geom) console.warn(`[oversikt-v2] ingen väggeometri ${from.lat.toFixed(3)},${from.lng.toFixed(3)}→${to.lat.toFixed(3)},${to.lng.toFixed(3)}: ${j.orsError ?? j.source}`); // skäl i konsolen
     return { km: geom && typeof j.km === 'number' ? j.km : null, geom };
   } catch { return { km: null, geom: null }; }
 }
@@ -95,7 +96,7 @@ const varnText = (w: ObjWarn | undefined): { text: string; color: string } | nul
 const harMaskin = (o: OversiktObjekt) => !!((o as any).skordare_maskin_id || (o as any).skotare_maskin_id);
 
 // Prick/ring per objekt. form:'ring' = väntar (planerad OCH otilldelad). 'fill' = fylld.
-// utzoom = visas även utzoomad (maskiner-nivå: pågående + väntande ringar).
+// utzoom = visas även utzoomad. Utzoomat göms BARA avslutade → allt annat (pågår/planerad/kö/ring) = true.
 // namnbar = får namn-etikett vid inzoomning (pågår/planerad/väntar). Avslutade aldrig.
 // halo = vit ytterkant + mörk kontur för att lyfta från ljus topografi (ej avslutade).
 interface DotDesc { form: 'ring' | 'fill'; color: string; opacity: number; size: number; utzoom: boolean; namnbar: boolean; halo: boolean }
@@ -104,7 +105,7 @@ function dotDesc(o: OversiktObjekt, iKo: boolean): DotDesc | null {
   if (STATUS_AKTIV.includes(o.status)) return { form: 'fill', color: FARG.gron, opacity: 1, size: 18, utzoom: true, namnbar: true, halo: true }; // pågår = grön
   if (o.status === 'planerad') {
     return (harMaskin(o) || iKo)
-      ? { form: 'fill', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: false, namnbar: true, halo: true }  // tilldelad (maskin el. kö) = grå
+      ? { form: 'fill', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: true, namnbar: true, halo: true }  // tilldelad (maskin el. kö) = grå, syns även utzoomat
       : { form: 'ring', color: GRAY_DOT, opacity: 1, size: 18, utzoom: true, namnbar: true, halo: true };  // väntar = ihålig ring
   }
   if (STATUS_AVSLUTADE.includes(o.status)) {
@@ -118,6 +119,13 @@ function dotDesc(o: OversiktObjekt, iKo: boolean): DotDesc | null {
 }
 
 const nastaAv = (f: MaskinForslag) => f.ko[0]?.objekt ?? null;
+// Routing-ORIGO: står maskinen på ett känt objekt → rutta från OBJEKTETS koordinat (stabil, nära väg),
+// inte stam-GPS:en mitt i beståndet. Markören står kvar på f.koordinat. Fallback: positionen.
+function ruttStart(f: MaskinForslag): { lat: number; lng: number } | null {
+  const o = f.nuObjekt;
+  if (o && o.lat != null && o.lng != null) return { lat: o.lat, lng: o.lng };
+  return f.koordinat ?? null;
+}
 
 export default function OversiktV2Page() {
   const { medarbetare, loading: rollLaddar } = useCurrentMedarbetare();
@@ -211,7 +219,7 @@ export default function OversiktV2Page() {
     const f = forslag.get(selMaskin); if (!f?.koordinat || !f.ko.length) return;
     let cancelled = false;
     (async () => {
-      const punkter = [f.koordinat, ...f.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? { lat: p.objekt.lat, lng: p.objekt.lng } : null))];
+      const punkter = [ruttStart(f), ...f.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? { lat: p.objekt.lat, lng: p.objekt.lng } : null))];
       for (let i = 1; i < punkter.length; i++) { const a = punkter[i - 1], b = punkter[i]; if (a && b) await vagRuttCached(a, b); }
       if (!cancelled) setRuttVersion((v) => v + 1);
     })();
@@ -376,7 +384,7 @@ export default function OversiktV2Page() {
     const f = selMaskin ? forslag.get(selMaskin) : null;
     if (f?.koordinat) {
       const koObj = koPreview ?? f.ko.map((p) => p.objekt); // live drag-ordning om aktiv
-      const pts: ({ lat: number; lng: number } | null)[] = [{ lat: f.koordinat.lat, lng: f.koordinat.lng }, ...koObj.map((o) => (o.lat != null && o.lng != null ? { lat: o.lat, lng: o.lng } : null))];
+      const pts: ({ lat: number; lng: number } | null)[] = [ruttStart(f), ...koObj.map((o) => (o.lat != null && o.lng != null ? { lat: o.lat, lng: o.lng } : null))];
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i]; if (!a || !b) continue;
         const dimmed = i > 1; // ben 1 (nu→1) fast, ben 2+ dämpat
@@ -448,9 +456,10 @@ export default function OversiktV2Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forslag, maskiner, mapStyleLoaded, sublabelText, layoutLabels]);
 
-  // Auto-fit en gång
+  // Auto-fit en gång (flott-översikt). Hoppas över om en maskin redan är vald → urvals-fit äger kameran (förarläge).
   useEffect(() => {
     const map = mapRef.current; if (!map || !mapStyleLoaded || didFitRef.current) return;
+    if (selRef.current) { didFitRef.current = true; return; }
     const pts: [number, number][] = [];
     forslag.forEach((f) => { if (f.koordinat) pts.push([f.koordinat.lng, f.koordinat.lat]); const n = nastaAv(f); if (n && n.lat != null && n.lng != null) pts.push([n.lng, n.lat]); });
     if (!pts.length) return; didFitRef.current = true;
@@ -515,7 +524,7 @@ export default function OversiktV2Page() {
         nameChip.textContent = o.namn;
         stopMarkersRef.current.push(new window.maplibregl.Marker({ element: nameChip, anchor: 'bottom', offset: [0, -18] }).setLngLat([o.lng, o.lat]).addTo(map));
         // km ur klient-cachen (route-cache); miss → '–' (inga routing-anrop mitt i ett drag)
-        const prev = i === 0 ? (f?.koordinat ?? null) : (koObj[i - 1].lat != null ? { lat: koObj[i - 1].lat!, lng: koObj[i - 1].lng! } : null);
+        const prev = i === 0 ? (f ? ruttStart(f) : null) : (koObj[i - 1].lat != null ? { lat: koObj[i - 1].lat!, lng: koObj[i - 1].lng! } : null);
         const to = { lat: o.lat, lng: o.lng };
         if (prev) {
           const km = legKmCache(prev, to); const geom = legGeomCache(prev, to); const kmChip = document.createElement('div');
@@ -531,10 +540,29 @@ export default function OversiktV2Page() {
 
   useEffect(() => {
     restyleSelection(); layoutLabels();
-    const map = mapRef.current;
-    if (map && selMaskin && !ordnaRef.current) { const f = forslag.get(selMaskin); if (f?.koordinat) map.easeTo({ center: [f.koordinat.lng, f.koordinat.lat], offset: [0, -150], zoom: Math.max(map.getZoom(), 12), duration: 500 }); } // aldrig auto-flytt medan ordningen redigeras
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selMaskin, ruttVersion, forslag, restyleSelection, layoutLabels]);
+
+  // Tryck på maskin → passa in maskin + alla kö-objekt EN gång (padding så allt ligger ovanför arket).
+  // Rör sig aldrig igen förrän användaren zoomar/panorerar eller väljer annan maskin. Ryms allt redan: ingen rörelse.
+  const fitSelRef = useRef<string | null>(null);
+  useEffect(() => {
+    const map = mapRef.current; if (!map || !mapStyleLoaded) return;
+    if (!selMaskin) { fitSelRef.current = null; return; }
+    if (fitSelRef.current === selMaskin || ordnaRef.current) return; // redan inpassad, el. redigering äger kameran
+    const f = forslag.get(selMaskin); if (!f) return;
+    const pts: [number, number][] = [];
+    if (f.koordinat) pts.push([f.koordinat.lng, f.koordinat.lat]); // markören (stammen)
+    f.ko.forEach((p) => { if (p.objekt.lat != null && p.objekt.lng != null) pts.push([p.objekt.lng, p.objekt.lat]); });
+    if (!pts.length) return;
+    fitSelRef.current = selMaskin;
+    const C = map.getContainer(); const W = C.clientWidth, H = C.clientHeight;
+    const padT = 80, padSide = 40, padBot = Math.round(H * 0.42); // botten = arkets höjd (route ovanför)
+    const inside = pts.every((p) => { const s = map.project(p); return s.x >= padSide && s.x <= W - padSide && s.y >= padT && s.y <= H - padBot; });
+    if (inside) return; // ryms redan ovanför arket → rör inte kameran
+    if (pts.length === 1) map.easeTo({ center: pts[0], zoom: Math.max(map.getZoom(), 12), duration: 500 });
+    else { const b = new window.maplibregl.LngLatBounds(); pts.forEach((p) => b.extend(p)); map.fitBounds(b, { padding: { top: padT, left: padSide, right: padSide, bottom: padBot }, maxZoom: 14, duration: 500 }); }
+  }, [selMaskin, forslag, mapStyleLoaded]);
 
   // ── kö-skrivningar (v2:s egna; rör aldrig OversiktMaskiner) ──
   const laggIKo = useCallback(async (maskinId: string, objektId: string) => {
@@ -571,7 +599,7 @@ export default function OversiktV2Page() {
     ordnaRef.current = true; // hädanefter rör kartan sig inte av sig själv förrän Klar
     const koObj = f.ko.map((p) => p.objekt);
     setKoPreview(koObj);
-    const punkter = [f.koordinat, ...koObj.filter((o) => o.lat != null && o.lng != null).map((o) => ({ lat: o.lat!, lng: o.lng! }))];
+    const punkter = [ruttStart(f)!, ...koObj.filter((o) => o.lat != null && o.lng != null).map((o) => ({ lat: o.lat!, lng: o.lng! }))];
     // Förhämta ALLA par-ben (väggeometri + km) så en ny drag-ordning kan rita riktig vägrutt direkt;
     // det som inte hunnit cachas ritas som rak grå tills släpp. Inga anrop sker sedan mitt i draget.
     (async () => { for (let i = 0; i < punkter.length; i++) for (let j = 0; j < punkter.length; j++) if (i !== j) await vagRuttCached(punkter[i], punkter[j]); setRuttVersion((v) => v + 1); })();
@@ -594,7 +622,7 @@ export default function OversiktV2Page() {
   // Arkets km per ben (vald maskins fasta kö) ur rutt-cachen; miss → null ("–"). ruttVersion → uppdateras när ORS svarat.
   const selLegs = useMemo(() => {
     if (!valt?.koordinat) return [] as (number | null)[];
-    const pts: ({ lat: number; lng: number } | null)[] = [{ lat: valt.koordinat.lat, lng: valt.koordinat.lng }, ...valt.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? { lat: p.objekt.lat, lng: p.objekt.lng } : null))];
+    const pts: ({ lat: number; lng: number } | null)[] = [ruttStart(valt), ...valt.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? { lat: p.objekt.lat, lng: p.objekt.lng } : null))];
     const out: (number | null)[] = [];
     for (let i = 1; i < pts.length; i++) out.push(legKmCache(pts[i - 1], pts[i]));
     return out;
