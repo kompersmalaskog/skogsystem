@@ -167,6 +167,16 @@ _env = os.environ.copy()
 _env['PYTHONUTF8'] = '1'
 
 
+def filer_i_kon(ext: str) -> list:
+    """Filer i Inkommande med given ändelse (".hpr"), skiftlägesokänsligt —
+    EN träff per fil. glob("*.hpr") + glob("*.HPR") gav varje fil TVÅ gånger
+    på Windows (NTFS är skiftlägesokänsligt): loggen sade "2 .hpr" om en
+    fil och fördelnings-POST:en gjordes två gånger (cachen svalde den andra).
+    Bara toppnivån — undermappar är parkering, inte kö (gap_check del 7)."""
+    return sorted(p for p in Path(WATCH_DIR).iterdir()
+                  if p.is_file() and p.suffix.lower() == ext)
+
+
 def run_mom_import():
     """Kör skogsmaskin_import_version_6.py icke-interaktivt.
 
@@ -386,10 +396,9 @@ def periodic_scan():
     while True:
         time.sleep(PERIODIC_SCAN_INTERVAL)
         try:
-            mom_files = list(Path(WATCH_DIR).glob("*.mom")) + list(Path(WATCH_DIR).glob("*.MOM"))
-            hpr_files = list(Path(WATCH_DIR).glob("*.hpr")) + list(Path(WATCH_DIR).glob("*.HPR"))
-            other = list(Path(WATCH_DIR).glob("*.hqc")) + list(Path(WATCH_DIR).glob("*.HQC"))
-            other += list(Path(WATCH_DIR).glob("*.fpr")) + list(Path(WATCH_DIR).glob("*.FPR"))
+            mom_files = filer_i_kon(".mom")
+            hpr_files = filer_i_kon(".hpr")
+            other = filer_i_kon(".hqc") + filer_i_kon(".fpr")
             total = len(mom_files) + len(hpr_files) + len(other)
             if total == 0:
                 continue
@@ -405,9 +414,13 @@ def periodic_scan():
             if hpr_files:
                 for f in hpr_files:
                     post_hpr_fordelning(str(f))
+            # Huvudimporten läser ALLA fyra filtyperna — en fil av vilken sort
+            # som helst i kön räcker. Fram till 2026-10-01 kördes den här bara
+            # när MOM/HQC/FPR låg i kön; en kö med enbart HPR stod still till
+            # nästa MOM-fil. Se kommentaren i _handle().
+            logger.info(">>> Periodisk scan: kör huvudimporten")
+            run_mom_import()
             if mom_files or other:
-                logger.info(">>> Periodisk scan: kör MOM-import")
-                run_mom_import()
                 notify_vercel()
             if hpr_files:
                 logger.info(">>> Periodisk scan: kör HPR-import")
@@ -457,28 +470,40 @@ class IncomingFileHandler(FileSystemEventHandler):
         logger.info(f"Väntar {SETTLE_DELAY}s för att filen ska skrivas klart...")
         time.sleep(SETTLE_DELAY)
 
-        if ext == ".mom":
-            # MOM-importen flyttar ALLA filtyper till Behandlade — .hpr-filer
-            # vars events inte hunnit fyra måste POST:as till fördelningen
-            # INNAN de flyttas (lokala cachen gör om-POST billig/ofarlig).
-            for hpr in list(Path(WATCH_DIR).glob("*.hpr")) + list(Path(WATCH_DIR).glob("*.HPR")):
-                post_hpr_fordelning(str(hpr))
-            logger.info(f">>> Kör MOM-import för: {basename}")
-            run_mom_import()
-            notify_vercel()
-            # Kör HPR-import efteråt (MOM-import flyttar filer till Behandlade)
-            logger.info(f">>> Kör HPR-import (efter MOM-flytt)")
-            run_hpr_import()
-            run_efterberakning()
+        if not os.path.exists(filepath):
+            # Händelser köar sig medan kedjan kör (hanteraren är synkron), och
+            # när kön töms är filen ofta redan flyttad till Behandlade av en
+            # tidigare körning. 2026-10-01 kom tre modified-events för
+            # "Älmehult … 1654.hpr" 17:08–17:15, elva minuter efter att
+            # huvudparsern flyttat den (16:57): tre fulla kedjor (3 min
+            # efterberäkning var) för en fil som inte fanns i kön.
+            logger.info(f"Redan borta ur Inkommande (flyttad av en tidigare körning), hoppar: {basename}")
+            return
 
-        elif ext == ".hpr":
-            # Fördelningsuppföljningen först, medan filen ännu ligger i
-            # Inkommande (importen nedan flyttar den till Behandlade).
-            # Fel härifrån stoppar aldrig importen.
-            post_hpr_fordelning(filepath)
-            logger.info(f">>> Kör HPR-import för: {basename}")
-            run_hpr_import()
-            run_efterberakning()
+        # Samma kedja för .mom och .hpr. "MOM-importen" (run_mom_import →
+        # skogsmaskin_import_version_6.py) är HUVUDIMPORTEN: den läser alla
+        # fyra filtyperna ur Inkommande, skriver detalj_stam/detalj_stock/
+        # fakt_sortiment för HPR och flyttar filerna till Behandlade.
+        # import_hpr.py (run_hpr_import) läser BARA Behandlade (hpr_filer/
+        # hpr_stammar). Fram till 2026-10-01 körde .hpr-vägen bara
+        # import_hpr.py — namnet "MOM-import" lästes som "för MOM-filer" när
+        # scannen skrevs 2026-05-10 — så en HPR-fil utan MOM-sällskap låg
+        # kvar i kön tills nästa MOM-fil (eller en HQC/FPR i scannen) drog
+        # i gång huvudimporten. HPR behöver inget ur MOM: dim_objekt,
+        # dim_sortiment och dim_tradslag upsertas i HPR-vägen själv.
+        #
+        # Fördelnings-POST för ALLA .hpr i kön FÖRST — huvudimporten flyttar
+        # alla filtyper till Behandlade, och .hpr-filer vars events inte
+        # hunnit fyra skulle annars vara borta (cachen gör om-POST billig).
+        for hpr in filer_i_kon(".hpr"):
+            post_hpr_fordelning(str(hpr))
+        logger.info(f">>> Kör huvudimporten för: {basename}")
+        run_mom_import()
+        if ext == ".mom":
+            notify_vercel()   # arbetsdag-synken bygger på fakt_skift ur MOM
+        logger.info(">>> Kör HPR-import (efter flytt till Behandlade)")
+        run_hpr_import()
+        run_efterberakning()
 
 
 # ============================================================
@@ -521,21 +546,30 @@ def main():
         sys.exit(1)
 
     # Processa befintliga filer först
-    existing_mom = list(Path(WATCH_DIR).glob("*.mom")) + list(Path(WATCH_DIR).glob("*.MOM"))
-    existing_hpr = list(Path(WATCH_DIR).glob("*.hpr")) + list(Path(WATCH_DIR).glob("*.HPR"))
+    existing_mom = filer_i_kon(".mom")
+    existing_hpr = filer_i_kon(".hpr")
+    existing_other = filer_i_kon(".hqc") + filer_i_kon(".fpr")
 
     logger.info(f"Befintliga filer i Inkommande:")
     logger.info(f"  .mom: {len(existing_mom)} st")
-    for f in sorted(existing_mom):
+    for f in existing_mom:
         logger.info(f"    - {f.name}")
     logger.info(f"  .hpr: {len(existing_hpr)} st")
-    for f in sorted(existing_hpr):
+    for f in existing_hpr:
+        logger.info(f"    - {f.name}")
+    logger.info(f"  .hqc/.fpr: {len(existing_other)} st")
+    for f in existing_other:
         logger.info(f"    - {f.name}")
 
-    if existing_mom:
-        logger.info(f"Kör MOM-import för {len(existing_mom)} filer...")
+    # Samma kedja som eventvägen (se _handle): fördelnings-POST före flytten,
+    # huvudimporten för vilken filtyp som helst, Vercel bara efter MOM.
+    if existing_mom or existing_hpr or existing_other:
+        for f in existing_hpr:
+            post_hpr_fordelning(str(f))
+        logger.info("Kör huvudimporten för befintliga filer...")
         run_mom_import()
-        notify_vercel()
+        if existing_mom:
+            notify_vercel()
 
     if existing_hpr:
         logger.info(f"Kör HPR-import för {len(existing_hpr)} filer...")
