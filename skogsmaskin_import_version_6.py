@@ -3838,9 +3838,25 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 #   ATTRIBUTION = versionen med HÖGST recency (suffix/mtime; tie →
                 #                störst vikt) äger (objekt, operator) — senaste
                 #                exportversionens bokföring gäller (op-flip-fixen).
+                #
+                # DELAT SEGMENT (2026-10-01, Scorpion 22–28 sep mot Ponsses PDF): de
+                # timvisa exporterna skriver ett PÅGÅENDE segment med full längd
+                # (06:25:25 → 14 404 s); nästa export har DELAT det (06:25:25 → 14 055 s
+                # + nytt segment 10:19:40 inuti det gamla spannet). "Störst vikt
+                # vinner" behöll den långa varianten OCH det nya segmentet → överlappet
+                # räknades dubbelt: +6/+13/+12 min per dag, 3,7 h (1 %) på Scorpion och
+                # 4,2 h (1,2 %) på Rottne sedan aug 2026. Skotarna (dagsexport) 0.
+                # Regel: störst vinner — UTOM när en SENARE version är kortare OCH ett
+                # annat segment på samma maskin börjar inom den större variantens
+                # spann: då är segmentet delat och den senare (kortare) vinner.
+                # Avgörs EFTER att alla filer lästs (kräver alla starttider), inte
+                # löpande som förr. "Senaste vinner" rakt av vore enklare men river
+                # #40-skyddet (PONS 2026-03-17: fem varianter utan nytt segment inuti).
+                # Verifierat: 11 av 11 jämförbara dagar på minuten mot Ponsse Skift-
+                # rapporterna (Östra-Hoka 23–28 sep, Akelius 11–13 aug + 1–7 sep).
                 merged_entries = {}   # (start_time, maskin) -> värde-vinnande entry
                 merged_attr = {}      # (start_time, maskin) -> (recency, objekt, operator, vikt)
-                _varde_meta = {}      # (start_time, maskin) -> (vikt, recency) för värde-vinnaren
+                _varianter = {}       # (start_time, maskin) -> [(vikt, recency, entry, objekt, operator), ...]
                 files_scanned = 0
 
                 def _fil_recency(namn_eller_path):
@@ -3872,6 +3888,7 @@ def save_mom_to_supabase(data: Dict) -> bool:
                         return 0.0
 
                 def _keep(ek, entry, recency):
+                    """Samla varianten; vinnaren avgörs i _avgor_vinnare när alla filer lästs."""
                     ident = (ek[0], ek[1])
                     objekt, operator = ek[2], ek[3]
                     # vikt = segmentets hela duration oavsett klass (RUN/DOWN/UNUT) —
@@ -3879,18 +3896,43 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     vikt = sum((entry.get(f) or 0) for f in (
                         'processing_sek', 'terrain_sek', 'other_work_sek',
                         'maintenance_sek', 'disturbance_sek', 'rast_sek', 'avbrott_sek'))
-                    # 1) VÄRDE-vinnaren: störst vikt (tie → högst recency)
-                    v = _varde_meta.get(ident)
-                    if v is None or vikt > v[0] or (vikt == v[0] and recency > v[1]):
-                        merged_entries[ident] = entry
-                        _varde_meta[ident] = (vikt, recency)
-                    # 2) ATTRIBUTIONS-vinnaren: högst recency (tie → störst vikt)
-                    a = merged_attr.get(ident)
-                    if a is None or recency > a[0] or (recency == a[0] and vikt > a[3]):
-                        if a is not None and (a[1], a[2]) != (objekt, operator):
-                            logger.info(f"  Attribution bytt för segment {ek[0]} ({ek[1]}): "
-                                        f"({a[1]}, {a[2]}) -> ({objekt}, {operator}) — senaste exportversion vinner")
-                        merged_attr[ident] = (recency, objekt, operator, vikt)
+                    _varianter.setdefault(ident, []).append((vikt, recency, entry, objekt, operator))
+
+                def _avgor_vinnare():
+                    """Per identitet: VÄRDE = störst vikt, utom vid delat segment (se
+                    kommentaren ovan) där senaste versionen vinner. ATTRIBUTION =
+                    högst recency (tie → störst vikt)."""
+                    # Alla starttider per maskin — för delat-segment-kontrollen.
+                    starter_per_maskin = {}
+                    for (start_str, maskin) in _varianter:
+                        dt = parse_datetime(start_str)
+                        if dt:
+                            starter_per_maskin.setdefault(maskin, []).append(dt)
+                    delade = 0
+                    for ident, lista in _varianter.items():
+                        start_str, maskin = ident
+                        storst = max(lista, key=lambda v: (v[0], v[1]))
+                        senaste = max(lista, key=lambda v: (v[1], v[0]))
+                        vinnare = storst
+                        if senaste is not storst and senaste[0] < storst[0]:
+                            t0 = parse_datetime(start_str)
+                            if t0 is not None:
+                                t1 = t0 + timedelta(seconds=storst[0])
+                                if any(t0 < s < t1 for s in starter_per_maskin.get(maskin, [])):
+                                    vinnare = senaste
+                                    delade += 1
+                                    logger.info(f"  Delat segment {start_str} ({maskin}): {storst[0]} s -> {senaste[0]} s "
+                                                f"— senare export delade det, kortare varianten vinner")
+                        merged_entries[ident] = vinnare[2]
+                        # Attribution: högst recency (tie → störst vikt); byte loggas.
+                        attr = senaste
+                        andra = {(v[3], v[4]) for v in lista} - {(attr[3], attr[4])}
+                        if andra:
+                            logger.info(f"  Attribution för segment {start_str} ({maskin}): {sorted(andra)} -> "
+                                        f"({attr[3]}, {attr[4]}) — senaste exportversion vinner")
+                        merged_attr[ident] = (attr[1], attr[3], attr[4], attr[0])
+                    if delade:
+                        logger.info(f"  Delade segment: {delade} (kortare senare variant vann)")
                 affected_maskins = sorted({m for m, _ in affected})
                 affected_dates_all = sorted({d for _, d in affected})
                 logger.info(f"  Re-aggregerar tid för maskin={affected_maskins} datum={affected_dates_all[0]}->{affected_dates_all[-1]}")
@@ -3948,6 +3990,7 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 for ek, entry in data['tid_entries'].items():
                     if len(ek) == 4:
                         _keep(ek, entry, aktuell_recency)
+                _avgor_vinnare()
 
                 logger.info(f"  Scannade {files_scanned} filer, {len(merged_entries)} unika entries efter dedup")
 
