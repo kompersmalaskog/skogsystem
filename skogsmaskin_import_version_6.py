@@ -677,6 +677,153 @@ def parse_datetime(dt_str) -> Optional[datetime]:
     except:
         return None
 
+# ============================================================
+# FAKT_TID — SAMMANSLAGNING AV SEGMENT ÖVER EXPORTVERSIONER
+# Modulnivå så att omräkningsskriptet (scripts/omrakna_fakt_tid_delat_segment.py)
+# använder EXAKT samma regel som importen — en sanning, aldrig en kopia.
+# ============================================================
+
+TID_FIELDS = ['processing_sek', 'terrain_sek', 'other_work_sek',
+              'maintenance_sek', 'disturbance_sek', 'rast_sek',
+              'avbrott_sek', 'kort_stopp_sek', 'bransle_liter',
+              'engine_time_sek', 'korstracka_m',
+              'terrain_korstracka_m', 'terrain_bransle_liter']
+
+
+def fil_recency(namn_eller_path) -> float:
+    """Exportversionens ålder: maskinens _YYYYMMDDHHMMSS i filnamnet, annars
+    Behandlade-suffixet _YYYYMMDD_HHMMSS (sätts vid namnkrock), annars mtime,
+    annars 0. OBS: suffix och mtime är olika klockor — en suffixlös basfil vars
+    mtime bumpas i efterhand (OneDrive-omsynk) kan tillfälligt rankas före
+    senare suffixade versioner; byten loggas alltid och nästa export rättar."""
+    bas = os.path.basename(namn_eller_path)
+    m14 = re.search(r'_(\d{14})(?=\.|_|$)', bas)
+    if m14:
+        try:
+            return datetime.strptime(m14.group(1), '%Y%m%d%H%M%S').timestamp()
+        except ValueError:
+            pass
+    m = re.findall(r'_(\d{8})_(\d{6})', bas)
+    if m:
+        try:
+            return datetime.strptime(m[-1][0] + m[-1][1], '%Y%m%d%H%M%S').timestamp()
+        except ValueError:
+            pass
+    try:
+        return os.path.getmtime(namn_eller_path)
+    except OSError:
+        return 0.0
+
+
+def tid_vikt(entry: Dict) -> int:
+    """Segmentets hela duration oavsett klass (RUN/DOWN/UNUT) — P+T räcker inte:
+    DOWN-/rast-varianter har P+T = 0."""
+    return sum((entry.get(f) or 0) for f in (
+        'processing_sek', 'terrain_sek', 'other_work_sek',
+        'maintenance_sek', 'disturbance_sek', 'rast_sek', 'avbrott_sek'))
+
+
+def samla_tid_variant(varianter: Dict, ek, entry: Dict, recency: float) -> None:
+    """Samla en variant av segmentet (identitet = (start_time, maskin)). ek är
+    importens 4-tupel (start_time, maskin, objekt, operator)."""
+    ident = (ek[0], ek[1])
+    varianter.setdefault(ident, []).append((tid_vikt(entry), recency, entry, ek[2], ek[3]))
+
+
+def avgor_tid_vinnare(varianter: Dict):
+    """Per identitet (start_time, maskin) över ALLA exportversioner:
+
+      VÄRDE       = varianten med STÖRST vikt (tie → högst recency). Ponsse
+                    exporterar ibland samma starttid med olika durationer; en
+                    senare, kortare variant får inte klubba den mest kompletta
+                    (#40-skyddet, PONS 2026-03-17: fem varianter 4987–13015 s).
+                    UTOM vid DELAT SEGMENT (2026-10-01): de timvisa exporterna
+                    skriver ett pågående segment med full längd, nästa export har
+                    delat det (kortare + nytt segment som börjar inuti spannet).
+                    Då vinner den senare (kortare) — annars räknas överlappet
+                    dubbelt (+6–13 min/dag, 3,7 h Scorpion / 4,2 h Rottne sedan
+                    aug 2026; verifierat 11/11 dagar mot Ponsses Skift-PDF).
+      ATTRIBUTION = versionen med högst recency (tie → störst vikt) äger
+                    (objekt, operator) — senaste exportversionens bokföring gäller.
+
+    Returnerar (merged_entries, merged_attr, delade) där
+    merged_entries[ident] = entry, merged_attr[ident] = (recency, objekt, operator, vikt)."""
+    merged_entries, merged_attr = {}, {}
+    starter_per_maskin: Dict[str, List[datetime]] = {}
+    for (start_str, maskin) in varianter:
+        dt = parse_datetime(start_str)
+        if dt:
+            starter_per_maskin.setdefault(maskin, []).append(dt)
+    delade = 0
+    for ident, lista in varianter.items():
+        start_str, maskin = ident
+        storst = max(lista, key=lambda v: (v[0], v[1]))
+        senaste = max(lista, key=lambda v: (v[1], v[0]))
+        vinnare = storst
+        if senaste is not storst and senaste[0] < storst[0]:
+            t0 = parse_datetime(start_str)
+            if t0 is not None:
+                t1 = t0 + timedelta(seconds=storst[0])
+                if any(t0 < s < t1 for s in starter_per_maskin.get(maskin, [])):
+                    vinnare = senaste
+                    delade += 1
+                    logger.info(f"  Delat segment {start_str} ({maskin}): {storst[0]} s -> {senaste[0]} s "
+                                f"— senare export delade det, kortare varianten vinner")
+        merged_entries[ident] = vinnare[2]
+        attr = senaste
+        andra = {(v[3], v[4]) for v in lista} - {(attr[3], attr[4])}
+        if andra:
+            logger.info(f"  Attribution för segment {start_str} ({maskin}): {sorted(andra)} -> "
+                        f"({attr[3]}, {attr[4]}) — senaste exportversion vinner")
+        merged_attr[ident] = (attr[1], attr[3], attr[4], attr[0])
+    if delade:
+        logger.info(f"  Delade segment: {delade} (kortare senare variant vann)")
+    return merged_entries, merged_attr, delade
+
+
+def bygg_fakt_tid_rader(merged_entries: Dict, merged_attr: Dict, filnamn: str,
+                        dates_by_maskin: Optional[Dict[str, set]] = None) -> List[Dict]:
+    """Aggregera vinnande segment per (datum, maskin, objekt, operator) till
+    fakt_tid-rader — attributionen ur merged_attr, tomgång härledd, 88 %-
+    fallback när WorkCategory saknas. dates_by_maskin begränsar till berörda dagar."""
+    agg = defaultdict(lambda: {**{f: 0 for f in TID_FIELDS}, 'other_work_kategorier': {}})
+    for ident, entry in merged_entries.items():
+        _, maskin = ident
+        _, objekt, operator, _ = merged_attr[ident]
+        datum = str(entry.get('datum') or '')
+        if not datum:
+            continue
+        if dates_by_maskin is not None and datum not in dates_by_maskin.get(maskin, ()):
+            continue
+        dag_key = (datum, maskin, objekt, operator)
+        for f in TID_FIELDS:
+            agg[dag_key][f] += (entry.get(f) or 0)
+        okat = agg[dag_key]['other_work_kategorier']
+        for k, v in (entry.get('other_work_kategorier') or {}).items():
+            okat[k] = okat.get(k, 0) + v
+    rows = []
+    for dag_key, values in agg.items():
+        datum, maskin, objekt, operator = dag_key
+        runtime = values['processing_sek'] + values['terrain_sek'] + values['other_work_sek']
+        g0 = runtime - values['kort_stopp_sek']
+        tomgang = max(0, values['engine_time_sek'] - g0)
+        rows.append({
+            'datum': datum, 'maskin_id': maskin, 'operator_id': operator, 'objekt_id': objekt,
+            **values, 'tomgang_sek': tomgang, 'filnamn': filnamn,
+        })
+    # Fallback: WorkCategory saknas → processing = 88 % av motortiden, tomgång omräknad
+    # (annars bokförs motortiden dubbelt — bevisat 41 rader / +7,3 h 2026-07-10).
+    for row in rows:
+        if row.get('processing_sek', 0) == 0 and row.get('terrain_sek', 0) == 0 and row.get('engine_time_sek', 0) > 0:
+            fallback_sek = int(row['engine_time_sek'] * 0.88)
+            row['processing_sek'] = fallback_sek
+            g0_fb = (fallback_sek + row.get('terrain_sek', 0)
+                     + row.get('other_work_sek', 0) - row.get('kort_stopp_sek', 0))
+            row['tomgang_sek'] = max(0, row['engine_time_sek'] - g0_fb)
+            logger.warning(f"  VARNING: Fallback G15h från EngineTime för {row.get('maskin_id')} {row.get('datum')} — WorkCategory saknas i MOM-fil (engine={row['engine_time_sek']}s → processing={fallback_sek}s, tomgang={row['tomgang_sek']}s)")
+    return rows
+
+
 def get_file_hash(filepath: str) -> str:
     """Beräkna MD5-hash för fil"""
     hash_md5 = hashlib.md5()
@@ -3854,85 +4001,15 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 # #40-skyddet (PONS 2026-03-17: fem varianter utan nytt segment inuti).
                 # Verifierat: 11 av 11 jämförbara dagar på minuten mot Ponsse Skift-
                 # rapporterna (Östra-Hoka 23–28 sep, Akelius 11–13 aug + 1–7 sep).
-                merged_entries = {}   # (start_time, maskin) -> värde-vinnande entry
-                merged_attr = {}      # (start_time, maskin) -> (recency, objekt, operator, vikt)
+                # Regeln bor på modulnivå (fil_recency / samla_tid_variant /
+                # avgor_tid_vinnare / bygg_fakt_tid_rader) — delas med
+                # scripts/omrakna_fakt_tid_delat_segment.py, EN sanning.
                 _varianter = {}       # (start_time, maskin) -> [(vikt, recency, entry, objekt, operator), ...]
                 files_scanned = 0
-
-                def _fil_recency(namn_eller_path):
-                    """Exportversionens ålder: sista _YYYYMMDD_HHMMSS-suffixet i
-                    filnamnet (sätts av vår Behandlade-flytt vid namnkrock, rad
-                    ~3450), annars filens mtime, annars 0. OBS: suffix och mtime
-                    är olika klockor — en suffixlös basfil vars mtime bumpas i
-                    efterhand (t.ex. OneDrive-omsynk) kan tillfälligt rankas
-                    före senare suffixade versioner; byten loggas alltid (INFO)
-                    och nästa nyare export rättar attributionen."""
-                    bas = os.path.basename(namn_eller_path)
-                    # Maskin-genererade filnamn: 14 sammanhängande siffror (_YYYYMMDDHHMMSS)
-                    m14 = re.search(r'_(\d{14})(?=\.|_|$)', bas)
-                    if m14:
-                        try:
-                            return datetime.strptime(m14.group(1), '%Y%m%d%H%M%S').timestamp()
-                        except ValueError:
-                            pass
-                    # Behandlade-suffix: _YYYYMMDD_HHMMSS (sätts vid namnkrock)
-                    m = re.findall(r'_(\d{8})_(\d{6})', bas)
-                    if m:
-                        try:
-                            return datetime.strptime(m[-1][0] + m[-1][1], '%Y%m%d%H%M%S').timestamp()
-                        except ValueError:
-                            pass
-                    try:
-                        return os.path.getmtime(namn_eller_path)
-                    except OSError:
-                        return 0.0
+                _fil_recency = fil_recency
 
                 def _keep(ek, entry, recency):
-                    """Samla varianten; vinnaren avgörs i _avgor_vinnare när alla filer lästs."""
-                    ident = (ek[0], ek[1])
-                    objekt, operator = ek[2], ek[3]
-                    # vikt = segmentets hela duration oavsett klass (RUN/DOWN/UNUT) —
-                    # P+T räcker inte: DOWN-/rast-varianter har P+T = 0.
-                    vikt = sum((entry.get(f) or 0) for f in (
-                        'processing_sek', 'terrain_sek', 'other_work_sek',
-                        'maintenance_sek', 'disturbance_sek', 'rast_sek', 'avbrott_sek'))
-                    _varianter.setdefault(ident, []).append((vikt, recency, entry, objekt, operator))
-
-                def _avgor_vinnare():
-                    """Per identitet: VÄRDE = störst vikt, utom vid delat segment (se
-                    kommentaren ovan) där senaste versionen vinner. ATTRIBUTION =
-                    högst recency (tie → störst vikt)."""
-                    # Alla starttider per maskin — för delat-segment-kontrollen.
-                    starter_per_maskin = {}
-                    for (start_str, maskin) in _varianter:
-                        dt = parse_datetime(start_str)
-                        if dt:
-                            starter_per_maskin.setdefault(maskin, []).append(dt)
-                    delade = 0
-                    for ident, lista in _varianter.items():
-                        start_str, maskin = ident
-                        storst = max(lista, key=lambda v: (v[0], v[1]))
-                        senaste = max(lista, key=lambda v: (v[1], v[0]))
-                        vinnare = storst
-                        if senaste is not storst and senaste[0] < storst[0]:
-                            t0 = parse_datetime(start_str)
-                            if t0 is not None:
-                                t1 = t0 + timedelta(seconds=storst[0])
-                                if any(t0 < s < t1 for s in starter_per_maskin.get(maskin, [])):
-                                    vinnare = senaste
-                                    delade += 1
-                                    logger.info(f"  Delat segment {start_str} ({maskin}): {storst[0]} s -> {senaste[0]} s "
-                                                f"— senare export delade det, kortare varianten vinner")
-                        merged_entries[ident] = vinnare[2]
-                        # Attribution: högst recency (tie → störst vikt); byte loggas.
-                        attr = senaste
-                        andra = {(v[3], v[4]) for v in lista} - {(attr[3], attr[4])}
-                        if andra:
-                            logger.info(f"  Attribution för segment {start_str} ({maskin}): {sorted(andra)} -> "
-                                        f"({attr[3]}, {attr[4]}) — senaste exportversion vinner")
-                        merged_attr[ident] = (attr[1], attr[3], attr[4], attr[0])
-                    if delade:
-                        logger.info(f"  Delade segment: {delade} (kortare senare variant vann)")
+                    samla_tid_variant(_varianter, ek, entry, recency)
                 affected_maskins = sorted({m for m, _ in affected})
                 affected_dates_all = sorted({d for _, d in affected})
                 logger.info(f"  Re-aggregerar tid för maskin={affected_maskins} datum={affected_dates_all[0]}->{affected_dates_all[-1]}")
@@ -3990,72 +4067,20 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 for ek, entry in data['tid_entries'].items():
                     if len(ek) == 4:
                         _keep(ek, entry, aktuell_recency)
-                _avgor_vinnare()
+                merged_entries, merged_attr, _ = avgor_tid_vinnare(_varianter)
 
                 logger.info(f"  Scannade {files_scanned} filer, {len(merged_entries)} unika entries efter dedup")
-
-                tid_fields = ['processing_sek', 'terrain_sek', 'other_work_sek',
-                              'maintenance_sek', 'disturbance_sek', 'rast_sek',
-                              'avbrott_sek', 'kort_stopp_sek', 'bransle_liter',
-                              'engine_time_sek', 'korstracka_m',
-                              'terrain_korstracka_m', 'terrain_bransle_liter']
 
                 # Steg 4: aggregera per (datum, maskin, objekt, operator) för ALLA
                 # segment på berörda (maskin, datum) — attributionen kommer från
                 # den vinnande (senaste) exportversionen. Dagen byggs om komplett;
                 # äkta fleroperatörs-/flerobjektsdagar behåller sin uppdelning
                 # eftersom olika segment (olika start_time) behåller var sin
-                # attribution.
+                # attribution. Aggregering + 88 %-fallback bor i bygg_fakt_tid_rader
+                # (modulnivå — delas med omräkningsskriptet).
                 dates_by_maskin = {m: {d for m2, d in affected if m2 == m}
                                    for m in affected_maskins}
-                agg = defaultdict(lambda: {**{f: 0 for f in tid_fields},
-                                           'other_work_kategorier': {}})
-                for ident, entry in merged_entries.items():
-                    _, maskin = ident
-                    _, objekt, operator, _ = merged_attr[ident]
-                    datum = str(entry.get('datum') or '')
-                    if not datum or datum not in dates_by_maskin.get(maskin, ()):
-                        continue
-                    dag_key = (datum, maskin, objekt, operator)
-                    for f in tid_fields:
-                        agg[dag_key][f] += (entry.get(f) or 0)
-                    # other_work_kategorier mergas (ej summeras som skalär) —
-                    # {kategori: sekunder} följer med **values till upserten.
-                    okat = agg[dag_key]['other_work_kategorier']
-                    for k, v in (entry.get('other_work_kategorier') or {}).items():
-                        okat[k] = okat.get(k, 0) + v
-
-                for dag_key, values in agg.items():
-                    datum, maskin, objekt, operator = dag_key
-                    runtime = values['processing_sek'] + values['terrain_sek'] + values['other_work_sek']
-                    g0 = runtime - values['kort_stopp_sek']
-                    tomgang = max(0, values['engine_time_sek'] - g0)
-                    rows.append({
-                        'datum': datum,
-                        'maskin_id': maskin,
-                        'operator_id': operator,
-                        'objekt_id': objekt,
-                        **values,
-                        'tomgang_sek': tomgang,
-                        'filnamn': data.get('filnamn', ''),
-                    })
-
-            # Fallback: om WorkCategory saknas i MOM-filen → processing_sek = 0 och terrain_sek = 0
-            # men engine_time_sek > 0. Sätt processing_sek = 88% av engine_time_sek som uppskattning.
-            for row in rows:
-                if row.get('processing_sek', 0) == 0 and row.get('terrain_sek', 0) == 0 and row.get('engine_time_sek', 0) > 0:
-                    fallback_sek = int(row['engine_time_sek'] * 0.88)
-                    row['processing_sek'] = fallback_sek
-                    # Håll raden konsistent: tomgang_sek beräknades i Steg 4 med
-                    # proc = 0 (≈ hela motortiden blev tomgång) — räkna om med
-                    # fallback-procen. Fallbacken påstår 88 % arbete ⇒ tomgången
-                    # är resterande ~12 % + ev. kort_stopp. Utan detta bokförs
-                    # motortiden DUBBELT i raden (som proc OCH tomgång) — bevisat
-                    # 41 rader / +7,3 h fejk-tomgång 2026-07-10.
-                    g0_fb = (fallback_sek + row.get('terrain_sek', 0)
-                             + row.get('other_work_sek', 0) - row.get('kort_stopp_sek', 0))
-                    row['tomgang_sek'] = max(0, row['engine_time_sek'] - g0_fb)
-                    logger.warning(f"  VARNING: Fallback G15h från EngineTime för {row.get('maskin_id')} {row.get('datum')} — WorkCategory saknas i MOM-fil (engine={row['engine_time_sek']}s → processing={fallback_sek}s, tomgang={row['tomgang_sek']}s)")
+                rows = bygg_fakt_tid_rader(merged_entries, merged_attr, data.get('filnamn', ''), dates_by_maskin)
 
             if rows:
                 # DAG-REBUILD: raderna är en KOMPLETT omaggregering av berörda
