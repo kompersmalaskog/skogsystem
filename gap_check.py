@@ -392,6 +392,71 @@ def check_import_fel():
     return larm, len(rows)
 
 
+def check_stammar_utan_stockar():
+    """Objekt med stammar i detalj_stam men inga joinbara stockar i
+    detalj_stock. Aldrig rimligt — en skördad stam har alltid minst en stock —
+    och osynligt i nio månader (jan–apr 2026, 41 objekt, ~65 000 stammar)
+    eftersom alla vyer bygger på stockar: ett objekt utan stockar finns inte i
+    dem. Orsaken var en parser som inte skrev stockar före 2026-04-21 och
+    filer som meta_importerade_filer markerat OK. Läser RPC
+    kontroll_stammar_utan_stockar (migration 20261001). READ-ONLY.
+    -> (larmrader, antal | None om RPC:n inte kunde läsas)."""
+    try:
+        req = urllib.request.Request(
+            imp.SUPABASE_URL + '/rest/v1/rpc/kontroll_stammar_utan_stockar',
+            data=json.dumps({'p_min_stammar': 100}).encode('utf-8'),
+            headers=dict(_hdr(), **{'Content-Type': 'application/json'}), method='POST')
+        rows = json.loads(urllib.request.urlopen(req, timeout=60).read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', 'replace')[:200]
+        if 'Could not find the function' in body or 'PGRST202' in body:
+            return [], None
+        return [f'  LARM  kontroll_stammar_utan_stockar gick inte att läsa (HTTP {e.code}): {body}'], None
+    except Exception as e:
+        return [f'  LARM  kontroll_stammar_utan_stockar gick inte att läsa: {e}'], None
+    larm = [
+        f'  LARM  STAMMAR UTAN STOCKAR {r.get("objekt_id")} {(r.get("namn") or "?")[:30]}: '
+        f'{r.get("stammar")} stammar ({r.get("kalla")}, {r.get("forsta") or "datum saknas"}) '
+        f'men inga joinbara stockar — läs om filen (reimport_hpr_stockar.py)'
+        for r in rows
+    ]
+    return larm, len(rows)
+
+
+def check_fakt_sortiment_mot_stock():
+    """fakt_sortiment härleds ur detalj_stock (#444). Säger de olika saker om
+    ett objekt har en ombyggnad hoppats över (inga joinbara stockar, stammar
+    utan tidpunkt) eller stockar saknas. Jörgen Olsson Björkebråten stod
+    2026-10-01 med 1 168,7 m³ mot 507,5 — den gamla importens dubbelräkning,
+    kvarlämnad och rimlig att se på. Samma klass som stammar utan stockar:
+    tyst, och det ser rätt ut. Läser RPC kontroll_fakt_sortiment_mot_stock
+    (tolerans 1 %%, migration 20261001). READ-ONLY.
+    -> (larmrader, antal | None om RPC:n inte kunde läsas)."""
+    try:
+        req = urllib.request.Request(
+            imp.SUPABASE_URL + '/rest/v1/rpc/kontroll_fakt_sortiment_mot_stock',
+            data=json.dumps({'p_tolerans': 0.01}).encode('utf-8'),
+            headers=dict(_hdr(), **{'Content-Type': 'application/json'}), method='POST')
+        rows = json.loads(urllib.request.urlopen(req, timeout=120).read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', 'replace')[:200]
+        if 'Could not find the function' in body or 'PGRST202' in body:
+            return [], None
+        return [f'  LARM  kontroll_fakt_sortiment_mot_stock gick inte att läsa (HTTP {e.code}): {body}'], None
+    except Exception as e:
+        return [f'  LARM  kontroll_fakt_sortiment_mot_stock gick inte att läsa: {e}'], None
+    larm = []
+    for r in rows:
+        orsak = ('inga joinbara stockar' if not r.get('stockar')
+                 else f'{r.get("stammar_utan_tidpunkt")} stammar utan tidpunkt' if r.get('stammar_utan_tidpunkt')
+                 else 'ingen fakt_sortiment' if not r.get('fakt_sortiment_rader')
+                 else 'ombyggnad saknas?')
+        larm.append(f'  LARM  FAKT_SORTIMENT MOT STOCK {r.get("objekt_id")} {(r.get("namn") or "?")[:30]}: '
+                    f'fakt_sortiment {r.get("fakt_sortiment_m3")} m³, stockar {r.get("stock_m3")} m³ '
+                    f'({r.get("skillnad_pct")} %) — {orsak}')
+    return larm, len(rows)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--quiet', action='store_true', help='Bara logg, ingen utskrift (schemalagd körning).')
@@ -449,6 +514,22 @@ def main():
         L.append(f'    import_fel senaste 8 dygnen: {fel_antal if fel_antal is not None else "?"} rader')
     L.extend(fel_larm)
     alarms.extend(fel_larm)     # datatapp ska larma — det var så Wisent-tappet gömde sig
+    # ── Del 5: objekt med stammar men inga stockar ──
+    stock_larm, stock_antal = check_stammar_utan_stockar()
+    if stock_antal is None and not stock_larm:
+        L.append('    stammar utan stockar: RPC saknas (migration ej körd) — hoppar kontrollen')
+    else:
+        L.append(f'    stammar utan stockar: {stock_antal if stock_antal is not None else "?"} objekt')
+    L.extend(stock_larm)
+    alarms.extend(stock_larm)   # osynligt i nio månader — ska larma tills det är läst om
+    # ── Del 6: fakt_sortiment mot stockarna, per objekt ──
+    fs_larm, fs_antal = check_fakt_sortiment_mot_stock()
+    if fs_antal is None and not fs_larm:
+        L.append('    fakt_sortiment mot stock: RPC saknas (migration ej körd) — hoppar kontrollen')
+    else:
+        L.append(f'    fakt_sortiment mot stock: {fs_antal if fs_antal is not None else "?"} objekt avviker > 1 %')
+    L.extend(fs_larm)
+    alarms.extend(fs_larm)      # två källor som säger olika — ska larma tills de säger samma
 
     if alarms:
         L.append(f'>>> {len(alarms)} LARM — kontrollera per (maskin, dag) ovan.')
@@ -487,6 +568,22 @@ def main():
             'larm_antal': len(drift_larm),
             'sammanfattning': ('\n'.join(r.strip() for r in drift_larm)[:1500]
                                if drift_larm else drift_detalj[:1500]),
+        }, {
+            'id': 'stammar_utan_stockar',
+            'kord_tid': nu,
+            'status': 'OKÄND' if stock_antal is None else ('LARM' if stock_larm else 'OK'),
+            'larm_antal': len(stock_larm),
+            'sammanfattning': ('\n'.join(r.strip() for r in stock_larm)[:1500] if stock_larm
+                               else ('RPC saknas' if stock_antal is None
+                                     else 'Alla objekt med stammar har stockar')),
+        }, {
+            'id': 'fakt_sortiment_mot_stock',
+            'kord_tid': nu,
+            'status': 'OKÄND' if fs_antal is None else ('LARM' if fs_larm else 'OK'),
+            'larm_antal': len(fs_larm),
+            'sammanfattning': ('\n'.join(r.strip() for r in fs_larm)[:1500] if fs_larm
+                               else ('RPC saknas' if fs_antal is None
+                                     else 'fakt_sortiment och stockarna säger samma sak för alla objekt')),
         }]
         hdr = dict(_hdr())
         hdr.update({'Content-Type': 'application/json',
