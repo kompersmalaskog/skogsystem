@@ -65,10 +65,21 @@ export type LeveransRad = {
   dagarSedan: number | null
 }
 
+// Motortid utan arbetstid: motorn gick men ingen RUN-kategori (P = T = OW = 0).
+// Förväntat på flyttdagar (lastning på trailer, rast med motorn på) — VISAS
+// dämpat, larmar aldrig. Fanns fram till 2026-10-01 en fallback i importen som
+// skrev 88 % av motortiden som processing på sådana dagar (15 h påhittat
+// arbete på 68 flyttdagar); nu skrivs noll och dagen syns här i stället.
+export type MotorUtanArbete = {
+  maskin: string; namn: string; datum: string; objekt: string; objektnamn: string
+  motorSek: number; avbrottSek: number; rastSek: number
+}
+
 export type InvarianterData = {
   over24h: { maskin: string; datum: string; timmar: number }[]
   dubbletter: { maskin: string; datum: string; objekt: string; antal: number }[]
   tomgangInkonsistenta: number
+  motorUtanArbete: MotorUtanArbete[]
 }
 
 export type GapCheckData = {
@@ -202,7 +213,7 @@ export function useDatahalsa(): Datahalsa {
       const [dimRes, tidRes, lassRes] = await Promise.all([
         supabase.from('dim_maskin')
           .select('maskin_id, visningsnamn, modell, aktiv_till, sander_filer, bekraftad'),
-        hamtaAlla('fakt_tid', 'maskin_id, datum, objekt_id, operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, engine_time_sek, tomgang_sek, bransle_liter'),
+        hamtaAlla('fakt_tid', 'maskin_id, datum, objekt_id, operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, engine_time_sek, tomgang_sek, bransle_liter, avbrott_sek, disturbance_sek, maintenance_sek, rast_sek'),
         hamtaAlla('fakt_lass', 'maskin_id, datum'),
       ])
       if (avbruten) return
@@ -307,7 +318,37 @@ export function useDatahalsa(): Datahalsa {
         const forv = Math.max(0, (r.engine_time_sek || 0) - g0)
         if (Math.abs((r.tomgang_sek || 0) - forv) > 1) tomgangInkonsistenta++
       }
-      setInvarianter({ laddar: false, fel: null, data: { over24h, dubbletter, tomgangInkonsistenta } })
+      // (d) motortid utan arbetstid — observation, inte larm (se MotorUtanArbete).
+      //     Summeras per (maskin, dag, objekt) så två förares rader på samma
+      //     flyttobjekt blir EN rad; namn ur dim_maskin/dim_objekt, aldrig id.
+      const maskinNamn = new Map<string, string>(
+        (dimRes.data ?? []).map((m: any) => [m.maskin_id, (m.visningsnamn || '').trim() || m.modell || m.maskin_id]))
+      const perDagObjekt = new Map<string, MotorUtanArbete>()
+      const arbeteSek = new Map<string, number>()   // P + T + OW per grupp
+      for (const r of skarpa) {
+        const k = `${r.maskin_id}|${r.datum}|${r.objekt_id ?? ''}`
+        const m = perDagObjekt.get(k) ?? {
+          maskin: r.maskin_id, namn: maskinNamn.get(r.maskin_id) ?? r.maskin_id, datum: String(r.datum),
+          objekt: r.objekt_id ?? '', objektnamn: '', motorSek: 0, avbrottSek: 0, rastSek: 0,
+        }
+        m.motorSek += (r.engine_time_sek || 0)
+        m.avbrottSek += (r.avbrott_sek || 0) + (r.disturbance_sek || 0) + (r.maintenance_sek || 0)
+        m.rastSek += (r.rast_sek || 0)
+        perDagObjekt.set(k, m)
+        arbeteSek.set(k, (arbeteSek.get(k) ?? 0) + (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0))
+      }
+      const motorUtanArbete = Array.from(perDagObjekt.entries())
+        .filter(([k, m]) => (arbeteSek.get(k) ?? 0) === 0 && m.motorSek > 0)
+        .map(([, m]) => m)
+        .sort((a, b) => b.datum.localeCompare(a.datum))
+      const objektIds = Array.from(new Set(motorUtanArbete.map(m => m.objekt).filter(Boolean)))
+      if (objektIds.length > 0) {
+        const { data: objs } = await supabase.from('dim_objekt').select('objekt_id, object_name').in('objekt_id', objektIds)
+        if (avbruten) return
+        const namn = new Map<string, string>((objs ?? []).map((o: any) => [o.objekt_id, (o.object_name || '').trim()]))
+        for (const m of motorUtanArbete) m.objektnamn = namn.get(m.objekt) || m.objekt
+      }
+      setInvarianter({ laddar: false, fel: null, data: { over24h, dubbletter, tomgangInkonsistenta, motorUtanArbete } })
     })()
 
     // ── 4. Senaste Gap Check (meta_datahalsa_status — kräver migration) ──

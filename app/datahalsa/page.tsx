@@ -39,6 +39,19 @@ function tidSedan(iso: string | null): string {
   return `för ${Math.round(tim / 24)} dygn sedan`
 }
 
+// "19 min" / "2 h 20 min" — tid i människoord, aldrig decimaltimmar
+function minText(sek: number): string {
+  const min = Math.round(sek / 60)
+  if (min < 60) return `${min} min`
+  const h = Math.floor(min / 60), m = min % 60
+  return m === 0 ? `${h} h` : `${h} h ${m} min`
+}
+
+const MANADER = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
+function datumKort(d: string): string {
+  return `${Number(d.slice(8, 10))} ${MANADER[Number(d.slice(5, 7)) - 1] ?? ''}`
+}
+
 function Prick({ farg }: { farg: string }) {
   return <span style={{
     display: 'inline-block', width: 10, height: 10, borderRadius: 5,
@@ -297,6 +310,19 @@ export default function DatahalsaPage() {
           <Rad vanster="Tomgångs-inkonsistens"
                hoger={invarianter.data?.tomgangInkonsistenta === 0 ? '0 · LÄKT ✅' : `${invarianter.data?.tomgangInkonsistenta} ⛔`}
                hogerFarg={invarianter.data?.tomgangInkonsistenta === 0 ? C.gron : C.rod} />
+          {/* Motortid utan arbetstid — ÄRLIG DATA, inte fel. Motorn gick på en
+              flyttdag (trailer, rast). Dämpad, aldrig röd, matar aldrig beskedet:
+              ett larm som larmar på det normala lär folk att ignorera larm.
+              Tills 2026-10-01 hittade importen på 88 % arbete här — nu står noll. */}
+          <Rad vanster="Motortid utan arbetstid" dimmad
+               hoger={`${invarianter.data?.motorUtanArbete.length ?? 0} dag(ar) · förväntat vid flytt`} />
+          {(invarianter.data?.motorUtanArbete ?? []).map(x => (
+            <div key={x.maskin + x.datum + x.objekt} style={{ paddingLeft: 16, fontSize: 12, color: C.dim, padding: '2px 0 2px 16px' }}>
+              {x.namn} {datumKort(x.datum)} · {x.objektnamn}: motorn gick {minText(x.motorSek)}, ingen arbetstid
+              {x.avbrottSek > 0 ? ` · avbrott ${minText(x.avbrottSek)}` : ''}
+              {x.rastSek > 0 ? ` · rast ${minText(x.rastSek)}` : ''}
+            </div>
+          ))}
         </Kort>
 
         {/* ── 3b. Tappades något vid import? — skiljer ÄKTA tapp (rött) från
