@@ -784,8 +784,14 @@ def avgor_tid_vinnare(varianter: Dict):
 def bygg_fakt_tid_rader(merged_entries: Dict, merged_attr: Dict, filnamn: str,
                         dates_by_maskin: Optional[Dict[str, set]] = None) -> List[Dict]:
     """Aggregera vinnande segment per (datum, maskin, objekt, operator) till
-    fakt_tid-rader — attributionen ur merged_attr, tomgång härledd, 88 %-
-    fallback när WorkCategory saknas. dates_by_maskin begränsar till berörda dagar."""
+    fakt_tid-rader — attributionen ur merged_attr, tomgång härledd.
+    dates_by_maskin begränsar till berörda dagar.
+
+    INGEN FALLBACK. P = T = 0 med motortid > 0 är ÄRLIG data: motorn gick
+    utan arbete (lastning på trailer, rast med motorn på). Fallbacken
+    "processing = 88 % av motortiden" (2026-04-07 → 2026-10-01) hittade på
+    15 h arbete på 68 flyttdagar. Saknas mätningen skrivs noll; datahälsan
+    visar dagen under "Motortid utan arbetstid"."""
     agg = defaultdict(lambda: {**{f: 0 for f in TID_FIELDS}, 'other_work_kategorier': {}})
     for ident, entry in merged_entries.items():
         _, maskin = ident
@@ -811,16 +817,9 @@ def bygg_fakt_tid_rader(merged_entries: Dict, merged_attr: Dict, filnamn: str,
             'datum': datum, 'maskin_id': maskin, 'operator_id': operator, 'objekt_id': objekt,
             **values, 'tomgang_sek': tomgang, 'filnamn': filnamn,
         })
-    # Fallback: WorkCategory saknas → processing = 88 % av motortiden, tomgång omräknad
-    # (annars bokförs motortiden dubbelt — bevisat 41 rader / +7,3 h 2026-07-10).
-    for row in rows:
-        if row.get('processing_sek', 0) == 0 and row.get('terrain_sek', 0) == 0 and row.get('engine_time_sek', 0) > 0:
-            fallback_sek = int(row['engine_time_sek'] * 0.88)
-            row['processing_sek'] = fallback_sek
-            g0_fb = (fallback_sek + row.get('terrain_sek', 0)
-                     + row.get('other_work_sek', 0) - row.get('kort_stopp_sek', 0))
-            row['tomgang_sek'] = max(0, row['engine_time_sek'] - g0_fb)
-            logger.warning(f"  VARNING: Fallback G15h från EngineTime för {row.get('maskin_id')} {row.get('datum')} — WorkCategory saknas i MOM-fil (engine={row['engine_time_sek']}s → processing={fallback_sek}s, tomgang={row['tomgang_sek']}s)")
+        if runtime == 0 and values['engine_time_sek'] > 0:
+            logger.info(f"  Motortid utan arbetstid: {maskin} {datum} obj={objekt} "
+                        f"(engine={values['engine_time_sek']}s, ingen RUN-kategori — skrivs som noll)")
     return rows
 
 

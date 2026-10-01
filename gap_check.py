@@ -16,7 +16,8 @@ snäll "obs" i juni-loggarna utan att någon larmade):
    - identitet (MonitoringStartTime, maskin) — objekt/operator är attribut
    - BELOPP från varianten med störst vikt (total duration alla tidshinkar)
    - ATTRIBUTION från versionen med högst recency (filnamnssuffix, annars mtime)
-   - fallback per dag-nyckel: P=0 & T=0 & engine>0 -> P = int(0.88 * engine)
+   - INGEN fallback: P=0 & T=0 med motortid är ärlig data (motorn gick utan
+     arbete). 88 %-fallbacken togs bort ur importen 2026-10-01.
 
    LARM : (tak − DB) > ABS_THRESHOLD_H   (under-count, importen tappar)
    LARM : (DB − tak) > ABS_THRESHOLD_H   (över-count/dubblering ELLER MOM-fil
@@ -158,7 +159,9 @@ def mom_ceiling(maskin, dayset):
             a = attrs.get(ident)
             if a is None or rec > a[0] or (rec == a[0] and vikt > a[3]):
                 attrs[ident] = (rec, ek[2], ek[3], vikt)
-    # aggregera per (datum, objekt, operator), tillämpa fallback, summera P+T per datum
+    # aggregera per (datum, objekt, operator), summera P+T per datum.
+    # Ingen fallback (samma som importern sedan 2026-10-01): motortid utan
+    # RUN-kategori är noll arbete, inte 88 %.
     agg = defaultdict(lambda: {f: 0 for f in TID_FIELDS})
     for ident, e in entries.items():
         _, objekt, operator, _ = attrs[ident]
@@ -167,10 +170,7 @@ def mom_ceiling(maskin, dayset):
             agg[(datum, objekt, operator)][f] += (e.get(f) or 0)
     day_pt = defaultdict(int)
     for (datum, _o, _op), vals in agg.items():
-        P, T = vals['processing_sek'], vals['terrain_sek']
-        if P == 0 and T == 0 and vals['engine_time_sek'] > 0:
-            P = int(vals['engine_time_sek'] * 0.88)  # samma fallback som importern
-        day_pt[datum] += P + T
+        day_pt[datum] += vals['processing_sek'] + vals['terrain_sek']
     return dict(day_pt)
 
 

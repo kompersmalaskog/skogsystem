@@ -23,6 +23,7 @@ ALLTID göra så här:
 - m³/G15h = SUM(volym_m3sub) / SUM(g15_h) — viktat snitt, aldrig snitt av snitt
 - L/m³ = SUM(bransle_liter) / SUM(volym_m3sub) — viktat snitt
 - Medelstam per objekt = SUM(volym_m3sub) / SUM(stammar)
+- **Ärlig data eller ingen data.** Ett beräknat tal får aldrig lagras eller visas som om det vore en mätning. Saknas mätningen skrivs noll eller null och dagen märks synligt i datahälsan ("Motortid utan arbetstid"). Fallbacken "processing = 88 % av motortiden" (2026-04 till 2026-10) hittade på 15 h arbete på 68 flyttdagar innan den togs bort — motorn gick på trailern, maskinen arbetade inte.
 
 ### Medelstamsklasser
 - Gallringsskördare (R64101): 0.00-0.03, 0.03-0.05, 0.05-0.07, 0.07-0.09, 0.09-0.12, 0.12+
