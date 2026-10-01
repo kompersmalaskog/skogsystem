@@ -119,6 +119,8 @@ function dotDesc(o: OversiktObjekt, iKo: boolean): DotDesc | null {
 }
 
 const nastaAv = (f: MaskinForslag) => f.ko[0]?.objekt ?? null;
+// En rad i '+ Lägg till objekt'-väljaren.
+type LaggKand = { id: string; namn: string; atgard: string; m3: number | null; lat: number; lng: number; koMaskinNamn: string | null };
 // Routing-ORIGO: står maskinen på ett känt objekt → rutta från OBJEKTETS koordinat (stabil, nära väg),
 // inte stam-GPS:en mitt i beståndet. Markören står kvar på f.koordinat. Fallback: positionen.
 function ruttStart(f: MaskinForslag): { lat: number; lng: number } | null {
@@ -138,6 +140,7 @@ export default function OversiktV2Page() {
   const [positions, setPositions] = useState<Map<string, PlatsForslag>>(new Map());
   const [telByMaskin, setTelByMaskin] = useState<Record<string, string>>({});
   const [ruttVersion, setRuttVersion] = useState(0); // bumpas när rutt-cachen fyllts → rita om km/linjer
+  const [highlightObjekt, setHighlightObjekt] = useState<string | null>(null); // prick som markeras under fingret i '+ Lägg till objekt'
 
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState(false);
@@ -245,6 +248,7 @@ export default function OversiktV2Page() {
   const ordnaRef = useRef(false); // true medan "Ändra ordning" är öppet → kartan rör sig inte av sig själv
   const stopMarkersRef = useRef<any[]>([]); // numrerade rutt-cirklar + on-map-etiketter
   const clusterMarkersRef = useRef<any[]>([]); // ihopslagna maskin-markörer ("N maskiner")
+  const highlightMarkerRef = useRef<any>(null); // prick under fingret i '+ Lägg till objekt'-väljaren
   const didFitRef = useRef(false);
   const forslagRef = useRef(forslag); forslagRef.current = forslag;
   const selRef = useRef(selMaskin); selRef.current = selMaskin;
@@ -371,6 +375,7 @@ export default function OversiktV2Page() {
       dotsRef.current.forEach((d) => d.marker.remove()); dotsRef.current.clear();
       stopMarkersRef.current.forEach((m) => m.remove()); stopMarkersRef.current = [];
       clusterMarkersRef.current.forEach((m) => m.remove()); clusterMarkersRef.current = [];
+      if (highlightMarkerRef.current) { highlightMarkerRef.current.remove(); highlightMarkerRef.current = null; }
       map.remove(); mapRef.current = null; setMapStyleLoaded(false);
     };
   }, [mapReady, layoutLabels, layoutMachines]);
@@ -612,8 +617,22 @@ export default function OversiktV2Page() {
       map.fitBounds(b, { padding: { top: 80, left: 50, right: 50, bottom: Math.round(h * 0.45) + 48 }, maxZoom: 14, duration: 500 });
     }
   }, [selMaskin, forslag, vagRuttCached]);
-  useEffect(() => { ordnaRef.current = false; setKoPreview(null); }, [selMaskin]); // byte/stängning av maskin nollar preview + redigeringslås
+  useEffect(() => { ordnaRef.current = false; setKoPreview(null); setHighlightObjekt(null); }, [selMaskin]); // byte/stängning av maskin nollar preview + redigeringslås
   useEffect(() => { restyleSelection(); }, [koPreview, restyleSelection]); // rita om numren live
+
+  // Highlight-prick för picker-raden under fingret. Panorerar in objektet BARA om det är dolt (bakom arket/utanför vyn).
+  useEffect(() => {
+    const map = mapRef.current; if (!map || !mapStyleLoaded) return;
+    if (highlightMarkerRef.current) { highlightMarkerRef.current.remove(); highlightMarkerRef.current = null; }
+    if (!highlightObjekt) return;
+    const o = objekt.find((x) => x.id === highlightObjekt); if (!o || o.lat == null || o.lng == null) return;
+    const el = document.createElement('div'); el.className = 'puls';
+    el.style.cssText = `width:30px;height:30px;border-radius:50%;background:rgba(10,132,255,0.3);border:3px solid ${FARG.bla};box-shadow:0 0 0 2px #fff,0 2px 10px rgba(0,0,0,0.45);pointer-events:none`;
+    highlightMarkerRef.current = new window.maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([o.lng, o.lat]).addTo(map);
+    const C = map.getContainer(); const W = C.clientWidth, H = C.clientHeight; const s = map.project([o.lng, o.lat]);
+    const doltBakomArk = s.x < 30 || s.x > W - 30 || s.y < 60 || s.y > H * 0.5; // synlig map-yta = ovanför ~halva skärmen (arket täcker nedre)
+    if (doltBakomArk) map.easeTo({ center: [o.lng, o.lat], offset: [0, -Math.round(H * 0.22)], duration: 300 });
+  }, [highlightObjekt, objekt, mapStyleLoaded]);
 
   // härlett
   const utanPosition = useMemo(() => aktivaMaskiner.filter((m) => !positions.get(m.maskin_id)?.koordinat), [aktivaMaskiner, positions]);
@@ -622,6 +641,44 @@ export default function OversiktV2Page() {
   const arForareVy = !!(isDriver && selMaskin && selMaskin === driverMaskinId);
   const objektValt = selObjekt ? objekt.find((o) => o.id === selObjekt) ?? null : null;
   const aktivaSkordare = useMemo(() => aktivaMaskiner.filter((m) => !arSkotare(m as MaskinRad)), [aktivaMaskiner]);
+
+  // '+ Lägg till objekt'-väljaren: kandidater för vald maskin (highlightObjekt-state deklareras ovan).
+  const laggKandidater = useMemo<LaggKand[]>(() => {
+    if (!valt || !selMaskin) return [];
+    const m = maskiner.find((x) => x.maskin_id === selMaskin);
+    const skotare = arSkotare(m as MaskinRad);
+    const klarT = (m as any)?.klarar_typ ?? null; const roll = (m as any)?.skotar_roll ?? null;
+    const start = ruttStart(valt); const nuId = valt.nuObjekt?.id ?? null;
+    const koByObjekt = new Map(maskinKo.map((k) => [k.objekt_id, k] as const));
+    const rows: LaggKand[] = [];
+    for (const o of objekt) {
+      if (o.lat == null || o.lng == null || o.id === nuId || STATUS_AVSLUTADE.includes(o.status)) continue;
+      let m3: number | null = null;
+      if (skotare) {
+        if (!rollMatcharTyp(roll, o.typ)) continue;
+        const agg = o.vo_nummer ? skord[o.vo_nummer] : undefined;
+        const backen = agg && agg.skordat > 0 ? paBackenKvar(agg.skordat, agg.skotat, agg.egenSkotning) : 0;
+        if (!backen || backen <= 0) continue; // bara objekt med virke på backen
+        m3 = backen;
+      } else {
+        if (o.status !== 'planerad' || !klararObjekt(klarT, o.typ)) continue; // planerade som klarar_typ
+        m3 = o.volym_planerad ?? (o.volym || null);
+      }
+      const ko = koByObjekt.get(o.id);
+      rows.push({ id: o.id, namn: o.namn, atgard: o.atgard || (o.typ === 'gallring' ? 'Gallring' : 'Slutavverkning'), m3, lat: o.lat, lng: o.lng, koMaskinNamn: ko ? (maskinVisningsnamn(maskiner.find((x) => x.maskin_id === ko.maskin_id)) || ko.maskin_id) : null });
+    }
+    const avst = (r: LaggKand) => start ? (legKmCache(start, { lat: r.lat, lng: r.lng }) ?? haversineKm(start, { lat: r.lat, lng: r.lng })) : Infinity; // väg om cachat, annars fågelväg
+    return [...rows].sort((a, b) => avst(a) - avst(b));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valt, selMaskin, maskiner, objekt, skord, maskinKo, ruttVersion]);
+  const laggKmTill = useCallback((k: LaggKand): number | null => { const f = selMaskin ? forslag.get(selMaskin) : null; const start = f ? ruttStart(f) : null; return start ? legKmCache(start, { lat: k.lat, lng: k.lng }) : null; }, [selMaskin, forslag, legKmCache]);
+  const hanteraLaggLage = useCallback((active: boolean) => {
+    if (!active) { setHighlightObjekt(null); return; }
+    const f = selMaskin ? forslag.get(selMaskin) : null; const start = f ? ruttStart(f) : null; if (!start) return;
+    const mal = laggKandidater.slice(0, 40).map((k) => ({ lat: k.lat, lng: k.lng })); // förhämta vägavstånd (väg-km + omsortering)
+    (async () => { let n = 0; for (const t of mal) { await vagRuttCached(start, t); if (++n % 8 === 0) setRuttVersion((v) => v + 1); } setRuttVersion((v) => v + 1); })(); // bumpa i klump, inte per anrop
+  }, [selMaskin, forslag, laggKandidater, vagRuttCached]);
+  const valjLaggObjekt = useCallback((objektId: string) => { if (selMaskin) laggIKo(selMaskin, objektId); setHighlightObjekt(null); }, [selMaskin, laggIKo]);
   // Arkets km per ben (vald maskins fasta kö) ur rutt-cachen; miss → null ("–"). ruttVersion → uppdateras när ORS svarat.
   const selLegs = useMemo(() => {
     if (!valt?.koordinat) return [] as (number | null)[];
@@ -675,6 +732,7 @@ export default function OversiktV2Page() {
           onOrdnaLage={hanteraOrdnaLage}
           onOrderChange={hanteraOrderChange}
           koRader={maskinKo.filter((k) => k.maskin_id === selMaskin).sort((a, b) => a.ordning - b.ordning)}
+          kandidater={laggKandidater} kmTill={laggKmTill} onValjObjekt={valjLaggObjekt} onHighlight={setHighlightObjekt} onLaggLage={hanteraLaggLage}
         />
       )}
 
@@ -762,12 +820,15 @@ function ReorderLista({ rows, onDrop, onOrderChange }: { rows: { koId: string; n
   );
 }
 
-function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, onReorder, onOrdnaLage, onOrderChange, koRader }: {
+function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage }: {
   f: MaskinForslag; namn: string; legs: (number | null)[]; skord: Record<string, SkordAggV2>; warnings: Record<string, ObjWarn>;
   telefon: string | null; forare: boolean; onClose: () => void;
   onReorder: (orderedKoIds: string[]) => void; onOrdnaLage: (active: boolean) => void; onOrderChange: (koIds: string[]) => void; koRader: MaskinKoItem[];
+  kandidater: LaggKand[]; kmTill: (k: LaggKand) => number | null; onValjObjekt: (objektId: string) => void; onHighlight: (objektId: string | null) => void; onLaggLage: (active: boolean) => void;
 }) {
   const [ordnaLage, setOrdnaLage] = useState(false);
+  const [laggLage, setLaggLage] = useState(false);
+  const [sok, setSok] = useState('');
   const nuAgg = aggFor(f.nuObjekt, skord);
   const rollLabel = f.typ === 'skotare' ? 'skotare' : 'skördare';
   const nuKvar = f.nuObjekt && nuAgg && nuAgg.skordat > 0 ? paBackenKvar(nuAgg.skordat, nuAgg.skotat, nuAgg.egenSkotning) : null;
@@ -781,10 +842,44 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
   const dragRader = koPoster.map((p, i) => ({ koId: koIdForObjekt(p.objekt.id) || '', namn: p.objekt.namn, hoger: hogerFor(p, i) })).filter((r) => r.koId); // kö-rader (= f.ko[0..koPoster.length])
 
   const toggleOrdna = () => setOrdnaLage((v) => { const nv = !v; onOrdnaLage(nv); return nv; });
+  const oppnaLagg = () => { setSok(''); setLaggLage(true); onLaggLage(true); };
+  const stangLagg = () => { setLaggLage(false); onLaggLage(false); };
+  const filtrerade = sok.trim() ? kandidater.filter((k) => k.namn.toLowerCase().includes(sok.trim().toLowerCase())) : kandidater;
 
   return (
-    <div className="sheet-upp" style={{ ...SheetBas, ...(ordnaLage ? { maxHeight: '45vh', overflowY: 'auto' } : null) }}>
+    <div className="sheet-upp" style={{ ...SheetBas, ...((ordnaLage || laggLage) ? { maxHeight: '55vh', overflowY: 'auto' } : null) }}>
       <Grabber onClose={onClose} />
+      {laggLage ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <div style={{ ...TYP.rubrik }}>Lägg till objekt</div>
+            <button onClick={stangLagg} style={{ background: 'none', border: 'none', color: FARG.bla, ...TYP.text, cursor: 'pointer', padding: 0 }}>Avbryt</button>
+          </div>
+          {kandidater.length > 8 && (
+            <input value={sok} onChange={(e) => setSok(e.target.value)} placeholder="Sök objekt…" style={{ ...TYP.text, padding: `0 ${AVSTAND.m}px`, height: 44, boxSizing: 'border-box', borderRadius: RADIE.rad, border: '1px solid #48484a', background: FARG.upphojt, color: FARG.text, outline: 'none' }} />
+          )}
+          {filtrerade.length === 0 ? (
+            <div style={{ ...TYP.meta, color: FARG.text2 }}>Inga objekt att lägga till.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {filtrerade.map((k) => {
+                const iKo = !!k.koMaskinNamn; const km = kmTill(k);
+                return (
+                  <div key={k.id}
+                    onPointerEnter={iKo ? undefined : () => onHighlight(k.id)}
+                    onPointerLeave={iKo ? undefined : () => onHighlight(null)}
+                    onClick={iKo ? undefined : () => { onValjObjekt(k.id); stangLagg(); }}
+                    style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', columnGap: AVSTAND.m, rowGap: 2, padding: `${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.upphojt, opacity: iKo ? 0.5 : 1, cursor: iKo ? 'default' : 'pointer', ...TYP.text, ...TNUM }}>
+                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.namn}</div>
+                    <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{km != null ? `${Math.round(km)} km` : '–'}</div>
+                    <div style={{ ...TYP.meta, color: FARG.text2, gridColumn: '1 / 3' }}>{k.atgard}{k.m3 != null ? ` · ${fmt(k.m3)} m³` : ''}{iKo ? ` · i kö för ${k.koMaskinNamn}` : ''}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (<>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <div style={{ ...TYP.rubrik }}>{namn}</div>
         <div style={{ ...TYP.meta, color: FARG.text2 }}>{forare ? 'din maskin · ' : ''}{rollLabel}{f.manuellKo ? ' · manuell kö' : ''}</div>
@@ -827,13 +922,17 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
       {forare ? (
         mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={{ ...KNAPP, marginTop: AVSTAND.xs }}><SvgVag />Vägbeskrivning{nasta ? ` till ${nasta.namn}` : ''}</a>
       ) : (<>
-        {kanOrdna && (
-          <button onClick={toggleOrdna} style={{ ...KNAPP_LITEN, borderColor: ordnaLage ? FARG.bla : '#48484a', color: ordnaLage ? FARG.bla : FARG.text }}>{ordnaLage ? 'Klar' : 'Ändra ordning'}</button>
-        )}
+        <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
+          {kanOrdna && (
+            <button onClick={toggleOrdna} style={{ ...KNAPP_LITEN, borderColor: ordnaLage ? FARG.bla : '#48484a', color: ordnaLage ? FARG.bla : FARG.text }}>{ordnaLage ? 'Klar' : 'Ändra ordning'}</button>
+          )}
+          <button onClick={oppnaLagg} style={{ ...KNAPP_LITEN, borderColor: '#48484a', color: FARG.text }}>+ Lägg till objekt</button>
+        </div>
         <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.xs }}>
           {telefon && <a href={`tel:${telefon}`} style={KNAPP}><SvgRing />Ring</a>}
           {mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={KNAPP}><SvgVag />Vägbeskrivning</a>}
         </div>
+      </>)}
       </>)}
     </div>
   );
