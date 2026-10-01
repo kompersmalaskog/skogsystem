@@ -53,6 +53,42 @@ function diffColor(n: number) { return n >= 0 ? FARG.gron : FARG.rod; }
 const OBJEKT_KOLUMNER = 'minmax(0, 1.6fr) repeat(4, minmax(0, 1fr)) minmax(0, 1.2fr)';
 const MASKIN_KOLUMNER = 'minmax(0, 1.6fr) repeat(4, minmax(0, 1fr))';
 
+// Objektdetaljens nivå 1: en skillnadsrad per maskin, varje rad avrundad
+// för sig, och huvudsiffran = SUMMAN av de visade raderna — den stora
+// siffran kontrollräknar alltid mot raderna under (summan är summan av
+// det som visas). Exporterad för test.
+export function maskinDiffRader(o: ObjektRad) {
+  const rader = o.maskiner.map(d => ({
+    maskin_id: d.maskin_id,
+    roll: d.roll,
+    diff: Math.round(d.ackord - d.timpeng),
+  }));
+  return { rader, summa: rader.reduce((s, r) => s + r.diff, 0) };
+}
+
+// Nivå 2:s kvitto grupperar motorns grund-rader på label. En label som
+// inte känns igen hamnar under "Övrigt" — raderna får aldrig tappas tyst
+// för att motorn fått en ny grundrad.
+const KVITTO_GRUPPER: [string, string[]][] = [
+  ['Volym', ['Skördad volym', 'Skotad volym']],
+  ['Grundpris', ['Medelstam']],
+  ['Tillägg', ['Terräng', 'Skotavstånd', 'Sortimentgrupper', 'Kvalitetssäkring']],
+  ['Tid', ['G15 skördare', 'G15 skotare']],
+];
+export function grupperaKvitto(grund: ObjektRad['grund']) {
+  const anvanda = new Set<number>();
+  const grupper = KVITTO_GRUPPER.map(([namn, labels]) => ({
+    namn,
+    rader: grund.filter((g, i) => {
+      if (labels.includes(g.label)) { anvanda.add(i); return true; }
+      return false;
+    }),
+  })).filter(g => g.rader.length > 0);
+  const ovriga = grund.filter((_, i) => !anvanda.has(i));
+  if (ovriga.length > 0) grupper.push({ namn: 'Övrigt', rader: ovriga });
+  return grupper;
+}
+
 export default function MotAckordClient() {
   const [period, setPeriod] = useState<PeriodType>('M');
   const [periodOffset, setPeriodOffset] = useState(0);
@@ -64,6 +100,7 @@ export default function MotAckordClient() {
   const [ejJamforbara, setEjJamforbara] = useState<{ namn: string; orsak: string }[]>([]);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, { namn: string; typ: string | null }>>({});
   const [sheetObjekt, setSheetObjekt] = useState<ObjektRad | null>(null);
+  const [detaljOppen, setDetaljOppen] = useState(false);  // nivå 2 ("Så räknades priset")
   const [infoOpen, setInfoOpen] = useState(false);
   const [vantarOpen, setVantarOpen] = useState(false);
   const [ejJamfOpen, setEjJamfOpen] = useState(false);    // "utan jämförelse" uppfälld
@@ -218,7 +255,7 @@ export default function MotAckordClient() {
               {tabell.rader.map(r => {
                 const o = r.post;
                 return (
-                  <div key={o.objekt_id} onClick={() => setSheetObjekt(o)}
+                  <div key={o.objekt_id} onClick={() => { setSheetObjekt(o); setDetaljOppen(false); }}
                     style={{ ...objektGrid, padding: `${AVSTAND.m}px 0`, cursor: 'pointer' }}>
                     <div style={{ ...TYP.listtitel, color: FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {o.namn}
@@ -334,76 +371,112 @@ export default function MotAckordClient() {
         </div>
       )}
 
-      {/* Objekt-detalj-sheet */}
+      {/* Objekt-detalj — tre nivåer, lätt för hjärnan: EN huvudsiffra och
+          maskinernas skillnad direkt (nivå 1), hela priskvittot och
+          maskindetaljerna bakom ETT klick (nivå 2). Kort/kvitto-form —
+          ETT objekt förklaras, inga rader jämförs. */}
       {sheetObjekt && sheetShell(() => setSheetObjekt(null), (() => {
         const o = sheetObjekt;
-        const skordAckord = o.maskiner.filter(d => d.roll === 'skördare').reduce((x, d) => x + d.ackord, 0);
-        const skotAckord = o.maskiner.filter(d => d.roll === 'skotare').reduce((x, d) => x + d.ackord, 0);
-        const tot = skordAckord + skotAckord;
+        const nivå1 = maskinDiffRader(o);
         return (
           <>
+            {/* NIVÅ 1 — namn + volym, huvudsiffran, maskinernas skillnad */}
             <div style={{ ...TYP.rubrik, marginBottom: AVSTAND.xs }}>{o.namn}</div>
-            <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.l }}>
-              {formatKr(o.ackord)} ackord · {formatKr(o.timpeng)} timpeng · <span style={{ color: diffColor(o.diff) }}>{fmtDiff(o.diff)} kr</span>
+            <div style={{ ...TYP.meta, color: FARG.text2 }}>
+              {fmtHeltal(o.volym)} m³fub{o.egenSkotning && ' · egen skotning — markägaren skotar själv'}
             </div>
 
-            {tot > 0 && (
-              <div style={{ marginBottom: AVSTAND.l }}>
-                <div style={sheetH}>Fördelning av ackordet</div>
-                <div style={{ ...TYP.meta, color: FARG.text2 }}>
-                  {o.egenSkotning
-                    ? <>Skördare 100 % — egen skotning, markägaren skotar själv. Noll skotad volym är korrekt, ingen skotardel finns i affären.</>
-                    : <>Skördare {Math.round(skordAckord / tot * 100)} % · Skotare {Math.round(skotAckord / tot * 100)} %</>}
+            <div style={{ textAlign: 'center', padding: `${AVSTAND.xl}px 0 ${AVSTAND.s}px` }}>
+              <div style={{ ...TYP.micro, color: FARG.text2 }}>Mot timpeng</div>
+              <div style={{ ...TYP.tal, color: diffColor(nivå1.summa), marginTop: AVSTAND.s }}>
+                {fmtDiff(nivå1.summa)} kr
+              </div>
+              <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>
+                ackord {formatKr(o.ackord)} · timpeng {formatKr(o.timpeng)}
+              </div>
+            </div>
+
+            {/* Maskinernas skillnad — summan av raderna ÄR huvudsiffran */}
+            <div style={{ margin: `${AVSTAND.l}px 0` }}>
+              {nivå1.rader.map(r => {
+                const v = visaMaskin(r.maskin_id);
+                return (
+                  <div key={r.maskin_id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    gap: AVSTAND.m, padding: `${AVSTAND.s}px 0`,
+                  }}>
+                    <span style={{ ...TYP.text, color: FARG.text }}>
+                      {v.namn}{v.id && <span style={{ ...TYP.meta, color: FARG.text2 }}> · {v.id}</span>}
+                      <span style={{ ...TYP.meta, color: FARG.text2 }}> · {r.roll}</span>
+                    </span>
+                    <span style={{ ...TYP.listtitel, ...{ fontVariantNumeric: 'tabular-nums' as const }, color: diffColor(r.diff) }}>
+                      {fmtDiff(r.diff)} kr
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* NIVÅ 2 — priskvittot och maskindetaljerna, bakom ett klick */}
+            <button onClick={() => setDetaljOppen(v => !v)}
+              style={{ ...KNAPP.tertiar, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.s }}>
+              Så räknades priset
+              <span style={{ transform: detaljOppen ? 'rotate(90deg)' : 'none' }}>›</span>
+            </button>
+
+            {detaljOppen && (
+              <div style={{ marginTop: AVSTAND.l }}>
+                {/* Ackordgrunden som kvitto — grupperat, inte en platt lista.
+                    FÄRGREGELN: vitt = mätt ur maskindata, orange = manuellt/
+                    uppskattat. Rättas i /redigering, aldrig här. */}
+                {grupperaKvitto(o.grund).map(grupp => (
+                  <div key={grupp.namn} style={{ marginBottom: AVSTAND.l }}>
+                    <div style={sheetH}>{grupp.namn}{grupp.namn === 'Grundpris' && o.klass != null && ` — klass ${String(o.klass).replace('.', ',')}`}</div>
+                    {grupp.rader.map((g, gi) => (
+                      <div key={gi} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.m,
+                        padding: `${AVSTAND.xs}px 0`,
+                      }}>
+                        <span style={{ ...TYP.meta, color: FARG.text2 }}>{g.label}</span>
+                        <span style={{
+                          ...TYP.meta, ...{ fontVariantNumeric: 'tabular-nums' as const }, textAlign: 'right' as const,
+                          color: g.manuell ? FARG.orange : FARG.text,
+                        }}>{g.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+
+                <div style={{ marginBottom: AVSTAND.l }}>
+                  <div style={sheetH}>Per maskin i detalj</div>
+                  {o.maskiner.map(d => {
+                    const v = visaMaskin(d.maskin_id);
+                    const osaker = d.timmar < OSAKER_TIM;
+                    return (
+                      <div key={d.maskin_id} style={{ padding: `${AVSTAND.s}px 0`, borderBottom: `1px solid ${FARG.linje}` }}>
+                        <div style={{ ...TYP.meta, fontWeight: VIKT.halvfet, color: FARG.text }}>
+                          {v.namn}{v.id && <span style={{ fontWeight: VIKT.normal, color: FARG.text2 }}> · {v.id}</span>}
+                          <span style={{ fontWeight: VIKT.normal, color: FARG.text2 }}> · {d.roll}</span>
+                        </div>
+                        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
+                          {fmtHeltal(d.volym)} m³fub · {fmtTim(d.timmar)} G15-tim
+                          {d.manuellTid && <span style={{ color: FARG.orange }}> · manuell tid</span>}
+                          {osaker && d.timmar > 0 && ' — osäkert'}
+                        </div>
+                        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
+                          ackord {formatKr(d.ackord)} · timpeng {formatKr(d.timpeng)} ({fmtTim(d.timmar)} tim × {fmtHeltal(d.timpris)} kr)
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ ...TYP.meta, color: FARG.text3 }}>
+                  Vitt = mätt ur maskindata · <span style={{ color: FARG.orange }}>orange</span> = manuellt eller uppskattat.
+                  Ackord = volym × pris per medelstamklass med tilläggen ovan; timpeng = G15-timmar × timpris.
                 </div>
               </div>
             )}
-
-            {/* ACKORDGRUND — läsläge. Mätt i vitt, manuellt/uppskattat i
-                orange: man ska se vad som är mätt och vad som är ihopskrivet
-                INNAN man går och rättar. Redigering sker i /redigering. */}
-            <div style={{ marginBottom: AVSTAND.l }}>
-              <div style={sheetH}>Ackordgrund</div>
-              {o.grund.map((g, gi) => (
-                <div key={gi} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.m,
-                  padding: `${AVSTAND.s}px 0`, borderBottom: gi < o.grund.length - 1 ? `1px solid ${FARG.linje}` : 'none',
-                }}>
-                  <span style={{ ...TYP.meta, color: FARG.text2 }}>{g.label}</span>
-                  <span style={{
-                    ...TYP.meta, ...{ fontVariantNumeric: 'tabular-nums' as const }, textAlign: 'right' as const,
-                    color: g.manuell ? FARG.orange : FARG.text,
-                  }}>{g.text}</span>
-                </div>
-              ))}
-              <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>
-                Vitt = mätt ur maskindata · <span style={{ color: FARG.orange }}>orange</span> = manuellt eller uppskattat
-              </div>
-            </div>
-
-            <div style={sheetH}>Per maskin — timpeng mot ackord i kr/tim</div>
-            {o.maskiner.map(d => {
-              const v = visaMaskin(d.maskin_id);
-              const krPerTim = d.timmar > 0 ? d.ackord / d.timmar : null;
-              const osaker = d.timmar < OSAKER_TIM;
-              return (
-                <div key={d.maskin_id} style={{ padding: `${AVSTAND.s}px 0`, borderBottom: `1px solid ${FARG.linje}` }}>
-                  <div style={{ ...TYP.meta, fontWeight: VIKT.halvfet, color: FARG.text }}>
-                    {v.namn}{v.id && <span style={{ fontWeight: VIKT.normal, color: FARG.text2 }}> · {v.id}</span>}
-                    <span style={{ fontWeight: VIKT.normal, color: FARG.text2 }}> · {d.roll}</span>
-                  </div>
-                  <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
-                    {krPerTim != null ? (
-                      <>timpeng {fmtHeltal(d.timpris)} → ackord motsv. <span style={{ color: diffColor(krPerTim - d.timpris) }}>{fmtHeltal(krPerTim)}</span> kr/tim</>
-                    ) : (
-                      <>inga G15-timmar — kr/tim kan inte räknas</>
-                    )}
-                  </div>
-                  <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
-                    {fmtTim(d.timmar)} tim{d.manuellTid && <span style={{ color: FARG.orange }}> · manuell</span>}{osaker && d.timmar > 0 && ' — osäkert'} · {formatKr(d.ackord)} ackord
-                  </div>
-                </div>
-              );
-            })}
 
             {/* Ett redigeringsställe: allt rättande sker i /redigering */}
             <Link href={`/redigering?objekt=${encodeURIComponent(o.objekt_id)}`}
