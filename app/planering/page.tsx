@@ -12635,6 +12635,7 @@ export default function PlannerPage() {
     return (
       <ObjektValjare
         forareFilter={isForare && effectiveMedarbetare?.id ? { medarbetareId: effectiveMedarbetare.id } : undefined}
+        enhetMaskinId={enhetMaskinId}
         onStartObjekt={isForare ? handleStartKorningForObjekt : undefined}
         onSelectObjekt={(obj) => {
           console.log('=== VALT OBJEKT ===');
