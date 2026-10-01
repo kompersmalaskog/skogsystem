@@ -473,9 +473,10 @@ class IncomingFileHandler(FileSystemEventHandler):
         if not os.path.exists(filepath):
             # Händelser köar sig medan kedjan kör (hanteraren är synkron), och
             # när kön töms är filen ofta redan flyttad till Behandlade av en
-            # tidigare körning. 2026-10-01 17:08–17:15 gav EN hpr-fil tre
-            # fulla kedjor (3 min efterberäkning var) på köade modified-
-            # events, eftersom .hpr-vägen aldrig flyttade filen.
+            # tidigare körning. 2026-10-01 kom tre modified-events för
+            # "Älmehult … 1654.hpr" 17:08–17:15, elva minuter efter att
+            # huvudparsern flyttat den (16:57): tre fulla kedjor (3 min
+            # efterberäkning var) för en fil som inte fanns i kön.
             logger.info(f"Redan borta ur Inkommande (flyttad av en tidigare körning), hoppar: {basename}")
             return
 
