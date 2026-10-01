@@ -232,15 +232,18 @@ def run_hpr_import():
 
 
 def run_efterberakning():
-    """Efter HPR-importen: diameterserierna in, rotkapssimuleringen om.
+    """Efter HPR-importen: diameterserierna in, rotkapssimuleringen om,
+    utfallet per objekt om.
 
-    Båda är inkrementella — bara nya filer och ändrade objekt rör sig, så en
-    körning utan nyheter tar sekunder. Skärmen /rotkap läser bara resultatet
-    (sim_rotkap) och aldrig serien, därför ligger arbetet här och inte där.
-    Fel stoppar aldrig importen: de loggas, och skärmen visar förra
+    Alla tre är inkrementella — bara nya filer och ändrade objekt rör sig, så
+    en körning utan nyheter tar sekunder. Skärmarna /rotkap och
+    /affarsuppfoljning/medelstam läser bara resultatet (sim_rotkap,
+    utfall_objekt) och aldrig stockdatan, därför ligger arbetet här och inte
+    där. Fel stoppar aldrig importen: de loggas, och skärmen visar förra
     körningens rader med sitt beräknad-datum."""
     for script, args, timeout in (("import_diameterserie.py", ["--pa-riktigt"], 1800),
-                                  ("berakna_rotkap.py", [], 1800)):
+                                  ("berakna_rotkap.py", [], 1800),
+                                  ("berakna_utfall_objekt.py", [], 600)):
         logger.info(f"Startar efterberäkning: {script}")
         try:
             result = subprocess.run(

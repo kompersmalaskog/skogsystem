@@ -31,7 +31,8 @@ type Objekt = {
   timmer: number; kubb: number; massa: number; stammar: number; volym: number; forsta: string;
 };
 type Klass = { fran: number; till: number; antal: number; timmer: Andel; kubb: Andel; massa: Andel; objekt: Objekt[] };
-type Utfall = { min_stammar: number; antal_objekt: number; utanfor: number; sedan_ar: number | null; klasser: Klass[] };
+type Utfall = { min_stammar: number; antal_objekt: number; utanfor: number; sedan_ar: number | null;
+                uppdaterad: string | null; klasser: Klass[] };
 
 const klassNamn = (k: Klass) => `${nf1(k.fran)}–${nf1(k.till)}`;
 const spann = (a: Andel) => (a.min == null || a.max == null ? '–' : `${nf0(a.min)}–${nf0(a.max)} %`);
@@ -73,10 +74,16 @@ function Innehall() {
     for (const [key, v] of Object.entries(q)) if (v) p.set(key, v);
     return `${bas}?${p.toString()}`;
   };
-  const underlag = (
+  // Talen är förberäknade efter import (utfall_objekt). Avstämningsdatumet
+  // står här så att en död kedja syns som ett gammalt datum, inte som
+  // färska tal. Tom tabell är ett eget tillstånd, inte "0 objekt".
+  const underlag = d.uppdaterad ? (
     <Damp>
-      Bygger på {nf0(d.antal_objekt)} objekt{d.sedan_ar ? ` sedan ${d.sedan_ar}` : ''}, minst {nf0(d.min_stammar)} stammar var. Fingervisning, inte facit.
+      Bygger på {nf0(d.antal_objekt)} objekt{d.sedan_ar ? ` sedan ${d.sedan_ar}` : ''}, minst {nf0(d.min_stammar)} stammar var,
+      uppdaterat {new Date(d.uppdaterad).toLocaleDateString('sv-SE')}. Fingervisning, inte facit.
     </Damp>
+  ) : (
+    <Damp>Inget räknat ännu. Tabellen fylls efter nästa import.</Damp>
   );
 
   // ── Objekten i klassen ────────────────────────────────────────────────
