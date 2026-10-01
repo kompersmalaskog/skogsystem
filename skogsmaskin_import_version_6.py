@@ -117,6 +117,12 @@ MOM_SYNK_FRAN = _env.get('MOM_SYNK_FRAN') or os.getenv('MOM_SYNK_FRAN') or '2026
 # Läses ur .env.local (STEG_B_LAGE=logga|skriv) i driftklonen; saknas → 'logga'.
 STEG_B_LAGE = (_env.get('STEG_B_LAGE') or os.getenv('STEG_B_LAGE') or 'logga').strip().lower()
 
+# Auto-status-läge: en inkommande prod-fil (HPR/FPR) för ett 'planerad'-objekt flippar det till
+# 'pagaende' och matar av filens maskins kö-rad. 'logga' (DEFAULT) kör regeln men SKRIVER INGET —
+# loggar "Auto-status [logga] skulle …". 'skriv' gör det på riktigt. Aldrig avslutade objekt.
+# Samma mönster som STEG_B_LAGE. Läses ur .env.local (AUTO_STATUS_LAGE=logga|skriv); saknas → 'logga'.
+AUTO_STATUS_LAGE = (_env.get('AUTO_STATUS_LAGE') or os.getenv('AUTO_STATUS_LAGE') or 'logga').strip().lower()
+
 # OneDrive-mappar
 ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
 INKOMMANDE = os.path.join(ONEDRIVE_BASE, "Inkommande")
@@ -4603,6 +4609,80 @@ def rebuild_fakt_sortiment(maskin_id: str, objekt_id: str) -> Optional[Dict]:
         return None
 
 
+def auto_status_pagaende(data: Dict) -> None:
+    """Prod-fil (HPR/FPR) in → objekt med status 'planerad' som filen rör flippas till 'pagaende'
+    (+ pagaende_startad_timestamp=now) och filens maskins rad tas bort ur maskin_ko (kön matas av).
+    ALDRIG avslutade/pågående. Objekt i ANDRA maskiners köer lämnas kvar. Styrs av AUTO_STATUS_LAGE
+    ('logga' default = logga bara, 'skriv' = gör det). Egna fel får aldrig fälla importen."""
+    try:
+        maskin_id = (data.get('maskin') or {}).get('maskin_id')
+        objekt_rader = data.get('objekt') or []
+        filnamn = data.get('filnamn') or '?'
+        if not maskin_id or not objekt_rader:
+            return
+        import urllib.parse
+        from datetime import datetime, timezone
+        tagg = '' if AUTO_STATUS_LAGE == 'skriv' else '[logga] '
+        sedda = set()
+        for o in objekt_rader:
+            oid = o.get('objekt_id'); vo = o.get('vo_nummer')
+            if not oid or oid in sedda:
+                continue
+            sedda.add(oid)
+            # Operativa objekt-raden: vo_nummer ELLER dim_objekt_id == importens objekt_id (46 via vo, 3 via dim).
+            ors = [f'dim_objekt_id.eq.{oid}']
+            if vo:
+                ors.insert(0, f'vo_nummer.eq.{vo}')
+            try:
+                resp = requests.get(f"{SUPABASE_URL}/rest/v1/objekt",
+                                    params={'select': 'id,namn,status', 'or': f"({','.join(ors)})"},
+                                    headers=SUPABASE_HEADERS, timeout=30)
+                rader = resp.json() if resp.status_code == 200 else []
+            except Exception as e:
+                logger.warning(f"  Auto-status: kunde inte läsa objekt {oid} ({e})")
+                continue
+            for rad in rader:
+                namn = rad.get('namn') or oid
+                if rad.get('status') == 'avslutat':
+                    # Avslutat objekt får ny produktion → bara en varning. Status ändras ALDRIG
+                    # automatiskt tillbaka; det är en människas beslut.
+                    logger.warning(f"Produktion på avslutat objekt: {namn} (ur {filnamn}) — status oförändrad")
+                    continue
+                if rad.get('status') != 'planerad':
+                    continue  # bara planerad→pagaende; aldrig pågående
+                logger.info(f"Auto-status {tagg}skulle satt {namn} planerad→pagaende ur {filnamn}"
+                            if AUTO_STATUS_LAGE != 'skriv'
+                            else f"Auto-status satte {namn} planerad→pagaende ur {filnamn}")
+                if AUTO_STATUS_LAGE == 'skriv':
+                    try:
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/objekt?id=eq.{rad['id']}",
+                                       headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'},
+                                       json={'status': 'pagaende', 'pagaende_startad_timestamp': datetime.now(timezone.utc).isoformat()},
+                                       timeout=10)
+                    except Exception as e:
+                        logger.warning(f"  Auto-status: PATCH status {namn} misslyckades ({e})")
+                # Mata av kön: ta bort filens maskins rad för objektet (lämna andra maskiners köer).
+                try:
+                    kq = requests.get(f"{SUPABASE_URL}/rest/v1/maskin_ko",
+                                      params={'select': 'id', 'objekt_id': f'eq.{rad["id"]}', 'maskin_id': f'eq.{maskin_id}'},
+                                      headers=SUPABASE_HEADERS, timeout=30)
+                    korader = kq.json() if kq.status_code == 200 else []
+                except Exception:
+                    korader = []
+                if korader:
+                    logger.info(f"Auto-status {tagg}skulle tagit {namn} ur kön för {maskin_id}"
+                                if AUTO_STATUS_LAGE != 'skriv'
+                                else f"Auto-status tog {namn} ur kön för {maskin_id}")
+                    if AUTO_STATUS_LAGE == 'skriv':
+                        try:
+                            requests.delete(f"{SUPABASE_URL}/rest/v1/maskin_ko?objekt_id=eq.{rad['id']}&maskin_id=eq.{maskin_id}",
+                                            headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'}, timeout=10)
+                        except Exception as e:
+                            logger.warning(f"  Auto-status: DELETE kö {namn} misslyckades ({e})")
+    except Exception as e:
+        logger.warning(f"  Auto-status: oväntat fel ({e})")
+
+
 def save_hpr_to_supabase(data: Dict) -> bool:
     """Spara HPR-data till Supabase"""
     try:
@@ -4741,6 +4821,7 @@ def save_hpr_to_supabase(data: Dict) -> bool:
             logger.error(f"  ✗ Misslyckades spara till: {', '.join(fel)}")
             return False
 
+        auto_status_pagaende(data)  # planerad→pagaende + mata av kön (AUTO_STATUS_LAGE)
         return True
     except Exception as e:
         logger.error(f"  Fel vid sparande av HPR: {e}")
@@ -4955,6 +5036,7 @@ def save_fpr_to_supabase(data: Dict) -> bool:
             logger.error(f"  ✗ Misslyckades spara till: {', '.join(fel)}")
             return False
 
+        auto_status_pagaende(data)  # planerad→pagaende + mata av kön (AUTO_STATUS_LAGE)
         return True
     except Exception as e:
         logger.error(f"  Fel vid sparande av FPR: {e}")
