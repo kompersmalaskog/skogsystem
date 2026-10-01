@@ -68,6 +68,10 @@ LARM_FIL = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_LARM_senaste.t
 # Deploy-drift-kontroll: katalogen där importkoden KÖR (deploy-klonen) jämförs
 # mot origin/main. HÅLL I SYNK med $ImportFiler i deploy_import.ps1.
 DEPLOY_DIR = r'C:\skogsystem-import'
+
+# Kön: en importerbar fil i Inkommande ska vara läst inom minuter (watchern
+# reagerar på events, scannen var femte minut). Ett dygn i kön = kedjan står.
+KO_MAX_H = 24.0
 DRIFT_FILER = ['skogsmaskin_import_version_6.py', 'import_hpr.py',
                'auto_import_watch.py', 'gap_check.py',
                'import_diameterserie.py', 'berakna_rotkap.py',
@@ -457,21 +461,78 @@ def check_fakt_sortiment_mot_stock():
     return larm, len(rows)
 
 
+def _importerade_ok(namn):
+    """Vilka av filnamnen har status OK i meta_importerade_filer? Batchar om
+    60 (URL-längd). Kastar vidare vid HTTP-fel — anroparen avgör larmtext."""
+    importerade = set()
+    namn = sorted(set(namn))
+    for i in range(0, len(namn), 60):
+        filt = 'filnamn=in.(' + ','.join('"' + urllib.parse.quote(x, safe='') + '"' for x in namn[i:i + 60]) + ')'
+        req = urllib.request.Request(
+            imp.SUPABASE_URL + '/rest/v1/meta_importerade_filer?select=filnamn&status=eq.OK&' + filt,
+            headers=_hdr())
+        for r in json.loads(urllib.request.urlopen(req, timeout=60).read()):
+            importerade.add(r['filnamn'])
+    return importerade
+
+
+def check_inkommande_ko():
+    """Del 8 — kön. Importerbara filer (mom/hpr/hqc/fpr) som legat i
+    Inkommande längre än KO_MAX_H. Watchern tar en fil inom minuter; ligger
+    den kvar efter ett dygn står kedjan: watchern är nere, importen kraschar
+    på filen, eller flytten till Behandlade misslyckas (filen är då redan OK
+    i meta men ligger kvar och körs om vid varje scan — larmet säger vilket).
+    Del 7 tittar på parkeringsmapparna, inte på kön; den här tittar BARA på
+    kön. Bara toppnivån, samma som watchern ser. READ-ONLY.
+    -> (larmrader, antal | None om mappen inte kunde läsas)."""
+    nu = time.time()
+    gamla = []   # (filnamn, typ, ålder_h)
+    try:
+        for fn in os.listdir(imp.INKOMMANDE):
+            p = os.path.join(imp.INKOMMANDE, fn)
+            if not os.path.isfile(p):
+                continue
+            typ = os.path.splitext(fn)[1].lower().lstrip('.')
+            if typ not in ('mom', 'hpr', 'hqc', 'fpr'):
+                continue
+            alder_h = (nu - os.path.getmtime(p)) / 3600.0
+            if alder_h > KO_MAX_H:
+                gamla.append((fn, typ, alder_h))
+    except Exception as e:
+        return [f'  LARM  kön: kunde inte läsa {imp.INKOMMANDE}: {e}'], None
+    if not gamla:
+        return [], 0
+    try:
+        importerade = _importerade_ok(g[0] for g in gamla)
+    except Exception as e:
+        return [f'  LARM  kön: kunde inte läsa meta_importerade_filer: {e}'], None
+    larm = []
+    for fn, typ, h in sorted(gamla, key=lambda x: -x[2]):
+        if fn in importerade:
+            orsak = ('redan OK i meta men inte flyttad till Behandlade — flytten misslyckas '
+                     'och filen körs om vid varje scan')
+        else:
+            orsak = ('aldrig importerad — watchern nere eller importen kraschar på filen '
+                     '(se import_logg.txt i drift)')
+        larm.append(f'  LARM  KÖN STÅR STILL: {fn} ({typ}) har legat {h / 24:.1f} dygn i Inkommande — {orsak}')
+    return larm, len(gamla)
+
+
 def check_parkerade_filer():
-    """Filer som ligger i Inkommande eller i en parkeringsmapp under
-    MOM-filer (_InkTemp, _TEMP_*, _vanta_*, _pause ...) utan att vara
-    importerade (status OK i meta_importerade_filer). Dagens övriga
-    kontroller utgår från objekt som FINNS i databasen — ett objekt som bara
-    finns som fil är osynligt för dem alla. 2026-10-01 låg 55 HPR- och 20
-    HQC-filer från 26 maj–6 juni i tre handflyttade mappar sedan
-    driftkonsolideringen, aldrig lästa. Watchern läser bara toppnivån i
-    Inkommande, så inget plockar upp en undermapp av sig självt.
-    .prl och .txt importeras aldrig och räknas inte. Filer i Inkommande
-    yngre än två timmar är på väg in och räknas inte heller. READ-ONLY.
+    """Del 7 — parkeringsmapparna. Filer i en handgjord mapp under MOM-filer
+    (_InkTemp, _TEMP_*, _vanta_*, _pause ...) utan att vara importerade
+    (status OK i meta_importerade_filer). Dagens övriga kontroller utgår från
+    objekt som FINNS i databasen — ett objekt som bara finns som fil är
+    osynligt för dem alla. 2026-10-01 låg 55 HPR- och 20 HQC-filer från
+    26 maj–6 juni i tre handflyttade mappar sedan driftkonsolideringen,
+    aldrig lästa. Watchern läser bara toppnivån i Inkommande, så inget
+    plockar upp en undermapp av sig självt. Själva kön (Inkommande) är del 8,
+    check_inkommande_ko — inte den här. .prl och .txt importeras aldrig och
+    räknas inte. READ-ONLY.
     -> (larmrader, antal | None om mappen inte kunde läsas)."""
     bas = os.path.dirname(imp.INKOMMANDE)
     try:
-        mappar = [imp.INKOMMANDE] + sorted(
+        mappar = sorted(
             os.path.join(bas, d) for d in os.listdir(bas)
             if d.startswith('_') and os.path.isdir(os.path.join(bas, d)))
     except Exception as e:
@@ -488,24 +549,14 @@ def check_parkerade_filer():
                 if typ not in ('mom', 'hpr', 'hqc', 'fpr'):
                     continue
                 alder_h = (nu - os.path.getmtime(p)) / 3600.0
-                if d == imp.INKOMMANDE and alder_h < 2:
-                    continue
                 kandidater.append((os.path.basename(d), fn, typ, alder_h / 24.0))
         except Exception as e:
             return [f'  LARM  parkerade filer: kunde inte läsa {d}: {e}'], None
     if not kandidater:
         return [], 0
     # Vilka av dem är importerade? Fråga meta i batchar.
-    importerade = set()
-    namn = sorted({k[1] for k in kandidater})
     try:
-        for i in range(0, len(namn), 60):
-            filt = 'filnamn=in.(' + ','.join('"' + urllib.parse.quote(x, safe='') + '"' for x in namn[i:i + 60]) + ')'
-            req = urllib.request.Request(
-                imp.SUPABASE_URL + '/rest/v1/meta_importerade_filer?select=filnamn&status=eq.OK&' + filt,
-                headers=_hdr())
-            for r in json.loads(urllib.request.urlopen(req, timeout=60).read()):
-                importerade.add(r['filnamn'])
+        importerade = _importerade_ok(k[1] for k in kandidater)
     except Exception as e:
         return [f'  LARM  parkerade filer: kunde inte läsa meta_importerade_filer: {e}'], None
     oimporterade = [k for k in kandidater if k[1] not in importerade]
@@ -607,6 +658,15 @@ def main():
     L.extend(park_larm)
     alarms.extend(park_larm)    # ett objekt som bara finns som fil syns ingen annanstans
 
+    # ── Del 8: står kön? (importerbar fil äldre än KO_MAX_H i Inkommande) ──
+    ko_larm, ko_antal = check_inkommande_ko()
+    if ko_antal is None and not ko_larm:
+        L.append('    kön (Inkommande): kunde inte kontrolleras')
+    else:
+        L.append(f'    kön (Inkommande): {ko_antal if ko_antal is not None else "?"} filer äldre än {KO_MAX_H:.0f} h')
+    L.extend(ko_larm)
+    alarms.extend(ko_larm)      # kedjan står — ingen ny data kommer in förrän någon tittar
+
     if alarms:
         L.append(f'>>> {len(alarms)} LARM — kontrollera per (maskin, dag) ovan.')
         # TODO: koppla ev. extern notis (mail/Teams) här — logg + LARM-fil + exit-kod 1 tills vidare.
@@ -667,7 +727,15 @@ def main():
             'larm_antal': len(park_larm),
             'sammanfattning': ('\n'.join(r.strip() for r in park_larm)[:1500] if park_larm
                                else ('kunde inte kontrolleras' if park_antal is None
-                                     else 'Inga oimporterade filer i Inkommande eller parkeringsmapparna')),
+                                     else 'Inga oimporterade filer i parkeringsmapparna')),
+        }, {
+            'id': 'inkommande_ko',
+            'kord_tid': nu,
+            'status': 'OKÄND' if ko_antal is None else ('LARM' if ko_larm else 'OK'),
+            'larm_antal': len(ko_larm),
+            'sammanfattning': ('\n'.join(r.strip() for r in ko_larm)[:1500] if ko_larm
+                               else ('kunde inte kontrolleras' if ko_antal is None
+                                     else f'Inga filer äldre än {KO_MAX_H:.0f} h i Inkommande')),
         }]
         hdr = dict(_hdr())
         hdr.update({'Content-Type': 'application/json',

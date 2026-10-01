@@ -17,6 +17,8 @@
     5. Verifiera att importfilerna ar byte-identiska med origin/main (git hash-object)
     6. Enable + starta tasken, verifiera att den KORANDE watchdogen loggar ratt
        git-sha ("Version: git=...") och att exakt 1 pythonw kor
+    7. Verifiera att den schemalagda veckokontrollen (gap_check.py) kor
+       FRAN DeployDir -- annars kor den gammal kod och ser inte nya kontroller
 
   Faller nagot steg -> rott besked + exit 1. Ar watchdogen redan stoppad nar felet
   intraffar sags det uttryckligen -- inget halvdeployat lage gar obemarkt.
@@ -29,6 +31,7 @@ param(
     [switch]$Force,
     [string]$DeployDir = 'C:\skogsystem-import',
     [string]$TaskName  = 'Skogsystem Auto Import',
+    [string]$GapTaskName = 'Skogsystem Gap Check',   # veckokontrollen -- maste kora fran DeployDir
     [int]$MaxVantaImportSek = 300   # hur lange steg 3 vantar ut en pagaende import innan hogt avbrott
 )
 
@@ -84,8 +87,20 @@ if ($dirty) {
 # -- 3. Stoppa enligt watchdog-disciplinen --
 Steg '3/6 stoppa watchdogen'
 # Disable FORST -> inga NYA importer startar under vantan. En redan pagaende
-# import (python.exe i DeployDir) dodas ALDRIG mitt i -- vi vantar ut den (RETRY)
-# och avbryter HOGT om den fastnar. Aldrig ett tyst avbrott som lamnar drift pa
+# import dodas ALDRIG mitt i -- vi vantar ut den (RETRY) och avbryter HOGT om
+# den fastnar. OBS: watchdogen startar sina subprocesser med sys.executable,
+# och tasken kor den med pythonw.exe -- importjobben heter alltsa OCKSA
+# pythonw.exe, inte python.exe. Vakten letade bara efter python.exe fram till
+# 2026-10-01 och sag darfor aldrig ett pagaende jobb: stoppet nedan dodade
+# import_diameterserie.py mitt i (PID 62688) den dagen.
+# Vi vantar BARA pa huvudparsern (skogsmaskin_import_version_6.py) -- en
+# halvskriven fil ar det enda som kostar att avbryta (den saknar da status OK
+# och tas om av nasta korning, men batcharna gors om). Efterberakningarna
+# (import_diameterserie, berakna_rotkap, berakna_utfall_objekt) och
+# import_hpr.py ar omrakningar som kors om vid nasta import. Vantar vakten
+# aven pa dem svalter den: Disable-ScheduledTask hindrar inte den REDAN
+# korande watchdogen fran att starta nya jobb nar filer kommer, och 17:08
+# samma dag stod fem jobb i rad i 300 s tills vakten avbrot. Aldrig ett tyst avbrott som lamnar drift pa
 # gammal kod (samma felklass som byggts bort overallt annars -- 3 tysta miss
 # denna vecka).
 Disable-ScheduledTask -TaskName $TaskName | Out-Null
@@ -93,15 +108,15 @@ $script:WatchdogStoppad = $true
 
 $vantat = 0
 while ($true) {
-    $importJobb = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match [regex]::Escape($DeployDir) })
+    $importJobb = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match 'skogsmaskin_import_version_6' })
     if ($importJobb.Count -eq 0) { break }
     if ($vantat -ge $MaxVantaImportSek) {
         # Import fastnat -> ateraktivera watchdogen (lamna ALDRIG drift utan den)
         # och avbryt HOGT. Drift ar OFORANDRAD.
         Enable-ScheduledTask -TaskName $TaskName | Out-Null
         $script:WatchdogStoppad = $false
-        Fel ("AVBRUTEN -- ett importjobb (python.exe i $DeployDir, PID $($importJobb[0].ProcessId)) har kort " +
+        Fel ("AVBRUTEN -- ett importjobb (PID $($importJobb[0].ProcessId): $($importJobb[0].CommandLine)) har kort " +
              "i > $MaxVantaImportSek s och blockerar deployen. DRIFT AR OFORANDRAD (kor fortf. GAMMAL kod). " +
              "Watchdogen ar ateraktiverad. KOR OM deployen nar importen ar klar.")
     }
@@ -189,6 +204,29 @@ $wd = @(Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" -ErrorAction 
     Where-Object { $_.CommandLine -match 'auto_import_watch' })
 if (-not $verifierad) { Fel "kunde inte verifiera 'Version: git=$mal' i $logg inom 30s (watchdog-processer: $($wd.Count))" }
 if ($wd.Count -ne 1) { Fel "vantade exakt 1 auto_import_watch-process efter start, fann $($wd.Count)" }
+Write-Host "Watchdog igang, version $mal verifierad i loggen."
 
-Write-Host "`nDEPLOY KLAR -- drift kor origin/main ($mal), watchdog igang, version verifierad i loggen." -ForegroundColor Green
+# -- 7. Veckokontrollen maste kora harifran --
+# Tasken registrerades for hand med WorkingDirectory = utvecklingsklonen, som
+# 2026-10-01 lag 63 commits efter main: veckokorningen korde en gap_check.py
+# fran 9 september och sag aldrig del 5-8. Att andra tasken kraver en UPPHOJD
+# PowerShell (Set-ScheduledTask gav 'Atkomst nekad' som vanlig anvandare),
+# sa har bara verifieras den -- med det exakta kommandot i felet.
+Steg '7/7 veckokontrollen (gap_check.py) kor fran DeployDir'
+$gapTask = Get-ScheduledTask -TaskName $GapTaskName -ErrorAction SilentlyContinue
+if (-not $gapTask) {
+    Fel "tasken '$GapTaskName' finns inte -- veckokontrollen kor inte alls. Registrera den (pythonw.exe gap_check.py --quiet) med WorkingDirectory $DeployDir."
+}
+$gapWd = [string]$gapTask.Actions[0].WorkingDirectory
+if ($gapWd.TrimEnd('\') -ne $DeployDir.TrimEnd('\')) {
+    Fel ("tasken '$GapTaskName' kor gap_check.py fran '$gapWd', inte fran $DeployDir -- veckokontrollen kor INTE den deployade koden. " +
+         "Drift ar deployad och watchdogen igang; ratta tasken i en UPPHOJD PowerShell:`n" +
+         "  `$t = Get-ScheduledTask -TaskName '$GapTaskName'; " +
+         "Set-ScheduledTask -TaskName '$GapTaskName' -Action (New-ScheduledTaskAction -Execute `$t.Actions[0].Execute " +
+         "-Argument `$t.Actions[0].Arguments -WorkingDirectory '$DeployDir') | Out-Null`n" +
+         "  och kor sedan om deployen.")
+}
+Write-Host "Tasken '$GapTaskName' kor gap_check.py fran $DeployDir."
+
+Write-Host "`nDEPLOY KLAR -- drift kor origin/main ($mal), watchdog igang, version verifierad i loggen, veckokontrollen kor harifran." -ForegroundColor Green
 exit 0
