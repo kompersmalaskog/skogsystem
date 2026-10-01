@@ -86,7 +86,8 @@ export function beraknaKlassTabell(klasser: KlassAgg[]) {
 const KOLUMNER = 'minmax(0, 0.9fr) repeat(4, minmax(0, 1fr)) minmax(0, 1.3fr)';
 
 export default function PerKlassClient() {
-  const [period, setPeriod] = useState<PeriodType>('M');
+  // Default ÅR — strategisk vy, året ger fullast bild.
+  const [period, setPeriod] = useState<PeriodType>('A');
   const [periodOffset, setPeriodOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -156,9 +157,14 @@ export default function PerKlassClient() {
 
   return (
     <EkonomiSida maxBredd={MAXBREDD_BRED}>
-      {/* Bara Månad/Kvartal/År — inget objekt avräknas på en dag */}
+      {/* Bara Kvartal/År — avräkning sker i klumpar: en månad har 0–4
+          avräknade objekt utspridda på klasserna, så kr/m³ per klass blir
+          ett enstaka objekts slump, inte ett mönster. Vyn JÄMFÖR klasser
+          och kräver nog objekt per klass; kvartal (~10–15 obj) och år
+          (~36) bär jämförelsen, månad ger brus/tomt. Samma logik som när
+          Resultat tog bort Dag/Vecka. */}
       <Periodvaxlare
-        perioder={['M', 'K', 'A']}
+        perioder={['K', 'A']}
         period={period}
         offset={periodOffset}
         onPeriod={p => { setPeriod(p); setPeriodOffset(0); setOppenKlass(null); }}
