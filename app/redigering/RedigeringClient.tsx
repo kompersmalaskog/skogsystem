@@ -423,6 +423,20 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
   // hålls i sync tills kolumnerna tas bort i städ-PR efter att skotare_objekt_manuell är enda källa.
   const r3 = await direktPatchDimObjekt(skotarIds, skotarPatch)
   if (!r3.ok) return { ok: false, message: 'Skotarfälten: ' + r3.message }
+
+  // Avslut (väg A): när sparningen gör att BÅDA avslut-flaggorna är satta → objekt.status='avslutat'
+  // + avslutad_timestamp, och objektet tas ur ALLA maskin_ko (alla maskiner). Loggläge gäller inte
+  // här — användaren tryckte spara. Statusen är härledd, inte huvuddata → fel får aldrig fälla saven.
+  if (obj.skordning_avslutad && obj.skotning_avslutad && obj.vo_nummer) {
+    try {
+      const { data: objRader } = await supabase.from('objekt').select('id, status').eq('vo_nummer', obj.vo_nummer)
+      const ids = (objRader || []).map((o: any) => o.id)
+      if ((objRader || []).some((o: any) => o.status !== 'avslutat')) {
+        await supabase.from('objekt').update({ status: 'avslutat', avslutad_timestamp: new Date().toISOString() }).eq('vo_nummer', obj.vo_nummer).neq('status', 'avslutat')
+      }
+      if (ids.length) await supabase.from('maskin_ko').delete().in('objekt_id', ids) // ta ur ALLA köer
+    } catch { /* status härledd — får ej fälla saven */ }
+  }
   // Spegla skotarvolym/G15 till skotare_objekt_manuell (primär läskälla sedan DEL 0).
   // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
   // maskin_id-filter tar även bort eventuella maskinspecifika rader (migrerade
@@ -3208,7 +3222,12 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
         contentKey={subpage || 'oversikt'}
         footer={valtObjekt && subpage
           ? (isDirty
-              ? <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} dirty={isDirty} antal={andradeNycklar.length} />
+              ? <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {valtObjekt.skordning_avslutad && valtObjekt.skotning_avslutad && (
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#ff9f0a', textAlign: 'center' }}>Objektet avslutas och tas ur köerna</div>
+                  )}
+                  <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} dirty={isDirty} antal={andradeNycklar.length} />
+                </div>
               : <button onClick={() => setSubpage(null)} className="tap-press" style={styles.klarBtn}>Klar</button>)
           : null}
       >
