@@ -31,8 +31,9 @@ export type MaskinRad = {
   skotar_roll?: string | null;
 };
 
-/** En post i kön/rutten. `troligt` = skotarens 2:a (kan ändras). */
-export interface KoPost { objekt: OversiktObjekt; troligt: boolean }
+/** En post i kön/rutten. `troligt` = skotarens 2:a (kan ändras). `kalla` = 'ko' (manuell/förmannens kö,
+ *  numrerad + ordningsbar) eller 'forslag' (automatikens auto-pick, dämpad, ej ordningsbar). */
+export interface KoPost { objekt: OversiktObjekt; troligt: boolean; kalla: 'ko' | 'forslag' }
 
 export interface MaskinForslag {
   maskinId: string;
@@ -110,7 +111,7 @@ export function beraknaForslag(args: {
   // ── SKÖRDARE: förmannens kö, punkt ──
   for (const m of maskiner.filter((x) => !arSkotare(x))) {
     const nuId = lageFor(m).nuObjektId;
-    const ko = koUr(m.maskin_id, nuId).map((o) => ({ objekt: o, troligt: false }));
+    const ko = koUr(m.maskin_id, nuId).map((o) => ({ objekt: o, troligt: false, kalla: 'ko' as const }));
     set(m, 'skordare', ko, false, ko.length ? `Förmannens kö (${ko.length} objekt)` : 'Inget i kön — inget planerat');
   }
 
@@ -140,38 +141,52 @@ export function beraknaForslag(args: {
     return [...mina].sort((a, b) => poang(b) - poang(a));
   };
 
-  // Manuell kö slår automatiken. Manuellt köade objekt är "tagna" även för auto-deconflict.
-  const auto: MaskinRad[] = [];
+  // Manuell kö slår automatiken. Manuellt köade objekt är "tagna" även för auto-deconflict (OFÖRÄNDRAT).
+  // Skillnad mot förr: en manuell-kö-skotare får OCKSÅ automatikens förslag (efter kön) — men dess
+  // förslag tas INTE in i taken, så deconflicten bland auto-maskinerna är oförändrad.
+  const manuellMap = new Map<string, OversiktObjekt[]>();
   const taken = new Set<string>();
   for (const m of skotare) {
     const nuId = lageFor(m).nuObjektId;
     const manuell = koUr(m.maskin_id, nuId);
-    if (manuell.length) { set(m, 'skotare', manuell.map((o) => ({ objekt: o, troligt: false })), true, `Manuell kö (${manuell.length} objekt)`); for (const o of manuell) taken.add(o.id); }
-    else auto.push(m);
+    if (manuell.length) { manuellMap.set(m.maskin_id, manuell); for (const o of manuell) taken.add(o.id); }
   }
+  const auto = skotare.filter((m) => !manuellMap.has(m.maskin_id)); // deconflict-konkurrenter (oförändrat)
 
   // Deconflict: specialister (roll ≠ 'allt') först, sedan 'allt'; närmast egen topp-pick först.
   const toppDist = (m: MaskinRad) => { const koord = lageFor(m).koordinat; const r = rankadFor(m, koord, taken); const d = koord && r[0] ? avstandKm(koord, r[0].koord) : null; return d ?? Infinity; };
   const specialister = auto.filter((m) => m.skotar_roll && m.skotar_roll !== 'allt').sort((a, b) => toppDist(a) - toppDist(b));
   const allt = auto.filter((m) => m.skotar_roll === 'allt').sort((a, b) => toppDist(a) - toppDist(b));
-  const utanRoll = auto.filter((m) => !m.skotar_roll);
   const ordning = [...specialister, ...allt];
-  // Pass 1: 1:a per maskin (fast, deconflictad). Pass 2: 2:a (troligt) — utesluter ALLA 1:or,
-  // så en dämpad 2:a aldrig dubblerar någon annans fasta 1:a. 2:or får överlappa varandra.
+  // Pass 1: 1:a per auto-maskin (fast, deconflictad, läggs i taken). Pass 2: 2:a (troligt).
   const forsta = new Map<string, Kand>();
   for (const m of ordning) {
     const rankad = rankadFor(m, lageFor(m).koordinat, taken);
     if (rankad[0]) { forsta.set(m.maskin_id, rankad[0]); taken.add(rankad[0].o.id); }
   }
-  for (const m of ordning) {
+  // Förslags-rader (kalla:'forslag') per skotare. Auto-maskin: 1:a (fast) + 2:a (troligt) ur deconflicten.
+  // Manuell-maskin: topp-2 ur det som är kvar (taken = manuellt + alla 1:or), tas EJ in i taken.
+  const forslagFor = (m: MaskinRad): KoPost[] => {
+    if (!m.skotar_roll) return [];
     const f = forsta.get(m.maskin_id);
-    const andra = rankadFor(m, lageFor(m).koordinat, taken)[0]; // taken = alla 1:or
-    const ko: KoPost[] = [];
-    if (f) ko.push({ objekt: f.o, troligt: false });
-    if (andra) ko.push({ objekt: andra.o, troligt: true });
-    set(m, 'skotare', ko, false, f ? `Auto (${m.skotar_roll}) — ${Math.round(f.backen)} m³, ${f.legatDagar} d` : `Ingen ${m.skotar_roll}-backen att skota`);
+    if (f) {
+      const andra = rankadFor(m, lageFor(m).koordinat, taken)[0]; // taken = alla 1:or
+      const ko: KoPost[] = [{ objekt: f.o, troligt: false, kalla: 'forslag' }];
+      if (andra) ko.push({ objekt: andra.o, troligt: true, kalla: 'forslag' });
+      return ko;
+    }
+    return rankadFor(m, lageFor(m).koordinat, taken).slice(0, 2).map((k, i) => ({ objekt: k.o, troligt: i > 0, kalla: 'forslag' as const }));
+  };
+
+  for (const m of skotare) {
+    const manuell = manuellMap.get(m.maskin_id) ?? [];
+    const koRader: KoPost[] = manuell.map((o) => ({ objekt: o, troligt: false, kalla: 'ko' as const }));
+    const forslag = forslagFor(m);
+    const skal = manuell.length
+      ? `Manuell kö (${manuell.length})${forslag.length ? ` + ${forslag.length} förslag` : ''}`
+      : forslag.length ? `Auto (${m.skotar_roll})` : (m.skotar_roll ? `Ingen ${m.skotar_roll}-backen att skota` : 'Ingen skotar_roll satt');
+    set(m, 'skotare', [...koRader, ...forslag], manuell.length > 0, skal);
   }
-  for (const m of utanRoll) set(m, 'skotare', [], false, 'Ingen skotar_roll satt');
 
   return out;
 }

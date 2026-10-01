@@ -384,10 +384,11 @@ export default function OversiktV2Page() {
     const f = selMaskin ? forslag.get(selMaskin) : null;
     if (f?.koordinat) {
       const koObj = koPreview ?? f.ko.map((p) => p.objekt); // live drag-ordning om aktiv
+      const troligtSet = new Set(f.ko.filter((p) => p.troligt).map((p) => p.objekt.id)); // tentativ 2:a (förslag) → dämpad
       const pts: ({ lat: number; lng: number } | null)[] = [ruttStart(f), ...koObj.map((o) => (o.lat != null && o.lng != null ? { lat: o.lat, lng: o.lng } : null))];
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i]; if (!a || !b) continue;
-        const dimmed = i > 1; // ben 1 (nu→1) fast, ben 2+ dämpat
+        const dimmed = troligtSet.has(koObj[i - 1]?.id); // kö + förslagets 1:a fasta; tentativ 2:a dämpad
         const geom = legGeomCache(a, b);
         if (geom && geom.length > 1) {
           features.push({ type: 'Feature', properties: { clr: LIT_LINE, op: dimmed ? 0.5 : 1, w: dimmed ? 2 : 3 }, geometry: { type: 'LineString', coordinates: geom } }); // väggeometri ur ORS
@@ -485,7 +486,7 @@ export default function OversiktV2Page() {
     const S = selRef.current;
     const koObj = valdKoObjekt(S); // live preview under drag, annars ur forslag
     const forslagKo = S ? (forslagRef.current.get(S)?.ko ?? []) : [];
-    const troligtSet = new Set(koPreviewRef.current ? [] : forslagKo.filter((p) => p.troligt).map((p) => p.objekt.id));
+    const troligtSet = new Set(forslagKo.filter((p) => p.troligt).map((p) => p.objekt.id)); // tentativ 2:a dämpas, även under drag
     const koIds = new Set<string>(koObj.map((o) => o.id));
 
     machMarkersRef.current.forEach((mm, mid) => {
@@ -588,8 +589,10 @@ export default function OversiktV2Page() {
 
   // Live-preview under drag: koId-ordning → objekt → koPreview (kartan ritar om direkt, ingen skrivning).
   const hanteraOrderChange = useCallback((koIds: string[]) => {
-    const objs = koIds.map((koId) => { const k = maskinKo.find((x) => x.id === koId); return k ? objekt.find((o) => o.id === k.objekt_id) ?? null : null; }).filter((o): o is OversiktObjekt => !!o);
-    setKoPreview(objs);
+    const koObjs = koIds.map((koId) => { const k = maskinKo.find((x) => x.id === koId); return k ? objekt.find((o) => o.id === k.objekt_id) ?? null : null; }).filter((o): o is OversiktObjekt => !!o);
+    const S = selRef.current; // behåll förslagen efter kön på kartans rutt under drag
+    const forslagObjs = S ? (forslagRef.current.get(S)?.ko ?? []).filter((p) => p.kalla === 'forslag').map((p) => p.objekt) : [];
+    setKoPreview([...koObjs, ...forslagObjs]);
   }, [maskinKo, objekt]);
   // Redigeringsläge på/av: sätt preview, förhämta par-ben till km-cachen, krymp arket-fit på kartan.
   const hanteraOrdnaLage = useCallback((active: boolean) => {
@@ -679,6 +682,7 @@ export default function OversiktV2Page() {
       {!laddar && !fel && !valt && objektValt && (
         <ObjektArk o={objektValt} skord={skord} warn={warnings[objektValt.id]}
           skordare={aktivaSkordare.map((m) => ({ id: m.maskin_id, namn: maskinVisningsnamn(m) || m.maskin_id, koordinat: positions.get(m.maskin_id)?.koordinat ?? null, klararTyp: (m as any).klarar_typ ?? null }))}
+          skotare={aktivaMaskiner.filter((m) => arSkotare(m as MaskinRad)).map((m) => ({ id: m.maskin_id, namn: maskinVisningsnamn(m) || m.maskin_id, skotarRoll: (m as any).skotar_roll ?? null }))}
           koRad={maskinKo.find((k) => k.objekt_id === objektValt.id) ?? null}
           maskinNamn={(id) => maskinVisningsnamn(maskiner.find((m) => m.maskin_id === id)) || id}
           maskinKo={maskinKo}
@@ -769,10 +773,12 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
   const nuKvar = f.nuObjekt && nuAgg && nuAgg.skordat > 0 ? paBackenKvar(nuAgg.skordat, nuAgg.skotat, nuAgg.egenSkotning) : null;
   const nuVarde = f.typ === 'skotare' && nuKvar != null ? `${fmt(nuKvar)} m³ kvar` : '';
   const nasta = f.ko[0]?.objekt ?? null;
-  const arSkordare = f.typ === 'skordare';
+  const koPoster = f.ko.filter((p) => p.kalla === 'ko');          // kö: numrerad 1,2,…, ordningsbar
+  const forslagPoster = f.ko.filter((p) => p.kalla === 'forslag'); // automatikens förslag: dämpad, ej ordningsbar
+  const kanOrdna = koPoster.length > 1;                            // 'Ändra ordning' gäller BARA kö-raderna
   const koIdForObjekt = (objId: string) => koRader.find((k) => k.objekt_id === objId)?.id ?? null;
   const hogerFor = (p: KoPost, i: number) => { const agg = aggFor(p.objekt, skord); const vol = volFor(f, p.objekt, agg); const km = legs[i]; return [vol != null ? `${fmt(vol)} m³` : null, km != null ? `${Math.round(km)} km` : '–'].filter(Boolean).join(' · '); };
-  const dragRader = arSkordare ? f.ko.map((p, i) => ({ koId: koIdForObjekt(p.objekt.id) || '', namn: p.objekt.namn, hoger: hogerFor(p, i) })).filter((r) => r.koId) : [];
+  const dragRader = koPoster.map((p, i) => ({ koId: koIdForObjekt(p.objekt.id) || '', namn: p.objekt.namn, hoger: hogerFor(p, i) })).filter((r) => r.koId); // kö-rader (= f.ko[0..koPoster.length])
 
   const toggleOrdna = () => setOrdnaLage((v) => { const nv = !v; onOrdnaLage(nv); return nv; });
 
@@ -792,17 +798,19 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
         {rowMeta(nuAgg) && (<><div /><div style={{ ...TYP.meta, color: FARG.text2, gridColumn: '2 / 4' }}>{rowMeta(nuAgg)}</div></>)}
       </div>
 
-      {/* Kö */}
+      {/* Kö (numrerad, ordningsbar) + Förslag (dämpad) */}
       {f.ko.length === 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: '52px minmax(0,1fr)', columnGap: AVSTAND.m, ...TYP.text }}><div style={{ color: FARG.text2 }}>Nästa</div><div style={{ color: FARG.text2 }}>inget planerat</div></div>
-      ) : (ordnaLage && arSkordare) ? (
+      ) : (ordnaLage && kanOrdna) ? (
         <ReorderLista rows={dragRader} onDrop={onReorder} onOrderChange={onOrderChange} />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) auto', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text, ...TNUM }}>
           {f.ko.map((p, i) => {
             const v = varnText(warnings[p.objekt.id]); const meta = rowMeta(aggFor(p.objekt, skord));
+            const forstaForslag = p.kalla === 'forslag' && i === koPoster.length && koPoster.length > 0; // 'Förslag'-rubrik bara när kö finns ovanför
             return (
               <React.Fragment key={p.objekt.id}>
+                {forstaForslag && <div style={{ ...TYP.micro, color: FARG.text2, gridColumn: '1 / 4', marginTop: AVSTAND.xs }}>Förslag</div>}
                 <div style={{ color: FARG.text2 }}>{i + 1}</div>
                 <div style={{ fontWeight: p.troligt ? 400 : 600, color: p.troligt ? FARG.text2 : FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.objekt.namn}</div>
                 <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{hogerFor(p, i)}</div>
@@ -819,7 +827,7 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, onClose, o
       {forare ? (
         mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={{ ...KNAPP, marginTop: AVSTAND.xs }}><SvgVag />Vägbeskrivning{nasta ? ` till ${nasta.namn}` : ''}</a>
       ) : (<>
-        {arSkordare && f.ko.length > 1 && (
+        {kanOrdna && (
           <button onClick={toggleOrdna} style={{ ...KNAPP_LITEN, borderColor: ordnaLage ? FARG.bla : '#48484a', color: ordnaLage ? FARG.bla : FARG.text }}>{ordnaLage ? 'Klar' : 'Ändra ordning'}</button>
         )}
         <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.xs }}>
@@ -836,9 +844,15 @@ function klararObjekt(klararTyp: string | null, typ: string | undefined): boolea
   const k = (klararTyp || 'bada').toLowerCase();
   return k === 'bada' || k === typ; // 'bada' klarar allt, annars måste typ matcha
 }
-function ObjektArk({ o, skord, warn, skordare, koRad, maskinNamn, maskinKo, forare, onLaggIKo, onFlytta, onTaBort, onClose }: {
+// Skotarens roll mot objekttyp (speglar nasta-v2 rollMatchar): 'allt' tar allt, annars typ===roll.
+function rollMatcharTyp(roll: string | null, typ: string | undefined): boolean {
+  if (roll === 'allt') return true;
+  return (roll === 'slutavverkning' || roll === 'gallring') && roll === typ;
+}
+function ObjektArk({ o, skord, warn, skordare, skotare, koRad, maskinNamn, maskinKo, forare, onLaggIKo, onFlytta, onTaBort, onClose }: {
   o: OversiktObjekt; skord: Record<string, SkordAggV2>; warn: ObjWarn | undefined;
   skordare: { id: string; namn: string; koordinat: { lat: number; lng: number } | null; klararTyp: string | null }[];
+  skotare: { id: string; namn: string; skotarRoll: string | null }[];
   koRad: MaskinKoItem | null; maskinNamn: (id: string) => string; maskinKo: MaskinKoItem[]; forare: boolean;
   onLaggIKo: (maskinId: string, objektId: string) => void; onFlytta: (koId: string, tillMaskin: string) => void; onTaBort: (koId: string) => void; onClose: () => void;
 }) {
@@ -850,7 +864,11 @@ function ObjektArk({ o, skord, warn, skordare, koRad, maskinNamn, maskinKo, fora
   const vol = o.volym_planerad ?? (o.volym || null);
   const v = varnText(warn);
   const vantatDatum = (o as any).klar_skickad_timestamp || (o as any).created_at || null;
-  const eligible = skordare.filter((s) => klararObjekt(s.klararTyp, o.typ));
+  // Lägg-i-kö-kandidater: skördare (klarar_typ) + skotare (skotar_roll mot objekttyp).
+  const eligible: { id: string; namn: string }[] = [
+    ...skordare.filter((s) => klararObjekt(s.klararTyp, o.typ)).map((s) => ({ id: s.id, namn: s.namn })),
+    ...skotare.filter((s) => rollMatcharTyp(s.skotarRoll, o.typ)).map((s) => ({ id: s.id, namn: s.namn })),
+  ];
 
   useEffect(() => {
     let c = false;
@@ -909,7 +927,7 @@ function ObjektArk({ o, skord, warn, skordare, koRad, maskinNamn, maskinKo, fora
               </div>
             </div>
           )
-        ) : <div style={{ ...TYP.meta, color: FARG.text2 }}>Ingen skördare klarar den här åtgärden.</div>
+        ) : <div style={{ ...TYP.meta, color: FARG.text2 }}>Ingen maskin passar den här åtgärden.</div>
       )}
     </div>
   );
