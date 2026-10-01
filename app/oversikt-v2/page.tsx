@@ -60,6 +60,17 @@ async function vagKm(from: { lat: number; lng: number }, to: { lat: number; lng:
     return (typeof j.km === 'number' && (j.source === 'cache' || j.source === 'ors')) ? j.km : null;
   } catch { return null; }
 }
+export type Rutt = { km: number | null; geom: [number, number][] | null };
+/** Vägrutt (km + ORS-geometri) via /api/routing?withGeometry=1. km knyts till geometrin: finns ingen
+ *  geometri (ORS-miss/fallback) → km null OCH geom null, så kartans siffra och linje ALLTID stämmer. */
+async function vagRutt(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<Rutt> {
+  try {
+    const r = await fetch(`/api/routing?fromLat=${from.lat}&fromLng=${from.lng}&toLat=${to.lat}&toLng=${to.lng}&withGeometry=1`);
+    const j = await r.json();
+    const geom: [number, number][] | null = Array.isArray(j.geometry) ? j.geometry : null;
+    return { km: geom && typeof j.km === 'number' ? j.km : null, geom };
+  } catch { return { km: null, geom: null }; }
+}
 
 interface MarkeringRow { objekt_id: string | null; typ: string | null; data: any }
 interface ObjWarn { faror: string[]; hansyn: string[] }
@@ -116,7 +127,7 @@ export default function OversiktV2Page() {
   const [skord, setSkord] = useState<Record<string, SkordAggV2>>({});
   const [positions, setPositions] = useState<Map<string, PlatsForslag>>(new Map());
   const [telByMaskin, setTelByMaskin] = useState<Record<string, string>>({});
-  const [kmByLeg, setKmByLeg] = useState<Record<string, (number | null)[]>>({}); // per maskin: [nu→1, 1→2, …]
+  const [ruttVersion, setRuttVersion] = useState(0); // bumpas när rutt-cachen fyllts → rita om km/linjer
 
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState(false);
@@ -125,16 +136,17 @@ export default function OversiktV2Page() {
   const [zoomNiva, setZoomNiva] = useState(9);
   const [koPreview, setKoPreview] = useState<OversiktObjekt[] | null>(null); // live drag-ordning för vald maskin
 
-  // Klient-cache av vägavstånd (nyckel = avrundade koordinatpar). Under drag läses BARA härifrån
-  // (inga routing-anrop mitt i ett drag); vagKmCached fyller den, legKmCache slår upp synkront.
-  const kmCacheRef = useRef<Map<string, number | null>>(new Map());
+  // Klient-cache av vägrutt (km + geometri) per koordinatpar. Under drag läses BARA härifrån
+  // (inga routing-anrop mitt i ett drag); vagRuttCached fyller den, legKm/legGeom slår upp synkront.
+  const ruttCacheRef = useRef<Map<string, Rutt>>(new Map());
   const cacheKey = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => `${a.lat.toFixed(3)},${a.lng.toFixed(3)};${b.lat.toFixed(3)},${b.lng.toFixed(3)}`;
-  const vagKmCached = useCallback(async (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
-    const k = cacheKey(from, to); const c = kmCacheRef.current;
-    if (c.has(k)) return c.get(k) ?? null;
-    const km = await vagKm(from, to); c.set(k, km); return km;
+  const vagRuttCached = useCallback(async (from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<Rutt> => {
+    const k = cacheKey(from, to); const c = ruttCacheRef.current;
+    const have = c.get(k); if (have && have.geom) return have; // bara geometri-träff är en riktig träff
+    const rutt = await vagRutt(from, to); c.set(k, rutt); return rutt;
   }, []);
-  const legKmCache = useCallback((from: { lat: number; lng: number } | null, to: { lat: number; lng: number } | null): number | null => (from && to ? kmCacheRef.current.get(cacheKey(from, to)) ?? null : null), []);
+  const legKmCache = useCallback((from: { lat: number; lng: number } | null, to: { lat: number; lng: number } | null): number | null => (from && to ? ruttCacheRef.current.get(cacheKey(from, to))?.km ?? null : null), []);
+  const legGeomCache = useCallback((from: { lat: number; lng: number } | null, to: { lat: number; lng: number } | null): [number, number][] | null => (from && to ? ruttCacheRef.current.get(cacheKey(from, to))?.geom ?? null : null), []);
 
   const refetchKo = useCallback(async () => {
     const { data } = await supabase.from('maskin_ko').select('*').order('ordning');
@@ -188,26 +200,20 @@ export default function OversiktV2Page() {
     return beraknaForslag({ maskiner: aktivaMaskiner as MaskinRad[], objekt, maskinKo, skord, positions, avstandKm: (a, b) => haversineKm(a, b) });
   }, [aktivaMaskiner, objekt, maskinKo, skord, positions]);
 
-  // OSRM-vägavstånd per ben (nu→1, 1→2, …) för varje maskin.
+  // Vägrutt (km + geometri) hämtas BARA för vald maskins fasta kö-ordning. Etiketten visar inga km
+  // (behöver inga anrop för hela flottan). Beror på [selMaskin, forslag] — inte koPreview → inga
+  // anrop under drag; en ny ordning hämtas vid släpp (forslag uppdateras då). Fyller rutt-cachen.
   useEffect(() => {
+    if (!selMaskin) return;
+    const f = forslag.get(selMaskin); if (!f?.koordinat || !f.ko.length) return;
     let cancelled = false;
     (async () => {
-      const jobs: Promise<[string, (number | null)[]]>[] = [];
-      forslag.forEach((f, mid) => {
-        if (!f.koordinat || !f.ko.length) return;
-        const punkter = [f.koordinat, ...f.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? { lat: p.objekt.lat, lng: p.objekt.lng } : null))];
-        jobs.push((async () => {
-          const legs: (number | null)[] = [];
-          for (let i = 1; i < punkter.length; i++) { const a = punkter[i - 1], b = punkter[i]; legs.push(a && b ? await vagKmCached(a, b) : null); }
-          return [mid, legs];
-        })());
-      });
-      const res = await Promise.all(jobs);
-      if (cancelled) return;
-      setKmByLeg((prev) => { const next = { ...prev }; for (const [mid, legs] of res) next[mid] = legs; return next; });
+      const punkter = [f.koordinat, ...f.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? { lat: p.objekt.lat, lng: p.objekt.lng } : null))];
+      for (let i = 1; i < punkter.length; i++) { const a = punkter[i - 1], b = punkter[i]; if (a && b) await vagRuttCached(a, b); }
+      if (!cancelled) setRuttVersion((v) => v + 1);
     })();
     return () => { cancelled = true; };
-  }, [forslag]);
+  }, [selMaskin, forslag, vagRuttCached]);
 
   const isDriver = medarbetare?.roll === 'forare';
   const driverMaskinId = medarbetare?.maskin_id ?? null;
@@ -227,10 +233,10 @@ export default function OversiktV2Page() {
   const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; circle: HTMLDivElement; label: HTMLDivElement; desc: DotDesc }>>(new Map());
   const ordnaRef = useRef(false); // true medan "Ändra ordning" är öppet → kartan rör sig inte av sig själv
   const stopMarkersRef = useRef<any[]>([]); // numrerade rutt-cirklar + on-map-etiketter
+  const clusterMarkersRef = useRef<any[]>([]); // ihopslagna maskin-markörer ("N maskiner")
   const didFitRef = useRef(false);
   const forslagRef = useRef(forslag); forslagRef.current = forslag;
   const selRef = useRef(selMaskin); selRef.current = selMaskin;
-  const kmLegRef = useRef(kmByLeg); kmLegRef.current = kmByLeg;
   const zoomRef = useRef(zoomNiva); zoomRef.current = zoomNiva;
   const koPreviewRef = useRef(koPreview); koPreviewRef.current = koPreview;
   // Vald maskins kö-objekt — live-preview under drag, annars ur forslag.
@@ -251,23 +257,23 @@ export default function OversiktV2Page() {
     } else setMapReady(true);
   }, []);
 
-  const sublabelText = useCallback((f: MaskinForslag, km: number | null): string => {
-    const nu = f.nuObjekt?.namn ?? '?';
+  // Etiketten är en SKYLT, inte en mening: maskinnamnet (name-div) + "→ nästa". Inga km (de bor i arket).
+  const sublabelText = useCallback((f: MaskinForslag): string => {
     const nasta = nastaAv(f);
-    if (!nasta) return `${nu} · inget planerat`;
-    return `${nu} → ${nasta.namn} · ${km != null ? `${Math.round(km)} km` : '–'}`;
+    return nasta ? `→ ${nasta.namn}` : '· inget planerat';
   }, []);
 
   const layoutLabels = useCallback(() => {
-    const map = mapRef.current; if (!map || selRef.current) return;
+    const map = mapRef.current; if (!map) return;
     const items: { label: HTMLDivElement; x: number; y: number }[] = [];
     machMarkersRef.current.forEach((mm, mid) => {
+      if (mm.label.style.display === 'none') return; // ihopslagen/dold maskin — hoppa över
       const f = forslagRef.current.get(mid); if (!f?.koordinat) return;
       const p = map.project([f.koordinat.lng, f.koordinat.lat]); items.push({ label: mm.label, x: p.x, y: p.y });
     });
     items.sort((a, b) => a.y - b.y);
     const placed: { x1: number; y1: number; x2: number; y2: number }[] = [];
-    const LW = 190, LH = 40, GAP = 6, LEFT = 16;
+    const LW = 200, LH = 28, GAP = 6, LEFT = 16;
     for (const it of items) {
       const left = it.x + LEFT; let top = it.y - LH / 2; let guard = 0;
       while (guard++ < 24) { const hit = placed.find((r) => !(left > r.x2 || left + LW < r.x1 || top > r.y2 || top + LH < r.y1)); if (!hit) break; top = hit.y2 + GAP; }
@@ -292,6 +298,47 @@ export default function OversiktV2Page() {
     }
   }, []);
 
+  // Maskin-markörernas synlighet + skärm-klustring. Körs på move/zoom (positionerna ändras i
+  // skärmrummet) + vid urval. Vald maskin klustras aldrig och får full etikett. Utan vald maskin:
+  // etiketten krymper under z11 (bara namn), och markörer närmare än ~40 px slås ihop till "N".
+  const layoutMachines = useCallback(() => {
+    const map = mapRef.current; if (!map) return;
+    clusterMarkersRef.current.forEach((m) => m.remove()); clusterMarkersRef.current = [];
+    const S = selRef.current; const z = map.getZoom();
+    type E = { mid: string; mm: { square: HTMLDivElement; label: HTMLDivElement; sub: HTMLDivElement }; f: MaskinForslag; x: number; y: number };
+    const entries: E[] = [];
+    machMarkersRef.current.forEach((mm, mid) => {
+      const f = forslagRef.current.get(mid); if (!f?.koordinat) return;
+      const p = map.project([f.koordinat.lng, f.koordinat.lat]); entries.push({ mid, mm, f, x: p.x, y: p.y });
+    });
+    if (S) { // vald maskin: ingen klustring. Vald → full etikett; övriga → dold etikett (men syns dämpat).
+      entries.forEach((e) => { e.mm.square.style.display = 'block'; const sel = e.mid === S; e.mm.label.style.display = sel ? 'flex' : 'none'; e.mm.sub.style.display = 'block'; });
+      return;
+    }
+    const CL = 40; const used = new Set<number>();
+    entries.forEach((e, i) => {
+      if (used.has(i)) return;
+      const group = [e]; used.add(i);
+      for (let j = i + 1; j < entries.length; j++) { if (used.has(j)) continue; if (Math.hypot(e.x - entries[j].x, e.y - entries[j].y) < CL) { group.push(entries[j]); used.add(j); } }
+      if (group.length === 1) {
+        e.mm.square.style.display = 'block'; e.mm.label.style.display = 'flex';
+        e.mm.sub.style.display = z >= THRESHOLD_ZOOM ? 'block' : 'none'; // < z11: bara maskinnamnet
+        return;
+      }
+      group.forEach((g) => { g.mm.square.style.display = 'none'; g.mm.label.style.display = 'none'; });
+      const cx = group.reduce((s, g) => s + g.x, 0) / group.length, cy = group.reduce((s, g) => s + g.y, 0) / group.length;
+      const center = map.unproject([cx, cy]);
+      const saknarNasta = group.some((g) => !nastaAv(g.f));
+      const el = document.createElement('div'); el.style.cssText = 'position:relative;width:0;height:0;cursor:pointer';
+      const sq = document.createElement('div');
+      sq.style.cssText = `position:absolute;left:-16px;top:-16px;width:32px;height:32px;border-radius:7px;background:${FARG.bla};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px;box-shadow:0 1px 5px rgba(0,0,0,0.45)`;
+      sq.textContent = String(group.length); el.appendChild(sq);
+      if (saknarNasta) { const dot = document.createElement('div'); dot.style.cssText = `position:absolute;left:12px;top:-17px;width:9px;height:9px;border-radius:50%;background:${FARG.orange};box-shadow:0 0 0 1.5px #000`; el.appendChild(dot); } // någon i klustret saknar nästa
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); map.easeTo({ center: [center.lng, center.lat], zoom: Math.min(16, map.getZoom() + 2.5), duration: 450 }); }); // zooma in → de delar på sig
+      clusterMarkersRef.current.push(new window.maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([center.lng, center.lat]).addTo(map));
+    });
+  }, []);
+
   useEffect(() => {
     if (!mapReady || !mapContainerRef.current || mapRef.current) return;
     const map = new window.maplibregl.Map({
@@ -306,15 +353,16 @@ export default function OversiktV2Page() {
       map.addLayer({ id: 'routes', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'clr'], 'line-width': ['get', 'w'], 'line-dasharray': [2, 2], 'line-opacity': ['get', 'op'] } });
       setMapStyleLoaded(true);
     });
-    map.on('move', layoutLabels); map.on('zoom', () => { layoutLabels(); setZoomNiva(map.getZoom()); });
+    map.on('move', () => { layoutMachines(); layoutLabels(); }); map.on('zoom', () => { layoutMachines(); layoutLabels(); setZoomNiva(map.getZoom()); });
     map.on('click', () => { setSelMaskin(null); setSelObjekt(null); });
     return () => {
       machMarkersRef.current.forEach((m) => m.marker.remove()); machMarkersRef.current.clear();
       dotsRef.current.forEach((d) => d.marker.remove()); dotsRef.current.clear();
       stopMarkersRef.current.forEach((m) => m.remove()); stopMarkersRef.current = [];
+      clusterMarkersRef.current.forEach((m) => m.remove()); clusterMarkersRef.current = [];
       map.remove(); mapRef.current = null; setMapStyleLoaded(false);
     };
-  }, [mapReady, layoutLabels]);
+  }, [mapReady, layoutLabels, layoutMachines]);
 
   // Rutt-linjer ritas ENBART för vald maskin (hela kön nu→1→2→…). Översiktsläget har
   // inga linjer alls — fem korsande rutter var brus.
@@ -325,15 +373,20 @@ export default function OversiktV2Page() {
     const f = selMaskin ? forslag.get(selMaskin) : null;
     if (f?.koordinat) {
       const koObj = koPreview ?? f.ko.map((p) => p.objekt); // live drag-ordning om aktiv
-      const pts: ([number, number] | null)[] = [[f.koordinat.lng, f.koordinat.lat], ...koObj.map((o) => (o.lat != null && o.lng != null ? [o.lng, o.lat] as [number, number] : null))];
+      const pts: ({ lat: number; lng: number } | null)[] = [{ lat: f.koordinat.lat, lng: f.koordinat.lng }, ...koObj.map((o) => (o.lat != null && o.lng != null ? { lat: o.lat, lng: o.lng } : null))];
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i]; if (!a || !b) continue;
         const dimmed = i > 1; // ben 1 (nu→1) fast, ben 2+ dämpat
-        features.push({ type: 'Feature', properties: { clr: LIT_LINE, op: dimmed ? 0.5 : 1, w: dimmed ? 2 : 3 }, geometry: { type: 'LineString', coordinates: [a, b] } });
+        const geom = legGeomCache(a, b);
+        if (geom && geom.length > 1) {
+          features.push({ type: 'Feature', properties: { clr: LIT_LINE, op: dimmed ? 0.5 : 1, w: dimmed ? 2 : 3 }, geometry: { type: 'LineString', coordinates: geom } }); // väggeometri ur ORS
+        } else {
+          features.push({ type: 'Feature', properties: { clr: '#8e8e93', op: 0.5, w: 1.5 }, geometry: { type: 'LineString', coordinates: [[a.lng, a.lat], [b.lng, b.lat]] } }); // geometri saknas → tunn rak grå, aldrig påhittad väg
+        }
       }
     }
     try { src.setData({ type: 'FeatureCollection', features }); } catch { /* race */ }
-  }, [forslag, mapStyleLoaded, selMaskin, koPreview]);
+  }, [forslag, mapStyleLoaded, selMaskin, koPreview, ruttVersion, legGeomCache]);
 
   // Objekt-prickar/ringar
   useEffect(() => {
@@ -375,7 +428,7 @@ export default function OversiktV2Page() {
         const square = document.createElement('div');
         square.style.cssText = `position:absolute;left:-12px;top:-12px;width:24px;height:24px;border-radius:5px;background:${FARG.bla};cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
         const label = document.createElement('div');
-        label.style.cssText = `position:absolute;left:16px;top:-20px;display:flex;flex-direction:column;gap:2px;padding:8px 12px;background:${CHIP_BG};border-radius:10px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
+        label.style.cssText = `position:absolute;left:16px;top:-16px;display:flex;flex-direction:row;align-items:baseline;gap:4px;padding:6px 11px;background:${CHIP_BG};border-radius:10px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
         const name = document.createElement('div'); name.style.cssText = `font-size:14px;font-weight:600;color:${FARG.text}`; name.textContent = namn;
         const sub = document.createElement('div'); sub.style.cssText = 'font-size:13px';
         label.appendChild(name); label.appendChild(sub);
@@ -385,12 +438,12 @@ export default function OversiktV2Page() {
         const marker = new window.maplibregl.Marker({ element: container, anchor: 'center' }).setLngLat([f.koordinat.lng, f.koordinat.lat]).addTo(map);
         entry = { marker, square, label, sub }; machMarkersRef.current.set(mid, entry);
       } else { (entry.label.firstChild as HTMLDivElement).textContent = namn; entry.marker.setLngLat([f.koordinat.lng, f.koordinat.lat]); }
-      entry.sub.textContent = sublabelText(f, kmByLeg[mid]?.[0] ?? null);
+      entry.sub.textContent = sublabelText(f); // bara "→ nästa" / "· inget planerat"; km finns i arket
       entry.sub.style.color = nastaAv(f) ? '#a1a1a6' : FARG.text2;
     });
     restyleSelection(); layoutLabels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forslag, maskiner, kmByLeg, mapStyleLoaded, sublabelText, layoutLabels]);
+  }, [forslag, maskiner, mapStyleLoaded, sublabelText, layoutLabels]);
 
   // Auto-fit en gång
   useEffect(() => {
@@ -429,8 +482,7 @@ export default function OversiktV2Page() {
       mm.square.style.left = sel ? '-14px' : '-12px'; mm.square.style.top = sel ? '-14px' : '-12px';
       mm.square.style.opacity = (!S || sel) ? '1' : '0.28';
       mm.square.style.boxShadow = sel ? `0 0 0 4px rgba(10,132,255,0.28), 0 1px 4px rgba(0,0,0,0.4)` : '0 1px 4px rgba(0,0,0,0.4)';
-      mm.label.style.display = S ? 'none' : 'flex';
-    });
+    }); // etikett-/klustersynlighet ägs av layoutMachines (anropas sist)
     dotsRef.current.forEach((d, id) => {
       const desc = d.desc; const dimNarVald = S && !koIds.has(id);
       const op = dimNarVald ? 0.1 : desc.opacity;
@@ -461,13 +513,15 @@ export default function OversiktV2Page() {
         const prev = i === 0 ? (f?.koordinat ?? null) : (koObj[i - 1].lat != null ? { lat: koObj[i - 1].lat!, lng: koObj[i - 1].lng! } : null);
         const to = { lat: o.lat, lng: o.lng };
         if (prev) {
-          const km = legKmCache(prev, to); const kmChip = document.createElement('div');
+          const km = legKmCache(prev, to); const geom = legGeomCache(prev, to); const kmChip = document.createElement('div');
           kmChip.style.cssText = `padding:2px 7px;background:${CHIP_BG};border-radius:8px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;opacity:${troligt ? 0.8 : 1}`;
           kmChip.textContent = km != null ? `${Math.round(km)} km` : '–';
-          stopMarkersRef.current.push(new window.maplibregl.Marker({ element: kmChip, anchor: 'center' }).setLngLat([(prev.lng + o.lng) / 2, (prev.lat + o.lat) / 2]).addTo(map));
+          const mid = geom && geom.length > 1 ? geom[Math.floor(geom.length / 2)] : [(prev.lng + o.lng) / 2, (prev.lat + o.lat) / 2]; // på vägen om geometri finns
+          stopMarkersRef.current.push(new window.maplibregl.Marker({ element: kmChip, anchor: 'center' }).setLngLat(mid as [number, number]).addTo(map));
         }
       });
     }
+    layoutMachines(); // klustring + etikettsynlighet speglar urvalet
   }, []);
 
   useEffect(() => {
@@ -475,7 +529,7 @@ export default function OversiktV2Page() {
     const map = mapRef.current;
     if (map && selMaskin && !ordnaRef.current) { const f = forslag.get(selMaskin); if (f?.koordinat) map.easeTo({ center: [f.koordinat.lng, f.koordinat.lat], offset: [0, -150], zoom: Math.max(map.getZoom(), 12), duration: 500 }); } // aldrig auto-flytt medan ordningen redigeras
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selMaskin, kmByLeg, forslag, restyleSelection, layoutLabels]);
+  }, [selMaskin, ruttVersion, forslag, restyleSelection, layoutLabels]);
 
   // ── kö-skrivningar (v2:s egna; rör aldrig OversiktMaskiner) ──
   const laggIKo = useCallback(async (maskinId: string, objektId: string) => {
@@ -513,13 +567,15 @@ export default function OversiktV2Page() {
     const koObj = f.ko.map((p) => p.objekt);
     setKoPreview(koObj);
     const punkter = [f.koordinat, ...koObj.filter((o) => o.lat != null && o.lng != null).map((o) => ({ lat: o.lat!, lng: o.lng! }))];
-    (async () => { for (let i = 0; i < punkter.length; i++) for (let j = 0; j < punkter.length; j++) if (i !== j) await vagKmCached(punkter[i], punkter[j]); })();
+    // Förhämta ALLA par-ben (väggeometri + km) så en ny drag-ordning kan rita riktig vägrutt direkt;
+    // det som inte hunnit cachas ritas som rak grå tills släpp. Inga anrop sker sedan mitt i draget.
+    (async () => { for (let i = 0; i < punkter.length; i++) for (let j = 0; j < punkter.length; j++) if (i !== j) await vagRuttCached(punkter[i], punkter[j]); setRuttVersion((v) => v + 1); })();
     if (map && punkter.length) {
       const b = new window.maplibregl.LngLatBounds(); punkter.forEach((p) => b.extend([p.lng, p.lat]));
       const h = mapContainerRef.current?.offsetHeight ?? 600;
       map.fitBounds(b, { padding: { top: 80, left: 50, right: 50, bottom: Math.round(h * 0.45) + 48 }, maxZoom: 14, duration: 500 });
     }
-  }, [selMaskin, forslag, vagKmCached]);
+  }, [selMaskin, forslag, vagRuttCached]);
   useEffect(() => { ordnaRef.current = false; setKoPreview(null); }, [selMaskin]); // byte/stängning av maskin nollar preview + redigeringslås
   useEffect(() => { restyleSelection(); }, [koPreview, restyleSelection]); // rita om numren live
 
@@ -530,6 +586,15 @@ export default function OversiktV2Page() {
   const arForareVy = !!(isDriver && selMaskin && selMaskin === driverMaskinId);
   const objektValt = selObjekt ? objekt.find((o) => o.id === selObjekt) ?? null : null;
   const aktivaSkordare = useMemo(() => aktivaMaskiner.filter((m) => !arSkotare(m as MaskinRad)), [aktivaMaskiner]);
+  // Arkets km per ben (vald maskins fasta kö) ur rutt-cachen; miss → null ("–"). ruttVersion → uppdateras när ORS svarat.
+  const selLegs = useMemo(() => {
+    if (!valt?.koordinat) return [] as (number | null)[];
+    const pts: ({ lat: number; lng: number } | null)[] = [{ lat: valt.koordinat.lat, lng: valt.koordinat.lng }, ...valt.ko.map((p) => (p.objekt.lat != null && p.objekt.lng != null ? { lat: p.objekt.lat, lng: p.objekt.lng } : null))];
+    const out: (number | null)[] = [];
+    for (let i = 1; i < pts.length; i++) out.push(legKmCache(pts[i - 1], pts[i]));
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valt, ruttVersion, legKmCache]);
 
   return (
     <div style={{ position: 'relative', height: 'calc(100vh - 56px - env(safe-area-inset-top))', width: '100%', background: FARG.bg, color: FARG.text, fontFamily: FONT, overflow: 'hidden', WebkitFontSmoothing: 'antialiased' }}>
@@ -566,7 +631,7 @@ export default function OversiktV2Page() {
       {/* MASKIN-ARK */}
       {!laddar && !fel && valt && (
         <MaskinArk key={selMaskin!} f={valt} namn={maskinVisningsnamn(maskiner.find((m) => m.maskin_id === selMaskin)) || selMaskin!}
-          legs={kmByLeg[selMaskin!] ?? []} skord={skord} warnings={warnings}
+          legs={selLegs} skord={skord} warnings={warnings}
           telefon={arForareVy ? null : (telByMaskin[selMaskin!] ?? null)}
           forare={arForareVy}
           onClose={() => setSelMaskin(null)}

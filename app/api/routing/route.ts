@@ -41,6 +41,10 @@ export async function GET(req: NextRequest) {
     );
 
     const withDuration = u.searchParams.get("withDuration") === "1";
+    // withGeometry=1: returnera även ORS väggeometri (GeoJSON [lng,lat]-koordinater). Geometrin
+    // lagras INTE i route_cache (ingen kolumn) → en geometri-begäran går alltid till ORS, aldrig
+    // cache-genväg. km/restid cachas som vanligt. Fallback/fel → geometry:null (aldrig påhittad).
+    const withGeometry = u.searchParams.get("withGeometry") === "1";
 
     const { data: hit } = await supabase
       .from("route_cache")
@@ -49,8 +53,8 @@ export async function GET(req: NextRequest) {
       .eq("to_lat", rTo_lat).eq("to_lng", rTo_lng)
       .maybeSingle();
 
-    // Träff räcker bara om restid inte efterfrågas, eller redan finns lagrad
-    if (hit && (!withDuration || hit.duration_min != null)) {
+    // Träff räcker bara om restid inte efterfrågas (eller redan lagrad) OCH geometri inte efterfrågas
+    if (hit && (!withDuration || hit.duration_min != null) && !withGeometry) {
       return NextResponse.json({ km: hit.distance_km, minutes: hit.duration_min ?? null, source: "cache" });
     }
 
@@ -70,7 +74,8 @@ export async function GET(req: NextRequest) {
               { from_lat: rFrom_lat, from_lng: rFrom_lng, to_lat: rTo_lat, to_lng: rTo_lng, distance_km: km, duration_min: minutes },
               { onConflict: "from_lat,from_lng,to_lat,to_lng" },
             );
-            return NextResponse.json({ km, minutes, source: "ors" });
+            const geometry = Array.isArray(body?.features?.[0]?.geometry?.coordinates) ? body.features[0].geometry.coordinates : null;
+            return NextResponse.json({ km, minutes, source: "ors", ...(withGeometry ? { geometry } : {}) });
           }
           console.warn("[routing] ORS svar utan distance", body?.error || body);
         } else {
@@ -81,13 +86,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Cache-träffen utan restid är fortfarande bättre än haversine för km
+    // Cache-träffen utan restid är fortfarande bättre än haversine för km (men saknar geometri)
     if (hit) {
-      return NextResponse.json({ km: hit.distance_km, minutes: null, source: "cache" });
+      return NextResponse.json({ km: hit.distance_km, minutes: null, source: "cache", ...(withGeometry ? { geometry: null } : {}) });
     }
 
     const km = Math.round(haversine(fromLat, fromLng, toLat, toLng) * 1.4);
-    return NextResponse.json({ km, minutes: null, source: "fallback" });
+    return NextResponse.json({ km, minutes: null, source: "fallback", ...(withGeometry ? { geometry: null } : {}) });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
