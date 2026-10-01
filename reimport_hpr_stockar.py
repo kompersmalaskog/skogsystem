@@ -68,12 +68,18 @@ def rpc(namn, args):
 
 
 def rakna(tabell, filt):
-    """Antal rader utan att hämta dem."""
-    r = requests.get('%s/rest/v1/%s?select=objekt_id&%s' % (M.SUPABASE_URL, tabell, filt),
-                     headers=dict(M.SUPABASE_HEADERS, **{'Prefer': 'count=exact', 'Range': '0-0'}),
-                     timeout=120)
-    r.raise_for_status()
-    return int(r.headers['Content-Range'].split('/')[-1])
+    """Antal rader utan att hämta dem. None om räkningen inte gick (8 s
+    statement timeout på ett objekt med hundratusentals döda indexposter
+    efter en rensning, t.ex.) — en räkning är kontroll, inte skrivning."""
+    try:
+        r = requests.get('%s/rest/v1/%s?select=objekt_id&%s' % (M.SUPABASE_URL, tabell, filt),
+                         headers=dict(M.SUPABASE_HEADERS, **{'Prefer': 'count=exact', 'Range': '0-0'}),
+                         timeout=120)
+        r.raise_for_status()
+        return int(r.headers['Content-Range'].split('/')[-1])
+    except Exception as e:
+        print('    (räkning %s?%s gick inte: %s)' % (tabell, filt[:60], str(e)[:80]))
+        return None
 
 
 def hamta(tabell, filt, select):
@@ -226,17 +232,18 @@ def main():
             print('  PARSEFEL: %s' % e); tot['parsefel'] += 1; continue
         per = analysera(data)
         parsade = {k for k in per if k}
-        fel_objekt = parsade - db_objekt - {k for k in parsade if rakna('detalj_stam', 'objekt_id=eq.%s&filnamn=eq.%s' % (quote(k, safe=''), quote(filnamn, safe=''))) > 0}
+        fel_objekt = parsade - db_objekt - {k for k in parsade if (rakna('detalj_stam', 'objekt_id=eq.%s&filnamn=eq.%s' % (quote(k, safe=''), quote(filnamn, safe=''))) or 0) > 0}
         for oid, v in sorted(per.items(), key=lambda x: -x[1]['stammar']):
             db_stam = rakna('detalj_stam', 'objekt_id=eq.%s&filnamn=eq.%s' % (quote(oid or '', safe=''), quote(filnamn, safe='')))
             db_stock = rakna('detalj_stock', 'objekt_id=eq.%s&stem_key=not.is.null' % quote(oid or '', safe=''))
             flagga = ''
             if oid in fel_objekt:
                 flagga = '  <-- OBJEKT SAKNAS I DB FÖR FILEN'
-            elif v['stammar'] != db_stam:
+            elif db_stam is not None and v['stammar'] != db_stam:
                 flagga = '  <-- stammar avviker mot DB (%d)' % db_stam
-            print('  %-22s stammar %6d (DB %6d)  stockar %7d (DB joinbara idag %7d)  %8.1f m³%s'
-                  % (oid, v['stammar'], db_stam, v['stockar'], db_stock, v['m3'], flagga))
+            print('  %-22s stammar %6d (DB %6s)  stockar %7d (DB joinbara idag %7s)  %8.1f m³%s'
+                  % (oid, v['stammar'], '?' if db_stam is None else db_stam, v['stockar'],
+                     '?' if db_stock is None else db_stock, v['m3'], flagga))
         if fel_objekt:
             print('  STOPP: filen ger objekt som databasen inte har stammar för ur den här filen: %s' % ', '.join(sorted(fel_objekt)))
             tot['stoppade'] += 1; continue
@@ -253,8 +260,8 @@ def main():
             if not oid or not v['stockar']:
                 continue
             efter = rakna('detalj_stock', 'objekt_id=eq.%s&stem_key=not.is.null' % quote(oid, safe=''))
-            ok = efter >= v['stockar']
-            print('  %s %-22s joinbara stockar efter: %d (parsade %d)' % ('verifierad' if ok else 'INTE VERIFIERAD:', oid, efter, v['stockar']))
+            ok = efter is not None and efter >= v['stockar']
+            print('  %s %-22s joinbara stockar efter: %s (parsade %d)' % ('verifierad' if ok else 'INTE VERIFIERAD:', oid, '?' if efter is None else efter, v['stockar']))
             if not ok:
                 tot['overifierade'] += 1
         tot['skrivna'] += 1
