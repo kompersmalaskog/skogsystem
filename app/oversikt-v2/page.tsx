@@ -94,23 +94,25 @@ const varnText = (w: ObjWarn | undefined): { text: string; color: string } | nul
 
 const harMaskin = (o: OversiktObjekt) => !!((o as any).skordare_maskin_id || (o as any).skotare_maskin_id);
 
-// Prick/ring per objekt. form:'ring' = väntar (planerad utan maskin). 'fill' = fylld.
+// Prick/ring per objekt. form:'ring' = väntar (planerad OCH otilldelad). 'fill' = fylld.
 // utzoom = visas även utzoomad (maskiner-nivå: pågående + väntande ringar).
 // namnbar = får namn-etikett vid inzoomning (pågår/planerad/väntar). Avslutade aldrig.
-interface DotDesc { form: 'ring' | 'fill'; color: string; opacity: number; size: number; utzoom: boolean; namnbar: boolean }
-function dotDesc(o: OversiktObjekt): DotDesc | null {
-  if (STATUS_AKTIV.includes(o.status)) return { form: 'fill', color: FARG.gron, opacity: 1, size: 18, utzoom: true, namnbar: true }; // pågår = grön
+// halo = vit ytterkant + mörk kontur för att lyfta från ljus topografi (ej avslutade).
+interface DotDesc { form: 'ring' | 'fill'; color: string; opacity: number; size: number; utzoom: boolean; namnbar: boolean; halo: boolean }
+// iKo = objektet ligger i någon maskins maskin_ko → räknas som tilldelat (grå prick, aldrig ring).
+function dotDesc(o: OversiktObjekt, iKo: boolean): DotDesc | null {
+  if (STATUS_AKTIV.includes(o.status)) return { form: 'fill', color: FARG.gron, opacity: 1, size: 18, utzoom: true, namnbar: true, halo: true }; // pågår = grön
   if (o.status === 'planerad') {
-    return harMaskin(o)
-      ? { form: 'fill', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: false, namnbar: true }  // planerad m. maskin = grå
-      : { form: 'ring', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: true, namnbar: true };  // väntar = ihålig ring
+    return (harMaskin(o) || iKo)
+      ? { form: 'fill', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: false, namnbar: true, halo: true }  // tilldelad (maskin el. kö) = grå
+      : { form: 'ring', color: GRAY_DOT, opacity: 1, size: 18, utzoom: true, namnbar: true, halo: true };  // väntar = ihålig ring
   }
   if (STATUS_AVSLUTADE.includes(o.status)) {
     const d = (o as any).avslutad_timestamp || o.faktisk_slut || null;
     if (!d) return null;
     const age = dagarSedan(d);
     if (age > 180) return null;
-    return { form: 'fill', color: GRAY_DOT, opacity: Math.max(0.1, 0.42 - (age / 180) * 0.32), size: 13, utzoom: false, namnbar: false }; // avslutad, bleknar — aldrig namn
+    return { form: 'fill', color: GRAY_DOT, opacity: Math.max(0.1, 0.42 - (age / 180) * 0.32), size: 13, utzoom: false, namnbar: false, halo: false }; // avslutad, bleknar — orörd
   }
   return null;
 }
@@ -189,6 +191,7 @@ export default function OversiktV2Page() {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const maskinKoIds = useMemo(() => new Set(maskinKo.map((k) => k.maskin_id)), [maskinKo]);
+  const koObjektIds = useMemo(() => new Set(maskinKo.map((k) => k.objekt_id)), [maskinKo]); // objekt som ligger i någon kö = tilldelade
   const todayISO = useMemo(() => new Date().toLocaleDateString('sv-SE'), []);
   const aktivaMaskiner = useMemo(
     () => maskiner.filter((m) => maskinAktiv(m as MaskinRad, todayISO) && (positions.get(m.maskin_id)?.koordinat != null || maskinKoIds.has(m.maskin_id))),
@@ -392,7 +395,7 @@ export default function OversiktV2Page() {
   useEffect(() => {
     const map = mapRef.current; if (!map || !mapStyleLoaded) return;
     const want = new Map<string, DotDesc>();
-    for (const o of objekt) { if (o.lat == null || o.lng == null) continue; const d = dotDesc(o); if (d) want.set(o.id, d); }
+    for (const o of objekt) { if (o.lat == null || o.lng == null) continue; const d = dotDesc(o, koObjektIds.has(o.id)); if (d) want.set(o.id, d); }
     dotsRef.current.forEach((d, id) => { if (!want.has(id)) { d.marker.remove(); dotsRef.current.delete(id); } });
     want.forEach((desc, id) => {
       const o = objekt.find((x) => x.id === id)!;
@@ -412,7 +415,7 @@ export default function OversiktV2Page() {
     });
     restyleSelection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [objekt, mapStyleLoaded]);
+  }, [objekt, koObjektIds, mapStyleLoaded]);
 
   // Maskin-markörer + etikett (nu → 1:a · km)
   useEffect(() => {
@@ -487,9 +490,11 @@ export default function OversiktV2Page() {
       const desc = d.desc; const dimNarVald = S && !koIds.has(id);
       const op = dimNarVald ? 0.1 : desc.opacity;
       const px = desc.size;
-      const base = `position:absolute;left:${-px / 2}px;top:${-px / 2}px;width:${px}px;height:${px}px;border-radius:50%;`;
-      if (desc.form === 'ring') d.circle.style.cssText = base + `background:transparent;border:2px solid ${desc.color};opacity:${op};box-shadow:0 0 0 1px rgba(255,255,255,0.5)`;
-      else d.circle.style.cssText = base + `background:${desc.color};opacity:${op};box-shadow:0 0 0 1px rgba(0,0,0,0.25)`;
+      const base = `position:absolute;box-sizing:border-box;left:${-px / 2}px;top:${-px / 2}px;width:${px}px;height:${px}px;border-radius:50%;`;
+      // Halo = 1,5 px vit ytterkant + mjuk skugga så prickarna lyfter från ljus topografi. Avslutade orörda.
+      const halo = desc.halo ? `0 0 0 1.5px rgba(255,255,255,0.95), 0 1px 3px rgba(0,0,0,0.35)` : `0 0 0 1px rgba(0,0,0,0.25)`;
+      if (desc.form === 'ring') d.circle.style.cssText = base + `background:transparent;border:3px solid ${LIT_LINE};opacity:${op};box-shadow:${halo}`; // ihålig ring: 18 px, 3 px mörk kontur, vit halo
+      else d.circle.style.cssText = base + `background:${desc.color};opacity:${op};box-shadow:${halo}`;
       d.label.style.left = `${Math.round(px / 2) + 4}px`; d.label.style.top = '-9px'; d.label.style.opacity = String(op);
     });
     syncDotVisibility();
