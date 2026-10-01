@@ -92,9 +92,15 @@ Steg '3/6 stoppa watchdogen'
 # och tasken kor den med pythonw.exe -- importjobben heter alltsa OCKSA
 # pythonw.exe, inte python.exe. Vakten letade bara efter python.exe fram till
 # 2026-10-01 och sag darfor aldrig ett pagaende jobb: stoppet nedan dodade
-# import_diameterserie.py mitt i (PID 62688) den dagen. Ett jobb kanns igen
-# pa att kommandoraden pekar pa ett skript i DeployDir och INTE ar sjalva
-# watchdogen (auto_import_watch). Aldrig ett tyst avbrott som lamnar drift pa
+# import_diameterserie.py mitt i (PID 62688) den dagen.
+# Vi vantar BARA pa huvudparsern (skogsmaskin_import_version_6.py) -- en
+# halvskriven fil ar det enda som kostar att avbryta (den saknar da status OK
+# och tas om av nasta korning, men batcharna gors om). Efterberakningarna
+# (import_diameterserie, berakna_rotkap, berakna_utfall_objekt) och
+# import_hpr.py ar omrakningar som kors om vid nasta import. Vantar vakten
+# aven pa dem svalter den: Disable-ScheduledTask hindrar inte den REDAN
+# korande watchdogen fran att starta nya jobb nar filer kommer, och 17:08
+# samma dag stod fem jobb i rad i 300 s tills vakten avbrot. Aldrig ett tyst avbrott som lamnar drift pa
 # gammal kod (samma felklass som byggts bort overallt annars -- 3 tysta miss
 # denna vecka).
 Disable-ScheduledTask -TaskName $TaskName | Out-Null
@@ -103,7 +109,7 @@ $script:WatchdogStoppad = $true
 $vantat = 0
 while ($true) {
     $importJobb = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match [regex]::Escape($DeployDir) -and $_.CommandLine -notmatch 'auto_import_watch' })
+        Where-Object { $_.CommandLine -match 'skogsmaskin_import_version_6' })
     if ($importJobb.Count -eq 0) { break }
     if ($vantat -ge $MaxVantaImportSek) {
         # Import fastnat -> ateraktivera watchdogen (lamna ALDRIG drift utan den)
