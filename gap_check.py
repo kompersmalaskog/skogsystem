@@ -392,6 +392,37 @@ def check_import_fel():
     return larm, len(rows)
 
 
+def check_stammar_utan_stockar():
+    """Objekt med stammar i detalj_stam men inga joinbara stockar i
+    detalj_stock. Aldrig rimligt — en skördad stam har alltid minst en stock —
+    och osynligt i nio månader (jan–apr 2026, 41 objekt, ~65 000 stammar)
+    eftersom alla vyer bygger på stockar: ett objekt utan stockar finns inte i
+    dem. Orsaken var en parser som inte skrev stockar före 2026-04-21 och
+    filer som meta_importerade_filer markerat OK. Läser RPC
+    kontroll_stammar_utan_stockar (migration 20261001). READ-ONLY.
+    -> (larmrader, antal | None om RPC:n inte kunde läsas)."""
+    try:
+        req = urllib.request.Request(
+            imp.SUPABASE_URL + '/rest/v1/rpc/kontroll_stammar_utan_stockar',
+            data=json.dumps({'p_min_stammar': 100}).encode('utf-8'),
+            headers=dict(_hdr(), **{'Content-Type': 'application/json'}), method='POST')
+        rows = json.loads(urllib.request.urlopen(req, timeout=60).read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', 'replace')[:200]
+        if 'Could not find the function' in body or 'PGRST202' in body:
+            return [], None
+        return [f'  LARM  kontroll_stammar_utan_stockar gick inte att läsa (HTTP {e.code}): {body}'], None
+    except Exception as e:
+        return [f'  LARM  kontroll_stammar_utan_stockar gick inte att läsa: {e}'], None
+    larm = [
+        f'  LARM  STAMMAR UTAN STOCKAR {r.get("objekt_id")} {(r.get("namn") or "?")[:30]}: '
+        f'{r.get("stammar")} stammar ({r.get("kalla")}, {r.get("forsta") or "datum saknas"}) '
+        f'men inga joinbara stockar — läs om filen (reimport_hpr_stockar.py)'
+        for r in rows
+    ]
+    return larm, len(rows)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--quiet', action='store_true', help='Bara logg, ingen utskrift (schemalagd körning).')
@@ -449,6 +480,14 @@ def main():
         L.append(f'    import_fel senaste 8 dygnen: {fel_antal if fel_antal is not None else "?"} rader')
     L.extend(fel_larm)
     alarms.extend(fel_larm)     # datatapp ska larma — det var så Wisent-tappet gömde sig
+    # ── Del 5: objekt med stammar men inga stockar ──
+    stock_larm, stock_antal = check_stammar_utan_stockar()
+    if stock_antal is None and not stock_larm:
+        L.append('    stammar utan stockar: RPC saknas (migration ej körd) — hoppar kontrollen')
+    else:
+        L.append(f'    stammar utan stockar: {stock_antal if stock_antal is not None else "?"} objekt')
+    L.extend(stock_larm)
+    alarms.extend(stock_larm)   # osynligt i nio månader — ska larma tills det är läst om
 
     if alarms:
         L.append(f'>>> {len(alarms)} LARM — kontrollera per (maskin, dag) ovan.')
@@ -487,6 +526,14 @@ def main():
             'larm_antal': len(drift_larm),
             'sammanfattning': ('\n'.join(r.strip() for r in drift_larm)[:1500]
                                if drift_larm else drift_detalj[:1500]),
+        }, {
+            'id': 'stammar_utan_stockar',
+            'kord_tid': nu,
+            'status': 'OKÄND' if stock_antal is None else ('LARM' if stock_larm else 'OK'),
+            'larm_antal': len(stock_larm),
+            'sammanfattning': ('\n'.join(r.strip() for r in stock_larm)[:1500] if stock_larm
+                               else ('RPC saknas' if stock_antal is None
+                                     else 'Alla objekt med stammar har stockar')),
         }]
         hdr = dict(_hdr())
         hdr.update({'Content-Type': 'application/json',
