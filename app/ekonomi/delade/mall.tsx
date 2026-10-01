@@ -1,35 +1,43 @@
 'use client';
 
 // Ekonomisektionens delade designmall — EN plats för sidram, periodväxlare,
-// hero, metarad, listor och statuslägen. Vyerna (Översikt, Per klass,
-// Mot ackord — Resultat/Inställningar i senare steg) får inte definiera
-// egna varianter av det som finns här: två varianter driftar alltid isär.
+// hero, metarad, listor och statuslägen. Vyerna får inte definiera egna
+// varianter av det som finns här: två varianter driftar alltid isär.
 //
-// Designspråket:
-// - Mobilproportion även på desktop: maxbredd 400px, centrerad.
-// - Bärnsten är sektionens ENDA meningsbärande färg på översiktsnivå
-//   (= preliminärt/ej spikat). Grönt/rött bara för signerade tal.
-// - Rader är EN yta med 0.5px-avdelare — inte kort-i-kort. Ett Fraunces-tal
-//   per rad; enheten skrivs EN gång i EnhetsFot, inte på varje rad.
+// Stilarna kommer ur lib/design/tokens (skillen skogsystem-design) — inga
+// literaler; design-lint räknar nya i varje PR. Bärande regler härifrån:
+// - Radens TAL är radens huvudsak (TYP.rubrik + TNUM) med enhet PÅ raden —
+//   läsbart på en sekund från hytt. Hero är vyns enda större tal (TYP.tal).
+// - Färg är aldrig ensam bärare: signerade tal får alltid +/− i texten,
+//   färgen förstärker bara. Orange = preliminärt/kalkyl, inget annat.
+// - Mobilproportion även på desktop: maxbredd 400, centrerad.
 
-import Link from 'next/link';
 import EkonomiBottomNav from '../EkonomiBottomNav';
 import { type PeriodType, getPeriodLabel } from '@/lib/ekonomi/period';
+import {
+  FONT, TYP, TNUM, VIKT, AVSTAND, RADIE, FARG, KNAPP, TRAFFYTA, designCss,
+} from '@/lib/design/tokens';
 
-export const BARNSTEN = '240,178,76';
-export const GRON = '90,255,140';
-export const ROD = '255,90,90';
+// Övergångsexporter: äldre flikar bygger rgba(`${GRON}`,x)-strängar av de
+// här tripplarna. De pekar nu på tokens-nyanserna (FARG.gron/rod/orange)
+// så hela sektionen byter till samma palett — nya anrop ska använda FARG
+// direkt, och tripplarna försvinner när sista fliken är tokenstädad.
+export const BARNSTEN = '255,159,10';  // FARG.orange
+export const GRON = '48,209,88';       // FARG.gron
+export const ROD = '255,69,58';        // FARG.rod
 export const MAXBREDD = 400;
 
-const HAIRLINE = '0.5px solid rgba(255,255,255,0.07)';
+const HAIRLINE = `1px solid ${FARG.linje}`;
 
 // ── Sidram ──────────────────────────────────────────────────────────────
 
 export function EkonomiSida({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ background: '#111110', minHeight: '100vh', paddingTop: 24, paddingBottom: 120, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" }}>
-      {/* Fraunces för hero/tal — laddas här, en gång för hela sektionen */}
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..600&display=swap" />
+    <div style={{
+      background: FARG.bg, minHeight: '100vh', color: FARG.text, fontFamily: FONT,
+      paddingTop: AVSTAND.xl, paddingBottom: AVSTAND.xxl * 4,
+    }}>
+      <style>{designCss}</style>
       <div style={{ maxWidth: MAXBREDD, margin: '0 auto' }}>
         {children}
       </div>
@@ -51,32 +59,35 @@ export function Periodvaxlare({ perioder, period, offset, onPeriod, onOffset, on
   onOffset: (nyOffset: number) => void;
   onInfo?: () => void;
 }) {
+  const textKnapp: React.CSSProperties = {
+    border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+    minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.xs}px`,
+  };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: 14 }}>
+    <div style={{ display: 'flex', alignItems: 'center', padding: `0 ${AVSTAND.sidmarginal}px`, gap: AVSTAND.m }}>
       {perioder.map(p => {
         const aktiv = p === period;
         return (
           <button key={p} onClick={() => onPeriod(p)} style={{
-            border: 'none', background: 'none', padding: '4px 0 3px',
-            fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            color: aktiv ? '#e8e8e4' : '#7a7a72',
-            borderBottom: aktiv ? '1.5px solid #e8e8e4' : '1.5px solid transparent',
+            ...textKnapp, ...TYP.meta, fontWeight: VIKT.halvfet,
+            color: aktiv ? FARG.text : FARG.text2,
+            boxShadow: aktiv ? `inset 0 -2px 0 ${FARG.text}` : 'none',
           }}>{PERIOD_NAMN[p]}</button>
         );
       })}
       <div style={{ flex: 1 }} />
       <button aria-label="Föregående period" onClick={() => onOffset(offset - 1)}
-        style={{ border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 6px' }}>&#8249;</button>
-      <span style={{ fontSize: 12, fontWeight: 600, color: '#e8e8e4', minWidth: 96, textAlign: 'center' }}>
+        style={{ ...textKnapp, ...TYP.text, color: FARG.text2 }}>&#8249;</button>
+      <span style={{ ...TYP.meta, fontWeight: VIKT.halvfet, color: FARG.text, minWidth: AVSTAND.xxl * 3, textAlign: 'center' }}>
         {getPeriodLabel(period, offset)}
       </span>
       <button aria-label="Nästa period" onClick={() => onOffset(offset + 1)}
-        style={{ border: 'none', background: 'none', color: '#7a7a72', fontSize: 16, cursor: 'pointer', padding: '4px 6px' }}>&#8250;</button>
+        style={{ ...textKnapp, ...TYP.text, color: FARG.text2 }}>&#8250;</button>
       {onInfo && (
         <button aria-label="Om beräkningen" onClick={onInfo} style={{
-          width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-          background: 'rgba(255,255,255,0.08)', border: 'none', color: '#7a7a72',
-          fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+          width: TRAFFYTA.min, height: TRAFFYTA.min, borderRadius: RADIE.cirkel, flexShrink: 0,
+          background: FARG.fyllning, border: 'none', color: FARG.text2,
+          ...TYP.meta, fontWeight: VIKT.halvfet, cursor: 'pointer', fontFamily: 'inherit',
           fontStyle: 'italic', lineHeight: 1,
         }}>i</button>
       )}
@@ -85,20 +96,21 @@ export function Periodvaxlare({ perioder, period, offset, onPeriod, onOffset, on
 }
 
 // ── Hero ────────────────────────────────────────────────────────────────
-// Ett lugnt centrerat Fraunces-tal. Benvitt för magnituder ("vi körde in"),
-// grönt/rött BARA när värdet är ett signerat tal (± mot timpeng).
+// Vyns huvudsiffra (TYP.tal — en per vy). Vitt för magnituder, grönt/rött
+// BARA för signerade tal, och då bär texten alltid +/− själv.
 
-export function Hero({ etikett, varde, vardeFarg = '#e8e8e4', storlek = 44, under }: {
+export function Hero({ etikett, varde, vardeFarg = FARG.text, storlek, under }: {
   etikett: string;
   varde: string;
   vardeFarg?: string;
+  /** Avvikande talstorlek — undvik; TYP.tal är linjen. */
   storlek?: number;
   under?: React.ReactNode;
 }) {
   return (
-    <div style={{ textAlign: 'center', padding: '56px 16px 8px' }}>
-      <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.2, color: '#7a7a72' }}>{etikett}</div>
-      <div style={{ fontFamily: "'Fraunces', serif", fontSize: storlek, lineHeight: 1.1, fontWeight: 500, color: vardeFarg, marginTop: 10, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
+    <div style={{ textAlign: 'center', padding: `${AVSTAND.xxl + AVSTAND.xl}px ${AVSTAND.sidmarginal}px ${AVSTAND.s}px` }}>
+      <div style={{ ...TYP.micro, color: FARG.text2 }}>{etikett}</div>
+      <div style={{ ...TYP.tal, ...(storlek ? { fontSize: storlek } : null), color: vardeFarg, marginTop: AVSTAND.m }}>
         {varde}
       </div>
       {under}
@@ -107,8 +119,8 @@ export function Hero({ etikett, varde, vardeFarg = '#e8e8e4', storlek = 44, unde
 }
 
 // ── Metarad ─────────────────────────────────────────────────────────────
-// Diskret centrerad rad under hero — INGEN färgad pill. Segment separeras
-// med "·"; bärnsten-segment (preliminärt) i bärnsten, resten dämpat.
+// Stöd, inte huvudsak — rejält dämpad (tertiär) så den aldrig drar blick
+// från svaret. Segment separeras med "·"; orange = preliminärt/kalkyl.
 
 export type MetaDel = { text: string; barnsten?: boolean };
 
@@ -116,11 +128,11 @@ export function MetaRad({ delar }: { delar: (MetaDel | null | false | undefined)
   const synliga = delar.filter(Boolean) as MetaDel[];
   if (synliga.length === 0) return null;
   return (
-    <div style={{ textAlign: 'center', fontSize: 12, color: '#7a7a72', marginTop: 14, padding: '0 16px', lineHeight: 1.6 }}>
+    <div style={{ textAlign: 'center', ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.m, padding: `0 ${AVSTAND.sidmarginal}px`, lineHeight: 1.6 }}>
       {synliga.map((d, i) => (
         <span key={i}>
           {i > 0 && ' · '}
-          <span style={d.barnsten ? { color: `rgba(${BARNSTEN},0.85)` } : undefined}>{d.text}</span>
+          <span style={d.barnsten ? { color: FARG.orange } : undefined}>{d.text}</span>
         </span>
       ))}
     </div>
@@ -131,7 +143,7 @@ export function MetaRad({ delar }: { delar: (MetaDel | null | false | undefined)
 
 export function SektionsTitel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 32, padding: '0 4px' }}>
+    <div style={{ ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.m, marginTop: AVSTAND.sektion, padding: `0 ${AVSTAND.xs}px` }}>
       {children}
     </div>
   );
@@ -139,21 +151,25 @@ export function SektionsTitel({ children }: { children: React.ReactNode }) {
 
 export function Lista({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ background: '#1a1a18', borderRadius: 14, padding: '0 16px', ...style }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `0 ${AVSTAND.sidmarginal}px`, ...style }}>
       {children}
     </div>
   );
 }
 
-// EN historia per rad: namn + dämpad detaljrad till vänster, ETT Fraunces-tal
-// till höger. Stapel (andel 0–1) ritas på RADENS fulla bredd — jämförbar
-// mellan rader. `children` är uppfällt innehåll (renderas när `oppen`).
-export function ListRad({ rubrik, rubrikFarg = '#e8e8e4', detalj, tal, talFarg = '#e8e8e4', undertal, stapelAndel, chevron, oppen, onClick, sista, children }: {
+// EN historia per rad: namn + dämpad detaljrad till vänster, radens TAL
+// till höger — talet är radens huvudsak (TYP.rubrik + TNUM, läsbart från
+// hytt) med enheten PÅ raden (`enhet`), aldrig bara i en fot. Stapel
+// (andel 0–1) ritas på RADENS fulla bredd — jämförbar mellan rader.
+// `children` är uppfällt innehåll (renderas när `oppen`).
+export function ListRad({ rubrik, rubrikFarg = FARG.text, detalj, tal, talFarg = FARG.text, enhet, undertal, stapelAndel, chevron, oppen, onClick, sista, children }: {
   rubrik: React.ReactNode;
   rubrikFarg?: string;
   detalj?: React.ReactNode;
   tal?: React.ReactNode;
   talFarg?: string;
+  /** Enheten intill talet ("kr/m³") — raden ska vara självförklarande. */
+  enhet?: string;
   undertal?: React.ReactNode;
   stapelAndel?: number | null;
   chevron?: boolean;
@@ -163,35 +179,36 @@ export function ListRad({ rubrik, rubrikFarg = '#e8e8e4', detalj, tal, talFarg =
   children?: React.ReactNode;
 }) {
   return (
-    <div style={{ padding: '16px 0', borderBottom: sista ? 'none' : HAIRLINE }}>
+    <div style={{ padding: `${AVSTAND.l}px 0`, borderBottom: sista ? 'none' : HAIRLINE }}>
       <div onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: rubrikFarg, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ ...TYP.listtitel, color: rubrikFarg, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {rubrik}
             </div>
-            {detalj != null && <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 4 }}>{detalj}</div>}
+            {detalj != null && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{detalj}</div>}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, flexShrink: 0 }}>
             {tal != null && (
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: talFarg, fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ ...TYP.rubrik, ...TNUM, color: talFarg }}>
                   {tal}
+                  {enhet && <span style={{ ...TYP.meta, color: FARG.text2, marginLeft: AVSTAND.xs }}>{enhet}</span>}
                 </div>
-                {undertal != null && <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{undertal}</div>}
+                {undertal != null && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{undertal}</div>}
               </div>
             )}
             {chevron && (
-              <span style={{ fontSize: 11, color: '#7a7a72', transform: oppen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
+              <span style={{ ...TYP.meta, color: FARG.text2, transform: oppen ? 'rotate(90deg)' : 'none' }}>›</span>
             )}
           </div>
         </div>
         {stapelAndel != null && (
-          <div style={{ marginTop: 8, height: 3, borderRadius: 2, width: `${Math.max(0, Math.min(1, stapelAndel)) * 100}%`, background: 'rgba(122,122,114,0.5)' }} />
+          <div style={{ marginTop: AVSTAND.s, height: AVSTAND.xs, borderRadius: RADIE.stapel, width: `${Math.max(0, Math.min(1, stapelAndel)) * 100}%`, background: FARG.fyllning }} />
         )}
       </div>
       {oppen && children != null && (
-        <div style={{ marginTop: 10, paddingTop: 10, borderTop: HAIRLINE, display: 'grid', gap: 6 }}>
+        <div style={{ marginTop: AVSTAND.m, paddingTop: AVSTAND.m, borderTop: HAIRLINE, display: 'grid', gap: AVSTAND.s }}>
           {children}
         </div>
       )}
@@ -199,10 +216,11 @@ export function ListRad({ rubrik, rubrikFarg = '#e8e8e4', detalj, tal, talFarg =
   );
 }
 
-// Enheten skrivs EN gång under listan — inte på varje rad.
+// Fot under en lista — stödtext. Enheten på själva talen bär raden;
+// foten är bara för förklaringar som gäller hela listan.
 export function EnhetsFot({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ fontSize: 11, color: '#7a7a72', textAlign: 'center', marginTop: 10, padding: '0 16px' }}>
+    <div style={{ ...TYP.meta, color: FARG.text3, textAlign: 'center', marginTop: AVSTAND.m, padding: `0 ${AVSTAND.sidmarginal}px` }}>
       {children}
     </div>
   );
@@ -211,15 +229,15 @@ export function EnhetsFot({ children }: { children: React.ReactNode }) {
 // ── Statuslägen — laddar / fel / ärligt tomt ────────────────────────────
 
 export function Laddar() {
-  return <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72' }}>Laddar...</div>;
+  return <div style={{ textAlign: 'center', padding: AVSTAND.xxl, ...TYP.meta, color: FARG.text2 }}>Laddar ekonomidata…</div>;
 }
 
 export function FelRuta({ titel, fel, onRetry }: { titel: string; fel: string; onRetry: () => void }) {
   return (
-    <div style={{ margin: 16, padding: 14, background: `rgba(${ROD},0.08)`, border: `1px solid rgba(${ROD},0.3)`, color: 'rgba(255,160,160,0.95)', borderRadius: 10, fontSize: 12, lineHeight: 1.5 }}>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>{titel}</div>
-      <div>{fel}</div>
-      <button onClick={onRetry} style={{ marginTop: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#e8e8e4', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}>
+    <div style={{ margin: AVSTAND.sidmarginal, padding: AVSTAND.l, background: FARG.kort, borderRadius: RADIE.kort }}>
+      <div style={{ ...TYP.listtitel, color: FARG.rod, marginBottom: AVSTAND.xs }}>{titel}</div>
+      <div style={{ ...TYP.meta, color: FARG.text2 }}>{fel}</div>
+      <button onClick={onRetry} style={{ ...KNAPP.sekundar, marginTop: AVSTAND.m }}>
         Försök igen
       </button>
     </div>
@@ -228,8 +246,8 @@ export function FelRuta({ titel, fel, onRetry }: { titel: string; fel: string; o
 
 export function Tomt({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ textAlign: 'center', padding: '56px 16px 8px' }}>
-      <div style={{ fontSize: 13, color: '#7a7a72' }}>{children}</div>
+    <div style={{ textAlign: 'center', padding: `${AVSTAND.xxl + AVSTAND.xl}px ${AVSTAND.sidmarginal}px ${AVSTAND.s}px` }}>
+      <div style={{ ...TYP.meta, color: FARG.text2 }}>{children}</div>
     </div>
   );
 }
