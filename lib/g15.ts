@@ -44,37 +44,53 @@ export const g15Sek = (
 ) => (processing_sek || 0) + (terrain_sek || 0) + (other_work_sek || 0)
 
 // ─────────────────────────────────────────────────────────────
-// TU — TEKNISK UTNYTTJANDEGRAD (Skogforsk). Branschens standardmått för
-// maskinen: hur stor del av den utnyttjade tiden som är grundtid.
+// TU — TEKNISK UTNYTTJANDEGRAD, Skogforsks definition (Martins beslut
+// 2026-10-01, så att talet går att jämföra utåt):
 //
-//   TU = G15 / U-tid,  U-tid = G15 + avbrott
+//   täljare = processing + terrain + avbrott kortare än 15 min
+//   nämnare = täljaren + övrigt arbete (other_work) + avbrott 15 min och längre
 //
-// AVBROTTEN KOMMER UR fakt_avbrott — samma källa som Avbrott-fliken, alla längder,
-// men UTAN flytt (Trailer transportation): Skogforsks avbrottstid är service,
-// underhåll, reparation och störningar. Inte fakt_tid:s DOWN-hinkar — de saknar
-// segment på skördarna (Scorpion 57,8 mot 65,7 h, Rottne 28,7 mot 37,5 h sedan
-// aug 2026; skotarna exakta). G15 räknar per definition IN avbrott kortare än
-// 15 min, så den delen (langd_sek < G15_GRANS_SEK) flyttas över till täljaren.
-// kort_stopp_sek ligger redan INUTI G15 och rörs inte. Rast (rast_sek) är utanför
-// både G15 och avbrott — aldrig i nämnaren. Tomgång finns inte i StanForD.
+// Alltså: tid med aggregat/last i arbete, delat med all tid maskinen var
+// "i bruk" — arbete, övrigt arbete (vägkörning, flytt på egna hjul,
+// förbereda körbanor) och ALLA avbrott oavsett kategori, inklusive flytt på
+// trailer (Trailer transportation) och avbrott utan registrerad orsak.
+// Rast räknas aldrig, varken i täljare eller nämnare. Tomgång och motortid
+// finns inte i måttet.
 //
-// TU är ett mått på MASKINEN (underhåll, störning, reparation), inte på föraren
-// och inte på hur lönetiden används — det senare är lönekvoten (maskintid per
-// lönetimme), ett annat tal. Se docs/tu.md.
+// Avbrotten kommer ur fakt_avbrott — samma källa som Avbrott-fliken — inte
+// fakt_tid:s DOWN-hinkar (de saknar segment på skördarna: Scorpion 57,8 mot
+// 65,7 h sedan aug 2026). Korta avbrott (< G15_GRANS_SEK) hör till G15 per
+// definition och ligger i täljaren oavsett kategori. kort_stopp_sek
+// (maskinens mikropauser) ligger redan INUTI processing och rörs inte.
 //
-// Empiri sep 2026 (sedan 1 aug): rast i nämnaren drog ner skördarna 4–6 enheter,
-// flytt i nämnaren drog ner Scorpion 3 (84,8 → 87,9). Två enheter TU ≈ 8 % vinst
-// vid 3 000 timmar/år (Martin).
+// Övrigt arbete ligger BARA i nämnaren. Därför spelar det ingen roll för TU om
+// en flytt bokförs som other_work (Elefanten) eller som Trailer transportation
+// (Scorpion) — talen blev jämförbara mellan maskinerna först med den här
+// formeln (sedan aug 2026, räknat 2026-10-01: Rottne 92,9 · Scorpion 87,6 ·
+// Wisent 90,7 · Elefanten 84,0; den gamla formeln hade flytt utanför och OW i
+// täljaren). Avbrotten måste vara städade från ögonblicksbilder (#644) —
+// annars ligger pågående stopp dubbelt i nämnaren.
+//
+// TU är ett mått på MASKINEN, inte på föraren och inte på hur lönetiden
+// används — det senare är lönekvoten, ett annat tal. Se docs/tu.md.
 export function tuProcent(
-  g15Sek: number,
-  kortaAvbrottSek: number, // fakt_avbrott < G15_GRANS_SEK (exkl. flytt) — hör till G15
-  avbrottSek: number,      // fakt_avbrott alla längder (exkl. flytt) — inkl. de korta
+  arbeteSek: number,        // processing + terrain (fakt_tid)
+  ovrigtArbeteSek: number,  // other_work (fakt_tid) — bara i nämnaren
+  kortaAvbrottSek: number,  // fakt_avbrott < G15_GRANS_SEK, ALLA kategorier — hör till G15
+  avbrottSek: number,       // fakt_avbrott alla längder, ALLA kategorier inkl. flytt — inkl. de korta
 ): number | null {
-  const taljare = g15Sek + kortaAvbrottSek
-  const namnare = g15Sek + avbrottSek
+  const taljare = arbeteSek + kortaAvbrottSek
+  const namnare = arbeteSek + ovrigtArbeteSek + avbrottSek
   if (namnare <= 0) return null
   return Math.round((taljare / namnare) * 1000) / 10
 }
+
+/** Avbrott utan registrerad orsak: controller-genererad rad där föraren inte
+ *  valde någon kod (StanForD 'Default', eller tom). 'Other' och 'Unproductive
+ *  terrain work' är VALDA standardkoder och räknas inte hit. Visas dämpat vid
+ *  TU — talet har en osäkerhet som förarna kan åtgärda genom att klassa. */
+export const arOklassatAvbrott = (kategoriKod: string | null | undefined) =>
+  !kategoriKod || kategoriKod === 'Default'
 
 /** Branschsnitt TU enligt Skogforsk (skördare 85 %, skotare 90 % — skördaren är
  *  mer tekniskt komplex). Referens i vyer som en dämpad markering, aldrig ett
