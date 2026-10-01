@@ -24,6 +24,9 @@ import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKatego
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
+import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, type ObjektForVal } from '../../lib/objektPlats'
+import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa } from '../../lib/maskindatorStart'
+import { typLabel } from '../../lib/objekt/typ'
 import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
@@ -3073,6 +3076,92 @@ export default function PlannerPage() {
     sattEnhetMaskin(maskinId);
     setEnhetMaskinIdState(maskinId);
   }, []);
+
+  // === Maskindator-start (förarflöde sektion A) ===
+  // En bunden maskindator (enhetMaskin + serial-GPS) öppnar rätt objekt utan tryck: GPS-position →
+  // valjObjektForPosition → tilldelad = körvy direkt; ej tilldelad = bekräftelsekort; ingen fix = tilldelat.
+  const maskindatorStartGjordRef = useRef(false);                 // en gång per app-laddning
+  const maskindatorFragatRef = useRef<Set<string>>(new Set());    // redanFragat per objektId (denna session)
+  const maskindatorBytteRef = useRef(false);                      // A4: auto-byte redan gjort
+  const maskindatorA4Ref = useRef(false);                         // öppnade tilldelat objekt utan fix → tillåt ett byte
+  const maskindatorObjektRef = useRef<any[]>([]);                 // laddade objekt (+geometri) för by-id och 200 m-kollen
+  const maskindatorKmInneRef = useRef<{ km: number; last: { lat: number; lng: number } | null }>({ km: 0, last: null });
+  const [maskindatorKort, setMaskindatorKort] = useState<
+    { objektId: string; namn: string; typText: string; areal: number | null; volymKvar: number | null; roll: 'skordare' | 'skotare' } | null
+  >(null);
+  const [maskindatorSparar, setMaskindatorSparar] = useState(false);
+  const [maskindatorBesked, setMaskindatorBesked] = useState<string | null>(null);
+  useEffect(() => { if (!maskindatorBesked) return; const t = setTimeout(() => setMaskindatorBesked(null), 3500); return () => clearTimeout(t); }, [maskindatorBesked]);
+
+  // Öppna körvyn på ett objekt i en roll (loggningen startar av hyttspår-effekten).
+  const oppnaKorvyPa = useCallback((obj: any, roll: 'skordare' | 'skotare') => {
+    if (!obj) return;
+    setValtObjekt(obj);
+    setKorvyForceRoll(roll);
+    setKorvyActive(true);
+  }, []);
+
+  // Volym kvar att köra (skotare: skördat − skotat; skördare: planerat − skördat). null = okänt.
+  const berakVolymKvar = useCallback((o: any, roll: 'skordare' | 'skotare'): number | null => {
+    const n = (v: any) => (typeof v === 'number' && isFinite(v) ? v : null);
+    if (roll === 'skotare') {
+      const total = n(o?.volym_skordad) ?? n(o?.volym_planerad) ?? n(o?.volym);
+      return total == null ? null : Math.max(0, total - (n(o?.volym_skotad) ?? 0));
+    }
+    const total = n(o?.volym_planerad) ?? n(o?.volym);
+    return total == null ? null : Math.max(0, total - (n(o?.volym_skordad) ?? 0));
+  }, []);
+
+  const visaMaskindatorKort = useCallback((o: any, roll: 'skordare' | 'skotare') => {
+    setMaskindatorKort({
+      objektId: o.id,
+      namn: o.namn ?? '',
+      typText: typLabel(objektHuvudtyp({ typ: o.typ, grot: o.grot })),
+      areal: typeof o.areal === 'number' ? o.areal : null,
+      volymKvar: berakVolymKvar(o, roll),
+      roll,
+    });
+  }, [berakVolymKvar]);
+
+  // "Ja" på bekräftelsekortet (eller implicit ja vid >200 m): tilldela maskinen, status pågående,
+  // durabel logg-rad (förman-visning i följd-PR), stäng kortet. Körvyn är redan öppen och loggar.
+  const maskindatorJa = useCallback(async () => {
+    const kort = maskindatorKort;
+    if (!kort || maskindatorSparar || !enhetMaskinId) return;
+    setMaskindatorSparar(true);
+    const col = kort.roll === 'skordare' ? 'skordare_maskin_id' : 'skotare_maskin_id';
+    const nowIso = new Date().toISOString();
+    try {
+      const { error } = await supabase.from('objekt')
+        .update({ [col]: enhetMaskinId, status: 'pagaende', pagaende_startad_timestamp: nowIso })
+        .eq('id', kort.objektId);
+      if (error) { visaBesked('Kunde inte starta: ' + error.message); return; }
+      // Durabel notis-logg (best-effort — får ALDRIG stoppa starten). Förman-visningen byggs i följd-PR.
+      try {
+        const tid = new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+        await supabase.from('maskin_logg').insert({ maskin_id: enhetMaskinId, datum: lokaltDatumStockholm(Date.now()), atgard: `Började på ${kort.namn} ${tid}` });
+      } catch { /* notis-loggen är icke-kritisk */ }
+      setValtObjekt((prev: any) => (prev && prev.id === kort.objektId ? { ...prev, [col]: enhetMaskinId, status: 'pagaende', pagaende_startad_timestamp: nowIso } : prev));
+      // håll ref:en i synk så 200 m-kollen inte triggar igen
+      const idx = maskindatorObjektRef.current.findIndex((o) => o.id === kort.objektId);
+      if (idx >= 0) maskindatorObjektRef.current[idx] = { ...maskindatorObjektRef.current[idx], [col]: enhetMaskinId, status: 'pagaende' };
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+      setMaskindatorKort(null);
+    } finally {
+      setMaskindatorSparar(false);
+    }
+  }, [maskindatorKort, maskindatorSparar, enhetMaskinId]);
+
+  // "Annat objekt": logga att vi frågat (så kortet inte plöjer upp igen denna session), stäng körvyn,
+  // gå till listan. Nästa app-start frågar igen (persistent skydd = tilldelning, inte detta).
+  const maskindatorAnnat = useCallback(() => {
+    if (maskindatorKort) maskindatorFragatRef.current.add(maskindatorKort.objektId);
+    setMaskindatorKort(null);
+    setKorvyActive(false);
+    setKorvyForceRoll(null);
+    setValtObjekt(null);
+  }, [maskindatorKort]);
+
   // === PWA-install på skrivbordet (Chrome/Edge) ===
   // Fånga beforeinstallprompt → spara eventet så vi kan trigga install-dialogen från
   // en egen knapp. Rad visas bara när prompten fångats OCH ej standalone (installerad).
@@ -3382,6 +3471,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (!isForare || !effectiveMedarbetare?.id || valtObjekt) return;
     if (autoValjGjordRef.current) return;
+    if (serialGpsAktiv && enhetMaskinId) return;   // bunden maskindator → maskindator-starten äger objektvalet
 
     let cancelled = false;
     (async () => {
@@ -3409,7 +3499,72 @@ export default function PlannerPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [isForare, effectiveMedarbetare?.id, valtObjekt]);
+  }, [isForare, effectiveMedarbetare?.id, valtObjekt, serialGpsAktiv, enhetMaskinId]);
+
+  // === Maskindator-start (sektion A) ===
+  // En bunden maskindator med serial-GPS öppnar rätt objekt utan tryck. Ett skott per app-laddning.
+  useEffect(() => {
+    if (maskindatorStartGjordRef.current) return;
+    if (!serialGpsAktiv || !enhetMaskinId) return;   // gäller bara en bunden maskindator
+    if (valtObjekt) return;                           // ett objekt är redan valt (explicit) → rör inte
+    if (dimMaskiner.length === 0) return;             // vänta tills maskinregistret laddats (roll/klarar_typ)
+    maskindatorStartGjordRef.current = true;
+    autoValjGjordRef.current = true;                  // maskindator-starten äger valet → tysta förar-auto-select
+    let cancelled = false;
+    (async () => {
+      const dm = dimMaskiner.find((m) => m.maskin_id === enhetMaskinId);
+      const enhetRoll = rollAvMaskintyp(dm?.maskin_typ);
+      const klararTyp = dm?.klarar_typ ?? null;
+      // Ladda objekt (planerad/pågående) + deras traktgräns-geometri (för positionsmatchen).
+      const { data: objData } = await supabase.from('objekt')
+        .select('id,namn,typ,grot,status,areal,lat,lng,volym,volym_planerad,volym_skordad,volym_skotad,skotare_maskin_id,skordare_maskin_id,pagaende_startad_timestamp')
+        .in('status', ['planerad', 'pagaende']);
+      if (cancelled) return;
+      const objekt = (objData || []) as any[];
+      const { data: geoData } = await supabase.from('objekt_geometri').select('objekt_id,geometri');
+      if (cancelled) return;
+      const geoMap = new Map<string, any>();
+      for (const g of (geoData || [])) geoMap.set((g as any).objekt_id, (g as any).geometri);
+      const kandidater = objekt.map((o) => ({ ...o, geometri: geoMap.get(o.id) ?? null })) as (ObjektForVal & any)[];
+      maskindatorObjektRef.current = kandidater;
+      // Maskinens tilldelade objekt (A4-fallback): skördar- eller skotarplatsen, pågående före planerad.
+      const tilldelade = kandidater.filter((o) => o.skotare_maskin_id === enhetMaskinId || o.skordare_maskin_id === enhetMaskinId);
+      const tilldelat = tilldelade.find((o) => o.status === 'pagaende') ?? tilldelade.find((o) => o.status === 'planerad') ?? tilldelade[0] ?? null;
+      // GPS-fix med 30 s budget (sektion A4: ingen fix på 30 s → tilldelat objekt).
+      let fix: GpsFix | null = null;
+      try { fix = await hamtaEnGpsFix(30000); } catch { fix = null; }
+      if (cancelled) return;
+      const harFix = !!(fix && fix.giltig && fix.lat != null && fix.lng != null);
+      const traff = harFix
+        ? valjObjektForPosition({ lat: fix!.lat as number, lng: fix!.lng as number, maskinId: enhetMaskinId, klararTyp, objekt: kandidater }).traff as (ObjektForVal & any) | null
+        : null;
+      const atgard = avgorMaskindatorStart({
+        enhetRoll,
+        harFix,
+        posObjektId: traff?.id ?? null,
+        posTilldelad: traff ? (traff.skotare_maskin_id === enhetMaskinId || traff.skordare_maskin_id === enhetMaskinId) : false,
+        tilldelatObjektId: tilldelat?.id ?? null,
+        redanFragat: traff ? maskindatorFragatRef.current.has(traff.id) : false,
+      });
+      const byId = (id: string | null) => kandidater.find((o) => o.id === id) ?? null;
+      if (atgard.typ === 'korvy') {
+        oppnaKorvyPa(byId(atgard.objektId), atgard.roll);
+      } else if (atgard.typ === 'fraga') {
+        const o = byId(atgard.objektId);
+        if (o) {
+          oppnaKorvyPa(o, atgard.roll);
+          maskindatorKmInneRef.current = { km: 0, last: harFix ? { lat: fix!.lat as number, lng: fix!.lng as number } : null };
+          visaMaskindatorKort(o, atgard.roll);
+        }
+      } else if (atgard.typ === 'tilldelat') {
+        oppnaKorvyPa(byId(atgard.objektId), atgard.roll);
+        maskindatorBytteRef.current = false;
+        maskindatorA4Ref.current = true;   // öppnade utan fix → tillåt ETT byte när en fix landar
+      }
+      // 'lista' → gör inget: valtObjekt förblir null → ObjektValjare visas
+    })();
+    return () => { cancelled = true; };
+  }, [serialGpsAktiv, enhetMaskinId, valtObjekt, dimMaskiner, oppnaKorvyPa, visaMaskindatorKort]);
 
   // Background geolocation check every 60 seconds
   useEffect(() => {
@@ -7995,6 +8150,40 @@ export default function PlannerPage() {
     if (c && c.lat != null && c.lon != null) return { lat: c.lat, lon: c.lon };
     return null;
   }, [simulatedPos, currentPosition]);
+
+  // Maskindator-start, löpande position: (a) >200 m körda INNE i kort-objektet = implicit ja;
+  // (b) A4 auto-byte EN gång — öppnade vi tilldelat objekt utan fix och en fix nu visar ett annat objekt.
+  useEffect(() => {
+    const pos = korvyEffectivePos;
+    if (!pos || !enhetMaskinId) return;
+    // (a) 200 m-regeln (bara medan kortet visas)
+    const kort = maskindatorKort;
+    if (kort) {
+      const o = maskindatorObjektRef.current.find((x) => x.id === kort.objektId);
+      if (o && objektInnehallerPunkt(o.geometri, pos.lat, pos.lon)) {
+        const acc = maskindatorKmInneRef.current;
+        if (acc.last) acc.km += haversineM(acc.last.lat, acc.last.lng, pos.lat, pos.lon);
+        acc.last = { lat: pos.lat, lng: pos.lon };
+        if (implicitJa(acc.km)) { maskindatorJa(); }
+      }
+      return;   // medan kortet visas gör vi inte A4-bytet
+    }
+    // (b) A4 auto-byte en gång
+    if (maskindatorA4Ref.current && !maskindatorBytteRef.current) {
+      const traff = valjObjektForPosition({ lat: pos.lat, lng: pos.lon, maskinId: enhetMaskinId, objekt: maskindatorObjektRef.current }).traff as any;
+      if (traff && traff.id !== valtObjekt?.id) {
+        maskindatorBytteRef.current = true;
+        maskindatorA4Ref.current = false;
+        const roll = (traff.skordare_maskin_id === enhetMaskinId)
+          ? 'skordare'
+          : (traff.skotare_maskin_id === enhetMaskinId)
+            ? 'skotare'
+            : (rollAvMaskintyp(dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)?.maskin_typ) ?? 'skotare');
+        oppnaKorvyPa(traff, roll);
+        setMaskindatorBesked(`Bytte till ${traff.namn ?? 'objektet'}`);
+      }
+    }
+  }, [korvyEffectivePos, maskindatorKort, enhetMaskinId, valtObjekt, dimMaskiner, maskindatorJa, oppnaKorvyPa]);
 
   // (Närmaste/aktivt stråk-beräkningen borttagen med autopanelen — ingen stråk-emfas längre.)
 
@@ -13206,6 +13395,39 @@ export default function PlannerPage() {
           >
             {activeMode.exitLabel}
           </button>
+        </div>
+      )}
+
+      {/* === MASKINDATOR-START: bekräftelsekort "Börja skota här?" (sektion A3) === */}
+      {korvyActive && maskindatorKort && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 360, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 16px calc(env(safe-area-inset-bottom, 0px) + 24px)' }}>
+          <div style={{ width: '100%', maxWidth: 440, background: 'rgba(28,28,30,0.98)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: '22px 20px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
+            <div style={{ fontSize: 13, color: '#8e8e93', marginBottom: 6 }}>Du står i objektet</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginBottom: 6 }}>{maskindatorKort.namn || 'Objekt'}</div>
+            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)', marginBottom: 18 }}>
+              {[
+                maskindatorKort.areal != null ? `${maskindatorKort.areal.toFixed(1)} ha` : null,
+                maskindatorKort.typText,
+                maskindatorKort.volymKvar != null ? `${Math.round(maskindatorKort.volymKvar)} m³ kvar` : null,
+              ].filter(Boolean).join(' · ')}
+            </div>
+            <div style={{ fontSize: 17, fontWeight: 600, color: '#fff', marginBottom: 16 }}>Börja skota här?</div>
+            <button type="button" onClick={maskindatorJa} disabled={maskindatorSparar}
+              style={{ width: '100%', padding: '16px', borderRadius: 14, border: 'none', background: '#30d158', color: '#000', fontSize: 18, fontWeight: 700, cursor: maskindatorSparar ? 'default' : 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>
+              {maskindatorSparar ? 'Startar…' : 'Ja'}
+            </button>
+            <button type="button" onClick={maskindatorAnnat} disabled={maskindatorSparar}
+              style={{ width: '100%', padding: '14px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.18)', background: 'transparent', color: '#fff', fontSize: 16, fontWeight: 600, cursor: maskindatorSparar ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+              Annat objekt
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Maskindator-start: liten notis (A4 auto-byte "Bytte till …") */}
+      {korvyActive && maskindatorBesked && (
+        <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 70px)', left: '50%', transform: 'translateX(-50%)', zIndex: 360, background: 'rgba(28,28,30,0.96)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '10px 16px', color: '#fff', fontSize: 14, fontWeight: 600, boxShadow: '0 6px 24px rgba(0,0,0,0.4)' }}>
+          {maskindatorBesked}
         </div>
       )}
 
