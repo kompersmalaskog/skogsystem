@@ -17,9 +17,10 @@ import {
 } from '@/lib/ekonomi/objektJamforelse';
 import { type PeriodType, getPeriodDates, getPeriodLabel } from '@/lib/ekonomi/period';
 import {
-  EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad, EnhetsFot, SektionsTitel,
-  Laddar, FelRuta, Tomt, GRON, ROD,
+  EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad, SektionsTitel,
+  Laddar, FelRuta, Tomt,
 } from '../delade/mall';
+import { FARG, TYP, TNUM, AVSTAND, RADIE, KNAPP } from '@/lib/design/tokens';
 
 type DelAgg = { ackord: number; timpeng: number; volym: number };
 type KlassAgg = {
@@ -34,9 +35,11 @@ type KlassAgg = {
   skot: DelAgg;
 };
 
+// Signerade tal bär ALLTID sitt tecken i texten (+/−) — färgen förstärker
+// bara (skillen: rött i solljus är brunt, färg aldrig ensam bärare).
 function fmtDiff(n: number) { return `${n < 0 ? '−' : '+'}${Math.round(Math.abs(n)).toLocaleString('sv-SE')}`; }
 function fmtKlass(k: number) { return k.toFixed(2).replace('.', ',').replace(/0$/, ''); }
-function diffColor(n: number) { return n >= 0 ? `rgba(${GRON},0.9)` : `rgba(${ROD},0.9)`; }
+function diffColor(n: number) { return n >= 0 ? FARG.gron : FARG.rod; }
 
 export default function PerKlassClient() {
   const [period, setPeriod] = useState<PeriodType>('M');
@@ -96,14 +99,24 @@ export default function PerKlassClient() {
     return Object.values(agg).sort((a, b) => (b.diff / (b.volym || 1)) - (a.diff / (a.volym || 1)));
   })();
 
-  const krPerM3 = (k: { diff: number; volym: number }) => k.volym > 0 ? k.diff / k.volym : 0;
-  const maxAbs = klasser.reduce((mx, k) => Math.max(mx, Math.abs(krPerM3(k))), 0);
+  // PRESENTATION — avrunda varje del FÖRST, härled sedan (skillen: summan
+  // är summan av det som visas). Radens stora tal = visat ackord − visat
+  // timpeng, så uppfällningen "512 · 494 kr/m³" alltid kontrollräknar mot
+  // "+18" med miniräknare. Rått round(diff/volym) kan slå ±1 mot de visade
+  // delarna. Sorteringen följer det VISADE talet så ordningen aldrig
+  // motsäger det ögat ser (rådiff som tie-break). Beräkningen är orörd.
+  const visadeKrPerM3 = (k: { ackord: number; timpeng: number; volym: number }) => {
+    if (!(k.volym > 0)) return { ackord: null as number | null, timpeng: null as number | null, diff: 0 };
+    const ackord = Math.round(k.ackord / k.volym);
+    const timpeng = Math.round(k.timpeng / k.volym);
+    return { ackord, timpeng, diff: ackord - timpeng };
+  };
+  klasser.sort((a, b) => visadeKrPerM3(b).diff - visadeKrPerM3(a).diff || (b.diff / (b.volym || 1)) - (a.diff / (a.volym || 1)));
+  const maxAbs = klasser.reduce((mx, k) => Math.max(mx, Math.abs(visadeKrPerM3(k).diff)), 0);
   const bast = klasser[0];
   const arOsaker = (k: KlassAgg) => k.timmar < OSAKER_TIM;
 
-  const s = {
-    sheetH: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 } as const,
-  };
+  const sheetH = { ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.xs } as const;
 
   return (
     <EkonomiSida>
@@ -124,24 +137,24 @@ export default function PerKlassClient() {
       )}
 
       {!loading && !error && (
-        <div style={{ padding: '0 16px' }}>
+        <div style={{ padding: `0 ${AVSTAND.sidmarginal}px` }}>
           {klasser.length === 0 ? (
             /* Ärligt tomt — inte en tom lista som ser trasig ut */
             <Tomt>
               Inga {ejJamforbara.length > 0 ? 'jämförbara ' : ''}avräknade objekt i {getPeriodLabel(period, periodOffset)}
             </Tomt>
           ) : (
-            /* Hero — klassen som går bäst. Klassnamnet är INTE ett signerat tal
-               → benvitt; bara kr/m³-raden bär grönt/rött. */
+            /* Hero — klassen som går bäst. Klassnamnet är INTE ett signerat
+               tal → vitt; bara kr/m³-raden bär grönt/rött, och den bär
+               alltid +/− i texten. Samma avrundade tal som radens. */
             <Hero
               etikett="Bäst mot timpeng"
               varde={`${fmtKlass(bast.klass)}-klassen`}
-              storlek={40}
               under={<>
-                <div style={{ fontSize: 15, color: diffColor(krPerM3(bast)), marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>
-                  {fmtDiff(krPerM3(bast))} kr/m³ mot timpeng
+                <div style={{ ...TYP.listtitel, ...TNUM, color: diffColor(visadeKrPerM3(bast).diff), marginTop: AVSTAND.s }}>
+                  {fmtDiff(visadeKrPerM3(bast).diff)} kr/m³ mot timpeng
                 </div>
-                <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 8 }}>
+                <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>
                   {klasser.length} klasser · {rader.length} objekt avräknade{arOsaker(bast) && ' · bästa klassen vilar på få timmar — osäkert'}
                 </div>
               </>}
@@ -157,25 +170,28 @@ export default function PerKlassClient() {
 
           {klasser.length > 0 && (
             <>
-              <SektionsTitel>Per medelstamklass</SektionsTitel>
+              <SektionsTitel>Per medelstamklass — mot timpeng</SektionsTitel>
               <Lista>
                 {klasser.map((k, i) => {
-                  const kr = krPerM3(k);
-                  const andel = maxAbs > 0 ? Math.abs(kr) / maxAbs : 0;
+                  const visad = visadeKrPerM3(k);
+                  const andel = maxAbs > 0 ? Math.abs(visad.diff) / maxAbs : 0;
                   const oppen = oppenKlass === k.klass;
-                  const delKr = (d: DelAgg) => d.volym > 0 ? (d.ackord - d.timpeng) / d.volym : null;
+                  const delKr = (d: DelAgg) => d.volym > 0 ? Math.round((d.ackord - d.timpeng) / d.volym) : null;
                   return (
                     <ListRad key={k.klass}
                       rubrik={<>
                         {fmtKlass(k.klass)}
-                        <span style={{ color: '#7a7a72', fontWeight: 400, fontSize: 12 }}> medelstam</span>
+                        <span style={{ ...TYP.meta, color: FARG.text2 }}> medelstam</span>
                       </>}
                       detalj={<>
                         {Math.round(k.volym).toLocaleString('sv-SE')} m³fub · {k.antal} objekt
                         {arOsaker(k) && ' · få timmar — osäkert'}
                       </>}
-                      tal={fmtDiff(kr)}
-                      talFarg={diffColor(kr)}
+                      /* Radens tal ÄR svaret — stort (mallens TYP.rubrik),
+                         med tecken i texten och enheten på raden */
+                      tal={fmtDiff(visad.diff)}
+                      talFarg={diffColor(visad.diff)}
+                      enhet="kr/m³"
                       /* |kr/m³| relativt största klassen — på RADENS bredd så
                          längderna är jämförbara mellan rader */
                       stapelAndel={andel}
@@ -184,19 +200,19 @@ export default function PerKlassClient() {
                       onClick={() => setOppenKlass(oppen ? null : k.klass)}
                       sista={i === klasser.length - 1}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
-                        <span style={{ color: '#7a7a72' }}>Ackord mot timpeng</span>
-                        <span style={{ color: '#e8e8e4', fontVariantNumeric: 'tabular-nums' }}>
-                          {k.volym > 0 ? Math.round(k.ackord / k.volym) : '—'} · {k.volym > 0 ? Math.round(k.timpeng / k.volym) : '—'} kr/m³
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', ...TYP.meta }}>
+                        <span style={{ color: FARG.text2 }}>Ackord mot timpeng</span>
+                        <span style={{ color: FARG.text, ...TNUM }}>
+                          {visad.ackord ?? '—'} · {visad.timpeng ?? '—'} kr/m³
                         </span>
                       </div>
                       {([['Skördare', k.skord], ['Skotare', k.skot]] as [string, DelAgg][]).map(([namn, d]) => (
-                        <div key={namn} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
-                          <span style={{ color: '#7a7a72' }}>{namn} · {Math.round(d.volym).toLocaleString('sv-SE')} m³fub</span>
+                        <div key={namn} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', ...TYP.meta }}>
+                          <span style={{ color: FARG.text2 }}>{namn} · {Math.round(d.volym).toLocaleString('sv-SE')} m³fub</span>
                           {delKr(d) != null ? (
-                            <span style={{ color: diffColor(delKr(d)!), fontVariantNumeric: 'tabular-nums' }}>{fmtDiff(delKr(d)!)} kr/m³</span>
+                            <span style={{ color: diffColor(delKr(d)!), ...TNUM }}>{fmtDiff(delKr(d)!)} kr/m³</span>
                           ) : (
-                            <span style={{ color: '#7a7a72' }}>—</span>
+                            <span style={{ color: FARG.text2 }}>—</span>
                           )}
                         </div>
                       ))}
@@ -204,7 +220,6 @@ export default function PerKlassClient() {
                   );
                 })}
               </Lista>
-              <EnhetsFot>kr/m³ mot timpeng</EnhetsFot>
             </>
           )}
         </div>
@@ -213,40 +228,39 @@ export default function PerKlassClient() {
       {/* (i)-sheet */}
       {infoOpen && (
         <>
-          <div onClick={() => setInfoOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 100, backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }} />
+          {/* Overlay-dim saknar token (lint-känd literal) — samma värde som appens övriga sheets */}
+          <div onClick={() => setInfoOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 100 }} />
           <div style={{
             position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 101,
-            background: '#1a1a18', borderRadius: '20px 20px 0 0',
-            padding: '12px 20px calc(28px + env(safe-area-inset-bottom))', maxHeight: '80vh', overflowY: 'auto',
-            borderTop: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 -10px 40px rgba(0,0,0,0.6)',
-            fontFamily: "'Geist', system-ui, sans-serif", color: '#e8e8e4',
+            background: FARG.kort, borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`,
+            padding: `${AVSTAND.m}px ${AVSTAND.xl}px calc(${AVSTAND.sektion}px + env(safe-area-inset-bottom))`,
+            maxHeight: '80vh', overflowY: 'auto',
+            borderTop: `1px solid ${FARG.linje}`, fontFamily: 'inherit', color: FARG.text,
           }}>
-            <div style={{ width: 40, height: 4, background: 'rgba(255,255,255,0.15)', borderRadius: 2, margin: '4px auto 18px' }} />
-            <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', marginBottom: 4 }}>Per klass — hur räknas det?</div>
-            <div style={{ fontSize: 12, color: '#7a7a72', marginBottom: 18 }}>I vilken medelstamklass lönar sig ackordet bäst mot timpeng.</div>
-            <div style={{ fontSize: 13, lineHeight: 1.6, color: '#bfcab9', display: 'grid', gap: 14 }}>
+            <div style={{ width: AVSTAND.xxl + AVSTAND.s, height: AVSTAND.xs, background: FARG.fyllning, borderRadius: RADIE.stapel, margin: `${AVSTAND.xs}px auto ${AVSTAND.l}px` }} />
+            <div style={{ ...TYP.rubrik, marginBottom: AVSTAND.xs }}>Per klass — hur räknas det?</div>
+            <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.l }}>I vilken medelstamklass lönar sig ackordet bäst mot timpeng.</div>
+            <div style={{ ...TYP.meta, lineHeight: 1.6, color: FARG.text2, display: 'grid', gap: AVSTAND.l }}>
               <div>
-                <div style={s.sheetH}>Samma tal som Mot ackord</div>
+                <div style={sheetH}>Samma tal som Mot ackord</div>
                 Exakt samma per-objekt-jämförelse (ackord med alla tillägg mot timpeng, bara avräknade objekt, samma ärlighetsregler) — här grupperad per medelstamklass. En klass total är summan av dess objekt i Mot ackord; skiljer de sig är det en bugg.
               </div>
               <div>
-                <div style={s.sheetH}>Klassningen</div>
+                <div style={sheetH}>Klassningen</div>
                 Varje objekt klassas på sin medelstam (volym / stammar, manuellt värde när satt) till närmaste klass i ackordprislistan — samma avrundning som prisuppslaget använder.
               </div>
               <div>
-                <div style={s.sheetH}>Talet</div>
-                Klassens (ackord − timpeng) / volym, i kr/m³fub. Grönt = ackordet ger mer än timpeng i den skogen, rött = mindre. Uppfällningen visar skördare och skotare var för sig eftersom de prissätts olika per klass.
+                <div style={sheetH}>Talet</div>
+                Klassens ackord respektive timpeng i kr/m³fub, var för sig avrundade — radens stora tal är skillnaden mellan de två visade talen, så det alltid går att kontrollräkna mot uppfällningen. Plus = ackordet ger mer än timpeng i den skogen, minus = mindre (färgen förstärker bara tecknet). Uppfällningen visar skördare och skotare var för sig eftersom de prissätts olika per klass.
               </div>
               <div>
-                <div style={s.sheetH}>Osäkert-märkningen</div>
+                <div style={sheetH}>Osäkert-märkningen</div>
                 En klass som vilar på färre än {OSAKER_TIM} G15-timmar är brus, inte mönster — den märks &quot;få timmar — osäkert&quot;.
               </div>
             </div>
-            <button onClick={() => setInfoOpen(false)} style={{
-              marginTop: 22, width: '100%', background: '#000', color: '#fff',
-              border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10,
-              padding: '12px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-            }}>Stäng</button>
+            {/* Stäng = avbryter → KNAPP.lank (skillen: blå text bara för
+                navigerar/avbryter), full bredd för träffytan i hytt */}
+            <button onClick={() => setInfoOpen(false)} style={{ ...KNAPP.lank, marginTop: AVSTAND.xl, width: '100%' }}>Stäng</button>
           </div>
         </>
       )}
