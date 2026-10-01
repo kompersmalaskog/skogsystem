@@ -23,6 +23,8 @@
 -- redan har nyckellösa stockrader: då får en omimport INTE bara lägga till
 -- rader med nyckel — de gamla måste rensas först, annars står två
 -- uppsättningar i tabellen (se minnet om detalj_stock-dubbletter).
+-- (Första versionen räknade ALLA rader här, inte bara nyckellösa — rättat
+-- 2026-10-01 e.m.)
 DROP FUNCTION IF EXISTS kontroll_stammar_utan_stockar(int);
 CREATE FUNCTION kontroll_stammar_utan_stockar(p_min_stammar int DEFAULT 100)
 RETURNS TABLE (
@@ -37,7 +39,8 @@ RETURNS TABLE (
               WHEN bool_and(s.filnamn ILIKE '%.mom') THEN 'mom'
               ELSE 'blandat' END AS kalla,
          array_agg(DISTINCT s.filnamn) AS filer,
-         (SELECT count(*) FROM detalj_stock k WHERE k.objekt_id = s.objekt_id) AS stockar_utan_nyckel
+         (SELECT count(*) FROM detalj_stock k
+           WHERE k.objekt_id = s.objekt_id AND (k.stem_key IS NULL OR k.log_key IS NULL)) AS stockar_utan_nyckel
   FROM detalj_stam s
   LEFT JOIN dim_objekt o ON o.objekt_id = s.objekt_id
   WHERE s.objekt_id IS NOT NULL
