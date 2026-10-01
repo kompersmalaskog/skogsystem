@@ -209,6 +209,8 @@ Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26)
 - `fakt_avbrott` (störningar/underhåll)
 - `detalj_stam`, `detalj_gps_spar`
 
+**Timexporterna visar ett pågående skeende i olika skepnad i olika filer** (docs/import-exportversioner.md). Importen låter EN version gälla per identitet: tid — delat segment (`avgor_tid_vinnare`, #630); avbrott — senaste exportversion vinner per (maskin, datum, klockslag) (`avbrott_vinnare_ur_fil`/`avbrott_att_radera`; "Default"/"Other" är Ponsses/Rottnes platshållare för ett stopp som pågår, inte en vald orsak). En nyckel får aldrig innehålla ett värde som ändras mellan versionerna.
+
 ### HPR-import (Harvested Production Report)
 **Källa:** Bara skördare genererar HPR-filer.
 **Flöde:** Fil -> `parse_hpr_file()` -> sparar till:

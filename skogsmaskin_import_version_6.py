@@ -823,6 +823,86 @@ def bygg_fakt_tid_rader(merged_entries: Dict, merged_attr: Dict, filnamn: str,
     return rows
 
 
+# ─── fakt_avbrott: senaste exportversion vinner per starttid ────────────────
+# SAMMA FAMILJ SOM DELAT SEGMENT (#630): de timvisa exporterna visar ett
+# pågående stopp i olika skepnad i olika filer. Så länge stoppet pågår skriver
+# Ponsse OtherMachineDownTime "Default" (Rottne: "Other") — föraren väljer orsak
+# först när stoppet avslutas, och nästa fil bär samma starttid med slutlig
+# kategori och full längd (eller som rast/arbete, utan avbrottsrad alls).
+# fakt_avbrott:s nyckel (maskin, datum, klockslag, kategori_kod) + ignore-
+# duplicates lät ögonblicksbilden stå kvar bredvid slutversionen: Scorpion 27
+# rader / 18,0 h "Default", Rottne 27 / 11,8 h "Other" sedan aug 2026, varav
+# 3,7 + 4,1 h i själva verket raster (dubbelräknade mot rast_sek).
+# Regeln: per (maskin, datum, klockslag) gäller SENASTE exportversionens
+# kategori; är segmentet inte längre ett avbrott finns ingen rad. Delas med
+# scripts/omrakna_fakt_avbrott_ogonblicksbilder.py — EN implementation.
+
+def avbrott_vinnare_ur_fil(data: Dict) -> Dict:
+    """Slutversionen av varje segment i EN exportfil:
+    {(maskin, 'YYYY-MM-DD', 'HH:MM:SS'): kategori_kod | None}.
+    None = segmentet är arbete eller rast i den här filen → ingen avbrottsrad ska finnas."""
+    vinnare: Dict = {}
+    for ek in (data.get('tid_entries') or {}):
+        if len(ek) != 4:
+            continue
+        dt = parse_datetime(ek[0])
+        if dt is None:
+            continue
+        vinnare[(ek[1], dt.date().isoformat(), dt.strftime('%H:%M:%S'))] = None
+    for a in (data.get('avbrott') or []):
+        if a.get('datum') is None or a.get('klockslag') is None:
+            continue
+        vinnare[(a['maskin_id'], str(a['datum']), str(a['klockslag'])[:8])] = a.get('kategori_kod')
+    return vinnare
+
+
+def avbrott_att_radera(befintliga: List[Dict], vinnare: Dict, fil_rec: Optional[float] = None) -> List[Dict]:
+    """Rader i fakt_avbrott som är ÖGONBLICKSBILDER: samma (maskin, datum, klockslag)
+    som ett segment i vinnare men annan kategori, eller segmentet är inte längre ett
+    avbrott (None). fil_rec: rader ur en NYARE exportversion (rad.filnamn) rörs inte,
+    så en omimport av en gammal fil inte kan klubba slutversionen."""
+    ut = []
+    for r in befintliga:
+        key = (r.get('maskin_id'), str(r.get('datum')), str(r.get('klockslag') or '')[:8])
+        if key not in vinnare:
+            continue
+        slutlig = vinnare[key]
+        if slutlig is not None and slutlig == r.get('kategori_kod'):
+            continue
+        if fil_rec is not None and fil_recency(r.get('filnamn') or '') > fil_rec:
+            continue
+        ut.append(r)
+    return ut
+
+
+def hamta_avbrott_rader(maskin: str, datum_lista: List[str]) -> List[Dict]:
+    """Befintliga fakt_avbrott-rader för en maskin och ett antal datum (chunkat)."""
+    rader: List[Dict] = []
+    datum_lista = sorted({str(d) for d in datum_lista if d})
+    for i in range(0, len(datum_lista), 50):
+        chunk = ','.join(datum_lista[i:i + 50])
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/fakt_avbrott?maskin_id=eq.{maskin}&datum=in.({chunk})"
+            f"&select=id,maskin_id,datum,klockslag,kategori_kod,langd_sek,filnamn&limit=5000",
+            headers=SUPABASE_HEADERS, timeout=60)
+        r.raise_for_status()
+        rader.extend(r.json())
+    return rader
+
+
+def radera_avbrott_rader(rader: List[Dict]) -> int:
+    """DELETE på id, chunkat. Returnerar antal raderade (verifierat: svaret räknas)."""
+    raderade = 0
+    ids = [r['id'] for r in rader if r.get('id') is not None]
+    for i in range(0, len(ids), 100):
+        chunk = ','.join(str(x) for x in ids[i:i + 100])
+        r = requests.delete(f"{SUPABASE_URL}/rest/v1/fakt_avbrott?id=in.({chunk})",
+                            headers={**SUPABASE_HEADERS, 'Prefer': 'return=representation'}, timeout=60)
+        r.raise_for_status()
+        raderade += len(r.json())
+    return raderade
+
+
 def get_file_hash(filepath: str) -> str:
     """Beräkna MD5-hash för fil"""
     hash_md5 = hashlib.md5()
@@ -4125,6 +4205,26 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     deduped.append(a)
             if len(deduped) < len(data['avbrott']):
                 logger.info(f"  Avbrott dedup: {len(data['avbrott'])} → {len(deduped)} (tog bort {len(data['avbrott']) - len(deduped)} dubletter i batch)")
+            # Senaste exportversion vinner per starttid (se avbrott_vinnare_ur_fil):
+            # ögonblicksbilder av pågående stopp ("Default"/"Other") raderas när
+            # den här filen bär segmentets slutliga kategori — eller när segmentet
+            # inte längre är ett avbrott (rast, arbete). Nyare rader rörs inte.
+            try:
+                vinnare = avbrott_vinnare_ur_fil(data)
+                per_maskin: Dict[str, set] = {}
+                for (m, d, _k) in vinnare:
+                    per_maskin.setdefault(m, set()).add(d)
+                att_radera: List[Dict] = []
+                for m, dagar in per_maskin.items():
+                    att_radera.extend(avbrott_att_radera(
+                        hamta_avbrott_rader(m, sorted(dagar)), vinnare, fil_recency(data.get('filnamn', ''))))
+                if att_radera:
+                    n = radera_avbrott_rader(att_radera)
+                    exempel = ', '.join(f"{r['datum']} {str(r['klockslag'])[:5]} {r.get('kategori_kod')}" for r in att_radera[:5])
+                    logger.info(f"  Avbrott: {n} ögonblicksbild(er) raderade — senaste exportversion vinner "
+                                f"({exempel}{' …' if len(att_radera) > 5 else ''})")
+            except Exception as e:  # noqa: BLE001 — radering är städning; insert nedan ska ändå ske
+                logger.warning(f"  Kunde inte städa avbrotts-ögonblicksbilder: {e}")
             if upsert_data('fakt_avbrott', deduped,
                            ['maskin_id', 'datum', 'klockslag', 'kategori_kod'],
                            on_conflict='ignore') == 0:
