@@ -15,16 +15,19 @@
 // kvartal; ett kvartal där bokföringen inte nått kvartalets slut märks
 // "ofullständigt bokfört" i stället för att en låg stapel läses som fakta.
 //
-// Summan är summan av det som visas: varje kategori avrundas FÖRST, totalen
-// summerar de visade raderna, heron = visad intäkt − visad kostnad.
-// Färg är aldrig ensam bärare — signerade tal bär +/− i texten.
+// Ordning: totalt (hero + in/ut) → PER MASKIN-tabell (vem bär sig, vem går
+// back — summaraden ÄR totalen) → kvartalsgraf (trend) → kostnader uppdelat
+// bakom ETT klick. Summan är summan av det som visas: tabellens rader
+// avrundas FÖRST och hero/In-ut räknas ur samma rader — hela vyn
+// kontrollräknar mot sig själv. Färg är aldrig ensam bärare — signerade
+// tal bär +/− i texten.
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { g15Sek } from '@/lib/g15';
 import { type PeriodType, getPeriodDates, getPeriodLabel, fetchAllRows } from '@/lib/ekonomi/period';
 import {
-  EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad, SektionsTitel,
+  EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, SektionsTitel,
   Laddar, FelRuta, Tomt, MAXBREDD_BRED,
 } from '../delade/mall';
 import { rubrikCell, talCell, gridRad } from '../delade/tabell';
@@ -63,10 +66,58 @@ const KATEGORIER: [keyof Kostnader, string][] = [
 
 // Kostnadstabellen: Kategori · andel av största posten (stapel) · Kr
 const KOST_KOLUMNER = 'minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 0.8fr)';
+// Per maskin-tabellen: Maskin · Intäkt · Kostnad · Resultat
+const MASKIN_KOLUMNER = 'minmax(0, 1.6fr) repeat(3, minmax(0, 1fr))';
 
 function formatKr(n: number) { return `${Math.round(n).toLocaleString('sv-SE')} kr`; }
 function fmtSign(n: number) { return `${n < 0 ? '−' : '+'}${Math.round(Math.abs(n)).toLocaleString('sv-SE')}`; }
 function resFarg(n: number) { return n >= 0 ? FARG.gron : FARG.rod; }
+
+// Per maskin-tabellens rader: maskiner + övriga kostnadsställen + utan CC —
+// ALLA tre, annars kan summaraden aldrig kontrollräkna mot företagstotalen
+// (varje bokförd rad landar i exakt en av dem). Avrunda per rad FÖRST,
+// resultat = visad intäkt − visad kostnad, nollrader (inget bokfört i
+// perioden) filtreras, sorterad på resultat fallande — bäst överst.
+export function maskinTabell(
+  maskiner: Pick<MaskinResult, 'maskin_id' | 'maskin_namn' | 'kostnadsstalle' | 'kostnadsstallen' | 'intakter' | 'kostnader'>[],
+  ovriga: OvrigtCc[],
+  utanKost: Sammanfattning | null,
+) {
+  const rader = [
+    ...maskiner.map(m => ({
+      key: m.maskin_id,
+      namn: m.maskin_namn,
+      koder: (m.kostnadsstallen && m.kostnadsstallen.length > 0 ? m.kostnadsstallen : [m.kostnadsstalle]).map(cc => cc.kod).join(' ') || null,
+      intakt: Math.round(m.intakter || 0),
+      kostnad: Math.round(m.kostnader?.total || 0),
+    })),
+    ...ovriga.map(o => ({
+      key: `cc-${o.kod}`,
+      namn: o.namn || o.kod,
+      koder: o.namn ? o.kod : null,
+      intakt: Math.round(o.intakter),
+      kostnad: Math.round(o.kostnader.total),
+    })),
+    ...(utanKost ? [{
+      key: 'utan-cc',
+      namn: 'Utan kostnadsställe',
+      koder: null,
+      intakt: Math.round(utanKost.intakter),
+      kostnad: Math.round(utanKost.kostnader.total),
+    }] : []),
+  ]
+    .map(r => ({ ...r, resultat: r.intakt - r.kostnad }))
+    .filter(r => r.intakt !== 0 || r.kostnad !== 0)
+    .sort((a, b) => b.resultat - a.resultat);
+  return {
+    rader,
+    summa: {
+      intakt: rader.reduce((s, r) => s + r.intakt, 0),
+      kostnad: rader.reduce((s, r) => s + r.kostnad, 0),
+      resultat: rader.reduce((s, r) => s + r.resultat, 0),
+    },
+  };
+}
 
 export default function ResultatClient() {
   // Bara Kvartal/År — bokföringen landar inte finare än så. Default År.
@@ -81,7 +132,7 @@ export default function ResultatClient() {
   const [antalRader, setAntalRader] = useState(0);   // ärligt tomt: 0 bokförda rader ≠ 0 kr vinst
   const [serie, setSerie] = useState<Kvartal[]>([]); // årets kvartal — trendgrafen
   const [maxDatum, setMaxDatum] = useState<string | null>(null); // sista bokförda dag i ÅRET
-  const [ccOpen, setCcOpen] = useState(false);
+  const [kostOpen, setKostOpen] = useState(false); // kostnadsuppdelningen bakom ETT klick
   const [infoOpen, setInfoOpen] = useState(false);
   // Periodens G15-timmar per maskin (fakt_tid via g15Sek) — grunden för
   // värdeminskningen. null = kunde inte läsas (ärligt: ingen värdeminskning
@@ -153,21 +204,26 @@ export default function ResultatClient() {
 
   const tot = foretagetTotalt;
   const harData = tot != null && antalRader > 0;
-  const utanKostAktiv = utanKost != null && (utanKost.intakter !== 0 || utanKost.kostnader.total !== 0);
-  const ccAntal = maskiner.length + ovriga.length + (utanKostAktiv ? 1 : 0);
   const sheetH = { ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.xs } as const;
 
   const { start: periodStart } = getPeriodDates(period, periodOffset);
   const visatAr = Number(periodStart.slice(0, 4));
   const visatKvartal = period === 'K' ? Math.floor((Number(periodStart.slice(5, 7)) - 1) / 3) + 1 : null;
 
-  // ── Summan är summan av det som visas: kategorier avrundas FÖRST,
-  // totalen summerar de visade raderna, heron = visad intäkt − visad
-  // kostnad. API-totalen används aldrig direkt i någon visad summa.
+  // ── Summan är summan av det som visas — och det som visas är per maskin-
+  // tabellen: hero, In/Ut och tabellens summarad räknas ALLA ur samma
+  // avrundade rader, så hela vyn kontrollräknar mot sig själv exakt.
+  // API-totalen används aldrig direkt i någon visad summa.
+  const tabell = maskinTabell(maskiner, ovriga, utanKost);
+  const visadIntakt = tabell.summa.intakt;
+  const visadKostTotal = tabell.summa.kostnad;
+  const visatResultat = tabell.summa.resultat;
+
+  // Kostnadsuppdelningen (expandern): varje kategori avrundas för sig.
+  // Ingen egen totalrad där — kategorierna och tabellen är två olika
+  // partitioner av samma rådata, och två avrundade "totaler" bredvid
+  // varandra kan skilja någon krona. Totalen bor i In/Ut och tabellen.
   const visadeKost = KATEGORIER.map(([nyckel, namn]) => ({ nyckel, namn, kr: Math.round(tot?.kostnader[nyckel] || 0) }));
-  const visadKostTotal = visadeKost.reduce((s, k) => s + k.kr, 0);
-  const visadIntakt = Math.round(tot?.intakter || 0);
-  const visatResultat = visadIntakt - visadKostTotal;
   const storstaKost = Math.max(...visadeKost.map(k => k.kr), 1);
 
   // ── Verklig värdeminskning (KALKYL — alltid orange, aldrig som en
@@ -193,21 +249,7 @@ export default function ResultatClient() {
     q.antal_rader > 0 && maxDatum != null && maxDatum < kvartalSlut(q.kvartal) && maxDatum >= kvartalStart(q.kvartal);
 
   const kostGrid = gridRad(KOST_KOLUMNER);
-
-  // En rad i per kostnadsställe-uppfällningen — maskin, övrigt CC eller utan CC
-  const ccRad = (key: string, rubrik: React.ReactNode, koder: string | null, intakter: number, kostnader: number, resultat: number, vmPeriod: number | null, sista: boolean) => (
-    <ListRad key={key}
-      rubrik={<>{rubrik}{koder && <span style={{ color: FARG.text3, fontWeight: VIKT.normal }}> · {koder}</span>}</>}
-      detalj={<>
-        intäkt {formatKr(intakter)} · kostnad {formatKr(kostnader)}
-        {vmPeriod != null && <span style={{ color: FARG.orange }}> · värdeminskning {formatKr(vmPeriod)} (kalkyl)</span>}
-      </>}
-      tal={`${fmtSign(resultat)} kr`}
-      talFarg={resFarg(resultat)}
-      undertal={vmPeriod != null ? <span style={{ color: FARG.orange }}>{fmtSign(Math.round(resultat) - vmPeriod)} efter värdem.</span> : undefined}
-      sista={sista}
-    />
-  );
+  const maskGrid = gridRad(MASKIN_KOLUMNER);
 
   return (
     <EkonomiSida maxBredd={MAXBREDD_BRED}>
@@ -269,6 +311,41 @@ export default function ResultatClient() {
             </div>
           </div>
 
+          {/* PER MASKIN — vyns viktigaste tabell: vem bär sig, vem går back.
+              Raderna = maskiner + övriga kostnadsställen + utan CC (varje
+              bokförd rad i exakt en), så summaraden ÄR totalen — hero och
+              In/Ut ovanför räknas ur samma rader. Rätt maskin per radens
+              datum (PR 611:s giltighetsfilter) ligger i API:t. */}
+          {tabell.rader.length > 0 && (
+            <>
+              <SektionsTitel>Per maskin</SektionsTitel>
+              <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
+                <div style={{ ...maskGrid, padding: `${AVSTAND.s}px 0` }}>
+                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Maskin / kostnadsställe</div>
+                  <div style={rubrikCell}>Intäkt kr</div>
+                  <div style={rubrikCell}>Kostnad kr</div>
+                  <div style={rubrikCell}>Resultat kr</div>
+                </div>
+                {tabell.rader.map(r => (
+                  <div key={r.key} style={{ ...maskGrid, padding: `${AVSTAND.m}px 0` }}>
+                    <div style={{ ...TYP.text, color: FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {r.namn}{r.koder && <span style={{ ...TYP.meta, color: FARG.text3 }}> · {r.koder}</span>}
+                    </div>
+                    <div style={talCell}>{r.intakt.toLocaleString('sv-SE')}</div>
+                    <div style={talCell}>{r.kostnad.toLocaleString('sv-SE')}</div>
+                    <div style={{ ...talCell, color: resFarg(r.resultat) }}>{fmtSign(r.resultat)}</div>
+                  </div>
+                ))}
+                <div style={{ ...maskGrid, padding: `${AVSTAND.m}px 0`, borderTop: `1px solid ${FARG.linje}` }}>
+                  <div style={{ ...TYP.text, fontWeight: VIKT.halvfet, color: FARG.text }}>Totalt</div>
+                  <div style={{ ...talCell, fontWeight: VIKT.halvfet }}>{tabell.summa.intakt.toLocaleString('sv-SE')}</div>
+                  <div style={{ ...talCell, fontWeight: VIKT.halvfet }}>{tabell.summa.kostnad.toLocaleString('sv-SE')}</div>
+                  <div style={{ ...talCell, fontWeight: VIKT.halvfet, color: resFarg(tabell.summa.resultat) }}>{fmtSign(tabell.summa.resultat)}</div>
+                </div>
+              </Lista>
+            </>
+          )}
+
           {/* Trend per kvartal — intäkt mot kostnad. Kvartal stabilare än
               månad när bokföringen landar i klumpar. Tomt kvartal = streck
               (ärligt tomt), kvartal där bokföringen inte nått kvartalets
@@ -314,96 +391,54 @@ export default function ResultatClient() {
             </>
           )}
 
-          {/* Kostnader per kategori — kolumntabell. Varje rad avrundad
-              FÖRST, summaraden summerar de visade raderna exakt. Stapeln =
-              andel av största posten, jämförbar rad mot rad. */}
-          <SektionsTitel>Kostnader {getPeriodLabel(period, periodOffset)}</SektionsTitel>
-          <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
-            <div style={{ ...kostGrid, padding: `${AVSTAND.s}px 0` }}>
-              <div style={{ ...rubrikCell, textAlign: 'left' }}>Kategori</div>
-              <div />
-              <div style={rubrikCell}>Kr</div>
+          {/* Kostnader uppdelat — bakom ETT klick så vyn hålls ren. Varje
+              kategori avrundad för sig, stapeln = andel av största posten.
+              INGEN egen totalrad: kategorierna och per maskin-tabellen är
+              två olika partitioner av samma rådata och två avrundade
+              totaler bredvid varandra kan skilja någon krona — totalen bor
+              i In/Ut och tabellens summarad. */}
+          <Lista style={{ marginTop: AVSTAND.sektion }}>
+            <div onClick={() => setKostOpen(v => !v)} style={{
+              display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, cursor: 'pointer',
+            }}>
+              <span style={{ ...TYP.meta, color: FARG.text2, flex: 1 }}>Kostnader uppdelat</span>
+              <span style={{ ...TYP.meta, color: FARG.text2, transform: kostOpen ? 'rotate(90deg)' : 'none' }}>›</span>
             </div>
-            {visadeKost.map(k => (
-              <div key={k.nyckel} style={{ ...kostGrid, padding: `${AVSTAND.m}px 0` }}>
-                <div style={{ ...TYP.text, color: FARG.text }}>{k.namn}</div>
-                <div style={{ alignSelf: 'center' }}>
-                  <div style={{ height: AVSTAND.xs, borderRadius: RADIE.stapel, width: `${Math.max(0, Math.min(1, k.kr / storstaKost)) * 100}%`, background: FARG.fyllning }} />
+            {kostOpen && (
+              <div style={{ borderTop: `1px solid ${FARG.linje}`, paddingBottom: AVSTAND.m }}>
+                <div style={{ ...kostGrid, padding: `${AVSTAND.s}px 0` }}>
+                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Kategori</div>
+                  <div />
+                  <div style={rubrikCell}>Kr</div>
                 </div>
-                <div style={talCell}>{k.kr.toLocaleString('sv-SE')}</div>
-              </div>
-            ))}
-            <div style={{ ...kostGrid, padding: `${AVSTAND.m}px 0`, borderTop: `1px solid ${FARG.linje}` }}>
-              <div style={{ ...TYP.text, fontWeight: VIKT.halvfet, color: FARG.text }}>Totalt</div>
-              <div />
-              <div style={{ ...talCell, fontWeight: VIKT.halvfet }}>{visadKostTotal.toLocaleString('sv-SE')}</div>
-            </div>
-            {/* Värdeminskningen är en KALKYL — orange rakt igenom, UTANFÖR
-                den bokförda totalen ovan. Ingen stapel. */}
-            {sumVm > 0 && (
-              <div style={{ ...kostGrid, padding: `${AVSTAND.m}px 0`, borderTop: `1px solid ${FARG.linje}` }}>
-                <div style={{ ...TYP.text, color: FARG.orange }}>
-                  Värdeminskning<span style={{ ...TYP.meta, color: FARG.orange }}> · kalkyl, ej bokförd</span>
-                </div>
-                <div />
-                <div style={{ ...talCell, color: FARG.orange }}>{sumVm.toLocaleString('sv-SE')}</div>
+                {visadeKost.map(k => (
+                  <div key={k.nyckel} style={{ ...kostGrid, padding: `${AVSTAND.m}px 0` }}>
+                    <div style={{ ...TYP.text, color: FARG.text }}>{k.namn}</div>
+                    <div style={{ alignSelf: 'center' }}>
+                      <div style={{ height: AVSTAND.xs, borderRadius: RADIE.stapel, width: `${Math.max(0, Math.min(1, k.kr / storstaKost)) * 100}%`, background: FARG.fyllning }} />
+                    </div>
+                    <div style={talCell}>{k.kr.toLocaleString('sv-SE')}</div>
+                  </div>
+                ))}
+                {/* Värdeminskningen är en KALKYL — orange rakt igenom,
+                    UTANFÖR de bokförda kategorierna. Ingen stapel. */}
+                {sumVm > 0 && (
+                  <div style={{ ...kostGrid, padding: `${AVSTAND.m}px 0`, borderTop: `1px solid ${FARG.linje}` }}>
+                    <div style={{ ...TYP.text, color: FARG.orange }}>
+                      Värdeminskning<span style={{ ...TYP.meta, color: FARG.orange }}> · kalkyl, ej bokförd</span>
+                    </div>
+                    <div />
+                    <div style={{ ...talCell, color: FARG.orange }}>{sumVm.toLocaleString('sv-SE')}</div>
+                  </div>
+                )}
+                {dubbelRisk && (
+                  <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.s, textAlign: 'center', lineHeight: 1.5 }}>
+                    Bokförd avskrivning (78xx) finns i perioden — den och värdeminskningen (kalkyl) mäter samma sak. Räkna inte båda.
+                  </div>
+                )}
               </div>
             )}
           </Lista>
-          {dubbelRisk && (
-            <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.m, textAlign: 'center', lineHeight: 1.5 }}>
-              Bokförd avskrivning (78xx) finns i perioden — den och värdeminskningen (kalkyl) mäter samma sak. Räkna inte båda.
-            </div>
-          )}
-
-          {/* Per kostnadsställe — kollapsad sektion, samma mönster som
-              Mot ackords "Per maskin". Maskiner + övriga CC + utan CC.
-              Datumfiltret (rätt maskin per period) ligger i API:t. */}
-          {ccAntal > 0 && (
-            <Lista style={{ marginTop: AVSTAND.sektion }}>
-              <div onClick={() => setCcOpen(v => !v)} style={{
-                display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, cursor: 'pointer',
-              }}>
-                <span style={{ ...TYP.meta, color: FARG.text2, flex: 1 }}>Per kostnadsställe</span>
-                <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>{ccAntal}</span>
-                <span style={{ ...TYP.meta, color: FARG.text2, transform: ccOpen ? 'rotate(90deg)' : 'none' }}>›</span>
-              </div>
-              {ccOpen && (
-                <div style={{ borderTop: `1px solid ${FARG.linje}` }}>
-                  {maskiner.map((m, i) => ccRad(
-                    m.maskin_id,
-                    m.maskin_namn,
-                    (m.kostnadsstallen && m.kostnadsstallen.length > 0 ? m.kostnadsstallen : [m.kostnadsstalle]).map(cc => cc.kod).join(' '),
-                    m.intakter || 0,
-                    m.kostnader?.total || 0,
-                    m.resultat || 0,
-                    vmForMaskin(m),
-                    i === maskiner.length - 1 && ovriga.length === 0 && !utanKostAktiv,
-                  ))}
-                  {ovriga.map((o, i) => ccRad(
-                    o.kod,
-                    o.namn || o.kod,
-                    o.namn ? o.kod : null,
-                    o.intakter,
-                    o.kostnader.total,
-                    o.resultat,
-                    null,
-                    i === ovriga.length - 1 && !utanKostAktiv,
-                  ))}
-                  {utanKostAktiv && utanKost && ccRad(
-                    'utan-cc',
-                    'Utan kostnadsställe',
-                    null,
-                    utanKost.intakter,
-                    utanKost.kostnader.total,
-                    utanKost.resultat,
-                    null,
-                    true,
-                  )}
-                </div>
-              )}
-            </Lista>
-          )}
 
           {maskiner.length === 0 && (
             <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.l, textAlign: 'center', lineHeight: 1.5 }}>
@@ -446,8 +481,8 @@ export default function ResultatClient() {
                 Kostnader bokförs i klumpar, inte per dag — en månadsvinst vore brus. Trenden visas i stället per kvartal; ett kvartal där bokföringen inte nått kvartalets sista dag märks &quot;ofullständigt bokfört&quot; så en låg stapel aldrig läses som fakta.
               </div>
               <div>
-                <div style={sheetH}>Per kostnadsställe</div>
-                Varje maskin är mappad till sina Fortnox-kostnadsställen (Inställningar), och varje bokförd rad räknas till den maskin som ägde kostnadsstället på radens datum. Rader utan kostnadsställe och kostnadsställen som inte är maskiner visas som egna rader så att inget belopp försvinner tyst.
+                <div style={sheetH}>Per maskin-tabellen</div>
+                Varje maskin är mappad till sina Fortnox-kostnadsställen (Inställningar), och varje bokförd rad räknas till den maskin som ägde kostnadsstället på radens datum. Kostnadsställen som inte är maskiner och rader utan kostnadsställe visas som egna rader i samma tabell — så att inget belopp försvinner tyst och summaraden alltid är totalen. Sorterad på resultat: bäst överst.
               </div>
               <div>
                 <div style={{ ...sheetH, color: FARG.orange }}>Verklig värdeminskning — kalkyl</div>
