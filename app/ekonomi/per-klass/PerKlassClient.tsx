@@ -1,14 +1,17 @@
 'use client';
 
-// Per klass — i vilken medelstamklass lönar sig ackordet bäst mot timpeng?
-// Svarar på "vilken sorts skog tjänar vi mest på".
+// Per klass — i vilken medelstamklass lönar sig ackordet mot timpeng, och
+// var ligger de STORA pengarna? Datorvy för styrning (Martin vid skärm):
+// kolumntabell i Apple-stil — luft skiljer rader (inga linjer), tabulära
+// siffror i raka kolumner (TAL_FONT), färg bara på signerade tal och
+// alltid med +/− i texten.
 //
 // INGEN EGEN RÄKNING: samma per-objekt-rader som /ekonomi/mot-ackord
 // (lib/ekonomi/objektJamforelse — delad funktion, vyerna kan inte drifta
-// isär), här bara GRUPPERADE per medelstamklass (prisuppslagets närmaste
-// acord_priser-klass). En klass total = summan av dess objekt i Mot ackord.
-//
-// TRE FÄRGER: grön = över timpeng, röd = under, bärnsten = preliminärt.
+// isär), här bara GRUPPERADE per medelstamklass. Presentationen avrundar
+// varje rad FÖRST och summerar sedan (skillen: summan är summan av det
+// som visas): Totalt kr = visad skillnad × avrundad volym (exakt heltals-
+// produkt), summaraden = summor av radernas visade tal.
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -17,10 +20,10 @@ import {
 } from '@/lib/ekonomi/objektJamforelse';
 import { type PeriodType, getPeriodDates, getPeriodLabel } from '@/lib/ekonomi/period';
 import {
-  EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad, SektionsTitel,
-  Laddar, FelRuta, Tomt,
+  EkonomiSida, Periodvaxlare, MetaRad, SektionsTitel,
+  Laddar, FelRuta, Tomt, MAXBREDD_BRED,
 } from '../delade/mall';
-import { FARG, TYP, TNUM, AVSTAND, RADIE, KNAPP } from '@/lib/design/tokens';
+import { FARG, TYP, TAL_FONT, VIKT, AVSTAND, RADIE, KNAPP } from '@/lib/design/tokens';
 
 type DelAgg = { ackord: number; timpeng: number; volym: number };
 type KlassAgg = {
@@ -38,8 +41,49 @@ type KlassAgg = {
 // Signerade tal bär ALLTID sitt tecken i texten (+/−) — färgen förstärker
 // bara (skillen: rött i solljus är brunt, färg aldrig ensam bärare).
 function fmtDiff(n: number) { return `${n < 0 ? '−' : '+'}${Math.round(Math.abs(n)).toLocaleString('sv-SE')}`; }
+function fmtHeltal(n: number) { return Math.round(n).toLocaleString('sv-SE'); }
 function fmtKlass(k: number) { return k.toFixed(2).replace('.', ',').replace(/0$/, ''); }
 function diffColor(n: number) { return n >= 0 ? FARG.gron : FARG.rod; }
+
+// ── Tabellberäkningen — ren och testbar ────────────────────────────────
+// Avrunda varje rad FÖRST: ackord/timpeng per m³ som heltal, skillnad =
+// differensen av de VISADE talen, Totalt kr = skillnad × avrundad volym
+// (heltal × heltal — exakt, kontrollräknbar med miniräknare). Summaraden
+// summerar radernas visade volymer och Totalt exakt; vägd skillnad =
+// summa-Totalt / summa-volym (en kvot, avrundad — märkt vägd i rubriken).
+// Sortering på Totalt kr fallande: vyn styr på var pengarna ligger, inte
+// bara bästa marginal per kubik.
+export type TabellRad = {
+  volym: number;
+  ackord: number | null;
+  timpeng: number | null;
+  skillnad: number;
+  totalt: number;
+};
+
+export function tabellRad(k: { ackord: number; timpeng: number; volym: number }): TabellRad {
+  const volym = Math.round(k.volym);
+  if (!(k.volym > 0)) return { volym, ackord: null, timpeng: null, skillnad: 0, totalt: 0 };
+  const ackord = Math.round(k.ackord / k.volym);
+  const timpeng = Math.round(k.timpeng / k.volym);
+  const skillnad = ackord - timpeng;
+  return { volym, ackord, timpeng, skillnad, totalt: skillnad * volym };
+}
+
+export function beraknaKlassTabell(klasser: KlassAgg[]) {
+  const rader = klasser
+    .map(k => ({ agg: k, ...tabellRad(k) }))
+    .sort((a, b) => b.totalt - a.totalt || b.skillnad - a.skillnad);
+  const volym = rader.reduce((s, r) => s + r.volym, 0);
+  const totalt = rader.reduce((s, r) => s + r.totalt, 0);
+  const skillnadVagd = volym > 0 ? Math.round(totalt / volym) : 0;
+  return { rader, summa: { volym, totalt, skillnadVagd } };
+}
+
+// Gridkolumnerna: Klass · Volym · Ackord · Timpeng · Skillnad · Totalt.
+// fr-enheter, ingen fast pixelbredd — krymper på smal skärm tills
+// mobilsteget byggs. Talkolumner högerställda.
+const KOLUMNER = 'minmax(0, 0.9fr) repeat(4, minmax(0, 1fr)) minmax(0, 1.3fr)';
 
 export default function PerKlassClient() {
   const [period, setPeriod] = useState<PeriodType>('M');
@@ -96,30 +140,22 @@ export default function PerKlassClient() {
         sida.volym += d.volym;
       }
     }
-    return Object.values(agg).sort((a, b) => (b.diff / (b.volym || 1)) - (a.diff / (a.volym || 1)));
+    return Object.values(agg);
   })();
 
-  // PRESENTATION — avrunda varje del FÖRST, härled sedan (skillen: summan
-  // är summan av det som visas). Radens stora tal = visat ackord − visat
-  // timpeng, så uppfällningen "512 · 494 kr/m³" alltid kontrollräknar mot
-  // "+18" med miniräknare. Rått round(diff/volym) kan slå ±1 mot de visade
-  // delarna. Sorteringen följer det VISADE talet så ordningen aldrig
-  // motsäger det ögat ser (rådiff som tie-break). Beräkningen är orörd.
-  const visadeKrPerM3 = (k: { ackord: number; timpeng: number; volym: number }) => {
-    if (!(k.volym > 0)) return { ackord: null as number | null, timpeng: null as number | null, diff: 0 };
-    const ackord = Math.round(k.ackord / k.volym);
-    const timpeng = Math.round(k.timpeng / k.volym);
-    return { ackord, timpeng, diff: ackord - timpeng };
-  };
-  klasser.sort((a, b) => visadeKrPerM3(b).diff - visadeKrPerM3(a).diff || (b.diff / (b.volym || 1)) - (a.diff / (a.volym || 1)));
-  const maxAbs = klasser.reduce((mx, k) => Math.max(mx, Math.abs(visadeKrPerM3(k).diff)), 0);
-  const bast = klasser[0];
+  const tabell = beraknaKlassTabell(klasser);
   const arOsaker = (k: KlassAgg) => k.timmar < OSAKER_TIM;
+  const harOsakra = tabell.rader.some(r => arOsaker(r.agg));
 
   const sheetH = { ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.xs } as const;
+  // Cellstilar: rubriker små/dämpade versaler, talceller högerställda i
+  // TAL_FONT (monospace + tabulära siffror — kolumner läses uppifrån ner).
+  const rubrikCell = { ...TYP.micro, color: FARG.text3, textAlign: 'right' as const };
+  const talCell = { ...TYP.text, ...TAL_FONT, textAlign: 'right' as const, color: FARG.text };
+  const gridRad = { display: 'grid', gridTemplateColumns: KOLUMNER, columnGap: AVSTAND.l, alignItems: 'baseline' as const };
 
   return (
-    <EkonomiSida>
+    <EkonomiSida maxBredd={MAXBREDD_BRED}>
       {/* Bara Månad/Kvartal/År — inget objekt avräknas på en dag */}
       <Periodvaxlare
         perioder={['M', 'K', 'A']}
@@ -138,90 +174,88 @@ export default function PerKlassClient() {
 
       {!loading && !error && (
         <div style={{ padding: `0 ${AVSTAND.sidmarginal}px` }}>
-          {klasser.length === 0 ? (
-            /* Ärligt tomt — inte en tom lista som ser trasig ut */
+          {tabell.rader.length === 0 ? (
+            /* Ärligt tomt — inte en tom tabell som ser trasig ut */
             <Tomt>
               Inga {ejJamforbara.length > 0 ? 'jämförbara ' : ''}avräknade objekt i {getPeriodLabel(period, periodOffset)}
             </Tomt>
           ) : (
-            /* Hero — klassen som går bäst. Klassnamnet är INTE ett signerat
-               tal → vitt; bara kr/m³-raden bär grönt/rött, och den bär
-               alltid +/− i texten. Samma avrundade tal som radens. */
-            <Hero
-              etikett="Bäst mot timpeng"
-              varde={`${fmtKlass(bast.klass)}-klassen`}
-              under={<>
-                <div style={{ ...TYP.listtitel, ...TNUM, color: diffColor(visadeKrPerM3(bast).diff), marginTop: AVSTAND.s }}>
-                  {fmtDiff(visadeKrPerM3(bast).diff)} kr/m³ mot timpeng
-                </div>
-                <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>
-                  {klasser.length} klasser · {rader.length} objekt avräknade{arOsaker(bast) && ' · bästa klassen vilar på få timmar — osäkert'}
-                </div>
-              </>}
-            />
+            <>
+              <SektionsTitel>Per medelstamklass — ackord mot timpeng</SektionsTitel>
+
+              {/* Rubrikrad */}
+              <div style={{ ...gridRad, marginBottom: AVSTAND.s }}>
+                <div style={{ ...rubrikCell, textAlign: 'left' }}>Klass</div>
+                <div style={rubrikCell}>Volym m³fub</div>
+                <div style={rubrikCell}>Ackord kr/m³</div>
+                <div style={rubrikCell}>Timpeng kr/m³</div>
+                <div style={rubrikCell}>Skillnad kr/m³</div>
+                <div style={rubrikCell}>Totalt kr</div>
+              </div>
+
+              {/* Klassrader — luft skiljer dem, inga linjer. Klick fäller ut
+                  skördare/skotare som dämpade subrader i samma kolumner. */}
+              {tabell.rader.map(r => {
+                const oppen = oppenKlass === r.agg.klass;
+                return (
+                  <div key={r.agg.klass} style={{ padding: `${AVSTAND.m}px 0` }}>
+                    <div onClick={() => setOppenKlass(oppen ? null : r.agg.klass)} style={{ ...gridRad, cursor: 'pointer' }}>
+                      <div style={{ ...TYP.listtitel, color: FARG.text, whiteSpace: 'nowrap' }}>
+                        {fmtKlass(r.agg.klass)}
+                        {arOsaker(r.agg) && <span style={{ color: FARG.text3 }}> *</span>}
+                        <span style={{ ...TYP.meta, color: FARG.text3 }}> {oppen ? '▾' : '▸'}</span>
+                      </div>
+                      <div style={talCell}>{fmtHeltal(r.volym)}</div>
+                      <div style={talCell}>{r.ackord ?? '—'}</div>
+                      <div style={talCell}>{r.timpeng ?? '—'}</div>
+                      <div style={{ ...talCell, color: diffColor(r.skillnad) }}>{fmtDiff(r.skillnad)}</div>
+                      <div style={{ ...talCell, color: diffColor(r.totalt) }}>{fmtDiff(r.totalt)}</div>
+                    </div>
+                    {oppen && ([['Skördare', r.agg.skord], ['Skotare', r.agg.skot]] as [string, DelAgg][]).map(([namn, d]) => {
+                      const del = tabellRad(d);
+                      return (
+                        <div key={namn} style={{ ...gridRad, marginTop: AVSTAND.s }}>
+                          <div style={{ ...TYP.meta, color: FARG.text2, paddingLeft: AVSTAND.l }}>{namn}</div>
+                          <div style={{ ...talCell, ...TYP.meta, color: FARG.text2 }}>{fmtHeltal(del.volym)}</div>
+                          <div style={{ ...talCell, ...TYP.meta, color: FARG.text2 }}>{del.ackord ?? '—'}</div>
+                          <div style={{ ...talCell, ...TYP.meta, color: FARG.text2 }}>{del.timpeng ?? '—'}</div>
+                          <div style={{ ...talCell, ...TYP.meta, color: del.ackord != null ? diffColor(del.skillnad) : FARG.text2 }}>
+                            {del.ackord != null ? fmtDiff(del.skillnad) : '—'}
+                          </div>
+                          <div style={{ ...talCell, ...TYP.meta, color: del.ackord != null ? diffColor(del.totalt) : FARG.text2 }}>
+                            {del.ackord != null ? fmtDiff(del.totalt) : '—'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+
+              {/* Summarad — EN hårfin linje + luft, ingen Excel-ram.
+                  Volym och Totalt är exakta summor av raderna ovan;
+                  skillnaden är volymvägd (Totalt ÷ volym). */}
+              <div style={{ ...gridRad, borderTop: `0.5px solid ${FARG.linje}`, marginTop: AVSTAND.s, paddingTop: AVSTAND.m }}>
+                <div style={{ ...TYP.listtitel, color: FARG.text }}>Totalt</div>
+                <div style={{ ...talCell, fontWeight: VIKT.halvfet }}>{fmtHeltal(tabell.summa.volym)}</div>
+                <div style={talCell} />
+                <div style={talCell} />
+                <div style={{ ...talCell, fontWeight: VIKT.halvfet, color: diffColor(tabell.summa.skillnadVagd) }}>{fmtDiff(tabell.summa.skillnadVagd)}</div>
+                <div style={{ ...talCell, fontWeight: VIKT.halvfet, color: diffColor(tabell.summa.totalt) }}>{fmtDiff(tabell.summa.totalt)}</div>
+              </div>
+              <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.s }}>
+                Skillnaden på summaraden är volymvägd (Totalt ÷ volym).
+                {harOsakra && <> * Få timmar ({'<'} {OSAKER_TIM} G15-h) — osäkert underlag.</>}
+              </div>
+            </>
           )}
 
-          {/* Metarad — prel i bärnsten, resten dämpat. Detaljer i Mot ackord. */}
+          {/* Metarad — prel i orange, resten dämpat. Detaljer i Mot ackord. */}
           <MetaRad delar={[
             vantarAntal > 0 && { text: `${vantarAntal} preliminär${vantarAntal === 1 ? 't' : 'a'} ej med`, barnsten: true },
             ejJamforbara.length > 0 && { text: `${ejJamforbara.length} utan jämförelse` },
             timpengAntal > 0 && { text: `${timpengAntal} på timpeng` },
           ]} />
-
-          {klasser.length > 0 && (
-            <>
-              <SektionsTitel>Per medelstamklass — mot timpeng</SektionsTitel>
-              <Lista>
-                {klasser.map((k, i) => {
-                  const visad = visadeKrPerM3(k);
-                  const andel = maxAbs > 0 ? Math.abs(visad.diff) / maxAbs : 0;
-                  const oppen = oppenKlass === k.klass;
-                  const delKr = (d: DelAgg) => d.volym > 0 ? Math.round((d.ackord - d.timpeng) / d.volym) : null;
-                  return (
-                    <ListRad key={k.klass}
-                      rubrik={<>
-                        {fmtKlass(k.klass)}
-                        <span style={{ ...TYP.meta, color: FARG.text2 }}> medelstam</span>
-                      </>}
-                      detalj={<>
-                        {Math.round(k.volym).toLocaleString('sv-SE')} m³fub · {k.antal} objekt
-                        {arOsaker(k) && ' · få timmar — osäkert'}
-                      </>}
-                      /* Radens tal ÄR svaret — stort (mallens TYP.rubrik),
-                         med tecken i texten och enheten på raden */
-                      tal={fmtDiff(visad.diff)}
-                      talFarg={diffColor(visad.diff)}
-                      enhet="kr/m³"
-                      /* |kr/m³| relativt största klassen — på RADENS bredd så
-                         längderna är jämförbara mellan rader */
-                      stapelAndel={andel}
-                      chevron
-                      oppen={oppen}
-                      onClick={() => setOppenKlass(oppen ? null : k.klass)}
-                      sista={i === klasser.length - 1}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', ...TYP.meta }}>
-                        <span style={{ color: FARG.text2 }}>Ackord mot timpeng</span>
-                        <span style={{ color: FARG.text, ...TNUM }}>
-                          {visad.ackord ?? '—'} · {visad.timpeng ?? '—'} kr/m³
-                        </span>
-                      </div>
-                      {([['Skördare', k.skord], ['Skotare', k.skot]] as [string, DelAgg][]).map(([namn, d]) => (
-                        <div key={namn} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', ...TYP.meta }}>
-                          <span style={{ color: FARG.text2 }}>{namn} · {Math.round(d.volym).toLocaleString('sv-SE')} m³fub</span>
-                          {delKr(d) != null ? (
-                            <span style={{ color: diffColor(delKr(d)!), ...TNUM }}>{fmtDiff(delKr(d)!)} kr/m³</span>
-                          ) : (
-                            <span style={{ color: FARG.text2 }}>—</span>
-                          )}
-                        </div>
-                      ))}
-                    </ListRad>
-                  );
-                })}
-              </Lista>
-            </>
-          )}
         </div>
       )}
 
@@ -239,27 +273,30 @@ export default function PerKlassClient() {
           }}>
             <div style={{ width: AVSTAND.xxl + AVSTAND.s, height: AVSTAND.xs, background: FARG.fyllning, borderRadius: RADIE.stapel, margin: `${AVSTAND.xs}px auto ${AVSTAND.l}px` }} />
             <div style={{ ...TYP.rubrik, marginBottom: AVSTAND.xs }}>Per klass — hur räknas det?</div>
-            <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.l }}>I vilken medelstamklass lönar sig ackordet bäst mot timpeng.</div>
+            <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.l }}>Var ackordet slår timpeng, och var de stora pengarna ligger.</div>
             <div style={{ ...TYP.meta, lineHeight: 1.6, color: FARG.text2, display: 'grid', gap: AVSTAND.l }}>
               <div>
                 <div style={sheetH}>Samma tal som Mot ackord</div>
                 Exakt samma per-objekt-jämförelse (ackord med alla tillägg mot timpeng, bara avräknade objekt, samma ärlighetsregler) — här grupperad per medelstamklass. En klass total är summan av dess objekt i Mot ackord; skiljer de sig är det en bugg.
               </div>
               <div>
-                <div style={sheetH}>Klassningen</div>
-                Varje objekt klassas på sin medelstam (volym / stammar, manuellt värde när satt) till närmaste klass i ackordprislistan — samma avrundning som prisuppslaget använder.
+                <div style={sheetH}>Kolumnerna</div>
+                Ackord och Timpeng är klassens kr/m³fub, var för sig avrundade. Skillnad = de två visade talen rakt av. Totalt kr = skillnaden × klassens volym — var de stora pengarna ligger, inte bara bästa marginal per kubik: en stor klass med måttlig skillnad kan dra in mer än en liten med hög. Tabellen sorteras på Totalt. Plus = ackordet ger mer än timpeng (färgen förstärker bara tecknet).
               </div>
               <div>
-                <div style={sheetH}>Talet</div>
-                Klassens ackord respektive timpeng i kr/m³fub, var för sig avrundade — radens stora tal är skillnaden mellan de två visade talen, så det alltid går att kontrollräkna mot uppfällningen. Plus = ackordet ger mer än timpeng i den skogen, minus = mindre (färgen förstärker bara tecknet). Uppfällningen visar skördare och skotare var för sig eftersom de prissätts olika per klass.
+                <div style={sheetH}>Summaraden</div>
+                Volym och Totalt är exakta summor av radernas visade tal — de går att kontrollräkna med miniräknare. Skillnaden på summaraden är volymvägd: Totalt delat med volym.
+              </div>
+              <div>
+                <div style={sheetH}>Skördare och skotare</div>
+                Klicka på en klassrad för att dela upp den i skördare och skotare — de prissätts olika per klass.
               </div>
               <div>
                 <div style={sheetH}>Osäkert-märkningen</div>
-                En klass som vilar på färre än {OSAKER_TIM} G15-timmar är brus, inte mönster — den märks &quot;få timmar — osäkert&quot;.
+                En klass som vilar på färre än {OSAKER_TIM} G15-timmar är brus, inte mönster — den märks med * och fotnot.
               </div>
             </div>
-            {/* Stäng = avbryter → KNAPP.lank (skillen: blå text bara för
-                navigerar/avbryter), full bredd för träffytan i hytt */}
+            {/* Stäng = avbryter → KNAPP.lank (skillen: blå text bara för navigerar/avbryter) */}
             <button onClick={() => setInfoOpen(false)} style={{ ...KNAPP.lank, marginTop: AVSTAND.xl, width: '100%' }}>Stäng</button>
           </div>
         </>

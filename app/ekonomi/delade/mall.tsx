@@ -26,19 +26,22 @@ export const BARNSTEN = '255,159,10';  // FARG.orange
 export const GRON = '48,209,88';       // FARG.gron
 export const ROD = '255,69,58';        // FARG.rod
 export const MAXBREDD = 400;
+// Datorvyer (kolumntabeller — Martin vid skärm, inte förare i hytt) får
+// begära bredare yta; fortfarande maxWidth, aldrig fast bredd.
+export const MAXBREDD_BRED = 720;
 
 const HAIRLINE = `1px solid ${FARG.linje}`;
 
 // ── Sidram ──────────────────────────────────────────────────────────────
 
-export function EkonomiSida({ children }: { children: React.ReactNode }) {
+export function EkonomiSida({ children, maxBredd = MAXBREDD }: { children: React.ReactNode; maxBredd?: number }) {
   return (
     <div style={{
       background: FARG.bg, minHeight: '100vh', color: FARG.text, fontFamily: FONT,
       paddingTop: AVSTAND.xl, paddingBottom: AVSTAND.xxl * 4,
     }}>
       <style>{designCss}</style>
-      <div style={{ maxWidth: MAXBREDD, margin: '0 auto' }}>
+      <div style={{ maxWidth: maxBredd, margin: '0 auto' }}>
         {children}
       </div>
       <EkonomiBottomNav />
