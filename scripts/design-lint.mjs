@@ -35,7 +35,9 @@ const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) so
 export const SKARPA = [
   "components/arbetsrapport/Arbetsrapport.tsx", // piloten (dagsvyn) — nya literaler fäller
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
+  "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar
   "app/ekonomi/per-klass/PerKlassClient.tsx",   // Per klass — tokenstädad
+  "app/ekonomi/mot-ackord/MotAckordClient.tsx", // Mot ackord — tokenstädad
 ];
 
 // --- Regler ---------------------------------------------------------------

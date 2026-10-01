@@ -23,7 +23,8 @@ import {
   EkonomiSida, Periodvaxlare, MetaRad, SektionsTitel,
   Laddar, FelRuta, Tomt, MAXBREDD_BRED,
 } from '../delade/mall';
-import { FARG, TYP, TAL_FONT, VIKT, AVSTAND, RADIE, KNAPP } from '@/lib/design/tokens';
+import { FARG, TYP, VIKT, AVSTAND, RADIE, KNAPP } from '@/lib/design/tokens';
+import { beraknaTabell, tabellRad, rubrikCell, talCell, gridRad } from '../delade/tabell';
 
 type DelAgg = { ackord: number; timpeng: number; volym: number };
 type KlassAgg = {
@@ -45,40 +46,8 @@ function fmtHeltal(n: number) { return Math.round(n).toLocaleString('sv-SE'); }
 function fmtKlass(k: number) { return k.toFixed(2).replace('.', ',').replace(/0$/, ''); }
 function diffColor(n: number) { return n >= 0 ? FARG.gron : FARG.rod; }
 
-// ── Tabellberäkningen — ren och testbar ────────────────────────────────
-// Avrunda varje rad FÖRST: ackord/timpeng per m³ som heltal, skillnad =
-// differensen av de VISADE talen, Totalt kr = skillnad × avrundad volym
-// (heltal × heltal — exakt, kontrollräknbar med miniräknare). Summaraden
-// summerar radernas visade volymer och Totalt exakt; vägd skillnad =
-// summa-Totalt / summa-volym (en kvot, avrundad — märkt vägd i rubriken).
-// Sortering på Totalt kr fallande: vyn styr på var pengarna ligger, inte
-// bara bästa marginal per kubik.
-export type TabellRad = {
-  volym: number;
-  ackord: number | null;
-  timpeng: number | null;
-  skillnad: number;
-  totalt: number;
-};
-
-export function tabellRad(k: { ackord: number; timpeng: number; volym: number }): TabellRad {
-  const volym = Math.round(k.volym);
-  if (!(k.volym > 0)) return { volym, ackord: null, timpeng: null, skillnad: 0, totalt: 0 };
-  const ackord = Math.round(k.ackord / k.volym);
-  const timpeng = Math.round(k.timpeng / k.volym);
-  const skillnad = ackord - timpeng;
-  return { volym, ackord, timpeng, skillnad, totalt: skillnad * volym };
-}
-
-export function beraknaKlassTabell(klasser: KlassAgg[]) {
-  const rader = klasser
-    .map(k => ({ agg: k, ...tabellRad(k) }))
-    .sort((a, b) => b.totalt - a.totalt || b.skillnad - a.skillnad);
-  const volym = rader.reduce((s, r) => s + r.volym, 0);
-  const totalt = rader.reduce((s, r) => s + r.totalt, 0);
-  const skillnadVagd = volym > 0 ? Math.round(totalt / volym) : 0;
-  return { rader, summa: { volym, totalt, skillnadVagd } };
-}
+// Tabellmatten + cellstilarna bor i delade/tabell.ts (delas med Mot
+// ackord — en plats, kan inte drifta).
 
 // Gridkolumnerna: Klass · Volym · Ackord · Timpeng · Skillnad · Totalt.
 // fr-enheter, ingen fast pixelbredd — krymper på smal skärm tills
@@ -144,16 +113,14 @@ export default function PerKlassClient() {
     return Object.values(agg);
   })();
 
-  const tabell = beraknaKlassTabell(klasser);
+  const tabell = beraknaTabell(klasser);
   const arOsaker = (k: KlassAgg) => k.timmar < OSAKER_TIM;
-  const harOsakra = tabell.rader.some(r => arOsaker(r.agg));
+  const harOsakra = tabell.rader.some(r => arOsaker(r.post));
 
   const sheetH = { ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.xs } as const;
   // Cellstilar: rubriker små/dämpade versaler, talceller högerställda i
   // TAL_FONT (monospace + tabulära siffror — kolumner läses uppifrån ner).
-  const rubrikCell = { ...TYP.micro, color: FARG.text3, textAlign: 'right' as const };
-  const talCell = { ...TYP.text, ...TAL_FONT, textAlign: 'right' as const, color: FARG.text };
-  const gridRad = { display: 'grid', gridTemplateColumns: KOLUMNER, columnGap: AVSTAND.l, alignItems: 'baseline' as const };
+  const grid = gridRad(KOLUMNER);
 
   return (
     <EkonomiSida maxBredd={MAXBREDD_BRED}>
@@ -190,7 +157,7 @@ export default function PerKlassClient() {
               <SektionsTitel>Per medelstamklass — ackord mot timpeng</SektionsTitel>
 
               {/* Rubrikrad */}
-              <div style={{ ...gridRad, marginBottom: AVSTAND.s }}>
+              <div style={{ ...grid, marginBottom: AVSTAND.s }}>
                 <div style={{ ...rubrikCell, textAlign: 'left' }}>Klass</div>
                 <div style={rubrikCell}>Volym m³fub</div>
                 <div style={rubrikCell}>Ackord kr/m³</div>
@@ -202,13 +169,13 @@ export default function PerKlassClient() {
               {/* Klassrader — luft skiljer dem, inga linjer. Klick fäller ut
                   skördare/skotare som dämpade subrader i samma kolumner. */}
               {tabell.rader.map(r => {
-                const oppen = oppenKlass === r.agg.klass;
+                const oppen = oppenKlass === r.post.klass;
                 return (
-                  <div key={r.agg.klass} style={{ padding: `${AVSTAND.m}px 0` }}>
-                    <div onClick={() => setOppenKlass(oppen ? null : r.agg.klass)} style={{ ...gridRad, cursor: 'pointer' }}>
+                  <div key={r.post.klass} style={{ padding: `${AVSTAND.m}px 0` }}>
+                    <div onClick={() => setOppenKlass(oppen ? null : r.post.klass)} style={{ ...grid, cursor: 'pointer' }}>
                       <div style={{ ...TYP.listtitel, color: FARG.text, whiteSpace: 'nowrap' }}>
-                        {fmtKlass(r.agg.klass)}
-                        {arOsaker(r.agg) && <span style={{ color: FARG.text3 }}> *</span>}
+                        {fmtKlass(r.post.klass)}
+                        {arOsaker(r.post) && <span style={{ color: FARG.text3 }}> *</span>}
                         <span style={{ ...TYP.meta, color: FARG.text3 }}> {oppen ? '▾' : '▸'}</span>
                       </div>
                       <div style={talCell}>{fmtHeltal(r.volym)}</div>
@@ -217,10 +184,10 @@ export default function PerKlassClient() {
                       <div style={{ ...talCell, color: diffColor(r.skillnad) }}>{fmtDiff(r.skillnad)}</div>
                       <div style={{ ...talCell, color: diffColor(r.totalt) }}>{fmtDiff(r.totalt)}</div>
                     </div>
-                    {oppen && ([['Skördare', r.agg.skord], ['Skotare', r.agg.skot]] as [string, DelAgg][]).map(([namn, d]) => {
+                    {oppen && ([['Skördare', r.post.skord], ['Skotare', r.post.skot]] as [string, DelAgg][]).map(([namn, d]) => {
                       const del = tabellRad(d);
                       return (
-                        <div key={namn} style={{ ...gridRad, marginTop: AVSTAND.s }}>
+                        <div key={namn} style={{ ...grid, marginTop: AVSTAND.s }}>
                           <div style={{ ...TYP.meta, color: FARG.text2, paddingLeft: AVSTAND.l }}>{namn}</div>
                           <div style={{ ...talCell, ...TYP.meta, color: FARG.text2 }}>{fmtHeltal(del.volym)}</div>
                           <div style={{ ...talCell, ...TYP.meta, color: FARG.text2 }}>{del.ackord ?? '—'}</div>
@@ -241,7 +208,7 @@ export default function PerKlassClient() {
               {/* Summarad — EN hårfin linje + luft, ingen Excel-ram.
                   Volym och Totalt är exakta summor av raderna ovan;
                   skillnaden är volymvägd (Totalt ÷ volym). */}
-              <div style={{ ...gridRad, borderTop: `0.5px solid ${FARG.linje}`, marginTop: AVSTAND.s, paddingTop: AVSTAND.m }}>
+              <div style={{ ...grid, borderTop: `0.5px solid ${FARG.linje}`, marginTop: AVSTAND.s, paddingTop: AVSTAND.m }}>
                 <div style={{ ...TYP.listtitel, color: FARG.text }}>Totalt</div>
                 <div style={{ ...talCell, fontWeight: VIKT.halvfet }}>{fmtHeltal(tabell.summa.volym)}</div>
                 <div style={talCell} />
