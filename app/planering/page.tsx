@@ -23,6 +23,7 @@ import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunk
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
+import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
@@ -3064,6 +3065,14 @@ export default function PlannerPage() {
   const [portFel, setPortFel] = useState<string | null>(null);
   const [webSerialStott, setWebSerialStott] = useState(false);   // client-only → undvik hydration-mismatch
   useEffect(() => { setWebSerialStott(harWebSerial()); }, []);
+  // Enhet→maskin: vilken maskin ÄR den här datorn (maskindatorn). localStorage per enhet.
+  // Client-only init (localStorage) → sätts i effekt, inte i useState-initializern (hydration).
+  const [enhetMaskinId, setEnhetMaskinIdState] = useState<string | null>(null);
+  useEffect(() => { setEnhetMaskinIdState(hamtaEnhetMaskin()); }, []);
+  const valjEnhetMaskin = useCallback((maskinId: string | null) => {
+    sattEnhetMaskin(maskinId);
+    setEnhetMaskinIdState(maskinId);
+  }, []);
   // === PWA-install på skrivbordet (Chrome/Edge) ===
   // Fånga beforeinstallprompt → spara eventet så vi kan trigga install-dialogen från
   // en egen knapp. Rad visas bara när prompten fångats OCH ej standalone (installerad).
@@ -3860,7 +3869,10 @@ export default function PlannerPage() {
     const objektId = valtObjekt.id;
     const roll = hyttRoll;
     const datum = lokaltDatumStockholm(Date.now());   // LOKALT datum (Europe/Stockholm), inte UTC-datum
-    const maskinId = roll === 'skordare' ? ((valtObjekt as any)?.maskin_id ?? null) : null;
+    // Spåret märks med ENHETENS maskin (maskindatorns val) — auktoritativt. Fallback utan enhetsval
+    // = gamla beteendet (skördarens objekt-maskin, skotare null). Läses direkt ur localStorage så
+    // senaste valet gäller utan att väcka om loggnings-effekten. Tidigare: skotare skrevs alltid null.
+    const maskinId = hyttsparMaskinId(hamtaEnhetMaskin(), roll, (valtObjekt as any)?.maskin_id ?? null);
     hyttsparDatumRef.current = datum;
     hyttsparCtxRef.current = { objektId, roll, maskinId };
     hyttsparInitKlarRef.current = false;   // resume-kollen inte klar än → ackumuleringen väntar med att skapa raden
@@ -19002,6 +19014,30 @@ export default function PlannerPage() {
                           Använd inbyggd GPS
                         </button>
                       )}
+                    </div>
+                    {/* Enhet→maskin: vilken maskin ÄR den här datorn? Märker hyttspåret och (steg 2b)
+                        driver maskindator-starten. webSerialStott-gated → bara maskindatorn. */}
+                    <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '10px' }}>Den här datorn kör maskin:</div>
+                      <select
+                        value={enhetMaskinId ?? ''}
+                        onChange={(e) => valjEnhetMaskin(e.target.value || null)}
+                        style={{ width: '100%', padding: '11px 12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontFamily: 'inherit' }}
+                      >
+                        <option value="" style={{ color: '#000' }}>Ingen vald</option>
+                        {dimMaskiner
+                          .filter((m) => maskinAktiv(m, new Date().toISOString().slice(0, 10)))
+                          .slice()
+                          .sort((a, b) => maskinModell(a).localeCompare(maskinModell(b), 'sv'))
+                          .map((m) => (
+                            <option key={m.maskin_id} value={m.maskin_id} style={{ color: '#000' }}>
+                              {maskinModell(m)}{m.maskin_typ === 'Harvester' ? ' · skördare' : m.maskin_typ === 'Forwarder' ? ' · skotare' : ''}
+                            </option>
+                          ))}
+                      </select>
+                      <div style={{ fontSize: '12px', opacity: 0.45, marginTop: '8px' }}>
+                        {enhetMaskinId ? 'Hyttspåret märks med den här maskinen.' : 'Utan val märks skotarspår utan maskin (som förut).'}
+                      </div>
                     </div>
                     {/* Installera appen på skrivbordet (Chrome/Edge). Visas bara när webbläsaren
                         erbjuder installation (beforeinstallprompt fångad) och appen inte redan
