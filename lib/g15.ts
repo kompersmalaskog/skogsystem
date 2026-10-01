@@ -66,8 +66,10 @@ export const g15Sek = (
 // Övrigt arbete ligger BARA i nämnaren. Därför spelar det ingen roll för TU om
 // en flytt bokförs som other_work (Elefanten) eller som Trailer transportation
 // (Scorpion) — talen blev jämförbara mellan maskinerna först med den här
-// formeln (sedan aug 2026: Rottne 89,9 · Scorpion 84,0 · Wisent 91,1 ·
-// Elefanten 83,7; den gamla formeln hade flytt utanför och OW i täljaren).
+// formeln (sedan aug 2026, räknat 2026-10-01: Rottne 92,9 · Scorpion 87,6 ·
+// Wisent 90,7 · Elefanten 84,0; den gamla formeln hade flytt utanför och OW i
+// täljaren). Avbrotten måste vara städade från ögonblicksbilder (#644) —
+// annars ligger pågående stopp dubbelt i nämnaren.
 //
 // TU är ett mått på MASKINEN, inte på föraren och inte på hur lönetiden
 // används — det senare är lönekvoten, ett annat tal. Se docs/tu.md.

@@ -62,18 +62,21 @@ Två olika saker som båda ligger i täljaren, på olika sätt:
 
 ## Avbrott utan registrerad orsak
 
-Scorpions **18,9 h "Default"** sedan 1 aug är flottans största enskilda
-avbrottspost — controllern skapade raden, föraren valde ingen kod. Det är
-nästan tre enheter av Scorpions TU: klassade hade timmarna gett samma tal eller
-ett annat, men förklarat. Vyn visar det dämpat under TU, i nyckeltalslistan och
-i tabellen: "19 tim avbrott utan registrerad orsak". Inte larm — osäkerheten
-åtgärdas av förarna genom att klassa, inte av oss genom att räkna om.
+Vyn visar avbrott utan registrerad orsak dämpat under TU, i nyckeltalslistan
+och i tabellen: "1 tim avbrott utan registrerad orsak". Inte larm —
+osäkerheten åtgärdas av förarna genom att klassa, inte av oss genom att räkna
+om. `arOklassatAvbrott` i `lib/g15.ts`: `Default` eller tom kod. "Other" och
+"Unproductive terrain work" är **valda** standardkoder och räknas inte.
 
-`arOklassatAvbrott` i `lib/g15.ts`: `Default` eller tom kod. Rottnes 14,0 h
-"Other" och Wisents 11,3 h "Unproductive terrain work" är **valda**
-standardkoder och räknas inte som oklassade. Rottne saknar helt "Default", så
-det är inte uteslutet att "Other" är Rottnes motsvarighet — det syns inte i
-databasen, bara i hytten.
+**Läxan 2026-10-01:** Scorpion såg ut att ha 18,9 h "Default" — flottans
+största avbrottspost. Martins invändning "orsak MÅSTE tryckas in över femton
+minuter" avslöjade att det inte stämde. "Default" (Rottne: "Other") är
+maskinens **platshållare för ett stopp som pågår** när timfilen exporteras;
+nästa fil bär samma starttid med den valda orsaken, och importen behöll båda.
+27 + 27 rader var ögonblicksbilder, varav 3,7 + 4,1 h i själva verket raster.
+Rättat i importen (senaste exportversion vinner per starttid, #644) och städat
+ur databasen — se `docs/import-exportversioner.md`. Äkta oklassat på Scorpion:
+0,9 h (ett stopp på 39 min 18 aug och fem på 1–4 min).
 
 ## Branschsnitt (referens, inte omdöme)
 
@@ -84,24 +87,23 @@ maskintimmar per år (Martin, 2026-09-30).
 
 ## Läge oktober 2026 (sedan 1 augusti)
 
-Räknat 2026-10-01 med vyns formel, på tid som är både rättad (#630/#634,
-delade segment) och ärlig (#638, 88 %-fallbacken borta). De tidigare talen
-(Rottne 90,5 · Scorpion 87,9 · Wisent 93,8 · Elefanten 89,4) byggde på
-dubbelräknad tid, påhittade timmar och den gamla formeln — de gäller inte.
+Räknat 2026-10-01 kl 16 med vyns formel, på tid som är rättad (#630/#634
+delade segment, #644 ögonblicksbilder i fakt_avbrott) och ärlig (#638,
+88 %-fallbacken borta). Tidigare tal (Rottne 90,5 · Scorpion 87,9 · Wisent
+93,8 · Elefanten 89,4, och förmiddagens 89,9 · 84,0 · 91,1 · 83,7) byggde på
+dubbelräknad tid, påhittade timmar, dubblerade avbrott eller den gamla formeln
+— de gäller inte. Talen rör sig med dagens filer; jämför vid samma tidpunkt.
 
-| Maskin | Arbete | Övrigt arbete | Avbrott ≥ 15 min | varav flytt | varav utan orsak | TU | Snitt |
-|---|---|---|---|---|---|---|---|
-| Rottne H8E -26, skördare | 337,6 h | 0 | 37,9 h | 1,8 h | 0 | **89,9** | 85 |
-| Scorpion, skördare | 366,4 h | 0 | 70,0 h | 16,5 h | 18,9 h | **84,0** | 85 |
-| Wisent, skotare | 359,0 h | 5,4 h | 30,2 h | 5,8 h | 0 | **91,1** | 90 |
-| Elefanten, skotare | 271,7 h | 17,9 h | 35,0 h | 0,5 h | 0 | **83,7** | 90 |
+| Maskin | Avbrott i fakt_avbrott | varav "Stopp" ≥ 15 min utan flytt | utan orsak | TU | Snitt |
+|---|---|---|---|---|---|
+| Rottne H8E -26, skördare | 26,6 h | 24,3 h | 0 | **92,9** | 85 |
+| Scorpion, skördare | 52,3 h | 35,6 h | 0,9 h | **87,6** | 85 |
+| Wisent, skotare | 34,5 h | 25,5 h | 0 | **90,7** | 90 |
+| Elefanten, skotare | 35,3 h | 34,8 h | 0 | **84,0** | 90 |
 
-September ensamt: Rottne 88,6 · Scorpion 86,6 · Wisent 91,7 · Elefanten 84,3.
-
-Scorpion och Elefanten ligger under sina snitt. Scorpions tapp mot den gamla
-formeln är flytten i nämnaren; Elefantens är flytten som övrigt arbete, som
-tidigare låg i täljaren. Inget har blivit sämre i maskinerna — talen blev
-jämförbara.
+Elefanten är ensam under sitt snitt. Dess tapp mot den gamla formeln är
+flytten som övrigt arbete (17,9 h), som tidigare låg i täljaren. Inget har
+blivit sämre i maskinen — talen blev jämförbara.
 
 ## Tillförlitlighet — kopplingen till Lön → Dagar
 
@@ -116,8 +118,8 @@ man att dagarna inte stämmer vet man att talet är osäkert.
 1. Står maskinen på trailern ska det bokföras som flytt, inte som övrigt
    avbrott. Påverkar avbrottsvyn och G15-tiden, inte TU. Kolla först om
    Scorpions Opti har en flyttkategori alls.
-2. **Tryck in en orsak när maskinen stannar.** 18,9 h utan orsak är nästan
-   fyra procent av Scorpions tid.
+2. Tryck in en orsak när maskinen stannar — men det är redan nästan alltid
+   gjort: äkta oklassat på Scorpion är 0,9 h sedan augusti, inte 18,9.
 
 ## Öppna frågor
 
@@ -125,8 +127,10 @@ man att dagarna inte stämmer vet man att talet är osäkert.
   finns tidigast hösten 2027.
 - Avbrott klassade som "Unproductive terrain work" på Wisent är i praktiken
   stillestånd vid skiftstart (förarens valda kategori). De räknas som avbrott.
-- Är Rottnes "Other" en vald kategori eller maskinens standardval? Avgörs i
-  hytten, inte i databasen.
+- Rottnes "Other" är maskinens platshållare för pågående stopp (som Ponsses
+  "Default"). Efter städningen återstår 4 rader / 2,2 h "Other" som stod kvar
+  i slutversionen — valda, eller stopp som aldrig fick en orsak. Syns inte i
+  databasen.
 
 ## Inte TU: lönekvoten
 
