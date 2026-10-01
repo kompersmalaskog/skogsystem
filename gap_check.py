@@ -69,7 +69,8 @@ LARM_FIL = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_LARM_senaste.t
 DEPLOY_DIR = r'C:\skogsystem-import'
 DRIFT_FILER = ['skogsmaskin_import_version_6.py', 'import_hpr.py',
                'auto_import_watch.py', 'gap_check.py',
-               'import_diameterserie.py', 'berakna_rotkap.py']
+               'import_diameterserie.py', 'berakna_rotkap.py',
+               'berakna_utfall_objekt.py']
 
 # 13 tid-fält (samma som importern/reparationen)
 TID_FIELDS = ['processing_sek', 'terrain_sek', 'other_work_sek', 'maintenance_sek',
