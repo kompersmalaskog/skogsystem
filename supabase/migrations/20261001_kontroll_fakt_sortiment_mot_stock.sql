@@ -69,3 +69,12 @@ COMMENT ON FUNCTION kontroll_fakt_sortiment_mot_stock(numeric) IS
 
 REVOKE ALL ON FUNCTION kontroll_fakt_sortiment_mot_stock(numeric) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION kontroll_fakt_sortiment_mot_stock(numeric) TO authenticated, service_role;
+
+-- ── Efteråt (samma dag, 12:10 UTC) ─────────────────────────────────────
+-- Alla 1 343 747 nyckellösa rader rensades objekt för objekt, med kontroll
+-- nyckel för nyckel att varje raderad rad hade en nyckelrad kvar
+-- (Hushållningssällskapet 1 042 935 i fyra omgångar, Swerups 327 unika
+-- nycklar först inlästa med nyckel ur fortsättningsfilen). Det partiella
+-- indexet är då tomt och tas bort; räkningen av nyckellösa rader ovan går
+-- över noll rader via objekt-indexet.
+DROP INDEX IF EXISTS idx_detalj_stock_nyckellos;
