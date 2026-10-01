@@ -59,16 +59,6 @@ async function fetchAll<T>(
   return out;
 }
 
-function parseStockKey(sk: string): { stem_key: string; log_key: number } {
-  // Nytt format efter dedupe-fix: "{stem_key}_{log_key}"
-  const m2 = /^(\d+)_(\d+)$/.exec(sk);
-  if (m2) return { stem_key: m2[1], log_key: parseInt(m2[2], 10) };
-  // Gammalt format med filnamn: "{stem_key}_{log_key}_{filnamn}"
-  const m3 = /^(\d+)_(\d+)_(.+)$/.exec(sk);
-  if (m3) return { stem_key: m3[1], log_key: parseInt(m3[2], 10) };
-  return { stem_key: sk, log_key: 0 };
-}
-
 export async function aggregateMarkagarRapport(
   supabase: SupabaseClient,
   objektIdText: string,
@@ -176,7 +166,13 @@ export async function aggregateMarkagarRapport(
     let q = supabase
       .from('detalj_stock')
       .select('stock_key, stem_key, log_key, maskin_id, sortiment_id, sortiment_namn, volym_m3sub, volym_m3sob, langd_cm, toppdia_ob_mm, toppdia_ub_mm, kaporsak, latitude, longitude, filnamn')
-      .eq('objekt_id', objektIdText);
+      .eq('objekt_id', objektIdText)
+      // Bara joinbara stockar. Rader utan stem_key/log_key är parserns kopior
+      // från 21 april–7 maj 2026 (en per kumulativ fil, 22–26 kopior per stock
+      // på Hushållningssällskapet) och syns inte i någon annan vy. De vägde
+      // prisreferenserna per maskin och gav Anna Karin Swerup enbart kopior.
+      .not('stem_key', 'is', null)
+      .not('log_key', 'is', null);
     if (filnamnFilter) q = q.in('filnamn', filnamnFilter);
     return q.order('id').range(from, to);
   });
@@ -277,17 +273,10 @@ export async function aggregateMarkagarRapport(
     (maskinRows ?? []).map(m => [m.maskin_id, (m.visningsnamn ?? '').trim() || m.modell || ''])
   );
 
-  // 10. Bygg per-stam-strukturer
-  // Använd separata stem_key/log_key-kolumner när de finns; fallback till stock_key-parsing
-  // (för historiska rader importerade före dedupe-fixen).
+  // 10. Bygg per-stam-strukturer. Nycklarna kommer ur kolumnerna — raderna är
+  // filtrerade på stem_key/log_key ovan, stock_key parsas inte längre.
   type ParsedStock = { stem_key: string; log_key: number; row: typeof stocksRaw[number] };
-  const parsedStocks: ParsedStock[] = stocksRaw.map(r => {
-    if (r.stem_key && r.log_key != null) {
-      return { stem_key: r.stem_key, log_key: r.log_key, row: r };
-    }
-    const p = parseStockKey(r.stock_key);
-    return { stem_key: p.stem_key, log_key: p.log_key, row: r };
-  });
+  const parsedStocks: ParsedStock[] = stocksRaw.map(r => ({ stem_key: r.stem_key!, log_key: r.log_key!, row: r }));
 
   // {stem_key::filnamn} → sorterade stocks
   const stocksPerStam = new Map<string, ParsedStock[]>();
