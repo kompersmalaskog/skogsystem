@@ -160,6 +160,26 @@ export async function GET(req: NextRequest) {
     const totalRader = aggrPerKonto(() => true);
     const foretagetTotalt = { ok: true, konton: totalRader, ...grupperaKonto(totalRader) };
 
+    // Sista bokförda dag i spannet — klienten märker ärligt ett kvartal
+    // "ofullständigt bokfört" i stället för att visa en låg stapel som fakta.
+    let maxTransaktionsdatum = "";
+    for (const r of rader) if (r.transaction_date > maxTransaktionsdatum) maxTransaktionsdatum = r.transaction_date;
+
+    // Kvartalsserie ur SAMMA rader (spannet styr vilka kvartal som har data) —
+    // intäkt mot kostnad per kvartal för trendgrafen. Kvartal utan rader
+    // redovisas med antal_rader=0 så klienten kan skilja "tomt" från "noll".
+    const kvartalsserie = [1, 2, 3, 4].map(q => {
+      const iKvartal = (r: Rad) => Math.floor((Number(r.transaction_date.slice(5, 7)) - 1) / 3) + 1 === q;
+      const g = grupperaKonto(aggrPerKonto(iKvartal));
+      return {
+        kvartal: q,
+        intakter: g.intakter,
+        kostnader_total: g.kostnader.total,
+        resultat: g.resultat,
+        antal_rader: rader.filter(iKvartal).length,
+      };
+    });
+
     // 2) Per maskin — varje Fortnox-RADS transaktionsdatum avgör vilken
     // maskin dess kostnadsställe hörde till DÅ (giltig_fran/giltig_till).
     // Koder återanvänds mellan maskiner (M12: R64101 → R64428) — "alla
@@ -245,6 +265,8 @@ export async function GET(req: NextRequest) {
       ok: true,
       period: { fromdate, todate },
       antal_rader_i_period: rader.length,
+      max_transaction_date: maxTransaktionsdatum || null,
+      kvartalsserie,
       kostnadsstallen: costCenters.map(c => ({ kod: c.Code, namn: c.Description, aktiv: c.Active })),
       foretaget_totalt: foretagetTotalt,
       maskiner,

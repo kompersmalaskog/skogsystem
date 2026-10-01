@@ -38,6 +38,7 @@ export const SKARPA = [
   "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar
   "app/ekonomi/per-klass/PerKlassClient.tsx",   // Per klass — tokenstädad
   "app/ekonomi/mot-ackord/MotAckordClient.tsx", // Mot ackord — tokenstädad
+  "app/ekonomi/resultat/ResultatClient.tsx",    // Resultat — tokenstädad
 ];
 
 // --- Regler ---------------------------------------------------------------
