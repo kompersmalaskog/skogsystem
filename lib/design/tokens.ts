@@ -157,9 +157,10 @@ export const FARG = {
   rod:      "#ff453a",
   /** Bara kalenderns markeringar (synk-avvikelse, rättad dag). Aldrig en fjärde larmfärg i text. */
   gul:      "#ffd60a",
-  /** Maskinfärger ur Uppföljning v6. */
-  skordare: "#a8d582",
-  skotare:  "#f0b24c",
+  /** Två extra diagram-/palettfärger (t.ex. staplar i arbetsrapporten). INTE rollfärger —
+   *  skördare/skotare färgas av rollFarg() (lila/grön), se skogsystem-design-skillen. */
+  diagram1: "#a8d582",
+  diagram2: "#f0b24c",
 } as const;
 
 // ---------------------------------------------------------------------------

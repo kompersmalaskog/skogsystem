@@ -4290,13 +4290,13 @@ export default function Arbetsrapport() {
                       <div style={{ display:"flex",height:24,borderRadius:RADIE.rad,overflow:"hidden" }}>
                         {stats.map((s,i) => {
                           const w = totMin>0 ? (s.minTot/totMin*100) : 0;
-                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.skordare,FARG.skotare];
+                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.diagram1,FARG.diagram2];
                           return <div key={s.typ} title={aktLabel(s.typ)} style={{ width:`${w}%`,background:färger[i%färger.length] }}/>;
                         })}
                       </div>
                       <div style={{ display:"flex",flexWrap:"wrap",gap:AVSTAND.s,marginTop:AVSTAND.m }}>
                         {stats.map((s,i) => {
-                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.skordare,FARG.skotare];
+                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.diagram1,FARG.diagram2];
                           return (
                             <div key={s.typ} style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
                               <div style={{ width:10,height:10,borderRadius:RADIE.rad,background:färger[i%färger.length] }}/>
