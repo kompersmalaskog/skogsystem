@@ -19,6 +19,7 @@ import { supabase } from '@/lib/supabase';
 import { uppdateraVerifierat } from '@/lib/supabase-save';
 import { saveAllBracket, saveOneByKey, saveFormelConfig, todayIso, yesterdayIso } from '@/lib/ekonomi/prisversion';
 import { VARDEMINSKNING_FORVAL_SKORDARE, VARDEMINSKNING_FORVAL_SKOTARE } from '@/lib/ekonomi/vardeminskning';
+import { FORESTLINK_KR_PER_TIM } from '@/lib/ekonomi/forestlink';
 import { EkonomiSida, Lista, SektionsTitel, Laddar, MAXBREDD_BRED } from '../delade/mall';
 import { rubrikCell, talCell, gridRad } from '../delade/tabell';
 import { FARG, TYP, TAL_FONT, AVSTAND, RADIE, KNAPP, TRAFFYTA } from '@/lib/design/tokens';
@@ -32,6 +33,10 @@ type MaskinRad = {
   // kr/G15-tim är ENDA modellen (Ponsse-säljarens); tomt = räknas ej.
   vardeminskning_kr_per_g15h: Num;
   sald: boolean; sald_datum: string;  // avyttrad = ingen värdeminskning framåt
+  // ForestLink (dim_maskin, konstant hela året): ibockad = +FORESTLINK_KR_PER_TIM
+  // kr/tim på timpeng. Basen i timpris-fältet är ALDRIG bas+FL — tillägget
+  // läggs på i motorn (lib/ekonomi/forestlink), inte i det sparade priset.
+  forestlink: boolean;
 };
 type AcordRad = {
   id?: string; medelstam: Num; pris_total: Num; pris_skordare: Num; pris_skotare: Num;
@@ -59,7 +64,7 @@ function numOrNull(v: Num): number | null {
 
 // Tabellkolumner (A4-grid, luft — inga cellinjer)
 const ACORD_KOLUMNER = 'minmax(0, 1fr) repeat(3, minmax(0, 1fr)) minmax(0, 0.3fr)';
-const MASKIN_KOLUMNER = 'minmax(0, 1.2fr) minmax(0, 1.4fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.1fr) minmax(0, 0.7fr)';
+const MASKIN_KOLUMNER = 'minmax(0, 1.2fr) minmax(0, 1.4fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(0, 0.7fr)';
 const TRAKT_KOLUMNER = 'repeat(3, minmax(0, 1fr)) minmax(0, 0.3fr)';
 const TERRANG_KOLUMNER = 'minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.7fr)';
 const OVRIGT_KOLUMNER = 'minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 0.6fr) minmax(0, 0.7fr)';
@@ -90,6 +95,7 @@ const TextInput = ({ value, onChange, placeholder, disabled }: { value: string; 
 export default function PrislistaClient() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
+  const [laddFel, setLaddFel] = useState('');  // beständigt — försvinner inte som sparat-bekräftelsen
 
   const [maskiner, setMaskiner] = useState<MaskinRad[]>([]);
   const [acord, setAcord] = useState<AcordRad[]>([]);
@@ -122,8 +128,11 @@ export default function PrislistaClient() {
       supabase.from('acord_terrang').select('id, namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('namn'),
       supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
-      supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum').order('visningsnamn', { nullsFirst: false }),
+      supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum, forestlink').order('visningsnamn', { nullsFirst: false }),
     ]);
+    // Ärligt fel: ett tyst tomt dim_maskin-svar skulle visa FÖRVALEN som om
+    // de vore sparade värden (och en Spara skriver då över dem).
+    setLaddFel(dimMaskinRes.error ? `Kunde inte läsa maskindata (dim_maskin): ${dimMaskinRes.error.message}` : '');
     const dimMap: Record<string, any> = {};
     for (const d of (dimMaskinRes.data || [])) dimMap[d.maskin_id] = d;
     setMaskiner((mRes.data || []).map((m: any) => ({
@@ -134,6 +143,8 @@ export default function PrislistaClient() {
         ?? (dimMap[m.maskin_id]?.maskin_typ === 'Forwarder' ? VARDEMINSKNING_FORVAL_SKOTARE : VARDEMINSKNING_FORVAL_SKORDARE),
       sald: !!dimMap[m.maskin_id]?.sald,
       sald_datum: dimMap[m.maskin_id]?.sald_datum || '',
+      // Kolumnen är NOT NULL default true; saknad dim-rad → false (okänt är inte "ja")
+      forestlink: dimMap[m.maskin_id]?.forestlink === true,
     })));
     setAcord((aRes.data || []).map((a: any) => ({ id: a.id, medelstam: a.medelstam, pris_total: a.pris_total, pris_skordare: a.pris_skordare, pris_skotare: a.pris_skotare, giltig_fran: a.giltig_fran })));
     const avRow = (avRes.data || [])[0];
@@ -154,7 +165,7 @@ export default function PrislistaClient() {
 
   // ── Maskin ── (sparlogiken ordagrant från Inställningar — rör ej)
   const updateMaskin = (idx: number, p: Partial<MaskinRad>) => setMaskiner(prev => prev.map((m, i) => i === idx ? { ...m, ...p, dirty: true } : m));
-  const addMaskin = () => setMaskiner(prev => [...prev, { maskin_id: '', maskin_namn: '', timpris: '', vardeminskning_kr_per_g15h: '', sald: false, sald_datum: '', giltig_fran: null, isNew: true, dirty: true }]);
+  const addMaskin = () => setMaskiner(prev => [...prev, { maskin_id: '', maskin_namn: '', timpris: '', vardeminskning_kr_per_g15h: '', sald: false, sald_datum: '', forestlink: true, giltig_fran: null, isNew: true, dirty: true }]);
   const saveMaskin = async (idx: number) => {
     const row = maskiner[idx];
     if (!row.maskin_id.trim() || !row.maskin_namn.trim() || row.timpris === '' || Number(row.timpris) <= 0) { flashMsg('Fyll i maskin-ID, namn och ett pris > 0'); return; }
@@ -170,16 +181,17 @@ export default function PrislistaClient() {
     const villKrPerTim = numOrNull(row.vardeminskning_kr_per_g15h);
     const dimRes = await uppdateraVerifierat(
       supabase, 'dim_maskin',
-      { vardeminskning_kr_per_g15h: villKrPerTim, sald: row.sald, sald_datum: villSaldDatum },
+      { vardeminskning_kr_per_g15h: villKrPerTim, sald: row.sald, sald_datum: villSaldDatum, forestlink: row.forestlink },
       { maskin_id: row.maskin_id.trim() },
-      'maskin_id, vardeminskning_kr_per_g15h, sald, sald_datum',
+      'maskin_id, vardeminskning_kr_per_g15h, sald, sald_datum, forestlink',
     );
     setSavingMaskin(null);
     if (!dimRes.ok) { flashMsg(`Timpris sparat, men värdeminskning: ${dimRes.fel}`); return; }
     const r0: any = dimRes.rows[0];
     const landat = (v: any) => (v == null ? null : Number(v));
     if (landat(r0.vardeminskning_kr_per_g15h) !== villKrPerTim
-        || !!r0.sald !== row.sald || (r0.sald_datum || null) !== villSaldDatum) {
+        || !!r0.sald !== row.sald || (r0.sald_datum || null) !== villSaldDatum
+        || !!r0.forestlink !== row.forestlink) {
       flashMsg('Värdeminskning: värdet landade inte i dim_maskin — kontrollera behörighet'); return;
     }
     flashMsg(`Sparat: ${row.maskin_namn}`);
@@ -336,6 +348,12 @@ export default function PrislistaClient() {
           </div>
         )}
 
+        {laddFel && (
+          <div style={{ marginTop: AVSTAND.m, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, ...TYP.meta, color: FARG.rod }}>
+            {laddFel} — spara inte maskinpriser förrän det är löst (värdena nedan är förval, inte sparade).
+          </div>
+        )}
+
         {loading && <Laddar />}
 
         {!loading && (
@@ -374,6 +392,7 @@ export default function PrislistaClient() {
                 <div style={{ ...rubrikCell, textAlign: 'left' }}>Namn</div>
                 <div style={rubrikCell}>Timpris kr/tim</div>
                 <div style={rubrikCell}>Värdem. kr/G15h</div>
+                <div style={{ ...rubrikCell, textAlign: 'left' }}>FL</div>
                 <div style={{ ...rubrikCell, textAlign: 'left' }}>Såld</div>
                 <div />
               </div>
@@ -386,6 +405,11 @@ export default function PrislistaClient() {
                       <TextInput value={m.maskin_namn} onChange={v => updateMaskin(idx, { maskin_namn: v })} placeholder="Namn" />
                       <NumInput value={m.timpris} onChange={v => updateMaskin(idx, { timpris: v })} placeholder="kr/tim" />
                       <NumInput value={m.vardeminskning_kr_per_g15h} onChange={v => updateMaskin(idx, { vardeminskning_kr_per_g15h: v })} placeholder="tomt = räknas ej" />
+                      {/* ForestLink: ibockad = +FORESTLINK_KR_PER_TIM kr/tim på timpeng */}
+                      <label style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.meta, color: FARG.text2, cursor: 'pointer', minHeight: TRAFFYTA.min }}>
+                        <input type="checkbox" checked={m.forestlink} onChange={e => updateMaskin(idx, { forestlink: e.target.checked })} />
+                        {m.forestlink ? `+${FORESTLINK_KR_PER_TIM} kr/tim` : 'ingen FL'}
+                      </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.meta, color: m.sald ? FARG.orange : FARG.text2, cursor: 'pointer' }}>
                         <input type="checkbox" checked={m.sald} onChange={e => updateMaskin(idx, { sald: e.target.checked })} />
                         Såld
@@ -394,6 +418,11 @@ export default function PrislistaClient() {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, marginTop: AVSTAND.xs }}>
                       {gallerFran(m.giltig_fran)}
+                      {m.timpris !== '' && m.forestlink && (
+                        <span style={{ ...TYP.meta, color: FARG.text3 }}>
+                          effektivt timpeng-pris {(Number(m.timpris) + FORESTLINK_KR_PER_TIM).toLocaleString('sv-SE')} kr/tim
+                        </span>
+                      )}
                       {m.isNew && <span style={{ ...TYP.meta, color: FARG.gron }}>Ny — ej sparad</span>}
                       {m.dirty && !m.isNew && <span style={{ ...TYP.meta, color: FARG.orange }}>Ändrad — ej sparad</span>}
                       {m.sald && (

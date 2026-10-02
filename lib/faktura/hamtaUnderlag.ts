@@ -20,6 +20,7 @@ import {
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
 } from '@/lib/ekonomi/acord';
 import { kostnadsstalleFor, harKrockandeKostnadsstalle } from '@/lib/ekonomi/kostnadsstalle';
+import { medForestlink } from '@/lib/ekonomi/forestlink';
 import type { VoUnderlag, Maskinrad } from '@/lib/faktura/radbyggare';
 
 type SB = { from: (t: string) => any };
@@ -106,7 +107,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   // ── Register och prislistor ────────────────────────────────────────────
   const [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes, ovrigtRes, avstRes,
          grupperRes, bolagRes, objektRes] = await Promise.all([
-    sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
+    sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, forestlink'),
     sb.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod, giltig_fran, giltig_till'),
     sb.from('maskin_timpris').select('maskin_id, timpris, giltig_fran, giltig_till'),
     sb.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -125,6 +126,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
 
   const giltiga = (rader: any[] | null) =>
     (rader || []).filter((r: any) => isValidOn(uppslag, r.giltig_fran, r.giltig_till));
+  const effektivaTimpriser = medForestlink<any>(timprisRes.data || [], maskinRes.data || []);
 
   // ── Ackordets delar ────────────────────────────────────────────────────
   const volym = sum(prod, 'volym_m3sub');
@@ -195,7 +197,9 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
           : `${maskinId} saknar kostnadsställe ${dag}.`,
       });
     }
-    const tp = (timprisRes.data || []).find((p: any) =>
+    // EFFEKTIVT timpris (bas + ForestLink) — samma pris som timpeng-jämförelsen
+    // och Översikten räknar med, lib/ekonomi/forestlink.
+    const tp = effektivaTimpriser.find((p: any) =>
       p.maskin_id === maskinId && isValidOn(dag, p.giltig_fran, p.giltig_till));
     maskiner.push({
       maskin_id: maskinId,
