@@ -123,6 +123,12 @@ STEG_B_LAGE = (_env.get('STEG_B_LAGE') or os.getenv('STEG_B_LAGE') or 'logga').s
 # Samma mönster som STEG_B_LAGE. Läses ur .env.local (AUTO_STATUS_LAGE=logga|skriv); saknas → 'logga'.
 AUTO_STATUS_LAGE = (_env.get('AUTO_STATUS_LAGE') or os.getenv('AUTO_STATUS_LAGE') or 'logga').strip().lower()
 
+# Auto-avslut-läge: en inkommande prod-fil sätter skordning_avslutad / skotning_avslutad automatiskt
+# när maskinen flyttat vidare (filerna vet). Båda satta → samma avslut som lib/avslutaObjekt
+# (status='avslutat', ur ALLA maskin_ko). 'logga' (DEFAULT) loggar "Auto-avslut [logga] skulle …",
+# 'skriv' gör det. En människas satta flaggor rörs aldrig. Läses ur .env.local; saknas → 'logga'.
+AUTO_AVSLUT_LAGE = (_env.get('AUTO_AVSLUT_LAGE') or os.getenv('AUTO_AVSLUT_LAGE') or 'logga').strip().lower()
+
 # OneDrive-mappar
 ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
 INKOMMANDE = os.path.join(ONEDRIVE_BASE, "Inkommande")
@@ -4683,6 +4689,180 @@ def auto_status_pagaende(data: Dict) -> None:
         logger.warning(f"  Auto-status: oväntat fel ({e})")
 
 
+# ── AUTO-AVSLUT (filerna vet) ──────────────────────────────────────────────────────────────────
+def _rest_get(table: str, params: Dict) -> list:
+    """GET mot PostgREST, tom lista vid fel. SUPABASE_HEADERS måste vara satta (init_supabase)."""
+    try:
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", params=params, headers=SUPABASE_HEADERS, timeout=30)
+        return r.json() if r.status_code == 200 else []
+    except Exception:
+        return []
+
+
+def _resolve_egen_skotning(rad, matt: float) -> float:
+    """Spegling av lib/skotat.resolveSkotareVolym: EGEN skotad volym (m³fub). OMLASTNING räknas ALDRIG.
+    Ingen rad → egen = mätt (ren lass-maskin)."""
+    if not rad:
+        return max(0.0, float(matt or 0))
+    egen = rad.get('volym_egen_skotning')
+    if egen is not None:
+        return float(egen)
+    if rad.get('ar_omlastning') is True:
+        return 0.0
+    legacy = rad.get('volym_m3')
+    if legacy is not None:
+        return float(legacy)
+    oml = rad.get('volym_omlastning') or 0
+    return max(0.0, float(matt or 0) - float(oml))
+
+
+def utvardera_avslut(oid, vo) -> Dict:
+    """REN utvärdering (bara läsningar) av auto-avslut-regeln för ETT objekt (importens objekt_id = oid).
+    Delad av auto_avslut (importen) och scripts/auto-avslut-dry-run.py. Skriver inget.
+      skordning_avslutad = skördarens sista hpr-datum NÄR samma skördare producerat på annat objekt efter.
+      skotning_avslutad  = skotarens sista fpr-datum NÄR skotaren flyttat OCH backen (lib/skotat: utan
+                           omlastning, klamp ≥0) < 15 m³fub. skotat=0 → ALDRIG. Egen skotning = skördning."""
+    dim = _rest_get('dim_objekt', {'select': 'skordning_avslutad,skotning_avslutad,egen_skotning,object_name', 'objekt_id': f'eq.{oid}'})
+    d = dim[0] if dim else {}
+    bef_skord = d.get('skordning_avslutad'); bef_skot = d.get('skotning_avslutad')
+    egen = d.get('egen_skotning') is True; namn = d.get('object_name') or str(oid)
+
+    prod = _rest_get('vy_uppf_prod_per_objekt', {'select': 'volym_m3sub', 'objekt_id': f'eq.{oid}'})
+    skordat = float(prod[0]['volym_m3sub']) if prod and prod[0].get('volym_m3sub') is not None else 0.0
+
+    obj_niv = _rest_get('skotare_objekt_manuell', {'select': 'volym_egen_skotning,volym_m3,ar_omlastning,volym_omlastning', 'objekt_id': f'eq.{oid}', 'maskin_id': 'is.null'})
+    if obj_niv:
+        skotat = _resolve_egen_skotning(obj_niv[0], 0.0)
+    else:
+        matt: Dict[str, float] = {}
+        for r in _rest_get('fakt_lass', {'select': 'maskin_id,volym_m3sub', 'objekt_id': f'eq.{oid}'}):
+            m = r.get('maskin_id')
+            if m:
+                matt[m] = matt.get(m, 0.0) + float(r.get('volym_m3sub') or 0)
+        man: Dict[str, Dict] = {}
+        for r in _rest_get('skotare_objekt_manuell', {'select': 'maskin_id,volym_egen_skotning,volym_m3,ar_omlastning,volym_omlastning', 'objekt_id': f'eq.{oid}', 'maskin_id': 'not.is.null'}):
+            if r.get('maskin_id'):
+                man[r['maskin_id']] = r
+        skotat = sum(_resolve_egen_skotning(man.get(m), matt.get(m, 0.0)) for m in (set(matt) | set(man)))
+    backen = max(0.0, skordat - skotat)
+
+    def _nu_pa(objekt_id):
+        nd = _rest_get('dim_objekt', {'select': 'object_name', 'objekt_id': f'eq.{objekt_id}'})
+        return (nd[0].get('object_name') if nd else None) or objekt_id
+
+    # Skördning: sista hpr + skördaren har flyttat till annat objekt efter (ingen volymtröskel)
+    skord_rule = None; skord_nu_pa = None
+    sh = _rest_get('fakt_sortiment', {'select': 'maskin_id,datum', 'objekt_id': f'eq.{oid}', 'order': 'datum.desc', 'limit': '1'})
+    if sh and sh[0].get('maskin_id') and sh[0].get('datum'):
+        flytt = _rest_get('fakt_sortiment', {'select': 'objekt_id,datum', 'maskin_id': f"eq.{sh[0]['maskin_id']}", 'objekt_id': f'neq.{oid}', 'datum': f"gt.{sh[0]['datum']}", 'order': 'datum.desc', 'limit': '1'})
+        if flytt:
+            skord_rule = sh[0]['datum']; skord_nu_pa = _nu_pa(flytt[0].get('objekt_id'))
+    final_skord = bef_skord or skord_rule
+
+    # Skotning
+    skot_rule = None; skot_nu_pa = None
+    if egen:
+        skot_rule = final_skord  # egen skotning = skördning
+    else:
+        sf = _rest_get('fakt_lass', {'select': 'maskin_id,datum', 'objekt_id': f'eq.{oid}', 'order': 'datum.desc', 'limit': '1'})
+        if sf and skotat > 0 and sf[0].get('maskin_id') and sf[0].get('datum'):  # skotat=0 → sätts aldrig
+            flytt2 = _rest_get('fakt_lass', {'select': 'objekt_id,datum', 'maskin_id': f"eq.{sf[0]['maskin_id']}", 'objekt_id': f'neq.{oid}', 'datum': f"gt.{sf[0]['datum']}", 'order': 'datum.desc', 'limit': '1'})
+            if flytt2 and backen < 15:
+                skot_rule = sf[0]['datum']; skot_nu_pa = _nu_pa(flytt2[0].get('objekt_id'))
+    final_skot = bef_skot or skot_rule
+
+    return {'oid': oid, 'vo': vo, 'namn': namn, 'egen': egen, 'bef_skord': bef_skord, 'bef_skot': bef_skot,
+            'skord_rule': skord_rule, 'skot_rule': skot_rule, 'skord_nu_pa': skord_nu_pa, 'skot_nu_pa': skot_nu_pa,
+            'skordat': skordat, 'skotat': skotat, 'backen': backen,
+            'satter_skord': bool(skord_rule) and not bef_skord,
+            'satter_skot': bool(skot_rule) and not bef_skot,
+            'blir_avslutat': bool(final_skord) and bool(final_skot)}
+
+
+def _avsluta_objekt_rest(oid, vo, namn, tagg):
+    """Samma avslut som lib/avslutaObjekt: status='avslutat' + avslutad_timestamp och UR ALLA maskin_ko.
+    Loggar/skriver bara om något faktiskt är kvar att avsluta (redan avslutat → tyst)."""
+    from datetime import datetime, timezone
+    ors = [f'dim_objekt_id.eq.{oid}']
+    if vo:
+        ors.insert(0, f'vo_nummer.eq.{vo}')
+    rader = _rest_get('objekt', {'select': 'id,status', 'or': f"({','.join(ors)})"})
+    ej = [r for r in rader if r.get('status') != 'avslutat']
+    if not ej:
+        return
+    logger.info(f"Auto-avslut {tagg}{namn} avslutat (båda flaggor)")
+    if AUTO_AVSLUT_LAGE == 'skriv':
+        try:
+            for r in ej:
+                requests.patch(f"{SUPABASE_URL}/rest/v1/objekt?id=eq.{r['id']}",
+                               headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'},
+                               json={'status': 'avslutat', 'avslutad_timestamp': datetime.now(timezone.utc).isoformat()}, timeout=10)
+            for r in rader:
+                if r.get('id'):
+                    requests.delete(f"{SUPABASE_URL}/rest/v1/maskin_ko?objekt_id=eq.{r['id']}",
+                                    headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'}, timeout=10)
+        except Exception as e:
+            logger.warning(f"  Auto-avslut: avslut {namn} misslyckades ({e})")
+
+
+def ar_kundjobb(oid, vo) -> bool:
+    """SKRÄPFILTER: bara 'riktiga kundjobb' auto-flaggas = objektet har bolag SATT (tomt/blankt = ej kundjobb).
+    Samma signal som /oversikt-v2:s nästa-förslag (`!o.bolag` → aldrig kandidat). Källor: dim_objekt.bolag
+    (täcker även objekt UTAN planerings-rad — 85 av 139 objekt med produktion saknar objekt-rad) ELLER
+    objekt.bolag (via vo_nummer/dim_objekt_id). Mätt 2026-10-02: tabellerna divergerar aldrig där båda har
+    rad. OBS tom STRÄNG räknas som tomt (7 dim-rader har bolag='' — ett rent IS NOT NULL släpper igenom dem)."""
+    def _satt(v):
+        return v is not None and str(v).strip() != ''
+    d = _rest_get('dim_objekt', {'select': 'bolag', 'objekt_id': f'eq.{oid}'})
+    if d and _satt(d[0].get('bolag')):
+        return True
+    ors = [f'dim_objekt_id.eq.{oid}']
+    if vo:
+        ors.insert(0, f'vo_nummer.eq.{vo}')
+    return any(_satt(r.get('bolag')) for r in _rest_get('objekt', {'select': 'bolag', 'or': f"({','.join(ors)})"}))
+
+
+def auto_avslut(data: Dict) -> None:
+    """Prod-fil in → sätt skordning/skotning_avslutad när maskinen flyttat vidare (filerna vet) och
+    avsluta när båda är satta. SKRÄPFILTER: bara objekt med bolag satt (ar_kundjobb). En människas satta
+    flaggor rörs ALDRIG. Styrs av AUTO_AVSLUT_LAGE. Egna fel får aldrig fälla importen."""
+    try:
+        import urllib.parse
+        tagg = '' if AUTO_AVSLUT_LAGE == 'skriv' else '[logga] '
+        sedda = set()
+        for o in (data.get('objekt') or []):
+            oid = o.get('objekt_id'); vo = o.get('vo_nummer')
+            if not oid or oid in sedda:
+                continue
+            sedda.add(oid)
+            if not ar_kundjobb(oid, vo):  # flytt/service/bärgning/egen skog: bolag tomt → auto-flaggas aldrig
+                continue
+            r = utvardera_avslut(oid, vo)
+            enc = urllib.parse.quote(str(oid))
+            if r['satter_skord']:
+                logger.info((f"Auto-avslut {tagg}skulle satt" if AUTO_AVSLUT_LAGE != 'skriv' else "Auto-avslut satte")
+                            + f" skordning_avslutad {r['skord_rule']} på {r['namn']} (skördaren nu på {r['skord_nu_pa']})")
+                if AUTO_AVSLUT_LAGE == 'skriv':
+                    try:
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/dim_objekt?objekt_id=eq.{enc}&skordning_avslutad=is.null",
+                                       headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'}, json={'skordning_avslutad': r['skord_rule']}, timeout=10)
+                    except Exception as e:
+                        logger.warning(f"  Auto-avslut: PATCH skordning {r['namn']} misslyckades ({e})")
+            if r['satter_skot']:
+                logger.info((f"Auto-avslut {tagg}skulle satt" if AUTO_AVSLUT_LAGE != 'skriv' else "Auto-avslut satte")
+                            + f" skotning_avslutad {r['skot_rule']} på {r['namn']} (backen {r['backen']:.0f} m³)")
+                if AUTO_AVSLUT_LAGE == 'skriv':
+                    try:
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/dim_objekt?objekt_id=eq.{enc}&skotning_avslutad=is.null",
+                                       headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'}, json={'skotning_avslutad': r['skot_rule']}, timeout=10)
+                    except Exception as e:
+                        logger.warning(f"  Auto-avslut: PATCH skotning {r['namn']} misslyckades ({e})")
+            if r['blir_avslutat']:
+                _avsluta_objekt_rest(oid, vo, r['namn'], tagg)
+    except Exception as e:
+        logger.warning(f"  Auto-avslut: oväntat fel ({e})")
+
+
 def save_hpr_to_supabase(data: Dict) -> bool:
     """Spara HPR-data till Supabase"""
     try:
@@ -4822,6 +5002,7 @@ def save_hpr_to_supabase(data: Dict) -> bool:
             return False
 
         auto_status_pagaende(data)  # planerad→pagaende + mata av kön (AUTO_STATUS_LAGE)
+        auto_avslut(data)           # sätt avslut-flaggor när maskinen flyttat + avsluta (AUTO_AVSLUT_LAGE)
         return True
     except Exception as e:
         logger.error(f"  Fel vid sparande av HPR: {e}")
@@ -5037,6 +5218,7 @@ def save_fpr_to_supabase(data: Dict) -> bool:
             return False
 
         auto_status_pagaende(data)  # planerad→pagaende + mata av kön (AUTO_STATUS_LAGE)
+        auto_avslut(data)           # sätt avslut-flaggor när maskinen flyttat + avsluta (AUTO_AVSLUT_LAGE)
         return True
     except Exception as e:
         logger.error(f"  Fel vid sparande av FPR: {e}")
