@@ -156,14 +156,15 @@ BEGIN
 
   DELETE FROM stamplings_cell c USING _batch b WHERE c.objekt_id = b.objekt_id;
 
-  WITH stock AS (
+  WITH klass AS MATERIALIZED (SELECT sortiment_id, grupp FROM vy_sortiment_klass),
+  stock AS (
     -- Gruppen på sortimentet, med stockens eget namn som reserv (tomma namn i
     -- dim_sortiment). Hemved bort INNAN något summeras.
     SELECT d.maskin_id, d.stem_key, d.objekt_id, d.log_key, d.volym_m3sub,
            coalesce(k.grupp, harled_produktgrupp(d.sortiment_namn), 'Övrigt') AS grupp
     FROM detalj_stock d
     JOIN _batch b ON b.objekt_id = d.objekt_id AND b.slutavverkning
-    LEFT JOIN vy_sortiment_klass k ON k.sortiment_id = d.sortiment_id
+    LEFT JOIN klass k ON k.sortiment_id = d.sortiment_id
     WHERE d.stem_key IS NOT NULL AND d.log_key IS NOT NULL
       AND coalesce(k.grupp, harled_produktgrupp(d.sortiment_namn), '') <> 'Hemved'),
   forsta AS (
@@ -196,7 +197,7 @@ BEGIN
     stammar20 = r.n, rot20 = r.rot
   FROM (SELECT b.objekt_id,
                sum(c.stammar) AS n,
-               CASE WHEN sum(c.stammar) > 0 THEN sum(c.stammar) FILTER (WHERE c.rot)::numeric / sum(c.stammar) END AS rot
+               CASE WHEN sum(c.stammar) > 0 THEN coalesce(sum(c.stammar) FILTER (WHERE c.rot), 0)::numeric / sum(c.stammar) END AS rot
         FROM _batch b LEFT JOIN stamplings_cell c
                ON c.objekt_id = b.objekt_id AND c.klass >= 20 AND c.slag IN ('tall', 'gran')
         GROUP BY b.objekt_id) r
@@ -249,9 +250,9 @@ BEGIN
     UNION ALL
     SELECT 'stammar_antal', sum(stammar), NULL, now() FROM stamplings_cell
     UNION ALL
-    SELECT 'sedan_ar', min(extract(year FROM s.tidpunkt)), NULL, now()
-    FROM detalj_stam s JOIN stamplings_objekt o ON o.objekt_id = s.objekt_id AND o.slutavverkning
-    WHERE s.tidpunkt IS NOT NULL
+    SELECT 'sedan_ar', min(extract(year FROM u.forsta)), NULL, now()
+    FROM utfall_objekt u JOIN stamplings_objekt o ON o.objekt_id = u.objekt_id AND o.slutavverkning
+    WHERE u.forsta IS NOT NULL
   ) m;
 
   SELECT count(*) INTO v_rader FROM stamplings_klass;
