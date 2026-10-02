@@ -77,6 +77,7 @@ function Innehall() {
   const [uppdaterad, setUppdaterad] = useState<string | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
+  const [tabellSaknas, setTabellSaknas] = useState(false);   // migrationen inte körd — ett eget, ärligt läge
 
   const [text, setText] = useState<Text3>(TOM_TEXT);
   const [rapportText, setRapportText] = useState<RapportText>(TOM_RAPPORT);
@@ -100,10 +101,15 @@ function Innehall() {
       medAbortRetry(() => supabase.from('stamplings_meta').select('nyckel,varde,beraknad')),
     ]);
     const e = k.error ?? m.error;
-    if (e) {
+    if (e && ((e as { code?: string }).code === 'PGRST205' || /schema cache|does not exist/i.test(e.message ?? ''))) {
+      // Tabellerna finns inte: migrationen är inte körd. Inte ett fel att
+      // trycka "försök igen" på — det säger vi rakt ut i stället.
+      setTabellSaknas(true); setCeller([]); setMeta({}); setUppdaterad(null);
+    } else if (e) {
       setFel({ kod: (e as { code?: string }).code ?? (arAbortFel(e) ? 'ABORT' : 'OKÄND'), text: e.message ?? String(e) });
       setCeller(null);
     } else {
+      setTabellSaknas(false);
       // numeric kommer som text från PostgREST — talen ska vara tal.
       setCeller(((k.data ?? []) as Record<string, unknown>[]).map(r => ({
         slag: String(r.slag), klass: Number(r.klass), rot: r.rot as Cell['rot'],
@@ -215,7 +221,12 @@ function Innehall() {
       <div style={SIDA}>
         <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
         <Stort tal="–" ordrad="inget räknat ännu">
-          <Damp>Modellen fylls efter nästa import (berakna_stamplingsmodell.py). Stämplingslängden går att mata in redan nu.</Damp>
+          <Damp>
+            {tabellSaknas
+              ? 'Modelltabellerna finns inte ännu — migrationen 20261002_stamplingsmodell.sql är inte körd.'
+              : 'Modellen fylls efter nästa import (berakna_stamplingsmodell.py).'}
+            {' '}Stämplingslängden går att mata in redan nu.
+          </Damp>
         </Stort>
         <Rader>
           <Rad text="Stämplingslängd" tal={`${nf0(res?.trad ?? 0)} träd`} onClick={() => router.push(url({ vy: 'langd' }))} />
