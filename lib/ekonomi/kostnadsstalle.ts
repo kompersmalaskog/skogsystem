@@ -63,6 +63,29 @@ export function maskinForKostnadsstalle(
   return traff[0].maskin_id;
 }
 
+/**
+ * Som maskinForKostnadsstalle, men en kod som BARA EN maskin någonsin haft
+ * ägs av den maskinen även utanför datumfönstret. Det är INGEN gissning —
+ * det finns ingen annan kandidat, och luckan är ett registreringsglapp:
+ * M6-rader 1 jan när mappningen registrerades 9 jan, SCO använt i
+ * bokföringen redan i januari fast koden registrerades 9 mars. Utan
+ * fallbacken blev de raderna falska "övriga"-rader med Fortnox-beskrivningen
+ * som namn — såg ut som dubblettmaskiner i resultatvyn.
+ * Koder med FLERA ägare genom tiderna (M12: R64101 → R64428) avgörs
+ * fortfarande STRIKT av datumet — där vore fallbacken exakt den smetning
+ * som #611 rättade.
+ */
+export function maskinForKostnadsstalleEntydig(
+  kod: string,
+  datum: string,
+  rader: KostnadsstalleRad[] | null | undefined,
+): string | null {
+  const perDatum = maskinForKostnadsstalle(kod, datum, rader);
+  if (perDatum) return perDatum;
+  const agare = new Set((rader || []).filter(r => r.kostnadsstalle_kod === kod).map(r => r.maskin_id));
+  return agare.size === 1 ? Array.from(agare)[0] : null;
+}
+
 /** true när maskinen har flera giltiga rader samma dag — ett datafel att yta. */
 export function harKrockandeKostnadsstalle(
   maskinId: string,

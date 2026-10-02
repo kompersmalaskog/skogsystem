@@ -56,6 +56,11 @@ type OvrigtCc = { kod: string; namn?: string; intakter: number; kostnader: Kostn
 
 type Kvartal = { kvartal: number; intakter: number; kostnader_total: number; resultat: number; antal_rader: number };
 
+// Rörelsens mått ur API:t — jämförelsens grund. Nettoomsättning 30–37,
+// övriga intäkter 38–39 (kan svänga stort mellan år och dölja utvecklingen),
+// rörelsekostnad 40–79, finansiellt 80–89.
+type Rorelse = { nettoomsattning: number; ovriga_intakter: number; rorelsekostnad: number; finansiellt: number };
+
 const KATEGORIER: [keyof Kostnader, string][] = [
   ['drivmedel', 'Drivmedel'],
   ['drift_service', 'Drift & service'],
@@ -68,6 +73,10 @@ const KATEGORIER: [keyof Kostnader, string][] = [
 const KOST_KOLUMNER = 'minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 0.8fr)';
 // Per maskin-tabellen: Maskin · Intäkt · Kostnad · Resultat
 const MASKIN_KOLUMNER = 'minmax(0, 1.6fr) repeat(3, minmax(0, 1fr))';
+// Mot i fjol: rad · I år · I fjol · Skillnad (kr och %)
+const JAMFOR_KOLUMNER = 'minmax(0, 0.7fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.4fr)';
+
+const MANAD_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 
 function formatKr(n: number) { return `${Math.round(n).toLocaleString('sv-SE')} kr`; }
 function fmtSign(n: number) { return `${n < 0 ? '−' : '+'}${Math.round(Math.abs(n)).toLocaleString('sv-SE')}`; }
@@ -109,6 +118,17 @@ export function maskinTabell(
     .map(r => ({ ...r, resultat: r.intakt - r.kostnad }))
     .filter(r => r.intakt !== 0 || r.kostnad !== 0)
     .sort((a, b) => b.resultat - a.resultat);
+  // Två maskiner kan dela namn — M12:s båda ägare är Rottne H8E och såg ut
+  // som EN dubblerad maskin fast det är två (R64101 t.o.m. 11 mars, såld;
+  // R64428 därefter). Särskilj namndubbletter med maskin_id (PR 192-läxan)
+  // så ingen slår ihop två maskiners ekonomi i huvudet.
+  const perNamn = new Map<string, number>();
+  for (const r of rader) perNamn.set(r.namn, (perNamn.get(r.namn) || 0) + 1);
+  for (const r of rader) {
+    if ((perNamn.get(r.namn) || 0) > 1 && !r.key.startsWith('cc-') && r.key !== 'utan-cc' && !r.namn.includes(r.key)) {
+      r.namn = `${r.namn} ${r.key}`;
+    }
+  }
   return {
     rader,
     summa: {
@@ -117,6 +137,38 @@ export function maskinTabell(
       resultat: rader.reduce((s, r) => s + r.resultat, 0),
     },
   };
+}
+
+// ÄPPLEN MOT ÄPPLEN: jämför alltid SAMMA månadsintervall båda åren.
+// Jämförmånaderna = valda periodens månader, KAPADE vid senaste bokförda
+// månaden i år — aldrig delår mot helår (13,5 mot 13,6 "sämre" blir +21 %
+// bättre när perioden matchas). null = inget att jämföra (perioden ligger
+// helt efter bokföringen, eller maxDatum hör inte till periodens år).
+export function jamforIntervall(start: string, end: string, maxDatum: string | null) {
+  if (!maxDatum || maxDatum.slice(0, 4) !== start.slice(0, 4)) return null;
+  const startManad = Number(start.slice(5, 7));
+  const slutManad = Math.min(Number(end.slice(5, 7)), Number(maxDatum.slice(5, 7)));
+  if (startManad > slutManad) return null;
+  const ar = Number(start.slice(0, 4));
+  const sista = (y: number, m: number) => String(new Date(y, m, 0).getDate()).padStart(2, '0');
+  const mmStart = String(startManad).padStart(2, '0');
+  const mmSlut = String(slutManad).padStart(2, '0');
+  const iArTill = `${ar}-${mmSlut}-${sista(ar, slutManad)}`;
+  return {
+    startManad, slutManad, ar,
+    fjol: { fran: `${ar - 1}-${mmStart}-01`, till: `${ar - 1}-${mmSlut}-${sista(ar - 1, slutManad)}` },
+    // Sista jämförda månaden hel i år? Annars ärlig not "bokfört t.o.m." —
+    // fjolåret har hela månaden, i år kan fyllas på.
+    sistaManadHel: Number(maxDatum.slice(5, 7)) > slutManad || maxDatum === iArTill,
+  };
+}
+
+// Skillnadsraden: diff av de VISADE (avrundade) talen; procent mot fjolårets
+// belopp, null när fjol är 0 (en procentsats mot noll vore en lögn).
+export function jamforRad(iAr: number, iFjol: number) {
+  const skillnad = iAr - iFjol;
+  const procent = iFjol !== 0 ? Math.round((skillnad / Math.abs(iFjol)) * 100) : null;
+  return { skillnad, procent };
 }
 
 export default function ResultatClient() {
@@ -132,6 +184,12 @@ export default function ResultatClient() {
   const [antalRader, setAntalRader] = useState(0);   // ärligt tomt: 0 bokförda rader ≠ 0 kr vinst
   const [serie, setSerie] = useState<Kvartal[]>([]); // årets kvartal — trendgrafen
   const [maxDatum, setMaxDatum] = useState<string | null>(null); // sista bokförda dag i ÅRET
+  // Jämförelsen mot i fjol: periodens rörelsemått i år + fjolårets för
+  // SAMMA månadsintervall. null = kunde inte hämtas eller inget att
+  // jämföra; fjolAntalRader 0 = året är inte inläst i underlaget (visas
+  // ärligt, aldrig som −100 %).
+  const [iArRorelse, setIArRorelse] = useState<Rorelse | null>(null);
+  const [fjol, setFjol] = useState<{ rorelse: Rorelse; antalRader: number } | null>(null);
   const [kostOpen, setKostOpen] = useState(false); // kostnadsuppdelningen bakom ETT klick
   const [infoOpen, setInfoOpen] = useState(false);
   // Periodens G15-timmar per maskin (fakt_tid via g15Sek) — grunden för
@@ -178,7 +236,7 @@ export default function ResultatClient() {
       const body = await r.json();
       if (!r.ok || !body.ok) {
         setMaskiner([]); setForetagetTotalt(null); setUtanKost(null); setOvriga([]);
-        setAntalRader(0); setSerie([]); setMaxDatum(null);
+        setAntalRader(0); setSerie([]); setMaxDatum(null); setFjol(null); setIArRorelse(null);
         setError(body.meddelande || `HTTP ${r.status}`);
         return;
       }
@@ -187,15 +245,37 @@ export default function ResultatClient() {
       setUtanKost(body.utan_kostnadsstalle || null);
       setOvriga(body.ovriga_kostnadsstallen || []);
       setAntalRader(Number(body.antal_rader_i_period) || 0);
+      setIArRorelse(body.rorelse || null);
       // Kvartalsserien ur årsanropet (eller periodanropet i årsläget).
       // Fel i det extra årsanropet fäller inte vyn — grafen visas bara inte.
       const arBody = arSamma ? body : (rAr && rAr.ok ? await rAr.json() : null);
+      const maxD: string | null = arBody?.ok ? (arBody.max_transaction_date || null) : null;
       setSerie(arBody?.ok ? (arBody.kvartalsserie || []) : []);
-      setMaxDatum(arBody?.ok ? (arBody.max_transaction_date || null) : null);
+      setMaxDatum(maxD);
+
+      // Mot i fjol: hämta SAMMA månadsintervall året innan (kapat vid
+      // senaste bokförda månaden i år — äpplen mot äpplen). Fel här fäller
+      // inte vyn — jämförelsen visas bara inte.
+      const intervall = jamforIntervall(start, end, maxD);
+      if (intervall) {
+        try {
+          const rf = await fetch(`/api/fortnox/result-per-costcenter?fromdate=${intervall.fjol.fran}&todate=${intervall.fjol.till}`, { cache: 'no-store' });
+          const fb = await rf.json();
+          if (rf.ok && fb.ok && fb.rorelse) {
+            setFjol({ rorelse: fb.rorelse, antalRader: Number(fb.antal_rader_i_period) || 0 });
+          } else {
+            setFjol(null);
+          }
+        } catch {
+          setFjol(null);
+        }
+      } else {
+        setFjol(null);
+      }
     } catch (e: any) {
       setError(e?.message || String(e));
       setMaskiner([]); setForetagetTotalt(null); setUtanKost(null); setOvriga([]);
-      setAntalRader(0); setSerie([]); setMaxDatum(null);
+      setAntalRader(0); setSerie([]); setMaxDatum(null); setFjol(null); setIArRorelse(null);
     }
     setLoading(false);
   }, [period, periodOffset]);
@@ -206,7 +286,7 @@ export default function ResultatClient() {
   const harData = tot != null && antalRader > 0;
   const sheetH = { ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.xs } as const;
 
-  const { start: periodStart } = getPeriodDates(period, periodOffset);
+  const { start: periodStart, end: periodSlut } = getPeriodDates(period, periodOffset);
   const visatAr = Number(periodStart.slice(0, 4));
   const visatKvartal = period === 'K' ? Math.floor((Number(periodStart.slice(5, 7)) - 1) / 3) + 1 : null;
 
@@ -250,6 +330,40 @@ export default function ResultatClient() {
 
   const kostGrid = gridRad(KOST_KOLUMNER);
   const maskGrid = gridRad(MASKIN_KOLUMNER);
+  const jamforGrid = gridRad(JAMFOR_KOLUMNER);
+
+  // Mot i fjol — samma månadsintervall båda åren (se jamforIntervall).
+  // RÖRELSENS mått, inte vyns intäkt/kostnad: övriga intäkter (38–39xx)
+  // kan svänga miljoner mellan år (2025: 2,6 mkr) och dölja verksamhetens
+  // utveckling — därför Nettoomsättning · Rörelsekostnad · Rörelseresultat
+  // med egna etiketter, och hela bokförda resultatet som ärlig fotrad.
+  // Avrunda först: varje års tal avrundas, resultat = visade diffar.
+  const intervall = jamforIntervall(periodStart, periodSlut, maxDatum);
+  const manadSpann = intervall
+    ? (intervall.startManad === intervall.slutManad
+      ? MANAD_KORT[intervall.startManad - 1]
+      : `${MANAD_KORT[intervall.startManad - 1]}–${MANAD_KORT[intervall.slutManad - 1]}`)
+    : '';
+  const jamfor = (() => {
+    if (!iArRorelse || !fjol || fjol.antalRader === 0) return null;
+    const rund = (r: Rorelse) => {
+      const netto = Math.round(r.nettoomsattning);
+      const kostnad = Math.round(r.rorelsekostnad);
+      const ovriga = Math.round(r.ovriga_intakter);
+      const fin = Math.round(r.finansiellt);
+      return { netto, kostnad, resultat: netto - kostnad, bokfort: netto + ovriga - kostnad - fin, ovriga };
+    };
+    const a = rund(iArRorelse);
+    const f = rund(fjol.rorelse);
+    return {
+      rader: [
+        { namn: 'Nettoomsättning', iAr: a.netto, iFjol: f.netto, ...jamforRad(a.netto, f.netto), resultatRad: false },
+        { namn: 'Rörelsekostnad', iAr: a.kostnad, iFjol: f.kostnad, ...jamforRad(a.kostnad, f.kostnad), resultatRad: false },
+        { namn: 'Rörelseresultat', iAr: a.resultat, iFjol: f.resultat, ...jamforRad(a.resultat, f.resultat), resultatRad: true },
+      ],
+      fot: { a, f, bokfortDiff: jamforRad(a.bokfort, f.bokfort) },
+    };
+  })();
 
   return (
     <EkonomiSida maxBredd={MAXBREDD_BRED}>
@@ -310,6 +424,63 @@ export default function ResultatClient() {
               <div style={{ ...TYP.rubrik, ...TNUM, marginTop: AVSTAND.xs }}>{formatKr(visadKostTotal)}</div>
             </div>
           </div>
+
+          {/* MOT I FJOL — ÄPPLEN MOT ÄPPLEN: alltid samma månadsintervall
+              båda åren (kapat vid senaste bokförda månaden i år), aldrig
+              delår mot helår. Bara resultatraden färgas: grön = bättre än
+              i fjol, röd = sämre — tecknet står alltid i texten. */}
+          {intervall && (
+            <>
+              <SektionsTitel>
+                Mot i fjol — {manadSpann} {visatAr} mot {manadSpann} {visatAr - 1} · samma period båda åren
+              </SektionsTitel>
+              <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
+                {jamfor ? (
+                  <>
+                    <div style={{ ...jamforGrid, padding: `${AVSTAND.s}px 0` }}>
+                      <div />
+                      <div style={rubrikCell}>I år kr</div>
+                      <div style={rubrikCell}>I fjol kr</div>
+                      <div style={rubrikCell}>Skillnad</div>
+                    </div>
+                    {jamfor.rader.map(r => (
+                      <div key={r.namn} style={{ ...jamforGrid, padding: `${AVSTAND.m}px 0`, borderTop: r.resultatRad ? `1px solid ${FARG.linje}` : undefined }}>
+                        <div style={{ ...TYP.text, fontWeight: r.resultatRad ? VIKT.halvfet : VIKT.normal, color: FARG.text }}>{r.namn}</div>
+                        <div style={{ ...talCell, fontWeight: r.resultatRad ? VIKT.halvfet : VIKT.normal }}>{r.iAr.toLocaleString('sv-SE')}</div>
+                        <div style={{ ...talCell, fontWeight: r.resultatRad ? VIKT.halvfet : VIKT.normal }}>{r.iFjol.toLocaleString('sv-SE')}</div>
+                        <div style={{
+                          ...talCell, fontWeight: r.resultatRad ? VIKT.halvfet : VIKT.normal,
+                          color: r.resultatRad ? resFarg(r.skillnad) : FARG.text,
+                        }}>
+                          {fmtSign(r.skillnad)}{r.procent != null && <span style={{ ...TYP.meta, color: r.resultatRad ? resFarg(r.skillnad) : FARG.text2 }}> ({r.procent >= 0 ? '+' : '−'}{Math.abs(r.procent)} %)</span>}
+                        </div>
+                      </div>
+                    ))}
+                    {/* Hela bilden, dämpat — rörelsen ovan döljer inget:
+                        övriga intäkter kan svänga miljoner mellan åren. */}
+                    <div style={{ ...TYP.meta, color: FARG.text3, padding: `${AVSTAND.s}px 0`, borderTop: `1px solid ${FARG.linje}`, lineHeight: 1.5 }}>
+                      Utanför rörelsen: övriga intäkter {jamfor.fot.a.ovriga.toLocaleString('sv-SE')} mot {jamfor.fot.f.ovriga.toLocaleString('sv-SE')} kr och räntor.
+                      Hela bokförda resultatet: {jamfor.fot.a.bokfort.toLocaleString('sv-SE')} mot {jamfor.fot.f.bokfort.toLocaleString('sv-SE')} kr
+                      ({fmtSign(jamfor.fot.bokfortDiff.skillnad)}{jamfor.fot.bokfortDiff.procent != null && <> · {jamfor.fot.bokfortDiff.procent >= 0 ? '+' : '−'}{Math.abs(jamfor.fot.bokfortDiff.procent)} %</>}).
+                    </div>
+                    {!intervall.sistaManadHel && maxDatum && (
+                      <div style={{ ...TYP.meta, color: FARG.orange, paddingBottom: AVSTAND.s, textAlign: 'center' }}>
+                        i år bokfört t.o.m. {maxDatum} — sista månaden kan fyllas på, fjolåret har hela månaden
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  /* Ärligt tomt — ett oinläst fjolår är inte "0 kr" och
+                     aldrig "−100 %" */
+                  <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>
+                    {fjol == null
+                      ? 'Fjolåret kunde inte hämtas — ingen jämförelse.'
+                      : `Fjolåret (${visatAr - 1}) är inte inläst i underlaget — ingen jämförelse.`}
+                  </div>
+                )}
+              </Lista>
+            </>
+          )}
 
           {/* PER MASKIN — vyns viktigaste tabell: vem bär sig, vem går back.
               Raderna = maskiner + övriga kostnadsställen + utan CC (varje
@@ -481,8 +652,12 @@ export default function ResultatClient() {
                 Kostnader bokförs i klumpar, inte per dag — en månadsvinst vore brus. Trenden visas i stället per kvartal; ett kvartal där bokföringen inte nått kvartalets sista dag märks &quot;ofullständigt bokfört&quot; så en låg stapel aldrig läses som fakta.
               </div>
               <div>
+                <div style={sheetH}>Mot i fjol — samma period båda åren</div>
+                Jämförelsen tar alltid SAMMA månadsintervall båda åren: har i år bokfört t.o.m. september jämförs jan–sep mot jan–sep, aldrig delår mot helår — en naiv helårsjämförelse ljuger. Fjolårets sista jämförda månad är alltid hel; är i års sista månad inte färdigbokförd står det vid tabellen. Måtten är RÖRELSENS: Nettoomsättning (3000–3799), Rörelsekostnad (4xxx–7xxx) och Rörelseresultat — övriga intäkter (38–39xx, t.ex. ersättningar) kan svänga miljoner mellan åren och döljer då verksamhetens utveckling, så de och räntorna redovisas i fotraden tillsammans med hela bokförda resultatet. Avskrivning (78xx) är 0 båda åren hittills, så jämförelsen är före avskrivning för båda — rättvist. Ett år som inte är inläst i underlaget sägs rakt ut, det visas aldrig som noll eller −100 %.
+              </div>
+              <div>
                 <div style={sheetH}>Per maskin-tabellen</div>
-                Varje maskin är mappad till sina Fortnox-kostnadsställen (Inställningar), och varje bokförd rad räknas till den maskin som ägde kostnadsstället på radens datum. Kostnadsställen som inte är maskiner och rader utan kostnadsställe visas som egna rader i samma tabell — så att inget belopp försvinner tyst och summaraden alltid är totalen. Sorterad på resultat: bäst överst.
+                Varje maskin är mappad till sina Fortnox-kostnadsställen (Inställningar), och varje bokförd rad räknas till den maskin som ägde kostnadsstället på radens datum. En kod som bara en enda maskin någonsin haft ägs av den maskinen även om bokföringen använde koden innan mappningen registrerades; en kod som delats mellan maskiner (M12) avgörs strikt av datumet. Delar två maskiner namn står maskinnumret på raden — M12:s rader är TVÅ maskiner, inte en dubblett. Kostnadsställen som inte är maskiner och rader utan kostnadsställe visas som egna rader i samma tabell — så att inget belopp försvinner tyst och summaraden alltid är totalen. Sorterad på resultat: bäst överst.
               </div>
               <div>
                 <div style={{ ...sheetH, color: FARG.orange }}>Verklig värdeminskning — kalkyl</div>
