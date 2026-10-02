@@ -163,6 +163,18 @@ export const FARG = {
   diagram2: "#f0b24c",
 } as const;
 
+/** SORTIMENT — hur virket är fördelat (timmer, kubb, massaved, övrigt). En ljushetsskala:
+ *  MÖRKAST = MEST VÄRT. Egen axel, skild från status (grönt/orange/rött säger om något är bra eller
+ *  dåligt) och från rollfärgerna (skördare/skotare). Mörkgrön betyder alltså "mest värt", aldrig "ok".
+ *  Ljushetsstegen är medvetet stora: färgen får aldrig vara ensam bärare — raden bredvid har alltid
+ *  ordet och talet. Se skogsystem-design-skillen, "Sortimentfärger". */
+export const SORTIMENTFARG = {
+  timmer: "#2f4b14",
+  kubb:   "#6e8f4a",
+  massa:  "#b4c4a0",
+  ovrigt: "#e3e8dc",
+} as const;
+
 // ---------------------------------------------------------------------------
 // Rörelse — tre tider, en kurva
 // ---------------------------------------------------------------------------
