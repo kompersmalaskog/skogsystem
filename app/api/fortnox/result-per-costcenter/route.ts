@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
-import { maskinForKostnadsstalle, type KostnadsstalleRad } from "@/lib/ekonomi/kostnadsstalle";
+import { maskinForKostnadsstalleEntydig, type KostnadsstalleRad } from "@/lib/ekonomi/kostnadsstalle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -205,12 +205,15 @@ export async function GET(req: NextRequest) {
     // och räknade delade koder DUBBELT (samma rad hos båda maskinerna).
     // Uppslaget cachas per kod|datum; null (ingen/eller tvetydig ägare
     // den dagen) → raden redovisas under "övriga", tappas aldrig.
+    // Entydig-varianten: en kod som bara EN maskin någonsin haft ägs av
+    // den maskinen även i datumluckor (M6 1 jan, SCO jan–mars) — delade
+    // koder (M12) avgörs fortfarande strikt av datumet.
     const agareCache = new Map<string, string | null>();
     const maskinForRad = (r: Rad): string | null => {
       if (!r.costcenter || !r.transaction_date) return null;
       const nyckel = `${r.costcenter}|${r.transaction_date}`;
       if (!agareCache.has(nyckel)) {
-        agareCache.set(nyckel, maskinForKostnadsstalle(r.costcenter, r.transaction_date, mappningar));
+        agareCache.set(nyckel, maskinForKostnadsstalleEntydig(r.costcenter, r.transaction_date, mappningar));
       }
       return agareCache.get(nyckel)!;
     };

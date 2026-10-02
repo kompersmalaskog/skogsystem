@@ -118,6 +118,17 @@ export function maskinTabell(
     .map(r => ({ ...r, resultat: r.intakt - r.kostnad }))
     .filter(r => r.intakt !== 0 || r.kostnad !== 0)
     .sort((a, b) => b.resultat - a.resultat);
+  // Två maskiner kan dela namn — M12:s båda ägare är Rottne H8E och såg ut
+  // som EN dubblerad maskin fast det är två (R64101 t.o.m. 11 mars, såld;
+  // R64428 därefter). Särskilj namndubbletter med maskin_id (PR 192-läxan)
+  // så ingen slår ihop två maskiners ekonomi i huvudet.
+  const perNamn = new Map<string, number>();
+  for (const r of rader) perNamn.set(r.namn, (perNamn.get(r.namn) || 0) + 1);
+  for (const r of rader) {
+    if ((perNamn.get(r.namn) || 0) > 1 && !r.key.startsWith('cc-') && r.key !== 'utan-cc' && !r.namn.includes(r.key)) {
+      r.namn = `${r.namn} ${r.key}`;
+    }
+  }
   return {
     rader,
     summa: {
@@ -646,7 +657,7 @@ export default function ResultatClient() {
               </div>
               <div>
                 <div style={sheetH}>Per maskin-tabellen</div>
-                Varje maskin är mappad till sina Fortnox-kostnadsställen (Inställningar), och varje bokförd rad räknas till den maskin som ägde kostnadsstället på radens datum. Kostnadsställen som inte är maskiner och rader utan kostnadsställe visas som egna rader i samma tabell — så att inget belopp försvinner tyst och summaraden alltid är totalen. Sorterad på resultat: bäst överst.
+                Varje maskin är mappad till sina Fortnox-kostnadsställen (Inställningar), och varje bokförd rad räknas till den maskin som ägde kostnadsstället på radens datum. En kod som bara en enda maskin någonsin haft ägs av den maskinen även om bokföringen använde koden innan mappningen registrerades; en kod som delats mellan maskiner (M12) avgörs strikt av datumet. Delar två maskiner namn står maskinnumret på raden — M12:s rader är TVÅ maskiner, inte en dubblett. Kostnadsställen som inte är maskiner och rader utan kostnadsställe visas som egna rader i samma tabell — så att inget belopp försvinner tyst och summaraden alltid är totalen. Sorterad på resultat: bäst överst.
               </div>
               <div>
                 <div style={{ ...sheetH, color: FARG.orange }}>Verklig värdeminskning — kalkyl</div>
