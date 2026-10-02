@@ -51,7 +51,7 @@ function Innehall() {
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(null);
     const [u, o, r, m] = await Promise.all([
-      allaRader('utfall_objekt', 'objekt_id,forsta,stammar,volym,timmer_m3,kubb_m3,massa_m3,medelstam,kontrollerad', 'objekt_id'),
+      allaRader('utfall_objekt', 'objekt_id,forsta,stammar,volym,timmer_m3,kubb_m3,massa_m3,lov_m3,medelstam,kontrollerad', 'objekt_id'),
       allaRader('dim_objekt', 'objekt_id,object_name,huvudtyp', 'objekt_id', q => q.in('huvudtyp', ['Slutavverkning', 'Gallring'])),
       // Rötan är ett tillägg: går den inte att läsa (ingen policy, tabellen saknas) är det ett eget läge, inte ett fel.
       allaRader('stamplings_objekt', 'objekt_id,stammar20,rot20', 'objekt_id'),
@@ -79,6 +79,7 @@ function Innehall() {
           id: String(x.objekt_id), namn: (dim.object_name as string | null) ?? null, typ, forsta: x.forsta ? String(x.forsta) : null,
           stammar, volym, timmer: num(x.timmer_m3), kubb: num(x.kubb_m3), massa: num(x.massa_m3), medelstam,
           rot20: rr ? numEllerNull(rr.rot20) : null, stammar20: rr ? numEllerNull(rr.stammar20) : null,
+          lov: numEllerNull(x.lov_m3),
         });
       }
       const meta: Meta = {};

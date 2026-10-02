@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   tolkaMedelstam, heltalTill100, andelarAv, viktad, spannAv, fonsterObjekt, utfall, rotaLutning, rotaMedian,
-  kurva, planarUt, vagdMinstaKvadrat, FONSTER_REL, RUBRIKTAL, MIN_OBJEKT, type Objekt, type Lutning,
+  kurva, planarUt, vagdMinstaKvadrat, FONSTER_REL, RUBRIKTAL, MIN_OBJEKT, arLovdominerat, delaUrval, LOV_GRANS, type Objekt, type Lutning,
 } from './berakna';
 
 // Syntetiska objekt: räknelogiken, inte datan. Mot riktig data körs samma modul i PR:ens
@@ -10,8 +10,9 @@ let nr = 0;
 const obj = (medelstam: number, volym: number, t: number, k: number, m: number, rot20: number | null = null, typ: Objekt['typ'] = 'Slutavverkning'): Objekt => ({
   id: 'o' + ++nr, namn: 'Objekt ' + nr, typ, forsta: '2025-01-01',
   stammar: Math.round(volym / medelstam), volym, timmer: volym * t / 100, kubb: volym * k / 100, massa: volym * m / 100,
-  medelstam, rot20, stammar20: rot20 == null ? null : 400,
+  medelstam, rot20, stammar20: rot20 == null ? null : 400, lov: null,
 });
+const medLov = (o: Objekt, lovPct: number | null): Objekt => ({ ...o, lov: lovPct == null ? null : (o.volym * lovPct) / 100 });
 
 describe('tolkaMedelstam', () => {
   it('tar komma och punkt, med blanksteg', () => {
@@ -228,5 +229,31 @@ describe('kurvan', () => {
     const r1 = planarUt(f);
     expect(r1.slag).toBe('oklart');
     expect(r1.slag === 'oklart' && r1.skal).toBe('fa-objekt');
+  });
+});
+
+describe('lövdominerade objekt', () => {
+  it('över 50 % löv av volymen är utanför; exakt 50 och okänd löv är med', () => {
+    expect(LOV_GRANS).toBe(0.5);
+    expect(arLovdominerat(medLov(obj(0.3, 100, 3, 0, 95), 65.4))).toBe(true);
+    expect(arLovdominerat(medLov(obj(0.3, 100, 3, 0, 95), 50.1))).toBe(true);
+    expect(arLovdominerat(medLov(obj(0.3, 100, 50, 20, 25), 50))).toBe(false);
+    expect(arLovdominerat(medLov(obj(0.3, 100, 50, 20, 25), 29.9))).toBe(false);
+    expect(arLovdominerat(medLov(obj(0.3, 100, 50, 20, 25), null))).toBe(false);     // ej räknad ≠ lövdominerad
+  });
+  it('delaUrval ger både de som är med och de som är utanför — inget försvinner tyst', () => {
+    const a = medLov(obj(0.3, 100, 40, 20, 35), 10), b = medLov(obj(0.28, 100, 3, 0, 95), 65), c = obj(0.3, 100, 40, 20, 35);
+    const { med, utanfor } = delaUrval([a, b, c]);
+    expect(med).toEqual([a, c]); expect(utanfor).toEqual([b]);
+    expect(med.length + utanfor.length).toBe(3);
+  });
+  it('spannet går tillbaka när det lövdominerade objektet är utanför — utan att volymvägda snittet rör sig', () => {
+    const barr = [0.26, 0.27, 0.29, 0.30, 0.31, 0.32].map((m, i) => medLov(obj(m, 400 + 20 * i, 38 + i, 22, 35), 8));
+    const bjork = medLov(obj(0.28, 100, 3, 0, 95), 65);
+    const med = utfall([...barr, bjork], 0.29), utan = utfall(delaUrval([...barr, bjork]).med, 0.29);
+    expect(med.spann!.timmer[0]).toBeCloseTo(3, 5);
+    expect(utan.spann!.timmer[0]).toBeGreaterThan(30);
+    expect(Math.abs(med.andel!.timmer - utan.andel!.timmer)).toBeLessThan(1.5);       // volymvägningen märkte det knappt
+    expect(utan.objekt.some(o => o.id === bjork.id)).toBe(false);
   });
 });

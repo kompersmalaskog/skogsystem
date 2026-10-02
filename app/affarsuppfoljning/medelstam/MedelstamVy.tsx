@@ -28,7 +28,7 @@ import { SIDA, DAMPAD, SEKUNDAR, TEXT, LINJE, TAL, nf, nf0, nf1, kortObjekt,
 import { Sortimentstapel, Teckenforklaring, VadPosternaBestarAv, sortimentFarg } from '@/components/Sortimentstapel';
 import { RADIE } from '@/lib/design/tokens';
 import {
-  TYPER, SORTIMENT, SORTIMENT_NAMN, FONSTER_REL, RUBRIKTAL, MIN_OBJEKT, MIN_STAMMAR, tolkaMedelstam, heltalTill100, andelarAv, utfall, kurva,
+  TYPER, SORTIMENT, SORTIMENT_NAMN, FONSTER_REL, RUBRIKTAL, MIN_OBJEKT, MIN_STAMMAR, tolkaMedelstam, heltalTill100, andelarAv, delaUrval, LOV_GRANS, utfall, kurva,
   planarUt, rotaLutning, rotaMedian, type Objekt, type Typ, type Platå, type Andelar, type Sortiment,
 } from '@/lib/medelstam/berakna';
 
@@ -153,6 +153,20 @@ function platamening(p: Platå, n: number, ms: (x: number) => string): string {
 }
 const stor = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
+/** De lövdominerade objekten som hålls utanför — med namn och andel, aldrig tyst. */
+function Utanfor({ objekt }: { objekt: Objekt[] }) {
+  if (!objekt.length) return null;
+  const n = objekt.length;
+  const lista = objekt.map(o => `${kortObjekt(o.namn ?? o.id)} (${nf0((100 * (o.lov ?? 0)) / o.volym)} % löv)`).join(', ');
+  return (
+    <Mening>
+      <b style={{ color: TEXT, fontWeight: 600 }}>Utanför kalkylen:</b>{' '}
+      {n === 1 ? 'ett lövdominerat objekt' : `${nf0(n)} lövdominerade objekt`} — {lista}. Över {nf0(100 * LOV_GRANS)} % löv av volymen: där avgör arten
+      utfallet och inte stamstorleken, så de ingår varken i fönster, spann eller kurva.
+    </Mening>
+  );
+}
+
 function Falt({ etikett, sub, children }: { etikett: string; sub?: ReactNode; children: ReactNode }) {
   return (
     <div style={{ margin: '4px 16px 0' }}>
@@ -190,15 +204,17 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
   }, [start]);
   useEffect(() => { if (laddatLokalt && !start) sparaLokalt({ typ, ms: msText, rot: rotVal }); }, [typ, msText, rotVal, laddatLokalt, start]);
 
-  const objTyp = useMemo(() => alla.filter(o => o.typ === typ), [alla, typ]);
+  const urval = useMemo(() => delaUrval(alla), [alla]);       // lövdominerade objekt ligger i urval.utanfor — redovisas, räknas inte
+  const objTyp = useMemo(() => urval.med.filter(o => o.typ === typ), [urval, typ]);
+  const utanforTyp = useMemo(() => urval.utanfor.filter(o => o.typ === typ).sort((a, b) => (b.lov ?? 0) / b.volym - (a.lov ?? 0) / a.volym), [urval, typ]);
   const fonster = FONSTER_REL;
   const slut = typ === 'Slutavverkning';
   const rubrik: Sortiment = RUBRIKTAL[typ];
   const rubrikNamn = SORTIMENT_NAMN[rubrik].toLowerCase();
   const dec = decimaler(typ);
   const ms = (x: number) => nf(x, dec);
-  const lutning = useMemo(() => (slut ? rotaLutning(alla) : null), [alla, slut]);
-  const median = meta.rot20_median ?? rotaMedian(alla);
+  const lutning = useMemo(() => (slut ? rotaLutning(urval.med) : null), [urval, slut]);
+  const median = meta.rot20_median ?? rotaMedian(urval.med);
   const rotNum = rotVal === '' ? median : Number(rotVal) / 100;
   const kanRota = slut && rotLasbar && lutning != null && median != null;
 
@@ -248,6 +264,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
           {objTyp.length > 0 && <Kurvdiagram objekt={objTyp} m={m} ms={ms} />}
           <Teckenforklaring />
           {objTyp.length > 0 && <div style={{ marginTop: 16, fontSize: 13, lineHeight: 1.6, color: TEXT }}>{platamening(plata, objTyp.length, ms)}</div>}
+          <Utanfor objekt={utanforTyp} />
           <div style={{ marginTop: 12, fontSize: 11, color: SEKUNDAR, lineHeight: 1.6 }}>
             Brytpunkten söks med en segmenterad regression över objektens {rubrikNamn}andel (volymvägd), med fri lutning över
             brytpunkten. ± är 95 %-intervallet.
@@ -314,6 +331,9 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
             </Rader>
           )}
 
+          {/* Lövdominerade objekt som hålls utanför — aldrig tyst, och nära talen de påverkar. */}
+          <div style={{ margin: '0 16px' }}><Utanfor objekt={utanforTyp} /></div>
+
           {/* Rötan: samma definition och förval som stämplingsvyn. Bara slutavverkning. */}
           {slut && kanRota && (
             <div style={{ margin: '12px 16px 0' }}>
@@ -359,6 +379,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
             medelstam — inte medianen av deras procenttal. Färre än {nf0(MIN_OBJEKT)} objekt ger inget tal. Spannet är lägsta–högsta objekt.
             {kanRota && lutning && ` Röta: lutningen är skattad över ${nf0(lutning.n)} slutavverkningar — timmer ${nf(lutning.koef.timmer / 100, 2)} procentenheter per procentenhet röta — och fönstret flyttas från sin egen röta till den valda.`}
             {' '}Bygger på {nf0(objTyp.length)} {typMany(typ)}{Number.isFinite(sedan) ? ` sedan ${sedan}` : ''}, minst {nf0(MIN_STAMMAR)} stammar var
+            {utanforTyp.length > 0 ? ` (${nf0(utanforTyp.length)} lövdominerat utanför, se ovan)` : ''}
             {uppdaterad ? `, uppdaterat ${new Date(uppdaterad).toLocaleDateString('sv-SE')}` : ''}. Fingervisning, inte facit.
           </Teknisk>
         </>
