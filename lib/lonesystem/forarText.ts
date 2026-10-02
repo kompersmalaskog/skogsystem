@@ -71,7 +71,29 @@ export function minText(min: number): string {
   return r ? `${h} tim ${r} min` : `${h} tim`;
 }
 
-const EJ_BESTAMD = "Går inte till lönen än — lönearten är inte bestämd.";
+/** Timmar i timmar och minuter: 8.87 → "8 tim 52 min", 128.17 → "128 tim 10 min".
+ *  All tid i förarens spec skrivs så (Martin 2026-09-29) — decimaler bara där
+ *  talet går till Fortnox, och då BREDVID, så man kan stämma av. */
+export function timMin(h: number): string {
+  return minText(Math.round((Number(h) || 0) * 60));
+}
+
+/** Km-uppdelningen för reseersättningen: körda km totalt och hur mycket som
+ *  ligger över fri pendling per dag. "1 084 km" och "1 mil" ser annars ut som
+ *  ett fel fast båda stämmer — ersättningen räknas per dag, inte på summan. */
+export function kmUppdelning(dagar: { km_totalt?: number | null; ersattningsmil?: number | null }[], grans: number) {
+  let totalKm = 0, overKm = 0, dagarOver = 0, mil = 0;
+  for (const d of dagar || []) {
+    const km = Number(d.km_totalt || 0);
+    totalKm += km;
+    const over = Math.max(0, km - grans);
+    if (over > 0) { overKm += over; dagarOver++; }
+    mil += Number(d.ersattningsmil || 0);
+  }
+  return { totalKm: Math.round(totalKm), overKm: Math.round(overKm), dagarOver, mil };
+}
+
+const EJ_BESTAMD ="Går inte till lönen än — lönearten är inte bestämd.";
 
 export type TittaPost = {
   nyckel: string;

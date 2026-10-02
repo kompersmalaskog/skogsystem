@@ -22,7 +22,7 @@ import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, typ
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
-import { attTittaPa, dagAvvikelser, datumLang, minText } from "@/lib/lonesystem/forarText";
+import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
 import PdfLasare from "@/app/planering/PdfLasare";
 // Designvärden — EN källa (lib/design/tokens.ts). Dagsvyn är piloten: den
 // importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
@@ -2659,7 +2659,9 @@ export default function Arbetsrapport() {
                   medarbetare_id: medarbetare.id,
                   datum: idagKey,
                   start_tid: nuT + ":00",
-                  maskin_id: medarbetare.maskin_id || null,
+                  // Dagens maskin om den redan finns (synk), annars förarens maskin
+                  // från medarbetarraden — upserten får inte skriva över synkens.
+                  maskin_id: dagData[idagKey]?.maskin_id || medarbetare.maskin_id || null,
                   objekt_id: valtObjektId || null,
                   // arbetad_min är generated (slut_tid - start_tid - rast_min) — sätts ej manuellt
                 }, { onConflict: 'medarbetare_id,datum', select: "*" });
@@ -4345,6 +4347,9 @@ export default function Arbetsrapport() {
     const specLaddar = minManad.arbetsmanad !== lönePeriod || minManad.laddar;
     const specFel = minManad.arbetsmanad === lönePeriod ? minManad.fel : null;
     const jobbadH = spec ? Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 10) / 10 : 0;
+    // Samma tal i minuter — specen skriver tid i tim och min, aldrig decimaler.
+    const jobbadMin = spec ? Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 60) : 0;
+    const kmDel = kmUppdelning(spec?.dagar || [], Number(spec?.km_grans ?? 60));
     const extraTidH = spec ? Number(spec.extra_h) : 0;
     const totalKm = spec ? (spec.dagar as any[]).reduce((a: number, d: any) => a + (d.km_totalt || 0), 0) : 0;
     const trakDagar = spec ? (spec.dagar as any[]).filter((d: any) => d.traktamente).length : 0;
@@ -4548,8 +4553,7 @@ export default function Arbetsrapport() {
               <h2 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2,marginBottom:AVSTAND.l,marginLeft:AVSTAND.xs }}>Timmar per vecka</h2>
               <div style={{ display:"flex",flexDirection:"column",gap:AVSTAND.l }}>
                 {(()=>{
-                  // Svenskt decimalkomma genomgående ("58,5" — inte "58.5")
-                  const fmtTim = (h:number) => (Math.round(h*10)/10).toString().replace('.', ',');
+                  // Tid i tim och min (lib/lonesystem/forarText) — aldrig decimaler i specen.
                   return sortedWeeks.map(([weekNum, week]) => {
                   const firstDay = week.dagar.sort((a,b)=>a.datum.localeCompare(b.datum))[0];
                   const lastDay = week.dagar[week.dagar.length-1];
@@ -4567,14 +4571,12 @@ export default function Arbetsrapport() {
                           <p style={{ margin:0,...TYP.meta,color:FARG.text3,...TNUM }}>{rangeStr}</p>
                         </div>
                         <div style={{ display:"flex",alignItems:"baseline",gap:AVSTAND.xs }}>
-                          <span style={{ ...TYP.rubrik,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{fmtTim(week.sumH)}</span>
-                          <span style={{ ...TYP.meta,color:FARG.text2 }}>tim</span>
+                          <span style={{ ...TYP.rubrik,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{timMin(week.sumH)}</span>
                         </div>
                       </div>
                       <div style={{ display:"flex",flexDirection:"column",gap:AVSTAND.m }}>
                         {week.dagar.map(dag => {
                           const dt = new Date(dag.datum);
-                          const h = Math.round((dag.min + dag.extraMin)/60*10)/10;
                           const dagLabel = dagNamn[dt.getDay()].charAt(0).toUpperCase()+dagNamn[dt.getDay()].slice(1)+' '+dt.getDate()+' '+månNamn[dt.getMonth()];
                           // Röd dag flaggas BARA visuellt (datum + namn i rött) — ingen
                           // lönelogik, ingen omräkning; det är ett separat löneprojekt.
@@ -4591,7 +4593,7 @@ export default function Arbetsrapport() {
                             <div key={dag.datum} style={{ padding:`${AVSTAND.s}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
                               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:AVSTAND.s }}>
                                 <span style={{ ...TYP.meta,color:rödNamn?FARG.rod:undefined }}>{dagLabel}{rödNamn?` · ${rödNamn}`:''}</span>
-                                <span style={{ ...TYP.listtitel,...TNUM }}>{fmtTim(h)} tim</span>
+                                <span style={{ ...TYP.listtitel,...TNUM }}>{minText(dag.min + dag.extraMin)}</span>
                               </div>
                               {/* Delad stapel: mörk grön = maskinarbete, ljus grön = extra tid.
                                   Dag utan extra = bara mörk. Skalad mot veckans längsta dag (totalt). */}
@@ -4664,7 +4666,6 @@ export default function Arbetsrapport() {
                 </div>
               ) : (()=>{
                 const fmtTid = (min:number) => { const h=Math.floor(min/60), m=min%60; return h>0?`${h} tim${m>0?` ${m} min`:''}`:`${m} min`; };
-                const fmtDecKomma = (min:number) => (Math.round(min/60*10)/10).toString().replace('.',',');
                 const fakturerbarMin = månadsExtraTid.filter(e=>e.debiterbar).reduce((a,e)=>a+(e.minuter||0),0);
                 const poster = [...månadsExtraTid].sort((a,b)=>(b.datum||'').localeCompare(a.datum||''));
                 const aktNamn = (e:any) => e.aktivitet_text || (e.aktivitet_typ ? aktLabel(e.aktivitet_typ) : null) || e.kommentar || 'Extra arbete';
@@ -4673,13 +4674,16 @@ export default function Arbetsrapport() {
                   {/* Hjälte: får jag lön för all min tid? */}
                   {/* Hjälten läser SPECEN (extra_h) — samma tal som "varav extra tid" på översikten. */}
                   <div style={{ textAlign:"center",padding:`${AVSTAND.l}px 0 ${AVSTAND.l}px`,borderBottom:`1px solid ${FARG.linje}` }}>
-                    <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>{extraTidH.toLocaleString('sv-SE')} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span></p>
+                    <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>
+                      {Math.floor(Math.round(extraTidH*60)/60)} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span>
+                      {Math.round(extraTidH*60) % 60 > 0 && <> {Math.round(extraTidH*60) % 60} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>min</span></>}
+                    </p>
                     <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>arbete när maskinen var avstängd</p>
                   </div>
                   {/* Stödrad: arbetsgivarfrågan — vad kan faktureras? */}
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
                     <span style={{ ...TYP.text,color:FARG.text }}>Varav fakturerbart</span>
-                    <span style={{ ...TYP.listtitel,color:fakturerbarMin>0?FARG.gron:FARG.text2,...TNUM }}>{fmtDecKomma(fakturerbarMin)} tim</span>
+                    <span style={{ ...TYP.listtitel,color:fakturerbarMin>0?FARG.gron:FARG.text2,...TNUM }}>{minText(fakturerbarMin)}</span>
                   </div>
                   {/* Poster — grön prick = fakturerbar */}
                   {poster.map((e,i)=>(
@@ -4758,17 +4762,17 @@ export default function Arbetsrapport() {
             // motorns varningstexter är skrivna för granskaren och visas inte här.
             const tittaPoster = attTittaPa(spec);
             const harSaknas = obekräftadeDagar > 0 || obObesDagar.length > 0 || tittaPoster.length > 0;
-            // Dag för dag: timmar per rad avrundas FÖRST, summan är summan av raderna.
+            // Dag för dag: tid i hela minuter per rad — summan är exakt summan av raderna.
             const specÅr = Number(String(lönePeriod).slice(0,4));
             const rödaSpec: Record<string,string> = { ...getRödaDagar(specÅr-1), ...getRödaDagar(specÅr) };
             const deldagPerDatum = new Map<string, any>(((spec.deldagar || []) as any[]).map((x: any) => [x.datum, x]));
             const ledigPerDatum = new Map<string, string>(((spec.ledighetskollision || []) as any[]).map((x: any) => [x.datum, x.typ]));
             const dagRader = ((spec.dagar || []) as any[]).map((d: any) => ({
               d,
-              h: Math.round(((d.arbetad_min || 0) + (d.extra_min || 0)) / 6) / 10,
+              min: Math.round((d.arbetad_min || 0) + (d.extra_min || 0)),
               avv: dagAvvikelser(d, { rodaDagar: rödaSpec, deldag: deldagPerDatum.get(d.datum) || null, ledig: ledigPerDatum.get(d.datum) || null }),
             }));
-            const dagSummaH = Math.round(dagRader.reduce((s, r) => s + r.h, 0) * 10) / 10;
+            const dagSummaMin = dagRader.reduce((s, r) => s + r.min, 0);
             // En rad i "Att titta på": datum/vad till vänster, avvikelsen i orange
             // till höger, vad man kan göra under. Samma form för alla sorter.
             const tittaRad = (nyckel: string, rubrik: string, hoger: string | undefined, text: ReactNode, efter?: ReactNode) => (
@@ -4787,29 +4791,44 @@ export default function Arbetsrapport() {
                 <section style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,marginBottom:AVSTAND.l }}>
                   <div style={{ textAlign:"center",padding:`${AVSTAND.l}px 0 ${AVSTAND.l}px`,borderBottom:`1px solid ${FARG.linje}` }}>
                     <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>Går till lönen</p>
+                    {/* All tid i timmar och minuter (Martin 2026-09-29) — decimaler bara
+                        bredvid lönearterna, där talet går till Fortnox. */}
                     <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>
-                      {jobbadH.toLocaleString('sv-SE')} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span>
+                      {Math.floor(jobbadMin/60)} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span>
+                      {jobbadMin % 60 > 0 && <> {jobbadMin % 60} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>min</span></>}
                     </p>
                     <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>
-                      {spec.arbetsdagar} arbetsdagar{extraTidH > 0 ? ` · varav extra tid ${extraTidH.toLocaleString('sv-SE')} tim` : ''}
+                      {spec.arbetsdagar} arbetsdagar{extraTidH > 0 ? ` · varav extra tid ${timMin(extraTidH)}` : ''}
                     </p>
                   </div>
-                  {(spec.rader as any[]).map((r: any, i: number, arr: any[]) => (
+                  {(spec.rader as any[]).map((r: any, i: number, arr: any[]) => {
+                    const ärTim = loneartEnhet(r.SalaryCode) === 'tim';
+                    return (
                     <div key={r.SalaryCode + i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:`${AVSTAND.m}px 0`, borderBottom:`1px solid ${FARG.linje}`, gap:AVSTAND.m }}>
                       <span style={{ ...TYP.text, color:FARG.text }}>
                         {loneartLabel(r.SalaryCode)} <span style={{ ...TYP.micro, color:FARG.text3 }}>{r.SalaryCode}</span>
-                        {/* Reseersättning: förklaringen som underrad — förr ett eget kort i detaljer */}
-                        {String(r.SalaryCode) === '821' && <span style={{ display:"block", ...TYP.meta, ...TNUM, color:FARG.text2 }}>påbörjade mil över fri pendling {spec.km_grans} km/dag</span>}
+                        {/* Reseersättning: körda km OCH km över gränsen — "1 084 km" och
+                            "1 mil" ser annars ut som ett fel. Ersättningen räknas per dag. */}
+                        {String(r.SalaryCode) === '821' && <span style={{ display:"block", ...TYP.meta, ...TNUM, color:FARG.text2 }}>{kmDel.totalKm.toLocaleString('sv-SE')} km körda, varav {kmDel.overKm.toLocaleString('sv-SE')} km över {spec.km_grans} km/dag</span>}
                       </span>
-                      <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ ...TYP.meta, color:FARG.text2 }}>{loneartEnhet(r.SalaryCode)}</span></span>
+                      {ärTim ? (
+                        /* Tim och min först; Fortnox-decimalen under, dämpad — för avstämning. */
+                        <span style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", flexShrink:0 }}>
+                          <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{timMin(Number(r.Number))}</span>
+                          <span style={{ ...TYP.meta, ...TNUM, color:FARG.text3, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)}</span>
+                        </span>
+                      ) : (
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ ...TYP.meta, color:FARG.text2 }}>{loneartEnhet(r.SalaryCode)}</span></span>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {spec.rader.length === 0 && (
                     <p style={{ margin:0,padding:`${AVSTAND.l}px 0`,...TYP.meta,color:FARG.text2 }}>Inga lönerader den här månaden.</p>
                   )}
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,gap:AVSTAND.m }}>
                     <span style={{ ...TYP.text,color:FARG.text }}>Brandrisk-OB <span style={{ ...TYP.micro,color:FARG.text3 }}>löneart ej fastställd</span></span>
-                    <span style={{ ...TYP.listtitel, ...TNUM, color:spec.ob.timmar > 0 ? FARG.orange : FARG.text2, whiteSpace:"nowrap" }}>{fmtMangd(spec.ob.timmar)} <span style={{ ...TYP.meta, color:FARG.text2 }}>tim</span></span>
+                    <span style={{ ...TYP.listtitel, ...TNUM, color:spec.ob.timmar > 0 ? FARG.orange : FARG.text2, whiteSpace:"nowrap" }}>{timMin(spec.ob.timmar)}</span>
                   </div>
                 </section>
 
@@ -4870,7 +4889,7 @@ export default function Arbetsrapport() {
                     extra tid, mil och OB ligger bakom ett tryck på raden. */}
                 <section style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l }}>
                   <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.xs}px`,...TYP.micro,color:FARG.text2 }}>Dag för dag</p>
-                  {dagRader.map(({ d, h, avv }) => {
+                  {dagRader.map(({ d, min, avv }) => {
                     const dt = new Date(`${d.datum}T12:00:00`);
                     const öppen = lönDagÖppen === d.id;
                     const objekt = (d.objekt as string[]).join(', ');
@@ -4879,7 +4898,7 @@ export default function Arbetsrapport() {
                       : (d.perioddag ? 'Tiden ligger i perioder' : null);
                     const detaljer = [
                       tid,
-                      d.extra_min > 0 ? `varav extra tid ${fmtHm(d.extra_min)}` : null,
+                      d.extra_min > 0 ? `varav extra tid ${minText(d.extra_min)}` : null,
                       avv.length > 0 && objekt ? objekt : null,
                       d.ersattningsmil ? `${d.ersattningsmil} mil reseersättning` : null,
                       d.ob_min > 0 ? `OB ${fmtOb(d.ob_min)}` : null,
@@ -4892,7 +4911,7 @@ export default function Arbetsrapport() {
                           <span style={{ flex:1,minWidth:0,...TYP.meta,color:avv.length ? FARG.orange : FARG.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
                             {avv.length ? avv.join(' · ') : (objekt || '—')}
                           </span>
-                          <span style={{ ...TYP.text,color:FARG.text,...TNUM,whiteSpace:"nowrap" }}>{h.toLocaleString('sv-SE')}</span>
+                          <span style={{ ...TYP.text,color:FARG.text,...TNUM,whiteSpace:"nowrap" }}>{minText(min)}</span>
                           <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.text3,transform:öppen?"rotate(90deg)":"none",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
                         </button>
                         {öppen && (
@@ -4911,7 +4930,7 @@ export default function Arbetsrapport() {
                       /* Summan av raderna ovan — kontrollräkningsbar med miniräknare. */
                       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:AVSTAND.m,padding:`${AVSTAND.m}px 0` }}>
                         <span style={{ ...TYP.listtitel,color:FARG.text,...TNUM }}>{dagRader.length} {dagRader.length === 1 ? 'dag' : 'dagar'}</span>
-                        <span style={{ ...TYP.listtitel,color:FARG.text,...TNUM }}>{dagSummaH.toLocaleString('sv-SE')} tim</span>
+                        <span style={{ ...TYP.listtitel,color:FARG.text,...TNUM }}>{minText(dagSummaMin)}</span>
                       </div>
                     )}
                 </section>
@@ -6009,6 +6028,11 @@ export default function Arbetsrapport() {
                       const redPerioddag = !harData && harExtra;
                       const krock = redPerioddag ? null : passKrockarMedPerioder({ start: redStart, slut: redSlut }, extraTidForDag);
                       if (krock) { setRedFel(passKrockText(krock)); return; }
+                      // En dag med klockslag utan maskin ÄRVER förarens maskin från
+                      // medarbetarraden — annars tappar timmarna premien (Martin
+                      // sep 2026: 4 dagar, 19,96 tim). Perioddagen aldrig: skalraden
+                      // är maskinlös med flit (lib/dagsegment, RLS-radering).
+                      const sparMaskinId = redMaskinId || (redDag as any).maskin_id || (redPerioddag ? null : medarbetare.maskin_id) || null;
                       const res = await upsertVerifierat(supabase, "arbetsdag", {
                         medarbetare_id: medarbetare.id,
                         datum: redDag.datum,
@@ -6016,7 +6040,7 @@ export default function Arbetsrapport() {
                         km_morgon: kmMorg, km_kvall: kmKvall,
                         ...(kmÄndrad ? { km_kalla: 'forare' } : {}),
                         objekt_id: redObjektId || redDag.objekt_id || null,
-                        maskin_id: redMaskinId || redDag.maskin_id || null,
+                        maskin_id: sparMaskinId,
                         redigerad: true,
                         redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
                         ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
@@ -6032,7 +6056,7 @@ export default function Arbetsrapport() {
                         km_morgon: kmMorg, km_kvall: kmKvall, km_totalt: kmMorg + kmKvall,
                         ...(kmÄndrad ? { km_kalla: 'forare' } : {}),
                         objekt_id: redObjektId || (redDag as any).objekt_id || null,
-                        maskin_id: redMaskinId || (redDag as any).maskin_id || null,
+                        maskin_id: sparMaskinId,
                         redigerad: true,
                         ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
                       };

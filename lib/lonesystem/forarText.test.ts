@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { datumLang, datumSpann, deldagText, attTittaPa, dagAvvikelser, okandaVarningar, minText } from "./forarText";
+import { datumLang, datumSpann, deldagText, attTittaPa, dagAvvikelser, okandaVarningar, minText, timMin, kmUppdelning } from "./forarText";
 
 describe("datum i förarens ord", () => {
   it("datumLang", () => expect(datumLang("2026-09-17")).toBe("17 september"));
@@ -10,6 +10,19 @@ describe("datum i förarens ord", () => {
   it("minText", () => {
     expect(minText(1)).toBe("1 min");
     expect(minText(98)).toBe("1 tim 38 min");
+  });
+});
+
+describe("tid i timmar och minuter, km uppdelad", () => {
+  it("timMin", () => {
+    expect(timMin(8.87)).toBe("8 tim 52 min");
+    expect(timMin(128.17)).toBe("128 tim 10 min");
+    expect(timMin(8)).toBe("8 tim");
+    expect(timMin(0.5)).toBe("30 min");
+  });
+  it("kmUppdelning: ersättningen räknas per dag, inte på summan", () => {
+    const k = kmUppdelning([{ km_totalt: 58, ersattningsmil: 0 }, { km_totalt: 68, ersattningsmil: 1 }, { km_totalt: 40 }], 60);
+    expect(k).toEqual({ totalKm: 166, overKm: 8, dagarOver: 1, mil: 1 });
   });
 });
 
