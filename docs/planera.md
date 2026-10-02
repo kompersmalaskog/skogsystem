@@ -26,14 +26,51 @@ en planerare tänker i **trakter**.
 - *Den här veckan*: perioderna per dag med dagens och veckans summa. Tryck på
   en rad → ändra eller ta bort.
 
-**Skärm 2 — tryck på trakten**
-- Traktens namn som rubrik. **Dag**: Idag · I går · Annan dag. **Från/Till**:
-  Från förifyllt (slutet på dagens senaste period, annars 07:00).
-  **Aktivitet**: Planering (förvald) · Manuellt · Möte · Restid.
-- En knapp: **Spara 3 tim** — tiden i knappen. Låst ("Välj tid") tills tiden stämmer.
-- Fakturering följer aktivitetens default (`AKTIVITETER.debDefault`), ingen
-  väljare; raden under aktiviteterna säger vad som gäller. Ändra via raden i
-  veckolistan genom att byta aktivitet.
+**Skärm 2 — tryck på trakten: fyra block, uppifrån och ned**
+1. *Trakt och dag.* Traktens namn som rubrik; under den en blå rad **"Idag, fre 2 okt ›"**.
+   Tryck → senaste sju dagarna + ett datumfält för äldre (**bara bakåt, aldrig framåt**).
+   Dagen finns kvar — Joacim fyller i dagar i efterhand — men är inte längre en
+   tre-vägs-väljare. Vid ändring av en sparad period är dagen text.
+2. *Tiden, stor:* **07:00 – 09:00**. Under, dämpat: "tryck på en tid för att
+   ändra". Tryck på en tid → **−** och **+** visas, **en kvart per tryck**. Inga
+   klockfält och ingen `<input type="time">` någonstans (Martin 2026-10-02: den
+   inbyggda väljaren var "skit dålig").
+3. *Hur länge:* **1 tim · 2 tim · 4 tim · Till nu** (≥ 44 px). "Till nu" finns bara
+   för idag och rundar NED till kvarten. Längder som skulle passera nu är grå.
+4. *Aktivitet och Spara:* Planering (förvald) · Manuellt · Möte · Restid, sedan
+   **Spara 2 tim**. Låst ("Välj hur länge") tills längden är vald. Snabbvägen är
+   trakt → 2 tim → Spara, tre tryck.
+
+Tidslinjen och start-knapparna är borta. Fakturering följer aktivitetens default
+(`AKTIVITETER.debDefault`), ingen väljare och ingen rad om det; ändra via raden i
+veckolistan genom att byta aktivitet.
+
+### Kvartar och förifylld start
+Allt är kvartar. Martins testdata (2026-10-02) hade 10:17, 16:17 och längder som
+"3 tim 17 min" — förifyllning med exakta klockslag. Nu:
+- Dagen har redan en period → start = där den slutade, **avrundad UPP** till
+  kvarten (en gammal 10:17 ger 10:30, aldrig en överlappande 10:15).
+- Dagens första period → **förarens vanliga start**: median av dagens första
+  periods start de senaste 30 dagarna (före idag), närmaste kvart. Inga data → 07:00.
+  Systemet lär sig i stället för att fråga.
+- Står en tid mellan två kvartar (gammal data) snappar första +/−-trycket till kvarten.
+- Senaste sluttid är 23:45 (24:00 hanteras inte av dagsegmenten).
+
+### Idag kan aldrig sluta efter nu
+Samma regel på två ställen — en spärr i bara ena änden är ingen spärr:
+- *Vyn:* + på slutet stannar vid nu (nedrundat till kvart), längdknappar som skulle
+  passera nu är grå, ingen framtida dag kan väljas. Ligger en redan sparad period
+  i framtiden (öppnad via veckolistan) visas en orange rad och Spara låses tills den kortats.
+- *Sparandet* (`lib/planera/spara.ts`, `liggerIFramtiden`): nekar en period som slutar
+  efter nu eller ligger på en framtida dag. Testet anropar `sparaNyPeriod` direkt med
+  en fast klocka (`nu` kan injiceras).
+- *Samma som i går* erbjuds inte förrän gårdagens sista sluttid har passerat idag.
+
+### Krock
+Överlappar perioden en annan samma dag visas en orange rad ovanför Spara
+("Krockar med Betet gallring 2026 07:00–10:00") och Spara är låst. Raden syns
+bara när det händer. Maskinpasskontrollerna nedan är oförändrade och ger sina
+egna felmeddelanden efter tryck.
 
 Vyn skapar **bara perioder**. Dagen bekräftas som vanligt under Dag/Kalender.
 

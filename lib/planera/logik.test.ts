@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   timText, relativDag, datumKort, plusDagar, lokalISO, veckoSpann, veckoDagar, senasteTrakter,
-  forslagFranIgar, foreslagenStart, periodMinuter, debFor, type PeriodRad,
+  forslagFranIgar, foreslagenStart, periodMinuter, debFor, vanligStarttid, krockMed, dagRubrik, senasteDagar,
+  kvartNarmast, kvartNed, kvartUpp, nuKvartNed, liggerIFramtiden, minTillKlocka, klockaTillMin, type PeriodRad,
 } from "./logik";
 
 const p = (o: Partial<PeriodRad> & { datum: string; start_tid: string; slut_tid: string }): PeriodRad => ({
@@ -86,17 +87,103 @@ describe("förslag: samma som i går", () => {
     expect(f.datum).toBe("2026-10-01");
     expect(f.perioder).toEqual([{ start: "07:00", slut: "10:00", typ: "planering", objektId: "T1", deb: true }]);
   });
+  it("inget förslag förrän gårdagens sista slut har passerat idag", () => {
+    expect(forslagFranIgar(igar, IDAG, new Date(2026, 9, 2, 9, 0))).toBeNull(); // 10:00 har inte varit
+    expect(forslagFranIgar(igar, IDAG, new Date(2026, 9, 2, 10, 0))?.perioder).toHaveLength(1);
+  });
   it("inget förslag utan planering i går eller när idag redan har planering", () => {
     expect(forslagFranIgar([], IDAG)).toBeNull();
     expect(forslagFranIgar([...igar, p({ datum: IDAG, start_tid: "07:00:00", slut_tid: "08:00:00" })], IDAG)).toBeNull();
   });
 });
 
+describe("kvartar", () => {
+  it("avrundning och klockformat", () => {
+    expect(kvartNarmast(10 * 60 + 17)).toBe(10 * 60 + 15);
+    expect(kvartNarmast(10 * 60 + 23)).toBe(10 * 60 + 30);
+    expect(kvartNed(16 * 60 + 19)).toBe(16 * 60 + 15);
+    expect(kvartUpp(10 * 60 + 17)).toBe(10 * 60 + 30);
+    expect(kvartUpp(10 * 60 + 30)).toBe(10 * 60 + 30);
+    expect(minTillKlocka(9 * 60 + 5)).toBe("09:05");
+    expect(minTillKlocka(24 * 60)).toBe("23:45");
+    expect(klockaTillMin("07:45:00")).toBe(465);
+  });
+  it("nuKvartNed rundar NED (16:19 → 16:15)", () => {
+    expect(nuKvartNed(new Date(2026, 9, 2, 16, 19))).toBe(16 * 60 + 15);
+    expect(nuKvartNed(new Date(2026, 9, 2, 16, 15))).toBe(16 * 60 + 15);
+  });
+});
+
+describe("framtiden (testdata: 20:17–23:18 sparades kl 16:19)", () => {
+  const nu = new Date(2026, 9, 2, 16, 19);
+  it("idag får inte sluta efter nu, framtida dagar är spärrade", () => {
+    expect(liggerIFramtiden(IDAG, 23 * 60, nu)).toBe(true);
+    expect(liggerIFramtiden(IDAG, 16 * 60 + 15, nu)).toBe(false);
+    expect(liggerIFramtiden(IDAG, 16 * 60 + 30, nu)).toBe(true);
+    expect(liggerIFramtiden("2026-10-01", 23 * 60, nu)).toBe(false);
+    expect(liggerIFramtiden("2026-10-03", 8 * 60, nu)).toBe(true);
+  });
+});
+
+describe("vanlig starttid (median av dagens första period, 30 dagar)", () => {
+  const dag = (d: number, start: string) => p({ datum: plusDagar(IDAG, -d), start_tid: start, slut_tid: "12:00:00" });
+  it("inga data → 07:00", () => { expect(vanligStarttid([], IDAG)).toBe("07:00"); });
+  it("median, kvartsavrundad; bara dagens första period räknas", () => {
+    const ps = [dag(1, "08:00:00"), dag(2, "08:15:00"), dag(3, "08:15:00"), dag(4, "07:45:00"), dag(5, "08:30:00"),
+      p({ datum: plusDagar(IDAG, -1), start_tid: "13:00:00", slut_tid: "14:00:00" })]; // dagens ANDRA period räknas inte
+    expect(vanligStarttid(ps, IDAG)).toBe("08:15");
+  });
+  it("jämnt antal → medel avrundat till kvart; äldre än 30 dagar och idag räknas inte", () => {
+    const ps = [dag(1, "08:00:00"), dag(2, "08:30:00"), dag(40, "05:00:00"), p({ datum: IDAG, start_tid: "04:00:00", slut_tid: "05:00:00" })];
+    expect(vanligStarttid(ps, IDAG)).toBe("08:15");
+  });
+});
+
+describe("krock", () => {
+  const ps = [p({ id: "a", datum: IDAG, start_tid: "07:00:00", slut_tid: "10:00:00" }), p({ id: "b", datum: "2026-10-01", start_tid: "07:00:00", slut_tid: "10:00:00" })];
+  it("överlapp samma dag ger perioden; angränsande och andra dagar ger null", () => {
+    expect(krockMed(ps, IDAG, 9 * 60, 11 * 60)?.id).toBe("a");
+    expect(krockMed(ps, IDAG, 10 * 60, 12 * 60)).toBeNull();
+    expect(krockMed(ps, IDAG, 5 * 60, 7 * 60)).toBeNull();
+    expect(krockMed(ps, "2026-09-30", 7 * 60, 10 * 60)).toBeNull();
+  });
+  it("undanta den period som redigeras", () => {
+    expect(krockMed(ps, IDAG, 8 * 60, 9 * 60, "a")).toBeNull();
+  });
+});
+
+describe("dag", () => {
+  it("dagRubrik: Idag, fre 2 okt · I går, tors 1 okt · Tis 29 sep", () => {
+    expect(dagRubrik(IDAG, IDAG)).toBe("Idag, fre 2 okt");
+    expect(dagRubrik("2026-10-01", IDAG)).toBe("I går, tors 1 okt");
+    expect(dagRubrik("2026-09-29", IDAG)).toBe("Tis 29 sep");
+  });
+  it("senasteDagar: idag först, bakåt", () => {
+    expect(senasteDagar(IDAG, 3)).toEqual(["2026-10-02", "2026-10-01", "2026-09-30"]);
+  });
+});
+
 describe("förifylld starttid", () => {
-  it("07:00 utan perioder, annars slutet på dagens senaste", () => {
-    expect(foreslagenStart([], IDAG)).toBe("07:00");
-    expect(foreslagenStart([p({ datum: IDAG, start_tid: "07:00:00", slut_tid: "09:30:00" }), p({ datum: IDAG, start_tid: "10:00:00", slut_tid: "11:00:00" })], IDAG)).toBe("11:00");
-    expect(foreslagenStart([p({ datum: "2026-10-01", start_tid: "07:00:00", slut_tid: "15:00:00" })], IDAG)).toBe("07:00");
+  const nu = new Date(2026, 9, 2, 15, 20);
+  it("dagens första period → vanlig starttid; efter en period → där den slutade", () => {
+    expect(foreslagenStart([], IDAG, IDAG, nu)).toBe("07:00");
+    expect(foreslagenStart([p({ datum: IDAG, start_tid: "07:00:00", slut_tid: "09:30:00" }), p({ datum: IDAG, start_tid: "10:00:00", slut_tid: "11:00:00" })], IDAG, IDAG, nu)).toBe("11:00");
+  });
+  it("en gammal 10:17 ger 10:30 (UPP — aldrig krock), inte 10:17", () => {
+    expect(foreslagenStart([p({ datum: IDAG, start_tid: "07:00:00", slut_tid: "10:17:00" })], IDAG, IDAG, nu)).toBe("10:30");
+  });
+  it("annan dags perioder styr inte starten på dagen", () => {
+    expect(foreslagenStart([p({ datum: "2026-10-01", start_tid: "07:00:00", slut_tid: "15:00:00" })], IDAG, IDAG, nu)).toBe("07:00");
+  });
+  it("förarens vanliga start används när dagen är tom", () => {
+    const ps = [1, 2, 3].map(d => p({ datum: plusDagar(IDAG, -d), start_tid: "06:30:00", slut_tid: "15:00:00" }));
+    expect(foreslagenStart(ps, IDAG, IDAG, nu)).toBe("06:30");
+  });
+  it("tom dag: idag aldrig senare än en kvart före nu", () => {
+    expect(foreslagenStart([], IDAG, IDAG, new Date(2026, 9, 2, 6, 10))).toBe("05:45");
+  });
+  it("efter en period klampas starten INTE till nu (ingen falsk start mitt i föregående)", () => {
+    expect(foreslagenStart([p({ datum: IDAG, start_tid: "07:00:00", slut_tid: "10:30:00" })], IDAG, IDAG, new Date(2026, 9, 2, 10, 40))).toBe("10:30");
   });
   it("fakturering följer aktivitetens default", () => {
     expect(debFor("planering")).toBe(true);

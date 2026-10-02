@@ -115,7 +115,7 @@ export type Forslag = {
 };
 /** Gårdagens planering (med trakt) → förslag för idag. Inget förslag om idag
  *  redan har planering — då vore det en dubblett, inte en hjälp. */
-export function forslagFranIgar(perioder: PeriodRad[], idag: string): Forslag | null {
+export function forslagFranIgar(perioder: PeriodRad[], idag: string, nu?: Date): Forslag | null {
   const igar = plusDagar(idag, -1);
   const harIdag = perioder.some(p => p.datum === idag && stangd(p) && p.aktivitet_typ === "planering");
   if (harIdag) return null;
@@ -123,6 +123,9 @@ export function forslagFranIgar(perioder: PeriodRad[], idag: string): Forslag | 
     .filter(p => p.datum === igar && stangd(p) && p.aktivitet_typ === "planering" && !!p.objekt_id)
     .sort((a, b) => hhmm(a.start_tid).localeCompare(hhmm(b.start_tid)));
   if (!igarPlanering.length) return null;
+  // Tid som inte har varit än går inte att spara (samma regel som sparandet) —
+  // då erbjuds inget förslag hellre än ett som skulle nekas efteråt.
+  if (nu && igarPlanering.some(p => liggerIFramtiden(idag, tMin(p.slut_tid as string), nu))) return null;
   return {
     id: `igar-${igar}`, kalla: "igar", datum: igar,
     perioder: igarPlanering.map(p => ({
@@ -132,13 +135,81 @@ export function forslagFranIgar(perioder: PeriodRad[], idag: string): Forslag | 
   };
 }
 
+// ── Kvartar ───────────────────────────────────────────────────────────────
+// ALLT i Planera är kvartar. Webbläsarens klockfält (alla minuter 00–59 att
+// scrolla) är borta; tiden ändras en kvart per tryck. Förifyllning avrundas
+// till kvart — annars blir längden "3 tim 17 min" (testdata 2026-10-02:
+// 10:17, 16:17).
+export const KVART = 15;
+/** Senaste sluttid i Planera. 24:00 hanteras inte av kalendern/dagsegmenten, så dagen tar slut 23:45. */
+export const DAGENS_SLUT = 23 * 60 + 45;
+export const klockaTillMin = (t: string) => tMin(t);
+export const minTillKlocka = (m: number) => minHHMM(Math.max(0, Math.min(DAGENS_SLUT, Math.round(m))));
+export const kvartNarmast = (m: number) => Math.round(m / KVART) * KVART;
+export const kvartNed = (m: number) => Math.floor(m / KVART) * KVART;
+export const kvartUpp = (m: number) => Math.ceil(m / KVART) * KVART;
+/** Klockan nu som minuter, avrundad NED till kvart ("Till nu" och taket för idag). */
+export const nuKvartNed = (nu: Date) => kvartNed(nu.getHours() * 60 + nu.getMinutes());
+
+/** Ligger slutet efter nu? Idag får inte sluta efter nu och framtida dagar går inte att fylla i.
+ *  Samma regel gäller i vyn OCH i sparandet (en spärr i bara ena änden är ingen spärr). */
+export function liggerIFramtiden(datum: string, slutMin: number, nu: Date): boolean {
+  const idag = lokalISO(nu);
+  if (datum > idag) return true;
+  return datum === idag && slutMin > nu.getHours() * 60 + nu.getMinutes();
+}
+
 // ── Förifyllda tider ──────────────────────────────────────────────────────
-/** Starttid för en ny period: slutet på dagens senaste period, annars 07:00. */
-export function foreslagenStart(perioder: PeriodRad[], datum: string): string {
+const median = (v: number[]) => {
+  const s = [...v].sort((a, b) => a - b), m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+/** Förarens VANLIGA starttid: median av dagens första periods start de senaste
+ *  30 dagarna (före idag), avrundad till närmaste kvart. Inga data → 07:00.
+ *  Systemet lär sig av vad man gör i stället för att fråga. */
+export function vanligStarttid(perioder: PeriodRad[], idag: string): string {
+  const fran = plusDagar(idag, -30);
+  const forstaPerDag = new Map<string, number>();
+  for (const p of perioder) {
+    if (!p.start_tid || !p.slut_tid || p.datum >= idag || p.datum < fran) continue;
+    const m = tMin(p.start_tid);
+    const nuv = forstaPerDag.get(p.datum);
+    if (nuv === undefined || m < nuv) forstaPerDag.set(p.datum, m);
+  }
+  if (forstaPerDag.size === 0) return "07:00";
+  return minHHMM(kvartNarmast(median(Array.from(forstaPerDag.values()))));
+}
+
+/** Starttid för en ny period: har dagen en period → där den slutade (avrundat
+ *  UPP till kvart så att en gammal 10:17 aldrig ger krock); annars förarens
+ *  vanliga starttid, för idag högst en kvart före nu så att något ryms. */
+export function foreslagenStart(perioder: PeriodRad[], datum: string, idag: string, nu?: Date): string {
   let senast = -1;
   for (const p of perioder) if (p.datum === datum && stangd(p)) senast = Math.max(senast, tMin(p.slut_tid as string));
-  return senast >= 0 && senast < 23 * 60 ? minHHMM(senast) : "07:00";
+  if (senast >= 0) return minHHMM(Math.min(kvartUpp(senast), DAGENS_SLUT - KVART));
+  const tak = datum === idag && nu ? Math.max(0, nuKvartNed(nu) - KVART) : DAGENS_SLUT - KVART;
+  return minHHMM(Math.min(tMin(vanligStarttid(perioder, idag)), tak));
 }
+
+/** Krockar perioden med en annan samma dag? Returnerar den första (för texten) eller null. */
+export function krockMed(perioder: PeriodRad[], datum: string, startMin: number, slutMin: number, undantaId?: string | null): PeriodRad | null {
+  for (const p of perioder) {
+    if (p.datum !== datum || p.id === undantaId || !stangd(p)) continue;
+    if (startMin < tMin(p.slut_tid as string) && tMin(p.start_tid as string) < slutMin) return p;
+  }
+  return null;
+}
+
+/** "Idag, fre 2 okt" · "I går, tors 1 okt" · "Tis 29 sep". */
+export function dagRubrik(iso: string, idag: string): string {
+  const rel = relativDag(iso, idag);
+  const kort = datumKort(iso);
+  const stor = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  return rel === kort ? stor(kort) : `${stor(rel)}, ${kort}`;
+}
+
+/** De sju senaste dagarna (idag först) — dagväljaren. Äldre dagar via datumfältet. */
+export const senasteDagar = (idag: string, antal = 7) => Array.from({ length: antal }, (_, i) => plusDagar(idag, -i));
 
 /** Faktureras som aktiviteten säger (ingen väljare på skärmen). */
 export const debFor = (typ: AktivitetTyp) => AKTIVITETER.find(a => a.typ === typ)?.debDefault ?? false;
