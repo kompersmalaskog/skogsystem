@@ -35,6 +35,17 @@ export type MaskinRad = {
  *  numrerad + ordningsbar) eller 'forslag' (automatikens auto-pick, dämpad, ej ordningsbar). */
 export interface KoPost { objekt: OversiktObjekt; troligt: boolean; kalla: 'ko' | 'forslag' }
 
+/** GROT-kö: en AVSLUTAD trakt som ligger i en maskins kö är där för att riset ska hämtas. koUr släpper
+ *  bara in avslutade objekt som GROT-listan visar som väntande (grotObjektIds) — så "avslutad + i kö" betyder
+ *  alltid GROT, och det syns på namnet överallt kön visas. */
+export function arGrotKo(o: OversiktObjekt): boolean {
+  return STATUS_AVSLUTADE.includes(o.status);
+}
+/** Namnet som visas i kön: GROT-trakter märks så det syns att det är ris, inte virke. */
+export function koNamn(o: OversiktObjekt): string {
+  return arGrotKo(o) ? `${o.namn} · GROT` : o.namn;
+}
+
 export interface MaskinForslag {
   maskinId: string;
   typ: MaskinTyp;
@@ -85,8 +96,11 @@ export function beraknaForslag(args: {
   skord: Record<string, SkordAggV2>;
   positions: Map<string, PlatsForslag>;
   avstandKm: (a: Koordinat, b: Koordinat) => number | null;
+  /** objekt.id för trakter som väntar på GROT (lib/grotvy). Avslutade objekt i kön göms annars; dessa släpps in. */
+  grotObjektIds?: Set<string>;
 }): Map<string, MaskinForslag> {
   const { maskiner, objekt, maskinKo, skord, positions, avstandKm } = args;
+  const grotIds = args.grotObjektIds ?? new Set<string>();
   const objById = new Map<string, OversiktObjekt>(objekt.map((o) => [o.id, o]));
   const avAvslutat = (o: OversiktObjekt) => STATUS_AVSLUTADE.includes(o.status);
 
@@ -96,11 +110,13 @@ export function beraknaForslag(args: {
   };
   const nuObjektFor = (m: MaskinRad) => { const id = positions.get(m.maskin_id)?.objektId; return id ? objById.get(id) ?? null : null; };
 
-  // Kön ur maskin_ko: ordnad, ej avslutade (döljs), med koordinat, ej nuvarande objekt.
-  const koUr = (maskinId: string, nuId: string | null): OversiktObjekt[] =>
+  // Kön ur maskin_ko: ordnad, ej avslutade (döljs), med koordinat, ej nuvarande objekt. `medGrot` (bara SKOTARE): avslutade
+  // trakter som väntar på GROT släpps också in — riset skotas, det skördas inte, så en skördares kö lämnas orörd
+  // (gamla avslutade rader där är kvarlevor och ska fortsatt vara dolda).
+  const koUr = (maskinId: string, nuId: string | null, medGrot = false): OversiktObjekt[] =>
     maskinKo.filter((k) => k.maskin_id === maskinId).sort((a, b) => a.ordning - b.ordning)
       .map((k) => objById.get(k.objekt_id))
-      .filter((o): o is OversiktObjekt => !!o && !avAvslutat(o) && o.lat != null && o.lng != null && o.id !== nuId);
+      .filter((o): o is OversiktObjekt => !!o && (!avAvslutat(o) || (medGrot && grotIds.has(o.id))) && o.lat != null && o.lng != null && o.id !== nuId);
 
   const out = new Map<string, MaskinForslag>();
   const set = (m: MaskinRad, typ: MaskinTyp, ko: KoPost[], manuellKo: boolean, skal: string) => {
@@ -148,7 +164,7 @@ export function beraknaForslag(args: {
   const taken = new Set<string>();
   for (const m of skotare) {
     const nuId = lageFor(m).nuObjektId;
-    const manuell = koUr(m.maskin_id, nuId);
+    const manuell = koUr(m.maskin_id, nuId, true); // skotare: GROT-trakter får ligga i kön
     if (manuell.length) { manuellMap.set(m.maskin_id, manuell); for (const o of manuell) taken.add(o.id); }
   }
   const auto = skotare.filter((m) => !manuellMap.has(m.maskin_id)); // deconflict-konkurrenter (oförändrat)

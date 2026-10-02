@@ -2462,6 +2462,66 @@ function PlanDate({ label, value, onCommit, disabled }: any) {
   )
 }
 
+// Markägarens önskemål om GROT: bortkört senast <datum>, med skäl. Läses av GROT-arket i /oversikt-v2 (överst i listan).
+// Direktsave via två-tabell-routern (verifierad: värdet läses tillbaka). Datumet bor på dim_objekt,
+// så det kan sättas även för trakter som saknar objekt-rad i planeringen. Ett skäl utan datum är ett
+// löst påstående som ingen vy visar — därför nollas skälet tillsammans med datumet, och skälvalet
+// syns först när datum finns. Pekskärmen har ingen "rensa"-knapp i datumväljaren → egen knapp.
+const GROT_SKAL_VAL = [
+  { varde: 'markberedning', label: 'Markberedning' },
+  { varde: 'plantering', label: 'Plantering' },
+  { varde: 'annat', label: 'Annat' },
+]
+function GrotSenastFalt({ obj, direktSpara }: any) {
+  const senast: string = obj.grot_senast || ''
+  const skal: string | null = obj.grot_skal || null
+  const [lokal, setLokal] = useState<string>(senast)
+  useEffect(() => { setLokal(senast) }, [senast])
+  const spara = async (patch: Record<string, any>) => {
+    const ok = await direktSpara(patch)
+    if (!ok) setLokal(senast) // misslyckad sparning ska inte lämna ett datum i fältet som inte finns i databasen
+    return ok
+  }
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 44 }}>
+        <span style={styles.directRowLabel as any}>Markägaren vill ha GROT bort senast</span>
+        <input type="date" value={lokal}
+          onChange={(e) => {
+            // Tomt värde betyder en halvskriven dag, inte "rensa" (rensa = knappen nedan). Och ett år som
+            // "0002" är bara mellanläget när man skriver 2026 — spara först när datumet är rimligt.
+            const v = e.target.value; setLokal(v)
+            if (v >= '2000-01-01' && v <= '2100-12-31') spara({ grot_senast: v })
+          }}
+          style={{ ...PLAN_INPUT, flex: 'none', maxWidth: 'none', width: 150, colorScheme: 'dark' } as any} />
+      </div>
+      {senast && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <span style={styles.directRowLabel as any}>Skäl</span>
+            {GROT_SKAL_VAL.map((o) => {
+              const vald = skal === o.varde
+              return (
+                <button key={o.varde} onClick={() => spara({ grot_skal: vald ? null : o.varde })} className="tap-press"
+                  style={{ minHeight: 44, padding: '0 14px', borderRadius: 12, fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                    border: vald ? '1px solid rgba(240,178,76,0.6)' : '1px solid rgba(255,255,255,0.15)',
+                    background: vald ? 'rgba(240,178,76,0.18)' : 'transparent',
+                    color: vald ? '#f0b24c' : 'rgba(255,255,255,0.7)' }}>
+                  {o.label}
+                </button>
+              )
+            })}
+          </div>
+          <button onClick={() => spara({ grot_senast: null, grot_skal: null })} className="tap-press"
+            style={{ marginTop: 8, width: '100%', minHeight: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+            Ta bort markägarens datum
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 // Read-only rad i "Från maskinen" — data som kommer av sig själv (import),
 // aldrig redigerbar. Dämpad så den läses som fakta, inte som ett fält.
 function MaskinRad({ label, value, suffix }: any) {
@@ -2845,6 +2905,10 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
                 </button>
               )}
             </div>
+          )}
+          {/* Markägarens datum + skäl — bara medan GROT väntar; när riset är hämtat finns ingen önskan kvar att visa. */}
+          {obj.grot_anpassad === true && !obj.grot_hamtad && (
+            <GrotSenastFalt obj={obj} direktSpara={direktSpara} />
           )}
         </div>
       </IosGroup>
