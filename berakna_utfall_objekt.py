@@ -7,6 +7,9 @@
                                              grupp utan att röra en stock
 
 Körs EFTER import, aldrig live, i samma kedja som berakna_rotkap.py.
+KUBB = grupperna Kubb OCH Klentimmer (klentimmer går till såg som kubb) —
+samma definition som stämplingsvyn. Ändras det måste båda ändras och
+--alla köras (migrationen 20261002_utfall_klentimmer_som_kubb.sql).
 Skärmen /affarsuppfoljning/medelstam läser bara utfall_objekt genom
 utfall_per_medelstam() — ingen stockdata vid anrop.
 

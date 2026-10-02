@@ -133,7 +133,8 @@ function Innehall() {
             {underlag}
           </Stort>
           <Rader>
-            <Rad text="Kubb" tal={k.kubb.median == null ? '–' : `${nf0(k.kubb.median)} %`} hoger={spann(k.kubb)} />
+            <Rad text="Kubb" tal={k.kubb.median == null ? '–' : `${nf0(k.kubb.median)} %`} hoger={spann(k.kubb)}
+              sub="kubb och klentimmer" />
             <Rad text="Massaved" tal={k.massa.median == null ? '–' : `${nf0(k.massa.median)} %`} hoger={spann(k.massa)} />
             <Rad text="Objekten i klassen" tal={nf0(k.antal)} onClick={() => router.push(url({ vy: 'objekt' }))} />
           </Rader>
