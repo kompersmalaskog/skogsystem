@@ -3637,6 +3637,17 @@ def upsert_arbetsdag(rows: List[Dict]) -> int:
     ifyllnad, inte överskrivning (#312: en dag kan bekräftas innan skiftet
     importerats och då sakna maskin). Oskyddade/nya rader upsert:as fullt ut.
 
+    MASKIN OCH OBJEKT ÄR IFYLLNAD, ALDRIG ERSÄTTNING — på ALLA befintliga rader,
+    skyddade eller inte (Martin 2026-10-02). Joacims 2 okt: skalraden från
+    "Arbete" 07:47 (planering, perioder i extra_tid) var oskyddad och skrevs
+    över helt när Scorpion loggade in 09:52 — dagen fick maskinens objekt och
+    planeringstimmarna såg ut att höra till skördarens trakt. Regeln nu:
+      - maskin_id/objekt_id sätts bara där DB-raden har NULL;
+      - en dag vars perioder (extra_tid) redan bär ett objekt räknas som
+        ifylld — objekt_id lämnas då orörd (perioderna är dagens objekt,
+        maskindelens objekt finns i fakt_tid).
+    Tider (start/slut/rast) på en OSKYDDAD rad fylls fortfarande ur maskinen.
+
     Loggar (INFO) varje gång skyddet hindrar en tid-överskrivning, så att man
     kan se i drift att det verkar — tyst skydd går inte att verifiera.
 
@@ -3665,12 +3676,41 @@ def upsert_arbetsdag(rows: List[Dict]) -> int:
     def _hhmm(v):
         return (v or '')[:5]
 
-    oskyddade = []  # full upsert
+    # Dagar vars perioder (extra_tid) redan bär ett objekt — objekt_id på
+    # arbetsdag-raden lämnas orörd där (ifylld via perioderna).
+    perioder_med_objekt = set()
+    for mid in medarb_ids:
+        pr = requests.get(
+            f"{SUPABASE_URL}/rest/v1/extra_tid?medarbetare_id=eq.{mid}&objekt_id=not.is.null"
+            f"&select=medarbetare_id,datum&limit=5000",
+            headers=SUPABASE_HEADERS, timeout=30)
+        if pr.status_code == 200:
+            for row in pr.json():
+                perioder_med_objekt.add((row['medarbetare_id'], str(row['datum'])))
+
+    def _ifyllnad(key, bef, ny):
+        """maskin_id/objekt_id: behåll DB-värdet om satt; objekt_id aldrig när
+        dagens perioder redan har objekt. Returnerar raden att skriva."""
+        ut = dict(ny)
+        if bef.get('maskin_id'):
+            ut['maskin_id'] = bef['maskin_id']
+        if bef.get('objekt_id'):
+            ut['objekt_id'] = bef['objekt_id']
+        elif key in perioder_med_objekt:
+            ut['objekt_id'] = None
+        for fld in _ARBETSDAG_KOMPLETTFALT:
+            if (ny.get(fld) or None) != (ut.get(fld) or None):
+                logger.info(
+                    f"  Ifyllnad: arbetsdag {key[0]} {key[1]} behåller {fld}="
+                    f"{ut.get(fld)} (maskinen sa {ny.get(fld)}) — maskin/objekt ersätts aldrig")
+        return ut
+
+    oskyddade = []  # full upsert (tider ur maskinen; maskin/objekt bara ifyllnad)
     for key, ny in by_key.items():
         bef = befintliga.get(key)
         skyddad = bool(bef) and (bef.get('redigerad') is True or bef.get('bekraftad') is True)
         if not skyddad:
-            oskyddade.append(ny)
+            oskyddade.append(_ifyllnad(key, bef, ny) if bef else ny)
             continue
 
         # SKYDDAD dag: rör aldrig tider. Logga om en tid SKULLE ha ändrats.
@@ -3689,6 +3729,8 @@ def upsert_arbetsdag(rows: List[Dict]) -> int:
         # Komplettering: fyll BARA fält som är NULL i DB. is.null-guard gör
         # PATCHen idempotent och ofarlig vid samtidig ifyllnad (Vercel 5e).
         for fld in _ARBETSDAG_KOMPLETTFALT:
+            if fld == 'objekt_id' and key in perioder_med_objekt:
+                continue  # perioderna bär dagens objekt — fyll inte maskinens
             if not bef.get(fld) and ny.get(fld):
                 pr = requests.patch(
                     f"{SUPABASE_URL}/rest/v1/arbetsdag?id=eq.{bef['id']}&{fld}=is.null",
