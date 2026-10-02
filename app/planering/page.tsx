@@ -26,12 +26,12 @@ import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKatego
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
-import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, type ObjektForVal } from '../../lib/objektPlats'
+import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, traktgransRingar, type ObjektForVal } from '../../lib/objektPlats'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
-import { startFas, startOverlaySynlig, startRadText, type StartFas } from '../../lib/maskinstart'
+import { startFas, flygKlar, startCoverSynlig, startOverlaySynlig, startKameraLas, startRadText, FLY_MS, COVER_FADE_MS, type StartFas } from '../../lib/maskinstart'
 import { MaskinSomContext } from '../../lib/maskinSomContext'
 import { beslutaMaskinSom, maskinSomFelText, VANTA_MAX_MS } from '../../lib/maskinSom'
-import { StartLoggaSkarm, MaskinSomFelSkarm } from '../../components/maskin/StartSkarmar'
+import { StartSvartSkarm, MaskinSomFelSkarm } from '../../components/maskin/StartSkarmar'
 import { typLabel } from '../../lib/objekt/typ'
 import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -3126,22 +3126,28 @@ export default function PlannerPage() {
     vantatMs: maskinSomVantatForLange ? VANTA_MAX_MS : 0,
   });
 
-  // === Maskindator-STARTSEKVENS (logga → söker → fix → klar). Ren tillståndsmaskin i lib/maskinstart. ===
+  // === Maskindator-STARTSEKVENS (svart → översikt över traktgränsen → EN flyTo → objekt). Ren tillståndsmaskin
+  // i lib/maskinstart. INGEN logga/text i sekvensen — loggan finns bara i felskärmarna. ===
   const [startSekvensStart, setStartSekvensStart] = useState<number | null>(null);  // när sekvensen startade
   const [startSekvensNu, setStartSekvensNu] = useState(0);                           // tickande klocka (driver faserna)
   const [startForstaFix, setStartForstaFix] = useState<number | null>(null);         // när första giltiga fixen kom
+  const [startKartaRedo, setStartKartaRedo] = useState<number | null>(null);         // kartan målad i översiktsläge (bakom svart)
+  const [startIngenKarta, setStartIngenKarta] = useState(false);                     // beslutet blev förarlista → ingen karta
+  const [startFlygStart, setStartFlygStart] = useState<number | null>(null);         // flygningen startade
   const [startDold, setStartDold] = useState(false);                                 // overlayen avmonterad efter 'klar'
-  const startSavedPosRef = useRef<{ lat: number; lon: number } | null>(null);        // senast kända position (per enhet)
-  const startKartaCentreradRef = useRef(false);
+  const [traktGeoHamtadFor, setTraktGeoHamtadFor] = useState<string | null>(null);   // objekt-id vars trakt-geometri-svar kommit (finns ELLER saknas)
   const startFixFarskSattRef = useRef(false);
+  const startOversiktSattRef = useRef(false);                                        // översikten är satt (en gång)
+  const startFlygGjordRef = useRef(false);                                           // flygningen är gjord (EN flyTo)
   const startRadSenasteRef = useRef<string | null>(null);
+  const startKameraLasRef = useRef(false);                                           // true → sekvensen äger kameran (läses av async-kod)
 
-  // Senast kända position per enhet: läs vid start (kartan under "söker"), spara vid stängning.
+  // Senast kända position per enhet: läs vid start (dämpad GPS-prick i översikten), spara vid stängning.
   useEffect(() => {
     if (!enhetMaskinId) return;
     try {
       const raw = localStorage.getItem('maskinPos_v1_' + enhetMaskinId);
-      if (raw) { const p = JSON.parse(raw); if (p && typeof p.lat === 'number' && typeof p.lon === 'number') { startSavedPosRef.current = p; if (!lastKnownPositionRef.current) lastKnownPositionRef.current = p; } }
+      if (raw) { const p = JSON.parse(raw); if (p && typeof p.lat === 'number' && typeof p.lon === 'number') { if (!lastKnownPositionRef.current) lastKnownPositionRef.current = p; } }
     } catch { /* */ }
     const spara = () => { try { const p = lastKnownPositionRef.current; if (p) localStorage.setItem('maskinPos_v1_' + enhetMaskinId, JSON.stringify(p)); } catch { /* */ } };
     const onHide = () => { if (document.visibilityState === 'hidden') spara(); };
@@ -3623,6 +3629,9 @@ export default function PlannerPage() {
         redanFragat: traff ? maskindatorFragatRef.current.has(traff.id) : false,
       });
       const byId = (id: string | null) => kandidater.find((o) => o.id === id) ?? null;
+      // Startsekvensen: blev beslutet förarlista (eller finns objektet inte) kommer ingen karta → släpp svart
+      // direkt och visa listan, i stället för att vänta ut hela SVART_MAX_MS på en karta som aldrig kommer.
+      if (atgard.typ === 'lista' || !byId(atgard.objektId)) setStartIngenKarta(true);
       if (atgard.typ === 'korvy') {
         oppnaKorvyPa(byId(atgard.objektId), atgard.roll);
       } else if (atgard.typ === 'fraga') {
@@ -4663,7 +4672,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const src = map.getSource('trakt-geo-source') as any;
     if (!src) return;
-    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); return; }
+    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null); return; }
     let avbruten = false;
     (async () => {
       const { data, error } = await supabase
@@ -4675,10 +4684,12 @@ export default function PlannerPage() {
         setGeoTyper(new Set());
         setGeoKategorier(new Set());
         setTraktGeo(null);
+        setTraktGeoHamtadFor(valtObjekt.id);   // svaret kom: geometri SAKNAS (startsekvensen väntar annars i onödan)
         return;
       }
       src.setData(fc);
       setTraktGeo(fc);
+      setTraktGeoHamtadFor(valtObjekt.id);     // svaret kom: geometri FINNS (batchas med setTraktGeo ovan)
       // Vilka _typ finns faktiskt (driver knapparna — iterera över det som kom, aldrig anta).
       const typer = new Set<string>();
       // Referenskategorier klassade på _lager (nyckelbiotop/lämning syns inte i _typ='okänt').
@@ -4699,7 +4710,10 @@ export default function PlannerPage() {
         } else { for (const x of c) scan(x); }
       };
       for (const f of fc.features) if (f?.geometry?.coordinates) scan(f.geometry.coordinates);
-      if (Number.isFinite(minLng)) {
+      // Maskindatorns startsekvens äger kameran (svart → översikt över TRAKTGRÄNSEN → EN flyTo). Den här
+      // fitBounds landar asynkront efter DB-svaret och zoomar dessutom över ALLA features (fastighet, bestånd);
+      // den skulle avbryta flygningen → tyst medan sekvensen äger kameran. Vanliga appen: oförändrat.
+      if (Number.isFinite(minLng) && !startKameraLasRef.current) {
         try { map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 600, maxZoom: 16 }); } catch {}
       }
     })();
@@ -8357,10 +8371,16 @@ export default function PlannerPage() {
     return null;
   }, [simulatedPos, currentPosition]);
 
-  // === Maskindator-startsekvens: faser + sidoeffekter ===
-  const startFasNu: StartFas | null = startSekvensStart != null
-    ? startFas({ startMs: startSekvensStart, nuMs: startSekvensNu, forstaFixMs: startForstaFix })
+  // === Maskindator-startsekvens: faser + sidoeffekter (svart → översikt → EN flyTo → landat) ===
+  const startIn = startSekvensStart != null
+    ? { startMs: startSekvensStart, nuMs: startSekvensNu, kartaRedoMs: startKartaRedo, ingenKarta: startIngenKarta, fixMs: startForstaFix, flygStartMs: startFlygStart }
     : null;
+  const startFasNu: StartFas | null = startIn ? startFas(startIn) : null;
+  const startFlygKlar = startIn ? flygKlar(startIn) : false;
+  // Sekvensen äger kameran i svart/översikt/flygning. Låset läses av körvyns följ-effekt (deps) och — via ref —
+  // av geometri-effektens asynkrona fitBounds. Ref skrivs i render (idempotent; samma värde varje gång).
+  const startKameraLasNu = startKameraLas(startFasNu);
+  startKameraLasRef.current = startKameraLasNu;
   const startOverlayAktiv = startSekvensStart != null && !startDold;
   const startMaskinNamn = enhetMaskinId ? maskinModell(dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)) : '';
   const startM3Kvar = valtObjekt
@@ -8375,12 +8395,12 @@ export default function PlannerPage() {
     const t = Date.now(); setStartSekvensStart(t); setStartSekvensNu(t);
   }, [maskinlage, enhetMaskinId, startSekvensStart]);
 
-  // /maskin: loggan TÄCKER tills sekvensens egen logga tar över (samma utseende → inget hopp). Täcker även
-  // den enda målade ramen mellan "tillåten" och "maskinläget satt" (annars blinkar admin-listan förbi).
-  const maskinSomTackLogga = !!maskinSomParam
+  // /maskin: svart TÄCKER tills sekvensens eget svarta täckskikt tar över (identiskt utseende → inget hopp). Täcker
+  // även den enda målade ramen mellan "tillåten" och "maskinläget satt" (annars blinkar admin-listan förbi).
+  const maskinSomTackSvart = !!maskinSomParam
     && maskinSomBeslut.typ !== 'ingen' && maskinSomBeslut.typ !== 'avvisa'
     && startSekvensStart == null;
-  // Tickande klocka medan overlayen lever (driver logga→söker→ingenFix).
+  // Tickande klocka medan overlayen lever (driver översikt→flygning→landat→klar).
   useEffect(() => {
     if (startSekvensStart == null || startDold) return;
     const iv = setInterval(() => setStartSekvensNu(Date.now()), 250);
@@ -8390,20 +8410,74 @@ export default function PlannerPage() {
   useEffect(() => {
     if (startSekvensStart != null && startForstaFix == null && korvyEffectivePos != null) setStartForstaFix(Date.now());
   }, [korvyEffectivePos, startSekvensStart, startForstaFix]);
-  // 'klar' → tona ut, avmontera efter fade.
+  // 'klar' → svart har tonat ut (COVER_FADE_MS) → avmontera.
   useEffect(() => {
-    if (startFasNu === 'klar' && !startDold) { const t = setTimeout(() => setStartDold(true), 500); return () => clearTimeout(t); }
+    if (startFasNu === 'klar' && !startDold) { const t = setTimeout(() => setStartDold(true), COVER_FADE_MS + 100); return () => clearTimeout(t); }
   }, [startFasNu, startDold]);
-  // 'söker': dämpa GPS-pricken (en gång) + glid kartan till senast kända position.
+
+  // ÖVERSIKT (bakom svart): när kartan, objektet och trakt-geometrins svar finns ställs kameran utzoomad över
+  // TRAKTGRÄNSEN (Vidas L_TRAKTDEL — inte hela fastigheten) — pitch 0, norr upp, ingen körvy-padding — omedelbart.
+  // Sedan väntar vi på att kartan är MÅLAD (idle) → kartaRedo → svart tonar ut och kartan "tonar upp".
+  // Körs efter centreraPaObjekt (deklarerad tidigare, kör före i samma commit) så den inte skrivs över.
   useEffect(() => {
-    if (startFasNu !== 'soker') return;
-    if (!startFixFarskSattRef.current) { startFixFarskSattRef.current = true; setGpsFixFarsk(false); }
-    const m = mapInstanceRef.current;
-    if (m && !startKartaCentreradRef.current && startSavedPosRef.current) {
-      startKartaCentreradRef.current = true;
-      try { m.easeTo({ center: [startSavedPosRef.current.lon, startSavedPosRef.current.lat], zoom: KORVY_BASE_ZOOM, duration: 600 }); } catch { /* */ }
-    }
-  }, [startFasNu]);
+    if (startFasNu !== 'svart' || startKartaRedo != null || startOversiktSattRef.current) return;
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !valtObjekt?.id) return;
+    if (traktGeoHamtadFor !== valtObjekt.id) return;   // väntar på geometri-svaret (geometri finns ELLER saknas)
+    startOversiktSattRef.current = true;
+    try {
+      map.resize();   // centreraPaObjekt resizar med 50 ms fördröjning; fitBounds räknar på containerstorleken
+      map.jumpTo({ pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
+      const ringar = traktgransRingar(traktGeo);
+      if (ringar.length > 0) {
+        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+        for (const r of ringar) for (const [lng, lat] of r) {
+          if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
+          if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+        }
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 0, maxZoom: 16 });
+      } else if (valtObjekt.lat != null && valtObjekt.lng != null) {
+        // Objektet saknar traktgräns i objekt_geometri (de flesta saknar) → utzoomad över objektets position.
+        map.jumpTo({ center: [valtObjekt.lng, valtObjekt.lat], zoom: 14.5 });
+      }
+    } catch { /* kameran blir som den är — sekvensen går vidare ändå */ }
+    let redo = false;
+    const klart = () => { if (redo) return; redo = true; setStartKartaRedo(Date.now()); };
+    map.once('idle', klart);        // kartan målad (tiles inlästa)
+    setTimeout(klart, 2500);        // 'idle' uteblir om kameran inte ändrades / tiles hänger → gå vidare ändå
+  }, [startFasNu, startKartaRedo, mapLibreReady, valtObjekt?.id, traktGeoHamtadFor, traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // FLYGNINGEN: kartan har tonat upp (REVEAL_MS) OCH vi har en fix → EN mjuk flyTo ner till maskinen, med
+  // körriktning upp (kartBearing) och körvyns baszoom/lutning/padding — exakt det körvyns egen kamera landar i,
+  // så följ-effekten tar över utan hopp. startFlygKlar blir true EN gång (sedan är fasen 'flyger').
+  useEffect(() => {
+    if (!startFlygKlar || startFlygGjordRef.current) return;
+    const map = mapInstanceRef.current;
+    const pos = korvyEffectivePos;
+    if (!map || !pos) return;   // saknas något nu → effekten kör om när position/karta finns (korvyEffectivePos i deps)
+    startFlygGjordRef.current = true;   // EN flyTo, även om en GPS-tick landar innan fasen hunnit byta
+    const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+    korvyZoomRef.current = KORVY_BASE_ZOOM;   // närhets-zoomen startar från bas (som körvyns egen setup)
+    try {
+      map.flyTo({
+        center: [pos.lon, pos.lat],
+        zoom: KORVY_BASE_ZOOM,
+        pitch: 28,
+        bearing: kartBearing,
+        padding: { top: topPad, bottom: 0, left: 0, right: 0 },
+        duration: FLY_MS,
+        essential: true,   // spela flygningen även om OS:et ber om minskad rörelse
+      });
+    } catch { /* */ }
+    setStartFlygStart(Date.now());
+  }, [startFlygKlar, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Utzoomad utan fix: GPS-pricken DÄMPAD (en gång). Tänds av passiva watchern vid första giltiga fix.
+  useEffect(() => {
+    if (startFasNu !== 'oversikt' || startForstaFix != null || startFixFarskSattRef.current) return;
+    startFixFarskSattRef.current = true;
+    setGpsFixFarsk(false);
+  }, [startFasNu, startForstaFix]);
 
   // Maskindator-start, löpande position: (a) >200 m körda INNE i kort-objektet = implicit ja;
   // (b) A4 auto-byte EN gång — öppnade vi tilldelat objekt utan fix och en fix nu visar ett annat objekt.
@@ -8703,6 +8777,10 @@ export default function PlannerPage() {
     // Skotarläge: har föraren panorerat iväg pausas följet tills "Följ mig" trycks (punkt 5).
     // Bara skotarKorvy — Stefans körvy följer alltid (oförändrat).
     if (skotarKorvy && korvyFollowPaused) return;
+    // Startsekvensen äger kameran (svart → översikt → EN flyTo). Utan det här låset anropar följet easeTo vid
+    // VARJE GPS-tick och avbryter översikten/flygningen. Låset släpps vid landning → effekten kör om direkt
+    // (startKameraLasNu i deps) och följet tar över från exakt där flygningen landade — inget hopp.
+    if (startKameraLasNu) return;
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
@@ -8720,7 +8798,7 @@ export default function PlannerPage() {
       duration: 500,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, kartBearing, korvyActive, korvyNextItems, skotarKorvy, korvyFollowPaused]);
+  }, [currentPosition, korvyHeading, kartBearing, korvyActive, korvyNextItems, skotarKorvy, korvyFollowPaused, startKameraLasNu]);
 
   // SKOTARKÖRVY (punkt 5): fingret drar kartan → pausa auto-följet ('dragstart' med originalEvent =
   // äkta gest, inte vår easeTo). Bunden en gång; dörrvaktar på skotarKorvyRef. Rensas vid utträde.
@@ -12884,12 +12962,9 @@ export default function PlannerPage() {
   // Är ritläge aktivt? Blockerar klick på befintliga element
   const isInDrawingMode = isDrawMode || isZoneMode || isArrowMode || !!selectedSymbol || measureMode || measureAreaMode;
 
-  // === MASKINLÄGE-LAGER: gul banner, täck-logga, felskärm, startsekvens ===
+  // === MASKINLÄGE-LAGER: gul banner, svart täckskikt, felskärm, startsekvens ===
   // Ritas i BÅDA grenarna nedan (objektlistan OCH kartan). Förut låg bannern och overlayen bara i kart-
-  // grenen, så förarlistan visades utan gul rand/Avsluta och utan logga — och loggan kunde aldrig visas först.
-  const maskinLagerNamn = maskinSomParam
-    ? maskinModell(dimMaskiner.find((m) => m.maskin_id === maskinSomParam))   // '' tills maskinregistret laddats
-    : '';
+  // grenen, så förarlistan visades utan gul rand/Avsluta — och sekvensen kunde inte täcka objektlistan.
   const maskinLager = (
     <>
       {/* === "ÖPPNA SOM MASKIN"-BANNER (gul rand, över allt) — får aldrig förväxlas med skarpt läge === */}
@@ -12910,31 +12985,35 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* /maskin: loggan täcker tills behörighet/maskin är bekräftade och sekvensens egen logga tar över */}
-      {maskinSomTackLogga && <StartLoggaSkarm maskinNamn={maskinLagerNamn || null} />}
+      {/* /maskin: HELSVART (ingen logga, ingen text) tills behörighet/maskin är bekräftade och sekvensens eget
+          svarta täckskikt tar över — identiskt utseende, så inget hoppar. */}
+      {maskinSomTackSvart && <StartSvartSkarm />}
 
-      {/* /maskin: ärlig felskärm (ej behörig / okänd maskin / laddning fastnade) */}
+      {/* /maskin: ärlig felskärm — det ENDA stället loggan visas (ej behörig / okänd maskin / laddning fastnade) */}
       {maskinSomParam && maskinSomBeslut.typ === 'avvisa' && (
         <MaskinSomFelSkarm text={maskinSomFelText(maskinSomBeslut.skal, maskinSomParam)} onTillbaka={avslutaTestlage} />
       )}
 
-      {/* === MASKINDATOR-STARTSEKVENS (logga → söker → fix) — bara i maskinläge === */}
+      {/* === MASKINDATOR-STARTSEKVENS (svart → översikt → EN flyTo → objekt) — bara i maskinläge === */}
       {maskinlage && enhetMaskinId && startOverlayAktiv && startFasNu && startOverlaySynlig(startFasNu) && (() => {
-        const radNu = startRadText(startFasNu, { namn: valtObjekt?.namn ?? null, m3kvar: startM3Kvar });
+        const radNu = startRadText(startFasNu, { fixMs: startForstaFix, kartaRedoMs: startKartaRedo, nuMs: startSekvensNu, objekt: { namn: valtObjekt?.namn ?? null, m3kvar: startM3Kvar } });
         if (radNu) startRadSenasteRef.current = radNu;
-        const radVisa = startFasNu === 'soker' || startFasNu === 'fix' || startFasNu === 'ingenFix';
-        const radText = radNu ?? startRadSenasteRef.current;
+        const radText = radNu ?? startRadSenasteRef.current;   // behåll texten medan raden tonar ut
+        const radVisa = radNu != null;
+        const radIngenFix = radText === 'Ingen GPS-fix';
         return (
           <>
-            {/* Mörk logga-skärm: opak i 'logga', tonar bort sedan så kartan glider fram under. */}
-            <StartLoggaSkarm maskinNamn={startMaskinNamn || null} synlig={startFasNu === 'logga'} />
-            {/* Nedre rad: Söker GPS → <objekt> N m³ kvar (tonar bort) → Ingen GPS-fix. */}
+            {/* HELSVART täckskikt (ingen logga, ingen text): opakt medan kartan laddar, tonar sedan ut så kartan
+                "tonar upp ur svart". */}
+            <StartSvartSkarm synlig={startCoverSynlig(startFasNu)} />
+            {/* Nedre rad: "Söker GPS" (utzoomad utan fix) → "Ingen GPS-fix" (efter 30 s, står kvar) och
+                "<objekt> – N m³ kvar" FÖRST när kameran landat (tonar bort efter 5 s). */}
             {radText && (
               <div style={{
                 position: 'fixed', left: '50%', transform: 'translateX(-50%)',
                 bottom: 'calc(env(safe-area-inset-bottom, 0px) + 28px)', zIndex: 9001,
-                background: startFasNu === 'ingenFix' ? 'rgba(255,159,10,0.95)' : 'rgba(28,28,30,0.92)',
-                color: startFasNu === 'ingenFix' ? '#1a1200' : '#fff',
+                background: radIngenFix ? 'rgba(255,159,10,0.95)' : 'rgba(28,28,30,0.92)',
+                color: radIngenFix ? '#1a1200' : '#fff',
                 borderRadius: '12px', padding: '10px 18px', fontSize: '14px', fontWeight: 600,
                 whiteSpace: 'nowrap', boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
                 opacity: radVisa ? 1 : 0, transition: 'opacity 450ms ease',
