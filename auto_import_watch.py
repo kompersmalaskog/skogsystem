@@ -243,7 +243,7 @@ def run_hpr_import():
 
 def run_efterberakning():
     """Efter HPR-importen: diameterserierna in, rotkapssimuleringen om,
-    utfallet per objekt om.
+    utfallet per objekt om, stämplingsmodellen om.
 
     Alla tre är inkrementella — bara nya filer och ändrade objekt rör sig, så
     en körning utan nyheter tar sekunder. Skärmarna /rotkap och
@@ -253,7 +253,8 @@ def run_efterberakning():
     körningens rader med sitt beräknad-datum."""
     for script, args, timeout in (("import_diameterserie.py", ["--pa-riktigt"], 1800),
                                   ("berakna_rotkap.py", [], 1800),
-                                  ("berakna_utfall_objekt.py", [], 600)):
+                                  ("berakna_utfall_objekt.py", [], 600),
+                                  ("berakna_stamplingsmodell.py", [], 600)):
         logger.info(f"Startar efterberäkning: {script}")
         try:
             result = subprocess.run(
