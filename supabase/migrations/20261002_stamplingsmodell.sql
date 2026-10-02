@@ -107,57 +107,58 @@ REVOKE ALL ON stamplings_objekt, stamplings_cell, stamplings_klass, stamplings_m
 GRANT SELECT ON stamplings_klass, stamplings_meta TO authenticated;
 
 -- OBS: PostgREST-rollen kör pg-safeupdate — varje DELETE/UPDATE i en RPC måste
--- ha WHERE ("DELETE requires a WHERE clause", kod 21000), även på temporära
--- tabeller. 'WHERE true' är avsiktligt.
+-- ha WHERE ("DELETE requires a WHERE clause", kod 21000). 'WHERE true' är avsiktligt.
 CREATE OR REPLACE FUNCTION berakna_stamplingsmodell(
   p_allt boolean DEFAULT false, p_max int DEFAULT 5, p_fore timestamptz DEFAULT now())
 RETURNS jsonb LANGUAGE plpgsql AS $f$
 DECLARE
   v_t0      timestamptz := clock_timestamp();
+  v_alla    int := 0;
   v_raknade int := 0;
-  v_kvar    int := 0;
   v_bort    int := 0;
   v_rader   int;
+  v_ids     text[];     -- batchens objekt
+  v_sa      text[];     -- av dem slutavverkningarna (de enda som får celler)
 BEGIN
   -- 1. Vilka objekt har ändrats? Samma nyckel som utfall_objekt: antal
-  --    joinbara stockar och antal stammar. huvudtyp räknas in, så ett objekt
-  --    som byter typ räknas om.
-  CREATE TEMP TABLE IF NOT EXISTS _andrade (objekt_id text PRIMARY KEY, slutavverkning boolean,
-                                            stockar_antal int, stammar_antal int) ON COMMIT DROP;
-  DELETE FROM _andrade WHERE true;
-  INSERT INTO _andrade
-  SELECT n.objekt_id, n.slutavverkning, n.stockar_antal, n.stammar_antal
-  FROM (
+  --    joinbara stockar och antal stammar, plus huvudtyp. De p_max första
+  --    skrivs till stamplings_objekt direkt och batchen hålls i en text[]:
+  --    en temporär tabell utan statistik fick planeraren att gissa hundratals
+  --    objekt och skanna hela detalj_stock (8,6 s för ETT litet objekt);
+  --    = ANY (array) ger index-uppslag per objekt.
+  WITH nyckel AS (
     SELECT s.objekt_id, s.n::int AS stockar_antal, coalesce(m.n, 0)::int AS stammar_antal,
            coalesce(o.huvudtyp = 'Slutavverkning', false) AS slutavverkning
     FROM (SELECT objekt_id, count(*) AS n FROM detalj_stock
           WHERE stem_key IS NOT NULL AND log_key IS NOT NULL AND objekt_id IS NOT NULL GROUP BY 1) s
     LEFT JOIN (SELECT objekt_id, count(*) AS n FROM detalj_stam WHERE objekt_id IS NOT NULL GROUP BY 1) m
            ON m.objekt_id = s.objekt_id
-    LEFT JOIN dim_objekt o ON o.objekt_id = s.objekt_id) n
-  LEFT JOIN stamplings_objekt u ON u.objekt_id = n.objekt_id
-  WHERE u.objekt_id IS NULL
-     OR u.stockar_antal <> n.stockar_antal OR u.stammar_antal <> n.stammar_antal
-     OR u.slutavverkning <> n.slutavverkning
-     OR (p_allt AND u.beraknad < p_fore)
-  ORDER BY n.objekt_id;
+    LEFT JOIN dim_objekt o ON o.objekt_id = s.objekt_id),
+  alla_andrade AS (
+    SELECT n.* FROM nyckel n
+    LEFT JOIN stamplings_objekt u ON u.objekt_id = n.objekt_id
+    WHERE u.objekt_id IS NULL
+       OR u.stockar_antal <> n.stockar_antal OR u.stammar_antal <> n.stammar_antal
+       OR u.slutavverkning <> n.slutavverkning
+       OR (p_allt AND u.beraknad < p_fore)),
+  andrade AS (SELECT * FROM alla_andrade ORDER BY objekt_id LIMIT p_max),
+  skrivna AS (
+    INSERT INTO stamplings_objekt (objekt_id, slutavverkning, stockar_antal, stammar_antal, beraknad)
+    SELECT objekt_id, slutavverkning, stockar_antal, stammar_antal, now() FROM andrade
+    ON CONFLICT (objekt_id) DO UPDATE SET
+      slutavverkning = EXCLUDED.slutavverkning, stockar_antal = EXCLUDED.stockar_antal,
+      stammar_antal = EXCLUDED.stammar_antal, beraknad = now()
+    RETURNING objekt_id, slutavverkning)
+  SELECT (SELECT count(*) FROM alla_andrade)::int,
+         coalesce(array_agg(objekt_id), '{}'),
+         coalesce(array_agg(objekt_id) FILTER (WHERE slutavverkning), '{}')
+  INTO v_alla, v_ids, v_sa
+  FROM skrivna;
 
-  SELECT count(*) INTO v_kvar FROM _andrade;
+  v_raknade := coalesce(cardinality(v_ids), 0);
 
-  -- 2. Batchen: de p_max första. Cellerna byggs om från grunden för dem.
-  CREATE TEMP TABLE IF NOT EXISTS _batch (objekt_id text PRIMARY KEY, slutavverkning boolean,
-                                          stockar_antal int, stammar_antal int) ON COMMIT DROP;
-  DELETE FROM _batch WHERE true;
-  INSERT INTO _batch SELECT * FROM _andrade ORDER BY objekt_id LIMIT p_max;
-  SELECT count(*) INTO v_raknade FROM _batch;
-
-  INSERT INTO stamplings_objekt (objekt_id, slutavverkning, stockar_antal, stammar_antal, beraknad)
-  SELECT objekt_id, slutavverkning, stockar_antal, stammar_antal, now() FROM _batch
-  ON CONFLICT (objekt_id) DO UPDATE SET
-    slutavverkning = EXCLUDED.slutavverkning, stockar_antal = EXCLUDED.stockar_antal,
-    stammar_antal = EXCLUDED.stammar_antal, beraknad = now();
-
-  DELETE FROM stamplings_cell c USING _batch b WHERE c.objekt_id = b.objekt_id;
+  -- 2. Cellerna för batchen byggs om från grunden.
+  DELETE FROM stamplings_cell WHERE objekt_id = ANY (v_ids);
 
   WITH klass AS MATERIALIZED (SELECT sortiment_id, grupp FROM vy_sortiment_klass),
   stock AS (
@@ -166,9 +167,9 @@ BEGIN
     SELECT d.maskin_id, d.stem_key, d.objekt_id, d.log_key, d.volym_m3sub,
            coalesce(k.grupp, harled_produktgrupp(d.sortiment_namn), 'Övrigt') AS grupp
     FROM detalj_stock d
-    JOIN _batch b ON b.objekt_id = d.objekt_id AND b.slutavverkning
     LEFT JOIN klass k ON k.sortiment_id = d.sortiment_id
-    WHERE d.stem_key IS NOT NULL AND d.log_key IS NOT NULL
+    WHERE d.objekt_id = ANY (v_sa)
+      AND d.stem_key IS NOT NULL AND d.log_key IS NOT NULL
       AND coalesce(k.grupp, harled_produktgrupp(d.sortiment_namn), '') <> 'Hemved'),
   forsta AS (
     SELECT DISTINCT ON (maskin_id, objekt_id, stem_key) maskin_id, objekt_id, stem_key, (grupp = 'Massa') AS rot
@@ -178,9 +179,8 @@ BEGIN
            CASE WHEN t.namn = 'TALL' THEN 'tall' WHEN t.namn = 'GRAN' THEN 'gran' ELSE 'annat' END AS slag,
            CASE WHEN s.dbh_mm < 100 THEN 5 WHEN s.dbh_mm >= 550 THEN 55 ELSE (s.dbh_mm / 50) * 5 END AS klass
     FROM detalj_stam s
-    JOIN _batch b ON b.objekt_id = s.objekt_id AND b.slutavverkning
     LEFT JOIN dim_tradslag t ON t.tradslag_id = s.tradslag_id
-    WHERE s.dbh_mm IS NOT NULL),
+    WHERE s.objekt_id = ANY (v_sa) AND s.dbh_mm IS NOT NULL),
   per_stam AS (
     SELECT st.objekt_id, st.slag, st.klass, f.rot,
            sum(sk.volym_m3sub) AS vol,
@@ -198,12 +198,13 @@ BEGIN
   -- Objektets rötandel: stammar ≥ 20 cm (tall + gran) med massaved i rotändan.
   UPDATE stamplings_objekt u SET
     stammar20 = r.n, rot20 = r.rot
-  FROM (SELECT b.objekt_id,
+  FROM (SELECT x.objekt_id,
                sum(c.stammar) AS n,
                CASE WHEN sum(c.stammar) > 0 THEN coalesce(sum(c.stammar) FILTER (WHERE c.rot), 0)::numeric / sum(c.stammar) END AS rot
-        FROM _batch b LEFT JOIN stamplings_cell c
-               ON c.objekt_id = b.objekt_id AND c.klass >= 20 AND c.slag IN ('tall', 'gran')
-        GROUP BY b.objekt_id) r
+        FROM unnest(v_ids) AS x(objekt_id)
+        LEFT JOIN stamplings_cell c
+               ON c.objekt_id = x.objekt_id AND c.klass >= 20 AND c.slag IN ('tall', 'gran')
+        GROUP BY x.objekt_id) r
   WHERE u.objekt_id = r.objekt_id;
 
   -- 3. Objekt som inte längre har stockdata: bort (cellerna följer med).
@@ -260,7 +261,7 @@ BEGIN
 
   SELECT count(*) INTO v_rader FROM stamplings_klass;
   RETURN jsonb_build_object(
-    'raknade', v_raknade, 'kvar', v_kvar - v_raknade, 'borttagna', v_bort, 'rader', v_rader,
+    'raknade', v_raknade, 'kvar', v_alla - v_raknade, 'borttagna', v_bort, 'rader', v_rader,
     'ms', round(extract(epoch FROM clock_timestamp() - v_t0) * 1000),
     'roll', current_user, 'statement_timeout', current_setting('statement_timeout'));
 END $f$;
