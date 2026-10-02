@@ -4863,6 +4863,69 @@ def auto_avslut(data: Dict) -> None:
         logger.warning(f"  Auto-avslut: oväntat fel ({e})")
 
 
+def har_namn(sortiment: Dict) -> bool:
+    """Har sortimentet ett RIKTIGT namn? Tom sträng och bara blanksteg räknas som tomt."""
+    return bool((sortiment.get('namn') or '').strip())
+
+
+def hamta_befintliga_sortiment_id(ids: List[str]) -> Optional[set]:
+    """sortiment_id som redan finns i dim_sortiment. None om det inte gick att läsa —
+    anroparen ska då anta att allt kan finnas (fail-safe: rör inga namn)."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return set()
+    try:
+        id_list = ','.join(f'"{i}"' for i in ids)
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/dim_sortiment",
+            params={'sortiment_id': f'in.({id_list})', 'select': 'sortiment_id'},
+            headers=SUPABASE_HEADERS, timeout=30)
+        if resp.status_code != 200:
+            return None
+        return {r['sortiment_id'] for r in resp.json()}
+    except Exception:
+        return None
+
+
+def sortiment_utan_namn_for_skrivning(rader: List[Dict], befintliga: Optional[set]) -> List[Dict]:
+    """Raderna som får skrivas för sortiment UTAN namn i filen.
+
+    Bakgrund: dim_sortiment upsertas med merge på sortiment_id, och en rad med
+    nyckeln namn='' skriver över ett befintligt namn med tom sträng. Så blev elva
+    sortiment tomma (grupp NULL → massaved syntes inte, #668). Regel: ett tomt
+    namn skrivs ALDRIG över ett befintligt.
+
+      * sortimentet finns redan -> raden skickas UTAN nyckeln namn: övriga fält
+        (produktgrupp, kundkod ...) kan fortfarande fyllas, namnet rörs inte;
+      * sortimentet är nytt     -> raden skickas som förut (namn ''), den kan inte
+        skriva över något;
+      * befintliga är None (kunde inte läsa) -> som 'finns redan': hellre ett
+        nytt sortiment utan namnkolumn än ett blankat namn.
+    """
+    ut = []
+    for r in rader:
+        if har_namn(r):
+            ut.append(r)
+        elif befintliga is not None and r.get('sortiment_id') not in befintliga:
+            ut.append(r)
+        else:
+            ut.append({k: v for k, v in r.items() if k != 'namn'})
+    return ut
+
+
+def skriv_sortiment_utan_namn(rader: List[Dict]) -> int:
+    """Skriv sortiment utan namn: lägg till det som saknas, rör aldrig befintliga namn."""
+    if not rader:
+        return 0
+    befintliga = hamta_befintliga_sortiment_id([r.get('sortiment_id') for r in rader])
+    if befintliga is None:
+        logger.warning("  dim_sortiment: kunde inte läsa befintliga sortiment — namnlösa rader "
+                       "skrivs utan namnkolumn (inga befintliga namn rörs)")
+    return upsert_nyckelgrupperat('dim_sortiment',
+                                  sortiment_utan_namn_for_skrivning(rader, befintliga),
+                                  ['sortiment_id'])
+
+
 def save_hpr_to_supabase(data: Dict) -> bool:
     """Spara HPR-data till Supabase"""
     try:
@@ -4881,14 +4944,15 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 
         if data.get('sortiment'):
             # Filtrera bort sortiment utan namn - behåll FPR-importerade namn
-            sortiment_med_namn = [s for s in data['sortiment'] if s.get('namn')]
-            sortiment_utan_namn = [s for s in data['sortiment'] if not s.get('namn')]
+            sortiment_med_namn = [s for s in data['sortiment'] if har_namn(s)]
+            sortiment_utan_namn = [s for s in data['sortiment'] if not har_namn(s)]
             if sortiment_med_namn:
                 if upsert_nyckelgrupperat('dim_sortiment', sortiment_med_namn, ['sortiment_id']) == 0:
                     fel.append('dim_sortiment')
             if sortiment_utan_namn:
-                # Bara insert om sortiment saknas, skriv inte över befintliga namn
-                upsert_nyckelgrupperat('dim_sortiment', sortiment_utan_namn, ['sortiment_id'])
+                # Bara insert om sortiment saknas, skriv ALDRIG över befintliga namn
+                # med tom sträng (tidigare skickades namn='' och merge blankade dem).
+                skriv_sortiment_utan_namn(sortiment_utan_namn)
 
         # Pris-matris från ProductMatrixItem (en rad per lower-threshold-kombination)
         if data.get('sortiment_pris'):
@@ -5169,7 +5233,7 @@ def save_fpr_to_supabase(data: Dict) -> bool:
                 fel.append('dim_destination')
 
         if data.get('sortiment'):
-            sortiment_med_namn = [s for s in data['sortiment'] if s.get('namn')]
+            sortiment_med_namn = [s for s in data['sortiment'] if har_namn(s)]
             if sortiment_med_namn:
                 upsert_nyckelgrupperat('dim_sortiment', sortiment_med_namn, ['sortiment_id'])
 
