@@ -26,7 +26,7 @@ import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, type ObjektForVal } from '../../lib/objektPlats'
-import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa } from '../../lib/maskindatorStart'
+import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { typLabel } from '../../lib/objekt/typ'
 import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -3078,6 +3078,17 @@ export default function PlannerPage() {
     setEnhetMaskinIdState(maskinId);
   }, []);
 
+  // === "Visa som maskin" (admin): kör appen som en maskindator med vald maskin, UTAN simulering ===
+  // Datorns vanliga position används (gpsKalla:s normala källa). testlageAktivRef spärrar ALLA
+  // DB-skrivningar (hyttspår, tilldelning, status, maskin_logg) så inget skrivs medan man visar som maskin.
+  const [testlage, setTestlage] = useState<{ maskinId: string; etikett: string } | null>(null);
+  const testlageAktivRef = useRef(false);
+  useEffect(() => { testlageAktivRef.current = !!testlage; }, [testlage]);
+
+  // Maskinläge = ENHETEN är en maskindator (serial-GPS) ELLER admin visar som maskin. Styr vyn
+  // (förarlista + maskindator-flöde) oavsett inloggad roll; rollen styr bara rättigheter. Se [[visaForarlista]].
+  const maskinlage = arMaskinlage(serialGpsAktiv, !!testlage);
+
   // === Maskindator-start (förarflöde sektion A) ===
   // En bunden maskindator (enhetMaskin + serial-GPS) öppnar rätt objekt utan tryck: GPS-position →
   // valjObjektForPosition → tilldelad = körvy direkt; ej tilldelad = bekräftelsekort; ingen fix = tilldelat.
@@ -3133,15 +3144,17 @@ export default function PlannerPage() {
     const col = kort.roll === 'skordare' ? 'skordare_maskin_id' : 'skotare_maskin_id';
     const nowIso = new Date().toISOString();
     try {
-      const { error } = await supabase.from('objekt')
-        .update({ [col]: enhetMaskinId, status: 'pagaende', pagaende_startad_timestamp: nowIso })
-        .eq('id', kort.objektId);
-      if (error) { visaBesked('Kunde inte starta: ' + error.message); return; }
-      // Durabel notis-logg (best-effort — får ALDRIG stoppa starten). Förman-visningen byggs i följd-PR.
-      try {
-        const tid = new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-        await supabase.from('maskin_logg').insert({ maskin_id: enhetMaskinId, datum: lokaltDatumStockholm(Date.now()), atgard: `Började på ${kort.namn} ${tid}` });
-      } catch { /* notis-loggen är icke-kritisk */ }
+      if (!testlageAktivRef.current) {   // TESTLÄGE: simulera starten, skriv INGET i DB
+        const { error } = await supabase.from('objekt')
+          .update({ [col]: enhetMaskinId, status: 'pagaende', pagaende_startad_timestamp: nowIso })
+          .eq('id', kort.objektId);
+        if (error) { visaBesked('Kunde inte starta: ' + error.message); return; }
+        // Durabel notis-logg (best-effort — får ALDRIG stoppa starten). Förman-visningen byggs i följd-PR.
+        try {
+          const tid = new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+          await supabase.from('maskin_logg').insert({ maskin_id: enhetMaskinId, datum: lokaltDatumStockholm(Date.now()), atgard: `Började på ${kort.namn} ${tid}` });
+        } catch { /* notis-loggen är icke-kritisk */ }
+      }
       setValtObjekt((prev: any) => (prev && prev.id === kort.objektId ? { ...prev, [col]: enhetMaskinId, status: 'pagaende', pagaende_startad_timestamp: nowIso } : prev));
       // håll ref:en i synk så 200 m-kollen inte triggar igen
       const idx = maskindatorObjektRef.current.findIndex((o) => o.id === kort.objektId);
@@ -3472,7 +3485,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (!isForare || !effectiveMedarbetare?.id || valtObjekt) return;
     if (autoValjGjordRef.current) return;
-    if (serialGpsAktiv && enhetMaskinId) return;   // bunden maskindator → maskindator-starten äger objektvalet
+    if (maskinlage && enhetMaskinId) return;   // maskinläge (serial/visa-som-maskin) → maskindator-starten äger objektvalet
 
     let cancelled = false;
     (async () => {
@@ -3500,13 +3513,13 @@ export default function PlannerPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [isForare, effectiveMedarbetare?.id, valtObjekt, serialGpsAktiv, enhetMaskinId]);
+  }, [isForare, effectiveMedarbetare?.id, valtObjekt, maskinlage, enhetMaskinId]);
 
   // === Maskindator-start (sektion A) ===
-  // En bunden maskindator med serial-GPS öppnar rätt objekt utan tryck. Ett skott per app-laddning.
+  // Maskinläge (serial-GPS eller admin "visa som maskin") öppnar rätt objekt utan tryck. Ett skott per app-laddning.
   useEffect(() => {
     if (maskindatorStartGjordRef.current) return;
-    if (!serialGpsAktiv || !enhetMaskinId) return;   // gäller bara en bunden maskindator
+    if (!maskinlage || !enhetMaskinId) return;        // maskinläge: serial-GPS eller admin "visa som maskin"
     if (valtObjekt) return;                           // ett objekt är redan valt (explicit) → rör inte
     if (dimMaskiner.length === 0) return;             // vänta tills maskinregistret laddats (roll/klarar_typ)
     maskindatorStartGjordRef.current = true;
@@ -3565,7 +3578,7 @@ export default function PlannerPage() {
       // 'lista' → gör inget: valtObjekt förblir null → ObjektValjare visas
     })();
     return () => { cancelled = true; };
-  }, [serialGpsAktiv, enhetMaskinId, valtObjekt, dimMaskiner, oppnaKorvyPa, visaMaskindatorKort]);
+  }, [maskinlage, enhetMaskinId, valtObjekt, dimMaskiner, oppnaKorvyPa, visaMaskindatorKort]);
 
   // Background geolocation check every 60 seconds
   useEffect(() => {
@@ -3671,6 +3684,12 @@ export default function PlannerPage() {
     if (!obj?.id || startarKorning) return;
     setStartarKorning(true);
     const nowIso = new Date().toISOString();
+    if (testlageAktivRef.current) {   // TESTLÄGE: simulera start, skriv inget
+      setValtObjekt({ ...obj, status: 'pagaende', pagaende_startad_timestamp: nowIso });
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+      setStartarKorning(false);
+      return;
+    }
     const { error } = await supabase.from('objekt').update({
       status: 'pagaende',
       pagaende_startad_timestamp: nowIso,
@@ -3700,6 +3719,13 @@ export default function PlannerPage() {
   const handleAvslutaObjekt = useCallback(async () => {
     if (!valtObjekt?.id || avsluterObjekt) return;
     setAvsluterObjekt(true);
+    if (testlageAktivRef.current) {   // VISA SOM MASKIN: simulera avslut, skriv inget
+      setAvsluterObjekt(false);
+      setVisarAvslutaConfirmation(false);
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+      setValtObjekt(null);
+      return;
+    }
     // Delad avslut-regel (samma funktion som redigeringen): sätt BÅDA dim-flaggorna (där NULL),
     // status='avslutat' + avslutad_timestamp, och ta objektet ur ALLA maskin_ko. sattFlaggor=true
     // eftersom knappen är ett explicit manuellt avslut.
@@ -3715,6 +3741,29 @@ export default function PlannerPage() {
   // Simulerad position (för testning vid dator)
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
   const [showSimPosMenu, setShowSimPosMenu] = useState<{x: number, y: number, lat: number, lng: number} | null>(null);
+
+  // === "Visa som maskin"-helpers (behöver maskindator-refs → deklareras här) ===
+  // Gå in i maskinläget med vald maskin UTAN simulering och UTAN att röra localStorage: enhet = vald
+  // maskin i state, starta om objektvalet. Datorns vanliga position (gpsKalla) driver maskindator-starten.
+  const avslutaTestlage = useCallback(() => {
+    setTestlage(null);
+    setEnhetMaskinIdState(hamtaEnhetMaskin());   // tillbaka till riktig enhet-maskin
+    maskindatorStartGjordRef.current = false;
+    setMaskindatorKort(null);
+    setValtObjekt(null);
+  }, []);
+
+  const startaVisaSomMaskin = useCallback((maskinId: string) => {
+    if (!maskinId) { avslutaTestlage(); return; }
+    setSimulatedPos(null);
+    setEnhetMaskinIdState(maskinId);             // enbart state (sattEnhetMaskin rörs ALDRIG)
+    maskindatorStartGjordRef.current = false;
+    maskindatorFragatRef.current = new Set();
+    setMaskindatorKort(null);
+    setValtObjekt(null);                         // → maskindator-starten kör om, hem-knappen ger förarlistan
+    const m = dimMaskiner.find((x) => x.maskin_id === maskinId);
+    setTestlage({ maskinId, etikett: maskinModell(m) || maskinId });
+  }, [dimMaskiner, avslutaTestlage]);
 
   // Karta
   const [zoom, setZoom] = useState(1);
@@ -3904,6 +3953,7 @@ export default function PlannerPage() {
   // (implicit kö). Två klienter som skriver till samma rad appendar var för sig → inga punkter skrivs över.
   // final=true → status completed (rör INTE points → ingen tung skrivning). Läser bara refs (stabil).
   const sparaHyttspar = useCallback(async (final: boolean) => {
+    if (testlageAktivRef.current) return;   // TESTLÄGE: logga aldrig hyttspår
     const id = hyttsparRowIdRef.current;
     if (!id) {
       // Ingen rad skapades (öppna-och-stäng utan GPS-punkter). Vid stängning: nollställ
@@ -4020,6 +4070,7 @@ export default function PlannerPage() {
   // (körvy stängs / objekt byts / unmount = cleanup → completed; telefon låses = pagehide/visibility → spar).
   useEffect(() => {
     if (!(korvyActive && valtObjekt?.id && hyttRoll)) return;
+    if (testlageAktivRef.current) return;   // TESTLÄGE: ingen hyttspår-rad skapas/återupptas/skrivs
     let avbruten = false;
     const objektId = valtObjekt.id;
     const roll = hyttRoll;
@@ -12634,9 +12685,9 @@ export default function PlannerPage() {
   if (!valtObjekt) {
     return (
       <ObjektValjare
-        forareFilter={isForare && effectiveMedarbetare?.id ? { medarbetareId: effectiveMedarbetare.id } : undefined}
+        forareFilter={visaForarlista(isForare, maskinlage) ? { medarbetareId: effectiveMedarbetare?.id ?? '' } : undefined}
         enhetMaskinId={enhetMaskinId}
-        onStartObjekt={isForare ? handleStartKorningForObjekt : undefined}
+        onStartObjekt={visaForarlista(isForare, maskinlage) ? handleStartKorningForObjekt : undefined}
         onSelectObjekt={(obj) => {
           console.log('=== VALT OBJEKT ===');
           console.log('namn:', obj.namn);
@@ -12742,6 +12793,24 @@ export default function PlannerPage() {
         .maplibregl-canvas-container.skotning-rita,
         .maplibregl-canvas-container.skotning-rita .maplibregl-canvas { cursor: crosshair !important; }
       `}</style>
+
+      {/* === "VISA SOM MASKIN"-BANNER (gul rand, över allt) — får aldrig förväxlas med skarpt läge === */}
+      {testlage && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 680,
+          background: '#f59e0b', color: '#1a1200',
+          padding: 'calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+          fontSize: '13px', fontWeight: 800, letterSpacing: '0.3px', textAlign: 'center',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
+        }}>
+          <span>⚠ Visar som maskin: {testlage.etikett}</span>
+          <button type="button" onClick={avslutaTestlage}
+            style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Avsluta
+          </button>
+        </div>
+      )}
 
       {/* === MINIMAL HEADER === */}
       {!briefingMode && (
@@ -19271,6 +19340,35 @@ export default function PlannerPage() {
                         <button type="button" onClick={installeraApp}
                           style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(10,132,255,0.15)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                           Installera på skrivbordet
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* === Visa som maskin (bara admin/chef) === */}
+                {isAdminRiktig && (
+                  <div style={{ background: '#0a0a0a', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '16px', padding: '16px 20px', marginBottom: '16px' }}>
+                    <div style={{ fontSize: '15px', color: '#fff', marginBottom: '4px' }}>Visa som maskin</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '12px' }}>Kör appen som en maskindator med vald maskin — förarlista, körvy och kort. Datorns position används. Inget skrivs i databasen.</div>
+                    <select value={testlage?.maskinId ?? ''} onChange={(e) => startaVisaSomMaskin(e.target.value)}
+                      style={{ width: '100%', padding: '11px 12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontFamily: 'inherit' }}>
+                      <option value="" style={{ color: '#000' }}>Av (visa som mig själv)</option>
+                      {dimMaskiner
+                        .filter((m) => maskinAktiv(m, new Date().toISOString().slice(0, 10)))
+                        .slice()
+                        .sort((a, b) => maskinModell(a).localeCompare(maskinModell(b), 'sv'))
+                        .map((m) => (
+                          <option key={m.maskin_id} value={m.maskin_id} style={{ color: '#000' }}>
+                            {maskinModell(m)}{m.maskin_typ === 'Harvester' ? ' · skördare' : m.maskin_typ === 'Forwarder' ? ' · skotare' : ''}
+                          </option>
+                        ))}
+                    </select>
+                    {testlage && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px', gap: '10px' }}>
+                        <span style={{ fontSize: '14px', color: '#f59e0b', fontWeight: 700 }}>Visar som: {testlage.etikett}</span>
+                        <button type="button" onClick={avslutaTestlage}
+                          style={{ padding: '9px 14px', borderRadius: '12px', border: '1px solid rgba(255,69,58,0.5)', background: 'rgba(255,69,58,0.15)', color: '#ff6961', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          Avsluta
                         </button>
                       </div>
                     )}

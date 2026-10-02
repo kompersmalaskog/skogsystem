@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, IMPLICIT_JA_M } from './maskindatorStart';
+import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, IMPLICIT_JA_M, arMaskinlage, visaForarlista } from './maskindatorStart';
 
 describe('rollAvMaskintyp', () => {
   it('Harvester → skördare, Forwarder → skotare', () => {
@@ -76,5 +76,21 @@ describe('implicitJa — >200 m inne räknas som ja', () => {
     expect(implicitJa(199.9)).toBe(false);
     expect(implicitJa(200)).toBe(true);
     expect(implicitJa(350)).toBe(true);
+  });
+});
+
+describe('maskinläge styrs av ENHETEN, inte rollen', () => {
+  it('arMaskinlage: serial ELLER testläge', () => {
+    expect(arMaskinlage(true, false)).toBe(true);
+    expect(arMaskinlage(false, true)).toBe(true);
+    expect(arMaskinlage(false, false)).toBe(false);
+  });
+  it('visaForarlista: maskinläge → förarlista oavsett roll (kodbevis: admin i testläge)', () => {
+    // admin (ej förare) i maskinläge → förarlistan, inte admin-väljaren
+    expect(visaForarlista(false, true)).toBe(true);
+    // förare utan maskinläge (telefon) → förarlistan
+    expect(visaForarlista(true, false)).toBe(true);
+    // admin/chef utan maskinläge (telefon/dator) → admin-väljaren
+    expect(visaForarlista(false, false)).toBe(false);
   });
 });

@@ -64,3 +64,16 @@ export const IMPLICIT_JA_M = 200;
 export function implicitJa(kordMeterInneIObjektet: number, troskel = IMPLICIT_JA_M): boolean {
   return kordMeterInneIObjektet >= troskel;
 }
+
+/** "Maskinläge" = ENHETEN är en maskindator (serial-GPS på) ELLER testläget är på. I maskinläge kör
+ *  appen maskindator-flödet (auto-start, bekräftelsekort, förarlista, körvy) oavsett inloggad roll. */
+export function arMaskinlage(serialGpsAktiv: boolean, testlageAktiv: boolean): boolean {
+  return !!serialGpsAktiv || !!testlageAktiv;
+}
+
+/** Ska den grupperade FÖRARLISTAN (HÄR/PÅGÅENDE/PLANERADE/AVSLUTADE) visas i st.f. admin-väljaren?
+ *  Ja om den inloggade är förare ELLER enheten är i maskinläge — rollen styr bara rättigheter, inte vyn.
+ *  Admin/chef på telefon/dator utan serial (ej maskinläge) → false → admin-planeringsväljaren. */
+export function visaForarlista(isForare: boolean, maskinlage: boolean): boolean {
+  return !!isForare || !!maskinlage;
+}
