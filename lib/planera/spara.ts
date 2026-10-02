@@ -17,7 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { klassificeraPeriod, periodMin, valideraSegment } from "@/lib/dagsegment";
 import { aktLabel, type AktivitetTyp } from "@/lib/aktiviteter";
 import { raderaVerifierat, uppdateraVerifierat, SPARA_FEL } from "@/lib/supabase-save";
-import { relativDag, timText } from "./logik";
+import { liggerIFramtiden, klockaTillMin, relativDag, timText } from "./logik";
 
 export type NyPeriod = { datum: string; start: string; slut: string; typ: AktivitetTyp; objektId: string | null; deb: boolean };
 export type SparaSvar = { ok: true; rad: any } | { ok: false; fel: string };
@@ -45,8 +45,11 @@ async function laddaDag(sb: SupabaseClient, medarbetareId: string, datum: string
 }
 
 /** Kontroller som gäller både ny period och ändring. Returnerar felet eller lägets "kalla". */
-function kontrollera(p: NyPeriod, dag: DagLage): { fel: string } | { kalla: string } {
+function kontrollera(p: NyPeriod, dag: DagLage, nu: Date): { fel: string } | { kalla: string } {
   if (!p.start || !p.slut || periodMin(p.start, p.slut) <= 0) return { fel: "Sluttiden måste vara efter starttiden." };
+  // Samma regel som i vyn, men HÄR är det spärren: framtida tid är inte arbetad tid
+  // (testdata 2026-10-02: 20:17–23:18 sparades kl 16:19).
+  if (liggerIFramtiden(p.datum, klockaTillMin(p.slut), nu)) return { fel: "Perioden ligger i framtiden — inget sparat. Spara den när tiden har varit." };
   const lage = klassificeraPeriod({ start: p.start, slut: p.slut }, dag.pass);
   const passText = `${hhmm(dag.pass.start_tid)}–${hhmm(dag.pass.slut_tid)}`;
   if (lage === "inne") return { fel: `Tiden ligger inom maskinpasset (${passText}) och är redan arbetstid. Perioder inom passet märks under Dag eller Kalender.` };
@@ -80,11 +83,11 @@ async function sakerstallSkalrad(sb: SupabaseClient, medarbetareId: string, datu
   return (data as any)?.id || null;
 }
 
-export async function sparaNyPeriod(sb: SupabaseClient, medarbetareId: string, p: NyPeriod): Promise<SparaSvar> {
+export async function sparaNyPeriod(sb: SupabaseClient, medarbetareId: string, p: NyPeriod, nu: Date = new Date()): Promise<SparaSvar> {
   try {
     const dag = await laddaDag(sb, medarbetareId, p.datum);
     if ("fel" in dag) return { ok: false, fel: dag.fel };
-    const k = kontrollera(p, dag);
+    const k = kontrollera(p, dag, nu);
     if ("fel" in k) return { ok: false, fel: k.fel };
     const arbetsdagId = await sakerstallSkalrad(sb, medarbetareId, p.datum, dag.skalrad);
     if (!arbetsdagId) return { ok: false, fel: "Kunde inte koppla perioden till dagen — inget sparat. Försök igen." };
@@ -104,11 +107,11 @@ export async function sparaNyPeriod(sb: SupabaseClient, medarbetareId: string, p
   }
 }
 
-export async function uppdateraPeriod(sb: SupabaseClient, medarbetareId: string, id: string, p: NyPeriod): Promise<SparaSvar> {
+export async function uppdateraPeriod(sb: SupabaseClient, medarbetareId: string, id: string, p: NyPeriod, nu: Date = new Date()): Promise<SparaSvar> {
   try {
     const dag = await laddaDag(sb, medarbetareId, p.datum, id);
     if ("fel" in dag) return { ok: false, fel: dag.fel };
-    const k = kontrollera(p, dag);
+    const k = kontrollera(p, dag, nu);
     if ("fel" in k) return { ok: false, fel: k.fel };
     const arbetsdagId = await sakerstallSkalrad(sb, medarbetareId, p.datum, dag.skalrad);
     if (!arbetsdagId) return { ok: false, fel: "Kunde inte koppla perioden till dagen — inget sparat. Försök igen." };
