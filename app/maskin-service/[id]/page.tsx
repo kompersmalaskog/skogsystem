@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { maskinVisningsnamn, DIM_MASKIN_NAMN_KOLUMNER } from '@/lib/maskinNamn';
 import Link from 'next/link';
 import { medSafeBotten } from '@/lib/design/tokens'; // hemindikatorn på iPhone
 
@@ -123,6 +124,11 @@ export default function MaskinDetailPage() {
       supabase.from('fakt_skift').select('maskin_id, langd_sek'),
     ]);
 
+    // Namnet ur dim_maskin.visningsnamn (lib/maskinNamn) — `maskiner` bär bara nyckeln.
+    if (m?.maskin_id) {
+      const { data: dim } = await supabase.from('dim_maskin').select(DIM_MASKIN_NAMN_KOLUMNER).eq('maskin_id', m.maskin_id).maybeSingle();
+      if (dim) m.namn = maskinVisningsnamn(dim as any);
+    }
     setMaskin(m);
     setEntries(s || []);
 

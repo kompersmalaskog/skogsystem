@@ -170,7 +170,7 @@ Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26)
 
 ### Operativa tabeller
 - `objekt` — objekt med planeringsstatus. **Status ÄR CHECK-constrained** (`objekt_status_check`): bara `planerad`, `pagaende`, `skotning`, `avslutat` går att spara. `oplanerad` och de äldre värdena `klar` går INTE att skriva, trots att den här raden tidigare påstod motsatsen — verifierat mot prod 2026-09-29. **Kolumnen defaultar dessutom till `planerad`**, alltså "klar att köra": en rad som skapas utan att sätta `status` dyker upp i förarkön som nästa jobb. Sätt den ALLTID explicit vid insert. `planerad` sätts annars av planeringsvyns "Klar — skicka till förare"-knapp + `klar_skickad_timestamp`. Översiktsvyn läser fortfarande de äldre värdena `skordning`/`skotning`/`klar` som kan finnas i gammal data. Tilldelningsfält: `assigned_skordare_user_id`, `assigned_skotare_user_id` (FK → medarbetare.id, ON DELETE SET NULL). Livscykel-timestamps: `klar_skickad_timestamp`, `pagaende_startad_timestamp`, `avslutad_timestamp`.
-- `maskiner` — maskinregister
+- `maskiner` — bär BARA service-loggens nyckel (`maskin_service.maskin_id` = `maskiner.id`) och `aktiv` för service-listan. **Maskinnamn och maskintyp läses ALLTID ur `dim_maskin`** (`visningsnamn`, `maskin_typ`) via `lib/maskinNamn.ts` (`maskinVisningsnamn`, `maskinSlag`) — aldrig `maskiner.namn`/`typ`. 2026-10-02 sattes namn i `maskiner` och ingen vy ändrades.
 - `maskin_service` — serviceloggar
 - `maskin_logg` — maskinaktivitetslogg
 - `maskin_ko` — maskinko/ordning

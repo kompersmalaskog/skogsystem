@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────
 import { beräknaExport, arbetsperiodFrånLöneperiod, type ExportSammanfattning } from "@/lib/lonesystem/loneberakning";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
+import { maskinSlag } from "@/lib/maskinNamn";
 import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
 import { ledighetKollisioner } from "@/lib/ledighetKollision";
 import { hamtaFranvaro, arDeldag } from "@/lib/franvaro";
@@ -137,7 +138,8 @@ export async function beraknaLoneunderlag(
     supabase.from("extra_tid")
       .select("medarbetare_id, datum, minuter, objekt_id, aktivitet_typ, start_tid, slut_tid")
       .gte("datum", arbStart).lte("datum", arbSlut),
-    supabase.from("maskiner").select("maskin_id, typ"),
+    // Maskintyp: EN källa, dim_maskin.maskin_typ (lib/maskinNamn maskinSlag) — aldrig `maskiner`.
+    supabase.from("dim_maskin").select("maskin_id, maskin_typ"),
     supabase.from("medarbetare_lonesystem")
       .select("medarbetare_id, anstallningsnummer"),
     supabase.from("fortnox_export_logg")
@@ -212,9 +214,8 @@ export async function beraknaLoneunderlag(
   // Maskintyp-map
   const maskinTypMap: Record<string, "skordare" | "skotare"> = {};
   for (const m of (maskinRes.data || [])) {
-    if (m.maskin_id && (m.typ === "skordare" || m.typ === "skotare")) {
-      maskinTypMap[m.maskin_id] = m.typ;
-    }
+    const slag = maskinSlag(m.maskin_typ);
+    if (m.maskin_id && slag) maskinTypMap[m.maskin_id] = slag;
   }
 
   // Anställningsnummer-map

@@ -5,6 +5,7 @@ import { C, secHead, Card, inputStyle, btnPrimary, btnSecondary, btnDanger, Chev
 import MedarbetareKontroller from "./MedarbetareKontroller";
 import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
 import { precisionText } from "@/lib/geokod";
+import { maskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
 
 type Medarbetare = {
   id: string;
@@ -36,8 +37,6 @@ type OperatorRad = {
   maskin_id: string | null;
 };
 
-type MaskinRad = { maskin_id: string; namn: string | null };
-
 type Vy = { typ: "lista" } | { typ: "detalj"; id: string } | { typ: "ny" };
 
 export default function MedarbetareFlik() {
@@ -65,17 +64,15 @@ export default function MedarbetareFlik() {
           .order("namn"),
         supabase.from("operator_medarbetare").select("operator_id, medarbetare_id"),
         supabase.from("dim_operator").select("operator_id, operator_namn, operator_key, maskin_id"),
-        supabase.from("maskiner").select("maskin_id, namn"),
+        // Maskinnamn: EN källa, dim_maskin (lib/maskinNamn) — aldrig `maskiner`.
+        supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER),
       ]);
       if (medRes.error) throw medRes.error;
 
       const opMap = new Map<string, OperatorRad>();
       for (const o of (dimOpRes.data || [])) opMap.set(o.operator_id, o);
 
-      const maskinMap: Record<string, string> = {};
-      for (const m of (maskinRes.data || []) as MaskinRad[]) {
-        if (m.maskin_id) maskinMap[m.maskin_id] = m.namn || m.maskin_id;
-      }
+      const maskinMap = maskinNamnMap(maskinRes.data || []);
 
       const opPerMed: Record<string, OperatorRad[]> = {};
       for (const m of (opMedRes.data || [])) {
