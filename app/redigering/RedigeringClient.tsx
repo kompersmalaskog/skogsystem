@@ -12,6 +12,7 @@ import MatchningsVy from './MatchningsVy'
 import SkotareFordelning from './SkotareFordelning'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 import { sparaFalt, resolveObjektRad, FALT_RUTT } from '@/lib/redigering/objektRouter'
+import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import { harStubbehandling } from '@/lib/egenkontroll'
 import DokumentChips from '@/components/DokumentChips'
 import PdfLasare from '@/app/planering/PdfLasare'
@@ -424,18 +425,12 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
   const r3 = await direktPatchDimObjekt(skotarIds, skotarPatch)
   if (!r3.ok) return { ok: false, message: 'Skotarfälten: ' + r3.message }
 
-  // Avslut (väg A): när sparningen gör att BÅDA avslut-flaggorna är satta → objekt.status='avslutat'
-  // + avslutad_timestamp, och objektet tas ur ALLA maskin_ko (alla maskiner). Loggläge gäller inte
-  // här — användaren tryckte spara. Statusen är härledd, inte huvuddata → fel får aldrig fälla saven.
+  // Avslut (väg A): när sparningen gör att BÅDA avslut-flaggorna är satta → delad avslut-regel
+  // (objekt.status='avslutat' + avslutad_timestamp + ur ALLA maskin_ko). Flaggorna är redan satta av
+  // spar → sattFlaggor utelämnas. Härledd status → avslutaObjekt kastar aldrig; resultatet ignoreras
+  // (ett avslut-fel får inte fälla saven). Samma funktion som planeringens Avsluta-knapp anropar.
   if (obj.skordning_avslutad && obj.skotning_avslutad && obj.vo_nummer) {
-    try {
-      const { data: objRader } = await supabase.from('objekt').select('id, status').eq('vo_nummer', obj.vo_nummer)
-      const ids = (objRader || []).map((o: any) => o.id)
-      if ((objRader || []).some((o: any) => o.status !== 'avslutat')) {
-        await supabase.from('objekt').update({ status: 'avslutat', avslutad_timestamp: new Date().toISOString() }).eq('vo_nummer', obj.vo_nummer).neq('status', 'avslutat')
-      }
-      if (ids.length) await supabase.from('maskin_ko').delete().in('objekt_id', ids) // ta ur ALLA köer
-    } catch { /* status härledd — får ej fälla saven */ }
+    await avslutaObjekt(supabase, { voNummer: obj.vo_nummer })
   }
   // Spegla skotarvolym/G15 till skotare_objekt_manuell (primär läskälla sedan DEL 0).
   // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
