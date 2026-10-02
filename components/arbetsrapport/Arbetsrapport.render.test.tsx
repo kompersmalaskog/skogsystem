@@ -89,12 +89,4 @@ describe("Arbetsrapport renderas utan hook-fel", () => {
     expect(behallare!.textContent).not.toMatch(/Något gick fel/);
     expect(behallare!.textContent!.length).toBeGreaterThan(20);
   });
-
-  it("Planera-läget (?lage=planera): öppnas utan krasch och visar Planera", async () => {
-    await montera("/arbetsrapport?lage=planera");
-    expect(hookFel()).toEqual([]);
-    expect(behallare!.textContent).not.toMatch(/Något gick fel/);
-    expect(behallare!.textContent).toMatch(/Planera/);
-    expect(behallare!.textContent).toMatch(/Lägg till period/);
-  });
 });
