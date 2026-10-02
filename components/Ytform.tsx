@@ -129,10 +129,12 @@ export function Mening({ children }: { children: ReactNode }) {
 
 /** 7. En rad. Ett värde: talet längst ut före ›. Två värden: talet intill
  *  etiketten, kubiken längst ut. Stapel under om raden är en del av en fördelning. */
-export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel }: {
+export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel, prick }: {
   text: string; sub?: string; tal?: string; farg?: string; hoger?: string;
   href?: string; onClick?: () => void; dampad?: boolean;
   stapel?: { andel: number; max: number; farg: string };
+  /** En färgruta framför etiketten — teckenförklaringen och raden i ett. Färgen bär aldrig ensam: ordet står bredvid. */
+  prick?: string;
 }) {
   const leder = !!(href || onClick);
   const talStil = { fontSize: 13, fontWeight: 600, color: farg ?? (dampad ? DAMPAD : TEXT) };
@@ -140,6 +142,8 @@ export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <span style={{ minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          {prick && <span aria-hidden style={{ width: 12, height: 12, borderRadius: 4, background: prick, border: LINJE,
+                                              flexShrink: 0, alignSelf: 'center', boxSizing: 'border-box' }} />}
           <span style={{ fontSize: 13, fontWeight: 600, color: dampad ? DAMPAD : TEXT, whiteSpace: 'nowrap',
                          overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>
           {tal != null && hoger != null && <span style={talStil}>{tal}</span>}

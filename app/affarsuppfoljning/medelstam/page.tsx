@@ -1,59 +1,90 @@
 'use client';
 
-// UTFALL PER MEDELSTAM — vad kan man vänta sig vid en given medelstam?
+// UTFALL PER MEDELSTAM — datahämtning. Visningen och räkningen bor i MedelstamVy.tsx och
+// lib/medelstam/berakna.ts (en page.tsx får inte exportera annat än sidan).
 //
-// Ett kalkylverktyg för att värdera en post före köp, inte en uppföljning av
-// vem som köpt vad. Samma form som rotkap, affärsuppföljningen och massaved
-// (components/Ytform.tsx): sammanhanget överst, talet stort och vänsterställt,
-// ordrad, dämpad rad, kontroll som text, rader med › och ett tal.
-//
-// SPANNET FÅR ALDRIG DÖLJAS. Vid samma stamstorlek har objekt fallit ut tio
-// procentenheter isär i timmer. Medianen och spannet står alltid ihop: i
-// den dämpade raden under talet, och på varje rad för kubb och massaved.
-//
-// Underlaget är tunt — ett tjugotal objekt, tre till fem per klass — och det
-// står på skärmen: fingervisning, inte facit. Raden uppdaterar sig själv när
-// fler objekt kommer in, RPC:n räknar live.
-//
-// Ingen jämförelse mellan inköpare: bolaget finns inte ens i svaret.
-// Skillnaderna som syns är skillnader i skogen, inte i skickligheten.
+// Källa: utfall_objekt (förberäknad efter import, ett objekt = en rad) ⋈ dim_objekt (namn, huvudtyp).
+// ALDRIG detalj_stock live — det gav 57014 statement timeout som authenticated innan tabellen kom.
+// Objektens rötaandel (stamplings_objekt.rot20) läses om den går: utan läsrätt görs ingen
+// rötajustering och sidan säger det rakt ut i stället för att låtsas.
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
-import { SIDA, DAMPAD, nf0, nf1, nf2, kortObjekt,
-         Tillbakarad, Stort, Damp, Kontroll, Mening, Rad, Rader, Laddar, Fel } from '@/components/Ytform';
+import { SIDA, Tillbakarad, Laddar, Fel } from '@/components/Ytform';
+import { MIN_STAMMAR, type Objekt, type Typ } from '@/lib/medelstam/berakna';
+import MedelstamVy, { BAS, type Vy, type Meta } from './MedelstamVy';
 
-type Andel = { median: number | null; min: number | null; max: number | null };
-type Objekt = {
-  objekt_id: string; namn: string | null; medelstam: number;
-  timmer: number; kubb: number; massa: number; stammar: number; volym: number; forsta: string;
-};
-type Klass = { fran: number; till: number; antal: number; timmer: Andel; kubb: Andel; massa: Andel; objekt: Objekt[] };
-type Utfall = { min_stammar: number; antal_objekt: number; utanfor: number; sedan_ar: number | null;
-                uppdaterad: string | null; klasser: Klass[] };
+type Rad = Record<string, unknown>;
+type Data = { alla: Objekt[]; meta: Meta; uppdaterad: string | null; rotLasbar: boolean };
 
-const klassNamn = (k: Klass) => `${nf1(k.fran)}–${nf1(k.till)}`;
-const spann = (a: Andel) => (a.min == null || a.max == null ? '–' : `${nf0(a.min)}–${nf0(a.max)} %`);
+const num = (v: unknown): number => Number(v);
+const numEllerNull = (v: unknown): number | null => (v == null ? null : Number(v));
+
+/** Alla rader, sida för sida. Sorterat på en unik nyckel — utan .order() kan PostgREST skippa eller dubblera rader mellan sidorna. */
+async function allaRader(tabell: string, select: string, nyckel: string, filter?: (q: any) => any): Promise<{ data: Rad[]; error: { code?: string; message?: string } | null }> {
+  const ut: Rad[] = [];
+  for (let fran = 0; ; fran += 1000) {
+    const { data, error } = await medAbortRetry(() => {
+      let q: any = supabase.from(tabell).select(select).order(nyckel, { ascending: true }).range(fran, fran + 999);
+      if (filter) q = filter(q);
+      return q;
+    });
+    if (error) return { data: ut, error };
+    const sida = (data ?? []) as Rad[];
+    ut.push(...sida);
+    if (sida.length < 1000) return { data: ut, error: null };
+  }
+}
 
 function Innehall() {
   const sp = useSearchParams();
   const router = useRouter();
-  const klassParam = sp.get('klass');
-  const vy = sp.get('vy');
-  const [d, setD] = useState<Utfall | null>(null);
+  const vyParam = sp.get('vy');
+  const vy: Vy = vyParam === 'objekt' || vyParam === 'kurva' ? vyParam : 'huvud';
+
+  const [d, setD] = useState<Data | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
 
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(null);
-    const { data, error } = await medAbortRetry(() => supabase.rpc('utfall_per_medelstam'));
-    if (error) {
-      setFel({ kod: (error as { code?: string }).code ?? (arAbortFel(error) ? 'ABORT' : 'OKÄND'),
-               text: error.message ?? String(error) });
+    const [u, o, r, m] = await Promise.all([
+      allaRader('utfall_objekt', 'objekt_id,forsta,stammar,volym,timmer_m3,kubb_m3,massa_m3,medelstam,kontrollerad', 'objekt_id'),
+      allaRader('dim_objekt', 'objekt_id,object_name,huvudtyp', 'objekt_id', q => q.in('huvudtyp', ['Slutavverkning', 'Gallring'])),
+      // Rötan är ett tillägg: går den inte att läsa (ingen policy, tabellen saknas) är det ett eget läge, inte ett fel.
+      allaRader('stamplings_objekt', 'objekt_id,stammar20,rot20', 'objekt_id'),
+      medAbortRetry(() => supabase.from('stamplings_meta').select('nyckel,varde')),
+    ]);
+    const e = u.error ?? o.error;
+    if (e) {
+      setFel({ kod: e.code ?? (arAbortFel(e) ? 'ABORT' : 'OKÄND'), text: e.message ?? String(e) });
       setD(null);
-    } else setD(data as Utfall);
+    } else {
+      const namn = new Map(o.data.map(x => [String(x.objekt_id), x]));
+      const rot = new Map((r.error ? [] : r.data).map(x => [String(x.objekt_id), x]));
+      let uppdaterad: string | null = null;
+      const alla: Objekt[] = [];
+      for (const x of u.data) {
+        const dim = namn.get(String(x.objekt_id));
+        if (!dim) continue;                                   // annan huvudtyp (grot m.m.) — inte med
+        const typ = dim.huvudtyp as Typ;
+        const volym = num(x.volym), stammar = num(x.stammar), medelstam = numEllerNull(x.medelstam);
+        const k = x.kontrollerad ? String(x.kontrollerad) : null;
+        if (k && (!uppdaterad || k > uppdaterad)) uppdaterad = k;
+        if (stammar < MIN_STAMMAR || !(volym > 0) || medelstam == null) continue;
+        const rr = typ === 'Slutavverkning' ? rot.get(String(x.objekt_id)) : undefined;
+        alla.push({
+          id: String(x.objekt_id), namn: (dim.object_name as string | null) ?? null, typ, forsta: x.forsta ? String(x.forsta) : null,
+          stammar, volym, timmer: num(x.timmer_m3), kubb: num(x.kubb_m3), massa: num(x.massa_m3), medelstam,
+          rot20: rr ? numEllerNull(rr.rot20) : null, stammar20: rr ? numEllerNull(rr.stammar20) : null,
+        });
+      }
+      const meta: Meta = {};
+      for (const x of ((m.data ?? []) as { nyckel: string; varde: string | number | null }[])) meta[x.nyckel] = x.varde == null ? null : Number(x.varde);
+      setD({ alla, meta, uppdaterad, rotLasbar: alla.some(a => a.rot20 != null) });
+    }
     setLaddar(false);
   }, []);
 
@@ -63,89 +94,9 @@ function Innehall() {
   if (fel) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" /><Fel rubrik="Utfallet kunde inte hämtas" fel={fel} igen={hamta} /></div>;
   if (!d) return <div style={SIDA} />;
 
-  // Förvald klass: den med flest objekt — där talet betyder mest.
-  const klasser = d.klasser;
-  const forvald = [...klasser].sort((a, b) => b.antal - a.antal || a.fran - b.fran)[0];
-  const k = klasser.find(x => nf1(x.fran) === klassParam || String(x.fran) === klassParam) ?? forvald;
-  const bas = '/affarsuppfoljning/medelstam';
-  const url = (q: Record<string, string | undefined>) => {
-    const p = new URLSearchParams();
-    if (k) p.set('klass', String(k.fran));
-    for (const [key, v] of Object.entries(q)) if (v) p.set(key, v);
-    return `${bas}?${p.toString()}`;
-  };
-  // Talen är förberäknade efter import (utfall_objekt). Avstämningsdatumet
-  // står här så att en död kedja syns som ett gammalt datum, inte som
-  // färska tal. Tom tabell är ett eget tillstånd, inte "0 objekt".
-  const underlag = d.uppdaterad ? (
-    <Damp>
-      Bygger på {nf0(d.antal_objekt)} objekt{d.sedan_ar ? ` sedan ${d.sedan_ar}` : ''}, minst {nf0(d.min_stammar)} stammar var,
-      uppdaterat {new Date(d.uppdaterad).toLocaleDateString('sv-SE')}. Fingervisning, inte facit.
-    </Damp>
-  ) : (
-    <Damp>Inget räknat ännu. Tabellen fylls efter nästa import.</Damp>
-  );
-
-  // ── Objekten i klassen ────────────────────────────────────────────────
-  if (vy === 'objekt' && k) {
-    return (
-      <div style={SIDA}>
-        <Tillbakarad href={url({})} text={`Medelstam ${klassNamn(k)}`} />
-        <Stort tal={nf0(k.antal)} ordrad={`objekt med medelstam ${klassNamn(k)} m³`}>
-          <Damp>timmer {spann(k.timmer)} · kubb {spann(k.kubb)} · massaved {spann(k.massa)}</Damp>
-          <Mening>Sorterade på timmerandel, så kanterna syns. Andelarna är av objektets volym utan hemved.</Mening>
-        </Stort>
-        <Rader>
-          {k.objekt.map(o => (
-            <Rad key={o.objekt_id} text={kortObjekt(o.namn ?? o.objekt_id)}
-              sub={`kubb ${nf0(o.kubb)} % · massaved ${nf0(o.massa)} % · ${nf0(o.stammar)} stammar · ${nf0(o.volym)} m³`}
-              tal={`${nf0(o.timmer)} %`} hoger={`${nf2(o.medelstam)} m³/stam`} />
-          ))}
-        </Rader>
-      </div>
-    );
-  }
-
-  // ── Klassen ───────────────────────────────────────────────────────────
   return (
-    <div style={SIDA}>
-      <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
-      {!k || k.antal === 0 ? (
-        <Stort tal="–" ordrad={k ? `inga objekt med medelstam ${klassNamn(k)}` : 'inga klasser'}>
-          {k && (
-            <Kontroll text={`medelstam ${klassNamn(k)}`} value={String(k.fran)} label="Medelstamsklass"
-              onChange={v => router.replace(`${bas}?klass=${v}`, { scroll: false })}>
-              {klasser.map(x => <option key={x.fran} value={x.fran}>{klassNamn(x)} · {x.antal} objekt</option>)}
-            </Kontroll>
-          )}
-          {underlag}
-        </Stort>
-      ) : (
-        <>
-          <Stort tal={k.timmer.median == null ? '–' : nf0(k.timmer.median)} enhet="%" ordrad="av volymen blir timmer">
-            {/* Medianen och spannet ihop, alltid. En inköpare som räknar på
-                medianen utan att se spannet betalar för mycket. */}
-            <Damp>{spann(k.timmer)} på {nf0(k.antal)} objekt</Damp>
-            <Kontroll text={`medelstam ${klassNamn(k)}`} value={String(k.fran)} label="Medelstamsklass"
-              onChange={v => router.replace(`${bas}?klass=${v}`, { scroll: false })}>
-              {klasser.map(x => <option key={x.fran} value={x.fran}>{klassNamn(x)} · {x.antal} objekt</option>)}
-            </Kontroll>
-            {underlag}
-          </Stort>
-          <Rader>
-            <Rad text="Kubb" tal={k.kubb.median == null ? '–' : `${nf0(k.kubb.median)} %`} hoger={spann(k.kubb)}
-              sub="kubb och klentimmer" />
-            <Rad text="Massaved" tal={k.massa.median == null ? '–' : `${nf0(k.massa.median)} %`} hoger={spann(k.massa)} />
-            <Rad text="Objekten i klassen" tal={nf0(k.antal)} onClick={() => router.push(url({ vy: 'objekt' }))} />
-          </Rader>
-          {d.utanfor > 0 && (
-            <div style={{ margin: '14px 16px 0', fontSize: 11, color: DAMPAD, lineHeight: 1.6 }}>
-              {d.utanfor} objekt ligger utanför 0,2–0,8 och är inte med i någon klass.
-            </div>
-          )}
-        </>
-      )}
-    </div>
+    <MedelstamVy alla={d.alla} meta={d.meta} uppdaterad={d.uppdaterad} rotLasbar={d.rotLasbar} vy={vy}
+      gaTill={v => router.push(v === 'huvud' ? BAS : `${BAS}?vy=${v}`)} />
   );
 }
 
