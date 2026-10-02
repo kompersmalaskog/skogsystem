@@ -20,7 +20,19 @@ export type ArbetsObjekt = {
   vo: string | null;
   atgard: string | null;
   status: string | null;
+  /** Grupp i Planera: ur objekt.typ (alla 63 rader har den) eller dim_objekt.huvudtyp; null = Övrigt. */
+  typ: ObjektTyp | null;
+  /** Aktiv = planerad/pågående (legacy skördning/skotning räknas med). Avslutade och dim-rader utan objekt-rad är inte aktiva. */
+  aktiv: boolean;
 };
+
+export type ObjektTyp = "gallring" | "slutavverkning" | "grot";
+const normTyp = (t: string | null | undefined): ObjektTyp | null => {
+  const s = (t || "").trim().toLowerCase();
+  return s === "gallring" || s === "slutavverkning" || s === "grot" ? s : null;
+};
+const AKTIVA_STATUS = ["planerad", "pagaende", "skordning", "skotning"];
+export const arAktivStatus = (s: string | null | undefined) => !!s && AKTIVA_STATUS.includes(s);
 
 type DimRad = {
   objekt_id: string; object_name?: string | null; vo_nummer?: string | number | null;
@@ -30,7 +42,7 @@ type DimRad = {
 type ObjektRad = {
   vo_nummer?: string | number | null; status?: string | null; namn?: string | null;
   markagare?: string | null; lat?: number | null; lng?: number | null;
-  atgard?: string | null; dim_objekt_id?: string | null;
+  atgard?: string | null; dim_objekt_id?: string | null; typ?: string | null;
 };
 
 export function byggArbetsObjektLista(dim: DimRad[] | null | undefined, objekt: ObjektRad[] | null | undefined): ArbetsObjekt[] {
@@ -38,6 +50,9 @@ export function byggArbetsObjektLista(dim: DimRad[] | null | undefined, objekt: 
   const objektRader = objekt ?? [];
   const statusPerVo = new Map<string, string>(
     objektRader.filter(r => r.vo_nummer != null && r.status).map(r => [String(r.vo_nummer), r.status as string]),
+  );
+  const typPerVo = new Map<string, string>(
+    objektRader.filter(r => r.vo_nummer != null && r.typ).map(r => [String(r.vo_nummer), r.typ as string]),
   );
   const urDim: ArbetsObjekt[] = dimRader.map(o => {
     // object_name är ibland en autogenererad timestamp-sträng (yymmddHHMMSS).
@@ -51,6 +66,9 @@ export function byggArbetsObjektLista(dim: DimRad[] | null | undefined, objekt: 
       lat: o.latitude ?? null, lng: o.longitude ?? null,
       vo: o.vo_nummer != null ? String(o.vo_nummer) : null, atgard: o.atgard || o.huvudtyp || null,
       status: o.vo_nummer != null ? statusPerVo.get(String(o.vo_nummer)) ?? null : null,
+      // GROT är en egen huvudtyp i dim och går före objekt.typ (som bara känner gallring/slutavverkning).
+      typ: normTyp(o.huvudtyp) === "grot" ? "grot" : normTyp(o.vo_nummer != null ? typPerVo.get(String(o.vo_nummer)) : null) ?? normTyp(o.huvudtyp),
+      aktiv: o.vo_nummer != null && arAktivStatus(statusPerVo.get(String(o.vo_nummer))),
     };
   });
   const dimNycklar = new Set<string>();
@@ -64,6 +82,7 @@ export function byggArbetsObjektLista(dim: DimRad[] | null | undefined, objekt: 
     .map(r => ({
       id: String(r.vo_nummer), namn: formatObjektNamn((r.namn || "").trim() || String(r.vo_nummer)), ägare: r.markagare || "",
       lat: r.lat ?? null, lng: r.lng ?? null, vo: String(r.vo_nummer), atgard: r.atgard || null, status: r.status ?? null,
+      typ: normTyp(r.typ), aktiv: arAktivStatus(r.status),
     }));
   return [...urDim, ...utanDim].sort((a, b) => a.namn.localeCompare(b.namn, "sv"));
 }

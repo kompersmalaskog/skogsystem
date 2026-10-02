@@ -4,10 +4,11 @@
 // i Dag eller Kalender. Alla datum är LOKALA YYYY-MM-DD — aldrig toISOString
 // (UTC-fällan: tz-off-by-one vid månadsgränser).
 import { AKTIVITETER, type AktivitetTyp } from "@/lib/aktiviteter";
+import type { ArbetsObjekt } from "@/lib/arbetsobjekt";
 
 /** Aktiviteterna Planera-vyn hanterar. Övriga perioder (service, reparation,
  *  utbildning …) läggs in och ändras i Dag/Redigera. */
-export const PLANERA_TYPER: AktivitetTyp[] = ["planering", "manuellt", "mote", "restid"];
+export const PLANERA_TYPER: AktivitetTyp[] = ["planering", "manuellt", "markagare", "mote", "restid"];
 export const arPlaneraTyp = (t: string | null | undefined) => PLANERA_TYPER.includes(t as AktivitetTyp);
 
 export type PeriodRad = {
@@ -54,6 +55,8 @@ const minHHMM = (min: number) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`
 export const periodMinuter = (start: string, slut: string) => (start && slut ? tMin(slut) - tMin(start) : 0);
 
 const stangd = (p: PeriodRad) => !!p.slut_tid && !!p.start_tid;
+/** Pågående period: har start men ingen slut (extra_tid.slut_tid = null). */
+export const arOppen = (p: PeriodRad) => !!p.start_tid && !p.slut_tid;
 const minuterAv = (p: PeriodRad) => p.minuter ?? Math.max(0, periodMinuter(hhmm(p.start_tid), hhmm(p.slut_tid)));
 
 // ── Senaste trakter ───────────────────────────────────────────────────────
@@ -194,8 +197,10 @@ export function foreslagenStart(perioder: PeriodRad[], datum: string, idag: stri
 /** Krockar perioden med en annan samma dag? Returnerar den första (för texten) eller null. */
 export function krockMed(perioder: PeriodRad[], datum: string, startMin: number, slutMin: number, undantaId?: string | null): PeriodRad | null {
   for (const p of perioder) {
-    if (p.datum !== datum || p.id === undantaId || !stangd(p)) continue;
-    if (startMin < tMin(p.slut_tid as string) && tMin(p.start_tid as string) < slutMin) return p;
+    if (p.datum !== datum || p.id === undantaId || !p.start_tid) continue;
+    // En pågående period har inget slut än — den löper framåt, så allt som slutar efter dess start krockar.
+    const pSlut = p.slut_tid ? tMin(p.slut_tid) : DAGENS_SLUT;
+    if (startMin < pSlut && tMin(p.start_tid) < slutMin) return p;
   }
   return null;
 }
@@ -213,3 +218,57 @@ export const senasteDagar = (idag: string, antal = 7) => Array.from({ length: an
 
 /** Faktureras som aktiviteten säger (ingen väljare på skärmen). */
 export const debFor = (typ: AktivitetTyp) => AKTIVITETER.find(a => a.typ === typ)?.debDefault ?? false;
+
+// ── Pågående period ("Starta nu — avsluta sen") ───────────────────────────
+// En period med start men utan slut (extra_tid.slut_tid = null) ligger kvar tills
+// föraren trycker Avsluta eller Ta bort — man ska kunna stänga appen, gå ut i
+// skogen och komma tillbaka. Bara EN åt gången.
+/** Den pågående perioden (senaste om det mot förmodan finns flera). */
+export function oppenPeriod(perioder: PeriodRad[]): PeriodRad | null {
+  const oppna = perioder.filter(arOppen).sort((a, b) => b.datum.localeCompare(a.datum) || hhmm(b.start_tid).localeCompare(hhmm(a.start_tid)));
+  return oppna[0] ?? null;
+}
+/** Glömd = startad en tidigare dag. Då sätts slut ALDRIG till nu — föraren väljer själv. */
+export const arGlomd = (p: PeriodRad, idag: string) => arOppen(p) && p.datum < idag;
+/** Minuter sedan start (verkliga minuter, inte kvartar) — det levande "2 tim 15 min". Aldrig negativt. */
+export function pagatt(p: PeriodRad, nu: Date): number {
+  if (!p.start_tid) return 0;
+  const idag = lokalISO(nu);
+  if (p.datum < idag) return 0; // glömd: ingen räknare, bara "startade i går 07:00"
+  return Math.max(0, nu.getHours() * 60 + nu.getMinutes() - tMin(p.start_tid));
+}
+/** Slut vid Avsluta/Rast: nu, avrundat NED till kvart. null om det inte blir längre än starten (under en kvart sedan). */
+export function slutVidAvsluta(startTid: string, nu: Date): number | null {
+  const slut = nuKvartNed(nu);
+  return slut > tMin(startTid) ? slut : null;
+}
+/** Rast = luckan mellan två perioder (ingen kolumn). Erbjudandet "Fortsätt" gäller
+ *  bara idag, när inget pågår och rastens period är dagens senaste. */
+export function rastPeriod(perioder: PeriodRad[], rastId: string | null, idag: string): PeriodRad | null {
+  if (!rastId || perioder.some(arOppen)) return null;
+  const rad = perioder.find(p => p.id === rastId);
+  if (!rad || rad.datum !== idag || !stangd(rad)) return null;
+  const senare = perioder.some(p => p.id !== rad.id && p.datum === idag && stangd(p) && tMin(p.slut_tid as string) > tMin(rad.slut_tid as string));
+  return senare ? null : rad;
+}
+
+// ── Trakter i grupper ─────────────────────────────────────────────────────
+export type TraktGrupp = { key: "gallring" | "slutavverkning" | "grot" | "ovrigt"; label: string; objekt: ArbetsObjekt[] };
+const GRUPPER: Omit<TraktGrupp, "objekt">[] = [
+  { key: "gallring", label: "Gallring" },
+  { key: "slutavverkning", label: "Slutavverkning" },
+  { key: "grot", label: "GROT" },
+  { key: "ovrigt", label: "Övrigt" },
+];
+/** Trakter per åtgärdstyp. Utan sökning bara AKTIVA (planerad/pågående). Med sökning
+ *  (≥ 2 tecken) filtreras alla trakter — Joacim fyller i dagar i efterhand på
+ *  avslutade — men grupperingen är densamma. Tomma grupper utelämnas. */
+export function traktGrupper(objekt: ArbetsObjekt[], sok: string): TraktGrupp[] {
+  const q = sok.trim().toLowerCase();
+  const urval = q.length >= 2
+    ? objekt.filter(o => `${o.namn} ${o.ägare} ${o.vo ?? ""}`.toLowerCase().includes(q))
+    : objekt.filter(o => o.aktiv);
+  return GRUPPER
+    .map(g => ({ ...g, objekt: urval.filter(o => (o.typ ?? "ovrigt") === g.key) }))
+    .filter(g => g.objekt.length > 0);
+}

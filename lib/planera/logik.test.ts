@@ -192,3 +192,53 @@ describe("förifylld starttid", () => {
     expect(debFor("mote")).toBe(false);
   });
 });
+
+import { oppenPeriod, arGlomd, pagatt, slutVidAvsluta, rastPeriod, traktGrupper } from "./logik";
+describe("pågående period och rast", () => {
+  const oppen = (o: Partial<PeriodRad> = {}) => p({ id: "o", datum: IDAG, start_tid: "07:00:00", slut_tid: null as any, ...(o as any) });
+  it("oppenPeriod hittar perioden utan slut; glömd = tidigare dag", () => {
+    expect(oppenPeriod([p({ datum: IDAG, start_tid: "06:00:00", slut_tid: "07:00:00" })])).toBeNull();
+    expect(oppenPeriod([oppen()])?.id).toBe("o");
+    expect(arGlomd(oppen(), IDAG)).toBe(false);
+    expect(arGlomd(oppen({ datum: "2026-10-01" }), IDAG)).toBe(true);
+  });
+  it("pagatt räknar verkliga minuter sedan start; glömd har ingen räknare", () => {
+    expect(pagatt(oppen(), new Date(2026, 9, 2, 9, 15))).toBe(135);
+    expect(pagatt(oppen({ datum: "2026-10-01" }), new Date(2026, 9, 2, 9, 15))).toBe(0);
+  });
+  it("slutVidAvsluta rundar NED och ger null när det inte blir längre än starten", () => {
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 11, 41))).toBe(11 * 60 + 30);
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 14, 53))).toBe(14 * 60 + 45);
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 7, 14))).toBeNull();
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 7, 15))).toBe(7 * 60 + 15);
+  });
+  it("rastPeriod: bara idag, bara dagens senaste, aldrig medan något pågår", () => {
+    const a = p({ id: "a", datum: IDAG, start_tid: "07:00:00", slut_tid: "11:30:00" });
+    expect(rastPeriod([a], "a", IDAG)?.id).toBe("a");
+    expect(rastPeriod([a], null, IDAG)).toBeNull();
+    expect(rastPeriod([a], "finns-ej", IDAG)).toBeNull();
+    expect(rastPeriod([a, oppen()], "a", IDAG)).toBeNull();                       // något pågår
+    expect(rastPeriod([a, p({ id: "b", datum: IDAG, start_tid: "12:00:00", slut_tid: "13:00:00" })], "a", IDAG)).toBeNull(); // inte senaste
+    expect(rastPeriod([p({ id: "c", datum: "2026-10-01", start_tid: "07:00:00", slut_tid: "11:30:00" })], "c", IDAG)).toBeNull(); // igår
+  });
+  it("krock: en pågående period löper framåt", () => {
+    expect(krockMed([oppen()], IDAG, 13 * 60, 14 * 60)?.id).toBe("o");
+    expect(krockMed([oppen()], IDAG, 5 * 60, 7 * 60)).toBeNull();
+    expect(krockMed([oppen()], IDAG, 8 * 60, 9 * 60, "o")).toBeNull();
+  });
+});
+
+describe("trakter i grupper", () => {
+  const o = (id: string, namn: string, typ: any, aktiv: boolean) => ({ id, namn, ägare: "X", lat: null, lng: null, vo: id, atgard: null, status: aktiv ? "planerad" : "avslutat", typ, aktiv });
+  const lista = [o("1", "Alfa", "gallring", true), o("2", "Beta", "slutavverkning", true), o("3", "Gamma", "grot", true), o("4", "Delta", null, true), o("5", "Gammal", "gallring", false)];
+  it("utan sökning: bara aktiva, i ordningen Gallring, Slutavverkning, GROT, Övrigt", () => {
+    expect(traktGrupper(lista, "").map(g => [g.label, g.objekt.map(x => x.namn)])).toEqual([
+      ["Gallring", ["Alfa"]], ["Slutavverkning", ["Beta"]], ["GROT", ["Gamma"]], ["Övrigt", ["Delta"]],
+    ]);
+  });
+  it("med sökning (≥ 2 tecken): alla trakter, filtrerade, samma grupper", () => {
+    expect(traktGrupper(lista, "gamm").map(g => [g.label, g.objekt.map(x => x.namn)])).toEqual([["Gallring", ["Gammal"]], ["GROT", ["Gamma"]]]);
+    expect(traktGrupper(lista, "a").length).toBe(4); // ett tecken filtrerar inte
+    expect(traktGrupper(lista, "zzz")).toEqual([]);
+  });
+});
