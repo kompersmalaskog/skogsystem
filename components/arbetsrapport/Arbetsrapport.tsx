@@ -2106,6 +2106,38 @@ export default function Arbetsrapport() {
     }
   };
 
+  // Dagens rad + perioder för valt Planera-datum. MÅSTE ligga FÖRE de tidiga
+  // returerna nedan (`if(!medarbetare) return`): en hook efter en villkorlig
+  // retur ger olika hook-antal mellan renderingar = React #310 (2026-10-02 kraschade
+  // hela arbetsrapporten). medarbetare/objektLista/dagData/extraTidData
+  // deklareras högre upp.
+  useEffect(() => {
+    if (steg !== "planera" || !medarbetare?.id) return;
+    let avbruten = false;
+    setPlaneraLaddar(true);
+    Promise.all([
+      supabase.from("arbetsdag").select("id, start_tid, slut_tid, maskin_id, objekt_id, bekraftad, km_totalt, traktamente, rast_min, arbetad_min, dagtyp, bekraftad_tid")
+        .eq("medarbetare_id", medarbetare.id).eq("datum", planeraDatum).maybeSingle(),
+      supabase.from("extra_tid").select("*").eq("medarbetare_id", medarbetare.id).eq("datum", planeraDatum).order("start_tid"),
+    ]).then(([rad, perioder]) => {
+      if (avbruten) return;
+      const d: any = rad.data;
+      setPlaneraDag(d ? { start_tid: d.start_tid || null, slut_tid: d.slut_tid || null, maskin_id: d.maskin_id || null, objekt_id: d.objekt_id || null } : null);
+      // Dagens rad in i dagData så oppnaPeriodNy/sakerstallArbetsdagRad ser den
+      // även utanför laddad kalendermånad; perioderna in i extraTidData (dedupe).
+      if (d) setDagData(m => m[planeraDatum]?.id ? m : ({ ...m, [planeraDatum]: {
+        ...(m[planeraDatum] || {}), id: d.id, start_tid: d.start_tid || null, slut_tid: d.slut_tid || null, rast_min: d.rast_min ?? 0,
+        maskin_id: d.maskin_id, objekt_id: d.objekt_id || null, bekraftad: !!d.bekraftad, bekraftad_tid: d.bekraftad_tid, dagtyp: d.dagtyp,
+        arbMin: d.arbetad_min || 0, km: d.km_totalt || 0, km_totalt: d.km_totalt || 0, trak: !!d.traktamente, traktamente: !!d.traktamente,
+        status: d.bekraftad ? 'ok' : 'saknas', objekt_namn: objektLista.find(o => o.id === d.objekt_id)?.namn || d.objekt_id || null, objekt_ägare: null, objekt_lista: [],
+      } }));
+      const nya: any[] = perioder.data || [];
+      if (nya.length) setExtraTidData(arr => { const har = new Set(arr.map((x: any) => x.id)); return [...nya.filter(x => !har.has(x.id)), ...arr]; });
+    }).finally(() => { if (!avbruten) setPlaneraLaddar(false); });
+    return () => { avbruten = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steg, planeraDatum, medarbetare?.id]);
+
   // Inloggad men ingen medarbetare kopplad — säg vad som är fel och vad man gör.
   if(!medarbetare && medSaknas) return (
     <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, display:"flex", flexDirection:"column", justifyContent:"center", padding:`0 ${AVSTAND.sidmarginal}px` }}>
@@ -2173,34 +2205,6 @@ export default function Arbetsrapport() {
     return null;
   };
   /** Öppna ett tomt formulär för ett datum (lägg till i efterhand / Redigera "Lägg till period"). */
-  // Dagens rad + perioder för valt Planera-datum (läses här, efter att
-  // medarbetare/objektLista/dagData deklarerats — annars TS2448).
-  useEffect(() => {
-    if (steg !== "planera" || !medarbetare?.id) return;
-    let avbruten = false;
-    setPlaneraLaddar(true);
-    Promise.all([
-      supabase.from("arbetsdag").select("id, start_tid, slut_tid, maskin_id, objekt_id, bekraftad, km_totalt, traktamente, rast_min, arbetad_min, dagtyp, bekraftad_tid")
-        .eq("medarbetare_id", medarbetare.id).eq("datum", planeraDatum).maybeSingle(),
-      supabase.from("extra_tid").select("*").eq("medarbetare_id", medarbetare.id).eq("datum", planeraDatum).order("start_tid"),
-    ]).then(([rad, perioder]) => {
-      if (avbruten) return;
-      const d: any = rad.data;
-      setPlaneraDag(d ? { start_tid: d.start_tid || null, slut_tid: d.slut_tid || null, maskin_id: d.maskin_id || null, objekt_id: d.objekt_id || null } : null);
-      // Dagens rad in i dagData så oppnaPeriodNy/sakerstallArbetsdagRad ser den
-      // även utanför laddad kalendermånad; perioderna in i extraTidData (dedupe).
-      if (d) setDagData(m => m[planeraDatum]?.id ? m : ({ ...m, [planeraDatum]: {
-        ...(m[planeraDatum] || {}), id: d.id, start_tid: d.start_tid || null, slut_tid: d.slut_tid || null, rast_min: d.rast_min ?? 0,
-        maskin_id: d.maskin_id, objekt_id: d.objekt_id || null, bekraftad: !!d.bekraftad, bekraftad_tid: d.bekraftad_tid, dagtyp: d.dagtyp,
-        arbMin: d.arbetad_min || 0, km: d.km_totalt || 0, km_totalt: d.km_totalt || 0, trak: !!d.traktamente, traktamente: !!d.traktamente,
-        status: d.bekraftad ? 'ok' : 'saknas', objekt_namn: objektLista.find(o => o.id === d.objekt_id)?.namn || d.objekt_id || null, objekt_ägare: null, objekt_lista: [],
-      } }));
-      const nya: any[] = perioder.data || [];
-      if (nya.length) setExtraTidData(arr => { const har = new Set(arr.map((x: any) => x.id)); return [...nya.filter(x => !har.has(x.id)), ...arr]; });
-    }).finally(() => { if (!avbruten) setPlaneraLaddar(false); });
-    return () => { avbruten = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [steg, planeraDatum, medarbetare?.id]);
   const oppnaPeriodNy = (datum: string, opts?: { gap?: { start: string; slut: string }; typ?: AktivitetTyp; fromSynk?: boolean; fromTidigarelagd?: boolean; pass?: { start_tid: string | null; slut_tid: string | null } | null }) => {
     const typ = opts?.typ || 'annat';
     setPeriodFel(null);
