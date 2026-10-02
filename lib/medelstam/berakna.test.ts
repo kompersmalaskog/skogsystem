@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   tolkaMedelstam, heltalTill100, andelarAv, viktad, spannAv, fonsterObjekt, utfall, rotaLutning, rotaMedian,
-  kurva, planarUt, vagdMinstaKvadrat, FONSTER, FONSTER_TYP, MIN_OBJEKT, type Objekt, type Lutning,
+  kurva, planarUt, vagdMinstaKvadrat, FONSTER_REL, RUBRIKTAL, MIN_OBJEKT, type Objekt, type Lutning,
 } from './berakna';
 
 // Syntetiska objekt: räknelogiken, inte datan. Mot riktig data körs samma modul i PR:ens
@@ -65,31 +65,46 @@ describe('andelar', () => {
   });
 });
 
-describe('fönstret ±0,05', () => {
-  const alla = [0.30, 0.41, 0.42, 0.47, 0.52, 0.53, 0.62].map(m => obj(m, 800, 50, 20, 25));
-  it('tar objekt inom ±0,05, kanterna med', () => {
-    expect(FONSTER).toBe(0.05);
-    expect(fonsterObjekt(alla, 0.47).map(o => o.medelstam)).toEqual([0.42, 0.47, 0.52]);   // 0,42 och 0,52 ligger på kanten
+describe('fönstret ±15 % av vald medelstam', () => {
+  it('är relativt: 0,47 → 0,40–0,54, 0,06 → 0,051–0,069', () => {
+    expect(FONSTER_REL).toBe(0.15);
+    const u = utfall([0.45, 0.5, 0.55].map(m => obj(m, 800, 50, 20, 25)), 0.47);
+    expect(u.fran).toBeCloseTo(0.3995, 10); expect(u.till).toBeCloseTo(0.5405, 10); expect(u.fonster).toBe(0.15);
+    const g = utfall([0.05, 0.06, 0.07].map(m => obj(m, 800, 0, 5, 90)), 0.06);
+    expect(g.fran).toBeCloseTo(0.051, 10); expect(g.till).toBeCloseTo(0.069, 10);
+  });
+  it('tar objekt inom ±15 %, kanterna med', () => {
+    const alla = [0.40, 0.425, 0.50, 0.575, 0.60].map(m => obj(m, 800, 50, 20, 25));
+    expect(fonsterObjekt(alla, 0.5).map(o => o.medelstam)).toEqual([0.425, 0.5, 0.575]);   // 0,425 och 0,575 ligger exakt på kanten
+  });
+  it('samma procent ger samma fönster oavsett skala — gallringens täta medelstammar får ett smalt fönster', () => {
+    const gallring = [0.045, 0.052, 0.06, 0.068, 0.075].map(m => obj(m, 800, 0, 5, 90, null, 'Gallring'));
+    expect(fonsterObjekt(gallring, 0.06).map(o => o.medelstam)).toEqual([0.052, 0.06, 0.068]);
+    // ett fast ±0,05 hade tagit alla fem
+    expect(gallring.filter(o => Math.abs(o.medelstam - 0.06) <= 0.05).length).toBe(5);
   });
   it('färre än tre objekt → inget tal, bara "för få"', () => {
-    const u = utfall(alla, 0.62);                      // 0,62 och 0,53? nej: bara 0,62 inom 0,05 → 1 objekt
+    const alla = [0.30, 0.41, 0.42, 0.47, 0.52, 0.53, 0.62, 0.9].map(m => obj(m, 800, 50, 20, 25));
+    const u = utfall(alla, 0.9);                       // bara 0,9 inom 0,765–1,035
     expect(u.n).toBe(1); expect(u.forFa).toBe(true);
     expect(u.andel).toBeNull(); expect(u.ra).toBeNull(); expect(u.spann).toBeNull();
   });
   it('exakt tre objekt räcker', () => {
     expect(MIN_OBJEKT).toBe(3);
-    const u = utfall(alla, 0.47);
+    const u = utfall([0.45, 0.47, 0.50, 0.70].map(m => obj(m, 800, 50, 20, 25)), 0.47);
     expect(u.n).toBe(3); expect(u.forFa).toBe(false); expect(u.andel!.timmer).toBeCloseTo(50, 8);
   });
   it('en medelstam långt utanför datan ger "för få", inte ett tal', () => {
-    expect(utfall(alla, 1.5).forFa).toBe(true);
+    expect(utfall([0.4, 0.5, 0.6].map(m => obj(m, 800, 50, 20, 25)), 1.5).forFa).toBe(true);
   });
-  it('fönstrets bredd är en parameter: båda typerna är ±0,05 enligt uppdraget, och ett smalare fönster ger färre objekt', () => {
-    expect(FONSTER_TYP).toEqual({ Slutavverkning: 0.05, Gallring: 0.05 });
-    expect(utfall(alla, 0.47).n).toBe(3);
-    const smalt = utfall(alla, 0.47, null, null, 0.02);
-    expect(smalt.n).toBe(1); expect(smalt.forFa).toBe(true);
-    expect(smalt.fonster).toBe(0.02); expect(smalt.till - smalt.fran).toBeCloseTo(0.04, 10);
+  it('fönstrets bredd är en parameter', () => {
+    const alla = [0.40, 0.44, 0.47, 0.50, 0.54].map(m => obj(m, 800, 50, 20, 25));
+    expect(utfall(alla, 0.47).n).toBe(5);
+    const smalt = utfall(alla, 0.47, null, null, 0.08);     // ±8 % = ±0,0376 → 0,44, 0,47, 0,50
+    expect(smalt.n).toBe(3); expect(smalt.fonster).toBe(0.08);
+  });
+  it('rubriktalet: timmer för slutavverkning, massaved för gallring', () => {
+    expect(RUBRIKTAL).toEqual({ Slutavverkning: 'timmer', Gallring: 'massa' });
   });
 });
 
@@ -183,14 +198,30 @@ describe('kurvan', () => {
       expect(r.nivaOver.timmer).toBeGreaterThan(50); expect(r.nivaOver.timmer).toBeLessThan(55);
     }
   });
-  it('säger "stiger" när kurvan fortsätter uppåt över brytpunkten', () => {
+  it('säger "förändras" (stiger) när kurvan fortsätter uppåt över brytpunkten', () => {
     const P = Array.from({ length: 40 }, (_, i) => {
       const ms = 0.15 + i * 0.0175, t = 20 + 90 * (ms - 0.15) + brus(i);
       return obj(ms, 600, t, 20, 100 - t - 22);
     });
     const r = planarUt(P);
-    expect(r.slag).toBe('stiger');
-    if (r.slag === 'stiger') expect(r.lutningOver).toBeGreaterThan(5);
+    expect(r.slag).toBe('forandras');
+    if (r.slag === 'forandras') { expect(r.riktning).toBe('stiger'); expect(r.lutningOver).toBeGreaterThan(5); expect(r.sortiment).toBe('timmer'); }
+  });
+  it('kan följa massaved i stället: en sjunkande kurva som fortsätter ner är "sjunker", en som planar ut är "planar"', () => {
+    const sjunker = Array.from({ length: 40 }, (_, i) => {
+      const ms = 0.03 + i * 0.004, m = 92 - 220 * (ms - 0.03) + brus(i);
+      return obj(ms, 600, 1, 100 - m - 2, m);
+    });
+    const r = planarUt(sjunker, 'massa');
+    expect(r.slag).toBe('forandras');
+    if (r.slag === 'forandras') { expect(r.riktning).toBe('sjunker'); expect(r.sortiment).toBe('massa'); expect(r.lutningOver).toBeLessThan(-5); }
+    const planar = Array.from({ length: 40 }, (_, i) => {
+      const ms = 0.03 + i * 0.004, m = (ms < 0.08 ? 92 - 400 * (ms - 0.03) : 72) + brus(i);
+      return obj(ms, 600, 1, 100 - m - 2, m);
+    });
+    const p = planarUt(planar, 'massa');
+    expect(p.slag).toBe('planar');
+    if (p.slag === 'planar') { expect(p.nivaOver.massa).toBeGreaterThan(68); expect(p.nivaOver.massa).toBeLessThan(76); expect(p.sortiment).toBe('massa'); }
   });
   it('för få objekt, eller för få över brytpunkten → oklart, inte ett påhittat tal', () => {
     const f = Array.from({ length: 8 }, (_, i) => obj(0.2 + i * 0.05, 600, 30 + i * 3, 20, 45));

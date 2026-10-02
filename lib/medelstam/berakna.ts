@@ -4,8 +4,9 @@
 // massaved? Svaret räknas ur utfall_objekt (ett objekt = en rad, förberäknad
 // efter import) — aldrig live över detalj_stock.
 //
-// FÖNSTRET. Objekten inom ±0,05 m³/stam från den inskrivna medelstammen.
-// Andelen är VOLYMVÄGD: summan av objektens timmervolym delad med summan av
+// FÖNSTRET. Objekten inom ±15 % av den inskrivna medelstammen (0,47 → 0,40–0,54; 0,06 → 0,051–0,069).
+// Relativt, för båda typerna: gallringens medelstammar ligger tätt (0,03–0,37, medianen 0,06) och ett fast
+// ±0,05 rymde 22 av 26 gallringar. Andelen är VOLYMVÄGD: summan av objektens timmervolym delad med summan av
 // deras volym (kvot av summor) — inte medianen av deras procenttal. Ett
 // objekt på 80 m³ ska inte väga lika som ett på 2 000. Färre än tre objekt i
 // fönstret ger inget tal alls (`forFa`), för ett snitt av ett eller två
@@ -30,10 +31,7 @@
 // / oklart — och meningen på skärmen byggs av siffrorna här. Ett tal som inte
 // räknats fram skrivs inte.
 
-export const FONSTER = 0.05;          // m³/stam åt vardera håll
-/** Fönstret per typ. Båda ±0,05 enligt uppdraget — men gallringens medelstammar ligger mellan 0,03 och 0,37 med medianen 0,06, så ±0,05
- *  rymmer 22 av 26 gallringar vid medianen och kurvan plattas ut (se PR-texten). Ändra EN siffra här om det ska vara smalare. */
-export const FONSTER_TYP: Record<'Slutavverkning' | 'Gallring', number> = { Slutavverkning: FONSTER, Gallring: FONSTER };
+export const FONSTER_REL = 0.15;      // halva fönstret som andel av vald medelstam, båda typerna
 export const MIN_OBJEKT = 3;          // färre i fönstret → inget tal
 export const MIN_STAMMAR = 200;       // objekt med färre stammar är med inte alls (samma tröskel som förut)
 export const ROT_MAX = 0.6;           // objekt över detta räknas inte in i röta-lutningen (extremer, t.ex. timkörning)
@@ -51,6 +49,8 @@ export const SORTIMENT: Sortiment[] = ['timmer', 'kubb', 'massa', 'ovrigt'];
 export const SORTIMENT_NAMN: Record<Sortiment, string> = {
   timmer: 'Timmer', kubb: 'Kubb', massa: 'Massaved', ovrigt: 'Övrigt',
 };
+/** Rubriktalet per typ: det sortiment som följer medelstammen. Gallringens timmer är under 3 % i 18 av 26 objekt, så där är det massaved som rör sig. */
+export const RUBRIKTAL: Record<Typ, Sortiment> = { Slutavverkning: 'timmer', Gallring: 'massa' };
 
 /** Procent av objektets volym (utan hemved). Summerar till 100. */
 export type Andelar = Record<Sortiment, number>;
@@ -118,8 +118,8 @@ export function spannAv(objs: Objekt[]): Spann | null {
   return Object.fromEntries(SORTIMENT.map(s => [s, [Math.min(...per.map(a => a[s])), Math.max(...per.map(a => a[s]))]])) as Spann;
 }
 
-export function fonsterObjekt(alla: Objekt[], m: number, fonster: number = FONSTER): Objekt[] {
-  return alla.filter(o => Math.abs(o.medelstam - m) <= fonster + 1e-9).sort((a, b) => a.medelstam - b.medelstam);
+export function fonsterObjekt(alla: Objekt[], m: number, rel: number = FONSTER_REL): Objekt[] {
+  return alla.filter(o => Math.abs(o.medelstam - m) <= rel * m + 1e-9).sort((a, b) => a.medelstam - b.medelstam);
 }
 
 // ── Minsta kvadrat ──────────────────────────────────────────────────────
@@ -212,7 +212,7 @@ export function rotaMedian(alla: Objekt[]): number | null {
 export type Utfall = {
   m: number;
   fran: number; till: number;
-  fonster: number;           // halva fönstrets bredd, m³/stam
+  fonster: number;           // halva fönstrets bredd som andel av m (0,15 = ±15 %)
   objekt: Objekt[];          // fönstrets objekt, sorterade på medelstam
   n: number;
   forFa: boolean;            // färre än MIN_OBJEKT — inget tal
@@ -225,11 +225,11 @@ export type Utfall = {
   rotJusterad: boolean;
 };
 
-export function utfall(alla: Objekt[], m: number, rotVald: number | null = null, lutning: Lutning | null = null, fonster: number = FONSTER): Utfall {
-  const objekt = fonsterObjekt(alla, m, fonster);
+export function utfall(alla: Objekt[], m: number, rotVald: number | null = null, lutning: Lutning | null = null, rel: number = FONSTER_REL): Utfall {
+  const objekt = fonsterObjekt(alla, m, rel);
   const n = objekt.length;
   const bas: Utfall = {
-    m, fran: m - fonster, till: m + fonster, fonster, objekt, n, forFa: n < MIN_OBJEKT, volym: objekt.reduce((s, o) => s + o.volym, 0),
+    m, fran: m * (1 - rel), till: m * (1 + rel), fonster: rel, objekt, n, forFa: n < MIN_OBJEKT, volym: objekt.reduce((s, o) => s + o.volym, 0),
     ra: null, andel: null, spann: null, rotFonster: null, rotVald, rotJusterad: false,
   };
   if (bas.forFa) return bas;
@@ -264,26 +264,30 @@ export function kurva(alla: Objekt[]): KurvPunkt[] {
 }
 
 export type Platå =
-  | { slag: 'planar'; brytpunkt: number; nivaOver: Andelar; spannOver: [number, number]; nOver: number; lutningUnder: number }
-  | { slag: 'stiger'; brytpunkt: number; lutningOver: number; osakerhet: number; lutningUnder: number; nOver: number }
-  | { slag: 'oklart'; skal: 'fa-objekt' | 'osakert'; brytpunkt: number | null; nOver: number; lutningOver: number | null; osakerhet: number | null };
+  | { slag: 'planar'; sortiment: Sortiment; brytpunkt: number; nivaOver: Andelar; spannOver: [number, number]; nOver: number; lutningUnder: number }
+  | { slag: 'forandras'; sortiment: Sortiment; riktning: 'stiger' | 'sjunker'; brytpunkt: number; lutningOver: number; osakerhet: number; lutningUnder: number; nOver: number }
+  | { slag: 'oklart'; sortiment: Sortiment; skal: 'fa-objekt' | 'osakert'; brytpunkt: number | null; nOver: number; lutningOver: number | null; osakerhet: number | null };
 
 /**
- * Var slutar timmerandelen stiga? Segmenterad regression, volymvägd, fri lutning över
- * brytpunkten. Brytpunkten söks i steg om 0,005 mellan 20:e och 85:e percentilen.
+ * Var slutar andelen av ett sortiment (timmer för slutavverkning, massaved för gallring) förändras med
+ * medelstammen? Segmenterad regression, volymvägd, fri lutning över brytpunkten. Brytpunkten söks i steg
+ * om 0,005 mellan 20:e och 85:e percentilen.
  *
- *   planar  — lutningen över har ett konfidensintervall (±2 standardfel) som rymmer noll,
- *             är högst hälften av lutningen under, och lutningen under är tydligt positiv.
- *   stiger  — lutningen över är tydligt positiv (hela intervallet över noll).
- *   oklart  — allt annat: för få objekt (färre än KURV_MIN_OVER över brytpunkten), eller så osäkert att man
- *             inte kan säga det ena eller andra.
+ *   planar     — lutningen över har ett konfidensintervall (±2 standardfel) som rymmer noll, är högst hälften
+ *                av lutningen under (till beloppet), och lutningen under är tydligt skild från noll.
+ *   forandras  — lutningen över är tydligt skild från noll (intervallet rymmer inte noll): kurvan stiger
+ *                eller sjunker fortfarande.
+ *   oklart     — allt annat: för få objekt (färre än KURV_MIN_OVER över brytpunkten), eller så osäkert att
+ *                man inte kan säga det ena eller andra.
  *
  * Lutningarna redovisas som procentenheter per 0,1 m³/stam.
  */
-export function planarUt(alla: Objekt[]): Platå {
+export function planarUt(alla: Objekt[], sortiment: Sortiment = 'timmer'): Platå {
   const P = alla.filter(o => o.volym > 0).sort((a, b) => a.medelstam - b.medelstam);
-  if (P.length < KURV_MIN_OBJEKT) return { slag: 'oklart', skal: 'fa-objekt', brytpunkt: null, nOver: 0, lutningOver: null, osakerhet: null };
-  const ms = P.map(o => o.medelstam), y = P.map(o => andelarAv(o).timmer), w = P.map(o => o.volym);
+  const fa = (brytpunkt: number | null, nOver: number, lutningOver: number | null, osakerhet: number | null): Platå =>
+    ({ slag: 'oklart', sortiment, skal: 'fa-objekt', brytpunkt, nOver, lutningOver, osakerhet });
+  if (P.length < KURV_MIN_OBJEKT) return fa(null, 0, null, null);
+  const ms = P.map(o => o.medelstam), y = P.map(o => andelarAv(o)[sortiment]), w = P.map(o => o.volym);
   const pct = (q: number) => ms[Math.min(ms.length - 1, Math.floor(q * (ms.length - 1)))];
   type Passning = { b: number; sse: number; beta: number[]; se: number[] };
   let best: Passning | null = null;
@@ -293,19 +297,20 @@ export function planarUt(alla: Objekt[]): Platå {
     const fit = vagdMinstaKvadrat(ms.map(x => [1, Math.min(x, b), Math.max(x - b, 0)]), y, w);
     if (fit && (!best || fit.sse < best.sse)) best = { b, sse: fit.sse, beta: fit.beta, se: fit.se };
   }
-  if (!best) return { slag: 'oklart', skal: 'fa-objekt', brytpunkt: null, nOver: 0, lutningOver: null, osakerhet: null };
+  if (!best) return fa(null, 0, null, null);
 
   const over = P.filter(o => o.medelstam > best!.b);
   const lutU = best.beta[1] * 0.1, seU = best.se[1] * 0.1;
   const lutO = best.beta[2] * 0.1, seO = best.se[2] * 0.1;
   const brytpunkt = Math.round(best.b * 100) / 100;
-  if (over.length < KURV_MIN_OVER) return { slag: 'oklart', skal: 'fa-objekt', brytpunkt, nOver: over.length, lutningOver: lutO, osakerhet: 2 * seO };
-  if (lutO - 2 * seO > 0) return { slag: 'stiger', brytpunkt, lutningOver: lutO, osakerhet: 2 * seO, lutningUnder: lutU, nOver: over.length };
-  const rymmerNoll = Math.abs(lutO) <= 2 * seO;
-  if (rymmerNoll && lutO <= 0.5 * lutU && lutU - 2 * seU > 0) {
+  if (over.length < KURV_MIN_OVER) return fa(brytpunkt, over.length, lutO, 2 * seO);
+  if (Math.abs(lutO) - 2 * seO > 0) {
+    return { slag: 'forandras', sortiment, riktning: lutO > 0 ? 'stiger' : 'sjunker', brytpunkt, lutningOver: lutO, osakerhet: 2 * seO, lutningUnder: lutU, nOver: over.length };
+  }
+  if (Math.abs(lutO) <= 0.5 * Math.abs(lutU) && Math.abs(lutU) - 2 * seU > 0) {
     const niva = viktad(over) as Andelar;
     const sp = spannAv(over) as Spann;
-    return { slag: 'planar', brytpunkt, nivaOver: niva, spannOver: sp.timmer, nOver: over.length, lutningUnder: lutU };
+    return { slag: 'planar', sortiment, brytpunkt, nivaOver: niva, spannOver: sp[sortiment], nOver: over.length, lutningUnder: lutU };
   }
-  return { slag: 'oklart', skal: 'osakert', brytpunkt, nOver: over.length, lutningOver: lutO, osakerhet: 2 * seO };
+  return { slag: 'oklart', sortiment, skal: 'osakert', brytpunkt, nOver: over.length, lutningOver: lutO, osakerhet: 2 * seO };
 }
