@@ -106,6 +106,9 @@ CREATE POLICY stamplings_meta_las ON stamplings_meta FOR SELECT TO authenticated
 REVOKE ALL ON stamplings_objekt, stamplings_cell, stamplings_klass, stamplings_meta FROM anon;
 GRANT SELECT ON stamplings_klass, stamplings_meta TO authenticated;
 
+-- OBS: PostgREST-rollen kör pg-safeupdate — varje DELETE/UPDATE i en RPC måste
+-- ha WHERE ("DELETE requires a WHERE clause", kod 21000), även på temporära
+-- tabeller. 'WHERE true' är avsiktligt.
 CREATE OR REPLACE FUNCTION berakna_stamplingsmodell(
   p_allt boolean DEFAULT false, p_max int DEFAULT 5, p_fore timestamptz DEFAULT now())
 RETURNS jsonb LANGUAGE plpgsql AS $f$
@@ -121,7 +124,7 @@ BEGIN
   --    som byter typ räknas om.
   CREATE TEMP TABLE IF NOT EXISTS _andrade (objekt_id text PRIMARY KEY, slutavverkning boolean,
                                             stockar_antal int, stammar_antal int) ON COMMIT DROP;
-  DELETE FROM _andrade;
+  DELETE FROM _andrade WHERE true;
   INSERT INTO _andrade
   SELECT n.objekt_id, n.slutavverkning, n.stockar_antal, n.stammar_antal
   FROM (
@@ -144,7 +147,7 @@ BEGIN
   -- 2. Batchen: de p_max första. Cellerna byggs om från grunden för dem.
   CREATE TEMP TABLE IF NOT EXISTS _batch (objekt_id text PRIMARY KEY, slutavverkning boolean,
                                           stockar_antal int, stammar_antal int) ON COMMIT DROP;
-  DELETE FROM _batch;
+  DELETE FROM _batch WHERE true;
   INSERT INTO _batch SELECT * FROM _andrade ORDER BY objekt_id LIMIT p_max;
   SELECT count(*) INTO v_raknade FROM _batch;
 
@@ -210,7 +213,7 @@ BEGIN
   GET DIAGNOSTICS v_bort = ROW_COUNT;
 
   -- 4. Modelltabellen byggs om ur cellerna — billig, och alltid färsk.
-  DELETE FROM stamplings_klass;
+  DELETE FROM stamplings_klass WHERE true;
   INSERT INTO stamplings_klass (slag, klass, rot, stammar, objekt, m3_per_stam, timmer_pct, kubb_pct, massa_pct, ovrigt_pct, beraknad)
   SELECT slag, klass, CASE WHEN rot THEN 'ja' ELSE 'nej' END, sum(stammar), count(DISTINCT objekt_id),
          sum(volym) / sum(stammar),
@@ -225,7 +228,7 @@ BEGIN
   FROM stamplings_cell WHERE volym > 0 GROUP BY slag, klass;
 
   -- 5. Nyckeltalen. Rötandelen över objekt med minst 200 stammar.
-  DELETE FROM stamplings_meta;
+  DELETE FROM stamplings_meta WHERE true;
   INSERT INTO stamplings_meta (nyckel, varde, text, beraknad)
   SELECT * FROM (
     SELECT 'rot20_median', percentile_cont(0.5) WITHIN GROUP (ORDER BY rot20), NULL::text, now()
