@@ -27,6 +27,7 @@ import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, type ObjektForVal } from '../../lib/objektPlats'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
+import { startFas, startOverlaySynlig, startRadText, type StartFas } from '../../lib/maskinstart'
 import { typLabel } from '../../lib/objekt/typ'
 import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -3088,6 +3089,30 @@ export default function PlannerPage() {
   // Maskinläge = ENHETEN är en maskindator (serial-GPS) ELLER admin visar som maskin. Styr vyn
   // (förarlista + maskindator-flöde) oavsett inloggad roll; rollen styr bara rättigheter. Se [[visaForarlista]].
   const maskinlage = arMaskinlage(serialGpsAktiv, !!testlage);
+
+  // === Maskindator-STARTSEKVENS (logga → söker → fix → klar). Ren tillståndsmaskin i lib/maskinstart. ===
+  const [startSekvensStart, setStartSekvensStart] = useState<number | null>(null);  // när sekvensen startade
+  const [startSekvensNu, setStartSekvensNu] = useState(0);                           // tickande klocka (driver faserna)
+  const [startForstaFix, setStartForstaFix] = useState<number | null>(null);         // när första giltiga fixen kom
+  const [startDold, setStartDold] = useState(false);                                 // overlayen avmonterad efter 'klar'
+  const startSavedPosRef = useRef<{ lat: number; lon: number } | null>(null);        // senast kända position (per enhet)
+  const startKartaCentreradRef = useRef(false);
+  const startFixFarskSattRef = useRef(false);
+  const startRadSenasteRef = useRef<string | null>(null);
+
+  // Senast kända position per enhet: läs vid start (kartan under "söker"), spara vid stängning.
+  useEffect(() => {
+    if (!enhetMaskinId) return;
+    try {
+      const raw = localStorage.getItem('maskinPos_v1_' + enhetMaskinId);
+      if (raw) { const p = JSON.parse(raw); if (p && typeof p.lat === 'number' && typeof p.lon === 'number') { startSavedPosRef.current = p; if (!lastKnownPositionRef.current) lastKnownPositionRef.current = p; } }
+    } catch { /* */ }
+    const spara = () => { try { const p = lastKnownPositionRef.current; if (p) localStorage.setItem('maskinPos_v1_' + enhetMaskinId, JSON.stringify(p)); } catch { /* */ } };
+    const onHide = () => { if (document.visibilityState === 'hidden') spara(); };
+    window.addEventListener('pagehide', spara);
+    document.addEventListener('visibilitychange', onHide);
+    return () => { spara(); window.removeEventListener('pagehide', spara); document.removeEventListener('visibilitychange', onHide); };
+  }, [enhetMaskinId]);
 
   // === Maskindator-start (förarflöde sektion A) ===
   // En bunden maskindator (enhetMaskin + serial-GPS) öppnar rätt objekt utan tryck: GPS-position →
@@ -8202,6 +8227,46 @@ export default function PlannerPage() {
     return null;
   }, [simulatedPos, currentPosition]);
 
+  // === Maskindator-startsekvens: faser + sidoeffekter ===
+  const startFasNu: StartFas | null = startSekvensStart != null
+    ? startFas({ startMs: startSekvensStart, nuMs: startSekvensNu, forstaFixMs: startForstaFix })
+    : null;
+  const startOverlayAktiv = startSekvensStart != null && !startDold;
+  const startMaskinNamn = enhetMaskinId ? maskinModell(dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)) : '';
+  const startM3Kvar = valtObjekt
+    ? berakVolymKvar(valtObjekt, rollAvMaskintyp(dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)?.maskin_typ) ?? 'skotare')
+    : null;
+
+  // Starta sekvensen EN gång när maskinläget + körvyn blir aktiv.
+  useEffect(() => {
+    if (!maskinlage || !enhetMaskinId || !korvyActive || startSekvensStart != null) return;
+    const t = Date.now(); setStartSekvensStart(t); setStartSekvensNu(t);
+  }, [maskinlage, enhetMaskinId, korvyActive, startSekvensStart]);
+  // Tickande klocka medan overlayen lever (driver logga→söker→ingenFix).
+  useEffect(() => {
+    if (startSekvensStart == null || startDold) return;
+    const iv = setInterval(() => setStartSekvensNu(Date.now()), 250);
+    return () => clearInterval(iv);
+  }, [startSekvensStart, startDold]);
+  // Första giltiga fix.
+  useEffect(() => {
+    if (startSekvensStart != null && startForstaFix == null && korvyEffectivePos != null) setStartForstaFix(Date.now());
+  }, [korvyEffectivePos, startSekvensStart, startForstaFix]);
+  // 'klar' → tona ut, avmontera efter fade.
+  useEffect(() => {
+    if (startFasNu === 'klar' && !startDold) { const t = setTimeout(() => setStartDold(true), 500); return () => clearTimeout(t); }
+  }, [startFasNu, startDold]);
+  // 'söker': dämpa GPS-pricken (en gång) + glid kartan till senast kända position.
+  useEffect(() => {
+    if (startFasNu !== 'soker') return;
+    if (!startFixFarskSattRef.current) { startFixFarskSattRef.current = true; setGpsFixFarsk(false); }
+    const m = mapInstanceRef.current;
+    if (m && !startKartaCentreradRef.current && startSavedPosRef.current) {
+      startKartaCentreradRef.current = true;
+      try { m.easeTo({ center: [startSavedPosRef.current.lon, startSavedPosRef.current.lat], zoom: KORVY_BASE_ZOOM, duration: 600 }); } catch { /* */ }
+    }
+  }, [startFasNu]);
+
   // Maskindator-start, löpande position: (a) >200 m körda INNE i kort-objektet = implicit ja;
   // (b) A4 auto-byte EN gång — öppnade vi tilldelat objekt utan fix och en fix nu visar ett annat objekt.
   useEffect(() => {
@@ -12812,6 +12877,49 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* === MASKINDATOR-STARTSEKVENS (logga → söker → fix) — bara i maskinläge === */}
+      {maskinlage && enhetMaskinId && startOverlayAktiv && startFasNu && startOverlaySynlig(startFasNu) && (() => {
+        const radNu = startRadText(startFasNu, { namn: valtObjekt?.namn ?? null, m3kvar: startM3Kvar });
+        if (radNu) startRadSenasteRef.current = radNu;
+        const radVisa = startFasNu === 'soker' || startFasNu === 'fix' || startFasNu === 'ingenFix';
+        const radText = radNu ?? startRadSenasteRef.current;
+        return (
+          <>
+            {/* Mörk logga-skärm: opak i 'logga', tonar bort sedan så kartan glider fram under. */}
+            <div style={{
+              position: 'fixed', inset: 0, zIndex: 9000, background: '#000',
+              opacity: startFasNu === 'logga' ? 1 : 0,
+              pointerEvents: startFasNu === 'logga' ? 'auto' : 'none',
+              transition: 'opacity 650ms cubic-bezier(0.32, 0.72, 0, 1)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px',
+            }}>
+              {/* SAMMA fil som inloggningssidan (/logo.png) — ingen egen logga.
+                  Bilden är 1953×867 (2,25:1), så storleken anges som HÖJD: ca 190 px syns från förarstolen,
+                  ikonstorlek gör det inte. min(190px, 40vh) håller den inom skärmen om fönstret är lågt.
+                  width/height-attributen speglar det verkliga förhållandet — 128×128 påstod en kvadrat, så
+                  webbläsaren reserverade fel yta innan bilden laddat och raden under hoppade. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="Kompersmåla Skog" width={1953} height={867} style={{ height: 'min(190px, 40vh)', width: 'auto', maxWidth: '80vw', objectFit: 'contain', opacity: 0.95 }} />
+              {startMaskinNamn && <div style={{ fontSize: '15px', color: '#8e8e93', fontWeight: 600 }}>{startMaskinNamn}</div>}
+            </div>
+            {/* Nedre rad: Söker GPS → <objekt> N m³ kvar (tonar bort) → Ingen GPS-fix. */}
+            {radText && (
+              <div style={{
+                position: 'fixed', left: '50%', transform: 'translateX(-50%)',
+                bottom: 'calc(env(safe-area-inset-bottom, 0px) + 28px)', zIndex: 9001,
+                background: startFasNu === 'ingenFix' ? 'rgba(255,159,10,0.95)' : 'rgba(28,28,30,0.92)',
+                color: startFasNu === 'ingenFix' ? '#1a1200' : '#fff',
+                borderRadius: '12px', padding: '10px 18px', fontSize: '14px', fontWeight: 600,
+                whiteSpace: 'nowrap', boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+                opacity: radVisa ? 1 : 0, transition: 'opacity 450ms ease',
+              }}>
+                {radText}
+              </div>
+            )}
+          </>
+        );
+      })()}
+
       {/* === MINIMAL HEADER === */}
       {!briefingMode && (
         <div style={{
@@ -15555,7 +15663,7 @@ export default function PlannerPage() {
       )}
 
       {/* "Ingen GPS-fix" — serial-GPS (maskindator) har tappat fix (rule 4). Pricken är redan dämpad. */}
-      {serialGpsAktiv && !gpsFixFarsk && (drivingMode || korvyActive) && (
+      {serialGpsAktiv && !gpsFixFarsk && (drivingMode || korvyActive) && !startOverlayAktiv && (
         <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(255,159,10,0.92)', color: '#000', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
           Ingen GPS-fix
         </div>
