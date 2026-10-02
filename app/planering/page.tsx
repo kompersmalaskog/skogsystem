@@ -27,13 +27,15 @@ import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, traktgransRingar, type ObjektForVal } from '../../lib/objektPlats'
+import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt, valjTilldelatObjekt, valjFlygPos } from '../../lib/maskinPosition'
+import { hamtaSenasteSparStart } from '../../lib/maskinPositionDb'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { startFas, flygKlar, startCoverSynlig, startOverlaySynlig, startKameraLas, startRadText, FLY_MS, COVER_FADE_MS, type StartFas } from '../../lib/maskinstart'
 import { MaskinSomContext } from '../../lib/maskinSomContext'
 import { beslutaMaskinSom, maskinSomFelText, VANTA_MAX_MS } from '../../lib/maskinSom'
 import { StartSvartSkarm, MaskinSomFelSkarm } from '../../components/maskin/StartSkarmar'
 import { typLabel } from '../../lib/objekt/typ'
-import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
+import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPosition, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -3097,8 +3099,9 @@ export default function PlannerPage() {
     setEnhetMaskinIdState(maskinId);
   }, []);
 
-  // === "Visa som maskin" (admin): kör appen som en maskindator med vald maskin, UTAN simulering ===
-  // Datorns vanliga position används (gpsKalla:s normala källa). testlageAktivRef spärrar ALLA
+  // === "Öppna som maskin" (admin, /maskin?som=): kör appen som en maskindator med vald maskin, UTAN simulering ===
+  // Datorns GPS används ALDRIG (gpsKalla i fast läge, se app/maskin/page.tsx) — startpositionen är maskinens senast kända
+  // hyttspår-punkt. testlageAktivRef spärrar ALLA
   // DB-skrivningar (hyttspår, tilldelning, status, maskin_logg) så inget skrivs medan man visar som maskin.
   const [testlage, setTestlage] = useState<{ maskinId: string; etikett: string } | null>(null);
   const testlageAktivRef = useRef(false);
@@ -3130,7 +3133,7 @@ export default function PlannerPage() {
   // i lib/maskinstart. INGEN logga/text i sekvensen — loggan finns bara i felskärmarna. ===
   const [startSekvensStart, setStartSekvensStart] = useState<number | null>(null);  // när sekvensen startade
   const [startSekvensNu, setStartSekvensNu] = useState(0);                           // tickande klocka (driver faserna)
-  const [startForstaFix, setStartForstaFix] = useState<number | null>(null);         // när första giltiga fixen kom
+  const [startPosMs, setStartPosMs] = useState<number | null>(null);                 // när en position blev känd (senast kända ELLER riktig fix)
   const [startKartaRedo, setStartKartaRedo] = useState<number | null>(null);         // kartan målad i översiktsläge (bakom svart)
   const [startIngenKarta, setStartIngenKarta] = useState(false);                     // beslutet blev förarlista → ingen karta
   const [startFlygStart, setStartFlygStart] = useState<number | null>(null);         // flygningen startade
@@ -3141,20 +3144,25 @@ export default function PlannerPage() {
   const startFlygGjordRef = useRef(false);                                           // flygningen är gjord (EN flyTo)
   const startRadSenasteRef = useRef<string | null>(null);
   const startKameraLasRef = useRef(false);                                           // true → sekvensen äger kameran (läses av async-kod)
+  const startPosRef = useRef<{ lat: number; lon: number } | null>(null);             // flygmålet när ingen riktig fix finns (SENAST KÄNDA position, aldrig i currentPosition)
+  const traktGeoForladdRef = useRef<{ objektId: string; promise: Promise<any> } | null>(null);   // förladdad trakt-geometri (startflödet startar den före kartan är redo)
 
   // Senast kända position per enhet: läs vid start (dämpad GPS-prick i översikten), spara vid stängning.
+  // TESTFLIKEN (/maskin?som=) rör aldrig datorns lokala maskinPos — varken läser eller skriver (den utlagda
+  // positionen är maskinens hyttspår, inte något den här datorn "vet").
   useEffect(() => {
     if (!enhetMaskinId) return;
+    if (maskinSomParam || testlageAktivRef.current) return;
     try {
-      const raw = localStorage.getItem('maskinPos_v1_' + enhetMaskinId);
-      if (raw) { const p = JSON.parse(raw); if (p && typeof p.lat === 'number' && typeof p.lon === 'number') { if (!lastKnownPositionRef.current) lastKnownPositionRef.current = p; } }
+      const p = tolkaSparadPosition(localStorage.getItem(MASKINPOS_NYCKEL(enhetMaskinId)));
+      if (p && !lastKnownPositionRef.current) lastKnownPositionRef.current = p;
     } catch { /* */ }
-    const spara = () => { try { const p = lastKnownPositionRef.current; if (p) localStorage.setItem('maskinPos_v1_' + enhetMaskinId, JSON.stringify(p)); } catch { /* */ } };
+    const spara = () => { try { const p = lastKnownPositionRef.current; if (p) localStorage.setItem(MASKINPOS_NYCKEL(enhetMaskinId), JSON.stringify(p)); } catch { /* */ } };
     const onHide = () => { if (document.visibilityState === 'hidden') spara(); };
     window.addEventListener('pagehide', spara);
     document.addEventListener('visibilitychange', onHide);
     return () => { spara(); window.removeEventListener('pagehide', spara); document.removeEventListener('visibilitychange', onHide); };
-  }, [enhetMaskinId]);
+  }, [enhetMaskinId, maskinSomParam]);
 
   // === Maskindator-start (förarflöde sektion A) ===
   // En bunden maskindator (enhetMaskin + serial-GPS) öppnar rätt objekt utan tryck: GPS-position →
@@ -3162,8 +3170,10 @@ export default function PlannerPage() {
   const maskindatorStartGjordRef = useRef(false);                 // en gång per app-laddning
   const maskindatorFragatRef = useRef<Set<string>>(new Set());    // redanFragat per objektId (denna session)
   const maskindatorBytteRef = useRef(false);                      // A4: auto-byte redan gjort
-  const maskindatorA4Ref = useRef(false);                         // öppnade tilldelat objekt utan fix → tillåt ett byte
+  const maskindatorA4Ref = useRef(false);                         // valet byggde på senast känd position / tilldelat utan riktig fix → stäm av EN gång mot första riktiga fixen
   const maskindatorObjektRef = useRef<any[]>([]);                 // laddade objekt (+geometri) för by-id och 200 m-kollen
+  const [maskindatorGeoKlar, setMaskindatorGeoKlar] = useState(false);   // kandidaterna (+traktgräns) är laddade → avstämningen mot riktig fix kan räkna
+  const maskindatorStartObjektIdRef = useRef<string | null>(null);   // objektet starten öppnade (avstämningen rör inte ett val föraren gjort sedan)
   const maskindatorKmInneRef = useRef<{ km: number; last: { lat: number; lng: number } | null }>({ km: 0, last: null });
   const [maskindatorKort, setMaskindatorKort] = useState<
     { objektId: string; namn: string; typText: string; areal: number | null; volymKvar: number | null; roll: 'skordare' | 'skotare' } | null
@@ -3337,7 +3347,7 @@ export default function PlannerPage() {
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
         setGpsFixAt(Date.now());
         setGpsStatus({ kind: 'ok', at: Date.now() });
-        try { localStorage.setItem('gps-aktiverad', '1'); } catch {}
+        if (!testlageAktivRef.current) { try { localStorage.setItem('gps-aktiverad', '1'); } catch {} }   // testfliken: rör inte datorns inställningar
         setPlatsAktiverad(true);
       } else {
         setGpsStatus({ kind: 'error', code: 2, at: Date.now() });
@@ -3584,76 +3594,138 @@ export default function PlannerPage() {
   }, [isForare, effectiveMedarbetare?.id, valtObjekt, maskinlage, enhetMaskinId]);
 
   // === Maskindator-start (sektion A) ===
-  // Maskinläge (serial-GPS eller admin "visa som maskin") öppnar rätt objekt utan tryck. Ett skott per app-laddning.
+  // Maskinläge (serial-GPS eller admin "öppna som maskin") öppnar rätt objekt utan tryck. Ett skott per app-laddning.
+  // STARTPOSITION = maskinens SENAST KÄNDA position — vi väntar INTE på en GPS-fix (en testdator hemma får aldrig en
+  // inne i ett objekt; en maskindator som just startat får den först efter en stund). Ordning:
+  //   1. färsk riktig fix som redan finns i hubben (bara riktig maskindator)
+  //   2. maskinPos i localStorage (bara riktig maskindator)
+  //   3. maskinens senaste hyttspår-punkt ur DB (roll + objekt; i testfliken ENDA källan — datorns GPS används aldrig)
+  // Hyttspåret bär sitt objekt: sista punkten ligger ofta strax UTANFÖR traktgränsen och objektet kan vara avslutat, så
+  // objektet väljs ur spåret, inte med träff-i-polygon. Övriga positioner väljs mot planerade/pågående objekts traktgräns.
+  // En riktig fix som kommer efteråt stäms av EN gång mot valet (effekten "löpande position", A4).
   useEffect(() => {
     if (maskindatorStartGjordRef.current) return;
-    if (!maskinlage || !enhetMaskinId) return;        // maskinläge: serial-GPS eller admin "visa som maskin"
+    if (!maskinlage || !enhetMaskinId) return;        // maskinläge: serial-GPS eller admin "öppna som maskin"
     if (valtObjekt) return;                           // ett objekt är redan valt (explicit) → rör inte
     if (dimMaskiner.length === 0) return;             // vänta tills maskinregistret laddats (roll/klarar_typ)
     maskindatorStartGjordRef.current = true;
     autoValjGjordRef.current = true;                  // maskindator-starten äger valet → tysta förar-auto-select
-    let cancelled = false;
+    // INGEN `cancelled`-flagga: ref:en ovan äger "en gång per laddning", och effektens deps (valtObjekt, dimMaskiner …)
+    // ändras mitt i arbetet — en cleanup-flagga skulle tyst döda start-flödet utan att något kunde starta om det.
     (async () => {
       const dm = dimMaskiner.find((m) => m.maskin_id === enhetMaskinId);
       const enhetRoll = rollAvMaskintyp(dm?.maskin_typ);
       const klararTyp = dm?.klarar_typ ?? null;
-      // Ladda objekt (planerad/pågående) + deras traktgräns-geometri (för positionsmatchen).
-      const { data: objData } = await supabase.from('objekt')
-        .select('id,namn,typ,grot,status,areal,lat,lng,volym,volym_planerad,volym_skordad,volym_skotad,skotare_maskin_id,skordare_maskin_id,pagaende_startad_timestamp')
-        .in('status', ['planerad', 'pagaende']);
-      if (cancelled) return;
-      const objekt = (objData || []) as any[];
-      const { data: geoData } = await supabase.from('objekt_geometri').select('objekt_id,geometri');
-      if (cancelled) return;
-      const geoMap = new Map<string, any>();
-      for (const g of (geoData || [])) geoMap.set((g as any).objekt_id, (g as any).geometri);
-      const kandidater = objekt.map((o) => ({ ...o, geometri: geoMap.get(o.id) ?? null })) as (ObjektForVal & any)[];
-      maskindatorObjektRef.current = kandidater;
-      // Maskinens tilldelade objekt (A4-fallback): skördar- eller skotarplatsen, pågående före planerad.
-      const tilldelade = kandidater.filter((o) => o.skotare_maskin_id === enhetMaskinId || o.skordare_maskin_id === enhetMaskinId);
-      const tilldelat = tilldelade.find((o) => o.status === 'pagaende') ?? tilldelade.find((o) => o.status === 'planerad') ?? tilldelade[0] ?? null;
-      // GPS-fix med 30 s budget (sektion A4: ingen fix på 30 s → tilldelat objekt).
-      let fix: GpsFix | null = null;
-      try { fix = await hamtaEnGpsFix(30000); } catch { fix = null; }
-      if (cancelled) return;
-      const harFix = !!(fix && fix.giltig && fix.lat != null && fix.lng != null);
-      const traff = harFix
-        ? valjObjektForPosition({ lat: fix!.lat as number, lng: fix!.lng as number, maskinId: enhetMaskinId, klararTyp, objekt: kandidater }).traff as (ObjektForVal & any) | null
-        : null;
+      const arTestflik = testlageAktivRef.current;    // /maskin?som=: datorns GPS och lokala maskinPos används ALDRIG
+
+      // Kandidater (planerad/pågående + traktgräns) för positionsval, tilldelat-fallback och avstämningen. Startas direkt
+      // och parallellt med allt annat — när spåret bär objektet ligger de INTE på kritiska vägen.
+      const kandidaterP: Promise<(ObjektForVal & any)[]> = (async () => {
+        const [o, g] = await Promise.all([
+          supabase.from('objekt')
+            .select('id,namn,typ,grot,status,areal,lat,lng,volym,volym_planerad,volym_skordad,volym_skotad,skotare_maskin_id,skordare_maskin_id,pagaende_startad_timestamp')
+            .in('status', ['planerad', 'pagaende']),
+          supabase.from('objekt_geometri').select('objekt_id,geometri'),
+        ]);
+        const geoMap = new Map<string, any>();
+        for (const x of (g.data || [])) geoMap.set((x as any).objekt_id, (x as any).geometri);
+        return ((o.data || []) as any[]).map((r) => ({ ...r, geometri: geoMap.get(r.id) ?? null }));
+      })().catch(() => []);
+      kandidaterP.then((k) => { maskindatorObjektRef.current = k; setMaskindatorGeoKlar(true); });
+
+      // --- Startposition ---
+      let pos: { lat: number; lon: number } | null = null;
+      let kalla: 'fix' | 'lokal' | 'hyttspar' | null = null;
+      let sparObjektId: string | null = null;
+      let sparObjekt: any | null = null;
+      const liveFix = arTestflik ? null : senasteGiltigaGpsFix();
+      if (liveFix) { pos = { lat: liveFix.lat as number, lon: liveFix.lng as number }; kalla = 'fix'; }
+      if (!pos && !arTestflik) {
+        try { const p = tolkaSparadPosition(localStorage.getItem(MASKINPOS_NYCKEL(enhetMaskinId))); if (p) { pos = p; kalla = 'lokal'; } } catch { /* */ }
+      }
+      if (!pos) {
+        try {
+          const spar = await hamtaSenasteSparStart(supabase, enhetMaskinId, (objektId) => {
+            // Förladda spårets trakt-geometri parallellt med punkter/objekt-rad (trakt-geometri-effekten använder den).
+            traktGeoForladdRef.current = { objektId, promise: Promise.resolve(supabase.from('objekt_geometri').select('geometri').eq('objekt_id', objektId).maybeSingle()) };
+          });
+          if (spar) { pos = { lat: spar.start.lat, lon: spar.start.lon }; kalla = 'hyttspar'; sparObjektId = spar.start.objektId; sparObjekt = spar.objekt; }
+        } catch (e) { console.warn('[maskindator-start] hyttspårs-position misslyckades:', e); }
+      }
+      if (!pos && !arTestflik) {
+        // Ingen känd position alls (ny maskindator) → vänta på en riktig fix, 30 s (sektion A4).
+        let fix: GpsFix | null = null;
+        try { fix = await hamtaEnGpsFix(30000); } catch { fix = null; }
+        if (fix && fix.giltig && fix.lat != null && fix.lng != null) { pos = { lat: fix.lat, lon: fix.lng }; kalla = 'fix'; }
+      }
+      // Testfliken: maskinens position ut i den delade GPS-kedjan (prick, körvy, kamera ser EN källa). Aldrig riktig maskin —
+      // där hade en gammal position loggats som nya hyttspår-punkter.
+      if (arTestflik && pos && kalla === 'hyttspar') sattFastGpsPosition(pos.lat, pos.lon);
+
+      // --- Objektval (rena delar i lib/maskinPosition, testade mot riktig prod-fixtur) ---
+      // Spårets objekt styr när det är giltigt: i testfliken även avslutat (visa vad maskinen senast gjorde), på en riktig
+      // maskin aldrig avslutat. Annars träff-i-traktgräns bland planerade/pågående; ingen fråga på en gammal position.
+      let posObjektId: string | null = null;
+      let posTilldelad = false;
+      let kandidater: (ObjektForVal & any)[] | null = null;
+      if (sparObjektGiltigt({ kalla, sparObjektId, sparObjekt, arTestflik })) {
+        posObjektId = sparObjektId;
+        posTilldelad = true;            // spåret loggades av maskinen på objektet → hör hit
+      } else if (pos && kalla) {
+        kandidater = await kandidaterP;
+        ({ posObjektId, posTilldelad } = valjPosObjekt({ pos, kalla, maskinId: enhetMaskinId, klararTyp, kandidater }));
+      }
+      let tilldelatObjektId: string | null = null;
+      if (!posObjektId) {
+        kandidater = kandidater ?? await kandidaterP;
+        tilldelatObjektId = valjTilldelatObjekt(kandidater, enhetMaskinId);   // A4-fallback
+      }
       const atgard = avgorMaskindatorStart({
         enhetRoll,
-        harFix,
-        posObjektId: traff?.id ?? null,
-        posTilldelad: traff ? (traff.skotare_maskin_id === enhetMaskinId || traff.skordare_maskin_id === enhetMaskinId) : false,
-        tilldelatObjektId: tilldelat?.id ?? null,
-        redanFragat: traff ? maskindatorFragatRef.current.has(traff.id) : false,
+        harFix: pos != null,
+        posObjektId,
+        posTilldelad,
+        tilldelatObjektId,
+        redanFragat: posObjektId ? maskindatorFragatRef.current.has(posObjektId) : false,
       });
-      const byId = (id: string | null) => kandidater.find((o) => o.id === id) ?? null;
-      // Startsekvensen: blev beslutet förarlista (eller finns objektet inte) kommer ingen karta → släpp svart
-      // direkt och visa listan, i stället för att vänta ut hela SVART_MAX_MS på en karta som aldrig kommer.
-      if (atgard.typ === 'lista' || !byId(atgard.objektId)) setStartIngenKarta(true);
-      if (atgard.typ === 'korvy') {
-        oppnaKorvyPa(byId(atgard.objektId), atgard.roll);
-      } else if (atgard.typ === 'fraga') {
-        const o = byId(atgard.objektId);
-        if (o) {
-          oppnaKorvyPa(o, atgard.roll);
-          maskindatorKmInneRef.current = { km: 0, last: harFix ? { lat: fix!.lat as number, lng: fix!.lng as number } : null };
-          visaMaskindatorKort(o, atgard.roll);
-        }
-      } else if (atgard.typ === 'tilldelat') {
-        oppnaKorvyPa(byId(atgard.objektId), atgard.roll);
-        maskindatorBytteRef.current = false;
-        maskindatorA4Ref.current = true;   // öppnade utan fix → tillåt ETT byte när en fix landar
+      // HELA objekt-raden (valtObjekt förväntas ha alla kolumner — kandidaternas smala select räcker inte).
+      let objektRad: any = null;
+      if (atgard.typ !== 'lista') {
+        objektRad = (sparObjekt && sparObjekt.id === atgard.objektId)
+          ? sparObjekt
+          : (await supabase.from('objekt').select('*').eq('id', atgard.objektId).maybeSingle()).data ?? null;
       }
-      // 'lista' → gör inget: valtObjekt förblir null → ObjektValjare visas
+      // Blev beslutet förarlista (eller finns objektet inte) kommer ingen karta → släpp svart direkt och visa listan.
+      if (atgard.typ === 'lista' || !objektRad) { setStartIngenKarta(true); return; }
+
+      // Flygmål: maskinens position — utom för tilldelat objekt utan riktig fix, där objektet självt (en riktig fix som
+      // kommer under tiden tar över via korvyEffectivePos).
+      const flygPos = valjFlygPos({ atgardTyp: atgard.typ, kalla, pos, objekt: objektRad });
+      if (flygPos) { startPosRef.current = flygPos; setStartPosMs(Date.now()); }
+
+      maskindatorStartObjektIdRef.current = objektRad.id;
+      // Stäm av mot första RIKTIGA fixen om valet byggde på något annat än en riktig fix. Aldrig i testfliken.
+      const avstam = !arTestflik && kalla !== 'fix';
+      if (atgard.typ === 'korvy') {
+        maskindatorBytteRef.current = false;
+        maskindatorA4Ref.current = avstam;
+        oppnaKorvyPa(objektRad, atgard.roll);
+      } else if (atgard.typ === 'fraga') {
+        oppnaKorvyPa(objektRad, atgard.roll);
+        maskindatorKmInneRef.current = { km: 0, last: pos ? { lat: pos.lat, lng: pos.lon } : null };
+        visaMaskindatorKort(objektRad, atgard.roll);
+      } else if (atgard.typ === 'tilldelat') {
+        maskindatorBytteRef.current = false;
+        maskindatorA4Ref.current = !arTestflik;   // tilldelat objekt utan riktig fix → tillåt ETT byte när en fix landar
+        oppnaKorvyPa(objektRad, atgard.roll);
+      }
     })();
-    return () => { cancelled = true; };
   }, [maskinlage, enhetMaskinId, valtObjekt, dimMaskiner, oppnaKorvyPa, visaMaskindatorKort]);
 
   // Background geolocation check every 60 seconds
   useEffect(() => {
     const check = () => {
+      if (testlageAktivRef.current) return;   // TESTFLIKEN: ingen geofence-fråga (den skulle kunna starta ett objekt = DB-skrivning)
       // Via GPS-KÄLLAN (delad hub) — aldrig navigator.geolocation direkt.
       hamtaEnGpsFix(10000).then((fix) => {
         if (!fix || !fix.giltig || fix.lat == null || fix.lng == null) return;
@@ -3821,7 +3893,7 @@ export default function PlannerPage() {
   }, []);
 
   // Gå in i maskinläget som vald maskin UTAN simulering och UTAN att röra localStorage: enhet = vald
-  // maskin enbart i state. Datorns vanliga position (gpsKalla) driver maskindator-starten. Anropas EN gång
+  // maskin enbart i state. Maskinens senast kända position (hyttspår) driver maskindator-starten. Anropas EN gång
   // av /maskin-effekten nedan när admin/chef + känd maskin är bekräftade.
   const startaVisaSomMaskin = useCallback((maskinId: string) => {
     testlageAktivRef.current = true;             // SYNKRONT: DB-skrivningar spärras innan något annat hinner köra
@@ -4675,8 +4747,12 @@ export default function PlannerPage() {
     if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null); return; }
     let avbruten = false;
     (async () => {
-      const { data, error } = await supabase
-        .from('objekt_geometri').select('geometri').eq('objekt_id', valtObjekt.id).maybeSingle();
+      // Startflödet kan ha förladdat just det här objektets geometri (parallellt med kartans laddning). Används EN gång.
+      const forladdad = traktGeoForladdRef.current;
+      traktGeoForladdRef.current = null;
+      const { data, error } = (forladdad && forladdad.objektId === valtObjekt.id)
+        ? await forladdad.promise
+        : await supabase.from('objekt_geometri').select('geometri').eq('objekt_id', valtObjekt.id).maybeSingle();
       if (avbruten) return;
       const fc: any = (data as any)?.geometri;
       if (error || !fc || !Array.isArray(fc.features) || fc.features.length === 0) {
@@ -8373,7 +8449,7 @@ export default function PlannerPage() {
 
   // === Maskindator-startsekvens: faser + sidoeffekter (svart → översikt → EN flyTo → landat) ===
   const startIn = startSekvensStart != null
-    ? { startMs: startSekvensStart, nuMs: startSekvensNu, kartaRedoMs: startKartaRedo, ingenKarta: startIngenKarta, fixMs: startForstaFix, flygStartMs: startFlygStart }
+    ? { startMs: startSekvensStart, nuMs: startSekvensNu, kartaRedoMs: startKartaRedo, ingenKarta: startIngenKarta, posMs: startPosMs, flygStartMs: startFlygStart }
     : null;
   const startFasNu: StartFas | null = startIn ? startFas(startIn) : null;
   const startFlygKlar = startIn ? flygKlar(startIn) : false;
@@ -8406,10 +8482,10 @@ export default function PlannerPage() {
     const iv = setInterval(() => setStartSekvensNu(Date.now()), 250);
     return () => clearInterval(iv);
   }, [startSekvensStart, startDold]);
-  // Första giltiga fix.
+  // Första riktiga position (fix) — gäller när startflödet inte redan gett en senast känd position.
   useEffect(() => {
-    if (startSekvensStart != null && startForstaFix == null && korvyEffectivePos != null) setStartForstaFix(Date.now());
-  }, [korvyEffectivePos, startSekvensStart, startForstaFix]);
+    if (startSekvensStart != null && startPosMs == null && korvyEffectivePos != null) setStartPosMs(Date.now());
+  }, [korvyEffectivePos, startSekvensStart, startPosMs]);
   // 'klar' → svart har tonat ut (COVER_FADE_MS) → avmontera.
   useEffect(() => {
     if (startFasNu === 'klar' && !startDold) { const t = setTimeout(() => setStartDold(true), COVER_FADE_MS + 100); return () => clearTimeout(t); }
@@ -8447,13 +8523,13 @@ export default function PlannerPage() {
     setTimeout(klart, 2500);        // 'idle' uteblir om kameran inte ändrades / tiles hänger → gå vidare ändå
   }, [startFasNu, startKartaRedo, mapLibreReady, valtObjekt?.id, traktGeoHamtadFor, traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // FLYGNINGEN: kartan har tonat upp (REVEAL_MS) OCH vi har en fix → EN mjuk flyTo ner till maskinen, med
+  // FLYGNINGEN: kartan har tonat upp (REVEAL_MS) OCH vi har en position (senast känd eller riktig fix) → EN mjuk flyTo ner till maskinen, med
   // körriktning upp (kartBearing) och körvyns baszoom/lutning/padding — exakt det körvyns egen kamera landar i,
   // så följ-effekten tar över utan hopp. startFlygKlar blir true EN gång (sedan är fasen 'flyger').
   useEffect(() => {
     if (!startFlygKlar || startFlygGjordRef.current) return;
     const map = mapInstanceRef.current;
-    const pos = korvyEffectivePos;
+    const pos = korvyEffectivePos ?? startPosRef.current;   // riktig fix går före den senast kända
     if (!map || !pos) return;   // saknas något nu → effekten kör om när position/karta finns (korvyEffectivePos i deps)
     startFlygGjordRef.current = true;   // EN flyTo, även om en GPS-tick landar innan fasen hunnit byta
     const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
@@ -8472,15 +8548,17 @@ export default function PlannerPage() {
     setStartFlygStart(Date.now());
   }, [startFlygKlar, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Utzoomad utan fix: GPS-pricken DÄMPAD (en gång). Tänds av passiva watchern vid första giltiga fix.
+  // Utzoomad utan RIKTIG fix: GPS-pricken DÄMPAD (en gång). Tänds av passiva watchern vid första giltiga fix.
+  // (Senast känd position räknas inte — den är inte en fix. Testfliken har en utlagd position → ingen dämpning.)
   useEffect(() => {
-    if (startFasNu !== 'oversikt' || startForstaFix != null || startFixFarskSattRef.current) return;
+    if (startFasNu !== 'oversikt' || korvyEffectivePos != null || startFixFarskSattRef.current) return;
     startFixFarskSattRef.current = true;
     setGpsFixFarsk(false);
-  }, [startFasNu, startForstaFix]);
+  }, [startFasNu, korvyEffectivePos]);
 
   // Maskindator-start, löpande position: (a) >200 m körda INNE i kort-objektet = implicit ja;
-  // (b) A4 auto-byte EN gång — öppnade vi tilldelat objekt utan fix och en fix nu visar ett annat objekt.
+  // (b) avstämning mot RIKTIG fix, EN gång — starten byggde på senast känd position (lokal maskinPos / hyttspår) eller på
+  // tilldelat objekt utan fix: första riktiga fixen visar samma objekt → inget händer; ett annat → byt en gång.
   useEffect(() => {
     const pos = korvyEffectivePos;
     if (!pos || !enhetMaskinId) return;
@@ -8496,22 +8574,30 @@ export default function PlannerPage() {
       }
       return;   // medan kortet visas gör vi inte A4-bytet
     }
-    // (b) A4 auto-byte en gång
+    // (b) avstämning mot riktig fix, en gång
     if (maskindatorA4Ref.current && !maskindatorBytteRef.current) {
+      // Testfliken har aldrig en riktig fix, och har föraren redan valt något annat än det starten öppnade rör vi inte valet.
+      if (testlageAktivRef.current || valtObjekt?.id !== maskindatorStartObjektIdRef.current) { maskindatorA4Ref.current = false; return; }
+      if (!maskindatorGeoKlar) return;      // kandidaterna (+traktgräns) laddas än — avväpna INTE, fixen får inte förbrukas på tomt underlag
+      maskindatorA4Ref.current = false;     // EN utvärdering, hur den än går
       const traff = valjObjektForPosition({ lat: pos.lat, lng: pos.lon, maskinId: enhetMaskinId, objekt: maskindatorObjektRef.current }).traff as any;
       if (traff && traff.id !== valtObjekt?.id) {
         maskindatorBytteRef.current = true;
-        maskindatorA4Ref.current = false;
         const roll = (traff.skordare_maskin_id === enhetMaskinId)
           ? 'skordare'
           : (traff.skotare_maskin_id === enhetMaskinId)
             ? 'skotare'
             : (rollAvMaskintyp(dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)?.maskin_typ) ?? 'skotare');
-        oppnaKorvyPa(traff, roll);
-        setMaskindatorBesked(`Bytte till ${traff.namn ?? 'objektet'}`);
+        // Kandidaternas rad har smala kolumner — valtObjekt ska ha HELA raden.
+        void (async () => {
+          const { data: full } = await supabase.from('objekt').select('*').eq('id', traff.id).maybeSingle();
+          maskindatorStartObjektIdRef.current = traff.id;
+          oppnaKorvyPa(full ?? traff, roll);
+          setMaskindatorBesked(`Bytte till ${traff.namn ?? 'objektet'}`);
+        })();
       }
     }
-  }, [korvyEffectivePos, maskindatorKort, enhetMaskinId, valtObjekt, dimMaskiner, maskindatorJa, oppnaKorvyPa]);
+  }, [korvyEffectivePos, maskindatorKort, enhetMaskinId, valtObjekt, dimMaskiner, maskindatorJa, oppnaKorvyPa, maskindatorGeoKlar]);
 
   // (Närmaste/aktivt stråk-beräkningen borttagen med autopanelen — ingen stråk-emfas längre.)
 
@@ -12996,7 +13082,7 @@ export default function PlannerPage() {
 
       {/* === MASKINDATOR-STARTSEKVENS (svart → översikt → EN flyTo → objekt) — bara i maskinläge === */}
       {maskinlage && enhetMaskinId && startOverlayAktiv && startFasNu && startOverlaySynlig(startFasNu) && (() => {
-        const radNu = startRadText(startFasNu, { fixMs: startForstaFix, kartaRedoMs: startKartaRedo, nuMs: startSekvensNu, objekt: { namn: valtObjekt?.namn ?? null, m3kvar: startM3Kvar } });
+        const radNu = startRadText(startFasNu, { posMs: startPosMs, kartaRedoMs: startKartaRedo, nuMs: startSekvensNu, objekt: { namn: valtObjekt?.namn ?? null, m3kvar: startM3Kvar } });
         if (radNu) startRadSenasteRef.current = radNu;
         const radText = radNu ?? startRadSenasteRef.current;   // behåll texten medan raden tonar ut
         const radVisa = radNu != null;

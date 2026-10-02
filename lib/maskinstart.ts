@@ -3,29 +3,32 @@
 // INGEN logga och ingen text i sekvensen (loggan finns bara i felskärmarna).
 //
 // Ren, tidsstyrd tillståndsmaskin (ingen sidoeffekt) så den kan enhetstestas. Sidan (page.tsx) matar in
-// tidsstämplar för de händelser som sker (karta redo, första fix, flygningen startade) och renderar utifrån fasen.
+// tidsstämplar för de händelser som sker (karta redo, position känd, flygningen startade) och renderar utifrån fasen.
+//
+// POSITIONEN är maskinens SENAST KÄNDA (lokal maskinPos eller senaste hyttspår-punkt, lib/maskinPosition) — sekvensen
+// väntar inte på en GPS-fix. Först när ingen position alls finns väntar den på en riktig fix.
 
 export type StartFas = 'svart' | 'oversikt' | 'flyger' | 'landat' | 'klar';
 
-export const SVART_MAX_MS = 10000;   // kartan hann inte bli redo → släpp svart och visa det som ligger under
+export const SVART_MAX_MS = 5000;    // kartan hann inte bli redo → släpp svart och visa det som ligger under
 export const COVER_FADE_MS = 700;    // svart tonar ut (kartan "tonar upp")
 export const REVEAL_MS = 700;        // kartan syns utzoomad så här länge innan flygningen börjar (= fade-tiden)
 export const FLY_MS = 1500;          // EN mjuk flyTo ner till maskinen
 export const RAD_MS = 5000;          // objekt-raden står kvar så här länge efter landning
-export const FIX_TIMEOUT_MS = 30000; // utzoomad utan fix så här länge → "Ingen GPS-fix" (står kvar tills fix kommer)
+export const FIX_TIMEOUT_MS = 30000; // utzoomad utan NÅGON position så här länge → "Ingen GPS-fix" (står kvar tills fix kommer)
 
 export interface StartIn {
   startMs: number;                 // sekvensen startade
   nuMs: number;
   kartaRedoMs: number | null;      // kartan är målad i översiktsläge (bakom svart) — null = laddar än
   ingenKarta: boolean;             // beslutet blev förarlista → det finns ingen karta att tona upp
-  fixMs: number | null;            // första giltiga GPS-fixen — null = ingen än
+  posMs: number | null;            // position känd (senast kända ELLER riktig fix) — null = ingen än
   flygStartMs: number | null;      // flygningen startade — null = ej än
 }
 
 /** Fas ur tidsstämplarna.
  *  - `svart`   : kartan laddar (helt svart, ingen logga/text). Max SVART_MAX_MS.
- *  - `oversikt`: kartan har tonat upp, utzoomad över traktgränsen. Väntar på fix (och REVEAL_MS).
+ *  - `oversikt`: kartan har tonat upp, utzoomad över traktgränsen. Väntar på position (och REVEAL_MS).
  *  - `flyger`  : EN flyTo pågår (FLY_MS).
  *  - `landat`  : kameran har landat → objekt-raden syns (RAD_MS).
  *  - `klar`    : sekvensen är slut (eller hoppades över) → vanlig körvy / förarlista.
@@ -43,10 +46,10 @@ export function startFas(i: StartIn): StartFas {
   return 'svart';
 }
 
-/** Ska flygningen starta nu? Kartan har tonat upp (REVEAL_MS sedan den blev redo) OCH vi har en fix. */
+/** Ska flygningen starta nu? Kartan har tonat upp (REVEAL_MS sedan den blev redo) OCH vi har en position. */
 export function flygKlar(i: StartIn): boolean {
   return startFas(i) === 'oversikt'
-    && i.fixMs != null
+    && i.posMs != null
     && i.kartaRedoMs != null
     && i.nuMs - i.kartaRedoMs >= REVEAL_MS;
 }
@@ -67,14 +70,14 @@ export function startKameraLas(fas: StartFas | null): boolean {
   return fas === 'svart' || fas === 'oversikt' || fas === 'flyger';
 }
 
-/** Nedre radens text. `oversikt` utan fix: "Söker GPS" (→ "Ingen GPS-fix" efter FIX_TIMEOUT_MS, står kvar).
+/** Nedre radens text. `oversikt` utan position: "Söker GPS" (→ "Ingen GPS-fix" efter FIX_TIMEOUT_MS, står kvar).
  *  `landat`: "<objekt> – N m³ kvar". Alla andra faser: ingen rad (svart har ingen text alls). */
 export function startRadText(
   fas: StartFas,
-  ctx: { fixMs: number | null; kartaRedoMs: number | null; nuMs: number; objekt: { namn?: string | null; m3kvar?: number | null } | null | undefined },
+  ctx: { posMs: number | null; kartaRedoMs: number | null; nuMs: number; objekt: { namn?: string | null; m3kvar?: number | null } | null | undefined },
 ): string | null {
   if (fas === 'oversikt') {
-    if (ctx.fixMs != null) return null;   // fix finns → flygningen startar strax, ingen rad
+    if (ctx.posMs != null) return null;   // position finns → flygningen startar strax, ingen rad
     const vantat = ctx.kartaRedoMs != null ? ctx.nuMs - ctx.kartaRedoMs : 0;
     return vantat >= FIX_TIMEOUT_MS ? 'Ingen GPS-fix' : 'Söker GPS';
   }
