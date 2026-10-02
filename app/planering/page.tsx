@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, useContext } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
@@ -29,6 +29,9 @@ import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/e
 import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, type ObjektForVal } from '../../lib/objektPlats'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { startFas, startOverlaySynlig, startRadText, type StartFas } from '../../lib/maskinstart'
+import { MaskinSomContext } from '../../lib/maskinSomContext'
+import { beslutaMaskinSom, maskinSomFelText, VANTA_MAX_MS } from '../../lib/maskinSom'
+import { StartLoggaSkarm, MaskinSomFelSkarm } from '../../components/maskin/StartSkarmar'
 import { typLabel } from '../../lib/objekt/typ'
 import { startaGpsKalla, hamtaEnGpsFix, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -556,7 +559,7 @@ export default function PlannerPage() {
   const [sendingKlar, setSendingKlar] = useState(false);
 
   // STEG 3/4: rollbaserad filtrering + "Starta körning"-pill + admin-växling
-  const { medarbetare: currentMedarbetare } = useCurrentMedarbetare();
+  const { medarbetare: currentMedarbetare, loading: medarbetareLaddar } = useCurrentMedarbetare();
   const [startarKorning, setStartarKorning] = useState(false);
   const autoValjGjordRef = useRef(false);
   // AUTO-UPPDATERING: läs (och rensa) ev. sparat läge från en auto-omladdning SYNKRONT vid render, så
@@ -3105,6 +3108,24 @@ export default function PlannerPage() {
   // (förarlista + maskindator-flöde) oavsett inloggad roll; rollen styr bara rättigheter. Se [[visaForarlista]].
   const maskinlage = arMaskinlage(serialGpsAktiv, !!testlage);
 
+  // === "Öppna som maskin": /maskin?som=<maskin_id> (admin/chef) — ersätter inställnings-raden ===
+  // /maskin-routen lägger ?som= i MaskinSomContext (null på /planering). Beslutet (lib/maskinSom) avgör:
+  // vanta → bara loggan (aldrig planeringsvyn), tillat → maskinläge som den maskinen, avvisa → ärlig felskärm.
+  const maskinSomParam = useContext(MaskinSomContext);
+  const [maskinSomVantatForLange, setMaskinSomVantatForLange] = useState(false);
+  useEffect(() => {
+    if (!maskinSomParam) return;
+    const t = setTimeout(() => setMaskinSomVantatForLange(true), VANTA_MAX_MS);
+    return () => clearTimeout(t);
+  }, [maskinSomParam]);
+  const maskinSomBeslut = beslutaMaskinSom({
+    som: maskinSomParam,
+    rollLaddar: medarbetareLaddar,
+    roll: currentMedarbetare?.roll ?? null,
+    maskinIds: dimMaskiner.length > 0 ? dimMaskiner.map((m) => m.maskin_id) : null,   // [] = ej laddat än
+    vantatMs: maskinSomVantatForLange ? VANTA_MAX_MS : 0,
+  });
+
   // === Maskindator-STARTSEKVENS (logga → söker → fix → klar). Ren tillståndsmaskin i lib/maskinstart. ===
   const [startSekvensStart, setStartSekvensStart] = useState<number | null>(null);  // när sekvensen startade
   const [startSekvensNu, setStartSekvensNu] = useState(0);                           // tickande klocka (driver faserna)
@@ -3783,28 +3804,36 @@ export default function PlannerPage() {
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
   const [showSimPosMenu, setShowSimPosMenu] = useState<{x: number, y: number, lat: number, lng: number} | null>(null);
 
-  // === "Visa som maskin"-helpers (behöver maskindator-refs → deklareras här) ===
-  // Gå in i maskinläget med vald maskin UTAN simulering och UTAN att röra localStorage: enhet = vald
-  // maskin i state, starta om objektvalet. Datorns vanliga position (gpsKalla) driver maskindator-starten.
+  // === "Öppna som maskin"-helpers (behöver maskindator-refs → deklareras här) ===
+  // Avsluta = tillbaka till vanliga appen. Hård navigering (inte state-återställning): då försvinner
+  // allt som sattes för "som maskin" (enhet i state, maskinläge, ref:ar) och inget kan läcka kvar.
   const avslutaTestlage = useCallback(() => {
-    setTestlage(null);
-    setEnhetMaskinIdState(hamtaEnhetMaskin());   // tillbaka till riktig enhet-maskin
-    maskindatorStartGjordRef.current = false;
-    setMaskindatorKort(null);
-    setValtObjekt(null);
+    window.location.assign('/planering');
   }, []);
 
+  // Gå in i maskinläget som vald maskin UTAN simulering och UTAN att röra localStorage: enhet = vald
+  // maskin enbart i state. Datorns vanliga position (gpsKalla) driver maskindator-starten. Anropas EN gång
+  // av /maskin-effekten nedan när admin/chef + känd maskin är bekräftade.
   const startaVisaSomMaskin = useCallback((maskinId: string) => {
-    if (!maskinId) { avslutaTestlage(); return; }
+    testlageAktivRef.current = true;             // SYNKRONT: DB-skrivningar spärras innan något annat hinner köra
     setSimulatedPos(null);
     setEnhetMaskinIdState(maskinId);             // enbart state (sattEnhetMaskin rörs ALDRIG)
     maskindatorStartGjordRef.current = false;
     maskindatorFragatRef.current = new Set();
     setMaskindatorKort(null);
-    setValtObjekt(null);                         // → maskindator-starten kör om, hem-knappen ger förarlistan
-    const m = dimMaskiner.find((x) => x.maskin_id === maskinId);
-    setTestlage({ maskinId, etikett: maskinModell(m) || maskinId });
-  }, [dimMaskiner, avslutaTestlage]);
+    setValtObjekt(null);                         // → maskindator-starten kör, förarlistan visas
+    setTestlage({ maskinId, etikett: maskinId });   // visningsnamnet slås upp live (dim_maskin) i bannern
+  }, []);
+
+  // /maskin?som=…: aktivera maskinläget EN gång när beslutet blir 'tillat'. Före dess ('vanta') ligger
+  // bara loggan ovanpå — planeringsvyn syns aldrig.
+  const maskinSomAktiveratRef = useRef(false);
+  const maskinSomTillatId = maskinSomBeslut.typ === 'tillat' ? maskinSomBeslut.maskinId : null;
+  useEffect(() => {
+    if (!maskinSomTillatId || maskinSomAktiveratRef.current) return;
+    maskinSomAktiveratRef.current = true;
+    startaVisaSomMaskin(maskinSomTillatId);
+  }, [maskinSomTillatId, startaVisaSomMaskin]);
 
   // Karta
   const [zoom, setZoom] = useState(1);
@@ -8338,11 +8367,19 @@ export default function PlannerPage() {
     ? berakVolymKvar(valtObjekt, rollAvMaskintyp(dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)?.maskin_typ) ?? 'skotare')
     : null;
 
-  // Starta sekvensen EN gång när maskinläget + körvyn blir aktiv.
+  // Starta sekvensen EN gång så fort maskinläget + maskinen är satta — INTE först när körvyn öppnats.
+  // (Tidigare väntade den på körvyn, och overlayen låg efter objektlistans early-return → loggan kunde
+  // aldrig visas FÖRST; objektlistan syntes under tiden. Nu täcker loggan från första stund.)
   useEffect(() => {
-    if (!maskinlage || !enhetMaskinId || !korvyActive || startSekvensStart != null) return;
+    if (!maskinlage || !enhetMaskinId || startSekvensStart != null) return;
     const t = Date.now(); setStartSekvensStart(t); setStartSekvensNu(t);
-  }, [maskinlage, enhetMaskinId, korvyActive, startSekvensStart]);
+  }, [maskinlage, enhetMaskinId, startSekvensStart]);
+
+  // /maskin: loggan TÄCKER tills sekvensens egen logga tar över (samma utseende → inget hopp). Täcker även
+  // den enda målade ramen mellan "tillåten" och "maskinläget satt" (annars blinkar admin-listan förbi).
+  const maskinSomTackLogga = !!maskinSomParam
+    && maskinSomBeslut.typ !== 'ingen' && maskinSomBeslut.typ !== 'avvisa'
+    && startSekvensStart == null;
   // Tickande klocka medan overlayen lever (driver logga→söker→ingenFix).
   useEffect(() => {
     if (startSekvensStart == null || startDold) return;
@@ -12847,9 +12884,75 @@ export default function PlannerPage() {
   // Är ritläge aktivt? Blockerar klick på befintliga element
   const isInDrawingMode = isDrawMode || isZoneMode || isArrowMode || !!selectedSymbol || measureMode || measureAreaMode;
 
+  // === MASKINLÄGE-LAGER: gul banner, täck-logga, felskärm, startsekvens ===
+  // Ritas i BÅDA grenarna nedan (objektlistan OCH kartan). Förut låg bannern och overlayen bara i kart-
+  // grenen, så förarlistan visades utan gul rand/Avsluta och utan logga — och loggan kunde aldrig visas först.
+  const maskinLagerNamn = maskinSomParam
+    ? maskinModell(dimMaskiner.find((m) => m.maskin_id === maskinSomParam))   // '' tills maskinregistret laddats
+    : '';
+  const maskinLager = (
+    <>
+      {/* === "ÖPPNA SOM MASKIN"-BANNER (gul rand, över allt) — får aldrig förväxlas med skarpt läge === */}
+      {testlage && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9200,
+          background: '#f59e0b', color: '#1a1200',
+          padding: 'calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+          fontSize: '13px', fontWeight: 800, letterSpacing: '0.3px', textAlign: 'center',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
+        }}>
+          <span>⚠ Visar som maskin: {startMaskinNamn || testlage.maskinId}</span>
+          <button type="button" onClick={avslutaTestlage}
+            style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Avsluta
+          </button>
+        </div>
+      )}
+
+      {/* /maskin: loggan täcker tills behörighet/maskin är bekräftade och sekvensens egen logga tar över */}
+      {maskinSomTackLogga && <StartLoggaSkarm maskinNamn={maskinLagerNamn || null} />}
+
+      {/* /maskin: ärlig felskärm (ej behörig / okänd maskin / laddning fastnade) */}
+      {maskinSomParam && maskinSomBeslut.typ === 'avvisa' && (
+        <MaskinSomFelSkarm text={maskinSomFelText(maskinSomBeslut.skal, maskinSomParam)} onTillbaka={avslutaTestlage} />
+      )}
+
+      {/* === MASKINDATOR-STARTSEKVENS (logga → söker → fix) — bara i maskinläge === */}
+      {maskinlage && enhetMaskinId && startOverlayAktiv && startFasNu && startOverlaySynlig(startFasNu) && (() => {
+        const radNu = startRadText(startFasNu, { namn: valtObjekt?.namn ?? null, m3kvar: startM3Kvar });
+        if (radNu) startRadSenasteRef.current = radNu;
+        const radVisa = startFasNu === 'soker' || startFasNu === 'fix' || startFasNu === 'ingenFix';
+        const radText = radNu ?? startRadSenasteRef.current;
+        return (
+          <>
+            {/* Mörk logga-skärm: opak i 'logga', tonar bort sedan så kartan glider fram under. */}
+            <StartLoggaSkarm maskinNamn={startMaskinNamn || null} synlig={startFasNu === 'logga'} />
+            {/* Nedre rad: Söker GPS → <objekt> N m³ kvar (tonar bort) → Ingen GPS-fix. */}
+            {radText && (
+              <div style={{
+                position: 'fixed', left: '50%', transform: 'translateX(-50%)',
+                bottom: 'calc(env(safe-area-inset-bottom, 0px) + 28px)', zIndex: 9001,
+                background: startFasNu === 'ingenFix' ? 'rgba(255,159,10,0.95)' : 'rgba(28,28,30,0.92)',
+                color: startFasNu === 'ingenFix' ? '#1a1200' : '#fff',
+                borderRadius: '12px', padding: '10px 18px', fontSize: '14px', fontWeight: 600,
+                whiteSpace: 'nowrap', boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+                opacity: radVisa ? 1 : 0, transition: 'opacity 450ms ease',
+              }}>
+                {radText}
+              </div>
+            )}
+          </>
+        );
+      })()}
+    </>
+  );
+
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
     return (
+      <>
+      {/* Gula bannern ryms i layoutens toppmarginal (LAYOUT.topbar; TopBar är dold här) → ingen extra padding */}
       <ObjektValjare
         forareFilter={visaForarlista(isForare, maskinlage) ? { medarbetareId: effectiveMedarbetare?.id ?? '' } : undefined}
         enhetMaskinId={enhetMaskinId}
@@ -12861,7 +12964,13 @@ export default function PlannerPage() {
           console.log('kartbild_bounds:', obj.kartbild_bounds);
           console.log('kartbild_bounds type:', typeof obj.kartbild_bounds);
           console.log('lat:', obj.lat, 'lng:', obj.lng);
-          setValtObjekt(obj);
+          if (maskinlage) {
+            // Maskinläge (maskindator / "öppna som maskin"): tryck på en rad öppnar objektet i KÖRVYN, som på
+            // maskindatorn — inte i planeringskartan. Rollen följer den bundna maskinens typ.
+            oppnaKorvyPa(obj, rollAvMaskintyp(dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)?.maskin_typ) ?? 'skotare');
+          } else {
+            setValtObjekt(obj);
+          }
           // Kart-origot (mapCenter/mapZoom + kamera) sätts av centrerings-effekten på valtObjekt.id
           // — EN väg för ALLA sätt att välja objekt (ObjektVäljaren, auto-val, starta körning).
           setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
@@ -12871,6 +12980,8 @@ export default function PlannerPage() {
           window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
         }}
       />
+      {maskinLager}
+      </>
     );
   }
 
@@ -12960,66 +13071,8 @@ export default function PlannerPage() {
         .maplibregl-canvas-container.skotning-rita .maplibregl-canvas { cursor: crosshair !important; }
       `}</style>
 
-      {/* === "VISA SOM MASKIN"-BANNER (gul rand, över allt) — får aldrig förväxlas med skarpt läge === */}
-      {testlage && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 680,
-          background: '#f59e0b', color: '#1a1200',
-          padding: 'calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-          fontSize: '13px', fontWeight: 800, letterSpacing: '0.3px', textAlign: 'center',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
-        }}>
-          <span>⚠ Visar som maskin: {testlage.etikett}</span>
-          <button type="button" onClick={avslutaTestlage}
-            style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
-            Avsluta
-          </button>
-        </div>
-      )}
-
-      {/* === MASKINDATOR-STARTSEKVENS (logga → söker → fix) — bara i maskinläge === */}
-      {maskinlage && enhetMaskinId && startOverlayAktiv && startFasNu && startOverlaySynlig(startFasNu) && (() => {
-        const radNu = startRadText(startFasNu, { namn: valtObjekt?.namn ?? null, m3kvar: startM3Kvar });
-        if (radNu) startRadSenasteRef.current = radNu;
-        const radVisa = startFasNu === 'soker' || startFasNu === 'fix' || startFasNu === 'ingenFix';
-        const radText = radNu ?? startRadSenasteRef.current;
-        return (
-          <>
-            {/* Mörk logga-skärm: opak i 'logga', tonar bort sedan så kartan glider fram under. */}
-            <div style={{
-              position: 'fixed', inset: 0, zIndex: 9000, background: '#000',
-              opacity: startFasNu === 'logga' ? 1 : 0,
-              pointerEvents: startFasNu === 'logga' ? 'auto' : 'none',
-              transition: 'opacity 650ms cubic-bezier(0.32, 0.72, 0, 1)',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px',
-            }}>
-              {/* SAMMA fil som inloggningssidan (/logo.png) — ingen egen logga.
-                  Bilden är 1953×867 (2,25:1), så storleken anges som HÖJD: ca 190 px syns från förarstolen,
-                  ikonstorlek gör det inte. min(190px, 40vh) håller den inom skärmen om fönstret är lågt.
-                  width/height-attributen speglar det verkliga förhållandet — 128×128 påstod en kvadrat, så
-                  webbläsaren reserverade fel yta innan bilden laddat och raden under hoppade. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.png" alt="Kompersmåla Skog" width={1953} height={867} style={{ height: 'min(190px, 40vh)', width: 'auto', maxWidth: '80vw', objectFit: 'contain', opacity: 0.95 }} />
-              {startMaskinNamn && <div style={{ fontSize: '15px', color: '#8e8e93', fontWeight: 600 }}>{startMaskinNamn}</div>}
-            </div>
-            {/* Nedre rad: Söker GPS → <objekt> N m³ kvar (tonar bort) → Ingen GPS-fix. */}
-            {radText && (
-              <div style={{
-                position: 'fixed', left: '50%', transform: 'translateX(-50%)',
-                bottom: 'calc(env(safe-area-inset-bottom, 0px) + 28px)', zIndex: 9001,
-                background: startFasNu === 'ingenFix' ? 'rgba(255,159,10,0.95)' : 'rgba(28,28,30,0.92)',
-                color: startFasNu === 'ingenFix' ? '#1a1200' : '#fff',
-                borderRadius: '12px', padding: '10px 18px', fontSize: '14px', fontWeight: 600,
-                whiteSpace: 'nowrap', boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
-                opacity: radVisa ? 1 : 0, transition: 'opacity 450ms ease',
-              }}>
-                {radText}
-              </div>
-            )}
-          </>
-        );
-      })()}
+      {/* Maskinläge-lagret (banner, täck-logga, felskärm, startsekvens) — definieras före early-return */}
+      {maskinLager}
 
       {/* === MINIMAL HEADER === */}
       {!briefingMode && (
@@ -19549,35 +19602,6 @@ export default function PlannerPage() {
                         <button type="button" onClick={installeraApp}
                           style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(10,132,255,0.15)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                           Installera på skrivbordet
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {/* === Visa som maskin (bara admin/chef) === */}
-                {isAdminRiktig && (
-                  <div style={{ background: '#0a0a0a', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '16px', padding: '16px 20px', marginBottom: '16px' }}>
-                    <div style={{ fontSize: '15px', color: '#fff', marginBottom: '4px' }}>Visa som maskin</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '12px' }}>Kör appen som en maskindator med vald maskin — förarlista, körvy och kort. Datorns position används. Inget skrivs i databasen.</div>
-                    <select value={testlage?.maskinId ?? ''} onChange={(e) => startaVisaSomMaskin(e.target.value)}
-                      style={{ width: '100%', padding: '11px 12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontFamily: 'inherit' }}>
-                      <option value="" style={{ color: '#000' }}>Av (visa som mig själv)</option>
-                      {dimMaskiner
-                        .filter((m) => maskinAktiv(m, new Date().toISOString().slice(0, 10)))
-                        .slice()
-                        .sort((a, b) => maskinModell(a).localeCompare(maskinModell(b), 'sv'))
-                        .map((m) => (
-                          <option key={m.maskin_id} value={m.maskin_id} style={{ color: '#000' }}>
-                            {maskinModell(m)}{m.maskin_typ === 'Harvester' ? ' · skördare' : m.maskin_typ === 'Forwarder' ? ' · skotare' : ''}
-                          </option>
-                        ))}
-                    </select>
-                    {testlage && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px', gap: '10px' }}>
-                        <span style={{ fontSize: '14px', color: '#f59e0b', fontWeight: 700 }}>Visar som: {testlage.etikett}</span>
-                        <button type="button" onClick={avslutaTestlage}
-                          style={{ padding: '9px 14px', borderRadius: '12px', border: '1px solid rgba(255,69,58,0.5)', background: 'rgba(255,69,58,0.15)', color: '#ff6961', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                          Avsluta
                         </button>
                       </div>
                     )}
