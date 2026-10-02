@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { dagAvvikelser, minText, datumLang } from "@/lib/lonesystem/forarText";
 import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, designCss } from "@/lib/design/tokens";
+import { getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 
 /**
  * Lön → Dagar — KONTROLLVYN. Alla förares dagar för en arbetsmånad, en rad per
@@ -29,6 +30,11 @@ import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, designC
 
 const pct = (taljareMin: number, namnareMin: number) => namnareMin > 0 ? Math.round((taljareMin / namnareMin) * 100) : null;
 
+/** Under så här många fil-dagar visas ingen lönekvot per förare — "för få dagar"
+ *  i stället för 66 % som bara är en dag (Martin 2026-10-02: en pågående
+ *  period ser annars färdig ut). Samma resonemang som TU:s JAMFOR_MIN_DAGAR. */
+const KVOT_MIN_DAGAR = 5;
+
 type Maskintid = { min: number; kalla: "fil" | "ingen_fil" | "ingen_maskin"; maskinens_min: number };
 type Dag = {
   id: string; datum: string; start_tid: string | null; slut_tid: string | null; rast_min: number | null;
@@ -46,15 +52,43 @@ type Medarbetare = {
 };
 type Rad = { nyckel: string; datum: string; namn: string; d: Dag; min: number; avv: string[] };
 
-const arbetsmanadNu = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`; };
 const stega = (ym: string, delta: number) => { const [å, m] = ym.split("-").map(Number); const d = new Date(å, m - 1 + delta, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 /** Löneperiod = arbetsmånad + 1 (samma regel som /api/lon/min-manad). */
 const loneperiodFor = (ym: string) => stega(ym, 1);
-const manadLabel = (ym: string) => { const [å, m] = ym.split("-").map(Number); return new Date(å, m - 1, 1).toLocaleDateString("sv-SE", { month: "long", year: "numeric" }); };
 const DAG = ["sön", "mån", "tis", "ons", "tor", "fre", "lör"];
+const idagISO = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`; };
+
+/** PERIODEN: Månad / Kvartal / År som maskinvyn (getPeriodRange). Förvalt är
+ *  SENASTE AVSLUTADE period — 2 oktober visar september, inte två dagar av
+ *  oktober. För År förvalt innevarande år (fjolåret har ingen data), märkt
+ *  "pågår". Lönemotorn räknar per löneperiod, så en period = ett dry_run per
+ *  arbetsmånad i spannet, sammanslaget per förare. */
+type DagarPeriod = Extract<Period, "M" | "K" | "Å">;
+const PERIODER: { key: DagarPeriod; label: string }[] = [{ key: "M", label: "Månad" }, { key: "K", label: "Kvartal" }, { key: "Å", label: "År" }];
+const forvaltOffset = (p: DagarPeriod) => (p === "Å" ? 0 : -1);
+/** Arbetsmånaderna (YYYY-MM) i spannet, bara till och med innevarande månad. */
+function manaderI(start: string, end: string): string[] {
+  const ut: string[] = []; const nu = idagISO().slice(0, 7);
+  for (let ym = start.slice(0, 7); ym <= end.slice(0, 7) && ym <= nu; ym = stega(ym, 1)) ut.push(ym);
+  return ut;
+}
+/** Arbetsdagar (mån–fre utan röd dag) i spannet: totalt och hittills. */
+function arbetsdagarI(start: string, end: string, roda: Record<string, string>): { totalt: number; hittills: number } {
+  const idag = idagISO(); let totalt = 0, hittills = 0;
+  for (let d = new Date(`${start}T12:00:00`); ; d.setDate(d.getDate() + 1)) {
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (iso > end) break;
+    const wd = d.getDay(); if (wd === 0 || wd === 6 || roda[iso]) continue;
+    totalt++; if (iso <= idag) hittills++;
+  }
+  return { totalt, hittills };
+}
 
 export default function DagarUnderflik() {
-  const [arbetsmanad, setArbetsmanad] = useState(arbetsmanadNu());
+  const [period, setPeriod] = useState<DagarPeriod>("M");
+  const [offset, setOffset] = useState(forvaltOffset("M"));
+  const range = getPeriodRange(period, offset);
+  const pagar = range.end >= idagISO();
   const [data, setData] = useState<{ medarbetare: Medarbetare[] } | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
@@ -74,25 +108,43 @@ export default function DagarUnderflik() {
   useEffect(() => {
     let avbruten = false;
     setLaddar(true); setFel(null); setData(null); setOppen(null);
-    fetch("/api/fortnox/salary-export", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ period: loneperiodFor(arbetsmanad), dry_run: true }), cache: "no-store",
-    })
-      .then(async r => {
+    // Ett dry_run per arbetsmånad i spannet (lönemotorn räknar per löneperiod),
+    // sammanslaget per förare. Ett fel i någon månad är ett fel för hela perioden.
+    const manader = manaderI(range.start, range.end);
+    Promise.all(manader.map(ym =>
+      fetch("/api/fortnox/salary-export", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ period: loneperiodFor(ym), dry_run: true }), cache: "no-store",
+      }).then(async r => {
         const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) throw new Error(j.meddelande || j.error || `Kunde inte räkna ${ym} (HTTP ${r.status})`);
+        return (j.medarbetare || []) as Medarbetare[];
+      }),
+    ))
+      .then(svar => {
         if (avbruten) return;
-        if (!r.ok || !j.ok) setFel(j.meddelande || j.error || `Kunde inte räkna månaden (HTTP ${r.status})`);
-        else setData({ medarbetare: j.medarbetare || [] });
+        const per = new Map<string, Medarbetare>();
+        for (const lista of svar) for (const m of lista) {
+          const s = per.get(m.medarbetare_id);
+          if (!s) { per.set(m.medarbetare_id, { ...m, dagar: [...(m.dagar || [])], synk: [...(m.synk || [])], deldagar: [...(m.deldagar || [])], ledighetskollision: [...(m.ledighetskollision || [])], vilobrott: [...(m.vilobrott || [])] }); continue; }
+          s.dagar.push(...(m.dagar || [])); s.synk.push(...(m.synk || [])); s.deldagar.push(...(m.deldagar || []));
+          s.ledighetskollision.push(...(m.ledighetskollision || [])); s.vilobrott.push(...(m.vilobrott || []));
+        }
+        setData({ medarbetare: Array.from(per.values()) });
       })
       .catch(e => { if (!avbruten) setFel(e?.message || String(e)); })
       .finally(() => { if (!avbruten) setLaddar(false); });
     return () => { avbruten = true; };
-  }, [arbetsmanad, forsok]);
+  }, [range.start, range.end, forsok]);
+
+  const roda = useMemo(() => {
+    const å0 = Number(range.start.slice(0, 4)), å1 = Number(range.end.slice(0, 4));
+    return { ...getRödaDagar(å0 - 1), ...getRödaDagar(å0), ...getRödaDagar(å1) };
+  }, [range.start, range.end]);
+  const arbetsdagar = useMemo(() => arbetsdagarI(range.start, range.end, roda), [range.start, range.end, roda]);
 
   const rader: Rad[] = useMemo(() => {
     if (!data) return [];
-    const år = Number(arbetsmanad.slice(0, 4));
-    const roda = { ...getRödaDagar(år - 1), ...getRödaDagar(år) };
     const ut: Rad[] = [];
     for (const m of data.medarbetare) {
       const synk = new Map((m.synk || []).map(s => [s.datum, s.diff_min]));
@@ -110,12 +162,13 @@ export default function DagarUnderflik() {
       }
     }
     return ut.sort((a, b) => a.datum.localeCompare(b.datum) || a.namn.localeCompare(b.namn, "sv"));
-  }, [data, arbetsmanad]);
+  }, [data, roda]);
 
   const antalForare = new Set(rader.map(r => r.namn)).size;
   const medAvv = rader.filter(r => r.avv.length > 0);
   const visade = baraAvv ? medAvv : rader;
-  const arNu = arbetsmanad >= arbetsmanadNu();
+  const arNu = offset >= 0;
+  const periodLabel = range.label;
 
   // SUMMERINGEN räknas ur SAMMA rader som listan visar — filtret påverkar den,
   // annars säger den emot listan. Varje rad avrundas först (hela minuter, hela
@@ -150,26 +203,44 @@ export default function DagarUnderflik() {
   return (
     <div style={{ color: FARG.text }}>
       <style>{designCss}</style>
-      {/* Månadsväljare — ARBETSMÅNAD (det man kontrollerar), inte löneperiod. */}
-      <div style={{ ...KORT, display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: AVSTAND.l }}>
-        <button onClick={() => setArbetsmanad(stega(arbetsmanad, -1))} aria-label="Föregående månad" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>chevron_left</span>
-        </button>
-        <span style={{ ...TYP.listtitel, color: FARG.text, textTransform: "capitalize" }}>{manadLabel(arbetsmanad)}</span>
-        <button onClick={() => !arNu && setArbetsmanad(stega(arbetsmanad, 1))} disabled={arNu} aria-label="Nästa månad" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, opacity: arNu ? 0.4 : 1 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>chevron_right</span>
-        </button>
+      {/* Periodväljare — ARBETSPERIOD (det man kontrollerar), inte löneperiod.
+          Samma mönster som maskinvyn: Månad / Kvartal / År + ‹ ›. Förvalt senaste
+          avslutade period; en pågående period märks under rubriken. */}
+      <div style={{ ...KORT, marginBottom: AVSTAND.l }}>
+        <div style={{ display: "flex", background: FARG.linje, borderRadius: 10, padding: AVSTAND.xs, marginBottom: AVSTAND.s }}>
+          {PERIODER.map(p => (
+            <button key={p.key} onClick={() => { setPeriod(p.key); setOffset(forvaltOffset(p.key)); }} aria-pressed={period === p.key}
+              style={{ flex: 1, minHeight: 36, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", ...TYP.meta, background: period === p.key ? FARG.fyllning : "transparent", color: period === p.key ? FARG.text : FARG.text2 }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <button onClick={() => setOffset(o => o - 1)} aria-label="Föregående period" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>chevron_left</span>
+          </button>
+          <span style={{ ...TYP.listtitel, ...TNUM, color: FARG.text, textTransform: "capitalize" }}>{periodLabel}</span>
+          <button onClick={() => !arNu && setOffset(o => o + 1)} disabled={arNu} aria-label="Nästa period" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, opacity: arNu ? 0.4 : 1 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>chevron_right</span>
+          </button>
+        </div>
+        {/* Pågående period: talen är inte jämförbara med en avslutad. Dämpat, inte larm. */}
+        {pagar && (
+          <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color: FARG.text2, textAlign: "center" }}>
+            {periodLabel} pågår · {arbetsdagar.hittills} av {arbetsdagar.totalt} arbetsdagar
+          </p>
+        )}
       </div>
 
       {fel && (
         <div style={{ ...KORT, marginBottom: AVSTAND.l }}>
-          <p style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>Kunde inte räkna månaden: {fel}</p>
+          <p style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>Kunde inte räkna perioden: {fel}</p>
           <button onClick={() => setForsok(f => f + 1)} style={{ ...KNAPP.sekundar, marginTop: AVSTAND.m }}>Försök igen</button>
         </div>
       )}
       {laddar && !fel && (
         <div style={{ ...KORT, marginBottom: AVSTAND.l }}>
-          <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Räknar {manadLabel(arbetsmanad)} ur löneunderlaget…</p>
+          <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Räknar {periodLabel} ur löneunderlaget…</p>
         </div>
       )}
 
@@ -188,10 +259,10 @@ export default function DagarUnderflik() {
           </div>
 
           {rader.length === 0 && (
-            <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga arbetsdagar registrerade i {manadLabel(arbetsmanad)}. Dagar skapas av maskinfilerna och av förarnas perioder.</p></div>
+            <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga arbetsdagar registrerade i {periodLabel}. Dagar skapas av maskinfilerna och av förarnas perioder.</p></div>
           )}
           {rader.length > 0 && visade.length === 0 && (
-            <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga avvikelser i {manadLabel(arbetsmanad)}.</p></div>
+            <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga avvikelser i {periodLabel}.</p></div>
           )}
 
           {visade.length > 0 && (
@@ -258,7 +329,7 @@ export default function DagarUnderflik() {
           {visade.length > 0 && (
             <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0, marginTop: AVSTAND.l }}>
               <p style={{ margin: 0, paddingTop: AVSTAND.l, paddingBottom: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
-                {baraAvv ? "Summering av avvikelserna" : `Summering ${manadLabel(arbetsmanad)}`}
+                {baraAvv ? "Summering av avvikelserna" : `Summering ${periodLabel}`}{pagar ? " · pågår" : ""}
               </p>
               {summa.lista.map(s => (
                 <div key={s.namn} style={{ borderBottom: `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px 0` }}>
@@ -269,9 +340,11 @@ export default function DagarUnderflik() {
                   </div>
                   {/* Lönekvot per förare — bara över dagar med filmaskin, antalet dagar bredvid. */}
                   <p style={{ margin: 0, ...TYP.meta, ...TNUM, color: FARG.text3 }}>
-                    {s.kvotDagar > 0
-                      ? `Lönekvot ${pct(s.kvotMaskin, s.kvotBetald)} % · maskintid ${minText(s.kvotMaskin)} av ${minText(s.kvotBetald)} betald på ${s.kvotDagar} ${s.kvotDagar === 1 ? "dag" : "dagar"}${s.utanMaskintid ? ` · ${s.utanMaskintid} utan maskintid` : ""}`
-                      : "Ingen lönekvot — ingen dag med maskin som skickar filer"}
+                    {s.kvotDagar >= KVOT_MIN_DAGAR
+                      ? `Lönekvot ${pct(s.kvotMaskin, s.kvotBetald)} % · maskintid ${minText(s.kvotMaskin)} av ${minText(s.kvotBetald)} betald på ${s.kvotDagar} dagar${s.utanMaskintid ? ` · ${s.utanMaskintid} utan maskintid` : ""}`
+                      : s.kvotDagar > 0
+                        ? `För få dagar för en lönekvot — ${s.kvotDagar} ${s.kvotDagar === 1 ? "dag" : "dagar"} med maskin som skickar filer (minst ${KVOT_MIN_DAGAR})`
+                        : "Ingen lönekvot — ingen dag med maskin som skickar filer"}
                   </p>
                 </div>
               ))}
@@ -282,9 +355,11 @@ export default function DagarUnderflik() {
               {/* Månadens lönekvot: aldrig ett tal som blandar in filfria maskiner.
                   Visas bara över dagar där båda källorna finns, med antalet dagar. */}
               <p style={{ margin: 0, padding: `${AVSTAND.xs}px 0 ${AVSTAND.m}px`, ...TYP.meta, ...TNUM, color: FARG.text2 }}>
-                {summa.kvotDagar > 0
-                  ? `Lönekvot ${pct(summa.kvotMaskin, summa.kvotBetald)} % — maskintid ${minText(summa.kvotMaskin)} av ${minText(summa.kvotBetald)} betald, på de ${summa.kvotDagar} dagar där maskinen skickar filer`
-                  : "Lönekvot kan inte räknas — ingen dag med maskin som skickar filer"}
+                {summa.kvotDagar >= KVOT_MIN_DAGAR
+                  ? `Lönekvot ${pct(summa.kvotMaskin, summa.kvotBetald)} % — maskintid ${minText(summa.kvotMaskin)} av ${minText(summa.kvotBetald)} betald, på de ${summa.kvotDagar} dagar där maskinen skickar filer${pagar ? ` · ${periodLabel} pågår, ${arbetsdagar.hittills} av ${arbetsdagar.totalt} arbetsdagar` : ""}`
+                  : summa.kvotDagar > 0
+                    ? `För få dagar för en lönekvot — ${summa.kvotDagar} ${summa.kvotDagar === 1 ? "dag" : "dagar"} med maskin som skickar filer (minst ${KVOT_MIN_DAGAR})`
+                    : "Lönekvot kan inte räknas — ingen dag med maskin som skickar filer"}
               </p>
               {summa.obekr > 0 && (
                 <p style={{ margin: 0, paddingBottom: AVSTAND.m, ...TYP.meta, color: FARG.orange }}>{summa.obekr} {summa.obekr === 1 ? "dag är inte bekräftad" : "dagar är inte bekräftade"}</p>
