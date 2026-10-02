@@ -867,7 +867,11 @@ export default function Arbetsrapport() {
       supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare, huvudtyp, atgard, latitude, longitude").order("object_name"),
       // Status för objektväljarens gruppering (pågående/planerade/avslutade).
       // objekt-tabellen matchas mot dim_objekt via vo_nummer — exakt likhet.
-      supabase.from("objekt").select("vo_nummer, status"),
+      // Namn/läge läses också: ett PLANERAT objekt som maskinen inte kört än har
+      // ingen dim_objekt-rad (importen skapar den när första filen kommer) och
+      // måste ändå gå att välja — Trestensdal 2026-10-02: Joacim kunde inte
+      // lägga planeringstid på trakten.
+      supabase.from("objekt").select("vo_nummer, status, namn, markagare, lat, lng, atgard, dim_objekt_id"),
     ]).then(([med, avt, obj, objStatus]) => {
       // Ingen medarbetare för inloggningen (user_id saknas, eller läsfel) → säg
       // det i stället för att ladda för evigt. Oscar 2026-09-29.
@@ -929,7 +933,7 @@ export default function Arbetsrapport() {
           (objStatus.data || []).filter((r:any) => r.vo_nummer != null && r.status)
             .map((r:any) => [String(r.vo_nummer), r.status])
         );
-        setObjektLista(obj.data.map(o => {
+        const urDim = obj.data.map(o => {
           // object_name är ibland en autogenererad timestamp-sträng (yymmddHHMMSS).
           // Faller då tillbaka till "Skogsägare · Huvudtyp" så föraren ser ett vettigt namn.
           const n = (o.object_name || '').trim();
@@ -941,7 +945,23 @@ export default function Arbetsrapport() {
             vo:o.vo_nummer ?? null, atgard:o.atgard || o.huvudtyp || null,
             status:o.vo_nummer != null ? statusPerVo.get(String(o.vo_nummer)) ?? null : null,
           };
-        }));
+        });
+        // Planerade/pågående trakter som ännu saknar dim_objekt-rad: in i listan
+        // med VO-numret som id. Det är samma nummer importen sätter som
+        // dim_objekt.objekt_id när maskinen börjar köra (Betet 11218909,
+        // Jätsbygd 11217392, …), så ett sparat objekt_id på segment/extra tid
+        // förblir giltigt när raden dyker upp. Avslutade utan dim-rad är gamla
+        // specialjobb och lämnas; objekt utan VO kan inte nycklas.
+        const dimNycklar = new Set<string>();
+        for (const o of obj.data) { dimNycklar.add(String(o.objekt_id)); if (o.vo_nummer != null) dimNycklar.add(String(o.vo_nummer)); }
+        const utanDim = (objStatus.data || [])
+          .filter((r:any) => r.vo_nummer != null && (r.status === 'planerad' || r.status === 'pagaende')
+            && !dimNycklar.has(String(r.vo_nummer)) && !(r.dim_objekt_id && dimNycklar.has(String(r.dim_objekt_id))))
+          .map((r:any) => ({
+            id:String(r.vo_nummer), namn:formatObjektNamn((r.namn || '').trim() || String(r.vo_nummer)), ägare:r.markagare||'',
+            lat:r.lat ?? null, lng:r.lng ?? null, vo:String(r.vo_nummer), atgard:r.atgard || null, status:r.status,
+          }));
+        setObjektLista([...urDim, ...utanDim].sort((a, b) => String(a.namn).localeCompare(String(b.namn), 'sv')));
       }
     });
     // Maskinnamn-lookup: EN källa, dim_maskin.visningsnamn (lib/maskinNamn) —
