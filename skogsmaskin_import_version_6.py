@@ -4805,9 +4805,26 @@ def _avsluta_objekt_rest(oid, vo, namn, tagg):
             logger.warning(f"  Auto-avslut: avslut {namn} misslyckades ({e})")
 
 
+def ar_kundjobb(oid, vo) -> bool:
+    """SKRÄPFILTER: bara 'riktiga kundjobb' auto-flaggas = objektet har bolag SATT (tomt/blankt = ej kundjobb).
+    Samma signal som /oversikt-v2:s nästa-förslag (`!o.bolag` → aldrig kandidat). Källor: dim_objekt.bolag
+    (täcker även objekt UTAN planerings-rad — 85 av 139 objekt med produktion saknar objekt-rad) ELLER
+    objekt.bolag (via vo_nummer/dim_objekt_id). Mätt 2026-10-02: tabellerna divergerar aldrig där båda har
+    rad. OBS tom STRÄNG räknas som tomt (7 dim-rader har bolag='' — ett rent IS NOT NULL släpper igenom dem)."""
+    def _satt(v):
+        return v is not None and str(v).strip() != ''
+    d = _rest_get('dim_objekt', {'select': 'bolag', 'objekt_id': f'eq.{oid}'})
+    if d and _satt(d[0].get('bolag')):
+        return True
+    ors = [f'dim_objekt_id.eq.{oid}']
+    if vo:
+        ors.insert(0, f'vo_nummer.eq.{vo}')
+    return any(_satt(r.get('bolag')) for r in _rest_get('objekt', {'select': 'bolag', 'or': f"({','.join(ors)})"}))
+
+
 def auto_avslut(data: Dict) -> None:
     """Prod-fil in → sätt skordning/skotning_avslutad när maskinen flyttat vidare (filerna vet) och
-    avsluta när båda är satta. SKRÄPFILTER: bara objekt med numeriskt kontraktsnr. En människas satta
+    avsluta när båda är satta. SKRÄPFILTER: bara objekt med bolag satt (ar_kundjobb). En människas satta
     flaggor rörs ALDRIG. Styrs av AUTO_AVSLUT_LAGE. Egna fel får aldrig fälla importen."""
     try:
         import urllib.parse
@@ -4818,7 +4835,7 @@ def auto_avslut(data: Dict) -> None:
             if not oid or oid in sedda:
                 continue
             sedda.add(oid)
-            if not _har_kontraktsnr(vo):  # flytt/service/bärgning/kruka/ris auto-flaggas aldrig
+            if not ar_kundjobb(oid, vo):  # flytt/service/bärgning/egen skog: bolag tomt → auto-flaggas aldrig
                 continue
             r = utvardera_avslut(oid, vo)
             enc = urllib.parse.quote(str(oid))
