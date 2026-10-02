@@ -415,6 +415,13 @@ export default function Sortimentsutfall() {
                 <span>Utfall per medelstam</span>
                 <span style={{ color: SEKUNDAR, fontSize: 16 }}>›</span>
               </Link>
+              {/* Kalkylunderlag två: vad en stämplingslängd ger i timmer, kubb och massaved hos oss. */}
+              <Link href="/affarsuppfoljning/stampling"
+                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                         borderTop: LINJE, padding: '14px 0', minHeight: 48, fontSize: 13, color: TEXT, textDecoration: 'none' }}>
+                <span>Utbyte av en stämplingslängd</span>
+                <span style={{ color: SEKUNDAR, fontSize: 16 }}>›</span>
+              </Link>
               <div style={{ borderTop: LINJE }} />
             </div>
           )}
