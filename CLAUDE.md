@@ -71,6 +71,7 @@ Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26)
 | `/maskinflytt/sammanstallning` | Flyttlogg | Två nivåer: Dagar (rundans verkliga körsträcka — PRIMÄRT `matare_km` (märkt "mätare"), fallback `total_km` (märkt "rutt") på gamla rundor; båda syns i expanderad ben-vy som jämförelse; hemresan är MÄTT på nya rundor sedan #380, bara gamla märks "(beräknad)") och Flyttar (fakturerbara sträckor, typ/kund-filter, per-typ-summering) — period V/M/K/Å, CSV per flik; avbrutna/pågående räknas ej |
 | `/maskinflytt/platser` | Flyttplatser | Hantera flyttplats-snabbval (verkstad/uppställning/gård/kund) — lägg till, redigera, inaktivera |
 | `/arbetsrapport` | Arbetsrapport | Generering av arbetsrapporter |
+| `/planera` | Planera | Tid på en trakt, trakten först: välj trakt → dag/från/till/aktivitet → "Spara 3 tim". Skapar bara `extra_tid`-perioder (samma regler som arbetsrapportens periodformulär, `lib/planera/spara.ts`); dagen bekräftas i Dag/Kalender. Förslag-lista (Samma som i går; bil/plats senare) sparas aldrig förrän föraren tryckt. `docs/planera.md` |
 | `/bestallningar` | Beställningar | Orderspårning med progressringar och månadsstatistik |
 | `/forbattringsforslag` | Förbättringsförslag | Feedbacksystem med ljudinspelning och textinmatning |
 | `/helikopter` | Helikopter | Helikopterlogistik och objektöversikt |

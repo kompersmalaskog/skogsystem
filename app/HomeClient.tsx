@@ -29,6 +29,10 @@ const productionApps = [
 const adminApps = [
   { href: '/egenkontroll', label: 'Egenkontroll', icon: 'fact_check' },
   { href: '/arbetsrapport', label: 'Arbetsrapport', icon: 'description' },
+  // Planera = egen vy, trakten först (tid på en trakt utan att gå via dagen).
+  // Samma tabeller, kalender och lön som Arbetsrapport. Synlig för alla — ett
+  // sätt in, inte en roll. (Planering längre ned = traktplaneringen med karta.)
+  { href: '/planera', label: 'Planera', icon: 'edit_calendar' },
   { href: '/planering', label: 'Planering', icon: 'event_note' },
   { href: '/objekt', label: 'Objekt', icon: 'layers' },
   { href: '/redigering', label: 'Objektdetaljer', icon: 'edit' },
