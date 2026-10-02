@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
 import { signeraKartfil } from '@/lib/kartfiler'
+import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips, { harDokument } from '@/components/DokumentChips'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
@@ -3699,14 +3700,13 @@ export default function PlannerPage() {
   const handleAvslutaObjekt = useCallback(async () => {
     if (!valtObjekt?.id || avsluterObjekt) return;
     setAvsluterObjekt(true);
-    const nowIso = new Date().toISOString();
-    const { error } = await supabase.from('objekt').update({
-      status: 'avslutat',
-      avslutad_timestamp: nowIso,
-    }).eq('id', valtObjekt.id);
+    // Delad avslut-regel (samma funktion som redigeringen): sätt BÅDA dim-flaggorna (där NULL),
+    // status='avslutat' + avslutad_timestamp, och ta objektet ur ALLA maskin_ko. sattFlaggor=true
+    // eftersom knappen är ett explicit manuellt avslut.
+    const res = await avslutaObjekt(supabase, { objektId: valtObjekt.id, voNummer: valtObjekt.vo_nummer, sattFlaggor: true });
     setAvsluterObjekt(false);
     setVisarAvslutaConfirmation(false);
-    if (!error) {
+    if (res.ok) {
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
       setValtObjekt(null); // öppnar ObjektValjare — samma mekanik som "Byt objekt"
     }
