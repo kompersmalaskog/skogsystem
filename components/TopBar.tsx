@@ -11,6 +11,7 @@ const pageNames: Record<string, string> = {
   '/uppfoljning': 'Uppföljning',
   '/maskinvy': 'Maskinvy',
   '/arbetsrapport': 'Arbetsrapport',
+  '/planera': 'Planera',
   '/starta-jobb': 'Starta jobb',
   '/planering': 'Planering',
   '/objekt': 'Objekt',
