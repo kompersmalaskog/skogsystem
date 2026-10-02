@@ -18,12 +18,24 @@ import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, designC
  * Bara visning. Rättningen sker i förarens Redigera (steg 2, admin öppnar
  * förarens dag, är ett auth-steg för sig — inte här). Byggd mot tokens från
  * början, till skillnad från resten av admin.
+ *
+ * LÖNEKVOTEN (Martin 2026-10-02): hur mycket av betald tid som blir maskintid,
+ * G15 per betald timme — bara här i admin, aldrig i förarens vy. Per dagrad
+ * "Maskintid X av Y betald · Z %", per förare och för månaden bara över dagar
+ * där maskinen skickar filer, med antalet dagar bredvid. Filfri maskin (810E)
+ * = "ingen maskintid rapporteras", aldrig 0 %. Täljaren är G15, inte branschens
+ * G0 — docs/lonesystem/lonekvot.md.
  */
 
+const pct = (taljareMin: number, namnareMin: number) => namnareMin > 0 ? Math.round((taljareMin / namnareMin) * 100) : null;
+
+type Maskintid = { min: number; kalla: "fil" | "ingen_fil" | "ingen_maskin"; maskinens_min: number };
 type Dag = {
   id: string; datum: string; start_tid: string | null; slut_tid: string | null; rast_min: number | null;
   arbetad_min: number; extra_min: number; objekt: string[]; perioddag: boolean; maskin_id: string | null;
   km_totalt: number; ersattningsmil: number; traktamente: boolean; bekraftad: boolean; ob_min: number;
+  /** Lönekvot-underlag ur dry_run (loneunderlag medMaskintid): maskinens G15 under förarens inloggning. */
+  maskintid?: Maskintid;
 };
 type Medarbetare = {
   medarbetare_id: string; namn: string; dagar: Dag[];
@@ -109,18 +121,29 @@ export default function DagarUnderflik() {
   // annars säger den emot listan. Varje rad avrundas först (hela minuter, hela
   // km), summan sedan — så den går att räkna efter för hand. "Dagar" = rader
   // med tid; tomma skalrader räknas som rader men inte som dagar.
+  // Lönekvoten räknas BARA över dagar där maskinen skickar filer (kalla 'fil'):
+  // kvotDagar/kvotBetald/kvotMaskin. Filfria och maskinlösa dagar står utanför
+  // — hellre ett ärligt tal med antalet dagar bredvid än ett som ljuger.
   const summa = useMemo(() => {
-    const perForare = new Map<string, { namn: string; dagar: number; min: number; km: number; obekr: number }>();
+    const perForare = new Map<string, { namn: string; dagar: number; min: number; km: number; obekr: number; kvotDagar: number; kvotBetald: number; kvotMaskin: number; utanMaskintid: number }>();
     for (const r of visade) {
-      const s = perForare.get(r.namn) || { namn: r.namn, dagar: 0, min: 0, km: 0, obekr: 0 };
+      const s = perForare.get(r.namn) || { namn: r.namn, dagar: 0, min: 0, km: 0, obekr: 0, kvotDagar: 0, kvotBetald: 0, kvotMaskin: 0, utanMaskintid: 0 };
       if (r.min > 0) s.dagar++;
       s.min += r.min;
       s.km += Math.round(r.d.km_totalt || 0);
       if (!r.d.bekraftad) s.obekr++;
+      const mt = r.d.maskintid;
+      if (mt && mt.kalla === "fil" && r.min > 0) {
+        s.kvotDagar++; s.kvotBetald += r.min; s.kvotMaskin += mt.min;
+        if (mt.min === 0) s.utanMaskintid++;
+      }
       perForare.set(r.namn, s);
     }
     const lista = Array.from(perForare.values()).sort((a, b) => b.min - a.min);
-    const tot = lista.reduce((t, s) => ({ dagar: t.dagar + s.dagar, min: t.min + s.min, km: t.km + s.km, obekr: t.obekr + s.obekr }), { dagar: 0, min: 0, km: 0, obekr: 0 });
+    const tot = lista.reduce((t, s) => ({
+      dagar: t.dagar + s.dagar, min: t.min + s.min, km: t.km + s.km, obekr: t.obekr + s.obekr,
+      kvotDagar: t.kvotDagar + s.kvotDagar, kvotBetald: t.kvotBetald + s.kvotBetald, kvotMaskin: t.kvotMaskin + s.kvotMaskin, utanMaskintid: t.utanMaskintid + s.utanMaskintid,
+    }), { dagar: 0, min: 0, km: 0, obekr: 0, kvotDagar: 0, kvotBetald: 0, kvotMaskin: 0, utanMaskintid: 0 });
     return { lista, ...tot };
   }, [visade]);
 
@@ -183,7 +206,15 @@ export default function DagarUnderflik() {
                   r.d.start_tid || r.d.slut_tid
                     ? `${(r.d.start_tid || "").slice(0, 5) || "–"}–${(r.d.slut_tid || "").slice(0, 5) || "–"}${r.d.rast_min ? ` · rast ${minText(r.d.rast_min)}` : " · ingen rast"}`
                     : "Inga klockslag, tiden ligger i perioder",
-                  r.d.extra_min > 0 ? `Maskintid ${minText(r.d.arbetad_min)} + extra tid ${minText(r.d.extra_min)}` : null,
+                  r.d.extra_min > 0 ? `Betald ${minText(r.d.arbetad_min)} vid maskinen + extra tid ${minText(r.d.extra_min)}` : null,
+                  // Lönekvot per dag: maskinens G15 under förarens inloggning mot betald tid.
+                  r.d.maskintid?.kalla === "fil" && r.min > 0
+                    ? (r.d.maskintid.min > 0
+                        ? `Maskintid ${minText(r.d.maskintid.min)} av ${minText(r.min)} betald · ${pct(r.d.maskintid.min, r.min)} %`
+                        : (r.d.maskintid.maskinens_min > 0
+                            ? `Ingen maskintid på förarens inloggning — maskinen gick ${minText(r.d.maskintid.maskinens_min)} under annan inloggning`
+                            : "Ingen maskintid den dagen"))
+                    : r.d.maskintid?.kalla === "ingen_fil" ? "Maskinen rapporterar ingen maskintid (skickar inga filer)" : null,
                   objekt ? `Objekt: ${objekt}` : "Inget objekt",
                   r.d.km_totalt ? `${Math.round(r.d.km_totalt)} km${r.d.ersattningsmil ? ` · ${r.d.ersattningsmil} mil reseersättning` : ""}` : null,
                   r.d.ob_min > 0 ? `OB ${minText(r.d.ob_min)}` : null,
@@ -230,16 +261,31 @@ export default function DagarUnderflik() {
                 {baraAvv ? "Summering av avvikelserna" : `Summering ${manadLabel(arbetsmanad)}`}
               </p>
               {summa.lista.map(s => (
-                <div key={s.namn} style={{ display: "flex", alignItems: "baseline", gap: AVSTAND.m, minHeight: TRAFFYTA.min, borderBottom: `1px solid ${FARG.linje}` }}>
-                  <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.namn.split(" ")[0]}</span>
-                  <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, whiteSpace: "nowrap" }}>{s.dagar} {s.dagar === 1 ? "dag" : "dagar"} · {s.km.toLocaleString("sv-SE")} km{s.obekr ? <span style={{ color: FARG.orange }}> · {s.obekr} obekr.</span> : null}</span>
-                  <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(s.min)}</span>
+                <div key={s.namn} style={{ borderBottom: `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px 0` }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: AVSTAND.m, minHeight: TRAFFYTA.min - AVSTAND.l }}>
+                    <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.namn.split(" ")[0]}</span>
+                    <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, whiteSpace: "nowrap" }}>{s.dagar} {s.dagar === 1 ? "dag" : "dagar"} · {s.km.toLocaleString("sv-SE")} km{s.obekr ? <span style={{ color: FARG.orange }}> · {s.obekr} obekr.</span> : null}</span>
+                    <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(s.min)}</span>
+                  </div>
+                  {/* Lönekvot per förare — bara över dagar med filmaskin, antalet dagar bredvid. */}
+                  <p style={{ margin: 0, ...TYP.meta, ...TNUM, color: FARG.text3 }}>
+                    {s.kvotDagar > 0
+                      ? `Lönekvot ${pct(s.kvotMaskin, s.kvotBetald)} % · maskintid ${minText(s.kvotMaskin)} av ${minText(s.kvotBetald)} betald på ${s.kvotDagar} ${s.kvotDagar === 1 ? "dag" : "dagar"}${s.utanMaskintid ? ` · ${s.utanMaskintid} utan maskintid` : ""}`
+                      : "Ingen lönekvot — ingen dag med maskin som skickar filer"}
+                  </p>
                 </div>
               ))}
-              <div style={{ display: "flex", alignItems: "baseline", gap: AVSTAND.m, padding: `${AVSTAND.m}px 0` }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: AVSTAND.m, padding: `${AVSTAND.m}px 0 0` }}>
                 <span style={{ flex: 1, ...TYP.listtitel, ...TNUM, color: FARG.text }}>{summa.dagar} {summa.dagar === 1 ? "dag" : "dagar"} · {summa.km.toLocaleString("sv-SE")} km</span>
                 <span style={{ ...TYP.listtitel, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(summa.min)}</span>
               </div>
+              {/* Månadens lönekvot: aldrig ett tal som blandar in filfria maskiner.
+                  Visas bara över dagar där båda källorna finns, med antalet dagar. */}
+              <p style={{ margin: 0, padding: `${AVSTAND.xs}px 0 ${AVSTAND.m}px`, ...TYP.meta, ...TNUM, color: FARG.text2 }}>
+                {summa.kvotDagar > 0
+                  ? `Lönekvot ${pct(summa.kvotMaskin, summa.kvotBetald)} % — maskintid ${minText(summa.kvotMaskin)} av ${minText(summa.kvotBetald)} betald, på de ${summa.kvotDagar} dagar där maskinen skickar filer`
+                  : "Lönekvot kan inte räknas — ingen dag med maskin som skickar filer"}
+              </p>
               {summa.obekr > 0 && (
                 <p style={{ margin: 0, paddingBottom: AVSTAND.m, ...TYP.meta, color: FARG.orange }}>{summa.obekr} {summa.obekr === 1 ? "dag är inte bekräftad" : "dagar är inte bekräftade"}</p>
               )}
@@ -247,6 +293,7 @@ export default function DagarUnderflik() {
           )}
           <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
             Samma beräkning som löneunderlaget. Larmen är appens befintliga regler: rast över 60 min, pass över 16 tim, kortpass under 60 min, tidsavvikelse mot maskinen, vilobrott, dag utan maskin eller objekt, ej bekräftad.
+            Lönekvot = maskinens G15 under förarens inloggning delat med betald tid, bara på dagar där maskinen skickar filer. Mäter verksamheten, inte föraren — flytt, service och väntan ligger utanför förarens kontroll.
           </p>
         </>
       )}

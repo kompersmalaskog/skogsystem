@@ -32,7 +32,9 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = serverSupabase();
-    const u = await beraknaLoneunderlag(supabase, { period, medarbetareIds: filterIds });
+    // medMaskintid bara i dry_run (kontrollvyn Dagar, admin) — aldrig i sändningen,
+    // aldrig i förarens egen spec (min-manad begär den inte).
+    const u = await beraknaLoneunderlag(supabase, { period, medarbetareIds: filterIds, medMaskintid: !!dryRun });
     const { arbetsperiod, resultat, synkAvvikelser } = u;
 
     // Dry run — returnera beräkningar utan att skicka (berikat per medarbetare
