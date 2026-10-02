@@ -1,10 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-
-// Bygg-SHA som bakades in i KLIENTEN vid build (via next.config env). Den installerade
-// appen kör den gamla bundlen → detta är dess "egen" version.
-const BUILD_SHA = process.env.NEXT_PUBLIC_BUILD_SHA || 'dev';
+import { BUILD_SHA, hamtaServerVersion, arNyVersion, laddaOmMedCacheBust } from '../lib/autoUppdatering';
 
 // Hur ofta vi frågar servern om det finns en nyare deploy.
 const POLL_MS = 15 * 60 * 1000;
@@ -14,22 +11,12 @@ export default function VersionChecker() {
   const [dismissed, setDismissed] = useState(false);
 
   const check = useCallback(async () => {
-    try {
-      // no-store = gå ALLTID till nätet, förbi webview-/CDN-cachen. Det är hela poängen:
-      // annars kan en installerad iOS-app servera ett cachat gammalt svar och aldrig
-      // upptäcka en ny version.
-      const r = await fetch('/api/version', { cache: 'no-store' });
-      if (!r.ok) return;
-      const j = await r.json();
-      const sv = j?.version;
-      if (typeof sv === 'string' && sv) {
-        setServerSha(sv);
-        // Ny version ute → låt bannern komma tillbaka även om den nyss avfärdats, så den
-        // inte glöms bort. Avfärda = tyst till nästa poll, inte för alltid.
-        if (sv !== BUILD_SHA) setDismissed(false);
-      }
-    } catch {
-      // Offline / nätfel → visa INGEN banner. Vi gissar aldrig att en version är gammal.
+    const sv = await hamtaServerVersion();   // no-store, förbi webview-cachen; delad hjälpare
+    if (sv) {
+      setServerSha(sv);
+      // Ny version ute → låt bannern komma tillbaka även om den nyss avfärdats, så den
+      // inte glöms bort. Avfärda = tyst till nästa poll, inte för alltid.
+      if (sv !== BUILD_SHA) setDismissed(false);
     }
   }, []);
 
@@ -48,33 +35,10 @@ export default function VersionChecker() {
   }, [check]);
 
   // Bara om servern har en ANNAN, giltig version än den vi kör. 'dev' (lokalt/utan
-  // Vercel-env) triggar aldrig bannern.
-  const nyVersion =
-    !!serverSha && serverSha !== BUILD_SHA && BUILD_SHA !== 'dev' && serverSha !== 'dev';
-  if (!nyVersion || dismissed) return null;
+  // Vercel-env) triggar aldrig bannern. Delad regel med auto-uppdateringen.
+  if (!arNyVersion(serverSha) || dismissed) return null;
 
-  const laddaOm = async () => {
-    // Rensa ev. cache-lagring defensivt (ingen SW-cache idag, men om en läggs till i
-    // framtiden ska den aldrig kunna låsa fast en gammal version).
-    try {
-      if (typeof caches !== 'undefined') {
-        const ks = await caches.keys();
-        await Promise.all(ks.map((k) => caches.delete(k)));
-      }
-    } catch { /* ignorera */ }
-    // CACHE-BUSTING: byt URL (ny ?v=) så webview:en TVINGAS hämta ett nytt dokument.
-    // location.reload() har buggat i installerade iOS-appar och kunnat servera samma
-    // cachade dokument igen → föraren fastnar i en loop (banner → tryck → inget → banner).
-    // En ny URL kan webview:en inte cache-matcha. Efter omladdningen är BUILD_SHA === server
-    // → bannern försvinner av sig själv. Kommer den TILLBAKA vet vi att bustningen inte tog.
-    try {
-      const u = new URL(window.location.href);
-      u.searchParams.set('v', (serverSha || '').slice(0, 12));
-      window.location.replace(u.toString());
-    } catch {
-      window.location.reload();
-    }
-  };
+  const laddaOm = () => laddaOmMedCacheBust(serverSha);   // delad cache-bust-omladdning
 
   return (
     <div
