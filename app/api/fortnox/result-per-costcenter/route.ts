@@ -160,6 +160,24 @@ export async function GET(req: NextRequest) {
     const totalRader = aggrPerKonto(() => true);
     const foretagetTotalt = { ok: true, konton: totalRader, ...grupperaKonto(totalRader) };
 
+    // Rörelsens mått (för "mot i fjol"-jämförelsen): nettoomsättning 30–37,
+    // övriga intäkter 38–39, rörelsekostnad 40–79, finansiellt 80–89.
+    // Skiljer sig från kategorierna ovan — övriga intäkter kan svänga stort
+    // mellan år (2025: 2,6 mkr) och döljer då verksamhetens utveckling.
+    // const-arrow, inte function-deklaration — try-blocket ger annars TS1252.
+    const rorelseGruppering = (accRader: { account: string; sum: number }[]) => {
+      let nettoomsattning = 0, ovriga_intakter = 0, rorelsekostnad = 0, finansiellt = 0;
+      for (const r of accRader) {
+        const h = Number(r.account.slice(0, 2));
+        if (h >= 30 && h <= 37) nettoomsattning += -r.sum;
+        else if (h >= 38 && h <= 39) ovriga_intakter += -r.sum;
+        else if (h >= 40 && h <= 79) rorelsekostnad += r.sum;
+        else if (h >= 80 && h <= 89) finansiellt += r.sum;
+      }
+      return { nettoomsattning, ovriga_intakter, rorelsekostnad, finansiellt };
+    };
+    const rorelse = rorelseGruppering(totalRader);
+
     // Sista bokförda dag i spannet — klienten märker ärligt ett kvartal
     // "ofullständigt bokfört" i stället för att visa en låg stapel som fakta.
     let maxTransaktionsdatum = "";
@@ -267,6 +285,7 @@ export async function GET(req: NextRequest) {
       antal_rader_i_period: rader.length,
       max_transaction_date: maxTransaktionsdatum || null,
       kvartalsserie,
+      rorelse,
       kostnadsstallen: costCenters.map(c => ({ kod: c.Code, namn: c.Description, aktiv: c.Active })),
       foretaget_totalt: foretagetTotalt,
       maskiner,
