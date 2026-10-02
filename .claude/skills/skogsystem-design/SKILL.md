@@ -172,8 +172,9 @@ egna `@keyframes`. Puls (`.puls`) bara för "pågår just nu".
 `FARG`: bakgrund `#000`, kort `#1c1c1e`, upphöjt `#2c2c2e`, linje
 `white/0.08`, text `#fff`, sekundär `#8e8e93`, tertiär `#636366`, blå
 `#0a84ff`, grön `#30d158`, orange `#ff9f0a`, röd `#ff453a`, skördare
-`#a8d582`, skotare `#f0b24c`. Inga andra färger. Ikoner: Material Symbols,
-storlek 18 i text och 22 i rad.
+`#a8d582`, skotare `#f0b24c` (de två sista är diagrampalett-poster, **INTE
+rollfärger** — se "Färgens betydelse"). Inga andra temafärger. Ikoner: Material
+Symbols, storlek 18 i text och 22 i rad.
 
 ### Färgens betydelse — en färg, en sak
 
@@ -182,8 +183,8 @@ hitta aldrig på en ny.
 
 | Vad | Färg | Källa |
 |---|---|---|
-| Skördare (spår, maskin, etikett) | ljusgrön `#a8d582` | `FARG.skordare` |
-| Skotare (spår, maskin, etikett) | amber `#f0b24c` | `FARG.skotare` |
+| Skördare (spår, maskin, etikett) | **lila `#bf5af2`** | `ROLLFARG_SKORDARE` / `rollFarg()` |
+| Skotare (spår, maskin, etikett) | **grön `#34c759`** | `ROLLFARG_SKOTARE` / `rollFarg()` |
 | Maskinens position (GPS-pricken) | blå `#0a84ff` | `FARG.bla` |
 | Traktgräns / snitsel | röd `#ff453a` + gul streck `#fbbf24` | `LEGEND.fara` / `LEGEND.gul` |
 | GROT | amber `#f59e0b` | kartlager |
@@ -193,6 +194,12 @@ hitta aldrig på en ny.
 Kartans fulla legend (basväg, dike, brant, kultur, fornlämning …) bor i `LEGEND`
 (page.tsx) och hålls medvetet på en **egen semantisk axel** skild från `FARG`-temat
 — snitsel/kartmarkeringar är fysiska band i skogen, inte UI-status.
+
+De **absoluta rollfärgerna** — skotare **grön `#34c759`**, skördare **lila `#bf5af2`** —
+bor i `rollFarg()` / `ROLLFARG_SKOTARE` / `ROLLFARG_SKORDARE` (page.tsx, #543-serien) och
+gäller i **alla** vyer (hyttspår, stråk, maskin, etikett). Använd dem — aldrig egna.
+**OBS:** `FARG.skordare` (#a8d582) / `FARG.skotare` (#f0b24c) är INTE rollfärger — de
+används bara som två poster i en diagrampalett (arbetsrapporten) och ska aldrig färga en roll.
 
 **Status visas med STYRKA, inte med en egen färg.** Full färg = *kvar / aktivt*;
 dämpad (lägre opacity) = *klart / utkört / avslutat*. En skotningshög i full
