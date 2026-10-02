@@ -27,7 +27,7 @@ import { useEffect, useState, useCallback, Suspense, type ReactNode } from 'reac
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
-import { SIDA, DAMPAD, TEXT, LINJE, nf0, nf1,
+import { SIDA, DAMPAD, TEXT, LINJE, nf0,
          Tillbakarad, Stort, Damp, Kontroll, Mening, Rad, Rader, Teknisk, Laddar, Fel } from '@/components/Ytform';
 import { berakna, tolkaLangd, jamforRapport, SLAG_NAMN, MIN_STAMMAR, ROT_FRAN_KLASS, EXTRAPOLERAD_FRAN_CM,
          type Cell, type Meta, type Rad as LangdRad, type Slag, type Rapport } from '@/lib/stampling/berakna';
@@ -136,6 +136,9 @@ function Innehall() {
   const jamf = res ? jamforRapport(res, rapport) : null;
   const pct = (del: number, hel: number) => (hel > 0 ? nf0(100 * del / hel) : '–');
   const procent = (v: number | null | undefined) => (v == null ? '–' : nf0(100 * v));
+  /** Per trädslag: timmer, kubb och massaved i m³fub och procent av trädslagets volym. */
+  const slagSub = (v: { vol: number; timmer: number; kubb: number; massa: number }) =>
+    `timmer ${nf0(v.timmer)} m³ (${pct(v.timmer, v.vol)} %) · kubb ${nf0(v.kubb)} (${pct(v.kubb, v.vol)} %) · massaved ${nf0(v.massa)} (${pct(v.massa, v.vol)} %)`;
   const url = (q: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
     for (const [key, v] of Object.entries(q)) if (v) p.set(key, v);
@@ -273,14 +276,14 @@ function Innehall() {
       </Stort>
       <Rader>
         <Rad text="Kubb" tal={`${nf0(t.kubb)} m³`} hoger={`${pct(t.kubb, t.vol)} %`}
-          sub={res.spann ? `${nf0(res.spann.kubb[0])}–${nf0(res.spann.kubb[1])} m³ i spannet` : undefined} />
+          sub={`kubb och klentimmer${res.spann ? ` · ${nf0(res.spann.kubb[0])}–${nf0(res.spann.kubb[1])} m³ i spannet` : ''}`} />
         <Rad text="Massaved" tal={`${nf0(t.massa)} m³`} hoger={`${pct(t.massa, t.vol)} %`}
-          sub={res.spann ? `${nf0(res.spann.massa[0])}–${nf0(res.spann.massa[1])} m³ i spannet` : undefined} />
+          sub={`massaved, utan hemved${res.spann ? ` · ${nf0(res.spann.massa[0])}–${nf0(res.spann.massa[1])} m³ i spannet` : ''}`} />
         <Rad text="Övrigt" tal={`${nf0(t.ovrigt)} m³`} hoger={`${pct(t.ovrigt, t.vol)} %`} dampad sub="energived, avkap, oklassat" />
         <Rad text="Tall" tal={`${nf0(res.perSlag.tall.vol)} m³`} hoger={`${nf0(res.perSlag.tall.trad)} träd`}
-          sub={res.perSlag.tall.trad ? `timmer ${pct(res.perSlag.tall.timmer, res.perSlag.tall.vol)} %` : undefined} dampad={!res.perSlag.tall.trad} />
+          sub={res.perSlag.tall.trad ? slagSub(res.perSlag.tall) : undefined} dampad={!res.perSlag.tall.trad} />
         <Rad text="Gran" tal={`${nf0(res.perSlag.gran.vol)} m³`} hoger={`${nf0(res.perSlag.gran.trad)} träd`}
-          sub={res.perSlag.gran.trad ? `timmer ${pct(res.perSlag.gran.timmer, res.perSlag.gran.vol)} % · övrigt barr räknat som gran` : undefined} dampad={!res.perSlag.gran.trad} />
+          sub={res.perSlag.gran.trad ? `${slagSub(res.perSlag.gran)} · övrigt barr räknat som gran` : undefined} dampad={!res.perSlag.gran.trad} />
         <Rad text="Stämplingslängd" tal={`${nf0(res.trad)} träd`} onClick={() => router.push(url({ vy: 'langd' }))}
           sub={SLAGEN.filter(s => tradPerSlag[s]).map(s => `${SLAG_NAMN[s].toLowerCase()} ${nf0(tradPerSlag[s])}`).join(' · ')} />
         <Rad text="Rapportens utbyteskalkyl" tal={jamf?.rapportTimmer != null ? `${nf0(jamf.rapportTimmer)} m³` : '–'}
@@ -290,6 +293,18 @@ function Innehall() {
             ? `rapporten ${nf0(rapport.timmerPct ?? 0)} % timmer, vi ${pct(t.timmer, t.vol)} % — ${jamf.diffTimmer >= 0 ? '+' : '−'}${nf0(Math.abs(jamf.diffTimmer))} m³ timmer mot rapporten`
             : 'skriv in rapportens tal, så står skillnaden här'} />
       </Rader>
+      {/* En budkalkyl måste säga vad posterna består av. Synligt, inte bakom en länk. */}
+      <div style={{ margin: '16px 16px 0', fontSize: 12, color: DAMPAD, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 4 }}>Vad posterna består av</div>
+        <div><b style={{ color: TEXT, fontWeight: 600 }}>Timmer</b> — sågtimmer enligt maskinens sortiment.</div>
+        <div><b style={{ color: TEXT, fontWeight: 600 }}>Kubb</b> — kubb och klentimmer. Klentimmer går till såg som kubb och räknas därför hit.</div>
+        <div><b style={{ color: TEXT, fontWeight: 600 }}>Massaved</b> — massaved.</div>
+        <div><b style={{ color: TEXT, fontWeight: 600 }}>Övrigt</b> — energived, avkap och stockar maskinen inte sorterat.</div>
+        <div style={{ marginTop: 4 }}>
+          Hemved ingår i inget tal: det är virke som går till markägaren. Volymerna är m³fub, skördarmätt under bark,
+          inte m³sk som stämplingsrapporten anger.
+        </div>
+      </div>
       {(res.extrapoleradeTrad > 0 || res.tuntTrad > 0 || res.saknadeTrad > 0) && (
         <div style={{ margin: '14px 16px 0', fontSize: 11, color: DAMPAD, lineHeight: 1.6 }}>
           {res.extrapoleradeTrad > 0 && <div>{nf0(res.extrapoleradeTrad)} träd är {EXTRAPOLERAD_FRAN_CM} cm eller grövre och räknas som 50–55 cm (extrapolerat).</div>}
@@ -298,10 +313,10 @@ function Innehall() {
         </div>
       )}
       <Teknisk>
-        Per trädslag och 5 cm-klass i brösthöjd: medelvolym m³fub per stam och andel timmer, kubb (inklusive klentimmer), massaved
-        och övrigt, ur skördarens stockar på våra slutavverkningar, hemved borträknad. Volymen är skördarmätt under bark.
-        Mot Jeppshoka 1:14, med objektet utanför modellen: andelarna inom en procentenhet, volymen 12 % under — klaven hade
-        {' '}{nf1(350)} färre träd i 32–46 cm än skördaren mätte.
+        Per trädslag och 5 cm-klass i brösthöjd: medelvolym m³fub per stam och andel timmer, kubb, massaved och övrigt, ur
+        skördarens stockar på våra slutavverkningar. Mot Jeppshoka 1:14, med objektet utanför modellen: andelarna inom tre
+        procentenheter, och volymen 12 % under på förrättarens stämplingslängd, för klaven hade 350 färre träd i
+        32–46 cm än skördaren mätte. Volymen hänger på hur träden klavats, andelarna på skogen.
       </Teknisk>
     </div>
   );
