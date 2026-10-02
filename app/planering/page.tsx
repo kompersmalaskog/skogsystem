@@ -12893,8 +12893,13 @@ export default function PlannerPage() {
               transition: 'opacity 650ms cubic-bezier(0.32, 0.72, 0, 1)',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px',
             }}>
+              {/* SAMMA fil som inloggningssidan (/logo.png) — ingen egen logga.
+                  Bilden är 1953×867 (2,25:1), så storleken anges som HÖJD: ca 190 px syns från förarstolen,
+                  ikonstorlek gör det inte. min(190px, 40vh) håller den inom skärmen om fönstret är lågt.
+                  width/height-attributen speglar det verkliga förhållandet — 128×128 påstod en kvadrat, så
+                  webbläsaren reserverade fel yta innan bilden laddat och raden under hoppade. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.png" alt="Kompersmåla Skog" width={128} height={128} style={{ width: '128px', height: 'auto', objectFit: 'contain', opacity: 0.95 }} />
+              <img src="/logo.png" alt="Kompersmåla Skog" width={1953} height={867} style={{ height: 'min(190px, 40vh)', width: 'auto', maxWidth: '80vw', objectFit: 'contain', opacity: 0.95 }} />
               {startMaskinNamn && <div style={{ fontSize: '15px', color: '#8e8e93', fontWeight: 600 }}>{startMaskinNamn}</div>}
             </div>
             {/* Nedre rad: Söker GPS → <objekt> N m³ kvar (tonar bort) → Ingen GPS-fix. */}
