@@ -29,6 +29,10 @@ const productionApps = [
 const adminApps = [
   { href: '/egenkontroll', label: 'Egenkontroll', icon: 'fact_check' },
   { href: '/arbetsrapport', label: 'Arbetsrapport', icon: 'description' },
+  // Planera = samma arbetsrapport, annan väg in: datum överst, trakt först, inga
+  // maskinkort. För den som inte sitter i en maskin (Joacims planering, Martins
+  // markägarmöten). Synlig för alla — det är ett sätt in, inte en roll.
+  { href: '/arbetsrapport?lage=planera', label: 'Planera', icon: 'edit_calendar' },
   { href: '/planering', label: 'Planering', icon: 'event_note' },
   { href: '/objekt', label: 'Objekt', icon: 'layers' },
   { href: '/redigering', label: 'Objektdetaljer', icon: 'edit' },
