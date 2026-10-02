@@ -65,8 +65,14 @@ describe('objektInnehallerPunkt — kodbevis Hålabäck au 2025', () => {
 });
 
 describe('objektHuvudtyp', () => {
-  it('grot-flaggan slår objekt.typ', () => {
-    expect(objektHuvudtyp({ typ: 'gallring', grot: true })).toBe('grot');
+  it('avverkningsform Biobränsle = GROT-jobb (eget grot)', () => {
+    expect(objektHuvudtyp({ typ: 'slutavverkning', avverkningsform: 'Biobränsle' })).toBe('grot');
+  });
+  it('objekt.grot=true på en slutavverkning är INTE grot-typ (producerar bara GROT)', () => {
+    // Prod: 15 slutavverknings­objekt har grot=true (Hålabäck au 2025 m.fl.) — de är slutavverkning.
+    expect(objektHuvudtyp({ typ: 'slutavverkning', grot: true })).toBe('slutavverkning');
+    expect(objektHuvudtyp({ typ: 'slutavverkning', grot: true, avverkningsform: 'Föryngringsavverkning' })).toBe('slutavverkning');
+    expect(objektHuvudtyp({ typ: 'gallring', grot: true })).toBe('gallring');
   });
   it('härleder ur objekt.typ-texten', () => {
     expect(objektHuvudtyp({ typ: 'gallring' })).toBe('gallring');

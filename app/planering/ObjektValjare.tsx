@@ -13,9 +13,9 @@ interface ObjektValjareProps {
    *  ingen typ-flik, Starta-cirkel på planerade. ALLA objekt visas — tilldelning sorterar bara (sektion B),
    *  den filtrerar INTE längre bort andras objekt. medarbetareId används för "egna"-chip + sortering. */
   forareFilter?: { medarbetareId: string };
-  /** Sätts av planeringsvyn när inloggad är förare → visa grön Starta-cirkel
-   *  istället för pil på rader med status='planerad'. Tap = starta+öppna
-   *  (samma underliggande logik som kart-pillens "Starta körning"). */
+  /** DEPRECATED: användes förr för grön Starta-cirkel på planerade rader. Nu öppnar HELA raden
+   *  objektet (onSelectObjekt) och status→pågående sätts på objektets kort / auto-status, inte i listan.
+   *  Prop:en behålls för bakåtkompatibilitet men anropas inte längre härifrån. */
   onStartObjekt?: (objekt: any) => void;
   /** Maskindatorns bundna maskin (lib/enhetMaskin). Styr typ-sorteringen + "egna"-chip när den finns;
    *  på telefon faller vi tillbaka på förarens medarbetare.maskin_id. */
@@ -316,10 +316,12 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
     avslutadeSenaste.filter(o => objektHuvudtyp(o) === typ);
 
   // En förar-rad (grupperade listan)
-  const renderForareRad = (obj: any) => {
+  // HELA raden är knappen → tryck öppnar objektet (onSelectObjekt). Ingen egen Starta-knapp; bara pilen
+  // som affordans. Status→pågående sätts INTE här längre — det hör hemma på objektets kort / auto-status.
+  // iHar=true (HÄR-gruppen) → liten blå punkt framför namnet (samma blå som GPS-pricken, #0a84ff).
+  const renderForareRad = (obj: any, iHar = false) => {
     const typTxt = typLabel(objektHuvudtyp(obj));
     const volymLabel = obj.volym ? `${obj.volym} m³` : 'ingen volym angiven';
-    const visaStarta = !!(obj.status === 'planerad' && onStartObjekt);
     const egen = arEgen(obj);
     const pagar = obj.status === 'pagaende' || forareAktiv(obj);
     const maskiner = maskinnamnPa(obj);
@@ -330,14 +332,15 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
         key={obj.id}
         role="button"
         tabIndex={0}
-        onClick={() => setSelectedObj(obj)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedObj(obj); } }}
+        onClick={() => onSelectObjekt(obj)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectObjekt(obj); } }}
         aria-label={`${obj.namn}, ${typTxt}, ${volymLabel}`}
         style={{ display: 'flex', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid #1a1a1a', cursor: 'pointer' }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: '15px', fontWeight: 500, marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {obj.namn}
+          <div style={{ fontSize: '15px', fontWeight: 500, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {iHar && <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: '50%', background: '#0a84ff', flexShrink: 0, boxShadow: '0 0 0 2px rgba(10,132,255,0.3)' }} />}
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</span>
           </div>
           <div style={{ fontSize: '13px' }}>
             <span style={{ color: 'rgba(255,255,255,0.85)' }}>{typTxt}</span>
@@ -368,18 +371,8 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
           <div style={{ fontSize: '15px', fontWeight: 500, color: obj.volym ? '#fff' : '#8e8e93' }}>{obj.volym ? obj.volym : '–'}</div>
           <div style={{ fontSize: '13px', color: '#8e8e93' }}>m³</div>
         </div>
-        {visaStarta ? (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onStartObjekt!(obj); }}
-            aria-label={`Starta körning på ${obj.namn}`}
-            style={{ marginLeft: '16px', width: 52, height: 52, borderRadius: '50%', background: '#30d158', border: 'none', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', boxShadow: '0 2px 8px rgba(48, 209, 88, 0.35)', padding: 0 }}
-          >
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '28px' }}>play_arrow</span>
-          </button>
-        ) : (
-          <div style={{ marginLeft: '16px', color: '#8e8e93', fontSize: '20px' }} aria-hidden="true">›</div>
-        )}
+        {/* Pil = affordans (hela raden är knappen) */}
+        <div style={{ marginLeft: '16px', color: '#8e8e93', fontSize: '20px' }} aria-hidden="true">›</div>
       </div>
     );
   };
@@ -652,19 +645,19 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
               {grupper && grupper.har.length > 0 && (
                 <>
                   {gruppRubrik('Här', grupper.har.length)}
-                  {grupper.har.map(renderForareRad)}
+                  {grupper.har.map((o) => renderForareRad(o, true))}
                 </>
               )}
               {grupper && grupper.pagaende.length > 0 && (
                 <>
                   {gruppRubrik('Pågående', grupper.pagaende.length)}
-                  {grupper.pagaende.map(renderForareRad)}
+                  {grupper.pagaende.map((o) => renderForareRad(o))}
                 </>
               )}
               {grupper && grupper.planerade.length > 0 && (
                 <>
                   {gruppRubrik('Planerade', grupper.planerade.length)}
-                  {grupper.planerade.map(renderForareRad)}
+                  {grupper.planerade.map((o) => renderForareRad(o))}
                 </>
               )}
               {grupper && grupper.har.length === 0 && grupper.pagaende.length === 0 && grupper.planerade.length === 0 && (
@@ -689,7 +682,8 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
       {/* === FÖRAR-LÄGE: avslutade-vy (D) — tre kolumner, senaste 3 mån === */}
       {forareFilter && visaAvslutade && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0 24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '4px' }}>
+          {/* Tre kolumner bredvid varandra på bred skärm (auto-fit), staplade på smal (< ~720 px). */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '4px 12px', alignItems: 'start' }}>
             {([
               ['slutavverkning', 'Slutavverkning'],
               ['gallring', 'Gallring'],

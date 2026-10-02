@@ -51,10 +51,13 @@ export function objektInnehallerPunkt(
 export type KlararTyp = 'bada' | 'slutavverkning' | 'gallring' | 'grot' | string | null | undefined;
 export type Huvudtyp = 'slutavverkning' | 'gallring' | 'grot' | null;
 
-/** Objektets huvudtyp för typmatchning/kolumn: grot-flaggan slår, annars objekt.typ-texten.
- *  (objekt.typ i DB är 'slutavverkning'/'gallring'; grot bärs av den separata grot-flaggan.) */
-export function objektHuvudtyp(o: { typ?: string | null; grot?: boolean | null } | null | undefined): Huvudtyp {
-  if (o?.grot === true) return 'grot';
+/** Objektets huvudtyp för typmatchning/kolumn/etikett.
+ *  VIKTIGT: `objekt.grot` = "producerar GROT" (bioenergi tas ut) och betyder INTE att TYPEN är grot —
+ *  en slutavverkning kan ha grot=true (15 st i prod). Ett RENT GROT-/biobränslejobb känns igen på
+ *  `avverkningsform='Biobränsle'`. Annars styr `objekt.typ` ('slutavverkning'/'gallring'). */
+export function objektHuvudtyp(o: { typ?: string | null; grot?: boolean | null; avverkningsform?: string | null } | null | undefined): Huvudtyp {
+  const avv = (o?.avverkningsform || '').toLowerCase();
+  if (avv.includes('biobr')) return 'grot';   // Biobränsle = eget GROT-jobb
   const t = (o?.typ || '').toLowerCase();
   if (t.includes('gallr')) return 'gallring';
   if (t.includes('slut')) return 'slutavverkning';
@@ -65,7 +68,7 @@ export function objektHuvudtyp(o: { typ?: string | null; grot?: boolean | null }
  *  'bada'/'allt'/'alla'/tomt = tar allt. Annars exakt match mot objektets huvudtyp. */
 export function maskinKlararObjekt(
   klararTyp: KlararTyp,
-  o: { typ?: string | null; grot?: boolean | null } | null | undefined,
+  o: { typ?: string | null; grot?: boolean | null; avverkningsform?: string | null } | null | undefined,
 ): boolean {
   const k = String(klararTyp ?? '').toLowerCase();
   if (!k || k === 'bada' || k === 'allt' || k === 'alla') return true;
@@ -78,6 +81,7 @@ export interface ObjektForVal {
   id: string;
   typ?: string | null;
   grot?: boolean | null;
+  avverkningsform?: string | null;   // 'Biobränsle' = GROT-jobb (se objektHuvudtyp)
   status?: string | null;
   geometri?: TraktGeometriFC | null;
   skotare_maskin_id?: string | null;
