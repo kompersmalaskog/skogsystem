@@ -43,7 +43,11 @@ En vy ska kunna läsas på en sekund, med blicken tillbaka i arbetet.
 - Formulär byggs som iOS Settings: grupperade subsections med rubrik,
   inte en lång kolumn med fält.
 - Obligatoriska fält först, valfria sist och tydligt märkta.
-- Listor grupperas på VO-nummer. Skördare och skotare under samma objekt.
+- Listor grupperas efter sammanhang:
+  - **Planering och uppföljning:** på **VO-nummer** — skördare och skotare under samma objekt.
+  - **Maskinvyns förarlista** (maskinläge): på **Här / Pågående / Planerade / Avslutade**
+    (position + status), inte VO. "Här" = GPS-positionen ligger i objektets traktgräns.
+    **Avslutade** grupperas i sin tur på **objekttyp** (Slutavverkning / Gallring / Grot).
 - Tabbar används när samma data ses ur olika vinklar
   (Beställning / Kapacitet / Utfall), inte som navigation.
 
@@ -170,6 +174,32 @@ egna `@keyframes`. Puls (`.puls`) bara för "pågår just nu".
 `#0a84ff`, grön `#30d158`, orange `#ff9f0a`, röd `#ff453a`, skördare
 `#a8d582`, skotare `#f0b24c`. Inga andra färger. Ikoner: Material Symbols,
 storlek 18 i text och 22 i rad.
+
+### Färgens betydelse — en färg, en sak
+
+På kartan och i förarlistorna BÄR färgen mening. Använd rätt färg för rätt sak —
+hitta aldrig på en ny.
+
+| Vad | Färg | Källa |
+|---|---|---|
+| Skördare (spår, maskin, etikett) | ljusgrön `#a8d582` | `FARG.skordare` |
+| Skotare (spår, maskin, etikett) | amber `#f0b24c` | `FARG.skotare` |
+| Maskinens position (GPS-pricken) | blå `#0a84ff` | `FARG.bla` |
+| Traktgräns / snitsel | röd `#ff453a` + gul streck `#fbbf24` | `LEGEND.fara` / `LEGEND.gul` |
+| GROT | amber `#f59e0b` | kartlager |
+| Hänsyn | ytans egen färg, fallback blå `#3b82f6` | `LEGEND` |
+| Naturvård | grön `#30d158` | `LEGEND.naturvard` |
+
+Kartans fulla legend (basväg, dike, brant, kultur, fornlämning …) bor i `LEGEND`
+(page.tsx) och hålls medvetet på en **egen semantisk axel** skild från `FARG`-temat
+— snitsel/kartmarkeringar är fysiska band i skogen, inte UI-status.
+
+**Status visas med STYRKA, inte med en egen färg.** Full färg = *kvar / aktivt*;
+dämpad (lägre opacity) = *klart / utkört / avslutat*. En skotningshög i full
+sortimentfärg är kvar, samma hög dämpad är utkörd; ett avslutat objekt ritas dämpat.
+Måla aldrig om något till en "klar-grå" eller "klar-färg" — **samma färg, svagare**.
+(Detta är progress-axeln. Larm-status — fel/varning/ok — är en annan sak och visas
+som grön/orange/röd prick eller etikett bredvid ett ord, aldrig som fyllning.)
 
 ### Så används det
 
