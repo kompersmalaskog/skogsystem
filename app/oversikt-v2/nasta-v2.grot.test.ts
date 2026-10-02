@@ -38,9 +38,14 @@ describe('GROT i kön — avslutade objekt göms utom de som väntar på GROT', 
     const f = kor({ objekt: [avslutad, annan], maskinKo: [ko('1', 'A030353', 'trakt', 0), ko('2', 'A030353', 'annan', 1)], grot: new Set(['trakt']) });
     expect(koIds(f, 'A030353')).toEqual(['trakt']);
   });
-  it('gäller även skördarens kö (samma koUr)', () => {
+  it('gäller BARA skotare: en skördares kö lämnas orörd — avslutade rader där är kvarlevor och förblir dolda', () => {
     const f = kor({ objekt: [avslutad], maskinKo: [ko('1', 'R64101', 'trakt', 0)], grot: new Set(['trakt']) });
-    expect(koIds(f, 'R64101')).toEqual(['trakt']);
+    expect(koIds(f, 'R64101')).toEqual([]);
+  });
+  it('samma trakt i både skördarens och skotarens kö: bara skotaren visar den', () => {
+    const f = kor({ objekt: [avslutad], maskinKo: [ko('1', 'R64101', 'trakt', 0), ko('2', 'A030353', 'trakt', 0)], grot: new Set(['trakt']) });
+    expect(koIds(f, 'R64101')).toEqual([]);
+    expect(koIds(f, 'A030353')).toEqual(['trakt']);
   });
   it('mängden släpper aldrig in objekt utan koordinat', () => {
     const utanKoord = obj('trakt', 'avslutat', { lat: null, lng: null });

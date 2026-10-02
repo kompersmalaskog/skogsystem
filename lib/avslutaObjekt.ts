@@ -1,7 +1,7 @@
 // DELAD AVSLUT-REGEL — en enda funktion för "objektet är klart".
 // Konsekvensen av avslut: objekt.status='avslutat' + avslutad_timestamp, och objektet UR ALLA
 // maskin_ko (alla maskiner) — men BARA i själva övergången till avslutat. Ett objekt som redan är
-// avslutat får sina köer i fred: /grot köar avslutade trakter för skotare (GROT), och redigeringen
+// avslutat får sina köer i fred: GROT-arket i /oversikt-v2 köar avslutade trakter för skotare (GROT), och redigeringen
 // anropar den här funktionen vid VARJE spar av ett avslutat objekt — utan den gränsen hade varje
 // spar raderat GROT-köraden. Med `sattFlaggor` fylls dessutom dim_objekt.skordning_avslutad /
 // skotning_avslutad till DAGENS datum — men BARA där de är NULL (en människas satta datum skrivs

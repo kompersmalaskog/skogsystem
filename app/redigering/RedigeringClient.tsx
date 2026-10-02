@@ -2462,7 +2462,7 @@ function PlanDate({ label, value, onCommit, disabled }: any) {
   )
 }
 
-// Markägarens önskemål om GROT: bortkört senast <datum>, med skäl. Läses av /grot (överst i listan).
+// Markägarens önskemål om GROT: bortkört senast <datum>, med skäl. Läses av GROT-arket i /oversikt-v2 (överst i listan).
 // Direktsave via två-tabell-routern (verifierad: värdet läses tillbaka). Datumet bor på dim_objekt,
 // så det kan sättas även för trakter som saknar objekt-rad i planeringen. Ett skäl utan datum är ett
 // löst påstående som ingen vy visar — därför nollas skälet tillsammans med datumet, och skälvalet

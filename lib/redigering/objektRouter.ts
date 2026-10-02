@@ -41,7 +41,7 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   grot_anpassad:           { dim: 'grot_anpassad' },
   grot_hamtad:             { dim: 'grot_hamtad' },
   // Markägarens önskemål om när riset ska vara bortkört (migration 20261002_grot_markagarens_datum):
-  // datum + skäl (markberedning | plantering | annat). Läses av /grot — överst i listan.
+  // datum + skäl (markberedning | plantering | annat). Läses av GROT-arket i /oversikt-v2 — överst i listan.
   grot_senast:             { dim: 'grot_senast' },
   grot_skal:               { dim: 'grot_skal' },
   stubbbehandling:         { dim: 'stubbbehandling' },

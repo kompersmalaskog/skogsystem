@@ -1,4 +1,4 @@
-// GROT-vyn (/grot) — vilka trakter som väntar på GROT, i vilken ordning, och vad raden säger.
+// GROT-arket i /oversikt-v2 — vilka trakter som väntar på GROT, i vilken ordning, och vad raden säger.
 //
 // REN LOGIK: tar redan hämtade rader, returnerar listan. Ingen databas, ingen klocka (idag
 // skickas in) — så samma funktion körs i vyn, i v2:s kö och i förvärmningsskriptet, och
@@ -189,6 +189,27 @@ function harKlartRisjobb(traktId: string, kopplingar: GrotKoppling[], risjobbPer
   return kopplingar.some((k) => k.avverknings_objekt_id === traktId && !!risjobbPer.get(k.risjobb_objekt_id)?.skotning_avslutad);
 }
 
+/** KÖRD-REGELN — EN definition för listan och för kö-rensningen: GROT är hämtad (grot_hamtad satt) ELLER ett länkat
+ *  risjobb är klart (skotning_avslutad). */
+function arKord(dim: GrotDim, kopplingar: GrotKoppling[], risjobbPer: Map<string, GrotDim>): boolean {
+  return !!dim.grot_hamtad || harKlartRisjobb(dim.objekt_id, kopplingar, risjobbPer);
+}
+
+/** objekt.id för GROT-trakter där körd-regeln har slagit. Kö-rader på sådana (avslutade) trakter är kvarlevor
+ *  efter GROT och tas bort (lib/grotvy/ko). Bara trakter med grot_anpassad räknas — en avslutad trakt som aldrig
+ *  var GROT lämnas ifred, hur gammal dess kö-rad än är. */
+export function grotKordaObjektIds(raw: GrotRaw): Set<string> {
+  const risjobbPer = new Map<string, GrotDim>();
+  raw.risjobb.forEach((r) => risjobbPer.set(r.objekt_id, r));
+  const ids = new Set<string>();
+  raw.dim.forEach((dim) => {
+    if (dim.grot_anpassad !== true || arRisjobb(dim)) return;
+    if (!arKord(dim, raw.kopplingar, risjobbPer)) return;
+    objektRaderFor(dim, raw.objekt).forEach((o) => ids.add(o.id));
+  });
+  return ids;
+}
+
 export function byggGrotLista(raw: GrotRaw, opt: ByggOpt): GrotLista {
   const { idag } = opt;
   const prodPer = new Map<string, GrotProd>();
@@ -201,12 +222,11 @@ export function byggGrotLista(raw: GrotRaw, opt: ByggOpt): GrotLista {
     if (dim.grot_anpassad !== true) return;
     if (dim.exkludera === true) return;
     if (arRisjobb(dim)) return;              // ett risjobb är inte en trakt som väntar på GROT
-    if (dim.grot_hamtad) return;             // GROT hämtad
+    if (arKord(dim, raw.kopplingar, risjobbPer)) return; // körd-regeln: GROT hämtad, eller länkat risjobb klart
     if (!dim.skordning_avslutad) return;     // grind: skördningen är inte avslutad
     const prod = prodPer.get(dim.objekt_id);
     const skordat = volymAv(prod);
     if (!(skordat > 0)) return;              // utan skördad volym finns ingen grund
-    if (harKlartRisjobb(dim.objekt_id, raw.kopplingar, risjobbPer)) return; // körd-regel
 
     const objekt = objektRaderFor(dim, raw.objekt)[0] ?? null;
     const avverkat = dagAv(prod?.sista_datum);

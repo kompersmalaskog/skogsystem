@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   byggGrotLista, grotVantandeObjektIds, objektRaderFor, koordinatFor, typFor, rollMatcharTyp,
-  rimligKoordinat, arGrotSkal, STAAR_HAR_DAGAR,
+  rimligKoordinat, arGrotSkal, STAAR_HAR_DAGAR, grotKordaObjektIds,
   type GrotDim, type GrotObjektRad, type GrotProd, type GrotKoppling, type GrotRaw, type GrotPlats,
 } from './lista';
 
@@ -312,5 +312,49 @@ describe('radens fält', () => {
     expect(per.get('1')!.namn).toBe('Rössmåla');
     expect(per.get('2')!.namn).toBe('Objektnamn');
     expect(per.get('3')!.namn).toBe('3');
+  });
+});
+
+describe('grotKordaObjektIds — körd-regeln, samma definition som listan', () => {
+  const risjobb = (klar: string | null) => dim('R1', { risskotning: true, huvudtyp: 'Grot', skotning_avslutad: klar });
+  const lank: GrotKoppling = { risjobb_objekt_id: 'R1', avverknings_objekt_id: '1' };
+
+  it('grot_hamtad satt → trakten är körd (alla dess objekt-rader)', () => {
+    const k = grotKordaObjektIds(raw({ dim: [dim('1', { grot_hamtad: '2026-09-01' })], objekt: [objekt('o1', { vo_nummer: '1' }), objekt('o1b', { dim_objekt_id: '1' })] }));
+    expect(Array.from(k).sort()).toEqual(['o1', 'o1b']);
+  });
+  it('länkat risjobb klart → körd, även utan grot_hamtad', () => {
+    const k = grotKordaObjektIds(raw({ dim: [dim('1')], risjobb: [risjobb('2026-09-30')], kopplingar: [lank], objekt: [objekt('o1', { vo_nummer: '1' })] }));
+    expect(Array.from(k)).toEqual(['o1']);
+  });
+  it('länkat risjobb inte klart → inte körd', () => {
+    const k = grotKordaObjektIds(raw({ dim: [dim('1')], risjobb: [risjobb(null)], kopplingar: [lank], objekt: [objekt('o1', { vo_nummer: '1' })] }));
+    expect(k.size).toBe(0);
+  });
+  it('väntande trakt (inget av villkoren) → inte körd', () => {
+    expect(grotKordaObjektIds(raw({ dim: [dim('1')], objekt: [objekt('o1', { vo_nummer: '1' })] })).size).toBe(0);
+  });
+  it('en trakt som aldrig var GROT (grot_anpassad av) räknas inte, även med grot_hamtad', () => {
+    expect(grotKordaObjektIds(raw({ dim: [dim('1', { grot_anpassad: false, grot_hamtad: '2026-09-01' })], objekt: [objekt('o1', { vo_nummer: '1' })] })).size).toBe(0);
+  });
+  it('ett risjobb är ingen trakt', () => {
+    expect(grotKordaObjektIds(raw({ dim: [dim('1', { risskotning: true, grot_hamtad: '2026-09-01' })], objekt: [objekt('o1', { vo_nummer: '1' })] })).size).toBe(0);
+  });
+  it('trakt utan objekt-rad ger inget id (inget att rensa i kön)', () => {
+    expect(grotKordaObjektIds(raw({ dim: [dim('1', { grot_hamtad: '2026-09-01' })] })).size).toBe(0);
+  });
+  it('körd och väntande är varandras motsatser: en körd trakt finns aldrig i listan, en väntande aldrig i körda', () => {
+    const r = raw({
+      dim: [dim('1', { grot_hamtad: '2026-09-01' }), dim('2'), dim('3')],
+      prod: [prod('1', 5), prod('2', 5), prod('3', 5)],
+      risjobb: [risjobb('2026-09-30')],
+      kopplingar: [{ risjobb_objekt_id: 'R1', avverknings_objekt_id: '3' }],
+      objekt: [objekt('o1', { vo_nummer: '1' }), objekt('o2', { vo_nummer: '2' }), objekt('o3', { vo_nummer: '3' })],
+    });
+    const lista = byggGrotLista(r, { idag: IDAG });
+    const korda = grotKordaObjektIds(r);
+    expect(lista.alla.map((x) => x.id)).toEqual(['2']);
+    expect(Array.from(korda).sort()).toEqual(['o1', 'o3']);
+    expect(Array.from(grotVantandeObjektIds(lista))).toEqual(['o2']);
   });
 });

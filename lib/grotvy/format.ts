@@ -1,4 +1,4 @@
-// Textformat för GROT-vyn (/grot). Ren logik — ingen webbläsar-ICU.
+// Textformat för GROT-arken i /oversikt-v2. Ren logik — ingen webbläsar-ICU.
 //
 // toLocaleDateString('sv-SE', { month: 'short' }) ger "3 okt." i en miljö och
 // "3 okt" i en annan; kanvasen säger "3 okt". Månadsnamnen står därför här, så

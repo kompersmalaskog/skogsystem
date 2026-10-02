@@ -1,11 +1,10 @@
-// Hämtning för GROT-vyn. Klienten injiceras: vyn och v2 skickar webbläsarens inloggade klient,
+// Hämtning för GROT-arket. Klienten injiceras: /oversikt-v2 skickar webbläsarens inloggade klient,
 // förvärmningsskriptet skickar en service-klient — samma frågor, samma lista.
 //
 // Alla frågor sorteras på en unik nyckel (PostgREST ger annars rader i godtycklig ordning över
 // sidgränsen) och sidas, så en lista som växer förbi 1 000 rader inte tyst kapas.
 
-import { byggGrotLista, grotVantandeObjektIds, type GrotDim, type GrotKoppling, type GrotObjektRad, type GrotProd, type GrotRaw } from './lista';
-import { idagLokal } from './format';
+import type { GrotDim, GrotKoppling, GrotObjektRad, GrotProd, GrotRaw } from './lista';
 
 const DIM_KOL = 'objekt_id, object_name, vo_nummer, areal_ha, latitude, longitude, huvudtyp, atgard, grot_anpassad, grot_hamtad, grot_senast, grot_skal, exkludera, risskotning, skordning_avslutad, skotning_avslutad';
 const OBJEKT_KOL = 'id, vo_nummer, namn, typ, status, atgard, areal, lat, lng, dim_objekt_id';
@@ -70,10 +69,4 @@ export async function hamtaGrotRaw(sb: any): Promise<GrotRaw> {
   objektDelar.forEach((del) => del.forEach((o) => objektPerId.set(o.id, o)));
 
   return { dim, risjobb, kopplingar, prod, objekt: Array.from(objektPerId.values()) };
-}
-
-/** objekt.id för GROT-väntande trakter — v2:s kö släpper in dem trots att de är avslutade. */
-export async function hamtaGrotVantandeObjektIds(sb: any): Promise<Set<string>> {
-  const raw = await hamtaGrotRaw(sb);
-  return grotVantandeObjektIds(byggGrotLista(raw, { idag: idagLokal() }));
 }

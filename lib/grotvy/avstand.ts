@@ -1,4 +1,4 @@
-// Avstånd mellan GROT-objekt (/grot) — väg, aldrig fågelväg.
+// Avstånd mellan GROT-objekt (GROT-arket i /oversikt-v2) — väg, aldrig fågelväg.
 //
 // Raden visar "N km från <närmaste andra GROT-objekt>". Vägavstånd kostar ett ORS-anrop per par
 // (gratisplanen: 40/min, 2 000/dag), så vi slår inte upp alla par — fågelvägen får bara VÄLJA
