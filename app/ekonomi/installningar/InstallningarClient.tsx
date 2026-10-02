@@ -1,38 +1,15 @@
 'use client';
 
 import { useEffect, useState, useCallback, CSSProperties } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import { uppdateraVerifierat } from '@/lib/supabase-save';
-import { VARDEMINSKNING_FORVAL_SKORDARE, VARDEMINSKNING_FORVAL_SKOTARE } from '@/lib/ekonomi/vardeminskning';
 import EkonomiBottomNav from '../EkonomiBottomNav';
 
-type Num = number | '';
+// PRISERNA ÄR UTBRUTNA till /ekonomi/prislista (steg 1 av 3). Kvar här:
+// Fortnox-mappning (maskin ↔ kostnadsställe, omappade CC, omappade
+// fakturarader, synkstatus) och datamappning (sortimentgrupper) — de får
+// egna vyer i steg 2/3.
 
-type MaskinRad = {
-  id?: string; maskin_id: string; maskin_namn: string; timpris: Num;
-  giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
-  // Verklig värdeminskning (dim_maskin, INTE timpris-versionerad):
-  // kr/G15-tim är ENDA modellen (Ponsse-säljarens); tomt = räknas ej.
-  // Gamla procent-modellens kolumner (inkopspris/avskrivning_procent/
-  // inkopsdatum) ligger kvar i databasen men läses och visas INTE.
-  vardeminskning_kr_per_g15h: Num;
-  sald: boolean; sald_datum: string;  // avyttrad = ingen värdeminskning framåt
-};
-type AcordRad = {
-  id?: string; medelstam: Num; pris_total: Num; pris_skordare: Num; pris_skotare: Num;
-  giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
-};
-type AvstandConfig = { id?: string; grundavstand_m: Num; kr_per_100m: Num; giltig_fran: string | null };
-type TraktRad = { id?: string; fran_m3fub: Num; till_m3fub: Num; tillagg_kr_per_m3fub: Num; giltig_fran: string | null };
-type TerrangRad = {
-  id?: string; namn: string; tillagg_kr_per_m3fub: Num;
-  giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
-};
-type SortConfig = { id?: string; grundantal: Num; kr_per_extra_sortiment: Num; giltig_fran: string | null };
-type OvrigtRad = {
-  id?: string; nyckel: string; beskrivning: string; varde: Num; enhet: string;
-  giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
-};
 type Mappning = { id: string; maskin_id: string; kostnadsstalle_kod: string };
 type FortnoxCc = { kod: string; namn?: string; aktiv?: boolean; har_trafik?: boolean };
 type Maskinopt = { maskin_id: string; modell: string | null; visningsnamn?: string | null; maskin_typ?: string | null };
@@ -57,25 +34,6 @@ type SortGruppRad = {
   dirty?: boolean;
 };
 const SORT_GRUPPER = ['Timmer', 'Klentimmer', 'Kubb', 'Massa', 'Energi', 'Övrigt'] as const;
-
-function todayIso() {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-function yesterdayIso() {
-  const d = new Date(); d.setDate(d.getDate() - 1);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleDateString('sv-SE');
-}
-function numOrNull(v: Num): number | null {
-  return v === '' || v === null ? null : Number(v);
-}
 
 // Ett synk-segment: "verifikat 4 aug" dämpat, eller i bärnsten med ålder
 // när senaste lyckade körningen är äldre än 3 dygn (död synk ska synas).
@@ -109,21 +67,6 @@ const s: Record<string, CSSProperties> = {
   dateNote: { fontSize: 11, color: '#7a7a72' },
 };
 
-// MODULNIVÅ, inte inne i komponenten: en inline-definierad komponent får ny
-// typreferens varje render → React remountar inputen på varje tangenttryck
-// och fokus tappas efter varje siffra (inköpsår-buggen — drabbade ALLA
-// NumInput-fält). En komponent som används som <NumInput /> måste ha stabil
-// referens; rena render-hjälpare som anropas som funktioner är ofarliga.
-const NumInput = ({ value, onChange, step, placeholder }: { value: Num; onChange: (v: Num) => void; step?: string; placeholder?: string }) => (
-  <input
-    style={{ ...s.input, ...s.inputNum }}
-    type="number" step={step || '1'} inputMode={step ? 'decimal' : 'numeric'}
-    value={value}
-    onChange={e => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-    placeholder={placeholder}
-  />
-);
-
 // Fortnox-synkstatus (fortnox_sync_state via /api/fortnox/sync-status).
 // 'fel' = kunde inte läsas — visas, aldrig tyst (en död statusläsning är
 // samma blindhet som larmet ska bota).
@@ -155,13 +98,6 @@ export default function InstallningarClient() {
     return () => { avbruten = true; };
   }, []);
 
-  const [maskiner, setMaskiner] = useState<MaskinRad[]>([]);
-  const [acord, setAcord] = useState<AcordRad[]>([]);
-  const [avstand, setAvstand] = useState<AvstandConfig>({ grundavstand_m: '', kr_per_100m: '', giltig_fran: null });
-  const [trakt, setTrakt] = useState<TraktRad[]>([]);
-  const [terrang, setTerrang] = useState<TerrangRad[]>([]);
-  const [sortiment, setSortiment] = useState<SortConfig>({ grundantal: '', kr_per_extra_sortiment: '', giltig_fran: null });
-  const [ovrigt, setOvrigt] = useState<OvrigtRad[]>([]);
   const [mappningar, setMappningar] = useState<Mappning[]>([]);
   const [maskinOptLista, setMaskinOptLista] = useState<Maskinopt[]>([]);
   const [fortnoxCc, setFortnoxCc] = useState<FortnoxCc[]>([]);
@@ -176,14 +112,6 @@ export default function InstallningarClient() {
   const [savingSortGrupp, setSavingSortGrupp] = useState<string | null>(null);
   const [sortGruppFilter, setSortGruppFilter] = useState<string>('Ej manuella');
 
-  const [savingMaskin, setSavingMaskin] = useState<string | null>(null);
-  const [savingAcord, setSavingAcord] = useState(false);
-  const [savingAvstand, setSavingAvstand] = useState(false);
-  const [savingTrakt, setSavingTrakt] = useState(false);
-  const [savingTerrang, setSavingTerrang] = useState<string | null>(null);
-  const [savingSort, setSavingSort] = useState(false);
-  const [savingOvrigt, setSavingOvrigt] = useState<string | null>(null);
-
   const flashMsg = (text: string) => {
     setMsg(text);
     setTimeout(() => setMsg(''), 2500);
@@ -191,15 +119,7 @@ export default function InstallningarClient() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [mRes, aRes, avRes, trRes, teRes, soRes, ovRes, dimMaskinRes, omappadRes, objektValRes, sortGruppRes] = await Promise.all([
-      supabase.from('maskin_timpris').select('id, maskin_id, maskin_namn, timpris, giltig_fran, giltig_till').is('giltig_till', null).order('maskin_namn'),
-      supabase.from('acord_priser').select('id, medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till').is('giltig_till', null).order('medelstam'),
-      supabase.from('acord_skotningsavstand').select('id, grundavstand_m, kr_per_100m, giltig_fran, giltig_till').is('giltig_till', null).not('grundavstand_m', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
-      supabase.from('acord_traktstorlek').select('id, fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
-      supabase.from('acord_terrang').select('id, namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('namn'),
-      supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
-      supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
-      supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum').order('visningsnamn', { nullsFirst: false }),
+    const [omappadRes, objektValRes, sortGruppRes] = await Promise.all([
       supabase.from('fortnox_invoice_rows')
         .select('id, document_number, invoice_date, description, total, matched_objekt_id, manual_objekt_id')
         .is('matched_objekt_id', null)
@@ -210,32 +130,6 @@ export default function InstallningarClient() {
       supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer').order('object_name').limit(1000),
       supabase.from('dim_sortiment').select('sortiment_id, namn, dim_sortiment_grupp(grupp, grupp_manuell)').order('namn'),
     ]);
-    // Värdeminsknings-fälten bor i dim_maskin (stamdata) — merge per maskin_id.
-    // Procent-förval 20 när dim-raden saknas eller är tom.
-    const dimMap: Record<string, any> = {};
-    for (const d of (dimMaskinRes.data || [])) dimMap[d.maskin_id] = d;
-    setMaskiner((mRes.data || []).map((m: any) => ({
-      id: m.id, maskin_id: m.maskin_id, maskin_namn: m.maskin_namn || '', timpris: m.timpris, giltig_fran: m.giltig_fran,
-      // kr/G15-tim: förval efter maskintyp när inget sparats (skördare 400,
-      // skotare 300 — mitten av Ponsse-spannet). Aktivt tömt = null = räknas ej.
-      vardeminskning_kr_per_g15h: dimMap[m.maskin_id]?.vardeminskning_kr_per_g15h
-        ?? (dimMap[m.maskin_id]?.maskin_typ === 'Forwarder' ? VARDEMINSKNING_FORVAL_SKOTARE : VARDEMINSKNING_FORVAL_SKORDARE),
-      sald: !!dimMap[m.maskin_id]?.sald,
-      sald_datum: dimMap[m.maskin_id]?.sald_datum || '',
-    })));
-    setAcord((aRes.data || []).map((a: any) => ({ id: a.id, medelstam: a.medelstam, pris_total: a.pris_total, pris_skordare: a.pris_skordare, pris_skotare: a.pris_skotare, giltig_fran: a.giltig_fran })));
-    const avRow = (avRes.data || [])[0];
-    setAvstand(avRow
-      ? { id: avRow.id, grundavstand_m: avRow.grundavstand_m, kr_per_100m: avRow.kr_per_100m, giltig_fran: avRow.giltig_fran }
-      : { grundavstand_m: 200, kr_per_100m: 4, giltig_fran: null });
-    setTrakt((trRes.data || []).map((a: any) => ({ id: a.id, fran_m3fub: a.fran_m3fub, till_m3fub: a.till_m3fub ?? '', tillagg_kr_per_m3fub: a.tillagg_kr_per_m3fub, giltig_fran: a.giltig_fran })));
-    setTerrang((teRes.data || []).map((a: any) => ({ id: a.id, namn: a.namn || '', tillagg_kr_per_m3fub: a.tillagg_kr_per_m3fub, giltig_fran: a.giltig_fran })));
-    const soRow = (soRes.data || [])[0];
-    setSortiment(soRow
-      ? { id: soRow.id, grundantal: soRow.grundantal, kr_per_extra_sortiment: soRow.kr_per_extra_sortiment, giltig_fran: soRow.giltig_fran }
-      : { grundantal: 6, kr_per_extra_sortiment: 2, giltig_fran: null });
-    setOvrigt((ovRes.data || []).map((a: any) => ({ id: a.id, nyckel: a.nyckel, beskrivning: a.beskrivning || '', varde: a.varde, enhet: a.enhet || '', giltig_fran: a.giltig_fran })));
-
     // Kostnadsställe-mappning (flera CC per maskin tillåtna) — hämtas via
     // dedikerat API som även returnerar omappade CC och Fortnox-listan.
     try {
@@ -281,181 +175,6 @@ export default function InstallningarClient() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-
-  // ── Shared save-all-bracket helper ──
-  async function saveAllBracket<T>(tableName: string, rows: T[], mapRow: (r: T) => Record<string, any>) {
-    const today = todayIso(), yest = yesterdayIso();
-    const { error: endErr } = await supabase.from(tableName).update({ giltig_till: yest }).is('giltig_till', null);
-    if (endErr) return endErr;
-    const { error: insErr } = await supabase.from(tableName).insert(
-      rows.map(r => ({ ...mapRow(r), giltig_fran: today, giltig_till: null }))
-    );
-    return insErr;
-  }
-
-  // ── Shared save-one-by-key helper ──
-  async function saveOneByKey(tableName: string, keyCol: string, keyVal: string, newRow: Record<string, any>, isNew: boolean) {
-    const today = todayIso(), yest = yesterdayIso();
-    if (!isNew) {
-      const { error } = await supabase.from(tableName).update({ giltig_till: yest }).eq(keyCol, keyVal).is('giltig_till', null);
-      if (error) return error;
-    }
-    const { error } = await supabase.from(tableName).insert({ ...newRow, giltig_fran: today, giltig_till: null });
-    return error;
-  }
-
-  // ── Maskin ──
-  const updateMaskin = (idx: number, p: Partial<MaskinRad>) => setMaskiner(prev => prev.map((m, i) => i === idx ? { ...m, ...p, dirty: true } : m));
-  const addMaskin = () => setMaskiner(prev => [...prev, { maskin_id: '', maskin_namn: '', timpris: '', vardeminskning_kr_per_g15h: '', sald: false, sald_datum: '', giltig_fran: null, isNew: true, dirty: true }]);
-  const saveMaskin = async (idx: number) => {
-    const row = maskiner[idx];
-    if (!row.maskin_id.trim() || !row.maskin_namn.trim() || row.timpris === '' || Number(row.timpris) <= 0) { flashMsg('Fyll i maskin-ID, namn och ett pris > 0'); return; }
-    setSavingMaskin(row.maskin_id || `ny-${idx}`);
-    const err = await saveOneByKey('maskin_timpris', 'maskin_id', row.maskin_id, {
-      maskin_id: row.maskin_id.trim(), maskin_namn: row.maskin_namn.trim(), timpris: Number(row.timpris),
-    }, !!row.isNew);
-    if (err) { setSavingMaskin(null); flashMsg(`Fel: ${err.message}`); return; }
-
-    // Värdeminskningen bor i dim_maskin (admin-only RLS — chef får tyst 0
-    // rader, därför verifierat sparande med värde-återläsning, aldrig tyst).
-    // Gamla procent-modellens kolumner rörs inte alls — de är pensionerade.
-    const villSaldDatum = row.sald && row.sald_datum ? row.sald_datum : null;
-    const villKrPerTim = numOrNull(row.vardeminskning_kr_per_g15h);
-    const dimRes = await uppdateraVerifierat(
-      supabase, 'dim_maskin',
-      { vardeminskning_kr_per_g15h: villKrPerTim, sald: row.sald, sald_datum: villSaldDatum },
-      { maskin_id: row.maskin_id.trim() },
-      'maskin_id, vardeminskning_kr_per_g15h, sald, sald_datum',
-    );
-    setSavingMaskin(null);
-    if (!dimRes.ok) { flashMsg(`Timpris sparat, men värdeminskning: ${dimRes.fel}`); return; }
-    const r0: any = dimRes.rows[0];
-    const landat = (v: any) => (v == null ? null : Number(v));
-    if (landat(r0.vardeminskning_kr_per_g15h) !== villKrPerTim
-        || !!r0.sald !== row.sald || (r0.sald_datum || null) !== villSaldDatum) {
-      flashMsg('Värdeminskning: värdet landade inte i dim_maskin — kontrollera behörighet'); return;
-    }
-    flashMsg(`Sparat: ${row.maskin_namn}`);
-    await fetchData();
-  };
-
-  // ── Acord ──
-  const updateAcord = (idx: number, p: Partial<AcordRad>) => setAcord(prev => prev.map((a, i) => i === idx ? { ...a, ...p, dirty: true } : a));
-  const removeAcord = (idx: number) => setAcord(prev => prev.filter((_, i) => i !== idx));
-  const addAcord = () => setAcord(prev => [...prev, { medelstam: '', pris_total: '', pris_skordare: '', pris_skotare: '', giltig_fran: null, isNew: true, dirty: true }]);
-  const saveAllAcord = async () => {
-    for (const r of acord) {
-      if (r.medelstam === '' || r.pris_total === '' || r.pris_skordare === '' || r.pris_skotare === '') { flashMsg('Alla acord-fält måste vara ifyllda'); return; }
-      if (Number(r.pris_total) <= 0 || Number(r.medelstam) <= 0) { flashMsg('Pris och medelstam måste vara > 0'); return; }
-    }
-    setSavingAcord(true);
-    const err = await saveAllBracket('acord_priser', acord, r => ({
-      medelstam: Number(r.medelstam), pris_total: Number(r.pris_total), pris_skordare: Number(r.pris_skordare), pris_skotare: Number(r.pris_skotare),
-    }));
-    setSavingAcord(false);
-    if (err) { flashMsg(`Fel: ${err.message}`); return; }
-    flashMsg('Ny acord-prisuppsättning sparad');
-    await fetchData();
-  };
-
-  // ── Skotningsavstånd (formel-config, en rad) ──
-  const updateAvstand = (p: Partial<AvstandConfig>) => setAvstand(prev => ({ ...prev, ...p }));
-  const saveAvstand = async () => {
-    if (avstand.grundavstand_m === '' || avstand.kr_per_100m === '') {
-      flashMsg('Fyll i grundavstånd och tillägg'); return;
-    }
-    setSavingAvstand(true);
-    const today = todayIso(), yest = yesterdayIso();
-    // Avsluta bara den aktiva formel-raden (inte ev. gamla bracket-rader)
-    const { error: endErr } = await supabase.from('acord_skotningsavstand')
-      .update({ giltig_till: yest })
-      .is('giltig_till', null)
-      .not('grundavstand_m', 'is', null);
-    if (endErr) { setSavingAvstand(false); flashMsg(`Fel: ${endErr.message}`); return; }
-    const { error: insErr } = await supabase.from('acord_skotningsavstand').insert({
-      grundavstand_m: Number(avstand.grundavstand_m),
-      kr_per_100m: Number(avstand.kr_per_100m),
-      giltig_fran: today, giltig_till: null,
-    });
-    setSavingAvstand(false);
-    if (insErr) { flashMsg(`Fel: ${insErr.message}`); return; }
-    flashMsg('Skotningsavstånd sparat');
-    await fetchData();
-  };
-
-  // ── Traktstorlek ──
-  const updateTrakt = (idx: number, p: Partial<TraktRad>) => setTrakt(prev => prev.map((a, i) => i === idx ? { ...a, ...p } : a));
-  const removeTrakt = (idx: number) => setTrakt(prev => prev.filter((_, i) => i !== idx));
-  const addTrakt = () => setTrakt(prev => [...prev, { fran_m3fub: '', till_m3fub: '', tillagg_kr_per_m3fub: '', giltig_fran: null }]);
-  const saveAllTrakt = async () => {
-    for (const r of trakt) {
-      if (r.fran_m3fub === '' || r.tillagg_kr_per_m3fub === '') { flashMsg('Traktstorlek: från och tillägg måste fyllas i'); return; }
-    }
-    setSavingTrakt(true);
-    const err = await saveAllBracket('acord_traktstorlek', trakt, r => ({
-      fran_m3fub: Number(r.fran_m3fub), till_m3fub: numOrNull(r.till_m3fub), tillagg_kr_per_m3fub: Number(r.tillagg_kr_per_m3fub),
-    }));
-    setSavingTrakt(false);
-    if (err) { flashMsg(`Fel: ${err.message}`); return; }
-    flashMsg('Traktstorlek sparad');
-    await fetchData();
-  };
-
-  // ── Terräng ──
-  const updateTerrang = (idx: number, p: Partial<TerrangRad>) => setTerrang(prev => prev.map((a, i) => i === idx ? { ...a, ...p, dirty: true } : a));
-  const addTerrang = () => setTerrang(prev => [...prev, { namn: '', tillagg_kr_per_m3fub: '', giltig_fran: null, isNew: true, dirty: true }]);
-  const saveTerrang = async (idx: number) => {
-    const row = terrang[idx];
-    if (!row.namn.trim() || row.tillagg_kr_per_m3fub === '') { flashMsg('Terräng: namn och tillägg krävs'); return; }
-    setSavingTerrang(row.namn || `ny-${idx}`);
-    const err = await saveOneByKey('acord_terrang', 'namn', row.namn.trim(), {
-      namn: row.namn.trim(), tillagg_kr_per_m3fub: Number(row.tillagg_kr_per_m3fub),
-    }, !!row.isNew);
-    setSavingTerrang(null);
-    if (err) { flashMsg(`Fel: ${err.message}`); return; }
-    flashMsg(`Sparat: ${row.namn}`);
-    await fetchData();
-  };
-
-  // ── Sortiment (formel-config, en rad) ──
-  const updateSort = (p: Partial<SortConfig>) => setSortiment(prev => ({ ...prev, ...p }));
-  const saveSort = async () => {
-    if (sortiment.grundantal === '' || sortiment.kr_per_extra_sortiment === '') {
-      flashMsg('Fyll i grundantal och tillägg'); return;
-    }
-    setSavingSort(true);
-    const today = todayIso(), yest = yesterdayIso();
-    const { error: endErr } = await supabase.from('acord_sortiment_tillagg')
-      .update({ giltig_till: yest })
-      .is('giltig_till', null)
-      .not('grundantal', 'is', null);
-    if (endErr) { setSavingSort(false); flashMsg(`Fel: ${endErr.message}`); return; }
-    const { error: insErr } = await supabase.from('acord_sortiment_tillagg').insert({
-      grundantal: Number(sortiment.grundantal),
-      kr_per_extra_sortiment: Number(sortiment.kr_per_extra_sortiment),
-      giltig_fran: today, giltig_till: null,
-    });
-    setSavingSort(false);
-    if (insErr) { flashMsg(`Fel: ${insErr.message}`); return; }
-    flashMsg('Sortiment sparat');
-    await fetchData();
-  };
-
-  // ── Övrigt ──
-  const updateOvrigt = (idx: number, p: Partial<OvrigtRad>) => setOvrigt(prev => prev.map((a, i) => i === idx ? { ...a, ...p, dirty: true } : a));
-  const addOvrigt = () => setOvrigt(prev => [...prev, { nyckel: '', beskrivning: '', varde: '', enhet: '', giltig_fran: null, isNew: true, dirty: true }]);
-  const saveOvrigt = async (idx: number) => {
-    const row = ovrigt[idx];
-    if (!row.nyckel.trim() || row.varde === '') { flashMsg('Övrigt: nyckel och värde krävs'); return; }
-    setSavingOvrigt(row.nyckel || `ny-${idx}`);
-    const err = await saveOneByKey('acord_ovrigt', 'nyckel', row.nyckel.trim(), {
-      nyckel: row.nyckel.trim(), beskrivning: row.beskrivning || null, varde: Number(row.varde), enhet: row.enhet || null,
-    }, !!row.isNew);
-    setSavingOvrigt(null);
-    if (err) { flashMsg(`Fel: ${err.message}`); return; }
-    flashMsg(`Sparat: ${row.beskrivning || row.nyckel}`);
-    await fetchData();
-  };
 
   // ── Manuell fakturarads-mappning ──
   const updateOmappad = (idx: number, objekt_id: string) => {
@@ -523,19 +242,6 @@ export default function InstallningarClient() {
     await fetchData();
   };
 
-  const datePillFor = (d: string | null) => <span style={s.pill as CSSProperties}>Gäller från {formatDate(d)}</span>;
-
-  const saveAllFooter = (rows: { giltig_fran: string | null }[], saving: boolean, onSave: () => void) => (
-    <div style={s.saveRow as CSSProperties}>
-      <div style={s.dateNote as CSSProperties}>
-        {rows.length > 0 && rows[0].giltig_fran ? `Nuvarande uppsättning gäller från ${formatDate(rows[0].giltig_fran)}` : 'Ingen aktiv uppsättning'}
-      </div>
-      <button style={{ ...s.btnDark, opacity: saving ? 0.6 : 1 } as CSSProperties} disabled={saving} onClick={onSave}>
-        {saving ? 'Sparar...' : 'Spara alla (ny uppsättning)'}
-      </button>
-    </div>
-  );
-
   return (
     <div style={s.page}>
       <style>{`
@@ -543,8 +249,10 @@ export default function InstallningarClient() {
       `}</style>
 
       <div style={s.header}>
-        <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Prisinställningar</div>
-        <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>Ändringar skapar nya rader med dagens datum. Gamla priser bevaras.</div>
+        <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Mappningar &amp; synk</div>
+        <div style={s.dateNote as CSSProperties}>
+          Fortnox-mappning och datamappning. Priserna är flyttade till <Link href="/ekonomi/prislista" style={{ textDecoration: 'underline', color: 'inherit' }}>Prislistan</Link>.
+        </div>
         {/* Synk-status — en död Fortnox-synk ska synas HÄR, inte upptäckas
             efter månader. Äldre än 3 dygn → bärnsten. */}
         {synk && (
@@ -574,256 +282,6 @@ export default function InstallningarClient() {
 
       {!loading && (
         <div style={{ padding: '0 16px' }}>
-
-          {/* 1. Maskinpriser */}
-          <div style={s.sectionTitle as CSSProperties}>Maskinpriser (timpeng)</div>
-          <div style={s.sectionBlurb as CSSProperties}>Per maskin. Spara skriver en ny rad med dagens datum och avslutar den gamla.</div>
-          <div style={s.card}>
-            {maskiner.map((m, idx) => {
-              const isSaving = savingMaskin === (m.maskin_id || `ny-${idx}`);
-              return (
-                <div key={m.id || `ny-${idx}`} style={{ padding: '12px 0', borderBottom: idx < maskiner.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr 1fr auto', gap: 8, alignItems: 'center' }}>
-                    <input style={s.input} value={m.maskin_id} onChange={e => updateMaskin(idx, { maskin_id: e.target.value })} placeholder="Maskin-ID" disabled={!m.isNew} />
-                    <input style={s.input} value={m.maskin_namn} onChange={e => updateMaskin(idx, { maskin_namn: e.target.value })} placeholder="Namn" />
-                    <NumInput value={m.timpris} onChange={v => updateMaskin(idx, { timpris: v })} placeholder="Kr/tim" />
-                    <button style={{ ...s.btnDark, opacity: isSaving ? 0.6 : 1 } as CSSProperties} disabled={isSaving} onClick={() => saveMaskin(idx)}>
-                      {isSaving ? 'Sparar...' : 'Spara'}
-                    </button>
-                  </div>
-                  {/* Verklig värdeminskning (kalkyl, ej bokförd avskrivning).
-                      kr/G15-tim är ENDA modellen (Ponsse-säljarens) — gamla
-                      procent-fälten är borttagna ur UI:t (kolumnerna ligger
-                      kvar oanvända i DB). Såld maskin bär ingen kostnad framåt. */}
-                  <div style={{ marginTop: 6 }}>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>Värdeminskning kr/G15-tim</div>
-                    <NumInput value={m.vardeminskning_kr_per_g15h} onChange={v => updateMaskin(idx, { vardeminskning_kr_per_g15h: v })} placeholder="tomt = räknas ej" />
-                    <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 3 }}>
-                      skördare ~300–500 · skotare ~250–350 (Ponsse, första 4000 h)
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: m.sald ? 'rgba(240,178,76,0.9)' : '#7a7a72', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={m.sald} onChange={e => updateMaskin(idx, { sald: e.target.checked })} />
-                      Såld
-                    </label>
-                    {m.sald && (
-                      <input type="date" value={m.sald_datum} onChange={e => updateMaskin(idx, { sald_datum: e.target.value })}
-                        style={{ ...s.input, width: 150 }} />
-                    )}
-                  </div>
-                  <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
-                    {datePillFor(m.giltig_fran)}
-                    {m.isNew && <span style={{ ...s.pill, color: 'rgba(90,255,140,0.9)', background: 'rgba(90,255,140,0.08)' } as CSSProperties}>Ny</span>}
-                    {m.dirty && !m.isNew && <span style={{ ...s.pill, color: 'rgba(255,179,64,0.9)', background: 'rgba(255,179,64,0.08)' } as CSSProperties}>Ändrad — ej sparad</span>}
-                  </div>
-                </div>
-              );
-            })}
-            {maskiner.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga aktiva maskinpriser.</div>}
-          </div>
-          <button style={s.btnGhost as CSSProperties} onClick={addMaskin}>+ Lägg till maskin</button>
-
-          {/* 2. Acordpriser */}
-          <div style={s.sectionTitle as CSSProperties}>Acordpriser (slutavverkning)</div>
-          <div style={s.sectionBlurb as CSSProperties}>Prisbrackets per medelstam. Spara skapar en ny, komplett prisuppsättning.</div>
-          <div style={{ ...s.card, padding: '4px 14px 14px' } as CSSProperties}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>
-                <th style={s.th as CSSProperties}>Medelstam</th>
-                <th style={{ ...s.th, textAlign: 'right' } as CSSProperties}>Total</th>
-                <th style={{ ...s.th, textAlign: 'right' } as CSSProperties}>Skördare</th>
-                <th style={{ ...s.th, textAlign: 'right' } as CSSProperties}>Skotare</th>
-                <th style={s.th as CSSProperties}></th>
-              </tr></thead>
-              <tbody>
-                {acord.map((a, idx) => (
-                  <tr key={a.id || `ny-${idx}`}>
-                    <td style={s.tdCell}><NumInput value={a.medelstam} onChange={v => updateAcord(idx, { medelstam: v })} step="0.01" /></td>
-                    <td style={s.tdCell}><NumInput value={a.pris_total} onChange={v => updateAcord(idx, { pris_total: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={a.pris_skordare} onChange={v => updateAcord(idx, { pris_skordare: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={a.pris_skotare} onChange={v => updateAcord(idx, { pris_skotare: v })} /></td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}><button style={s.btnRemove as CSSProperties} onClick={() => removeAcord(idx)}>×</button></td>
-                  </tr>
-                ))}
-                {acord.length === 0 && <tr><td colSpan={5} style={{ color: '#7a7a72', fontSize: 12, padding: '12px 6px', textAlign: 'center' }}>Ingen aktiv uppsättning.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          <button style={s.btnGhost as CSSProperties} onClick={addAcord}>+ Lägg till medelstam-rad</button>
-          {saveAllFooter(acord, savingAcord, saveAllAcord)}
-
-          {/* 3. Skotningsavstånd — formel-config */}
-          <div style={s.sectionTitle as CSSProperties}>Skotningsavstånd</div>
-          <div style={s.sectionBlurb as CSSProperties}>Systemet räknar ut tillägget automatiskt per objekt: påbörjad 100m över grundavståndet × kr/m³fub.</div>
-          <div style={s.card}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'end' }}>
-              <div>
-                <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, marginBottom: 4, letterSpacing: 0.3 }}>Grundavstånd (m)</div>
-                <NumInput value={avstand.grundavstand_m} onChange={v => updateAvstand({ grundavstand_m: v })} placeholder="200" />
-                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 4 }}>Under detta avstånd: inget tillägg.</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, marginBottom: 4, letterSpacing: 0.3 }}>Tillägg per påbörjad 100m</div>
-                <NumInput value={avstand.kr_per_100m} onChange={v => updateAvstand({ kr_per_100m: v })} step="0.01" placeholder="4" />
-                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 4 }}>kr/m³fub</div>
-              </div>
-              <button
-                style={{ ...s.btnDark, opacity: savingAvstand ? 0.6 : 1 } as CSSProperties}
-                disabled={savingAvstand}
-                onClick={saveAvstand}>
-                {savingAvstand ? 'Sparar...' : 'Spara'}
-              </button>
-            </div>
-            <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-              {datePillFor(avstand.giltig_fran)}
-            </div>
-            {/* Preview */}
-            {avstand.grundavstand_m !== '' && avstand.kr_per_100m !== '' && Number(avstand.kr_per_100m) !== 0 && (
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>Exempel</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6, fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#bfcab9' }}>
-                  {[0, 100, 200, 300, 400, 500, 600, 800].map(d => {
-                    const g = Number(avstand.grundavstand_m), k = Number(avstand.kr_per_100m);
-                    const step = Math.max(0, Math.ceil((d - g) / 100));
-                    const kr = step * k;
-                    return (
-                      <div key={d} style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8 }}>
-                        <span style={{ color: '#7a7a72' }}>{d} m</span>
-                        <span style={{ marginLeft: 8, color: kr === 0 ? '#7a7a72' : '#e8e8e4' }}>+{kr.toFixed(kr === Math.floor(kr) ? 0 : 2)} kr</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 4. Traktstorlek */}
-          <div style={s.sectionTitle as CSSProperties}>Traktstorlek</div>
-          <div style={s.sectionBlurb as CSSProperties}>Tillägg per m³fub baserat på total traktvolym.</div>
-          <div style={{ ...s.card, padding: '4px 14px 14px' } as CSSProperties}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>
-                <th style={s.th as CSSProperties}>Från (m³fub)</th>
-                <th style={s.th as CSSProperties}>Till (m³fub) — tom = ∞</th>
-                <th style={{ ...s.th, textAlign: 'right' } as CSSProperties}>Tillägg kr/m³fub</th>
-                <th style={s.th as CSSProperties}></th>
-              </tr></thead>
-              <tbody>
-                {trakt.map((r, idx) => (
-                  <tr key={r.id || `ny-${idx}`}>
-                    <td style={s.tdCell}><NumInput value={r.fran_m3fub} onChange={v => updateTrakt(idx, { fran_m3fub: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={r.till_m3fub} onChange={v => updateTrakt(idx, { till_m3fub: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={r.tillagg_kr_per_m3fub} onChange={v => updateTrakt(idx, { tillagg_kr_per_m3fub: v })} step="0.01" /></td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}><button style={s.btnRemove as CSSProperties} onClick={() => removeTrakt(idx)}>×</button></td>
-                  </tr>
-                ))}
-                {trakt.length === 0 && <tr><td colSpan={4} style={{ color: '#7a7a72', fontSize: 12, padding: '12px 6px', textAlign: 'center' }}>Inga rader.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          <button style={s.btnGhost as CSSProperties} onClick={addTrakt}>+ Lägg till traktstorlek-rad</button>
-          {saveAllFooter(trakt, savingTrakt, saveAllTrakt)}
-
-          {/* 5. Terräng */}
-          <div style={s.sectionTitle as CSSProperties}>Terräng</div>
-          <div style={s.sectionBlurb as CSSProperties}>En kategori per rad. Spara per rad — skapar ny rad med dagens datum.</div>
-          <div style={s.card}>
-            {terrang.map((r, idx) => {
-              const isSaving = savingTerrang === (r.namn || `ny-${idx}`);
-              return (
-                <div key={r.id || `ny-${idx}`} style={{ padding: '12px 0', borderBottom: idx < terrang.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 8, alignItems: 'center' }}>
-                    <input style={s.input} value={r.namn} onChange={e => updateTerrang(idx, { namn: e.target.value })} placeholder="Terrängnamn" disabled={!r.isNew} />
-                    <NumInput value={r.tillagg_kr_per_m3fub} onChange={v => updateTerrang(idx, { tillagg_kr_per_m3fub: v })} step="0.01" placeholder="kr/m³fub" />
-                    <button style={{ ...s.btnDark, opacity: isSaving ? 0.6 : 1 } as CSSProperties} disabled={isSaving} onClick={() => saveTerrang(idx)}>
-                      {isSaving ? 'Sparar...' : 'Spara'}
-                    </button>
-                  </div>
-                  <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
-                    {datePillFor(r.giltig_fran)}
-                    {r.isNew && <span style={{ ...s.pill, color: 'rgba(90,255,140,0.9)', background: 'rgba(90,255,140,0.08)' } as CSSProperties}>Ny</span>}
-                  </div>
-                </div>
-              );
-            })}
-            {terrang.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga terräng-kategorier.</div>}
-          </div>
-          <button style={s.btnGhost as CSSProperties} onClick={addTerrang}>+ Lägg till terräng-kategori</button>
-
-          {/* 6. Sortiment — formel-config */}
-          <div style={s.sectionTitle as CSSProperties}>Sortiment</div>
-          <div style={s.sectionBlurb as CSSProperties}>Tillägg per m³fub: (antal sortiment − grundantal) × kr/m³fub.</div>
-          <div style={s.card}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'end' }}>
-              <div>
-                <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, marginBottom: 4, letterSpacing: 0.3 }}>Grundantal sortiment</div>
-                <NumInput value={sortiment.grundantal} onChange={v => updateSort({ grundantal: v })} placeholder="6" />
-                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 4 }}>Under detta antal: inget tillägg.</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, marginBottom: 4, letterSpacing: 0.3 }}>Tillägg per extra sortiment</div>
-                <NumInput value={sortiment.kr_per_extra_sortiment} onChange={v => updateSort({ kr_per_extra_sortiment: v })} step="0.01" placeholder="2" />
-                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 4 }}>kr/m³fub</div>
-              </div>
-              <button
-                style={{ ...s.btnDark, opacity: savingSort ? 0.6 : 1 } as CSSProperties}
-                disabled={savingSort}
-                onClick={saveSort}>
-                {savingSort ? 'Sparar...' : 'Spara'}
-              </button>
-            </div>
-            <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-              {datePillFor(sortiment.giltig_fran)}
-            </div>
-            {sortiment.grundantal !== '' && sortiment.kr_per_extra_sortiment !== '' && (
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>Exempel</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 6, fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#bfcab9' }}>
-                  {[6, 7, 8, 9, 10, 12].map(n => {
-                    const g = Number(sortiment.grundantal), k = Number(sortiment.kr_per_extra_sortiment);
-                    const extra = Math.max(0, n - g);
-                    const kr = extra * k;
-                    return (
-                      <div key={n} style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8 }}>
-                        <span style={{ color: '#7a7a72' }}>{n} st</span>
-                        <span style={{ marginLeft: 8, color: kr === 0 ? '#7a7a72' : '#e8e8e4' }}>+{kr.toFixed(kr === Math.floor(kr) ? 0 : 2)} kr</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 7. Övrigt */}
-          <div style={s.sectionTitle as CSSProperties}>Övrigt (enskilda tillägg & konstanter)</div>
-          <div style={s.sectionBlurb as CSSProperties}>3m massaved, kvalitetssäkring, dieselklausul m.m. Spara per rad.</div>
-          <div style={s.card}>
-            {ovrigt.map((r, idx) => {
-              const isSaving = savingOvrigt === (r.nyckel || `ny-${idx}`);
-              return (
-                <div key={r.id || `ny-${idx}`} style={{ padding: '12px 0', borderBottom: idx < ovrigt.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr auto', gap: 8, alignItems: 'center' }}>
-                    <input style={s.input} value={r.nyckel} onChange={e => updateOvrigt(idx, { nyckel: e.target.value })} placeholder="Nyckel" disabled={!r.isNew} />
-                    <input style={s.input} value={r.beskrivning} onChange={e => updateOvrigt(idx, { beskrivning: e.target.value })} placeholder="Beskrivning" />
-                    <NumInput value={r.varde} onChange={v => updateOvrigt(idx, { varde: v })} step="0.01" placeholder="Värde" />
-                    <input style={s.input} value={r.enhet} onChange={e => updateOvrigt(idx, { enhet: e.target.value })} placeholder="Enhet" />
-                    <button style={{ ...s.btnDark, opacity: isSaving ? 0.6 : 1 } as CSSProperties} disabled={isSaving} onClick={() => saveOvrigt(idx)}>
-                      {isSaving ? 'Sparar...' : 'Spara'}
-                    </button>
-                  </div>
-                  <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
-                    {datePillFor(r.giltig_fran)}
-                    {r.isNew && <span style={{ ...s.pill, color: 'rgba(90,255,140,0.9)', background: 'rgba(90,255,140,0.08)' } as CSSProperties}>Ny</span>}
-                  </div>
-                </div>
-              );
-            })}
-            {ovrigt.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga poster.</div>}
-          </div>
-          <button style={s.btnGhost as CSSProperties} onClick={addOvrigt}>+ Lägg till övrig post</button>
 
           {/* Kostnadsställe per maskin — stöder flera CC per maskin */}
           <div style={s.sectionTitle as CSSProperties}>Kostnadsställe per maskin (Fortnox)</div>
@@ -1027,15 +485,6 @@ export default function InstallningarClient() {
             })()}
           </div>
 
-          {/* Info */}
-          <div style={s.sectionTitle as CSSProperties}>Giltighetsdatum</div>
-          <div style={s.card}>
-            <div style={{ fontSize: 12, color: '#bfcab9', lineHeight: 1.55 }}>
-              Varje prisändring sparas som en <strong>ny rad</strong> med <code style={{ fontFamily: 'inherit', color: '#e8e8e4' }}>giltig_fran = {todayIso()}</code>.
-              Den gamla raden får <code style={{ fontFamily: 'inherit', color: '#e8e8e4' }}>giltig_till = {yesterdayIso()}</code> så att historiken bevaras.
-              Ekonomi-vyn slår upp rätt pris per produktionsdag, så äldre data räknas med de priser som gällde då.
-            </div>
-          </div>
 
         </div>
       )}

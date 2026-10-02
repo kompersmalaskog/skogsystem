@@ -26,6 +26,7 @@ import {
   type ObjektRad,
 } from '@/lib/ekonomi/objektJamforelse';
 import { type PeriodType, getPeriodDates, getPeriodLabel } from '@/lib/ekonomi/period';
+import { FORESTLINK_KR_PER_TIM } from '@/lib/ekonomi/forestlink';
 import {
   EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, SektionsTitel,
   Laddar, FelRuta, Tomt, MAXBREDD_BRED,
@@ -464,7 +465,7 @@ export default function MotAckordClient() {
                           {osaker && d.timmar > 0 && ' — osäkert'}
                         </div>
                         <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
-                          ackord {formatKr(d.ackord)} · timpeng {formatKr(d.timpeng)} ({fmtTim(d.timmar)} tim × {fmtHeltal(d.timpris)} kr)
+                          ackord {formatKr(d.ackord)} · timpeng {formatKr(d.timpeng)} ({fmtTim(d.timmar)} tim × {fmtHeltal(d.timpris)} kr{d.forestlinkKr > 0 ? `, varav ForestLink +${fmtHeltal(d.forestlinkKr)}` : ''})
                         </div>
                       </div>
                     );
@@ -473,7 +474,7 @@ export default function MotAckordClient() {
 
                 <div style={{ ...TYP.meta, color: FARG.text3 }}>
                   Vitt = mätt ur maskindata · <span style={{ color: FARG.orange }}>orange</span> = manuellt eller uppskattat.
-                  Ackord = volym × pris per medelstamklass med tilläggen ovan; timpeng = G15-timmar × timpris.
+                  Ackord = volym × pris per medelstamklass med tilläggen ovan; timpeng = G15-timmar × timpris (inklusive ForestLink-tillägget för maskiner som har FL).
                 </div>
               </div>
             )}
@@ -507,7 +508,7 @@ export default function MotAckordClient() {
             </div>
             <div>
               <div style={sheetH}>Timpeng-jämförelsen</div>
-              G15-timmar (processing + terräng + övrigt arbete) × maskinens timpris. Objektets kr/m³ räknas på skördad volym (skotad när skördardata saknas, t.ex. GROT).
+              G15-timmar (processing + terräng + övrigt arbete) × maskinens timpris, inklusive ForestLink-tillägget (+{FORESTLINK_KR_PER_TIM} kr/tim) för maskiner som har FL — det som timpeng faktiskt betalas med. Objektets kr/m³ räknas på skördad volym (skotad när skördardata saknas, t.ex. GROT).
             </div>
             <div>
               <div style={sheetH}>Osäkert-märkningen</div>

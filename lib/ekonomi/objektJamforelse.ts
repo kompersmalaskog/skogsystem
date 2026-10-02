@@ -13,6 +13,7 @@
 // - Ackord via acordmotorn: grundpris per närmaste medelstam + trakt-,
 //   sortiment-, skotningsavstånds-, terräng- och kvalitetstillägg +
 //   timpeng-undantag. Timpeng = G15 × timpris (manuell G15 när satt).
+//   Timpriset är EFFEKTIVT: bas + ForestLink-tillägget (lib/ekonomi/forestlink).
 // - Halt jämförelse (timpris saknas / skotartid ofullständig) → objektet
 //   får ejJamforbarOrsak och ska stå UTANFÖR talen i alla vyer.
 
@@ -29,6 +30,7 @@ import { fetchAllRows } from '@/lib/ekonomi/period';
 import { medelstamAuto, sortimentgrupperAuto, skotavstandVagtAuto } from '@/lib/ekonomi/ackordgrund';
 import { skotningsavstandM } from '@/lib/skotningsavstand';
 import { prisPerM3 } from '@/lib/ekonomi/prisPerM3';
+import { medForestlink, forestlinkKrPerTim } from '@/lib/ekonomi/forestlink';
 
 // Under så här många G15-timmar är ett kr/tim- eller kr/m³-tal brus, inte
 // fakta. Delas av kr/tim-märkningen (mot-ackord) och klass-märkningen
@@ -47,7 +49,8 @@ export type MaskinDel = {
   ackord: number;
   timpeng: number;
   timmar: number;
-  timpris: number;        // gällande timpris vid avräkningsdatumet
+  timpris: number;        // gällande EFFEKTIVT timpris vid avräkningsdatumet (inkl. ForestLink)
+  forestlinkKr: number;   // ForestLink-tillägget som ingår i timpris (0 = maskinen saknar FL)
   manuellTid: boolean;    // G15-timmarna är handsatta (redigeringsvyn), inte mätta
 };
 export type ObjektRad = {
@@ -81,7 +84,7 @@ const fmtTim = (n: number) => n.toFixed(1).replace('.', ',');
 export async function hamtaObjektJamforelse(start: string, end: string): Promise<JamforelseData> {
   const [objRes, maskinRes, timprisRes, acordRes, avstandRes, sortTillaggRes, traktRes, sortGruppRes, ovrigtRes, exkluderade] = await Promise.all([
     supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, skordning_g15_manuell, skotning_g15_manuell, terrang_kr_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
-    supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
+    supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, forestlink'),
     supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
     supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
     supabase.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till').not('grundavstand_m', 'is', null),
@@ -109,7 +112,11 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   const vantar = alla.filter((o: any) => !arTimpengObj(o) && !arSlutavraknad(o) && (o.skordning_avslutad || o.skotning_avslutad));
 
   const maskinNamnMap: Record<string, { namn: string; typ: string | null }> = {};
-  const timprisList: MaskinTimpris[] = timprisRes.data || [];
+  // EFFEKTIVA timpriser (bas + ForestLink) — timpeng-sidan av jämförelsen
+  // räknas på samma pris som timpeng betalas med (lib/ekonomi/forestlink).
+  const timprisList: MaskinTimpris[] = medForestlink<MaskinTimpris>(timprisRes.data || [], maskinRes.data || []);
+  const forestlinkPerMaskin: Record<string, number> = {};
+  for (const m of (maskinRes.data || [])) forestlinkPerMaskin[m.maskin_id] = forestlinkKrPerTim(m.forestlink);
   for (const m of (maskinRes.data || [])) {
     const tp = timprisList.find(p => p.maskin_id === m.maskin_id);
     maskinNamnMap[m.maskin_id] = { namn: tp?.maskin_namn || (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell || m.maskin_id, typ: m.maskin_typ || null };
@@ -303,6 +310,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
         timpeng: manuellTim * (tp?.timpris || 0),
         timmar: manuellTim,
         timpris: tp?.timpris || 0,
+        forestlinkKr: forestlinkPerMaskin[mid] || 0,
         manuellTid: true,
       });
       return;
@@ -314,6 +322,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
       timpeng: t.timpeng || 0,
       timmar: t.timmar,
       timpris: tp?.timpris || 0,
+      forestlinkKr: forestlinkPerMaskin[mid] || 0,
       manuellTid: false,
     });
   };

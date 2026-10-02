@@ -11,6 +11,7 @@ const TABS: Tab[] = [
   { href: '/ekonomi/mot-ackord', icon: 'balance', label: 'Mot ackord', match: p => p.startsWith('/ekonomi/mot-ackord') },
   { href: '/ekonomi/resultat', icon: 'account_balance', label: 'Resultat', match: p => p.startsWith('/ekonomi/resultat') },
   { href: '/ekonomi/fakturaunderlag', icon: 'receipt_long', label: 'Faktura', match: p => p.startsWith('/ekonomi/fakturaunderlag') },
+  { href: '/ekonomi/prislista', icon: 'sell', label: 'Priser', match: p => p.startsWith('/ekonomi/prislista') },
   { href: '/ekonomi/installningar', icon: 'settings', label: 'Inst.', match: p => p.startsWith('/ekonomi/installningar') },
 ];
 

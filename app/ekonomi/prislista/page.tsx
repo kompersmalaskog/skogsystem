@@ -2,9 +2,9 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Viewport } from "next";
-import InstallningarClient from "./InstallningarClient";
+import PrislistaClient from "./PrislistaClient";
 
-export const metadata = { title: "Mappningar & synk" };
+export const metadata = { title: "Prislista" };
 export const dynamic = "force-dynamic";
 
 export const viewport: Viewport = {
@@ -13,6 +13,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
 };
 
+// Samma vakt som Inställningar: priser är admin/chef-mark.
 export default async function Page() {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -43,5 +44,5 @@ export default async function Page() {
     redirect("/arbetsrapport");
   }
 
-  return <InstallningarClient />;
+  return <PrislistaClient />;
 }
