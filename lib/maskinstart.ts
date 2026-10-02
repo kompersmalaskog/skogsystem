@@ -1,44 +1,89 @@
-// Maskindatorns startsekvens (maskinläge): logga → söker GPS → första fix → klar / ingen fix.
-// Ren, tidsstyrd tillståndsmaskin (ingen sidoeffekt) så den kan enhetstestas. Sidan (page.tsx)
-// renderar overlayen utifrån fasen och matar in nu-tid + när första giltiga fixen kom.
+// Maskindatorns startsekvens (maskinläge): svart → kartan tonar upp utzoomad över traktgränsen →
+// EN mjuk flyTo ner till maskinen (körriktning upp, körvyns baszoom) → objekt-raden när kameran landat.
+// INGEN logga och ingen text i sekvensen (loggan finns bara i felskärmarna).
+//
+// Ren, tidsstyrd tillståndsmaskin (ingen sidoeffekt) så den kan enhetstestas. Sidan (page.tsx) matar in
+// tidsstämplar för de händelser som sker (karta redo, position känd, flygningen startade) och renderar utifrån fasen.
+//
+// POSITIONEN är maskinens SENAST KÄNDA (lokal maskinPos eller senaste hyttspår-punkt, lib/maskinPosition) — sekvensen
+// väntar inte på en GPS-fix. Först när ingen position alls finns väntar den på en riktig fix.
 
-export type StartFas = 'logga' | 'soker' | 'fix' | 'ingenFix' | 'klar';
+export type StartFas = 'svart' | 'oversikt' | 'flyger' | 'landat' | 'klar';
 
-export const LOGGA_MS = 2000;        // mörk skärm + logga visas alltid först ~2 s (ingen spinner)
-export const FIX_TIMEOUT_MS = 30000; // ingen giltig fix på 30 s → "Ingen GPS-fix" (står kvar tills den kommer)
-export const FIX_RAD_MS = 5000;      // objekt-raden tonar bort 5 s efter första fix → 'klar'
+export const SVART_MAX_MS = 5000;    // kartan hann inte bli redo → släpp svart och visa det som ligger under
+export const COVER_FADE_MS = 700;    // svart tonar ut (kartan "tonar upp")
+export const REVEAL_MS = 700;        // kartan syns utzoomad så här länge innan flygningen börjar (= fade-tiden)
+export const FLY_MS = 1500;          // EN mjuk flyTo ner till maskinen
+export const RAD_MS = 5000;          // objekt-raden står kvar så här länge efter landning
+export const FIX_TIMEOUT_MS = 30000; // utzoomad utan NÅGON position så här länge → "Ingen GPS-fix" (står kvar tills fix kommer)
 
-/** Fas utifrån förfluten tid sedan start och när första giltiga fixen kom (null = ingen än).
- *  - `logga`   : 0–2 s (loggan visas ALLTID först, även om en fix skulle komma under tiden)
- *  - `soker`   : efter loggan, ingen fix än, < 30 s
- *  - `ingenFix`: efter loggan, ingen fix än, ≥ 30 s (kvar tills fix kommer)
- *  - `fix`     : fix har kommit, < 5 s sedan → pricken tänd, kameran glider, objekt-raden visas
- *  - `klar`    : ≥ 5 s sedan fixen → overlay/rad borta, vanlig körvy
- */
-export function startFas(o: { startMs: number; nuMs: number; forstaFixMs: number | null }): StartFas {
-  const gått = Math.max(0, o.nuMs - o.startMs);
-  if (gått < LOGGA_MS) return 'logga';
-  if (o.forstaFixMs != null) {
-    return (o.nuMs - o.forstaFixMs) >= FIX_RAD_MS ? 'klar' : 'fix';
-  }
-  return gått >= FIX_TIMEOUT_MS ? 'ingenFix' : 'soker';
+export interface StartIn {
+  startMs: number;                 // sekvensen startade
+  nuMs: number;
+  kartaRedoMs: number | null;      // kartan är målad i översiktsläge (bakom svart) — null = laddar än
+  ingenKarta: boolean;             // beslutet blev förarlista → det finns ingen karta att tona upp
+  posMs: number | null;            // position känd (senast kända ELLER riktig fix) — null = ingen än
+  flygStartMs: number | null;      // flygningen startade — null = ej än
 }
 
-/** Overlayen är aktiv (ska renderas) i alla faser utom 'klar'. */
+/** Fas ur tidsstämplarna.
+ *  - `svart`   : kartan laddar (helt svart, ingen logga/text). Max SVART_MAX_MS.
+ *  - `oversikt`: kartan har tonat upp, utzoomad över traktgränsen. Väntar på position (och REVEAL_MS).
+ *  - `flyger`  : EN flyTo pågår (FLY_MS).
+ *  - `landat`  : kameran har landat → objekt-raden syns (RAD_MS).
+ *  - `klar`    : sekvensen är slut (eller hoppades över) → vanlig körvy / förarlista.
+ *  Kartan blev aldrig redo (SVART_MAX_MS) eller beslutet blev förarlista → direkt `klar`: svart släpps
+ *  och det som ligger under (listan) visas i stället för en död svart skärm. */
+export function startFas(i: StartIn): StartFas {
+  if (i.flygStartMs != null) {
+    const t = i.nuMs - i.flygStartMs;
+    if (t < FLY_MS) return 'flyger';
+    if (t < FLY_MS + RAD_MS) return 'landat';
+    return 'klar';
+  }
+  if (i.kartaRedoMs != null) return 'oversikt';
+  if (i.ingenKarta || i.nuMs - i.startMs >= SVART_MAX_MS) return 'klar';
+  return 'svart';
+}
+
+/** Ska flygningen starta nu? Kartan har tonat upp (REVEAL_MS sedan den blev redo) OCH vi har en position. */
+export function flygKlar(i: StartIn): boolean {
+  return startFas(i) === 'oversikt'
+    && i.posMs != null
+    && i.kartaRedoMs != null
+    && i.nuMs - i.kartaRedoMs >= REVEAL_MS;
+}
+
+/** Svart täckskikt är ogenomskinligt bara i `svart`; i alla andra faser tonar det ut. */
+export function startCoverSynlig(fas: StartFas): boolean {
+  return fas === 'svart';
+}
+
+/** Overlayen (täckskikt + rad) ska renderas i alla faser utom `klar`. */
 export function startOverlaySynlig(fas: StartFas): boolean {
   return fas !== 'klar';
 }
 
-/** Nedre radens text per fas. null i 'logga' (bara logga) och 'klar' (borta). Objekt-raden i 'fix'. */
+/** Kameran ägs av sekvensen i svart/översikt/flygning: körvyns följ-effekt (easeTo vid varje GPS-tick) och
+ *  trakt-geometrins fitBounds MÅSTE vara tysta, annars avbryter de flygningen. Släpps vid landning. */
+export function startKameraLas(fas: StartFas | null): boolean {
+  return fas === 'svart' || fas === 'oversikt' || fas === 'flyger';
+}
+
+/** Nedre radens text. `oversikt` utan position: "Söker GPS" (→ "Ingen GPS-fix" efter FIX_TIMEOUT_MS, står kvar).
+ *  `landat`: "<objekt> – N m³ kvar". Alla andra faser: ingen rad (svart har ingen text alls). */
 export function startRadText(
   fas: StartFas,
-  objekt: { namn?: string | null; m3kvar?: number | null } | null | undefined,
+  ctx: { posMs: number | null; kartaRedoMs: number | null; nuMs: number; objekt: { namn?: string | null; m3kvar?: number | null } | null | undefined },
 ): string | null {
-  if (fas === 'soker') return 'Söker GPS';
-  if (fas === 'ingenFix') return 'Ingen GPS-fix';
-  if (fas === 'fix') {
-    const namn = (objekt?.namn || '').trim() || 'Objekt';
-    return objekt?.m3kvar != null ? `${namn} – ${Math.round(objekt.m3kvar)} m³ kvar` : namn;
+  if (fas === 'oversikt') {
+    if (ctx.posMs != null) return null;   // position finns → flygningen startar strax, ingen rad
+    const vantat = ctx.kartaRedoMs != null ? ctx.nuMs - ctx.kartaRedoMs : 0;
+    return vantat >= FIX_TIMEOUT_MS ? 'Ingen GPS-fix' : 'Söker GPS';
   }
-  return null; // logga, klar
+  if (fas === 'landat') {
+    const namn = (ctx.objekt?.namn || '').trim() || 'Objekt';
+    return ctx.objekt?.m3kvar != null ? `${namn} – ${Math.round(ctx.objekt.m3kvar)} m³ kvar` : namn;
+  }
+  return null;
 }

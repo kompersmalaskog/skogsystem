@@ -67,8 +67,9 @@ export default function TopBar() {
   }, [])
 
   if (isHome) return null
-  // Planeringsvyn har egen minimal header (hem + objekt-pill + nödprick)
-  if (pathname === '/planering') return null
+  // Planeringsvyn har egen minimal header (hem + objekt-pill + nödprick). /maskin är SAMMA vy i maskinläge
+  // ("Öppna som maskin") — utan den här raden ritades ett "Maskin v1.0.0"-fält ovanpå kartan.
+  if (pathname === '/planering' || pathname === '/maskin') return null
   // Utbildningssidorna har sina egna sidhuvuden (stor iOS-titel per sida)
   if (pathname.startsWith('/utbildning')) return null
 

@@ -1,61 +1,121 @@
 import { describe, it, expect } from 'vitest';
-import { startFas, startOverlaySynlig, startRadText, LOGGA_MS, FIX_TIMEOUT_MS, FIX_RAD_MS } from './maskinstart';
+import {
+  startFas, flygKlar, startCoverSynlig, startOverlaySynlig, startKameraLas, startRadText,
+  SVART_MAX_MS, REVEAL_MS, FLY_MS, RAD_MS, FIX_TIMEOUT_MS, type StartIn,
+} from './maskinstart';
 
-const fas = (gått: number, forstaFixMs: number | null) => startFas({ startMs: 0, nuMs: gått, forstaFixMs });
+// Bas: sekvensen startade vid 0, inget har hänt än.
+const bas: StartIn = { startMs: 0, nuMs: 0, kartaRedoMs: null, ingenKarta: false, posMs: null, flygStartMs: null };
+const i = (p: Partial<StartIn>): StartIn => ({ ...bas, ...p });
 
-describe('startFas — tillståndsmaskinen logga → söker → fix → klar / ingen fix', () => {
-  it('loggan först ~2 s', () => {
-    expect(fas(0, null)).toBe('logga');
-    expect(fas(LOGGA_MS - 1, null)).toBe('logga');
-    expect(fas(LOGGA_MS, null)).toBe('soker');
+describe('startFas — svart tills kartan är redo', () => {
+  it('svart så länge kartan laddar (ingen logga, ingen text)', () => {
+    expect(startFas(i({ nuMs: 0 }))).toBe('svart');
+    expect(startFas(i({ nuMs: SVART_MAX_MS - 1 }))).toBe('svart');
   });
 
-  it('loggan visas alltid först — även om en fix kommer under de 2 s', () => {
-    expect(fas(1500, 1500)).toBe('logga');     // fix mitt i loggan → fortfarande logga
-    expect(fas(LOGGA_MS, 1500)).toBe('fix');   // efter loggan → fix
+  it('en fix före kartan ändrar inget — fortfarande svart', () => {
+    expect(startFas(i({ nuMs: 3000, posMs: 500 }))).toBe('svart');
   });
 
-  it('söker tills första fix eller 30 s', () => {
-    expect(fas(5000, null)).toBe('soker');
-    expect(fas(FIX_TIMEOUT_MS - 1, null)).toBe('soker');
-  });
-
-  it('ingen fix på 30 s → ingenFix, och står kvar', () => {
-    expect(fas(FIX_TIMEOUT_MS, null)).toBe('ingenFix');
-    expect(fas(60000, null)).toBe('ingenFix');
-  });
-
-  it('första giltiga fix → fix, sedan klar efter 5 s', () => {
-    expect(fas(4000, 3000)).toBe('fix');                 // 1 s sedan fixen
-    expect(fas(3000 + FIX_RAD_MS - 1, 3000)).toBe('fix');
-    expect(fas(3000 + FIX_RAD_MS, 3000)).toBe('klar');   // raden tonat bort
-  });
-
-  it('ingenFix → fix när fixen äntligen kommer', () => {
-    expect(fas(31000, null)).toBe('ingenFix');
-    expect(fas(32000, 31500)).toBe('fix');               // fix kom vid 31,5 s
+  it('kartan redo → översikt (kartan tonar upp)', () => {
+    expect(startFas(i({ nuMs: 2500, kartaRedoMs: 2000 }))).toBe('oversikt');
   });
 });
 
-describe('startOverlaySynlig', () => {
-  it('synlig i alla faser utom klar', () => {
-    for (const f of ['logga', 'soker', 'fix', 'ingenFix'] as const) expect(startOverlaySynlig(f)).toBe(true);
+describe('startFas — släpp svart istället för en död skärm', () => {
+  it('kartan blev aldrig redo på SVART_MAX_MS → klar (det som ligger under visas)', () => {
+    expect(startFas(i({ nuMs: SVART_MAX_MS }))).toBe('klar');
+    expect(startFas(i({ nuMs: SVART_MAX_MS + 5000, posMs: 100 }))).toBe('klar');
+  });
+  it('beslutet blev förarlista (ingen karta) → klar direkt, inte 10 s svart', () => {
+    expect(startFas(i({ nuMs: 300, ingenKarta: true }))).toBe('klar');
+  });
+  it('en karta som blir redo i tid slår ingenKarta/timeout inte', () => {
+    expect(startFas(i({ nuMs: 9000, kartaRedoMs: 8000 }))).toBe('oversikt');
+  });
+});
+
+describe('flygKlar — EN flyTo, först när kartan tonat upp OCH vi har fix', () => {
+  it('ingen fix → ingen flygning, hur länge man än väntar', () => {
+    expect(flygKlar(i({ nuMs: 20000, kartaRedoMs: 2000 }))).toBe(false);
+  });
+  it('fix men kartan tonar fortfarande upp (< REVEAL_MS) → vänta', () => {
+    expect(flygKlar(i({ nuMs: 2000 + REVEAL_MS - 1, kartaRedoMs: 2000, posMs: 900 }))).toBe(false);
+  });
+  it('fix + REVEAL_MS passerat → flyg', () => {
+    expect(flygKlar(i({ nuMs: 2000 + REVEAL_MS, kartaRedoMs: 2000, posMs: 900 }))).toBe(true);
+  });
+  it('fixen kommer sent (efter översikten) → flyger så fort den kommer', () => {
+    expect(flygKlar(i({ nuMs: 12000, kartaRedoMs: 2000, posMs: 11900 }))).toBe(true);
+  });
+  it('flyger redan → ingen andra flygning (EN flyTo)', () => {
+    expect(flygKlar(i({ nuMs: 4000, kartaRedoMs: 2000, posMs: 900, flygStartMs: 3000 }))).toBe(false);
+  });
+  it('inte i svart', () => {
+    expect(flygKlar(i({ nuMs: 4000, posMs: 100 }))).toBe(false);
+  });
+  it('SENAST KÄNDA position (känd redan vid start, posMs = startMs) → flyger REVEAL_MS efter att kartan blev redo, utan att vänta på fix', () => {
+    expect(flygKlar(i({ nuMs: 800 + REVEAL_MS - 1, kartaRedoMs: 800, posMs: 0 }))).toBe(false);
+    expect(flygKlar(i({ nuMs: 800 + REVEAL_MS, kartaRedoMs: 800, posMs: 0 }))).toBe(true);
+  });
+  it('svart är kapad vid 5 s — en hängande karta ger inte tiotals sekunder svart', () => {
+    expect(SVART_MAX_MS).toBeLessThanOrEqual(5000);
+  });
+});
+
+describe('hela tidslinjen: svart → översikt → flyger → landat → klar', () => {
+  // karta redo 1200, fix 800 → flygningen börjar 1200+700=1900 → landar 3400 → raden borta 8400
+  const tl = (nuMs: number, flygStartMs: number | null) => i({ nuMs, kartaRedoMs: 1200, posMs: 800, flygStartMs });
+
+  it('följer ordningen och tiderna', () => {
+    expect(startFas(i({ nuMs: 1000, posMs: 800 }))).toBe('svart');        // kartan laddar
+    expect(startFas(tl(1200, null))).toBe('oversikt');                    // tonar upp
+    expect(flygKlar(tl(1899, null))).toBe(false);
+    expect(flygKlar(tl(1900, null))).toBe(true);                          // → page startar flyTo, flygStartMs=1900
+    expect(startFas(tl(1900, 1900))).toBe('flyger');
+    expect(startFas(tl(1900 + FLY_MS - 1, 1900))).toBe('flyger');
+    expect(startFas(tl(1900 + FLY_MS, 1900))).toBe('landat');             // kameran har landat
+    expect(startFas(tl(1900 + FLY_MS + RAD_MS - 1, 1900))).toBe('landat');
+    expect(startFas(tl(1900 + FLY_MS + RAD_MS, 1900))).toBe('klar');
+  });
+});
+
+describe('startCoverSynlig / startOverlaySynlig / startKameraLas', () => {
+  it('svart täckskikt ogenomskinligt bara i svart', () => {
+    expect(startCoverSynlig('svart')).toBe(true);
+    for (const f of ['oversikt', 'flyger', 'landat', 'klar'] as const) expect(startCoverSynlig(f)).toBe(false);
+  });
+  it('overlay renderas i alla faser utom klar', () => {
+    for (const f of ['svart', 'oversikt', 'flyger', 'landat'] as const) expect(startOverlaySynlig(f)).toBe(true);
     expect(startOverlaySynlig('klar')).toBe(false);
+  });
+  it('kameran är låst i svart/översikt/flygning, släppt vid landning (körvyns följ tar över)', () => {
+    for (const f of ['svart', 'oversikt', 'flyger'] as const) expect(startKameraLas(f)).toBe(true);
+    for (const f of ['landat', 'klar'] as const) expect(startKameraLas(f)).toBe(false);
+    expect(startKameraLas(null)).toBe(false);   // ingen sekvens (vanliga appen) → aldrig låst
   });
 });
 
 describe('startRadText', () => {
-  it('söker / ingen fix', () => {
-    expect(startRadText('soker', null)).toBe('Söker GPS');
-    expect(startRadText('ingenFix', null)).toBe('Ingen GPS-fix');
+  const ctx = (p: Partial<Parameters<typeof startRadText>[1]>) => ({ posMs: null, kartaRedoMs: 1000, nuMs: 1000, objekt: null, ...p });
+
+  it('utzoomad utan fix: "Söker GPS", sedan "Ingen GPS-fix" (står kvar)', () => {
+    expect(startRadText('oversikt', ctx({ nuMs: 5000 }))).toBe('Söker GPS');
+    expect(startRadText('oversikt', ctx({ nuMs: 1000 + FIX_TIMEOUT_MS - 1 }))).toBe('Söker GPS');
+    expect(startRadText('oversikt', ctx({ nuMs: 1000 + FIX_TIMEOUT_MS }))).toBe('Ingen GPS-fix');
+    expect(startRadText('oversikt', ctx({ nuMs: 1000 + FIX_TIMEOUT_MS * 3 }))).toBe('Ingen GPS-fix');
   });
-  it('fix visar objekt + m³ kvar (avrundat)', () => {
-    expect(startRadText('fix', { namn: 'Hålabäck au 2025', m3kvar: 1343.8 })).toBe('Hålabäck au 2025 – 1344 m³ kvar');
-    expect(startRadText('fix', { namn: 'Betet', m3kvar: null })).toBe('Betet');
-    expect(startRadText('fix', { namn: '', m3kvar: 10 })).toBe('Objekt – 10 m³ kvar');
+  it('fix finns → ingen rad i översikten (flygningen startar strax)', () => {
+    expect(startRadText('oversikt', ctx({ posMs: 900 }))).toBeNull();
   });
-  it('logga och klar har ingen rad', () => {
-    expect(startRadText('logga', null)).toBeNull();
-    expect(startRadText('klar', { namn: 'X', m3kvar: 5 })).toBeNull();
+  it('objekt-raden först när kameran landat, m³ avrundat', () => {
+    expect(startRadText('landat', ctx({ objekt: { namn: 'Hålabäck au 2025', m3kvar: 1343.8 } }))).toBe('Hålabäck au 2025 – 1344 m³ kvar');
+    expect(startRadText('landat', ctx({ objekt: { namn: 'Betet', m3kvar: null } }))).toBe('Betet');
+    expect(startRadText('landat', ctx({ objekt: { namn: '', m3kvar: 10 } }))).toBe('Objekt – 10 m³ kvar');
+  });
+  it('INGEN text i svart, under flygningen eller när det är klart', () => {
+    const o = { namn: 'X', m3kvar: 5 };
+    for (const f of ['svart', 'flyger', 'klar'] as const) expect(startRadText(f, ctx({ objekt: o }))).toBeNull();
   });
 });
