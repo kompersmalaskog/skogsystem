@@ -16,7 +16,7 @@ import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRA
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
-import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, faktureringsEtikett, type AktivitetTyp } from "@/lib/aktiviteter";
+import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, faktureringsEtikett, objektKravs, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
@@ -627,6 +627,19 @@ export default function Arbetsrapport() {
   // tabell: vilken rad som redigeras — 'segment' (arbetsdag_segment, inom passet)
   // eller 'extra' (extra_tid). Ny period avgörs av systemet i sparaPeriod.
   const [periodForm, setPeriodForm] = useState<null | { lage: 'ny' | 'redigera'; tabell?: 'segment' | 'extra'; datum: string; rad?: any; varden: PeriodVarden; pass: { start_tid: string | null; slut_tid: string | null } | null; sparade?: string[] }>(null);
+  // ── PLANERA — annan väg in i samma dag (Martin 2026-10-02) ──────────────
+  // Samma data, samma kalender, samma lön; bara en annan ingång för den som
+  // inte sitter i en maskin: datum överst (bakåt fritt, utan kalendern), trakt
+  // först i formuläret, inga maskinkort. Nås från hemskärmens kort "Planera"
+  // (/arbetsrapport?lage=planera). Dagens rad läses per valt datum så perioden
+  // klassificeras mot ett eventuellt maskinpass även utanför laddad månad.
+  const [planeraDatum, setPlaneraDatum] = useState(() => new Date().toISOString().slice(0, 10));
+  const [planeraDag, setPlaneraDag] = useState<{ start_tid: string | null; slut_tid: string | null; maskin_id: string | null; objekt_id: string | null } | null>(null);
+  const [planeraLaddar, setPlaneraLaddar] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("lage") === "planera") setSteg("planera");
+  }, []);
   const [periodSparar, setPeriodSparar] = useState(false);
   const [periodFel, setPeriodFel] = useState<string | null>(null);
   const [heldagsMeddelande, setHeldagsMeddelande] = useState<{text:string;icon?:string;typ:string}|null>(null);
@@ -2160,13 +2173,45 @@ export default function Arbetsrapport() {
     return null;
   };
   /** Öppna ett tomt formulär för ett datum (lägg till i efterhand / Redigera "Lägg till period"). */
-  const oppnaPeriodNy = (datum: string, opts?: { gap?: { start: string; slut: string }; typ?: AktivitetTyp; fromSynk?: boolean; fromTidigarelagd?: boolean }) => {
+  // Dagens rad + perioder för valt Planera-datum (läses här, efter att
+  // medarbetare/objektLista/dagData deklarerats — annars TS2448).
+  useEffect(() => {
+    if (steg !== "planera" || !medarbetare?.id) return;
+    let avbruten = false;
+    setPlaneraLaddar(true);
+    Promise.all([
+      supabase.from("arbetsdag").select("id, start_tid, slut_tid, maskin_id, objekt_id, bekraftad, km_totalt, traktamente, rast_min, arbetad_min, dagtyp, bekraftad_tid")
+        .eq("medarbetare_id", medarbetare.id).eq("datum", planeraDatum).maybeSingle(),
+      supabase.from("extra_tid").select("*").eq("medarbetare_id", medarbetare.id).eq("datum", planeraDatum).order("start_tid"),
+    ]).then(([rad, perioder]) => {
+      if (avbruten) return;
+      const d: any = rad.data;
+      setPlaneraDag(d ? { start_tid: d.start_tid || null, slut_tid: d.slut_tid || null, maskin_id: d.maskin_id || null, objekt_id: d.objekt_id || null } : null);
+      // Dagens rad in i dagData så oppnaPeriodNy/sakerstallArbetsdagRad ser den
+      // även utanför laddad kalendermånad; perioderna in i extraTidData (dedupe).
+      if (d) setDagData(m => m[planeraDatum]?.id ? m : ({ ...m, [planeraDatum]: {
+        ...(m[planeraDatum] || {}), id: d.id, start_tid: d.start_tid || null, slut_tid: d.slut_tid || null, rast_min: d.rast_min ?? 0,
+        maskin_id: d.maskin_id, objekt_id: d.objekt_id || null, bekraftad: !!d.bekraftad, bekraftad_tid: d.bekraftad_tid, dagtyp: d.dagtyp,
+        arbMin: d.arbetad_min || 0, km: d.km_totalt || 0, km_totalt: d.km_totalt || 0, trak: !!d.traktamente, traktamente: !!d.traktamente,
+        status: d.bekraftad ? 'ok' : 'saknas', objekt_namn: objektLista.find(o => o.id === d.objekt_id)?.namn || d.objekt_id || null, objekt_ägare: null, objekt_lista: [],
+      } }));
+      const nya: any[] = perioder.data || [];
+      if (nya.length) setExtraTidData(arr => { const har = new Set(arr.map((x: any) => x.id)); return [...nya.filter(x => !har.has(x.id)), ...arr]; });
+    }).finally(() => { if (!avbruten) setPlaneraLaddar(false); });
+    return () => { avbruten = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steg, planeraDatum, medarbetare?.id]);
+  const oppnaPeriodNy = (datum: string, opts?: { gap?: { start: string; slut: string }; typ?: AktivitetTyp; fromSynk?: boolean; fromTidigarelagd?: boolean; pass?: { start_tid: string | null; slut_tid: string | null } | null }) => {
     const typ = opts?.typ || 'annat';
     setPeriodFel(null);
     setSegForm(opts?.fromSynk || opts?.fromTidigarelagd ? { start: '', slut: '', typ, deb: false, kommentar: '', fromSynk: opts?.fromSynk, fromTidigarelagd: opts?.fromTidigarelagd } : null);
+    // FÖRIFYLL TRAKTEN med dagens objekt när dagen har ett — den som jobbar på
+    // samma trakt behöver inte välja alls. Tomt annars (väljs i formuläret;
+    // obligatoriskt för planering/manuellt).
+    const dagensObjekt: string | null = (dagData[datum] as any)?.objekt_id || (datum === idagKey ? (valtObjektId || null) : null);
     setPeriodForm({
-      lage: 'ny', datum, pass: passFor(datum),
-      varden: { start: opts?.gap?.start || '', slut: opts?.gap?.slut || '', typ, deb: AKTIVITETER.find(a => a.typ === typ)?.debDefault ?? false, kommentar: '', objektId: null },
+      lage: 'ny', datum, pass: opts?.pass !== undefined ? opts.pass : passFor(datum),
+      varden: { start: opts?.gap?.start || '', slut: opts?.gap?.slut || '', typ, deb: AKTIVITETER.find(a => a.typ === typ)?.debDefault ?? false, kommentar: '', objektId: dagensObjekt },
     });
   };
   /** "Avsluta" på Dag: sluttiden noteras (ingen tyst radering av korta poster), sedan formuläret. */
@@ -2425,6 +2470,88 @@ export default function Arbetsrapport() {
       )}
     />
   ) : null;
+
+  /* ─── PLANERA ─── annan väg in i samma dag: datum överst, trakt först i
+     formuläret, inga maskinkort. Samma tabeller, samma kalender, samma lön.
+     Perioderna listas ur extraTidData (hålls uppdaterad av speglaExtra/
+     taBortPeriod), så kedjan i formuläret syns direkt i listan. Ett pass på
+     dagen nämns dämpat — det är information, inte ett tillstånd att vänta på. */
+  if (steg === "planera") {
+    const perioder = (extraTidData || []).filter((e: any) => e.datum === planeraDatum)
+      .sort((a: any, b: any) => String(a.start_tid || '').localeCompare(String(b.start_tid || '')));
+    const idag = new Date().toISOString().slice(0, 10);
+    const summaMin = perioder.reduce((s: number, e: any) => s + (e.slut_tid ? (e.minuter || 0) : 0), 0);
+    const passText = planeraDag?.start_tid
+      ? `Maskinpass ${planeraDag.start_tid.slice(0, 5)}–${planeraDag.slut_tid ? planeraDag.slut_tid.slice(0, 5) : 'pågår'}${planeraDag.maskin_id ? ` · ${maskinNamnMap[planeraDag.maskin_id] || planeraDag.maskin_id}` : ''} ligger också på dagen`
+      : null;
+    return (
+      <div style={{ minHeight: "100vh", background: FARG.bg, color: FARG.text, fontFamily: FONT, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column" }}>
+        <style>{designCss}</style>
+        <main style={{ flex: 1, padding: `${AVSTAND.l}px ${AVSTAND.sidmarginal}px`, paddingBottom: `calc(${LAYOUT.safeBotten} + ${AVSTAND.xxl * 3}px)`, maxWidth: 520, width: "100%", boxSizing: "border-box", margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: AVSTAND.m }}>
+            <BackBtn onClick={() => setSteg("morgon")} />
+            <h1 style={{ margin: 0, ...TYP.titel }}>Planera</h1>
+          </div>
+          <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
+            Tid utanför maskinen — planering, restid, manuellt arbete. Samma kalender och lön som allt annat.
+          </p>
+
+          {/* Datum överst — bakåt fritt, aldrig framåt. */}
+          <label style={{ display: "block", marginTop: AVSTAND.xl }}>
+            <span style={{ display: "block", ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>Dag</span>
+            <input type="date" value={planeraDatum} max={idag} onChange={e => { if (e.target.value) setPlaneraDatum(e.target.value); }}
+              style={{ width: "100%", boxSizing: "border-box", minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, background: FARG.upphojt, border: "none", borderRadius: RADIE.rad, color: FARG.text, ...TYP.text, ...TNUM, fontFamily: "inherit", colorScheme: "dark" }} />
+          </label>
+          <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2, textTransform: "capitalize" }}>{periodDatumText(planeraDatum)}</p>
+
+          {/* Dagens perioder */}
+          <section style={{ ...KORT, marginTop: AVSTAND.l, paddingTop: 0, paddingBottom: 0 }}>
+            {planeraLaddar && perioder.length === 0 && (
+              <p style={{ margin: 0, padding: `${AVSTAND.l}px 0`, ...TYP.meta, color: FARG.text2 }}>Hämtar dagen…</p>
+            )}
+            {!planeraLaddar && perioder.length === 0 && (
+              <p style={{ margin: 0, padding: `${AVSTAND.l}px 0`, ...TYP.meta, color: FARG.text2 }}>Ingen tid registrerad den här dagen. Lägg till en period så skapas dagen.</p>
+            )}
+            {perioder.map((e: any, i: number) => {
+              const objNamn = e.objekt_id ? (objektLista.find(o => o.id === e.objekt_id)?.namn || e.objekt_id) : null;
+              const f = faktureringsEtikett(e.aktivitet_typ, !!e.debiterbar, !!e.objekt_id);
+              return (
+                <button key={e.id} onClick={() => oppnaPeriodRedigera(e)}
+                  style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, background: "none", border: "none", borderTop: i ? `1px solid ${FARG.linje}` : "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: "inherit" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: IKON.rad, color: FARG.text2, flexShrink: 0 }}>{aktIcon(e.aktivitet_typ)}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", ...TYP.text, color: FARG.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {objNamn || <span style={{ color: objektKravs(e.aktivitet_typ) ? FARG.orange : FARG.text2 }}>{objektKravs(e.aktivitet_typ) ? "Trakt saknas" : "Ingen trakt"}</span>}
+                    </span>
+                    <span style={{ display: "block", ...TYP.meta, ...TNUM, color: f.varna ? FARG.orange : FARG.text2 }}>
+                      {aktLabel(e.aktivitet_typ)} · {(e.start_tid || '').slice(0, 5)}–{e.slut_tid ? e.slut_tid.slice(0, 5) : 'sluttid saknas'} · {f.text}
+                    </span>
+                  </span>
+                  <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{e.slut_tid ? fmt(e.minuter || 0) : ''}</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.text3 }}>chevron_right</span>
+                </button>
+              );
+            })}
+            {perioder.length > 1 && (
+              <p style={{ margin: 0, padding: `${AVSTAND.s}px 0 ${AVSTAND.m}px`, ...TYP.meta, ...TNUM, color: FARG.text2, textAlign: "right" }}>{fmt(summaMin)} sammanlagt</p>
+            )}
+          </section>
+          {passText && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color: FARG.text3 }}>{passText}</p>}
+
+          {/* Skärmens ENDA primära: lägg till. Planering förvald, trakt först i formuläret. */}
+          <button onClick={() => oppnaPeriodNy(planeraDatum, { typ: 'planering', pass: planeraDag ? { start_tid: planeraDag.start_tid, slut_tid: planeraDag.slut_tid } : null })}
+            style={{ ...KNAPP.primar, marginTop: AVSTAND.xl }}>
+            Lägg till period
+          </button>
+          <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
+            Trakt krävs för planering och manuellt arbete. Dagen bekräftas som vanligt under Dag eller i Kalender.
+          </p>
+        </main>
+        {efterStoppUI}
+        <BottomNavBar aktiv="morgon" onNav={s => setSteg(s)} />
+      </div>
+    );
+  }
 
   /* ─── ORSAK TILL VILOBROTT ─── */
   if(steg==="vilobrottOrsak") {
