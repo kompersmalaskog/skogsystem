@@ -4805,12 +4805,25 @@ def _avsluta_objekt_rest(oid, vo, namn, tagg):
             logger.warning(f"  Auto-avslut: avslut {namn} misslyckades ({e})")
 
 
-def ar_kundjobb(oid, vo) -> bool:
-    """SKRÄPFILTER: bara 'riktiga kundjobb' auto-flaggas = objektet har bolag SATT (tomt/blankt = ej kundjobb).
-    Samma signal som /oversikt-v2:s nästa-förslag (`!o.bolag` → aldrig kandidat). Källor: dim_objekt.bolag
-    (täcker även objekt UTAN planerings-rad — 85 av 139 objekt med produktion saknar objekt-rad) ELLER
-    objekt.bolag (via vo_nummer/dim_objekt_id). Mätt 2026-10-02: tabellerna divergerar aldrig där båda har
-    rad. OBS tom STRÄNG räknas som tomt (7 dim-rader har bolag='' — ett rent IS NOT NULL släpper igenom dem)."""
+_PER_MASKIN_NYCKEL_RE = re.compile(r'^[A-Za-z0-9]+_\d+$')
+
+
+def ar_per_maskin_nyckel(oid) -> bool:
+    """objekt_id på formen <maskin_id>_<n> (t.ex. A030353_135, PONS20SDJAA270231_101) = make_objekt_id när filen
+    saknar numeriskt kontraktsnr. Nyckeln är PER MASKIN: skördarens och skotarens rader för samma jobb får olika
+    objekt_id och är inte kopplade → skördat/skotat/backen kan inte jämföras (backen blir 0 → skotning kunde
+    flaggas för tidigt). Auto-avslut rör dem därför ALDRIG, oavsett bolag. Äkta kontraktsnr/VO-nummer är bara
+    siffror (inget understreck) → ett riktigt, kopplat kundjobb matchar aldrig. Mätt 2026-10-02: alla 34
+    understreck-id i dim_objekt matchar och har en riktig maskin som prefix; inga andra id-former finns."""
+    return bool(oid) and _PER_MASKIN_NYCKEL_RE.match(str(oid)) is not None
+
+
+def _bolag_satt(oid, vo) -> bool:
+    """Objektet har bolag SATT (tomt/blankt = ej satt). Samma signal som /oversikt-v2:s nästa-förslag
+    (`!o.bolag` → aldrig kandidat). Källor: dim_objekt.bolag (täcker även objekt UTAN planerings-rad — 85 av
+    139 objekt med produktion saknar objekt-rad) ELLER objekt.bolag (via vo_nummer/dim_objekt_id). Mätt
+    2026-10-02: tabellerna divergerar aldrig där båda har rad. OBS tom STRÄNG räknas som tomt (7 dim-rader
+    har bolag='' — ett rent IS NOT NULL släpper igenom dem)."""
     def _satt(v):
         return v is not None and str(v).strip() != ''
     d = _rest_get('dim_objekt', {'select': 'bolag', 'objekt_id': f'eq.{oid}'})
@@ -4822,10 +4835,19 @@ def ar_kundjobb(oid, vo) -> bool:
     return any(_satt(r.get('bolag')) for r in _rest_get('objekt', {'select': 'bolag', 'or': f"({','.join(ors)})"}))
 
 
+def ar_kundjobb(oid, vo) -> bool:
+    """SKRÄPFILTER: bara 'riktiga kundjobb' auto-flaggas = objekt_id är INTE en per-maskin-nyckel
+    (<maskin_id>_<n>, oavsett bolag — se ar_per_maskin_nyckel) OCH objektet har bolag satt (_bolag_satt)."""
+    if ar_per_maskin_nyckel(oid):
+        return False  # billigast först — ingen DB-läsning
+    return _bolag_satt(oid, vo)
+
+
 def auto_avslut(data: Dict) -> None:
     """Prod-fil in → sätt skordning/skotning_avslutad när maskinen flyttat vidare (filerna vet) och
-    avsluta när båda är satta. SKRÄPFILTER: bara objekt med bolag satt (ar_kundjobb). En människas satta
-    flaggor rörs ALDRIG. Styrs av AUTO_AVSLUT_LAGE. Egna fel får aldrig fälla importen."""
+    avsluta när båda är satta. SKRÄPFILTER (ar_kundjobb): bolag satt OCH inte en per-maskin-nyckel
+    (<maskin_id>_<n>). En människas satta flaggor rörs ALDRIG. Styrs av AUTO_AVSLUT_LAGE. Egna fel får
+    aldrig fälla importen."""
     try:
         import urllib.parse
         tagg = '' if AUTO_AVSLUT_LAGE == 'skriv' else '[logga] '
@@ -4835,7 +4857,7 @@ def auto_avslut(data: Dict) -> None:
             if not oid or oid in sedda:
                 continue
             sedda.add(oid)
-            if not ar_kundjobb(oid, vo):  # flytt/service/bärgning/egen skog: bolag tomt → auto-flaggas aldrig
+            if not ar_kundjobb(oid, vo):  # bolag tomt (flytt/service/bärgning/egen skog) ELLER per-maskin-nyckel → aldrig
                 continue
             r = utvardera_avslut(oid, vo)
             enc = urllib.parse.quote(str(oid))
