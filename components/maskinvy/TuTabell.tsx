@@ -4,32 +4,41 @@ import { supabase } from "@/lib/supabase";
 import { fetchAll, getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 import { useMaskinvyMaskiner } from "@/app/maskinvy/useMaskinvyMaskiner";
 import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT, arOklassatAvbrott } from "@/lib/g15";
-import { dagAvvikelser, minText } from "@/lib/lonesystem/forarText";
+import { dagAvvikelser } from "@/lib/lonesystem/forarText";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, designCss } from "@/lib/design/tokens";
 
 /**
  * TU — alla maskiner bredvid varandra (Jämförelse-fliken i /maskinvy?ny=1).
- * Skördare OCH skotare i samma tabell — det Martin bad om; övriga jämförelser
- * i vyn visar bara två skotare.
+ * Skördare OCH skotare i samma tabell — det Martin bad om.
  *
  * TU = (P+T + avbrott < 15 min) / (P+T + övrigt arbete + alla avbrott),
  * Skogforsks definition, lib/g15.ts. SAMMA KÄLLOR som resten av vyn: fakt_tid
- * (arbete, övrigt arbete) och fakt_avbrott (avbrott, som Avbrott-fliken) via
- * maskinvyns RPC:er — aldrig fakt_tid:s DOWN-hinkar. Alla avbrottskategorier
- * räknas, även flytt på trailer och avbrott utan registrerad orsak.
+ * och fakt_avbrott (som Avbrott-fliken) via maskinvyns RPC:er.
  *
- * OKLASSADE AVBROTT (utan registrerad orsak) visas som egen dämpad rad: talet
- * har en osäkerhet som förarna åtgärdar genom att klassa — inte vi genom att
- * räkna om. Visa det som saknas i stället för att låta det vara osynligt.
+ * PRESENTATIONEN (Martin 2026-10-01: "det står inget om korta stopp och det
+ * andra vet jag inte vad det är"): talet överst, bransch och över/under i ord,
+ * sedan EN rad per del med etikett, förklaring och tal — aldrig fem tal i en
+ * mening. Korta stopp (maskinens egna, inuti arbetet, G15 − G0) är en egen
+ * rad fast den inte ingår i formeln; skotare som inte rapporterar dem får
+ * "rapporteras inte", avläst ur datan. Orange bara på TU-talet under snittet.
+ * Jämförelse mot förra perioden bara för månad/kvartal med minst
+ * JAMFOR_MIN_DAGAR maskindagar i förra perioden — aldrig i årsvyn, där ett
+ * ofullständigt fjolår annars ser ut som en förbättring.
  *
  * TILLFÖRLITLIGHETSRADEN knyter an till Lön → Dagar: hur många av maskinens
- * förardagar (arbetsdag) som har en avvikelse enligt samma regler. TU räknas
- * aldrig ur arbetsdag — två källor, kopplade genom en varning, inte blandade.
+ * förardagar (arbetsdag) som har en avvikelse enligt samma regler. Dämpad —
+ * orden bär budskapet. TU räknas aldrig ur arbetsdag.
  */
 
-type Agg = { arbete: number; ow: number; avbr: number; korta: number; oklassad: number; dagar: Set<string> };
-type Rad = { id: string; namn: string; slag: "skordare" | "skotare"; tu: number | null; tuPrev: number | null; arbete: number; ow: number; avbr: number; korta: number; oklassad: number; dagar: number };
+const JAMFOR_MIN_DAGAR = 10;
+
+type Agg = { arbete: number; ow: number; avbr: number; korta: number; oklassad: number; kortStopp: number; engine: number; dagar: Set<string> };
+type Rad = {
+  id: string; namn: string; slag: "skordare" | "skotare";
+  tu: number | null; tuPrev: number | null; prevDagar: number;
+  arbete: number; ow: number; avbr: number; korta: number; oklassad: number; kortStopp: number; engine: number; dagar: number;
+};
 
 const tim = (sek: number) => `${Math.round(sek / 3600).toLocaleString("sv-SE")} tim`;
 const pct = (v: number | null) => v == null ? "–" : v.toLocaleString("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -37,11 +46,16 @@ const PERIODER: { key: Period; label: string }[] = [{ key: "M", label: "Månad" 
 
 function summera(tid: any[], avbr: any[]): Map<string, Agg> {
   const m = new Map<string, Agg>();
-  const hamta = (id: string) => { const a = m.get(id) || { arbete: 0, ow: 0, avbr: 0, korta: 0, oklassad: 0, dagar: new Set<string>() }; m.set(id, a); return a; };
+  const hamta = (id: string) => {
+    const a = m.get(id) || { arbete: 0, ow: 0, avbr: 0, korta: 0, oklassad: 0, kortStopp: 0, engine: 0, dagar: new Set<string>() };
+    m.set(id, a); return a;
+  };
   for (const r of tid) {
     const a = hamta(r.maskin_id);
     a.arbete += (r.processing_sek || 0) + (r.terrain_sek || 0);
     a.ow += r.other_work_sek || 0;
+    a.kortStopp += r.kort_stopp_sek || 0;
+    a.engine += r.engine_time_sek || 0;
     if (r.datum) a.dagar.add(r.datum);
   }
   for (const r of avbr) {
@@ -52,6 +66,17 @@ function summera(tid: any[], avbr: any[]): Map<string, Agg> {
     if (arOklassatAvbrott(r.kategori_kod)) a.oklassad += sek;
   }
   return m;
+}
+
+/** En rad i kortet: etikett · dämpad förklaring · tal till höger. */
+function DelRad({ etikett, forklaring, varde, dampad }: { etikett: string; forklaring?: string; varde: string; dampad?: boolean }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: AVSTAND.s, padding: `${AVSTAND.xs}px 0` }}>
+      <span style={{ ...TYP.meta, color: dampad ? FARG.text3 : FARG.text, whiteSpace: "nowrap" }}>{etikett}</span>
+      <span style={{ flex: 1, minWidth: 0, ...TYP.meta, color: FARG.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{forklaring || ""}</span>
+      <span style={{ ...TYP.meta, ...TNUM, color: dampad ? FARG.text3 : FARG.text, whiteSpace: "nowrap" }}>{varde}</span>
+    </div>
+  );
 }
 
 export default function TuTabell() {
@@ -78,11 +103,13 @@ export default function TuTabell() {
     setLaddar(true); setFel(null);
     (async () => {
       try {
+        const TID = "datum, maskin_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, engine_time_sek";
+        const AVB = "datum, maskin_id, kategori_kod, langd_sek";
         const [tidNu, avbNu, tidForr, avbForr, arb] = await Promise.all([
-          fetchAll("fakt_tid", "datum, maskin_id, processing_sek, terrain_sek, other_work_sek", ids, range.start, range.end),
-          fetchAll("fakt_avbrott", "datum, maskin_id, kategori_kod, langd_sek", ids, range.start, range.end),
-          fetchAll("fakt_tid", "datum, maskin_id, processing_sek, terrain_sek, other_work_sek", ids, prevRange.start, prevRange.end),
-          fetchAll("fakt_avbrott", "datum, maskin_id, kategori_kod, langd_sek", ids, prevRange.start, prevRange.end),
+          fetchAll("fakt_tid", TID, ids, range.start, range.end),
+          fetchAll("fakt_avbrott", AVB, ids, range.start, range.end),
+          fetchAll("fakt_tid", TID, ids, prevRange.start, prevRange.end),
+          fetchAll("fakt_avbrott", AVB, ids, prevRange.start, prevRange.end),
           supabase.from("arbetsdag").select("datum, maskin_id, start_tid, slut_tid, rast_min, arbetad_min, bekraftad, synk_avvikelse")
             .gte("datum", range.start).lte("datum", range.end).not("maskin_id", "is", null)
             .order("datum").order("id").range(0, 1999),
@@ -108,7 +135,9 @@ export default function TuTabell() {
         id: m.id, namn: m.namn, slag: m.slag,
         tu: a ? tuProcent(a.arbete, a.ow, a.korta, a.avbr) : null,
         tuPrev: f ? tuProcent(f.arbete, f.ow, f.korta, f.avbr) : null,
-        arbete: a?.arbete || 0, ow: a?.ow || 0, avbr: a?.avbr || 0, korta: a?.korta || 0, oklassad: a?.oklassad || 0, dagar: a?.dagar.size || 0,
+        prevDagar: f?.dagar.size || 0,
+        arbete: a?.arbete || 0, ow: a?.ow || 0, avbr: a?.avbr || 0, korta: a?.korta || 0, oklassad: a?.oklassad || 0,
+        kortStopp: a?.kortStopp || 0, engine: a?.engine || 0, dagar: a?.dagar.size || 0,
       };
     }).filter(r => r.arbete + r.ow > 0);
   }, [alla, nu, forr]);
@@ -165,7 +194,11 @@ export default function TuTabell() {
           {rader.map((r, i) => {
             const ref = TU_BRANSCHSNITT[r.slag];
             const under = r.tu != null && r.tu < ref;
-            const delta = r.tu != null && r.tuPrev != null ? Math.round((r.tu - r.tuPrev) * 10) / 10 : null;
+            // Jämförelse bara månad/kvartal, och bara när förra perioden har nog med dagar.
+            const jamfor = period !== "Å" && r.tu != null && r.tuPrev != null && r.prevDagar >= JAMFOR_MIN_DAGAR
+              ? Math.round((r.tu - r.tuPrev) * 10) / 10 : null;
+            // Korta stopp: mätt om maskinen rapporterar signalen (avläst ur datan, inte maskintypen).
+            const kortSaknas = r.engine > 0 && r.kortStopp === 0;
             const tf = avvikelser?.get(r.id);
             return (
               <div key={r.id} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: i < rader.length - 1 ? `1px solid ${FARG.linje}` : "none" }}>
@@ -174,20 +207,21 @@ export default function TuTabell() {
                     <span style={{ ...TYP.listtitel, color: FARG.text }}>{r.namn}</span>
                     <span style={{ marginLeft: AVSTAND.s, ...TYP.meta, color: FARG.text2 }}>{r.slag === "skordare" ? "skördare" : "skotare"}</span>
                   </span>
-                  <span style={{ ...TYP.meta, ...TNUM, color: FARG.text3, whiteSpace: "nowrap" }}>bransch {ref}</span>
                   <span style={{ ...TYP.rubrik, ...TNUM, color: under ? FARG.orange : FARG.text, whiteSpace: "nowrap" }}>{pct(r.tu)} %</span>
                 </div>
-                <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color: FARG.text2 }}>
-                  Arbete {tim(r.arbete)} · övrigt {tim(r.ow)} · avbrott {tim(r.avbr)}
-                  {r.korta > 0 ? ` (varav ${minText(Math.round(r.korta / 60))} under 15 min, räknas som arbete)` : ""}
-                  {delta != null ? ` · ${delta >= 0 ? "+" : ""}${delta.toLocaleString("sv-SE")} mot förra perioden` : ""}
+                <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, ...TNUM, color: under ? FARG.orange : FARG.text2, textAlign: "right" }}>
+                  bransch {ref} · {r.tu == null ? "–" : under ? "under" : "över"}
+                  {jamfor != null ? ` · ${jamfor >= 0 ? "+" : ""}${jamfor.toLocaleString("sv-SE")} mot förra perioden` : ""}
                 </p>
+                <DelRad etikett="Arbete" varde={tim(r.arbete)} />
+                <DelRad etikett="Korta stopp" forklaring={kortSaknas ? "" : "maskinens egna, inuti arbetet"}
+                  varde={kortSaknas ? "rapporteras inte" : tim(r.kortStopp)} dampad={kortSaknas} />
+                <DelRad etikett="Övrigt arbete" forklaring="vägkörning, flytt på egna hjul" varde={tim(r.ow)} />
+                <DelRad etikett="Avbrott" forklaring="inkl. flytt på trailer" varde={tim(r.avbr)} />
                 {r.oklassad >= 1800 && (
-                  <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color: FARG.text3 }}>
-                    {tim(r.oklassad)} avbrott utan registrerad orsak
-                  </p>
+                  <DelRad etikett="Utan registrerad orsak" forklaring="ingår i avbrott" varde={tim(r.oklassad)} dampad />
                 )}
-                <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color: tf && tf.avv > 0 ? FARG.orange : FARG.text3 }}>
+                <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color: FARG.text3 }}>
                   {arbetsdagar == null ? "Kontrollerar dagarna…"
                     : !tf ? `${r.dagar} maskindagar · inga förardagar registrerade`
                     : tf.avv > 0 ? `${tf.avv} av ${tf.dagar} förardagar har avvikelse i Dagar — talet är osäkert`
@@ -199,7 +233,7 @@ export default function TuTabell() {
         </div>
       )}
       <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
-        TU enligt Skogforsk: arbete delat med arbete + övrigt arbete + alla avbrott, även flytt. Avbrott under 15 min räknas som arbete; rast räknas inte. Avbrotten är samma som i Avbrott-fliken. Branschsnitt: skördare 85 %, skotare 90 %. TU mäter maskinen, inte föraren.
+        TU enligt Skogforsk: arbete delat med arbete + övrigt arbete + alla avbrott, även flytt. Avbrott under 15 min räknas som arbete; rast och korta stopp påverkar inte talet. Avbrotten är samma som i Avbrott-fliken. Branschsnitt: skördare 85 %, skotare 90 %. TU mäter maskinen, inte föraren.
       </p>
     </section>
   );

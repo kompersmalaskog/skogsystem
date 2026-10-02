@@ -53,7 +53,10 @@ Två olika saker som båda ligger i täljaren, på olika sätt:
   maskinens egna mikropauser, 15–60 sekunder, annoterade *inuti* arbetstiden.
   De är redan en del av processing och adderas aldrig. Bara skördarna
   rapporterar dem; nyckeltalet "Korta stopp" i vyn visar dem som andel av
-  motortiden ("mikropauser · % av motortid").
+  motortiden ("mikropauser · % av motortid"), och TU-tabellen som egen rad
+  "maskinens egna, inuti arbetet". Ponsses Skift-rapport kallar samma sak
+  **"Korta avbrottstider"** — vi säger "Korta stopp" för att det är så man
+  pratar i skogen (Martin 2026-10-02); leta inte efter ordet i PDF:en.
 - **Korta avbrott** är DownTime-segment i `fakt_avbrott` kortare än 15 min —
   objektbytesglapp, tankning, väntan. De ligger *utanför* arbetstiden i
   råfilen och flyttas till täljaren i TU eftersom G15 per definition räknar in
