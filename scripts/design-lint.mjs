@@ -39,6 +39,7 @@ export const SKARPA = [
   "app/ekonomi/per-klass/PerKlassClient.tsx",   // Per klass — tokenstädad
   "app/ekonomi/mot-ackord/MotAckordClient.tsx", // Mot ackord — tokenstädad
   "app/ekonomi/resultat/ResultatClient.tsx",    // Resultat — tokenstädad
+  "app/ekonomi/prislista/PrislistaClient.tsx",  // Prislista — tokenstädad
 ];
 
 // --- Regler ---------------------------------------------------------------
