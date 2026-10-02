@@ -15,6 +15,7 @@ const pageNames: Record<string, string> = {
   '/planering': 'Planering',
   '/objekt': 'Objekt',
   '/oversikt': 'Översikt',
+  '/grot': 'GROT',
   '/redigering': 'Redigering',
   '/kalibrering': 'Kalibrering',
   '/bestallningar': 'Beställningar',
