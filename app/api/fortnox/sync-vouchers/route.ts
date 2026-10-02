@@ -12,6 +12,8 @@ export const maxDuration = 300; // 5 min — fulls sync för ett års vouchers
  * Synkar verifikat från Fortnox → fortnox_voucher_rows.
  *
  * Default: inkrementell (senaste 14 dagarna). full=1 → hela aktuella året.
+ * year=YYYY → hela DET räkenskapsåret (historisk engångssynk, alltid full);
+ * utan year är beteendet oförändrat — nattcronen synkar bara innevarande år.
  * SÖNDAGSNATT körs alltid full (bokföringen släpar — sent bokförda verifikat
  * bär gamla transaktionsdatum och syns aldrig i 14-dagarsfönstret).
  * Detaljer hämtas bara för verifikat som saknas i cachen (immutabla i
@@ -103,18 +105,32 @@ export async function POST(req: NextRequest) {
       return r.json();
     }
 
-    // 1) Hitta aktuellt financial year
+    // 1) Hitta financial year. ?year=YYYY väljer det räkenskapsår som
+    // BÖRJAR det året (historisk engångssynk, t.ex. 2025 som jämförelse) —
+    // utan parametern: det som pågår idag, exakt som förut, så nattcronen
+    // är orörd. Delete-före-insert längre ner är scopat på financial_year,
+    // så en 2025-synk kan aldrig röra 2026-raderna och tvärtom.
     const fyData = await fortnox("/3/financialyears");
     const fyList: Array<{ Id: number; FromDate: string; ToDate: string }> = fyData.FinancialYears || [];
-    const idag = new Date().toISOString().slice(0, 10);
-    const aktuelltFy = fyList.find(f => f.FromDate <= idag && f.ToDate >= idag) || fyList[0];
+    const valtAr = url.searchParams.get("year");
+    let aktuelltFy: { Id: number; FromDate: string; ToDate: string } | undefined;
+    if (valtAr) {
+      aktuelltFy = fyList.find(f => f.FromDate.slice(0, 4) === valtAr);
+      if (!aktuelltFy) {
+        throw new Error(`Hittade inget räkenskapsår som börjar ${valtAr} (finns: ${fyList.map(f => f.FromDate.slice(0, 4)).join(", ") || "inga"})`);
+      }
+    } else {
+      const idag = new Date().toISOString().slice(0, 10);
+      aktuelltFy = fyList.find(f => f.FromDate <= idag && f.ToDate >= idag) || fyList[0];
+    }
     if (!aktuelltFy) {
       throw new Error("Hittade inget financial year");
     }
 
-    // 2) Bestäm fromdate
+    // 2) Bestäm fromdate. Ett VALT år synkas alltid fullt — ett
+    // 14-dagarsfönster på ett stängt räkenskapsår vore meningslöst.
     let fromdate: string;
-    if (fullSync) {
+    if (fullSync || valtAr) {
       fromdate = aktuelltFy.FromDate;
     } else {
       const d = new Date();
@@ -234,7 +250,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      läge: fullSync ? "full" : "inkrementell",
+      läge: valtAr ? `full (valt år ${valtAr})` : fullSync ? "full" : "inkrementell",
       refetch,
       financial_year: aktuelltFy.Id,
       fromdate,
