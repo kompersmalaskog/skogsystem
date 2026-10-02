@@ -300,6 +300,12 @@ att ha kort ar samma sak som ett verktyg som ljuger.** Kontrollera att det
 faktiskt kordes innan du litar pa nollan. Se ocksa STATUS.md om
 pagineringsbuggen, dar ett testverktyg gav 8 falsklarm av samma familj.
 
+### Rendera innan leverans — hooks och nya lägen
+`tsc`, design-lint och tester fångar INTE hook-ordning. 2026-10-02 kraschade hela arbetsrapporten (React #310) eftersom en `useEffect` lagts efter `if(!medarbetare) return` — allt var grönt, sidan gick inte att öppna. Regel: **hooks ligger ALLTID före tidiga returer** i en komponent, och en ändring som lägger till hooks eller ett nytt läge (`steg`) i en stor vy ska köras genom en rendering innan PR:en rapporteras klar.
+
+- `components/arbetsrapport/Arbetsrapport.render.test.tsx` monterar hela Arbetsrapport (jsdom, kedjebar supabase-fake, ingen inloggning) genom övergången ingen medarbetare → inläst och faller på "Rendered more/fewer hooks". Verifierat rött på den kraschande versionen, grönt på rättningen. Kör: `npx vitest run components/arbetsrapport/Arbetsrapport.render.test.tsx`.
+- Ny vy med egna lägen: kopiera mönstret (en monterings-test per läge) eller gör en tillfällig testsida med påhittad data. Skriv aldrig "inte renderat" i en PR-text som levererad kontroll — antingen renderades den eller så står det som en öppen risk överst.
+
 ## Repo
 - GitHub: kompersmalaskog/skogsystem
 - Vercel: push till `main` bygger PREVIEW, produktion uppdateras bara när `production`-branchen förs fram (se Deploy-flöde). Production-branch = `production`.

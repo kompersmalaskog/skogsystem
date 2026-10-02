@@ -2093,6 +2093,7 @@ export default function Arbetsrapport() {
     }
   };
 
+
   // Inloggad men ingen medarbetare kopplad — säg vad som är fel och vad man gör.
   if(!medarbetare && medSaknas) return (
     <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, display:"flex", flexDirection:"column", justifyContent:"center", padding:`0 ${AVSTAND.sidmarginal}px` }}>
@@ -2164,9 +2165,13 @@ export default function Arbetsrapport() {
     const typ = opts?.typ || 'annat';
     setPeriodFel(null);
     setSegForm(opts?.fromSynk || opts?.fromTidigarelagd ? { start: '', slut: '', typ, deb: false, kommentar: '', fromSynk: opts?.fromSynk, fromTidigarelagd: opts?.fromTidigarelagd } : null);
+    // FÖRIFYLL TRAKTEN med dagens objekt när dagen har ett — den som jobbar på
+    // samma trakt behöver inte välja alls. Tomt annars (väljs i formuläret;
+    // obligatoriskt för planering/manuellt).
+    const dagensObjekt: string | null = (dagData[datum] as any)?.objekt_id || (datum === idagKey ? (valtObjektId || null) : null);
     setPeriodForm({
       lage: 'ny', datum, pass: passFor(datum),
-      varden: { start: opts?.gap?.start || '', slut: opts?.gap?.slut || '', typ, deb: AKTIVITETER.find(a => a.typ === typ)?.debDefault ?? false, kommentar: '', objektId: null },
+      varden: { start: opts?.gap?.start || '', slut: opts?.gap?.slut || '', typ, deb: AKTIVITETER.find(a => a.typ === typ)?.debDefault ?? false, kommentar: '', objektId: dagensObjekt },
     });
   };
   /** "Avsluta" på Dag: sluttiden noteras (ingen tyst radering av korta poster), sedan formuläret. */

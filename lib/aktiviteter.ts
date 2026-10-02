@@ -25,6 +25,14 @@ export const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debD
   { typ:'annat',        label:'Annat',              icon:'more_horiz',           debDefault:false },
 ];
 
+/** Aktiviteter där TRAKTEN ÄR OBLIGATORISK (Martin 2026-10-02): en planerings-
+ *  eller manuell timme utan trakt går varken att följa upp eller fakturera.
+ *  Service, reparation, restid, utbildning m.fl. har ofta ingen trakt — valfritt.
+ *  Bakgrund: 0 av 12 extra_tid-perioder sedan aug 2026 hade objekt — väljaren
+ *  låg bakom ett tryck och ingen hittade den. */
+export const OBJEKT_KRAVS: AktivitetTyp[] = ['planering', 'manuellt'];
+export const objektKravs = (typ: AktivitetTyp | null | undefined) => !!typ && OBJEKT_KRAVS.includes(typ);
+
 /** Typer föraren kan välja för extra arbete och perioder. `mote` låg i
  *  domänen men gick inte att välja — bifynd 2026-09-26. */
 export const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['planering','restid','manuellt','mote','markagare','flytt','reservdelar','service','reparation','utbildning','brandkontroll','annat'];
