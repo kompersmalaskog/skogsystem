@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { maskinVisningsnamn, DIM_MASKIN_NAMN_KOLUMNER } from '@/lib/maskinNamn';
 
 const f = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
 const card = { backgroundColor: '#1c1c1e', borderRadius: 12 } as const;
@@ -82,6 +83,11 @@ export default function HistorikPage() {
       supabase.from('maskiner').select('*').eq('id', maskinId).single(),
       supabase.from('maskin_service').select('*').eq('maskin_id', maskinId).order('datum', { ascending: false }),
     ]);
+    // Namnet ur dim_maskin.visningsnamn (lib/maskinNamn) — `maskiner` bär bara nyckeln.
+    if (m?.maskin_id) {
+      const { data: dim } = await supabase.from('dim_maskin').select(DIM_MASKIN_NAMN_KOLUMNER).eq('maskin_id', m.maskin_id).maybeSingle();
+      if (dim) m.namn = maskinVisningsnamn(dim as any);
+    }
     setMaskin(m);
     setEntries(s || []);
     setLoading(false);

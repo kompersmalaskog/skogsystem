@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, useCallback, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import { maskinVisningsnamn, maskinNamnMap as byggMaskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag, arbetadTidInklExtra, schemaTimmar } from "@/lib/arbetstid";
 import TimmarGraf, { type GrafDag, type GrafManad } from "./TimmarGraf";
@@ -876,8 +877,8 @@ export default function Arbetsrapport() {
         setHemadress(med.data.hemadress || "");
         // Fetch maskin namn
         if(med.data.maskin_id) {
-          supabase.from("maskiner").select("namn").eq("maskin_id", med.data.maskin_id).single()
-            .then(r => { if(r.data?.namn) setMaskinNamn(r.data.namn); });
+          supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER).eq("maskin_id", med.data.maskin_id).maybeSingle()
+            .then(r => { if(r.data) setMaskinNamn(maskinVisningsnamn(r.data as any)); });
           // Skickar maskinen inga filer? Då startar dagen bara med knappen.
           supabase.from("dim_maskin").select("datakalla").eq("maskin_id", med.data.maskin_id).maybeSingle()
             .then(r => setMaskinManuell((r.data as any)?.datakalla === "manuell"));
@@ -943,21 +944,12 @@ export default function Arbetsrapport() {
         }));
       }
     });
-    // Hämta maskinnamn-lookup. NAMNET föraren känner igen ("Wisent2015",
-    // "Ponsse Scorpion") bor i maskiner.namn; dim_maskin.modell är
-    // tillverkarens kod ("810E") och bara en reserv när namn saknas.
-    // Ett maskinnamn i hela appen: dim_maskin.visningsnamn (admin) vinner, sedan
-    // maskiner.namn (maskin-service), sedan modell/tillverkare, sist id.
-    Promise.all([
-      supabase.from("dim_maskin").select("maskin_id, visningsnamn, tillverkare, modell"),
-      supabase.from("maskiner").select("maskin_id, namn"),
-    ]).then(([dim, mask]) => {
-      const m: Record<string, string> = {};
-      for(const r of dim.data || []) m[r.maskin_id] = r.modell || r.tillverkare || r.maskin_id;
-      for(const r of mask.data || []) if (r.namn) m[r.maskin_id] = r.namn;
-      for(const r of dim.data || []) { const v = (r.visningsnamn || "").trim(); if (v) m[r.maskin_id] = v; }
-      setMaskinNamnMap(m);
-    });
+    // Maskinnamn-lookup: EN källa, dim_maskin.visningsnamn (lib/maskinNamn) —
+    // tabellen `maskiner` läses aldrig för namn.
+    (async () => {
+      const { data } = await supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER);
+      setMaskinNamnMap(byggMaskinNamnMap(data || []));
+    })();
     // Hämta väder från SMHI via GPS
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
