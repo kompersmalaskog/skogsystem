@@ -14,6 +14,7 @@ import {
 } from './markeringar';
 import SkotarRad from './SkotarRad';
 import type { SkordAgg } from './page';
+import { foreslaNasta, type Kandidat, type MaskinLage, type AvstandKm } from '@/lib/nastaObjekt';
 // Maskinens RIKTIGA senaste position (flytt/produktion/GPS-fix, med ärlighets-spärrar) —
 // ersätter "första objektet i kön = maskinen". Delas med maskinflytt (ej planeringsfil).
 import { hamtaSenastePlatser, relativTid, dagarSedan, type PlatsForslag } from '../maskinflytt/senastePlats';
@@ -545,7 +546,7 @@ const BARIGHET_LBL: Record<string, string> = { bra: 'Bra bärighet', god: 'Bra b
 /* ── "Härnäst närmast"-ark (planerarens beslutsstöd) — den valda maskinens Att köra-objekt
    rankade på körväg från maskinens riktiga position. Ärlig färskhet, faktor-chips, aldrig
    auto-omordning: ordningen sätts fortfarande manuellt i Maskiner-fliken. ── */
-function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rankLaddar, objektById, warningsByObj, onSelect }: {
+function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rankLaddar, objektById, warningsByObj, foreslagenId, foreslagenSkal, onSelect }: {
   maskinNamn: string | null;
   pagaendeNamn: string | null;
   plats: PlatsForslag | undefined;
@@ -554,6 +555,8 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
   rankLaddar: boolean;
   objektById: (id: string) => OversiktObjekt | undefined;
   warningsByObj: Record<string, ObjWarnings>;
+  foreslagenId: string | null;       // Steg A: objektet lib/nastaObjekt föreslår (read-only markering)
+  foreslagenSkal: string | null;
   onSelect: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -601,6 +604,7 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
             {rankad.map((r, i) => {
               const o = objektById(r.id);
               if (!o) return null;
+              const isForeslagen = o.id === foreslagenId;
               const st = ST[o.status] || ST.oplanerad;
               const w = warningsByObj[o.id];
               const barLbl = o.barighet ? (BARIGHET_LBL[o.barighet.trim().toLowerCase()] || o.barighet) : null;
@@ -609,7 +613,7 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
               return (
                 <button key={o.id} onClick={(e) => { e.stopPropagation(); onSelect(o.id); }} style={{
                   display: 'flex', alignItems: 'center', gap: SP.md, width: '100%', textAlign: 'left',
-                  padding: `${SP.md}px ${SP.xs}px`, background: 'transparent', border: 'none',
+                  padding: `${SP.md}px ${SP.xs}px`, background: isForeslagen ? 'rgba(48,209,88,0.08)' : 'transparent', border: 'none',
                   borderTop: i === 0 ? 'none' : `1px solid ${C.border}`, cursor: 'pointer', fontFamily: ff,
                 }}>
                   <div style={{ width: 62, flexShrink: 0, textAlign: 'right' }}>
@@ -617,6 +621,12 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ ...T.body, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</div>
+                    {isForeslagen && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, minWidth: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.green, background: 'rgba(48,209,88,0.14)', padding: '1px 7px', borderRadius: 5, flexShrink: 0 }}>Föreslagen nästa</span>
+                        {foreslagenSkal && <span style={{ ...T.caption, fontSize: 11, color: C.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{foreslagenSkal}</span>}
+                      </div>
+                    )}
                     {(barLbl || gi.label || o.transport_trailer_in === true) && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 3 }}>
                         {barLbl && <span style={chipStyle(barOrange)}>{barLbl}</span>}
@@ -1121,6 +1131,33 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     })();
     return () => { cancelled = true; };
   }, [maskinFilter, maskinPlatser, kandidater, pagaende]);
+
+  /* ── Steg A: "Föreslagen nästa" = lib/nastaObjekt-regeln för skördare (närmast KLAR att köra
+     UTAN öppen fara), applicerad på den redan körvägs-rankade listan. Read-only beslutsstöd åt
+     förmannen — markerar bara topp-objektet, ändrar ALDRIG rankningen (Åtgärd = underlag, inte
+     order). Skälet kommer ur libet så kartan och logiken aldrig säger olika. ── */
+  const foreslagenNasta = useMemo(() => {
+    if (!maskinFilter || rankad.length === 0) return null;
+    const kmByCoord = new Map<string, number>();
+    const kand: Kandidat[] = [];
+    for (const r of rankad) {
+      const o = objekt.find(x => x.id === r.id);
+      if (!o || o.lat == null || o.lng == null) continue;
+      kmByCoord.set(`${o.lat},${o.lng}`, r.km);
+      kand.push({
+        key: r.id, namn: o.namn, status: o.status, koordinat: { lat: o.lat, lng: o.lng },
+        skordat: 0, backen: 0, backenPalitlig: false, legatDagar: null, skordareIds: [],
+        attKora: o.status === 'planerad' || o.status === 'importerad',
+        oppenFara: warningsByObj[o.id]?.level === 'fara',
+        grotDeadline: o.grot_deadline || null, egenSkotning: false,
+      });
+    }
+    if (kand.length === 0) return null;
+    const m: MaskinLage = { maskinId: maskinFilter, typ: 'skordare', koordinat: { lat: 0, lng: 0 }, nuvarandeObjektKey: null, positionAlderDagar: null };
+    const avstandKm: AvstandKm = (_from, to) => kmByCoord.get(`${to.lat},${to.lng}`) ?? null; // återanvänd körvägs-km från rankningen
+    const f = foreslaNasta(m, kand, avstandKm);
+    return f.vald ? { id: f.vald.key, skal: f.skal } : null;
+  }, [maskinFilter, rankad, warningsByObj, objekt]);
 
   const selectedObj = selectedId ? objekt.find(o => o.id === selectedId) : null;
   const handleMarkerClick = useCallback((id: string) => {
@@ -1784,6 +1821,8 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
           rankLaddar={rankLaddar}
           objektById={(id) => objekt.find(o => o.id === id)}
           warningsByObj={warningsByObj}
+          foreslagenId={foreslagenNasta?.id ?? null}
+          foreslagenSkal={foreslagenNasta?.skal ?? null}
           onSelect={(id) => setSelectedId(id)}
         />
       )}
