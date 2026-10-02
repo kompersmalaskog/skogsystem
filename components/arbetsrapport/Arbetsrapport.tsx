@@ -20,7 +20,7 @@ import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, pass
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, faktureringsEtikett, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
-import { harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
+import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
 import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
@@ -5960,7 +5960,10 @@ export default function Arbetsrapport() {
             const harSlut = !!redDag?.slut_tid;
             const erHelDag = !!franvaroDagar[redDag?.datum] && !harStart; // frånvarodagar utan pass har redan returnerat ovan
             const harExtra = (extraTidData || []).some((e:any) => e.datum === redDag.datum && e.slut_tid);
-            const kanBekrafta = !bekraftadRedan && (harSlut || erHelDag || (harExtra && !harStart));
+            // En period utan sluttid (Planera: "Starta nu — avsluta sen", eller glömd) — en
+            // underskrift utan sluttid är ingen underskrift. Avsluta eller ta bort den först.
+            const harOppenPeriod = harOppenPeriodPaDag(extraTidData, (redDag as any)?.datum);
+            const kanBekrafta = !bekraftadRedan && !harOppenPeriod && (harSlut || erHelDag || (harExtra && !harStart));
             const passPågår = harStart && !harSlut && !erHelDag;
             // "Lägg till manuellt" (klockslag på raden) visas ALDRIG när perioder
             // finns — en perioddag går direkt till Bekräfta (kanBekrafta nedan).
@@ -6066,6 +6069,12 @@ export default function Arbetsrapport() {
                 <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, passMin: passMinuter(redStart, redSlut, redRast), andra: () => setRedVy("tid") })}>
                   Bekräfta dagen
                 </button>
+                {tillbakaKnapp}
+              </>);
+            }
+            if (harOppenPeriod && !bekraftadRedan) {
+              return (<>
+                <p style={{ margin:0, ...TYP.meta, color:FARG.orange, textAlign:"center" }}>Extra arbete utan sluttid — avsluta eller ta bort det först, sedan kan dagen bekräftas</p>
                 {tillbakaKnapp}
               </>);
             }

@@ -42,13 +42,13 @@ vi.mock("@/lib/supabase", () => {
     lte(k: string, v: any) { this.filter.push([k, "lte", v]); return this; }
     in(k: string, v: any[]) { this.filter.push([k, "in", v]); return this; }
     not() { return this; }
-    is() { return this; }
+    is(k: string, v: any) { this.filter.push([k, "is", v]); return this; }
     limit() { return this; }
     order(k: string, o?: { ascending?: boolean }) { this.sorter.push([k, o?.ascending !== false]); return this; }
     single() { this.enkel = true; return this; }
     maybeSingle() { this.enkel = true; return this; }
     private traffar(r: any) {
-      return this.filter.every(([k, op, v]) => op === "eq" ? r[k] === v : op === "gte" ? r[k] >= v : op === "lte" ? r[k] <= v : v.includes(r[k]));
+      return this.filter.every(([k, op, v]) => op === "eq" ? r[k] === v : op === "gte" ? r[k] >= v : op === "lte" ? r[k] <= v : op === "is" ? (v === null ? r[k] == null : r[k] === v) : v.includes(r[k]));
     }
     private kor() {
       const tab = (db[this.tabell] = db[this.tabell] || []);
@@ -101,8 +101,14 @@ function nyDb(): Record<string, any[]> {
     dim_objekt: [
       { objekt_id: "T1", object_name: "Trestensdal gallring", vo_nummer: "11124748", skogsagare: "Cia" },
       { objekt_id: "T2", object_name: "Betet gallring 2026", vo_nummer: "11218909", skogsagare: "Bo" },
+      { objekt_id: "T3", object_name: "Äldre avverkning", vo_nummer: "900", skogsagare: "Cy", huvudtyp: "Slutavverkning" },
     ],
-    objekt: [{ vo_nummer: "11124748", status: "planerad" }],
+    objekt: [
+      { vo_nummer: "11124748", status: "planerad", typ: "slutavverkning" },
+      { vo_nummer: "11218909", status: "pagaende", typ: "gallring" },
+      { vo_nummer: "900", status: "avslutat", typ: "slutavverkning" },   // avslutad → inte i grupperna, men sökbar
+      { vo_nummer: "777", status: "planerad", namn: "Okänd åtgärd trakt", markagare: "Di" }, // saknar typ → Övrigt
+    ],
     extra_tid: [
       // Gårdagens planering på Trestensdal → "Senaste trakter" + "Samma som i går"
       { id: "p-1", medarbetare_id: "m-1", datum: IGAR, start_tid: "07:00:00", slut_tid: "10:00:00", minuter: 180, aktivitet_typ: "planering", objekt_id: "T1", debiterbar: true, arbetsdag_id: "a-1" },
@@ -126,12 +132,19 @@ afterEach(() => {
 });
 
 const flush = async () => { for (let i = 0; i < 6; i++) await act(async () => { await new Promise(r => setTimeout(r, 15)); }); };
+let Vy: any = null;
 async function montera(nu: Date = NU) {
-  const { default: PlaneraVy } = await import("./PlaneraVy");
+  ({ default: Vy } = await import("./PlaneraVy"));
   rot = createRoot(behallare!);
-  await act(async () => { rot!.render(<PlaneraVy nu={nu} />); });
+  await act(async () => { rot!.render(<Vy nu={nu} />); });
   await flush();
 }
+/** Samma monterade vy, ny klocka — state behålls (som när tiden går medan appen är öppen). */
+async function nyKlocka(nu: Date) {
+  await act(async () => { rot!.render(<Vy nu={nu} />); });
+  await flush();
+}
+const nuKl = (h: number, m: number) => new Date(2026, 9, 2, h, m);
 const text = () => behallare!.textContent || "";
 const knappar = () => Array.from(behallare!.querySelectorAll("button")) as HTMLButtonElement[];
 /** EXAKT knapptext — "2 tim" (längden) får aldrig förväxlas med "Spara 2 tim". */
@@ -157,7 +170,7 @@ describe("Planera: skärm 1", () => {
     await montera();
     expect(hookFel()).toEqual([]);
     expect(text()).toMatch(/Planera/);
-    expect(text()).toMatch(/Senaste trakter/);
+    expect(text()).toMatch(/Senaste/);
     expect(text()).toMatch(/Trestensdal gallring/);
     expect(text()).toMatch(/i går 3 tim/);
     expect(text()).toMatch(/Samma som i går/);
@@ -188,12 +201,12 @@ describe("Planera: skärm 2 — fyra block", () => {
     expect(etikett("Sluttid")?.textContent).toBe("--:--");
     expect(text()).toContain("tryck på en tid för att ändra");
     for (const l of ["1 tim", "2 tim", "4 tim", "Till nu"]) expect(exakt(l), l).toBeDefined();
-    for (const a of ["Planering", "Manuellt", "Möte", "Restid"]) expect(exakt(a), a).toBeDefined();
+    for (const a of ["Planering", "Manuellt", "Markägare", "Möte", "Restid"]) expect(exakt(a), a).toBeDefined();
     // Borta: klockfält, Dag-segmentet, tidslinje och starta-knappar
     expect(behallare!.querySelector('input[type="time"]')).toBeNull();
     expect(exakt("I går")).toBeUndefined();
     expect(exakt("Annan dag")).toBeUndefined();
-    expect(text()).not.toMatch(/Byt trakt|faktureras/);
+    expect(text()).not.toMatch(/Byt trakt/);
     // Ingen längd vald → Spara låst och säger vad som saknas
     expect(avstangd(exakt("Välj hur länge"))).toBe(true);
     await klicka("Välj hur länge");
@@ -428,5 +441,221 @@ describe("Planera: ändra en sparad period", () => {
     const upd = skrivna.find(s => s.tabell === "extra_tid" && s.op === "update")!;
     expect(upd.rad).toMatchObject({ start_tid: "07:00:00", slut_tid: "10:15:00", minuter: 195 });
     expect(extraInsatt()).toEqual([]);
+  });
+});
+
+// ── Nytt: sök + grupper, Starta nu / Rast / Fortsätt / Avsluta, en åt gången, glömd, Faktureras, kommentar ──
+const valjTraktNamn = (namn: string) => tryck(knappar().find(b => (b.textContent || "").includes(namn) && !(b.textContent || "").includes("Samma")), namn);
+async function skrivText(el: HTMLTextAreaElement | HTMLInputElement, v: string) {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, v);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+const kortet = (etikettText: string) => behallare!.querySelector(`[aria-label="${etikettText}"]`) as HTMLElement | null;
+
+describe("Planera: skärm 1 — sök och aktiva trakter i grupper", () => {
+  it("aktiva trakter per åtgärdstyp, avslutade utelämnade, Övrigt för trakt utan typ", async () => {
+    await montera();
+    expect(text()).toMatch(/Gallring · 1/);
+    expect(text()).toMatch(/Slutavverkning · 1/);
+    expect(text()).toMatch(/Övrigt · 1/);
+    expect(text()).toContain("Okänd åtgärd trakt");
+    expect(text()).not.toContain("Äldre avverkning"); // avslutad
+    const t = text();
+    expect(t.indexOf("Senaste")).toBeLessThan(t.indexOf("Gallring · 1"));
+    expect(t.indexOf("Slutavverkning · 1")).toBeLessThan(t.indexOf("Den här veckan"));
+    // Betet (pågående gallring) ligger under Gallring, före Slutavverkning
+    expect(t.indexOf("Gallring · 1")).toBeLessThan(t.indexOf("Betet gallring 2026"));
+    expect(t.indexOf("Betet gallring 2026")).toBeLessThan(t.indexOf("Slutavverkning · 1"));
+  });
+
+  it("sökningen filtrerar grupperna — och når även avslutade trakter (efterhandsregistrering)", async () => {
+    await montera();
+    await skrivText(behallare!.querySelector('input[type="search"]') as HTMLInputElement, "äldre");
+    expect(text()).toContain("Äldre avverkning");
+    expect(text()).toMatch(/Slutavverkning · 1/);
+    expect(text()).not.toContain("Betet gallring 2026");
+    expect(text()).not.toMatch(/Gallring · 1/);
+    expect(text()).not.toMatch(/Senaste/);
+    await skrivText(behallare!.querySelector('input[type="search"]') as HTMLInputElement, "finns inte");
+    expect(text()).toMatch(/Ingen trakt matchar/);
+  });
+});
+
+describe("Planera: Starta nu — avsluta sen → Rast → Fortsätt → Avsluta", () => {
+  it("hela kedjan: öppen rad, levande räknare, rast = luckan, fortsätt = ny rad, avsluta nedrundat med kvitto", async () => {
+    await montera(nuKl(7, 20));
+    await valjTraktNamn("Betet gallring 2026");
+    expect(avstangd(exakt("Välj hur länge"))).toBe(true);
+    await klickaDel("Starta nu — avsluta sen");
+    expect(etikett("Sluttid")?.textContent).toBe("?");
+    expect(exakt("Starta 07:00")).toBeDefined();
+    await klicka("Starta 07:00");
+    // 1. Sparad som extra_tid utan slut
+    const start = extraInsatt()[0];
+    expect(start, `skrivet: ${JSON.stringify(skrivna)}`).toBeDefined();
+    expect(start.rad).toMatchObject({ datum: IDAG, start_tid: "07:00:00", slut_tid: null, minuter: 0, objekt_id: "T2", aktivitet_typ: "planering", debiterbar: true, kalla: "under_dagen" });
+    // 2. Pågår-kortet överst, grön ram, räknare
+    const kort = kortet("Pågående period")!;
+    expect(kort).not.toBeNull();
+    expect(kort.textContent).toContain("Pågår");
+    expect(kort.textContent).toContain("Betet gallring 2026");
+    expect(kort.textContent).toContain("Planering sedan 07:00 · 20 min");
+    expect(kort.style.boxShadow).toMatch(/30d158|48, 209, 88/i); // FARG.gron
+    expect(text().indexOf("Pågår")).toBeLessThan(text().indexOf("Senaste")); // överst, före listorna
+    expect(hookFel()).toEqual([]);
+    // 3. Tiden går medan appen är öppen
+    await nyKlocka(nuKl(9, 15));
+    expect(kortet("Pågående period")!.textContent).toContain("2 tim 15 min");
+    // 4. Rast: stänger perioden (nedrundat), kortet byter läge
+    await nyKlocka(nuKl(11, 41));
+    await klickaDel("Rast");
+    const upd = skrivna.find(s => s.tabell === "extra_tid" && s.op === "update")!;
+    expect(upd.rad).toMatchObject({ start_tid: "07:00:00", slut_tid: "11:30:00", minuter: 270 });
+    expect(kortet("Rast")!.textContent).toContain("Rast sedan 11:30");
+    expect(exakt("Fortsätt")).toBeDefined();
+    expect(exakt("Avsluta")).toBeUndefined();
+    expect(kortet("Pågående period")).toBeNull();
+    // 5. Fortsätt: NY period på samma trakt/aktivitet från nu (nedrundat) — luckan 11:30–12:00 är rasten
+    await nyKlocka(nuKl(12, 10));
+    await klicka("Fortsätt");
+    const fort = extraInsatt()[1];
+    expect(fort.rad).toMatchObject({ datum: IDAG, start_tid: "12:00:00", slut_tid: null, objekt_id: "T2", aktivitet_typ: "planering", debiterbar: true });
+    expect(kortet("Pågående period")!.textContent).toContain("sedan 12:00");
+    expect(kortet("Rast")).toBeNull();
+    // 6. Avsluta: slut = nu nedrundat, kvitto ur databasens rad
+    await nyKlocka(nuKl(14, 53));
+    await klicka("Avsluta");
+    expect(db.extra_tid.filter(r => r.objekt_id === "T2").map(r => [r.start_tid, r.slut_tid, r.minuter])).toEqual([
+      ["07:00:00", "11:30:00", 270],
+      ["12:00:00", "14:45:00", 165],
+    ]);
+    expect(text()).toMatch(/Sparat: Betet gallring 2026 · idag 12:00–14:45 · 2 tim 45 min/);
+    expect(kortet("Pågående period")).toBeNull();
+    expect(db.extra_tid.some(r => r.slut_tid == null)).toBe(false);
+    expect(hookFel()).toEqual([]);
+  });
+
+  it("Avsluta under en kvart efter start: ingen nollängd, ett begripligt besked, raden orörd", async () => {
+    db.extra_tid.push({ id: "o-1", medarbetare_id: "m-1", datum: IDAG, start_tid: "07:00:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
+    await montera(nuKl(7, 10));
+    await klicka("Avsluta");
+    expect(text()).toMatch(/mindre än en kvart gammal/);
+    expect(skrivna.filter(s => s.op === "update")).toEqual([]);
+  });
+
+  it("pågående period ligger kvar: appen stängs och öppnas igen → kortet finns, räknaren stämmer", async () => {
+    db.extra_tid.push({ id: "o-2", medarbetare_id: "m-1", datum: IDAG, start_tid: "07:00:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
+    await montera(nuKl(13, 5));
+    expect(kortet("Pågående period")!.textContent).toContain("6 tim 5 min");
+  });
+});
+
+describe("Planera: bara en pågående period åt gången", () => {
+  beforeEach(() => {
+    db.extra_tid.push({ id: "o-3", medarbetare_id: "m-1", datum: IDAG, start_tid: "07:00:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
+  });
+  it("Starta nu är låst med förklaring, och en ny period över den pågående krockar", async () => {
+    await montera(nuKl(9, 0));
+    await valjTraktNamn("Trestensdal gallring");
+    expect(avstangd(delText("Starta nu — avsluta sen"))).toBe(true);
+    expect(text()).toMatch(/redan en pågående period/);
+    await klicka("1 tim");
+    expect(text()).toMatch(/Krockar med Betet gallring 2026 07:00–\?/);
+    expect(avstangd(exakt("Spara 1 tim"))).toBe(true);
+  });
+  it("sparandet nekar en andra pågående period, en start i framtiden och en pågående period bakåt i tiden", async () => {
+    const { sparaNyPeriod } = await import("@/lib/planera/spara");
+    const { supabase } = await import("@/lib/supabase");
+    const bas = { typ: "planering" as const, objektId: "T1", deb: true };
+    const nu = nuKl(9, 0);
+    const andra = await sparaNyPeriod(supabase as any, "m-1", { ...bas, datum: IDAG, start: "08:00", slut: null }, nu);
+    expect((andra as any).fel).toMatch(/redan en pågående period/);
+    db.extra_tid = db.extra_tid.filter(r => r.id !== "o-3");
+    const framtid = await sparaNyPeriod(supabase as any, "m-1", { ...bas, datum: IDAG, start: "10:00", slut: null }, nu);
+    expect((framtid as any).fel).toMatch(/framtiden/);
+    const igar = await sparaNyPeriod(supabase as any, "m-1", { ...bas, datum: IGAR, start: "13:00", slut: null }, nu);
+    expect((igar as any).fel).toMatch(/bara startas idag/);
+    expect(extraInsatt()).toEqual([]);
+    const ok = await sparaNyPeriod(supabase as any, "m-1", { ...bas, datum: IDAG, start: "08:30", slut: null }, nu);
+    expect(ok.ok).toBe(true);
+  });
+  it("Starta inom ett maskinpass nekas — det är redan arbetstid", async () => {
+    db.extra_tid = db.extra_tid.filter(r => r.id !== "o-3");
+    db.arbetsdag.push({ id: "a-9", medarbetare_id: "m-1", datum: IDAG, start_tid: "06:00:00", slut_tid: "16:00:00", maskin_id: "PONS" });
+    const { sparaNyPeriod } = await import("@/lib/planera/spara");
+    const { supabase } = await import("@/lib/supabase");
+    const svar = await sparaNyPeriod(supabase as any, "m-1", { typ: "planering", objektId: "T1", deb: true, datum: IDAG, start: "08:00", slut: null }, nuKl(17, 0));
+    expect((svar as any).fel).toMatch(/inom maskinpasset \(06:00–16:00\)/);
+  });
+});
+
+describe("Planera: glömde avsluta", () => {
+  it("period från en tidigare dag: orange kort, ingen Rast, Avsluta sätter ALDRIG slut = nu utan öppnar skärm 2", async () => {
+    db.extra_tid.push({ id: "g-1", medarbetare_id: "m-1", datum: plusDagar(IDAG, -2), start_tid: "07:00:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T1", debiterbar: true, arbetsdag_id: "a-0" });
+    await montera(nuKl(15, 20));
+    const kort = kortet("Glömd period")!;
+    expect(kort).not.toBeNull();
+    expect(kort.textContent).toContain("Glömde du avsluta?");
+    expect(kort.textContent).toContain("Startade i förrgår 07:00");
+    expect(kort.style.boxShadow).toMatch(/ff9f0a|255, 159, 10/i); // FARG.orange
+    expect(delText("Rast")).toBeUndefined();
+    await klicka("Avsluta");
+    expect(skrivna.filter(s => s.op === "update")).toEqual([]); // inget gissat slut
+    expect(etikett("Starttid")?.textContent).toBe("07:00");
+    expect(etikett("Sluttid")?.textContent).toBe("--:--");
+    expect(delText("Starta nu — avsluta sen")).toBeUndefined(); // bara idag
+    expect(avstangd(exakt("Välj hur länge"))).toBe(true);
+    await klicka("4 tim");
+    await klicka("Spara 4 tim");
+    const upd = skrivna.find(s => s.tabell === "extra_tid" && s.op === "update")!;
+    expect(upd.rad).toMatchObject({ start_tid: "07:00:00", slut_tid: "11:00:00", minuter: 240 });
+    expect(text()).toMatch(/Sparat: Trestensdal gallring · i förrgår 07:00–11:00 · 4 tim/);
+    expect(kortet("Glömd period")).toBeNull();
+  });
+});
+
+describe("Planera: Markägare, Faktureras och kommentar", () => {
+  it("Faktureras är en rad med reglage, förvalt efter aktiviteten; kommentaren sparas och syns i veckolistan", async () => {
+    await montera();
+    await valjSenasteTrakt();
+    const reglage = () => behallare!.querySelector('[role="switch"]') as HTMLButtonElement;
+    expect(reglage().getAttribute("aria-checked")).toBe("true"); // planering
+    await klicka("Restid");
+    expect(reglage().getAttribute("aria-checked")).toBe("false");
+    await klicka("Markägare");
+    expect(reglage().getAttribute("aria-checked")).toBe("true");
+    await tryck(reglage(), "Faktureras"); // avstängd för just den här perioden
+    expect(reglage().getAttribute("aria-checked")).toBe("false");
+    // Kommentar: blå rad → textfält
+    expect(behallare!.querySelector("textarea")).toBeNull();
+    await klickaDel("Lägg till kommentar");
+    await skrivText(behallare!.querySelector("textarea") as HTMLTextAreaElement, "Möte vid grinden");
+    await klicka("2 tim");
+    await klicka("Spara 2 tim");
+    expect(extraInsatt()[0].rad).toMatchObject({ aktivitet_typ: "markagare", debiterbar: false, kommentar: "Möte vid grinden", objekt_id: "T1" });
+    expect(text()).toContain("07:00–09:00 · Markägare · Möte vid grinden"); // veckolistan
+  });
+
+  it("utan kommentar sparas null, och en tom/blank kommentar blir null", async () => {
+    await montera();
+    await valjSenasteTrakt();
+    await klickaDel("Lägg till kommentar");
+    await skrivText(behallare!.querySelector("textarea") as HTMLTextAreaElement, "   ");
+    await klicka("1 tim");
+    await klicka("Spara 1 tim");
+    expect(extraInsatt()[0].rad.kommentar).toBeNull();
+  });
+
+  it("en sparad kommentar öppnas ifylld vid ändring och kan ändras", async () => {
+    db.extra_tid.push({ id: "k-9", medarbetare_id: "m-1", datum: IGAR, start_tid: "12:00:00", slut_tid: "13:00:00", minuter: 60, aktivitet_typ: "manuellt", objekt_id: "T1", debiterbar: true, arbetsdag_id: "a-1", kommentar: "Röjde stickvägen" });
+    await montera();
+    await klickaDel("Röjde stickvägen");
+    expect((behallare!.querySelector("textarea") as HTMLTextAreaElement).value).toBe("Röjde stickvägen");
+    await skrivText(behallare!.querySelector("textarea") as HTMLTextAreaElement, "Röjde stickvägen och vändplanen");
+    await klicka("Spara 1 tim");
+    expect(skrivna.find(s => s.tabell === "extra_tid" && s.op === "update")!.rad).toMatchObject({ kommentar: "Röjde stickvägen och vändplanen", slut_tid: "13:00:00" });
   });
 });

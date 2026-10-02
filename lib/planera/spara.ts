@@ -12,14 +12,21 @@
 //  - överlappar den en annan period samma dag → begripligt fel;
 //  - första perioden på en dag SKAPAR dagen (skalrad utan klockslag);
 //  - kvittot byggs på raden databasen gav tillbaka, aldrig på formuläret
-//    (sparatSkiljerSig) — "ärlig data eller ingen data".
+//    (sparatSkiljerSig) — "ärlig data eller ingen data";
+//  - PÅGÅENDE period (slut = null, "Starta nu — avsluta sen") finns bara idag, bara
+//    EN åt gången, och räknas som löpande framåt vid krock. Den avslutas med
+//    uppdateraPeriod; en glömd period från en tidigare dag får aldrig slut = nu.
+//  - framtida tid sparas aldrig (spärren sitter HÄR, vyn visar den bara).
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { klassificeraPeriod, periodMin, valideraSegment } from "@/lib/dagsegment";
 import { aktLabel, type AktivitetTyp } from "@/lib/aktiviteter";
 import { raderaVerifierat, uppdateraVerifierat, SPARA_FEL } from "@/lib/supabase-save";
-import { liggerIFramtiden, klockaTillMin, relativDag, timText } from "./logik";
+import { DAGENS_SLUT, liggerIFramtiden, klockaTillMin, lokalISO, minTillKlocka, relativDag, timText } from "./logik";
 
-export type NyPeriod = { datum: string; start: string; slut: string; typ: AktivitetTyp; objektId: string | null; deb: boolean };
+/** slut = null → pågående period. kommentar: undefined = rör den inte, string/null = skriv den. */
+export type NyPeriod = { datum: string; start: string; slut: string | null; typ: AktivitetTyp; objektId: string | null; deb: boolean; kommentar?: string | null };
+const kommentarRen = (k: string | null | undefined) => (k ?? "").trim() || null;
 export type SparaSvar = { ok: true; rad: any } | { ok: false; fel: string };
 
 const hhmm = (t: string | null | undefined) => (t || "").slice(0, 5);
@@ -28,24 +35,46 @@ type DagLage = {
   skalrad: any | null;
   pass: { start_tid: string | null; slut_tid: string | null };
   andra: { start_tid: string; slut_tid: string }[];
+  /** Finns en annan pågående period (valfri dag)? Bara en åt gången. */
+  annanOppen: boolean;
 };
 async function laddaDag(sb: SupabaseClient, medarbetareId: string, datum: string, undantaId?: string): Promise<DagLage | { fel: string }> {
-  const [ad, ex, sg] = await Promise.all([
+  const [ad, ex, sg, op] = await Promise.all([
     sb.from("arbetsdag").select("*").eq("medarbetare_id", medarbetareId).eq("datum", datum).maybeSingle(),
     sb.from("extra_tid").select("id, start_tid, slut_tid").eq("medarbetare_id", medarbetareId).eq("datum", datum),
     sb.from("arbetsdag_segment").select("id, start_tid, slut_tid").eq("medarbetare_id", medarbetareId).eq("datum", datum),
+    sb.from("extra_tid").select("id").eq("medarbetare_id", medarbetareId).is("slut_tid", null),
   ]);
-  if (ad.error || ex.error || sg.error) { console.error("[planera] kunde inte läsa dagen", ad.error || ex.error || sg.error); return { fel: SPARA_FEL }; }
+  if (ad.error || ex.error || sg.error || op.error) { console.error("[planera] kunde inte läsa dagen", ad.error || ex.error || sg.error || op.error); return { fel: SPARA_FEL }; }
   const rad: any = ad.data || null;
   const andra = [
-    ...((ex.data as any[]) || []).filter(e => e.id !== undantaId && e.slut_tid).map(e => ({ start_tid: e.start_tid, slut_tid: e.slut_tid })),
+    // En pågående period löper framåt: den upptar dagen från sin start till dagens slut.
+    ...((ex.data as any[]) || []).filter(e => e.id !== undantaId && e.start_tid).map(e => ({ start_tid: e.start_tid, slut_tid: e.slut_tid || minTillKlocka(DAGENS_SLUT) })),
     ...((sg.data as any[]) || []).map(s => ({ start_tid: s.start_tid, slut_tid: s.slut_tid })),
   ];
-  return { skalrad: rad, pass: { start_tid: rad?.start_tid || null, slut_tid: rad?.slut_tid || null }, andra };
+  const annanOppen = ((op.data as any[]) || []).some(e => e.id !== undantaId);
+  return { skalrad: rad, pass: { start_tid: rad?.start_tid || null, slut_tid: rad?.slut_tid || null }, andra, annanOppen };
 }
 
 /** Kontroller som gäller både ny period och ändring. Returnerar felet eller lägets "kalla". */
+/** Pågående period: bara idag, start inte i framtiden, ingen annan pågående, inte inom ett maskinpass, ingen krock framåt. */
+function kontrolleraOppen(p: NyPeriod, dag: DagLage, nu: Date): { fel: string } | { kalla: string } {
+  if (p.datum !== lokalISO(nu)) return { fel: "En period utan sluttid kan bara startas idag. Välj när den slutade." };
+  if (klockaTillMin(p.start) > nu.getHours() * 60 + nu.getMinutes()) return { fel: "Perioden ligger i framtiden — inget sparat. Spara den när tiden har varit." };
+  if (dag.annanOppen) return { fel: "Du har redan en pågående period — avsluta den först." };
+  const s = klockaTillMin(p.start);
+  const ps = dag.pass.start_tid ? klockaTillMin(dag.pass.start_tid) : null;
+  const pe = dag.pass.slut_tid ? klockaTillMin(dag.pass.slut_tid) : null;
+  if (ps != null && s >= ps && (pe == null || s < pe)) {
+    return { fel: `Starten ligger inom maskinpasset (${hhmm(dag.pass.start_tid)}–${hhmm(dag.pass.slut_tid)}) och är redan arbetstid. Perioder inom passet märks under Dag eller Kalender.` };
+  }
+  const val = valideraSegment({ start: p.start, slut: minTillKlocka(DAGENS_SLUT) }, { start_tid: null, slut_tid: null }, dag.andra);
+  if (!val.ok) return { fel: val.fel.replace("Överlappar en period du redan märkt", "Krockar med en period du redan lagt in") };
+  return { kalla: ps == null ? "under_dagen" : s < ps ? "morgon" : "kvall" };
+}
+
 function kontrollera(p: NyPeriod, dag: DagLage, nu: Date): { fel: string } | { kalla: string } {
+  if (p.slut == null && p.start) return kontrolleraOppen(p, dag, nu);
   if (!p.start || !p.slut || periodMin(p.start, p.slut) <= 0) return { fel: "Sluttiden måste vara efter starttiden." };
   // Samma regel som i vyn, men HÄR är det spärren: framtida tid är inte arbetad tid
   // (testdata 2026-10-02: 20:17–23:18 sparades kl 16:19).
@@ -61,15 +90,18 @@ function kontrollera(p: NyPeriod, dag: DagLage, nu: Date): { fel: string } | { k
 
 /** Sparat-skiljer-sig-kontrollen: raden databasen gav tillbaka ska vara det som begärdes. */
 export function sparatSkiljerSig(p: NyPeriod, rad: any): string | null {
-  if (hhmm(rad?.start_tid) !== p.start || hhmm(rad?.slut_tid) !== p.slut) return "Perioden sparades, men tiderna följde inte med. Öppna den i veckolistan och kontrollera.";
+  const slutStammer = p.slut == null ? !rad?.slut_tid : hhmm(rad?.slut_tid) === p.slut;
+  if (hhmm(rad?.start_tid) !== p.start || !slutStammer) return "Perioden sparades, men tiderna följde inte med. Öppna den i veckolistan och kontrollera.";
   if (p.objektId && rad?.objekt_id !== p.objektId) return "Perioden sparades, men trakten följde inte med. Öppna den i veckolistan och välj trakten igen — händer det igen, säg till Martin.";
   if ((rad?.aktivitet_typ || null) !== p.typ) return "Perioden sparades, men aktiviteten följde inte med. Öppna den i veckolistan och kontrollera.";
   if (!!rad?.debiterbar !== p.deb) return 'Perioden sparades, men "faktureras" följde inte med. Öppna den i veckolistan och kontrollera.';
+  if (p.kommentar !== undefined && kommentarRen(rad?.kommentar) !== kommentarRen(p.kommentar)) return "Perioden sparades, men kommentaren följde inte med. Öppna den i veckolistan och kontrollera.";
   return null;
 }
 
 /** "Trestensdal · idag 07:00–10:00 · 3 tim" — byggs på DB-raden. */
 export function kvittoText(rad: any, objektNamn: string | null, idag: string): string {
+  if (!rad?.slut_tid) return `${objektNamn || aktLabel(rad?.aktivitet_typ)} · ${relativDag(rad?.datum, idag)} från ${hhmm(rad?.start_tid)} · pågår`;
   const min = rad?.minuter ?? periodMin(hhmm(rad?.start_tid), hhmm(rad?.slut_tid));
   return `${objektNamn || aktLabel(rad?.aktivitet_typ)} · ${relativDag(rad?.datum, idag)} ${hhmm(rad?.start_tid)}–${hhmm(rad?.slut_tid)} · ${timText(min)}`;
 }
@@ -93,9 +125,9 @@ export async function sparaNyPeriod(sb: SupabaseClient, medarbetareId: string, p
     if (!arbetsdagId) return { ok: false, fel: "Kunde inte koppla perioden till dagen — inget sparat. Försök igen." };
     const { data, error } = await sb.from("extra_tid").insert({
       medarbetare_id: medarbetareId, datum: p.datum, arbetsdag_id: arbetsdagId,
-      start_tid: p.start + ":00", slut_tid: p.slut + ":00",
-      minuter: periodMin(p.start, p.slut), // INTE genererad kolumn — räknas om på varje skrivväg
-      aktivitet_typ: p.typ, objekt_id: p.objektId, debiterbar: p.deb, kommentar: null, kalla: k.kalla,
+      start_tid: p.start + ":00", slut_tid: p.slut == null ? null : p.slut + ":00",
+      minuter: p.slut == null ? 0 : periodMin(p.start, p.slut), // INTE genererad kolumn — räknas om på varje skrivväg; pågående = 0 tills den avslutas
+      aktivitet_typ: p.typ, objekt_id: p.objektId, debiterbar: p.deb, kommentar: kommentarRen(p.kommentar), kalla: k.kalla,
     }).select().single();
     if (error || !data) { console.error("[planera] insert extra_tid", error); return { ok: false, fel: SPARA_FEL }; }
     const avvik = sparatSkiljerSig(p, data);
@@ -116,8 +148,9 @@ export async function uppdateraPeriod(sb: SupabaseClient, medarbetareId: string,
     const arbetsdagId = await sakerstallSkalrad(sb, medarbetareId, p.datum, dag.skalrad);
     if (!arbetsdagId) return { ok: false, fel: "Kunde inte koppla perioden till dagen — inget sparat. Försök igen." };
     const res = await uppdateraVerifierat(sb, "extra_tid", {
-      start_tid: p.start + ":00", slut_tid: p.slut + ":00", minuter: periodMin(p.start, p.slut),
-      aktivitet_typ: p.typ, objekt_id: p.objektId, debiterbar: p.deb, arbetsdag_id: arbetsdagId,
+      start_tid: p.start + ":00", slut_tid: p.slut == null ? null : p.slut + ":00", minuter: p.slut == null ? 0 : periodMin(p.start, p.slut),
+      aktivitet_typ: p.typ, objekt_id: p.objektId, debiterbar: p.deb, arbetsdag_id: arbetsdagId, kalla: k.kalla,
+      ...(p.kommentar !== undefined ? { kommentar: kommentarRen(p.kommentar) } : {}),
     }, { id }, "*");
     if (!res.ok) return { ok: false, fel: res.fel };
     const rad = res.rows[0];
