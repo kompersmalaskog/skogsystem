@@ -18,14 +18,14 @@
 
 import { arRisjobb, harledTyp } from '@/lib/objekt/typ';
 import { haversine } from '@/utils/geo';
-import { dagAv, dagarSedan } from './format';
+import { dagAv, dagarMellan, dagarSedan } from './format';
 
 // ── Råa rader (det hamta.ts läser) ───────────────────────────────────────────
 
-export type GrotSkal = 'markberedning' | 'plantering' | 'annat';
-export const GROT_SKAL: GrotSkal[] = ['markberedning', 'plantering', 'annat'];
-export function arGrotSkal(v: unknown): v is GrotSkal {
-  return v === 'markberedning' || v === 'plantering' || v === 'annat';
+/** Markägarens markkrav (dim_objekt.grot_markkrav). NULL = ingen uppgift. */
+export type GrotMarkkrav = 'tal_blott' | 'torrt_eller_tjale';
+export function arGrotMarkkrav(v: unknown): v is GrotMarkkrav {
+  return v === 'tal_blott' || v === 'torrt_eller_tjale';
 }
 
 export interface GrotDim {
@@ -40,7 +40,7 @@ export interface GrotDim {
   grot_anpassad: boolean | null;
   grot_hamtad: string | null;
   grot_senast: string | null;
-  grot_skal: string | null;
+  grot_markkrav: string | null;
   exkludera: boolean | null;
   risskotning: boolean | null;
   skordning_avslutad: string | null;
@@ -94,9 +94,12 @@ export interface GrotRad {
   dagar: number | null;
   /** Skördad volym, m³fub (= volym_m3sub) */
   skordatM3: number;
-  /** Markägarens datum + skäl (grot_senast / grot_skal) */
+  /** Markägarens datum (grot_senast), 'YYYY-MM-DD'. Skälet (grot_skal) läses inte — v2 visar det aldrig. */
   senast: string | null;
-  skal: GrotSkal | null;
+  /** Hela dagar från idag till `senast` (negativt = datumet har passerat). Null = inget datum. */
+  dagarTillSenast: number | null;
+  /** Markägarens markkrav (grot_markkrav). Null = ingen uppgift. */
+  markkrav: GrotMarkkrav | null;
   koordinat: Koord | null;
   /** Planeringens objekt-rad. Null = trakten saknar objekt i planeringen → ingen kö, ingen karta. */
   objekt: GrotObjektRad | null;
@@ -239,7 +242,8 @@ export function byggGrotLista(raw: GrotRaw, opt: ByggOpt): GrotLista {
       dagar: dagarSedan(avverkat, idag),
       skordatM3: skordat,
       senast,
-      skal: senast && arGrotSkal(dim.grot_skal) ? dim.grot_skal : null,
+      dagarTillSenast: senast ? dagarMellan(idag, senast) : null,
+      markkrav: arGrotMarkkrav(dim.grot_markkrav) ? dim.grot_markkrav : null,
       koordinat: koordinatFor(objekt, dim),
       objekt,
       atgard: (objekt?.atgard ?? '').trim() || (dim.atgard ?? '').trim() || null,
@@ -294,4 +298,49 @@ export function grotVantandeObjektIds(lista: GrotLista): Set<string> {
   const ids = new Set<string>();
   lista.alla.forEach((r) => { if (r.objekt) ids.add(r.objekt.id); });
   return ids;
+}
+
+// ── Markägarens datum: försenad / snart ───────────────────────────────────────
+
+/** "Snart" = markägarens datum ligger högst så här många dagar bort (eller har passerat). */
+export const SNART_DAGAR = 7;
+
+/** Markägarens datum har passerat. Själva dagen räknas inte som försenad — GROT kan fortfarande köras den dagen. */
+export function arForsenad(r: Pick<GrotRad, 'dagarTillSenast'>): boolean {
+  return r.dagarTillSenast != null && r.dagarTillSenast < 0;
+}
+
+/** Markägarens datum är inom SNART_DAGAR dagar — ett försenat datum är också "snart" (det är då det är mest bråttom).
+ *  Körda trakter finns inte i listan, så "inte kört" är redan uppfyllt för varje rad. */
+export function arSnart(r: Pick<GrotRad, 'dagarTillSenast'>): boolean {
+  return r.dagarTillSenast != null && r.dagarTillSenast <= SNART_DAGAR;
+}
+
+/** Antal rader som är "snart" — siffran i chippen ('GROT · 28 · 2 snart'). */
+export function grotSnartAntal(lista: GrotLista): number {
+  return lista.alla.filter(arSnart).length;
+}
+
+// ── Sparning från GROT-arket ──────────────────────────────────────────────────
+
+/** Det GROT-arket skriver till dim_objekt (nycklar = LOGISKA fält i lib/redigering/objektRouter FALT_RUTT).
+ *  grot_skal nollas bara tillsammans med datumet — ett skäl utan datum är ett löst påstående (samma regel som redigeringsvyn). */
+export interface GrotSkrivning {
+  grot_senast?: string | null;
+  grot_markkrav?: GrotMarkkrav | null;
+  grot_skal?: null;
+}
+
+/** Råraderna efter en lyckad sparning: patchen läggs på de dim-rader som skrevs (hela VO-gruppen). Listan byggs sedan om
+ *  ur de nya raderna, så raden byter grupp, och chippen räknar om, utan ny hämtning. */
+export function medDimPatch(raw: GrotRaw, dimIds: string[], patch: GrotSkrivning): GrotRaw {
+  const ids = new Set<string>(dimIds);
+  const dim = raw.dim.map((d) => {
+    if (!ids.has(d.objekt_id)) return d;
+    const ny: GrotDim = { ...d };
+    if ('grot_senast' in patch) ny.grot_senast = patch.grot_senast ?? null;
+    if ('grot_markkrav' in patch) ny.grot_markkrav = patch.grot_markkrav ?? null;
+    return ny;
+  });
+  return { ...raw, dim };
 }

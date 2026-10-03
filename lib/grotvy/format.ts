@@ -63,14 +63,42 @@ export function avverkatText(avverkat: string | null | undefined, idag: string):
   return `avverkat ${datum} · ${dagar} dgr`;
 }
 
-/** Markägarens datum: 'senast 3 okt · markberedning'. Har datumet passerat: '… (försenat)'. */
-export function senastText(senast: string | null | undefined, skal: string | null | undefined, idag: string): string {
+/** Markägarens datum: 'senast 3 okt'. Skälet (grot_skal) visas ingenstans i v2 — det är alltid markberedning/plantering.
+ *  Att datumet har passerat står INTE här utan som ett eget ord, FORSENAD_TEXT, som vyn sätter i rött. */
+export function senastText(senast: string | null | undefined, idag: string): string {
   const dag = dagAv(senast);
-  if (!dag) return '';
-  const delar = [`senast ${kortDatum(dag, idag)}`];
-  if (skal) delar.push(skal);
-  const text = delar.join(' · ');
-  return dagarMellan(dag, idag) > 0 ? `${text} (försenat)` : text;
+  return dag ? `senast ${kortDatum(dag, idag)}` : '';
+}
+
+/** Ordet på raden när markägarens datum har passerat (visas i rött, efter 'senast 3 okt'). */
+export const FORSENAD_TEXT = 'försenad';
+
+/** Markkravet som visas i orange på listraden och i arket. Bara det som begränsar visas: 'tal_blott' (marken tål blött)
+ *  är inget att varna för och syns därför bara som valt läge på knappen i sektionen Markägaren. */
+export const TORRT_TJALE_TEXT = 'bara torrt/tjäle';
+export function markkravText(markkrav: string | null | undefined): string {
+  return markkrav === 'torrt_eller_tjale' ? TORRT_TJALE_TEXT : '';
+}
+
+/** De två knapparna i sektionen Markägaren, i visad ordning. `varde` är det som lagras i dim_objekt.grot_markkrav. */
+export const MARKKRAV_KNAPPAR: { varde: 'tal_blott' | 'torrt_eller_tjale'; etikett: string }[] = [
+  { varde: 'tal_blott', etikett: 'Tål blött' },
+  { varde: 'torrt_eller_tjale', etikett: 'Bara torrt/tjäle' },
+];
+
+/** Chippen på kartan: 'GROT · 28', och 'GROT · 28 · 2 snart' när något har markägarens datum inom SNART_DAGAR. */
+export function grotChipText(antal: number, snart: number): string {
+  return snart > 0 ? `GROT · ${antal} · ${snart} snart` : `GROT · ${antal}`;
+}
+
+/** Ett datum som går att spara som markägarens datum: ett riktigt kalenderdatum 'YYYY-MM-DD' mellan 2000 och 2100.
+ *  Datumväljaren ger ett halvskrivet värde medan man skriver (tomt, '0002-…') — det är inte "rensa" och sparas inte. */
+export function arRimligtSenast(v: string | null | undefined): boolean {
+  const dag = dagAv(v);
+  if (!dag || dag !== v) return false;
+  if (dag < '2000-01-01' || dag > '2100-12-31') return false;
+  const d = new Date(utcDag(dag));
+  return d.getUTCFullYear() === Number(dag.slice(0, 4)) && d.getUTCMonth() === Number(dag.slice(5, 7)) - 1 && d.getUTCDate() === Number(dag.slice(8, 10));
 }
 
 /** 'skördat 1 240 m³' — traktens skördade volym i m³fub (volym_m3sub). */

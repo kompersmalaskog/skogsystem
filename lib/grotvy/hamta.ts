@@ -6,7 +6,7 @@
 
 import type { GrotDim, GrotKoppling, GrotObjektRad, GrotProd, GrotRaw } from './lista';
 
-const DIM_KOL = 'objekt_id, object_name, vo_nummer, areal_ha, latitude, longitude, huvudtyp, atgard, grot_anpassad, grot_hamtad, grot_senast, grot_skal, exkludera, risskotning, skordning_avslutad, skotning_avslutad';
+const DIM_KOL = 'objekt_id, object_name, vo_nummer, areal_ha, latitude, longitude, huvudtyp, atgard, grot_anpassad, grot_hamtad, grot_senast, grot_markkrav, exkludera, risskotning, skordning_avslutad, skotning_avslutad';
 const OBJEKT_KOL = 'id, vo_nummer, namn, typ, status, atgard, areal, lat, lng, dim_objekt_id';
 const SIDA = 1000;
 const IN_BIT = 60; // ids per .in() — håller URL:en kort

@@ -3,15 +3,16 @@
 // Ren presentation — data, avstånd och "står här" kommer in som props, så samma komponent kan renderas mot
 // fixturer utan inloggning och databas.
 //
-// Två grupper: överst "Markägaren vill ha det bort" (datum + skäl), under "När det passar · äldst först".
-// Tom grupp visas inte alls. Rad (kanvasen): namn · [orange: senast <datum> · skäl] · avverkat <datum> · N dgr,
-// till höger skördad volym och under den vägavstånd till närmaste andra GROT-objekt, eller "X står här".
+// Två grupper: överst "Markägaren vill ha det bort" (de med datum), under "När det passar · äldst först".
+// Tom grupp visas inte alls. Rad (kanvasen): namn · [orange: senast <datum>, och i rött "försenad" när datumet har
+// passerat] · [orange: bara torrt/tjäle, om markägaren kräver det] · avverkat <datum> · N dgr, till höger skördad
+// volym och under den vägavstånd till närmaste andra GROT-objekt, eller "X står här". Skälet (grot_skal) visas inte.
 // Tryck på en rad → v2 flyger dit och byter till objekt-arket (GrotObjektArk).
 
 import React, { useLayoutEffect, useRef } from 'react';
 import { AVSTAND, FARG, RADIE, TNUM, TYP } from '@/lib/design/tokens';
-import { avverkatText, senastText, tusental } from '@/lib/grotvy/format';
-import type { GrotLista, GrotRad } from '@/lib/grotvy/lista';
+import { avverkatText, FORSENAD_TEXT, markkravText, senastText, tusental } from '@/lib/grotvy/format';
+import { arForsenad, type GrotLista, type GrotRad } from '@/lib/grotvy/lista';
 import { Grabber, SheetBas } from './ark-delar';
 
 function Gruppetikett({ text, farg, forst }: { text: string; farg: string; forst: boolean }) {
@@ -27,7 +28,13 @@ function RadKnapp({ rad, idag, hoger, onOppna }: { rad: GrotRad; idag: string; h
     }}>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ ...TYP.listtitel, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rad.namn}</div>
-        {rad.senast && <div style={{ ...TYP.meta, color: FARG.orange }}>{senastText(rad.senast, rad.skal, idag)}</div>}
+        {rad.senast && (
+          <div style={{ ...TYP.meta, color: FARG.orange }}>
+            {senastText(rad.senast, idag)}
+            {arForsenad(rad) && <span style={{ color: FARG.rod }}> · {FORSENAD_TEXT}</span>}
+          </div>
+        )}
+        {markkravText(rad.markkrav) && <div style={{ ...TYP.meta, color: FARG.orange }}>{markkravText(rad.markkrav)}</div>}
         <div style={{ ...TYP.meta, color: FARG.text2 }}>{avverkatText(rad.avverkat, idag)}</div>
       </div>
       {/* Högerkolumnen får högst knappt hälften: på en telefon (≈310 px inuti raden) annars trycker

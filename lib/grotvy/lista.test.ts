@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   byggGrotLista, grotVantandeObjektIds, objektRaderFor, koordinatFor, typFor, rollMatcharTyp,
-  rimligKoordinat, arGrotSkal, STAAR_HAR_DAGAR, grotKordaObjektIds,
+  rimligKoordinat, arGrotMarkkrav, STAAR_HAR_DAGAR, grotKordaObjektIds,
+  SNART_DAGAR, arForsenad, arSnart, grotSnartAntal, medDimPatch,
   type GrotDim, type GrotObjektRad, type GrotProd, type GrotKoppling, type GrotRaw, type GrotPlats,
 } from './lista';
 
@@ -12,7 +13,7 @@ function dim(id: string, over: Partial<GrotDim> = {}): GrotDim {
   return {
     objekt_id: id, object_name: `Trakt ${id}`, vo_nummer: id, areal_ha: 4.2,
     latitude: 56.5, longitude: 14.7, huvudtyp: 'Slutavverkning', atgard: 'Slutavverkning',
-    grot_anpassad: true, grot_hamtad: null, grot_senast: null, grot_skal: null, exkludera: false,
+    grot_anpassad: true, grot_hamtad: null, grot_senast: null, grot_markkrav: null, exkludera: false,
     risskotning: false, skordning_avslutad: '2026-08-01', skotning_avslutad: null, ...over,
   };
 }
@@ -139,21 +140,130 @@ describe('två grupper och ordning', () => {
     }), { idag: IDAG });
     expect(l.markagaren.map((r) => r.namn)).toEqual(['Äldre', 'Nyare']);
   });
-  it('skäl behålls bara när datum finns, och bara om det är ett av de tre', () => {
+  it('markkrav: bara de två kända värdena följer med, allt annat blir null (oberoende av datumet)', () => {
     const l = byggGrotLista(raw({
       dim: [
-        dim('a', { grot_senast: '2026-10-10', grot_skal: 'plantering' }),
-        dim('b', { grot_senast: null, grot_skal: 'markberedning' }),
-        dim('c', { grot_senast: '2026-10-11', grot_skal: 'okänt skäl' }),
+        dim('a', { grot_markkrav: 'torrt_eller_tjale' }),
+        dim('b', { grot_markkrav: 'tal_blott', grot_senast: '2026-10-10' }),
+        dim('c', { grot_markkrav: 'okänt värde' }),
+        dim('d', { grot_markkrav: null }),
       ],
-      prod: [prod('a', 1), prod('b', 1), prod('c', 1)],
+      prod: [prod('a', 1), prod('b', 1), prod('c', 1), prod('d', 1)],
     }), { idag: IDAG });
     const per = new Map(l.alla.map((r) => [r.id, r]));
-    expect(per.get('a')!.skal).toBe('plantering');
-    expect(per.get('b')!.skal).toBeNull();
-    expect(per.get('b')!.senast).toBeNull();
-    expect(per.get('c')!.skal).toBeNull();
-    expect(per.get('c')!.senast).toBe('2026-10-11');
+    expect(per.get('a')!.markkrav).toBe('torrt_eller_tjale');
+    expect(per.get('a')!.senast).toBeNull(); // ett markkrav utan datum är giltigt — raden ligger kvar under "När det passar"
+    expect(l.passar.map((r) => r.id)).toContain('a');
+    expect(per.get('b')!.markkrav).toBe('tal_blott');
+    expect(per.get('c')!.markkrav).toBeNull();
+    expect(per.get('d')!.markkrav).toBeNull();
+  });
+  it('skälet (grot_skal) läses inte — raden har inget skal-fält', () => {
+    const l = byggGrotLista(raw({ dim: [{ ...dim('a', { grot_senast: '2026-10-10' }), grot_skal: 'plantering' } as GrotDim], prod: [prod('a', 1)] }), { idag: IDAG });
+    expect(Object.keys(l.alla[0])).not.toContain('skal');
+  });
+  it('dagarTillSenast räknas i hela kalenderdagar från idag; null utan datum', () => {
+    const l = byggGrotLista(raw({
+      dim: [
+        dim('a', { grot_senast: '2026-10-02' }), // idag
+        dim('b', { grot_senast: '2026-10-09' }), // om 7 dagar
+        dim('c', { grot_senast: '2026-09-30' }), // för 2 dagar sedan
+        dim('d', { grot_senast: null }),
+        dim('e', { grot_senast: '2027-01-01T00:00:00' }), // ISO-tid: datumdelen gäller
+      ],
+      prod: ['a', 'b', 'c', 'd', 'e'].map((i) => prod(i, 1)),
+    }), { idag: IDAG });
+    const per = new Map(l.alla.map((r) => [r.id, r]));
+    expect(per.get('a')!.dagarTillSenast).toBe(0);
+    expect(per.get('b')!.dagarTillSenast).toBe(7);
+    expect(per.get('c')!.dagarTillSenast).toBe(-2);
+    expect(per.get('d')!.dagarTillSenast).toBeNull();
+    expect(per.get('e')!.dagarTillSenast).toBe(91);
+  });
+});
+
+describe('försenad och snart — chippen och raden', () => {
+  const rad = (dagarTillSenast: number | null) => ({ dagarTillSenast });
+  it('försenad = datumet har passerat; själva dagen är inte försenad; inget datum är inte försenat', () => {
+    expect(arForsenad(rad(-1))).toBe(true);
+    expect(arForsenad(rad(-30))).toBe(true);
+    expect(arForsenad(rad(0))).toBe(false);
+    expect(arForsenad(rad(3))).toBe(false);
+    expect(arForsenad(rad(null))).toBe(false);
+  });
+  it('snart = inom 7 dagar, inklusive idag och redan försenat; 8 dagar bort är inte snart; inget datum är aldrig snart', () => {
+    expect(SNART_DAGAR).toBe(7);
+    expect(arSnart(rad(7))).toBe(true);
+    expect(arSnart(rad(0))).toBe(true);
+    expect(arSnart(rad(-5))).toBe(true);
+    expect(arSnart(rad(8))).toBe(false);
+    expect(arSnart(rad(null))).toBe(false);
+  });
+  it('grotSnartAntal räknar raderna i listan; körda trakter finns inte där och räknas därför inte', () => {
+    const l = byggGrotLista(raw({
+      dim: [
+        dim('a', { grot_senast: '2026-10-05' }),            // om 3 dagar → snart
+        dim('b', { grot_senast: '2026-09-20' }),            // försenad → snart
+        dim('c', { grot_senast: '2026-10-20' }),            // långt bort → inte snart
+        dim('d'),                                           // inget datum
+        dim('e', { grot_senast: '2026-10-03', grot_hamtad: '2026-10-01' }), // kört → inte i listan alls
+      ],
+      prod: ['a', 'b', 'c', 'd', 'e'].map((i) => prod(i, 1)),
+    }), { idag: IDAG });
+    expect(l.alla).toHaveLength(4);
+    expect(grotSnartAntal(l)).toBe(2);
+  });
+  it('ett länkat risjobb som är klart tar bort raden ur räkningen (körd-regeln)', () => {
+    const risjobb = dim('R1', { risskotning: true, huvudtyp: 'Grot', skotning_avslutad: '2026-10-01' });
+    const l = byggGrotLista(raw({
+      dim: [dim('a', { grot_senast: '2026-10-04' })], prod: [prod('a', 1)], risjobb: [risjobb],
+      kopplingar: [{ risjobb_objekt_id: 'R1', avverknings_objekt_id: 'a' }],
+    }), { idag: IDAG });
+    expect(grotSnartAntal(l)).toBe(0);
+  });
+});
+
+describe('medDimPatch — råraderna efter en lyckad sparning', () => {
+  const bas = () => raw({
+    dim: [dim('a', { vo_nummer: 'V1' }), dim('b', { vo_nummer: 'V1' }), dim('c', { vo_nummer: 'V2', grot_senast: '2026-10-20', grot_markkrav: 'tal_blott' })],
+    prod: [prod('a', 1), prod('b', 1), prod('c', 1)],
+  });
+  it('patchen läggs på exakt de rader som skrevs, övriga är orörda', () => {
+    const r = medDimPatch(bas(), ['a', 'b'], { grot_senast: '2026-10-09', grot_markkrav: 'torrt_eller_tjale' });
+    expect(r.dim.map((d) => [d.objekt_id, d.grot_senast, d.grot_markkrav])).toEqual([
+      ['a', '2026-10-09', 'torrt_eller_tjale'], ['b', '2026-10-09', 'torrt_eller_tjale'], ['c', '2026-10-20', 'tal_blott'],
+    ]);
+  });
+  it('bara de nycklar som finns i patchen ändras', () => {
+    const r = medDimPatch(bas(), ['c'], { grot_markkrav: 'torrt_eller_tjale' });
+    const c = r.dim.find((d) => d.objekt_id === 'c')!;
+    expect(c.grot_markkrav).toBe('torrt_eller_tjale');
+    expect(c.grot_senast).toBe('2026-10-20'); // orört
+  });
+  it('null rensar; rensa datum (med grot_skal: null) lämnar markkravet kvar', () => {
+    const r = medDimPatch(bas(), ['c'], { grot_senast: null, grot_skal: null });
+    const c = r.dim.find((d) => d.objekt_id === 'c')!;
+    expect(c.grot_senast).toBeNull();
+    expect(c.grot_markkrav).toBe('tal_blott');
+  });
+  it('muterar inte originalet, och övriga delar av råmängden följer med oförändrade', () => {
+    const orig = bas();
+    const r = medDimPatch(orig, ['a'], { grot_senast: '2026-10-09' });
+    expect(orig.dim[0].grot_senast).toBeNull();
+    expect(r).not.toBe(orig);
+    expect(r.prod).toBe(orig.prod);
+    expect(r.kopplingar).toBe(orig.kopplingar);
+    expect(r.dim[1]).toBe(orig.dim[1]); // en orörd rad är samma objekt (ingen onödig omräkning av hela listan)
+  });
+  it('listan byggs om: raden byter grupp, och försenad/snart räknas om, direkt efter patchen', () => {
+    const fore = byggGrotLista(bas(), { idag: IDAG });
+    expect(fore.markagaren.map((r) => r.id)).toEqual(['c']);
+    const efter = byggGrotLista(medDimPatch(bas(), ['a', 'b'], { grot_senast: '2026-09-25' }), { idag: IDAG });
+    expect(efter.markagaren.map((r) => r.id)).toEqual(['a', 'b', 'c']); // närmast i tid först — de två försenade före c
+    expect(grotSnartAntal(efter)).toBe(2);
+    expect(arForsenad(efter.alla[0])).toBe(true);
+    const rensad = byggGrotLista(medDimPatch(medDimPatch(bas(), ['a', 'b'], { grot_senast: '2026-09-25' }), ['a', 'b'], { grot_senast: null, grot_skal: null }), { idag: IDAG });
+    expect(rensad.markagaren.map((r) => r.id)).toEqual(['c']);
   });
 });
 
@@ -231,12 +341,14 @@ describe('typ och skotar_roll', () => {
     expect(rollMatcharTyp(null, 'slutavverkning')).toBe(false);
     expect(rollMatcharTyp('okänd', 'slutavverkning')).toBe(false);
   });
-  it('arGrotSkal', () => {
-    expect(arGrotSkal('markberedning')).toBe(true);
-    expect(arGrotSkal('plantering')).toBe(true);
-    expect(arGrotSkal('annat')).toBe(true);
-    expect(arGrotSkal('Annat')).toBe(false);
-    expect(arGrotSkal(null)).toBe(false);
+  it('arGrotMarkkrav: exakt de två värdena som CHECK-regeln i databasen släpper in', () => {
+    expect(arGrotMarkkrav('tal_blott')).toBe(true);
+    expect(arGrotMarkkrav('torrt_eller_tjale')).toBe(true);
+    expect(arGrotMarkkrav('Tal_blott')).toBe(false);
+    expect(arGrotMarkkrav('torrt')).toBe(false);
+    expect(arGrotMarkkrav('')).toBe(false);
+    expect(arGrotMarkkrav(null)).toBe(false);
+    expect(arGrotMarkkrav(undefined)).toBe(false);
   });
 });
 

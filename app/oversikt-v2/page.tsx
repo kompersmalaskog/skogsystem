@@ -19,10 +19,11 @@ import { paBackenKvar } from '@/lib/skotat';
 import { hamtaSkordMapV2, type SkordAggV2 } from './skord-data';
 import { beraknaForslag, arSkotare, maskinAktiv, koNamn, arGrotKo, type MaskinForslag, type MaskinRad, type KoPost } from './nasta-v2';
 import { hamtaGrotRaw } from '@/lib/grotvy/hamta';
-import { byggGrotLista, grotKordaObjektIds, grotVantandeObjektIds, type GrotRad, type GrotRaw } from '@/lib/grotvy/lista';
+import { byggGrotLista, grotKordaObjektIds, grotSnartAntal, grotVantandeObjektIds, medDimPatch, type GrotRad, type GrotRaw, type GrotSkrivning } from '@/lib/grotvy/lista';
 import { arGrotUnderlagTillforlitligt, koRaderAttRensa, raderaKoRader } from '@/lib/grotvy/ko';
-import { avstandText } from '@/lib/grotvy/format';
+import { avstandText, grotChipText } from '@/lib/grotvy/format';
 import { narmasteVag } from '@/lib/grotvy/avstand';
+import { sparaFalt } from '@/lib/redigering/objektRouter';
 import GrotListaArk from './GrotLista';
 import GrotObjektArk, { type ArkKo, type ArkSkotare } from './GrotObjektArk';
 import { useGrotVagAvstand } from './grot-avstand';
@@ -238,6 +239,7 @@ export default function OversiktV2Page() {
   })), [aktivaMaskiner, positions]);
   const grotLista = useMemo(() => grotRaw ? byggGrotLista(grotRaw, { idag: todayISO, platser: positions, skotare: grotSkotare.map((s) => ({ id: s.id, namn: s.namn })) }) : null, [grotRaw, todayISO, positions, grotSkotare]);
   const grotIds = useMemo(() => grotLista ? grotVantandeObjektIds(grotLista) : new Set<string>(), [grotLista]); // objekt.id som släpps in i kön trots avslutad status
+  const grotSnart = useMemo(() => grotLista ? grotSnartAntal(grotLista) : 0, [grotLista]); // markägarens datum inom 7 dagar (eller förbi) — chippen blir orange
 
   const forslag = useMemo(() => {
     if (!aktivaMaskiner.length) return new Map<string, MaskinForslag>();
@@ -260,6 +262,7 @@ export default function OversiktV2Page() {
   }, [selMaskin, forslag, vagRuttCached]);
 
   const isDriver = medarbetare?.roll === 'forare';
+  const kanRedigeraGrot = medarbetare?.roll === 'admin' || medarbetare?.roll === 'chef'; // markägarens uppgifter i GROT-arket: bara förman/admin (okänd roll = nej)
   const driverMaskinId = medarbetare?.maskin_id ?? null;
   const didAutoSelect = useRef(false);
   // Djuplänk ?objekt=<objekt.id> (för länkar från andra vyer): kartan centreras på objektet och dess ark öppnas.
@@ -307,13 +310,15 @@ export default function OversiktV2Page() {
   const [mapReady, setMapReady] = useState(false);
   const [mapStyleLoaded, setMapStyleLoaded] = useState(false);
   const machMarkersRef = useRef<Map<string, { marker: any; square: HTMLDivElement; label: HTMLDivElement; sub: HTMLDivElement }>>(new Map());
-  const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; circle: HTMLDivElement; label: HTMLDivElement; desc: DotDesc }>>(new Map());
+  // grot = pricken hör till GROT-listan (GROT-arket är öppet): den behåller full styrka medan övriga prickar dämpas.
+  const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; circle: HTMLDivElement; label: HTMLDivElement; desc: DotDesc; grot: boolean }>>(new Map());
   const ordnaRef = useRef(false); // true medan "Ändra ordning" är öppet → kartan rör sig inte av sig själv
   const stopMarkersRef = useRef<any[]>([]); // numrerade rutt-cirklar + on-map-etiketter
   const clusterMarkersRef = useRef<any[]>([]); // ihopslagna maskin-markörer ("N maskiner")
   const highlightMarkerRef = useRef<any>(null); // prick under fingret i '+ Lägg till objekt'-väljaren
   const didFitRef = useRef(false);
   const forslagRef = useRef(forslag); forslagRef.current = forslag;
+  const grotOppenRef = useRef(grotOppen); grotOppenRef.current = grotOppen; // GROT-arket öppet → bara skotare + GROT-prickar syns (layoutMachines, restyleSelection)
   const selRef = useRef(selMaskin); selRef.current = selMaskin;
   const zoomRef = useRef(zoomNiva); zoomRef.current = zoomNiva;
   const koPreviewRef = useRef(koPreview); koPreviewRef.current = koPreview;
@@ -383,10 +388,15 @@ export default function OversiktV2Page() {
     const map = mapRef.current; if (!map) return;
     clusterMarkersRef.current.forEach((m) => m.remove()); clusterMarkersRef.current = [];
     const S = selRef.current; const z = map.getZoom();
+    // GROT-arket öppet (och ingen maskin vald): skördarna göms helt — bara skotare + GROT-prickar syns. De lämnar också
+    // `entries`, så en skotare aldrig slås ihop med en dold skördare till ett "N maskiner"-kluster. Stängs arket kör
+    // layoutMachines igen (effekt på grotOppen) och den vanliga vägen nedan visar dem på nytt.
+    const goms = grotOppenRef.current && !S;
     type E = { mid: string; mm: { square: HTMLDivElement; label: HTMLDivElement; sub: HTMLDivElement }; f: MaskinForslag; x: number; y: number };
     const entries: E[] = [];
     machMarkersRef.current.forEach((mm, mid) => {
       const f = forslagRef.current.get(mid); if (!f?.koordinat) return;
+      if (goms && f.typ === 'skordare') { mm.square.style.display = 'none'; mm.label.style.display = 'none'; return; }
       const p = map.project([f.koordinat.lng, f.koordinat.lat]); entries.push({ mid, mm, f, x: p.x, y: p.y });
     });
     if (S) { // vald maskin: ingen klustring. Vald → full etikett; övriga → dold etikett (men syns dämpat).
@@ -485,13 +495,13 @@ export default function OversiktV2Page() {
   // Objekt-prickar/ringar
   useEffect(() => {
     const map = mapRef.current; if (!map || !mapStyleLoaded) return;
-    const want = new Map<string, { desc: DotDesc; lat: number; lng: number; namn: string }>();
+    const want = new Map<string, { desc: DotDesc; lat: number; lng: number; namn: string; grot: boolean }>();
     for (const o of objekt) {
       if (o.lat == null || o.lng == null) continue;
       const d = dotDesc(o, koObjektIds.has(o.id), grotIds.has(o.id) ? (grotOppen ? 'oppen' : 'vantar') : false);
-      if (d) want.set(o.id, { desc: d, lat: o.lat, lng: o.lng, namn: (grotOppen && grotPerObjektId.get(o.id)?.namn) || o.namn }); // GROT-läge: samma namn som i listan
+      if (d) want.set(o.id, { desc: d, lat: o.lat, lng: o.lng, namn: (grotOppen && grotPerObjektId.get(o.id)?.namn) || o.namn, grot: grotPerObjektId.has(o.id) }); // GROT-läge: samma namn som i listan
     }
-    grotUtanPrick.forEach((r) => want.set(`grot:${r.id}`, { desc: GROT_PRICK, lat: r.koordinat!.lat, lng: r.koordinat!.lng, namn: r.namn }));
+    grotUtanPrick.forEach((r) => want.set(`grot:${r.id}`, { desc: GROT_PRICK, lat: r.koordinat!.lat, lng: r.koordinat!.lng, namn: r.namn, grot: true }));
     dotsRef.current.forEach((d, id) => { if (!want.has(id)) { d.marker.remove(); dotsRef.current.delete(id); } });
     want.forEach((p, id) => {
       let entry = dotsRef.current.get(id);
@@ -503,10 +513,10 @@ export default function OversiktV2Page() {
         el.appendChild(circle); el.appendChild(label);
         const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([p.lng, p.lat]).addTo(map);
         el.addEventListener('click', (e) => { e.stopPropagation(); prickKlickRef.current(id); });
-        entry = { marker, el, circle, label, desc: p.desc };
+        entry = { marker, el, circle, label, desc: p.desc, grot: p.grot };
         dotsRef.current.set(id, entry);
       }
-      entry.desc = p.desc; entry.label.textContent = p.namn;
+      entry.desc = p.desc; entry.grot = p.grot; entry.label.textContent = p.namn;
     });
     restyleSelection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -601,10 +611,11 @@ export default function OversiktV2Page() {
   const syncDotVisibility = useCallback(() => {
     const map = mapRef.current; if (!map) return;
     const z = map.getZoom(); const S = selRef.current;
+    const grot = grotOppenRef.current; // GROT-arket öppet: övriga prickar är dämpade (restyleSelection) och får ingen namn-etikett som kan skjuta undan en GROT-etikett
     dotsRef.current.forEach((d) => {
       const dotVisible = z >= THRESHOLD_ZOOM || d.desc.utzoom;
       d.el.style.display = dotVisible ? 'block' : 'none';
-      d.label.style.display = (dotVisible && !S && d.desc.namnbar && z >= THRESHOLD_ZOOM) ? 'block' : 'none';
+      d.label.style.display = (dotVisible && !S && d.desc.namnbar && z >= THRESHOLD_ZOOM && !(grot && !d.grot)) ? 'block' : 'none';
     });
   }, []);
   useEffect(() => { syncDotVisibility(); layoutLabels(); }, [zoomNiva, syncDotVisibility, layoutLabels]);
@@ -625,8 +636,10 @@ export default function OversiktV2Page() {
       mm.square.style.boxShadow = sel ? `0 0 0 4px rgba(10,132,255,0.28), 0 1px 4px rgba(0,0,0,0.4)` : '0 1px 4px rgba(0,0,0,0.4)';
     }); // etikett-/klustersynlighet ägs av layoutMachines (anropas sist)
     dotsRef.current.forEach((d, id) => {
-      const desc = d.desc; const dimNarVald = S && !koIds.has(id);
-      const op = dimNarVald ? 0.1 : desc.opacity;
+      const desc = d.desc;
+      // Dämpad = en maskin är vald och pricken ligger inte i dess kö, ELLER GROT-arket är öppet och pricken inte hör till GROT-listan.
+      const dampad = (S && !koIds.has(id)) || (grotOppenRef.current && !d.grot);
+      const op = dampad ? 0.1 : desc.opacity;
       const px = desc.size;
       const base = `position:absolute;box-sizing:border-box;left:${-px / 2}px;top:${-px / 2}px;width:${px}px;height:${px}px;border-radius:50%;`;
       // Halo = 1,5 px vit ytterkant + mjuk skugga så prickarna lyfter från ljus topografi. Avslutade orörda.
@@ -667,10 +680,12 @@ export default function OversiktV2Page() {
     layoutMachines(); // klustring + etikettsynlighet speglar urvalet
   }, []);
 
+  // grotOppen: öppnas/stängs GROT-arket ska skördarna gömmas/visas och prickarna dämpas/återställas direkt (restyleSelection
+  // kör layoutMachines + prickarnas stil). Stängs arket kommer allt tillbaka.
   useEffect(() => {
     restyleSelection(); layoutLabels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selMaskin, ruttVersion, forslag, restyleSelection, layoutLabels]);
+  }, [selMaskin, ruttVersion, forslag, restyleSelection, layoutLabels, grotOppen]);
 
   // Tryck på maskin → passa in maskin + alla kö-objekt EN gång (padding så allt ligger ovanför arket).
   // Rör sig aldrig igen förrän användaren zoomar/panorerar eller väljer annan maskin. Ryms allt redan: ingen rörelse.
@@ -866,16 +881,38 @@ export default function OversiktV2Page() {
     return efter.some((k) => k.id === koId) ? 'Ändringen landade inte. Försök igen.' : null;
   }, [grotLasKo]);
 
+  // Markägarens uppgifter (bortkört senast, markkrav): direktspar, VERIFIERAT — sparaFalt läser tillbaka värdet på varje rad
+  // och svarar ok först när det som står i databasen är det som skickades. Skrivs över hela VO-gruppen (samma regel som
+  // redigeringsvyn); syskonen slås upp färskt, för grotRaw har bara de GROT-anpassade raderna. Landar det speglas patchen i
+  // råraderna, så listan, chippen och arket räknar om utan ny hämtning. Returnerar null när det landade, annars ett fel.
+  const grotSpara = useCallback(async (rad: GrotRad, patch: GrotSkrivning): Promise<string | null> => {
+    const vo = (rad.voNummer ?? '').trim();
+    let dimIds = [rad.id];
+    if (vo) {
+      const { data, error } = await supabase.from('dim_objekt').select('objekt_id').eq('vo_nummer', vo).order('objekt_id');
+      if (error) { console.error('[Översikt v2] kunde inte läsa objektets VO-grupp', error.message); return 'Kunde inte spara. Försök igen.'; }
+      const funna = ((data || []) as { objekt_id: string }[]).map((r) => r.objekt_id);
+      if (funna.indexOf(rad.id) < 0) return 'Objektet finns inte längre. Ladda om sidan.';
+      dimIds = funna;
+    }
+    const res = await sparaFalt({ dimObjektIds: dimIds, voNummer: vo || null }, patch);
+    if (!res.ok) { console.error('[Översikt v2] GROT-sparningen landade inte', res.message); return 'Kunde inte spara. Försök igen.'; }
+    setGrotRaw((prev) => (prev ? medDimPatch(prev, dimIds, patch) : prev));
+    return null;
+  }, []);
+
   return (
     <div style={{ position: 'relative', height: 'calc(100vh - 56px - env(safe-area-inset-top))', width: '100%', background: FARG.bg, color: FARG.text, fontFamily: FONT, overflow: 'hidden', WebkitFontSmoothing: 'antialiased' }}>
       <style>{designCss}</style>
       <div ref={mapContainerRef} style={{ position: 'absolute', inset: 0 }} />
 
-      {/* GROT-chip — bara förman/admin (förare ser den aldrig) och bara när något väntar. Tryck → GROT-listan som ark. */}
+      {/* GROT-chip — bara förman/admin (förare ser den aldrig) och bara när något väntar. Tryck → GROT-listan som ark.
+          'GROT · 28 · 2 snart': orange när något har markägarens datum inom 7 dagar (eller förbi) och inte är kört — orden bär
+          beskedet, färgen förstärker det. */}
       {!laddar && !fel && !rollLaddar && !isDriver && grotLista && grotLista.alla.length > 0 && (
-        <button onClick={() => (grotOppen ? stangGrot() : oppnaGrot())} aria-pressed={grotOppen} aria-label={`GROT-listan, ${grotLista.alla.length} objekt`}
-          style={{ position: 'absolute', top: AVSTAND.m, right: AVSTAND.m, zIndex: 7, minHeight: 44, padding: `0 ${AVSTAND.m}px`, display: 'flex', alignItems: 'center', border: 'none', borderRadius: RADIE.knapp, cursor: 'pointer', fontFamily: 'inherit', background: CHIP_BG, color: FARG.text, boxShadow: '0 2px 8px rgba(0,0,0,0.35)', ...TYP.meta, fontWeight: 600, ...TNUM }}>
-          GROT · {grotLista.alla.length}
+        <button onClick={() => (grotOppen ? stangGrot() : oppnaGrot())} aria-pressed={grotOppen} aria-label={`GROT-listan, ${grotLista.alla.length} objekt${grotSnart > 0 ? `, ${grotSnart} snart` : ''}`}
+          style={{ position: 'absolute', top: AVSTAND.m, right: AVSTAND.m, zIndex: 7, minHeight: 44, padding: `0 ${AVSTAND.m}px`, display: 'flex', alignItems: 'center', border: 'none', borderRadius: RADIE.knapp, cursor: 'pointer', fontFamily: 'inherit', background: CHIP_BG, color: grotSnart > 0 ? FARG.orange : FARG.text, boxShadow: '0 2px 8px rgba(0,0,0,0.35)', ...TYP.meta, fontWeight: 600, ...TNUM }}>
+          {grotChipText(grotLista.alla.length, grotSnart)}
         </button>
       )}
 
@@ -939,7 +976,8 @@ export default function OversiktV2Page() {
       {!laddar && !fel && !valt && !objektValt && grotOppen && grotLista && grotLista.alla.length > 0 && (
         valtGrotRad ? (
           <GrotObjektArk key={valtGrotRad.id} rad={valtGrotRad} idag={todayISO} skotare={grotSkotare} ko={koForGrotValt}
-            onLaggIKo={grotLaggIKo} onTaBortKo={grotTaBortKo} onTillbaka={tillbakaTillGrotLista} onClose={stangGrot} />
+            onLaggIKo={grotLaggIKo} onTaBortKo={grotTaBortKo} onSpara={kanRedigeraGrot ? (patch) => grotSpara(valtGrotRad, patch) : undefined}
+            onTillbaka={tillbakaTillGrotLista} onClose={stangGrot} />
         ) : (
           <GrotListaArk lista={grotLista} idag={todayISO} hogerText={grotHogerText} onOppna={(r) => setGrotValt(r.id)} onClose={stangGrot}
             startScroll={grotListRullRef.current} onScroll={(px) => { grotListRullRef.current = px; }} />

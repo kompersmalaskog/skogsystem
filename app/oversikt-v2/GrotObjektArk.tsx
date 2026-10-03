@@ -7,6 +7,10 @@
 // Allt arket visar är sant eller '–': hänsyn kommer ur planeringens markeringar för just det objektet (okänd när
 // trakten saknar objekt i planeringen), avstånd är ORS-vägavstånd från skotarna som får köra objektet (aldrig
 // fågelväg), volymen är traktens skördade volym och GROT-mängden står som schablon, aldrig som mätt.
+//
+// Längst ner, bara för förman/admin (onSpara skickas in): sektionen "Markägaren" där bortkört-senast-datum och markkrav
+// sätts (GrotMarkagaren). Utan onSpara — förare — finns den inte. Markägarens uppgifter bor på dim_objekt, så de går att
+// sätta även för de trakter som saknar objekt-rad i planeringen.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -16,9 +20,10 @@ import { typLabel } from '@/lib/objekt/typ';
 import { classifyMarkering, markeringSub, prettifySub, SUB_LABEL } from '../oversikt/markeringar';
 import type { MaskinKoItem } from '../oversikt/oversikt-types';
 import { hamtaVagKm } from '@/lib/grotvy/avstand';
-import { arealText, grotSchablonText, kmText, kortDatum, SAKNAR_OBJEKT_TEXT, senastText, skordatText } from '@/lib/grotvy/format';
-import { rollMatcharTyp, type GrotRad, type Koord } from '@/lib/grotvy/lista';
+import { arealText, FORSENAD_TEXT, grotSchablonText, kmText, kortDatum, markkravText, SAKNAR_OBJEKT_TEXT, senastText, skordatText } from '@/lib/grotvy/format';
+import { arForsenad, rollMatcharTyp, type GrotRad, type GrotSkrivning, type Koord } from '@/lib/grotvy/lista';
 import { Grabber, KNAPP, KNAPP_LITEN, SheetBas } from './ark-delar';
+import GrotMarkagaren from './GrotMarkagaren';
 
 export interface ArkSkotare { id: string; namn: string; roll: string | null; koordinat: Koord | null }
 export interface ArkKo { post: MaskinKoItem; maskinNamn: string; plats: number }
@@ -27,7 +32,7 @@ type Hansyn = { faror: string[]; hansyn: string[] } | 'laddar' | 'fel';
 
 const SvgTillbaka = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>;
 
-export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaBortKo, onTillbaka, onClose }: {
+export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaBortKo, onSpara, onTillbaka, onClose }: {
   rad: GrotRad;
   idag: string;
   /** Aktiva skotare med läge; arket väljer själv de som får köra objektet enligt skotar_roll. */
@@ -35,6 +40,8 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
   ko: ArkKo | null;
   onLaggIKo: (maskinId: string, objektId: string) => Promise<string | null>;
   onTaBortKo: (koId: string) => Promise<string | null>;
+  /** Verifierad sparning av markägarens uppgifter (null = landade, annars felmeddelande). Saknas för förare → ingen sektion. */
+  onSpara?: (patch: GrotSkrivning) => Promise<string | null>;
   onTillbaka: () => void;
   onClose: () => void;
 }) {
@@ -161,7 +168,13 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
         {rubrikRad('Väntat', (
           <>
             <div style={{ color: FARG.text2 }}>{rad.avverkat ? `sedan ${kortDatum(rad.avverkat, idag)} · ${rad.dagar} dgr` : '–'}</div>
-            {rad.senast && <div style={{ ...TYP.meta, color: FARG.orange }}>{senastText(rad.senast, rad.skal, idag)}</div>}
+            {rad.senast && (
+              <div style={{ ...TYP.meta, color: FARG.orange }}>
+                {senastText(rad.senast, idag)}
+                {arForsenad(rad) && <span style={{ color: FARG.rod }}> · {FORSENAD_TEXT}</span>}
+              </div>
+            )}
+            {markkravText(rad.markkrav) && <div style={{ ...TYP.meta, color: FARG.orange }}>{markkravText(rad.markkrav)}</div>}
           </>
         ))}
         {staarNamn && rubrikRad('Just nu', `${staarNamn} står här`)}
@@ -192,6 +205,8 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
         )}
         {meddelande && <div style={{ ...TYP.meta, color: FARG.orange }}>{meddelande}</div>}
       </div>
+
+      {onSpara && <GrotMarkagaren rad={rad} onSpara={onSpara} />}
     </div>
   );
 }
