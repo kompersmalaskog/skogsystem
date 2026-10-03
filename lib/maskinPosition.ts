@@ -12,6 +12,7 @@
 // Rena funktioner, inga DB-anrop, inga React-beroenden → testbara (maskinPosition.test.ts, riktig prod-fixtur).
 
 import { valjObjektForPosition, arTilldelad, type KlararTyp, type ObjektForVal } from './objektPlats';
+import { haversineMeters } from './gps-guard';
 
 export type Roll = 'skordare' | 'skotare';
 
@@ -80,6 +81,30 @@ export function senastePunkt(points: unknown): HyttsparPunkt | null {
   return null;
 }
 
+/** Körriktningen (grader, 0 = norr, medurs) ur spårets SISTA rörelse: från den första punkten minst `minM` meter bakåt
+ *  till sista punkten. Stillastående (inga punkter så långt bort) → null. Används för att kartan ska stå med körriktningen
+ *  uppåt även när maskinen inte rör sig (ingen live-GPS-kurs finns då). */
+export function senasteKurs(points: unknown, minM = 8, maxBak = 80): number | null {
+  if (!Array.isArray(points)) return null;
+  const giltiga: { lat: number; lng: number }[] = [];
+  for (let i = points.length - 1; i >= 0 && giltiga.length <= maxBak; i--) {
+    const p = points[i] as any;
+    if (p && typeof p.lat === 'number' && typeof p.lng === 'number' && Number.isFinite(p.lat) && Number.isFinite(p.lng)) giltiga.push({ lat: p.lat, lng: p.lng });
+  }
+  if (giltiga.length < 2) return null;
+  const sista = giltiga[0];
+  for (let i = 1; i < giltiga.length; i++) {
+    const a = giltiga[i];
+    if (haversineMeters(a.lat, a.lng, sista.lat, sista.lng) < minM) continue;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const f1 = toRad(a.lat), f2 = toRad(sista.lat), dl = toRad(sista.lng - a.lng);
+    const y = Math.sin(dl) * Math.cos(f2);
+    const x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+    return Math.round((((Math.atan2(y, x) * 180) / Math.PI) + 360) % 360 * 10) / 10;
+  }
+  return null;
+}
+
 /** Den position appen sparar vid stängning (`maskinPos_v1_<maskin_id>`): {lat, lon}. Okänt/trasigt innehåll → null. */
 export function tolkaSparadPosition(raw: string | null | undefined): { lat: number; lon: number } | null {
   if (!raw) return null;
@@ -104,6 +129,7 @@ export interface StartPosition {
   objektId: string | null;
   datum: string | null;
   roll: Roll | null;
+  kurs: number | null;      // körriktning ur spårets sista rörelse (bara hyttspår); null = okänd/stillastående
 }
 
 export const MASKINPOS_NYCKEL = (maskinId: string) => 'maskinPos_v1_' + maskinId;
@@ -111,13 +137,13 @@ export const MASKINPOS_NYCKEL = (maskinId: string) => 'maskinPos_v1_' + maskinId
 /** Hela valet (ren): lokal position först (om tillåten), annars hyttspår. `lokalPos` ska vara null i testfliken. */
 export function valjStartPosition(args: {
   lokalPos: { lat: number; lon: number } | null;
-  spar: { rad: HyttsparIndexRad; punkt: HyttsparPunkt } | null;
+  spar: { rad: HyttsparIndexRad; punkt: HyttsparPunkt; kurs?: number | null } | null;
 }): StartPosition | null {
   const { lokalPos, spar } = args;
-  if (lokalPos) return { lat: lokalPos.lat, lon: lokalPos.lon, kalla: 'lokal', objektId: null, datum: null, roll: null };
+  if (lokalPos) return { lat: lokalPos.lat, lon: lokalPos.lon, kalla: 'lokal', objektId: null, datum: null, roll: null, kurs: null };
   if (spar) {
     const roll = spar.rad.roll === 'skordare' || spar.rad.roll === 'skotare' ? spar.rad.roll : null;
-    return { lat: spar.punkt.lat, lon: spar.punkt.lng, kalla: 'hyttspar', objektId: spar.rad.objekt_id, datum: spar.rad.datum, roll };
+    return { lat: spar.punkt.lat, lon: spar.punkt.lng, kalla: 'hyttspar', objektId: spar.rad.objekt_id, datum: spar.rad.datum, roll, kurs: spar.kurs ?? null };
   }
   return null;
 }

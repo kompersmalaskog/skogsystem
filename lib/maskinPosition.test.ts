@@ -5,6 +5,7 @@ import {
   senastePunkt,
   tolkaSparadPosition,
   valjStartPosition,
+  senasteKurs,
   sparObjektGiltigt,
   valjPosObjekt,
   valjTilldelatObjekt,
@@ -126,6 +127,36 @@ describe('senastePunkt', () => {
   });
 });
 
+describe('senasteKurs — körriktningen ur spårets sista rörelse', () => {
+  it('riktig data (Daniels sista punkter 2026-10-02): kör mot nord-nordväst, ≈ 338°', () => {
+    const k = senasteKurs(fixtur.senasteSkotarPass.sista5)!;
+    expect(k).toBeGreaterThan(335);
+    expect(k).toBeLessThan(341);
+  });
+  it('de fyra väderstrecken', () => {
+    const pt = (lat: number, lng: number) => ({ lat, lng });
+    expect(senasteKurs([pt(56, 15), pt(56.0003, 15)])).toBeCloseTo(0, 0);        // norr
+    expect(senasteKurs([pt(56, 15), pt(56, 15.0005)])).toBeCloseTo(90, 0);       // öster
+    expect(senasteKurs([pt(56.0003, 15), pt(56, 15)])).toBeCloseTo(180, 0);      // söder
+    expect(senasteKurs([pt(56, 15.0005), pt(56, 15)])).toBeCloseTo(270, 0);      // väster
+  });
+  it('stillastående (alla punkter inom 8 m) → null — ingen påhittad riktning', () => {
+    expect(senasteKurs([{ lat: 56, lng: 15 }, { lat: 56.00002, lng: 15.00001 }, { lat: 56.00001, lng: 15 }])).toBeNull();
+  });
+  it('för få/ogiltiga punkter → null; ogiltiga punkter i svansen hoppas över', () => {
+    expect(senasteKurs([])).toBeNull();
+    expect(senasteKurs(null)).toBeNull();
+    expect(senasteKurs([{ lat: 56, lng: 15 }])).toBeNull();
+    expect(senasteKurs([{ lat: 56, lng: 15 }, { lat: 56.0003, lng: 15 }, { lat: null, lng: 1 }, { lat: NaN, lng: 2 }])).toBeCloseTo(0, 0);
+  });
+  it('bara de senaste punkterna räknas (maxBak) — en gammal rörelse påverkar inte slutriktningen', () => {
+    const rad = [{ lat: 56, lng: 15 }, { lat: 56, lng: 15.001 }];                       // öster (gammalt)
+    for (let k = 0; k < 90; k++) rad.push({ lat: 56, lng: 15.001 });                    // 90 stillastående punkter
+    rad.push({ lat: 56.0003, lng: 15.001 });                                            // sista: norrut
+    expect(senasteKurs(rad)).toBeCloseTo(0, 0);
+  });
+});
+
 describe('KODBEVIS: spårets sista punkt ligger UTANFÖR traktgränsen → objektet måste komma ur spårets egen koppling', () => {
   const punkt = senastePunkt(fixtur.senasteSkotarPass.sista5)!;
   const hb = OBJEKT.find((o) => o.id === HALABACK_ID)!;
@@ -161,7 +192,7 @@ describe('valjStartPosition — källornas ordning', () => {
 
   it('lokal position (riktig maskindator) går före hyttspåret', () => {
     const s = valjStartPosition({ lokalPos: { lat: 57, lon: 16 }, spar: { rad, punkt } })!;
-    expect(s).toEqual({ lat: 57, lon: 16, kalla: 'lokal', objektId: null, datum: null, roll: null });
+    expect(s).toEqual({ lat: 57, lon: 16, kalla: 'lokal', objektId: null, datum: null, roll: null, kurs: null });
   });
   it('utan lokal position (testfliken) → hyttspåret', () => {
     const s = valjStartPosition({ lokalPos: null, spar: { rad, punkt } })!;

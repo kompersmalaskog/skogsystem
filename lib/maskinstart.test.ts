@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   startFas, flygKlar, startCoverSynlig, startOverlaySynlig, startKameraLas, startRadText,
-  SVART_MAX_MS, REVEAL_MS, FLY_MS, RAD_MS, FIX_TIMEOUT_MS, type StartIn,
+  SVART_MAX_MS, REVEAL_MS, FLY_MS, RAD_MS, FIX_TIMEOUT_MS, SVART_INFO_MS, SVART_STATUS_MS,
+  svartInfo, svartVad, SVART_VAD_TEXT, type StartIn,
 } from './maskinstart';
 
 // Bas: sekvensen startade vid 0, inget har hänt än.
@@ -59,8 +60,48 @@ describe('flygKlar — EN flyTo, först när kartan tonat upp OCH vi har fix', (
     expect(flygKlar(i({ nuMs: 800 + REVEAL_MS - 1, kartaRedoMs: 800, posMs: 0 }))).toBe(false);
     expect(flygKlar(i({ nuMs: 800 + REVEAL_MS, kartaRedoMs: 800, posMs: 0 }))).toBe(true);
   });
-  it('svart är kapad vid 5 s — en hängande karta ger inte tiotals sekunder svart', () => {
-    expect(SVART_MAX_MS).toBeLessThanOrEqual(5000);
+  it('svart kapas först EFTER att den hunnit förklara sig (status efter 10 s) — annars kapas en långsam men levande laddning', () => {
+    expect(SVART_MAX_MS).toBeGreaterThan(SVART_STATUS_MS);
+  });
+  it('en karta som blir redo efter 6 s (långsamt nät) får sin sekvens — den kapas inte vid 5 s längre', () => {
+    expect(startFas(i({ nuMs: 6000 }))).toBe('svart');
+    expect(startFas(i({ nuMs: 6100, kartaRedoMs: 6000, posMs: 0 }))).toBe('oversikt');
+  });
+});
+
+describe('svartInfo — vad svart skärm säger om sig själv', () => {
+  const vad = 'karta' as const;
+  it('under 1 s: INGENTING (varken namn, förloppsrad eller text)', () => {
+    expect(svartInfo({ sedanNavigeringMs: 0, namn: 'Elefant 26', vad })).toEqual({ namn: null, forlopp: false, text: null });
+    expect(svartInfo({ sedanNavigeringMs: SVART_INFO_MS - 1, namn: 'Elefant 26', vad })).toEqual({ namn: null, forlopp: false, text: null });
+  });
+  it('från 1 s: maskinens namn + förloppsrad, ännu ingen statustext', () => {
+    expect(svartInfo({ sedanNavigeringMs: SVART_INFO_MS, namn: 'Elefant 26', vad })).toEqual({ namn: 'Elefant 26', forlopp: true, text: null });
+    expect(svartInfo({ sedanNavigeringMs: SVART_STATUS_MS - 1, namn: 'Elefant 26', vad })).toEqual({ namn: 'Elefant 26', forlopp: true, text: null });
+  });
+  it('från 10 s: också vad som dröjer — namn och förloppsrad står kvar', () => {
+    expect(svartInfo({ sedanNavigeringMs: SVART_STATUS_MS, namn: 'Elefant 26', vad: 'karta' })).toEqual({ namn: 'Elefant 26', forlopp: true, text: 'Hämtar karta' });
+    expect(svartInfo({ sedanNavigeringMs: 60000, namn: 'Elefant 26', vad: 'nat' }).text).toBe('Väntar på nät');
+    expect(svartInfo({ sedanNavigeringMs: 60000, namn: 'Elefant 26', vad: 'position' }).text).toBe('Hämtar position');
+  });
+  it('namnet är inte känt än → förloppsraden visas ändå, utan namn (ingen "null"/tom rad)', () => {
+    expect(svartInfo({ sedanNavigeringMs: 2000, namn: null, vad })).toEqual({ namn: null, forlopp: true, text: null });
+    expect(svartInfo({ sedanNavigeringMs: 2000, namn: '   ', vad })).toEqual({ namn: null, forlopp: true, text: null });
+    expect(svartInfo({ sedanNavigeringMs: 2000, namn: undefined, vad }).namn).toBeNull();
+  });
+});
+
+describe('svartVad — vad dröjer?', () => {
+  it('utan nät är det nätet, oavsett annat', () => {
+    expect(svartVad({ online: false, kartaFinns: false })).toBe('nat');
+    expect(svartVad({ online: false, kartaFinns: true })).toBe('nat');
+  });
+  it('med nät: finns ingen karta än hämtas position/objekt, annars hämtas kartan', () => {
+    expect(svartVad({ online: true, kartaFinns: false })).toBe('position');
+    expect(svartVad({ online: true, kartaFinns: true })).toBe('karta');
+  });
+  it('texterna är förarens ord', () => {
+    expect(SVART_VAD_TEXT).toEqual({ nat: 'Väntar på nät', position: 'Hämtar position', karta: 'Hämtar karta' });
   });
 });
 

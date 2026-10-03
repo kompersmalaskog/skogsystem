@@ -75,6 +75,19 @@ describe('fast läge — datorns GPS används aldrig', () => {
     h1.stop(); h2.stop();
   });
 
+  it('körriktning (kurs) följer med positionen och normaliseras till 0–360; utan kurs är den null', () => {
+    g.startaFastGpsLage();
+    const fixar: any[] = [];
+    const h = g.startaGpsKalla((f) => fixar.push(f));
+    g.sattFastGpsPosition(56.3573, 15.048, 337.9);
+    g.sattFastGpsPosition(56.3573, 15.048, -90);
+    g.sattFastGpsPosition(56.3573, 15.048, 725);
+    g.sattFastGpsPosition(56.3573, 15.048);
+    g.sattFastGpsPosition(56.3573, 15.048, NaN);
+    expect(fixar.map((f) => f.kurs)).toEqual([337.9, 270, 5, null, null]);
+    h.stop();
+  });
+
   it('ogiltiga koordinater läggs inte ut', () => {
     g.startaFastGpsLage();
     const fixar: any[] = [];

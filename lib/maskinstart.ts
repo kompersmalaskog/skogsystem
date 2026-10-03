@@ -1,6 +1,7 @@
-// Maskindatorns startsekvens (maskinläge): svart → kartan tonar upp utzoomad över traktgränsen →
-// EN mjuk flyTo ner till maskinen (körriktning upp, körvyns baszoom) → objekt-raden när kameran landat.
-// INGEN logga och ingen text i sekvensen (loggan finns bara i felskärmarna).
+// Maskindatorns startsekvens (maskinläge): svart → kartan tonar upp utzoomad → EN mjuk flyTo ner till maskinen
+// (körriktning upp, körvyns baszoom) → objekt-raden när kameran landat.
+// INGEN logga i sekvensen (loggan finns bara i felskärmarna). Svart under 1 s visar INGENTING; varar det längre visas
+// maskinens namn + en långsam förloppsrad, och efter 10 s vad som dröjer (svartInfo nedan).
 //
 // Ren, tidsstyrd tillståndsmaskin (ingen sidoeffekt) så den kan enhetstestas. Sidan (page.tsx) matar in
 // tidsstämplar för de händelser som sker (karta redo, position känd, flygningen startade) och renderar utifrån fasen.
@@ -10,7 +11,7 @@
 
 export type StartFas = 'svart' | 'oversikt' | 'flyger' | 'landat' | 'klar';
 
-export const SVART_MAX_MS = 5000;    // kartan hann inte bli redo → släpp svart och visa det som ligger under
+export const SVART_MAX_MS = 30000;   // kartan hann inte bli redo → släpp svart och visa det som ligger under (svart förklarar sig själv efter 1/10 s)
 export const COVER_FADE_MS = 700;    // svart tonar ut (kartan "tonar upp")
 export const REVEAL_MS = 700;        // kartan syns utzoomad så här länge innan flygningen börjar (= fade-tiden)
 export const FLY_MS = 1500;          // EN mjuk flyTo ner till maskinen
@@ -86,4 +87,40 @@ export function startRadText(
     return ctx.objekt?.m3kvar != null ? `${namn} – ${Math.round(ctx.objekt.m3kvar)} m³ kvar` : namn;
   }
   return null;
+}
+
+// ───────────── Vad svart skärm säger om sig själv ─────────────
+// Under SVART_INFO_MS (1 s) visas INGENTING. Varar svart längre: maskinens namn i liten grå text + en tunn, långsam
+// förloppsrad under. Efter SVART_STATUS_MS (10 s): en rad som säger VAD som dröjer. Tiden räknas från NAVIGERINGEN
+// (performance.now()) — samma klocka för alla svarta lager (Suspense-fallback, väntläge, sekvensens täckskikt), så
+// inget av dem startar om räkningen när det byter av ett annat.
+export const SVART_INFO_MS = 1000;
+export const SVART_STATUS_MS = 10000;
+
+export type SvartVad = 'nat' | 'position' | 'karta';
+
+/** Vad dröjer? Utan nät: nätet. Finns ännu ingen karta (position/objekt hämtas): positionen. Annars kartan. */
+export function svartVad(a: { online: boolean; kartaFinns: boolean }): SvartVad {
+  if (!a.online) return 'nat';
+  if (!a.kartaFinns) return 'position';
+  return 'karta';
+}
+
+export const SVART_VAD_TEXT: Record<SvartVad, string> = {
+  nat: 'Väntar på nät',
+  position: 'Hämtar position',
+  karta: 'Hämtar karta',
+};
+
+export interface SvartInfo {
+  namn: string | null;     // maskinens namn (liten grå text mitt på skärmen) — null = visa inget namn
+  forlopp: boolean;        // den tunna, långsamma förloppsraden under
+  text: string | null;     // vad som dröjer (först efter SVART_STATUS_MS)
+}
+
+export function svartInfo(a: { sedanNavigeringMs: number; namn: string | null | undefined; vad: SvartVad }): SvartInfo {
+  if (a.sedanNavigeringMs < SVART_INFO_MS) return { namn: null, forlopp: false, text: null };
+  const namn = (a.namn || '').trim() || null;
+  if (a.sedanNavigeringMs < SVART_STATUS_MS) return { namn, forlopp: true, text: null };
+  return { namn, forlopp: true, text: SVART_VAD_TEXT[a.vad] };
 }

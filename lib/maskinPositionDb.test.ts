@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hamtaSenasteSparStart, type DbLike } from './maskinPositionDb';
+import { hamtaSenasteSparStart, forladdaSparStart, taForladdadSparStart, forladdaTraktGeo, taForladdadTraktGeo, type DbLike } from './maskinPositionDb';
 import fixtur from './__fixtures__/hyttspar_index_2026-10-02.json';
 
 // En liten fejk-klient byggd på den RIKTIGA prod-fixturen. Den tolkar bara de frågor hamtaSenasteSparStart ställer
@@ -59,6 +59,13 @@ describe('hamtaSenasteSparStart — fejk-klient på riktig prod-fixtur', () => {
     expect(r!.objekt?.namn).toBe('Hålabäck au 2025');
   });
 
+  it('körriktningen (kurs) kommer med: Daniels sista rörelse mot nord-nordväst, ≈ 338°', async () => {
+    const { db } = fejk();
+    const r = await hamtaSenasteSparStart(db, 'A130743');
+    expect(r!.start.kurs).toBeGreaterThan(335);
+    expect(r!.start.kurs).toBeLessThan(341);
+  });
+
   it('vidObjektKant anropas med spårets objekt INNAN punkterna hämtats (förladdning av geometrin går parallellt)', async () => {
     const { db, logg } = fejk();
     let loggVidAnrop: string[] = [];
@@ -105,5 +112,43 @@ describe('hamtaSenasteSparStart — fejk-klient på riktig prod-fixtur', () => {
     const r = await hamtaSenasteSparStart(db2, 'A130743');
     expect(r?.objekt).toBeNull();
     expect(r?.start.objektId).toBe(HALABACK_ID);
+  });
+});
+
+describe('förladdning — hämtningen startar medan appen ännu startar', () => {
+  it('forladdaSparStart → taForladdadSparStart ger samma resultat EN gång, sedan inget (ingen gammal cache)', async () => {
+    const { db } = fejk();
+    const p = forladdaSparStart(db, 'A130743');
+    const tagen = taForladdadSparStart('A130743');
+    expect(tagen).toBe(p);
+    expect((await tagen!)?.start.objektId).toBe(HALABACK_ID);
+    expect(taForladdadSparStart('A130743')).toBeUndefined();
+  });
+
+  it('en misslyckad förladdning blir null (kastar aldrig ut i ett obehandlat löfte)', async () => {
+    const trasig: DbLike = { from() { throw new Error('nät'); } };
+    expect(await forladdaSparStart(trasig, 'A130743')).toBeNull();
+    taForladdadSparStart('A130743');
+  });
+
+  it('spårets objekts trakt-geometri förladdas så fort objektet är känt — innan punkterna kommit', async () => {
+    const { db, logg } = fejk();
+    await forladdaSparStart(db, 'A130743');
+    const geoRad = logg.findIndex((l) => l.startsWith('objekt_geometri|geometri|'));
+    const punktRad = logg.findIndex((l) => l.startsWith('hyttspar|points'));
+    expect(geoRad).toBeGreaterThan(-1);
+    expect(geoRad).toBeLessThan(punktRad);
+    expect(logg[geoRad]).toContain('objekt_id=' + HALABACK_ID);
+    expect(taForladdadTraktGeo(HALABACK_ID)).toBeDefined();
+    expect(taForladdadTraktGeo(HALABACK_ID)).toBeUndefined();   // en gång
+    taForladdadSparStart('A130743');
+  });
+
+  it('forladdaTraktGeo direkt: tas en gång per objekt', async () => {
+    const { db } = fejk();
+    forladdaTraktGeo(db, 'x-1');
+    expect(taForladdadTraktGeo('x-1')).toBeDefined();
+    expect(taForladdadTraktGeo('x-1')).toBeUndefined();
+    expect(taForladdadTraktGeo('finns-inte')).toBeUndefined();
   });
 });

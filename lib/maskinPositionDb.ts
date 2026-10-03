@@ -6,7 +6,7 @@
 // Tar klienten som parameter (inte en importerad singleton) så anropet kan köras mot prod från ett skript.
 
 import {
-  valjSenasteSpar, senastePunkt, valjStartPosition,
+  valjSenasteSpar, senastePunkt, senasteKurs, valjStartPosition,
   type HyttsparIndexRad, type ObjektTilldelning, type StartPosition,
 } from './maskinPosition';
 
@@ -53,6 +53,37 @@ export async function hamtaSenasteSparStart(
   ]);
   const punkt = senastePunkt(pts?.data?.points);
   if (!punkt) return null;
-  const start = valjStartPosition({ lokalPos: null, spar: { rad, punkt } });
+  const start = valjStartPosition({ lokalPos: null, spar: { rad, punkt, kurs: senasteKurs(pts?.data?.points) } });
   return start ? { start, objekt: obj?.data ?? null } : null;
+}
+
+// ───────────── Förladdning: hämta medan appen ännu startar ─────────────
+// /maskin-sidan startar spår-hämtningen vid montering — PARALLELLT med inloggning, medarbetare och maskinregister —
+// så kartan inte behöver vänta på en kedja av frågor efter att maskinläget blivit klart. Maskindator-starten tar den
+// färdiga hämtningen (EN gång) eller startar en egen om ingen finns. Ingen cache som kan bli gammal: tas den bort
+// vid första användningen.
+const forladdadeSpar = new Map<string, Promise<SparStart | null>>();
+const forladdadeGeo = new Map<string, Promise<any>>();
+
+export function forladdaSparStart(db: DbLike, maskinId: string): Promise<SparStart | null> {
+  const p = hamtaSenasteSparStart(db, maskinId, (objektId) => { forladdaTraktGeo(db, objektId); }).catch(() => null);
+  forladdadeSpar.set(maskinId, p);
+  return p;
+}
+export function taForladdadSparStart(maskinId: string): Promise<SparStart | null> | undefined {
+  const p = forladdadeSpar.get(maskinId);
+  forladdadeSpar.delete(maskinId);
+  return p;
+}
+
+/** Trakt-geometrin för ett objekt, hämtad i förväg (samma svar som trakt-geometri-effekten annars hämtar själv). */
+export function forladdaTraktGeo(db: DbLike, objektId: string): Promise<any> {
+  const p = Promise.resolve(db.from('objekt_geometri').select('geometri').eq('objekt_id', objektId).maybeSingle());
+  forladdadeGeo.set(objektId, p);
+  return p;
+}
+export function taForladdadTraktGeo(objektId: string): Promise<any> | undefined {
+  const p = forladdadeGeo.get(objektId);
+  forladdadeGeo.delete(objektId);
+  return p;
 }

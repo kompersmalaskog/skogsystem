@@ -28,7 +28,11 @@ import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, traktgransRingar, type ObjektForVal } from '../../lib/objektPlats'
 import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt, valjTilldelatObjekt, valjFlygPos } from '../../lib/maskinPosition'
-import { hamtaSenasteSparStart } from '../../lib/maskinPositionDb'
+import { hamtaSenasteSparStart, taForladdadSparStart, forladdaTraktGeo, taForladdadTraktGeo } from '../../lib/maskinPositionDb'
+import { markeraStart } from '../../lib/maskinstartMatning'
+import { installeraKameraLogg } from '../../lib/kameraLogg'
+import { tonaInLager, TRAKTGRANS_LAGER } from '../../lib/kartTona'
+import { vantaPaGrundkarta, kameraLage, kameraAndrad } from '../../lib/kartaLaddad'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { startFas, flygKlar, startCoverSynlig, startOverlaySynlig, startKameraLas, startRadText, FLY_MS, COVER_FADE_MS, type StartFas } from '../../lib/maskinstart'
 import { MaskinSomContext } from '../../lib/maskinSomContext'
@@ -155,6 +159,7 @@ const KORVY_DOT_PAD_FRAC = 0.21;
 // Zooma IN när man närmar sig närmaste symbolen, UT när passerad. Full vid fällningsradien.
 // VÄRDENA sänkta: 18.5/19.5 var för hårt (nära symboler föll utanför kant). Sikta på "utdragna
 // vyn där allt syns runt pricken utan att dra".
+const KORVY_OVERSIKT_ZOOM = 14.5; // startsekvensens utzoomade översikt över maskinens position (kartans STARTkamera → inga nya rutor att hämta)
 const KORVY_BASE_ZOOM = 17.5;    // inget nära → lugn överblick, allt runt om ryms
 const KORVY_FULL_ZOOM = 18;      // full inzoom vid fällningsradien (mjukt, ej beskuret)
 const KORVY_ZOOM_START_M = 100;  // börja glida in här
@@ -1442,6 +1447,9 @@ export default function PlannerPage() {
   // Callback när MapLibre-kartan är laddad och redo
   const handleMapReady = useCallback((map: any) => {
     mapInstanceRef.current = map;
+    markeraStart('kartaLaddad');
+    // TESTFLIKEN: logga varje kamerarörelse (kodbevis för "vad tog över kameran?") i konsolen + window.__KAMERA.
+    if (testlageAktivRef.current) { try { installeraKameraLogg(map, { fas: () => startFasRef.current }); } catch { /* */ } }
     console.log('[MapLibre] handleMapReady — adding sources and layers');
 
     // === GeoJSON Sources för linjer, zoner och ritning ===
@@ -2737,6 +2745,9 @@ export default function PlannerPage() {
   // Spara info till Supabase (debounced)
   const saveInfoToDb = useCallback(async () => {
     if (!valtObjekt?.id || !infoLoaded) return;
+    // TESTFLIKEN (/maskin?som=): ingen skrivning till DB. Autosparet skrev annars tillbaka HELA objekt-raden (ca 40 kolumner) två
+    // gånger vid varje öppning, utan att något ändrats — hittat i testselen, spärrades aldrig av testlageAktivRef.
+    if (testlageAktivRef.current) return;
     // Svenskt decimalkomma -> punkt; blankt/ogiltigt -> null (aldrig smyg-0 i double-kolumnen)
     const parseSvNum = (s: string): number | null => {
       const t = (s ?? '').replace(',', '.').trim();
@@ -3145,7 +3156,9 @@ export default function PlannerPage() {
   const startRadSenasteRef = useRef<string | null>(null);
   const startKameraLasRef = useRef(false);                                           // true → sekvensen äger kameran (läses av async-kod)
   const startPosRef = useRef<{ lat: number; lon: number } | null>(null);             // flygmålet när ingen riktig fix finns (SENAST KÄNDA position, aldrig i currentPosition)
-  const traktGeoForladdRef = useRef<{ objektId: string; promise: Promise<any> } | null>(null);   // förladdad trakt-geometri (startflödet startar den före kartan är redo)
+  const startFasRef = useRef<string | null>(null);                                   // aktuell fas (läses av kameraloggen)
+  const startKameraAssertGjordRef = useRef(false);                                   // körvyns kameralage lagt EN gång när låset släppts
+  const traktTonatForRef = useRef<string | null>(null);                              // objekt vars traktgräns redan tonat in
 
   // Senast kända position per enhet: läs vid start (dämpad GPS-prick i översikten), spara vid stängning.
   // TESTFLIKEN (/maskin?som=) rör aldrig datorns lokala maskinPos — varken läser eller skriver (den utlagda
@@ -3638,6 +3651,7 @@ export default function PlannerPage() {
       let kalla: 'fix' | 'lokal' | 'hyttspar' | null = null;
       let sparObjektId: string | null = null;
       let sparObjekt: any | null = null;
+      let startKurs: number | null = null;      // körriktning ur spårets sista rörelse (kartan ska stå med den uppåt)
       const liveFix = arTestflik ? null : senasteGiltigaGpsFix();
       if (liveFix) { pos = { lat: liveFix.lat as number, lon: liveFix.lng as number }; kalla = 'fix'; }
       if (!pos && !arTestflik) {
@@ -3645,11 +3659,10 @@ export default function PlannerPage() {
       }
       if (!pos) {
         try {
-          const spar = await hamtaSenasteSparStart(supabase, enhetMaskinId, (objektId) => {
-            // Förladda spårets trakt-geometri parallellt med punkter/objekt-rad (trakt-geometri-effekten använder den).
-            traktGeoForladdRef.current = { objektId, promise: Promise.resolve(supabase.from('objekt_geometri').select('geometri').eq('objekt_id', objektId).maybeSingle()) };
-          });
-          if (spar) { pos = { lat: spar.start.lat, lon: spar.start.lon }; kalla = 'hyttspar'; sparObjektId = spar.start.objektId; sparObjekt = spar.objekt; }
+          // Förladdad av /maskin-sidan (parallellt med inloggning/maskinregister) om den hann; annars egen hämtning. Båda
+          // förladdar spårets trakt-geometri så fort objektet är känt.
+          const spar = await (taForladdadSparStart(enhetMaskinId) ?? hamtaSenasteSparStart(supabase, enhetMaskinId, (objektId) => { forladdaTraktGeo(supabase, objektId); }));
+          if (spar) { pos = { lat: spar.start.lat, lon: spar.start.lon }; kalla = 'hyttspar'; startKurs = spar.start.kurs; sparObjektId = spar.start.objektId; sparObjekt = spar.objekt; }
         } catch (e) { console.warn('[maskindator-start] hyttspårs-position misslyckades:', e); }
       }
       if (!pos && !arTestflik) {
@@ -3660,7 +3673,10 @@ export default function PlannerPage() {
       }
       // Testfliken: maskinens position ut i den delade GPS-kedjan (prick, körvy, kamera ser EN källa). Aldrig riktig maskin —
       // där hade en gammal position loggats som nya hyttspår-punkter.
-      if (arTestflik && pos && kalla === 'hyttspar') sattFastGpsPosition(pos.lat, pos.lon);
+      if (arTestflik && pos && kalla === 'hyttspar') sattFastGpsPosition(pos.lat, pos.lon, startKurs);
+      // Riktig maskin: körriktningen ur spåret ger kartan "körriktning upp" redan vid start (ingen live-kurs finns stillastående).
+      const kurs0 = startKurs;
+      if (!arTestflik && kalla === 'hyttspar' && kurs0 != null) setGpsHeading((p) => p ?? kurs0);
 
       // --- Objektval (rena delar i lib/maskinPosition, testade mot riktig prod-fixtur) ---
       // Spårets objekt styr när det är giltigt: i testfliken även avslutat (visa vad maskinen senast gjorde), på en riktig
@@ -3701,7 +3717,7 @@ export default function PlannerPage() {
       // Flygmål: maskinens position — utom för tilldelat objekt utan riktig fix, där objektet självt (en riktig fix som
       // kommer under tiden tar över via korvyEffectivePos).
       const flygPos = valjFlygPos({ atgardTyp: atgard.typ, kalla, pos, objekt: objektRad });
-      if (flygPos) { startPosRef.current = flygPos; setStartPosMs(Date.now()); }
+      if (flygPos) { startPosRef.current = flygPos; setStartPosMs(Date.now()); markeraStart('positionKand'); }
 
       maskindatorStartObjektIdRef.current = objektRad.id;
       // Stäm av mot första RIKTIGA fixen om valet byggde på något annat än en riktig fix. Aldrig i testfliken.
@@ -3719,6 +3735,7 @@ export default function PlannerPage() {
         maskindatorA4Ref.current = !arTestflik;   // tilldelat objekt utan riktig fix → tillåt ETT byte när en fix landar
         oppnaKorvyPa(objektRad, atgard.roll);
       }
+      markeraStart('objektValt');
     })();
   }, [maskinlage, enhetMaskinId, valtObjekt, dimMaskiner, oppnaKorvyPa, visaMaskindatorKort]);
 
@@ -3953,7 +3970,11 @@ export default function PlannerPage() {
     setMapCenter({ lat: cc.lat, lng: cc.lng });
     setMapZoom(cc.zoom);
     if (mapInstanceRef.current) {
-      mapInstanceRef.current.jumpTo({ center: [cc.lng, cc.lat], zoom: cc.zoom, pitch: 50, bearing: 0 });
+      // Startsekvensen/körvyn äger kameran → ingen centrerings-jump (den ryckte kameran till pitch 50/zoom 16 mitt i
+      // sekvensen och igen varje gång kartan blev redo). Origot (mapCenter/mapZoom ovan) sätts ändå.
+      if (!startKameraLasRef.current && !korvyOppenRef.current) {
+        mapInstanceRef.current.jumpTo({ center: [cc.lng, cc.lat], zoom: cc.zoom, pitch: 50, bearing: 0 });
+      }
       setTimeout(() => mapInstanceRef.current?.resize(), 50);
     }
   };
@@ -3980,12 +4001,12 @@ export default function PlannerPage() {
   // stänga av den efteråt (ref:en hindrar att den tänds igen). Telefon (ej serial): orörd.
   const serialRotateAutoRef = useRef(false);
   useEffect(() => {
-    if (serialGpsAktiv) {
+    if (serialGpsAktiv || testlage) {
       if (!serialRotateAutoRef.current) { serialRotateAutoRef.current = true; setCompassMode(true); }
     } else {
       serialRotateAutoRef.current = false;
     }
-  }, [serialGpsAktiv]);
+  }, [serialGpsAktiv, testlage]);
   // Körvyns kompass-rotation (deviceorientation): 'av' = ej aktiverad, 'aktiv' = roterar,
   // 'nekad' = iOS-tillstånd nekat, 'saknas' = ingen sensor (t.ex. dator). Aldrig tyst död —
   // vid 'nekad'/'saknas' ligger kartan kvar i norr-upp (fungerar, roterar bara inte).
@@ -3993,6 +4014,10 @@ export default function PlannerPage() {
 
   // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
   const [korvyActive, setKorvyActive] = useState(false);
+  // Körvyn äger kameran: centrerings-jump och geometrins fitBounds ska vara tysta när den är öppen. Ref skrivs i render
+  // (idempotent) så effekter i samma commit ser rätt värde.
+  const korvyOppenRef = useRef(false);
+  korvyOppenRef.current = korvyActive;
   // När Körvy öppnas: tvinga fram ett färskt GPS-försök (med fallback) och surfa ev. fel.
   useEffect(() => {
     if (korvyActive) acquireGpsWithFallback();
@@ -4747,11 +4772,10 @@ export default function PlannerPage() {
     if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null); return; }
     let avbruten = false;
     (async () => {
-      // Startflödet kan ha förladdat just det här objektets geometri (parallellt med kartans laddning). Används EN gång.
-      const forladdad = traktGeoForladdRef.current;
-      traktGeoForladdRef.current = null;
-      const { data, error } = (forladdad && forladdad.objektId === valtObjekt.id)
-        ? await forladdad.promise
+      // Startflödet och /maskin-sidan kan ha förladdat just det här objektets geometri (parallellt med kartans laddning). EN gång.
+      const forladdad = taForladdadTraktGeo(valtObjekt.id);
+      const { data, error } = forladdad
+        ? await forladdad
         : await supabase.from('objekt_geometri').select('geometri').eq('objekt_id', valtObjekt.id).maybeSingle();
       if (avbruten) return;
       const fc: any = (data as any)?.geometri;
@@ -4789,7 +4813,9 @@ export default function PlannerPage() {
       // Maskindatorns startsekvens äger kameran (svart → översikt över TRAKTGRÄNSEN → EN flyTo). Den här
       // fitBounds landar asynkront efter DB-svaret och zoomar dessutom över ALLA features (fastighet, bestånd);
       // den skulle avbryta flygningen → tyst medan sekvensen äger kameran. Vanliga appen: oförändrat.
-      if (Number.isFinite(minLng) && !startKameraLasRef.current) {
+      // Körvyn äger kameran (följer maskinen på körvyns zoom) → ingen zoom-ut över ALLA features (fastighet, bestånd):
+      // med en stillastående position (testfliken) kommer ingen GPS-tick som rättar kameran efteråt.
+      if (Number.isFinite(minLng) && !startKameraLasRef.current && !korvyOppenRef.current) {
         try { map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 600, maxZoom: 16 }); } catch {}
       }
     })();
@@ -4863,7 +4889,13 @@ export default function PlannerPage() {
         geometry: { type: 'Polygon', coordinates: [d.ringLngLat] },
       })),
     });
-  }, [traktdelDelar, objektNumrering, mapLibreReady]);
+    // Maskinläge: objektets lager laddas efter att kartan redan syns → de TONAR IN i stället för att poppa upp. En gång per objekt.
+    const oid = valtObjekt?.id ? String(valtObjekt.id) : null;
+    if (maskinlage && oid && traktdelDelar.length > 0 && traktTonatForRef.current !== oid) {
+      traktTonatForRef.current = oid;
+      tonaInLager(map, TRAKTGRANS_LAGER);
+    }
+  }, [traktdelDelar, objektNumrering, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Justerade delar (en boundary-markör med fromVidaTd=<partKey> finns) döljs PER del.
   const justeradeTraktdelar = useMemo(
@@ -7046,12 +7078,21 @@ export default function PlannerPage() {
     // Android / äldre iOS (ingen requestPermission) ELLER redan beviljad iOS
     window.addEventListener('deviceorientation', handleOrientation);
     setKorvyKompass('aktiv');
+    if (franGest) { try { localStorage.setItem('korvy_kompass_pa', '1'); } catch { /* */ } }   // föraren valde det själv → minns
+  };
+  // Slå av kompassen (raden i Lager-menyn). Glöm valet så den inte auto-aktiveras nästa gång.
+  const stoppaKompass = () => {
+    window.removeEventListener('deviceorientation', handleOrientation);
+    setKorvyKompass('av');
+    try { localStorage.removeItem('korvy_kompass_pa'); } catch { /* */ }
   };
 
-  // Körvy öppnas → auto-aktivera kompassen om tillstånd redan getts (iOS minns valet). Stängs → rensa.
+  // Körvy öppnas → kompassen är AV som standard (rad i Lager-menyn, ingen knapp på kartan). Den auto-aktiveras BARA om
+  // föraren själv slagit på den förut (korvy_kompass_pa) — och på iOS även då bara om tillståndet redan getts. Stängs → rensa.
   useEffect(() => {
     if (korvyActive) {
-      aktiveraKompass(false);
+      let valde = false; try { valde = localStorage.getItem('korvy_kompass_pa') === '1'; } catch { /* */ }
+      if (valde) aktiveraKompass(false);
     } else {
       window.removeEventListener('deviceorientation', handleOrientation);
       setKorvyKompass('av');
@@ -8457,6 +8498,7 @@ export default function PlannerPage() {
   // av geometri-effektens asynkrona fitBounds. Ref skrivs i render (idempotent; samma värde varje gång).
   const startKameraLasNu = startKameraLas(startFasNu);
   startKameraLasRef.current = startKameraLasNu;
+  startFasRef.current = startFasNu;
   const startOverlayAktiv = startSekvensStart != null && !startDold;
   const startMaskinNamn = enhetMaskinId ? maskinModell(dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)) : '';
   const startM3Kvar = valtObjekt
@@ -8469,6 +8511,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (!maskinlage || !enhetMaskinId || startSekvensStart != null) return;
     const t = Date.now(); setStartSekvensStart(t); setStartSekvensNu(t);
+    markeraStart('sekvensStart');
   }, [maskinlage, enhetMaskinId, startSekvensStart]);
 
   // /maskin: svart TÄCKER tills sekvensens eget svarta täckskikt tar över (identiskt utseende → inget hopp). Täcker
@@ -8484,44 +8527,37 @@ export default function PlannerPage() {
   }, [startSekvensStart, startDold]);
   // Första riktiga position (fix) — gäller när startflödet inte redan gett en senast känd position.
   useEffect(() => {
-    if (startSekvensStart != null && startPosMs == null && korvyEffectivePos != null) setStartPosMs(Date.now());
+    if (startSekvensStart != null && startPosMs == null && korvyEffectivePos != null) { setStartPosMs(Date.now()); markeraStart('positionKand'); }
   }, [korvyEffectivePos, startSekvensStart, startPosMs]);
   // 'klar' → svart har tonat ut (COVER_FADE_MS) → avmontera.
   useEffect(() => {
     if (startFasNu === 'klar' && !startDold) { const t = setTimeout(() => setStartDold(true), COVER_FADE_MS + 100); return () => clearTimeout(t); }
   }, [startFasNu, startDold]);
 
-  // ÖVERSIKT (bakom svart): när kartan, objektet och trakt-geometrins svar finns ställs kameran utzoomad över
-  // TRAKTGRÄNSEN (Vidas L_TRAKTDEL — inte hela fastigheten) — pitch 0, norr upp, ingen körvy-padding — omedelbart.
-  // Sedan väntar vi på att kartan är MÅLAD (idle) → kartaRedo → svart tonar ut och kartan "tonar upp".
-  // Körs efter centreraPaObjekt (deklarerad tidigare, kör före i samma commit) så den inte skrivs över.
+  // ÖVERSIKT (bakom svart): så fort KARTAN finns och objektet är valt ställs kameran utzoomad över maskinens position (annars
+  // objektets) — pitch 0, norr upp, ingen körvy-padding, omedelbart. Kartan skapas redan i den kameran (kartStart), så oftast
+  // finns inget nytt att hämta. Vi väntar INTE på objektets geometri: svart ska bara vara tills GRUNDKARTANS första rutor ritats
+  // (terräng, överlägg och objektets lager får komma efter — de tonar in). Sedan kartaRedo → svart tonar ut. Körs efter
+  // centreraPaObjekt (deklarerad tidigare) — som numera är tyst i sekvensen.
   useEffect(() => {
     if (startFasNu !== 'svart' || startKartaRedo != null || startOversiktSattRef.current) return;
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !valtObjekt?.id) return;
-    if (traktGeoHamtadFor !== valtObjekt.id) return;   // väntar på geometri-svaret (geometri finns ELLER saknas)
     startOversiktSattRef.current = true;
+    let andrad = true;
     try {
-      map.resize();   // centreraPaObjekt resizar med 50 ms fördröjning; fitBounds räknar på containerstorleken
-      map.jumpTo({ pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
-      const ringar = traktgransRingar(traktGeo);
-      if (ringar.length > 0) {
-        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
-        for (const r of ringar) for (const [lng, lat] of r) {
-          if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
-          if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
-        }
-        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 0, maxZoom: 16 });
-      } else if (valtObjekt.lat != null && valtObjekt.lng != null) {
-        // Objektet saknar traktgräns i objekt_geometri (de flesta saknar) → utzoomad över objektets position.
-        map.jumpTo({ center: [valtObjekt.lng, valtObjekt.lat], zoom: 14.5 });
-      }
+      const fore = kameraLage(map);
+      map.resize();   // centreraPaObjekt resizar med 50 ms fördröjning
+      const c = startPosRef.current ?? (valtObjekt.lat != null && valtObjekt.lng != null ? { lat: valtObjekt.lat, lon: valtObjekt.lng } : null);
+      map.jumpTo({ pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, ...(c ? { center: [c.lon, c.lat] as [number, number], zoom: KORVY_OVERSIKT_ZOOM } : {}) });
+      andrad = kameraAndrad(fore, kameraLage(map));
     } catch { /* kameran blir som den är — sekvensen går vidare ändå */ }
-    let redo = false;
-    const klart = () => { if (redo) return; redo = true; setStartKartaRedo(Date.now()); };
-    map.once('idle', klart);        // kartan målad (tiles inlästa)
-    setTimeout(klart, 2500);        // 'idle' uteblir om kameran inte ändrades / tiles hänger → gå vidare ändå
-  }, [startFasNu, startKartaRedo, mapLibreReady, valtObjekt?.id, traktGeoHamtadFor, traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
+    vantaPaGrundkarta(map, {
+      andratKamera: andrad,
+      maxMs: 2500,   // reserv: 'sourcedata'/'idle' uteblir om rutor hänger → gå vidare ändå
+      klart: () => { setStartKartaRedo(Date.now()); markeraStart('kartaRedo'); },
+    });
+  }, [startFasNu, startKartaRedo, mapLibreReady, valtObjekt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // FLYGNINGEN: kartan har tonat upp (REVEAL_MS) OCH vi har en position (senast känd eller riktig fix) → EN mjuk flyTo ner till maskinen, med
   // körriktning upp (kartBearing) och körvyns baszoom/lutning/padding — exakt det körvyns egen kamera landar i,
@@ -8546,6 +8582,7 @@ export default function PlannerPage() {
       });
     } catch { /* */ }
     setStartFlygStart(Date.now());
+    markeraStart('flygStart');
   }, [startFlygKlar, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Utzoomad utan RIKTIG fix: GPS-pricken DÄMPAD (en gång). Tänds av passiva watchern vid första giltiga fix.
@@ -8809,10 +8846,13 @@ export default function PlannerPage() {
   // Effective heading för Körvy. Serial-GPS (maskindator) el. saknad kompass → GPS-kurs;
   // telefon med aktiv kompass → kompassen. Se lib/korvyHeading (ren + testad). Används av
   // riktningskonen (visar alltid färdriktningen, oberoende av rotations-toggeln).
-  const korvyHeading: number = valjKorvyHeading({ serialAktiv: serialGpsAktiv, kompassAktiv: compassMode, gpsKurs: gpsHeading, deviceHeading });
+  // Testfliken (/maskin?som=) har ingen kompass och ingen serial-GPS men EN utlagd position med körriktning → använd den som GPS-kurs.
+  // Kompass-raden i Lager-menyn (korvyKompass 'aktiv') slår på kartrotation efter enhetens kompass.
+  const kartRoterar = compassMode || korvyKompass === 'aktiv';
+  const korvyHeading: number = valjKorvyHeading({ serialAktiv: serialGpsAktiv || !!testlage, kompassAktiv: kartRoterar, gpsKurs: gpsHeading, deviceHeading });
   // Kart-bearing: "Rotera kartan"-toggeln (compassMode) styr om kartan följer färdriktningen
   // (heading-up) eller ligger norr-upp. På maskindatorn ger den nu rotation via GPS-kursen.
-  const kartBearing: number = compassMode ? korvyHeading : 0;
+  const kartBearing: number = kartRoterar ? korvyHeading : 0;
 
   // 1) Camera setup när korvyActive togglas: spara nuvarande kamera, sätt 3D-perspektiv. Avsluta → restore.
   useEffect(() => {
@@ -8828,6 +8868,7 @@ export default function PlannerPage() {
           pitch: map.getPitch(),
         };
       }
+      if (startKameraLasRef.current) return;   // sekvensen äger kameran; assert-effekten lägger körvyns kamera när låset släpps
       const pos = currentPosition as any;
       // Prick i NEDRE TREDJEDELEN: centrera på FÖRAREN och skjut ner den via padding.top (mest
       // karta framåt, lite bakåt). Byter ut den gamla "50 m bakom"-offseten som satt pricken
@@ -8885,6 +8926,29 @@ export default function PlannerPage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyHeading, kartBearing, korvyActive, korvyNextItems, skotarKorvy, korvyFollowPaused, startKameraLasNu]);
+
+  // KAMERAN LANDAR RÄTT. När sekvensen släpper kameralåset (landat — eller klar utan att flygningen hunnit) lägger vi EN gång
+  // körvyns egen inramning: maskinens position, baszoom, lutning 28°, körriktning upp, körvy-padding. Följ-effekten rättar annars bara
+  // kameran vid nästa GPS-tick — en stillastående position (testfliken) får aldrig någon, så kameran fastnade i det sista som rört den
+  // (översiktens pitch 0, eller en zoom-ut). Deklarerad EFTER följ-effekten: i samma commit körs den sist och vinner.
+  useEffect(() => {
+    if (startFasNu === 'landat') markeraStart('landat');
+    if ((startFasNu !== 'landat' && startFasNu !== 'klar') || startKameraAssertGjordRef.current) return;
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !korvyActive) return;
+    const pos = korvyEffectivePos ?? startPosRef.current;
+    if (!pos) return;
+    startKameraAssertGjordRef.current = true;
+    korvyZoomRef.current = KORVY_BASE_ZOOM;
+    const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+    try {
+      map.easeTo({
+        center: [pos.lon, pos.lat], zoom: KORVY_BASE_ZOOM, pitch: 28, bearing: kartBearing,
+        padding: { top: topPad, bottom: 0, left: 0, right: 0 },
+        duration: startFlygGjordRef.current ? 0 : 800,   // flygningen landade → samma ram, ingen synlig rörelse; annars mjuk inflygning
+      });
+    } catch { /* */ }
+  }, [startFasNu, mapLibreReady, korvyActive, korvyEffectivePos, kartBearing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // SKOTARKÖRVY (punkt 5): fingret drar kartan → pausa auto-följet ('dragstart' med originalEvent =
   // äkta gest, inte vår easeTo). Bunden en gång; dörrvaktar på skotarKorvyRef. Rensas vid utträde.
@@ -13073,7 +13137,7 @@ export default function PlannerPage() {
 
       {/* /maskin: HELSVART (ingen logga, ingen text) tills behörighet/maskin är bekräftade och sekvensens eget
           svarta täckskikt tar över — identiskt utseende, så inget hoppar. */}
-      {maskinSomTackSvart && <StartSvartSkarm />}
+      {maskinSomTackSvart && <StartSvartSkarm namn={startMaskinNamn || maskinSomParam} kartaFinns={false} />}
 
       {/* /maskin: ärlig felskärm — det ENDA stället loggan visas (ej behörig / okänd maskin / laddning fastnade) */}
       {maskinSomParam && maskinSomBeslut.typ === 'avvisa' && (
@@ -13091,7 +13155,7 @@ export default function PlannerPage() {
           <>
             {/* HELSVART täckskikt (ingen logga, ingen text): opakt medan kartan laddar, tonar sedan ut så kartan
                 "tonar upp ur svart". */}
-            <StartSvartSkarm synlig={startCoverSynlig(startFasNu)} />
+            <StartSvartSkarm synlig={startCoverSynlig(startFasNu)} namn={startMaskinNamn || maskinSomParam} kartaFinns={!!valtObjekt} />
             {/* Nedre rad: "Söker GPS" (utzoomad utan fix) → "Ingen GPS-fix" (efter 30 s, står kvar) och
                 "<objekt> – N m³ kvar" FÖRST när kameran landat (tonar bort efter 5 s). */}
             {radText && (
@@ -13112,6 +13176,10 @@ export default function PlannerPage() {
       })()}
     </>
   );
+
+  // Maskinläge, medan sekvensen är svart: kartan skapas REDAN i översiktens kamera (maskinens position, utzoomad, pitch 0) —
+  // då hämtar den de rutor som ska synas direkt, och översikts-steget behöver inte vänta på en andra omgång rutor.
+  const kartStart = (maskinlage && startFasNu === 'svart') ? startPosRef.current : null;
 
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
@@ -14079,26 +14147,8 @@ export default function PlannerPage() {
           kartytan — båda bor nu i +-menyns KÖRVY-grupp (Uppdatera skördarens/skotarens spår + Baskarta).
           Kartytan i körvy visar bara karta + position + autopanel/HUD. */}
 
-      {/* === KÖRVY: KOMPASS-AKTIVERING — heading-up kräver telefonens kompass; iOS kräver tillstånd. === */}
-      {korvyActive && korvyKompass !== 'aktiv' && (
-        <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 112px)', right: 12, zIndex: 260, maxWidth: 214 }}>
-          {korvyKompass === 'saknas' ? (
-            <div style={{ padding: '8px 12px', borderRadius: 14, background: 'rgba(28,28,30,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 500, lineHeight: 1.35 }}>
-              Ingen kompass på enheten — kartan ligger i norr-upp.
-            </div>
-          ) : (
-            <button type="button" onClick={() => { if (navigator.vibrate) navigator.vibrate(8); aktiveraKompass(true); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 13px', borderRadius: 14, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
-                backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-                border: korvyKompass === 'nekad' ? '1px solid rgba(255,159,10,0.5)' : '1px solid rgba(10,132,255,0.5)',
-                background: korvyKompass === 'nekad' ? 'rgba(255,159,10,0.14)' : 'rgba(10,132,255,0.18)',
-                color: korvyKompass === 'nekad' ? '#FF9F0A' : '#4da3ff', fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></svg>
-              <span>{korvyKompass === 'nekad' ? 'Kompass nekad — norr-upp. Tryck för att försöka igen.' : 'Aktivera kompass'}</span>
-            </button>
-          )}
-        </div>
-      )}
+      {/* KOMPASSEN bor i Lager-menyn (rad "Kompass", AV som standard) — INGEN knapp på kartytan i körvy: skärmen har bara hem-knapp,
+          objektpill, +-knapp och korten när de behövs. */}
 
       {/* === KÖRVY: PROXIMITETSKORT — ETT kort som VÄXER PÅ PLATS. Slår ihop gamla "Nästa hinder"-raden +
              akut-kortet till en komponent. Fast botten-plats: smal rad på håll → växer till stort kort inom
@@ -14796,9 +14846,9 @@ export default function PlannerPage() {
         <DynamicMapLibre
           onMapReady={handleMapReady}
           onMapRemoved={handleMapRemoved}
-          initialCenter={[mapCenter.lng, mapCenter.lat] as [number, number]}
-          initialZoom={mapZoom}
-          initialPitch={45}
+          initialCenter={kartStart ? [kartStart.lon, kartStart.lat] as [number, number] : [mapCenter.lng, mapCenter.lat] as [number, number]}
+          initialZoom={kartStart ? KORVY_OVERSIKT_ZOOM : mapZoom}
+          initialPitch={kartStart ? 0 : 45}
           initialBearing={0}
           mapStyle={mapStyleConfig.current as any}
           style={{
@@ -15555,8 +15605,9 @@ export default function PlannerPage() {
       )}
       {/* Zoom-knappar borttagna */}
 
-      {/* === KOMPASS-WIDGET (vänster nere) === */}
-      {compassMode && !briefingMode && (
+      {/* === KOMPASS-WIDGET (vänster nere) — INTE i körvy: där har skärmen bara hem-knapp, objektpill, +-knapp och korten när de
+          behövs. Kompassen bor i Lager-menyn (rad "Kompass"). Planeringsvyn oförändrad. === */}
+      {compassMode && !briefingMode && !korvyActive && (
         <div style={{
           position: 'absolute',
           bottom: menuOpen ? menuHeight + 110 : 100,
@@ -16084,7 +16135,7 @@ export default function PlannerPage() {
       })()}
 
       {/* === CENTRERA-KNAPP — kort tryck: GPS, långt tryck (500ms): objekt. Synlig ÄVEN i Körvy (förarens enda manuella GPS-retry). Döljs i volym/briefing. */}
-      {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && (
+      {!briefingMode && valtObjekt && !korvyActive && !(volymLoading || volymResultat) && (
         <button
           type="button"
           onPointerDown={() => {
@@ -17808,6 +17859,48 @@ export default function PlannerPage() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Kompass — AV som standard. Slår på kartrotation efter enhetens kompass (iOS frågar om tillstånd vid första tryck). */}
+            <div style={{
+              background: '#0a0a0a',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '16px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div
+                data-testid="lager-kompass"
+                onClick={() => { if (korvyKompass === 'aktiv') stoppaKompass(); else aktiveraKompass(true); }}
+                style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '16px', borderRadius: '12px', cursor: 'pointer' }}
+              >
+                <span style={{ flex: 1 }}>
+                  <div style={{ fontSize: '15px', color: '#fff' }}>Kompass</div>
+                  <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>
+                    {korvyKompass === 'aktiv' ? 'På — kartan följer enhetens kompass'
+                      : korvyKompass === 'nekad' ? 'Nekad — tillåt rörelsesensorer i Inställningar och försök igen'
+                      : korvyKompass === 'saknas' ? 'Ingen kompass på enheten'
+                      : 'Av'}
+                  </div>
+                </span>
+                <div style={{
+                  width: '44px',
+                  height: '26px',
+                  borderRadius: '13px',
+                  background: korvyKompass === 'aktiv' ? '#30d158' : 'rgba(255,255,255,0.1)',
+                  padding: '2px',
+                  transition: 'background 0.2s ease',
+                }}>
+                  <div style={{
+                    width: '22px',
+                    height: '22px',
+                    borderRadius: '50%',
+                    background: '#fff',
+                    transform: korvyKompass === 'aktiv' ? 'translateX(18px)' : 'translateX(0)',
+                    transition: 'transform 0.2s ease',
+                  }} />
+                </div>
+              </div>
             </div>
 
             {/* Overlay-lager */}

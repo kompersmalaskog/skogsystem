@@ -193,19 +193,20 @@ let hubTyp: GpsKallaTyp = 'ingen';
 // senast kända position) och sprids till samma abonnenter som en riktig fix, så hela GPS-kedjan (prick, körvy,
 // kamera) ser EN källa. Aktiveras av /maskin-sidan innan något hunnit prenumerera.
 let fastLage = false;
-let fastPos: { lat: number; lng: number } | null = null;
+let fastPos: { lat: number; lng: number; kurs: number | null } | null = null;
 
-function fastFix(p: { lat: number; lng: number }): GpsFix {
-  return { lat: p.lat, lng: p.lng, kurs: null, fart: null, satelliter: null, hdop: null, noggrannhetM: null, giltig: true, tid: Date.now() };
+function fastFix(p: { lat: number; lng: number; kurs: number | null }): GpsFix {
+  return { lat: p.lat, lng: p.lng, kurs: p.kurs, fart: null, satelliter: null, hdop: null, noggrannhetM: null, giltig: true, tid: Date.now() };
 }
 
 export function startaFastGpsLage(): void {
   fastLage = true;
   if (underliggande) { underliggande.stop(); underliggande = { stop() { /* fast läge öppnar ingen källa */ } }; hubTyp = 'geolocation'; senasteFix = null; }
 }
-export function sattFastGpsPosition(lat: number, lng: number): void {
+/** Lägg ut maskinens position (och, om känd, senaste körriktning i grader) i det fasta läget. */
+export function sattFastGpsPosition(lat: number, lng: number, kurs: number | null = null): void {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-  fastPos = { lat, lng };
+  fastPos = { lat, lng, kurs: kurs != null && Number.isFinite(kurs) ? ((kurs % 360) + 360) % 360 : null };
   if (fastLage) notifiera(fastFix(fastPos));
 }
 export function stoppaFastGpsLage(): void { fastLage = false; fastPos = null; }

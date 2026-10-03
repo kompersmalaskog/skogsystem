@@ -2,17 +2,49 @@
 
 // Skärmarna för /maskin och maskindatorns startsekvens.
 //
-//  • StartSvartSkarm — HELT svart, ingen logga och ingen text. Delas av /maskin-routens fallback, väntläget
-//    ("roll/maskinregister laddas") och startsekvensens täckskikt, så att de tre ser identiska ut och inget
-//    hoppar när ett byts mot nästa. Tonar ut (opacity) → kartan "tonar upp ur svart".
+//  • StartSvartSkarm — svart täckskikt. Delas av /maskin-routens fallback, väntläget ("roll/maskinregister laddas")
+//    och startsekvensens täckskikt, så att de tre ser identiska ut och inget hoppar när ett byts mot nästa. Tonar
+//    ut (opacity) → kartan "tonar upp ur svart". Under 1 s: HELT svart (ingenting). Varar svart längre berättar den:
+//    maskinens namn i liten grå text + en tunn, långsam förloppsrad, och efter 10 s vad som dröjer ("Väntar på nät" /
+//    "Hämtar karta"). Tiden räknas från NAVIGERINGEN (performance.now) så de tre lagren delar klocka.
 //  • MaskinSomFelSkarm — det ENDA stället loggan visas: felskärmar (ej behörig / okänd maskin / laddning
 //    fastnar). Loggan är SAMMA fil som inloggningssidan (/logo.png), 1953×867.
 
-import React from 'react';
-import { COVER_FADE_MS } from '@/lib/maskinstart';
+import React, { useEffect, useState } from 'react';
+import { COVER_FADE_MS, svartInfo, svartVad } from '@/lib/maskinstart';
 
-/** Helsvart täckskikt. synlig=false → tonar ut över COVER_FADE_MS och släpper igenom tryck. */
-export function StartSvartSkarm({ synlig = true, zIndex = 9000 }: { synlig?: boolean; zIndex?: number }) {
+const KEYFRAMES = `
+@keyframes maskinSvartForlopp { 0% { left: -40%; } 100% { left: 100%; } }
+@keyframes maskinSvartTona { from { opacity: 0; } to { opacity: 1; } }
+`;
+
+/** Svart täckskikt. synlig=false → tonar ut över COVER_FADE_MS och släpper igenom tryck.
+ *  namn = maskinens namn (visas först efter 1 s). kartaFinns = kartan är monterad (styr vad "Hämtar …" säger efter 10 s). */
+export function StartSvartSkarm({ synlig = true, zIndex = 9000, namn = null, kartaFinns = false }: {
+  synlig?: boolean; zIndex?: number; namn?: string | null; kartaFinns?: boolean;
+}) {
+  // null tills monterad: server och första klient-rendering ger EXAKT samma (helsvarta) markup → ingen hydrerings-skillnad.
+  const [nu, setNu] = useState<number | null>(null);
+  const [online, setOnline] = useState(true);
+
+  useEffect(() => {
+    if (!synlig) return;
+    const tick = () => setNu(Math.round(performance.now()));
+    tick();
+    const iv = setInterval(tick, 250);
+    return () => clearInterval(iv);
+  }, [synlig]);
+
+  useEffect(() => {
+    const uppdatera = () => setOnline(typeof navigator === 'undefined' ? true : navigator.onLine !== false);
+    uppdatera();
+    window.addEventListener('online', uppdatera);
+    window.addEventListener('offline', uppdatera);
+    return () => { window.removeEventListener('online', uppdatera); window.removeEventListener('offline', uppdatera); };
+  }, []);
+
+  const info = nu == null ? null : svartInfo({ sedanNavigeringMs: nu, namn, vad: svartVad({ online, kartaFinns }) });
+
   return (
     <div
       aria-hidden="true"
@@ -22,7 +54,23 @@ export function StartSvartSkarm({ synlig = true, zIndex = 9000 }: { synlig?: boo
         pointerEvents: synlig ? 'auto' : 'none',
         transition: `opacity ${COVER_FADE_MS}ms cubic-bezier(0.32, 0.72, 0, 1)`,
       }}
-    />
+    >
+      {info && info.forlopp && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '14px',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          animation: 'maskinSvartTona 600ms ease forwards', opacity: 0,
+        }}>
+          <style>{KEYFRAMES}</style>
+          {info.namn && <div style={{ fontSize: '13px', letterSpacing: '0.4px', color: 'rgba(255,255,255,0.5)' }}>{info.namn}</div>}
+          {/* Tunn, långsam förloppsrad: ett kort streck som glider över ett nästan osynligt spår. */}
+          <div style={{ position: 'relative', width: '120px', height: '2px', borderRadius: '1px', background: 'rgba(255,255,255,0.09)', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: 0, bottom: 0, width: '40%', borderRadius: '1px', background: 'rgba(255,255,255,0.4)', animation: 'maskinSvartForlopp 2.8s ease-in-out infinite' }} />
+          </div>
+          {info.text && <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{info.text}</div>}
+        </div>
+      )}
+    </div>
   );
 }
 
