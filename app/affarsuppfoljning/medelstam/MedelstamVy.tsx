@@ -154,14 +154,14 @@ function platamening(p: Platå, n: number, ms: (x: number) => string): string {
 const stor = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 /** De lövdominerade objekten som hålls utanför — med namn och andel, aldrig tyst. */
-function Utanfor({ objekt }: { objekt: Objekt[] }) {
-  if (!objekt.length) return null;
+function Utanfor({ objekt, grans }: { objekt: Objekt[]; grans: number | null }) {
+  if (!objekt.length || grans == null) return null;
   const n = objekt.length;
   const lista = objekt.map(o => `${kortObjekt(o.namn ?? o.id)} (${nf0((100 * (o.lov ?? 0)) / o.volym)} % löv)`).join(', ');
   return (
     <Mening>
       <b style={{ color: TEXT, fontWeight: 600 }}>Utanför kalkylen:</b>{' '}
-      {n === 1 ? 'ett lövdominerat objekt' : `${nf0(n)} lövdominerade objekt`} — {lista}. Över {nf0(100 * LOV_GRANS)} % löv av volymen: där avgör arten
+      {n === 1 ? 'ett lövdominerat objekt' : `${nf0(n)} lövdominerade objekt`} — {lista}. Över {nf0(100 * grans)} % löv av volymen: där avgör arten
       utfallet och inte stamstorleken, så de ingår varken i fönster, spann eller kurva.
     </Mening>
   );
@@ -264,7 +264,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
           {objTyp.length > 0 && <Kurvdiagram objekt={objTyp} m={m} ms={ms} />}
           <Teckenforklaring />
           {objTyp.length > 0 && <div style={{ marginTop: 16, fontSize: 13, lineHeight: 1.6, color: TEXT }}>{platamening(plata, objTyp.length, ms)}</div>}
-          <Utanfor objekt={utanforTyp} />
+          <Utanfor objekt={utanforTyp} grans={LOV_GRANS[typ]} />
           <div style={{ marginTop: 12, fontSize: 11, color: SEKUNDAR, lineHeight: 1.6 }}>
             Brytpunkten söks med en segmenterad regression över objektens {rubrikNamn}andel (volymvägd), med fri lutning över
             brytpunkten. ± är 95 %-intervallet.
@@ -332,7 +332,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
           )}
 
           {/* Lövdominerade objekt som hålls utanför — aldrig tyst, och nära talen de påverkar. */}
-          <div style={{ margin: '0 16px' }}><Utanfor objekt={utanforTyp} /></div>
+          <div style={{ margin: '0 16px' }}><Utanfor objekt={utanforTyp} grans={LOV_GRANS[typ]} /></div>
 
           {/* Rötan: samma definition och förval som stämplingsvyn. Bara slutavverkning. */}
           {slut && kanRota && (
@@ -363,7 +363,8 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
             <div style={{ margin: '12px 16px 0' }}>
               <Mening>
                 Rubriktalet är massaved: timmer är under {nf0(LAGT_TIMMER_PCT)} % i {nf0(objTyp.filter(o => 100 * o.timmer / o.volym < LAGT_TIMMER_PCT).length)} av {nf0(objTyp.length)} gallringar,
-                så det är massavedsandelen som följer medelstammen. Röta mäts bara på slutavverkningar; gallringens tal är fönstrets rena volymvägda snitt.
+                så det är massavedsandelen som följer medelstammen. Lövrik gallring är normal och ingår — björken hamnar i massaveden. Röta mäts bara på
+                slutavverkningar; gallringens tal är fönstrets rena volymvägda snitt.
               </Mening>
             </div>
           )}

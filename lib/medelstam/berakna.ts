@@ -25,9 +25,11 @@
 // Utan objektens rot20 (läsrätt saknas, gallring, för få) görs ingen
 // justering och det står på skärmen — talet är då fönstrets rena snitt.
 //
-// LÖVDOMINERADE OBJEKT. Ett objekt där löv är mer än hälften av volymen (utfall_objekt.lov_pct > 50) följer inte
-// medelstammen — arten avgör utfallet, inte stamstorleken — och hålls utanför fönster, spann, röta-lutning och kurva.
-// "Vildt timkörning" (65 % löv, 95 % massaved vid 0,28) sänkte annars spannet för barrbestånd från 33–56 till 3–56 %.
+// LÖVDOMINERADE SLUTAVVERKNINGAR. En slutavverkning där löv är mer än hälften av volymen (utfall_objekt.lov_pct > 50)
+// följer inte medelstammen — arten avgör utfallet, inte stamstorleken — och hålls utanför fönster, spann, röta-lutning
+// och kurva. "Vildt timkörning" (65 % löv, 95 % massaved vid 0,28) sänkte annars spannet för barrbestånd från 33–56
+// till 3–56 %. GALLRING HAR INGEN GRÄNS: lövrik gallring är normal, rubriktalet där är massaved — där björken ändå
+// hamnar — och att ta bort lövrika gallringar krympte kurvan (26 → 20 objekt) utan att skydda mot något.
 // Aldrig tyst: delaUrval returnerar de utelämnade, och skärmen listar dem med namn och löv-andel. Okänd löv-andel
 // (lov = null, raden ännu inte omräknad) räknas INTE som lövdominerad.
 //
@@ -43,7 +45,8 @@ export const MIN_STAMMAR = 200;       // objekt med färre stammar är med inte 
 export const ROT_MAX = 0.6;           // objekt över detta räknas inte in i röta-lutningen (extremer, t.ex. timkörning)
 export const ROT_MIN_STAMMAR20 = 150; // rot20 över färre stammar än så är för osäkert för lutningen
 export const MIN_ROTOBJEKT = 20;      // färre objekt med röta → ingen lutning skattas
-export const LOV_GRANS = 0.5;         // löv över denna andel av volymen → lövdominerat, utanför kalkylen
+/** Löv över denna andel av volymen → lövdominerat, utanför kalkylen. null = ingen gräns (gallring). */
+export const LOV_GRANS: Record<'Slutavverkning' | 'Gallring', number | null> = { Slutavverkning: 0.5, Gallring: null };
 export const KURV_MIN_OBJEKT = 12;    // färre objekt → ingen brytpunkt söks
 export const KURV_MIN_SIDA = 5;       // minst så många objekt på varje sida om brytpunkten
 export const KURV_MIN_OVER = 8;       // färre objekt över brytpunkten → kurvan sägs varken planera ut eller stiga
@@ -81,9 +84,10 @@ export type Objekt = {
 
 // ── Lövdominerade objekt ────────────────────────────────────────────────
 
-/** Mer än LOV_GRANS av volymen är löv. Exakt på gränsen räknas som med. null (ej räknad) räknas som med. */
-export function arLovdominerat(o: Pick<Objekt, 'volym' | 'lov'>): boolean {
-  return o.lov != null && o.volym > 0 && o.lov / o.volym > LOV_GRANS + 1e-12;
+/** Mer än typens LOV_GRANS av volymen är löv. Exakt på gränsen räknas som med; null (ej räknad) och typer utan gräns (gallring) räknas som med. */
+export function arLovdominerat(o: Pick<Objekt, 'typ' | 'volym' | 'lov'>): boolean {
+  const grans = LOV_GRANS[o.typ];
+  return grans != null && o.lov != null && o.volym > 0 && o.lov / o.volym > grans + 1e-12;
 }
 
 /** Delar objekten i dem som är med i kalkylen och dem som är utanför — de senare redovisas, de göms inte. */

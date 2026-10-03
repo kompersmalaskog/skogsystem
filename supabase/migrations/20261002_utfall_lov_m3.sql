@@ -1,6 +1,9 @@
 -- utfall_objekt: löv i volym per objekt (lov_m3, lov_pct) — så att lövdominerade objekt kan hållas
 -- utanför kalkylunderlaget på /affarsuppfoljning/medelstam, synligt och inte tyst.
 --
+-- Gränsen (50 %) tillämpas av /affarsuppfoljning/medelstam bara på SLUTAVVERKNING. Gallring har ingen gräns: lövrik
+-- gallring är normal och rubriktalet där är massaved. Kolumnerna räknas för alla objekt; det är sidan som väljer.
+--
 -- Bakgrund: "Vildt timkörning" (PONS20SDJAA270231_76) är ett björkbestånd — 65 % löv av volymen, 95 %
 -- massaved vid 0,28 m³/stam. Det är ett riktigt utfall, men det svarar inte på "vad kan man vänta sig
 -- vid medelstam 0,28 i våra barrdominerade bestånd": det sänkte spannets undre gräns från 33 till 3 %
@@ -28,7 +31,7 @@ ALTER TABLE utfall_objekt ADD COLUMN IF NOT EXISTS lov_pct numeric
 COMMENT ON COLUMN utfall_objekt.lov_m3 IS
   'Volym (m³sub, utan hemved) från lövträdslagen BJÖRK, ÖVR_LÖV, ÖVR LÖV, LÖV, LOV2 — samma bas som volym. NULL = ännu inte räknad (inte noll).';
 COMMENT ON COLUMN utfall_objekt.lov_pct IS
-  'Andel löv av volymen utan hemved, procent. NULL om lov_m3 inte är räknad. Över 50 hålls objektet utanför medelstamsvyns fönster, spann och kurva.';
+  'Andel löv av volymen utan hemved, procent. NULL om lov_m3 inte är räknad. Slutavverkningar över 50 hålls utanför medelstamsvyns fönster, spann och kurva; gallring har ingen gräns.';
 
 DO $$
 DECLARE

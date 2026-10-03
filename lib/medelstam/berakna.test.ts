@@ -232,20 +232,24 @@ describe('kurvan', () => {
   });
 });
 
-describe('lövdominerade objekt', () => {
-  it('över 50 % löv av volymen är utanför; exakt 50 och okänd löv är med', () => {
-    expect(LOV_GRANS).toBe(0.5);
+describe('lövdominerade slutavverkningar (gallring har ingen gräns)', () => {
+  it('slutavverkning: över 50 % löv av volymen är utanför; exakt 50 och okänd löv är med', () => {
+    expect(LOV_GRANS).toEqual({ Slutavverkning: 0.5, Gallring: null });
     expect(arLovdominerat(medLov(obj(0.3, 100, 3, 0, 95), 65.4))).toBe(true);
     expect(arLovdominerat(medLov(obj(0.3, 100, 3, 0, 95), 50.1))).toBe(true);
     expect(arLovdominerat(medLov(obj(0.3, 100, 50, 20, 25), 50))).toBe(false);
     expect(arLovdominerat(medLov(obj(0.3, 100, 50, 20, 25), 29.9))).toBe(false);
     expect(arLovdominerat(medLov(obj(0.3, 100, 50, 20, 25), null))).toBe(false);     // ej räknad ≠ lövdominerad
   });
-  it('delaUrval ger både de som är med och de som är utanför — inget försvinner tyst', () => {
+  it('gallring: aldrig lövdominerad, hur lövrik den än är', () => {
+    for (const pct of [30, 53, 78, 98, 100]) expect(arLovdominerat(medLov(obj(0.06, 100, 0, 5, 90, null, 'Gallring'), pct))).toBe(false);
+  });
+  it('delaUrval ger både de som är med och de som är utanför — inget försvinner tyst — och rör aldrig gallring', () => {
     const a = medLov(obj(0.3, 100, 40, 20, 35), 10), b = medLov(obj(0.28, 100, 3, 0, 95), 65), c = obj(0.3, 100, 40, 20, 35);
-    const { med, utanfor } = delaUrval([a, b, c]);
-    expect(med).toEqual([a, c]); expect(utanfor).toEqual([b]);
-    expect(med.length + utanfor.length).toBe(3);
+    const lovGallring = medLov(obj(0.06, 100, 0, 5, 90, null, 'Gallring'), 98);
+    const { med, utanfor } = delaUrval([a, b, c, lovGallring]);
+    expect(med).toEqual([a, c, lovGallring]); expect(utanfor).toEqual([b]);
+    expect(med.length + utanfor.length).toBe(4);
   });
   it('spannet går tillbaka när det lövdominerade objektet är utanför — utan att volymvägda snittet rör sig', () => {
     const barr = [0.26, 0.27, 0.29, 0.30, 0.31, 0.32].map((m, i) => medLov(obj(m, 400 + 20 * i, 38 + i, 22, 35), 8));
