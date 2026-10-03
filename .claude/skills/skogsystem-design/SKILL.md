@@ -208,6 +208,34 @@ Måla aldrig om något till en "klar-grå" eller "klar-färg" — **samma färg,
 (Detta är progress-axeln. Larm-status — fel/varning/ok — är en annan sak och visas
 som grön/orange/röd prick eller etikett bredvid ett ord, aldrig som fyllning.)
 
+### Sortimentfärger — en ljushetsskala, skild från status
+
+När en vy visar hur virket fördelar sig (timmer, kubb, massaved, övrigt) används
+EN skala, och bara den: `SORTIMENTFARG` i `lib/design/tokens.ts`.
+
+| Sortiment | Färg | Läs som |
+|---|---|---|
+| Timmer | **mörkgrön `#2f4b14`** | mest värt |
+| Kubb | `#6e8f4a` | |
+| Massaved | `#b4c4a0` | |
+| Övrigt | **nästan vit `#e3e8dc`** | minst värt |
+
+**Mörkast är mest värt.** Skalan är ljushet, inte nyans: en stapel läses som "hur mörk
+den är", och de mörka delarna är de som betalar.
+
+**Skild från status.** Grönt/orange/rött (`FARG.gron` m.fl.) säger om något är *bra eller
+dåligt* och står som prick eller etikett bredvid ett ord. Sortimentskalan säger *vad det är*.
+Den mörkgröna timmerfärgen betyder därför inte "godkänt", och en röd rad i samma vy betyder
+inte "dåligt sortiment". Blanda aldrig: ingen statusprick i en sortimentfärg, ingen
+sortimentfärg som larm.
+
+**Färg är aldrig ensam bärare.** Varje färgad del har ordet och talet bredvid sig (rad med
+prick, eller teckenförklaring under staplarna). Timmerfärgen har låg kontrast mot den svarta
+sidan, så en sortimentstapel ritas med en tunn ram (`LINJE`) och med ljusare grannar.
+
+Gäller sortimentGRUPPERNA. Kartans skotningshögar och stråk färgas per trädslag/sortimentnamn
+(`getSortimentColor` i planeringsvyn) — en annan axel som inte rörs av den här.
+
 ### Så används det
 
 ```tsx
