@@ -99,6 +99,14 @@ Vyn skapar **bara perioder**. Dagen bekräftas som vanligt under Dag/Kalender.
 *"Man vet när man kommer, inte när man går."* (Martin) **Starta nu** sparar en
 `extra_tid`-rad med `slut_tid = null` och `minuter = 0`.
 
+- **Starten är klockan när man trycker** (Martin: "trycker jag 07:34 är det då jag började"): Starta nu sätter
+  start = nu avrundat till **närmaste kvart** (07:34 → 07:30, 07:38 → 07:45), det stora klockslaget visar
+  "07:30 – ?" direkt och knappen heter "Starta 07:30". Kom man 07:00 men öppnade appen 07:20: tryck på klockslaget
+  och backa med minus. **Plus passerar aldrig nu** (högst närmaste kvart). Därför får en pågående periods start
+  ligga upp till en halv kvart efter nu (07:45 kl 07:38) — det är den enda gången en tid "i framtiden" sparas
+  (`startLiggerIFramtiden`); slut efter nu nekas fortfarande. **Fortsätt efter rast** följer samma regel.
+  Längdknapparna (1, 2, 4 tim, Till nu) behåller den *förifyllda* starten — de är för efterhandsregistrering —
+  och Starta nu av igen ger tillbaka den.
 - **Pågår-kortet** ligger överst på skärm 1: "PÅGÅR · Betet gallring · Planering sedan
   07:00 · 2 tim 15 min" (levande räknare, omritning var 30:e sekund). Perioden **ligger kvar
   tills man trycker Avsluta eller Ta bort** — man kan stänga appen och komma tillbaka.

@@ -154,6 +154,17 @@ export const kvartUpp = (m: number) => Math.ceil(m / KVART) * KVART;
 /** Klockan nu som minuter, avrundad NED till kvart ("Till nu" och taket för idag). */
 export const nuKvartNed = (nu: Date) => kvartNed(nu.getHours() * 60 + nu.getMinutes());
 
+/** Klockan nu avrundad till NÄRMASTE kvart — "Starta nu" (07:34 → 07:30, 07:38 → 07:45). */
+export const nuKvartNarmast = (nu: Date) => kvartNarmast(nu.getHours() * 60 + nu.getMinutes());
+
+/** Ligger starten på en PÅGÅENDE period i framtiden? Starten är klockan nu avrundad till närmaste kvart,
+ *  så den får ligga upp till en halv kvart efter nu (07:45 kl 07:38) men inte längre fram. */
+export function startLiggerIFramtiden(datum: string, startMin: number, nu: Date): boolean {
+  const idag = lokalISO(nu);
+  if (datum > idag) return true;
+  return datum === idag && startMin > nuKvartNarmast(nu);
+}
+
 /** Ligger slutet efter nu? Idag får inte sluta efter nu och framtida dagar går inte att fylla i.
  *  Samma regel gäller i vyn OCH i sparandet (en spärr i bara ena änden är ingen spärr). */
 export function liggerIFramtiden(datum: string, slutMin: number, nu: Date): boolean {

@@ -5,7 +5,7 @@ import { AKTIVITETER, aktLabel, type AktivitetTyp } from "@/lib/aktiviteter";
 import { byggArbetsObjektLista, type ArbetsObjekt } from "@/lib/arbetsobjekt";
 import {
   PLANERA_TYPER, DAGENS_SLUT, KVART, arGlomd, dagRubrik, debFor, foreslagenStart, forslagFranIgar, klockaTillMin, krockMed,
-  kvartNed, kvartUpp, liggerIFramtiden, lokalISO, minTillKlocka, nuKvartNed, oppenPeriod, pagatt, periodMinuter, rastPeriod,
+  kvartNed, kvartUpp, liggerIFramtiden, lokalISO, minTillKlocka, nuKvartNarmast, nuKvartNed, oppenPeriod, startLiggerIFramtiden, pagatt, periodMinuter, rastPeriod,
   relativDag, senasteDagar, senasteTrakter, slutVidAvsluta, timText, traktGrupper, veckoDagar, datumKort, plusDagar,
   type Forslag, type PeriodRad,
 } from "@/lib/planera/logik";
@@ -49,6 +49,7 @@ type FormState = {
   startMin: number;
   slutMin: number | null; // null = längden är inte vald (eller perioden pågår, se oppen)
   oppen: boolean;         // "Starta nu — avsluta sen": sparas utan slut
+  startFore: number | null; // starten som stod där INNAN Starta nu satte den till klockan nu — längdknapparna och "av igen" går tillbaka till den
   typ: AktivitetTyp;
   deb: boolean;
   kommentar: string;
@@ -83,12 +84,13 @@ function Segment<T extends string>({ varden, valt, onVal, etikett, inaktiva = []
 }
 
 /** Ett kvartssteg på start eller slut. null = går inte (utanför dagen, korsar den andra änden, efter nu). */
-function stappaTill(f: FormState, vilken: "start" | "slut", riktning: -1 | 1, tak: number): FormState | null {
+function stappaTill(f: FormState, vilken: "start" | "slut", riktning: -1 | 1, tak: number, startTak: number = tak): FormState | null {
   const flytta = (m: number) => (riktning < 0 ? (m % KVART ? kvartNed(m) : m - KVART) : (m % KVART ? kvartUpp(m) : m + KVART));
   if (vilken === "start") {
     const ny = flytta(f.startMin);
-    // Utan slut (pågående) får starten stå så sent som nu; med slut måste en kvart rymmas.
-    return ny < 0 || ny > (f.slutMin != null ? f.slutMin - KVART : tak) ? null : { ...f, startMin: ny };
+    // Utan slut (pågående) får starten stå så sent som klockan nu (närmaste kvart) — plus passerar aldrig det;
+    // med slut måste en kvart rymmas.
+    return ny < 0 || ny > (f.slutMin != null ? f.slutMin - KVART : startTak) ? null : { ...f, startMin: ny };
   }
   if (f.slutMin == null) return null;
   const ny = flytta(f.slutMin);
@@ -202,7 +204,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
   const nyttForm = (objektId: string | null, datum = idag): FormState => ({
     objektId, redigerarId: null, datum,
     startMin: klockaTillMin(foreslagenStart(perioder, datum, idag, nu)), slutMin: null, oppen: false,
-    typ: "planering", deb: debFor("planering"), kommentar: "",
+    typ: "planering", deb: debFor("planering"), kommentar: "", startFore: null,
   });
   const aterstall = () => { setFormFel(null); setKortFel(null); setKvitto(null); setBekraftaBort(false); setSteg(null); setDagBlad(false); };
   const valjTrakt = (id: string) => {
@@ -221,7 +223,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
       objektId: p.objekt_id, redigerarId: p.id, datum: p.datum,
       startMin: klockaTillMin(hh(p.start_tid)), slutMin: slutFor,
       // En pågående period som öppnas för ändring förblir pågående tills man väljer en längd.
-      oppen: oppen && iDag && slutFor == null,
+      oppen: oppen && iDag && slutFor == null, startFore: null,
       typ: (PLANERA_TYPER.includes(p.aktivitet_typ as AktivitetTyp) ? p.aktivitet_typ : "planering") as AktivitetTyp,
       deb: !!p.debiterbar, kommentar: p.kommentar || "",
     });
@@ -231,27 +233,41 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     if (!datum || datum > idag) return;
     setDagBlad(false); setSteg(null); setFormFel(null);
     // Ny dag = ny förifyllning (där den dagen slutade / förarens vanliga start); längden väljs om.
-    setForm(f => (f ? { ...f, datum, startMin: klockaTillMin(foreslagenStart(perioder, datum, idag, nu)), slutMin: null, oppen: false } : f));
+    setForm(f => (f ? { ...f, datum, startMin: klockaTillMin(foreslagenStart(perioder, datum, idag, nu)), slutMin: null, oppen: false, startFore: null } : f));
   };
   // En kvart per tryck. Står tiden mellan två kvartar (gammal data, 10:17) snappar första trycket till kvarten.
-  const stappa = (riktning: -1 | 1) => setForm(f => (f && steg ? stappaTill(f, steg, riktning, taket(f.datum)) ?? f : f));
+  const startTaket = (f: FormState) => (f.oppen && f.datum === idag ? nuKvartNarmast(nu) : taket(f.datum));
+  const stappa = (riktning: -1 | 1) => setForm(f => (f && steg ? stappaTill(f, steg, riktning, taket(f.datum), startTaket(f)) ?? f : f));
   const tryckTid = (vilken: "start" | "slut") => {
     if (vilken === "slut" && form && form.slutMin == null) {
       // Slutet är inte valt: ett tryck ger en timme (eller så långt som ryms) att steppa från.
+      // Starta nu valt: sluttiden är medvetet "?" — ett tryck på den gör ingenting (av med Starta nu eller välj längd).
+      if (form.oppen && form.startFore != null) return;
       const s = Math.min(form.startMin + 60, taket(form.datum));
       if (s >= form.startMin + KVART) setForm({ ...form, slutMin: s, oppen: false });
     }
     setSteg(st => (st === vilken ? null : vilken));
   };
+  // Längdknapparna är för efterhandsregistrering och använder den FÖRIFYLLDA starten — också om Starta nu hunnit
+  // sätta starten till klockan nu (då går de tillbaka till den).
+  const forifylldStart = (f: FormState) => (f.oppen && f.startFore != null ? f.startFore : f.startMin);
   const valjLangd = (key: string) => setForm(f => {
     if (!f) return f;
-    if (key === "nu") { const s = nuKvartNed(nu); return s > f.startMin ? { ...f, slutMin: s, oppen: false } : f; }
+    const start = forifylldStart(f);
+    if (key === "nu") { const s = nuKvartNed(nu); return s > start ? { ...f, startMin: start, startFore: null, slutMin: s, oppen: false } : f; }
     const l = LANGDER.find(x => x.key === key);
-    return l && f.startMin + l.min <= taket(f.datum) ? { ...f, slutMin: f.startMin + l.min, oppen: false } : f;
+    return l && start + l.min <= taket(f.datum) ? { ...f, startMin: start, startFore: null, slutMin: start + l.min, oppen: false } : f;
   });
+  // Starta nu: starten blir KLOCKAN NU (närmaste kvart) — inte den förifyllda. Gäller en NY period; vid ändring
+  // av en redan pågående period rörs starten inte. Av igen → den förifyllda starten tillbaka.
   const taOppen = () => {
     if (steg === "slut") setSteg(null);
-    setForm(f => (f ? { ...f, oppen: !f.oppen, slutMin: null } : f));
+    setForm(f => {
+      if (!f) return f;
+      if (f.oppen) return { ...f, oppen: false, slutMin: null, startMin: f.startFore ?? f.startMin, startFore: null };
+      if (f.redigerarId || f.datum !== idag) return { ...f, oppen: true, slutMin: null };
+      return { ...f, oppen: true, slutMin: null, startFore: f.startMin, startMin: nuKvartNarmast(nu) };
+    });
   };
   const tillbaka = () => { setSkarm("trakt"); setForm(null); setFormFel(null); setBekraftaBort(false); setSteg(null); setDagBlad(false); };
 
@@ -326,7 +342,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
   const fortsatt = async (rad: PeriodRad) => {
     if (!medarbetare || sparar) return;
     setKortFel(null); setKvitto(null); setSparar(true);
-    const start = minTillKlocka(Math.max(nuKvartNed(nu), klockaTillMin(hh(rad.slut_tid))));
+    const start = minTillKlocka(Math.max(nuKvartNarmast(nu), klockaTillMin(hh(rad.slut_tid))));
     const svar = await sparaNyPeriod(supabase, medarbetare.id, { ...perAvRad(rad, null), datum: idag, start }, nu);
     setSparar(false);
     if (!svar.ok) { setKortFel(svar.fel); return; }
@@ -336,16 +352,17 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
 
   const min = form && form.slutMin != null ? form.slutMin - form.startMin : 0;
   const oppenLage = !!form && form.oppen && form.slutMin == null;
-  const framtid = !!form && (oppenLage ? liggerIFramtiden(form.datum, form.startMin, nu) : form.slutMin != null && liggerIFramtiden(form.datum, form.slutMin, nu));
+  const framtid = !!form && (oppenLage ? startLiggerIFramtiden(form.datum, form.startMin, nu) : form.slutMin != null && liggerIFramtiden(form.datum, form.slutMin, nu));
   const krock = form && !framtid && (oppenLage || form.slutMin != null)
     ? krockMed(perioder, form.datum, form.startMin, oppenLage ? DAGENS_SLUT : (form.slutMin as number), form.redigerarId) : null;
   const oppenAnnan = !!oppenRad && !!form && oppenRad.id !== form.redigerarId;
   const kanSpara = !!form && !!form.objektId && !framtid && !krock && !sparar
     && (oppenLage ? !oppenAnnan && form.datum === idag : form.slutMin != null && min > 0);
+  const langdStart = form ? forifylldStart(form) : 0;
   const langdInaktiva = ["1", "2", "4", "nu"].filter(k => {
     if (!form) return true;
-    if (k === "nu") return !(form.datum === idag && nuKvartNed(nu) > form.startMin);
-    return form.startMin + LANGDER.find(l => l.key === k)!.min > taket(form.datum);
+    if (k === "nu") return !(form.datum === idag && nuKvartNed(nu) > langdStart);
+    return langdStart + LANGDER.find(l => l.key === k)!.min > taket(form.datum);
   });
   const valdLangd = !form || form.slutMin == null ? null
     : LANGDER.find(l => form.startMin + l.min === form.slutMin)?.key ?? (form.datum === idag && form.slutMin === nuKvartNed(nu) ? "nu" : null);

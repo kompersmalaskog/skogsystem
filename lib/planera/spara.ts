@@ -22,7 +22,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { klassificeraPeriod, periodMin, valideraSegment } from "@/lib/dagsegment";
 import { aktLabel, type AktivitetTyp } from "@/lib/aktiviteter";
 import { raderaVerifierat, uppdateraVerifierat, SPARA_FEL } from "@/lib/supabase-save";
-import { DAGENS_SLUT, liggerIFramtiden, klockaTillMin, lokalISO, minTillKlocka, relativDag, timText } from "./logik";
+import { DAGENS_SLUT, liggerIFramtiden, startLiggerIFramtiden, klockaTillMin, lokalISO, minTillKlocka, relativDag, timText } from "./logik";
 
 /** slut = null → pågående period. kommentar: undefined = rör den inte, string/null = skriv den. */
 export type NyPeriod = { datum: string; start: string; slut: string | null; typ: AktivitetTyp; objektId: string | null; deb: boolean; kommentar?: string | null };
@@ -60,7 +60,8 @@ async function laddaDag(sb: SupabaseClient, medarbetareId: string, datum: string
 /** Pågående period: bara idag, start inte i framtiden, ingen annan pågående, inte inom ett maskinpass, ingen krock framåt. */
 function kontrolleraOppen(p: NyPeriod, dag: DagLage, nu: Date): { fel: string } | { kalla: string } {
   if (p.datum !== lokalISO(nu)) return { fel: "En period utan sluttid kan bara startas idag. Välj när den slutade." };
-  if (klockaTillMin(p.start) > nu.getHours() * 60 + nu.getMinutes()) return { fel: "Perioden ligger i framtiden — inget sparat. Spara den när tiden har varit." };
+  // "Starta nu" startar vid klockan nu avrundad till NÄRMASTE kvart, så starten får ligga upp till en halv kvart efter nu.
+  if (startLiggerIFramtiden(p.datum, klockaTillMin(p.start), nu)) return { fel: "Perioden ligger i framtiden — inget sparat. Spara den när tiden har varit." };
   if (dag.annanOppen) return { fel: "Du har redan en pågående period — avsluta den först." };
   const s = klockaTillMin(p.start);
   const ps = dag.pass.start_tid ? klockaTillMin(dag.pass.start_tid) : null;
