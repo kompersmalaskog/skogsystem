@@ -17,11 +17,11 @@ import { SORTIMENT, SORTIMENT_NAMN, type Andelar, type Sortiment } from '@/lib/m
 export const sortimentFarg = (s: Sortiment) => SORTIMENTFARG[s];
 
 /** En enda stapel med hela fördelningen. Delarna är utgångspunkten: bredd = andel. */
-export function Sortimentstapel({ andel, hela }: { andel: Andelar; hela: Andelar }) {
+export function Sortimentstapel({ andel, hela, luft = 14 }: { andel: Andelar; hela: Andelar; luft?: number }) {
   const alt = SORTIMENT.map(s => `${SORTIMENT_NAMN[s].toLowerCase()} ${hela[s]} %`).join(', ');
   return (
     <div role="img" aria-label={`Fördelning av volymen: ${alt}`}
-      style={{ margin: '14px 0 0', height: 16, borderRadius: RADIE.stapel, overflow: 'hidden', display: 'flex',
+      style={{ margin: `${luft}px 0 0`, height: 16, borderRadius: RADIE.stapel, overflow: 'hidden', display: 'flex',
                border: LINJE, boxSizing: 'border-box' }}>
       {SORTIMENT.map(s => (
         <div key={s} style={{ width: `${Math.max(0, andel[s])}%`, background: SORTIMENTFARG[s], flexShrink: 0 }} />
@@ -44,14 +44,14 @@ export function Teckenforklaring() {
   );
 }
 
-/** Teckenförklaringen med talet intill varje ord: "Timmer 41 %". För ytor där stapeln är hela fördelningen och inga rader följer. */
+/** Orden med talet intill, i stapelns ordning (mest värt först): "timmer 46 %  kubb 19 %". Utan färgruta — stapelns segment följer samma
+ *  ordning och har samma bredd som andelen. För ytor där stapeln är hela fördelningen och inga rader följer. */
 export function TeckenforklaringMedAndel({ hela }: { hela: Andelar }) {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginTop: 12 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginTop: 10 }}>
       {SORTIMENT.map(s => (
-        <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: s === 'ovrigt' ? DAMPAD : TEXT, minHeight: 24 }}>
-          <span aria-hidden style={{ width: 12, height: 12, borderRadius: RADIE.stapel, background: SORTIMENTFARG[s], border: LINJE, boxSizing: 'border-box' }} />
-          {SORTIMENT_NAMN[s]} <span style={{ fontWeight: 600 }}>{hela[s]} %</span>
+        <span key={s} style={{ fontSize: 12, fontWeight: 600, color: s === 'ovrigt' ? DAMPAD : TEXT, minHeight: 20 }}>
+          {SORTIMENT_NAMN[s].toLowerCase()} {hela[s]} %
         </span>
       ))}
     </div>
