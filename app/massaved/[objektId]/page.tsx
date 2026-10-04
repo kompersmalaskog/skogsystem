@@ -1,7 +1,7 @@
 'use client';
 
 // NIVÅ 2 — ett objekt — och dess undernivåer, byggda mot Martins förlagor.
-// Samma form på varje skärm (form.tsx). Vilken skärm som visas styrs av
+// Samma form på varje skärm (components/Ytform.tsx). Vilken skärm som visas styrs av
 // ?vy= i länken, så att bakåtknappen och delade länkar fungerar:
 //   (ingen)          objektet: "Ulfsnäs AU ⌄", 4,03 m, medellängd
 //                    barrmassaved, under Vidas önskade 4,6 m, augusti ⌄,
@@ -26,7 +26,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { SIDA, GUL, GRON, TEXT, DAMPAD, nf0, nf1, nf2, manadNamn, manadEtikett, stor, kortObjekt,
-         Rubrikrad, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Textlank, Teknisk, Stycken, Laddar, Fel } from '../form';
+         Rubrikrad, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Textlank, Teknisk, Stycken, Laddar, Fel } from '@/components/Ytform';
 
 type Tradslag = { namn: string; m3fub: number; medellangd_m: number; sagbar_m3: number };
 type Valta = { valta: string; m3fub: number; medellangd_m: number; antal_tradslag: number; tradslag: Tradslag[] };

@@ -16,6 +16,9 @@
 // Färg betyder något: gult 3 m-stockar, grönt når målet, grått allt annat.
 // Länkar är blå. Inget annat är färgat. Tekniska detaljer bor längst ner
 // på djupaste nivån, i grått och liten text.
+//
+// EN form för hela affärsuppföljningen, massaved och rotkap: ett stort tal i 48 px (Stort), EN pil (Pil, ⌄) och raderna
+// i Rad. Det finns inga kopior (app/massaved/form.tsx och rotkapets egna stilar är borta) — ändras formen ändras den överallt.
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
@@ -60,6 +63,11 @@ export function nuManad() {
 export const kortObjekt = (namn: string) =>
   namn.replace(/^\d{4,}\s+/, '').replace(/\s+(20\d\d|-\d\d)\s*$/, '').trim();
 
+/** EN pil för alla väljare och öppna rader: ⌄. Storlek och avstånd är de som rubrikraden (14/7) och kontrollen (13/6) alltid haft. */
+export function Pil({ storlek = 13, vanster = 6 }: { storlek?: number; vanster?: number }) {
+  return <span aria-hidden style={{ color: DAMPAD, marginLeft: vanster, fontSize: storlek, flexShrink: 0, lineHeight: 1 }}>⌄</span>;
+}
+
 /** 1. Rubrikrad med osynlig plockare ovanpå texten. */
 export function Rubrikrad({ text, value, onChange, label, children }: {
   text: string; value: string; onChange: (v: string) => void; label: string; children: ReactNode;
@@ -67,7 +75,7 @@ export function Rubrikrad({ text, value, onChange, label, children }: {
   return (
     <div style={{ position: 'relative', margin: '10px 16px 0', minHeight: 44, display: 'flex', alignItems: 'center' }}>
       <span style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>
-      <span style={{ color: DAMPAD, marginLeft: 7, fontSize: 14, flexShrink: 0, lineHeight: 1 }}>⌄</span>
+      <Pil storlek={14} vanster={7} />
       <select value={value} onChange={e => onChange(e.target.value)} aria-label={label} style={OVERLAY}>{children}</select>
     </div>
   );
@@ -116,7 +124,7 @@ export function Kontroll({ text, value, onChange, label, children }: {
   return (
     <div style={{ position: 'relative', marginTop: 6, minHeight: 40, display: 'flex', alignItems: 'center' }}>
       <span style={{ fontSize: 12, color: DAMPAD }}>{text}</span>
-      <span style={{ color: DAMPAD, marginLeft: 6, fontSize: 13, lineHeight: 1 }}>⌄</span>
+      <Pil />
       <select value={value} onChange={e => onChange(e.target.value)} aria-label={label} style={OVERLAY}>{children}</select>
     </div>
   );
@@ -129,9 +137,11 @@ export function Mening({ children }: { children: ReactNode }) {
 
 /** 7. En rad. Ett värde: talet längst ut före ›. Två värden: talet intill
  *  etiketten, kubiken längst ut. Stapel under om raden är en del av en fördelning. */
-export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel, prick }: {
+export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel, prick, oppen }: {
   text: string; sub?: string; tal?: string; farg?: string; hoger?: string;
   href?: string; onClick?: () => void; dampad?: boolean;
+  /** Raden öppnar innehåll under sig: › när stängd, ⌄ när öppen. Utelämnad = en vanlig länkrad (›). */
+  oppen?: boolean;
   stapel?: { andel: number; max: number; farg: string };
   /** En färgruta framför etiketten — teckenförklaringen och raden i ett. Färgen bär aldrig ensam: ordet står bredvid. */
   prick?: string;
@@ -151,7 +161,7 @@ export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel
         <span style={{ flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 10 }}>
           {tal != null && hoger == null && <span style={talStil}>{tal}</span>}
           {hoger != null && <span style={{ fontSize: 12, color: DAMPAD }}>{hoger}</span>}
-          {leder && <span style={{ color: DAMPAD, fontSize: 15, lineHeight: 1 }}>›</span>}
+          {leder && (oppen ? <Pil storlek={15} vanster={0} /> : <span style={{ color: DAMPAD, fontSize: 15, lineHeight: 1 }}>›</span>)}
         </span>
       </div>
       {sub && <div style={{ fontSize: 11, color: DAMPAD, marginTop: 3, lineHeight: 1.4 }}>{sub}</div>}
@@ -167,7 +177,9 @@ export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel
                  textDecoration: 'none', color: TEXT, textAlign: 'left' as const, fontFamily: 'inherit',
                  background: 'none', cursor: leder ? 'pointer' : 'default', boxSizing: 'border-box' as const };
   if (href) return <Link href={href} style={stil}>{inre}</Link>;
-  if (onClick) return <button onClick={onClick} style={{ ...stil, border: 'none', borderTop: LINJE }}>{inre}</button>;
+  // Inte `border: 'none'`: i en inline-stil nollar förkortningen den borderTop som redan är satt, och raden tappar sin skiljelinje
+  // (uppmätt 0 px mot 1 px på länkrader, 30 knapprader på 10 skärmar). Därför de tre sidorna var för sig.
+  if (onClick) return <button onClick={onClick} aria-expanded={oppen} style={{ ...stil, borderLeft: 'none', borderRight: 'none', borderBottom: 'none' }}>{inre}</button>;
   return <div style={stil}>{inre}</div>;
 }
 

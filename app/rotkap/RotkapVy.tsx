@@ -6,12 +6,12 @@
 // med stillastående data utanför appen, och att sidan (page.tsx) bara har
 // ett jobb — hämta och hålla valet.
 //
-// YTANS ORDNING, ögat läser nedåt i en rak linje, allt vänsterställt:
-//   1. rubrikrad med väljare       "Akelius Tåget ▾"
+// YTANS ORDNING, ögat läser nedåt i en rak linje, allt vänsterställt (formen i components/Ytform.tsx):
+//   1. rubrikrad med väljare       "Akelius Tåget ⌄"
 //   2. talet, stort                 −3,46 m³
 //   3. ordraden                     förlorat timmer · räknat, inte mätt
 //   4. dämpad rad med skala         −7,2 % av timret · −18 l per stam
-//   5. kontrollraden som text       vid 3,4 m i stället för 3,0 ▾
+//   5. kontrollraden som text       vid 3,4 m i stället för 3,0 ⌄
 //   6. stilla rad om underlaget     byggt på 187 av 207 stammar
 //   7. ÅTGÄRD BEHÖVS                bara när något går att göra
 //   8. nivårader med ›
@@ -29,6 +29,7 @@
 // referens.
 
 import { useState } from 'react';
+import { SIDA, TAL, SEKUNDAR, TEXT, GRON, LINJE, nf, nf0, Rubrikrad, Stort, Damp, Kontroll, Rad, Rader } from '@/components/Ytform';
 
 export type Validering = {
   n: number; dia_median_mm: number; dia_p10: number; dia_p90: number;
@@ -56,9 +57,6 @@ export const MIN_STAMMAR = 20;
 export const VALIDERING_DIA_MM = 3;
 export const VALIDERING_VOL_PCT = 2;
 
-const nf = (n: number, d: number) =>
-  n.toLocaleString('sv-SE', { minimumFractionDigits: d, maximumFractionDigits: d });
-const nf0 = (n: number) => nf(n, 0);
 /** Tecknet är en del av talet: −3,19 och +2,92 ska aldrig se likadana ut. */
 const tecken = (n: number, d = 2) =>
   Math.abs(n) < 0.5 * Math.pow(10, -d) ? nf(0, d) : (n < 0 ? '−' : '+') + nf(Math.abs(n), d);
@@ -66,20 +64,9 @@ const meter = (cm: number) => nf(cm / 100, 1);
 /** Maskinen sätter Vidas ordernummer först i namnet. Det är inte namnet. */
 export const utanPrefix = (namn: string) => namn.replace(/^\d{4,}\s+/, '');
 
-const TEXT = '#e8e8e4';
-const SEKUNDAR = '#7a7a72';
 const ROD = 'rgba(255,120,110,0.95)';
-const GRON = 'rgba(90,255,140,0.9)';
-const LINJE = '1px solid rgba(255,255,255,0.07)';
-const S = {
-  page: { background: '#111110', minHeight: '100vh', paddingTop: 56, paddingBottom: 90,
-          color: TEXT, fontFamily: "'Geist', system-ui, sans-serif" } as const,
-  muted: { color: SEKUNDAR, fontSize: 11 } as const,
-  tal: { fontFamily: "'Fraunces', serif" } as const,
-  /** Osynlig native-väljare ovanpå en textrad: iOS-plockaren, men raden ser ut som text. */
-  overlay: { position: 'absolute' as const, inset: 0, width: '100%', height: '100%', opacity: 0,
-             cursor: 'pointer', fontSize: 16 },
-};
+/** Liten stilla text under och i de öppna raderna. */
+const LITEN = { color: SEKUNDAR, fontSize: 11 } as const;
 
 type ObjektVal = { objekt_id: string; namn: string; ref: SimRad; valjbar: boolean; orsak: string | null };
 
@@ -162,19 +149,6 @@ export function Atgardsruta({ atg }: { atg: Atgard[] }) {
   );
 }
 
-/** En stilla rad som öppnar nästa nivå. Träffyta 48 px — hytten skakar. */
-export function Nivarad({ etikett, oppen, onToggle }: { etikett: string; oppen: boolean; onToggle: () => void }) {
-  return (
-    <button onClick={onToggle} aria-expanded={oppen}
-      style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-               border: 'none', borderTop: LINJE, background: 'none', padding: '14px 0', minHeight: 48,
-               fontFamily: 'inherit', fontSize: 13, color: TEXT, cursor: 'pointer', textAlign: 'left' }}>
-      <span>{etikett}</span>
-      <span style={{ color: SEKUNDAR, fontSize: 16 }}>{oppen ? '⌄' : '›'}</span>
-    </button>
-  );
-}
-
 export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: {
   rader: SimRad[]; valt: string | null; kaplangd: number;
   onValj: (objektId: string) => void; onKaplangd: (cm: number) => void;
@@ -215,45 +189,39 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
         <span>
           <div style={{ fontSize: 13 }}>{namn}</div>
-          <div style={S.muted}>{nf0(st)} stammar</div>
+          <div style={LITEN}>{nf0(st)} stammar</div>
         </span>
         <span style={{ flexShrink: 0 }}>
-          <span style={{ ...S.tal, fontSize: 20 }}>{tecken(d)}</span>
-          <span style={{ ...S.muted, marginLeft: 3 }}>m³</span>
+          <span style={{ ...TAL, fontSize: 20 }}>{tecken(d)}</span>
+          <span style={{ ...LITEN, marginLeft: 3 }}>m³</span>
         </span>
       </div>
       {stapel(d)}
-      <div style={{ ...S.muted, marginTop: 6, lineHeight: 1.55 }}>{not}</div>
+      <div style={{ ...LITEN, marginTop: 6, lineHeight: 1.55 }}>{not}</div>
     </div>
   );
 
   return (
-    <div style={S.page}>
+    <div style={SIDA}>
       {/* 1. Rubrikrad med väljare. Objekt utan rotkap syns i plockaren men
           går inte att välja — att de har kurva men inget att simulera är
           också ett svar. */}
-      <div style={{ position: 'relative', margin: '14px 16px 0', minHeight: 44, display: 'flex', alignItems: 'center' }}>
-        <span style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {obj ? obj.namn : 'Välj objekt'}
-        </span>
-        <span style={{ color: SEKUNDAR, marginLeft: 6, fontSize: 13 }}>▾</span>
-        <select value={obj?.objekt_id ?? ''} onChange={e => onValj(e.target.value)} aria-label="Objekt" style={S.overlay}>
-          {!obj && <option value="" disabled>Välj objekt</option>}
-          {lista.filter(o => o.valjbar).map(o => (
-            <option key={o.objekt_id} value={o.objekt_id}>{o.namn} · {nf0(o.ref.stammar)} st</option>
-          ))}
-          {lista.some(o => !o.valjbar) && (
-            <optgroup label="Inget att simulera">
-              {lista.filter(o => !o.valjbar).map(o => (
-                <option key={o.objekt_id} value={o.objekt_id} disabled>{o.namn} · {o.orsak}</option>
-              ))}
-            </optgroup>
-          )}
-        </select>
-      </div>
+      <Rubrikrad text={obj ? obj.namn : 'Välj objekt'} value={obj?.objekt_id ?? ''} onChange={onValj} label="Objekt">
+        {!obj && <option value="" disabled>Välj objekt</option>}
+        {lista.filter(o => o.valjbar).map(o => (
+          <option key={o.objekt_id} value={o.objekt_id}>{o.namn} · {nf0(o.ref.stammar)} st</option>
+        ))}
+        {lista.some(o => !o.valjbar) && (
+          <optgroup label="Inget att simulera">
+            {lista.filter(o => !o.valjbar).map(o => (
+              <option key={o.objekt_id} value={o.objekt_id} disabled>{o.namn} · {o.orsak}</option>
+            ))}
+          </optgroup>
+        )}
+      </Rubrikrad>
 
       {obj && !obj.valjbar && (
-        <div style={{ ...S.muted, padding: '24px 16px', lineHeight: 1.6 }}>
+        <div style={{ ...LITEN, padding: '24px 16px', lineHeight: 1.6 }}>
           Inget att simulera på {obj.namn}: {obj.orsak}.
           {obj.ref.stammar > 0 && <><br />{nf0(obj.ref.stammar)} stammar med rotkap och sågstock, gränsen är {MIN_STAMMAR}. Färre än så ger brus, inte ett tal.</>}
           {obj.ref.utan_sagstock > 0 && <><br />{nf0(obj.ref.utan_sagstock)} stammar med rotkap fick ingen sågstock alls.</>}
@@ -263,43 +231,28 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
 
       {obj && obj.valjbar && ref && rad && (
         <>
-          <div style={{ padding: '18px 16px 0' }}>
-            {/* 2. Talet */}
-            <div>
-              <span style={{ ...S.tal, fontSize: 60, lineHeight: 1 }}>{tecken(dT)}</span>
-              <span style={{ ...S.tal, fontSize: 22, color: SEKUNDAR, marginLeft: 6 }}>m³</span>
-            </div>
-            {/* 3. Ordraden — en färg. Etiketten bär skillnaden mot resten av
-                appen: det här talet har ingen maskin mätt. */}
-            <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.5 }}>
-              {ord}<span style={{ color: SEKUNDAR }}> · räknat, inte mätt</span>
-            </div>
-            {/* 4. Skalan — procenten säger om det är mycket, litern per stam
-                gör objekt jämförbara. Som "km kvar" under ett tal. */}
-            <div style={{ marginTop: 4, fontSize: 13, color: SEKUNDAR, lineHeight: 1.5 }}>
-              {tecken(pct, 1)} % av timret · {tecken(lPerStam, 0)} l per stam
-            </div>
-            {/* 5. Kontrollraden som text */}
-            <div style={{ position: 'relative', marginTop: 12, minHeight: 44, display: 'flex', alignItems: 'center' }}>
-              <span style={{ fontSize: 13 }}>vid {meter(kaplangd)} m i stället för {meter(REFERENS)}</span>
-              <span style={{ color: SEKUNDAR, marginLeft: 6, fontSize: 13 }}>▾</span>
-              <select value={kaplangd} onChange={e => onKaplangd(Number(e.target.value))} aria-label="Kaplängd" style={S.overlay}>
-                {KAPLANGDER.map(cm => <option key={cm} value={cm}>{meter(cm)} m i stället för {meter(REFERENS)}</option>)}
-              </select>
-            </div>
-            {/* 6. Underlaget. Saknade kurvor är inget fel att åtgärda —
-                stammar avverkade före 2026-07-18 får aldrig någon. */}
-            <div style={{ ...S.muted, marginTop: 2 }}>
+          {/* 2. Talet. 3. Ordraden — en färg. Etiketten bär skillnaden mot resten av
+              appen: det här talet har ingen maskin mätt. 4. Skalan — procenten säger
+              om det är mycket, litern per stam gör objekt jämförbara. 5. Kontrollraden
+              som text. 6. Underlaget: saknade kurvor är inget fel att åtgärda —
+              stammar avverkade före 2026-07-18 får aldrig någon. */}
+          <Stort tal={tecken(dT)} enhet="m³" ordrad={<>{ord}<span style={{ color: SEKUNDAR }}> · räknat, inte mätt</span></>}>
+            <Damp>{tecken(pct, 1)} % av timret · {tecken(lPerStam, 0)} l per stam</Damp>
+            <Kontroll text={`vid ${meter(kaplangd)} m i stället för ${meter(REFERENS)}`} value={String(kaplangd)}
+              onChange={v => onKaplangd(Number(v))} label="Kaplängd">
+              {KAPLANGDER.map(cm => <option key={cm} value={cm}>{meter(cm)} m i stället för {meter(REFERENS)}</option>)}
+            </Kontroll>
+            <div style={{ ...LITEN, marginTop: 2 }}>
               byggt på {nf0(ref.stammar)}{medRotkap > ref.stammar ? ` av ${nf0(medRotkap)}` : ''} stammar
             </div>
-          </div>
+          </Stort>
 
           {/* 7. Skriker bara när något går att göra. Annars finns rutan inte. */}
           <Atgardsruta atg={atg} />
 
           {/* 8. Nivåraderna. 9. Luften hamnar under dem. */}
-          <div style={{ margin: '18px 16px 0' }}>
-            <Nivarad etikett="Var förlusten sitter" oppen={visaVar} onToggle={() => setVisaVar(x => !x)} />
+          <Rader>
+            <Rad text="Var förlusten sitter" onClick={() => setVisaVar(x => !x)} oppen={visaVar} />
             {visaVar && (
               <div style={{ paddingBottom: 14 }}>
                 {[['Kubb', dK], ['Massaved', dM], ['Toppen blev inget sortiment', dR]].map(([namn, d]) => (
@@ -308,8 +261,8 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
                              padding: '9px 0', borderTop: LINJE }}>
                     <span style={{ fontSize: 13 }}>{namn as string}</span>
                     <span>
-                      <span style={{ ...S.tal, fontSize: 17 }}>{tecken(d as number)}</span>
-                      <span style={{ ...S.muted, marginLeft: 3 }}>m³</span>
+                      <span style={{ ...TAL, fontSize: 17 }}>{tecken(d as number)}</span>
+                      <span style={{ ...LITEN, marginLeft: 3 }}>m³</span>
                     </span>
                   </div>
                 ))}
@@ -326,7 +279,7 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
               </div>
             )}
 
-            <Nivarad etikett="Så räknas simuleringen" oppen={visaRakning} onToggle={() => setVisaRakning(x => !x)} />
+            <Rad text="Så räknas simuleringen" onClick={() => setVisaRakning(x => !x)} oppen={visaRakning} />
             {visaRakning && (
               <div style={{ fontSize: 12, color: SEKUNDAR, lineHeight: 1.65, paddingBottom: 10 }}>
                 <p style={{ margin: '0 0 8px' }}>
@@ -371,7 +324,7 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
                 )}
               </div>
             )}
-          </div>
+          </Rader>
         </>
       )}
     </div>
