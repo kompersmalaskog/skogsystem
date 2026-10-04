@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  idagLokal, dagAv, dagarMellan, dagarSedan, kortDatum, tusental,
+  idagLokal, idagStockholm, dagAv, dagarMellan, dagarSedan, kortDatum, tusental,
   avverkatText, senastText, skordatText, grotSchablonText, avstandText, kmText, arealText, SAKNAR_OBJEKT_TEXT,
-  FORSENAD_TEXT, TORRT_TJALE_TEXT, markkravText, MARKKRAV_KNAPPAR, grotChipText, arRimligtSenast,
+  FORSENAD_TEXT, DALIG_BARIGHET_TEXT, markBegransningText, grotChipText, arRimligtSenast,
 } from './format';
 
 const NBSP = '\u00A0';
@@ -11,6 +11,23 @@ describe('idagLokal', () => {
   it('ger lokal kalenderdag med nollfyllning', () => {
     expect(idagLokal(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05');
     expect(idagLokal(new Date(2026, 9, 2, 0, 1))).toBe('2026-10-02');
+  });
+});
+
+describe('idagStockholm — svensk kalenderdag oavsett serverns tidszon', () => {
+  it('natten kring midnatt UTC: svensk tid ligger före (sommartid +2, vintertid +1)', () => {
+    expect(idagStockholm(new Date('2026-10-03T21:59:00Z'))).toBe('2026-10-03'); // 23:59 svensk sommartid
+    expect(idagStockholm(new Date('2026-10-03T22:01:00Z'))).toBe('2026-10-04'); // 00:01 svensk sommartid
+    expect(idagStockholm(new Date('2026-12-31T22:59:00Z'))).toBe('2026-12-31'); // 23:59 svensk vintertid
+    expect(idagStockholm(new Date('2026-12-31T23:01:00Z'))).toBe('2027-01-01'); // 00:01 svensk vintertid
+  });
+  it('cron-tiden 05:00 UTC är samma svenska dag sommar som vinter', () => {
+    expect(idagStockholm(new Date('2026-07-15T05:00:00Z'))).toBe('2026-07-15');
+    expect(idagStockholm(new Date('2026-01-15T05:00:00Z'))).toBe('2026-01-15');
+  });
+  it('nollfyllning och rimlig form', () => {
+    expect(idagStockholm(new Date('2026-03-05T12:00:00Z'))).toBe('2026-03-05');
+    expect(idagStockholm()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
 
@@ -106,20 +123,16 @@ describe('senastText', () => {
   });
 });
 
-describe('markkravText och knapparna', () => {
-  it('bara torrt/tjäle begränsar och visas; tål blött och okänt visas inte', () => {
-    expect(markkravText('torrt_eller_tjale')).toBe('bara torrt/tjäle');
-    expect(TORRT_TJALE_TEXT).toBe('bara torrt/tjäle');
-    expect(markkravText('tal_blott')).toBe('');
-    expect(markkravText(null)).toBe('');
-    expect(markkravText(undefined)).toBe('');
-    expect(markkravText('Torrt_eller_tjale')).toBe('');
-  });
-  it('två knappar i visad ordning, med exakt de värden som CHECK-regeln släpper in', () => {
-    expect(MARKKRAV_KNAPPAR).toEqual([
-      { varde: 'tal_blott', etikett: 'Tål blött' },
-      { varde: 'torrt_eller_tjale', etikett: 'Bara torrt/tjäle' },
-    ]);
+describe('markBegransningText — planeringens markvillkor, bara en begränsning', () => {
+  it('bara dålig bärighet är en begränsning och visas; bra, medel, tomt och okänt visas inte', () => {
+    expect(markBegransningText('dalig')).toBe('dålig bärighet');
+    expect(DALIG_BARIGHET_TEXT).toBe('dålig bärighet');
+    expect(markBegransningText('medel')).toBe('');
+    expect(markBegransningText('bra')).toBe('');
+    expect(markBegransningText(null)).toBe('');
+    expect(markBegransningText(undefined)).toBe('');
+    expect(markBegransningText('Dalig')).toBe('');
+    expect(markBegransningText('dålig')).toBe('');
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   byggGrotLista, grotVantandeObjektIds, objektRaderFor, koordinatFor, typFor, rollMatcharTyp,
-  rimligKoordinat, arGrotMarkkrav, STAAR_HAR_DAGAR, grotKordaObjektIds,
+  rimligKoordinat, arGrotBarighet, STAAR_HAR_DAGAR, grotKordaObjektIds,
   SNART_DAGAR, arForsenad, arSnart, grotSnartAntal, medDimPatch,
   type GrotDim, type GrotObjektRad, type GrotProd, type GrotKoppling, type GrotRaw, type GrotPlats,
 } from './lista';
@@ -13,13 +13,13 @@ function dim(id: string, over: Partial<GrotDim> = {}): GrotDim {
   return {
     objekt_id: id, object_name: `Trakt ${id}`, vo_nummer: id, areal_ha: 4.2,
     latitude: 56.5, longitude: 14.7, huvudtyp: 'Slutavverkning', atgard: 'Slutavverkning',
-    grot_anpassad: true, grot_hamtad: null, grot_senast: null, grot_markkrav: null, exkludera: false,
+    grot_anpassad: true, grot_hamtad: null, grot_senast: null, exkludera: false,
     risskotning: false, skordning_avslutad: '2026-08-01', skotning_avslutad: null, ...over,
   };
 }
 const prod = (id: string, m3: number | string, sista: string | null = '2026-08-20'): GrotProd => ({ objekt_id: id, volym_m3sub: m3, sista_datum: sista });
 function objekt(id: string, over: Partial<GrotObjektRad> = {}): GrotObjektRad {
-  return { id, vo_nummer: null, namn: `Objekt ${id}`, typ: 'slutavverkning', status: 'avslutat', atgard: null, areal: null, lat: null, lng: null, dim_objekt_id: null, ...over };
+  return { id, vo_nummer: null, namn: `Objekt ${id}`, typ: 'slutavverkning', status: 'avslutat', atgard: null, areal: null, lat: null, lng: null, dim_objekt_id: null, barighet: null, ...over };
 }
 function raw(over: Partial<GrotRaw> = {}): GrotRaw {
   return { dim: [], risjobb: [], kopplingar: [], prod: [], objekt: [], ...over };
@@ -140,23 +140,30 @@ describe('två grupper och ordning', () => {
     }), { idag: IDAG });
     expect(l.markagaren.map((r) => r.namn)).toEqual(['Äldre', 'Nyare']);
   });
-  it('markkrav: bara de två kända värdena följer med, allt annat blir null (oberoende av datumet)', () => {
+  it('bärighet läses ur PLANERINGENS objekt-rad: bara de tre kända värdena följer med, allt annat blir null (oberoende av datumet)', () => {
     const l = byggGrotLista(raw({
-      dim: [
-        dim('a', { grot_markkrav: 'torrt_eller_tjale' }),
-        dim('b', { grot_markkrav: 'tal_blott', grot_senast: '2026-10-10' }),
-        dim('c', { grot_markkrav: 'okänt värde' }),
-        dim('d', { grot_markkrav: null }),
-      ],
-      prod: [prod('a', 1), prod('b', 1), prod('c', 1), prod('d', 1)],
+      dim: [dim('a'), dim('b', { grot_senast: '2026-10-10' }), dim('c'), dim('d'), dim('e')],
+      prod: ['a', 'b', 'c', 'd', 'e'].map((i) => prod(i, 1)),
+      objekt: [
+        objekt('oa', { vo_nummer: 'a', barighet: 'dalig' }),
+        objekt('ob', { vo_nummer: 'b', barighet: 'medel' }),
+        objekt('oc', { vo_nummer: 'c', barighet: 'okänt värde' }),
+        objekt('od', { vo_nummer: 'd', barighet: null }),
+      ], // 'e' saknar objekt i planeringen
     }), { idag: IDAG });
     const per = new Map(l.alla.map((r) => [r.id, r]));
-    expect(per.get('a')!.markkrav).toBe('torrt_eller_tjale');
-    expect(per.get('a')!.senast).toBeNull(); // ett markkrav utan datum är giltigt — raden ligger kvar under "När det passar"
+    expect(per.get('a')!.barighet).toBe('dalig');
+    expect(per.get('a')!.senast).toBeNull(); // en bärighet utan datum är giltig — raden ligger kvar under "När det passar"
     expect(l.passar.map((r) => r.id)).toContain('a');
-    expect(per.get('b')!.markkrav).toBe('tal_blott');
-    expect(per.get('c')!.markkrav).toBeNull();
-    expect(per.get('d')!.markkrav).toBeNull();
+    expect(per.get('b')!.barighet).toBe('medel');
+    expect(per.get('c')!.barighet).toBeNull();
+    expect(per.get('d')!.barighet).toBeNull();
+    expect(per.get('e')!.barighet).toBeNull(); // ingen planering att läsa → vi gissar aldrig
+  });
+  it('dimmen bär inget markkrav-fält längre — grot_markkrav läses inte', () => {
+    const l = byggGrotLista(raw({ dim: [{ ...dim('a'), grot_markkrav: 'torrt_eller_tjale' } as GrotDim], prod: [prod('a', 1)] }), { idag: IDAG });
+    expect(Object.keys(l.alla[0])).not.toContain('markkrav');
+    expect(l.alla[0].barighet).toBeNull();
   });
   it('skälet (grot_skal) läses inte — raden har inget skal-fält', () => {
     const l = byggGrotLista(raw({ dim: [{ ...dim('a', { grot_senast: '2026-10-10' }), grot_skal: 'plantering' } as GrotDim], prod: [prod('a', 1)] }), { idag: IDAG });
@@ -225,26 +232,20 @@ describe('försenad och snart — chippen och raden', () => {
 
 describe('medDimPatch — råraderna efter en lyckad sparning', () => {
   const bas = () => raw({
-    dim: [dim('a', { vo_nummer: 'V1' }), dim('b', { vo_nummer: 'V1' }), dim('c', { vo_nummer: 'V2', grot_senast: '2026-10-20', grot_markkrav: 'tal_blott' })],
+    dim: [dim('a', { vo_nummer: 'V1' }), dim('b', { vo_nummer: 'V1' }), dim('c', { vo_nummer: 'V2', grot_senast: '2026-10-20' })],
     prod: [prod('a', 1), prod('b', 1), prod('c', 1)],
+    objekt: [objekt('oc', { vo_nummer: 'V2', barighet: 'dalig' })],
   });
   it('patchen läggs på exakt de rader som skrevs, övriga är orörda', () => {
-    const r = medDimPatch(bas(), ['a', 'b'], { grot_senast: '2026-10-09', grot_markkrav: 'torrt_eller_tjale' });
-    expect(r.dim.map((d) => [d.objekt_id, d.grot_senast, d.grot_markkrav])).toEqual([
-      ['a', '2026-10-09', 'torrt_eller_tjale'], ['b', '2026-10-09', 'torrt_eller_tjale'], ['c', '2026-10-20', 'tal_blott'],
-    ]);
+    const r = medDimPatch(bas(), ['a', 'b'], { grot_senast: '2026-10-09' });
+    expect(r.dim.map((d) => [d.objekt_id, d.grot_senast])).toEqual([['a', '2026-10-09'], ['b', '2026-10-09'], ['c', '2026-10-20']]);
   });
-  it('bara de nycklar som finns i patchen ändras', () => {
-    const r = medDimPatch(bas(), ['c'], { grot_markkrav: 'torrt_eller_tjale' });
-    const c = r.dim.find((d) => d.objekt_id === 'c')!;
-    expect(c.grot_markkrav).toBe('torrt_eller_tjale');
-    expect(c.grot_senast).toBe('2026-10-20'); // orört
-  });
-  it('null rensar; rensa datum (med grot_skal: null) lämnar markkravet kvar', () => {
-    const r = medDimPatch(bas(), ['c'], { grot_senast: null, grot_skal: null });
-    const c = r.dim.find((d) => d.objekt_id === 'c')!;
-    expect(c.grot_senast).toBeNull();
-    expect(c.grot_markkrav).toBe('tal_blott');
+  it('null rensar datumet; planeringens bärighet (objekt-raderna) rörs aldrig av en sparning', () => {
+    const orig = bas();
+    const r = medDimPatch(orig, ['c'], { grot_senast: null, grot_skal: null });
+    expect(r.dim.find((d) => d.objekt_id === 'c')!.grot_senast).toBeNull();
+    expect(r.objekt).toBe(orig.objekt);
+    expect(byggGrotLista(r, { idag: IDAG }).alla.find((x) => x.id === 'c')!.barighet).toBe('dalig');
   });
   it('muterar inte originalet, och övriga delar av råmängden följer med oförändrade', () => {
     const orig = bas();
@@ -341,14 +342,15 @@ describe('typ och skotar_roll', () => {
     expect(rollMatcharTyp(null, 'slutavverkning')).toBe(false);
     expect(rollMatcharTyp('okänd', 'slutavverkning')).toBe(false);
   });
-  it('arGrotMarkkrav: exakt de två värdena som CHECK-regeln i databasen släpper in', () => {
-    expect(arGrotMarkkrav('tal_blott')).toBe(true);
-    expect(arGrotMarkkrav('torrt_eller_tjale')).toBe(true);
-    expect(arGrotMarkkrav('Tal_blott')).toBe(false);
-    expect(arGrotMarkkrav('torrt')).toBe(false);
-    expect(arGrotMarkkrav('')).toBe(false);
-    expect(arGrotMarkkrav(null)).toBe(false);
-    expect(arGrotMarkkrav(undefined)).toBe(false);
+  it('arGrotBarighet: exakt de tre värden som planeringens knappar skriver (Bra · Medel · Dålig)', () => {
+    expect(arGrotBarighet('bra')).toBe(true);
+    expect(arGrotBarighet('medel')).toBe(true);
+    expect(arGrotBarighet('dalig')).toBe(true);
+    expect(arGrotBarighet('dålig')).toBe(false);
+    expect(arGrotBarighet('Dalig')).toBe(false);
+    expect(arGrotBarighet('')).toBe(false);
+    expect(arGrotBarighet(null)).toBe(false);
+    expect(arGrotBarighet(undefined)).toBe(false);
   });
 });
 

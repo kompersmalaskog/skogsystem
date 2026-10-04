@@ -22,10 +22,11 @@ import { dagAv, dagarMellan, dagarSedan } from './format';
 
 // ── Råa rader (det hamta.ts läser) ───────────────────────────────────────────
 
-/** Markägarens markkrav (dim_objekt.grot_markkrav). NULL = ingen uppgift. */
-export type GrotMarkkrav = 'tal_blott' | 'torrt_eller_tjale';
-export function arGrotMarkkrav(v: unknown): v is GrotMarkkrav {
-  return v === 'tal_blott' || v === 'torrt_eller_tjale';
+/** Planeringens bärighet för trakten (objekt.barighet, satt i Planering → Prognos → Markförhållanden: Bra · Medel · Dålig).
+ *  Det är planeringens markvillkor som GROT-listan läser — den har inget eget fält för det (grot_markkrav är borttaget). */
+export type GrotBarighet = 'bra' | 'medel' | 'dalig';
+export function arGrotBarighet(v: unknown): v is GrotBarighet {
+  return v === 'bra' || v === 'medel' || v === 'dalig';
 }
 
 export interface GrotDim {
@@ -40,7 +41,6 @@ export interface GrotDim {
   grot_anpassad: boolean | null;
   grot_hamtad: string | null;
   grot_senast: string | null;
-  grot_markkrav: string | null;
   exkludera: boolean | null;
   risskotning: boolean | null;
   skordning_avslutad: string | null;
@@ -63,6 +63,8 @@ export interface GrotObjektRad {
   lat: number | null;
   lng: number | null;
   dim_objekt_id: string | null;
+  /** Planeringens bärighet (bra | medel | dalig). Null = inte satt. */
+  barighet: string | null;
 }
 
 export interface GrotRaw {
@@ -98,8 +100,8 @@ export interface GrotRad {
   senast: string | null;
   /** Hela dagar från idag till `senast` (negativt = datumet har passerat). Null = inget datum. */
   dagarTillSenast: number | null;
-  /** Markägarens markkrav (grot_markkrav). Null = ingen uppgift. */
-  markkrav: GrotMarkkrav | null;
+  /** Planeringens bärighet för trakten. Null = inte satt, eller trakten saknar objekt i planeringen (då finns ingen planering att läsa). */
+  barighet: GrotBarighet | null;
   koordinat: Koord | null;
   /** Planeringens objekt-rad. Null = trakten saknar objekt i planeringen → ingen kö, ingen karta. */
   objekt: GrotObjektRad | null;
@@ -243,7 +245,7 @@ export function byggGrotLista(raw: GrotRaw, opt: ByggOpt): GrotLista {
       skordatM3: skordat,
       senast,
       dagarTillSenast: senast ? dagarMellan(idag, senast) : null,
-      markkrav: arGrotMarkkrav(dim.grot_markkrav) ? dim.grot_markkrav : null,
+      barighet: arGrotBarighet(objekt?.barighet) ? objekt!.barighet as GrotBarighet : null,
       koordinat: koordinatFor(objekt, dim),
       objekt,
       atgard: (objekt?.atgard ?? '').trim() || (dim.atgard ?? '').trim() || null,
@@ -327,7 +329,6 @@ export function grotSnartAntal(lista: GrotLista): number {
  *  grot_skal nollas bara tillsammans med datumet — ett skäl utan datum är ett löst påstående (samma regel som redigeringsvyn). */
 export interface GrotSkrivning {
   grot_senast?: string | null;
-  grot_markkrav?: GrotMarkkrav | null;
   grot_skal?: null;
 }
 
@@ -339,7 +340,6 @@ export function medDimPatch(raw: GrotRaw, dimIds: string[], patch: GrotSkrivning
     if (!ids.has(d.objekt_id)) return d;
     const ny: GrotDim = { ...d };
     if ('grot_senast' in patch) ny.grot_senast = patch.grot_senast ?? null;
-    if ('grot_markkrav' in patch) ny.grot_markkrav = patch.grot_markkrav ?? null;
     return ny;
   });
   return { ...raw, dim };

@@ -44,8 +44,6 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   // datum + skäl (markberedning | plantering | annat). Läses av GROT-arket i /oversikt-v2 — överst i listan.
   grot_senast:             { dim: 'grot_senast' },
   grot_skal:               { dim: 'grot_skal' },
-  // Markägarens markkrav (migration 20261003_grot_markkrav): tal_blott | torrt_eller_tjale | NULL. Sätts i GROT-arket i /oversikt-v2.
-  grot_markkrav:           { dim: 'grot_markkrav' },
   stubbbehandling:         { dim: 'stubbbehandling' },
   extra_vagn:              { dim: 'extra_vagn' },
   klippning:               { dim: 'klippning' },

@@ -24,7 +24,7 @@ import { arGrotUnderlagTillforlitligt, koRaderAttRensa, raderaKoRader } from '@/
 import { avstandText, grotChipText } from '@/lib/grotvy/format';
 import { narmasteVag } from '@/lib/grotvy/avstand';
 import { sparaFalt } from '@/lib/redigering/objektRouter';
-import GrotListaArk from './GrotLista';
+import GrotListaArk, { ARK_ANDEL, type ArkLage } from './GrotLista';
 import GrotObjektArk, { type ArkKo, type ArkSkotare } from './GrotObjektArk';
 import { useGrotVagAvstand } from './grot-avstand';
 import { KNAPP, KNAPP_LITEN, SheetBas, Grabber } from './ark-delar';
@@ -522,6 +522,31 @@ export default function OversiktV2Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [objekt, koObjektIds, grotIds, grotOppen, grotUtanPrick, grotPerObjektId, mapStyleLoaded]);
 
+  // GROT-arket öppnas (chippen) → kartan passar in EN gång över alla synliga skotare + alla GROT-prickar, med botten-padding =
+  // arkets verkliga höjd (halvläget, ca 45 %) + luft, så allt syns ovanför arket. Samma regel som maskinval: rör sig aldrig
+  // igen förrän användaren zoomar/panorerar eller trycker en rad (raden flyger själv, effekten nedan) — att arket dras till
+  // helt läge, eller att en position kommer in efteråt, flyttar inte kameran. Ryms allt redan ovanför arket: ingen rörelse.
+  // Nollas när arket stängs, så nästa öppning passar in på nytt. (MapLibres padding består efter fitBounds; det gör den
+  // redan efter maskinval och radflygning, och varje inpassning här sätter sin egen padding explicit.)
+  const fitGrotOppnaRef = useRef(false);
+  useEffect(() => {
+    if (!grotOppen) { fitGrotOppnaRef.current = false; return; }
+    const map = mapRef.current; if (!map || !mapStyleLoaded || !grotLista || fitGrotOppnaRef.current) return;
+    fitGrotOppnaRef.current = true;
+    if (grotValt) return; // öppnat rakt på ett objekt → raden flyger själv, ingen översiktsinpassning
+    const pts: [number, number][] = [];
+    forslag.forEach((f) => { if (f.typ === 'skotare' && f.koordinat) pts.push([f.koordinat.lng, f.koordinat.lat]); });
+    grotLista.alla.forEach((r) => { if (r.koordinat) pts.push([r.koordinat.lng, r.koordinat.lat]); });
+    if (!pts.length) return;
+    const C = map.getContainer(); const W = C.clientWidth, H = C.clientHeight;
+    const ark = C.parentElement?.querySelector('[role="dialog"]') as HTMLElement | null; // listarket är redan monterat i samma commit
+    const padT = 80, padSide = 40, padBot = (ark?.offsetHeight ?? Math.round(H * ARK_ANDEL.halv)) + AVSTAND.l; // botten = arkets verkliga höjd + luft
+    const padding = { top: padT, bottom: padBot, left: padSide, right: padSide };
+    if (pts.every((p) => { const s = map.project(p); return s.x >= padSide && s.x <= W - padSide && s.y >= padT && s.y <= H - padBot; })) return; // ryms redan ovanför arket → rör inte kameran
+    if (pts.length === 1) map.easeTo({ center: pts[0], zoom: Math.max(map.getZoom(), 12), padding, duration: 500 });
+    else { const b = new window.maplibregl.LngLatBounds(); pts.forEach((p) => b.extend(p)); map.fitBounds(b, { padding, maxZoom: 13, duration: 500 }); }
+  }, [grotOppen, grotLista, forslag, mapStyleLoaded, grotValt]);
+
   // Tryck på en GROT-rad → kartan flyger till trakten EN gång (samma regel som vid maskinval: ryms den redan ovanför
   // arket rörs inget; annars centreras den ovanför arket, minst zoom 12). Tillbaka till listan nollar låset, så nästa
   // rad flyger igen. Den valda trakten får en pulserande ring.
@@ -830,6 +855,7 @@ export default function OversiktV2Page() {
   // ── GROT-arket (chip → lista → objekt) ──
   const grotAvst = useGrotVagAvstand(grotLista, grotOppen); // vägavstånd mellan GROT-objekten hämtas först när arket öppnas
   const grotListRullRef = useRef(0); // listans rullningsläge — tillbaka-pilen från ett objekt landar där man var
+  const grotListLageRef = useRef<ArkLage>('halv'); // listarkets läge (halv/full) — chippen öppnar alltid i halvläge, tillbaka-pilen återvänder till det man lämnade
   const grotRadPer = useMemo(() => new Map<string, GrotRad>((grotLista?.alla ?? []).map((r): [string, GrotRad] => [r.id, r])), [grotLista]);
   const grotNamnFor = useCallback((maskinId: string) => grotSkotare.find((s) => s.id === maskinId)?.namn
     || maskinVisningsnamn(maskiner.find((m) => m.maskin_id === maskinId)) || maskinId, [grotSkotare, maskiner]);
@@ -850,7 +876,7 @@ export default function OversiktV2Page() {
     const egna = maskinKo.filter((k) => k.maskin_id === post.maskin_id && syns(k)).sort((a, b) => a.ordning - b.ordning || (a.id < b.id ? -1 : 1));
     return { post, maskinNamn: grotNamnFor(post.maskin_id), plats: egna.findIndex((k) => k.id === post.id) + 1 };
   }, [valtGrotRad, maskinKo, grotSkotare, grotNamnFor, objektStatusPer, grotIds]);
-  const oppnaGrot = () => { setSelMaskin(null); setSelObjekt(null); setGrotValt(null); setGrotOppen(true); };
+  const oppnaGrot = () => { setSelMaskin(null); setSelObjekt(null); setGrotValt(null); grotListLageRef.current = 'halv'; setGrotOppen(true); };
   const stangGrot = useCallback(() => { setGrotOppen(false); setGrotValt(null); }, []);
   const tillbakaTillGrotLista = useCallback(() => setGrotValt(null), []);
 
@@ -881,7 +907,7 @@ export default function OversiktV2Page() {
     return efter.some((k) => k.id === koId) ? 'Ändringen landade inte. Försök igen.' : null;
   }, [grotLasKo]);
 
-  // Markägarens uppgifter (bortkört senast, markkrav): direktspar, VERIFIERAT — sparaFalt läser tillbaka värdet på varje rad
+  // Markägarens datum (bortkört senast): direktspar, VERIFIERAT — sparaFalt läser tillbaka värdet på varje rad
   // och svarar ok först när det som står i databasen är det som skickades. Skrivs över hela VO-gruppen (samma regel som
   // redigeringsvyn); syskonen slås upp färskt, för grotRaw har bara de GROT-anpassade raderna. Landar det speglas patchen i
   // råraderna, så listan, chippen och arket räknar om utan ny hämtning. Returnerar null när det landade, annars ett fel.
@@ -980,7 +1006,8 @@ export default function OversiktV2Page() {
             onTillbaka={tillbakaTillGrotLista} onClose={stangGrot} />
         ) : (
           <GrotListaArk lista={grotLista} idag={todayISO} hogerText={grotHogerText} onOppna={(r) => setGrotValt(r.id)} onClose={stangGrot}
-            startScroll={grotListRullRef.current} onScroll={(px) => { grotListRullRef.current = px; }} />
+            startScroll={grotListRullRef.current} onScroll={(px) => { grotListRullRef.current = px; }}
+            startLage={grotListLageRef.current} onLage={(l) => { grotListLageRef.current = l; }} />
         )
       )}
     </div>

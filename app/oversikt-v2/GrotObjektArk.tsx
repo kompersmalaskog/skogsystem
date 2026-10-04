@@ -8,9 +8,12 @@
 // trakten saknar objekt i planeringen), avstånd är ORS-vägavstånd från skotarna som får köra objektet (aldrig
 // fågelväg), volymen är traktens skördade volym och GROT-mängden står som schablon, aldrig som mätt.
 //
-// Längst ner, bara för förman/admin (onSpara skickas in): sektionen "Markägaren" där bortkört-senast-datum och markkrav
-// sätts (GrotMarkagaren). Utan onSpara — förare — finns den inte. Markägarens uppgifter bor på dim_objekt, så de går att
-// sätta även för de trakter som saknar objekt-rad i planeringen.
+// Planeringens markvillkor (objekt.barighet — dålig bärighet) visas i orange i Väntat-raden när det är en begränsning;
+// det sätts i planeringen och läses bara här. Trakter utan objekt i planeringen har inget att läsa → inget visas.
+//
+// Längst ner, bara för förman/admin (onSpara skickas in): sektionen "Markägaren" där bortkört-senast-datumet sätts
+// (GrotMarkagaren). Utan onSpara — förare — finns den inte. Datumet bor på dim_objekt, så det går att sätta även för de
+// trakter som saknar objekt-rad i planeringen.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -20,7 +23,7 @@ import { typLabel } from '@/lib/objekt/typ';
 import { classifyMarkering, markeringSub, prettifySub, SUB_LABEL } from '../oversikt/markeringar';
 import type { MaskinKoItem } from '../oversikt/oversikt-types';
 import { hamtaVagKm } from '@/lib/grotvy/avstand';
-import { arealText, FORSENAD_TEXT, grotSchablonText, kmText, kortDatum, markkravText, SAKNAR_OBJEKT_TEXT, senastText, skordatText } from '@/lib/grotvy/format';
+import { arealText, FORSENAD_TEXT, grotSchablonText, kmText, kortDatum, markBegransningText, SAKNAR_OBJEKT_TEXT, senastText, skordatText } from '@/lib/grotvy/format';
 import { arForsenad, rollMatcharTyp, type GrotRad, type GrotSkrivning, type Koord } from '@/lib/grotvy/lista';
 import { Grabber, KNAPP, KNAPP_LITEN, SheetBas } from './ark-delar';
 import GrotMarkagaren from './GrotMarkagaren';
@@ -174,7 +177,7 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
                 {arForsenad(rad) && <span style={{ color: FARG.rod }}> · {FORSENAD_TEXT}</span>}
               </div>
             )}
-            {markkravText(rad.markkrav) && <div style={{ ...TYP.meta, color: FARG.orange }}>{markkravText(rad.markkrav)}</div>}
+            {markBegransningText(rad.barighet) && <div style={{ ...TYP.meta, color: FARG.orange }}>{markBegransningText(rad.barighet)}</div>}
           </>
         ))}
         {staarNamn && rubrikRad('Just nu', `${staarNamn} står här`)}

@@ -16,6 +16,14 @@ export function idagLokal(nu: Date = new Date()): string {
   return `${nu.getFullYear()}-${m}-${d}`;
 }
 
+/** Dagens datum som 'YYYY-MM-DD' i SVENSK tid. Nattens notiser körs på en server i UTC; "idag" ska ändå vara svensk
+ *  kalenderdag. Byggs ur delarna (inte ur en språkspecifik formatsträng), så det ger samma sak i varje Node-bygge. */
+export function idagStockholm(nu: Date = new Date()): string {
+  const delar = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(nu);
+  const del = (typ: string) => (delar.find((d) => d.type === typ) as Intl.DateTimeFormatPart).value;
+  return `${del('year')}-${del('month')}-${del('day')}`;
+}
+
 /** Datumdelen av 'YYYY-MM-DD' eller en ISO-tid. Ogiltigt → null. */
 export function dagAv(d: string | null | undefined): string | null {
   if (!d) return null;
@@ -73,18 +81,13 @@ export function senastText(senast: string | null | undefined, idag: string): str
 /** Ordet på raden när markägarens datum har passerat (visas i rött, efter 'senast 3 okt'). */
 export const FORSENAD_TEXT = 'försenad';
 
-/** Markkravet som visas i orange på listraden och i arket. Bara det som begränsar visas: 'tal_blott' (marken tål blött)
- *  är inget att varna för och syns därför bara som valt läge på knappen i sektionen Markägaren. */
-export const TORRT_TJALE_TEXT = 'bara torrt/tjäle';
-export function markkravText(markkrav: string | null | undefined): string {
-  return markkrav === 'torrt_eller_tjale' ? TORRT_TJALE_TEXT : '';
+/** Planeringens markvillkor som visas i orange på listraden och i arket (och i notisen): bara en BEGRÄNSNING visas.
+ *  Källan är objekt.barighet (Planering → Prognos → Markförhållanden: bra · medel · dalig); bara 'dalig' är en begränsning
+ *  för GROT-körning. 'bra', 'medel' och tomt ger ingen rad — och saknas planeringen helt gissar vi aldrig. */
+export const DALIG_BARIGHET_TEXT = 'dålig bärighet';
+export function markBegransningText(barighet: string | null | undefined): string {
+  return barighet === 'dalig' ? DALIG_BARIGHET_TEXT : '';
 }
-
-/** De två knapparna i sektionen Markägaren, i visad ordning. `varde` är det som lagras i dim_objekt.grot_markkrav. */
-export const MARKKRAV_KNAPPAR: { varde: 'tal_blott' | 'torrt_eller_tjale'; etikett: string }[] = [
-  { varde: 'tal_blott', etikett: 'Tål blött' },
-  { varde: 'torrt_eller_tjale', etikett: 'Bara torrt/tjäle' },
-];
 
 /** Chippen på kartan: 'GROT · 28', och 'GROT · 28 · 2 snart' när något har markägarens datum inom SNART_DAGAR. */
 export function grotChipText(antal: number, snart: number): string {

@@ -2,11 +2,10 @@
 // Sektionen "Markägaren" längst ner i GROT-objekt-arket i /oversikt-v2. Bara förman/admin ser den — GrotObjektArk
 // renderar den enbart när onSpara skickats in, och förare kommer aldrig in i GROT-arket alls.
 //
-// Två fält, direktspar (ingen Spara-knapp):
-//   • Bortkört senast — datumväljare + Rensa. Datumet sparas först när det är ett riktigt datum 2000–2100: medan man
-//     skriver ger väljaren halvfärdiga värden (tomt, år 0002) som inte betyder "rensa".
-//   • Mark — två knappar, Tål blött · Bara torrt/tjäle. Tryck på den valda knappen igen = ingen uppgift (null).
-// Inget skäl-val: skälet är alltid markberedning/plantering och behövs inte.
+// Ett fält, direktspar (ingen Spara-knapp): Bortkört senast — datumväljare + Rensa. Datumet sparas först när det är ett
+// riktigt datum 2000–2100: medan man skriver ger väljaren halvfärdiga värden (tomt, år 0002) som inte betyder "rensa".
+// Inget skäl-val: skälet är alltid markberedning/plantering och behövs inte. Markvillkor (torrt/tjäle/bärighet) sätts INTE här —
+// det sätts i planeringen och läses därifrån (GrotLista / GrotObjektArk visar det i orange).
 //
 // Sparningar går en i taget (kedja): ett datum som skrivs på tangentbordet ger flera värden efter varandra, och två
 // verifierade skrivningar får inte korsa varandra. Fältet följer det SPARADE datumet (rad.senast) — men inte medan en
@@ -15,7 +14,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { AVSTAND, FARG, RADIE, TNUM, TYP } from '@/lib/design/tokens';
-import { arRimligtSenast, MARKKRAV_KNAPPAR } from '@/lib/grotvy/format';
+import { arRimligtSenast } from '@/lib/grotvy/format';
 import type { GrotRad, GrotSkrivning } from '@/lib/grotvy/lista';
 import { KNAPP_LITEN } from './ark-delar';
 
@@ -24,11 +23,6 @@ const DATUM_FALT = {
   background: FARG.upphojt, color: FARG.text, border: 'none', borderRadius: RADIE.rad, fontFamily: 'inherit',
   ...TYP.text, ...TNUM, colorScheme: 'dark',
 } as React.CSSProperties;
-
-// Valt läge syns utan färg: fylld yta + bock. (Färg är aldrig ensam bärare — i solljus är orange nästan brunt.)
-// `border` skrivs som hela shorthand-egenskapen, precis som i KNAPP_LITEN — en löst `borderColor` ovanpå den får React att
-// varna när knappen växlar tillbaka till ovald ("don't mix shorthand and non-shorthand").
-const VALD: React.CSSProperties = { background: FARG.fyllning, border: `0.5px solid ${FARG.text2}`, color: FARG.text, fontWeight: 600 };
 
 export default function GrotMarkagaren({ rad, onSpara }: {
   rad: GrotRad;
@@ -75,19 +69,6 @@ export default function GrotMarkagaren({ rad, onSpara }: {
         {(lokal || rad.senast) && (
           <button onClick={() => spara({ grot_senast: null, grot_skal: null })} style={{ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` }}>Rensa</button>
         )}
-      </div>
-
-      <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Mark</div>
-      <div style={{ display: 'flex', gap: AVSTAND.s }}>
-        {MARKKRAV_KNAPPAR.map((k) => {
-          const vald = rad.markkrav === k.varde;
-          return (
-            <button key={k.varde} aria-pressed={vald} onClick={() => spara({ grot_markkrav: vald ? null : k.varde })}
-              style={{ ...KNAPP_LITEN, flex: '1 1 0', minWidth: 0, padding: `0 ${AVSTAND.s}px`, textAlign: 'center', lineHeight: 1.2, ...(vald ? VALD : { color: FARG.text2 }) }}>
-              {vald ? '✓ ' : ''}{k.etikett}
-            </button>
-          );
-        })}
       </div>
 
       {fel && <div style={{ ...TYP.meta, color: FARG.orange }}>{fel}</div>}

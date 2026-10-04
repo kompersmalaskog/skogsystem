@@ -50,4 +50,14 @@ describe("byggMeddelande — låsskärmstext", async () => {
     expect(m.title).toBe("Augusti 2026: fixa innan lönen");
     expect(m.body).toBe("3 obekräftade dagar · 2 brandriskfrågor · 1 tidsavvikelse");
   });
+  it("grot_senast → 'GROT · namn' / 'Ska vara bortkört senast <datum> — <markvillkor>' (köas av /api/grot/paminnelse)", async () => {
+    const { idagStockholm, kortDatum } = await import("../lib/grotvy/format");
+    const idag = idagStockholm();
+    const m = await byggMeddelande({ typ: "grot_senast", mottagare_id: "x", payload: { namn: "Bjällerhult au + ga", senast: idag, dagar_fore: 7, mark_begransning: "dålig bärighet" } });
+    expect(m.title).toBe("GROT · Bjällerhult au + ga");
+    expect(m.body).toBe(`Ska vara bortkört senast ${kortDatum(idag, idag)} — dålig bärighet`);
+    expect(m.url).toBe("/oversikt-v2");
+    const utan = await byggMeddelande({ typ: "grot_senast", mottagare_id: "x", payload: { namn: "Karsemåla AU 2025", senast: idag, dagar_fore: 2, mark_begransning: null } });
+    expect(utan.body).toBe(`Ska vara bortkört senast ${kortDatum(idag, idag)}`);
+  });
 });
