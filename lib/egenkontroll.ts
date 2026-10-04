@@ -1370,16 +1370,19 @@ export async function sparaPunktKommentar(
 export async function hamtaKontextmarkeringar(
   objektId: string,
   options: KlientOptions = {},
-): Promise<{ data: unknown }[]> {
+): Promise<{ marker_id: string | null; data: unknown }[]> {
   const { klient } = await kravSession(options);
+  // marker_id foljer med sa att de markeringar som REDAN ar kontrollpunkter
+  // kan dras bort fran kontextlagret (kontextUtanKontrollpunkter i
+  // lib/egenkontrollkarta.ts). Utan det ritas varje kontrollpunkt tva ganger.
   const { data, error } = await klient
     .from('planering_markeringar')
-    .select('data')
+    .select('marker_id, data')
     .eq('objekt_id', objektId)
     .order('marker_id', { ascending: true });
 
   if (error) throw new Error(`Kunde inte läsa markeringarna: ${error.message}`);
-  return (data ?? []) as unknown as { data: unknown }[];
+  return (data ?? []) as unknown as { marker_id: string | null; data: unknown }[];
 }
 
 /** Foton for en runda, aldst forst. */
