@@ -26,7 +26,8 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { SIDA, GUL, GRON, TEXT, DAMPAD, nf0, nf1, nf2, manadNamn, manadEtikett, stor, kortObjekt,
-         Rubrikrad, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Textlank, Teknisk, Stycken, Laddar, Fel } from '@/components/Ytform';
+         Rubrikrad, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Stycken, Laddar, Fel } from '@/components/Ytform';
+import { sortimentEtiketter } from '@/lib/massaved/sortimentnamn';
 
 type Tradslag = { namn: string; m3fub: number; medellangd_m: number; sagbar_m3: number };
 type Valta = { valta: string; m3fub: number; medellangd_m: number; antal_tradslag: number; tradslag: Tradslag[] };
@@ -54,14 +55,9 @@ type Niva2 = {
 type ObjektIManad = { objekt_id: string; namn: string | null };
 type Rotkap = { stammar: number; grupp2_stammar: number };
 
-/** "Tall Timmer: Urshult 1-4_V3" → "Talltimmer Urshult", "Kubb: Alvesta305_V3" → "Kubb Alvesta".
- *  Maskinens hela namn står kvar längst ner på sortimentets egen skärm. */
-function kortSortiment(so: SagbartSortiment) {
-  const [fore, efter] = so.namn.includes(':') ? so.namn.split(/:\s*/, 2) : [so.grupp, so.namn];
-  const prefix = stor(fore.replace(/\s+/g, '').toLowerCase());
-  const ort = (efter.match(/^[A-Za-zÅÄÖåäö]+/) ?? [efter.split('_')[0]])[0];
-  return `${prefix} ${ort}`;
-}
+/** Sortimentets korta, unika namn ("Kubb: Alvesta305_V3" → "Kubb Alvesta 305"). Hela maskinnamnet står i Så räknas. Regeln bor i
+ *  lib/massaved/sortimentnamn.ts. */
+const kortSortiment = (so: SagbartSortiment, alla: SagbartSortiment[]) => sortimentEtiketter(alla)[Math.max(0, alla.findIndex(x => x.namn === so.namn))];
 const klassFarg = (n: Klass['niva']) => n === 'tre_m' ? GUL : n === 'over_mal' ? GRON : DAMPAD;
 
 function Innehall() {
@@ -192,9 +188,9 @@ function Innehall() {
               )}
               <Rad text="Längdfördelning" tal={`${nf0(overMal)} %`} farg={GRON} onClick={() => go('langd')} />
               <Rad text="Trädslag och avkap" onClick={() => go('tradslag')} />
-              <Rad text="Så räknas talet" onClick={() => go('rakning')} />
+              <Rad text="Längre rotkap" href={rotkapUrl} />
+              <Rad text="Så räknas" onClick={() => go('rakning')} />
             </Rader>
-            <Textlank href={rotkapUrl} text="Vad kostar ett längre rotkap" />
           </>
         )}
       </div>
@@ -218,7 +214,6 @@ function Innehall() {
           )}
           <Rad text="Visa bitarna" href={bitarUrl} />
         </Rader>
-        <Textlank href={rotkapUrl} text="Vad kostar ett längre rotkap" />
       </div>
     );
   }
@@ -252,14 +247,13 @@ function Innehall() {
         <Tillbakarad href={objektUrl} text={har} />
         <Stort tal={nf0(s.andel ?? 0)} enhet="%" ordrad="hade rymts i ett sågbart sortiment">
           <Damp>{nf1(s.m3fub)} m³fub</Damp>
-          <Mening>Både längd och diameter räknas mot de sortiment objektet körde.</Mening>
         </Stort>
         <Rader>
-          {/* Största först, som i förlagan. */}
-          {[...s.sortiment].sort((a, b) => b.m3fub - a.m3fub).map(so => (
-            <Rad key={so.namn} text={kortSortiment(so)} tal={`${nf1(so.m3fub)} m³`} onClick={() => go('sortiment', so.namn)} />
+          {/* Största först, som i förlagan. Sortiment utan volym (0,0 m³) är brus och visas inte. */}
+          {[...s.sortiment].filter(so => so.m3fub >= 0.05).sort((a, b) => b.m3fub - a.m3fub).map(so => (
+            <Rad key={so.namn} text={kortSortiment(so, s.sortiment)} tal={`${nf1(so.m3fub)} m³`} onClick={() => go('sortiment', so.namn)} />
           ))}
-          <Rad text="Så räknas sågbart" onClick={() => go('sagbar-rakning')} />
+          <Rad text="Så räknas" onClick={() => go('sagbar-rakning')} />
         </Rader>
       </div>
     );
@@ -275,20 +269,15 @@ function Innehall() {
     return (
       <div style={SIDA}>
         <Tillbakarad href={sagbarUrl} text="Sågbar dimension" />
-        <Stort tal={nf1(so.m3fub)} enhet="m³" ordrad={`hade rymts i ${kortSortiment(so)}`}>
+        <Stort tal={nf1(so.m3fub)} enhet="m³" ordrad={`hade rymts i ${kortSortiment(so, d.sagbar.sortiment)}`}>
           <Damp>{nf1(andel)} % av massaveden</Damp>
         </Stort>
         <Rader>
           <Rad text="Längd" tal={urMaskinen ? `${nf2(so.langd_min_m)}–${nf2(so.langd_max_m as number)} m` : `från ${nf2(so.langd_min_m)} m`} />
           <Rad text="Diameter" tal={`${nf0(so.dia_min_mm)}–${nf0(so.dia_max_mm)} mm`} />
           <Rad text="Visa bitarna" href={bitarUrl} />
+          <Rad text="Så räknas" onClick={() => go('sagbar-rakning', so.namn)} />
         </Rader>
-        <Teknisk>
-          {urMaskinen
-            ? 'Gränserna kommer ur maskinen.'
-            : 'De undre gränserna kommer ur prislistan, taket är härlett ur högsta prisklassen.'}
-          {' '}I maskinen heter sortimentet {so.namn}.
-        </Teknisk>
       </div>
     );
   }
@@ -296,10 +285,20 @@ function Innehall() {
   // ── Så räknas sågbart ─────────────────────────────────────────────────
   if (vy === 'sagbar-rakning') {
     const s = d.sagbar;
+    const fran = sort ? s.sortiment.find(x => x.namn === sort) : undefined;
     return (
       <div style={SIDA}>
-        <Tillbakarad href={url({ vy: 'sagbar' })} text="Sågbar dimension" />
+        <Tillbakarad href={fran ? url({ vy: 'sortiment', sort: fran.namn }) : url({ vy: 'sagbar' })}
+          text={fran ? kortSortiment(fran, s.sortiment) : 'Sågbar dimension'} />
         <Stycken>
+          {fran && (
+            <p style={{ margin: '0 0 8px' }}>
+              {fran.kalla === 'hpr' && fran.langd_max_m != null
+                ? 'Gränserna kommer ur maskinen.'
+                : 'De undre gränserna kommer ur prislistan, taket är härlett ur högsta prisklassen.'}
+              {' '}I maskinen heter sortimentet {fran.namn}.
+            </p>
+          )}
           <p style={{ margin: '0 0 8px' }}>
             Sågbar dimension kräver att biten ryms i båda gränserna för ett sortiment, längd och diameter,
             som den redan är kapad. Regeln är alltså &quot;biten är en sågbar stock&quot;, inte &quot;biten hade
@@ -327,21 +326,22 @@ function Innehall() {
 
   // ── Trädslag och avkap ────────────────────────────────────────────────
   if (vy === 'tradslag') {
-    const ettTradslag = d.valtor.length === 1 && d.valtor[0].tradslag.length === 1 ? d.valtor[0].tradslag[0] : null;
+    // Vältor och trädslag utan volym (0,0 m³) är brus och visas inte.
+    const valtor = d.valtor.map(v => ({ ...v, tradslag: v.tradslag.filter(t => t.m3fub >= 0.05) })).filter(v => v.m3fub >= 0.05 && v.tradslag.length > 0);
+    const ettTradslag = valtor.length === 1 && valtor[0].tradslag.length === 1 ? valtor[0].tradslag[0] : null;
     const ordrad = ettTradslag ? `medellängd ${ettTradslag.namn.toLowerCase()}, enda trädslaget`
-      : d.valtor.length === 1 ? `medellängd hela ${d.valtor[0].valta.toLowerCase()}vältan`
+      : valtor.length === 1 ? `medellängd hela ${valtor[0].valta.toLowerCase()}vältan`
       : 'medellängd, alla vältor';
     return (
       <div style={SIDA}>
         <Tillbakarad href={objektUrl} text={har} />
         <Stort tal={nf2(d.medellangd_m ?? 0)} enhet="m" ordrad={ordrad}>
           <Damp>{nf1(d.total_m3fub)} m³fub · {d.avkap.st > 0 ? `${nf0(d.avkap.st)} avkap` : 'inget avkap'}</Damp>
-          {d.avkap.st > 0 && <Mening>Avkap är ett eget sortiment utanför massavedsvolymen och påverkar inte medellängden.</Mening>}
         </Stort>
         <Rader>
-          {d.valtor.map(v => (
+          {valtor.map(v => (
             <span key={v.valta}>
-              {d.valtor.length > 1 && (
+              {valtor.length > 1 && (
                 <Rad text={`Hela ${v.valta.toLowerCase()}vältan`} tal={`${nf2(v.medellangd_m)} m`} hoger={`${nf1(v.m3fub)} m³`} />
               )}
               {v.tradslag.map(t => (
@@ -353,6 +353,7 @@ function Innehall() {
             <Rad key={del.kap} text={`Avkap ${del.kap}`} tal={`${nf0(del.st)} st`} hoger={`${nf2(del.m3fub)} m³`} />
           ))}
           <Rad text="Visa bitarna" href={bitarUrl} />
+          <Rad text="Så räknas" onClick={() => go('rakning')} />
         </Rader>
       </div>
     );
