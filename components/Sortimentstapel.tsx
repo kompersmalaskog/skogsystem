@@ -44,6 +44,20 @@ export function Teckenforklaring() {
   );
 }
 
+/** Teckenförklaringen med talet intill varje ord: "Timmer 41 %". För ytor där stapeln är hela fördelningen och inga rader följer. */
+export function TeckenforklaringMedAndel({ hela }: { hela: Andelar }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginTop: 12 }}>
+      {SORTIMENT.map(s => (
+        <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: s === 'ovrigt' ? DAMPAD : TEXT, minHeight: 24 }}>
+          <span aria-hidden style={{ width: 12, height: 12, borderRadius: RADIE.stapel, background: SORTIMENTFARG[s], border: LINJE, boxSizing: 'border-box' }} />
+          {SORTIMENT_NAMN[s]} <span style={{ fontWeight: 600 }}>{hela[s]} %</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** "Vad posterna består av" — en budkalkyl måste säga det, synligt och inte bakom en länk. Samma ord som stämplingsvyn. */
 export function VadPosternaBestarAv({ extra }: { extra?: ReactNode }) {
   const fet = { color: TEXT, fontWeight: 600 } as const;
