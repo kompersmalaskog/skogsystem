@@ -109,3 +109,20 @@ describe("passKrockarMedPerioder", () => {
     expect(passKrockText({ start_tid: "07:00:00", slut_tid: "12:00:00" })).toContain("07:00–12:00");
   });
 });
+
+import { harOppenPeriod } from "@/lib/dagsegment"
+describe("harOppenPeriod — en dag med pågående period kan inte bekräftas", () => {
+  const rader = [
+    { datum: "2026-10-02", start_tid: "07:00:00", slut_tid: null },
+    { datum: "2026-10-01", start_tid: "07:00:00", slut_tid: "10:00:00" },
+  ]
+  it("sant bara för dagen med start men utan slut", () => {
+    expect(harOppenPeriod(rader, "2026-10-02")).toBe(true)
+    expect(harOppenPeriod(rader, "2026-10-01")).toBe(false)
+    expect(harOppenPeriod(rader, "2026-09-30")).toBe(false)
+  })
+  it("tål tomt och null", () => {
+    expect(harOppenPeriod(null, "2026-10-02")).toBe(false)
+    expect(harOppenPeriod([], "2026-10-02")).toBe(false)
+  })
+})

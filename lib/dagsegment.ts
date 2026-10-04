@@ -182,3 +182,15 @@ export function perioddagSpann(perioder: { start_tid: string | null; slut_tid: s
 }
 
 export const segHhmm = hhmm
+
+/**
+ * Har dagen en period som startat men inte avslutats (extra_tid.slut_tid = null)?
+ * En sådan dag kan INTE bekräftas — en underskrift utan sluttid är ingen
+ * underskrift. Samma regel i Dag, Redigera och (via Planera) "Starta nu — avsluta sen".
+ */
+export function harOppenPeriod(
+  rader: { datum?: string | null; start_tid?: string | null; slut_tid?: string | null }[] | null | undefined,
+  datum: string,
+): boolean {
+  return (rader || []).some(e => e.datum === datum && !!e.start_tid && !e.slut_tid)
+}
