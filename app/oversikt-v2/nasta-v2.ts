@@ -75,6 +75,12 @@ export function arSkotare(m: MaskinRad): boolean {
 export function maskinAktiv(m: MaskinRad, todayISO: string): boolean {
   return !m.aktiv_till || m.aktiv_till >= todayISO;
 }
+/** En aktiv maskin som varken har position eller kö (t.ex. en skotare som aldrig skickar filer): kartan ritar den inte och
+ *  beräkningen räknar inte med den, men den ska gå att öppna och lägga i kö för. Ett tomt förslag — ingen kö, ingen
+ *  position, inget gissat. Läggs till EFTER beräkningen, så ingen annan maskins förslag påverkas. */
+export function tomtForslag(m: MaskinRad): MaskinForslag {
+  return { maskinId: m.maskin_id, typ: arSkotare(m) ? 'skotare' : 'skordare', koordinat: null, positionAlder: null, nuObjekt: null, ko: [], manuellKo: false, skal: 'Ingen position och inget i kön' };
+}
 function normalisera(varden: number[]): (v: number) => number {
   const min = Math.min(...varden), max = Math.max(...varden);
   if (!Number.isFinite(min) || !Number.isFinite(max) || max === min) return () => 0.5;
