@@ -78,7 +78,7 @@ Allt är kvartar. Martins testdata (2026-10-02) hade 10:17, 16:17 och längder s
 
 ### Idag kan aldrig sluta efter nu
 Samma regel på två ställen — en spärr i bara ena änden är ingen spärr:
-- *Vyn:* + på slutet stannar vid nu (nedrundat till kvart), längdknappar som skulle
+- *Vyn:* + på slutet stannar vid nu (exakt nu, eller närmaste kvart för kvartsteg/Till nu), längdknappar som skulle
   passera nu är grå, ingen framtida dag kan väljas. Ligger en redan sparad period
   i framtiden (öppnad via veckolistan) visas en orange rad och Spara låses tills den kortats.
 - *Sparandet* (`lib/planera/spara.ts`, `liggerIFramtiden`): nekar en period som slutar
@@ -99,23 +99,24 @@ Vyn skapar **bara perioder**. Dagen bekräftas som vanligt under Dag/Kalender.
 *"Man vet när man kommer, inte när man går."* (Martin) **Starta nu** sparar en
 `extra_tid`-rad med `slut_tid = null`, `minuter = 0` och `rast_min = null`.
 
-- **Starten är klockan när man trycker** (Martin: "trycker jag 07:34 är det då jag började"): Starta nu sätter
-  start = nu avrundat till **närmaste kvart** (07:34 → 07:30, 07:38 → 07:45), det stora klockslaget visar
-  "07:30 – ?" direkt och knappen heter "Starta 07:30". **Starta nu ger ALLTID nu** — ett andra tryck läser
-  klockan på nytt, det backar inte. Kom man 07:00 men öppnade appen 07:20: tryck på klockslaget och backa med minus.
-  **Plus passerar aldrig nu**. Längdknapparna (1, 2, 4 tim, Till nu) är för efterhandsregistrering och använder den
-  *förifyllda* starten.
-- **Närmaste kvart överallt** (Martin 2026-10-04): Starta nu, Avsluta och Till nu. Förr rundades Avsluta/Rast nedåt och
-  Starta/Fortsätt till närmaste, så varje rast blev längre än den var (11:41–12:10 blev 11:30–12:15: 45 min i stället för 29,
-  ~19 min/dag åt förarens nackdel). Nu jämnar det ut sig. Konsekvens, godkänd: start och slut får ligga **upp till en
-  halv kvart efter klockan** (16:53 → 17:00; `liggerIFramtiden` / `startLiggerIFramtiden` i vy OCH sparväg); längre fram än så nekas.
-- **Pågår-kortet** ligger överst på skärm 1: "PÅGÅR · Betet gallring · Planering sedan 07:30 · 2 tim 15 min"
+- **Starta nu och Avsluta använder EXAKT minut** (Martin 2026-10-04: "tryckte Starta nu 13:51 och fick 13:45"): start =
+  klockan nu (07:34 → 07:34), slut vid Avsluta = klockan nu (16:52 → 16:52). Det stora klockslaget visar "07:34 – ?" direkt
+  och knappen heter "Starta 07:34". **Starta nu ger ALLTID nu** — ett andra tryck läser klockan på nytt, det backar inte.
+  Kom man 07:00 men öppnade appen 07:20: tryck på klockslaget och backa med minus (första trycket snappar till kvarten:
+  07:20 → 07:15 → 07:00). **Plus passerar aldrig nu.** Längdknapparna (1, 2, 4 tim, Till nu) är för efterhandsregistrering
+  och använder den *förifyllda* starten.
+- **Kvartar finns bara i förifyllning, längdknapparna och plus/minus-stegen.** Förr rundades klockan till närmaste kvart
+  (först nedåt, sedan närmaste), vilket gav fel tid för den som trycker på en knapp: 13:51 blev 13:45. Exakt minut löser
+  också rastbiasen (en rast som rundades åt olika håll blev ~15 min för lång) utan att något behöver "jämna ut sig".
+  Spärren mot framtida tid: en pågående period får starta högst vid exakt nu; ett slut får vara exakt nu, och Till nu/plus
+  (kvartsteg) får ligga upp till en halv kvart efter klockan (`liggerIFramtiden`, `startLiggerIFramtiden` — i vy OCH sparväg).
+- **Pågår-kortet** ligger överst på skärm 1: "PÅGÅR · Betet gallring · Planering sedan 07:34 · 2 tim 15 min"
   (levande räknare, omritning var 30:e sekund) med **Avsluta** och "Ändra eller ta bort". Perioden **ligger kvar
   tills man trycker Avsluta eller Ta bort** — man kan stänga appen och komma tillbaka. Ingen Rast- eller Fortsätt-knapp:
   i skogen glömmer man trycka Rast.
-- **Avsluta** visar sammanfattningen **"07:30 – 16:45 · Rast 30 min · 8 tim 45 min"** med − och + på rasten (en kvart
-  per tryck, 0–180 min) och **Spara 8 tim 45 min**. Inget är sparat före Spara. Är det mindre än en kvart sedan
-  start blir det ingen nollängd — besked i stället.
+- **Avsluta** visar sammanfattningen **"07:34 – 16:52 · Rast 30 min · 8 tim 48 min"** med − och + på rasten (en kvart
+  per tryck, 0–180 min) och **Spara 8 tim 48 min**. Inget är sparat före Spara. Är det mindre än en kvart sedan
+  start (samma minut) blir det ingen nollängd — besked i stället.
 - **Rasten** är minuter på perioden, inte en lucka: `extra_tid.rast_min` (migration 2026-10-04, körd av Martin).
   `extra_tid.minuter` är **NETTO** (längd − rast) — allt som summerar `minuter` (löneunderlag, `arbetstid.extraMinPerDag`,
   årsövertid, Min tid, Dag/Kalender) drar därför av rasten en enda gång utan ändring. En trigger

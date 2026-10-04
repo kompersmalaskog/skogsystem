@@ -5,7 +5,7 @@ import { AKTIVITETER, aktLabel, type AktivitetTyp } from "@/lib/aktiviteter";
 import { byggArbetsObjektLista, type ArbetsObjekt } from "@/lib/arbetsobjekt";
 import {
   PLANERA_TYPER, DAGENS_SLUT, KVART, RAST_FRAN_MIN, RAST_MAX_MIN, arGlomd, dagRubrik, debFor, foreslagenStart, forslagFranIgar,
-  klockaTillMin, krockMed, kvartNed, kvartUpp, liggerIFramtiden, lokalISO, minTillKlocka, nettoMin, nuKvartNarmast, oppenPeriod,
+  klockaTillMin, krockMed, kvartNed, kvartUpp, liggerIFramtiden, lokalISO, minTillKlocka, nettoMin, nuKvartNarmast, nuMinut, oppenPeriod,
   pagatt, periodMinuter, rastForPeriod, relativDag, senasteDagar, senasteTrakter, slutVidAvsluta, startLiggerIFramtiden, timText,
   traktGrupper, vanligRast, veckoDagar, datumKort, plusDagar, type Forslag, type PeriodRad,
 } from "@/lib/planera/logik";
@@ -28,10 +28,11 @@ import { TYP, VIKT, IKON, AVSTAND, RADIE, FARG, KNAPP, KORT, TRAFFYTA, TNUM, INA
  *            aldrig sluta efter nu.
  *
  * "Man vet när man kommer, inte när man går": Starta nu sparar en period utan
- * slut, med start = KLOCKAN NU (närmaste kvart). Den ligger kvar tills man trycker
- * Avsluta eller Ta bort (man ska kunna stänga appen och komma tillbaka). Alla tider
- * är närmaste kvart — då jämnar det ut sig (Martin 2026-10-04: nedrundning åt ena
- * hållet och uppåt åt andra gjorde varje rast ~15 min för lång).
+ * slut, med start = KLOCKAN NU, EXAKT minut. Den ligger kvar tills man trycker
+ * Avsluta eller Ta bort (man ska kunna stänga appen och komma tillbaka). Avsluta
+ * sätter slut = exakt nu. Kvartar finns bara i förifyllning, längdknapparna
+ * (1/2/4 tim, Till nu) och plus/minus-stegen (Martin 2026-10-04: tryckte 13:51 och
+ * fick 13:45; kvartsavrundning av en klocka man trycker på ger fel tid).
  * RASTEN bekräftas vid Avsluta, inte med en knapp man glömmer i skogen: sammanfattningen
  * "07:30 – 16:45 · Rast 30 min · 8 tim 45 min" med − och + (en kvart per tryck).
  * Förifylld med förarens vanliga rast (median 30 dagar, annars 30 min) och bara över
@@ -90,13 +91,13 @@ function Segment<T extends string>({ varden, valt, onVal, etikett, inaktiva = []
 }
 
 /** Ett kvartssteg på start eller slut. null = går inte (utanför dagen, korsar den andra änden, efter nu). */
-function stappaTill(f: FormState, vilken: "start" | "slut", riktning: -1 | 1, tak: number): FormState | null {
+function stappaTill(f: FormState, vilken: "start" | "slut", riktning: -1 | 1, tak: number, startTak: number = tak): FormState | null {
   const flytta = (m: number) => (riktning < 0 ? (m % KVART ? kvartNed(m) : m - KVART) : (m % KVART ? kvartUpp(m) : m + KVART));
   if (vilken === "start") {
     const ny = flytta(f.startMin);
-    // Utan slut (pågående) får starten stå så sent som klockan nu (närmaste kvart) — plus passerar aldrig det;
+    // Utan slut (pågående) får starten stå så sent som exakt klockan nu — plus passerar aldrig det;
     // med slut måste en kvart rymmas.
-    return ny < 0 || ny > (f.slutMin != null ? f.slutMin - KVART : tak) ? null : { ...f, startMin: ny };
+    return ny < 0 || ny > (f.slutMin != null ? f.slutMin - KVART : startTak) ? null : { ...f, startMin: ny };
   }
   if (f.slutMin == null) return null;
   const ny = flytta(f.slutMin);
@@ -195,7 +196,10 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
   }, [harOppen]);
 
   // ── Handlingar ──────────────────────────────────────────────────────────
-  const taket = (datum: string) => (datum === idag ? nuKvartNarmast(nu) : DAGENS_SLUT);
+  // Idag: slutet får vara exakt nu eller närmaste kvart (Till nu / plus), det som är senast. En pågående period får
+  // starta högst vid exakt nu.
+  const taket = (datum: string) => (datum === idag ? Math.max(nuMinut(nu), nuKvartNarmast(nu)) : DAGENS_SLUT);
+  const startTaket = (f: FormState) => (f.oppen && f.datum === idag ? nuMinut(nu) : taket(f.datum));
   const nyttForm = (objektId: string | null, datum = idag): FormState => ({
     objektId, redigerarId: null, datum,
     startMin: klockaTillMin(foreslagenStart(perioder, datum, idag, nu)), slutMin: null, oppen: false,
@@ -207,7 +211,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     if (skarm === "byt") { setForm(f => (f ? { ...f, objektId: id } : nyttForm(id))); setSkarm("tid"); return; }
     setForm(nyttForm(id)); setSkarm("tid"); setSok("");
   };
-  /** Öppna en sparad (eller pågående) period för ändring. foreslaSlut: förifyll sluttiden med nu (nedrundat). */
+  /** Öppna en sparad (eller pågående) period för ändring. foreslaSlut: förifyll sluttiden med exakt nu. */
   const oppnaRad = (p: PeriodRad, foreslaSlut = false) => {
     aterstall();
     const oppen = !p.slut_tid;
@@ -233,7 +237,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     setForm(f => (f ? { ...f, datum, startMin: klockaTillMin(foreslagenStart(perioder, datum, idag, nu)), slutMin: null, oppen: false, startFore: null, rast: null } : f));
   };
   // En kvart per tryck. Står tiden mellan två kvartar (gammal data, 10:17) snappar första trycket till kvarten.
-  const stappa = (riktning: -1 | 1) => setForm(f => (f && steg ? stappaTill(f, steg, riktning, taket(f.datum)) ?? f : f));
+  const stappa = (riktning: -1 | 1) => setForm(f => (f && steg ? stappaTill(f, steg, riktning, taket(f.datum), startTaket(f)) ?? f : f));
   const tryckTid = (vilken: "start" | "slut") => {
     if (vilken === "slut" && form && form.slutMin == null) {
       // Slutet är inte valt: ett tryck ger en timme (eller så långt som ryms) att steppa från.
@@ -254,14 +258,14 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     const l = LANGDER.find(x => x.key === key);
     return l && start + l.min <= taket(f.datum) ? { ...f, startMin: start, startFore: null, slutMin: start + l.min, oppen: false } : f;
   });
-  // Starta nu: starten blir ALLTID klockan nu (närmaste kvart) — också vid ett andra tryck, som läser klockan på nytt
+  // Starta nu: starten blir ALLTID klockan nu (exakt minut) — också vid ett andra tryck, som läser klockan på nytt
   // i stället för att backa. Vägen tillbaka till efterhandsregistrering är en längdknapp (den använder den förifyllda
   // starten). Gäller en NY period; en redan pågående period (ändra) rörs inte.
   const taOppen = () => {
     if (steg === "slut") setSteg(null);
     setForm(f => {
       if (!f || f.redigerarId || f.datum !== idag) return f;
-      return { ...f, oppen: true, slutMin: null, startFore: f.startFore ?? f.startMin, startMin: nuKvartNarmast(nu) };
+      return { ...f, oppen: true, slutMin: null, startFore: f.startFore ?? f.startMin, startMin: nuMinut(nu) };
     });
   };
   const tillbaka = () => { setSkarm("trakt"); setForm(null); setFormFel(null); setBekraftaBort(false); setSteg(null); setDagBlad(false); };
@@ -315,7 +319,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     setKvitto(`Sparat: ${sparade.join(" + ")}`);
   };
 
-  // Pågår-kortet: Avsluta visar sammanfattningen (slut = nu, närmaste kvart, + rasten) och sparar först när man
+  // Pågår-kortet: Avsluta visar sammanfattningen (slut = exakt nu, + rasten) och sparar först när man
   // trycker Spara. En period från en tidigare dag (glömd) eller utan trakt/Planera-aktivitet (startad i
   // arbetsrapporten) får aldrig en gissad sluttid — då öppnas skärm 2 så föraren väljer själv.
   const oppnaAvsluta = (rad: PeriodRad) => {
@@ -323,7 +327,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     setKortFel(null); setKvitto(null);
     if (arGlomd(rad, idag) || !arPlaneraRad(rad)) { oppnaRad(rad, true); return; }
     const slut = slutVidAvsluta(rad.start_tid as string, nu);
-    if (slut == null) { setKortFel("Perioden är mindre än en kvart gammal — vänta lite, eller ändra den."); return; }
+    if (slut == null) { setKortFel("Perioden är mindre än en minut gammal — vänta lite, eller ändra den."); return; }
     setAvsluta({ id: rad.id, slutMin: slut, rast: null });
   };
   const sparaAvsluta = async (rad: PeriodRad) => {

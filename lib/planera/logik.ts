@@ -156,24 +156,27 @@ export const kvartUpp = (m: number) => Math.ceil(m / KVART) * KVART;
 /** Klockan nu som minuter, avrundad NED till kvart ("Till nu" och taket för idag). */
 export const nuKvartNed = (nu: Date) => kvartNed(nu.getHours() * 60 + nu.getMinutes());
 
-/** Klockan nu avrundad till NÄRMASTE kvart — "Starta nu" (07:34 → 07:30, 07:38 → 07:45). */
+/** Klockan nu, EXAKT minut — "Starta nu" och "Avsluta" (Martin 2026-10-04: tryckte 13:51 och fick 13:45). Kvartar är bara
+ *  för förifyllning, längdknapparna (1/2/4 tim, Till nu) och plus/minus-stegen. */
+export const nuMinut = (nu: Date) => nu.getHours() * 60 + nu.getMinutes();
+/** Klockan nu avrundad till NÄRMASTE kvart — "Till nu" (13:51 → 13:45, 13:53 → 14:00). */
 export const nuKvartNarmast = (nu: Date) => kvartNarmast(nu.getHours() * 60 + nu.getMinutes());
 
-/** Ligger starten på en PÅGÅENDE period i framtiden? Alla tider är närmaste kvart (Martin 2026-10-04: "det jämnar
- *  ut sig"), så starten får ligga upp till en halv kvart efter nu (07:45 kl 07:38) men inte längre fram. */
+/** Ligger starten på en PÅGÅENDE period i framtiden? "Starta nu" startar vid exakt klockan nu, så starten får aldrig
+ *  ligga efter den (inte ens en halv kvart). */
 export function startLiggerIFramtiden(datum: string, startMin: number, nu: Date): boolean {
   const idag = lokalISO(nu);
   if (datum > idag) return true;
-  return datum === idag && startMin > nuKvartNarmast(nu);
+  return datum === idag && startMin > nuMinut(nu);
 }
 
-/** Ligger slutet i framtiden? Idag får slutet ligga högst vid klockan nu avrundad till NÄRMASTE kvart (alltså upp till
- *  en halv kvart före klockan — 16:53 → 17:00, godkänt av Martin: det jämnar ut sig mot att alltid ta från föraren).
- *  Framtida dagar går inte att fylla i. Samma regel i vyn OCH i sparandet (en spärr i bara ena änden är ingen spärr). */
+/** Ligger slutet i framtiden? Idag är exakt nu alltid godkänt ("Avsluta" 16:52 → 16:52), och kvartsteg/Till nu får ligga
+ *  upp till en halv kvart efter klockan (16:53 → 17:00; godkänt av Martin). Längre fram och framtida dagar nekas. Samma regel
+ *  i vyn OCH i sparandet (en spärr i bara ena änden är ingen spärr). */
 export function liggerIFramtiden(datum: string, slutMin: number, nu: Date): boolean {
   const idag = lokalISO(nu);
   if (datum > idag) return true;
-  return datum === idag && slutMin > nuKvartNarmast(nu);
+  return datum === idag && slutMin > Math.max(nuMinut(nu), nuKvartNarmast(nu));
 }
 
 // ── Förifyllda tider ──────────────────────────────────────────────────────
@@ -251,10 +254,9 @@ export function pagatt(p: PeriodRad, nu: Date): number {
   if (p.datum < idag) return 0; // glömd: ingen räknare, bara "startade i går 07:00"
   return Math.max(0, nu.getHours() * 60 + nu.getMinutes() - tMin(p.start_tid));
 }
-/** Slut vid Avsluta: nu, avrundat till NÄRMASTE kvart (som Starta nu — då jämnar det ut sig i stället för att alltid
- *  ta från föraren). null om det inte blir längre än starten. */
+/** Slut vid Avsluta: EXAKT minut nu. null om det inte blir längre än starten (samma minut). */
 export function slutVidAvsluta(startTid: string, nu: Date): number | null {
-  const slut = nuKvartNarmast(nu);
+  const slut = nuMinut(nu);
   return slut > tMin(startTid) ? slut : null;
 }
 

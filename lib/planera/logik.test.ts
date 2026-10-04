@@ -193,7 +193,7 @@ describe("förifylld starttid", () => {
   });
 });
 
-import { oppenPeriod, arGlomd, pagatt, slutVidAvsluta, traktGrupper, vanligRast, rastForPeriod, nettoMin, nuKvartNarmast, startLiggerIFramtiden } from "./logik";
+import { oppenPeriod, arGlomd, pagatt, slutVidAvsluta, traktGrupper, vanligRast, rastForPeriod, nettoMin, nuKvartNarmast, nuMinut, startLiggerIFramtiden } from "./logik";
 describe("pågående period och rast", () => {
   const oppen = (o: Partial<PeriodRad> = {}) => p({ id: "o", datum: IDAG, start_tid: "07:00:00", slut_tid: null as any, ...(o as any) });
   it("oppenPeriod hittar perioden utan slut; glömd = tidigare dag", () => {
@@ -206,12 +206,12 @@ describe("pågående period och rast", () => {
     expect(pagatt(oppen(), new Date(2026, 9, 2, 9, 15))).toBe(135);
     expect(pagatt(oppen({ datum: "2026-10-01" }), new Date(2026, 9, 2, 9, 15))).toBe(0);
   });
-  it("slutVidAvsluta rundar till NÄRMASTE kvart (som Starta nu) och ger null när det inte blir längre än starten", () => {
-    expect(slutVidAvsluta("07:30:00", new Date(2026, 9, 2, 16, 52))).toBe(16 * 60 + 45);
-    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 11, 41))).toBe(11 * 60 + 45);
-    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 16, 53))).toBe(17 * 60);
-    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 7, 5))).toBeNull();
-    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 7, 8))).toBe(7 * 60 + 15);
+  it("slutVidAvsluta = EXAKT minut (Martin: tryckte 13:51 och fick 13:45) och null när det inte blir längre än starten", () => {
+    expect(slutVidAvsluta("07:30:00", new Date(2026, 9, 2, 16, 52))).toBe(16 * 60 + 52);
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 13, 51))).toBe(13 * 60 + 51);
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 7, 8))).toBe(7 * 60 + 8);
+    expect(slutVidAvsluta("07:30:00", new Date(2026, 9, 2, 7, 30))).toBeNull();
+    expect(slutVidAvsluta("07:30:00", new Date(2026, 9, 2, 7, 20))).toBeNull();
   });
   it("krock: en pågående period löper framåt", () => {
     expect(krockMed([oppen()], IDAG, 13 * 60, 14 * 60)?.id).toBe("o");
@@ -235,18 +235,23 @@ describe("trakter i grupper", () => {
   });
 });
 
-describe("närmaste kvart överallt", () => {
-  it("nuKvartNarmast: 07:34 → 07:30, 07:38 → 07:45, 16:52 → 16:45", () => {
-    expect(nuKvartNarmast(new Date(2026, 9, 2, 7, 34))).toBe(7 * 60 + 30);
+describe("exakt minut för Starta nu och Avsluta, kvartar för längdknappar och steg", () => {
+  it("nuMinut är exakt minut; nuKvartNarmast finns kvar för Till nu", () => {
+    expect(nuMinut(new Date(2026, 9, 2, 13, 51))).toBe(13 * 60 + 51);
+    expect(nuKvartNarmast(new Date(2026, 9, 2, 13, 51))).toBe(13 * 60 + 45);
     expect(nuKvartNarmast(new Date(2026, 9, 2, 7, 38))).toBe(7 * 60 + 45);
-    expect(nuKvartNarmast(new Date(2026, 9, 2, 16, 52))).toBe(16 * 60 + 45);
   });
-  it("slut och start får ligga upp till en halv kvart efter klockan, men inte längre", () => {
+  it("pågående start får inte ligga efter klockan (exakt), inte ens en halv kvart", () => {
     const nu = new Date(2026, 9, 2, 16, 53);
-    expect(liggerIFramtiden(IDAG, 17 * 60, nu)).toBe(false);
-    expect(liggerIFramtiden(IDAG, 17 * 60 + 15, nu)).toBe(true);
-    expect(startLiggerIFramtiden(IDAG, 17 * 60, nu)).toBe(false);
-    expect(startLiggerIFramtiden(IDAG, 17 * 60 + 15, nu)).toBe(true);
+    expect(startLiggerIFramtiden(IDAG, 16 * 60 + 53, nu)).toBe(false);
+    expect(startLiggerIFramtiden(IDAG, 16 * 60 + 54, nu)).toBe(true);
+    expect(startLiggerIFramtiden(IDAG, 17 * 60, nu)).toBe(true);
+  });
+  it("slut: exakt nu är alltid godkänt; Till nu/plus (kvart) får ligga upp till en halv kvart efter", () => {
+    expect(liggerIFramtiden(IDAG, 16 * 60 + 52, new Date(2026, 9, 2, 16, 52))).toBe(false); // exakt nu, fast närmaste kvart är 16:45
+    expect(liggerIFramtiden(IDAG, 16 * 60 + 53, new Date(2026, 9, 2, 16, 52))).toBe(true);
+    expect(liggerIFramtiden(IDAG, 17 * 60, new Date(2026, 9, 2, 16, 53))).toBe(false);     // närmaste kvart 17:00
+    expect(liggerIFramtiden(IDAG, 17 * 60 + 15, new Date(2026, 9, 2, 16, 53))).toBe(true);
   });
 });
 
