@@ -111,7 +111,9 @@ Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26)
 `fakt_tid`, `fakt_produktion`, `dim_maskin`, `dim_operator`, `maskin_logg`
 
 ### Planering
-`planering_markeringar`, `dim_objekt`, `kartbilder`, `tma_assessments`, `hpr_filer`, `hpr_stammar`, `skotning_uttag`, `warning_acknowledgments`, `warning_settings`
+`planering_markeringar`, `dim_objekt`, `kartbilder`, `tma_assessments`, `hpr_filer`, `hpr_stammar`, `skotning_uttag`
+
+**Varningsinställningar (körläget) ligger INTE i databasen.** Varningsavstånd, avståndsdämpning per kategori och "Visa alla symboler" sparas PER ENHET i `localStorage` under nyckeln `varningar_v1` (`lib/varningsInstallningar.ts`) — inte per objekt, inte per användare i DB. Tabellerna `warning_settings` och `warning_acknowledgments` har aldrig funnits i prod (PostgREST 404 `PGRST205`, verifierat 2026-10-05; tidigare stod de här som om de fanns). Kvitterade varningar i körlägets varningskort ligger bara i minnet. Körvyns kvittens (proximitets-notisen) är den riktiga tabellen `korvy_kvittens`. Reservvärdet för en kategori utan inställning är 30 m.
 
 ### Kalibrering
 `fakt_kalibrering`, `fakt_kalibrering_historik`, `detalj_kontroll_stock`
