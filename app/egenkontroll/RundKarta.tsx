@@ -31,6 +31,10 @@ import {
   kontrollFeatures, kontrollLager, kontrollLagerIdn, valdLinjeFilter, valdSymbolFilter,
 } from '@/lib/egenkontrollkarta';
 import { PIL_STIL, ritaNummerIkon, ritaPilIkon } from '@/lib/kartstil';
+import {
+  TRAFF_RADIE_PX, avstandTillGeometriPx, traffIdFranEgenskaper, traffKindFranEgenskaper, valjTraff,
+  type Kandidat,
+} from '@/lib/egenkontrollTryck';
 import { canvasToMapLibreImage, loadMarkerImageForMaplibre, markerIconDefs } from '@/lib/marker-icons';
 import { T } from '@/lib/utbildning';
 import type { EgenkontrollPunkt, EgenkontrollProvyta } from '@/lib/egenkontroll';
@@ -113,12 +117,15 @@ function laggTillLager(map: any, spec: any, fore?: string): void {
 }
 
 export default function RundKarta({
-  objekt,
+  objekt: objektProp,
   punkter,
   kontext,
   provytor,
   valdPunktId,
   onPosition,
+  position,
+  onValjPunkt,
+  onValjProvyta,
   hojd = HOJD_INLINE,
   centreraPa,
   stammar,
@@ -135,6 +142,16 @@ export default function RundKarta({
   valdPunktId: string | null;
   /** Positionen delas uppat sa avstandslistan slipper en egen GPS-prenumeration. */
   onPosition?: (p: { lat: number; lng: number; noggrannhet: number | null } | null) => void;
+  /**
+   * Positionen UTIFRAN. Satt (aven null) = kartan hamtar ingen egen position och
+   * ritar bara det sidan ger - sidan ager en levande bevakning (useMinPosition).
+   * Utelamnad = som forut: en engangslasning vid montering (gå-vyn).
+   */
+  position?: { lat: number; lng: number; noggrannhet: number | null } | null;
+  /** Tryck pa en kontrollpunkt (id). Symbol > linje > zon, se lib/egenkontrollTryck.ts. */
+  onValjPunkt?: (punktId: string) => void;
+  /** Tryck pa en provyta (dess nummer). */
+  onValjProvyta?: (nummer: number) => void;
   /** 180 i rundvyn, '100%' i helskarm. Ett lage i taget ar monterat. */
   hojd?: number | string;
   /** Ga-vyn centrerar pa ytan. */
@@ -164,10 +181,26 @@ export default function RundKarta({
   const [minPosition, setMinPosition] = useState<[number, number] | null>(null);
   const [positionsFel, setPositionsFel] = useState(false);
 
+  // OBJEKTET STABILISERAS EFTER INNEHALL. hamtaRunda bygger ett NYTT kartObjekt-
+  // objekt vid varje lasning, och kartans init-effekt beror pa det: med en tyst
+  // omlasning (efter varje sparad avvikelse, provyta, stubbe) hade hela kartan
+  // annars rivits och byggts om - kamera, tiles och lager borta mitt i rundan.
+  // Innan omlasningen blev tyst syntes det inte: hela vyn byttes ut anda.
+  const objektNyckel = objektProp
+    ? JSON.stringify([objektProp.lat ?? null, objektProp.lng ?? null, objektProp.kartbild_url ?? null, objektProp.kartbild_bounds ?? null])
+    : '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const objekt = useMemo(() => objektProp, [objektNyckel]);
   const origo = useMemo(() => (objekt ? kartOrigoFranBounds(objekt) : null), [objekt]);
   // Ref sa hamtaPosition inte behover onPosition i sitt beroende och far ny identitet.
   const onPositionRef = useRef(onPosition);
   onPositionRef.current = onPosition;
+  // Tryckhanterarna registreras EN gang vid skapandet - refs ger dem det som galler nu.
+  const onValjPunktRef = useRef(onValjPunkt);
+  onValjPunktRef.current = onValjPunkt;
+  const onValjProvytaRef = useRef(onValjProvyta);
+  onValjProvytaRef.current = onValjProvyta;
+  const styrdPosition = position !== undefined;
 
   // --- Geometrierna ---------------------------------------------------------
   // KONTROLLPUNKTERNA: symbolen, linjen eller zonen sjalv, plus ett nummer mitt
@@ -263,7 +296,8 @@ export default function RundKarta({
 
   // Automatiskt forsok. I installerad PWA pa iOS ges ingen platsprompt utan en
   // riktig gest - da tystnar detta och raden nedanfor blir vagen in.
-  useEffect(() => { hamtaPosition(); }, [hamtaPosition]);
+  // STYRD position (rundvyn): sidan ager bevakningen, och kartan hamtar ingen egen.
+  useEffect(() => { if (!styrdPosition) hamtaPosition(); }, [hamtaPosition, styrdPosition]);
 
   // --- MapLibre fran CDN (samma injektion som ovriga kartvyer) -------------
   useEffect(() => {
@@ -311,7 +345,56 @@ export default function RundKarta({
       customAttribution: FORARKARTA_ATTRIBUTION, compact: true,
     }), 'bottom-left');
 
-    map.on('load', async () => {
+    // TRYCK. En ruta runt fingret (TRAFF_RADIE_PX per sida = 44 pt) i stallet for
+    // en punkt: en basvag ar nagra pixlar bred och en tum ar det inte. Bara
+    // kontrollpunkternas och provytornas lager fragas - KONTEXTEN (ek-k-*) ar
+    // orientering och ska inte ga att trycka pa. Lager som ar slackta ger inga
+    // traffar, sa en punkt man tagit bort ur kartan gar inte heller att tryck pa.
+    map.on('click', (e: any) => {
+      if (!onValjPunktRef.current && !onValjProvytaRef.current) return;
+      const lagerIdn = ((map.getStyle()?.layers ?? []) as { id: string }[])
+        .map((l) => l.id)
+        .filter((id) => id.startsWith('ek-p-') || id === 'ek-provyta-matt' || id === 'ek-provyta-omatt');
+      if (lagerIdn.length === 0) return;
+      const r = TRAFF_RADIE_PX;
+      const traffar = map.queryRenderedFeatures(
+        [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]],
+        { layers: lagerIdn },
+      ) as { properties: Record<string, unknown>; geometry: any }[];
+      const kandidater: Kandidat[] = [];
+      for (const f of traffar) {
+        const kind = traffKindFranEgenskaper(f.properties);
+        const id = traffIdFranEgenskaper(f.properties);
+        if (!kind || id == null) continue;
+        kandidater.push({ id, kind, dPx: avstandTillGeometriPx(f.geometry, e.point, (c) => map.project(c)) });
+      }
+      const traff = valjTraff(kandidater);
+      if (!traff) return;
+      if (traff.kind === 'provyta') onValjProvytaRef.current?.(Number(traff.id));
+      else onValjPunktRef.current?.(traff.id);
+    });
+
+    // Kortet under kartan andrar hojd (kommentar, avvikelse) - da andras kartans
+    // container, och MapLibre lyssnar bara pa FONSTRETS storlek. Utan detta ritas
+    // kartan i fel storlek tills nagon vrider telefonen.
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      ro = new ResizeObserver(() => { try { map.resize(); } catch { /* kartan borttagen */ } });
+      ro.observe(containerRef.current);
+    }
+
+    // INIT PA style.load - INTE bara 'load'. MapLibres 'load' avfyras forst nar den
+    // forsta renderingen ar klar OCH alla synliga tiles ar klara, och den avfyras
+    // bara fran en renderingsram. Gar ALLA bakgrundstiles fel (ingen tackning i
+    // skogen) efter den sista ramen kommer ingen ny ram, och 'load' uteblir for
+    // alltid: kartan star kvar med bara sin bakgrund - inga kontrollpunkter, inga
+    // lager. Matt i testselen: 5 av 30 starter. Stilen ar var egen JSON utan
+    // natverkshamtning, sa style.load kommer direkt och behover inga tiles.
+    // 'load' star kvar som reserv; initierad-vakten ser till att det bara sker en gang.
+    let initierad = false;
+    const initiera = async () => {
+      if (initierad) return;
+      initierad = true;
       map.resize();
 
       // WMS-lagren laggs pa EN gang, alla slackta. De tands sedan ur
@@ -437,9 +520,16 @@ export default function RundKarta({
       }
       if (nagot) map.fitBounds(b2, { padding: 24, maxZoom: 16, duration: 0 });
       setLaddad(true);
-    });
+    };
+    map.once('style.load', initiera);
+    map.once('load', initiera);
 
-    return () => { try { map.remove(); } catch { /* noop */ } mapRef.current = null; setLaddad(false); };
+    return () => {
+      ro?.disconnect();
+      try { map.remove(); } catch { /* noop */ }
+      mapRef.current = null;
+      setLaddad(false);
+    };
   }, [mapReady, objekt, origo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Uppdatera data nar status andras -----------------------------------
@@ -518,15 +608,22 @@ export default function RundKarta({
     map.easeTo({ center: [centreraPa.lng, centreraPa.lat], zoom: 17, duration: 400 });
   }, [centreraPa, laddad]);
 
+  // Pricken. STYRD position = det sidan ger (null = ingen prick - en position som
+  // inte dugar ritas inte ut, en prick pa fel plats vilseleder mer an ingen).
+  const jagKoord: [number, number] | null = styrdPosition
+    ? (position ? [position.lng, position.lat] : null)
+    : minPosition;
+  const jagLng = jagKoord ? jagKoord[0] : null;
+  const jagLat = jagKoord ? jagKoord[1] : null;
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !laddad) return;
     map.getSource('ek-jag')?.setData(
-      minPosition
-        ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: minPosition } }] }
+      jagLng != null && jagLat != null
+        ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [jagLng, jagLat] } }] }
         : TOM,
     );
-  }, [minPosition, laddad]);
+  }, [jagLng, jagLat, laddad]);
 
   // --- Centrera pa vald punkt ---------------------------------------------
   useEffect(() => {

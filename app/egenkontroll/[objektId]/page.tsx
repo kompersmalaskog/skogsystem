@@ -1,6 +1,6 @@
 'use client';
 
-// Egenkontroll - rundan for ett objekt. Avskalad: ingen karta i denna PR.
+// Egenkontroll - rundan for ett objekt.
 //
 // Rundan skapas FORST nar planeraren trycker "Starta egenkontroll" - aldrig
 // av att vyn oppnas. Att bara titta pa ett objekt far inte lamna spar i
@@ -10,8 +10,32 @@
 // TVA DELAR. Del 1 = planpunkterna, kontroll MOT PLANEN, svaras OK/Avvikelse.
 // Del 2 = Utforandet, hantverket, svaras Bra/Godkant/Kan bli battre. De far
 // aldrig dela svarsskala: "Kan bli battre" ar ingen avvikelse.
+//
+// KARTAN AR HUVUDSAKEN, LISTAN STODET. Tre tillstand, inga lagen:
+//
+//   1  GA RUNDAN   Helskarmskarta med ETT kort under sig: narmaste obesvarade
+//                  punkt, med avstand, plankommentar och OK/Avvikelse. Svarar man
+//                  gar kortet till nasta narmaste och kartan med. Tryck pa en
+//                  annan symbol byter kort.
+//   2  SE ALLT     Oversikt, inget arbetsyta: grupperna kvar som rubriker, narmast
+//                  forst inom gruppen, ✓ eller avstand. Tryck pa en rad -> kartan
+//                  med den punkten i kortet.
+//   3  AVSLUTA     Kommer av sig sjalv nar sista punkten i TERRANGEN ar besvarad.
+//                  Utforande och matningar har ingen karta bakom sig - de ar
+//                  omdomen om hela bestandet - och harifran avslutas rundan.
+//
+// MELLAN 1 OCH 2/3 FINNS EN IKON, pa samma plats, som byter form (karta/lista).
+// Aldrig tva knappar, aldrig tva vagar till samma sak.
+//
+// TILLSTANDET HARLEDS UR DATA OCH LAGRAS ALDRIG (lib/egenkontrollFlode.ts). Det enda
+// som lagras ar var anvandaren valt att vara (karta eller lista) - och inte ens det
+// forran hen valt. Att en punkt skulle bli obesvarad igen efter att man natt avslutet
+// gar inte via appen, men om det hander ska vyn visa det, aldrig kasta ut en.
+//
+// UTAN POSITION gar det inte att saga vad som ar narmast. Da ar listan flodet, som
+// forr, och det star rakt ut - ingen gissad ordning, ingen tyst omsortering.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
@@ -52,9 +76,23 @@ import { BASKARTOR, BASKARTA_DEFAULT, type BaskartaId } from '@/lib/mapLayers';
 import { useMapLayers, useStringSetting } from '@/lib/hooks/useMapLayers';
 import ProvyteSammanstallning from '../ProvyteSammanstallning';
 import GaTillYta from '../GaTillYta';
-import { skadeandel as _skadeandel, avstandM, riktning, type LatLng } from '@/lib/provytor';
+import { skadeandel as _skadeandel, type LatLng } from '@/lib/provytor';
 import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
 import { anmarkningsText, kortDatum } from '../format';
+import { designCss, medSafeBotten, underTopbar } from '@/lib/design/tokens';
+import {
+  UTAN_POSITION_MENING,
+  arForstaSvaret,
+  avstandPerPunkt as beraknaAvstand,
+  efterSvar,
+  narmasteObesvarade,
+  ordnaGruppEfterAvstand,
+  positionSkalText,
+  radLage,
+  startLage,
+  terrangKvar as raknaTerrangKvar,
+} from '@/lib/egenkontrollFlode';
+import { useLevandePosition, type LevandePosition } from '../useMinPosition';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
 // rott slutar folk satta det, och da far vi "Godkant" pa allt och verktyget ar
@@ -63,44 +101,10 @@ import { anmarkningsText, kortDatum } from '../format';
 // redan "gar ut snart" pa utbildningssidorna.
 const GUL = '#FFD60A';
 
-/** Valet minns sig mellan rundor - det ar ett arbetssatt, inte en installning
- *  per objekt. Samma person gar likadant pa nasta trakt. */
-const ORDNING_NYCKEL = 'egenkontroll_punktordning';
-
-/** Grupp eller avstand. Tva val, en rad - samma sprak som svarsknapparna. */
-function OrdningsValjare({
-  varde,
-  onValj,
-}: {
-  varde: 'avstand' | 'grupp';
-  onValj: (v: 'avstand' | 'grupp') => void;
-}) {
-  return (
-    <div style={{ display: 'flex', gap: 8, margin: '0 0 10px' }} role="group" aria-label="Ordning">
-      {([
-        { id: 'avstand', etikett: 'Närmast först' },
-        { id: 'grupp', etikett: 'Grupp' },
-      ] as const).map((v) => {
-        const aktiv = varde === v.id;
-        return (
-          <button
-            key={v.id}
-            onClick={() => onValj(v.id)}
-            aria-pressed={aktiv}
-            style={{
-              flex: 1, minHeight: 44, borderRadius: 10,
-              border: `1.5px solid ${aktiv ? T.blue : 'rgba(255,255,255,0.14)'}`,
-              background: aktiv ? T.blue : 'transparent',
-              color: aktiv ? '#000' : T.t1,
-              fontSize: 15, fontWeight: 600, fontFamily: T.ff,
-            }}
-          >
-            {v.etikett}
-          </button>
-        );
-      })}
-    </div>
-  );
+/** Hela meter. GPS:en under krontak ar 5-15 m - decimaler hade latsats om en
+ *  precision som inte finns. Over en kilometer: en decimal i km. */
+function avstandText(m: number): string {
+  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 }
 
 // Egenkontrollens egna lager i kartmenyn.
@@ -117,7 +121,7 @@ const EGNA_LAGER: EgetLager[] = [
 
 /** Stammolnets rad sager sitt eget tillstand - tomt far inte betyda tva saker. */
 function stamBeskrivning(stammar: LatLng[] | null, fel: boolean): string {
-  if (stammar === null) return 'Hämtas när stor karta öppnas';
+  if (stammar === null) return 'Hämtas när lagret slås på';
   if (fel) return 'Kunde inte läsas — försök igen senare';
   if (stammar.length === 0) return 'Inga hittades för objektet';
   return `${stammar.length.toLocaleString('sv-SE')} stammar ur maskindatan`;
@@ -222,7 +226,6 @@ function PunktKort({
   vald,
   avstand,
   riktn,
-  nasta,
   onSvara,
   onOppnaSheet,
   onValj,
@@ -233,16 +236,15 @@ function PunktKort({
   last: boolean;
   /** Signerade URL:er for punktens bilder. Tom = inga, eller kunde ej signeras. */
   fotoUrler: string[];
-  /** Markerad pa kartan just nu. */
+  /** Vald pa kartan just nu. */
   vald: boolean;
   /** Meter till punkten. null = ingen position, eller punkten ar ingen plats. */
   avstand?: number | null;
   riktn?: string | null;
-  /** Narmaste OBESVARADE punkten - den man ska ga till harnast. */
-  nasta?: boolean;
   onSvara: (status: PunktStatus) => void;
   onOppnaSheet: (lage: SheetLage) => void;
-  /** null = punkten ar ingen plats (kalla='fast') och gar inte att centrera. */
+  /** Oppnar kartan med punkten i kortet. null = punkten ar ingen plats
+   *  (kalla='fast', eller utan geometri) och har ingen karta bakom sig. */
   onValj: (() => void) | null;
 }) {
   const etikett = statusEtikett(punkt.status);
@@ -257,9 +259,9 @@ function PunktKort({
         borderRadius: 12,
         padding: '12px 14px',
         // Vald punkt ramas in - samma besked som den vita glorian pa kartan.
-        // Nasta att ga till far samma ram; texten under bar beskedet, sa ramen
-        // upprepar bara det och ar aldrig ensam informationsbarare.
-        outline: vald || nasta ? `2px solid ${T.blue}` : 'none',
+        // Texten under bar beskedet, sa ramen upprepar bara det och ar aldrig
+        // ensam informationsbarare.
+        outline: vald ? `2px solid ${T.blue}` : 'none',
         outlineOffset: -2,
       }}
     >
@@ -275,19 +277,17 @@ function PunktKort({
         >
           {punkt.rubrik}
           <span style={{ color: T.blue, fontSize: 13, fontWeight: 600, marginLeft: 8 }}>
-            {vald ? 'visas på kartan' : 'visa'}
+            visa på kartan
           </span>
         </button>
       ) : (
         <div style={{ fontSize: 16, fontWeight: 500 }}>{punkt.rubrik}</div>
       )}
-      {/* HELA METER. GPS:en under krontak ar 5-15 m - decimaler hade latsats
-          om en precision som inte finns. Riktningen star i ORD bredvid. */}
+      {/* HELA METER. Riktningen star i ORD bredvid - inte bara en pil. */}
       {avstand != null && (
         <div style={{ fontSize: 14, color: T.t2, marginTop: 2 }}>
-          {avstand < 1000 ? `${Math.round(avstand)} m` : `${(avstand / 1000).toFixed(1)} km`}
+          {avstandText(avstand)}
           {riktn && ` · ${riktn}`}
-          {nasta && <span style={{ color: T.blue, fontWeight: 600 }}> · närmast kvar</span>}
         </div>
       )}
       {hjalptext && (
@@ -478,6 +478,104 @@ function MatningsKort({
   );
 }
 
+/**
+ * Kompakt rad i oversikten (tillstand 2 och 3): rubriken och ett ✓ med svaret,
+ * eller avstandet. Oversikten ar ingen arbetsyta - ett tryck oppnar kartan med
+ * punkten i kortet, och DAR svarar man.
+ */
+function PunktRad({
+  punkt,
+  avstand,
+  onOppna,
+}: {
+  punkt: EgenkontrollPunkt;
+  avstand: number | null;
+  onOppna: () => void;
+}) {
+  const besvarad = punkt.status !== null;
+  const et = statusEtikett(punkt.status);
+  return (
+    <button
+      onClick={onOppna}
+      aria-label={`${punkt.rubrik} — visa på kartan`}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        width: '100%', minHeight: 56, border: 'none', borderRadius: 12,
+        background: T.group, padding: '8px 14px', textAlign: 'left',
+        color: T.t1, fontFamily: T.ff,
+      }}
+    >
+      <span style={{ fontSize: 16, fontWeight: 500 }}>{punkt.rubrik}</span>
+      {/* Svaret i ORD bredvid bocken - fargen bar aldrig ensam. */}
+      <span style={{ fontSize: 14, fontWeight: 600, color: besvarad ? et.farg : T.t2, whiteSpace: 'nowrap', flexShrink: 0 }}>
+        {besvarad ? `✓ ${et.text}` : avstand != null ? avstandText(avstand) : 'Obesvarad'}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Positionens tillstand i klartext. Sager rakt ut vad som saknas och varfor,
+ * och ger en vag tillbaka (ett tryck startar bevakningen om, i en gest).
+ * Ritar ingenting nar positionen duger.
+ */
+function PositionRad({ pos }: { pos: LevandePosition }) {
+  if (pos.status === 'ok') return null;
+  if (pos.status === 'soker') {
+    return (
+      <div role="status" style={{ fontSize: 14, color: T.t2 }}>
+        Söker din position…
+      </div>
+    );
+  }
+  const skal = positionSkalText(pos.skal, pos.senasteNoggrannhet);
+  return (
+    <div role="status" style={{ fontSize: 13, color: T.orange, lineHeight: 1.45 }}>
+      <div>{UTAN_POSITION_MENING}</div>
+      {skal && <div style={{ color: T.t2 }}>{skal}</div>}
+      <button
+        onClick={pos.forsokIgen}
+        style={{
+          marginTop: 6, minHeight: 44, width: '100%', borderRadius: 10,
+          border: '1.5px solid rgba(255,255,255,0.14)', background: 'transparent',
+          color: T.t1, fontSize: 15, fontWeight: 600, fontFamily: T.ff,
+        }}
+      >
+        Försök hämta positionen igen
+      </button>
+    </div>
+  );
+}
+
+/**
+ * IKONEN mellan kartan och listan. EN knapp, EN plats, byter form: pa kartan
+ * visar den listan, i listan visar den kartan. Ikon OCH ord - symbolen ensam
+ * ar inte nog i en hytt.
+ */
+function VaxlaVyKnapp({ till, onClick }: { till: 'karta' | 'lista'; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={till === 'karta' ? 'Visa kartan' : 'Visa listan'}
+      style={{
+        minHeight: 44, minWidth: 44, padding: '0 14px', borderRadius: 22,
+        border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(28,28,30,0.92)',
+        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+        color: T.t1, fontSize: 14, fontWeight: 600, fontFamily: T.ff,
+        display: 'flex', alignItems: 'center', gap: 7,
+      }}
+    >
+      <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>
+        {till === 'karta' ? 'map' : 'format_list_bulleted'}
+      </span>
+      {till === 'karta' ? 'Karta' : 'Lista'}
+    </button>
+  );
+}
+
+/** Sidmarginalen - samma pa ikonen i kartan och i listan, sa den sitter i samma horn. */
+const SIDMARGINAL = 16;
+
 export default function EgenkontrollRundaPage() {
   const params = useParams<{ objektId: string }>();
   const objektId = params.objektId;
@@ -497,22 +595,28 @@ export default function EgenkontrollRundaPage() {
   const [stubbePunkt, setStubbePunkt] = useState<EgenkontrollPunkt | null>(null);
   const [provytor, setProvytor] = useState<EgenkontrollProvyta[]>([]);
   const [provytaVald, setProvytaVald] = useState<EgenkontrollProvyta | null>(null);
-  const [minPosition, setMinPosition] = useState<MinPosition>(null);
 
-  // LISTANS ORDNING. Default ar avstand: punkterna ar ritade vid ett skrivbord,
-  // och den ordningen sager ingenting om var de ligger i terrangen - man
-  // zickzackar. Grupperingen finns kvar for den som vill se allt av ett slag.
-  const [ordning, setOrdning] = useState<'avstand' | 'grupp'>('avstand');
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(ORDNING_NYCKEL) === 'grupp') setOrdning('grupp');
-    } catch { /* privat lage - da galler default */ }
-  }, []);
-  const valjOrdning = (v: 'avstand' | 'grupp') => {
-    setOrdning(v);
-    try { localStorage.setItem(ORDNING_NYCKEL, v); } catch { /* ignore */ }
-  };
-  const [helskarm, setHelskarm] = useState(false);
+  // DIN POSITION, levande. Sidan ager bevakningen och delar ut den - kartan,
+  // kortet och listan ska aldrig kunna vara oense om var man ar.
+  const pos = useLevandePosition();
+  const minPosition: MinPosition = pos.position;
+
+  // VAR ANVANDAREN VALT ATT VARA. null = inget val an - da harleds det ur datan
+  // (startLage). Det ENDA som lagras; sjalva tillstandet (1/2/3) harleds alltid.
+  const [lage, setLage] = useState<'karta' | 'lista' | null>(null);
+  // Listans position FRYSES nar listan oppnas: rader som sorterar om sig under
+  // fingret ar varre an ett avstand som ar nagra sekunder gammalt.
+  const [frystPos, setFrystPos] = useState<MinPosition>(null);
+  // Kartan monteras forsta gangen den visas och stannar sedan (dold i listan) -
+  // kameran och tiles ska inte byggas om vid varje vaxling.
+  const [kartaMonterad, setKartaMonterad] = useState(false);
+  // Tillstand 3: terrangpunkterna ihopvikta, och utvikbara for att ratta.
+  const [visaTerrang, setVisaTerrang] = useState(false);
+  // Den korta stunden efter sista terrangsvaret, innan vyn byter till avslutet.
+  const [klartKort, setKlartKort] = useState(false);
+  // Har terrangen nagon gang varit helt besvarad i den har sessionen? Bara for
+  // att kunna saga "obesvarad igen" om en omlasning visar det.
+  const nattAvslut = useRef(false);
   // KARTLAGREN. overlays delas med planeringsvyn genom mapLayers_v4 - slar
   // man pa Markfuktighet har ar den pa dar ocksa, och tvartom. Baskartan
   // sparas per vy: planeringsvyn haller sin i en vanlig useState och tappar
@@ -532,23 +636,32 @@ export default function EgenkontrollRundaPage() {
   });
   const visaStammar = egnaVarden.ekStammar === true;
   const [gaTill, setGaTill] = useState<EgenkontrollProvyta | null>(null);
-  // Stammarna hamtas EN gang och bara nar de behovs (helskarm eller ga-vy).
+  // Stammarna hamtas EN gang och bara nar lagret slas pa i menyn.
   const [stammar, setStammar] = useState<LatLng[] | null>(null);
   const [stamFel, setStamFel] = useState(false);
   // Kontextlagret - orientering, aldrig dokumentets innehall.
   const [kontext, setKontext] = useState<{ data: any }[]>([]);
   const [avslutar, setAvslutar] = useState(false);
 
-  const ladda = useCallback(async () => {
-    setLaddar(true);
-    setFel(null);
+  // TYST OMLASNING. Efter varje sparad avvikelse, provyta och stubbe las rundan om -
+  // och den gamla ladda() satte laddar=true, sa HELA vyn byttes mot "Hamtar
+  // rundan…" och kartan avmonterades mitt i rundan. Kartan ar nu huvudsaken, sa
+  // en omlasning far aldrig synas: gamla vyn star kvar tills den nya ar framme,
+  // och ett fel pa vagen ar ett meddelande, inte en tom skarm.
+  const ladda = useCallback(async (val: { tyst?: boolean } = {}) => {
+    if (!val.tyst) { setLaddar(true); setFel(null); }
     try {
       setVy(await hamtaRunda(objektId));
     } catch (e) {
-      setVy(null);
-      setFel(e instanceof Error ? e.message : 'Kunde inte hämta egenkontrollen.');
+      const text = e instanceof Error ? e.message : 'Kunde inte hämta egenkontrollen.';
+      if (val.tyst) {
+        setSparFel(`Ändringen sparades, men rundan kunde inte läsas om: ${text} Ladda om sidan.`);
+      } else {
+        setVy(null);
+        setFel(text);
+      }
     } finally {
-      setLaddar(false);
+      if (!val.tyst) setLaddar(false);
     }
   }, [objektId]);
 
@@ -556,17 +669,18 @@ export default function EgenkontrollRundaPage() {
     ladda();
   }, [ladda]);
 
-  // Stammolnet: hamtas forst nar helskarmen oppnas, och bara en gang. Det ar
-  // 12 000 rader pa en gallring - de ska inte lasas for en 180 px karta.
+  // Stammolnet: hamtas forst nar lagret slas pa i menyn, och bara en gang. Det ar
+  // 12 000 rader pa en gallring. Forr hamtades det nar den stora kartan oppnades;
+  // nu ar kartan standardvyn, och da skulle varje runda ladda 12 000 rader i onodan.
   const vo = vy?.kartObjekt?.vo_nummer ?? null;
   useEffect(() => {
-    if (!helskarm || stammar !== null || !vo) return;
+    if (!visaStammar || stammar !== null || !vo) return;
     let avbruten = false;
     hamtaAvverkadeStammar(vo)
       .then((s) => { if (!avbruten) { setStammar(s); setStamFel(false); } })
       .catch(() => { if (!avbruten) { setStammar([]); setStamFel(true); } });
     return () => { avbruten = true; };
-  }, [helskarm, stammar, vo]);
+  }, [visaStammar, stammar, vo]);
 
   // Kontextmarkeringarna hamtas separat: gar de inte att lasa ska kartan anda
   // rita kontrollpunkterna, som ar det dokumentet handlar om.
@@ -691,41 +805,28 @@ export default function EgenkontrollRundaPage() {
     [vy?.kartObjekt],
   );
 
-  // Avstand och riktning per punkt. En LINJE matas till sin narmaste
-  // brytpunkt - se punktPlatser i lib/egenkontroll.ts.
-  const avstandPerPunkt = useMemo(() => {
-    const karta = new Map<string, { m: number; r: string }>();
-    if (!origo || !minPosition) return karta;
-    for (const p of planpunkter) {
-      let bast: { m: number; r: string } | null = null;
-      for (const plats of punktPlatser(p, origo)) {
-        const m = avstandM(minPosition, plats);
-        if (!bast || m < bast.m) bast = { m, r: riktning(minPosition, plats) };
-      }
-      if (bast) karta.set(p.id, bast);
-    }
-    return karta;
-  }, [planpunkter, origo, minPosition]);
-
-  // Avstandsordning. Punkter UTAN plats kan inte sorteras och laggs sist -
-  // de gissas aldrig in i ordningen.
-  const avstandsRader = useMemo(() => {
-    const med = planpunkter.filter((p) => avstandPerPunkt.has(p.id));
-    const utan = planpunkter.filter((p) => !avstandPerPunkt.has(p.id));
-    med.sort((x, y) => avstandPerPunkt.get(x.id)!.m - avstandPerPunkt.get(y.id)!.m);
-    return { med, utan };
-  }, [planpunkter, avstandPerPunkt]);
-
-  // NASTA ATT GA TILL: narmaste OBESVARADE. Ar allt besvarat finns ingen -
-  // da visas ingen framhavning alls.
-  const nastaPunktId = useMemo(
-    () => avstandsRader.med.find((p) => p.status == null)?.id ?? null,
-    [avstandsRader],
+  // Avstand och riktning per punkt (en LINJE matas till sin narmaste brytpunkt -
+  // lib/egenkontrollFlode.ts). TVA uppsattningar, med flit:
+  //   LEVANDE  ur din position nu    - kortet pa kartan ("narmaste obesvarade")
+  //   LISTAN   ur positionen i det ogonblick listan oppnades - fryst, sa att rader
+  //            inte sorterar om sig under fingret
+  const avstandLive = useMemo(
+    () => beraknaAvstand(planpunkter, origo, minPosition),
+    [planpunkter, origo, minPosition],
+  );
+  const avstandLista = useMemo(
+    () => beraknaAvstand(planpunkter, origo, frystPos),
+    [planpunkter, origo, frystPos],
   );
 
-  // Avstandsordning kraver bade en plats att rakna FRAN och en att rakna TILL.
-  const kanSorteraPaAvstand = origo != null && minPosition != null;
-  const visaAvstand = ordning === 'avstand' && kanSorteraPaAvstand;
+  // Punkterna som FINNS pa kartan. Resten gar bara att svara pa i listan - de
+  // gissas aldrig in pa kartan och blir aldrig en "narmaste".
+  const harPlats = useMemo(() => {
+    const s = new Set<string>();
+    if (!origo) return s;
+    for (const p of planpunkter) if (punktPlatser(p, origo).length > 0) s.add(p.id);
+    return s;
+  }, [planpunkter, origo]);
   const antalPlan = planpunkter.length;
   const besvaradePlan = planpunkter.filter((p) => p.status !== null).length;
   const antalAvvikelser = planpunkter.filter((p) => p.status === 'avvikelse').length;
@@ -743,27 +844,309 @@ export default function EgenkontrollRundaPage() {
   const rundanKlar = vy?.egenkontroll?.status === 'klar';
   const kanAvsluta = !!vy?.egenkontroll && !rundanKlar && allaPunkter.length > 0 && kvar === 0;
 
+  // --- TILLSTANDET: harlett ur data, aldrig lagrat -------------------------
+  const terrangKvar = raknaTerrangKvar(allaPunkter);
+  // "Kan kartan anvandas?" = finns minst en punkt med en plats. Utan det finns
+  // ingenting att visa eller trycka pa.
+  const startL = startLage({
+    harRunda: !!vy?.egenkontroll,
+    klar: rundanKlar,
+    harOrigo: harPlats.size > 0,
+    terrangKvar,
+    positionHarFallit: pos.status === 'saknas',
+    // Har man en punkt i kortet ar man i flodet: varken sista svaret eller en
+    // tappad position far byta vy under en - det gor sidan, med flit, efterat.
+    harKort: valdPunktId !== null,
+  });
+  const effLage = lage ?? startL;
+  // En avslutad runda ar ett dokument: fulla, skrivskyddade kort (kommentarer och foton syns).
+  const radL = rundanKlar ? 'full' : radLage({ harFrystPosition: frystPos != null, terrangKvar });
+  // Terrangen har varit helt besvarad i den har sessionen men ar det inte langre.
+  const obesvaradIgen = nattAvslut.current && terrangKvar > 0 && !rundanKlar;
+
+  // Beslutet att oppna i listan FRYSER (forsta gangen): kommer positionen i
+  // efterhand ska vyn inte byta under en - det vore att kasta ut anvandaren.
+  useEffect(() => {
+    if (lage !== null || laddar || !vy?.egenkontroll) return;
+    if (startL === 'lista') setLage('lista');
+    else if (valdPunktId !== null) setLage('karta');
+  }, [lage, laddar, vy?.egenkontroll, startL, valdPunktId]);
+
+  useEffect(() => {
+    if (effLage === 'karta' && !laddar && vy?.egenkontroll) setKartaMonterad(true);
+  }, [effLage, laddar, vy?.egenkontroll]);
+
+  // Sista punkten i terrangen besvarad - minns det for "obesvarad igen".
+  useEffect(() => {
+    if (vy?.egenkontroll && antalPlan > 0 && terrangKvar === 0) nattAvslut.current = true;
+  }, [vy?.egenkontroll, antalPlan, terrangKvar]);
+
+  // KORTET FYLLS: ett TOMT kort far narmaste obesvarade sa fort positionen finns -
+  // ocksa nar den kommer efter att vyn oppnats. Ett kort som redan har en punkt
+  // lamnas ifred: kortet byter aldrig punkt medan man gar.
+  useEffect(() => {
+    if (effLage !== 'karta' || valdPunktId !== null || !minPosition) return;
+    const id = narmasteObesvarade(planpunkter, avstandLive);
+    if (id) setValdPunktId(id);
+  }, [effLage, valdPunktId, minPosition, planpunkter, avstandLive]);
+
+  // KORTET GAR VIDARE efter ett FORSTA svar pa punkten i kortet. Styrs av datan,
+  // inte av vilken knapp som trycktes: det gar lika for OK (sparas direkt) och for
+  // Avvikelse (sparas i formularet, sidan laser sedan om).
+  const forraStatus = useRef<Map<string, string | null>>(new Map());
+  useEffect(() => {
+    const forra = forraStatus.current;
+    const svarad = valdPunktId
+      ? planpunkter.find((p) => p.id === valdPunktId && arForstaSvaret(forra.get(p.id), p.status))
+      : undefined;
+    forraStatus.current = new Map((vy?.punkter ?? []).map((p) => [p.id, p.status]));
+    if (!svarad) return;
+    const nasta = efterSvar({ planpunkter, besvaradId: svarad.id, avstand: avstandLive });
+    if (nasta.typ === 'punkt') setValdPunktId(nasta.id);
+    else if (nasta.typ === 'klart') setKlartKort(true);
+    // 'stanna': kortet star kvar med sitt svar - ingen gissad nasta.
+  }, [vy?.punkter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stunden mellan sista svaret och avslutet. Kortet visar svaret, sedan toner vyn
+  // over. Ikonen eller ett tryck pa en symbol avbryter - styrningen ar anvandarens.
+  useEffect(() => {
+    if (!klartKort) return;
+    const t = setTimeout(() => { setKlartKort(false); setFrystPos(minPosition); setLage('lista'); }, 1200);
+    return () => clearTimeout(t);
+  }, [klartKort]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const gaTillLista = () => { setKlartKort(false); setFrystPos(minPosition); setLage('lista'); };
+  const gaTillKarta = () => { setKlartKort(false); setFrystPos(null); setLage('karta'); };
+  /** Tryck pa en symbol pa kartan: byt kort. */
+  const valjPunktPaKartan = (id: string) => { setKlartKort(false); setValdPunktId(id); };
+  /** Tryck pa en rad i listan: till kartan med punkten i kortet. */
+  const oppnaPunktPaKartan = (id: string) => {
+    setKlartKort(false); setValdPunktId(id); setFrystPos(null); setLage('karta');
+  };
+
+  // Kartan syns bara nar rundan finns, ar inladdad och vyn ar karta. Annars ligger
+  // den kvar monterad men dold - se kartaMonterad.
+  const kartaSynlig = effLage === 'karta' && !!vy?.egenkontroll && !laddar && !fel;
+  const kortPunkt = valdPunktId ? allaPunkter.find((p) => p.id === valdPunktId) ?? null : null;
+  const kanVisaKarta = !!vy?.egenkontroll && harPlats.size > 0;
+  const lagerKnappStil = {
+    minHeight: 44, minWidth: 44, padding: '0 14px', borderRadius: 22,
+    border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(28,28,30,0.92)',
+    backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+    color: T.t1, fontSize: 14, fontWeight: 600, fontFamily: T.ff,
+    display: 'flex', alignItems: 'center', gap: 7,
+  } as const;
+
+  // Terrangens grupper. EN definition som bade tillstand 2 (oversikt) och 3 (vikt
+  // ihop, utvikbar for att ratta) anvander.
+  //   KOMPAKT: en rad per punkt (✓ eller avstand), narmast forst i gruppen. Tryck -> kartan.
+  //   FULL:    dagens kort med OK/Avvikelse direkt i listan - nar positionen saknas ar
+  //            listan sjalva flodet, och tre tryck per punkt ar att straffa anvandaren
+  //            for nagot appen inte klarar. Punkter UTAN plats ar alltid kort: de har
+  //            ingen karta att oppna, och maste ga att besvara.
+  const terrangGrupper = grupper.map(({ grupp, punkter }) => {
+    const ordnade = radL === 'kompakt' ? ordnaGruppEfterAvstand(punkter, avstandLista) : punkter;
+    return (
+      <div key={grupp}>
+        <SectionHeader>{grupp}</SectionHeader>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {ordnade.map((p) =>
+            radL === 'kompakt' && harPlats.has(p.id) ? (
+              <PunktRad
+                key={p.id}
+                punkt={p}
+                avstand={avstandLista.get(p.id)?.m ?? null}
+                onOppna={() => oppnaPunktPaKartan(p.id)}
+              />
+            ) : (
+              <PunktKort
+                key={p.id}
+                punkt={p}
+                sparar={!!sparStatus[p.id]}
+                last={rundanKlar}
+                fotoUrler={fotoPerPunkt[p.id] ?? []}
+                vald={valdPunktId === p.id}
+                avstand={rundanKlar ? null : avstandLive.get(p.id)?.m ?? null}
+                riktn={rundanKlar ? null : avstandLive.get(p.id)?.r ?? null}
+                onSvara={(status) => svara(p, status)}
+                onOppnaSheet={(l) => setSheet({ lage: l, punkt: p })}
+                onValj={harPlats.has(p.id) ? () => oppnaPunktPaKartan(p.id) : null}
+              />
+            ),
+          )}
+        </div>
+      </div>
+    );
+  });
+
   return (
     <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff }}>
-      <PageContainer width="smal" style={{ paddingBottom: 120, paddingTop: 8 }}>
-        <Link
-          href="/egenkontroll"
+      <style>{designCss}</style>
+
+      {/* TILLSTAND 1: GA RUNDAN. Helskarmskarta under toppfaltet, kortet UNDER den
+          som syskon - inte ovanpa - sa det aldrig kan skymma den valda punkten.
+          z 40: under toppfaltet (1000), felbannern (900), formularen och dialogen
+          (1100) och ga-vyn (1200), sa ingenting de visar hamnar bakom kartan.
+          Dold (display none) i listan, inte avmonterad: kameran och tiles ska inte
+          byggas om vid varje vaxling. */}
+      {vy?.egenkontroll && (kartaMonterad || effLage === 'karta') && (
+        <div
+          className="tona-opacity"
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 2,
-            minHeight: 44,
-            color: T.blue,
-            textDecoration: 'none',
-            fontSize: 17,
-            marginLeft: -6,
+            position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, zIndex: 40,
+            background: T.bg, display: kartaSynlig ? 'flex' : 'none', flexDirection: 'column',
           }}
         >
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 24 }}>
-            chevron_left
-          </span>
-          Egenkontroll
-        </Link>
+          <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+            <RundKarta
+              objekt={vy.kartObjekt}
+              punkter={vy.punkter}
+              kontext={kontext}
+              provytor={provytor}
+              valdPunktId={valdPunktId}
+              hojd="100%"
+              stammar={stammar ?? []}
+              visaStammar={visaStammar}
+              baskarta={baskarta}
+              overlays={overlays}
+              egnaVarden={egnaVarden}
+              position={pos.position}
+              onValjPunkt={valjPunktPaKartan}
+              onValjProvyta={(nr) => {
+                const y = provytor.find((q) => q.nummer === nr);
+                if (y) setProvytaVald(y);
+              }}
+            />
+            {/* Vilken runda man ar i. Inget tryck - bara ett namn. */}
+            <div
+              style={{
+                position: 'absolute', top: 12, left: SIDMARGINAL, zIndex: 10, pointerEvents: 'none',
+                maxWidth: 'calc(100% - 150px)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                padding: '6px 12px', borderRadius: 16, background: 'rgba(28,28,30,0.92)',
+                fontSize: 13, fontWeight: 600,
+              }}
+            >
+              {vy.objektNamn}
+            </div>
+            {/* Sag varfor stammolnet ar tomt - tyst avstangt ser ut som trasigt. */}
+            {visaStammar && stammar !== null && stammar.length === 0 && (
+              <div
+                style={{
+                  position: 'absolute', top: 56, left: SIDMARGINAL, right: SIDMARGINAL, zIndex: 10,
+                  pointerEvents: 'none', padding: '6px 12px', borderRadius: 12,
+                  background: 'rgba(28,28,30,0.92)', fontSize: 13, color: T.orange, lineHeight: 1.45,
+                }}
+              >
+                {stamFel
+                  ? 'Stammarna kunde inte läsas.'
+                  : 'Inga avverkade stammar hittades för objektet — lägena kunde inte kontrolleras mot avverkad yta.'}
+              </div>
+            )}
+            {/* IKONEN. Samma horn som i listan. */}
+            <div style={{ position: 'absolute', top: 6, right: SIDMARGINAL, zIndex: 10 }}>
+              <VaxlaVyKnapp till="lista" onClick={gaTillLista} />
+            </div>
+            {/* LAGERKNAPPEN - flytande nere till hoger. Attributionen ligger nere
+                till vanster just for att inte hamna under den. */}
+            <button
+              onClick={() => setLagerMeny(true)}
+              aria-label="Kartlager"
+              style={{ ...lagerKnappStil, position: 'absolute', right: SIDMARGINAL, bottom: 12, zIndex: 10 }}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>
+                layers
+              </span>
+              Lager
+            </button>
+          </div>
+
+          {/* KORTET. Tar bara den plats det behover, och aldrig mer an 45 % av
+              skarmen (en lang plankommentar scrollar). */}
+          <div
+            style={{
+              flexShrink: 0, maxHeight: '45vh', overflowY: 'auto', background: T.bg,
+              borderTop: '1px solid rgba(255,255,255,0.08)',
+              padding: `12px ${SIDMARGINAL}px ${medSafeBotten(12)}`,
+            }}
+          >
+            {terrangKvar > 0 && (
+              <div style={{ fontSize: 13, color: T.t2, margin: '0 0 8px' }}>
+                Kvar i terrängen: {terrangKvar}
+              </div>
+            )}
+            {kortPunkt ? (
+              <>
+                <PunktKort
+                  key={kortPunkt.id}
+                  punkt={kortPunkt}
+                  sparar={!!sparStatus[kortPunkt.id]}
+                  last={rundanKlar}
+                  fotoUrler={fotoPerPunkt[kortPunkt.id] ?? []}
+                  vald={false}
+                  avstand={avstandLive.get(kortPunkt.id)?.m ?? null}
+                  riktn={avstandLive.get(kortPunkt.id)?.r ?? null}
+                  onSvara={(status) => svara(kortPunkt, status)}
+                  onOppnaSheet={(l) => setSheet({ lage: l, punkt: kortPunkt })}
+                  onValj={null}
+                />
+                {klartKort && (
+                  <div role="status" style={{ fontSize: 14, color: T.t2, margin: '10px 0 0' }}>
+                    Sista punkten i terrängen är besvarad — går vidare till avslutet.
+                  </div>
+                )}
+                {/* Tappas positionen medan man har ett kort kvar star kortet kvar -
+                    men det ska sagas att ingen "narmaste" kan raknas ut. */}
+                {pos.status !== 'ok' && !klartKort && (
+                  <div style={{ marginTop: 10 }}><PositionRad pos={pos} /></div>
+                )}
+              </>
+            ) : terrangKvar === 0 ? (
+              <div role="status" style={{ fontSize: 15, color: T.t2 }}>
+                Alla punkter i terrängen är besvarade.
+              </div>
+            ) : pos.status !== 'ok' ? (
+              <PositionRad pos={pos} />
+            ) : (
+              <div role="status" style={{ fontSize: 15, color: T.t2, lineHeight: 1.45 }}>
+                Punkterna som återstår saknar plats på kartan. Svara på dem i listan.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TILLSTAND 2 OCH 3: LISTAN. display none (inte borta) medan kartan visas, sa
+          att dokumentet inte kan scrollas bakom den. */}
+      <div style={{ display: kartaSynlig ? 'none' : 'block' }}>
+      <PageContainer width="smal" style={{ paddingBottom: 120, paddingTop: 0 }}>
+        {/* STICKY rubrikrad i flodet (designreglerna: aldrig fixed + uppmatt padding).
+            Ikonen sitter hogerstalld, i samma horn som pa kartan. */}
+        <div
+          style={{
+            position: 'sticky', top: underTopbar(), zIndex: 20, background: T.bg,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 56,
+          }}
+        >
+          <Link
+            href="/egenkontroll"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 2,
+              minHeight: 44,
+              color: T.blue,
+              textDecoration: 'none',
+              fontSize: 17,
+              marginLeft: -6,
+            }}
+          >
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 24 }}>
+              chevron_left
+            </span>
+            Egenkontroll
+          </Link>
+          {kanVisaKarta && !laddar && !fel && <VaxlaVyKnapp till="karta" onClick={gaTillKarta} />}
+        </div>
 
         {laddar && (
           <div style={{ padding: '32px 4px', color: T.t2, fontSize: 15 }}>Hämtar rundan…</div>
@@ -773,7 +1156,7 @@ export default function EgenkontrollRundaPage() {
           <div style={{ background: T.group, borderRadius: 12, padding: 16, marginTop: 12 }}>
             <div style={{ fontSize: 15, marginBottom: 12 }}>{fel}</div>
             <button
-              onClick={ladda}
+              onClick={() => ladda()}
               style={{
                 minHeight: 44,
                 width: '100%',
@@ -800,7 +1183,7 @@ export default function EgenkontrollRundaPage() {
             {/* Forutsattningarna OVANFOR kartan och utanfor det sticky blocket:
                 de ska ses en gang och sedan scrollas bort. Aldrig nere vid
                 avvikelseknappen - se filhuvudet i Forutsattningar.tsx. */}
-            {vy.egenkontroll && !helskarm && !gaTill && (
+            {vy.egenkontroll && !gaTill && (
               <Forutsattningar
                 vader={vy.egenkontroll.vader}
                 maskiner={vy.egenkontroll.maskiner}
@@ -808,41 +1191,10 @@ export default function EgenkontrollRundaPage() {
               />
             )}
 
-            {/* Kartan ligger kvar synlig medan listan scrollas. Sticky, inte
-                fixed - den ska folja med i flodet och inte lagga sig over
-                nagot. 180 px ar en tredjedel av skarmen och ett medvetet pris. */}
-            {/* ETT KARTLAGE I TAGET. Tva MapLibre-instanser skulle ge tva
-                GPS-prenumerationer, och den dolda panelen komponerar anda inte.
-                Kameralaget overlever medvetet INTE vaxlingen: den som oppnar
-                helskarm vill se helheten, den som stanger ar klar med den. */}
-            {vy.egenkontroll && !helskarm && !gaTill && (
-              <div
-                style={{
-                  position: 'sticky', top: 'calc(56px + env(safe-area-inset-top))',
-                  zIndex: 5, background: T.bg, paddingTop: 8,
-                }}
-              >
-                <RundKarta
-                  objekt={vy.kartObjekt}
-                  punkter={vy.punkter}
-                  kontext={kontext}
-                  provytor={provytor}
-                  valdPunktId={valdPunktId}
-                  baskarta={baskarta}
-                  overlays={overlays}
-                  egnaVarden={egnaVarden}
-                  onPosition={setMinPosition}
-                />
-                <button
-                  onClick={() => setHelskarm(true)}
-                  style={{
-                    width: '100%', minHeight: 44, borderRadius: 10, marginBottom: 10,
-                    border: '1.5px solid rgba(255,255,255,0.14)', background: 'transparent',
-                    color: T.t2, fontSize: 15, fontWeight: 600, fontFamily: T.ff,
-                  }}
-                >
-                  Öppna stor karta
-                </button>
+            {/* Provytorna: oforandrade, men inte langre klistrade under en liten
+                karta - kartan ar nu ett eget tillstand, och ytorna ar tryckbara dar. */}
+            {vy.egenkontroll && !gaTill && (
+              <div style={{ marginTop: 8 }}>
                 <ProvyteLista
                   provytor={provytor}
                   minPosition={minPosition}
@@ -900,98 +1252,79 @@ export default function EgenkontrollRundaPage() {
                   </div>
                 )}
 
-                {/* ORDNINGEN. Bara nar det finns nagot att ordna. */}
-                {antalPlan > 1 && (
-                  <OrdningsValjare varde={ordning} onValj={valjOrdning} />
+                {/* TILLSTAND 3: sista punkten i terrangen ar besvarad. */}
+                {terrangKvar === 0 && antalPlan > 0 && !rundanKlar && (
+                  <p style={{ fontSize: 15, color: T.t2, margin: '0 0 8px' }}>
+                    Alla punkter i terrängen är besvarade.
+                    {kvar > 0 && ' Utförandet och mätningarna återstår.'}
+                  </p>
                 )}
 
-                {/* Varfor avstandsordningen inte gar att fa. Tva skilda skal
-                    som atgardas OLIKA - de far inte se likadana ut. */}
-                {ordning === 'avstand' && !kanSorteraPaAvstand && antalPlan > 0 && (
-                  <div style={{ fontSize: 13, color: T.orange, lineHeight: 1.45, margin: '0 4px 10px' }}>
-                    {origo == null
-                      ? 'Objektet saknar kartbildens hörnkoordinater, så punkterna kan inte placeras i terrängen — de listas i grupp och ordning.'
-                      : 'Utan din position går det inte att säga avstånd — punkterna listas i grupp och ordning.'}
+                {/* Om en punkt blev obesvarad igen (kan bara hanna via en andring i
+                    databasen - appen skriver aldrig tillbaka till obesvarad). Vyn
+                    visar det; den kastar inte ut en ur avslutet. */}
+                {obesvaradIgen && (
+                  <div role="status" style={{ fontSize: 14, color: T.orange, lineHeight: 1.45, margin: '0 0 10px' }}>
+                    {terrangKvar === 1
+                      ? '1 punkt i terrängen är obesvarad igen.'
+                      : `${terrangKvar} punkter i terrängen är obesvarade igen.`}
+                    {' '}Öppna kartan för att svara på {terrangKvar === 1 ? 'den' : 'dem'}.
                   </div>
                 )}
 
-                {visaAvstand ? (
-                  <>
-                    {minPosition?.noggrannhet != null && (
-                      <div style={{ fontSize: 12.5, color: T.t2, lineHeight: 1.45, margin: '0 4px 8px' }}>
-                        Din position är ±{Math.round(minPosition.noggrannhet)} m. Ordningen mellan
-                        två punkter som ligger nära varandra är därför inte exakt — den räcker för
-                        att slippa gå fram och tillbaka över trakten.
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {avstandsRader.med.map((p) => (
-                        <PunktKort
-                          key={p.id}
-                          punkt={p}
-                          sparar={!!sparStatus[p.id]}
-                          last={rundanKlar}
-                          fotoUrler={fotoPerPunkt[p.id] ?? []}
-                          vald={valdPunktId === p.id}
-                          avstand={avstandPerPunkt.get(p.id)?.m ?? null}
-                          riktn={avstandPerPunkt.get(p.id)?.r ?? null}
-                          nasta={p.id === nastaPunktId}
-                          onSvara={(status) => svara(p, status)}
-                          onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
-                          onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
-                        />
-                      ))}
+                {/* UTAN POSITION ELLER UTAN PLATSER: sagt rakt ut, och aldrig en
+                    gissad ordning. Tva skilda skal som atgardas OLIKA - de far inte
+                    se likadana ut. */}
+                {radL === 'full' && terrangKvar > 0 && !rundanKlar && (
+                  origo == null ? (
+                    <div style={{ fontSize: 13, color: T.orange, lineHeight: 1.45, margin: '0 4px 10px' }}>
+                      Objektet saknar kartbildens hörnkoordinater, så punkterna kan inte placeras i terrängen — de listas i grupp och ordning.
                     </div>
+                  ) : harPlats.size === 0 ? (
+                    <div style={{ fontSize: 13, color: T.orange, lineHeight: 1.45, margin: '0 4px 10px' }}>
+                      Punkterna har ingen plats på kartan — de listas i grupp och ordning.
+                    </div>
+                  ) : pos.status !== 'ok' ? (
+                    <div style={{ margin: '0 4px 10px' }}><PositionRad pos={pos} /></div>
+                  ) : null
+                )}
 
-                    {/* Punkter utan plats gissas ALDRIG in i ordningen. */}
-                    {avstandsRader.utan.length > 0 && (
-                      <div style={{ marginTop: 14 }}>
-                        <div style={{ fontSize: 13, color: T.t2, lineHeight: 1.45, margin: '0 4px 8px' }}>
-                          {avstandsRader.utan.length === 1
-                            ? 'En punkt saknar geometri och kan inte sorteras på avstånd.'
-                            : `${avstandsRader.utan.length} punkter saknar geometri och kan inte sorteras på avstånd.`}
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {avstandsRader.utan.map((p) => (
-                            <PunktKort
-                              key={p.id}
-                              punkt={p}
-                              sparar={!!sparStatus[p.id]}
-                              last={rundanKlar}
-                              fotoUrler={fotoPerPunkt[p.id] ?? []}
-                              vald={valdPunktId === p.id}
-                              onSvara={(status) => svara(p, status)}
-                              onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
-                              onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
+                {radL === 'kompakt' && terrangKvar > 0 && frystPos?.noggrannhet != null && (
+                  <div style={{ fontSize: 12.5, color: T.t2, lineHeight: 1.45, margin: '0 4px 8px' }}>
+                    Sorterad efter din position när listan öppnades (±{Math.round(frystPos.noggrannhet)} m).
+                    Två punkter som ligger nära varandra kan stå i fel ordning.
+                  </div>
+                )}
+
+                {/* TERRANGEN. Besvarad i sin helhet (tillstand 3) viks den ihop till
+                    EN rad - det som aterstar ar utforande och matningar - men gar att
+                    veckla ut for att ratta. En avslutad runda visas alltid utvikt. */}
+                {terrangKvar === 0 && antalPlan > 0 && !rundanKlar ? (
+                  <div className="tona-opacity">
+                    <button
+                      onClick={() => setVisaTerrang((v) => !v)}
+                      aria-expanded={visaTerrang}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                        width: '100%', minHeight: 56, marginTop: 8, border: 'none', borderRadius: 12,
+                        background: T.group, padding: '8px 14px', textAlign: 'left',
+                        color: T.t1, fontFamily: T.ff,
+                      }}
+                    >
+                      <span style={{ fontSize: 16, fontWeight: 500 }}>Terrängen · {antalPlan} punkter</span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: antalAvvikelser > 0 ? T.red : T.t2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {antalAvvikelser === 0
+                          ? 'inga avvikelser'
+                          : antalAvvikelser === 1 ? '1 avvikelse' : `${antalAvvikelser} avvikelser`}
+                        <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>
+                          {visaTerrang ? 'expand_less' : 'expand_more'}
+                        </span>
+                      </span>
+                    </button>
+                    {visaTerrang && terrangGrupper}
+                  </div>
                 ) : (
-                  grupper.map(({ grupp, punkter }) => (
-                    <div key={grupp}>
-                      <SectionHeader>{grupp}</SectionHeader>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {punkter.map((p) => (
-                          <PunktKort
-                            key={p.id}
-                            punkt={p}
-                            sparar={!!sparStatus[p.id]}
-                            last={rundanKlar}
-                            fotoUrler={fotoPerPunkt[p.id] ?? []}
-                            vald={valdPunktId === p.id}
-                            avstand={avstandPerPunkt.get(p.id)?.m ?? null}
-                            riktn={avstandPerPunkt.get(p.id)?.r ?? null}
-                            onSvara={(status) => svara(p, status)}
-                            onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
-                            onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))
+                  terrangGrupper
                 )}
 
                 {/* Del 2. Doljs HELT nar rundan saknar utforandepunkter - en
@@ -1011,10 +1344,10 @@ export default function EgenkontrollRundaPage() {
                           sparar={!!sparStatus[p.id]}
                           last={rundanKlar}
                           fotoUrler={fotoPerPunkt[p.id] ?? []}
-                          vald={valdPunktId === p.id}
+                          vald={false}
                           onSvara={(status) => svara(p, status)}
                           onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
-                          onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
+                          onValj={null}
                         />
                       ))}
                     </div>
@@ -1064,10 +1397,10 @@ export default function EgenkontrollRundaPage() {
                           sparar={!!sparStatus[p.id]}
                           last={rundanKlar}
                           fotoUrler={fotoPerPunkt[p.id] ?? []}
-                          vald={valdPunktId === p.id}
+                          vald={false}
                           onSvara={(status) => svara(p, status)}
                           onOppnaSheet={(lage) => setSheet({ lage, punkt: p })}
-                          onValj={p.geometri_snapshot ? () => setValdPunktId(p.id) : null}
+                          onValj={null}
                         />
                       ))}
                     </div>
@@ -1128,80 +1461,12 @@ export default function EgenkontrollRundaPage() {
           </>
         )}
 
-        {helskarm && vy && (
-          <div style={{
-            position: 'fixed', inset: 0, background: T.bg, zIndex: 1150,
-            display: 'flex', flexDirection: 'column',
-          }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: 'calc(8px + env(safe-area-inset-top)) 12px 8px',
-            }}>
-              <button onClick={() => setHelskarm(false)} style={{
-                minHeight: 44, border: 'none', background: 'transparent',
-                color: T.blue, fontSize: 17, fontFamily: T.ff,
-              }}>
-                Stäng
-              </button>
-              <span style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: 600 }}>
-                {vy.objektNamn}
-              </span>
-              <span style={{ minWidth: 44 }} />
-            </div>
-            {/* Sag varfor knappen ar slack - tyst avstangd ser ut som trasig. */}
-            {visaStammar && stammar !== null && stammar.length === 0 && (
-              <div style={{ fontSize: 13, color: T.orange, padding: '0 14px 8px', lineHeight: 1.45 }}>
-                {stamFel
-                  ? 'Stammarna kunde inte läsas.'
-                  : 'Inga avverkade stammar hittades för objektet — lägena kunde inte kontrolleras mot avverkad yta.'}
-              </div>
-            )}
-            {/* position:relative gor omslutningen till ankare for knappen. */}
-            <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-              <RundKarta
-                objekt={vy.kartObjekt}
-                punkter={vy.punkter}
-                kontext={kontext}
-                provytor={provytor}
-                valdPunktId={valdPunktId}
-                hojd="100%"
-                stammar={stammar ?? []}
-                visaStammar={visaStammar}
-                baskarta={baskarta}
-                overlays={overlays}
-                egnaVarden={egnaVarden}
-                onPosition={setMinPosition}
-              />
-              {/* LAGERKNAPPEN - flytande nere till hoger, ovanpa kartan.
-                  Samma plats i varje vy som har en karta, sa handen lar sig
-                  var den sitter. Bara i helskarmen: i 180 px skulle den ata
-                  det lilla som finns, och den lilla kartan arver valen tyst.
-                  zIndex 10 lagger den over MapLibres canvas (som ligger pa 0)
-                  utan att na kartkontrollerna; attributionen har flyttat till
-                  vanster hornet just for att inte hamna under den. */}
-              <button
-                onClick={() => setLagerMeny(true)}
-                aria-label="Kartlager"
-                style={{
-                  position: 'absolute', right: 12,
-                  bottom: 'calc(12px + env(safe-area-inset-bottom))',
-                  zIndex: 10,
-                  minHeight: 44, minWidth: 44, padding: '0 14px', borderRadius: 22,
-                  border: '1px solid rgba(255,255,255,0.18)',
-                  background: 'rgba(28,28,30,0.92)',
-                  backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-                  color: T.t1, fontSize: 14, fontWeight: 600, fontFamily: T.ff,
-                  display: 'flex', alignItems: 'center', gap: 7,
-                }}
-              >
-                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>
-                  layers
-                </span>
-                Lager
-              </button>
-            </div>
-          </div>
-        )}
+      </PageContainer>
+      </div>
+
+      {/* Allt nedan ligger UTANFOR listans omslag: formularen, dialogen och menyn ska
+          kunna oppnas ovanpa kartan, och ett fixed barn i en display:none-forfader
+          ritas inte alls. */}
 
         {/* MENYN - samma komponent som planeringsvyn ska anvanda i PR B.
             Bara de props som hor till egenkontrollen skickas; planeringens sex
@@ -1209,9 +1474,9 @@ export default function EgenkontrollRundaPage() {
         <KartLagerMeny
           oppen={lagerMeny}
           onStang={() => setLagerMeny(false)}
-          // OVER helskarmens 1150. Med komponentens default (500) monterades
-          // menyn UNDER den ogenomskinliga helskarmen: knappen fyrade, men
-          // ingenting syntes. Se doc-kommentaren i KartLagerMeny.
+          // OVER toppfaltet (1000) och kartlagret (40). Menyn oppnas fran kartan, och
+          // en meny under sitt eget underlag ar en knapp som fyrar utan att
+          // nagot syns - se doc-kommentaren i KartLagerMeny.
           zIndex={1250}
           mapType={baskarta}
           setMapType={setBaskarta}
@@ -1247,7 +1512,7 @@ export default function EgenkontrollRundaPage() {
             egenkontrollId={vy.egenkontroll.id}
             noggrannhetM={minPosition?.noggrannhet ?? null}
             onStang={() => setProvytaVald(null)}
-            onSparad={() => { setProvytaVald(null); ladda(); }}
+            onSparad={() => { setProvytaVald(null); ladda({ tyst: true }); }}
           />
         )}
 
@@ -1257,7 +1522,7 @@ export default function EgenkontrollRundaPage() {
             egenkontrollId={vy.egenkontroll.id}
             antalSedanTidigare={(fotoPerPunkt[stubbePunkt.id] ?? []).length}
             onStang={() => setStubbePunkt(null)}
-            onSparad={() => { setStubbePunkt(null); ladda(); }}
+            onSparad={() => { setStubbePunkt(null); ladda({ tyst: true }); }}
           />
         )}
 
@@ -1267,7 +1532,7 @@ export default function EgenkontrollRundaPage() {
             punkt={sheet.punkt}
             egenkontrollId={vy.egenkontroll.id}
             onStang={() => setSheet(null)}
-            onSparad={() => { setSheet(null); ladda(); }}
+            onSparad={() => { setSheet(null); ladda({ tyst: true }); }}
           />
         )}
 
@@ -1362,7 +1627,9 @@ export default function EgenkontrollRundaPage() {
               position: 'fixed',
               left: 12,
               right: 12,
-              bottom: 88,
+              // PA KARTAN ligger kortet med OK/Avvikelse nere - da hamnar felet
+              // OVER kartan, sa det aldrig skymmer knapparna man just forsokte trycka pa.
+              ...(kartaSynlig ? { top: underTopbar(8) } : { bottom: 88 }),
               background: T.red,
               color: '#fff',
               borderRadius: 12,
@@ -1393,7 +1660,6 @@ export default function EgenkontrollRundaPage() {
             </button>
           </div>
         )}
-      </PageContainer>
     </div>
   );
 }
