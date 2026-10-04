@@ -12,12 +12,12 @@
 // ett filter, inte en gräns. Säker som rapport, inte som inloggad vy.
 //
 // YTANS ORDNING, ögat läser nedåt i en rak linje, allt vänsterställt:
-//   1. rubrikrad med väljare       "September 2026 ▾"
+//   1. tillbakarad (året) och månaden        "‹ 2026", "September 2026"
 //   2. talet, stort                 1 290 m³fub
 //   3. ordraden                     levererat till Vida
-//   5. kontrollraden som text       slutavverkning ▾
+//   5. kontrollraden som text       slutavverkning ⌄
 //   7. ÅTGÄRD BEHÖVS                bara när något går att rätta före mötet
-//   8. nivårader med ›              Sortiment, N objekt, Så mäts volymen
+//   8. nivårader med ›              Sortiment, N objekt, Så räknas (en egen skärm: ?vy=sa-raknas)
 //   9. luft under, inte i mitten
 // (4 och 6 finns inte här: ingen skala att sätta talet mot, inget underlag
 //  som varierar.) Rutan står under förklaringen, inte över talet: den
@@ -43,7 +43,8 @@ import { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Tillbakarad } from '@/components/Ytform';
+import { SIDA, TAL, TEXT, SEKUNDAR, LINJE, stor, Tillbakarad, Stort, Kontroll, Rad, Rader, Stycken } from '@/components/Ytform';
+import { SORTIMENTFARG } from '@/lib/design/tokens';
 
 type Grupp = { namn: string; volym: number; andel: number };
 type Klass = { klass: string; ordning: number; volym: number };
@@ -77,20 +78,14 @@ function manadEtikett(ym: string) {
   const [y, m] = ym.split('-').map(Number);
   return `${MANADER[m - 1]} ${y}`;
 }
-const stor = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 function nuvarandeManad() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
-const TEXT = '#e8e8e4';
-const SEKUNDAR = '#7a7a72';
 const ROD = 'rgba(255,120,110,0.95)';
-const LINJE = '1px solid rgba(255,255,255,0.07)';
-const TAL = { fontFamily: "'Fraunces', serif" } as const;
 const MUTED = { color: SEKUNDAR, fontSize: 11 } as const;
-/** Osynlig native-väljare ovanpå en textrad: iOS-plockaren, men raden ser ut som text. */
-const OVERLAY = { position: 'absolute' as const, inset: 0, width: '100%', height: '100%', opacity: 0,
-                  cursor: 'pointer', fontSize: 16 };
+/** Samma ord som årsvyn: "allt" är alla åtgärder (slutavverkning, gallring och objekt utan angiven åtgärd). */
+const ATGARD_TEXT: Record<Atgard, string> = { Slutavverkning: 'slutavverkning', Gallring: 'gallring', Grot: 'GROT', Allt: 'alla åtgärder' };
 
 type AtgardBehovs = { vad: string; gor: string };
 
@@ -136,19 +131,6 @@ function Atgardsruta({ atg }: { atg: AtgardBehovs[] }) {
         Vad du gör {visa ? '⌄' : '›'}
       </button>
     </div>
-  );
-}
-
-/** En stilla rad som öppnar nästa nivå. Träffyta 48 px. */
-function Nivarad({ etikett, oppen, onToggle }: { etikett: string; oppen: boolean; onToggle: () => void }) {
-  return (
-    <button onClick={onToggle} aria-expanded={oppen}
-      style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-               border: 'none', borderTop: LINJE, background: 'none', padding: '14px 0', minHeight: 48,
-               fontFamily: 'inherit', fontSize: 13, color: TEXT, cursor: 'pointer', textAlign: 'left' }}>
-      <span>{etikett}</span>
-      <span style={{ color: SEKUNDAR, fontSize: 16 }}>{oppen ? '⌄' : '›'}</span>
-    </button>
   );
 }
 
@@ -207,11 +189,35 @@ function Innehall() {
 
   const harVolym = (data?.total_volym ?? 0) > 0;
   const atgarder = data ? atgarderFor(data, manad) : [];
-  const page = { background: '#111110', minHeight: '100vh', paddingTop: 56, paddingBottom: 90,
-                 color: TEXT, fontFamily: "'Geist', system-ui, sans-serif" } as const;
+  const vy = sp.get('vy');
+  const lank = (extra = '') => `/affarsuppfoljning/manad?manad=${manad}&atgard=${atgard}&bolag=${bolag}${extra}`;
+
+  // ── Så räknas: det som förklarar talet bor här, en nivå in ──────────────
+  if (vy === 'sa-raknas') {
+    return (
+      <div style={SIDA}>
+        <Tillbakarad href={lank()} text={stor(manadEtikett(manad))} />
+        <Stycken>
+          <p style={{ margin: 0 }}>
+            Volymen är skördarmätt: maskinens egen mätning av varje stock, under bark, i kubikmeter
+            fast (m³fub). Sortimenten följer maskinens prislista. Industrins inmätning vid mottagning
+            kan avvika något.
+          </p>
+        </Stycken>
+      </div>
+    );
+  }
+
+  /** Sortimentets färg ur ljushetsskalan (mörkast = mest värt). Energi och ej sorterat är "övrigt". */
+  const sortFarg = (namn: string) => SORTIMENTFARG[namn === 'Timmer' ? 'timmer' : namn === 'Kubb' ? 'kubb' : namn === 'Massa' ? 'massa' : 'ovrigt'];
+  const atgardKontroll = (
+    <Kontroll text={ATGARD_TEXT[atgard]} value={atgard} onChange={v => setAtgard(v as Atgard)} label="Åtgärd">
+      {ATGARDER.map(a => <option key={a} value={a}>{stor(ATGARD_TEXT[a])}</option>)}
+    </Kontroll>
+  );
 
   return (
-    <div style={page}>
+    <div style={SIDA}>
       {/* 1. Tillbaka till året, sedan månaden. Ingen väljare: staplarna i årsvyn är väljaren. */}
       <Tillbakarad href={`/affarsuppfoljning?ar=${manad.slice(0, 4)}&atgard=${atgard}&bolag=${bolag}`} text={manad.slice(0, 4)} />
       <div style={{ margin: '0 16px', fontSize: 15, fontWeight: 600 }}>{stor(manadEtikett(manad))}</div>
@@ -226,50 +232,40 @@ function Innehall() {
 
       {!laddar && !fel && data && (
         <>
-          <div style={{ padding: '18px 16px 0' }}>
-            {harVolym ? (
-              <>
-                {/* 2. Talet */}
-                <div>
-                  <span style={{ ...TAL, fontSize: 60, lineHeight: 1 }}>{nf(data.total_volym)}</span>
-                  <span style={{ ...TAL, fontSize: 22, color: SEKUNDAR, marginLeft: 6 }}>m³fub</span>
+          {harVolym ? (
+            /* 2. Talet. 3. Ordraden. 5. Kontrollraden som text. */
+            <Stort tal={nf(data.total_volym)} enhet="m³fub" ordrad={bolag === 'Vida' ? 'levererat till Vida' : 'avverkat'}>
+              {atgardKontroll}
+            </Stort>
+          ) : (
+            <div style={{ padding: '10px 16px 0' }}>
+              {data.stammar_i_urval > 0 ? (
+                /* Stockunderlag saknas: volymen är okänd, inte noll. Rutan nedanför säger vad. */
+                <div style={{ fontSize: 13, lineHeight: 1.5 }}>Volymen för {manadEtikett(manad)} går inte att läsa ännu.</div>
+              ) : (
+                /* Ingen volym är ett tillstånd, inte ett fel. */
+                <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                  {bolag === 'Vida' ? 'Inget levererat till Vida' : 'Inget avverkat'} i {manadEtikett(manad)}.
+                  {data.volym_per_atgard.length > 0 && (
+                    <div style={{ ...MUTED, fontSize: 12, marginTop: 4 }}>
+                      Den här månaden finns {data.volym_per_atgard
+                        .map(v => `${nf1(v.volym)} m³ ${v.namn.toLowerCase()}`).join(' och ')} — byt åtgärd nedan.
+                    </div>
+                  )}
                 </div>
-                {/* 3. Ordraden */}
-                <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.5 }}>{bolag === 'Vida' ? 'levererat till Vida' : 'avverkat'}</div>
-              </>
-            ) : data.stammar_i_urval > 0 ? (
-              /* Stockunderlag saknas: volymen är okänd, inte noll. Rutan nedanför säger vad. */
-              <div style={{ fontSize: 13, lineHeight: 1.5 }}>Volymen för {manadEtikett(manad)} går inte att läsa ännu.</div>
-            ) : (
-              /* Ingen volym är ett tillstånd, inte ett fel. */
-              <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-                {bolag === 'Vida' ? 'Inget levererat till Vida' : 'Inget avverkat'} i {manadEtikett(manad)}.
-                {data.volym_per_atgard.length > 0 && (
-                  <div style={{ ...MUTED, fontSize: 12, marginTop: 4 }}>
-                    Den här månaden finns {data.volym_per_atgard
-                      .map(v => `${nf1(v.volym)} m³ ${v.namn.toLowerCase()}`).join(' och ')} — byt åtgärd nedan.
-                  </div>
-                )}
-              </div>
-            )}
-            {/* 5. Kontrollraden som text */}
-            <div style={{ position: 'relative', marginTop: 12, minHeight: 44, display: 'flex', alignItems: 'center' }}>
-              <span style={{ fontSize: 13 }}>{atgard.toLowerCase()}</span>
-              <span style={{ color: SEKUNDAR, marginLeft: 6, fontSize: 13 }}>▾</span>
-              <select value={atgard} onChange={e => setAtgard(e.target.value as Atgard)} aria-label="Åtgärd" style={OVERLAY}>
-                {ATGARDER.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
+              )}
+              {atgardKontroll}
             </div>
-          </div>
+          )}
 
           {/* 7. Skriker bara när något går att rätta. Annars finns rutan inte. */}
           <Atgardsruta atg={atgarder} />
 
           {/* 8. Nivåraderna. 9. Luften hamnar under dem. */}
           {harVolym && (
-            <div style={{ margin: '18px 16px 0' }}>
+            <Rader>
               {/* Vad bestod det av. "Ej klassad" står i rutan och inte här. */}
-              <Nivarad etikett="Sortiment" oppen={visaSortiment} onToggle={() => setVisaSortiment(v => !v)} />
+              <Rad text="Sortiment" onClick={() => setVisaSortiment(v => !v)} oppen={visaSortiment} />
               {visaSortiment && (
                 <div style={{ paddingBottom: 12 }}>
                   {data.grupper.filter(g => g.namn !== 'Ej klassad').map(g => {
@@ -292,7 +288,7 @@ function Innehall() {
                         </div>
                         {!liten && (
                           <div style={{ height: 2, borderRadius: 1, background: 'rgba(255,255,255,0.05)', marginTop: 7 }}>
-                            <div style={{ height: '100%', borderRadius: 1, width: `${g.andel}%`, background: 'rgba(90,255,140,0.5)' }} />
+                            <div style={{ height: '100%', borderRadius: 1, width: `${g.andel}%`, background: sortFarg(g.namn) }} />
                           </div>
                         )}
                       </div>
@@ -331,7 +327,7 @@ function Innehall() {
                                   <div key={k.klass} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                                     <div style={{ height: 40, width: '100%', display: 'flex', alignItems: 'flex-end' }}>
                                       <div style={{ width: '100%', height: `${Math.max(2, (k.volym / max) * 40)}px`, borderRadius: 3,
-                                                    background: storst ? 'rgba(90,255,140,0.55)' : 'rgba(255,255,255,0.14)' }} />
+                                                    background: storst ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.14)' }} />
                                     </div>
                                     <div style={{ fontSize: 10, marginTop: 5, color: storst ? TEXT : SEKUNDAR, fontWeight: storst ? 700 : 400 }}>{nf(k.volym)}</div>
                                     <div style={{ fontSize: 9, color: SEKUNDAR, marginTop: 2 }}>{k.klass}</div>
@@ -351,8 +347,8 @@ function Innehall() {
               )}
 
               {/* Var det kom ifrån */}
-              <Nivarad etikett={data.antal_objekt === 1 ? 'Ett objekt' : `${nf(data.antal_objekt)} objekt`}
-                oppen={visaObjekt} onToggle={() => setVisaObjekt(v => !v)} />
+              <Rad text={data.antal_objekt === 1 ? 'Ett objekt' : `${nf(data.antal_objekt)} objekt`}
+                onClick={() => setVisaObjekt(v => !v)} oppen={visaObjekt} />
               {visaObjekt && (
                 <div style={{ paddingBottom: 12 }}>
                   {data.objekt.map(o => (
@@ -376,24 +372,9 @@ function Innehall() {
                 </div>
               )}
 
-              {/* Det tekniska, för den som behöver veta. */}
-              <Nivarad etikett="Så mäts volymen" oppen={visaMatning} onToggle={() => setVisaMatning(v => !v)} />
-              {visaMatning && (
-                <p style={{ margin: '0 0 12px', fontSize: 12, color: SEKUNDAR, lineHeight: 1.65 }}>
-                  Volymen är skördarmätt: maskinens egen mätning av varje stock, under bark, i kubikmeter
-                  fast (m³fub). Sortimenten följer maskinens prislista. Industrins inmätning vid mottagning
-                  kan avvika något.
-                </p>
-              )}
-              {/* Utfall per medelstam och utbyte av en stämplingslängd nås nu via "Räkna på en post" i årsvyn. */}
-              <Link href="/affarsuppfoljning?vy=rakna"
-                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                         borderTop: LINJE, padding: '14px 0', minHeight: 48, fontSize: 13, color: TEXT, textDecoration: 'none' }}>
-                <span>Räkna på en post</span>
-                <span style={{ color: SEKUNDAR, fontSize: 16 }}>›</span>
-              </Link>
-              <div style={{ borderTop: LINJE }} />
-            </div>
+              {/* Hur det räknas bor en nivå in. */}
+              <Rad text="Så räknas" href={lank('&vy=sa-raknas')} />
+            </Rader>
           )}
         </>
       )}
