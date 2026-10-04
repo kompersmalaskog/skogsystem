@@ -17,6 +17,8 @@ export type PeriodRad = {
   start_tid: string | null;
   slut_tid: string | null;
   minuter: number | null;
+  /** Rast i minuter inom perioden (migration 2026-10-04). NULL = ingen rast registrerad. minuter är NETTO. */
+  rast_min?: number | null;
   aktivitet_typ: string | null;
   objekt_id: string | null;
   debiterbar: boolean | null;
@@ -109,7 +111,7 @@ export function veckoDagar(perioder: PeriodRad[], idag: string): { dagar: VeckoD
 // en källa — "Samma som i går". Framtida källor landar i SAMMA lista med
 // `kalla` satt: 'bil' (Mercedes Fleet: "Du var på Trestensdal 07:12–10:05.
 // Stämmer?") och 'plats' (incheckning vid en trakt). docs/planera.md.
-export type ForslagPeriod = { start: string; slut: string; typ: AktivitetTyp; objektId: string; deb: boolean };
+export type ForslagPeriod = { start: string; slut: string; typ: AktivitetTyp; objektId: string; deb: boolean; rast: number | null };
 export type Forslag = {
   id: string;
   kalla: "igar" | "bil" | "plats";
@@ -133,7 +135,7 @@ export function forslagFranIgar(perioder: PeriodRad[], idag: string, nu?: Date):
     id: `igar-${igar}`, kalla: "igar", datum: igar,
     perioder: igarPlanering.map(p => ({
       start: hhmm(p.start_tid), slut: hhmm(p.slut_tid), typ: "planering" as AktivitetTyp,
-      objektId: p.objekt_id as string, deb: !!p.debiterbar,
+      objektId: p.objekt_id as string, deb: !!p.debiterbar, rast: p.rast_min ?? null,
     })),
   };
 }
@@ -157,20 +159,21 @@ export const nuKvartNed = (nu: Date) => kvartNed(nu.getHours() * 60 + nu.getMinu
 /** Klockan nu avrundad till NÄRMASTE kvart — "Starta nu" (07:34 → 07:30, 07:38 → 07:45). */
 export const nuKvartNarmast = (nu: Date) => kvartNarmast(nu.getHours() * 60 + nu.getMinutes());
 
-/** Ligger starten på en PÅGÅENDE period i framtiden? Starten är klockan nu avrundad till närmaste kvart,
- *  så den får ligga upp till en halv kvart efter nu (07:45 kl 07:38) men inte längre fram. */
+/** Ligger starten på en PÅGÅENDE period i framtiden? Alla tider är närmaste kvart (Martin 2026-10-04: "det jämnar
+ *  ut sig"), så starten får ligga upp till en halv kvart efter nu (07:45 kl 07:38) men inte längre fram. */
 export function startLiggerIFramtiden(datum: string, startMin: number, nu: Date): boolean {
   const idag = lokalISO(nu);
   if (datum > idag) return true;
   return datum === idag && startMin > nuKvartNarmast(nu);
 }
 
-/** Ligger slutet efter nu? Idag får inte sluta efter nu och framtida dagar går inte att fylla i.
- *  Samma regel gäller i vyn OCH i sparandet (en spärr i bara ena änden är ingen spärr). */
+/** Ligger slutet i framtiden? Idag får slutet ligga högst vid klockan nu avrundad till NÄRMASTE kvart (alltså upp till
+ *  en halv kvart före klockan — 16:53 → 17:00, godkänt av Martin: det jämnar ut sig mot att alltid ta från föraren).
+ *  Framtida dagar går inte att fylla i. Samma regel i vyn OCH i sparandet (en spärr i bara ena änden är ingen spärr). */
 export function liggerIFramtiden(datum: string, slutMin: number, nu: Date): boolean {
   const idag = lokalISO(nu);
   if (datum > idag) return true;
-  return datum === idag && slutMin > nu.getHours() * 60 + nu.getMinutes();
+  return datum === idag && slutMin > nuKvartNarmast(nu);
 }
 
 // ── Förifyllda tider ──────────────────────────────────────────────────────
@@ -201,7 +204,7 @@ export function foreslagenStart(perioder: PeriodRad[], datum: string, idag: stri
   let senast = -1;
   for (const p of perioder) if (p.datum === datum && stangd(p)) senast = Math.max(senast, tMin(p.slut_tid as string));
   if (senast >= 0) return minHHMM(Math.min(kvartUpp(senast), DAGENS_SLUT - KVART));
-  const tak = datum === idag && nu ? Math.max(0, nuKvartNed(nu) - KVART) : DAGENS_SLUT - KVART;
+  const tak = datum === idag && nu ? Math.max(0, nuKvartNarmast(nu) - KVART) : DAGENS_SLUT - KVART;
   return minHHMM(Math.min(tMin(vanligStarttid(perioder, idag)), tak));
 }
 
@@ -248,19 +251,42 @@ export function pagatt(p: PeriodRad, nu: Date): number {
   if (p.datum < idag) return 0; // glömd: ingen räknare, bara "startade i går 07:00"
   return Math.max(0, nu.getHours() * 60 + nu.getMinutes() - tMin(p.start_tid));
 }
-/** Slut vid Avsluta/Rast: nu, avrundat NED till kvart. null om det inte blir längre än starten (under en kvart sedan). */
+/** Slut vid Avsluta: nu, avrundat till NÄRMASTE kvart (som Starta nu — då jämnar det ut sig i stället för att alltid
+ *  ta från föraren). null om det inte blir längre än starten. */
 export function slutVidAvsluta(startTid: string, nu: Date): number | null {
-  const slut = nuKvartNed(nu);
+  const slut = nuKvartNarmast(nu);
   return slut > tMin(startTid) ? slut : null;
 }
-/** Rast = luckan mellan två perioder (ingen kolumn). Erbjudandet "Fortsätt" gäller
- *  bara idag, när inget pågår och rastens period är dagens senaste. */
-export function rastPeriod(perioder: PeriodRad[], rastId: string | null, idag: string): PeriodRad | null {
-  if (!rastId || perioder.some(arOppen)) return null;
-  const rad = perioder.find(p => p.id === rastId);
-  if (!rad || rad.datum !== idag || !stangd(rad)) return null;
-  const senare = perioder.some(p => p.id !== rad.id && p.datum === idag && stangd(p) && tMin(p.slut_tid as string) > tMin(rad.slut_tid as string));
-  return senare ? null : rad;
+
+// ── Rast ──────────────────────────────────────────────────────────────────
+// Rasten är MINUTER på perioden (extra_tid.rast_min), bekräftad när man avslutar — inte en knapp man glömmer i
+// skogen och inte en lucka mellan två perioder. extra_tid.minuter är NETTO (längd − rast), så allt som summerar
+// minuter (lön, övertid, Min tid) drar av den en gång; en trigger i databasen håller det så även när
+// arbetsrapportens periodformulär skriver om minuter.
+/** Rast föreslås bara när perioden är LÄNGRE än så här (5 timmar). Kortare pass får 0. */
+export const RAST_FRAN_MIN = 300;
+export const RAST_STANDARD_MIN = 30;
+export const RAST_MAX_MIN = 180;
+/** Nettominuter: längd minus rast, aldrig negativt. */
+export const nettoMin = (bruttoMin: number, rast: number) => Math.max(0, bruttoMin - Math.max(0, rast));
+/** Förarens VANLIGA rast: median av registrerade raster (rast_min satt) på perioder längre än 5 tim de senaste
+ *  30 dagarna före idag, närmaste kvart. Inga data → 30 min. Kortare pass räknas inte — de får 0 och skulle dra ner medianen. */
+export function vanligRast(perioder: PeriodRad[], idag: string): number {
+  const fran = plusDagar(idag, -30);
+  const varden: number[] = [];
+  for (const p of perioder) {
+    if (p.rast_min == null || !stangd(p) || p.datum >= idag || p.datum < fran) continue;
+    if (tMin(p.slut_tid as string) - tMin(p.start_tid as string) <= RAST_FRAN_MIN) continue;
+    varden.push(p.rast_min);
+  }
+  if (varden.length === 0) return RAST_STANDARD_MIN;
+  return Math.min(RAST_MAX_MIN, kvartNarmast(median(varden)));
+}
+/** Rasten som gäller för en period av längden `bruttoMin`: vald rast om föraren valt en, annars förslaget
+ *  (vanlig rast över 5 tim, annars 0). */
+export function rastForPeriod(bruttoMin: number, vald: number | null, forslag: number): number {
+  if (vald != null) return Math.max(0, Math.min(vald, bruttoMin));
+  return bruttoMin > RAST_FRAN_MIN ? Math.min(forslag, bruttoMin) : 0;
 }
 
 // ── Trakter i grupper ─────────────────────────────────────────────────────

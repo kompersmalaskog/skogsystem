@@ -85,7 +85,7 @@ describe("förslag: samma som i går", () => {
     const f = forslagFranIgar(igar, IDAG)!;
     expect(f.kalla).toBe("igar");
     expect(f.datum).toBe("2026-10-01");
-    expect(f.perioder).toEqual([{ start: "07:00", slut: "10:00", typ: "planering", objektId: "T1", deb: true }]);
+    expect(f.perioder).toEqual([{ start: "07:00", slut: "10:00", typ: "planering", objektId: "T1", deb: true, rast: null }]);
   });
   it("inget förslag förrän gårdagens sista slut har passerat idag", () => {
     expect(forslagFranIgar(igar, IDAG, new Date(2026, 9, 2, 9, 0))).toBeNull(); // 10:00 har inte varit
@@ -180,7 +180,7 @@ describe("förifylld starttid", () => {
     expect(foreslagenStart(ps, IDAG, IDAG, nu)).toBe("06:30");
   });
   it("tom dag: idag aldrig senare än en kvart före nu", () => {
-    expect(foreslagenStart([], IDAG, IDAG, new Date(2026, 9, 2, 6, 10))).toBe("05:45");
+    expect(foreslagenStart([], IDAG, IDAG, new Date(2026, 9, 2, 6, 10))).toBe("06:00"); // nu 06:10 → närmaste kvart 06:15 − en kvart
   });
   it("efter en period klampas starten INTE till nu (ingen falsk start mitt i föregående)", () => {
     expect(foreslagenStart([p({ datum: IDAG, start_tid: "07:00:00", slut_tid: "10:30:00" })], IDAG, IDAG, new Date(2026, 9, 2, 10, 40))).toBe("10:30");
@@ -193,7 +193,7 @@ describe("förifylld starttid", () => {
   });
 });
 
-import { oppenPeriod, arGlomd, pagatt, slutVidAvsluta, rastPeriod, traktGrupper } from "./logik";
+import { oppenPeriod, arGlomd, pagatt, slutVidAvsluta, traktGrupper, vanligRast, rastForPeriod, nettoMin, nuKvartNarmast, startLiggerIFramtiden } from "./logik";
 describe("pågående period och rast", () => {
   const oppen = (o: Partial<PeriodRad> = {}) => p({ id: "o", datum: IDAG, start_tid: "07:00:00", slut_tid: null as any, ...(o as any) });
   it("oppenPeriod hittar perioden utan slut; glömd = tidigare dag", () => {
@@ -206,20 +206,12 @@ describe("pågående period och rast", () => {
     expect(pagatt(oppen(), new Date(2026, 9, 2, 9, 15))).toBe(135);
     expect(pagatt(oppen({ datum: "2026-10-01" }), new Date(2026, 9, 2, 9, 15))).toBe(0);
   });
-  it("slutVidAvsluta rundar NED och ger null när det inte blir längre än starten", () => {
-    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 11, 41))).toBe(11 * 60 + 30);
-    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 14, 53))).toBe(14 * 60 + 45);
-    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 7, 14))).toBeNull();
-    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 7, 15))).toBe(7 * 60 + 15);
-  });
-  it("rastPeriod: bara idag, bara dagens senaste, aldrig medan något pågår", () => {
-    const a = p({ id: "a", datum: IDAG, start_tid: "07:00:00", slut_tid: "11:30:00" });
-    expect(rastPeriod([a], "a", IDAG)?.id).toBe("a");
-    expect(rastPeriod([a], null, IDAG)).toBeNull();
-    expect(rastPeriod([a], "finns-ej", IDAG)).toBeNull();
-    expect(rastPeriod([a, oppen()], "a", IDAG)).toBeNull();                       // något pågår
-    expect(rastPeriod([a, p({ id: "b", datum: IDAG, start_tid: "12:00:00", slut_tid: "13:00:00" })], "a", IDAG)).toBeNull(); // inte senaste
-    expect(rastPeriod([p({ id: "c", datum: "2026-10-01", start_tid: "07:00:00", slut_tid: "11:30:00" })], "c", IDAG)).toBeNull(); // igår
+  it("slutVidAvsluta rundar till NÄRMASTE kvart (som Starta nu) och ger null när det inte blir längre än starten", () => {
+    expect(slutVidAvsluta("07:30:00", new Date(2026, 9, 2, 16, 52))).toBe(16 * 60 + 45);
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 11, 41))).toBe(11 * 60 + 45);
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 16, 53))).toBe(17 * 60);
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 7, 5))).toBeNull();
+    expect(slutVidAvsluta("07:00:00", new Date(2026, 9, 2, 7, 8))).toBe(7 * 60 + 15);
   });
   it("krock: en pågående period löper framåt", () => {
     expect(krockMed([oppen()], IDAG, 13 * 60, 14 * 60)?.id).toBe("o");
@@ -240,5 +232,51 @@ describe("trakter i grupper", () => {
     expect(traktGrupper(lista, "gamm").map(g => [g.label, g.objekt.map(x => x.namn)])).toEqual([["Gallring", ["Gammal"]], ["GROT", ["Gamma"]]]);
     expect(traktGrupper(lista, "a").length).toBe(4); // ett tecken filtrerar inte
     expect(traktGrupper(lista, "zzz")).toEqual([]);
+  });
+});
+
+describe("närmaste kvart överallt", () => {
+  it("nuKvartNarmast: 07:34 → 07:30, 07:38 → 07:45, 16:52 → 16:45", () => {
+    expect(nuKvartNarmast(new Date(2026, 9, 2, 7, 34))).toBe(7 * 60 + 30);
+    expect(nuKvartNarmast(new Date(2026, 9, 2, 7, 38))).toBe(7 * 60 + 45);
+    expect(nuKvartNarmast(new Date(2026, 9, 2, 16, 52))).toBe(16 * 60 + 45);
+  });
+  it("slut och start får ligga upp till en halv kvart efter klockan, men inte längre", () => {
+    const nu = new Date(2026, 9, 2, 16, 53);
+    expect(liggerIFramtiden(IDAG, 17 * 60, nu)).toBe(false);
+    expect(liggerIFramtiden(IDAG, 17 * 60 + 15, nu)).toBe(true);
+    expect(startLiggerIFramtiden(IDAG, 17 * 60, nu)).toBe(false);
+    expect(startLiggerIFramtiden(IDAG, 17 * 60 + 15, nu)).toBe(true);
+  });
+});
+
+describe("rast", () => {
+  const lang = (o: Partial<PeriodRad> & { datum: string }) => p({ start_tid: "07:00:00", slut_tid: "16:00:00", ...(o as any) });
+  it("nettoMin: längd minus rast, aldrig negativt", () => {
+    expect(nettoMin(555, 30)).toBe(525);
+    expect(nettoMin(20, 30)).toBe(0);
+  });
+  it("vanlig rast: inga data → 30 min", () => {
+    expect(vanligRast([], IDAG)).toBe(30);
+    expect(vanligRast([lang({ datum: plusDagar(IDAG, -1) })], IDAG)).toBe(30); // rast_min saknas (null/undefined) = inte registrerad
+  });
+  it("vanlig rast: median av registrerade raster på perioder över 5 tim, senaste 30 dagarna, närmaste kvart", () => {
+    const ps = [
+      lang({ datum: plusDagar(IDAG, -1), rast_min: 45 }), lang({ datum: plusDagar(IDAG, -2), rast_min: 45 }), lang({ datum: plusDagar(IDAG, -3), rast_min: 30 }),
+      lang({ datum: plusDagar(IDAG, -4), rast_min: 0, start_tid: "07:00:00", slut_tid: "10:00:00" }),   // kort pass: räknas inte
+      lang({ datum: plusDagar(IDAG, -40), rast_min: 60 }),                                              // för gammal
+      lang({ datum: IDAG, rast_min: 90 }),                                                              // idag räknas inte
+    ];
+    expect(vanligRast(ps, IDAG)).toBe(45);
+    expect(vanligRast([lang({ datum: plusDagar(IDAG, -1), rast_min: 30 }), lang({ datum: plusDagar(IDAG, -2), rast_min: 45 })], IDAG)).toBe(45); // 37,5 → närmaste kvart
+    expect(vanligRast([lang({ datum: plusDagar(IDAG, -1), rast_min: 0 })], IDAG)).toBe(0); // medvetet 0 är ett registrerat värde
+  });
+  it("rastForPeriod: förslaget bara över 5 tim; vald rast vinner; aldrig längre än perioden", () => {
+    expect(rastForPeriod(300, null, 30)).toBe(0);   // exakt 5 tim = inte LÄNGRE än
+    expect(rastForPeriod(301, null, 30)).toBe(30);
+    expect(rastForPeriod(240, null, 30)).toBe(0);
+    expect(rastForPeriod(555, 45, 30)).toBe(45);
+    expect(rastForPeriod(555, 0, 30)).toBe(0);
+    expect(rastForPeriod(20, 60, 30)).toBe(20);
   });
 });

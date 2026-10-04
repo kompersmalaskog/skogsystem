@@ -22,10 +22,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { klassificeraPeriod, periodMin, valideraSegment } from "@/lib/dagsegment";
 import { aktLabel, type AktivitetTyp } from "@/lib/aktiviteter";
 import { raderaVerifierat, uppdateraVerifierat, SPARA_FEL } from "@/lib/supabase-save";
-import { DAGENS_SLUT, liggerIFramtiden, startLiggerIFramtiden, klockaTillMin, lokalISO, minTillKlocka, relativDag, timText } from "./logik";
+import { DAGENS_SLUT, RAST_MAX_MIN, liggerIFramtiden, startLiggerIFramtiden, klockaTillMin, lokalISO, minTillKlocka, nettoMin, relativDag, timText } from "./logik";
 
 /** slut = null → pågående period. kommentar: undefined = rör den inte, string/null = skriv den. */
-export type NyPeriod = { datum: string; start: string; slut: string | null; typ: AktivitetTyp; objektId: string | null; deb: boolean; kommentar?: string | null };
+/** rast: minuter inom perioden (extra_tid.rast_min). undefined = rör den inte; null/tal = skriv den. Anges först när perioden avslutas. */
+export type NyPeriod = { datum: string; start: string; slut: string | null; typ: AktivitetTyp; objektId: string | null; deb: boolean; kommentar?: string | null; rast?: number | null };
+/** Längd i minuter minus rast — extra_tid.minuter är NETTO (lön, övertid och Min tid summerar den). */
+const nettoFor = (p: NyPeriod) => (p.slut == null ? 0 : nettoMin(periodMin(p.start, p.slut), p.rast ?? 0));
 const kommentarRen = (k: string | null | undefined) => (k ?? "").trim() || null;
 export type SparaSvar = { ok: true; rad: any } | { ok: false; fel: string };
 
@@ -75,8 +78,13 @@ function kontrolleraOppen(p: NyPeriod, dag: DagLage, nu: Date): { fel: string } 
 }
 
 function kontrollera(p: NyPeriod, dag: DagLage, nu: Date): { fel: string } | { kalla: string } {
-  if (p.slut == null && p.start) return kontrolleraOppen(p, dag, nu);
+  if (p.rast != null && (!Number.isInteger(p.rast) || p.rast < 0 || p.rast > RAST_MAX_MIN)) return { fel: `Rasten måste vara mellan 0 och ${RAST_MAX_MIN} minuter.` };
+  if (p.slut == null && p.start) {
+    if ((p.rast ?? 0) > 0) return { fel: "Rasten anges när perioden avslutas." };
+    return kontrolleraOppen(p, dag, nu);
+  }
   if (!p.start || !p.slut || periodMin(p.start, p.slut) <= 0) return { fel: "Sluttiden måste vara efter starttiden." };
+  if ((p.rast ?? 0) >= periodMin(p.start, p.slut)) return { fel: "Rasten är lika lång som perioden eller längre." };
   // Samma regel som i vyn, men HÄR är det spärren: framtida tid är inte arbetad tid
   // (testdata 2026-10-02: 20:17–23:18 sparades kl 16:19).
   if (liggerIFramtiden(p.datum, klockaTillMin(p.slut), nu)) return { fel: "Perioden ligger i framtiden — inget sparat. Spara den när tiden har varit." };
@@ -96,6 +104,10 @@ export function sparatSkiljerSig(p: NyPeriod, rad: any): string | null {
   if (p.objektId && rad?.objekt_id !== p.objektId) return "Perioden sparades, men trakten följde inte med. Öppna den i veckolistan och välj trakten igen — händer det igen, säg till Martin.";
   if ((rad?.aktivitet_typ || null) !== p.typ) return "Perioden sparades, men aktiviteten följde inte med. Öppna den i veckolistan och kontrollera.";
   if (!!rad?.debiterbar !== p.deb) return 'Perioden sparades, men "faktureras" följde inte med. Öppna den i veckolistan och kontrollera.';
+  if (p.slut != null && p.rast !== undefined) {
+    if ((rad?.rast_min ?? null) !== (p.rast ?? null)) return "Perioden sparades, men rasten följde inte med. Öppna den i veckolistan och kontrollera.";
+    if ((rad?.minuter ?? -1) !== nettoFor(p)) return "Perioden sparades, men minuterna stämmer inte med tid minus rast. Öppna den i veckolistan och kontrollera.";
+  }
   if (p.kommentar !== undefined && kommentarRen(rad?.kommentar) !== kommentarRen(p.kommentar)) return "Perioden sparades, men kommentaren följde inte med. Öppna den i veckolistan och kontrollera.";
   return null;
 }
@@ -103,8 +115,9 @@ export function sparatSkiljerSig(p: NyPeriod, rad: any): string | null {
 /** "Trestensdal · idag 07:00–10:00 · 3 tim" — byggs på DB-raden. */
 export function kvittoText(rad: any, objektNamn: string | null, idag: string): string {
   if (!rad?.slut_tid) return `${objektNamn || aktLabel(rad?.aktivitet_typ)} · ${relativDag(rad?.datum, idag)} från ${hhmm(rad?.start_tid)} · pågår`;
-  const min = rad?.minuter ?? periodMin(hhmm(rad?.start_tid), hhmm(rad?.slut_tid));
-  return `${objektNamn || aktLabel(rad?.aktivitet_typ)} · ${relativDag(rad?.datum, idag)} ${hhmm(rad?.start_tid)}–${hhmm(rad?.slut_tid)} · ${timText(min)}`;
+  const min = rad?.minuter ?? nettoMin(periodMin(hhmm(rad?.start_tid), hhmm(rad?.slut_tid)), rad?.rast_min ?? 0);
+  const rast = (rad?.rast_min ?? 0) > 0 ? ` · rast ${rad.rast_min} min` : "";
+  return `${objektNamn || aktLabel(rad?.aktivitet_typ)} · ${relativDag(rad?.datum, idag)} ${hhmm(rad?.start_tid)}–${hhmm(rad?.slut_tid)}${rast} · ${timText(min)}`;
 }
 
 /** Första perioden på en dag skapar dagen: skalrad utan klockslag, ignoreDuplicates mot race med synk. */
@@ -127,7 +140,8 @@ export async function sparaNyPeriod(sb: SupabaseClient, medarbetareId: string, p
     const { data, error } = await sb.from("extra_tid").insert({
       medarbetare_id: medarbetareId, datum: p.datum, arbetsdag_id: arbetsdagId,
       start_tid: p.start + ":00", slut_tid: p.slut == null ? null : p.slut + ":00",
-      minuter: p.slut == null ? 0 : periodMin(p.start, p.slut), // INTE genererad kolumn — räknas om på varje skrivväg; pågående = 0 tills den avslutas
+      minuter: nettoFor(p), // INTE genererad kolumn — räknas om på varje skrivväg; NETTO (längd − rast); pågående = 0 tills den avslutas
+      rast_min: p.slut == null ? null : p.rast ?? null,
       aktivitet_typ: p.typ, objekt_id: p.objektId, debiterbar: p.deb, kommentar: kommentarRen(p.kommentar), kalla: k.kalla,
     }).select().single();
     if (error || !data) { console.error("[planera] insert extra_tid", error); return { ok: false, fel: SPARA_FEL }; }
@@ -149,8 +163,9 @@ export async function uppdateraPeriod(sb: SupabaseClient, medarbetareId: string,
     const arbetsdagId = await sakerstallSkalrad(sb, medarbetareId, p.datum, dag.skalrad);
     if (!arbetsdagId) return { ok: false, fel: "Kunde inte koppla perioden till dagen — inget sparat. Försök igen." };
     const res = await uppdateraVerifierat(sb, "extra_tid", {
-      start_tid: p.start + ":00", slut_tid: p.slut == null ? null : p.slut + ":00", minuter: p.slut == null ? 0 : periodMin(p.start, p.slut),
+      start_tid: p.start + ":00", slut_tid: p.slut == null ? null : p.slut + ":00", minuter: nettoFor(p),
       aktivitet_typ: p.typ, objekt_id: p.objektId, debiterbar: p.deb, arbetsdag_id: arbetsdagId, kalla: k.kalla,
+      ...(p.rast !== undefined ? { rast_min: p.slut == null ? null : p.rast } : {}),
       ...(p.kommentar !== undefined ? { kommentar: kommentarRen(p.kommentar) } : {}),
     }, { id }, "*");
     if (!res.ok) return { ok: false, fel: res.fel };

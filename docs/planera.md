@@ -94,34 +94,46 @@ egna felmeddelanden efter tryck.
 
 Vyn skapar **bara perioder**. Dagen bekräftas som vanligt under Dag/Kalender.
 
-## Starta nu — avsluta sen, Rast, Fortsätt
+## Starta nu — avsluta sen, och rasten vid Avsluta
 
 *"Man vet när man kommer, inte när man går."* (Martin) **Starta nu** sparar en
-`extra_tid`-rad med `slut_tid = null` och `minuter = 0`.
+`extra_tid`-rad med `slut_tid = null`, `minuter = 0` och `rast_min = null`.
 
 - **Starten är klockan när man trycker** (Martin: "trycker jag 07:34 är det då jag började"): Starta nu sätter
   start = nu avrundat till **närmaste kvart** (07:34 → 07:30, 07:38 → 07:45), det stora klockslaget visar
-  "07:30 – ?" direkt och knappen heter "Starta 07:30". Kom man 07:00 men öppnade appen 07:20: tryck på klockslaget
-  och backa med minus. **Plus passerar aldrig nu** (högst närmaste kvart). Därför får en pågående periods start
-  ligga upp till en halv kvart efter nu (07:45 kl 07:38) — det är den enda gången en tid "i framtiden" sparas
-  (`startLiggerIFramtiden`); slut efter nu nekas fortfarande. **Fortsätt efter rast** följer samma regel.
-  Längdknapparna (1, 2, 4 tim, Till nu) behåller den *förifyllda* starten — de är för efterhandsregistrering —
-  och Starta nu av igen ger tillbaka den.
-- **Pågår-kortet** ligger överst på skärm 1: "PÅGÅR · Betet gallring · Planering sedan
-  07:00 · 2 tim 15 min" (levande räknare, omritning var 30:e sekund). Perioden **ligger kvar
-  tills man trycker Avsluta eller Ta bort** — man kan stänga appen och komma tillbaka.
-- **Avsluta**: slut = nu **avrundat nedåt till kvart**, kvitto ur databasens rad. Är det
-  mindre än en kvart sedan start blir det ingen nollängd — besked i stället.
-- **Rast** (på kortet): stänger perioden (slut = nu, nedrundat) och kortet visar "Rast sedan 11:30"
-  med **Fortsätt**, som startar en NY period på samma trakt och aktivitet från nu (nedrundat).
-  **Rasten är luckan mellan två perioder** — ingen ny kolumn, räknas inte som arbetstid.
-  *Obs:* vilken period som just rastats minns bara den här enheten (`localStorage`); tappas minnet
-  försvinner bara erbjudandet "Fortsätt", aldrig datan.
+  "07:30 – ?" direkt och knappen heter "Starta 07:30". **Starta nu ger ALLTID nu** — ett andra tryck läser
+  klockan på nytt, det backar inte. Kom man 07:00 men öppnade appen 07:20: tryck på klockslaget och backa med minus.
+  **Plus passerar aldrig nu**. Längdknapparna (1, 2, 4 tim, Till nu) är för efterhandsregistrering och använder den
+  *förifyllda* starten.
+- **Närmaste kvart överallt** (Martin 2026-10-04): Starta nu, Avsluta och Till nu. Förr rundades Avsluta/Rast nedåt och
+  Starta/Fortsätt till närmaste, så varje rast blev längre än den var (11:41–12:10 blev 11:30–12:15: 45 min i stället för 29,
+  ~19 min/dag åt förarens nackdel). Nu jämnar det ut sig. Konsekvens, godkänd: start och slut får ligga **upp till en
+  halv kvart efter klockan** (16:53 → 17:00; `liggerIFramtiden` / `startLiggerIFramtiden` i vy OCH sparväg); längre fram än så nekas.
+- **Pågår-kortet** ligger överst på skärm 1: "PÅGÅR · Betet gallring · Planering sedan 07:30 · 2 tim 15 min"
+  (levande räknare, omritning var 30:e sekund) med **Avsluta** och "Ändra eller ta bort". Perioden **ligger kvar
+  tills man trycker Avsluta eller Ta bort** — man kan stänga appen och komma tillbaka. Ingen Rast- eller Fortsätt-knapp:
+  i skogen glömmer man trycka Rast.
+- **Avsluta** visar sammanfattningen **"07:30 – 16:45 · Rast 30 min · 8 tim 45 min"** med − och + på rasten (en kvart
+  per tryck, 0–180 min) och **Spara 8 tim 45 min**. Inget är sparat före Spara. Är det mindre än en kvart sedan
+  start blir det ingen nollängd — besked i stället.
+- **Rasten** är minuter på perioden, inte en lucka: `extra_tid.rast_min` (migration 2026-10-04, körd av Martin).
+  `extra_tid.minuter` är **NETTO** (längd − rast) — allt som summerar `minuter` (löneunderlag, `arbetstid.extraMinPerDag`,
+  årsövertid, Min tid, Dag/Kalender) drar därför av rasten en enda gång utan ändring. En trigger
+  (`trg_extra_tid_minuter_netto`, bara när `rast_min > 0`) håller `minuter` netto även när arbetsrapportens
+  periodformulär räknar om `minuter = slut − start` — arbetsrapporten är orörd.
+  - **Förifylld** med förarens vanliga rast: median av registrerade `rast_min` på perioder **längre än 5 tim** de senaste
+    30 dagarna (närmaste kvart); inga data → 30 min. Kort pass får 0 och räknas inte i medianen.
+  - **Föreslås bara över 5 tim** (exakt 5 tim = ingen rast). Samma rastrad visas på skärm 2 när en vald längd överstiger 5 tim.
+  - `NULL` = ingen rast registrerad (alla gamla rader). En gammal rad som öppnas och sparas utan att rasten rörs får
+    ingen rast tillagd.
+  - Sparvägen verifierar att både `rast_min` och nettominuterna landade (`sparatSkiljerSig`); nekar rast ≥ perioden,
+    > 180 min, och rast på en pågående period (den anges först vid Avsluta). Kvitto och veckolista visar rasten.
+  - Dag/Kalender visar nettot (8 tim 45 min) men inte rasten som egen rad — kan läggas till.
 - **Bara en pågående period åt gången**: Starta nu är låst med förklaring, och sparandet nekar en andra.
   En pågående period räknas som löpande framåt vid krock (allt som slutar efter dess start krockar).
 - **Glömde avsluta**: är perioden från en tidigare dag sätts slut **ALDRIG** till nu. Kortet blir orange,
-  "Glömde du avsluta? Startade i går 07:00", och Avsluta öppnar skärm 2 med sluttiden att välja.
-  Samma sak för en period startad i arbetsrapporten utan trakt/Planera-aktivitet.
+  "Glömde du avsluta? Startade i går 07:00", och Avsluta öppnar skärm 2 med sluttiden att välja (rastraden visas
+  när längden överstiger 5 tim). Samma sak för en period startad i arbetsrapporten utan trakt/Planera-aktivitet.
 - **En dag med pågående period kan inte bekräftas** — en underskrift utan sluttid är ingen underskrift.
   `lib/dagsegment.harOppenPeriod`; Dag döljer redan Bekräfta medan en timer går, Redigera visar nu
   "Extra arbete utan sluttid — avsluta eller ta bort det först".
