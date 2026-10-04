@@ -111,7 +111,7 @@ export function veckoDagar(perioder: PeriodRad[], idag: string): { dagar: VeckoD
 // en källa — "Samma som i går". Framtida källor landar i SAMMA lista med
 // `kalla` satt: 'bil' (Mercedes Fleet: "Du var på Trestensdal 07:12–10:05.
 // Stämmer?") och 'plats' (incheckning vid en trakt). docs/planera.md.
-export type ForslagPeriod = { start: string; slut: string; typ: AktivitetTyp; objektId: string; deb: boolean; rast: number | null };
+export type ForslagPeriod = { start: string; slut: string; typ: AktivitetTyp; objektId: string; deb: boolean };
 export type Forslag = {
   id: string;
   kalla: "igar" | "bil" | "plats";
@@ -135,7 +135,7 @@ export function forslagFranIgar(perioder: PeriodRad[], idag: string, nu?: Date):
     id: `igar-${igar}`, kalla: "igar", datum: igar,
     perioder: igarPlanering.map(p => ({
       start: hhmm(p.start_tid), slut: hhmm(p.slut_tid), typ: "planering" as AktivitetTyp,
-      objektId: p.objekt_id as string, deb: !!p.debiterbar, rast: p.rast_min ?? null,
+      objektId: p.objekt_id as string, deb: !!p.debiterbar,
     })),
   };
 }
@@ -261,34 +261,36 @@ export function slutVidAvsluta(startTid: string, nu: Date): number | null {
 }
 
 // ── Rast ──────────────────────────────────────────────────────────────────
-// Rasten är MINUTER på perioden (extra_tid.rast_min), bekräftad när man avslutar — inte en knapp man glömmer i
-// skogen och inte en lucka mellan två perioder. extra_tid.minuter är NETTO (längd − rast), så allt som summerar
-// minuter (lön, övertid, Min tid) drar av den en gång; en trigger i databasen håller det så även när
-// arbetsrapportens periodformulär skriver om minuter.
-/** Rast föreslås bara när perioden är LÄNGRE än så här (5 timmar). Kortare pass får 0. */
+// ENDA rastmodellen: rast = LUCKA mellan två perioder (extra_tid-rader). Rasten är aldrig en minutsiffra på en rad och
+// aldrig förifylld (Martin 2026-10-04: "jag vill kunna sätta hur mycket rast jag haft, den får inte vara ett
+// defaultvärde"). I redigeraren är rasten en egen DEL med tider (07:00–10:00, rast 10:00–10:30, …) som syns där den
+// faktiskt var; vid sparande blir den bara luckan — ingen rad. extra_tid.minuter blir då slut − start för varje
+// arbetsdel och allt som summerar minuter (lön, övertid, Min tid) räknar rätt utan att dra av något. Kolumnen
+// extra_tid.rast_min (migration 2026-10-04) och dess trigger skrivs inte längre av Planera; gamla rader med rast_min
+// visas som förr ("rast 30 min").
+/** Dagen/perioden är LÄNGRE än så här (5 timmar) och saknar rast → Spara frågar "Hade du rast?". */
 export const RAST_FRAN_MIN = 300;
-export const RAST_STANDARD_MIN = 30;
+/** Längsta lucka som tolkas som rast i redigeraren; längre luckor visas som "Ej inlagd tid" och går inte att ändra. */
 export const RAST_MAX_MIN = 180;
-/** Nettominuter: längd minus rast, aldrig negativt. */
+/** Nettominuter: längd minus rast, aldrig negativt. Bara för gamla rader med rast_min. */
 export const nettoMin = (bruttoMin: number, rast: number) => Math.max(0, bruttoMin - Math.max(0, rast));
-/** Förarens VANLIGA rast: median av registrerade raster (rast_min satt) på perioder längre än 5 tim de senaste
- *  30 dagarna före idag, närmaste kvart. Inga data → 30 min. Kortare pass räknas inte — de får 0 och skulle dra ner medianen. */
-export function vanligRast(perioder: PeriodRad[], idag: string): number {
+
+// ── Vanlig sluttid ────────────────────────────────────────────────────────
+/** Förarens vanliga sluttid och arbetsdagens längd: median över de senaste 30 dagarna (före idag) av dagens SISTA slut
+ *  (närmaste kvart) respektive första start → sista slut. Kräver minst 3 dagar, annars null. Används för snabbvalet
+ *  "Slutade 16:00?" när en period glömts öppen — ett val, aldrig ett förval. */
+export function vanligSluttid(perioder: PeriodRad[], idag: string): { slut: number; spann: number; dagar: number } | null {
   const fran = plusDagar(idag, -30);
-  const varden: number[] = [];
+  const perDag = new Map<string, { start: number; slut: number }>();
   for (const p of perioder) {
-    if (p.rast_min == null || !stangd(p) || p.datum >= idag || p.datum < fran) continue;
-    if (tMin(p.slut_tid as string) - tMin(p.start_tid as string) <= RAST_FRAN_MIN) continue;
-    varden.push(p.rast_min);
+    if (!stangd(p) || p.datum >= idag || p.datum < fran) continue;
+    const s0 = tMin(p.start_tid as string), s1 = tMin(p.slut_tid as string);
+    const nuv = perDag.get(p.datum);
+    perDag.set(p.datum, nuv ? { start: Math.min(nuv.start, s0), slut: Math.max(nuv.slut, s1) } : { start: s0, slut: s1 });
   }
-  if (varden.length === 0) return RAST_STANDARD_MIN;
-  return Math.min(RAST_MAX_MIN, kvartNarmast(median(varden)));
-}
-/** Rasten som gäller för en period av längden `bruttoMin`: vald rast om föraren valt en, annars förslaget
- *  (vanlig rast över 5 tim, annars 0). */
-export function rastForPeriod(bruttoMin: number, vald: number | null, forslag: number): number {
-  if (vald != null) return Math.max(0, Math.min(vald, bruttoMin));
-  return bruttoMin > RAST_FRAN_MIN ? Math.min(forslag, bruttoMin) : 0;
+  const dagar = Array.from(perDag.values());
+  if (dagar.length < 3) return null;
+  return { slut: kvartNarmast(median(dagar.map(d => d.slut))), spann: median(dagar.map(d => d.slut - d.start)), dagar: dagar.length };
 }
 
 // ── Trakter i grupper ─────────────────────────────────────────────────────

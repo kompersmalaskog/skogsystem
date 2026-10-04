@@ -506,7 +506,7 @@ describe("Planera: Starta nu → Pågår → Avsluta (allt bekräftas där)", ()
     // 1. EN knapp, ett tryck: raden finns, utan slut, start = exakt nu — inget mellansteg
     const start = extraInsatt()[0];
     expect(start, `skrivet: ${JSON.stringify(skrivna)}`).toBeDefined();
-    expect(start.rad).toMatchObject({ datum: IDAG, start_tid: "07:34:00", slut_tid: null, minuter: 0, rast_min: null, objekt_id: "T2", aktivitet_typ: "planering", debiterbar: true, kalla: "under_dagen" });
+    expect(start.rad).toMatchObject({ datum: IDAG, start_tid: "07:34:00", slut_tid: null, minuter: 0, objekt_id: "T2", aktivitet_typ: "planering", debiterbar: true, kalla: "under_dagen" });
     expect(etikett("Starttid")).toBeNull();            // tillbaka på skärm 1
     expect(exakt("Välj hur länge")).toBeUndefined();
     expect(delText("Starta 07:34")).toBeUndefined();  // ingen andra "Starta"-knapp längst ner
@@ -528,17 +528,22 @@ describe("Planera: Starta nu → Pågår → Avsluta (allt bekräftas där)", ()
     await klicka("Avsluta");
     const panel = kortet("Avsluta period")!;
     expect(panel, text().slice(0, 300)).not.toBeNull();
-    expect(panel.textContent).toContain("Planering · 07:34–16:52 · Rast 30 min · Faktureras · 8 tim 48 min");
+    expect(panel.textContent).toContain("Planering · 07:34–16:52 · Faktureras · 9 tim 18 min");
+    expect(panel.textContent).not.toContain("Rast"); // ingen förifylld rast, ingen median
+    expect(delText("Klipp upp dagen")).toBeDefined();
     expect(skrivna.filter(s => s.op === "update")).toEqual([]);
-    // 5. Stämmer allt: ett tryck på Spara → 07:34–16:52, rast 30, netto 528 min, kvitto ur databasens rad
-    await klicka("Spara 8 tim 48 min");
+    // 5. Dagen är längre än 5 tim och ingen rast är satt → Spara FRÅGAR (ett aktivt val) och sparar inte förrän han svarat
+    await klicka("Spara 9 tim 18 min");
+    expect(text()).toContain("Hade du rast?");
+    expect(skrivna.filter(s => s.op === "update")).toEqual([]);
+    await klicka("Ingen rast");
     const upd = skrivna.find(s => s.tabell === "extra_tid" && s.op === "update")!;
-    expect(upd.rad).toMatchObject({ start_tid: "07:34:00", slut_tid: "16:52:00", rast_min: 30, minuter: 528, aktivitet_typ: "planering", debiterbar: true });
-    expect(db.extra_tid.find(r => r.objekt_id === "T2")).toMatchObject({ start_tid: "07:34:00", slut_tid: "16:52:00", rast_min: 30, minuter: 528 });
-    expect(text()).toMatch(/Sparat: Betet gallring 2026 · idag 07:34–16:52 · rast 30 min · 8 tim 48 min/);
+    expect(upd.rad).toMatchObject({ start_tid: "07:34:00", slut_tid: "16:52:00", rast_min: null, minuter: 558, aktivitet_typ: "planering", debiterbar: true });
+    expect(db.extra_tid.find(r => r.objekt_id === "T2")).toMatchObject({ start_tid: "07:34:00", slut_tid: "16:52:00", rast_min: null, minuter: 558 });
+    expect(text()).toMatch(/Sparat: Betet gallring 2026 · idag 07:34–16:52 · 9 tim 18 min/);
     expect(kortet("Pågående period")).toBeNull();
     expect(db.extra_tid.some(r => r.slut_tid == null)).toBe(false);
-    expect(text()).toContain("07:34–16:52 · Planering · rast 30 min"); // veckolistan
+    expect(text()).toContain("07:34–16:52 · Planering"); // veckolistan
     expect(hookFel()).toEqual([]);
   });
 
@@ -550,9 +555,10 @@ describe("Planera: Starta nu → Pågår → Avsluta (allt bekräftas där)", ()
     expect(exakt("Planering")!.getAttribute("aria-pressed")).toBe("true");
     await klicka("Manuellt");
     expect(exakt("Manuellt")!.getAttribute("aria-pressed")).toBe("true");
-    expect(kortet("Avsluta period")!.textContent).toContain("Manuellt · 07:30–16:52 · Rast 30 min · Faktureras · 8 tim 52 min");
-    await klicka("Spara 8 tim 52 min");
-    expect(db.extra_tid.find(r => r.id === "o-9")).toMatchObject({ aktivitet_typ: "manuellt", debiterbar: true, slut_tid: "16:52:00", rast_min: 30, minuter: 532 });
+    expect(kortet("Avsluta period")!.textContent).toContain("Manuellt · 07:30–16:52 · Faktureras · 9 tim 22 min");
+    await klicka("Spara 9 tim 22 min");
+    await klicka("Ingen rast");
+    expect(db.extra_tid.find(r => r.id === "o-9")).toMatchObject({ aktivitet_typ: "manuellt", debiterbar: true, slut_tid: "16:52:00", rast_min: null, minuter: 562 });
   });
 
   it("Avsluta → Restid: faktureringen följer aktiviteten (av) och står i sammanfattningen; reglaget kan slås på igen", async () => {
@@ -566,7 +572,7 @@ describe("Planera: Starta nu → Pågår → Avsluta (allt bekräftas där)", ()
     await tryck(reglage(), "Faktureras");
     expect(kortet("Avsluta period")!.textContent).toContain("Restid · 07:30–10:00 · Faktureras · 2 tim 30 min");
     await klicka("Spara 2 tim 30 min");
-    expect(db.extra_tid.find(r => r.id === "o-9")).toMatchObject({ aktivitet_typ: "restid", debiterbar: true, rast_min: 0, minuter: 150 });
+    expect(db.extra_tid.find(r => r.id === "o-9")).toMatchObject({ aktivitet_typ: "restid", debiterbar: true, rast_min: null, minuter: 150 });
   });
 
   it("Avsluta: kommentar skrivs i sammanfattningen och sparas; en befintlig kommentar är förifylld", async () => {
@@ -579,95 +585,20 @@ describe("Planera: Starta nu → Pågår → Avsluta (allt bekräftas där)", ()
     expect(db.extra_tid.find(r => r.id === "o-10")).toMatchObject({ kommentar: "Röjde stickvägen och vändplanen", slut_tid: "11:00:00" });
   });
 
-  it("rasten justeras med minus och plus, en kvart per tryck, och nettot följer", async () => {
-    db.extra_tid.push({ id: "o-4", medarbetare_id: "m-1", datum: IDAG, start_tid: "07:30:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
-    await montera(nuKl(16, 52));
-    await klicka("Avsluta");
-    await klickaEtikett("Kortare rast");
-    expect(kortet("Avsluta period")!.textContent).toContain("Planering · 07:30–16:52 · Rast 15 min · Faktureras · 9 tim 7 min");
-    await klickaEtikett("Längre rast");
-    await klickaEtikett("Längre rast");
-    expect(kortet("Avsluta period")!.textContent).toContain("Rast 45 min · Faktureras · 8 tim 37 min");
-    await klicka("Spara 8 tim 37 min");
-    expect(db.extra_tid.find(r => r.id === "o-4")).toMatchObject({ slut_tid: "16:52:00", rast_min: 45, minuter: 517 });
-  });
-
-  it("rasten kan bli 0 (inget minus under 0) och aldrig längre än 3 tim", async () => {
-    db.extra_tid.push({ id: "o-5", medarbetare_id: "m-1", datum: IDAG, start_tid: "07:30:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
-    await montera(nuKl(16, 52));
-    await klicka("Avsluta");
-    await klickaEtikett("Kortare rast"); await klickaEtikett("Kortare rast");
-    expect(kortet("Avsluta period")!.textContent).toContain("Rast 0 min · Faktureras · 9 tim 22 min");
-    expect(avstangd(etikett("Kortare rast"))).toBe(true);
-    for (let i = 0; i < 14; i++) await klickaEtikett("Längre rast");
-    expect(kortet("Avsluta period")!.textContent).toContain("Rast 180 min");
-    expect(avstangd(etikett("Längre rast"))).toBe(true);
-  });
-
-  it("kort pass (under 5 tim): ingen rastrad, rast 0 sparas", async () => {
+      it("kort pass (under 5 tim): ingen rastfråga, sparas direkt", async () => {
     db.extra_tid.push({ id: "o-6", medarbetare_id: "m-1", datum: IDAG, start_tid: "07:30:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
     await montera(nuKl(11, 2));
     await klicka("Avsluta");
     const panel = kortet("Avsluta period")!;
     expect(panel.textContent).toContain("Planering · 07:30–11:02 · Faktureras · 3 tim 32 min");
     expect(panel.textContent).not.toContain("Rast");
+    expect(text()).not.toContain("Hade du rast?");
     expect(etikett("Längre rast")).toBeNull();
     await klicka("Spara 3 tim 32 min");
-    expect(db.extra_tid.find(r => r.id === "o-6")).toMatchObject({ slut_tid: "11:02:00", rast_min: 0, minuter: 212 });
+    expect(db.extra_tid.find(r => r.id === "o-6")).toMatchObject({ slut_tid: "11:02:00", rast_min: null, minuter: 212 });
   });
 
-  it("exakt 5 tim är inte LÄNGRE än 5 tim: ingen rast; 5 tim 15 min får rast", async () => {
-    db.extra_tid.push({ id: "o-7", medarbetare_id: "m-1", datum: IDAG, start_tid: "07:30:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
-    await montera(nuKl(12, 30));
-    await klicka("Avsluta");
-    expect(kortet("Avsluta period")!.textContent).not.toContain("Rast");
-    await klicka("Tillbaka");
-    await nyKlocka(nuKl(12, 45));
-    await klicka("Avsluta");
-    expect(kortet("Avsluta period")!.textContent).toContain("07:30–12:45 · Rast 30 min · Faktureras · 4 tim 45 min");
-  });
-
-  it("förarens vanliga rast: median av registrerade raster på långa pass senaste 30 dagarna", async () => {
-    for (const d of [-3, -4, -5]) db.extra_tid.push({ id: `r-${d}`, medarbetare_id: "m-1", datum: plusDagar(IDAG, d), start_tid: "07:00:00", slut_tid: "16:00:00", minuter: 495, rast_min: 45, aktivitet_typ: "planering", objekt_id: "T1", debiterbar: true, arbetsdag_id: "a-1" });
-    db.extra_tid.push({ id: "k-1", medarbetare_id: "m-1", datum: plusDagar(IDAG, -6), start_tid: "07:00:00", slut_tid: "10:00:00", minuter: 180, rast_min: 0, aktivitet_typ: "planering", objekt_id: "T1", debiterbar: true, arbetsdag_id: "a-1" }); // kort pass räknas inte
-    db.extra_tid.push({ id: "o-8", medarbetare_id: "m-1", datum: IDAG, start_tid: "07:30:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
-    await montera(nuKl(16, 52));
-    await klicka("Avsluta");
-    expect(kortet("Avsluta period")!.textContent).toContain("07:30–16:52 · Rast 45 min · Faktureras · 8 tim 37 min");
-  });
-
-  it("skärm 2: väljer man en längd över 5 tim visas rastraden med förslaget; under 5 tim syns den inte", async () => {
-    await montera(nuKl(16, 0));
-    await valjSenasteTrakt();
-    await klicka("4 tim");
-    expect(text()).not.toMatch(/Rast \d/);
-    expect(etikett("Längre rast")).toBeNull();
-    await klicka("Till nu");
-    expect(etikett("Sluttid")?.textContent).toBe("16:00");
-    expect(text()).toContain("Rast 30 min");
-    expect(exakt("Spara 8 tim 30 min")).toBeDefined();
-    await klickaEtikett("Längre rast");
-    expect(exakt("Spara 8 tim 15 min")).toBeDefined();
-    await klicka("Spara 8 tim 15 min");
-    expect(extraInsatt()[0].rad).toMatchObject({ start_tid: "07:00:00", slut_tid: "16:00:00", rast_min: 45, minuter: 495 });
-  });
-
-  it("sparandet nekar en rast som inte går ihop (längre än perioden, över 3 tim, rast på en pågående)", async () => {
-    const { sparaNyPeriod, uppdateraPeriod } = await import("@/lib/planera/spara");
-    const { supabase } = await import("@/lib/supabase");
-    const bas = { typ: "planering" as const, objektId: "T1", deb: true, datum: IDAG };
-    const nu = nuKl(16, 0);
-    expect(((await sparaNyPeriod(supabase as any, "m-1", { ...bas, start: "12:00", slut: "13:00", rast: 60 }, nu)) as any).fel).toMatch(/Rasten är lika lång/);
-    expect(((await sparaNyPeriod(supabase as any, "m-1", { ...bas, start: "07:00", slut: "15:00", rast: 240 }, nu)) as any).fel).toMatch(/mellan 0 och 180/);
-    expect(((await sparaNyPeriod(supabase as any, "m-1", { ...bas, start: "15:00", slut: null, rast: 30 }, nu)) as any).fel).toMatch(/anges när perioden avslutas/);
-    expect(extraInsatt()).toEqual([]);
-    const ok = await sparaNyPeriod(supabase as any, "m-1", { ...bas, start: "07:00", slut: "15:00", rast: 30 }, nu);
-    expect(ok.ok).toBe(true);
-    expect(extraInsatt()[0].rad).toMatchObject({ rast_min: 30, minuter: 450 });
-    void uppdateraPeriod;
-  });
-
-  it("Avsluta samma minut som start: ingen nollängd, ett begripligt besked, raden orörd", async () => {
+          it("Avsluta samma minut som start: ingen nollängd, ett begripligt besked, raden orörd", async () => {
     db.extra_tid.push({ id: "o-1", medarbetare_id: "m-1", datum: IDAG, start_tid: "07:30:00", slut_tid: null, minuter: 0, aktivitet_typ: "planering", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
     await montera(nuKl(7, 30));
     await klicka("Avsluta");
@@ -854,5 +785,307 @@ describe("Planera: Starta nu STARTAR — klockan när man trycker, exakt minut",
     const nu = nuKl(7, 38);
     expect(((await sparaNyPeriod(supabase as any, "m-1", { ...bas, start: "07:45" }, nu)) as any).fel).toMatch(/framtiden/);
     expect((await sparaNyPeriod(supabase as any, "m-1", { ...bas, start: "07:38" }, nu)).ok).toBe(true);
+  });
+});
+
+const klickaN = async (e: string, n: number) => { for (let i = 0; i < n; i++) await klickaEtikett(e); };
+const delRader = () => knappar().filter(b => /\d\d:\d\d–\d\d:\d\d/.test(b.textContent || "") && !!b.querySelector('[aria-hidden="true"]')).map(b => b.textContent || "");
+const dagRader = (datum: string) => db.extra_tid.filter(r => r.datum === datum).sort((a, b) => String(a.start_tid).localeCompare(String(b.start_tid)));
+
+describe("Planera: klipp upp dagen (Martins fall: glömde byta och avsluta)", () => {
+  it("planering 07:00–16:00 → klipp 10:00 (rast), 10:30 (manuellt), 13:00 (manuellt på Betet) → fyra delar med rätt trakt och aktivitet, arbetad tid 8 tim 30", async () => {
+    db.extra_tid.push({ ...oppenRadFix("o-k1"), objekt_id: "T1", start_tid: "07:00:00" });
+    await montera(nuKl(16, 0));
+    await klicka("Avsluta");
+    await klickaDel("Klipp upp dagen");
+    // 1. klipp 10:00 → Rast. Tiden är förifylld mitt i perioden; inget är valt än.
+    expect(text()).toContain("Klipp vid 11:30");
+    expect(exakt("Klipp")!.getAttribute("aria-disabled")).toBe("true");
+    await klickaN("Klipp tidigare", 6);
+    expect(text()).toContain("Klipp vid 10:00");
+    await klicka("Rast");
+    await klicka("Lägg till rast");
+    expect(text()).toContain("2 delar");
+    // 2. klipp igen 10:30 → Manuellt (delen som klipps är den sista: rasten 10:00–16:00)
+    await klickaDel("Klipp igen");
+    expect(text()).toContain("Klipp vid 13:00");
+    await klickaN("Klipp tidigare", 10);
+    await klicka("Manuellt");
+    await klicka("Klipp");
+    // 3. klipp igen 13:00 → Manuellt på en annan trakt (Betet)
+    await klickaDel("Klipp igen");
+    expect(text()).toContain("Klipp vid 13:15");
+    await klickaEtikett("Klipp tidigare");
+    await klicka("Manuellt");
+    await klickaDel("Trakt");
+    await valjTraktNamn("Betet gallring 2026");
+    await klicka("Klipp");
+    // Fyra delar, färgstapel, arbetad tid
+    const rader = delRader();
+    expect(rader).toHaveLength(4);
+    expect(rader[0]).toContain("Planering · Trestensdal gallring"); expect(rader[0]).toContain("07:00–10:00");
+    expect(rader[1]).toContain("Rast"); expect(rader[1]).toContain("10:00–10:30");
+    expect(rader[2]).toContain("Manuellt · Trestensdal gallring"); expect(rader[2]).toContain("10:30–13:00");
+    expect(rader[3]).toContain("Manuellt · Betet gallring 2026"); expect(rader[3]).toContain("13:00–16:00");
+    expect(text()).toContain("8 tim 30 min arbetad · 4 delar");
+    expect(behallare!.querySelector('[aria-label="Dagens delar"]')!.children).toHaveLength(4);
+    // Spara: varje arbetsdel blir en egen rad, rasten blir luckan (ingen rad), ingen fråga eftersom rast finns
+    expect(text()).not.toContain("Hade du rast?");
+    await klicka("Spara 8 tim 30 min");
+    const rs = dagRader(IDAG);
+    expect(rs.map(r => [r.start_tid, r.slut_tid, r.aktivitet_typ, r.objekt_id, r.minuter])).toEqual([
+      ["07:00:00", "10:00:00", "planering", "T1", 180],
+      ["10:30:00", "13:00:00", "manuellt", "T1", 150],
+      ["13:00:00", "16:00:00", "manuellt", "T2", 180],
+    ]);
+    expect(rs[0].id).toBe("o-k1"); // den pågående raden blev första delen
+    expect(rs.some(r => r.slut_tid == null || (r.rast_min ?? 0) > 0)).toBe(false);
+    expect(rs.reduce((a, r) => a + r.minuter, 0)).toBe(510);
+    // Kvittot byggs av det sparade svaret
+    expect(text()).toContain("Sparat · 3 delar · 8 tim 30 min arbetad");
+    expect(text()).toContain("Betet gallring 2026 · idag 13:00–16:00 · 3 tim");
+    expect(kortet("Pågående period")).toBeNull();
+    expect(hookFel()).toEqual([]);
+  }, 60000);
+
+  it("Avsluta 07:00–16:00 utan klipp: Spara frågar 'Hade du rast?' — Ingen rast sparar som den är", async () => {
+    db.extra_tid.push({ ...oppenRadFix("o-k2"), start_tid: "07:00:00" });
+    await montera(nuKl(16, 0));
+    await klicka("Avsluta");
+    expect(kortet("Avsluta period")!.textContent).not.toContain("Rast"); // aldrig förifylld
+    await klicka("Spara 9 tim");
+    expect(text()).toContain("Hade du rast?");
+    expect(exakt("Spara 9 tim")).toBeUndefined(); // Spara går inte förrän han svarat
+    expect(skrivna.filter(s => s.op === "update")).toEqual([]);
+    await klicka("Ingen rast");
+    expect(db.extra_tid.find(r => r.id === "o-k2")).toMatchObject({ start_tid: "07:00:00", slut_tid: "16:00:00", minuter: 540, rast_min: null });
+  });
+
+  it("'Lägg till rast' öppnar redigeraren med rasten vald — han sätter tiderna själv; resten fortsätter som delen var", async () => {
+    db.extra_tid.push({ ...oppenRadFix("o-k3"), start_tid: "07:00:00", objekt_id: "T1" });
+    await montera(nuKl(16, 0));
+    await klicka("Avsluta");
+    await klicka("Spara 9 tim");
+    await klicka("Lägg till rast");
+    expect(text()).toContain("Klipp upp dagen");
+    expect(exakt("Rast")!.getAttribute("aria-pressed")).toBe("true");
+    expect(text()).toContain("Klipp vid 11:30");
+    await klickaN("Klipp senare", 2);                // 12:00
+    await klickaN("Rast till tidigare", 14);         // 16:00 → 12:30
+    expect(text()).toMatch(/Rast 12:00–12:30 · 30 min/);
+    await klicka("Lägg till rast");
+    const rader = delRader();
+    expect(rader).toHaveLength(3);
+    expect(rader[1]).toContain("Rast"); expect(rader[1]).toContain("12:00–12:30");
+    expect(rader[2]).toContain("Planering · Trestensdal gallring"); expect(rader[2]).toContain("12:30–16:00");
+    await klicka("Spara 8 tim 30 min");
+    expect(dagRader(IDAG).map(r => [r.start_tid, r.slut_tid, r.aktivitet_typ, r.objekt_id, r.debiterbar])).toEqual([
+      ["07:00:00", "12:00:00", "planering", "T1", true],
+      ["12:30:00", "16:00:00", "planering", "T1", true],
+    ]);
+  }, 60000);
+
+  it("skärm 2: en period över 5 tim i efterhand ger samma fråga; Ingen rast sparar, Lägg till rast öppnar redigeraren", async () => {
+    await montera(nuKl(16, 0));
+    await valjSenasteTrakt();
+    await klicka("Till nu");
+    await klicka("Spara 9 tim");
+    expect(text()).toContain("Hade du rast?");
+    expect(extraInsatt()).toEqual([]);
+    await klicka("Lägg till rast");
+    expect(text()).toContain("Klipp upp dagen");
+    expect(extraInsatt()).toEqual([]); // fortfarande inget sparat
+  });
+
+  it("ingen rastfråga för exakt 5 tim (inte LÄNGRE än 5 tim)", async () => {
+    db.extra_tid.push({ ...oppenRadFix("o-k4"), start_tid: "07:00:00" });
+    await montera(nuKl(12, 0));
+    await klicka("Avsluta");
+    await klicka("Spara 5 tim");
+    expect(text()).not.toContain("Hade du rast?");
+    expect(db.extra_tid.find(r => r.id === "o-k4")!.slut_tid).toBe("12:00:00");
+  });
+
+  it("redigeraren: Avsluta-sammanfattningen får aktiviteten med sig in i klippet (och går att backa från)", async () => {
+    db.extra_tid.push({ ...oppenRadFix("o-k5"), start_tid: "07:00:00", aktivitet_typ: "planering" });
+    await montera(nuKl(10, 0));
+    await klicka("Avsluta");
+    await klicka("Manuellt");
+    await klickaDel("Klipp upp dagen");
+    expect(text()).toContain("Klipp vid 08:30");
+    await klickaDel("Avbryt");
+    expect(delRader()[0]).toContain("Manuellt");
+    await klickaDel("Avsluta"); // tillbaka-länken heter Avsluta
+    expect(kortet("Avsluta period")).not.toBeNull();
+  });
+});
+
+describe("Planera: snabbvalet 'Slutade 16:00?' när perioden glömts öppen", () => {
+  const dagar = () => { db.extra_tid = db.extra_tid.filter(r => r.id !== "p-1"); for (const d of [-2, -3, -4, -5]) db.extra_tid.push({ id: `h-${d}`, medarbetare_id: "m-1", datum: plusDagar(IDAG, d), start_tid: "07:00:00", slut_tid: "16:00:00", minuter: 540, aktivitet_typ: "planering", objekt_id: "T1", debiterbar: true, arbetsdag_id: "a-0" }); };
+  it("har perioden pågått längre än han brukar jobba får han välja — inget förval", async () => {
+    dagar();
+    db.extra_tid.push({ ...oppenRadFix("o-s1"), start_tid: "07:00:00" });
+    await montera(nuKl(19, 30));
+    await klicka("Avsluta");
+    expect(exakt("Slutade 16:00?")).toBeDefined();
+    expect(exakt("Nu, 19:30")).toBeDefined();
+    expect(kortet("Avsluta period")!.textContent).not.toContain("Faktureras"); // ingen sammanfattning förrän han valt
+    await klicka("Slutade 16:00?");
+    expect(kortet("Avsluta period")!.textContent).toContain("Planering · 07:00–16:00 · Faktureras · 9 tim");
+    await klicka("Spara 9 tim");
+    await klicka("Ingen rast");
+    expect(db.extra_tid.find(r => r.id === "o-s1")).toMatchObject({ slut_tid: "16:00:00", minuter: 540 });
+  });
+  it("'Nu' ger exakt nu; kortare pass än vanligt och för få dagar ger inget val", async () => {
+    dagar();
+    db.extra_tid.push({ ...oppenRadFix("o-s2"), start_tid: "07:00:00" });
+    await montera(nuKl(19, 30));
+    await klicka("Avsluta");
+    await klicka("Nu, 19:30");
+    expect(kortet("Avsluta period")!.textContent).toContain("07:00–19:30");
+  });
+  it("inget val när pågående tid är inom det vanliga", async () => {
+    dagar();
+    db.extra_tid.push({ ...oppenRadFix("o-s3"), start_tid: "07:00:00" });
+    await montera(nuKl(15, 20));
+    await klicka("Avsluta");
+    expect(delText("Slutade")).toBeUndefined();
+    expect(kortet("Avsluta period")!.textContent).toContain("07:00–15:20");
+  });
+});
+
+describe("Planera: samma redigerare i efterhand, från veckolistan", () => {
+  const tva = () => {
+    db.extra_tid.push({ id: "p-2", medarbetare_id: "m-1", datum: IGAR, start_tid: "10:30:00", slut_tid: "13:00:00", minuter: 150, aktivitet_typ: "manuellt", objekt_id: "T2", debiterbar: true, arbetsdag_id: "a-1" });
+    db.arbetsdag.push({ id: "a-1", medarbetare_id: "m-1", datum: IGAR, bekraftad: true, bekraftad_tid: "2026-10-01T16:00:00Z" });
+  };
+  it("tryck på en dag → delar med rast som lucka; flytta en gräns, spara — gränsen flyttar med, en bekräftad dag bryts", async () => {
+    tva();
+    await montera();
+    await klickaDel("tors 1 okt");
+    const rader = delRader();
+    expect(rader).toHaveLength(3);
+    expect(rader[0]).toContain("Planering · Trestensdal gallring"); expect(rader[0]).toContain("07:00–10:00");
+    expect(rader[1]).toContain("Rast"); expect(rader[1]).toContain("10:00–10:30");
+    expect(rader[2]).toContain("Manuellt · Betet gallring 2026"); expect(rader[2]).toContain("10:30–13:00");
+    expect(text()).toContain("5 tim 30 min arbetad · 3 delar");
+    await klickaDel("07:00–10:00");
+    await klickaEtikett("Slut senare");              // 10:00 → 10:15, rasten blir kortare
+    expect(text()).toContain("Slut 10:15");
+    await klicka("Klar");
+    expect(delRader()[1]).toContain("10:15–10:30");
+    expect(text()).not.toContain("Hade du rast?");   // rast finns (luckan)
+    await klicka("Spara 5 tim 45 min");
+    expect(db.extra_tid.find(r => r.id === "p-1")).toMatchObject({ start_tid: "07:00:00", slut_tid: "10:15:00", minuter: 195 });
+    expect(db.extra_tid.find(r => r.id === "p-2")).toMatchObject({ start_tid: "10:30:00", slut_tid: "13:00:00", minuter: 150 }); // orörd
+    expect(skrivna.filter(s => s.tabell === "extra_tid" && s.op === "insert")).toEqual([]);
+    // En underskrift gäller det man skrev under: ändrad dag måste bekräftas igen
+    expect(db.arbetsdag.find(r => r.id === "a-1")).toMatchObject({ bekraftad: false, bekraftad_tid: null });
+    expect(text()).toContain("Dagen var bekräftad — den måste bekräftas igen");
+  }, 30000);
+  it("ändra trakt och aktivitet på en del; ta bort en del (föregående ARBETSdel eller nästa tar över, aldrig rasten)", async () => {
+    tva();
+    await montera();
+    await klickaDel("tors 1 okt");
+    await klickaDel("10:30–13:00");
+    await klickaDel("Trakt");
+    await valjTraktNamn("Trestensdal gallring");
+    await klicka("Möte");
+    await klicka("Klar");
+    expect(delRader()[2]).toContain("Möte · Trestensdal gallring");
+    await klickaDel("07:00–10:00");
+    await klickaDel("Ta bort delen");
+    await klicka("Ja, ta bort");
+    // första delen hade bara en rast som granne → blir rast (obetald), slås ihop med rasten
+    expect(delRader()).toHaveLength(2);
+    expect(delRader()[0]).toContain("Rast"); expect(delRader()[0]).toContain("07:00–10:30");
+    await klicka("Spara 2 tim 30 min");
+    expect(db.extra_tid.some(r => r.id === "p-1")).toBe(false);
+    expect(db.extra_tid.find(r => r.id === "p-2")).toMatchObject({ objekt_id: "T1", aktivitet_typ: "mote", debiterbar: false, start_tid: "10:30:00", slut_tid: "13:00:00" });
+  }, 30000);
+  it("rader Planera inte hanterar (service) syns låsta och rörs aldrig", async () => {
+    tva();
+    db.extra_tid.push({ id: "s-1", medarbetare_id: "m-1", datum: IGAR, start_tid: "13:00:00", slut_tid: "14:00:00", minuter: 60, aktivitet_typ: "service", objekt_id: null, debiterbar: false, arbetsdag_id: "a-1" });
+    await montera();
+    await klickaDel("tors 1 okt");
+    const service = delRader().find(r => r.includes("13:00–14:00"))!;
+    expect(service).toContain("ändras i Dag");
+    await klickaDel("13:00–14:00");
+    expect(etikett("Start tidigare")).toBeNull();
+    await klicka("Klar");
+    // sista arbetsdelens slut kan inte flyttas in i den låsta raden
+    await klickaDel("10:30–13:00");
+    expect(avstangd(etikett("Slut senare"))).toBe(true);
+    expect(avstangd(etikett("Slut tidigare"))).toBe(true);
+  });
+  it("en dag med en pågående period öppnas inte — avsluta den först", async () => {
+    db.extra_tid.push({ ...oppenRadFix("o-v1"), datum: IGAR, start_tid: "13:00:00" });
+    await montera();
+    await klickaDel("tors 1 okt");
+    expect(text()).toContain("Avsluta den pågående perioden först");
+    expect(delRader()).toHaveLength(0);
+  });
+});
+
+import type { DagDel } from "@/lib/planera/dag";
+describe("Planera: sparaDelar (skrivvägen för en hel dag)", () => {
+  const hamta = async () => {
+    const { sparaDelar } = await import("@/lib/planera/spara");
+    const { delarFranRader, flyttaGrans, klippDel } = await import("@/lib/planera/dag");
+    const { supabase } = await import("@/lib/supabase");
+    return { sparaDelar, delarFranRader, flyttaGrans, klippDel, sb: supabase as any };
+  };
+  const rad = (id: string, s: string, e: string, extra: any = {}) => ({ id, medarbetare_id: "m-1", datum: IGAR, start_tid: s + ":00", slut_tid: e + ":00", minuter: 0, aktivitet_typ: "planering", objekt_id: "T1", debiterbar: true, arbetsdag_id: "a-1", ...extra });
+  const nuK = nuKl(17, 0);
+
+  it("kontrollerar ALLT före första skrivningen: framtid och maskinpass stoppar utan att något sparas", async () => {
+    const { sparaDelar, delarFranRader, klippDel, sb } = await hamta();
+    db.extra_tid = [rad("x1", "07:00", "10:00")];
+    const gamla = db.extra_tid.slice();
+    const d = klippDel(delarFranRader(gamla), "r:x1", 8 * 60 + 30, { typ: "manuellt" })!;
+    // maskinpass 08:00–09:00 mitt i delarna
+    db.arbetsdag.push({ id: "a-9", medarbetare_id: "m-1", datum: IGAR, start_tid: "08:00:00", slut_tid: "09:00:00", maskin_id: "PONS" });
+    const svar = await sparaDelar(sb, "m-1", IGAR, gamla, d, nuK);
+    expect(svar.ok).toBe(false);
+    expect((svar as any).fel).toMatch(/korsar maskinpassets gräns|inom maskinpasset/);
+    expect(skrivna).toEqual([]);
+    // framtid (idag, slut efter nu)
+    db.arbetsdag = [];
+    const idagGamla = [rad("x2", "07:00", "10:00", { datum: IDAG })];
+    const f = [{ ...delarFranRader(idagGamla)[0], slut: 18 * 60 }];
+    const s2 = await sparaDelar(sb, "m-1", IDAG, idagGamla, f, nuK);
+    expect((s2 as any).fel).toMatch(/framtiden/);
+  });
+  it("flyttar en gräns i en ordning utan tillfällig överlappning (b krymper först, sedan får a växa)", async () => {
+    const { sparaDelar, delarFranRader, flyttaGrans, sb } = await hamta();
+    db.extra_tid = [rad("a", "07:00", "10:00"), rad("b", "10:00", "13:00")];
+    const gamla = db.extra_tid.slice();
+    const d = flyttaGrans(delarFranRader(gamla), 0, 11 * 60)!;
+    const svar = await sparaDelar(sb, "m-1", IGAR, gamla, d, nuK);
+    expect(svar.ok).toBe(true);
+    expect(dagRader(IGAR).map(r => [r.id, r.start_tid, r.slut_tid, r.minuter])).toEqual([["a", "07:00:00", "11:00:00", 240], ["b", "11:00:00", "13:00:00", 120]]);
+    expect((svar as any).rader.map((r: any) => r.id)).toEqual(["a", "b"]);
+  });
+  it("stoppar något halvvägs rapporteras vad som hann sparas, och nya delars rader kan kopplas om", async () => {
+    const { sparaDelar, delarFranRader, klippDel, sb } = await hamta();
+    db.extra_tid = [rad("a", "07:00", "10:00")];
+    db.arbetsdag_segment.push({ id: "sg-1", medarbetare_id: "m-1", datum: IGAR, start_tid: "12:30:00", slut_tid: "13:00:00" });
+    const gamla = db.extra_tid.slice();
+    // a krymper till 07:00–09:00 (lyckas) och en ny del 12:00–13:00 (krockar med ett segment) infogas
+    let d: DagDel[] = delarFranRader(gamla).map(x => ({ ...x, slut: 9 * 60 }));
+    d = [...d, { nyckel: "n:1", radId: null, start: 12 * 60, slut: 13 * 60, typ: "planering" as const, objektId: "T1", deb: true, kommentar: "", last: false }];
+    const svar = await sparaDelar(sb, "m-1", IGAR, gamla, d, nuK);
+    expect(svar.ok).toBe(false);
+    expect((svar as any).fel).toMatch(/1 av 2 ändringar hann sparas/);
+    expect(db.extra_tid.find(r => r.id === "a")).toMatchObject({ slut_tid: "09:00:00" }); // det som hann sparas ligger kvar
+    void klippDel;
+  });
+  it("en ändring på en bekräftad dag bryter bekräftelsen även för en enskild period (sparaNyPeriod)", async () => {
+    const { sb } = await hamta();
+    const { sparaNyPeriod } = await import("@/lib/planera/spara");
+    db.arbetsdag.push({ id: "a-b", medarbetare_id: "m-1", datum: IGAR, bekraftad: true, bekraftad_tid: "x" });
+    const svar = await sparaNyPeriod(sb, "m-1", { datum: IGAR, start: "14:00", slut: "15:00", typ: "planering", objektId: "T1", deb: true }, nuK);
+    expect(svar.ok && svar.bekraftelse).toBe("bruten");
+    expect(db.arbetsdag.find(r => r.id === "a-b")).toMatchObject({ bekraftad: false, bekraftad_tid: null });
   });
 });

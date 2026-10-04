@@ -175,6 +175,12 @@ export const SORTIMENTFARG = {
   ovrigt: "#e3e8dc",
 } as const;
 
+/**
+ * Färgstapeln över en dag i Planera: EN färg per del, i ordning; rast = FARG.text3 (grå). Medvetet inte röd/orange/gul
+ * (larm och kalendermarkeringar) och inte blå (bara navigation). Färgen bär aldrig ensam — varje del har också text.
+ */
+export const DELFARG = ["#64d2ff", "#bf5af2", "#30d158", "#f0b24c", "#5e5ce6", "#ac8e68"] as const;
+
 // ---------------------------------------------------------------------------
 // Rörelse — tre tider, en kurva
 // ---------------------------------------------------------------------------

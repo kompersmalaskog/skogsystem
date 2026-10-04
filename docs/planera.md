@@ -49,7 +49,6 @@ Sökningen filtrerar grupperna och når även **avslutade** trakter — man fyll
    Under den en avdelare "eller fyll i tid".
 3. *Tiden, stor:* **07:00 – --:--**. Tryck på en tid → − och + en kvart per tryck. Inga klockfält.
 4. *Hur länge:* **1 tim · 2 tim · 4 tim · Till nu** (efterhandsregistrering; kvartar).
-5. *Rastrad* när den valda längden överstiger 5 tim (se Rasten).
 6. *Aktivitet:* Planering (förvald) · Manuellt · Markägare · Möte · Restid.
 7. *Faktureras + kommentar:* reglage (förvalt efter aktiviteten) och en blå rad **Lägg till kommentar**.
 8. *Spara* ("Välj hur länge" tills längden är vald).
@@ -101,9 +100,9 @@ missade att perioden aldrig startade: *"jag tror man kan missa det, för det gjo
   stannar på skärm 2.
 - **Allt bekräftas vid Avsluta** (Martins princip, och Apples: *besluta när du vet, inte på morgonen när du gissar* —
   att känna igen är lättare för hjärnan än att välja från noll). Avsluta visar en sammanfattning med allt förvalt:
-  **"Planering · 07:34–16:52 · Rast 30 min · Faktureras · 8 tim 48 min"**, och under den aktivitet (segmenterad),
-  rast med − och +, Faktureras-reglaget och kommentar. Stämmer allt trycker man Spara — oftast ett tryck. Stämmer
-  något inte ändrar man just det.
+  **"Planering · 07:34–16:52 · Faktureras · 9 tim 18 min"**, och under den **Klipp upp dagen** (sax-ikon), aktivitet
+  (segmenterad), Faktureras-reglaget och kommentar. Stämmer allt trycker man Spara — oftast ett tryck. Stämmer något
+  inte ändrar man just det. (Rasten ligger inte här som en siffra — se *Rasten* nedan.)
 - **Starta nu och Avsluta använder EXAKT minut** (Martin 2026-10-04: "tryckte Starta nu 13:51 och fick 13:45"): start =
   klockan nu (07:34 → 07:34), slut vid Avsluta = klockan nu (16:52 → 16:52).
   Kom man 07:00 men öppnade appen 07:20: starta, och ändra sedan starten via **Ändra eller ta bort** på Pågår-kortet
@@ -118,26 +117,57 @@ missade att perioden aldrig startade: *"jag tror man kan missa det, för det gjo
   (levande räknare, omritning var 30:e sekund) med **Avsluta** och "Ändra eller ta bort". Perioden **ligger kvar
   tills man trycker Avsluta eller Ta bort** — man kan stänga appen och komma tillbaka. Ingen Rast- eller Fortsätt-knapp:
   i skogen glömmer man trycka Rast.
-- **Rasten i sammanfattningen** har − och + (en kvart per tryck, 0–180 min); **Spara 8 tim 48 min**. Inget är sparat före Spara. Är det mindre än en kvart sedan
-  start (samma minut) blir det ingen nollängd — besked i stället.
-- **Rasten** är minuter på perioden, inte en lucka: `extra_tid.rast_min` (migration 2026-10-04, körd av Martin).
-  `extra_tid.minuter` är **NETTO** (längd − rast) — allt som summerar `minuter` (löneunderlag, `arbetstid.extraMinPerDag`,
-  årsövertid, Min tid, Dag/Kalender) drar därför av rasten en enda gång utan ändring. En trigger
-  (`trg_extra_tid_minuter_netto`, bara när `rast_min > 0`) håller `minuter` netto även när arbetsrapportens
-  periodformulär räknar om `minuter = slut − start` — arbetsrapporten är orörd.
-  - **Förifylld** med förarens vanliga rast: median av registrerade `rast_min` på perioder **längre än 5 tim** de senaste
-    30 dagarna (närmaste kvart); inga data → 30 min. Kort pass får 0 och räknas inte i medianen.
-  - **Föreslås bara över 5 tim** (exakt 5 tim = ingen rast). Samma rastrad visas på skärm 2 när en vald längd överstiger 5 tim.
-  - `NULL` = ingen rast registrerad (alla gamla rader). En gammal rad som öppnas och sparas utan att rasten rörs får
-    ingen rast tillagd.
-  - Sparvägen verifierar att både `rast_min` och nettominuterna landade (`sparatSkiljerSig`); nekar rast ≥ perioden,
-    > 180 min, och rast på en pågående period (den anges först vid Avsluta). Kvitto och veckolista visar rasten.
-  - Dag/Kalender visar nettot (8 tim 45 min) men inte rasten som egen rad — kan läggas till.
+- **Rasten — EN modell: lucka mellan perioder** (Martin 2026-10-04: *"jag vill kunna sätta hur mycket rast jag haft,
+  den får inte vara ett defaultvärde"*). Rasten är en egen DEL med tider i redigeraren och sparas som luckan mellan
+  extra_tid-raderna — ingen rad, ingen minutsiffra. `extra_tid.minuter` = slut − start för varje arbetsdel, så allt som
+  summerar `minuter` (löneunderlag, övertid, Min tid, Dag/Kalender) räknar rätt utan att dra av något och rasten kan
+  aldrig dras av två gånger. **Ingen förifylld rast, ingen "vanlig rast"-median.** Kolumnen `extra_tid.rast_min` och
+  triggern `trg_extra_tid_minuter_netto` (migration 2026-10-04) ligger kvar i databasen oanvända; Planera skriver
+  `rast_min = null` när en gammal rad rättas, och visar gamla rader som förr ("rast 30 min").
+  - **Är dagen längre än 5 tim och ingen rast satts frågar Spara "Hade du rast?"** — **Ingen rast** eller **Lägg till
+    rast**. Spara går inte förrän han svarat; ett aktivt val, aldrig en gissning. Exakt 5 tim frågar inte. Gäller
+    Avsluta-sammanfattningen, skärm 2 (efterhandsregistrering) och redigeraren.
+  - **Lägg till rast** öppnar redigeraren med Rast vald: *Klipp vid* är förifylld mitt i perioden (en position, inget
+    rastvärde) och *Rast till* står på delens slut tills han flyttar den. Inget sparas förrän han trycker Spara.
+
+## Klipp och rätta dagen (Martins verkliga fall)
+
+Han startar planering på Odenssvalahult 07:00, går över till manuellt arbete, åker en stund till Betet — **och glömmer att
+byta eller avsluta.** På kvällen står hela dagen som en planering. *"Detta kommer att glömmas, så jag måste kunna
+redigera."* Det han behöver är inte att byta live (det gör han inte) utan att **klippa och rätta dagen i efterhand.**
+
+- **Klipp upp dagen** (Avsluta-sammanfattningen) eller **tryck på en dag i veckolistan** → redigeraren
+  (`components/planera/delar.tsx`, logik i `lib/planera/dag.ts`). Överst en **färgstapel** över hela dagen — en färg per
+  del (`DELFARG` i tokens), rast grå; varje rad har samma färgprick.
+  `Planering · Odenssvalahult 07:00–10:00 · Rast 10:00–10:30 · Manuellt · Odenssvalahult 10:30–13:00 · Manuellt · Betet 13:00–16:00`
+- **Klipp**: välj klockslag (förifyllt mitt i delen, − och + en kvart; vid flera delar väljs vilken del först) och vad den
+  NYA delen var — någon aktivitet eller rast. Den nya delen går från klippet till delens slut och ärver trakt (är källan
+  en rast: närmaste arbetsdels). **Klipp igen** för fler delar. Rast har även *Rast till* så resten fortsätter som delen var.
+- **Varje del går att ändra**: start och slut (− och +, en kvart; **gränsen mot grannen flyttar med** så att det aldrig
+  blir hål eller krockar), **trakt** (inte bara aktivitet — en del av dagen kan ha varit på en annan trakt), aktivitet eller
+  rast, Faktureras, kommentar.
+- **Ta bort en del**: tiden går till föregående *arbetsdel* (annars nästa) — aldrig till en rast, eftersom en rast som
+  växer tyst ser ut som något man inte gjort. Finns ingen arbetsgranne blir delen rast (obetald) i stället för att
+  försvinna. Den enda delen → hela perioden tas bort. (Tydligast: inget blir en osynlig lucka, och rast är alltid något man själv satt.)
+- **Luckor i veckolistan-läget**: luckan mellan två perioder (≤ 3 tim) visas som rast; längre luckor som "Ej inlagd tid"
+  (låsta). Rader Planera inte hanterar (service, reparation …) syns låsta ("ändras i Dag") och rörs aldrig; gränser mot dem är fasta.
+- **Sparande** (`sparaDelar`): ALLT kontrolleras före första skrivningen (inte efter nu, inte inne i/korsande ett
+  maskinpass, trakt på varje arbetsdel). Varje arbetsdel blir en egen rad i extra_tid. Raderingar skrivs först, sedan
+  ändringar/nya delar i en ordning där två delar aldrig överlappar ens tillfälligt; varje skrivning går genom samma
+  kontroller som en enskild period. **Stoppar något halvvägs** rapporteras exakt hur många som hann sparas och redigeraren
+  kopplar de nya delarna till sina rader så ett nytt försök inte infogar dubbletter. **Kvittot byggs av det sparade
+  svaret** (dagens rader läses tillbaka), t.ex. "Sparat · 3 delar · 8 tim 30 min arbetad".
+- **Bekräftad dag**: ändrar man en redan bekräftad dag bryts bekräftelsen (`arbetsdag.bekraftad = false`) — samma regel
+  som arbetsrapporten ("en underskrift gäller det man skrev under"); kvittot säger att dagen måste bekräftas igen.
+  Regeln gäller alla Planera-skrivningar (ny period, ändra, ta bort, delar).
+- **Glömde avsluta samma dag**: har perioden pågått längre än han brukar jobba (median av dagens spann senaste 30 dagarna,
+  minst 3 dagar) väljer han mellan **"Slutade 16:00?"** (hans vanliga sluttid) och **"Nu, 19:30"** — **ett val, inte ett förval**;
+  ingen sammanfattning visas förrän han valt.
+
 - **Bara en pågående period åt gången**: Starta nu är låst med förklaring, och sparandet nekar en andra.
   En pågående period räknas som löpande framåt vid krock (allt som slutar efter dess start krockar).
 - **Glömde avsluta**: är perioden från en tidigare dag sätts slut **ALDRIG** till nu. Kortet blir orange,
-  "Glömde du avsluta? Startade i går 07:00", och Avsluta öppnar skärm 2 med sluttiden att välja (rastraden visas
-  när längden överstiger 5 tim). Samma sak för en period startad i arbetsrapporten utan trakt/Planera-aktivitet.
+  "Glömde du avsluta? Startade i går 07:00", och Avsluta öppnar skärm 2 med sluttiden att välja. Samma sak för en period startad i arbetsrapporten utan trakt/Planera-aktivitet.
 - **En dag med pågående period kan inte bekräftas** — en underskrift utan sluttid är ingen underskrift.
   `lib/dagsegment.harOppenPeriod`; Dag döljer redan Bekräfta medan en timer går, Redigera visar nu
   "Extra arbete utan sluttid — avsluta eller ta bort det först".
