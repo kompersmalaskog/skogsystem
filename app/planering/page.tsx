@@ -33,6 +33,8 @@ import { markeraStart } from '../../lib/maskinstartMatning'
 import { installeraKameraLogg } from '../../lib/kameraLogg'
 import { tonaInLager, TRAKTGRANS_LAGER } from '../../lib/kartTona'
 import { vantaPaGrundkarta, kameraLage, kameraAndrad } from '../../lib/kartaLaddad'
+import { arKartanPaPositionen, centreraKnappSynlig } from '../../lib/centrera'
+import { CentreraKnapp } from '../../components/planering/CentreraKnapp'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { startFas, flygKlar, startCoverSynlig, startOverlaySynlig, startKameraLas, startRadText, FLY_MS, COVER_FADE_MS, type StartFas } from '../../lib/maskinstart'
 import { MaskinSomContext } from '../../lib/maskinSomContext'
@@ -3084,8 +3086,6 @@ export default function PlannerPage() {
   // Senast kända GPS-fix — pricken ritar ALLTID denna → blankar aldrig när currentPosition
   // tillfälligt är null (mellan fixar / precis efter en reload). Uppdateras vid varje giltig fix.
   const lastKnownPositionRef = useRef<{ lat: number; lon: number } | null>(null);
-  // "Hämtar position…" när centrera-knappen trycks utan fix (istället för att ljuga = objektet).
-  const [gpsSokerPosition, setGpsSokerPosition] = useState(false);
   // GPS-status som SURFAS till UI (aldrig sväljs) + tidsstämpel på senaste fix.
   const [gpsStatus, setGpsStatus] = useState<{ kind: 'searching' | 'ok' | 'error'; code?: number; at: number } | null>(null);
   const [gpsFixAt, setGpsFixAt] = useState<number | null>(null);
@@ -4022,8 +4022,8 @@ export default function PlannerPage() {
   useEffect(() => {
     if (korvyActive) acquireGpsWithFallback();
   }, [korvyActive]); // eslint-disable-line react-hooks/exhaustive-deps
-  // SKOTARKÖRVY (punkt 5): pausa auto-följe när föraren panorerat iväg (annars rycker nästa GPS-tick
-  // tillbaka kameran). "Följ mig"-knappen återupptar. GEJTAD till skotarKorvy → Stefans körvy rörs ej.
+  // KÖRVY: pausa auto-följe när föraren drar i kartan (annars rycker nästa GPS-tick tillbaka kameran). Centrera-knappen
+  // (EN komponent, lib/centrera) syns medan följningen är pausad; tryck återupptar den. Gäller ALL körvy (skotare och skördare).
   const [korvyFollowPaused, setKorvyFollowPaused] = useState(false);
   // Körvyns bas-karta: 'lm' (Karta — LM nedtonad, dämpad) eller 'topo' (Topokarta — LM full färg).
   // Default tyst så föraren möter den lugna svenska baskartan; toggla för terräng-detalj.
@@ -4088,8 +4088,6 @@ export default function PlannerPage() {
   // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
   const [hogarVersion, setHogarVersion] = useState(0);
   const skotarKorvy = korvyActive && (korvyForceRoll ? korvyForceRoll === 'skotare' : minRoll === 'skotare');
-  const skotarKorvyRef = useRef(false);
-  useEffect(() => { skotarKorvyRef.current = skotarKorvy; }, [skotarKorvy]);
 
   // ═══ HYTTSPÅR (realtids-körspår, steg 1) ════════════════════════════════════════════════════════
   // Appen loggar körvägen LIVE medan körvyn är öppen på ett objekt (BÅDA maskinerna). En rad per
@@ -4585,9 +4583,6 @@ export default function PlannerPage() {
   // Geofence: när maskinen är inne i en wet/steep/noentry-zon
   type ZoneAlert = { markerId: string; zoneType: string; label: string; color: string };
   const [korvyZoneAlert, setKorvyZoneAlert] = useState<ZoneAlert | null>(null);
-  // Long-press på centrera-knappen: kort tryck = GPS, långt tryck (500ms) = objekt
-  const centreLongPressRef = useRef<NodeJS.Timeout | null>(null);
-  const centreLongPressFiredRef = useRef(false);
   const lastHeadingRef = useRef(0); // För smooth rotation
   const kompassSisteRawRef = useRef<number | null>(null);   // senast EMITTERADE råa heading (throttle/dedup)
   const kompassSisteTsRef = useRef(0);                       // tidsstämpel för senaste emit (10 Hz-throttle)
@@ -8901,9 +8896,8 @@ export default function PlannerPage() {
   // 2) GPS-following + heading när korvyActive (mjuk easing per uppdatering, behåll offset)
   useEffect(() => {
     if (!korvyActive) return;
-    // Skotarläge: har föraren panorerat iväg pausas följet tills "Följ mig" trycks (punkt 5).
-    // Bara skotarKorvy — Stefans körvy följer alltid (oförändrat).
-    if (skotarKorvy && korvyFollowPaused) return;
+    // Har föraren dragit i kartan pausas följet tills centrera-knappen trycks (gäller alla körvyer).
+    if (korvyFollowPaused) return;
     // Startsekvensen äger kameran (svart → översikt → EN flyTo). Utan det här låset anropar följet easeTo vid
     // VARJE GPS-tick och avbryter översikten/flygningen. Låset släpps vid landning → effekten kör om direkt
     // (startKameraLasNu i deps) och följet tar över från exakt där flygningen landade — inget hopp.
@@ -8925,7 +8919,7 @@ export default function PlannerPage() {
       duration: 500,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, kartBearing, korvyActive, korvyNextItems, skotarKorvy, korvyFollowPaused, startKameraLasNu]);
+  }, [currentPosition, korvyHeading, kartBearing, korvyActive, korvyNextItems, korvyFollowPaused, startKameraLasNu]);
 
   // KAMERAN LANDAR RÄTT. När sekvensen släpper kameralåset (landat — eller klar utan att flygningen hunnit) lägger vi EN gång
   // körvyns egen inramning: maskinens position, baszoom, lutning 28°, körriktning upp, körvy-padding. Följ-effekten rättar annars bara
@@ -8935,7 +8929,7 @@ export default function PlannerPage() {
     if (startFasNu === 'landat') markeraStart('landat');
     if ((startFasNu !== 'landat' && startFasNu !== 'klar') || startKameraAssertGjordRef.current) return;
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !korvyActive) return;
+    if (!map || !mapLibreReady || !korvyActive || korvyFollowPaused) return;   // har föraren redan dragit rör vi inte kameran
     const pos = korvyEffectivePos ?? startPosRef.current;
     if (!pos) return;
     startKameraAssertGjordRef.current = true;
@@ -8948,18 +8942,51 @@ export default function PlannerPage() {
         duration: startFlygGjordRef.current ? 0 : 800,   // flygningen landade → samma ram, ingen synlig rörelse; annars mjuk inflygning
       });
     } catch { /* */ }
-  }, [startFasNu, mapLibreReady, korvyActive, korvyEffectivePos, kartBearing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [startFasNu, mapLibreReady, korvyActive, korvyFollowPaused, korvyEffectivePos, kartBearing]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // SKOTARKÖRVY (punkt 5): fingret drar kartan → pausa auto-följet ('dragstart' med originalEvent =
-  // äkta gest, inte vår easeTo). Bunden en gång; dörrvaktar på skotarKorvyRef. Rensas vid utträde.
+  // KÖRVY: fingret/musen drar kartan → pausa auto-följet ('dragstart' med originalEvent = äkta gest, inte vår easeTo).
+  // Bunden en gång; dörrvaktar på korvyOppenRef (render-skriven). Följet återupptas av centrera-knappen och när körvyn stängs.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const onDrag = (e: any) => { if (skotarKorvyRef.current && e && e.originalEvent) setKorvyFollowPaused(true); };
+    const onDrag = (e: any) => { if (korvyOppenRef.current && e && e.originalEvent) setKorvyFollowPaused(true); };
     map.on('dragstart', onDrag);
     return () => { try { map.off('dragstart', onDrag); } catch { /* */ } };
   }, [mapLibreReady]);
-  useEffect(() => { if (!skotarKorvy) setKorvyFollowPaused(false); }, [skotarKorvy]);
+  useEffect(() => { if (!korvyActive) setKorvyFollowPaused(false); }, [korvyActive]);
+
+  // === CENTRERA-KNAPPEN (EN komponent, lib/centrera) ===
+  // PLANERINGSVYN: "kartan står inte på positionen" = positionens skärmpunkt ligger > CENTRERA_PX från kartans mitt. Räknas vid
+  // varje kartrörelse ('move') och varje positionsändring — så knappen syns så fort man drar och försvinner när kartan nått positionen.
+  // KÖRVYN använder i stället korvyFollowPaused (dold så länge kartan följer maskinen).
+  const centreraPosRef = useRef<{ lat: number; lon: number } | null>(null);
+  centreraPosRef.current = korvyEffectivePos;
+  const [kartaFranPosition, setKartaFranPosition] = useState(false);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const berakna = () => { const p = centreraPosRef.current; setKartaFranPosition(!!p && !arKartanPaPositionen(map, p)); };
+    berakna();
+    map.on('move', berakna);
+    map.on('resize', berakna);
+    return () => { try { map.off('move', berakna); map.off('resize', berakna); } catch { /* */ } };
+  }, [mapLibreReady, korvyEffectivePos]);
+  const centreraSynlig = centreraKnappSynlig({ korvy: korvyActive, harPosition: korvyEffectivePos != null, foljningPausad: korvyFollowPaused, kartaFranPosition });
+  const centreraTryck = () => {
+    const map = mapInstanceRef.current;
+    const pos = korvyEffectivePos;
+    if (!map || !pos) return;
+    if (navigator.vibrate) navigator.vibrate(15);
+    if (korvyActive) {
+      // Körvyn: följningen igen — recentrera direkt på maskinen med körvyns zoom/riktning/padding, sedan tar följ-effekten över.
+      setKorvyFollowPaused(false);
+      const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+      map.easeTo({ center: [pos.lon, pos.lat], zoom: korvyZoomRef.current, bearing: kartBearing, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 500 });
+    } else {
+      // Planeringen: centrera EN gång (ingen följning) — kartan står då på positionen och knappen döljs av sig själv.
+      map.flyTo({ center: [pos.lon, pos.lat], zoom: Math.max(map.getZoom(), 16), duration: 600 });
+    }
+  };
 
   // 3) Större ikoner i Körvy via icon-size paint expression
   useEffect(() => {
@@ -14109,40 +14136,6 @@ export default function PlannerPage() {
 
       {/* Skotarkörvyns stråk-autopanel (närmaste stråkets sortiment) borttagen — pekade på fel stråk / visade redan utkört virke (Daniel, fältfynd). Högarna på kartan + tryck-popupen räcker. */}
 
-      {/* SKOTARKÖRVY (punkt 5): "Följ mig" — visas bara när föraren panorerat iväg (följet pausat).
-          Tryck återupptar auto-följet + recentrerar direkt på GPS. Ovanför +-knappen, klar av panelen. */}
-      {skotarKorvy && korvyFollowPaused && (
-        <button
-          type="button"
-          onClick={() => {
-            if (navigator.vibrate) navigator.vibrate(10);
-            setKorvyFollowPaused(false);
-            const map = mapInstanceRef.current; const pos = currentPosition as any;
-            if (map && pos && pos.lon != null && pos.lat != null) {
-              const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
-              map.easeTo({ center: [pos.lon, pos.lat], bearing: kartBearing, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 500 });
-            }
-          }}
-          aria-label="Följ mig"
-          style={{
-            position: 'fixed',
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 76px)',
-            right: 16,
-            minHeight: 44, padding: '0 16px 0 12px',
-            display: 'flex', alignItems: 'center', gap: 7,
-            borderRadius: 22,
-            background: '#0a84ff', border: 'none',
-            color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-            boxShadow: '0 4px 16px rgba(10,132,255,0.4)',
-            zIndex: 260,
-          }}
-        >
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>my_location</span>
-          Följ mig
-        </button>
-      )}
-
       {/* REN SKÄRM (fältfynd): "Uppdatera spår"-knappen och Baskarta-växlaren är BORTTAGNA från
           kartytan — båda bor nu i +-menyns KÖRVY-grupp (Uppdatera skördarens/skotarens spår + Baskarta).
           Kartytan i körvy visar bara karta + position + autopanel/HUD. */}
@@ -15605,48 +15598,7 @@ export default function PlannerPage() {
       )}
       {/* Zoom-knappar borttagna */}
 
-      {/* === KOMPASS-WIDGET (vänster nere) — INTE i körvy: där har skärmen bara hem-knapp, objektpill, +-knapp och korten när de
-          behövs. Kompassen bor i Lager-menyn (rad "Kompass"). Planeringsvyn oförändrad. === */}
-      {compassMode && !briefingMode && !korvyActive && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuOpen ? menuHeight + 110 : 100,
-          left: '15px',
-          width: '56px',
-          height: '56px',
-          background: 'rgba(0,0,0,0.9)',
-          borderRadius: '16px',
-          border: '1px solid rgba(255,255,255,0.15)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-
-          zIndex: 150,
-          transition: 'bottom 0.3s ease',
-        }}>
-          <svg 
-            width="40" 
-            height="40" 
-            viewBox="0 0 24 24"
-            style={{ 
-              transform: `rotate(${-deviceHeading}deg)`,
-              transition: 'transform 0.1s ease-out',
-            }}
-          >
-            <circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"/>
-            <path d="M12 3 L14.5 12 L12 10 L9.5 12 Z" fill="#ff453a"/>
-            <path d="M12 21 L14.5 12 L12 14 L9.5 12 Z" fill="rgba(255,255,255,0.5)"/>
-            <circle cx="12" cy="12" r="2" fill="#0a84ff"/>
-          </svg>
-          <span style={{
-            position: 'absolute',
-            top: '4px',
-            fontSize: '13px',
-            color: '#ff453a',
-            fontWeight: '700',
-          }}>N</span>
-        </div>
-      )}
+      {/* Kompass-rosen är borta (Martin 2026-10-04) — kompassen bor i Lager-menyn (rad "Kompass"); "rotera kartan" ligger kvar i Inställningar. */}
 
       {/* === GPS ACCURACY TEXT (vänster nere) === */}
       {isTracking && gpsAccuracy != null && (
@@ -16025,13 +15977,6 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* "Hämtar position…" — visas när centrera trycks utan GPS-fix (ljuger aldrig med objektets plats) */}
-      {gpsSokerPosition && (
-        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '13px', padding: '8px 14px', borderRadius: '18px', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-          Hämtar position…
-        </div>
-      )}
-
       {/* "Ingen GPS-fix" — serial-GPS (maskindator) har tappat fix (rule 4). Pricken är redan dämpad. */}
       {serialGpsAktiv && !gpsFixFarsk && (drivingMode || korvyActive) && !startOverlayAktiv && (
         <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(255,159,10,0.92)', color: '#000', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
@@ -16134,99 +16079,11 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === CENTRERA-KNAPP — kort tryck: GPS, långt tryck (500ms): objekt. Synlig ÄVEN i Körvy (förarens enda manuella GPS-retry). Döljs i volym/briefing. */}
-      {!briefingMode && valtObjekt && !korvyActive && !(volymLoading || volymResultat) && (
-        <button
-          type="button"
-          onPointerDown={() => {
-            centreLongPressFiredRef.current = false;
-            centreLongPressRef.current = setTimeout(() => {
-              centreLongPressFiredRef.current = true;
-              const map = mapInstanceRef.current;
-              if (map && valtObjekt && valtObjekt.lat && valtObjekt.lng) {
-                map.flyTo({
-                  center: [valtObjekt.lng, valtObjekt.lat],
-                  zoom: Math.max(map.getZoom(), 14),
-                  duration: 600,
-                });
-              }
-              if (navigator.vibrate) navigator.vibrate([15, 60, 25]);
-            }, 500);
-          }}
-          onPointerUp={() => {
-            if (centreLongPressRef.current) {
-              clearTimeout(centreLongPressRef.current);
-              centreLongPressRef.current = null;
-            }
-            if (centreLongPressFiredRef.current) return; // long press redan firad
-            // Kort tryck → centrera på GPS-position
-            const map = mapInstanceRef.current;
-            const pos = currentPosition as any;
-            if (map && pos && pos.lat != null && pos.lon != null) {
-              map.flyTo({
-                center: [pos.lon, pos.lat],
-                zoom: Math.max(map.getZoom(), 16),
-                duration: 600,
-              });
-              if (navigator.vibrate) navigator.vibrate(15);
-            } else if (map) {
-              // Ingen fix → ljug ALDRIG genom att centrera på objektet. Visa "Hämtar position…" och
-              // hämta en engångs-fix via GPS-KÄLLAN (serial eller geolocation, aldrig navigator.geolocation
-              // direkt); recentrera först när den kommer. Misslyckas den → gör inget.
-              setGpsSokerPosition(true);
-              hamtaEnGpsFix(12000).then((fix) => {
-                setGpsSokerPosition(false);
-                if (!fix || !fix.giltig || fix.lat == null || fix.lng == null) return;
-                const lon = fix.lng, lat = fix.lat;
-                setCurrentPosition({ lat, lon } as any);
-                setGpsPosition({ lat, lng: lon });
-                setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
-                map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 16), duration: 600 });
-                if (navigator.vibrate) navigator.vibrate(15);
-              });
-            }
-          }}
-          onPointerLeave={() => {
-            if (centreLongPressRef.current) {
-              clearTimeout(centreLongPressRef.current);
-              centreLongPressRef.current = null;
-            }
-          }}
-          onPointerCancel={() => {
-            if (centreLongPressRef.current) {
-              clearTimeout(centreLongPressRef.current);
-              centreLongPressRef.current = null;
-            }
-          }}
-          aria-label="Kort tryck centrera på GPS, långt tryck centrera på objektet"
-          className="press-scale"
-          style={{
-            position: 'fixed',
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 72px)',
-            right: '16px',
-            width: '40px',
-            height: '40px',
-            borderRadius: '50%',
-            background: 'rgba(20,20,22,0.72)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            color: '#fff',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 200,
-          }}
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <line x1="12" y1="2" x2="12" y2="6" />
-            <line x1="12" y1="18" x2="12" y2="22" />
-            <line x1="2" y1="12" x2="6" y2="12" />
-            <line x1="18" y1="12" x2="22" y2="12" />
-          </svg>
-        </button>
+      {/* === CENTRERA-KNAPP — EN komponent, samma beteende och utseende i körvyn och planeringsvyn (lib/centrera). Körvyn: dold så
+             länge kartan följer maskinen; drar föraren i kartan pausas följningen och knappen syns; tryck → följning igen.
+             Planeringen: dold när kartan står på positionen; dras kartan bort syns den; tryck → centrera EN gång (ingen följning). */}
+      {valtObjekt && !briefingMode && !(volymLoading || volymResultat) && (
+        <CentreraKnapp synlig={centreraSynlig} onTryck={centreraTryck} />
       )}
 
       {/* === FLYTTA-INDIKATOR === */}
