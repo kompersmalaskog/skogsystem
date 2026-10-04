@@ -6,6 +6,8 @@ import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { skaFragaBrandrisk } from "@/lib/ob";
 import { SKARP_START, foreSkarpStart } from "@/lib/skarpStart";
 import { formateraVeckoNotis } from "@/app/helikopter/_lib/veckoNotis";
+import { idagStockholm } from "@/lib/grotvy/format";
+import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -264,6 +266,12 @@ export async function byggMeddelande(n: any): Promise<{ title: string; body: str
       url: p.idag ? `/helikopter/veckolage?datum=${encodeURIComponent(String(p.idag))}` : "/helikopter/veckolage",
       tag: `helikopter-vecka-${n.mottagare_id}-${n.datum || n.id || ""}`,
     };
+  }
+
+  if (n.typ === PAMINNELSE_TYP) {
+    // GROT: markägarens datum närmar sig (7 och 2 dagar före). Köas av /api/grot/paminnelse (lib/grotvy/paminnelse-ko);
+    // payload = { namn, senast, dagar_fore, mark_begransning }. Texten byggs här, färskt, av den rena funktionen.
+    return paminnelseMeddelande(n.payload, idagStockholm());
   }
 
   // Generisk fallback

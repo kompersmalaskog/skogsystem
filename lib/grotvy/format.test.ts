@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  idagLokal, dagAv, dagarMellan, dagarSedan, kortDatum, tusental,
+  idagLokal, idagStockholm, dagAv, dagarMellan, dagarSedan, kortDatum, tusental,
   avverkatText, senastText, skordatText, grotSchablonText, avstandText, kmText, arealText, SAKNAR_OBJEKT_TEXT,
+  FORSENAD_TEXT, DALIG_BARIGHET_TEXT, markBegransningText, grotChipText, arRimligtSenast,
 } from './format';
 
 const NBSP = '\u00A0';
@@ -10,6 +11,23 @@ describe('idagLokal', () => {
   it('ger lokal kalenderdag med nollfyllning', () => {
     expect(idagLokal(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05');
     expect(idagLokal(new Date(2026, 9, 2, 0, 1))).toBe('2026-10-02');
+  });
+});
+
+describe('idagStockholm — svensk kalenderdag oavsett serverns tidszon', () => {
+  it('natten kring midnatt UTC: svensk tid ligger före (sommartid +2, vintertid +1)', () => {
+    expect(idagStockholm(new Date('2026-10-03T21:59:00Z'))).toBe('2026-10-03'); // 23:59 svensk sommartid
+    expect(idagStockholm(new Date('2026-10-03T22:01:00Z'))).toBe('2026-10-04'); // 00:01 svensk sommartid
+    expect(idagStockholm(new Date('2026-12-31T22:59:00Z'))).toBe('2026-12-31'); // 23:59 svensk vintertid
+    expect(idagStockholm(new Date('2026-12-31T23:01:00Z'))).toBe('2027-01-01'); // 00:01 svensk vintertid
+  });
+  it('cron-tiden 05:00 UTC är samma svenska dag sommar som vinter', () => {
+    expect(idagStockholm(new Date('2026-07-15T05:00:00Z'))).toBe('2026-07-15');
+    expect(idagStockholm(new Date('2026-01-15T05:00:00Z'))).toBe('2026-01-15');
+  });
+  it('nollfyllning och rimlig form', () => {
+    expect(idagStockholm(new Date('2026-03-05T12:00:00Z'))).toBe('2026-03-05');
+    expect(idagStockholm()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
 
@@ -87,19 +105,66 @@ describe('avverkatText', () => {
 
 describe('senastText', () => {
   const idag = '2026-10-02';
-  it('kommande datum + skäl', () => {
-    expect(senastText('2026-10-03', 'markberedning', idag)).toBe('senast 3 okt · markberedning');
+  it('datumet och inget annat — skälet visas ingenstans i v2', () => {
+    expect(senastText('2026-10-03', idag)).toBe('senast 3 okt');
+    expect(senastText('2026-10-02', idag)).toBe('senast 2 okt');
   });
-  it('utan skäl', () => {
-    expect(senastText('2026-10-03', null, idag)).toBe('senast 3 okt');
+  it('ett passerat datum står som datum — "försenad" är ett eget ord som vyn sätter i rött, inte en del av texten', () => {
+    expect(senastText('2026-10-01', idag)).toBe('senast 1 okt');
+    expect(senastText('2026-09-15', idag)).toBe('senast 15 sep');
+    expect(FORSENAD_TEXT).toBe('försenad');
   });
-  it('idag är inte försenat — igår är det', () => {
-    expect(senastText('2026-10-02', 'plantering', idag)).toBe('senast 2 okt · plantering');
-    expect(senastText('2026-10-01', 'plantering', idag)).toBe('senast 1 okt · plantering (försenat)');
-    expect(senastText('2026-09-15', null, idag)).toBe('senast 15 sep (försenat)');
+  it('annat år än idag tas med', () => {
+    expect(senastText('2027-01-09', idag)).toBe('senast 9 jan 2027');
   });
   it('inget datum → tom', () => {
-    expect(senastText(null, 'annat', idag)).toBe('');
+    expect(senastText(null, idag)).toBe('');
+    expect(senastText('skräp', idag)).toBe('');
+  });
+});
+
+describe('markBegransningText — planeringens markvillkor, bara en begränsning', () => {
+  it('bara dålig bärighet är en begränsning och visas; bra, medel, tomt och okänt visas inte', () => {
+    expect(markBegransningText('dalig')).toBe('dålig bärighet');
+    expect(DALIG_BARIGHET_TEXT).toBe('dålig bärighet');
+    expect(markBegransningText('medel')).toBe('');
+    expect(markBegransningText('bra')).toBe('');
+    expect(markBegransningText(null)).toBe('');
+    expect(markBegransningText(undefined)).toBe('');
+    expect(markBegransningText('Dalig')).toBe('');
+    expect(markBegransningText('dålig')).toBe('');
+  });
+});
+
+describe('grotChipText', () => {
+  it('antalet, och "N snart" bara när något är snart', () => {
+    expect(grotChipText(28, 0)).toBe('GROT · 28');
+    expect(grotChipText(28, 2)).toBe('GROT · 28 · 2 snart');
+    expect(grotChipText(1, 1)).toBe('GROT · 1 · 1 snart');
+  });
+});
+
+describe('arRimligtSenast — vad datumväljaren får spara', () => {
+  it('riktiga datum 2000–2100 går', () => {
+    expect(arRimligtSenast('2026-10-14')).toBe(true);
+    expect(arRimligtSenast('2000-01-01')).toBe(true);
+    expect(arRimligtSenast('2100-12-31')).toBe(true);
+    expect(arRimligtSenast('2028-02-29')).toBe(true); // skottår
+  });
+  it('halvskrivet (tomt, år 0002) och orimligt sparas inte', () => {
+    expect(arRimligtSenast('')).toBe(false);
+    expect(arRimligtSenast(null)).toBe(false);
+    expect(arRimligtSenast(undefined)).toBe(false);
+    expect(arRimligtSenast('0002-10-14')).toBe(false);
+    expect(arRimligtSenast('1999-12-31')).toBe(false);
+    expect(arRimligtSenast('2101-01-01')).toBe(false);
+  });
+  it('inte ett kalenderdatum, eller inte exakt YYYY-MM-DD, sparas inte', () => {
+    expect(arRimligtSenast('2026-02-30')).toBe(false);
+    expect(arRimligtSenast('2027-02-29')).toBe(false);
+    expect(arRimligtSenast('2026-13-01')).toBe(false);
+    expect(arRimligtSenast('2026-10-14T00:00:00')).toBe(false); // ISO-tid är inte datumväljarens värde
+    expect(arRimligtSenast('14 okt')).toBe(false);
   });
 });
 
