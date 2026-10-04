@@ -14,6 +14,10 @@
 //
 // Rena funktioner → enhetstestbara utan karta eller databas.
 
+// djupLika och kolumnerSomInteLandade är gemensamma med avlägg/brand/TMA-autosparen och bor i autosparBaslinje (en definition).
+import { djupLika, kolumnerSomInteLandade } from './autosparBaslinje';
+export { djupLika, kolumnerSomInteLandade };
+
 /** Kolumn → värde för objekt-raden (det som skickas i en update). */
 export type InfoRad = Record<string, unknown>;
 
@@ -187,18 +191,6 @@ export function infoRadFranVarden(v: InfoVarden): InfoRad {
 /** Kolumner som sparas — i samma ordning som `infoRadFranVarden`. */
 export const INFO_KOLUMNER: string[] = Object.keys(infoRadFranVarden(infoVardenFranRad({})));
 
-/** Djup jämförelse: nyckelordning spelar ingen roll (jsonb ordnar om nycklar), `undefined` räknas som saknad nyckel. */
-export function djupLika(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => djupLika(x, b[i]));
-  const ka = Object.keys(a as object).filter((k) => (a as any)[k] !== undefined);
-  const kb = Object.keys(b as object).filter((k) => (b as any)[k] !== undefined);
-  if (ka.length !== kb.length) return false;
-  return ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && djupLika((a as any)[k], (b as any)[k]));
-}
-
 /** Tidsstämplar i den APP-BERÄKNADE cachen (trakt_data.beraknad). En omkörning som ger samma resultat byter bara dessa. */
 const TIDSNYCKLAR = new Set(['beraknadAt', 'restriktionerAnalyseradAt', 'at']);
 export function utanTidsstamplar(x: unknown): unknown {
@@ -222,11 +214,4 @@ export function andradeKolumner(bas: InfoRad, nu: InfoRad): InfoRad {
     if (!lika) ut[kol] = v;
   }
   return ut;
-}
-
-/** Efter en sparning: vilka av de skickade kolumnerna kom INTE tillbaka med samma värde? Radräkning bevisar bara att en rad
- *  rördes — inte att värdet landade. Tom lista = allt landade. */
-export function kolumnerSomInteLandade(skickat: InfoRad, tillbaka: Record<string, unknown> | null | undefined): string[] {
-  if (!tillbaka) return Object.keys(skickat);
-  return Object.keys(skickat).filter((kol) => !djupLika(skickat[kol], tillbaka[kol]));
 }

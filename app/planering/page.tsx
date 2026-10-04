@@ -16,12 +16,16 @@ import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
-import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, kolumnerSomInteLandade, type InfoRad } from '../../lib/objektInfoSpar'
+import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, type InfoRad } from '../../lib/objektInfoSpar'
 import { hamtaServerVersion, arNyVersion, laddaOmMedCacheBust, skaAutoUppdatera } from '../../lib/autoUppdatering'
 import { skaEmittaHeading } from '../../lib/kompass'
 import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, ringCentroid, numreraObjekt, traktArealHa, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
 import { startaPolygonRitning, type PolygonRitningHandle } from '../../lib/polygonRitning'
 import { upsertVerifierat, raderaVerifierat, uppdateraVerifierat } from '../../lib/supabase-save'
+import { delarSomText, kolumnerSomInteLandade, type AutosparDel } from '../../lib/autosparBaslinje'
+import { avlaggAttSkriva, avlaggBaslinjeFran, avlaggFullRad, mergaAvlagg, type AvlaggBaslinje, type AvlaggDbRad } from '../../lib/avlaggSpar'
+import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type BrandBaslinje } from '../../lib/brandSpar'
+import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
@@ -693,10 +697,8 @@ export default function PlannerPage() {
 
   // Ladda markeringar från Supabase när objekt väljs
   useEffect(() => {
-    if (!valtObjekt?.id) {
-      setMarkersLoaded(false);
-      return;
-    }
+    setMarkersLoaded(false);   // vid VARJE objektbyte (inte bara "inget objekt"): effekter som hänger på markersLoaded (avlägg-laddaren) kör om för det NYA objektet
+    if (!valtObjekt?.id) return;
     const loadMarkers = async () => {
       const { data, error } = await supabase
         .from('planering_markeringar')
@@ -1039,6 +1041,8 @@ export default function PlannerPage() {
       mergeCheckedIdsRef.current = new Set(laddade.map(m => String(m.id)));
       setMarkers(laddade);
       setMarkersUppdateradAt(Date.now());
+      // Avlägg-baslinjen följer med: annars ser avlägg-sparningen skillnaden mot det tidigare inflätade avlägg-innehållet som "ändrat".
+      if (avlaggBasRef.current && avlaggBasRef.current.id === objektId) avlaggBaslinjeFran(laddade.filter(m => m.isMarker && m.type === 'landing'), avlaggBasRef.current.bas);
     } finally {
       setMarkersUppdaterar(false);
     }
@@ -1201,100 +1205,99 @@ export default function PlannerPage() {
     return () => { supabase.removeChannel(channel); };
   }, [valtObjekt?.id, refetchMarkers]);
 
+  // === AUTOSPAR AV AVLÄGG / BRAND / TMA — gemensamt (lib/autosparBaslinje + avlaggSpar/brandSpar/tmaSpar) ===
+  // Bara ÄNDRADE kolumner skrivs, aldrig vid öppning, aldrig efter ett läsfel och aldrig medan data laddar: varje del har en
+  // BASLINJE (vad "oförändrat" betyder) som sätts först när DET HÄR objektets rader lästs OK. Ingen baslinje = ingen skrivning.
+  // Misslyckas en läsning visas en varning (autosparFel) med "Försök igen" (autosparOm höjs → laddaren körs om).
+  const [autosparFel, setAutosparFel] = useState<Partial<Record<AutosparDel, boolean>>>({});
+  const [autosparOm, setAutosparOm] = useState<Record<AutosparDel, number>>({ avlagg: 0, brand: 0, tma: 0 });
+  const markeraAutosparFel = (del: AutosparDel, fel: boolean) => setAutosparFel(p => ((p[del] ?? false) === fel ? p : { ...p, [del]: fel }));
+
   // === AVLÄGG: Ladda sparad data från Supabase ===
-  const avlaggLoadedRef = useRef(false);
+  // Baslinjen sätts när avlägg-raderna lästs OK för DET HÄR objektet och DET HÄR objektets markörer (markersObjektIdRef) laddats.
+  const avlaggBasRef = useRef<{ id: string; bas: AvlaggBaslinje } | null>(null);
   useEffect(() => {
-    avlaggLoadedRef.current = false;
-    if (!valtObjekt?.id || !markersLoaded) return;
-    const landingMarkers = markers.filter(m => m.isMarker && m.type === 'landing');
-    if (landingMarkers.length === 0) { avlaggLoadedRef.current = true; return; }
+    avlaggBasRef.current = null;
+    markeraAutosparFel('avlagg', false);
+    if (!valtObjekt?.id || !markersLoaded || markersObjektIdRef.current !== valtObjekt.id) return;
+    const objektId = valtObjekt.id;
+    let avbruten = false;   // objektet byttes under hämtningen → släng svaret
     const loadAvlagg = async () => {
       const { data, error } = await supabase
         .from('avlagg_assessments')
         .select('*')
-        .eq('objekt_id', valtObjekt.id);
+        .eq('objekt_id', objektId);
+      if (avbruten) return;
       if (error) {
-        console.error('[Avlägg] Kunde inte ladda från Supabase:', error);
-        avlaggLoadedRef.current = true;
+        console.error('[Avlägg] Kunde inte ladda från Supabase — autospar av för avläggen:', error);
+        markeraAutosparFel('avlagg', true);
         return;
       }
-      if (data && data.length > 0) {
-        const byMarkerId: Record<string, any> = {};
-        for (const row of data) byMarkerId[row.marker_id] = row;
-        setMarkers(prev => prev.map(m => {
-          if (m.type !== 'landing') return m;
-          const saved = byMarkerId[String(m.id)];
-          if (!saved) return m;
-          // Merga sparad data in i roadCheck (om den finns)
-          const rc = m.roadCheck || { status: 'ok' as const, tillstand: 'ej_sokt' as const };
-          return {
-            ...m,
-            comment: saved.comment ?? m.comment,
-            photoData: saved.photo_data ?? m.photoData,
-            roadCheck: {
-              ...rc,
-              tillstand: saved.tillstand || rc.tillstand,
-              checklist: saved.checklist || rc.checklist,
-            },
-          };
-        }));
-        console.log('[Avlägg] Laddade', data.length, 'avlägg från Supabase');
-      }
-      avlaggLoadedRef.current = true;
+      const rader = (data || []) as AvlaggDbRad[];
+      setMarkers(prev => {
+        const sammanslagna = mergaAvlagg(prev, rader);
+        // Det inflätade avlägg-innehållet ÄR redan sparat (det kom ur DB): räkna det som persisterat, annars skriver markör-
+        // synken tillbaka det till planering_markeringar vid öppning (JSON:en skiljer sig från den sparade).
+        if (sammanslagna !== prev) {
+          for (const m of sammanslagna) if (m.isMarker && m.type === 'landing' && persistedSnapshotRef.current.has(String(m.id))) persistedSnapshotRef.current.set(String(m.id), JSON.stringify(m));
+        }
+        avlaggBasRef.current = { id: objektId, bas: avlaggBaslinjeFran(sammanslagna.filter(m => m.isMarker && m.type === 'landing')) };
+        return sammanslagna;
+      });
+      if (rader.length > 0) console.log('[Avlägg] Laddade', rader.length, 'avlägg från Supabase');
     };
     loadAvlagg();
-  }, [valtObjekt?.id, markersLoaded]);
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, markersLoaded, autosparOm.avlagg]);
 
-  // === AVLÄGG: Spara till Supabase (debounced) ===
-  const avlaggSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  useEffect(() => {
-    if (!valtObjekt?.id || !markersLoaded || !avlaggLoadedRef.current) return;
+  // === AVLÄGG: Spara till Supabase (debounced) — bara ändrade avlägg, bara ändrade kolumner ===
+  const avlaggSparaPagarRef = useRef(false);
+  const avlaggSparaOmRef = useRef(false);
+  const avlaggKorRef = useRef<() => Promise<void>>(async () => {});
+  avlaggKorRef.current = async () => {
+    const objektId = valtObjekt?.id;
+    if (!objektId || !markersLoaded || markersObjektIdRef.current !== objektId) return;
+    if (testlageAktivRef.current) return;   // TESTFLIKEN (/maskin?som=): ingen skrivning
+    const ab = avlaggBasRef.current;
+    if (!ab || ab.id !== objektId) return;  // inte laddat ur DET HÄR objektet → skriv ingenting
+    if (avlaggSparaPagarRef.current) { avlaggSparaOmRef.current = true; return; }
     const landingMarkers = markers.filter(m => m.isMarker && m.type === 'landing');
-    if (landingMarkers.length === 0) return;
-    if (avlaggSaveTimeoutRef.current) clearTimeout(avlaggSaveTimeoutRef.current);
-    avlaggSaveTimeoutRef.current = setTimeout(async () => {
+    const { skriv, tystaNya } = avlaggAttSkriva(ab.bas, landingMarkers);
+    for (const [id, b] of tystaNya) ab.bas.set(id, b);   // nya avlägg utan innehåll: ingen skrivning, bara baslinje
+    if (skriv.length === 0) return;
+    avlaggSparaPagarRef.current = true;
+    try {
       const mPerDegLat = 111320;
       const mPerDegLon = 111320 * Math.cos(mapCenter.lat * Math.PI / 180);
       const curScale = 156543.03392 * Math.cos(mapCenter.lat * Math.PI / 180) / Math.pow(2, mapZoom);
-
-      const rows = landingMarkers.map(m => {
-        const dxMeters = m.x * curScale;
-        const dyMeters = -m.y * curScale;
-        const lon = mapCenter.lng + dxMeters / mPerDegLon;
-        const lat = mapCenter.lat + dyMeters / mPerDegLat;
-        const rc = m.roadCheck;
-        const nr = rc?.nearestRoad;
-        return {
-          objekt_id: valtObjekt.id,
-          marker_id: String(m.id),
-          lat,
-          lon,
-          comment: m.comment || null,
-          photo_data: m.photoData || null,
-          road_name: nr ? (nr.ref ? `${nr.ref} — ${nr.name}` : nr.name) : null,
-          road_ref: nr?.ref || null,
-          road_type: nr?.type || null,
-          road_speed: nr?.maxspeed || null,
-          road_category: rc?.roadCategory || null,
-          distance_to_road: null, // Inte tillgängligt i RoadCheckResult
-          nearby_intersection_distance: rc?.nearbyIntersection?.distance || null,
-          tillstand: rc?.tillstand || 'ej_sokt',
-          requires_special_permit: rc?.requiresSpecialPermit || false,
-          generellt_tillstand_applied: rc?.generelltTillstandApplied || false,
-          checklist: rc?.checklist || [false, false, false, false, false, false, false, false, false, false, false],
-          updated_at: new Date().toISOString(),
-        };
-      });
-
-      const { error } = await supabase
-        .from('avlagg_assessments')
-        .upsert(rows, { onConflict: 'objekt_id,marker_id' });
-      if (error) {
-        console.error('[Avlägg] Spara till Supabase fel:', error);
-      } else {
-        console.log('[Avlägg] Sparade', rows.length, 'avlägg till Supabase');
+      for (const s of skriv) {
+        const m = landingMarkers.find(x => String(x.id) === s.markerId);
+        if (!m) continue;
+        const lon = mapCenter.lng + (m.x * curScale) / mPerDegLon;
+        const lat = mapCenter.lat + (-m.y * curScale) / mPerDegLat;
+        const nu = new Date().toISOString();
+        const rad: Record<string, unknown> = s.ny
+          ? avlaggFullRad(objektId, m, lat, lon, nu)
+          : { objekt_id: objektId, marker_id: s.markerId, ...s.kolumner, ...(s.flyttad ? { lat, lon } : {}), updated_at: nu };
+        // Läs tillbaka värdena (utom foto-bas64, som skulle laddas ner igen): radräkning bevisar inte att värdet landade.
+        const utanFoto = Object.keys(rad).filter(k => k !== 'photo_data');
+        const res = await upsertVerifierat<Record<string, unknown>>(supabase, 'avlagg_assessments', rad, { onConflict: 'objekt_id,marker_id', select: utanFoto.join(',') });
+        if (!res.ok) { console.error('[Avlägg] Spara till Supabase fel:', res.fel, s.markerId); continue; }
+        const missade = kolumnerSomInteLandade(Object.fromEntries(utanFoto.map(k => [k, rad[k]])), res.rows[0]).filter(k => k !== 'updated_at');
+        if (missade.length > 0) { console.error('[Avlägg] värdet landade inte i DB för:', s.markerId, missade.join(', ')); continue; }
+        if (avlaggBasRef.current && avlaggBasRef.current.id === objektId) avlaggBasRef.current.bas.set(s.markerId, s.bas);
+        console.log('[Avlägg] Sparade', s.markerId, s.ny ? '(ny rad)' : Object.keys(s.kolumner).join(',') || '(läge)');
       }
-    }, 1500);
+    } finally {
+      avlaggSparaPagarRef.current = false;
+      if (avlaggSparaOmRef.current) { avlaggSparaOmRef.current = false; setTimeout(() => avlaggKorRef.current(), 0); }
+    }
+  };
+  const avlaggSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!valtObjekt?.id || !markersLoaded) return;
+    if (avlaggSaveTimeoutRef.current) clearTimeout(avlaggSaveTimeoutRef.current);
+    avlaggSaveTimeoutRef.current = setTimeout(() => { avlaggKorRef.current(); }, 1500);
     return () => { if (avlaggSaveTimeoutRef.current) clearTimeout(avlaggSaveTimeoutRef.current); };
   }, [markers, valtObjekt?.id, markersLoaded]);
 
@@ -7144,7 +7147,6 @@ export default function PlannerPage() {
   });
   const [brandUtrustning, setBrandUtrustning] = useState([false, false, false, false]);
   const [brandLarmChecklista, setBrandLarmChecklista] = useState([false, false, false, false, false]);
-  const brandLoadedRef = useRef(false);
 
   // === TRAKTANALYS ===
   const [tractAnalysis, setTractAnalysis] = useState<Record<string, TraktAnalysisResult>>({}); // per boundary id
@@ -7390,172 +7392,160 @@ export default function PlannerPage() {
   }, [tractAnalysis]);
 
   // === BRAND: Ladda sparad data från Supabase ===
+  // Baslinjen (brandBasRef) sätts först när ALLA fyra läsningar lyckats; då sätts även ALLA fält (saknad rad = defaults), så
+  // inget ligger kvar från föregående objekt. Ingen baslinje = ingen skrivning (läsfel → varning med "Försök igen").
+  const brandBasRef = useRef<{ id: string; bas: BrandBaslinje } | null>(null);
   useEffect(() => {
-    brandLoadedRef.current = false;
+    brandBasRef.current = null;
+    markeraAutosparFel('brand', false);
     if (!valtObjekt?.id) return;
+    const objektId = valtObjekt.id;
+    let avbruten = false;   // objektet byttes under hämtningen → släng svaret
     const loadBrand = async () => {
-      const { data: samData } = await supabase.from('brand_samrad').select('*').eq('objekt_id', valtObjekt.id).maybeSingle();
-      const { data: kontData } = await supabase.from('brand_kontakter').select('*').eq('objekt_id', valtObjekt.id).maybeSingle();
-      if (kontData) {
-        setBrandKontakter({
-          uppdragsgivareNamn: kontData.uppdragsgivare_namn || '',
-          uppdragsgivareTel: kontData.uppdragsgivare_tel || '',
-          forsakringsbolag: kontData.forsakringsbolag || '',
-          forsakringsnummer: kontData.forsakringsnummer || '',
-          raddningstjanstNamn: kontData.raddningstjanst_namn || '',
-          raddningstjanstTel: kontData.raddningstjanst_tel || '',
-        });
+      const samR = await supabase.from('brand_samrad').select('*').eq('objekt_id', objektId).maybeSingle();
+      const kontR = await supabase.from('brand_kontakter').select('*').eq('objekt_id', objektId).maybeSingle();
+      const tillR = await supabase.from('brand_tillbud').select('*').eq('objekt_id', objektId).order('datum', { ascending: false });
+      const ekR = await supabase.from('brand_efterkontroll').select('*').eq('objekt_id', objektId).maybeSingle();
+      if (avbruten) return;
+      const fel = samR.error || kontR.error || tillR.error || ekR.error;
+      if (fel) {
+        console.error('[Brand] Kunde inte ladda från Supabase — autospar av för brand:', fel);
+        markeraAutosparFel('brand', true);
+        return;
       }
-      const { data: tillData } = await supabase.from('brand_tillbud').select('*').eq('objekt_id', valtObjekt.id).order('datum', { ascending: false });
-      if (tillData) {
-        setBrandTillbud(tillData.map(t => ({
-          datum: t.datum || '', beskrivning: t.beskrivning || '', atgard: t.atgard || '',
-          lat: t.lat || 0, lon: t.lon || 0, photoData: t.photo_data || '', rapporteradTill: t.rapporterad_till || '',
-        })));
-      }
-      const { data: ekData } = await supabase.from('brand_efterkontroll').select('*').eq('objekt_id', valtObjekt.id).maybeSingle();
-      if (ekData) {
-        setBrandEfterkontroll({
-          datum: ekData.datum ? new Date(ekData.datum).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16),
-          noteringar: ekData.noteringar || '', kvitterad: ekData.kvitterad || false,
-        });
-      }
-      // Ladda utrustning + larm-checklista från brand_samrad
-      if (samData) {
-        if (Array.isArray(samData.utrustning)) setBrandUtrustning(samData.utrustning);
-        if (Array.isArray(samData.larm_checklista)) setBrandLarmChecklista(samData.larm_checklista);
-      }
-      brandLoadedRef.current = true;
+      const v = brandVardenFranRader(samR.data, kontR.data, ekR.data, new Date().toISOString().slice(0, 16));
+      setBrandKontakter(v.kontakter);
+      setBrandEfterkontroll(v.efterkontroll);
+      setBrandUtrustning(v.utrustning);
+      setBrandLarmChecklista(v.larmChecklista);
+      setBrandTillbud((tillR.data || []).map((t: any) => ({
+        datum: t.datum || '', beskrivning: t.beskrivning || '', atgard: t.atgard || '',
+        lat: t.lat || 0, lon: t.lon || 0, photoData: t.photo_data || '', rapporteradTill: t.rapporterad_till || '',
+      })));
+      brandBasRef.current = { id: objektId, bas: brandKolumnerFranVarden(v) };
       console.log('[Brand] Laddade data från Supabase');
     };
     loadBrand();
-  }, [valtObjekt?.id]);
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, autosparOm.brand]);
 
-  // === BRAND: Spara samråd + kontakter (debounced) ===
+  // === BRAND: Spara samråd + kontakter (debounced) — bara tabeller/kolumner som ändrats ===
+  // fwi_value utlöser aldrig en sparning och skrivs aldrig som NULL: det följer med brand_samrad bara när den ändå skrivs och
+  // brandpanelen har ett klart värde (förut skrevs `brandRisk?.currentFwi || null` varje gång, och brandRisk finns bara medan
+  // panelen är monterad → NULL i stort sett alltid).
+  const brandSparaPagarRef = useRef(false);
+  const brandSparaOmRef = useRef(false);
+  const brandKorRef = useRef<() => Promise<void>>(async () => {});
+  brandKorRef.current = async () => {
+    const objektId = valtObjekt?.id;
+    if (!objektId) return;
+    if (testlageAktivRef.current) return;   // TESTFLIKEN (/maskin?som=): ingen skrivning
+    const bb = brandBasRef.current;
+    if (!bb || bb.id !== objektId) return;  // inte laddat ur DET HÄR objektet → skriv ingenting
+    const fwi = brandRisk?.status === 'done' && Number.isFinite(brandRisk.currentFwi) ? brandRisk.currentFwi : null;
+    const skriv = brandAttSkriva(bb.bas, { kontakter: brandKontakter, efterkontroll: brandEfterkontroll, utrustning: brandUtrustning, larmChecklista: brandLarmChecklista }, fwi);
+    if (skriv.length === 0) return;
+    if (brandSparaPagarRef.current) { brandSparaOmRef.current = true; return; }
+    brandSparaPagarRef.current = true;
+    try {
+      for (const s of skriv) {
+        const nu = new Date().toISOString();
+        const rad: Record<string, unknown> = { objekt_id: objektId, ...s.kolumner, ...(s.tabell === 'brand_efterkontroll' ? {} : { updated_at: nu }) };
+        const res = await upsertVerifierat<Record<string, unknown>>(supabase, s.tabell, rad, { onConflict: 'objekt_id', select: Object.keys(rad).join(',') });
+        if (!res.ok) { console.error('[Brand] Spara till Supabase fel:', s.tabell, res.fel); continue; }
+        // timestamptz kommer tillbaka med tidszon → jämför på 'YYYY-MM-DDTHH:mm' (UTC), som vi skickar och laddar
+        const tillbaka: Record<string, unknown> = { ...res.rows[0] };
+        if (typeof tillbaka.datum === 'string') tillbaka.datum = new Date(tillbaka.datum).toISOString().slice(0, 16);
+        const missade = kolumnerSomInteLandade(Object.fromEntries(Object.keys(rad).filter(k => k !== 'updated_at').map(k => [k, rad[k]])), tillbaka);
+        if (missade.length > 0) { console.error('[Brand] värdet landade inte i DB för:', s.tabell, missade.join(', ')); continue; }
+        if (brandBasRef.current && brandBasRef.current.id === objektId) {
+          const { fwi_value: _fwi, ...utanFwi } = s.kolumner;   // fwi_value ingår inte i baslinjen
+          brandBasRef.current.bas = { ...brandBasRef.current.bas, [s.tabell]: { ...brandBasRef.current.bas[s.tabell], ...utanFwi } };
+        }
+        console.log('[Brand] Sparade', s.tabell, Object.keys(s.kolumner).join(','));
+      }
+    } finally {
+      brandSparaPagarRef.current = false;
+      if (brandSparaOmRef.current) { brandSparaOmRef.current = false; setTimeout(() => brandKorRef.current(), 0); }
+    }
+  };
   const brandSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
-    if (!valtObjekt?.id || !brandLoadedRef.current) return;
+    if (!valtObjekt?.id) return;
     if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current);
-    brandSaveTimeoutRef.current = setTimeout(async () => {
-      await supabase.from('brand_samrad').upsert({
-        objekt_id: valtObjekt.id,
-        fwi_value: brandRisk?.currentFwi || null,
-        utrustning: brandUtrustning,
-        larm_checklista: brandLarmChecklista,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'objekt_id' });
-      await supabase.from('brand_kontakter').upsert({
-        objekt_id: valtObjekt.id,
-        uppdragsgivare_namn: brandKontakter.uppdragsgivareNamn || null,
-        uppdragsgivare_tel: brandKontakter.uppdragsgivareTel || null,
-        forsakringsbolag: brandKontakter.forsakringsbolag || null,
-        forsakringsnummer: brandKontakter.forsakringsnummer || null,
-        raddningstjanst_namn: brandKontakter.raddningstjanstNamn || null,
-        raddningstjanst_tel: brandKontakter.raddningstjanstTel || null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'objekt_id' });
-      await supabase.from('brand_efterkontroll').upsert({
-        objekt_id: valtObjekt.id,
-        datum: brandEfterkontroll.datum,
-        noteringar: brandEfterkontroll.noteringar || null,
-        kvitterad: brandEfterkontroll.kvitterad,
-      }, { onConflict: 'objekt_id' });
-      console.log('[Brand] Sparade till Supabase');
-    }, 2000);
+    brandSaveTimeoutRef.current = setTimeout(() => { brandKorRef.current(); }, 2000);
     return () => { if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current); };
   }, [brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, valtObjekt?.id]);
 
   // === TMA: Ladda sparad data från Supabase ===
-  const tmaLoadedRef = useRef(false);
+  // Baslinjen (tmaBasRef) sätts först när läsningen lyckats; då sätts även riskfrågor och samråd ovillkorligt (även tomt), så
+  // inget ligger kvar från föregående objekts gränser. Ingen baslinje = ingen skrivning (läsfel → varning med "Försök igen").
+  const tmaBasRef = useRef<{ id: string; bas: TmaBaslinje } | null>(null);
   useEffect(() => {
-    tmaLoadedRef.current = false;
+    tmaBasRef.current = null;
+    markeraAutosparFel('tma', false);
     if (!valtObjekt?.id) return;
+    const objektId = valtObjekt.id;
+    let avbruten = false;   // objektet byttes under hämtningen → släng svaret
     const loadTma = async () => {
       const { data, error } = await supabase
         .from('tma_assessments')
         .select('boundary_id, risk_answers, risk_level, samrad_data')
-        .eq('objekt_id', valtObjekt.id);
+        .eq('objekt_id', objektId);
+      if (avbruten) return;
       if (error) {
-        console.error('[TMA] Kunde inte ladda från Supabase:', error);
-        tmaLoadedRef.current = true;
+        console.error('[TMA] Kunde inte ladda från Supabase — autospar av för TMA:', error);
+        markeraAutosparFel('tma', true);
         return;
       }
-      if (data && data.length > 0) {
-        const loadedRisk: Record<string, (boolean | null)[]> = {};
-        const loadedSamrad: Record<string, { fallare: string; tmaBil: boolean | null; checkboxes: boolean[]; datum: string; kvitterad: boolean; kvitteradDatum: string }> = {};
-        for (const row of data) {
-          if (row.risk_answers) {
-            loadedRisk[row.boundary_id] = row.risk_answers as (boolean | null)[];
-          }
-          if (row.samrad_data && typeof row.samrad_data === 'object') {
-            const sd = row.samrad_data as any;
-            loadedSamrad[row.boundary_id] = {
-              fallare: sd.fallare || '',
-              tmaBil: sd.tmaBil ?? null,
-              checkboxes: sd.checkboxes || [false, false, false, false, false, false],
-              datum: sd.datum || new Date().toISOString().split('T')[0],
-              kvitterad: sd.kvitterad || false,
-              kvitteradDatum: sd.kvitteradDatum || '',
-            };
-          }
-        }
-        if (Object.keys(loadedRisk).length > 0) setTmaRisk(loadedRisk);
-        if (Object.keys(loadedSamrad).length > 0) setTmaSamrad(loadedSamrad);
-        console.log('[TMA] Laddade', data.length, 'bedömningar från Supabase');
-      }
-      tmaLoadedRef.current = true;
+      const v = tmaVardenFranRader((data || []) as TmaDbRad[], new Date().toISOString().split('T')[0]);
+      setTmaRisk(v.risk);
+      setTmaSamrad(v.samrad);
+      tmaBasRef.current = { id: objektId, bas: tmaBaslinjeFran(v.risk, v.samrad) };
+      if ((data || []).length > 0) console.log('[TMA] Laddade', data!.length, 'bedömningar från Supabase');
     };
     loadTma();
-  }, [valtObjekt?.id]);
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, autosparOm.tma]);
 
-  // === TMA: Spara till Supabase (debounced) ===
+  // === TMA: Spara till Supabase (debounced) — bara gränser/kolumner som ändrats ===
+  // Vägkolumnerna (road_*) utlöser ALDRIG en sparning (tmaResults är inte med i deps) och skrivs bara när vägkontrollen är klar
+  // med en väg — aldrig som NULL medan den laddar eller felar (förut skrevs sparad väginfo över med NULL).
+  const tmaSparaPagarRef = useRef(false);
+  const tmaSparaOmRef = useRef(false);
+  const tmaKorRef = useRef<() => Promise<void>>(async () => {});
+  tmaKorRef.current = async () => {
+    const objektId = valtObjekt?.id;
+    if (!objektId) return;
+    if (testlageAktivRef.current) return;   // TESTFLIKEN (/maskin?som=): ingen skrivning
+    const tb = tmaBasRef.current;
+    if (!tb || tb.id !== objektId) return;  // inte laddat ur DET HÄR objektet → skriv ingenting
+    const skriv = tmaAttSkriva(tb.bas, tmaRisk, tmaSamrad);
+    if (skriv.length === 0) return;
+    if (tmaSparaPagarRef.current) { tmaSparaOmRef.current = true; return; }
+    tmaSparaPagarRef.current = true;
+    try {
+      for (const s of skriv) {
+        const rad: Record<string, unknown> = { objekt_id: objektId, boundary_id: s.boundaryId, ...s.kolumner, ...tmaVagKolumner(tmaResults[s.boundaryId]), updated_at: new Date().toISOString() };
+        const res = await upsertVerifierat<Record<string, unknown>>(supabase, 'tma_assessments', rad, { onConflict: 'objekt_id,boundary_id', select: Object.keys(rad).join(',') });
+        if (!res.ok) { console.error('[TMA] Spara till Supabase fel:', res.fel, s.boundaryId); continue; }
+        const missade = kolumnerSomInteLandade(Object.fromEntries(Object.keys(rad).filter(k => k !== 'updated_at').map(k => [k, rad[k]])), res.rows[0]);
+        if (missade.length > 0) { console.error('[TMA] värdet landade inte i DB för:', s.boundaryId, missade.join(', ')); continue; }
+        if (tmaBasRef.current && tmaBasRef.current.id === objektId) tmaBasRef.current.bas.set(s.boundaryId, { ...(tmaBasRef.current.bas.get(s.boundaryId) || {}), ...(s.ny ? s.nu : s.kolumner) });
+        console.log('[TMA] Sparade', s.boundaryId, Object.keys(s.kolumner).join(','));
+      }
+    } finally {
+      tmaSparaPagarRef.current = false;
+      if (tmaSparaOmRef.current) { tmaSparaOmRef.current = false; setTimeout(() => tmaKorRef.current(), 0); }
+    }
+  };
   const tmaSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
-    if (!valtObjekt?.id || !tmaLoadedRef.current) return;
+    if (!valtObjekt?.id) return;
     if (tmaSaveTimeoutRef.current) clearTimeout(tmaSaveTimeoutRef.current);
-    tmaSaveTimeoutRef.current = setTimeout(async () => {
-      // Samla alla boundary-IDs som har risk eller samråd-data
-      const allBoundaryIds = new Set([...Object.keys(tmaRisk), ...Object.keys(tmaSamrad)]);
-      if (allBoundaryIds.size === 0) return;
-
-      const rows = Array.from(allBoundaryIds).map(bmId => {
-        const risk = tmaRisk[bmId] || [null, null, null, null, null, null, null];
-        const samrad = tmaSamrad[bmId];
-        const tmaResult = tmaResults[bmId];
-        const mainRoad = tmaResult?.status === 'done' && tmaResult.roads.length > 0 ? tmaResult.roads[0] : null;
-
-        // Beräkna risknivå
-        const answeredCount = risk.filter(v => v !== null).length;
-        const jaCount = risk.filter(v => v === true).length;
-        const windBoost = risk[4] === true ? 1 : 0;
-        const baseLevel = answeredCount < 7 ? null : (jaCount >= 3 || risk[1] === true) ? 'high' : jaCount >= 1 ? 'medium' : 'low';
-        const riskLevel = baseLevel === null ? null : windBoost > 0 ? (baseLevel === 'low' ? 'medium' : baseLevel === 'medium' ? 'high' : 'high') : baseLevel;
-
-        return {
-          objekt_id: valtObjekt.id,
-          boundary_id: bmId,
-          road_name: mainRoad ? (mainRoad.ref ? `${mainRoad.ref} · ${mainRoad.name}` : mainRoad.name) : null,
-          road_speed: mainRoad?.maxspeed || null,
-          road_type: mainRoad?.type || null,
-          distance_to_road: mainRoad?.distance || null,
-          risk_answers: risk,
-          risk_level: riskLevel,
-          samrad_data: samrad || {},
-          updated_at: new Date().toISOString(),
-        };
-      });
-
-      const { error } = await supabase
-        .from('tma_assessments')
-        .upsert(rows, { onConflict: 'objekt_id,boundary_id' });
-      if (error) {
-        console.error('[TMA] Spara till Supabase fel:', error);
-      } else {
-        console.log('[TMA] Sparade', rows.length, 'bedömningar till Supabase');
-      }
-    }, 1500);
+    tmaSaveTimeoutRef.current = setTimeout(() => { tmaKorRef.current(); }, 1500);
     return () => { if (tmaSaveTimeoutRef.current) clearTimeout(tmaSaveTimeoutRef.current); };
-  }, [tmaRisk, tmaSamrad, tmaResults, valtObjekt?.id]);
+  }, [tmaRisk, tmaSamrad, valtObjekt?.id]);
 
   // === Varningsinställningar: Ladda från Supabase ===
   const warningSettingsLoadedRef = useRef(false);
@@ -22963,6 +22953,19 @@ export default function PlannerPage() {
           </div>
         );
       })()}
+
+      {/* Autospar av avlägg/brand/TMA kunde inte läsa sparade uppgifter → ändringar där sparas inte; säg det och låt föraren försöka igen */}
+      {valtObjekt?.id && delarSomText(autosparFel) !== '' && (
+        <div data-testid="autospar-fel" style={{
+          position: 'fixed', top: '76px', left: '50%', transform: 'translateX(-50%)', zIndex: 10000, maxWidth: '92vw',
+          display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '12px',
+          background: 'rgba(48,10,8,0.96)', border: '1px solid rgba(255,69,58,0.5)', color: '#ff453a', fontSize: '13px', fontWeight: 500,
+        }}>
+          <span>Sparade uppgifter om {delarSomText(autosparFel)} kunde inte läsas. Ändringar där sparas inte förrän de lästs in.</span>
+          <button onClick={() => setAutosparOm(p => ({ avlagg: p.avlagg + (autosparFel.avlagg ? 1 : 0), brand: p.brand + (autosparFel.brand ? 1 : 0), tma: p.tma + (autosparFel.tma ? 1 : 0) }))}
+            style={{ flexShrink: 0, padding: '8px 14px', borderRadius: '8px', border: 'none', background: '#ff453a', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Försök igen</button>
+        </div>
+      )}
 
       {/* Sparat-toast */}
       {showSaveToast && (
