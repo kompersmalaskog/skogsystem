@@ -29,7 +29,7 @@
 // referens.
 
 import { useState } from 'react';
-import { SIDA, TAL, SEKUNDAR, TEXT, GRON, LINJE, nf, nf0, Rubrikrad, Stort, Damp, Kontroll, Rad, Rader } from '@/components/Ytform';
+import { SIDA, TAL, SEKUNDAR, TEXT, GRON, LINJE, nf, nf0, Rubrikrad, Tillbakarad, Stort, Damp, Kontroll, Rad, Rader, Stycken } from '@/components/Ytform';
 
 export type Validering = {
   n: number; dia_median_mm: number; dia_p10: number; dia_p90: number;
@@ -149,13 +149,13 @@ export function Atgardsruta({ atg }: { atg: Atgard[] }) {
   );
 }
 
-export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: {
+export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd, vy, onSaRaknas }: {
   rader: SimRad[]; valt: string | null; kaplangd: number;
   onValj: (objektId: string) => void; onKaplangd: (cm: number) => void;
+  /** 'sa-raknas' = skärmen där allt som förklarar talet bor (en nivå in). */
+  vy?: 'sa-raknas'; onSaRaknas?: () => void;
 }) {
   const [visaVar, setVisaVar] = useState(false);
-  const [visaRakning, setVisaRakning] = useState(false);
-  const [visaDetaljer, setVisaDetaljer] = useState(false);
   const lista = objektLista(rader);
   const obj = lista.find(o => o.objekt_id === valt) ?? null;
   const ref = obj?.ref ?? null;
@@ -184,7 +184,7 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
                     background: Math.abs(d) < 0.005 ? 'rgba(255,255,255,0.14)' : d < 0 ? ROD : GRON }} />
     </div>
   );
-  const grupp = (namn: string, st: number, d: number, not: React.ReactNode) => (
+  const grupp = (namn: string, st: number, d: number, not?: React.ReactNode) => (
     <div style={{ padding: '12px 0', borderTop: LINJE }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
         <span>
@@ -197,9 +197,63 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
         </span>
       </div>
       {stapel(d)}
-      <div style={{ ...LITEN, marginTop: 6, lineHeight: 1.55 }}>{not}</div>
+      {not && <div style={{ ...LITEN, marginTop: 6, lineHeight: 1.55 }}>{not}</div>}
     </div>
   );
+
+  // ── Så räknas: allt som förklarar talet bor här, en nivå in ──────────────────────────────────────
+  if (vy === 'sa-raknas' && obj && obj.valjbar && ref && rad) {
+    const para = { margin: '0 0 8px' } as const;
+    return (
+      <div style={SIDA}>
+        <Tillbakarad href={`/rotkap?objekt=${encodeURIComponent(obj.objekt_id)}`} text={obj.namn} />
+        <Stycken>
+          <p style={para}>
+            Samma stammar apteras en gång till med rotbiten förlängd till {meter(kaplangd)} m, mot
+            maskinens egen prislista och samma fönster föraren körde med. Stammens form kommer ur
+            maskinens egen mätning var tionde centimeter, barken dras av med objektets egen barkfunktion.
+            Raden för {meter(REFERENS)} m är referensen: det föraren faktiskt körde. Skillnaden räknas som raden för {meter(kaplangd)} m minus referensen.
+          </p>
+          <p style={para}>
+            {nf0(medRotkap)} av objektets {nf0(ref.stammar_objekt)} stammar har rotkap.
+            {ref.utan_sagstock > 0 && <> {nf0(ref.utan_sagstock)} fick ingen sågstock alls och är inte med, där finns inget timmer att förlora.</>}
+            {ref.utan_kurva > 0 && <> {nf0(ref.utan_kurva)} saknar kurva: Ponsse skrev kurvor först från 18 juli 2026, och stammar avverkade före det får aldrig någon.</>}
+            {' '}Färre än {MIN_STAMMAR} stammar med rotkap räknas som brus.
+          </p>
+          <p style={para}>Rotbiten tar {skift} cm av det grövsta virket. Det räddar ingen aptering.</p>
+          {ref.grupp2_stammar > 0 && (
+            <p style={para}>
+              Timret börjar där rötan slutade. Förlängningen rymdes i massaveden
+              hos {nf0(rad.grupp2_kedja_fast)} av {nf0(ref.grupp2_stammar)}
+              {rad.grupp2_kedja_fast < ref.grupp2_stammar && <>, hos resten flyttades kedjan {skift} cm</>}.
+              Var rötan slutade mäter maskinen inte: slutar den inom det nya kapet vinner
+              stammen en hel timmerstock, och det syns inte här.
+            </p>
+          )}
+          <p style={para}>
+            Toppen är den del ovanför sista stocken som inte blev något sortiment. Bara automatiska
+            prisceller används; referensen är rotbiten som faktiskt kapades, 3,00–3,14 m.
+          </p>
+          {v && (
+            <p style={para}>
+              Kontroll mot maskinens egna {nf0(v.n)} stockar: toppdiameter i median {tecken(v.dia_median_mm, 1)} mm
+              ({tecken(v.dia_p10, 1)} till {tecken(v.dia_p90, 1)}), volym {tecken(v.vol_median_pct, 2)} %
+              ({tecken(v.vol_p10, 2)} till {tecken(v.vol_p90, 2)}), {nf0(v.utanfor)} stockar utanför kurvan.
+              Bortom {VALIDERING_DIA_MM} mm eller {VALIDERING_VOL_PCT} % larmar vyn.
+              {v.bark && Object.keys(v.bark).length > 0 && (
+                <> Barkfunktion R² {Object.values(v.bark).map(b => nf(b.r2, 4)).join(', ')}.</>
+              )}
+            </p>
+          )}
+          <p style={{ margin: 0 }}>
+            Räknat {beraknad} ur {nf0(ref.stockar_antal)} stockar och {nf0(ref.serier_antal)} kurvor
+            {ref.maskiner.length > 0 && <>, maskin {ref.maskiner.join(', ')}</>}. Körs efter import, aldrig live.
+            {ref.anmarkning && <> Anmärkning: {ref.anmarkning}.</>}
+          </p>
+        </Stycken>
+      </div>
+    );
+  }
 
   return (
     <div style={SIDA}>
@@ -238,7 +292,7 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
               stammar avverkade före 2026-07-18 får aldrig någon. */}
           <Stort tal={tecken(dT)} enhet="m³" ordrad={<>{ord}<span style={{ color: SEKUNDAR }}> · räknat, inte mätt</span></>}>
             <Damp>{tecken(pct, 1)} % av timret · {tecken(lPerStam, 0)} l per stam</Damp>
-            <Kontroll text={`vid ${meter(kaplangd)} m i stället för ${meter(REFERENS)}`} value={String(kaplangd)}
+            <Kontroll text={`kaplängd ${meter(kaplangd)} m`} value={String(kaplangd)}
               onChange={v => onKaplangd(Number(v))} label="Kaplängd">
               {KAPLANGDER.map(cm => <option key={cm} value={cm}>{meter(cm)} m i stället för {meter(REFERENS)}</option>)}
             </Kontroll>
@@ -255,7 +309,7 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
             <Rad text="Var förlusten sitter" onClick={() => setVisaVar(x => !x)} oppen={visaVar} />
             {visaVar && (
               <div style={{ paddingBottom: 14 }}>
-                {[['Kubb', dK], ['Massaved', dM], ['Toppen blev inget sortiment', dR]].map(([namn, d]) => (
+                {[['Kubb', dK], ['Massaved', dM], ['Toppen utan sortiment', dR]].map(([namn, d]) => (
                   <div key={namn as string}
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
                              padding: '9px 0', borderTop: LINJE }}>
@@ -266,64 +320,13 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd }: 
                     </span>
                   </div>
                 ))}
-                {grupp('Timret satt direkt över rotbiten', ref.grupp1_stammar, d1,
-                  <>Rotbiten tar {skift} cm av det grövsta virket. Det räddar ingen aptering.</>)}
-                {grupp('Rötan fortsatte', ref.grupp2_stammar, d2,
-                  ref.grupp2_stammar === 0
-                    ? 'Inga stammar med flera massabitar före timret.'
-                    : <>Timret börjar där rötan slutade. Förlängningen rymdes i massaveden
-                        hos {nf0(rad.grupp2_kedja_fast)} av {nf0(ref.grupp2_stammar)}
-                        {rad.grupp2_kedja_fast < ref.grupp2_stammar && <>, hos resten flyttades kedjan {skift} cm</>}.
-                        Var rötan slutade mäter maskinen inte: slutar den inom det nya kapet vinner
-                        stammen en hel timmerstock, och det syns inte här. Talet är ett tak.</>)}
+                {grupp('Över rotbiten', ref.grupp1_stammar, d1)}
+                {/* Den enda meningen: talet är ett tak, annars läses det som ett mätt tal. Resten bor i Så räknas. */}
+                {grupp('Rötan fortsatte', ref.grupp2_stammar, d2, ref.grupp2_stammar === 0 ? 'Inga stammar med flera massabitar före timret.' : 'Talet är ett tak.')}
               </div>
             )}
 
-            <Rad text="Så räknas simuleringen" onClick={() => setVisaRakning(x => !x)} oppen={visaRakning} />
-            {visaRakning && (
-              <div style={{ fontSize: 12, color: SEKUNDAR, lineHeight: 1.65, paddingBottom: 10 }}>
-                <p style={{ margin: '0 0 8px' }}>
-                  Samma stammar apteras en gång till med rotbiten förlängd till {meter(kaplangd)} m, mot
-                  maskinens egen prislista och samma fönster föraren körde med. Stammens form kommer ur
-                  maskinens egen mätning var tionde centimeter, barken dras av med objektets egen barkfunktion.
-                </p>
-                <p style={{ margin: 0 }}>
-                  {nf0(medRotkap)} av objektets {nf0(ref.stammar_objekt)} stammar har rotkap.
-                  {ref.utan_sagstock > 0 && <> {nf0(ref.utan_sagstock)} fick ingen sågstock alls och är inte med, där finns inget timmer att förlora.</>}
-                  {ref.utan_kurva > 0 && <> {nf0(ref.utan_kurva)} saknar kurva: Ponsse skrev kurvor först från 18 juli 2026, och stammar avverkade före det får aldrig någon.</>}
-                  {' '}Färre än {MIN_STAMMAR} stammar med rotkap räknas som brus.
-                </p>
-                <button onClick={() => setVisaDetaljer(x => !x)} aria-expanded={visaDetaljer}
-                  style={{ border: 'none', background: 'none', padding: '10px 0 4px', minHeight: 40, fontFamily: 'inherit',
-                           fontSize: 12, color: SEKUNDAR, cursor: 'pointer' }}>
-                  Detaljer {visaDetaljer ? '⌄' : '›'}
-                </button>
-                {visaDetaljer && (
-                  <div style={{ fontSize: 11, lineHeight: 1.65 }}>
-                    <p style={{ margin: '0 0 6px' }}>
-                      Toppen är den del ovanför sista stocken som inte blev något sortiment. Bara automatiska
-                      prisceller används; referensen är rotbiten som faktiskt kapades, 3,00–3,14 m.
-                    </p>
-                    {v && (
-                      <p style={{ margin: '0 0 6px' }}>
-                        Kontroll mot maskinens egna {nf0(v.n)} stockar: toppdiameter i median {tecken(v.dia_median_mm, 1)} mm
-                        ({tecken(v.dia_p10, 1)} till {tecken(v.dia_p90, 1)}), volym {tecken(v.vol_median_pct, 2)} %
-                        ({tecken(v.vol_p10, 2)} till {tecken(v.vol_p90, 2)}), {nf0(v.utanfor)} stockar utanför kurvan.
-                        Bortom {VALIDERING_DIA_MM} mm eller {VALIDERING_VOL_PCT} % larmar vyn.
-                        {v.bark && Object.keys(v.bark).length > 0 && (
-                          <> Barkfunktion R² {Object.values(v.bark).map(b => nf(b.r2, 4)).join(', ')}.</>
-                        )}
-                      </p>
-                    )}
-                    <p style={{ margin: 0 }}>
-                      Räknat {beraknad} ur {nf0(ref.stockar_antal)} stockar och {nf0(ref.serier_antal)} kurvor
-                      {ref.maskiner.length > 0 && <>, maskin {ref.maskiner.join(', ')}</>}. Körs efter import, aldrig live.
-                      {ref.anmarkning && <> Anmärkning: {ref.anmarkning}.</>}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+            <Rad text="Så räknas" onClick={onSaRaknas} />
           </Rader>
         </>
       )}

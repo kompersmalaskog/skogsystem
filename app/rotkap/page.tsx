@@ -38,6 +38,7 @@ function Innehall() {
   const sp = useSearchParams();
   const router = useRouter();
   const valtUrl = sp.get('objekt');
+  const vy = sp.get('vy') === 'sa-raknas' ? 'sa-raknas' : undefined;
   const [rader, setRader] = useState<SimRad[] | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
@@ -79,7 +80,8 @@ function Innehall() {
     </div>
   );
 
-  return <RotkapVy rader={rader} valt={valt} kaplangd={kaplangd} onValj={valj} onKaplangd={setKaplangd} />;
+  return <RotkapVy rader={rader} valt={valt} kaplangd={kaplangd} onValj={valj} onKaplangd={setKaplangd} vy={vy}
+    onSaRaknas={() => router.push(`/rotkap?objekt=${encodeURIComponent(valt ?? '')}&vy=sa-raknas`)} />;
 }
 
 export default function RotkapSida() {
