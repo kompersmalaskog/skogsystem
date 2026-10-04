@@ -21,10 +21,14 @@
 // här filen visar bara. Läser utfall_objekt (förberäknad), aldrig stockdata live.
 //
 // Ingen jämförelse mellan inköpare: bolaget finns inte ens i underlaget.
+//
+// YTAN ÄR TAL OCH KORTA ETIKETTER. Det som förklarar talen — röta, gallringens rubriktal, vad posterna består av, hur snittet räknas,
+// fönstret, kurvans regression — bor en nivå in, på Så räknas (?vy=sa-raknas). De lövdominerade objekten som hålls utanför syns som en rad,
+// "N objekt utanför ›", och förklaringen ligger en nivå in (?vy=utanfor): aldrig tyst, men inte heller en mening på ytan.
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { SIDA, DAMPAD, SEKUNDAR, TEXT, LINJE, TAL, nf, nf0, nf1, kortObjekt,
-         Tillbakarad, Rubrikrad, Stort, Damp, Kontroll, Mening, Rad, Rader, Teknisk } from '@/components/Ytform';
+         Tillbakarad, Rubrikrad, Stort, Damp, Kontroll, Mening, Rad, Rader, Teknisk, Stycken } from '@/components/Ytform';
 import { Sortimentstapel, Teckenforklaring, VadPosternaBestarAv, sortimentFarg } from '@/components/Sortimentstapel';
 import { RADIE } from '@/lib/design/tokens';
 import {
@@ -33,7 +37,7 @@ import {
 } from '@/lib/medelstam/berakna';
 
 export const BAS = '/affarsuppfoljning/medelstam';
-export type Vy = 'huvud' | 'objekt' | 'kurva';
+export type Vy = 'huvud' | 'objekt' | 'kurva' | 'utanfor' | 'sa-raknas';
 export type Meta = Record<string, number | null>;
 
 const NYCKEL = 'medelstam.v2';
@@ -124,9 +128,6 @@ function Kurvdiagram({ objekt, m, ms }: { objekt: Objekt[]; m: number | null; ms
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: SEKUNDAR }}>
         {etiketter.map((x, i) => <span key={i}>{ms(x)}</span>)}
       </div>
-      <div style={{ marginTop: 4, fontSize: 11, color: DAMPAD, lineHeight: 1.5 }}>
-        Ett streck per objekt, sorterade på medelstam (m³/stam). Höjden är objektets hela volym; den streckade linjen är 50 %.
-      </div>
     </div>
   );
 }
@@ -153,20 +154,6 @@ function platamening(p: Platå, n: number, ms: (x: number) => string): string {
 }
 const stor = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
-/** De lövdominerade objekten som hålls utanför — med namn och andel, aldrig tyst. */
-function Utanfor({ objekt, grans }: { objekt: Objekt[]; grans: number | null }) {
-  if (!objekt.length || grans == null) return null;
-  const n = objekt.length;
-  const lista = objekt.map(o => `${kortObjekt(o.namn ?? o.id)} (${nf0((100 * (o.lov ?? 0)) / o.volym)} % löv)`).join(', ');
-  return (
-    <Mening>
-      <b style={{ color: TEXT, fontWeight: 600 }}>Utanför kalkylen:</b>{' '}
-      {n === 1 ? 'ett lövdominerat objekt' : `${nf0(n)} lövdominerade objekt`} — {lista}. Över {nf0(100 * grans)} % löv av volymen: där avgör arten
-      utfallet och inte stamstorleken, så de ingår varken i fönster, spann eller kurva.
-    </Mening>
-  );
-}
-
 function Falt({ etikett, sub, children }: { etikett: string; sub?: ReactNode; children: ReactNode }) {
   return (
     <div style={{ margin: '4px 16px 0' }}>
@@ -183,11 +170,12 @@ export type Props = {
   uppdaterad: string | null;      // max(kontrollerad)
   rotLasbar: boolean;             // objektens rot20 går att läsa (annars görs ingen rötajustering)
   vy: Vy;
-  gaTill: (vy: Vy) => void;
+  fran?: Vy;                      // skärmen man kom från till en undernivå (Så räknas, Utanför) — dit leder ‹
+  gaTill: (vy: Vy, fran?: Vy) => void;
   start?: { typ?: Typ; ms?: string; rot?: string };   // för rendering utan lagring (verifiering)
 };
 
-export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaTill, start }: Props) {
+export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fran, gaTill, start }: Props) {
   const [typ, setTyp] = useState<Typ>(start?.typ ?? 'Slutavverkning');
   const [msText, setMsText] = useState<Partial<Record<Typ, string>>>(start?.ms != null ? { [start.typ ?? 'Slutavverkning']: start.ms } : {});
   const [rotVal, setRotVal] = useState<string>(start?.rot ?? '');     // '' = medianen ur datan
@@ -227,25 +215,102 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
   const intervall = u ? `${ms(Math.max(0, u.fran))} och ${ms(u.till)}` : '';
   const andelR = (o: Objekt) => andelarAv(o)[rubrik] / 100;
 
+  const tillbakaText = m != null ? `Medelstam ${ms(m)}` : 'Medelstam';
+  const para = { margin: '0 0 8px' } as const;
+
+  // ── Så räknas: allt som förklarar talen bor här, en nivå in ──────────────────────────────────
+  if (vy === 'sa-raknas') {
+    return (
+      <div style={SIDA}>
+        <Tillbakarad href={fran && fran !== 'huvud' ? `${BAS}?vy=${fran}` : BAS} text={tillbakaText} />
+        <Stycken>
+          {u && !u.forFa && (
+            <p style={para}>Fönstret just nu är {intervall.replace(' och ', '–')} m³/stam, ±{nf0(100 * fonster)} % av {ms(u.m)}. Objekten i fönstret ligger inom det.</p>
+          )}
+          {slut && kanRota && (
+            <p style={para}>
+              Röta = andel stammar över 20 cm med massaved i rotändan. Hos oss {pctRot(median)} % i median
+              {meta.rot20_q1 != null && meta.rot20_q3 != null ? `, ${pctRot(meta.rot20_q1)}–${pctRot(meta.rot20_q3)} % mellan objekten` : ''}.
+              {u && !u.forFa && u.rotFonster != null && u.rotJusterad &&
+                ` Objekten i fönstret hade ${pctRot(u.rotFonster)} %; talen är räknade för ${pctRot(rotNum)} %.`}
+              {u && !u.forFa && u.rotFonster == null &&
+                ' Fönstrets objekt saknar mätt röta, så talen är fönstrets rena snitt.'}
+            </p>
+          )}
+          {slut && !kanRota && (
+            <p style={para}>
+              Rötan går inte att räkna in: {!rotLasbar ? 'objektens rötandel är inte läsbar för din inloggning ännu' : 'för få slutavverkningar med mätt röta'}.
+              Talen är fönstrets rena volymvägda snitt, utan justering för röta.
+            </p>
+          )}
+          {!slut && (
+            <p style={para}>
+              Rubriktalet är massaved: timmer är under {nf0(LAGT_TIMMER_PCT)} % i {nf0(objTyp.filter(o => 100 * o.timmer / o.volym < LAGT_TIMMER_PCT).length)} av {nf0(objTyp.length)} gallringar,
+              så det är massavedsandelen som följer medelstammen. Lövrik gallring är normal och ingår — björken hamnar i massaveden. Röta mäts bara på
+              slutavverkningar; gallringens tal är fönstrets rena volymvägda snitt.
+            </p>
+          )}
+          <p style={para}>
+            Objekten är sorterade på {rubrikNamn}andel, så kanterna syns. Andelarna är av objektets volym utan hemved. Snittet i talet är volymvägt,
+            så de stora objekten styr det mest — volymen står på varje rad.
+          </p>
+          <p style={para}>
+            Kurvan har ett streck per objekt, sorterade på medelstam (m³/stam). Höjden är objektets hela volym; den streckade linjen är 50 %.
+            Brytpunkten söks med en segmenterad regression över objektens {rubrikNamn}andel (volymvägd), med fri lutning över brytpunkten. ± är 95 %-intervallet.
+          </p>
+        </Stycken>
+        {objTyp.length > 0 && <div style={{ margin: '4px 16px 0' }}><Tathet objekt={objTyp} m={m} fonster={fonster} /></div>}
+        <VadPosternaBestarAv />
+        <Teknisk>
+          Andelen är volymvägd: summan av sortimentets volym delad med summan av volymen för objekten inom ±{nf0(100 * fonster)} % av vald
+          medelstam — inte medianen av deras procenttal. Färre än {nf0(MIN_OBJEKT)} objekt ger inget tal. Spannet är lägsta–högsta objekt.
+          {kanRota && lutning && ` Röta: lutningen är skattad över ${nf0(lutning.n)} slutavverkningar — timmer ${nf(lutning.koef.timmer / 100, 2)} procentenheter per procentenhet röta — och fönstret flyttas från sin egen röta till den valda.`}
+          {' '}Bygger på {nf0(objTyp.length)} {typMany(typ)}{Number.isFinite(sedan) ? ` sedan ${sedan}` : ''}, minst {nf0(MIN_STAMMAR)} stammar var
+          {utanforTyp.length > 0 ? ` (${nf0(utanforTyp.length)} lövdominerat utanför)` : ''}
+          {uppdaterad ? `, uppdaterat ${new Date(uppdaterad).toLocaleDateString('sv-SE')}` : ''}.
+        </Teknisk>
+      </div>
+    );
+  }
+
+  // ── Lövdominerade objekt som hålls utanför — med namn och andel, aldrig tyst ──────────────────
+  if (vy === 'utanfor') {
+    const grans = LOV_GRANS[typ];
+    return (
+      <div style={SIDA}>
+        <Tillbakarad href={fran && fran !== 'huvud' ? `${BAS}?vy=${fran}` : BAS} text={tillbakaText} />
+        <Stort tal={nf0(utanforTyp.length)} ordrad="objekt utanför">
+          <Damp>{grans != null ? `över ${nf0(100 * grans)} % löv av volymen` : 'ingen lövgräns i gallring'}</Damp>
+          <Mening>Där avgör arten utfallet och inte stamstorleken, så de ingår varken i fönster, spann eller kurva.</Mening>
+        </Stort>
+        <Rader>
+          {utanforTyp.map(o => (
+            <Rad key={o.id} text={kortObjekt(o.namn ?? o.id)} tal={`${nf0((100 * (o.lov ?? 0)) / o.volym)} % löv`} hoger={`${nf0(o.volym)} m³`} />
+          ))}
+        </Rader>
+      </div>
+    );
+  }
+
+  /** Raden som leder till de lövdominerade objekten. Bara när något är utanför, så det aldrig sker tyst. */
+  const utanforRad = (fran: Vy) => (utanforTyp.length > 0 && LOV_GRANS[typ] != null)
+    ? <Rad text={`${nf0(utanforTyp.length)} objekt utanför`} onClick={() => gaTill('utanfor', fran)} /> : null;
+
   // ── Objekten i fönstret ──────────────────────────────────────────────
   if (vy === 'objekt' && u) {
     const sorterade = [...u.objekt].sort((a, b) => andelR(b) - andelR(a));
     return (
       <div style={SIDA}>
         <Tillbakarad href={BAS} text={`Medelstam ${ms(u.m)}`} />
-        <Stort tal={nf0(u.n)} ordrad={`objekt mellan ${intervall} m³/stam`}>
-          <Damp>{typ.toLowerCase()} · {nf0(u.volym)} m³ tillsammans</Damp>
-          <Mening>
-            Sorterade på {rubrikNamn}andel, så kanterna syns. Andelarna är av objektets volym utan hemved. Snittet i talet är volymvägt,
-            så de stora objekten styr det mest — volymen står på varje rad.
-          </Mening>
+        <Stort tal={nf0(u.n)} ordrad="objekt i närheten">
+          <Damp>{nf0(u.volym)} m³</Damp>
         </Stort>
         <Rader>
           {sorterade.map(o => (
-            <Rad key={o.id} text={kortObjekt(o.namn ?? o.id)}
-              sub={`${SORTIMENT.filter(x => x !== rubrik && x !== 'ovrigt').map(x => `${SORTIMENT_NAMN[x].toLowerCase()} ${nf0(andelarAv(o)[x])} %`).join(' · ')} · ${nf0(o.stammar)} stammar · ${nf0(o.volym)} m³`}
+            <Rad key={o.id} text={kortObjekt(o.namn ?? o.id)} sub={`${nf0(o.stammar)} st · ${nf0(o.volym)} m³`}
               tal={`${nf0(100 * andelR(o))} %`} hoger={`${ms(o.medelstam)} m³/stam`} />
           ))}
+          <Rad text="Så räknas" onClick={() => gaTill('sa-raknas', 'objekt')} />
         </Rader>
       </div>
     );
@@ -256,20 +321,17 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
     const plata = planarUt(objTyp, rubrik);
     return (
       <div style={SIDA}>
-        <Tillbakarad href={BAS} text={m != null ? `Medelstam ${ms(m)}` : 'Medelstam'} />
-        <Stort tal={nf0(objTyp.length)} ordrad={`${typMany(typ)} längs medelstamsaxeln`}>
-          <Damp>ett streck per objekt, delat i timmer, kubb, massaved och övrigt</Damp>
-        </Stort>
+        <Tillbakarad href={BAS} text={tillbakaText} />
+        <Stort tal={nf0(objTyp.length)} ordrad={`${typMany(typ)} längs medelstamsaxeln`} />
         <div style={{ margin: '0 16px' }}>
           {objTyp.length > 0 && <Kurvdiagram objekt={objTyp} m={m} ms={ms} />}
           <Teckenforklaring />
           {objTyp.length > 0 && <div style={{ marginTop: 16, fontSize: 13, lineHeight: 1.6, color: TEXT }}>{platamening(plata, objTyp.length, ms)}</div>}
-          <Utanfor objekt={utanforTyp} grans={LOV_GRANS[typ]} />
-          <div style={{ marginTop: 12, fontSize: 11, color: SEKUNDAR, lineHeight: 1.6 }}>
-            Brytpunkten söks med en segmenterad regression över objektens {rubrikNamn}andel (volymvägd), med fri lutning över
-            brytpunkten. ± är 95 %-intervallet.
-          </div>
         </div>
+        <Rader>
+          {utanforRad('kurva')}
+          <Rad text="Så räknas" onClick={() => gaTill('sa-raknas', 'kurva')} />
+        </Rader>
       </div>
     );
   }
@@ -300,18 +362,18 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
                 onChange={e => setMsText(t => ({ ...t, [typ]: e.target.value }))} style={RUTA} />
               <span style={{ fontSize: 13, color: DAMPAD }}>m³ per stam</span>
             </div>
-            <Tathet objekt={objTyp} m={m} fonster={fonster} />
+            {/* Remsan visas när underlaget är för tunt — då är den vägen till en medelstam som har objekt. Annars bor den i Så räknas. */}
+            {u?.forFa && <Tathet objekt={objTyp} m={m} fonster={fonster} />}
           </Falt>
 
           <Stort tal={h ? nf0(h[rubrik]) : '–'} enhet={h ? '%' : undefined} ordrad={ordrad}>
             {u && u.forFa && m != null && (
               <Damp>
-                {u.n === 0 ? 'Inget objekt' : u.n === 1 ? 'Bara ett objekt' : `Bara ${nf0(u.n)} objekt`} ligger inom ±{nf0(100 * fonster)} % av {ms(u.m)} ({intervall.replace(' och ', '–')}).
-                Minst {nf0(MIN_OBJEKT)} behövs för att ett snitt ska betyda något — prova en medelstam där remsan ovan är tätare.
+                {u.n === 0 ? 'Inget objekt' : u.n === 1 ? 'Bara ett objekt' : `Bara ${nf0(u.n)} objekt`} i närheten. Minst {nf0(MIN_OBJEKT)} behövs — prova en medelstam där remsan är tätare.
               </Damp>
             )}
             {u && !u.forFa && sp && (
-              <Damp>{nf0(u.n)} objekt i närheten gav {intSpann(rubrik)}</Damp>
+              <Damp>{nf0(u.n)} objekt · {intSpann(rubrik)}</Damp>
             )}
           </Stort>
 
@@ -325,67 +387,31 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, gaT
             <Rader>
               {SORTIMENT.map(s => (
                 <Rad key={s} prick={sortimentFarg(s)} text={SORTIMENT_NAMN[s]} tal={`${nf0(h[s])} %`} hoger={intSpann(s)}
-                  dampad={s === 'ovrigt'}
-                  sub={s === 'kubb' ? 'kubb och klentimmer' : s === 'ovrigt' ? 'energived, avkap, oklassat' : undefined} />
+                  dampad={s === 'ovrigt'} />
               ))}
             </Rader>
           )}
 
-          {/* Lövdominerade objekt som hålls utanför — aldrig tyst, och nära talen de påverkar. */}
-          <div style={{ margin: '0 16px' }}><Utanfor objekt={utanforTyp} grans={LOV_GRANS[typ]} /></div>
-
           {/* Rötan: samma definition och förval som stämplingsvyn. Bara slutavverkning. */}
           {slut && kanRota && (
             <div style={{ margin: '12px 16px 0' }}>
-              <Kontroll text={`röta ${pctRot(rotNum)} %${rotVal === '' ? ' · vår median' : ''}`} value={rotVal} label="Förväntad rötandel" onChange={setRotVal}>
+              <Kontroll text={`röta ${pctRot(rotNum)} %`} value={rotVal} label="Förväntad rötandel" onChange={setRotVal}>
                 <option value="">{pctRot(median)} % — vår median</option>
                 {ROTVAL.map(v => <option key={v} value={v}>{v} %</option>)}
               </Kontroll>
-              <Mening>
-                Röta = andel stammar över 20 cm med massaved i rotändan. Hos oss {pctRot(median)} % i median
-                {meta.rot20_q1 != null && meta.rot20_q3 != null ? `, ${pctRot(meta.rot20_q1)}–${pctRot(meta.rot20_q3)} % mellan objekten` : ''}.
-                {u && !u.forFa && u.rotFonster != null && u.rotJusterad &&
-                  ` Objekten i fönstret hade ${pctRot(u.rotFonster)} %; talen är räknade för ${pctRot(rotNum)} %.`}
-                {u && !u.forFa && u.rotFonster == null &&
-                  ' Fönstrets objekt saknar mätt röta, så talen är fönstrets rena snitt.'}
-              </Mening>
             </div>
           )}
-          {slut && !kanRota && (
-            <div style={{ margin: '12px 16px 0' }}>
-              <Mening>
-                Rötan går inte att räkna in: {!rotLasbar ? 'objektens rötandel är inte läsbar för din inloggning ännu' : 'för få slutavverkningar med mätt röta'}.
-                Talen är fönstrets rena volymvägda snitt, utan justering för röta.
-              </Mening>
-            </div>
-          )}
-          {!slut && (
-            <div style={{ margin: '12px 16px 0' }}>
-              <Mening>
-                Rubriktalet är massaved: timmer är under {nf0(LAGT_TIMMER_PCT)} % i {nf0(objTyp.filter(o => 100 * o.timmer / o.volym < LAGT_TIMMER_PCT).length)} av {nf0(objTyp.length)} gallringar,
-                så det är massavedsandelen som följer medelstammen. Lövrik gallring är normal och ingår — björken hamnar i massaveden. Röta mäts bara på
-                slutavverkningar; gallringens tal är fönstrets rena volymvägda snitt.
-              </Mening>
-            </div>
-          )}
+          {/* Den enda förklarande meningen på ytan: ett bud ska aldrig läsas som ett facit. */}
+          <div style={{ margin: '0 16px' }}><Mening>Fingervisning, inte facit.</Mening></div>
 
           <Rader>
-            {u && u.n > 0 && <Rad text={`${nf0(u.n)} objekt mellan ${intervall}`} onClick={() => gaTill('objekt')} />}
+            {u && u.n > 0 && <Rad text={`${nf0(u.n)} objekt`} onClick={() => gaTill('objekt')} />}
+            {utanforRad('huvud')}
             <Rad text="Hela kurvan" onClick={() => gaTill('kurva')} />
+            <Rad text="Så räknas" onClick={() => gaTill('sa-raknas')} />
           </Rader>
-
-          <VadPosternaBestarAv />
-          <Teknisk>
-            Andelen är volymvägd: summan av sortimentets volym delad med summan av volymen för objekten inom ±{nf0(100 * fonster)} % av vald
-            medelstam — inte medianen av deras procenttal. Färre än {nf0(MIN_OBJEKT)} objekt ger inget tal. Spannet är lägsta–högsta objekt.
-            {kanRota && lutning && ` Röta: lutningen är skattad över ${nf0(lutning.n)} slutavverkningar — timmer ${nf(lutning.koef.timmer / 100, 2)} procentenheter per procentenhet röta — och fönstret flyttas från sin egen röta till den valda.`}
-            {' '}Bygger på {nf0(objTyp.length)} {typMany(typ)}{Number.isFinite(sedan) ? ` sedan ${sedan}` : ''}, minst {nf0(MIN_STAMMAR)} stammar var
-            {utanforTyp.length > 0 ? ` (${nf0(utanforTyp.length)} lövdominerat utanför, se ovan)` : ''}
-            {uppdaterad ? `, uppdaterat ${new Date(uppdaterad).toLocaleDateString('sv-SE')}` : ''}. Fingervisning, inte facit.
-          </Teknisk>
         </>
       )}
     </div>
   );
 }
-
