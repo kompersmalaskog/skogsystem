@@ -15,7 +15,7 @@ import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
-import { hyttsparTillLinjer, hyttsparDugligaSegment, lokaltDatumStockholm } from '../../lib/hyttspar'
+import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hamtaServerVersion, arNyVersion, laddaOmMedCacheBust, skaAutoUppdatera } from '../../lib/autoUppdatering'
 import { skaEmittaHeading } from '../../lib/kompass'
 import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, ringCentroid, numreraObjekt, traktArealHa, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
@@ -34,6 +34,7 @@ import { installeraKameraLogg } from '../../lib/kameraLogg'
 import { tonaInLager, TRAKTGRANS_LAGER } from '../../lib/kartTona'
 import { vantaPaGrundkarta, kameraLage, kameraAndrad } from '../../lib/kartaLaddad'
 import { arKartanPaPositionen, centreraKnappSynlig } from '../../lib/centrera'
+import { jamkaMarkhojd, MARKHOJD_KONTROLL_MS } from '../../lib/kartaMarkhojd'
 import { CentreraKnapp } from '../../components/planering/CentreraKnapp'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { startFas, flygKlar, startCoverSynlig, startOverlaySynlig, startKameraLas, startRadText, FLY_MS, COVER_FADE_MS, type StartFas } from '../../lib/maskinstart'
@@ -152,11 +153,18 @@ const KORVY_SIGHT_M = 400;
 const KORVY_SKYDDSLAGER = new Set(['nyckelbiotoper', 'biotopskydd', 'vattenskydd', 'naturreservat', 'natura2000', 'sumpskog', 'kraftledningar']);
 
 // === Körvy-kamera-känsla (finjustering — vridbara värden, testas i maskinen) ===
-// Prick strax UNDER MITTEN (inte nedre tredjedelen): en skogsmaskin fäller åt SIDAN, så
-// faran är runt om — pricken måste sitta högt nog att symboler bakom/vid sidan RYMS i bild.
-// Lite framåt-vy kvar, men runt-om-synlighet väger tyngre (säkerhet). padding.top som andel
-// av kartans höjd (0.21 → prick ~60 % ner). Pixel-baserat → sitter kvar när zoomen varierar.
-const KORVY_DOT_PAD_FRAC = 0.21;
+// PRICKEN STÅR I NEDRE TREDJEDELEN, ca 70 % ner (Martin 2026-10-04). Tidigare: strax under mitten (0.21 → 60 %) med
+// motiveringen att symboler bakom/vid sidan ska rymmas. I 3D-terräng hamnade pricken dessutom högt (≈ 25–35 %) när kamerans
+// centerhöjd fastnade på 0 m (lib/kartaMarkhojd) — nu rättas den, så siffran gäller på riktigt.
+// padding.top som andel av kartans höjd: mitten av den paddade ytan = (pad + 1) / 2 = 0.70 → pad = 0.40.
+// Pixel-baserat → sitter kvar när zoomen varierar.
+const KORVY_DOT_PAD_FRAC = 0.40;
+// Hänsynsytor (Vida) i KÖRVYN: lätt fyllning så de inte täcker kartan (flera ytor kan ligga över varandra), kanten bär färgen.
+// Planeringsvyn behåller sin starkare fyllning.
+const KORVY_HANSYN_FYLLNING = 0.10;
+const PLAN_HANSYN_FYLLNING = 0.18;
+const KORVY_HANSYN_KANT = 2.5;
+const PLAN_HANSYN_KANT = 1.5;
 // Närhets-zoom (Martins idé — INTE fart-baserad; maskinen kör långsamt/stannar för att fälla).
 // Zooma IN när man närmar sig närmaste symbolen, UT när passerad. Full vid fällningsradien.
 // VÄRDENA sänkta: 18.5/19.5 var för hårt (nära symboler föll utanför kant). Sikta på "utdragna
@@ -193,47 +201,6 @@ const ROLLFARG_SKOTARE = '#34c759';
 const ROLLFARG_SKORDARE = '#bf5af2';
 const rollFarg = (roll: 'skordare' | 'skotare' | null | undefined): string =>
   roll === 'skotare' ? ROLLFARG_SKOTARE : ROLLFARG_SKORDARE;
-
-// === SKOTARKÖRVY (v1): stråk-klumpning + sortimentfärg ===
-// Autopanelens sortimentrader: allt under detta klumpas till EN "Övrigt"-rad sist. Ett halvt
-// kubikmeter är under vad som är värt att välja lass efter — resten ska inte äta plats i kortet.
-const OVRIGT_M3 = 0.5;
-// Stråk-identitet = (maskin_id, strak_nr). Två maskiner på samma objekt kan ha samma strak_nr,
-// så kvar/val/etikett MÅSTE nycklas på båda — annars klumpas den ena maskinens volym in i den
-// andras stråk och panelen visar fel siffra (Svinhult-nyckeln).
-const strakKeyAv = (maskin_id: string, strak_nr: number): string => `${maskin_id ?? ''}|${strak_nr}`;
-// Speglar getSortimentColor (loadHogar-scoped) så stråk-etikett + autopanel använder EXAKT
-// samma färgspråk som pie-ikonerna/skotningspanelen. Håll i synk med de två.
-function sortimentFargKorvy(s: string): string {
-  if (s.startsWith('Gran')) return '#1d9e75';
-  if (s.startsWith('Tall')) return '#e8832a';
-  if (s.startsWith('Björk')) return '#f0f0f0';
-  if (s.startsWith('Övr_löv')) return '#888780';
-  if (s === 'GROT') return '#8B5E3C';
-  return '#6b7c3a';
-}
-// Minsta avstånd (m) från en punkt till en stråk-polylinje ([[lng,lat],…]). Lokal ekvirektangulär
-// projektion runt punkten → planär segment-distans; tillräckligt exakt på trakt-skala (< några km).
-function avstandPunktTillStrak(lat: number, lon: number, geometri: [number, number][]): number {
-  if (!geometri || geometri.length === 0) return Infinity;
-  const R = 6371000, rad = Math.PI / 180;
-  const cosLat = Math.cos(lat * rad);
-  const proj = (g: [number, number]): [number, number] => [ (g[0] - lon) * rad * R * cosLat, (g[1] - lat) * rad * R ];
-  if (geometri.length === 1) { const [x, y] = proj(geometri[0]); return Math.hypot(x, y); }
-  let best = Infinity;
-  for (let i = 1; i < geometri.length; i++) {
-    const [ax, ay] = proj(geometri[i - 1]);
-    const [bx, by] = proj(geometri[i]);
-    const dx = bx - ax, dy = by - ay;
-    const len2 = dx * dx + dy * dy;
-    let t = len2 > 0 ? ((-ax) * dx + (-ay) * dy) / len2 : 0;
-    t = Math.max(0, Math.min(1, t));
-    const cx = ax + t * dx, cy = ay + t * dy;
-    const d = Math.hypot(cx, cy);
-    if (d < best) best = d;
-  }
-  return best;
-}
 
 // HYTTSPÅR avsluts-skydd: ett långt glapp utan punkter (skärmlås/bakgrund, t.ex. hemresan) följt av en
 // punkt LÅNGT bort är inte en kontinuerlig del av arbetet. GPS-vakten (#398) släpper ändå in den för att
@@ -4079,12 +4046,6 @@ export default function PlannerPage() {
   // Testbarhet (Martins flagga): läget FÖLJER rollen på objektet, MEN admin/chef får båda valen i
   // KÖRVY-menyn (korvyForceRoll override) → Martin når skotarläget i previewn utan skotar-tilldelning.
   const [korvyForceRoll, setKorvyForceRoll] = useState<'skordare' | 'skotare' | null>(null);
-  type StrakRad = { id: string; maskin_id: string; strak_nr: number; geometri: [number, number][]; langd_m: number };
-  const [strakData, setStrakData] = useState<StrakRad[]>([]);
-  // KÄLLBYTE: 'gps' = skördarens RIKTIGA hyttspår (verifierat), 'rekonstruerad' = skordarstrak (arbets-
-  // positioner mellan stopp), null = inget. Driver källmärkningen i skotarpanelen. Data-gejtat: hyttspar
-  // används bara om det har dugliga segment (≥5 pkt & ≥30 m), annars osynlig fallback på skordarstrak.
-  const [strakKalla, setStrakKalla] = useState<'gps' | 'rekonstruerad' | null>(null);
   // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
   const [hogarVersion, setHogarVersion] = useState(0);
   const skotarKorvy = korvyActive && (korvyForceRoll ? korvyForceRoll === 'skotare' : minRoll === 'skotare');
@@ -4107,6 +4068,7 @@ export default function PlannerPage() {
   const hyttsparSyncedRef = useRef(0);         // antal RAW-punkter (av hyttsparPointsRef) som redan lagrats server-side → append skickar bara resten
   const [hyttsparBasVersion, setHyttsparBasVersion] = useState(0);   // bump när dagens redan loggade punkter laddats → rita om basen (även om kartlagret inte fanns vid livscykel-ritningen)
   const egetHistRef = useRef<any[]>([]);   // tidigare dagars eget-spår (dämpade segment) → eget hist-lager, ritas separat från dagens (fulla) live-spår
+  const andrasFeaturesRef = useRef<any[]>([]);   // andra maskinens spår — hämtas även INNAN kartan finns (maskinläge: körvyn öppnas först) och ritas när källan skapats
 
   const uppdateraHyttsparLager = useCallback(() => {
     const map = mapInstanceRef.current; if (!map) return;
@@ -4305,6 +4267,8 @@ export default function PlannerPage() {
     // TIDIGARE DAGARS spår (dämpade) → eget hist-lager. Ändras inte under körning; ritas i samma
     // redo-effekt som basen så kartlager-racen fångas för båda.
     try { const src = mapInstanceRef.current?.getSource('hyttspar-hist-source') as any; if (src) src.setData({ type: 'FeatureCollection', features: egetHistRef.current }); } catch { /* */ }
+    // ANDRAS spår (andra maskinens/rollens) — samma ordning-oberoende ritning ur ref:en.
+    try { const src = mapInstanceRef.current?.getSource('hyttspar-andras-source') as any; if (src) src.setData({ type: 'FeatureCollection', features: andrasFeaturesRef.current }); } catch { /* */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, mapLibreReady, valtObjekt?.id, hyttsparBasVersion]);
 
@@ -4471,10 +4435,11 @@ export default function PlannerPage() {
   const [andrasSparLaddar, setAndrasSparLaddar] = useState(false);
   const andrasRoll = hyttRoll === 'skordare' ? 'skotare' : hyttRoll === 'skotare' ? 'skordare' : null;
   const hamtaAndrasSpar = useCallback(async () => {
-    const map = mapInstanceRef.current;
+    // Kartan KAN SAKNAS här (maskinläge: körvyn öppnas innan kartan monterats). Förut avbröts hämtningen då → andras spår
+    // laddades aldrig. Nu hämtas det ändå, läggs i ref:en och ritas av redo-effekten när källan skapats.
     const objektId = valtObjekt?.id;
     const roll = hyttRoll === 'skordare' ? 'skotare' : hyttRoll === 'skotare' ? 'skordare' : null;
-    if (!map || !objektId || !roll) return;
+    if (!objektId || !roll) return;
     setAndrasSparLaddar(true);
     try {
       const { data, error } = await supabase.from('hyttspar')
@@ -4486,7 +4451,8 @@ export default function PlannerPage() {
       const features = (data || [])
         .flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []))
         .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
-      const src = map.getSource('hyttspar-andras-source') as any;
+      andrasFeaturesRef.current = features;
+      const src = mapInstanceRef.current?.getSource('hyttspar-andras-source') as any;
       if (src) src.setData({ type: 'FeatureCollection', features });
       setAndrasSparTid(Date.now());
     } catch (e) { console.error('[Hyttspår] andras-undantag:', e); }
@@ -4497,89 +4463,12 @@ export default function PlannerPage() {
   useEffect(() => {
     if (korvyActive && valtObjekt?.id && andrasRoll) { hamtaAndrasSpar(); return; }
     const map = mapInstanceRef.current;
+    andrasFeaturesRef.current = [];
     try { const src = map?.getSource('hyttspar-andras-source') as any; if (src) src.setData({ type: 'FeatureCollection', features: [] }); } catch { /* */ }
     setAndrasSparTid(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, valtObjekt?.id, hyttRoll]);
 
-  // Stråk-KÄLLA för valt objekt (bara i skotarkörvy). objekt_id = objekt.id (uuid) = valtObjekt.id.
-  // KÄLLBYTE: föredra skördarens RIKTIGA hyttspår (roll=skordare) framför den rekonstruerade
-  // skordarstrak (arbetspositioner mellan stopp). Data-gejtat: hyttsparet används bara om det har
-  // DUGLIGA segment (≥5 pkt & ≥30 m efter tidsglapp-segmentering) → annars OSYNLIG fallback på
-  // skordarstrak som förr. Klumpning + rendering är källa-agnostiska (läser bara geometri) → oförändrade.
-  useEffect(() => {
-    if (!skotarKorvy || !valtObjekt?.id) { setStrakData([]); setStrakKalla(null); return; }
-    let avbruten = false;
-    const objektId = valtObjekt.id;
-    (async () => {
-      // 1) Riktigt hyttspår (skördaren)? Segmentera varje session, behåll dugliga segment.
-      let gpsRader: StrakRad[] = [];
-      try {
-        const { data: hs } = await supabase.from('hyttspar')
-          .select('points').eq('objekt_id', objektId).eq('roll', 'skordare');
-        if (avbruten) return;
-        let nr = 0;
-        for (const rad of (hs || [])) {
-          for (const seg of hyttsparDugligaSegment(Array.isArray((rad as any).points) ? (rad as any).points : [])) {
-            nr += 1;
-            gpsRader.push({ id: `hyttspar-${nr}`, maskin_id: 'hyttspar', strak_nr: nr, geometri: seg.geometri, langd_m: seg.langd_m });
-          }
-        }
-      } catch (e) { console.error('[Skotarkörvy] hyttspår-hämtning:', e); }
-
-      if (gpsRader.length > 0) { setStrakData(gpsRader); setStrakKalla('gps'); return; }
-
-      // 2) Fallback: rekonstruerad skordarstrak (som förr).
-      const { data, error } = await supabase
-        .from('skordarstrak')
-        .select('id, maskin_id, strak_nr, geometri, langd_m')
-        .eq('objekt_id', objektId)
-        .order('strak_nr', { ascending: true });
-      if (avbruten) return;
-      if (error) { console.error('[Skotarkörvy] skordarstrak-hämtning:', error); setStrakData([]); setStrakKalla(null); return; }
-      const rader: StrakRad[] = (data || []).map((r: any) => ({
-        id: String(r.id),
-        maskin_id: String(r.maskin_id ?? ''),
-        strak_nr: r.strak_nr,
-        geometri: Array.isArray(r.geometri) ? r.geometri : [],
-        langd_m: r.langd_m ?? 0,
-      })).filter((r: StrakRad) => r.geometri.length >= 2);
-      setStrakData(rader);
-      setStrakKalla(rader.length > 0 ? 'rekonstruerad' : null);
-    })();
-    return () => { avbruten = true; };
-  }, [skotarKorvy, valtObjekt?.id]);
-
-  // Klumpa varje redan-kvar-reducerad hög (hogarFeaturesRef — draAvUttagFranHogar körd vid load,
-  // SAMMA kvar som pie-ikonerna) till närmaste stråk (≤ STRAK_KLUMP_M) och summera sortimentVolymJson
-  // per stråk. Ingen ny kvar-beräkning — bara tilldelning + summering.
-  const STRAK_KLUMP_M = 30;
-  const strakKvar = useMemo(() => {
-    const karta = new Map<string, { total: number; sortiment: Record<string, number>; strak_nr: number; maskin_id: string; hogar: { lng: number; lat: number; sv: Record<string, number> }[] }>();
-    for (const s of strakData) karta.set(strakKeyAv(s.maskin_id, s.strak_nr), { total: 0, sortiment: {}, strak_nr: s.strak_nr, maskin_id: s.maskin_id, hogar: [] });
-    if (strakData.length === 0) return karta;
-    for (const f of hogarFeaturesRef.current) {
-      const coord = f?.geometry?.coordinates;
-      if (!coord || coord.length < 2) continue;
-      const lng = coord[0], lat = coord[1];
-      let bastKey: string | null = null, bastD = Infinity;
-      for (const s of strakData) {
-        const d = avstandPunktTillStrak(lat, lng, s.geometri);
-        if (d < bastD) { bastD = d; bastKey = strakKeyAv(s.maskin_id, s.strak_nr); }
-      }
-      if (bastKey == null || bastD > STRAK_KLUMP_M) continue;
-      const post = karta.get(bastKey)!;
-      post.total += Number(f.properties?.volym) || 0;
-      let sv: Record<string, number> = {};
-      try { sv = JSON.parse(f.properties?.sortimentVolymJson || '{}'); } catch { /* */ }
-      for (const [namn, vol] of Object.entries(sv)) post.sortiment[namn] = (post.sortiment[namn] || 0) + (Number(vol) || 0);
-      // Behåll den enskilda högen (coord + rå sortiment→volym) → "Klar här" skriver per-hög-uttag
-      // exakt på stråkets högar (ringens skrivväg, men liten cirkel per hög istället för dragen polygon).
-      post.hogar.push({ lng, lat, sv });
-    }
-    return karta;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [strakData, hogarVersion]);
   // Geofence: när maskinen är inne i en wet/steep/noentry-zon
   type ZoneAlert = { markerId: string; zoneType: string; label: string; color: string };
   const [korvyZoneAlert, setKorvyZoneAlert] = useState<ZoneAlert | null>(null);
@@ -4816,6 +4705,16 @@ export default function PlannerPage() {
     })();
     return () => { avbruten = true; };
   }, [valtObjekt?.id, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // === Hänsynsytor: i KÖRVYN lätt fyllning (≤ 0,15) och kanten bär färgen; planeringsvyn oförändrad ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      if (map.getLayer('trakt-hansyn-fill')) map.setPaintProperty('trakt-hansyn-fill', 'fill-opacity', korvyActive ? KORVY_HANSYN_FYLLNING : PLAN_HANSYN_FYLLNING);
+      if (map.getLayer('trakt-hansyn-line')) map.setPaintProperty('trakt-hansyn-line', 'line-width', korvyActive ? KORVY_HANSYN_KANT : PLAN_HANSYN_KANT);
+    } catch { /* */ }
+  }, [korvyActive, mapLibreReady, korvyBasKarta]);
 
   // === Trakt-geometri: toggle synlighet per lagerknapp ===
   useEffect(() => {
@@ -8944,6 +8843,23 @@ export default function PlannerPage() {
     } catch { /* */ }
   }, [startFasNu, mapLibreReady, korvyActive, korvyFollowPaused, korvyEffectivePos, kartBearing]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // MARKHÖJD i 3D-terräng (lib/kartaMarkhojd): MapLibre fryser kamerans centerhöjd under en animation och släpper den inte om
+  // höjddata (DEM) kommer EFTER animationen → pricken hamnar markhöjden × sin(lutning) för högt (Hålabäck: 25 % i st.f. 70 %).
+  // Rätta när kameran står still — aldrig mitt i en animation (jumpTo avbryter den) och inte medan sekvensen äger kameran.
+  // Händelserna idle/moveend räcker INTE: i skördarflödet (objektlistan → körvy, ingen startsekvens) kom aldrig någon idle efter att
+  // höjddatan laddats (0 idle på 6 s i testselen) → pricken stod kvar på 54 %. Därför även en billig kontroll var MARKHOJD_KONTROLL_MS:e ms (700)
+  // (en uppslagning; gör inget så länge centerhöjden stämmer).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !korvyActive || korvyFollowPaused) return;
+    const jamka = () => { if (!startKameraLasRef.current) jamkaMarkhojd(map); };
+    map.on('idle', jamka);
+    map.on('moveend', jamka);
+    const iv = setInterval(jamka, MARKHOJD_KONTROLL_MS);
+    jamka();
+    return () => { clearInterval(iv); try { map.off('idle', jamka); map.off('moveend', jamka); } catch { /* */ } };
+  }, [mapLibreReady, korvyActive, korvyFollowPaused]);
+
   // KÖRVY: fingret/musen drar kartan → pausa auto-följet ('dragstart' med originalEvent = äkta gest, inte vår easeTo).
   // Bunden en gång; dörrvaktar på korvyOppenRef (render-skriven). Följet återupptas av centrera-knappen och när körvyn stängs.
   useEffect(() => {
@@ -9064,7 +8980,7 @@ export default function PlannerPage() {
       // 'trakt-' = Vida/SKS/RAÄ-referensgeometrin. Traktdelar alltid tända; hänsyn tänds i båda
       // körvyerna; nyckelbiotoper + lämningar tänds i körvyn. Synligheten per lager styrs av toggle-
       // effekten (som kör i planeringsläget); whitelisten släpper bara igenom dem så de inte döljs här.
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skordarstrak-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-'];
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-'];
       for (const l of allLayers) {
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
@@ -9387,60 +9303,7 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Körvy] mainroad-glow:', e); }
     }
 
-    // 1b) SKOTARKÖRVY: skördarstråk (casing + linje) + kvarvolym-etikett. Data + synlighet styrs av
-    //     separat effekt (skotarKorvy). utkort (kvar≈0) och small (<50 m) dämpas i paint/etikett.
-    if (!map.getSource('skordarstrak-source')) {
-      try { map.addSource('skordarstrak-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
-      catch (e) { console.error('[Skotarkörvy] strak-source:', e); }
-    }
-    if (!map.getLayer('skordarstrak-casing')) {
-      try {
-        map.addLayer({
-          id: 'skordarstrak-casing', type: 'line', source: 'skordarstrak-source',
-          paint: {
-            // Tunn casing: bara så mycket mörk kant att linjen håller ihop mot ljus topokarta.
-            // Bredderna halverade mot v1 — kartan (stickvägar, ytor) ska gå att läsa UNDER stråket.
-            'line-color': '#0b0b0d',
-            'line-opacity': ['case', ['get', 'utkort'], 0.10, 0.38],
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 5.5, 19, 8],
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
-        });
-      } catch (e) { console.error('[Skotarkörvy] casing:', e); }
-    }
-    if (!map.getLayer('skordarstrak-line')) {
-      try {
-        map.addLayer({
-          id: 'skordarstrak-line', type: 'line', source: 'skordarstrak-source',
-          paint: {
-            'line-color': ['case', ['get', 'utkort'], '#8e8e93', '#0a84ff'],
-            'line-opacity': ['case', ['get', 'utkort'], 0.30, ['case', ['get', 'small'], 0.45, 0.88]],
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1.8, 17, 3.2, 19, 4.6],
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
-        });
-      } catch (e) { console.error('[Skotarkörvy] line:', e); }
-    }
-    // (Aktiv-stråk-emfasen borttagen — högarna/stråken ser likadana ut oavsett var maskinen står.)
-    if (!map.getSource('skordarstrak-label-source')) {
-      try { map.addSource('skordarstrak-label-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
-      catch (e) { console.error('[Skotarkörvy] label-source:', e); }
-    }
-    if (!map.getLayer('skordarstrak-label')) {
-      try {
-        map.addLayer({
-          id: 'skordarstrak-label', type: 'symbol', source: 'skordarstrak-label-source',
-          layout: {
-            'text-field': ['get', 'label'],
-            'text-font': ['Open Sans Bold'],
-            'text-size': 13,
-            'text-allow-overlap': false,
-            'visibility': 'none',
-          },
-          paint: { 'text-color': '#fff', 'text-halo-color': '#0b0b0d', 'text-halo-width': 1.6 },
-        });
-      } catch (e) { console.error('[Skotarkörvy] label:', e); }
-    }
+    // (Skördarstråken — rekonstruerade ur produktionsdatan — ritas INTE i körvyn; skördarens spår är bara riktiga hyttspår.)
     // Produktionshögar som små prickar i sortiment-färg (punkt 3) — INTE fulla pie-ikoner (för rörigt
     // i körfart). Data + synlighet i egen effekt (skotarKorvy). Alla prickar samma storlek — ingen
     // förstoring av "aktiva" stråket (togs bort: högarna ska se likadana ut oavsett maskinens läge).
@@ -9792,11 +9655,11 @@ export default function PlannerPage() {
       }
     }
     // === Körvyns z-ordning (nerifrån och upp) ===
-    // rekonstruerade stråk < andras hyttspår < eget hyttspår < produktionshögar/GROT < markörer/punkter/ytnummer.
+    // högprickar < andras hyttspår < eget hyttspår < produktionshögar/GROT < markörer/punkter/ytnummer.
     // moveLayer(id) utan beforeId flyttar lagret ÖVERST → iterera nerifrån-och-upp så det sista hamnar högst.
     // (GPS-pricken + larm flyttas överst separat varje tick → ligger kvar över allt.)
     const KORVY_Z_ORDNING = [
-      'skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-label', 'skotar-hogar-dots',
+      'skotar-hogar-dots',
       'hyttspar-andras-casing', 'hyttspar-andras-line',
       'hyttspar-hist-casing', 'hyttspar-hist-line', 'hyttspar-egen-casing', 'hyttspar-egen-line',
       'grot-shadow', 'grot-circle', 'grot-label', 'hogar-cluster', 'hogar-cluster-label', 'hogar-hit', 'hogar-circle',
@@ -9805,6 +9668,9 @@ export default function PlannerPage() {
     ];
     for (const id of KORVY_Z_ORDNING) { try { if (map.getLayer(id)) map.moveLayer(id); } catch { /* */ } }
     console.log('[Körvy] immersion-layers setup klar');
+    // Källorna (hyttspar-hist/egen/andras) finns nu → rita om dem ur refarna. Annars missas data som hämtats INNAN kartan fanns
+    // (redo-effekten, deklarerad före denna, kör i samma commit som mapLibreReady och ser då inga källor).
+    setHyttsparBasVersion(v => v + 1);
   }, [mapLibreReady]);
 
   // PLANERINGSVYNS hyttspår: hämta BÅDA rollernas riktiga körspår för objektet och rita i planeringskartan
@@ -9862,43 +9728,6 @@ export default function PlannerPage() {
     if (andrasRoll) set('hyttspar-andras-line', rollFarg(andrasRoll));
   }, [hyttRoll, andrasRoll, mapLibreReady, korvyActive]);
 
-  // === SKOTARKÖRVY: mata stråk-linjer + kvar-etiketter + toggla synlighet ===
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    const vis = (skotarKorvy && overlays.rekonstrueradeStrak) ? 'visible' : 'none';   // lager-toggle "Rekonstruerade stråk"
-    const lineFeatures: any[] = [];
-    const labelFeatures: any[] = [];
-    for (const s of strakData) {
-      const kvar = strakKvar.get(strakKeyAv(s.maskin_id, s.strak_nr))?.total ?? 0;
-      const utkort = kvar <= 0.05;          // klart utkört → dämpas
-      const small = s.langd_m < 50;         // småstump → dämpas + ingen etikett (datan rörs ej)
-      const sKey = strakKeyAv(s.maskin_id, s.strak_nr);
-      lineFeatures.push({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: s.geometri },
-        properties: { strakKey: sKey, strak_nr: s.strak_nr, maskin_id: s.maskin_id, utkort, small },
-      });
-      if (!utkort && !small) {
-        const mid = s.geometri[Math.floor(s.geometri.length / 2)];
-        labelFeatures.push({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: mid },
-          properties: { label: `${kvar.toFixed(1)} m³` },
-        });
-      }
-    }
-    try {
-      const src = map.getSource('skordarstrak-source') as any;
-      if (src) src.setData({ type: 'FeatureCollection', features: lineFeatures });
-      const lsrc = map.getSource('skordarstrak-label-source') as any;
-      if (lsrc) lsrc.setData({ type: 'FeatureCollection', features: labelFeatures });
-    } catch (e) { console.error('[Skotarkörvy] setData:', e); }
-    for (const id of ['skordarstrak-casing', 'skordarstrak-line', 'skordarstrak-label']) {
-      try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch { /* */ }
-    }
-  }, [skotarKorvy, strakData, strakKvar, mapLibreReady, overlays.rekonstrueradeStrak, korvyActive, korvyBasKarta]);
-
   // SKOTARKÖRVY (punkt 3): mata hög-prickarna. Varje redan-kvar-reducerad hög → punkt i sortiment-
   // färg (properties.color). Alla prickar lika stora — ingen aktiv-förstoring (borttagen).
   useEffect(() => {
@@ -9915,9 +9744,9 @@ export default function PlannerPage() {
     try {
       const src = map.getSource('skotar-hogar-source') as any;
       if (src) src.setData({ type: 'FeatureCollection', features: feats });
-      if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', (skotarKorvy && overlays.rekonstrueradeStrak) ? 'visible' : 'none');
+      if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', skotarKorvy ? 'visible' : 'none');
     } catch (e) { console.error('[Skotarkörvy] hogar-dots setData:', e); }
-  }, [skotarKorvy, hogarVersion, strakData, mapLibreReady, overlays.rekonstrueradeStrak, korvyActive, korvyBasKarta]);
+  }, [skotarKorvy, hogarVersion, mapLibreReady, korvyActive, korvyBasKarta]);
 
   // === Körvy-lager-toggles: hyttspår (Mitt spår + andras spår) ===
   // KEEP_PREFIX-whitelisten tänder alla hyttspar-* när körvyn aktiveras; dessa toggles släcker
@@ -18108,11 +17937,10 @@ export default function PlannerPage() {
                   }} />
                 </div>
               </div>
-              {/* Körvy-spår: mitt spår, andras spår, rekonstruerade stråk. Default på, sparas per enhet. */}
+              {/* Körvy-spår: mitt spår, andras spår (bara RIKTIGA hyttspår — inga rekonstruerade stråk). Default på, sparas per enhet. */}
               {[
                 { key: 'mittSpar' as const, label: 'Mitt spår', farg: '#30d158' },
                 { key: 'andrasSpar' as const, label: andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', farg: '#a78bfa' },
-                { key: 'rekonstrueradeStrak' as const, label: 'Rekonstruerade stråk', farg: '#0a84ff' },
               ].map(rad => (
                 <div key={rad.key}
                   onClick={() => setOverlays(prev => ({ ...prev, [rad.key]: !prev[rad.key] }))}

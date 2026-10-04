@@ -5,13 +5,16 @@
 //  • StartSvartSkarm — svart täckskikt. Delas av /maskin-routens fallback, väntläget ("roll/maskinregister laddas")
 //    och startsekvensens täckskikt, så att de tre ser identiska ut och inget hoppar när ett byts mot nästa. Tonar
 //    ut (opacity) → kartan "tonar upp ur svart". Under 1 s: HELT svart (ingenting). Varar svart längre berättar den:
-//    maskinens namn i liten grå text + en tunn, långsam förloppsrad, och efter 10 s vad som dröjer ("Väntar på nät" /
-//    "Hämtar karta"). Tiden räknas från NAVIGERINGEN (performance.now) så de tre lagren delar klocka.
-//  • MaskinSomFelSkarm — det ENDA stället loggan visas: felskärmar (ej behörig / okänd maskin / laddning
-//    fastnar). Loggan är SAMMA fil som inloggningssidan (/logo.png), 1953×867.
+//    granen ur loggan i vitt (56 px), maskinens namn i liten grå text under den, en tunn, långsam förloppsrad, och
+//    efter 10 s vad som dröjer ("Väntar på nät" / "Hämtar karta"). Allt grått/vitt på svart. Tiden räknas från
+//    NAVIGERINGEN (performance.now) så de tre lagren delar klocka.
+//  • MaskinSomFelSkarm — felskärmar (ej behörig / okänd maskin / laddning fastnar) visar hela loggan. Loggan är
+//    SAMMA fil som inloggningssidan (/logo.png), 1953×867. (Väntskärmen visar bara granen ur den, /gran-vit.png.)
 
 import React, { useEffect, useState } from 'react';
 import { COVER_FADE_MS, svartInfo, svartVad } from '@/lib/maskinstart';
+
+const GRAN_HOJD_PX = 56;
 
 const KEYFRAMES = `
 @keyframes maskinSvartForlopp { 0% { left: -40%; } 100% { left: 100%; } }
@@ -62,6 +65,11 @@ export function StartSvartSkarm({ synlig = true, zIndex = 9000, namn = null, kar
           animation: 'maskinSvartTona 600ms ease forwards', opacity: 0,
         }}>
           <style>{KEYFRAMES}</style>
+          {/* Granen ur loggan i VITT (public/gran-vit.png, utklippt med scripts/gran-fran-logga.mjs). Höjd 56 px; width/height
+              speglar det verkliga förhållandet (129×168) så inget hoppar när bilden laddas. Först efter 1 s, som resten. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/gran-vit.png" alt="" width={129} height={168}
+            style={{ height: `${GRAN_HOJD_PX}px`, width: 'auto', display: 'block', opacity: 0.9, marginBottom: '6px' }} />
           {info.namn && <div style={{ fontSize: '13px', letterSpacing: '0.4px', color: 'rgba(255,255,255,0.5)' }}>{info.namn}</div>}
           {/* Tunn, långsam förloppsrad: ett kort streck som glider över ett nästan osynligt spår. */}
           <div style={{ position: 'relative', width: '120px', height: '2px', borderRadius: '1px', background: 'rgba(255,255,255,0.09)', overflow: 'hidden' }}>
