@@ -90,7 +90,7 @@ function Innehall() {
   const bolagP = sp.get('bolag') as Bolag;
   const bolag: Bolag = BOLAGEN.includes(bolagP) ? bolagP : 'Alla';
   const arP = Number(sp.get('ar'));
-  const vy: Vy = sp.get('vy') === 'rakna' ? 'rakna' : 'ar';
+  const vy: Vy = sp.get('vy') === 'rakna' ? 'rakna' : sp.get('vy') === 'sa-raknas' ? 'sa-raknas' : 'ar';
   const ar = Number.isInteger(arP) && arP > 2000 ? arP : idag.getFullYear();
 
   const byt = useCallback((q: { ar?: number; atgard?: Atgard; bolag?: Bolag }) => {
@@ -128,7 +128,7 @@ function Innehall() {
 function StartsidaLankar() {
   return (
     <div style={{ margin: '16px 16px 0' }}>
-      <a href="/affarsuppfoljning?vy=rakna" style={{ display: 'block', padding: '14px 0', minHeight: 48, fontSize: 13, color: 'inherit', textDecoration: 'none', borderTop: '1px solid rgba(255,255,255,0.08)' }}>Räkna på en post ›</a>
+      <a href="/affarsuppfoljning?vy=rakna" style={{ display: 'block', padding: '14px 0', minHeight: 48, fontSize: 13, color: 'inherit', textDecoration: 'none', borderTop: '1px solid rgba(255,255,255,0.08)' }}>Räkna på post ›</a>
       <a href="/affarsuppfoljning/manad?atgard=Allt&bolag=Vida" style={{ display: 'block', padding: '14px 0', minHeight: 48, fontSize: 13, color: 'inherit', textDecoration: 'none', borderTop: '1px solid rgba(255,255,255,0.08)' }}>Månadssidan ›</a>
       <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />
     </div>
