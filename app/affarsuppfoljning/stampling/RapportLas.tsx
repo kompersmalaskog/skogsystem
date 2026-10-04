@@ -12,8 +12,8 @@
 // Kontrollen bor i lib/stampling/pdf/kontroll.ts och körs på samma sätt här (live) som på servern (vid sparande).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DAMPAD, SEKUNDAR, TEXT, LINJE, GUL, GRON, TAL, nf0, nf1,
-         Tillbakarad, Damp, Mening, Rad, Rader, Teknisk, Laddar } from '@/components/Ytform';
+import { DAMPAD, TEXT, LINJE, GUL, GRON, TAL, nf0,
+         Tillbakarad, Damp, Mening, Rad, Rader, Laddar, Pil } from '@/components/Ytform';
 import { kontrollera, stammerRader, slagTyp, SLAGTYP_NAMN, type Kontroll } from '@/lib/stampling/pdf/kontroll';
 import { tal, type Lasning } from '@/lib/stampling/pdf/rapport';
 import { laddaUppOchLas, listaRapporter, hamtaRapport, rattaRapport, type Rapport } from '@/lib/stampling/pdf/klient';
@@ -48,15 +48,11 @@ function tillLasning(grund: Lasning, tabeller: TabellText[]): Lasning {
 
 function PostRuta({ r, l }: { r: Rapport | null; l: Lasning }) {
   const p = l.post;
-  const rad = (etikett: string, v: string | null) => (v ? <div style={{ display: 'flex', gap: 8, fontSize: 12, color: DAMPAD, lineHeight: 1.6 }}><span style={{ minWidth: 76, color: SEKUNDAR }}>{etikett}</span><span>{v}</span></div> : null);
+  const meta = [p.forrattare, p.datum, p.total_volym_m3sk != null ? `${fmt0(p.total_volym_m3sk)} m³sk` : null].filter(Boolean).join(' · ');
   return (
     <div style={{ margin: '4px 16px 0', paddingBottom: 12, borderBottom: LINJE }}>
       <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>{p.namn ?? p.fastighet ?? r?.filnamn ?? 'Stämplingsrapport'}</div>
-      {rad('Förrättare', p.forrattare)}
-      {rad('Datum', p.datum)}
-      {rad('Total volym', p.total_volym_m3sk != null ? `${fmt0(p.total_volym_m3sk)} m³sk` : null)}
-      {rad('Markägare', p.agare)}
-      {r && rad('Fil', r.filnamn)}
+      {meta && <div style={{ fontSize: 12, color: DAMPAD, lineHeight: 1.6 }}>{meta}</div>}
     </div>
   );
 }
@@ -67,9 +63,6 @@ function Atgardsruta({ k }: { k: Kontroll }) {
     <div role="alert" style={{ margin: '14px 16px 0', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,120,110,0.35)', background: 'rgba(255,120,110,0.06)' }}>
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: ROD }}>Åtgärd behövs</div>
       {k.atgard.map((a, i) => <div key={i} style={{ marginTop: 6, fontSize: 13, lineHeight: 1.5 }}>{a.text}</div>)}
-      <div style={{ marginTop: 8, fontSize: 12, color: DAMPAD, lineHeight: 1.5 }}>
-        Jämför raderna nedan mot rapporten och rätta det som skiljer. Inget räknas förrän summorna stämmer.
-      </div>
     </div>
   );
 }
@@ -80,31 +73,13 @@ function Tabell({ i, t, k, uppdatera, tabort, oppen, vaxla }: {
 }) {
   const typ = slagTyp(t.namn);
   const ok = k?.ok !== false && typ !== 'okand';
-  const sumRad = (etikett: string, summa: string, tryckt: string | null, diff: string | null, bra: boolean | null) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, lineHeight: 1.7 }}>
-      <span style={{ color: DAMPAD }}>{etikett}</span>
-      <span>
-        <span style={{ color: bra === false ? ROD : TEXT, fontWeight: 600 }}>{summa}</span>
-        <span style={{ color: DAMPAD }}> {tryckt != null ? `av ${tryckt} i rapporten` : 'rapporten har ingen summa'}</span>
-        {diff && <span style={{ color: bra === false ? ROD : GRON }}> {diff}</span>}
-      </span>
-    </div>
-  );
   return (
     <div style={{ margin: '14px 16px 0', borderTop: LINJE, paddingTop: 10 }}>
       <button onClick={vaxla} aria-expanded={oppen} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, minHeight: 44,
         border: 'none', background: 'none', color: 'inherit', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
         <span style={{ fontSize: 14, fontWeight: 600 }}>{t.namn || 'Namnlöst'}{k && !k.iModellen && typ !== 'okand' ? <span style={{ fontWeight: 400, color: DAMPAD }}> · räknas inte</span> : null}</span>
-        <span style={{ fontSize: 12, color: ok ? GRON : ROD }}>{ok ? 'stämmer ' : 'avviker '}<span style={{ color: DAMPAD }}>{oppen ? '⌄' : '›'}</span></span>
+        <span style={{ fontSize: 12, color: ok ? GRON : ROD, display: 'inline-flex', alignItems: 'center' }}>{ok ? 'stämmer' : 'avviker'}{oppen ? <Pil storlek={13} vanster={6} /> : <span style={{ color: DAMPAD, marginLeft: 6 }}>›</span>}</span>
       </button>
-      {k && (
-        <div>
-          {sumRad('Antal träd', fmt0(k.summaAntal), k.tryktAntal != null ? fmt0(k.tryktAntal) : null,
-            k.diffAntal == null ? null : k.diffAntal === 0 ? 'stämmer' : `${k.diffAntal > 0 ? '+' : '−'}${fmt0(Math.abs(k.diffAntal))}`, k.antalOk)}
-          {k.summaVolym != null && sumRad('Volym m³sk', nf1(k.summaVolym), k.tryktVolym != null ? nf1(k.tryktVolym) : null,
-            k.diffVolym == null ? null : k.volymOk ? 'stämmer' : `${k.diffVolym > 0 ? '+' : '−'}${nf1(Math.abs(k.diffVolym))}`, k.volymOk)}
-        </div>
-      )}
       {oppen && (
         <div style={{ marginTop: 8 }}>
           <label style={{ display: 'block', fontSize: 11, color: DAMPAD, marginBottom: 4 }}>Trädslag (som i rapporten)</label>
@@ -127,7 +102,7 @@ function Tabell({ i, t, k, uppdatera, tabort, oppen, vaxla }: {
                   onChange={e => uppdatera(x => ({ ...x, rader: x.rader.map((q, n) => (n === j ? { ...q, v: e.target.value } : q)) }))} />
                 <button onClick={() => uppdatera(x => ({ ...x, rader: x.rader.filter((_, n) => n !== j) }))} aria-label={`Ta bort rad ${j + 1}`}
                   style={{ border: 'none', background: 'none', color: DAMPAD, fontSize: 20, minHeight: 44, cursor: 'pointer', fontFamily: 'inherit' }}>×</button>
-                {misstankt && <div style={{ gridColumn: '1 / -1', fontSize: 11, color: GUL, lineHeight: 1.4 }}>Volymen per träd är lägre än i klassen under — kontrollera mot rapporten.</div>}
+                {misstankt && <div style={{ gridColumn: '1 / -1', fontSize: 11, color: GUL, lineHeight: 1.4 }}>kontrollera mot rapporten</div>}
               </div>
             );
           })}
@@ -139,8 +114,8 @@ function Tabell({ i, t, k, uppdatera, tabort, oppen, vaxla }: {
   );
 }
 
-export default function RapportLas({ bas, id, oppna, anvand, manuellt }: {
-  bas: string; id: string | null; oppna: (id: string | null) => void; anvand: (r: Rapport, l: Lasning) => void; manuellt: () => void;
+export default function RapportLas({ bas, id, oppna, anvand, manuellt, saRaknas }: {
+  bas: string; id: string | null; oppna: (id: string | null) => void; anvand: (r: Rapport, l: Lasning) => void; manuellt: () => void; saRaknas: () => void;
 }) {
   const [fas, setFas] = useState<'vilar' | 'laddar-upp' | 'laser' | 'hamtar'>('hamtar');
   const [fel, setFel] = useState<string | null>(null);
@@ -159,7 +134,8 @@ export default function RapportLas({ bas, id, oppna, anvand, manuellt }: {
     if (r.lasning) {
       grund.current = r.lasning;
       setTabeller(tillText(r.lasning));
-      setOppnade(new Set((r.kontroll?.tradslag ?? []).filter(t => !t.ok).map(t => t.index)));   // avvikande trädslag öppna från start
+      const forsta = (r.kontroll?.tradslag ?? []).find(t => !t.ok);
+      setOppnade(new Set(forsta ? [forsta.index] : []));   // bara det första avvikande trädslaget öppet från start — ÅTGÄRD BEHÖVS säger vilka fler som avviker
       if (tillampa && r.kontroll?.klart) anvand(r, r.lasning);                                    // stämmer allt: räkna direkt
     }
     setFas('vilar');
@@ -208,7 +184,7 @@ export default function RapportLas({ bas, id, oppna, anvand, manuellt }: {
         <Tillbakarad href={bas} text="Utbyte" />
         <div style={{ padding: '24px 16px', lineHeight: 1.6 }}>
           <div style={{ fontSize: 14, fontWeight: 600 }}>{fas === 'laddar-upp' ? 'Laddar upp rapporten…' : 'Läser rapporten…'}</div>
-          <Damp>{fas === 'laser' ? 'AI:n läser tabellerna och koden kontrollerar summorna. En inskannad rapport kan ta upp till en minut — stäng inte sidan.' : 'Filen skickas till lagringen.'}</Damp>
+          <Damp>{fas === 'laser' ? 'Kan ta en minut — stäng inte sidan.' : 'Filen skickas till lagringen.'}</Damp>
         </div>
       </>
     );
@@ -245,8 +221,7 @@ export default function RapportLas({ bas, id, oppna, anvand, manuellt }: {
         {fel && <div role="alert" style={{ margin: '10px 16px 0', fontSize: 13, color: ROD, lineHeight: 1.5 }}>{fel}</div>}
 
         <Rader>
-          <Rad text={sparar ? 'Sparar…' : 'Räkna med rapporten'} onClick={kontroll.klart && !sparar ? raknaMed : undefined} dampad={!kontroll.klart}
-            sub={kontroll.klart ? 'Utbytet räknas på den här stämplingslängden' : 'Går först när alla summor stämmer'} />
+          <Rad text={sparar ? 'Sparar…' : 'Räkna med rapporten'} onClick={kontroll.klart && !sparar ? raknaMed : undefined} dampad={!kontroll.klart} />
         </Rader>
 
         <div style={{ margin: '8px 0 0' }}>
@@ -258,13 +233,10 @@ export default function RapportLas({ bas, id, oppna, anvand, manuellt }: {
           ))}
         </div>
         <Rader>
-          <Rad text="Ladda upp en annan rapport" onClick={() => { oppna(null); setRapport(null); }} dampad />
-          <Rad text="Mata in för hand i stället" onClick={manuellt} dampad />
+          <Rad text="Ny rapport" onClick={() => { oppna(null); setRapport(null); }} dampad />
+          <Rad text="Mata in" onClick={manuellt} dampad />
+          <Rad text="Så räknas" onClick={saRaknas} />
         </Rader>
-        <Teknisk>
-          Läst med {rapport.modell ?? 'AI'}{rapport.rattad ? ' och rättad av dig' : ''}. AI:n läser bara — summorna kontrolleras med vanlig kod mot rapportens egna tryckta summor, per trädslag, på antal och på volym m³sk. Antalet ska stämma exakt; volymen tillåts avvika med avrundningen.
-          Rapporten och resultatet är sparade.
-        </Teknisk>
       </>
     );
   }
@@ -273,13 +245,10 @@ export default function RapportLas({ bas, id, oppna, anvand, manuellt }: {
   return (
     <>
       <Tillbakarad href={bas} text="Utbyte" />
-      <div style={{ padding: '10px 16px 0' }}>
-        <div style={{ ...TAL, fontSize: 30, lineHeight: 1.15, fontWeight: 500 }}>Stämplingsrapport</div>
-        <Mening>Ladda upp rapporten som PDF — inskannad går bra. AI:n läser tabellerna; koden kontrollerar att antalet och volymen per trädslag stämmer mot rapportens egna summor innan något räknas.</Mening>
-      </div>
+      <div style={{ margin: '0 16px', fontSize: 15, fontWeight: 600 }}>Stämplingsrapport</div>
       <input ref={valjFil} type="file" accept="application/pdf,.pdf" hidden onChange={e => valdFil(e.target.files?.[0])} />
       <Rader>
-        <Rad text="Välj PDF" sub="stämplingsrapporten från förrättaren" onClick={() => valjFil.current?.click()} />
+        <Rad text="Välj PDF" onClick={() => valjFil.current?.click()} />
       </Rader>
       {fel && (
         <div role="alert" style={{ margin: '14px 16px 0', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,120,110,0.35)', background: 'rgba(255,120,110,0.06)' }}>
@@ -301,7 +270,8 @@ export default function RapportLas({ bas, id, oppna, anvand, manuellt }: {
         </>
       )}
       <Rader>
-        <Rad text="Mata in för hand" sub="diameterklasserna skrivs in rad för rad" onClick={manuellt} dampad />
+        <Rad text="Mata in" onClick={manuellt} dampad />
+        <Rad text="Så räknas" onClick={saRaknas} />
       </Rader>
     </>
   );

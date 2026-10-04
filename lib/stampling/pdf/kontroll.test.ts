@@ -82,7 +82,7 @@ describe('ett läsfel stoppar — ÅTGÄRD BEHÖVS med trädslag och differens',
     expect(g).toMatchObject({ antalOk: false, diffAntal: 2, volymOk: true, ok: false });
     expect(k.atgard).toHaveLength(1);
     expect(k.atgard[0].tradslag).toBe('Gran');
-    expect(ren(k.atgard[0].text)).toMatch(/Gran: antalet summerar till 4 188 men rapporten säger 4 186 \(\+2 träd\)/);
+    expect(ren(k.atgard[0].text)).toMatch(/Gran: 4 188 mot 4 186 träd \(\+2\)/);
   });
   it('volym fel på en rad (144,7 läst som 114,7): antalet stämmer men volymen avviker → stoppar ändå', () => {
     const l = kopia(las('bagskyttebanan.json'));
@@ -92,7 +92,7 @@ describe('ett läsfel stoppar — ÅTGÄRD BEHÖVS med trädslag och differens',
     expect(t).toMatchObject({ antalOk: true, volymOk: false });
     expect(t.diffVolym).toBeCloseTo(-29.7, 1);               // 1 403,3 mot tryckt 1 433
     expect(k.klart).toBe(false);
-    expect(ren(k.atgard[0].text)).toMatch(/Tall: volymen summerar till 1 403,3 m³sk men rapporten säger 1 433,0 \(−29,7/);
+    expect(ren(k.atgard[0].text)).toMatch(/Tall: 1 403,3 mot 1 433,0 m³sk \(−29,7/);
   });
   it('en missad rad stoppar (en 5-cm-rad bortglömd)', () => {
     const l = kopia(las('bagskyttebanan.json'));
