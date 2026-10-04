@@ -24,6 +24,7 @@
 // databasen: det är inköparens eget räknepapper.
 
 import { useEffect, useState, useCallback, Suspense, type ReactNode } from 'react';
+import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
@@ -31,10 +32,17 @@ import { SIDA, DAMPAD, TEXT, LINJE, nf0,
          Tillbakarad, Stort, Damp, Kontroll, Mening, Rad, Rader, Teknisk, Laddar, Fel } from '@/components/Ytform';
 import { berakna, tolkaLangd, jamforRapport, SLAG_NAMN, MIN_STAMMAR, ROT_FRAN_KLASS, EXTRAPOLERAD_FRAN_CM,
          type Cell, type Meta, type Rad as LangdRad, type Slag, type Rapport } from '@/lib/stampling/berakna';
+import RapportLas from './RapportLas';
+import { tillLangdText } from '@/lib/stampling/pdf/kontroll';
+import type { Rapport as PdfRapport } from '@/lib/stampling/pdf/klient';
+import type { Lasning } from '@/lib/stampling/pdf/rapport';
 
 const BAS = '/affarsuppfoljning/stampling';
 const SLAGEN: Slag[] = ['tall', 'gran', 'ovrigt_barr'];
-const NYCKEL = { langd: 'stampling.langd.v1', rapport: 'stampling.rapport.v1', rot: 'stampling.rot.v1' };
+const NYCKEL = { langd: 'stampling.langd.v1', rapport: 'stampling.rapport.v1', rot: 'stampling.rot.v1', aktiv: 'stampling.aktivrapport.v1' };
+
+/** Den inlästa PDF-rapporten som stämplingslängden kommer från — visas överst på resultatet. */
+type AktivRapport = { id: string; namn: string | null; forrattare: string | null; datum: string | null; total: number | null; filnamn: string };
 const ROTVAL = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
 
 type Text3 = Record<Slag, string>;
@@ -83,16 +91,22 @@ function Innehall() {
   const [rapportText, setRapportText] = useState<RapportText>(TOM_RAPPORT);
   const [rotVal, setRotVal] = useState<string>('');     // '' = medianen ur datan
   const [laddatLokalt, setLaddatLokalt] = useState(false);
+  const [aktiv, setAktiv] = useState<AktivRapport | null>(null);
 
   useEffect(() => {
     setText(las(NYCKEL.langd, TOM_TEXT));
     setRapportText(las(NYCKEL.rapport, TOM_RAPPORT));
     setRotVal(las<{ v: string }>(NYCKEL.rot, { v: '' }).v);
+    setAktiv(las<AktivRapport | null>(NYCKEL.aktiv, null));
     setLaddatLokalt(true);
   }, []);
   useEffect(() => { if (laddatLokalt) spara(NYCKEL.langd, text); }, [text, laddatLokalt]);
   useEffect(() => { if (laddatLokalt) spara(NYCKEL.rapport, rapportText); }, [rapportText, laddatLokalt]);
   useEffect(() => { if (laddatLokalt) spara(NYCKEL.rot, { v: rotVal }); }, [rotVal, laddatLokalt]);
+  useEffect(() => {
+    if (!laddatLokalt) return;
+    if (aktiv) spara(NYCKEL.aktiv, aktiv); else { try { localStorage.removeItem(NYCKEL.aktiv); } catch { /* ignorerar */ } }
+  }, [aktiv, laddatLokalt]);
 
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(null);
@@ -146,8 +160,26 @@ function Innehall() {
     return s ? `${BAS}?${s}` : BAS;
   };
 
+  // En inläst rapport som KONTROLLEN godkänt (RapportLas anropar bara det när allt stämmer): längden in, räkna direkt.
+  const anvandRapport = (r: PdfRapport, l: Lasning) => {
+    setText({ ...TOM_TEXT, ...tillLangdText(l) });
+    setAktiv({ id: r.id, namn: l.post.namn ?? r.namn, forrattare: l.post.forrattare, datum: l.post.datum, total: l.post.total_volym_m3sk, filnamn: r.filnamn });
+    router.push(BAS);
+  };
+
   if (laddar) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" /><Laddar vad="modellen" /></div>;
   if (fel) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" /><Fel rubrik="Modellen kunde inte hämtas" fel={fel} igen={hamta} /></div>;
+
+  // ── Stämplingsrapport som PDF ───────────────────────────────────────────
+  if (vy === 'pdf') {
+    return (
+      <div style={SIDA}>
+        <RapportLas bas={BAS} id={sp.get('id')} anvand={anvandRapport}
+          oppna={id => router.replace(url({ vy: 'pdf', id: id ?? undefined }), { scroll: false })}
+          manuellt={() => router.push(url({ vy: 'langd' }))} />
+      </div>
+    );
+  }
 
   // ── Stämplingslängden ───────────────────────────────────────────────────
   if (vy === 'langd') {
@@ -157,8 +189,9 @@ function Innehall() {
         <Stort tal={nf0(res?.trad ?? 0)} ordrad="träd i stämplingslängden">
           <Damp>{SLAGEN.map(s => `${SLAG_NAMN[s].toLowerCase()} ${nf0(tradPerSlag[s])}`).join(' · ')}</Damp>
           <Mening>
-            En rad per diameterklass: diameter i centimeter och antal träd, så som stämplingslängden listar dem
-            (klassmitt, jämna centimeter). Klistra in från rapporten. Övrigt barr räknas som gran.
+            Reservvägen: en rad per diameterklass, diameter i centimeter och antal träd, så som stämplingslängden listar dem
+            (klassmitt, jämna centimeter). Klistra in från rapporten. Övrigt barr räknas som gran. Har du rapporten som PDF går det snabbare
+            och säkrare att ladda upp den — då kontrolleras summorna mot rapportens egna.
           </Mening>
         </Stort>
         {SLAGEN.map(s => (
@@ -166,11 +199,12 @@ function Innehall() {
             <textarea value={text[s]} rows={text[s] ? Math.min(14, text[s].split('\n').length + 1) : 3}
               placeholder={s === 'gran' ? '12 116\n14 137\n16 212' : '26 3\n28 3'} spellCheck={false}
               aria-label={`Stämplingslängd ${SLAG_NAMN[s].toLowerCase()}`}
-              onChange={e => setText(t => ({ ...t, [s]: e.target.value }))} style={RUTA} />
+              onChange={e => { setAktiv(null); setText(t => ({ ...t, [s]: e.target.value })); }} style={RUTA} />
           </Falt>
         ))}
         <Rader>
-          <Rad text="Rensa stämplingslängden" dampad onClick={() => setText(TOM_TEXT)} />
+          <Rad text="Rensa stämplingslängden" dampad onClick={() => { setAktiv(null); setText(TOM_TEXT); }} />
+          <Rad text="Ladda upp som PDF i stället" dampad onClick={() => router.push(url({ vy: 'pdf' }))} />
         </Rader>
       </div>
     );
@@ -232,7 +266,8 @@ function Innehall() {
           </Damp>
         </Stort>
         <Rader>
-          <Rad text="Stämplingslängd" tal={`${nf0(res?.trad ?? 0)} träd`} onClick={() => router.push(url({ vy: 'langd' }))} />
+          <Rad text="Ladda upp stämplingsrapport (PDF)" sub="AI:n läser, koden kontrollerar mot rapportens summor" onClick={() => router.push(url({ vy: 'pdf' }))} />
+          <Rad text="Mata in för hand" dampad onClick={() => router.push(url({ vy: 'langd' }))} />
         </Rader>
       </div>
     );
@@ -242,11 +277,12 @@ function Innehall() {
       <div style={SIDA}>
         <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
         <Stort tal="–" ordrad="ingen stämplingslängd inmatad">
-          <Damp>Mata in diameterklasserna ur stämplingsrapporten, så räknas utbytet enligt vår egen avverkade skog.</Damp>
+          <Damp>Ladda upp stämplingsrapporten som PDF, eller mata in diameterklasserna för hand — så räknas utbytet enligt vår egen avverkade skog.</Damp>
           {underlag}
         </Stort>
         <Rader>
-          <Rad text="Mata in stämplingslängd" onClick={() => router.push(url({ vy: 'langd' }))} />
+          <Rad text="Ladda upp stämplingsrapport (PDF)" sub="AI:n läser, koden kontrollerar mot rapportens summor" onClick={() => router.push(url({ vy: 'pdf' }))} />
+          <Rad text="Mata in för hand" dampad onClick={() => router.push(url({ vy: 'langd' }))} />
         </Rader>
       </div>
     );
@@ -257,6 +293,18 @@ function Innehall() {
   return (
     <div style={SIDA}>
       <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
+      {aktiv && (
+        <Link href={url({ vy: 'pdf', id: aktiv.id })} style={{ display: 'block', margin: '0 16px', paddingBottom: 12, borderBottom: LINJE, textDecoration: 'none', color: 'inherit' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+            <span style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>{aktiv.namn ?? aktiv.filnamn}</span>
+            <span style={{ color: DAMPAD, fontSize: 15 }}>›</span>
+          </div>
+          <div style={{ fontSize: 12, color: DAMPAD, lineHeight: 1.6 }}>
+            {[aktiv.forrattare, aktiv.datum, aktiv.total != null ? `${nf0(aktiv.total)} m³sk` : null].filter(Boolean).join(' · ')}
+            {' '}— stämplingslängd ur PDF, summorna kontrollerade
+          </div>
+        </Link>
+      )}
       <Stort tal={nf0(t.timmer)} enhet="m³fub" ordrad={`timmer av ${nf0(res.trad)} träd`}>
         {/* Andelen, volymen och spannet ihop. Spannet är utfallet vid datans
             kvartiler i rötandel — vad samma post gav på våra bästa och sämsta

@@ -1,0 +1,311 @@
+{
+ "post": {
+  "namn": "Bågskyttebanan",
+  "fastighet": "Johannishus Gods \"Bågskyttebanan\"",
+  "agare": "Johannishus Godsförvaltning AB",
+  "forrattare": "Lars-Börje Nilsson",
+  "datum": "2025-03-26",
+  "total_volym_m3sk": 1884
+ },
+ "tradslag": [
+  {
+   "namn": "Tall",
+   "klasser": [
+    {
+     "diameter_cm": 12,
+     "antal": 1,
+     "volym_m3sk": 0.1
+    },
+    {
+     "diameter_cm": 20,
+     "antal": 1,
+     "volym_m3sk": 0.3
+    },
+    {
+     "diameter_cm": 22,
+     "antal": 6,
+     "volym_m3sk": 2.6
+    },
+    {
+     "diameter_cm": 24,
+     "antal": 17,
+     "volym_m3sk": 8.8
+    },
+    {
+     "diameter_cm": 26,
+     "antal": 26,
+     "volym_m3sk": 16.0
+    },
+    {
+     "diameter_cm": 28,
+     "antal": 49,
+     "volym_m3sk": 35.3
+    },
+    {
+     "diameter_cm": 30,
+     "antal": 83,
+     "volym_m3sk": 69.3
+    },
+    {
+     "diameter_cm": 32,
+     "antal": 86,
+     "volym_m3sk": 82.4
+    },
+    {
+     "diameter_cm": 34,
+     "antal": 113,
+     "volym_m3sk": 122.9
+    },
+    {
+     "diameter_cm": 36,
+     "antal": 118,
+     "volym_m3sk": 144.7
+    },
+    {
+     "diameter_cm": 38,
+     "antal": 127,
+     "volym_m3sk": 174.3
+    },
+    {
+     "diameter_cm": 40,
+     "antal": 105,
+     "volym_m3sk": 160.3
+    },
+    {
+     "diameter_cm": 42,
+     "antal": 94,
+     "volym_m3sk": 158.7
+    },
+    {
+     "diameter_cm": 44,
+     "antal": 57,
+     "volym_m3sk": 105.9
+    },
+    {
+     "diameter_cm": 46,
+     "antal": 53,
+     "volym_m3sk": 107.9
+    },
+    {
+     "diameter_cm": 48,
+     "antal": 46,
+     "volym_m3sk": 102.1
+    },
+    {
+     "diameter_cm": 50,
+     "antal": 19,
+     "volym_m3sk": 45.8
+    },
+    {
+     "diameter_cm": 52,
+     "antal": 14,
+     "volym_m3sk": 36.6
+    },
+    {
+     "diameter_cm": 54,
+     "antal": 13,
+     "volym_m3sk": 36.7
+    },
+    {
+     "diameter_cm": 56,
+     "antal": 3,
+     "volym_m3sk": 9.1
+    },
+    {
+     "diameter_cm": 58,
+     "antal": 3,
+     "volym_m3sk": 9.8
+    },
+    {
+     "diameter_cm": 62,
+     "antal": 1,
+     "volym_m3sk": 3.7
+    }
+   ],
+   "tryckt_antal": 1035,
+   "tryckt_volym_m3sk": 1433
+  },
+  {
+   "namn": "Gran",
+   "klasser": [
+    {
+     "diameter_cm": 10,
+     "antal": 20,
+     "volym_m3sk": 1.0
+    },
+    {
+     "diameter_cm": 12,
+     "antal": 24,
+     "volym_m3sk": 2.1
+    },
+    {
+     "diameter_cm": 14,
+     "antal": 18,
+     "volym_m3sk": 2.4
+    },
+    {
+     "diameter_cm": 16,
+     "antal": 17,
+     "volym_m3sk": 3.2
+    },
+    {
+     "diameter_cm": 18,
+     "antal": 11,
+     "volym_m3sk": 2.7
+    },
+    {
+     "diameter_cm": 20,
+     "antal": 14,
+     "volym_m3sk": 4.5
+    },
+    {
+     "diameter_cm": 22,
+     "antal": 21,
+     "volym_m3sk": 8.6
+    },
+    {
+     "diameter_cm": 24,
+     "antal": 22,
+     "volym_m3sk": 11.0
+    },
+    {
+     "diameter_cm": 26,
+     "antal": 26,
+     "volym_m3sk": 15.6
+    },
+    {
+     "diameter_cm": 28,
+     "antal": 30,
+     "volym_m3sk": 21.4
+    },
+    {
+     "diameter_cm": 30,
+     "antal": 32,
+     "volym_m3sk": 26.6
+    },
+    {
+     "diameter_cm": 32,
+     "antal": 34,
+     "volym_m3sk": 32.5
+    },
+    {
+     "diameter_cm": 34,
+     "antal": 30,
+     "volym_m3sk": 32.7
+    },
+    {
+     "diameter_cm": 36,
+     "antal": 26,
+     "volym_m3sk": 32.0
+    },
+    {
+     "diameter_cm": 38,
+     "antal": 11,
+     "volym_m3sk": 15.2
+    },
+    {
+     "diameter_cm": 40,
+     "antal": 19,
+     "volym_m3sk": 29.2
+    },
+    {
+     "diameter_cm": 42,
+     "antal": 14,
+     "volym_m3sk": 23.8
+    },
+    {
+     "diameter_cm": 44,
+     "antal": 17,
+     "volym_m3sk": 31.7
+    },
+    {
+     "diameter_cm": 46,
+     "antal": 16,
+     "volym_m3sk": 32.7
+    },
+    {
+     "diameter_cm": 48,
+     "antal": 10,
+     "volym_m3sk": 22.2
+    },
+    {
+     "diameter_cm": 50,
+     "antal": 10,
+     "volym_m3sk": 24.1
+    },
+    {
+     "diameter_cm": 52,
+     "antal": 6,
+     "volym_m3sk": 15.6
+    },
+    {
+     "diameter_cm": 54,
+     "antal": 6,
+     "volym_m3sk": 16.8
+    },
+    {
+     "diameter_cm": 56,
+     "antal": 3,
+     "volym_m3sk": 9.0
+    },
+    {
+     "diameter_cm": 58,
+     "antal": 4,
+     "volym_m3sk": 12.9
+    },
+    {
+     "diameter_cm": 60,
+     "antal": 1,
+     "volym_m3sk": 3.4
+    },
+    {
+     "diameter_cm": 62,
+     "antal": 2,
+     "volym_m3sk": 7.3
+    },
+    {
+     "diameter_cm": 64,
+     "antal": 1,
+     "volym_m3sk": 3.9
+    },
+    {
+     "diameter_cm": 78,
+     "antal": 1,
+     "volym_m3sk": 5.6
+    }
+   ],
+   "tryckt_antal": 446,
+   "tryckt_volym_m3sk": 450
+  },
+  {
+   "namn": "Torra",
+   "klasser": [
+    {
+     "diameter_cm": 26,
+     "antal": 1,
+     "volym_m3sk": 0.8
+    }
+   ],
+   "tryckt_antal": 1,
+   "tryckt_volym_m3sk": 1
+  }
+ ],
+ "sammanfattning": [
+  {
+   "namn": "Tall",
+   "antal": null,
+   "volym_m3sk": 1433.2
+  },
+  {
+   "namn": "Gran",
+   "antal": null,
+   "volym_m3sk": 449.9
+  },
+  {
+   "namn": "Torrträd",
+   "antal": null,
+   "volym_m3sk": 0.8
+  }
+ ],
+ "osakerheter": []
+}
