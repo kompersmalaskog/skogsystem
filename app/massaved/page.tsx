@@ -14,7 +14,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { SIDA, GUL, GRON, DAMPAD, MUTED, nf0, nf1, nf2, manadNamn, manadEtikett, stor, stegaManad, nuManad, kortObjekt,
-         Rubrikrad, Stort, Tillstand, Kontroll, Rad, Rader, Laddar, Fel } from './form';
+         Rubrikrad, Stort, Tillstand, Kontroll, Rad, Rader, Laddar, Fel } from '@/components/Ytform';
 
 type ObjektRad = {
   objekt_id: string; namn: string | null; status: string;

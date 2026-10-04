@@ -11,11 +11,8 @@ import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
+import { SIDA, MUTED, Laddar, Fel } from '@/components/Ytform';
 import RotkapVy, { objektLista, type SimRad } from './RotkapVy';
-
-const bg = { background: '#111110', minHeight: '100vh', paddingTop: 56, paddingBottom: 90,
-             color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const;
-const muted = { color: '#7a7a72', fontSize: 11 } as const;
 
 /** numeric kommer som text från PostgREST i vissa lägen — talen ska vara tal. */
 function normalisera(r: Record<string, unknown>): SimRad {
@@ -66,32 +63,15 @@ function Innehall() {
     ? valtUrl : (lista.find(o => o.valjbar)?.objekt_id ?? null);
   const valj = (id: string) => router.replace(`/rotkap?objekt=${encodeURIComponent(id)}`, { scroll: false });
 
-  if (laddar) return <div style={bg}><div style={{ ...muted, textAlign: 'center', padding: 40 }}>Hämtar simuleringen…</div></div>;
+  if (laddar) return <div style={SIDA}><Laddar vad="simuleringen" /></div>;
 
-  if (fel) return (
-    <div style={bg}>
-      <div style={{ textAlign: 'center', padding: '40px 20px', lineHeight: 1.6 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Simuleringen kunde inte hämtas</div>
-        <div style={{ ...muted, marginBottom: 16 }}>
-          {fel.kod === 'ABORT' ? 'Anropet avbröts. Tryck Försök igen.'
-            : 'Tryck Försök igen. Står felet kvar: logga ut och in, och skicka koden nedan.'}
-        </div>
-        <button onClick={hamta}
-          style={{ border: 'none', borderRadius: 8, padding: '12px 22px', minHeight: 44,
-                   fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                   background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' }}>Försök igen</button>
-        <div style={{ ...muted, marginTop: 18, fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-word' }}>
-          {fel.kod} · {fel.text}
-        </div>
-      </div>
-    </div>
-  );
+  if (fel) return <div style={SIDA}><Fel rubrik="Simuleringen kunde inte hämtas" fel={fel} igen={hamta} /></div>;
 
   // Tomt utan fel är två olika saker: förberäkningen har inte körts, eller
   // läsrättigheten saknas (RLS ger tomt, aldrig fel). Båda sägs.
   if (!rader || rader.length === 0) return (
-    <div style={bg}>
-      <div style={{ ...muted, textAlign: 'center', padding: 40, lineHeight: 1.7 }}>
+    <div style={SIDA}>
+      <div style={{ ...MUTED, padding: '40px 16px', lineHeight: 1.7 }}>
         Inga simuleringar finns.<br />
         Förberäkningen körs efter import (berakna_rotkap.py) — har den inte körts är tabellen tom.
         Är den körd och det här ändå står kvar saknas läsrättigheten.
@@ -104,7 +84,7 @@ function Innehall() {
 
 export default function RotkapSida() {
   return (
-    <Suspense fallback={<div style={bg} />}>
+    <Suspense fallback={<div style={SIDA} />}>
       <Innehall />
     </Suspense>
   );
