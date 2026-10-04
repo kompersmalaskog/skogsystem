@@ -42,28 +42,19 @@ Sökningen filtrerar grupperna och når även **avslutade** trakter — man fyll
   I prod är det idag 12 objekt. **105 av 157 dim_objekt saknar objekt-rad** (maskinimporterade,
   ingen status) — de är inte "aktiva" och syns bara via sökning.
 
-**Skärm 2 — tryck på trakten: fyra block, uppifrån och ned**
-1. *Trakt och dag.* Traktens namn som rubrik; under den en blå rad **"Idag, fre 2 okt ›"**.
-   Tryck → senaste sju dagarna + ett datumfält för äldre (**bara bakåt, aldrig framåt**).
-   Dagen finns kvar — Joacim fyller i dagar i efterhand — men är inte längre en
-   tre-vägs-väljare. Vid ändring av en sparad period är dagen text.
-2. *Tiden, stor:* **07:00 – 09:00**. Under, dämpat: "tryck på en tid för att
-   ändra". Tryck på en tid → **−** och **+** visas, **en kvart per tryck**. Inga
-   klockfält och ingen `<input type="time">` någonstans (Martin 2026-10-02: den
-   inbyggda väljaren var "skit dålig").
-3. *Hur länge:* **1 tim · 2 tim · 4 tim · Till nu** (≥ 44 px). "Till nu" finns bara
-   för idag och rundar NED till kvarten. Längder som skulle passera nu är grå.
-4. *Starta nu — avsluta sen* (grön, bara idag) under längdknapparna: sluttiden blir ett grått **?**
-   och Spara heter **Starta 07:00**. Se nedan.
-5. *Aktivitet:* Planering (förvald) · Manuellt · Markägare · Möte · Restid — fem i en rad
-   går i 390 px (renderat), knapparna är 44 px höga.
-6. *Faktureras + kommentar* i ett kort: **Faktureras** som en rad med reglage (Ja/Nej),
-   förvalt efter aktivitetens default (planering, manuellt, markägare på; restid och möte av) — inte en
-   väljare — och en blå rad **Lägg till kommentar** som fäller ut ett textfält (`extra_tid.kommentar`).
-7. *Spara.* Låst ("Välj hur länge") tills längden är vald. Snabbvägen är trakt → 2 tim → Spara, tre tryck.
+**Skärm 2 — tryck på trakten, ny period, uppifrån**
+1. *Trakt och dag.* Traktnamnet som rubrik; under den en blå rad **"Idag, fre 2 okt ›"** (senaste sju dagarna +
+   datumfält för äldre, **bara bakåt**). Vid ändring av en sparad period är dagen text.
+2. **Starta nu** — stor grön knapp direkt under trakt och dag, **bara idag**. **Ett tryck startar** (se nedan).
+   Under den en avdelare "eller fyll i tid".
+3. *Tiden, stor:* **07:00 – --:--**. Tryck på en tid → − och + en kvart per tryck. Inga klockfält.
+4. *Hur länge:* **1 tim · 2 tim · 4 tim · Till nu** (efterhandsregistrering; kvartar).
+5. *Rastrad* när den valda längden överstiger 5 tim (se Rasten).
+6. *Aktivitet:* Planering (förvald) · Manuellt · Markägare · Möte · Restid.
+7. *Faktureras + kommentar:* reglage (förvalt efter aktiviteten) och en blå rad **Lägg till kommentar**.
+8. *Spara* ("Välj hur länge" tills längden är vald).
 
-Tidslinjen är borta. Fakturering var borta i första omgången (Martin: "det finns ju inget om
-jag ska fakturera tiden") och är tillbaka som en rad med reglage.
+Snabbvägen för den som vet sluttiden är trakt → 2 tim → Spara. För den som inte vet: trakt → **Starta nu**.
 
 ### Kvartar och förifylld start
 Allt är kvartar. Martins testdata (2026-10-02) hade 10:17, 16:17 och längder som
@@ -94,17 +85,30 @@ egna felmeddelanden efter tryck.
 
 Vyn skapar **bara perioder**. Dagen bekräftas som vanligt under Dag/Kalender.
 
-## Starta nu — avsluta sen, och rasten vid Avsluta
+## Starta nu startar — och allt bekräftas vid Avsluta
 
-*"Man vet när man kommer, inte när man går."* (Martin) **Starta nu** sparar en
-`extra_tid`-rad med `slut_tid = null`, `minuter = 0` och `rast_min = null`.
+*"Man vet när man kommer, inte när man går."* (Martin) **En knapp som heter Starta nu ska starta.** Martin testade
+en tidigare version där knappen bara bytte läge (perioden startade först med "Starta 13:51" längst ner) och
+missade att perioden aldrig startade: *"jag tror man kan missa det, för det gjorde jag"*.
 
+- **Ett tryck på Starta nu** sparar en `extra_tid`-rad med start = exakt nu, `slut_tid = null`, `minuter = 0`,
+  `rast_min = null` och går **direkt tillbaka till skärm 1 med Pågår-kortet överst**. Inget mellansteg, ingen fråga,
+  inget som måste väljas före — man kan stoppa telefonen i fickan. Planering och aktivitetens fakturering är förval;
+  en aktivitet (eller kommentar) som valts före följer med, men det är aldrig ett krav.
+- Det grå "?" och läget "Starta nu valt" finns inte längre. (En redan pågående period som öppnas via
+  "Ändra eller ta bort" visar sluttiden som "pågår".)
+- **Fel visas under knappen** (t.ex. starten ligger inom dagens maskinpass, eller en annan period pågår) och man
+  stannar på skärm 2.
+- **Allt bekräftas vid Avsluta** (Martins princip, och Apples: *besluta när du vet, inte på morgonen när du gissar* —
+  att känna igen är lättare för hjärnan än att välja från noll). Avsluta visar en sammanfattning med allt förvalt:
+  **"Planering · 07:34–16:52 · Rast 30 min · Faktureras · 8 tim 48 min"**, och under den aktivitet (segmenterad),
+  rast med − och +, Faktureras-reglaget och kommentar. Stämmer allt trycker man Spara — oftast ett tryck. Stämmer
+  något inte ändrar man just det.
 - **Starta nu och Avsluta använder EXAKT minut** (Martin 2026-10-04: "tryckte Starta nu 13:51 och fick 13:45"): start =
-  klockan nu (07:34 → 07:34), slut vid Avsluta = klockan nu (16:52 → 16:52). Det stora klockslaget visar "07:34 – ?" direkt
-  och knappen heter "Starta 07:34". **Starta nu ger ALLTID nu** — ett andra tryck läser klockan på nytt, det backar inte.
-  Kom man 07:00 men öppnade appen 07:20: tryck på klockslaget och backa med minus (första trycket snappar till kvarten:
-  07:20 → 07:15 → 07:00). **Plus passerar aldrig nu.** Längdknapparna (1, 2, 4 tim, Till nu) är för efterhandsregistrering
-  och använder den *förifyllda* starten.
+  klockan nu (07:34 → 07:34), slut vid Avsluta = klockan nu (16:52 → 16:52).
+  Kom man 07:00 men öppnade appen 07:20: starta, och ändra sedan starten via **Ändra eller ta bort** på Pågår-kortet
+  (första minustrycket snappar till kvarten: 07:20 → 07:15 → 07:00; **plus passerar aldrig nu**). Längdknapparna
+  (1, 2, 4 tim, Till nu) är för efterhandsregistrering och använder den *förifyllda* starten.
 - **Kvartar finns bara i förifyllning, längdknapparna och plus/minus-stegen.** Förr rundades klockan till närmaste kvart
   (först nedåt, sedan närmaste), vilket gav fel tid för den som trycker på en knapp: 13:51 blev 13:45. Exakt minut löser
   också rastbiasen (en rast som rundades åt olika håll blev ~15 min för lång) utan att något behöver "jämna ut sig".
@@ -114,8 +118,7 @@ Vyn skapar **bara perioder**. Dagen bekräftas som vanligt under Dag/Kalender.
   (levande räknare, omritning var 30:e sekund) med **Avsluta** och "Ändra eller ta bort". Perioden **ligger kvar
   tills man trycker Avsluta eller Ta bort** — man kan stänga appen och komma tillbaka. Ingen Rast- eller Fortsätt-knapp:
   i skogen glömmer man trycka Rast.
-- **Avsluta** visar sammanfattningen **"07:34 – 16:52 · Rast 30 min · 8 tim 48 min"** med − och + på rasten (en kvart
-  per tryck, 0–180 min) och **Spara 8 tim 48 min**. Inget är sparat före Spara. Är det mindre än en kvart sedan
+- **Rasten i sammanfattningen** har − och + (en kvart per tryck, 0–180 min); **Spara 8 tim 48 min**. Inget är sparat före Spara. Är det mindre än en kvart sedan
   start (samma minut) blir det ingen nollängd — besked i stället.
 - **Rasten** är minuter på perioden, inte en lucka: `extra_tid.rast_min` (migration 2026-10-04, körd av Martin).
   `extra_tid.minuter` är **NETTO** (längd − rast) — allt som summerar `minuter` (löneunderlag, `arbetstid.extraMinPerDag`,
