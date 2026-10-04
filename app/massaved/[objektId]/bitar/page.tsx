@@ -75,8 +75,7 @@ export default function MassavedBitar() {
       {!laddar && !fel && d && d.antal_totalt > 0 && (
         <div style={{ padding: '0 16px' }}>
           <div style={{ ...LITEN, padding: '16px 0 10px', lineHeight: 1.6 }}>
-            {nf0(d.visas)} av {nf0(d.antal_totalt)} bitar, kortast först.
-            {d.visas < d.antal_totalt && <> Resten visas inte — listan finns för att syna ett tal, inte för att läsas igenom.</>}
+            {nf0(d.visas)} av {nf0(d.antal_totalt)} bitar · kortast först
           </div>
 
           {d.bitar.map((b, i) => (
