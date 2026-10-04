@@ -26,6 +26,7 @@ import { delarSomText, kolumnerSomInteLandade, type AutosparDel } from '../../li
 import { avlaggAttSkriva, avlaggBaslinjeFran, avlaggFullRad, mergaAvlagg, type AvlaggBaslinje, type AvlaggDbRad } from '../../lib/avlaggSpar'
 import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type BrandBaslinje } from '../../lib/brandSpar'
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
+import { VARNING_NYCKEL, lasVarningar, skrivVarningar, standardInstallningar, varningsAvstand, type VarningInstallningar } from '../../lib/varningsInstallningar'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
@@ -2652,15 +2653,7 @@ export default function PlannerPage() {
         console.error('[Objektinfo] kunde inte ladda objektets info — autospar AV för det här objektet:', error?.message);
         setInfoLaddFel(true);
       }
-      // Ladda kvitterade varningar från Supabase (planeringsvyns activeWarning — orörd, håll isär).
-      const { data: ackData } = await supabase
-        .from('warning_acknowledgments')
-        .select('marker_id')
-        .eq('objekt_id', objektId);
-      if (avbruten) return;
-      if (ackData && ackData.length > 0) {
-        setAcknowledgedWarnings(ackData.map(r => r.marker_id));
-      }
+      // (Kvitterade varningar för körlägets varningskort (activeWarning) ligger bara i minnet: tabellen warning_acknowledgments har aldrig funnits.)
       // Ladda körvyns symbol-kvittens (proximitets-notis) — marker_id → innehålls-hash, per objekt.
       const { data: kvData, error: kvErr } = await supabase
         .from('korvy_kvittens')
@@ -7021,22 +7014,7 @@ export default function PlannerPage() {
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
   const [warningMenuOpen, setWarningMenuOpen] = useState(false);
   const [warningShowAll, setWarningShowAll] = useState(false);
-  const [warningSettings, setWarningSettings] = useState<Record<string, { warnDist: number; fadeDist: number; minOpacity: number; enabled: boolean }>>({
-    // Symbolkategorier
-    naturvard:     { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
-    kultur:        { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
-    avverkning:    { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
-    infrastruktur: { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
-    terrang:       { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
-    ovrigt:        { warnDist: 50, fadeDist: 300, minOpacity: 0.1, enabled: true },
-    // Zonkategorier
-    zone_wet:       { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
-    zone_steep:     { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
-    zone_protected: { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
-    zone_culture:   { warnDist: 50, fadeDist: 300, minOpacity: 0.1, enabled: true },
-    zone_noentry:   { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
-    zone_fornlamning: { warnDist: 50, fadeDist: 300, minOpacity: 0.1, enabled: true },
-  });
+  const [warningSettings, setWarningSettings] = useState<VarningInstallningar>(standardInstallningar);   // standardvärden + inläsning från enheten: lib/varningsInstallningar
 
   // Volymberäkning
   const [volymResultat, setVolymResultat] = useState<VolymResultat | null>(null);
@@ -7547,53 +7525,28 @@ export default function PlannerPage() {
     return () => { if (tmaSaveTimeoutRef.current) clearTimeout(tmaSaveTimeoutRef.current); };
   }, [tmaRisk, tmaSamrad, valtObjekt?.id]);
 
-  // === Varningsinställningar: Ladda från Supabase ===
-  const warningSettingsLoadedRef = useRef(false);
+  // === Varningsinställningar: sparas PER ENHET i localStorage (lib/varningsInstallningar, nyckel varningar_v1) ===
+  // Inte per objekt och inte i databasen: det är en personlig känslighet (hur långt i förväg symbolerna tänds). Tabellen
+  // `warning_settings` har aldrig funnits (PostgREST 404) — inget sparades någonsin. Läses EN gång vid montering; skrivs bara när
+  // något ändrats (aldrig vid öppning, aldrig bara standardvärden). Oläslig/blockerad lagring → standardvärden, ingen krasch.
+  const [varningarLaddade, setVarningarLaddade] = useState(false);   // flaggan sätts i SAMMA batch som värdena → sparningen ser aldrig standardvärdena före inläsning
+  const varningarSenastRef = useRef<string | null>(null);            // senast lästa/skrivna sträng
   useEffect(() => {
-    warningSettingsLoadedRef.current = false;
-    if (!valtObjekt?.id) return;
-    const load = async () => {
-      try {
-        const { data } = await supabase
-          .from('warning_settings')
-          .select('settings')
-          .eq('objekt_id', valtObjekt.id)
-          .maybeSingle();
-        console.log('[Varning] Supabase load result:', data);
-        if (data?.settings) {
-          const { _showAll, ...cats } = data.settings;
-          console.log('[Varning] Loaded: _showAll=', _showAll, 'categories=', Object.keys(cats).map(k => `${k}:enabled=${cats[k]?.enabled}`).join(', '));
-          if (Object.keys(cats).length > 0) setWarningSettings(cats);
-          if (typeof _showAll === 'boolean') setWarningShowAll(_showAll);
-        } else {
-          console.log('[Varning] Inga sparade inställningar, använder defaults');
-        }
-      } catch (err) {
-        console.error('[Varning] Kunde inte ladda inställningar:', err);
-      }
-      warningSettingsLoadedRef.current = true;
-    };
-    load();
-  }, [valtObjekt?.id]);
-
-  // === Varningsinställningar: Spara till Supabase (debounced) ===
-  const warnSaveRef = useRef<NodeJS.Timeout | null>(null);
+    let raw: string | null = null;
+    try { raw = localStorage.getItem(VARNING_NYCKEL); } catch { /* blockerad lagring (t.ex. privat läge) → standardvärden */ }
+    const las = lasVarningar(raw);
+    if (las.status === 'trasig') console.warn('[Varning] Sparade varningsinställningar var oläsliga — standardvärden används tills något ändras');
+    varningarSenastRef.current = skrivVarningar(las.installningar, las.visaAlla);
+    setWarningSettings(las.installningar);
+    setWarningShowAll(las.visaAlla);
+    setVarningarLaddade(true);
+  }, []);
   useEffect(() => {
-    if (!valtObjekt?.id || !warningSettingsLoadedRef.current) return;
-    if (warnSaveRef.current) clearTimeout(warnSaveRef.current);
-    warnSaveRef.current = setTimeout(async () => {
-      try {
-        await supabase
-          .from('warning_settings')
-          .upsert({ objekt_id: valtObjekt.id, settings: { ...warningSettings, _showAll: warningShowAll }, updated_at: new Date().toISOString() },
-            { onConflict: 'objekt_id' });
-        console.log('[Varning] Sparade inställningar till Supabase');
-      } catch (err) {
-        console.error('[Varning] Kunde inte spara inställningar:', err);
-      }
-    }, 1500);
-    return () => { if (warnSaveRef.current) clearTimeout(warnSaveRef.current); };
-  }, [warningSettings, warningShowAll, valtObjekt?.id]);
+    if (!varningarLaddade) return;
+    const nu = skrivVarningar(warningSettings, warningShowAll);
+    if (nu === varningarSenastRef.current) return;   // oförändrat (t.ex. direkt efter inläsning) → ingen skrivning
+    try { localStorage.setItem(VARNING_NYCKEL, nu); varningarSenastRef.current = nu; } catch { /* kan inte spara på den här enheten */ }
+  }, [warningSettings, warningShowAll, varningarLaddade]);
 
   // Drag för meny
   const dragStartY = useRef(0);
@@ -8035,7 +7988,8 @@ export default function PlannerPage() {
       { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30, defaultFade: 200 },
       { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30, defaultFade: 200 },
       { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#30d158', defaultWarn: 30, defaultFade: 200 },
-      { id: 'zone_culture',    name: 'Fornlämningszon',  color: LEGEND.fornlamning, defaultWarn: 50, defaultFade: 300 },
+      { id: 'zone_culture',    name: 'Kulturmiljö',      color: ZONE_COLORS.culture, defaultWarn: 50, defaultFade: 300 },   // styr zonen "Kulturmiljö" (zoneType culture) — raden hette förut felaktigt "Fornlämningszon"
+      { id: 'zone_fornlamning', name: 'Fornlämning',     color: ZONE_COLORS.fornlamning, defaultWarn: 50, defaultFade: 300 },   // zonen "Fornlämning" (zoneType fornlamning) hade inställning men ingen rad
       { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ff453a', defaultWarn: 30, defaultFade: 200 },
     ]},
   ];
@@ -12550,15 +12504,8 @@ export default function PlannerPage() {
   };
 
   // Hämta warn/fade-avstånd för en markör baserat på warningSettings
-  const getWarningDistances = (m: Marker) => {
-    const catId = getWarningCategoryId(m);
-    const settings = warningSettings[catId];
-    return {
-      warnDist: settings?.warnDist || 40,
-      fadeDist: settings?.fadeDist || 200,
-      minOpacity: settings?.minOpacity ?? 0.1,
-    };
-  };
+  // Reservvärdet (kategori utan inställning, t.ex. gallringszonen) är 30 m — samma som standard för en vanlig kategori (lib/varningsInstallningar).
+  const getWarningDistances = (m: Marker) => varningsAvstand(warningSettings, getWarningCategoryId(m));
 
   // Beräkna avstånd i meter mellan två punkter
   const calculateDistanceMeters = (p1, p2) => {
@@ -12771,28 +12718,11 @@ export default function PlannerPage() {
     }
   }, [drivingMode, gpsMapPosition, markers, acknowledgedWarnings, simulatedPos, warningSettings, warningShowAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Kvittera varning — logga till Supabase
-  const acknowledgeWarning = async () => {
+  // Kvittera varning (bara i minnet — tabellen warning_acknowledgments har aldrig funnits, så loggningen dit misslyckades alltid tyst)
+  const acknowledgeWarning = () => {
     if (activeWarning) {
       setAcknowledgedWarnings(prev => [...prev, activeWarning.id]);
       setActiveWarning(null);
-      // Logga kvittering till Supabase
-      try {
-        const pos = effectiveUserPos?.latLng;
-        await supabase.from('warning_acknowledgments').insert({
-          objekt_id: valtObjekt?.id || null,
-          marker_id: activeWarning.id,
-          marker_type: activeWarning.type,
-          marker_name: activeWarning.name,
-          distance: activeWarning.distance,
-          user_lat: pos?.lat || null,
-          user_lng: pos?.lng || null,
-          acknowledged_at: new Date().toISOString(),
-        });
-        console.log('[Varning] Kvittering loggad för', activeWarning.name);
-      } catch (err) {
-        console.error('[Varning] Kunde inte logga kvittering:', err);
-      }
     }
   };
   
