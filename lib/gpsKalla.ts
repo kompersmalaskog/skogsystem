@@ -188,7 +188,37 @@ let senasteFix: GpsFix | null = null;
 let underliggande: { stop(): void } | null = null;
 let hubTyp: GpsKallaTyp = 'ingen';
 
+// FAST LÄGE (testfliken /maskin?som=<maskin_id>): hubben öppnar ALDRIG serieporten eller navigator.geolocation —
+// datorns egen position hör inte hemma i "visa som maskin". Positionen sätts uttryckligen av anroparen (maskinens
+// senast kända position) och sprids till samma abonnenter som en riktig fix, så hela GPS-kedjan (prick, körvy,
+// kamera) ser EN källa. Aktiveras av /maskin-sidan innan något hunnit prenumerera.
+let fastLage = false;
+let fastPos: { lat: number; lng: number; kurs: number | null } | null = null;
+
+function fastFix(p: { lat: number; lng: number; kurs: number | null }): GpsFix {
+  return { lat: p.lat, lng: p.lng, kurs: p.kurs, fart: null, satelliter: null, hdop: null, noggrannhetM: null, giltig: true, tid: Date.now() };
+}
+
+export function startaFastGpsLage(): void {
+  fastLage = true;
+  if (underliggande) { underliggande.stop(); underliggande = { stop() { /* fast läge öppnar ingen källa */ } }; hubTyp = 'geolocation'; senasteFix = null; }
+}
+/** Lägg ut maskinens position (och, om känd, senaste körriktning i grader) i det fasta läget. */
+export function sattFastGpsPosition(lat: number, lng: number, kurs: number | null = null): void {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  fastPos = { lat, lng, kurs: kurs != null && Number.isFinite(kurs) ? ((kurs % 360) + 360) % 360 : null };
+  if (fastLage) notifiera(fastFix(fastPos));
+}
+export function stoppaFastGpsLage(): void { fastLage = false; fastPos = null; }
+export function fastGpsLageAktivt(): boolean { return fastLage; }
+
+/** Senaste kända giltiga fix i hubben (null = ingen än). Ren läsning — startar ingen källa. */
+export function senasteGiltigaGpsFix(): GpsFix | null {
+  return senasteFix && senasteFix.giltig && senasteFix.lat != null && senasteFix.lng != null ? senasteFix : null;
+}
+
 function aktuellTyp(): GpsKallaTyp {
+  if (fastLage) return 'geolocation';
   if (harWebSerial() && serialGpsVald()) return 'serial';
   if (typeof navigator !== 'undefined' && 'geolocation' in navigator) return 'geolocation';
   return 'ingen';
@@ -198,6 +228,13 @@ function notifiera(fix: GpsFix) { senasteFix = fix; for (const a of Array.from(a
 
 // Öppna den underliggande källan EN gång (serial eller geolocation). notifiera() sprider till abonnenter.
 function startaUnderliggande(highAccuracy: boolean): { stop(): void } {
+  // --- Fast läge (testflik): ingen riktig källa — bara den utlagda positionen (om den redan satts) ---
+  // Sätts som senaste fix utan notifiera(): startaGpsKalla levererar senasteFix till den nya abonnenten direkt
+  // (notifiera här gav den samma fix två gånger).
+  if (fastLage) {
+    if (fastPos) senasteFix = fastFix(fastPos);
+    return { stop() { /* ingen källa att stänga */ } };
+  }
   // --- Serial ---
   if (harWebSerial() && serialGpsVald()) {
     const avbryt = { current: false };

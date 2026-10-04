@@ -2,6 +2,7 @@
 import React, { useState, useEffect, CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card, inputStyle, btnPrimary, btnSecondary, btnDanger, ChevronRight } from "./design";
+import { maskinSomUrl } from "@/lib/maskinSom";
 
 /* dim_maskin — admin äger visningsnamn/tillverkare/maskin_typ/sander_filer/
    aktiv_fran/aktiv_till på bekräftade maskiner (importens guard rör dem ej).
@@ -232,8 +233,30 @@ function MaskinRad({
           {!m.sander_filer && <span>· sänder ej filer</span>}
         </div>
       </div>
+      {/* Maskiner som är ur drift är inte väljbara → ingen knapp där. */}
+      {!graton && <OppnaSomMaskin maskinId={m.maskin_id} />}
       <ChevronRight />
     </div>
+  );
+}
+
+/** "Öppna som maskin": öppnar /maskin?som=<maskin_id> i NY flik (appen i maskinläge som den maskinen, utan
+ *  DB-skrivningar). Länk, inte window.open — rätt semantik och fungerar med mittenklick. Klicket får inte
+ *  bubbla upp till radens egen klick (som öppnar detaljvyn). */
+function OppnaSomMaskin({ maskinId }: { maskinId: string }) {
+  return (
+    <a
+      href={maskinSomUrl(maskinId)}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        ...btnSecondary, width: "auto", display: "inline-flex", alignItems: "center",
+        padding: "0 14px", fontSize: 13, textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0,
+      }}
+    >
+      Öppna som maskin
+    </a>
   );
 }
 
