@@ -16,6 +16,7 @@ import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
+import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, kolumnerSomInteLandade, type InfoRad } from '../../lib/objektInfoSpar'
 import { hamtaServerVersion, arNyVersion, laddaOmMedCacheBust, skaAutoUppdatera } from '../../lib/autoUppdatering'
 import { skaEmittaHeading } from '../../lib/kompass'
 import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, ringCentroid, numreraObjekt, traktArealHa, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
@@ -2429,11 +2430,8 @@ export default function PlannerPage() {
   const stickvagOversiktRef = useRef(false);
   useEffect(() => { markersRef.current = markers; }, [markers]);
   useEffect(() => { stickvagOversiktRef.current = stickvagOversikt; }, [stickvagOversikt]);
-  const [stickvagSettings, setStickvagSettings] = useState({
-    targetDistance: 25, // Målvärde kant-kant i meter
-    tolerance: 3, // ±3 meter
-    vagbredd: 4, // Vägbredd i meter
-  });
+  // Utgångsvärden (targetDistance = målvärde kant-kant i m, tolerance ±m, vagbredd m) ligger i lib/objektInfoSpar — samma som laddaren faller tillbaka på.
+  const [stickvagSettings, setStickvagSettings] = useState<{ targetDistance: number; tolerance: number; vagbredd: number }>({ ...INFO_STANDARD.stickvagSettings });
   const [stickvagWarningShown, setStickvagWarningShown] = useState(false); // Har vi varnat för detta utanför-tillfälle
   // MÄTREFERENS — mot vilken stickväg avståndet mäts. matVagId = förarens LÅSTA val (chip-lås
   // eller kart-tryck), null = AUTO. autoRefId = vad auto valt just nu (underhålls av effekt med
@@ -2466,20 +2464,11 @@ export default function PlannerPage() {
   const [oversiktSymbolTyp, setOversiktSymbolTyp] = useState<string | null>(null);
   const [dokExpanderad, setDokExpanderad] = useState(false); // objektinfo: DOKUMENT hopfälld → "Dokument (N)"
   const [vidaDirektiv, setVidaDirektiv] = useState(''); // objekt.anteckningar (Vida/kontoret), read-only i översikten
-  const [traktData, setTraktData] = useState<TraktData>({
-    volym: 649, // m³fub - från VIDA
-    areal: 2.0, // ha - från VIDA
-  });
+  const [traktData, setTraktData] = useState<TraktData>({ ...INFO_STANDARD.traktData });   // volym/areal = gammalt demovärde (649 m³fub / 2 ha), ingen läser det
   const [editingField, setEditingField] = useState<string | null>(null); // 'volym', 'areal', 'skordare', 'skotare'
   const [editValue, setEditValue] = useState('');
-  const [prognosSettings, setPrognosSettings] = useState<PrognosSettings>({
-    terpipirangSvar: 0, // % svår terräng (från branta zoner)
-    barighetDalig: 0, // % dålig bärighet (från blöta zoner)
-  });
-  const [manuellPrognos, setManuellPrognos] = useState<ManuellPrognos>({
-    skordare: '', // Planerarens uppskattning
-    skotare: '',
-  });
+  const [prognosSettings, setPrognosSettings] = useState<PrognosSettings>({ ...INFO_STANDARD.prognosSettings });   // terpipirangSvar = % svår terräng, barighetDalig = % dålig bärighet
+  const [manuellPrognos, setManuellPrognos] = useState<ManuellPrognos>({ ...INFO_STANDARD.manuellPrognos });   // planerarens uppskattning
   // Tidsförslag (Prognos-fliken): historik = avslutade objekts PLANERADE timmar per kategori. Hämtas EN
   // gång; förslaget räknas i lib/prognos-forslag och Jocke kan alltid skriva över (aldrig tvingande).
   const [prognosHistorik, setPrognosHistorik] = useState<HistorikObjekt[]>([]);
@@ -2489,17 +2478,7 @@ export default function PlannerPage() {
 
   // Checklista
   const [checklistOpen, setChecklistOpen] = useState(false);
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([
-    // Fasta frågor
-    { id: 'avlagg_huggas', text: 'Behöver avlägget huggas?', answer: null, fixed: true },
-    { id: 'band', text: 'Behövs band?', answer: null, fixed: true },
-    { id: 'breddat', text: 'Kan skotaren köra breddat?', answer: null, fixed: true },
-    { id: 'basväg_snislad', text: 'Basväg snislad?', answer: null, fixed: true },
-    { id: 'gränser', text: 'Gränser markerade?', answer: null, fixed: true },
-    { id: 'naturvärden', text: 'Naturvärden utmärkta?', answer: null, fixed: true },
-    { id: 'kulturlämningar', text: 'Kulturlämningar kontrollerade?', answer: null, fixed: true },
-    { id: 'elledningar', text: 'El-ledningar markerade?', answer: null, fixed: true },
-  ]);
+  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>(INFO_STANDARD.checklistItems.map(i => ({ ...i })));   // åtta fasta frågor — lib/objektInfoSpar
   const [newChecklistItem, setNewChecklistItem] = useState('');
 
   // Info-fliken
@@ -2596,66 +2575,86 @@ export default function PlannerPage() {
   }, [infoAreal, valtObjekt?.areal, valtObjekt?.typ, traktData, prognosHistorik, infoSkotningsavstand, infoSkotareLastreder, infoBasvagKravs, infoBasvagTimmar]);
   const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
   const [infoLoaded, setInfoLoaded] = useState(false);
+  const [infoLaddFel, setInfoLaddFel] = useState(false);   // objektets rad kunde inte läsas → formuläret sparar inget, och det SYNS
+  const [infoLaddOm, setInfoLaddOm] = useState(0);         // "Försök igen" höjer den → laddaren körs om
   const infoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Ladda info-data från Supabase när objekt väljs
+  // Ladda info-data från Supabase när objekt väljs.
+  // Autosparet (saveInfoToDb) släpps först när DET HÄR objektets rad faktiskt laddats ur DB:
+  //  • infoLoaded nollas vid VARJE objektbyte (förut bara vid "inget objekt") → state från föregående objekt kan inte skrivas till nästa;
+  //  • ett misslyckat läs-anrop räknas INTE som laddat (förut: setInfoLoaded(true) även vid fel → defaults skrevs över riktiga värden);
+  //  • alla fält sätts alltid ur raden (jsonb-fält faller tillbaka på INFO_STANDARD) → inget ligger kvar från föregående objekt.
+  // infoBasRef = vad "oförändrat" betyder som kolumnvärden för det här objektet; sparningen jämför mot den och skickar bara skillnaden.
+  const infoBasRef = useRef<{ id: string; rad: InfoRad } | null>(null);
   useEffect(() => {
-    if (!valtObjekt?.id) { setInfoLoaded(false); return; }
+    setInfoLoaded(false);
+    setInfoLaddFel(false);
+    infoBasRef.current = null;
+    if (!valtObjekt?.id) return;
+    const objektId = valtObjekt.id;
+    let avbruten = false;   // objektet byttes under tiden → släng svaret
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
         .select('barighet, terrang, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_extra_vagn, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand, areal, volym, skordare_maskin_id, skordare_utforare, skordare_utforare_namn, skotare_maskin_id, skotare_utforare, skotare_utforare_namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, larmkoordinat_kalla, larmkoordinat_bekraftad, skotningsavstand, basvag_kravs, basvag_timmar')
-        .eq('id', valtObjekt.id)
+        .eq('id', objektId)
         .single();
-      if (!error && data) {
-        setInfoBarighet(data.barighet || null);
-        setInfoTerrang(data.terrang || null);
-        setInfoSkordareMaskinId(data.skordare_maskin_id || null);
-        setInfoSkordareUtforare(data.skordare_utforare || null);
-        setInfoSkordareUtforareNamn(data.skordare_utforare_namn || '');
-        setInfoSkordareBand(data.skordare_band || false);
-        setInfoSkordareBandPar(data.skordare_band_par ?? null);
-        setInfoSkordareManFall(data.skordare_manuell_fallning || false);
-        setInfoSkordareManFallText(data.skordare_manuell_fallning_text || '');
-        setInfoSkotareMaskinId(data.skotare_maskin_id || null);
-        setInfoSkotareUtforare(data.skotare_utforare || null);
-        setInfoSkotareUtforareNamn(data.skotare_utforare_namn || '');
-        setInfoSkotareBand(data.skotare_band || false);
-        setInfoSkotareBandPar(data.skotare_band_par ?? null);
-        setInfoSkotareLastreder(data.skotare_lastreder_breddat || false);
-        setInfoSkotningsavstand(data.skotningsavstand || null);
-        setInfoBasvagKravs(data.basvag_kravs || false);
-        setInfoBasvagTimmar(data.basvag_timmar != null ? String(data.basvag_timmar) : '');
-        setInfoSkotareRisDirekt(data.skotare_ris_direkt || false);
-        setInfoSkotareKonfig(data.skotare_konfiguration || 'bred');
-        setInfoTrailerIn(data.transport_trailer_in !== false);
-        setInfoTransportKommentar(data.transport_kommentar || '');
-        setInfoMarkagareVed(data.markagare_ska_ha_ved || false);
-        setInfoMarkagareVedText(data.markagare_ved_text || '');
-        setInfoAnteckningar(data.info_anteckningar || '');
+      if (avbruten) return;
+      const laddat = !error && !!data;
+      if (laddat) {
+        const v = infoVardenFranRad(data);
+        setInfoBarighet(v.barighet);
+        setInfoTerrang(v.terrang);
+        setInfoSkordareMaskinId(v.skordareMaskinId);
+        setInfoSkordareUtforare(v.skordareUtforare);
+        setInfoSkordareUtforareNamn(v.skordareUtforareNamn);
+        setInfoSkordareBand(v.skordareBand);
+        setInfoSkordareBandPar(v.skordareBandPar);
+        setInfoSkordareManFall(v.skordareManFall);
+        setInfoSkordareManFallText(v.skordareManFallText);
+        setInfoSkotareMaskinId(v.skotareMaskinId);
+        setInfoSkotareUtforare(v.skotareUtforare);
+        setInfoSkotareUtforareNamn(v.skotareUtforareNamn);
+        setInfoSkotareBand(v.skotareBand);
+        setInfoSkotareBandPar(v.skotareBandPar);
+        setInfoSkotareLastreder(v.skotareLastreder);
+        setInfoSkotningsavstand(v.skotningsavstand);
+        setInfoBasvagKravs(v.basvagKravs);
+        setInfoBasvagTimmar(v.basvagTimmar);
+        setInfoSkotareRisDirekt(v.skotareRisDirekt);
+        setInfoSkotareKonfig(v.skotareKonfig);
+        setInfoTrailerIn(v.trailerIn);
+        setInfoTransportKommentar(v.transportKommentar);
+        setInfoMarkagareVed(v.markagareVed);
+        setInfoMarkagareVedText(v.markagareVedText);
+        setInfoAnteckningar(v.anteckningar);
         setVidaDirektiv(data.anteckningar || '');
-        setInfoSkotareExtraVagn(data.skotare_extra_vagn || false);
-        setInfoAreal(data.areal != null ? String(data.areal) : '');
-        setInfoVolym(data.volym != null ? String(data.volym) : '');
-        setInfoLarmLat(data.larmkoordinat_lat != null ? String(data.larmkoordinat_lat) : '');
-        setInfoLarmLng(data.larmkoordinat_lng != null ? String(data.larmkoordinat_lng) : '');
-        setInfoLarmBeskrivning(data.larmkoordinat_beskrivning || '');
-        setInfoLarmKalla(data.larmkoordinat_kalla || null);
-        setInfoLarmBekraftad(data.larmkoordinat_bekraftad || false);
-        // Prognos, traktdata, körläge, stickväg
-        if (data.prognos_settings) setPrognosSettings(data.prognos_settings);
-        if (data.manuell_prognos) setManuellPrognos(data.manuell_prognos);
-        if (data.trakt_data) setTraktData(data.trakt_data);
-        // körläge (driving_mode) läses INTE längre härifrån — härleds från kvittot (STEG 6a-3)
-        if (data.stickvag_settings) setStickvagSettings(data.stickvag_settings);
-        if (data.checklist_items) setChecklistItems(data.checklist_items);
-        if (data.generellt_tillstand) setGenerelltTillstand(data.generellt_tillstand);
+        setInfoSkotareExtraVagn(v.skotareExtraVagn);
+        setInfoAreal(v.areal);
+        setInfoVolym(v.volym);
+        setInfoLarmLat(v.larmLat);
+        setInfoLarmLng(v.larmLng);
+        setInfoLarmBeskrivning(v.larmBeskrivning);
+        setInfoLarmKalla(v.larmKalla);
+        setInfoLarmBekraftad(v.larmBekraftad);
+        // Prognos, traktdata, stickväg, checklista, tillstånd (körläge/driving_mode läses INTE härifrån — härleds från kvittot, STEG 6a-3)
+        setPrognosSettings(v.prognosSettings);
+        setManuellPrognos(v.manuellPrognos);
+        setTraktData(v.traktData);
+        setStickvagSettings(v.stickvagSettings);
+        setChecklistItems(v.checklistItems);
+        setGenerelltTillstand(v.generelltTillstand);
+        infoBasRef.current = { id: objektId, rad: infoRadFranVarden(v) };
+      } else {
+        console.error('[Objektinfo] kunde inte ladda objektets info — autospar AV för det här objektet:', error?.message);
+        setInfoLaddFel(true);
       }
       // Ladda kvitterade varningar från Supabase (planeringsvyns activeWarning — orörd, håll isär).
       const { data: ackData } = await supabase
         .from('warning_acknowledgments')
         .select('marker_id')
-        .eq('objekt_id', valtObjekt.id);
+        .eq('objekt_id', objektId);
+      if (avbruten) return;
       if (ackData && ackData.length > 0) {
         setAcknowledgedWarnings(ackData.map(r => r.marker_id));
       }
@@ -2663,13 +2662,15 @@ export default function PlannerPage() {
       const { data: kvData, error: kvErr } = await supabase
         .from('korvy_kvittens')
         .select('marker_id, innehall_hash')
-        .eq('objekt_id', valtObjekt.id);
+        .eq('objekt_id', objektId);
+      if (avbruten) return;
       if (kvErr) console.error('[Körvy kvittens] laddning:', kvErr.message);
       setWarningAckMap(new Map((kvData || []).map((r: any) => [String(r.marker_id), r.innehall_hash ?? ''])));
-      setInfoLoaded(true);
+      if (laddat) setInfoLoaded(true);
     };
     loadInfo();
-  }, [valtObjekt?.id]);
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, infoLaddOm]);
 
   // Ladda maskinregister (dim_maskin) en gång — matar maskin-väljarna i Fakta-fliken
   useEffect(() => {
@@ -2711,74 +2712,55 @@ export default function PlannerPage() {
     })();
   }, []);
 
-  // Spara info till Supabase (debounced)
+  // Spara info till Supabase (debounced) — BARA kolumner som ändrats sedan laddning/senaste lyckade sparning (lib/objektInfoSpar).
+  // Förut skrevs ~40 kolumner ur state vid varje öppning och varje ändring: en förares gamla värden kunde tyst skriva över
+  // planerarens ändringar, och defaults (NULL → false/''/'bred'/true) skrevs som om de vore uppgifter.
+  const infoSparaPagarRef = useRef(false);
+  const infoSparaOmRef = useRef(false);
+  const saveInfoRef = useRef<() => void>(() => {});
   const saveInfoToDb = useCallback(async () => {
     if (!valtObjekt?.id || !infoLoaded) return;
-    // TESTFLIKEN (/maskin?som=): ingen skrivning till DB. Autosparet skrev annars tillbaka HELA objekt-raden (ca 40 kolumner) två
-    // gånger vid varje öppning, utan att något ändrats — hittat i testselen, spärrades aldrig av testlageAktivRef.
+    // TESTFLIKEN (/maskin?som=): ingen skrivning till DB.
     if (testlageAktivRef.current) return;
-    // Svenskt decimalkomma -> punkt; blankt/ogiltigt -> null (aldrig smyg-0 i double-kolumnen)
-    const parseSvNum = (s: string): number | null => {
-      const t = (s ?? '').replace(',', '.').trim();
-      if (t === '') return null;
-      const n = Number(t);
-      return Number.isFinite(n) ? n : null;
-    };
-    const { error } = await supabase
-      .from('objekt')
-      .update({
-        barighet: infoBarighet,
-        terrang: infoTerrang,
-        // Maskin/utförare: skriv till id/utförare-kolumnerna. Invarianten (maskin_id XOR
-        // utförare) hålls av väljar-handlarna. Fritext-kolumnerna skordare_maskin/skotare_maskin
-        // skrivs INTE längre — de fryses som skyddsnät.
-        skordare_maskin_id: infoSkordareMaskinId,
-        skordare_utforare: infoSkordareUtforare,
-        skordare_utforare_namn: infoSkordareUtforare === 'extern' ? (infoSkordareUtforareNamn || null) : null,
-        skordare_band: infoSkordareBand,
-        // BAND OCH PAR FAR INTE SAGA EMOT VARANDRA. Ar bandet av ar antalet
-        // par ingen uppgift, och da skrivs null - aldrig en etta. Tidigare
-        // stamplade VARJE sparning i den har panelen band=false + par='1',
-        // vilket gjorde "ingen rorde faltet" omojligt att skilja fran "korde
-        // utan band". 29 objekt bar den stampeln och stadas inte harifran.
-        skordare_band_par: infoSkordareBand ? infoSkordareBandPar : null,
-        skordare_manuell_fallning: infoSkordareManFall,
-        skordare_manuell_fallning_text: infoSkordareManFallText || null,
-        skotare_maskin_id: infoSkotareMaskinId,
-        skotare_utforare: infoSkotareUtforare,
-        skotare_utforare_namn: infoSkotareUtforare === 'extern' ? (infoSkotareUtforareNamn || null) : null,
-        skotare_band: infoSkotareBand,
-        skotare_band_par: infoSkotareBand ? infoSkotareBandPar : null,
-        skotare_lastreder_breddat: infoSkotareLastreder,
-        skotare_ris_direkt: infoSkotareRisDirekt,
-        skotare_extra_vagn: infoSkotareExtraVagn,
-        skotare_konfiguration: infoSkotareKonfig,
-        // DEL 3 (prognos-fliken). Breddat lastrede sparas redan via skotare_lastreder_breddat ovan.
-        skotningsavstand: infoSkotningsavstand,
-        basvag_kravs: infoBasvagKravs,
-        basvag_timmar: infoBasvagKravs ? parseSvNum(infoBasvagTimmar) : null,
-        transport_trailer_in: infoTrailerIn,
-        transport_kommentar: infoTransportKommentar || null,
-        markagare_ska_ha_ved: infoMarkagareVed,
-        markagare_ved_text: infoMarkagareVedText || null,
-        info_anteckningar: infoAnteckningar || null,
-        prognos_settings: prognosSettings,
-        manuell_prognos: manuellPrognos,
-        trakt_data: traktData,
-        stickvag_settings: stickvagSettings,
-        checklist_items: checklistItems,
-        generellt_tillstand: generelltTillstand,
-        areal: parseSvNum(infoAreal),
-        volym: parseSvNum(infoVolym),
-        larmkoordinat_lat: parseSvNum(infoLarmLat),
-        larmkoordinat_lng: parseSvNum(infoLarmLng),
-        larmkoordinat_beskrivning: infoLarmBeskrivning || null,
-        larmkoordinat_kalla: infoLarmKalla,
-        larmkoordinat_bekraftad: infoLarmBekraftad,
-      })
-      .eq('id', valtObjekt.id);
-    if (error) console.error('Spara info fel:', error);
+    const bas = infoBasRef.current;
+    if (!bas || bas.id !== valtObjekt.id) return;   // formuläret är inte laddat ur DET HÄR objektets rad → skriv ingenting
+    const nu = infoRadFranVarden({
+      barighet: infoBarighet, terrang: infoTerrang,
+      skordareMaskinId: infoSkordareMaskinId, skordareUtforare: infoSkordareUtforare, skordareUtforareNamn: infoSkordareUtforareNamn,
+      skordareBand: infoSkordareBand, skordareBandPar: infoSkordareBandPar, skordareManFall: infoSkordareManFall, skordareManFallText: infoSkordareManFallText,
+      skotareMaskinId: infoSkotareMaskinId, skotareUtforare: infoSkotareUtforare, skotareUtforareNamn: infoSkotareUtforareNamn,
+      skotareBand: infoSkotareBand, skotareBandPar: infoSkotareBandPar, skotareLastreder: infoSkotareLastreder, skotareRisDirekt: infoSkotareRisDirekt,
+      skotareExtraVagn: infoSkotareExtraVagn, skotareKonfig: infoSkotareKonfig,
+      skotningsavstand: infoSkotningsavstand, basvagKravs: infoBasvagKravs, basvagTimmar: infoBasvagTimmar,
+      trailerIn: infoTrailerIn, transportKommentar: infoTransportKommentar, markagareVed: infoMarkagareVed, markagareVedText: infoMarkagareVedText,
+      anteckningar: infoAnteckningar,
+      prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand,
+      areal: infoAreal, volym: infoVolym, larmLat: infoLarmLat, larmLng: infoLarmLng, larmBeskrivning: infoLarmBeskrivning,
+      larmKalla: infoLarmKalla, larmBekraftad: infoLarmBekraftad,
+    });
+    const andrat = andradeKolumner(bas.rad, nu);
+    const kolumner = Object.keys(andrat);
+    if (kolumner.length === 0) return;   // inget ändrat (t.ex. direkt efter öppning) → ingen skrivning
+    // En sparning i taget, i ordning (annars kan en äldre request landa efter en nyare). Ändrades något under tiden körs den om.
+    if (infoSparaPagarRef.current) { infoSparaOmRef.current = true; return; }
+    infoSparaPagarRef.current = true;
+    const objektId = valtObjekt.id;
+    try {
+      // .select(kolumnerna) → raden kommer tillbaka och värdena jämförs (radräkning bevisar bara att en rad rördes, inte att värdet landade)
+      const res = await uppdateraVerifierat<Record<string, unknown>>(supabase, 'objekt', andrat, { id: objektId }, kolumner.join(','));
+      if (!res.ok) { console.error('[Objektinfo] sparningen misslyckades:', res.fel, kolumner); return; }
+      const missade = kolumnerSomInteLandade(andrat, res.rows[0]);
+      if (missade.length > 0) console.error('[Objektinfo] värdet landade inte i DB för:', missade.join(', '));
+      // Baslinjen följer det som FAKTISKT sparats (det som missade ligger kvar som ändrat och skickas igen vid nästa ändring).
+      const landade: InfoRad = {};
+      for (const k of kolumner) if (!missade.includes(k)) landade[k] = andrat[k];
+      if (infoBasRef.current && infoBasRef.current.id === objektId) infoBasRef.current = { id: objektId, rad: { ...infoBasRef.current.rad, ...landade } };
+    } finally {
+      infoSparaPagarRef.current = false;
+      if (infoSparaOmRef.current) { infoSparaOmRef.current = false; saveInfoRef.current(); }
+    }
   }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskinId, infoSkordareUtforare, infoSkordareUtforareNamn, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskinId, infoSkotareUtforare, infoSkotareUtforareNamn, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, infoSkotareExtraVagn, infoAreal, infoVolym, infoLarmLat, infoLarmLng, infoLarmBeskrivning, infoLarmKalla, infoLarmBekraftad, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand, infoSkotningsavstand, infoBasvagKravs, infoBasvagTimmar]);
+  saveInfoRef.current = saveInfoToDb;
 
   // === Maskin-väljare (Fakta-fliken) — matas från dim_maskin ===
   // Valbar lista för en roll: rätt maskin_typ, aktiv (ej såld), klarar objektets typ.
@@ -21590,6 +21572,13 @@ export default function PlannerPage() {
               ×
             </button>
           </div>
+
+          {infoLaddFel && (
+            <div style={{ margin: '16px 24px 0', padding: '12px 14px', borderRadius: '10px', background: 'rgba(255,69,58,0.1)', border: '1px solid rgba(255,69,58,0.3)', color: '#ff453a', fontSize: '13px', fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <span>Objektets uppgifter kunde inte läsas. Ändringar sparas inte förrän de lästs in.</span>
+              <button onClick={() => setInfoLaddOm(n => n + 1)} style={{ flexShrink: 0, padding: '8px 14px', borderRadius: '8px', border: 'none', background: '#ff453a', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Försök igen</button>
+            </div>
+          )}
 
           {/* Segment-kontroll: Fakta | Prognos */}
           <div style={{ padding: '16px 24px 0' }}>
