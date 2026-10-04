@@ -22,6 +22,7 @@ import { hamtaGrotRaw } from '@/lib/grotvy/hamta';
 import { byggGrotLista, grotKordaObjektIds, grotSnartAntal, grotVantandeObjektIds, medDimPatch, type GrotRad, type GrotRaw, type GrotSkrivning } from '@/lib/grotvy/lista';
 import { arGrotUnderlagTillforlitligt, koRaderAttRensa, raderaKoRader } from '@/lib/grotvy/ko';
 import { avstandText, grotChipText } from '@/lib/grotvy/format';
+import { bradskandeFor, type Bradskande } from '@/lib/grotvy/kartprick';
 import { narmasteVag } from '@/lib/grotvy/avstand';
 import { sparaFalt } from '@/lib/redigering/objektRouter';
 import GrotListaArk, { ARK_ANDEL, type ArkLage } from './GrotLista';
@@ -109,12 +110,21 @@ const harMaskin = (o: OversiktObjekt) => !!((o as any).skordare_maskin_id || (o 
 // utzoom = visas även utzoomad. Utzoomat göms BARA avslutade → allt annat (pågår/planerad/kö/ring) = true.
 // namnbar = får namn-etikett vid inzoomning (pågår/planerad/väntar). Avslutade aldrig.
 // halo = vit ytterkant + mörk kontur för att lyfta från ljus topografi (ej avslutade).
-interface DotDesc { form: 'ring' | 'fill'; color: string; opacity: number; size: number; utzoom: boolean; namnbar: boolean; halo: boolean }
+// etikett = GROT-läget, trakt MED markägarens datum (lib/grotvy/kartprick): en liten skylt bredvid pricken som syns på
+// ALLA zoomnivåer (namnet först från z11) och en kraftigare vit halo. Utan etikett är pricken som förut.
+interface DotDesc { form: 'ring' | 'fill'; color: string; opacity: number; size: number; utzoom: boolean; namnbar: boolean; halo: boolean; etikett?: { text: string; farg: string } }
 // iKo = objektet ligger i någon maskins maskin_ko → räknas som tilldelat (grå prick, aldrig ring).
 // grot = trakten väntar på GROT (lib/grotvy): 'vantar' = en avslutad trakt som ändå ska besökas behåller sin bleka
 // prick (fast opacitet, ingen 180-dagarsgräns); 'oppen' = GROT-arket är öppet → pricken syns på alla zoomnivåer
 // och i GROT-färg, så man ser vilka trakter listan handlar om och kan flyga dit.
 const GROT_PRICK: DotDesc = { form: 'fill', color: FARG.diagram2, opacity: 1, size: 16, utzoom: true, namnbar: true, halo: true };
+// Brådskande GROT-prick: större (20 px), MÖRKARE orange än GROT_PRICK, röd när markägarens datum har passerat. Orange-nyansen är
+// en egen konstant (ingen token): Martins beställning 2026-10-04 — byt här om nyansen ska justeras. Etikettens text är token-färg.
+const GROT_BRADSKANDE = '#e8710a';
+function bradskandePrick(b: Bradskande): DotDesc {
+  const forsenad = b.typ === 'forsenad';
+  return { form: 'fill', color: forsenad ? FARG.rod : GROT_BRADSKANDE, opacity: 1, size: 20, utzoom: true, namnbar: true, halo: true, etikett: { text: b.text, farg: forsenad ? FARG.rod : FARG.orange } };
+}
 function dotDesc(o: OversiktObjekt, iKo: boolean, grot: false | 'vantar' | 'oppen' = false): DotDesc | null {
   if (STATUS_AKTIV.includes(o.status)) return { form: 'fill', color: FARG.gron, opacity: 1, size: 18, utzoom: true, namnbar: true, halo: true }; // pågår = grön
   if (o.status === 'planerad') {
@@ -309,9 +319,10 @@ export default function OversiktV2Page() {
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapStyleLoaded, setMapStyleLoaded] = useState(false);
-  const machMarkersRef = useRef<Map<string, { marker: any; square: HTMLDivElement; label: HTMLDivElement; sub: HTMLDivElement }>>(new Map());
+  const machMarkersRef = useRef<Map<string, { marker: any; container: HTMLDivElement; square: HTMLDivElement; label: HTMLDivElement; sub: HTMLDivElement }>>(new Map());
   // grot = pricken hör till GROT-listan (GROT-arket är öppet): den behåller full styrka medan övriga prickar dämpas.
-  const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; circle: HTMLDivElement; label: HTMLDivElement; desc: DotDesc; grot: boolean }>>(new Map());
+  // label = skylten bredvid pricken: [datum] [namn]. datum (brådskande GROT-trakt) syns på alla zoomnivåer, namnet först från z11.
+  const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; circle: HTMLDivElement; label: HTMLDivElement; datum: HTMLSpanElement; namn: HTMLSpanElement; desc: DotDesc; grot: boolean }>>(new Map());
   const ordnaRef = useRef(false); // true medan "Ändra ordning" är öppet → kartan rör sig inte av sig själv
   const stopMarkersRef = useRef<any[]>([]); // numrerade rutt-cirklar + on-map-etiketter
   const clusterMarkersRef = useRef<any[]>([]); // ihopslagna maskin-markörer ("N maskiner")
@@ -363,21 +374,37 @@ export default function OversiktV2Page() {
       it.label.style.transform = `translateY(${Math.round(top - (it.y - LH / 2))}px)`;
       placed.push({ x1: left, y1: top, x2: left + LW, y2: top + LH });
     }
-    // Objekt-namn placeras EFTER maskin-etiketterna (som därmed vinner en kollision → ett dot-namn
-    // hamnar aldrig ovanpå en maskinetikett). Bara synliga namn, de-överlappas vertikalt mot varandra.
-    const DLEFT = 12, DH = 18, DGAP = 4;
-    const dotItems: { label: HTMLDivElement; x: number; y: number; w: number }[] = [];
+    // Objekt-skyltar (datum + namn) placeras EFTER maskin-etiketterna (som därmed vinner en kollision → en prick-skylt
+    // hamnar aldrig ovanpå en maskinetikett). Bara synliga skyltar, de-överlappas vertikalt mot varandra. Brådskande
+    // datumskyltar (GROT-läget) placeras FÖRST bland prickarna: de är det man ska hitta och står kvar vid sin prick,
+    // medan övriga namn viker undan.
+    const DH = 18, DGAP = 4, EDGE = 4; // DH = reservhöjd om skylten inte kan mätas; skyltens topp ligger 9 px över prickens mitt (restyleSelection: top -9px)
+    const kartBredd = map.getContainer().clientWidth;
+    const dotItems: { label: HTMLDivElement; x: number; y: number; w: number; h: number; dx: number; brad: boolean }[] = [];
     dotsRef.current.forEach((d) => {
       if (d.label.style.display === 'none') return;
       const p = map.project(d.marker.getLngLat());
-      dotItems.push({ label: d.label, x: p.x, y: p.y, w: d.label.offsetWidth || 90 });
+      dotItems.push({ label: d.label, x: p.x, y: p.y, w: d.label.offsetWidth || 90, h: d.label.offsetHeight || DH, dx: Math.round(d.desc.size / 2) + 4, brad: !!d.desc.etikett }); // dx = samma left som restyleSelection ger skylten; w/h = skyltens verkliga mått
     });
-    dotItems.sort((a, b) => a.y - b.y);
+    dotItems.sort((a, b) => (a.brad === b.brad ? a.y - b.y : a.brad ? -1 : 1));
     for (const it of dotItems) {
-      const left = it.x + DLEFT; const natTop = it.y - DH / 2; let top = natTop; let guard = 0;
-      while (guard++ < 20) { const hit = placed.find((r) => !(left > r.x2 || left + it.w < r.x1 || top > r.y2 || top + DH < r.y1)); if (!hit) break; top = hit.y2 + DGAP; }
-      it.label.style.transform = `translateY(${Math.round(top - natTop)}px)`;
-      placed.push({ x1: left, y1: top, x2: left + it.w, y2: top + DH });
+      // Skylten står till höger om pricken. Skulle den gå utanför kartans högerkant står den till vänster i stället — annars klipps
+      // datumet av skärmkanten (fit-bounds lägger östligaste trakten exakt vid sidopaddingen, så det händer direkt vid öppning).
+      // En brådskande skylt får dessutom pröva vänster sida INNAN den staplas nedåt: en maskin som står på trakten har sin etikett
+      // till höger om sig, och datumet ska stå kvar vid sin prick i stället för att hamna bredvid en annan.
+      const hoger = it.x + it.dx, vanster = it.x - it.dx - it.w;
+      let sidor = [hoger, vanster].filter((l, i) => (i === 0 ? l + it.w <= kartBredd - EDGE : l >= EDGE));
+      if (!sidor.length) sidor = [hoger];
+      if (!it.brad) sidor = sidor.slice(0, 1); // vanliga namn: som förut (vänster bara när höger går utanför kanten)
+      const natTop = it.y - 9;
+      const traff = (l: number, t: number) => placed.find((r) => !(l > r.x2 || l + it.w < r.x1 || t > r.y2 || t + it.h < r.y1));
+      const friSida = sidor.find((l) => !traff(l, natTop));
+      const left = friSida ?? sidor[0]; let top = natTop; let guard = 0;
+      if (friSida === undefined) { // ingen sida är fri på prickens höjd → stapla nedåt på förstahandssidan (som maskin-etiketterna)
+        for (let hit = traff(left, top); hit && guard++ < 20; hit = traff(left, top)) top = hit.y2 + DGAP;
+      }
+      it.label.style.transform = left === hoger ? `translateY(${Math.round(top - natTop)}px)` : `translate(${Math.round(left - hoger)}px, ${Math.round(top - natTop)}px)`;
+      placed.push({ x1: left, y1: top, x2: left + it.w, y2: top + it.h });
     }
   }, []);
 
@@ -396,6 +423,7 @@ export default function OversiktV2Page() {
     const entries: E[] = [];
     machMarkersRef.current.forEach((mm, mid) => {
       const f = forslagRef.current.get(mid); if (!f?.koordinat) return;
+      mm.container.style.zIndex = grotOppenRef.current ? '2' : ''; // GROT-läget: en maskin ligger ALLTID över de brådskande prickarna (z 1) — en skotare på en trakt döljs aldrig av dess datumprick
       if (goms && f.typ === 'skordare') { mm.square.style.display = 'none'; mm.label.style.display = 'none'; return; }
       const p = map.project([f.koordinat.lng, f.koordinat.lat]); entries.push({ mid, mm, f, x: p.x, y: p.y });
     });
@@ -417,7 +445,7 @@ export default function OversiktV2Page() {
       const cx = group.reduce((s, g) => s + g.x, 0) / group.length, cy = group.reduce((s, g) => s + g.y, 0) / group.length;
       const center = map.unproject([cx, cy]);
       const saknarNasta = group.some((g) => !nastaAv(g.f));
-      const el = document.createElement('div'); el.style.cssText = 'position:relative;width:0;height:0;cursor:pointer';
+      const el = document.createElement('div'); el.style.cssText = 'position:relative;width:0;height:0;cursor:pointer;z-index:2'; // z 2: över de brådskande GROT-prickarna (z 1), som maskinerna
       const sq = document.createElement('div');
       sq.style.cssText = `position:absolute;left:-16px;top:-16px;width:32px;height:32px;border-radius:7px;background:${FARG.bla};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px;box-shadow:0 1px 5px rgba(0,0,0,0.45)`;
       sq.textContent = String(group.length); el.appendChild(sq);
@@ -498,10 +526,12 @@ export default function OversiktV2Page() {
     const want = new Map<string, { desc: DotDesc; lat: number; lng: number; namn: string; grot: boolean }>();
     for (const o of objekt) {
       if (o.lat == null || o.lng == null) continue;
-      const d = dotDesc(o, koObjektIds.has(o.id), grotIds.has(o.id) ? (grotOppen ? 'oppen' : 'vantar') : false);
-      if (d) want.set(o.id, { desc: d, lat: o.lat, lng: o.lng, namn: (grotOppen && grotPerObjektId.get(o.id)?.namn) || o.namn, grot: grotPerObjektId.has(o.id) }); // GROT-läge: samma namn som i listan
+      const grotRad = grotOppen ? grotPerObjektId.get(o.id) : undefined;
+      const br = grotRad ? bradskandeFor(grotRad, todayISO) : null; // GROT-läget + markägarens datum → brådskande prick (går före statusens stil)
+      const d = br ? bradskandePrick(br) : dotDesc(o, koObjektIds.has(o.id), grotIds.has(o.id) ? (grotOppen ? 'oppen' : 'vantar') : false);
+      if (d) want.set(o.id, { desc: d, lat: o.lat, lng: o.lng, namn: grotRad?.namn || o.namn, grot: grotPerObjektId.has(o.id) }); // GROT-läge: samma namn som i listan
     }
-    grotUtanPrick.forEach((r) => want.set(`grot:${r.id}`, { desc: GROT_PRICK, lat: r.koordinat!.lat, lng: r.koordinat!.lng, namn: r.namn, grot: true }));
+    grotUtanPrick.forEach((r) => { const br = bradskandeFor(r, todayISO); want.set(`grot:${r.id}`, { desc: br ? bradskandePrick(br) : GROT_PRICK, lat: r.koordinat!.lat, lng: r.koordinat!.lng, namn: r.namn, grot: true }); });
     dotsRef.current.forEach((d, id) => { if (!want.has(id)) { d.marker.remove(); dotsRef.current.delete(id); } });
     want.forEach((p, id) => {
       let entry = dotsRef.current.get(id);
@@ -510,17 +540,21 @@ export default function OversiktV2Page() {
         const circle = document.createElement('div'); circle.style.position = 'absolute';
         const label = document.createElement('div');
         label.style.cssText = `position:absolute;padding:2px 6px;background:${CHIP_BG};border-radius:6px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;box-shadow:0 1px 5px rgba(0,0,0,0.3);display:none`;
+        const datum = document.createElement('span'); datum.style.cssText = 'display:none;font-weight:700'; // brådskande: '5 okt' / 'försenad' (text + färg sätts nedan)
+        const namn = document.createElement('span');
+        label.appendChild(datum); label.appendChild(namn);
         el.appendChild(circle); el.appendChild(label);
         const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([p.lng, p.lat]).addTo(map);
         el.addEventListener('click', (e) => { e.stopPropagation(); prickKlickRef.current(id); });
-        entry = { marker, el, circle, label, desc: p.desc, grot: p.grot };
+        entry = { marker, el, circle, label, datum, namn, desc: p.desc, grot: p.grot };
         dotsRef.current.set(id, entry);
       }
-      entry.desc = p.desc; entry.grot = p.grot; entry.label.textContent = p.namn;
+      entry.desc = p.desc; entry.grot = p.grot; entry.namn.textContent = p.namn;
+      entry.datum.textContent = p.desc.etikett?.text ?? ''; entry.datum.style.color = p.desc.etikett?.farg ?? '';
     });
-    restyleSelection();
+    restyleSelection(); // skyltarnas läge läggs om av effekterna nedan (forslag-effekten kör layoutLabels vid varje ändring, och GROT-listan styr forslag via grotIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [objekt, koObjektIds, grotIds, grotOppen, grotUtanPrick, grotPerObjektId, mapStyleLoaded]);
+  }, [objekt, koObjektIds, grotIds, grotOppen, grotUtanPrick, grotPerObjektId, mapStyleLoaded, todayISO]);
 
   // GROT-arket öppnas (chippen) → kartan passar in EN gång över alla synliga skotare + alla GROT-prickar, med botten-padding =
   // arkets verkliga höjd (halvläget, ca 45 %) + luft, så allt syns ovanför arket. Samma regel som maskinval: rör sig aldrig
@@ -596,7 +630,7 @@ export default function OversiktV2Page() {
         square.addEventListener('click', onClick); label.addEventListener('click', onClick);
         container.appendChild(square); container.appendChild(label);
         const marker = new window.maplibregl.Marker({ element: container, anchor: 'center' }).setLngLat([f.koordinat.lng, f.koordinat.lat]).addTo(map);
-        entry = { marker, square, label, sub }; machMarkersRef.current.set(mid, entry);
+        entry = { marker, container, square, label, sub }; machMarkersRef.current.set(mid, entry);
       } else { (entry.label.firstChild as HTMLDivElement).textContent = namn; entry.marker.setLngLat([f.koordinat.lng, f.koordinat.lat]); }
       entry.sub.textContent = sublabelText(f); // bara "→ nästa" / "· inget planerat"; km finns i arket
       entry.sub.style.color = nastaAv(f) ? '#a1a1a6' : FARG.text2;
@@ -640,7 +674,12 @@ export default function OversiktV2Page() {
     dotsRef.current.forEach((d) => {
       const dotVisible = z >= THRESHOLD_ZOOM || d.desc.utzoom;
       d.el.style.display = dotVisible ? 'block' : 'none';
-      d.label.style.display = (dotVisible && !S && d.desc.namnbar && z >= THRESHOLD_ZOOM && !(grot && !d.grot)) ? 'block' : 'none';
+      const namnSyns = dotVisible && !S && d.desc.namnbar && z >= THRESHOLD_ZOOM && !(grot && !d.grot);
+      const datumSyns = dotVisible && grot && !!d.desc.etikett; // brådskande datumskylt: ALLA zoomnivåer — prickar slås aldrig ihop till kluster, så skylten är aldrig borta
+      d.namn.style.display = namnSyns ? 'inline' : 'none';
+      d.datum.style.display = datumSyns ? 'inline' : 'none';
+      d.datum.style.marginRight = namnSyns ? '6px' : '0'; // luft mellan datum och namn; skylten med bara datum får ingen tom kant
+      d.label.style.display = (namnSyns || datumSyns) ? 'block' : 'none';
     });
   }, []);
   useEffect(() => { syncDotVisibility(); layoutLabels(); }, [zoomNiva, syncDotVisibility, layoutLabels]);
@@ -671,7 +710,10 @@ export default function OversiktV2Page() {
       const halo = desc.halo ? `0 0 0 1.5px rgba(255,255,255,0.95), 0 1px 3px rgba(0,0,0,0.35)` : `0 0 0 1px rgba(0,0,0,0.25)`;
       if (desc.form === 'ring') d.circle.style.cssText = base + `background:transparent;border:3px solid ${LIT_LINE};opacity:${op};box-shadow:${halo}`; // ihålig ring: 18 px, 3 px mörk kontur, vit halo
       else d.circle.style.cssText = base + `background:${desc.color};opacity:${op};box-shadow:${halo}`;
+      if (desc.etikett) d.circle.style.boxShadow = '0 0 0 2px #fff, 0 1px 4px rgba(0,0,0,0.45)'; // brådskande GROT-prick: kraftigare vit halo (2 px)
       d.label.style.left = `${Math.round(px / 2) + 4}px`; d.label.style.top = '-9px'; d.label.style.opacity = String(op);
+      d.el.style.zIndex = desc.etikett ? '1' : ''; // brådskande prick + skylt över övriga prickar (annars skymmer senare prickar datumet)
+      d.label.style.pointerEvents = desc.etikett ? 'auto' : 'none'; d.label.style.cursor = desc.etikett ? 'pointer' : ''; // datumskylten är en del av pricken: tryck öppnar raden (annars träffar trycket kartan och stänger arket)
     });
     syncDotVisibility();
     if (map.getLayer('routes')) map.getSource('routes'); // paint är data-driven (uppdateras i rutt-effekten)
