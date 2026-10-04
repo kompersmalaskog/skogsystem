@@ -98,15 +98,29 @@ export function parsaLasning(raw: unknown): { lasning: Lasning; varningar: strin
   return { lasning: { post, tradslag, sammanfattning, osakerheter }, varningar };
 }
 
-// ── Verktygsschemat som AI:n tvingas svara med ───────────────────────────
+// ── Schemat som AI:ns svar måste följa ───────────────────────────────────
+//
+// Skickas som STRUKTURERADE UTDATA (output_config.format = json_schema): API:t garanterar att svaret är JSON enligt schemat.
+// Tvingat verktygsval (tool_choice tool/any) går INTE: claude-opus-5-5 svarar 400 "tool_choice: type "tool" and "any" are not
+// supported for this model" — upptäckt vid första skarpa läsningen 2026-10-04, när en fejkad klient i testerna hade dolt det.
+// Kravet för strukturerade utdata: additionalProperties:false på VARJE objekt (stangObjekt nedan), inga min/max/minLength.
 
-export const VERKTYG_NAMN = 'registrera_stamplingsrapport';
+/** Sätter additionalProperties:false på varje objekt i ett schema (rekursivt). */
+function stangObjekt<T>(s: T): T {
+  if (Array.isArray(s)) return s.map(stangObjekt) as unknown as T;
+  if (s && typeof s === 'object') {
+    const ut: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(s as Record<string, unknown>)) ut[k] = stangObjekt(v);
+    if (ut.type === 'object') ut.additionalProperties = false;
+    return ut as T;
+  }
+  return s;
+}
 
 const NULLBART = (typ: string, beskrivning: string) => ({ type: [typ, 'null'], description: beskrivning });
 
-export const VERKTYG = {
-  name: VERKTYG_NAMN,
-  description: 'Registrera exakt det som står tryckt i stämplingsrapporten. Räkna aldrig, rätta aldrig, gissa aldrig.',
+const SCHEMA_DEF = {
+  description: 'Exakt det som står tryckt i stämplingsrapporten. Räkna aldrig, rätta aldrig, gissa aldrig.',
   input_schema: {
     type: 'object',
     properties: {
@@ -172,7 +186,10 @@ export const VERKTYG = {
   },
 } as const;
 
-export const PROMPT = `Du läser en svensk stämplingsrapport (en rotpost som ska säljas) och registrerar innehållet med verktyget ${VERKTYG_NAMN}.
+/** Schemat som skickas i output_config.format. */
+export const UTDATA_SCHEMA = stangObjekt({ ...SCHEMA_DEF.input_schema, description: SCHEMA_DEF.description });
+
+export const PROMPT = `Du läser en svensk stämplingsrapport (en rotpost som ska säljas) och återger innehållet som JSON enligt det givna schemat.
 
 DU LÄSER — DU RÄKNAR INTE. Skriv exakt det som står tryckt. Kontrollen görs efteråt av vanlig kod som summerar dina rader och jämför mot rapportens egna summor; därför får du ALDRIG justera en siffra för att få ihop en summa, fylla i en rad som inte syns eller ta bort en rad som ser konstig ut.
 
@@ -186,4 +203,4 @@ Så här gör du:
 - Är en siffra svårläst (särskilt i inskannade sidor): skriv din bästa läsning och lägg en rad i "osakerheter" med sida, trädslag och diameter. Gissa aldrig tyst.
 - Dubbla spalter, vattenstämplar och handskrivna anteckningar: ta bara med det som är tryckt i tabellen.
 
-Svara ENDAST genom att anropa verktyget.`;
+Svara ENDAST med JSON enligt schemat — ingen text före eller efter.`;

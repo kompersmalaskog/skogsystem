@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { lasStamplingsrapport, byggAnrop, kontrolleraPdf, LasFel, STANDARD_MODELL, MAX_BYTES, type KlientLike } from './las';
-import { VERKTYG_NAMN } from './rapport';
+import { UTDATA_SCHEMA, parsaLasning } from './rapport';
 import { kontrollera } from './kontroll';
 
 // AI-anropet testas med en FEJKAD klient: det här bevisar plumbingen (vad som skickas, hur svaret tolkas, hur fel
@@ -15,15 +15,17 @@ const klient = (svar: any): KlientLike & { create: ReturnType<typeof vi.fn> } =>
   const create = vi.fn(async () => svar);
   return { messages: { create }, create };
 };
-const verktygSvar = (input: unknown) => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: VERKTYG_NAMN, input }], usage: { input_tokens: 12000, output_tokens: 1800 } });
+// Strukturerade utdata: JSON i ett textblock (inte ett tool_use-block)
+const jsonSvar = (obj: unknown) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(obj) }], usage: { input_tokens: 12000, output_tokens: 1800 } });
 
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe('anropet', () => {
-  it('skickar PDF:en som dokument, tvingar verktyget och ber inte om fri text', () => {
-    const a = byggAnrop(PDF, 'm');
-    expect(a.tool_choice).toEqual({ type: 'tool', name: VERKTYG_NAMN });
-    expect(a.tools[0].name).toBe(VERKTYG_NAMN);
+  it('skickar PDF:en som dokument och ber om strukturerade utdata — inget tvingat verktygsval (nekas av claude-opus-5-5 med 400)', () => {
+    const a = byggAnrop(PDF, 'm') as any;
+    expect(a.output_config).toEqual({ format: { type: 'json_schema', schema: UTDATA_SCHEMA } });
+    expect(a).not.toHaveProperty('tool_choice');
+    expect(a).not.toHaveProperty('tools');
     const [dok, instr] = a.messages[0].content as any[];
     expect(dok).toMatchObject({ type: 'document', source: { type: 'base64', media_type: 'application/pdf' } });
     expect(Buffer.from(dok.source.data, 'base64').equals(Buffer.from(PDF))).toBe(true);
@@ -31,7 +33,7 @@ describe('anropet', () => {
     expect(instr.text).toMatch(/aldrig justera en siffra/i);
   });
   it('använder stark standardmodell, och STAMPLING_LAS_MODEL om den är satt', async () => {
-    const k = klient(verktygSvar(fixtur('jeppshoka.json')));
+    const k = klient(jsonSvar(fixtur('jeppshoka.json')));
     await lasStamplingsrapport(PDF, { klient: k });
     expect(k.create.mock.calls[0][0].model).toBe(STANDARD_MODELL);
     vi.stubEnv('STAMPLING_LAS_MODEL', 'annan-modell');
@@ -42,28 +44,36 @@ describe('anropet', () => {
 
 describe('svaret', () => {
   it('Jeppshoka-läsningen tolkas och klarar kontrollen', async () => {
-    const r = await lasStamplingsrapport(PDF, { klient: klient(verktygSvar(fixtur('jeppshoka.json'))) });
+    const r = await lasStamplingsrapport(PDF, { klient: klient(jsonSvar(fixtur('jeppshoka.json'))) });
     expect(r.lasning.tradslag.map(t => t.namn)).toEqual(['Tall', 'Gran', 'Övrigt barr']);
     expect(r.tokens).toEqual({ in: 12000, ut: 1800 });
     expect(kontrollera(r.lasning).klart).toBe(true);
   });
   it('Bågskyttebanan-läsningen tolkas och klarar kontrollen, torra träd utanför', async () => {
-    const r = await lasStamplingsrapport(PDF, { klient: klient(verktygSvar(fixtur('bagskyttebanan.json'))) });
+    const r = await lasStamplingsrapport(PDF, { klient: klient(jsonSvar(fixtur('bagskyttebanan.json'))) });
     const k = kontrollera(r.lasning);
     expect(k.klart).toBe(true); expect(k.ejIModellen).toHaveLength(1);
   });
   it('en felläsning från AI:n går igenom tolkningen men stoppas av kontrollen', async () => {
     const f = fixtur('jeppshoka.json');
     f.tradslag[1].klasser[5].antal += 3;
-    const r = await lasStamplingsrapport(PDF, { klient: klient(verktygSvar(f)) });
+    const r = await lasStamplingsrapport(PDF, { klient: klient(jsonSvar(f)) });
     expect(kontrollera(r.lasning).klart).toBe(false);
   });
   it('svar utan registrerad rapport är ett fel — aldrig ett tyst tomt resultat', async () => {
-    await expect(lasStamplingsrapport(PDF, { klient: klient({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Här är rapporten …' }] }) })).rejects.toMatchObject({ kod: 'otolkbart' });
-    await expect(lasStamplingsrapport(PDF, { klient: klient(verktygSvar({ post: {}, tradslag: [] })) })).rejects.toMatchObject({ kod: 'otolkbart' });
+    await expect(lasStamplingsrapport(PDF, { klient: klient({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Här är rapporten …' }] }) })).rejects.toMatchObject({ kod: 'otolkbart', message: expect.stringMatching(/giltig JSON/) });
+    await expect(lasStamplingsrapport(PDF, { klient: klient({ stop_reason: 'end_turn', content: [] }) })).rejects.toMatchObject({ kod: 'otolkbart' });
+    await expect(lasStamplingsrapport(PDF, { klient: klient(jsonSvar({ post: {}, tradslag: [] })) })).rejects.toMatchObject({ kod: 'otolkbart' });
+  });
+  it('JSON i flera textblock och tankeblock före svaret hanteras; en avvisning (refusal) är ett fel', async () => {
+    const delar = JSON.stringify(fixtur('jeppshoka.json'));
+    const k = klient({ stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 },
+      content: [{ type: 'thinking', thinking: '…' }, { type: 'text', text: delar.slice(0, 500) }, { type: 'text', text: delar.slice(500) }] });
+    expect(kontrollera((await lasStamplingsrapport(PDF, { klient: k })).lasning).klart).toBe(true);
+    await expect(lasStamplingsrapport(PDF, { klient: klient({ stop_reason: 'refusal', content: [] }) })).rejects.toMatchObject({ kod: 'otolkbart', message: expect.stringMatching(/avböjde/) });
   });
   it('ett avkapat svar (max_tokens) är ett fel som säger vad man gör', async () => {
-    const k = klient({ stop_reason: 'max_tokens', content: [{ type: 'tool_use', name: VERKTYG_NAMN, input: { tradslag: [] } }] });
+    const k = klient({ stop_reason: 'max_tokens', content: [{ type: 'text', text: '{"tradslag":[' }] });
     await expect(lasStamplingsrapport(PDF, { klient: k })).rejects.toMatchObject({ kod: 'avkapat', message: expect.stringMatching(/Mata in för hand/) });
   });
   it('API-fel blir LasFel med orsaken, inte en rå stacktrace', async () => {
@@ -81,5 +91,16 @@ describe('innan något skickas', () => {
     expect(() => kontrolleraPdf(new Uint8Array([1, 2, 3, 4, 5, 6]))).toThrowError(LasFel);
     expect(() => kontrolleraPdf(new Uint8Array(MAX_BYTES + 1))).toThrowError(/största tillåtna/);
     expect(() => kontrolleraPdf(PDF)).not.toThrow();
+  });
+});
+
+// Modellens EGEN utdata från den första skarpa läsningen (claude-opus-5-5, 2026-10-04, scripts/las-stamplingsrapport.ts):
+// bevisar att riktigt svar tolkas, klarar kontrollen och har exakt samma rader som facit — inte bara att fixturerna gör det.
+describe('riktiga läsningar (claude-opus-5-5, 2026-10-04)', () => {
+  it.each(['jeppshoka', 'bagskyttebanan'])('%s: modellens utdata klarar kontrollen och har samma rader som facit', async (namn) => {
+    const r = await lasStamplingsrapport(PDF, { klient: klient(jsonSvar(fixtur(`${namn}_live.json`))) });
+    expect(kontrollera(r.lasning).klart).toBe(true);
+    const rader = (l: any) => l.tradslag.map((t: any) => [t.namn, t.klasser.map((c: any) => [c.diameter_cm, c.antal, c.volym_m3sk])]);
+    expect(rader(r.lasning)).toEqual(rader(parsaLasning(fixtur(`${namn}.json`)).lasning));
   });
 });

@@ -34,8 +34,10 @@ async function main() {
   for (const v of k.varningar) console.log('  varning:', v);
   for (const e of k.ejIModellen) console.log('  utanför:', e);
   if (jsonUt) { writeFileSync(jsonUt, JSON.stringify(svar.lasning, null, 1) + '\n'); console.log(`\nLäsningen sparad: ${jsonUt}`); }
-  if (k.klart) { console.log('\nALLA SUMMOR STÄMMER.'); stammerRader(k).forEach(r => console.log('  ' + r)); process.exit(0); }
+  // exitCode, inte process.exit(): process.exit mitt i en öppen HTTPS-anslutning kraschar Node på Windows (UV_HANDLE_CLOSING, exit 127)
+  // och då stämmer inte längre kontraktet 0 = stämmer · 2 = åtgärd · 1 = fel.
+  if (k.klart) { console.log('\nALLA SUMMOR STÄMMER.'); stammerRader(k).forEach(r => console.log('  ' + r)); process.exitCode = 0; return; }
   console.log('\nÅTGÄRD BEHÖVS:'); k.atgard.forEach(a => console.log('  ' + a.text));
-  process.exit(2);
+  process.exitCode = 2;
 }
-main().catch(e => { console.error(e instanceof LasFel ? `${e.kod}: ${e.message}` : e); process.exit(1); });
+main().catch(e => { console.error(e instanceof LasFel ? `${e.kod}: ${e.message}` : e); process.exitCode = 1; });

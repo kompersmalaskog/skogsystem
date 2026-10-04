@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parsaLasning, tal, VERKTYG, type Lasning } from './rapport';
+import { parsaLasning, tal, UTDATA_SCHEMA, type Lasning } from './rapport';
 import { kontrollera, slagTyp, volymTolerans, misstankta, tillLangdText, stammerRader } from './kontroll';
 import { tolkaLangd } from '../berakna';
 
@@ -218,9 +218,26 @@ describe('parsaLasning', () => {
   it('ett svar utan trädslag är ett FEL, aldrig ett tyst tomt resultat', () => {
     expect(() => parsaLasning(null)).toThrow(); expect(() => parsaLasning({})).toThrow(); expect(() => parsaLasning({ tradslag: [] })).toThrow();
   });
-  it('verktygsschemat kräver exakt det kontrollen behöver', () => {
-    const s = VERKTYG.input_schema;
+  it('schemat kräver exakt det kontrollen behöver', () => {
+    const s = UTDATA_SCHEMA as any;
     expect(s.required).toEqual(['post', 'tradslag', 'sammanfattning', 'osakerheter']);
     expect(s.properties.tradslag.items.required).toEqual(['namn', 'klasser', 'tryckt_antal', 'tryckt_volym_m3sk']);
+  });
+  it('schemat följer reglerna för strukturerade utdata: additionalProperties:false på varje objekt, inga min/max-villkor, alla required finns', () => {
+    const OTILLATNA = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minLength', 'maxLength', 'maxItems', 'pattern', '$ref'];
+    let objekt = 0;
+    const gå = (n: any, stig: string) => {
+      if (Array.isArray(n)) return n.forEach((x, i) => gå(x, `${stig}[${i}]`));
+      if (!n || typeof n !== 'object') return;
+      for (const k of OTILLATNA) expect(n, `${stig}: ${k} stöds inte`).not.toHaveProperty(k);
+      if (n.type === 'object') {
+        objekt++;
+        expect(n.additionalProperties, `${stig}: additionalProperties`).toBe(false);
+        for (const r of n.required ?? []) expect(Object.keys(n.properties), `${stig}: required ${r}`).toContain(r);
+      }
+      for (const [k, v] of Object.entries(n)) gå(v, `${stig}.${k}`);
+    };
+    gå(UTDATA_SCHEMA, 'schema');
+    expect(objekt).toBe(5);   // rot, post, trädslag, klass, sammanfattning
   });
 });
