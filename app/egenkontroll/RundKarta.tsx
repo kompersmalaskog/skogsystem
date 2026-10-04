@@ -24,12 +24,14 @@ import { FORARKARTA_ATTRIBUTION } from '@/app/oversikt/forarkarta-stil';
 import { BASKARTOR, BASKARTA_DEFAULT, buildKartStil, wmsTileLayers, type BaskartaId } from '@/lib/mapLayers';
 import type { MapLayers } from '@/lib/hooks/useMapLayers';
 import { signeraKartfil } from '@/lib/kartfiler';
+import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
 import {
-  kartOrigoFranBounds,
-  pathTillGeoJson,
-  svgTillGeoJson,
-  type Origo,
-} from '@/lib/kartkoordinater';
+  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
+  geometriKoordinater, kontextFeature, kontextLager, kontextUtanKontrollpunkter,
+  kontrollFeatures, kontrollLager, kontrollLagerIdn, valdLinjeFilter, valdSymbolFilter,
+} from '@/lib/egenkontrollkarta';
+import { PIL_STIL, ritaNummerIkon, ritaPilIkon } from '@/lib/kartstil';
+import { canvasToMapLibreImage, loadMarkerImageForMaplibre, markerIconDefs } from '@/lib/marker-icons';
 import { T } from '@/lib/utbildning';
 import type { EgenkontrollPunkt, EgenkontrollProvyta } from '@/lib/egenkontroll';
 import type { LatLng } from '@/lib/provytor';
@@ -41,20 +43,6 @@ declare global {
 /** Standardhojd i rundvyn. Helskarmslaget skickar in sin egen. */
 const HOJD_INLINE = 180;
 
-/** Status som farg. Listan sager samma sak i text - fargen bar aldrig ensam. */
-const STATUSFARG: Record<string, string> = {
-  ok: '#30D158',
-  avvikelse: '#FF453A',
-  bra: '#30D158',
-  godkant: '#0A84FF',
-  battre: '#FFD60A',
-};
-const OBESVARAD = '#8E8E93';
-
-function farg(status: string | null): string {
-  return (status && STATUSFARG[status]) || OBESVARAD;
-}
-
 export type KartObjektData = {
   lat?: number | null;
   lng?: number | null;
@@ -65,25 +53,63 @@ export type KartObjektData = {
 type Geo = { type: 'FeatureCollection'; features: any[] };
 const TOM: Geo = { type: 'FeatureCollection', features: [] };
 
-/** Punktens snapshot -> GeoJSON. null nar punkten inte ar en plats. */
-function punktTillFeature(p: EgenkontrollPunkt, origo: Origo): any | null {
-  const g = p.geometri_snapshot as { x?: number; y?: number; path?: { x: number; y: number }[] } | null;
-  if (!g) return null; // kalla='fast' - utforandepunkter ar inte platser
-  const props = { id: p.id, farg: farg(p.status), status: p.status ?? 'obesvarad' };
+/**
+ * Bilderna lagren refererar: symbolerna (lib/marker-icons.ts - samma som
+ * planeringen), pilarna och basvagsnumren. Maste finnas innan lagren laggs
+ * till, annars ritas ingenting tills MapLibre hunnit be om dem.
+ *
+ * En bild som inte gar att ladda far aldrig falla kartan - da saknas bara den
+ * symbolen, och resten ritas.
+ */
+async function laggTillBilder(map: any, nummer: number[]): Promise<void> {
+  const laddar: Promise<void>[] = [];
+  for (const def of markerIconDefs) {
+    const namn = `marker-${def.id}`;
+    if (map.hasImage(namn)) continue;
+    laddar.push((async () => {
+      try {
+        const bild = await loadMarkerImageForMaplibre(def.id);
+        if (bild && !map.hasImage(namn)) map.addImage(namn, bild);
+      } catch { /* en ikon som inte gar att ladda ska inte fa falla kartan */ }
+    })());
+  }
+  for (const pil of PIL_STIL) {
+    const namn = `arrow-${pil.id}`;
+    if (map.hasImage(namn)) continue;
+    try {
+      const bild = canvasToMapLibreImage(ritaPilIkon(pil.color));
+      if (bild) map.addImage(namn, bild);
+    } catch { /* se ovan */ }
+  }
+  await Promise.all(laddar);
+  sakraNummerBilder(map, nummer);
+}
 
-  if (Array.isArray(g.path)) {
-    const coords = pathTillGeoJson(g.path, origo);
-    if (coords.length < 2) return null;
-    return { type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } };
+/** Basvagsnumren som ikoner. Anropas aven nar data andras - nya nummer kan tillkomma. */
+function sakraNummerBilder(map: any, nummer: number[]): void {
+  for (const nr of nummer) {
+    const namn = `nr-${nr}`;
+    if (map.hasImage(namn)) continue;
+    try {
+      const bild = canvasToMapLibreImage(ritaNummerIkon(nr));
+      if (bild) map.addImage(namn, bild);
+    } catch { /* se ovan */ }
   }
-  if (typeof g.x === 'number' && typeof g.y === 'number') {
-    return {
-      type: 'Feature',
-      properties: props,
-      geometry: { type: 'Point', coordinates: svgTillGeoJson(g.x, g.y, origo) },
-    };
+}
+
+/**
+ * Laggar till ett lager och SAGER det nar MapLibre avvisat det. addLayer med ett
+ * ogiltigt uttryck kastar inte - det loggar ett fel och hoppar lagret, sa
+ * bygget ar gront och lagret ar bara borta. Lib-testet validerar uttrycken, och
+ * den har kontrollen fangar det som anda slank igenom.
+ */
+function laggTillLager(map: any, spec: any, fore?: string): void {
+  try {
+    map.addLayer(spec, fore);
+    if (!map.getLayer(spec.id)) console.error('[egenkontroll] lagret avvisades av MapLibre:', spec.id);
+  } catch (e) {
+    console.error('[egenkontroll] lagret kunde inte laggas till:', spec.id, e);
   }
-  return null;
 }
 
 export default function RundKarta({
@@ -104,7 +130,7 @@ export default function RundKarta({
   objekt: KartObjektData | null;
   punkter: EgenkontrollPunkt[];
   /** Ravt data ur planering_markeringar - bara orientering. */
-  kontext: { data: any }[];
+  kontext: { data: any; marker_id?: string | null }[];
   provytor: EgenkontrollProvyta[];
   valdPunktId: string | null;
   /** Positionen delas uppat sa avstandslistan slipper en egen GPS-prenumeration. */
@@ -144,32 +170,39 @@ export default function RundKarta({
   onPositionRef.current = onPosition;
 
   // --- Geometrierna ---------------------------------------------------------
-  const punktGeo = useMemo<Geo>(() => {
-    if (!origo) return TOM;
-    const features = punkter.map((p) => punktTillFeature(p, origo)).filter(Boolean);
-    return { type: 'FeatureCollection', features };
-  }, [punkter, origo]);
-
-  const kontextGeo = useMemo<Geo>(() => {
-    if (!origo) return TOM;
-    const features: any[] = [];
-    for (const m of kontext) {
-      const d = m?.data;
-      if (!d || typeof d !== 'object') continue;
-      if (Array.isArray(d.path)) {
-        const coords = pathTillGeoJson(d.path, origo);
-        if (coords.length >= 2) {
-          features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
-        }
-      } else if (typeof d.x === 'number' && typeof d.y === 'number') {
-        features.push({
-          type: 'Feature', properties: {},
-          geometry: { type: 'Point', coordinates: svgTillGeoJson(d.x, d.y, origo) },
-        });
+  // KONTROLLPUNKTERNA: symbolen, linjen eller zonen sjalv, plus ett nummer mitt
+  // pa varje numrerad basvag. Allt ur geometri_snapshot + punkt_typ.
+  const kontroll = useMemo(() => {
+    const punktFeatures: any[] = [];
+    const nummerFeatures: any[] = [];
+    if (origo) {
+      for (const p of punkter) {
+        const r = kontrollFeatures(p, origo);
+        if (r.feature) punktFeatures.push(r.feature);
+        if (r.nummer) nummerFeatures.push(r.nummer);
       }
     }
+    return {
+      punktGeo: { type: 'FeatureCollection', features: punktFeatures } as Geo,
+      nummerGeo: { type: 'FeatureCollection', features: nummerFeatures } as Geo,
+      nummer: Array.from(new Set(nummerFeatures.map((f) => f.properties.nr as number))),
+    };
+  }, [punkter, origo]);
+  const punktGeo = kontroll.punktGeo;
+  const nummerGeo = kontroll.nummerGeo;
+  // Latest-varden for init-effekten, som bara kor vid mount.
+  const nummerRef = useRef<number[]>(kontroll.nummer);
+  nummerRef.current = kontroll.nummer;
+
+  // KONTEXTEN: markeringar som INTE ar kontrollpunkter. De som redan ar det
+  // dras bort - annars ritas varje kontrollpunkt tva ganger.
+  const kontextGeo = useMemo<Geo>(() => {
+    if (!origo) return TOM;
+    const features = kontextUtanKontrollpunkter(kontext, punkter)
+      .map((m) => kontextFeature(m?.data, origo))
+      .filter(Boolean) as any[];
     return { type: 'FeatureCollection', features };
-  }, [kontext, origo]);
+  }, [kontext, punkter, origo]);
 
   /**
    * Provytorna. Egen farg (bla), skild fran planens markeringar och fran
@@ -327,49 +360,22 @@ export default function RundKarta({
         },
       });
 
-      // KONTEXT underst: nedtonat, tunt, ej tryckbart.
-      map.addSource('ek-kontext', { type: 'geojson', data: kontextGeo });
-      map.addLayer({
-        id: 'ek-kontext-linje', type: 'line', source: 'ek-kontext',
-        filter: ['==', ['geometry-type'], 'LineString'],
-        layout: { 'line-join': 'round' },
-        paint: { 'line-color': 'rgba(255,255,255,0.45)', 'line-width': 1.2 },
-      });
-      map.addLayer({
-        id: 'ek-kontext-punkt', type: 'circle', source: 'ek-kontext',
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint: { 'circle-color': 'rgba(255,255,255,0.35)', 'circle-radius': 2.5 },
-      });
+      // BILDERNA FORE LAGREN: symboler, pilar och basvagsnummer.
+      await laggTillBilder(map, nummerRef.current);
+      // Kartan kan ha tagits bort medan bilderna laddades (komponenten
+      // avmonterades). Da finns inget att lagga lager pa - och addSource pa en
+      // borttagen karta kastar.
+      if (mapRef.current !== map) return;
 
-      // KONTROLLPUNKTERNA over: status som farg.
-      map.addSource('ek-punkter', { type: 'geojson', data: punktGeo });
-      map.addLayer({
-        id: 'ek-punkt-linje', type: 'line', source: 'ek-punkter',
-        filter: ['==', ['geometry-type'], 'LineString'],
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': ['get', 'farg'], 'line-width': 3 },
-      });
-      map.addLayer({
-        id: 'ek-punkt-symbol', type: 'circle', source: 'ek-punkter',
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint: {
-          'circle-color': ['get', 'farg'], 'circle-radius': 6,
-          'circle-stroke-color': '#000', 'circle-stroke-width': 1.5,
-        },
-      });
+      // KONTEXT underst: nedtonat, tunt, ej tryckbart. Typens utseende behalls.
+      map.addSource(KONTEXT_KALLA, { type: 'geojson', data: kontextGeo });
+      for (const spec of kontextLager()) laggTillLager(map, spec);
 
-      // VALD punkt: vit gloria runt den, sa den syns bland lika fargade syskon.
-      map.addLayer({
-        id: 'ek-vald-linje', type: 'line', source: 'ek-punkter',
-        filter: ['all', ['==', ['geometry-type'], 'LineString'], ['==', ['get', 'id'], '']],
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.9 },
-      }, 'ek-punkt-linje');
-      map.addLayer({
-        id: 'ek-vald-symbol', type: 'circle', source: 'ek-punkter',
-        filter: ['all', ['==', ['geometry-type'], 'Point'], ['==', ['get', 'id'], '']],
-        paint: { 'circle-color': '#fff', 'circle-radius': 11, 'circle-opacity': 0.9 },
-      }, 'ek-punkt-symbol');
+      // KONTROLLPUNKTERNA over: typens eget utseende, med status som en ring
+      // eller ett band RUNT - obesvarad har ingen. Se lib/kartstil.ts.
+      map.addSource(KONTROLL_KALLA, { type: 'geojson', data: punktGeo });
+      map.addSource(NUMMER_KALLA, { type: 'geojson', data: nummerGeo });
+      for (const spec of kontrollLager()) laggTillLager(map, spec);
 
       // Avvikelsernas egna GPS-positioner - eget lager, egen rymd.
       map.addSource('ek-avvikelser', { type: 'geojson', data: avvikelseGeo });
@@ -426,9 +432,7 @@ export default function RundKarta({
         nagot = true;
       } else {
         for (const f of [...punktGeo.features, ...kontextGeo.features]) {
-          const c = f.geometry.coordinates;
-          if (f.geometry.type === 'Point') { b2.extend(c); nagot = true; }
-          else for (const q of c) { b2.extend(q); nagot = true; }
+          for (const q of geometriKoordinater(f.geometry)) { b2.extend(q); nagot = true; }
         }
       }
       if (nagot) map.fitBounds(b2, { padding: 24, maxZoom: 16, duration: 0 });
@@ -442,11 +446,15 @@ export default function RundKarta({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !laddad) return;
-    map.getSource('ek-punkter')?.setData(punktGeo);
+    // Nya basvagsnummer behover sin bild FORE datan, annars ritas inget nummer.
+    sakraNummerBilder(map, kontroll.nummer);
+    map.getSource(KONTROLL_KALLA)?.setData(punktGeo);
+    map.getSource(NUMMER_KALLA)?.setData(nummerGeo);
+    map.getSource(KONTEXT_KALLA)?.setData(kontextGeo);
     map.getSource('ek-avvikelser')?.setData(avvikelseGeo);
     map.getSource('ek-provytor')?.setData(provyteGeo);
     map.getSource('ek-stammar')?.setData(stamGeo);
-  }, [punktGeo, avvikelseGeo, provyteGeo, stamGeo, laddad]);
+  }, [punktGeo, nummerGeo, kontextGeo, kontroll.nummer, avvikelseGeo, provyteGeo, stamGeo, laddad]);
 
   // --- Bakgrundskartan ------------------------------------------------------
   // Alla fyra ligger redan i stilen; vi tander en och slacker de andra. Att
@@ -489,9 +497,7 @@ export default function RundKarta({
       if (map.getLayer(lagerId)) map.setLayoutProperty(lagerId, 'visibility', pa ? 'visible' : 'none');
     };
     const punkterPa = egnaVarden.ekPunkter !== false;
-    for (const id of ['ek-punkt-linje', 'ek-punkt-symbol', 'ek-avvikelse', 'ek-vald-linje', 'ek-vald-symbol']) {
-      satt(id, punkterPa);
-    }
+    for (const id of [...kontrollLagerIdn(), 'ek-avvikelse']) satt(id, punkterPa);
     const ytorPa = egnaVarden.ekProvytor !== false;
     for (const id of ['ek-provyta-matt', 'ek-provyta-omatt']) satt(id, ytorPa);
   }, [egnaVarden, laddad]);
@@ -527,16 +533,17 @@ export default function RundKarta({
     const map = mapRef.current;
     if (!map || !laddad) return;
     const id = valdPunktId ?? '';
-    map.setFilter('ek-vald-linje', ['all', ['==', ['geometry-type'], 'LineString'], ['==', ['get', 'id'], id]]);
-    map.setFilter('ek-vald-symbol', ['all', ['==', ['geometry-type'], 'Point'], ['==', ['get', 'id'], id]]);
+    if (map.getLayer(VALD_LINJE_ID)) map.setFilter(VALD_LINJE_ID, valdLinjeFilter(id));
+    if (map.getLayer(VALD_SYMBOL_ID)) map.setFilter(VALD_SYMBOL_ID, valdSymbolFilter(id));
     if (!valdPunktId) return;
     const f = punktGeo.features.find((x: any) => x.properties.id === valdPunktId);
     if (!f) return;
     if (f.geometry.type === 'Point') {
       map.easeTo({ center: f.geometry.coordinates, zoom: Math.max(map.getZoom(), 16), duration: 450 });
     } else {
+      // Linjer och zoner: alla brytpunkter (en zon ar en Polygon - ringen ligger en niva ner).
       const b = new window.maplibregl.LngLatBounds();
-      for (const c of f.geometry.coordinates) b.extend(c);
+      for (const c of geometriKoordinater(f.geometry)) b.extend(c);
       map.fitBounds(b, { padding: 40, maxZoom: 17, duration: 450 });
     }
   }, [valdPunktId, punktGeo, laddad]);
