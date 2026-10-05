@@ -149,16 +149,37 @@ describe("Dag-vyn: Körning läser databasens km", () => {
     expect(text()).toMatch(/6 påbörjade mil/);
   });
 
-  it("km-arket öppnas med databasens värden och Spara skriver 56/56, aldrig 0/0", async () => {
+  it("km-arket öppnas med databasens värden (112 km totalt), inte 0/0", async () => {
     fixtur(klartPass());
     await montera();
     await klick("Körning");
     expect(text()).toMatch(/Totalt112 km/);
+  });
+
+  it("Spara i km-arket utan ändring skriver INGET (km låses inte som förarens i onödan) och stänger arket", async () => {
+    fixtur(klartPass());
+    await montera();
+    await klick("Körning");
+    expect(text()).toMatch(/Ändra km/);
+    await klick("Spara");
+    expect(skrivna("arbetsdag").length).toBe(0);
+    expect(text()).not.toMatch(/Ändra km/);
+    expect(text()).toMatch(/Körning112 km/);
+  });
+
+  it("Spara efter en ändring skriver båda värdena och km_kalla='forare'", async () => {
+    fixtur(klartPass());
+    await montera();
+    await klick("Körning");
+    const plus = Array.from(behallare!.querySelectorAll<HTMLElement>("button")).filter(b => b.textContent === "+")[0];
+    await act(async () => { plus.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     await klick("Spara");
     const skrivningar = skrivna("arbetsdag").filter(s => "km_morgon" in s.vals);
     expect(skrivningar.length).toBe(1);
-    expect(skrivningar[0].vals.km_morgon).toBe(56);
+    expect(skrivningar[0].vals.km_morgon).toBe(66);
     expect(skrivningar[0].vals.km_kvall).toBe(56);
+    expect(skrivningar[0].vals.km_kalla).toBe("forare");
+    expect(text()).toMatch(/Körning122 km/);
   });
 
   it("tomma km i databasen visar fortfarande 0 km (ärligt, ingen gissning)", async () => {

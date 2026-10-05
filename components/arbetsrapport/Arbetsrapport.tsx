@@ -3403,6 +3403,10 @@ export default function Arbetsrapport() {
                 <button onClick={stäng} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Avbryt</button>
                 <button
                   onClick={async ()=>{
+                    // Inget ändrat → inget skrivs. Annars låses km som förarens
+                    // (km_kalla='forare') utan att hen rört något, och nattjobbet
+                    // slutar rätta dem. Samma regel som Redigera (kmÄndrad).
+                    if (tMK === kmMorgonNu && tKK === kmKvallNu) { stäng(); return; }
                     if (idagArb?.id) {
                       const bryterBekräftelse = !!idagArb?.bekraftad;
                       // km_kalla='forare': föraren har satt km själv → helpern/
