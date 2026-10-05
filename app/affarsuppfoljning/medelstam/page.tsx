@@ -42,7 +42,9 @@ function Innehall() {
   const sp = useSearchParams();
   const router = useRouter();
   const vyParam = sp.get('vy');
-  const vy: Vy = vyParam === 'objekt' || vyParam === 'kurva' ? vyParam : 'huvud';
+  const vy: Vy = vyParam === 'objekt' || vyParam === 'kurva' || vyParam === 'utanfor' || vyParam === 'sa-raknas' ? vyParam : 'huvud';
+  const franParam = sp.get('fran');
+  const fran: Vy | undefined = franParam === 'objekt' || franParam === 'kurva' || franParam === 'huvud' ? franParam : undefined;
 
   const [d, setD] = useState<Data | null>(null);
   const [laddar, setLaddar] = useState(true);
@@ -96,8 +98,8 @@ function Innehall() {
   if (!d) return <div style={SIDA} />;
 
   return (
-    <MedelstamVy alla={d.alla} meta={d.meta} uppdaterad={d.uppdaterad} rotLasbar={d.rotLasbar} vy={vy}
-      gaTill={v => router.push(v === 'huvud' ? BAS : `${BAS}?vy=${v}`)} />
+    <MedelstamVy alla={d.alla} meta={d.meta} uppdaterad={d.uppdaterad} rotLasbar={d.rotLasbar} vy={vy} fran={fran}
+      gaTill={(v, f) => router.push(v === 'huvud' ? BAS : `${BAS}?vy=${v}${f && f !== 'huvud' ? `&fran=${f}` : ''}`)} />
   );
 }
 

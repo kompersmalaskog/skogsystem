@@ -12,6 +12,9 @@
 // sammanhanget överst, talet stort och vänsterställt, ordrad, dämpad rad,
 // kontroll som text, rader med › och ett tal.
 //
+// YTAN ÄR TAL OCH KORTA ETIKETTER. Det som förklarar talen (röta, vad posterna består av, hur PDF:en läses och kontrolleras, rapportens
+// kalkyl, fotnoter) bor en nivå in, på Så räknas (?vy=sa-raknas). Tall och Gran är rader som öppnar sin fördelning (?vy=tradslag).
+//
 // SPANNET STÅR ALLTID MED TALET. Rötan är den enskilt största osäkerheten
 // (Åbogen 28 %, Jeppshoka 40 % av stammarna över 20 cm), så rötandelen är
 // en inställning, förvald till medianen hos oss, och spannet mellan
@@ -29,9 +32,10 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { SIDA, DAMPAD, TEXT, LINJE, nf0,
-         Tillbakarad, Stort, Damp, Kontroll, Mening, Rad, Rader, Teknisk, Laddar, Fel } from '@/components/Ytform';
+         Tillbakarad, Stort, Damp, Kontroll, Mening, Rad, Rader, Teknisk, Stycken, Laddar, Fel } from '@/components/Ytform';
 import { berakna, tolkaLangd, jamforRapport, SLAG_NAMN, MIN_STAMMAR, ROT_FRAN_KLASS, EXTRAPOLERAD_FRAN_CM,
          type Cell, type Meta, type Rad as LangdRad, type Slag, type Rapport } from '@/lib/stampling/berakna';
+import { VadPosternaBestarAv, sortimentFarg } from '@/components/Sortimentstapel';
 import RapportLas from './RapportLas';
 import { tillLangdText } from '@/lib/stampling/pdf/kontroll';
 import type { Rapport as PdfRapport } from '@/lib/stampling/pdf/klient';
@@ -150,9 +154,6 @@ function Innehall() {
   const jamf = res ? jamforRapport(res, rapport) : null;
   const pct = (del: number, hel: number) => (hel > 0 ? nf0(100 * del / hel) : '–');
   const procent = (v: number | null | undefined) => (v == null ? '–' : nf0(100 * v));
-  /** Per trädslag: timmer, kubb och massaved i m³fub och procent av trädslagets volym. */
-  const slagSub = (v: { vol: number; timmer: number; kubb: number; massa: number }) =>
-    `timmer ${nf0(v.timmer)} m³ (${pct(v.timmer, v.vol)} %) · kubb ${nf0(v.kubb)} (${pct(v.kubb, v.vol)} %) · massaved ${nf0(v.massa)} (${pct(v.massa, v.vol)} %)`;
   const url = (q: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
     for (const [key, v] of Object.entries(q)) if (v) p.set(key, v);
@@ -176,7 +177,7 @@ function Innehall() {
       <div style={SIDA}>
         <RapportLas bas={BAS} id={sp.get('id')} anvand={anvandRapport}
           oppna={id => router.replace(url({ vy: 'pdf', id: id ?? undefined }), { scroll: false })}
-          manuellt={() => router.push(url({ vy: 'langd' }))} />
+          manuellt={() => router.push(url({ vy: 'langd' }))} saRaknas={() => router.push(url({ vy: 'sa-raknas' }))} />
       </div>
     );
   }
@@ -188,11 +189,7 @@ function Innehall() {
         <Tillbakarad href={BAS} text="Utbyte" />
         <Stort tal={nf0(res?.trad ?? 0)} ordrad="träd i stämplingslängden">
           <Damp>{SLAGEN.map(s => `${SLAG_NAMN[s].toLowerCase()} ${nf0(tradPerSlag[s])}`).join(' · ')}</Damp>
-          <Mening>
-            Reservvägen: en rad per diameterklass, diameter i centimeter och antal träd, så som stämplingslängden listar dem
-            (klassmitt, jämna centimeter). Klistra in från rapporten. Övrigt barr räknas som gran. Har du rapporten som PDF går det snabbare
-            och säkrare att ladda upp den — då kontrolleras summorna mot rapportens egna.
-          </Mening>
+          <Mening>En rad per klass: diameter, antal.</Mening>
         </Stort>
         {SLAGEN.map(s => (
           <Falt key={s} etikett={SLAG_NAMN[s]} sub={`${nf0(tradPerSlag[s])} träd`}>
@@ -203,8 +200,9 @@ function Innehall() {
           </Falt>
         ))}
         <Rader>
-          <Rad text="Rensa stämplingslängden" dampad onClick={() => { setAktiv(null); setText(TOM_TEXT); }} />
-          <Rad text="Ladda upp som PDF i stället" dampad onClick={() => router.push(url({ vy: 'pdf' }))} />
+          <Rad text="Rensa" dampad onClick={() => { setAktiv(null); setText(TOM_TEXT); }} />
+          <Rad text="Ladda upp PDF" dampad onClick={() => router.push(url({ vy: 'pdf' }))} />
+          <Rad text="Så räknas" onClick={() => router.push(url({ vy: 'sa-raknas' }))} />
         </Rader>
       </div>
     );
@@ -218,23 +216,19 @@ function Innehall() {
     return (
       <div style={SIDA}>
         <Tillbakarad href={BAS} text="Utbyte" />
-        <Stort tal={rT == null ? '–' : nf0(rT)} enhet={rT == null ? undefined : 'm³fub'} ordrad="timmer enligt rapportens utbyteskalkyl">
-          <Mening>
-            Stämplingsrapportens kalkyl bygger på grundytevägd medeldiameter och minsta toppdiameter. Den ser ingen
-            röta och ingen krök. Skriv in rapportens tal, så står skillnaden mot vår data på första sidan.
-          </Mening>
-        </Stort>
-        <Falt etikett="Volym, m³fub" sub="rapportens summa för hela posten">
+        <Stort tal={rT == null ? '–' : nf0(rT)} enhet={rT == null ? undefined : 'm³fub'} ordrad="timmer enligt rapportens utbyteskalkyl" />
+        <Falt etikett="Volym, m³fub">
           <input value={rapportText.m3fub} onChange={satt('m3fub')} inputMode="decimal" placeholder="2 677,1" aria-label="Rapportens volym m³fub" style={RUTA} />
         </Falt>
-        <Falt etikett="Timmer, procent" sub="rapportens andel timmer av volymen">
+        <Falt etikett="Timmer, procent">
           <input value={rapportText.timmerPct} onChange={satt('timmerPct')} inputMode="decimal" placeholder="86" aria-label="Rapportens timmerandel" style={RUTA} />
         </Falt>
         <Falt etikett="Massaved, procent" sub="valfritt">
           <input value={rapportText.massaPct} onChange={satt('massaPct')} inputMode="decimal" placeholder="14" aria-label="Rapportens massavedsandel" style={RUTA} />
         </Falt>
         <Rader>
-          <Rad text="Ta bort rapportens tal" dampad onClick={() => setRapportText(TOM_RAPPORT)} />
+          <Rad text="Ta bort" dampad onClick={() => setRapportText(TOM_RAPPORT)} />
+          <Rad text="Så räknas" onClick={() => router.push(url({ vy: 'sa-raknas' }))} />
         </Rader>
       </div>
     );
@@ -244,14 +238,51 @@ function Innehall() {
   const median = meta.rot20_median ?? null;
   const ingenModell = !celler || celler.length === 0;
   const underlag = !ingenModell && uppdaterad ? (
-    <Mening>
+    <p style={{ margin: '0 0 8px' }}>
       Röta = andel stammar över {ROT_FRAN_KLASS} cm med massaved i rotändan.
       Hos oss {procent(median)} % i median, {procent(meta.rot20_q1)}–{procent(meta.rot20_q3)} % mellan objekten.
       Bygger på {nf0(meta.objekt_antal ?? 0)} slutavverkningar och {nf0(meta.stammar_antal ?? 0)} stammar
       {meta.sedan_ar ? ` sedan ${meta.sedan_ar}` : ''}, uppdaterat {new Date(uppdaterad).toLocaleDateString('sv-SE')}.
       Fingervisning, inte facit.
-    </Mening>
+    </p>
   ) : null;
+
+  // ── Så räknas: allt som förklarar talen bor här, en nivå in ─────────────────────────────────────────
+  if (vy === 'sa-raknas') {
+    const para = { margin: '0 0 8px' } as const;
+    return (
+      <div style={SIDA}>
+        <Tillbakarad href={BAS} text="Utbyte" />
+        <Stycken>
+          {underlag}
+          <p style={para}>
+            Stämplingslängden är en rad per diameterklass: diameter i centimeter och antal träd, så som stämplingslängden listar dem
+            (klassmitt, jämna centimeter). Klistra in från rapporten. Övrigt barr räknas som gran.
+          </p>
+          <p style={para}>
+            Har du rapporten som PDF går det snabbare och säkrare att ladda upp den, även inskannad. AI:n läser tabellerna; koden kontrollerar att antalet och
+            volymen per trädslag stämmer mot rapportens egna summor innan något räknas. AI:n läser bara — summorna kontrolleras med vanlig kod mot
+            rapportens egna tryckta summor, per trädslag, på antal och på volym m³sk. Antalet ska stämma exakt; volymen tillåts avvika med avrundningen.
+            Rapporten och resultatet sparas.
+          </p>
+          <p style={para}>
+            Stämplingsrapportens egen kalkyl bygger på grundytevägd medeldiameter och minsta toppdiameter. Den ser ingen röta och ingen krök. Skriv in
+            rapportens tal, så står skillnaden mot vår data på utbytessidan.
+          </p>
+          {res && res.extrapoleradeTrad > 0 && <p style={para}>{nf0(res.extrapoleradeTrad)} träd är {EXTRAPOLERAD_FRAN_CM} cm eller grövre och räknas som 50–55 cm (extrapolerat).</p>}
+          {res && res.tuntTrad > 0 && <p style={para}>{nf0(res.tuntTrad)} träd ligger i klasser där vi har färre än {MIN_STAMMAR} stammar.</p>}
+          {res && res.saknadeTrad > 0 && <p style={para}>{nf0(res.saknadeTrad)} träd ligger i klasser utan data hos oss och räknas inte.</p>}
+        </Stycken>
+        <VadPosternaBestarAv />
+        <Teknisk>
+          Per trädslag och 5 cm-klass i brösthöjd: medelvolym m³fub per stam och andel timmer, kubb, massaved och övrigt, ur
+          skördarens stockar på våra slutavverkningar. Mot Jeppshoka 1:14, med objektet utanför modellen: andelarna inom tre
+          procentenheter, och volymen 12 % under på förrättarens stämplingslängd, för klaven hade 350 färre träd i
+          32–46 cm än skördaren mätte. Volymen hänger på hur träden klavats, andelarna på skogen.
+        </Teknisk>
+      </div>
+    );
+  }
 
   if (ingenModell) {
     return (
@@ -266,8 +297,8 @@ function Innehall() {
           </Damp>
         </Stort>
         <Rader>
-          <Rad text="Ladda upp stämplingsrapport (PDF)" sub="AI:n läser, koden kontrollerar mot rapportens summor" onClick={() => router.push(url({ vy: 'pdf' }))} />
-          <Rad text="Mata in för hand" dampad onClick={() => router.push(url({ vy: 'langd' }))} />
+          <Rad text="Ladda upp PDF" onClick={() => router.push(url({ vy: 'pdf' }))} />
+          <Rad text="Mata in" dampad onClick={() => router.push(url({ vy: 'langd' }))} />
         </Rader>
       </div>
     );
@@ -276,13 +307,29 @@ function Innehall() {
     return (
       <div style={SIDA}>
         <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
-        <Stort tal="–" ordrad="ingen stämplingslängd inmatad">
-          <Damp>Ladda upp stämplingsrapporten som PDF, eller mata in diameterklasserna för hand — så räknas utbytet enligt vår egen avverkade skog.</Damp>
-          {underlag}
+        <Stort tal="–" ordrad="ingen stämplingslängd inmatad" />
+        <Rader>
+          <Rad text="Ladda upp PDF" onClick={() => router.push(url({ vy: 'pdf' }))} />
+          <Rad text="Mata in" dampad onClick={() => router.push(url({ vy: 'langd' }))} />
+        </Rader>
+      </div>
+    );
+  }
+
+  // ── Ett trädslag: fördelningen i timmer, kubb och massaved. Tall och gran prissätts olika, så den hör till budet. ──
+  if (vy === 'tradslag') {
+    const slag: 'tall' | 'gran' = sp.get('slag') === 'gran' ? 'gran' : 'tall';
+    const v = res.perSlag[slag];
+    return (
+      <div style={SIDA}>
+        <Tillbakarad href={BAS} text="Utbyte" />
+        <Stort tal={nf0(v.vol)} enhet="m³fub" ordrad={`${slag}, ${nf0(v.trad)} träd`}>
+          {slag === 'gran' && <Mening>Övrigt barr är räknat som gran.</Mening>}
         </Stort>
         <Rader>
-          <Rad text="Ladda upp stämplingsrapport (PDF)" sub="AI:n läser, koden kontrollerar mot rapportens summor" onClick={() => router.push(url({ vy: 'pdf' }))} />
-          <Rad text="Mata in för hand" dampad onClick={() => router.push(url({ vy: 'langd' }))} />
+          <Rad prick={sortimentFarg('timmer')} text="Timmer" tal={`${nf0(v.timmer)} m³`} hoger={`${pct(v.timmer, v.vol)} %`} />
+          <Rad prick={sortimentFarg('kubb')} text="Kubb" tal={`${nf0(v.kubb)} m³`} hoger={`${pct(v.kubb, v.vol)} %`} />
+          <Rad prick={sortimentFarg('massa')} text="Massaved" tal={`${nf0(v.massa)} m³`} hoger={`${pct(v.massa, v.vol)} %`} />
         </Rader>
       </div>
     );
@@ -290,6 +337,11 @@ function Innehall() {
 
   const t = res.total;
   const rotPct = res.rot == null ? null : Math.round(100 * res.rot);
+  const slagRad = (s: 'tall' | 'gran') => {
+    const v = res.perSlag[s];
+    return <Rad key={s} text={s === 'tall' ? 'Tall' : 'Gran'} tal={`${nf0(v.vol)} m³`} hoger={`${nf0(v.trad)} träd`} dampad={!v.trad}
+      onClick={v.trad ? () => router.push(url({ vy: 'tradslag', slag: s })) : undefined} />;
+  };
   return (
     <div style={SIDA}>
       <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
@@ -301,7 +353,6 @@ function Innehall() {
           </div>
           <div style={{ fontSize: 12, color: DAMPAD, lineHeight: 1.6 }}>
             {[aktiv.forrattare, aktiv.datum, aktiv.total != null ? `${nf0(aktiv.total)} m³sk` : null].filter(Boolean).join(' · ')}
-            {' '}— stämplingslängd ur PDF, summorna kontrollerade
           </div>
         </Link>
       )}
@@ -314,58 +365,30 @@ function Innehall() {
           {res.spann && ` · ${nf0(res.spann.timmer[0])}–${nf0(res.spann.timmer[1])} m³ vid ${procent(res.spann.rot[0])}–${procent(res.spann.rot[1])} % röta`}
         </Damp>
         {median != null && (
-          <Kontroll text={`röta ${rotPct ?? '–'} %${res.rotStandard ? ' · vår median' : ''}`} value={rotVal}
+          <Kontroll text={`röta ${rotPct ?? '–'} %`} value={rotVal}
             label="Förväntad rötandel" onChange={setRotVal}>
             <option value="">{procent(median)} % — vår median</option>
             {ROTVAL.map(v => <option key={v} value={v}>{v} %</option>)}
           </Kontroll>
         )}
-        {underlag}
+        {/* Den enda förklarande meningen på ytan: ett bud ska aldrig läsas som ett facit. */}
+        <Mening>Fingervisning, inte facit.</Mening>
       </Stort>
       <Rader>
         <Rad text="Kubb" tal={`${nf0(t.kubb)} m³`} hoger={`${pct(t.kubb, t.vol)} %`}
-          sub={`kubb och klentimmer${res.spann ? ` · ${nf0(res.spann.kubb[0])}–${nf0(res.spann.kubb[1])} m³ i spannet` : ''}`} />
+          sub={res.spann ? `${nf0(res.spann.kubb[0])}–${nf0(res.spann.kubb[1])} m³` : undefined} />
         <Rad text="Massaved" tal={`${nf0(t.massa)} m³`} hoger={`${pct(t.massa, t.vol)} %`}
-          sub={`massaved, utan hemved${res.spann ? ` · ${nf0(res.spann.massa[0])}–${nf0(res.spann.massa[1])} m³ i spannet` : ''}`} />
-        <Rad text="Övrigt" tal={`${nf0(t.ovrigt)} m³`} hoger={`${pct(t.ovrigt, t.vol)} %`} dampad sub="energived, avkap, oklassat" />
-        <Rad text="Tall" tal={`${nf0(res.perSlag.tall.vol)} m³`} hoger={`${nf0(res.perSlag.tall.trad)} träd`}
-          sub={res.perSlag.tall.trad ? slagSub(res.perSlag.tall) : undefined} dampad={!res.perSlag.tall.trad} />
-        <Rad text="Gran" tal={`${nf0(res.perSlag.gran.vol)} m³`} hoger={`${nf0(res.perSlag.gran.trad)} träd`}
-          sub={res.perSlag.gran.trad ? `${slagSub(res.perSlag.gran)} · övrigt barr räknat som gran` : undefined} dampad={!res.perSlag.gran.trad} />
-        <Rad text="Stämplingslängd" tal={`${nf0(res.trad)} träd`} onClick={() => router.push(url({ vy: 'langd' }))}
-          sub={SLAGEN.filter(s => tradPerSlag[s]).map(s => `${SLAG_NAMN[s].toLowerCase()} ${nf0(tradPerSlag[s])}`).join(' · ')} />
+          sub={res.spann ? `${nf0(res.spann.massa[0])}–${nf0(res.spann.massa[1])} m³` : undefined} />
+        <Rad text="Övrigt" tal={`${nf0(t.ovrigt)} m³`} hoger={`${pct(t.ovrigt, t.vol)} %`} dampad />
+        {slagRad('tall')}
+        {slagRad('gran')}
+        <Rad text="Stämplingslängd" tal={`${nf0(res.trad)} träd`} onClick={() => router.push(url({ vy: 'langd' }))} />
         <Rad text="Rapportens utbyteskalkyl" tal={jamf?.rapportTimmer != null ? `${nf0(jamf.rapportTimmer)} m³` : '–'}
           hoger={jamf ? `${nf0(jamf.rapportVol)} m³fub` : undefined}
           onClick={() => router.push(url({ vy: 'rapport' }))}
-          sub={jamf?.diffTimmer != null
-            ? `rapporten ${nf0(rapport.timmerPct ?? 0)} % timmer, vi ${pct(t.timmer, t.vol)} % — ${jamf.diffTimmer >= 0 ? '+' : '−'}${nf0(Math.abs(jamf.diffTimmer))} m³ timmer mot rapporten`
-            : 'skriv in rapportens tal, så står skillnaden här'} />
+          sub={jamf?.diffTimmer != null ? `${jamf.diffTimmer >= 0 ? '+' : '−'}${nf0(Math.abs(jamf.diffTimmer))} m³ mot rapporten` : undefined} />
+        <Rad text="Så räknas" onClick={() => router.push(url({ vy: 'sa-raknas' }))} />
       </Rader>
-      {/* En budkalkyl måste säga vad posterna består av. Synligt, inte bakom en länk. */}
-      <div style={{ margin: '16px 16px 0', fontSize: 12, color: DAMPAD, lineHeight: 1.6 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 4 }}>Vad posterna består av</div>
-        <div><b style={{ color: TEXT, fontWeight: 600 }}>Timmer</b> — sågtimmer enligt maskinens sortiment.</div>
-        <div><b style={{ color: TEXT, fontWeight: 600 }}>Kubb</b> — kubb och klentimmer. Klentimmer går till såg som kubb och räknas därför hit.</div>
-        <div><b style={{ color: TEXT, fontWeight: 600 }}>Massaved</b> — massaved.</div>
-        <div><b style={{ color: TEXT, fontWeight: 600 }}>Övrigt</b> — energived, avkap och stockar maskinen inte sorterat.</div>
-        <div style={{ marginTop: 4 }}>
-          Hemved ingår i inget tal: det är virke som går till markägaren. Volymerna är m³fub, skördarmätt under bark,
-          inte m³sk som stämplingsrapporten anger.
-        </div>
-      </div>
-      {(res.extrapoleradeTrad > 0 || res.tuntTrad > 0 || res.saknadeTrad > 0) && (
-        <div style={{ margin: '14px 16px 0', fontSize: 11, color: DAMPAD, lineHeight: 1.6 }}>
-          {res.extrapoleradeTrad > 0 && <div>{nf0(res.extrapoleradeTrad)} träd är {EXTRAPOLERAD_FRAN_CM} cm eller grövre och räknas som 50–55 cm (extrapolerat).</div>}
-          {res.tuntTrad > 0 && <div>{nf0(res.tuntTrad)} träd ligger i klasser där vi har färre än {MIN_STAMMAR} stammar.</div>}
-          {res.saknadeTrad > 0 && <div>{nf0(res.saknadeTrad)} träd ligger i klasser utan data hos oss och räknas inte.</div>}
-        </div>
-      )}
-      <Teknisk>
-        Per trädslag och 5 cm-klass i brösthöjd: medelvolym m³fub per stam och andel timmer, kubb, massaved och övrigt, ur
-        skördarens stockar på våra slutavverkningar. Mot Jeppshoka 1:14, med objektet utanför modellen: andelarna inom tre
-        procentenheter, och volymen 12 % under på förrättarens stämplingslängd, för klaven hade 350 färre träd i
-        32–46 cm än skördaren mätte. Volymen hänger på hur träden klavats, andelarna på skogen.
-      </Teknisk>
     </div>
   );
 }

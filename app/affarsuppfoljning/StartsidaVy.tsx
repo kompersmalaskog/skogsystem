@@ -10,17 +10,17 @@
 //   3. månadsstaplar för hela året; pågående månad streckad; tryck på en stapel öppnar månaden (ersätter
 //      månadsväljaren)
 //   4. årets sortimentsfördelning, i ljushetsskalan (mörkast = mest värt, se skogsystem-design-skillen)
-//   5. rader: senast avslutade månad, Räkna på en post, Massavedens längd (dagens medellängd), Vad kostar ett
-//      längre rotkap
+//   5. rader: senast avslutade månad, Räkna på post, Massavedens längd (dagens medellängd), Längre rotkap, Så räknas
+//      Texten på ytan är tal och korta etiketter. Hur det räknas bor en nivå in (?vy=sa-raknas).
 //
 // ALLT HÄR LÄSER FÖRBERÄKNADE TABELLER (utfall_manad, dim_objekt) — aldrig stockdata live. All räkning bor i
 // lib/affarsuppfoljning/ar.ts; den här filen visar bara. Hemved ingår inte i något tal (går till markägaren).
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { Calendar, Calculator, Ruler, Axe, ChevronDown } from 'lucide-react';
-import { SIDA, DAMPAD, SEKUNDAR, TEXT, LINJE, GUL, GRON, TAL, nf0, nf1, nf2, stor,
-         Tillbakarad, Stort, Mening, Rad, Rader, Teknisk } from '@/components/Ytform';
+import { Calendar, Calculator, Ruler, Axe, Info } from 'lucide-react';
+import { SIDA, DAMPAD, SEKUNDAR, TEXT, LINJE, GUL, GRON, nf0, nf1, nf2, stor,
+         Tillbakarad, Stort, Rad, Rader, Stycken, Pil } from '@/components/Ytform';
 import { Sortimentstapel, TeckenforklaringMedAndel } from '@/components/Sortimentstapel';
 import { heltalTill100, type Andelar } from '@/lib/medelstam/berakna';
 import {
@@ -29,7 +29,7 @@ import {
 } from '@/lib/affarsuppfoljning/ar';
 
 export const BAS = '/affarsuppfoljning';
-export type Vy = 'ar' | 'rakna';
+export type Vy = 'ar' | 'rakna' | 'sa-raknas';
 
 export type Props = {
   rader: ManadRad[];
@@ -51,7 +51,7 @@ function Valjare({ text, value, onChange, label, children, fet }: {
   return (
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>
       <span style={{ fontSize: fet ? 15 : 13, fontWeight: fet ? 600 : 400, color: fet ? TEXT : DAMPAD, whiteSpace: 'nowrap' }}>{text}</span>
-      <ChevronDown aria-hidden size={14} strokeWidth={2} color={DAMPAD} style={{ marginLeft: 5, flexShrink: 0 }} />
+      <Pil storlek={fet ? 14 : 13} vanster={fet ? 7 : 6} />
       <select value={value} onChange={e => onChange(e.target.value)} aria-label={label} style={OVERLAY}>{children}</select>
     </span>
   );
@@ -120,15 +120,10 @@ export function RaknaPaEnPost() {
   return (
     <div style={SIDA}>
       <Tillbakarad href={BAS} text="Affärsuppföljning" />
-      <div style={{ padding: '10px 16px 0' }}>
-        <div style={{ ...TAL, fontSize: 30, lineHeight: 1.15, fontWeight: 500 }}>Räkna på en post</div>
-        <Mening>Välj efter vad du har. Båda räknar ur våra egna avverkade objekt — hur mycket som blev timmer, kubb och massaved.</Mening>
-      </div>
+      <div style={{ margin: '0 16px', fontSize: 15, fontWeight: 600 }}>Räkna på post</div>
       <Rader>
-        <Rad text="Jag har en stämplingslängd" sub="Diameterklasser och antal träd per trädslag, ur stämplingsrapporten. Röta och spann ingår."
-          href="/affarsuppfoljning/stampling" />
-        <Rad text="Jag har bara medelstammen" sub="Skriv in medelstammen (till exempel 0,47) — så ser du vad våra objekt med samma stamstorlek gav."
-          href="/affarsuppfoljning/medelstam" />
+        <Rad text="Stämplingslängd" href="/affarsuppfoljning/stampling" />
+        <Rad text="Medelstam" href="/affarsuppfoljning/medelstam" />
       </Rader>
     </div>
   );
@@ -145,6 +140,30 @@ export default function StartsidaVy({ rader, objekt, massaMal, uppdaterad, idag,
   const manadUrl = (manad: string) => `${BAS}/manad?manad=${manad}&atgard=${atgard}&bolag=${bolag}`;
 
   if (vy === 'rakna') return <RaknaPaEnPost />;
+
+  // ── Så räknas: allt som förklarar talet bor här, en nivå in ──────────────
+  if (vy === 'sa-raknas') {
+    return (
+      <div style={SIDA}>
+        <Tillbakarad href={`${BAS}?ar=${ar}&atgard=${atgard}&bolag=${bolag}`} text={String(ar)} />
+        <Stycken>
+          <p style={{ margin: '0 0 8px' }}>
+            Förberäknat efter import (utfall_manad){uppdaterad ? `, uppdaterat ${new Date(uppdaterad).toLocaleDateString('sv-SE')}` : ''} — ingen stockdata läses vid anrop.
+          </p>
+          <p style={{ margin: '0 0 8px' }}>
+            Volymerna är m³fub, skördarmätt under bark. Hemved ingår inte i något tal: det är virke som går till markägaren.
+          </p>
+          <p style={{ margin: '0 0 8px' }}>
+            Kubb räknar klentimmer. Övrigt är energived, avkap och oklassat. Alla åtgärder = slutavverkning och gallring (och objekt utan angiven åtgärd); GROT är ett eget val.
+          </p>
+          <p style={{ margin: 0 }}>
+            Snittet per hel månad räknas från årets första månad med volym till senast avslutade; pågående månad ({manadsNamn(nu)}) är inte med.
+            Objekt räknas på samma sätt som på månadssidan: skördarens och skotarens rad för samma trakt är ett objekt.
+          </p>
+        </Stycken>
+      </div>
+    );
+  }
 
   // ── Året ──────────────────────────────────────────────────────────────
   const ordrad = `${bolag === 'Vida' ? 'levererat till Vida' : 'avverkat'}${ar === nuAr ? ' hittills i år' : ` under ${ar}`}`;
@@ -178,7 +197,7 @@ export default function StartsidaVy({ rader, objekt, massaMal, uppdaterad, idag,
         {harVolym ? (
           <div style={DAMP}>
             {svar.snittPerHelManad != null
-              ? `snitt ${nf0(svar.snittPerHelManad)} per hel månad · `
+              ? `${nf0(svar.snittPerHelManad)} per månad · `
               : ''}
             {nf0(svar.antalObjekt)} objekt
           </div>
@@ -190,19 +209,12 @@ export default function StartsidaVy({ rader, objekt, massaMal, uppdaterad, idag,
       {/* 3. Månadsstaplar */}
       <div style={{ margin: '0 16px' }}>
         <Manadsstaplar manader={svar.manader} ar={ar} markerad={senast?.manad ?? null} onVal={m => gaTill(manadUrl(m))} />
-        {harVolym && (
-          <div style={{ marginTop: 8, fontSize: 12, color: SEKUNDAR, lineHeight: 1.5 }}>
-            Tryck på en månad för att öppna den.
-            {svar.manader.some(m => m.pagaende) && ` ${stor(manadsNamn(nu))} pågår.`}
-          </div>
-        )}
       </div>
 
       {/* 4. Vad det blev: årets sortimentsfördelning */}
       {fAndel && fHela && (
         <div style={{ margin: '0 16px' }}>
-          <div style={{ marginTop: 24, fontSize: 13, fontWeight: 600 }}>Vad det blev</div>
-          <Sortimentstapel andel={fAndel} hela={fHela} luft={8} />
+          <Sortimentstapel andel={fAndel} hela={fHela} luft={22} />
           <TeckenforklaringMedAndel hela={fHela} />
         </div>
       )}
@@ -214,24 +226,18 @@ export default function StartsidaVy({ rader, objekt, massaMal, uppdaterad, idag,
             text={`${stor(manadsNamn(senast.manad))}${senast.manad.slice(0, 4) === String(nuAr) ? '' : ` ${senast.manad.slice(0, 4)}`}`}
             hoger={`${nf0(senast.volym)} m³`} onClick={() => gaTill(manadUrl(senast.manad))} />
         )}
-        <Post ikon={<Calculator size={16} strokeWidth={1.75} />} text="Räkna på en post" sub="stämplingslängd eller medelstam"
-          onClick={() => gaTill(`${BAS}?vy=rakna`)} />
+        <Post ikon={<Calculator size={16} strokeWidth={1.75} />} text="Räkna på post" onClick={() => gaTill(`${BAS}?vy=rakna`)} />
         <Post ikon={<Ruler size={16} strokeWidth={1.75} />} text="Massavedens längd" farg={massaFarg}
           hoger={langd ? nf2(langd.medellangd) : '–'}
           sub={langd
-            ? `mot Vidas önskade ${nf1(massaMal)} m${langd.aktuell ? '' : ` · ${manadsNamn(langd.manad)}, inget registrerat denna månad än`}`
+            ? `mål ${nf1(massaMal)} m${langd.aktuell ? '' : ` · ${manadsNamn(langd.manad)}`}`
             : 'ingen barrmassaved registrerad än'}
           href="/massaved" />
-        <Post ikon={<Axe size={16} strokeWidth={1.75} />} text="Vad kostar ett längre rotkap" sub="simulerat på era stammar" href="/rotkap" />
+        <Post ikon={<Axe size={16} strokeWidth={1.75} />} text="Längre rotkap" href="/rotkap" />
+        <Post ikon={<Info size={16} strokeWidth={1.75} />} text="Så räknas"
+          onClick={() => gaTill(`${BAS}?ar=${ar}&atgard=${atgard}&bolag=${bolag}&vy=sa-raknas`)} />
       </Rader>
 
-      <Teknisk>
-        Förberäknat efter import (utfall_manad){uppdaterad ? `, uppdaterat ${new Date(uppdaterad).toLocaleDateString('sv-SE')}` : ''} — ingen stockdata läses vid anrop.
-        Volymerna är m³fub, skördarmätt under bark. Hemved ingår inte i något tal: det är virke som går till markägaren.
-        Kubb räknar klentimmer. Övrigt är energived, avkap och oklassat. Alla åtgärder = slutavverkning och gallring (och objekt utan angiven åtgärd); GROT är ett eget val.
-        {' '}Snittet per hel månad räknas från årets första månad med volym till senast avslutade; pågående månad ({manadsNamn(nu)}) är inte med.
-        Objekt räknas på samma sätt som på månadssidan: skördarens och skotarens rad för samma trakt är ett objekt.
-      </Teknisk>
     </div>
   );
 }

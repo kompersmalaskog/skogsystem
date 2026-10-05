@@ -131,8 +131,8 @@ export function kontrollera(l: Lasning): Kontroll {
     if (iModellen || typ === 'okand') {
       if (rader.length === 0) atgard.push({ tradslag: t.namn, text: `${t.namn}: inga diameterklasser lästes.` });
       else if (antalOk === null) atgard.push({ tradslag: t.namn, text: `${t.namn}: rapportens egen summa för antal träd saknas — antalet kan inte kontrolleras.` });
-      else if (antalOk === false) atgard.push({ tradslag: t.namn, text: `${t.namn}: antalet summerar till ${fmt(summaAntal)} men rapporten säger ${fmt(tryktAntal as number)} (${tecken(diffAntal as number)} träd).` });
-      if (volymOk === false) atgard.push({ tradslag: t.namn, text: `${t.namn}: volymen summerar till ${fmt(summaVolym as number, 1)} m³sk men rapporten säger ${fmt(tryktVolym as number, 1)} (${tecken(diffVolym as number, 1)}, tillåtet ±${fmt(tolVolym as number, 1)}).` });
+      else if (antalOk === false) atgard.push({ tradslag: t.namn, text: `${t.namn}: ${fmt(summaAntal)} mot ${fmt(tryktAntal as number)} träd (${tecken(diffAntal as number)}).` });
+      if (volymOk === false) atgard.push({ tradslag: t.namn, text: `${t.namn}: ${fmt(summaVolym as number, 1)} mot ${fmt(tryktVolym as number, 1)} m³sk (${tecken(diffVolym as number, 1)}, tillåtet ±${fmt(tolVolym as number, 1)}).` });
       if (volymOmojlig) atgard.push({ tradslag: t.namn, text: `${t.namn}: rapporten anger volym (${fmt(tryktVolym as number, 1)} m³sk) men raderna saknar volym per klass — volymen kan inte kontrolleras.` });
       if (typ === 'okand') atgard.push({ tradslag: t.namn, text: `"${t.namn}" känns inte igen som tall, gran eller övrigt barr. Rätta namnet — eller ta bort trädslaget om det inte ska räknas.` });
     } else {
