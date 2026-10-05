@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, IMPLICIT_JA_M, arMaskinlage, visaForarlista } from './maskindatorStart';
+import { avgorMaskindatorStart, avstamningsAtgard, rollAvMaskintyp, implicitJa, IMPLICIT_JA_M, arMaskinlage, visaForarlista } from './maskindatorStart';
 
 describe('rollAvMaskintyp', () => {
   it('Harvester → skördare, Forwarder → skotare', () => {
@@ -85,6 +85,12 @@ describe('maskinläge styrs av ENHETEN, inte rollen', () => {
     expect(arMaskinlage(false, true)).toBe(true);
     expect(arMaskinlage(false, false)).toBe(false);
   });
+  it('arMaskinlage: en enhet bunden till en maskin ÄR en maskindator (även utan serial-GPS)', () => {
+    expect(arMaskinlage(false, false, 'A130743')).toBe(true);
+    expect(arMaskinlage(false, false, null)).toBe(false);
+    expect(arMaskinlage(false, false, undefined)).toBe(false);
+    expect(arMaskinlage(false, false, '  ')).toBe(false);
+  });
   it('visaForarlista: maskinläge → förarlista oavsett roll (kodbevis: admin i testläge)', () => {
     // admin (ej förare) i maskinläge → förarlistan, inte admin-väljaren
     expect(visaForarlista(false, true)).toBe(true);
@@ -92,5 +98,74 @@ describe('maskinläge styrs av ENHETEN, inte rollen', () => {
     expect(visaForarlista(true, false)).toBe(true);
     // admin/chef utan maskinläge (telefon/dator) → admin-väljaren
     expect(visaForarlista(false, false)).toBe(false);
+  });
+});
+
+describe('avgorMaskindatorStart — startobjektet: enheten minns förarens senaste val', () => {
+  const bas = { enhetRoll: 'skotare' as const, harFix: false, posObjektId: null, posTilldelad: false, tilldelatObjektId: null, redanFragat: false };
+
+  it('senast valda objekt, ingen fix → starta där (varje gång)', () => {
+    expect(avgorMaskindatorStart({ ...bas, senasteObjektId: 'OS' })).toEqual({ typ: 'senaste', objektId: 'OS', roll: 'skotare' });
+  });
+
+  it('senast valda slår maskinens tilldelade objekt (planerarens tilldelning är en gissning, förarens val är ett val)', () => {
+    expect(avgorMaskindatorStart({ ...bas, tilldelatObjektId: 'OT', senasteObjektId: 'OS' }).typ).toBe('senaste');
+    expect(avgorMaskindatorStart({ ...bas, tilldelatObjektId: 'OT' }).typ).toBe('tilldelat');   // utan minne: som förut
+  });
+
+  it('en GAMMAL position (sparad/hyttspår) kan inte säga emot ett val som gjordes efter den', () => {
+    // harFix=true (position finns) men riktigFix=false: hyttspåret/sparade positionen pekar på ett annat objekt
+    expect(avgorMaskindatorStart({ ...bas, harFix: true, riktigFix: false, posObjektId: 'OX', posTilldelad: true, senasteObjektId: 'OS' }))
+      .toEqual({ typ: 'senaste', objektId: 'OS', roll: 'skotare' });
+  });
+
+  it('RIKTIG fix inne i ett ANNAT objekt → som förut: ej tilldelat = bekräftelsekort, tilldelat = körvy direkt', () => {
+    expect(avgorMaskindatorStart({ ...bas, harFix: true, riktigFix: true, posObjektId: 'OX', posTilldelad: false, senasteObjektId: 'OS' }))
+      .toEqual({ typ: 'fraga', objektId: 'OX', roll: 'skotare' });
+    expect(avgorMaskindatorStart({ ...bas, harFix: true, riktigFix: true, posObjektId: 'OX', posTilldelad: true, senasteObjektId: 'OS' }))
+      .toEqual({ typ: 'korvy', objektId: 'OX', roll: 'skotare' });
+  });
+
+  it('riktig fix inne i det senast valda objektet → starta där, INGEN fråga (även om maskinen inte är tilldelad)', () => {
+    expect(avgorMaskindatorStart({ ...bas, harFix: true, riktigFix: true, posObjektId: 'OS', posTilldelad: false, senasteObjektId: 'OS' }))
+      .toEqual({ typ: 'senaste', objektId: 'OS', roll: 'skotare' });
+  });
+
+  it('riktig fix UTANFÖR alla objekt → ändrar ingenting: starta på det senast valda', () => {
+    expect(avgorMaskindatorStart({ ...bas, harFix: true, riktigFix: true, posObjektId: null, senasteObjektId: 'OS' }).typ).toBe('senaste');
+  });
+
+  it('inget minne (avslutat/borttaget/aldrig valt) → som förut', () => {
+    expect(avgorMaskindatorStart({ ...bas, senasteObjektId: null }).typ).toBe('lista');
+    expect(avgorMaskindatorStart({ ...bas, harFix: true, riktigFix: true, posObjektId: 'OX', senasteObjektId: undefined }).typ).toBe('fraga');
+  });
+
+  it('ingen bunden maskin → lista, även med ett minne', () => {
+    expect(avgorMaskindatorStart({ ...bas, enhetRoll: null, senasteObjektId: 'OS' })).toEqual({ typ: 'lista' });
+  });
+
+  it('rollen följer maskinens roll — en skördare får skördar-roll', () => {
+    expect(avgorMaskindatorStart({ ...bas, enhetRoll: 'skordare', senasteObjektId: 'OS' })).toEqual({ typ: 'senaste', objektId: 'OS', roll: 'skordare' });
+  });
+});
+
+describe('avstamningsAtgard — första riktiga fixen mot ett val som byggde på en gammal position', () => {
+  const bas = { startTyp: 'senaste' as const, traffObjektId: 'OX', valtObjektId: 'OS', traffTilldelad: false, redanFragat: false };
+
+  it('fixen visar samma objekt (eller inget) → inget händer', () => {
+    expect(avstamningsAtgard({ ...bas, traffObjektId: 'OS' })).toBe('inget');
+    expect(avstamningsAtgard({ ...bas, traffObjektId: null })).toBe('inget');
+  });
+  it('förarens eget val + GPS visar ett ANNAT, ej tilldelat objekt → bekräftelsekortet (inte tyst byte)', () => {
+    expect(avstamningsAtgard(bas)).toBe('fraga');
+  });
+  it('...men är maskinen tilldelad objektet den står i, eller har kortet redan visats → byt (som förut)', () => {
+    expect(avstamningsAtgard({ ...bas, traffTilldelad: true })).toBe('byt');
+    expect(avstamningsAtgard({ ...bas, redanFragat: true })).toBe('byt');
+  });
+  it('övriga starttyper behåller dagens tysta byte med notis', () => {
+    for (const t of ['korvy', 'tilldelat', 'fraga', null] as const) {
+      expect(avstamningsAtgard({ ...bas, startTyp: t })).toBe('byt');
+    }
   });
 });
