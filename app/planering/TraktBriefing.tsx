@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ZONE_COLORS } from '@/lib/zone-colors'
+import MarkeringFoto from './MarkeringFoto'
 
 // === Types ===
 interface Point { x: number; y: number }
@@ -21,6 +22,8 @@ interface Marker {
   path?: Point[];
   comment?: string;
   photoData?: string;
+  photoPath?: string;
+  photoTs?: number;
   audioData?: string;
   notes?: { id: string; date: string; text?: string; audioData?: string }[];
 }
@@ -79,7 +82,7 @@ interface Props {
   checkedStepIds?: string[];
   onChecklistChange?: (checkedIds: string[]) => void;
   onBriefingComplete?: (totalSteps: number) => void;
-  onShowOnMap?: (itemId: string, center: { lat: number; lon: number }, markerId?: string, source?: 'checklist' | 'mandatory', extra?: { bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; title?: string; icon?: string }) => void;
+  onShowOnMap?: (itemId: string, center: { lat: number; lon: number }, markerId?: string, source?: 'checklist' | 'mandatory', extra?: { bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; photoPath?: string; photoTs?: number; title?: string; icon?: string }) => void;
 }
 
 // Accent
@@ -691,6 +694,7 @@ export default function TraktBriefing({
       const strip = stepEntry ? stripColor(stepEntry.marker) : A;
       const audioData = e.kind === 'note' ? e.note.audioData : e.kind === 'legacy' ? (legacyAudio || undefined) : stepEntry?.audioData;
       const photoData = stepEntry?.photoData;
+      const fotoMarkor = stepEntry?.marker;   // photoPath/photoTs ligger på markören
       return (
         <div key={e.id} style={{ display: 'flex', marginBottom: '8px', borderRadius: '14px', overflow: 'hidden', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', opacity: isChecked && !asNew ? 0.5 : 1, transition: 'opacity 0.3s' }}>
           <div style={{ width: '3px', background: strip, flexShrink: 0 }} />
@@ -728,10 +732,10 @@ export default function TraktBriefing({
                     {audioOpen && <div style={{ marginTop: '8px' }}><audio controls autoPlay src={audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} /></div>}
                   </div>
                 )}
-                {photoData && <div style={{ marginTop: '8px' }}><img src={photoData} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }} /></div>}
+                {(photoData || fotoMarkor?.photoPath) && <div style={{ marginTop: '8px' }}><MarkeringFoto lazy photoPath={fotoMarkor?.photoPath} photoData={photoData} photoTs={fotoMarkor?.photoTs} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }} /></div>}
               </div>
               {stepEntry && stepEntry.center && (
-                <button onClick={(ev) => { ev.stopPropagation(); if (onShowOnMap && stepEntry.center) onShowOnMap(stepEntry.id, stepEntry.center, stepEntry.marker?.id, 'checklist', { bbox: stepEntry.bbox, zoom: stepEntry.zoom, type: stepEntry.type, comment: stepEntry.comment, audioData: stepEntry.audioData, photoData: stepEntry.photoData, title: stepEntry.title, icon: stepEntry.icon }); }} style={{ width: '32px', height: '32px', borderRadius: '16px', background: 'rgba(138,180,96,0.06)', border: '1px solid rgba(138,180,96,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                <button onClick={(ev) => { ev.stopPropagation(); if (onShowOnMap && stepEntry.center) onShowOnMap(stepEntry.id, stepEntry.center, stepEntry.marker?.id, 'checklist', { bbox: stepEntry.bbox, zoom: stepEntry.zoom, type: stepEntry.type, comment: stepEntry.comment, audioData: stepEntry.audioData, photoData: stepEntry.photoData, photoPath: fotoMarkor?.photoPath, photoTs: fotoMarkor?.photoTs, title: stepEntry.title, icon: stepEntry.icon }); }} style={{ width: '32px', height: '32px', borderRadius: '16px', background: 'rgba(138,180,96,0.06)', border: '1px solid rgba(138,180,96,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
                   <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 16 }}>pin_drop</span>
                 </button>
               )}

@@ -59,6 +59,8 @@ import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
+import { harFoto, byggFotoSokvag, komprimeraMarkeringFoto, laddaUppMarkeringFoto } from '@/lib/markeringFoto'
+import MarkeringFoto from './MarkeringFoto'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
@@ -297,7 +299,9 @@ interface Marker {
   risaPath?: Point[];   // basväg: delsträcka (SVG-punkter) som ska risas — ritas blå + geofence i körvy
   comment?: string;
   antal?: number; // miljöhänsyn: bara eternitytree/highstump — hur många träd/stubbar punkten representerar
-  photoData?: string;
+  photoData?: string;   // GAMMALT: inbäddat base64-foto — nya foton går till Storage (photoPath)
+  photoPath?: string;   // Storage-sökväg i bucketen markering-foton ({objekt_id}/{marker_id}.jpg)
+  photoTs?: number;     // sätts vid varje uppladdning — tvingar ny signerad URL vid omtag
   audioData?: string;  // base64-kodat ljud (audio/webm eller audio/mp4)
   notes?: { id: string; date: string; text?: string; audioData?: string }[];
   roadCheck?: RoadCheckResult;
@@ -2166,7 +2170,7 @@ export default function PlannerPage() {
   const briefingCheckedIds: string[] = minRollKvitto?.checked_ids ?? [];
   const [briefingChecklistMode, setBriefingChecklistMode] = useState(false);
   const [briefingStepTotal, setBriefingStepTotal] = useState(0);
-  const [checklistMapView, setChecklistMapView] = useState<{ itemId: string; center: { lat: number; lon: number }; markerId?: string; source: 'checklist' | 'mandatory'; bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; title?: string; icon?: string } | null>(null);
+  const [checklistMapView, setChecklistMapView] = useState<{ itemId: string; center: { lat: number; lon: number }; markerId?: string; source: 'checklist' | 'mandatory'; bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; photoPath?: string; photoTs?: number; title?: string; icon?: string } | null>(null);
   const checklistPulseRef = useRef<any>(null);
   const checklistPrevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
@@ -3919,7 +3923,7 @@ export default function PlannerPage() {
   const [korvyNextItems, setKorvyNextItems] = useState<NextItem[]>([]);
   // ETT proximitetskort (växer på plats): närmaste OKVITTERADE symbol. `big` = inom kategori-radien
   // (slår ihop gamla "nästa hinder"-raden + akut-kortet till en komponent som växer/krymper på plats).
-  type ProxItem = { id: string; type: string; namn: string; comment?: string; dist: number; color: string; bearing: number; photoData?: string; audioData?: string; isFara: boolean; hash: string; warnDist: number; big: boolean };
+  type ProxItem = { id: string; type: string; namn: string; comment?: string; dist: number; color: string; bearing: number; photoData?: string; photoPath?: string; audioData?: string; isFara: boolean; hash: string; warnDist: number; big: boolean };
   const [korvyProx, setKorvyProx] = useState<ProxItem | null>(null);
   const korvyBigRef = useRef<{ id: string; big: boolean } | null>(null);   // hysteres-minne → ingen flimmer vid radie-gränsen
   const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());  // nyckel `${id}|${hash}` → vibb/ljud en gång per innehåll
@@ -8930,7 +8934,7 @@ export default function PlannerPage() {
       const namn = markerTypes.find(t => t.id === item.type)?.name || 'Markering';
       const prevBig = korvyBigRef.current?.id === item.id ? korvyBigRef.current.big : false;
       const big = item.dist <= warnDist ? true : (prevBig && item.dist <= warnDist + KORVY_CARD_HYST_M);
-      found = { id: item.id, type: item.type, namn, comment: item.comment, dist: item.dist, color: item.color, bearing: item.bearing, photoData: m.photoData, audioData: m.audioData, isFara, hash, warnDist, big };
+      found = { id: item.id, type: item.type, namn, comment: item.comment, dist: item.dist, color: item.color, bearing: item.bearing, photoData: m.photoData, photoPath: m.photoPath, audioData: m.audioData, isFara, hash, warnDist, big };
       break;                                                             // närmaste OKVITTERADE = aktiv
     }
     if (!found) { korvyBigRef.current = null; setKorvyProx(null); return; }
@@ -11587,26 +11591,36 @@ export default function PlannerPage() {
   }, [draggingMarker, rotatingArrow]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hantera foto från kamera
-  const handlePhotoCapture = (e) => {
+  // Foton går till Storage (komprimerat: max 1600 px, JPEG 0.7) — aldrig som base64 in i data.
+  // Misslyckas uppladdningen sparas INGET inbäddat foto (det vore tillbaka till 9 MB-raderna);
+  // föraren får ett besked och kan ta om bilden.
+  const handlePhotoCapture = async (e) => {
     const file = e.target.files?.[0];
-    if (!file || !pendingPhotoMarkerId) return;
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
+    const markerId = pendingPhotoMarkerId;
+    const objektId = valtObjekt?.id;
+    // Reset input så man kan ta samma bild igen (File-objektet vi håller påverkas inte)
+    e.target.value = '';
+    if (!file || !markerId || !objektId) return;
+    try {
+      const blob = await komprimeraMarkeringFoto(file);
+      const path = await laddaUppMarkeringFoto(byggFotoSokvag(objektId, markerId), blob);
+      // Objektet kan ha bytts under uppladdningen → rör inte en annan trakts markörer.
+      if (markersObjektIdRef.current !== objektId) return;
       saveToHistory([...markers]);
-      setMarkers(prev => prev.map(m => 
-        m.id === pendingPhotoMarkerId 
-          ? { ...m, photoData: event.target?.result as string }
+      // photoData bort: raden skrivs om utan det gamla inbäddade fotot (synken skickar hela data).
+      setMarkers(prev => prev.map(m =>
+        m.id === markerId
+          ? { ...m, photoPath: path, photoTs: Date.now(), photoData: undefined }
           : m
       ));
       // Öppna menyn igen för samma markör
-      setMarkerMenuOpen(pendingPhotoMarkerId);
+      setMarkerMenuOpen(markerId);
+    } catch (err: any) {
+      console.error('Foto-uppladdning fel:', err);
+      visaBesked('Fotot kunde inte sparas: ' + (err?.message || 'okänt fel') + '. Ta om bilden.');
+    } finally {
       setPendingPhotoMarkerId(null);
-    };
-    reader.readAsDataURL(file);
-    
-    // Reset input så man kan ta samma bild igen
-    e.target.value = '';
+    }
   };
   
   // Klick på linjer/zoner (kan inte dras)
@@ -13331,7 +13345,8 @@ export default function PlannerPage() {
                         {rader.map((m: any) => (
                           <button key={m.id} type="button" className="btn-press" onClick={() => flyTill(m)}
                             style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                            {m.photoData && <img src={m.photoData} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
+                            {m.photoData && !m.photoPath && <img src={m.photoData} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
+                            {m.photoPath && <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>📷</span>}
                             <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: '#fff', lineHeight: 1.4 }}>{(m.comment || '').trim()}</span>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 6 L15 12 L9 18" /></svg>
                           </button>
@@ -13627,8 +13642,8 @@ export default function PlannerPage() {
                 {/* STORT KORT (inom radien): bild/ikon + namn + kommentar + stor Sett */}
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 12, opacity: big ? 1 : 0, transition: `opacity 0.3s ease ${big ? '0.12s' : '0s'}`, pointerEvents: big ? 'auto' : 'none' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    {p.photoData ? (
-                      <img src={p.photoData} alt="" style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+                    {harFoto(p) ? (
+                      <MarkeringFoto photoPath={p.photoPath} photoData={p.photoData} aktiv={big} alt="" style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
                     ) : (
                       <span style={{ width: 64, height: 64, borderRadius: 10, background: p.color, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
                         <span className="material-symbols-outlined" style={{ fontSize: '38px', color: '#fff' }}>warning</span>
@@ -14564,7 +14579,7 @@ export default function PlannerPage() {
                   <circle cx={0} cy={0} r={getConstrainedSize(30)} fill="rgba(0,0,0,0)" />
                 </g>
                 {/* Foto-indikator (utanför rotation) */}
-                {m.photoData && (
+                {harFoto(m) && (
                   <>
                     <circle cx={m.x + photoOffset} cy={m.y - photoOffset} r={photoRadius} fill="#30d158" stroke="#fff" strokeWidth={getConstrainedSize(2)} />
                     <text x={m.x + photoOffset} y={m.y - photoOffset} textAnchor="middle" dominantBaseline="central" fontSize={photoFontSize} style={{ pointerEvents: 'none' }}>
@@ -15670,22 +15685,23 @@ export default function PlannerPage() {
               )}
 
               {/* Foto - klickbart för fullskärm */}
-              {marker.photoData && (
+              {harFoto(marker) && (
                 <div style={{
                   marginBottom: '16px',
                   borderRadius: '16px',
                   overflow: 'hidden',
                 }}>
-                  <img 
-                    src={marker.photoData} 
-                    alt="Foto"
-                    onClick={() => setFullscreenPhoto(marker.photoData || null)}
+                  <MarkeringFoto
+                    photoPath={marker.photoPath}
+                    photoData={marker.photoData}
+                    photoTs={marker.photoTs}
+                    onOpen={setFullscreenPhoto}
                     style={{
                       width: '100%',
                       maxHeight: '220px',
+                      minHeight: 120,
                       objectFit: 'cover',
                       display: 'block',
-                      cursor: 'pointer',
                     }}
                   />
                 </div>
@@ -16057,14 +16073,14 @@ export default function PlannerPage() {
                   height: '48px',
                   borderRadius: '24px',
                   border: 'none',
-                  background: marker.photoData ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)',
+                  background: harFoto(marker) ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={marker.photoData ? '#30d158' : '#8e8e93'} strokeWidth="2">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={harFoto(marker) ? '#30d158' : '#8e8e93'} strokeWidth="2">
                   <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
                   <circle cx="12" cy="13" r="4" />
                 </svg>
@@ -19268,18 +19284,18 @@ export default function PlannerPage() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Foto - klickbart för fullskärm */}
-            {editingMarker.photoData && (
-              <img 
-                src={editingMarker.photoData} 
-                alt="Foto" 
-                onClick={() => setFullscreenPhoto(editingMarker.photoData || null)}
+            {harFoto(editingMarker) && (
+              <MarkeringFoto
+                photoPath={editingMarker.photoPath}
+                photoData={editingMarker.photoData}
+                photoTs={editingMarker.photoTs}
+                onOpen={setFullscreenPhoto}
                 style={{
                   width: '100%',
                   height: '150px',
                   objectFit: 'cover',
                   borderRadius: '16px',
                   marginBottom: '16px',
-                  cursor: 'pointer',
                   border: '2px solid rgba(255,255,255,0.1)',
                 }}
               />
@@ -22087,7 +22103,7 @@ export default function PlannerPage() {
             setBriefingMode(false);            // stäng även briefing-flödets helskärmsark så glidningen + kart-kortet syns (annars ligger arket kvar och pin verkar död)
             setBriefingChecklistMode(false);
             setBriefingHighlightId(markerId || null);
-            setChecklistMapView({ itemId, center, markerId, source: source || 'checklist', bbox: extra?.bbox, zoom: extra?.zoom, type: extra?.type, comment: extra?.comment, audioData: extra?.audioData, photoData: extra?.photoData, title: extra?.title, icon: extra?.icon });
+            setChecklistMapView({ itemId, center, markerId, source: source || 'checklist', bbox: extra?.bbox, zoom: extra?.zoom, type: extra?.type, comment: extra?.comment, audioData: extra?.audioData, photoData: extra?.photoData, photoPath: extra?.photoPath, photoTs: extra?.photoTs, title: extra?.title, icon: extra?.icon });
             const m = mapInstanceRef.current;
             if (m) {
               m.flyTo({ center: [center.lon, center.lat], zoom: extra?.zoom || 17, pitch: 55, duration: 1500, essential: true });
@@ -22142,7 +22158,7 @@ export default function PlannerPage() {
           }
         };
         const cv = checklistMapView;
-        const hasContent = !!(cv.comment || cv.audioData || cv.photoData);
+        const hasContent = !!(cv.comment || cv.audioData || harFoto(cv));
         return (
         <div style={{
           position: 'absolute',
@@ -22163,8 +22179,8 @@ export default function PlannerPage() {
             overflow: 'hidden',
           }}>
             {/* Photo */}
-            {cv.photoData && (
-              <img src={cv.photoData} alt="" style={{ width: '100%', height: '140px', objectFit: 'cover' }} />
+            {harFoto(cv) && (
+              <MarkeringFoto photoPath={cv.photoPath} photoData={cv.photoData} photoTs={cv.photoTs} alt="" style={{ width: '100%', height: '140px', objectFit: 'cover' }} />
             )}
             {/* Content */}
             <div style={{ padding: '14px 16px' }}>
