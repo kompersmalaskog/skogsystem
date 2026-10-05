@@ -592,6 +592,14 @@ export default function Arbetsrapport() {
   const [redKm,    setRedKm]    = useState(0);
   const [redKmBerakning, setRedKmBerakning] = useState<number|null>(null);
   const [redKmChain, setRedKmChain] = useState<{fromLabel:string;toLabel:string;km:number;source:string}[]|null>(null);
+  // Redigera hämtar dagens rad ur DATABASEN vid öppning (öppnaRedigera). Månadscachen
+  // dagData laddas asynkront per kalendermånad och får aldrig avgöra "Ingen data".
+  // redLaddar = hämtningen pågår; redLasFel = den misslyckades och cachen saknade dagen
+  // (då säger vyn det ärligt i stället för "Ingen data / Lägg till manuellt").
+  // redLasId skiljer den senaste öppningen från äldre svar som landar sent.
+  const [redLaddar, setRedLaddar] = useState(false);
+  const [redLasFel, setRedLasFel] = useState(false);
+  const redLasId = useRef(0);
   // Km-källa för den beräknade siffran: 'beraknad' = riktig vägberäkning
   // (route_cache/ORS), 'fallback' = haversine × 1,4 (fågelvägen, OSÄKER),
   // null = ej beräknat. 'saknarKoord' = något objekt saknar koordinat, då
@@ -1005,6 +1013,7 @@ export default function Arbetsrapport() {
   // constraint), men infrastrukturen stödjer flera.
   useEffect(() => {
     if (steg !== "redigera" || !redDag) return;
+    if (redLaddar) return; // väntar på dagens rad (öppnaRedigera) — km-hämtningen startar när redDag är satt
     if (!medarbetare?.id || !redDag.datum) return;
     setRedKmChain(null);
     setRedKmBerakning(null);
@@ -1062,7 +1071,7 @@ export default function Arbetsrapport() {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.id]);
+  }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.id, redLaddar]);
 
   // Hämta push-enhetsnamn för aktuell enhet när Inställningar öppnas.
   useEffect(() => {
@@ -1337,6 +1346,46 @@ export default function Arbetsrapport() {
     return () => clearInterval(interval);
   }, [medarbetare?.id, maskinNamnMap, objektLista]);
 
+  // EN byggare för dagens post (rad ur arbetsdag + dess arbetsdag_objekt-rader),
+  // delad av månadsladdaren nedan och av öppnaRedigera — så cachen och den
+  // auktoritativa läsningen aldrig kan skilja sig åt i form.
+  const byggDagPost = (r: any, objektRader: any[]): any => ({
+    id: r.id,
+    status: r.bekraftad ? 'ok' : 'saknas',
+    arbMin: r.arbetad_min || 0,
+    km: r.km_totalt || 0,
+    km_morgon: r.km_morgon || 0,
+    km_kvall: r.km_kvall || 0,
+    km_totalt: r.km_totalt || 0,
+    trak: !!r.traktamente,
+    traktamente: !!r.traktamente,
+    dagtyp: r.dagtyp,
+    bekraftad: !!r.bekraftad,
+    bekraftad_tid: r.bekraftad_tid,
+    start_tid: r.start_tid || null,
+    slut_tid: r.slut_tid || null,
+    rast_min: r.rast_min ?? 0,
+    start: r.start_tid ? r.start_tid.slice(0,5) : '06:00',
+    slut: r.slut_tid ? r.slut_tid.slice(0,5) : '',
+    rast: r.rast_min ?? 0,
+    maskin_id: r.maskin_id,
+    maskin_namn: maskinNamnMap[r.maskin_id] || r.maskin_id || null,
+    // Primärt objekt (bakåtkompat)
+    objekt_id: r.objekt_id || null,
+    objekt_namn: objektLista.find(o => o.id === r.objekt_id)?.namn || r.objekt_id || null,
+    objekt_ägare: objektLista.find(o => o.id === r.objekt_id)?.ägare || null,
+    // Hela listan av objekt för dagen (kan vara flera vid objekt-byte)
+    objekt_lista: objektRader.map(o => ({
+      id: o.id,
+      objekt_id: o.objekt_id,
+      objekt_namn: o.objekt_namn || objektLista.find(x => x.id === o.objekt_id)?.namn || o.objekt_id,
+      start_tid: o.start_tid,
+      slut_tid: o.slut_tid,
+      arbetad_min: o.arbetad_min,
+      ordning: o.ordning,
+    })),
+  });
+
   // Hämta dagdata för kalendern när månad/år ändras. `steg` ingår också i
   // dependency-listan så att återbesök till kalender-vyn efter bekräftelse
   // triggar en ny hämtning — undviker stale data om state-update missas.
@@ -1370,44 +1419,7 @@ export default function Arbetsrapport() {
           objektPerDag[o.arbetsdag_id].push(o);
         }
         const map: Record<string, any> = {};
-        for (const r of adRes.data) {
-          map[r.datum] = {
-            id: r.id,
-            status: r.bekraftad ? 'ok' : 'saknas',
-            arbMin: r.arbetad_min || 0,
-            km: r.km_totalt || 0,
-            km_morgon: r.km_morgon || 0,
-            km_kvall: r.km_kvall || 0,
-            km_totalt: r.km_totalt || 0,
-            trak: !!r.traktamente,
-            traktamente: !!r.traktamente,
-            dagtyp: r.dagtyp,
-            bekraftad: !!r.bekraftad,
-            bekraftad_tid: r.bekraftad_tid,
-            start_tid: r.start_tid || null,
-            slut_tid: r.slut_tid || null,
-            rast_min: r.rast_min ?? 0,
-            start: r.start_tid ? r.start_tid.slice(0,5) : '06:00',
-            slut: r.slut_tid ? r.slut_tid.slice(0,5) : '',
-            rast: r.rast_min ?? 0,
-            maskin_id: r.maskin_id,
-            maskin_namn: maskinNamnMap[r.maskin_id] || r.maskin_id || null,
-            // Primärt objekt (bakåtkompat)
-            objekt_id: r.objekt_id || null,
-            objekt_namn: objektLista.find(o => o.id === r.objekt_id)?.namn || r.objekt_id || null,
-            objekt_ägare: objektLista.find(o => o.id === r.objekt_id)?.ägare || null,
-            // Hela listan av objekt för dagen (kan vara flera vid objekt-byte)
-            objekt_lista: (objektPerDag[r.id] || []).map(o => ({
-              id: o.id,
-              objekt_id: o.objekt_id,
-              objekt_namn: o.objekt_namn || objektLista.find(x => x.id === o.objekt_id)?.namn || o.objekt_id,
-              start_tid: o.start_tid,
-              slut_tid: o.slut_tid,
-              arbetad_min: o.arbetad_min,
-              ordning: o.ordning,
-            })),
-          };
-        }
+        for (const r of adRes.data) map[r.datum] = byggDagPost(r, objektPerDag[r.id] || []);
         setDagData(map);
       }
     });
@@ -1675,22 +1687,57 @@ export default function Arbetsrapport() {
   };
   const SKALRAD_FEL = 'Kunde inte koppla perioden till dagen — inget sparat. Försök igen.';
 
-  const öppnaRedigera = (datum: string) => {
-    const d2 = dagData[datum];
-    setRedDag({ ...(d2 || {}), datum });
-    setRedStart(d2?.start_tid || "00:00");
-    setRedSlut(d2?.slut_tid || "00:00");
-    setRedRast(d2?.rast_min || 0);
-    setRedKm(d2?.km_totalt || 0);
+  // AUKTORITATIV läsning: databasen avgör om dagen är tom, aldrig månadscachen.
+  // dagData laddas asynkront för EN kalendermånad åt gången; byter man månad ritas
+  // den nya direkt men cachen fylls först när hämtningen landat. Ett tryck däremellan
+  // läste tom cache → "Ingen data för den här dagen" över en komplett rad (Martin
+  // 31 juli, PR #316 — gjord om 2026-10-05). Vyn öppnas därför i laddläge, dagens
+  // rad hämtas, och tomt visas först när databasen sagt att raden saknas.
+  // Läsfel är inte "tom": cachen om den har dagen, annars ett ärligt fel.
+  const öppnaRedigera = async (datum: string) => {
+    const lasId = ++redLasId.current;
+    setRedDag({ datum } as any); // useState(null) — samma "any" som resten av Redigera
+    setRedStart("00:00"); setRedSlut("00:00"); setRedRast(0); setRedKm(0);
+    setRedObjektId(null); setRedMaskinId(null);
     setRedKmBerakning(null);
     setRedAnl("");
-    setRedObjektId(d2?.objekt_id || null);
-    setRedMaskinId(d2?.maskin_id || null);
     setSparadKvittens(false);
     setSegÖppen(false); setSegForm(null); setSegFel(null);
+    setRedLasFel(false);
+    setRedLaddar(true);
     laddaDagSegment(datum);
     setRedVy("översikt");
     setSteg("redigera");
+
+    let rad: any = null;
+    let lasFel = false;
+    try {
+      const { data, error } = await supabase.from("arbetsdag").select("*")
+        .eq("medarbetare_id", medarbetare.id).eq("datum", datum).maybeSingle();
+      if (error) { lasFel = true; console.error("[redigera] kunde inte läsa dagen:", error); }
+      else if (data) {
+        // Objektlistan är sekundär: saknas den visas dagen ändå (en post utan flerobjekt-delen).
+        const { data: oj } = await supabase.from("arbetsdag_objekt")
+          .select("id, arbetsdag_id, objekt_id, objekt_namn, start_tid, slut_tid, arbetad_min, ordning")
+          .eq("arbetsdag_id", data.id).order("ordning", { ascending: true });
+        rad = byggDagPost(data, oj || []);
+        setDagData(d => ({ ...d, [datum]: rad })); // håll cachen färsk
+      }
+    } catch (e) { lasFel = true; console.error("[redigera] kunde inte läsa dagen:", e); }
+
+    if (lasId !== redLasId.current) return; // en nyare dag har öppnats under tiden
+    if (lasFel) {
+      rad = dagData[datum] || null;
+      if (!rad) { setRedLasFel(true); setRedLaddar(false); return; }
+    }
+    setRedDag({ ...(rad || {}), datum });
+    setRedStart(rad?.start_tid || "00:00");
+    setRedSlut(rad?.slut_tid || "00:00");
+    setRedRast(rad?.rast_min || 0);
+    setRedKm(rad?.km_totalt || 0);
+    setRedObjektId(rad?.objekt_id || null);
+    setRedMaskinId(rad?.maskin_id || null);
+    setRedLaddar(false);
   };
 
   // Bekräfta arbetsdagen — extraherad så samma kod kan köras både direkt
@@ -5366,6 +5413,32 @@ export default function Arbetsrapport() {
 
   /* ─── REDIGERA HISTORIK ─── */
   if(steg==="redigera"&&redDag){
+    // Dagens rad hämtas ur databasen (öppnaRedigera). Tills den svarat visas
+    // "Laddar…" — aldrig en tom editor som kan misstas för en tom dag. Misslyckas
+    // läsningen och cachen saknar dagen: säg det, och ge vägen ut.
+    if (redLaddar || redLasFel) {
+      const rdLas: any = redDag; // useState(null)
+      const p = String(rdLas.datum || "").split("-");
+      const rubrik = p.length === 3 ? `${parseInt(p[2])} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][parseInt(p[1]) - 1]}` : "Dag";
+      return (
+        <div style={shell}><style>{css}</style>{timerBanner}
+          <div style={topBar}>
+            <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.l }}>
+              <BackBtn onClick={()=>setSteg("kalender")}/>
+              <h1 style={{ margin:0,...TYP.titel }}>{rubrik}</h1>
+            </div>
+          </div>
+          <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:AVSTAND.l, textAlign:"center" }}>
+            {redLasFel ? (<>
+              <p style={{ margin:0, ...TYP.text, color:FARG.text }}>Kunde inte läsa dagen. Kontrollera uppkopplingen och försök igen.</p>
+              <button onClick={()=>öppnaRedigera(rdLas.datum)} style={KNAPP.sekundar}>Försök igen</button>
+            </>) : (
+              <p style={{ margin:0, ...TYP.meta, color:FARG.text2 }}>Laddar…</p>
+            )}
+          </div>
+        </div>
+      );
+    }
     const redArbMin = Math.max(0, tim(redStart,redSlut)-redRast);
     // Jämför mot snake_case-fälten i redDag — tidigare använde vi camelCase
     // (redDag.start etc.) som alltid var undefined, vilket gjorde harÄndrat=true
