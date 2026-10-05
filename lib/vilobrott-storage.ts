@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
-import { analyseraVilobrott, medPerioddagSpann, type Arbetsdag, type VilaTrosklar } from "@/lib/vilobrott";
+import { analyseraVilobrott, arTroligtVilobrott, medPerioddagSpann, type Arbetsdag, type VilaTrosklar } from "@/lib/vilobrott";
+import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { franGolv } from "@/lib/skarpStart";
 import { ymdLokal } from "@/lib/datumLokal";
 
@@ -44,11 +45,11 @@ function isoDate(d: Date): string {
 }
 
 /**
- * Hämtar vilobrott för en medarbetare över en explicit period.
- * Används av Min tid-fliken, Vila-fliken med periodfilter, och som
- * underliggande för hamtaAktuellaVilobrott().
+ * ALLA rader i perioden, även sådana som inte är troliga (0 h vila). Används av re-analysen,
+ * som måste SE gamla artefakter för att kunna radera dem. Visning och frågor går via
+ * hamtaVilobrottForPeriod nedan.
  */
-export async function hamtaVilobrottForPeriod(
+export async function hamtaVilobrottRaa(
   medarbetareId: string,
   fromDatum: string,
   toDatum: string,
@@ -62,6 +63,21 @@ export async function hamtaVilobrottForPeriod(
     .order("datum", { ascending: false });
   if (error) throw new Error(`Kunde inte hämta vilobrott: ${error.message}`);
   return (data || []) as VilobrottRad[];
+}
+
+/**
+ * Hämtar vilobrott för en medarbetare över en explicit period, utan rader som inte är
+ * troliga (arTroligtVilobrott: ett brott med 0 h vila är gammal data, inte ett brott).
+ * Används av Min tid-fliken, Vila-fliken med periodfilter, Dag-vyns "vad som väntar",
+ * Bekräfta-flödets för-check och som underliggande för hamtaAktuellaVilobrott().
+ */
+export async function hamtaVilobrottForPeriod(
+  medarbetareId: string,
+  fromDatum: string,
+  toDatum: string,
+): Promise<VilobrottRad[]> {
+  const rader = await hamtaVilobrottRaa(medarbetareId, fromDatum, toDatum);
+  return rader.filter(arTroligtVilobrott);
 }
 
 /**
@@ -120,6 +136,10 @@ export async function analyseraOchSpara(
   trosklar: VilaTrosklar,
   fonsterFromDatum: string,
   fonsterToDatum: string,
+  /** baraStada: ENDAST radera obesvarade brott som underlaget inte längre stöder.
+   *  Inga inserts, inga uppdateringar — används vid öppning av appen, där nya brott
+   *  inte ska dyka upp av sig självt. */
+  opts: { baraStada?: boolean } = {},
 ): Promise<void> {
   // SKRIVGOLV (lib/skarpStart): analysera aldrig före skarp start. Ett läsgolv
   // hade räckt för visningen, men den här funktionen INSERT/UPDATE/DELETE:ar —
@@ -149,7 +169,8 @@ export async function analyseraOchSpara(
     (b) => b.datum >= fonsterFromDatum && b.datum <= fonsterToDatum,
   );
 
-  const befintliga = await hamtaVilobrottForPeriod(
+  // RÅA rader: re-analysen måste se gamla artefakter (0 h) för att kunna radera dem.
+  const befintliga = await hamtaVilobrottRaa(
     medarbetareId,
     fonsterFromDatum,
     fonsterToDatum,
@@ -160,7 +181,7 @@ export async function analyseraOchSpara(
   const nyaMap = new Map(nyaIFonster.map((b) => [nyckel(b.typ, b.datum), b]));
 
   // 1) Insertera nya, uppdatera siffror på befintliga (utan att röra orsak)
-  for (const ny of nyaIFonster) {
+  for (const ny of opts.baraStada ? [] : nyaIFonster) {
     const k = nyckel(ny.typ, ny.datum);
     const fanns = befintligaMap.get(k);
     if (!fanns) {
@@ -216,4 +237,73 @@ export async function analyseraOchSpara(
     const { error } = await supabase.from("vilobrott").delete().eq("id", b.id);
     if (error) throw new Error(`Delete vilobrott (${b.typ} ${b.datum}): ${error.message}`);
   }
+}
+
+/**
+ * Trösklarna ur gs_avtal (samma urval som Arbetsrapport: giltigt just nu, senaste först).
+ * null när avtalet saknas eller är ogiltigt — då går det inte att analysera, och anroparen
+ * ska INTE tolka det som "inga brott" (inget raderas).
+ */
+export async function hamtaVilaTrosklar(): Promise<VilaTrosklar | null> {
+  const idag = isoDate(new Date());
+  const { data, error } = await supabase
+    .from("gs_avtal")
+    .select("*")
+    .lte("giltigt_fran", idag)
+    .or(`giltigt_till.is.null,giltigt_till.gte.${idag}`)
+    .order("giltigt_fran", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  try { return vilaTrosklarFromAvtal(data as any); } catch { return null; }
+}
+
+/**
+ * Re-analys mot NUVARANDE data för [fran, till]: hämtar arbetsdag-raderna FÄRSKT ur databasen
+ * (inte ur ett tillstånd i klienten som kan vara gammalt) och synkar vilobrott-tabellen.
+ *
+ * Varför: vilobrott räknades bara om i Arbetsrapport efter Avsluta/Starta/Ändra tider och vid
+ * Bekräfta. Raderades en arbetsdag eller en period (eller ändrades den i Planera eller
+ * direkt i databasen) stod brottet kvar och föraren fick frågan "Varför bröts vilan?" på
+ * ett brott som inte fanns (Martin 2026-10-05, testdata runt 29 september). Nu körs den här
+ * efter varje ändring av pass och perioder, och i städläge vid öppning av appen.
+ *
+ * Läsfel kastas (ett tomt underlag p.g.a. ett fel får aldrig radera brott). Saknas trösklarna
+ * görs ingenting. Besvarade brott rörs aldrig (revisionsspår).
+ */
+export async function omanalyseraVilobrott(
+  medarbetareId: string,
+  fran: string,
+  till: string,
+  opts: { baraStada?: boolean; trosklar?: VilaTrosklar | null } = {},
+): Promise<void> {
+  const trosklar = opts.trosklar !== undefined ? opts.trosklar : await hamtaVilaTrosklar();
+  if (!trosklar) return;
+  // veckovila-fönstret behöver dagarna 7 före första analysdatum (+ marginal)
+  const underlagFran = new Date(franGolv(fran) + "T00:00:00");
+  underlagFran.setDate(underlagFran.getDate() - 14);
+  const { data, error } = await supabase
+    .from("arbetsdag")
+    .select("datum, start_tid, slut_tid")
+    .eq("medarbetare_id", medarbetareId)
+    .gte("datum", ymdLokal(underlagFran))
+    .lte("datum", till)
+    .order("datum", { ascending: true });
+  if (error) throw new Error(`Kunde inte läsa arbetsdagarna för vilo-analysen: ${error.message}`);
+  await analyseraOchSpara(medarbetareId, (data || []) as Arbetsdag[], trosklar, fran, till, { baraStada: opts.baraStada });
+}
+
+/** Efter en ändring av pass eller perioder på `datum`: full omräkning av fönstret datum±3. */
+export async function raknaOmVilobrottEfterAndring(medarbetareId: string, datum: string): Promise<void> {
+  const d = new Date(datum + "T00:00:00");
+  const fran = new Date(d); fran.setDate(d.getDate() - 3);
+  const till = new Date(d); till.setDate(d.getDate() + 3);
+  await omanalyseraVilobrott(medarbetareId, ymdLokal(fran), ymdLokal(till));
+}
+
+/** Vid öppning av appen: radera obesvarade brott som nuvarande data inte stöder. Inga nya brott. */
+export async function stadaVilobrott(medarbetareId: string, dagar = 30): Promise<void> {
+  const till = new Date();
+  const fran = new Date(); fran.setDate(fran.getDate() - dagar);
+  await omanalyseraVilobrott(medarbetareId, ymdLokal(fran), ymdLokal(till), { baraStada: true });
 }

@@ -90,6 +90,19 @@ export type Vilobrott = {
   beskrivning: string;
 };
 
+/**
+ * Rimlighetskontroll för visning (Martin 2026-10-05): ett vilobrott med 0 h vila är
+ * aldrig ett riktigt brott. Två pass med ett gap har alltid mer än 0 h mellan sig; 0 h
+ * kommer av för lite underlag (raderade dagar) eller av äldre analyskod. Det är ett
+ * tecken på gammal data, och föraren ska aldrig få frågan "Varför bröts vilan?" på det.
+ * Okänd vila (null) släpps inte igenom heller. Gäller bara VISNING och frågor;
+ * raderingen av stale rader sköter re-analysen (lib/vilobrott-storage).
+ */
+export function arTroligtVilobrott(b: { typ: string; vila_h: number | string | null | undefined }): boolean {
+  const h = Number(b.vila_h);
+  return Number.isFinite(h) && h > 0;
+}
+
 function tidTillTimmar(t: string): { h: number; m: number } | null {
   const m = t.match(/^(\d{2}):(\d{2})/);
   if (!m) return null;
@@ -302,7 +315,13 @@ export function analyseraVilobrott(
   };
 
   for (const r of dagliga) {
-    if (r.max_h < trosklar.veckovila_krav_h) {
+    // 0 h betyder att fönstret inte har något mätbart gap alls (ett enda pass i
+    // underlaget, eller bara en kant av fönstret) — inte att föraren fick 0 h vila.
+    // Vila före första och efter sista passet räknas inte (se maxGap), så utan två pass
+    // finns ingenting att bedöma. Förr blev det "Mellan 29 sep och 29 sep hade du som
+    // mest 0 h" (Martin 2026-10-05, efter att testdata raderats och ETT pass blev kvar).
+    // Okänd vila är inget brott, och bryter därför en pågående stretch: den slås inte ihop.
+    if (r.max_h > 0 && r.max_h < trosklar.veckovila_krav_h) {
       if (!runStart) { runStart = r; runMin = r.max_h; runEnd = r.datum; }
       else { runMin = Math.min(runMin, r.max_h); runEnd = r.datum; }
     } else if (runStart) {
