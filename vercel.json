@@ -1,4 +1,5 @@
 {
+  "regions": ["dub1"],
   "functions": {
     "app/api/import-trakt/route.ts": {
       "memory": 3009
