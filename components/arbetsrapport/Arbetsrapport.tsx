@@ -18,6 +18,7 @@ import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, faktureringsEtikett, type AktivitetTyp } from "@/lib/aktiviteter";
+import { delaKorning, korningDelarText } from "@/lib/arbetsdagKorning";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
@@ -633,6 +634,8 @@ export default function Arbetsrapport() {
   const [heldagsMeddelande, setHeldagsMeddelande] = useState<{text:string;icon?:string;typ:string}|null>(null);
   const [bekräftelseVisa, setBekräftelseVisa] = useState(false);
   const [visaTiderSheet, setVisaTiderSheet] = useState(false);
+  // "Något fel?" i kvällsvyn: arket med vägarna in till Tider, Körning, Mer arbete, Hela dagen.
+  const [visaFelSheet, setVisaFelSheet] = useState(false);
   const [visaKmSheet, setVisaKmSheet] = useState(false);
   const [extraTidData, setExtraTidData] = useState<any[]>([]);
   const [årsData, setÅrsData] = useState<any[]>([]);
@@ -2553,6 +2556,11 @@ export default function Arbetsrapport() {
     // skalrad som bekräftats efter att perioderna tagits bort). Förr blev det
     // en tom sida: bara hälsningen. Ärligt tomt är ett kort som säger det.
     const visaSammanfattning = harMaskinPass || extraFärdiga.length > 0 || redanBekräftad;
+    // KVÄLLSLÄGET: passet/perioderna är klara och dagen väntar på underskrift. Då
+    // visas EN sammanfattning och EN knapp, "Stämmer"; allt som ändrar dagen ligger
+    // bakom "Något fel?" (utredning 2026-10-05: tre kort, sju tryckbara ytor och
+    // dubbletter mötte föraren för att svara på en fråga).
+    const kvällsLäge = !redanBekräftad && !dagPågår && (harMaskinPass || perioddag);
     const tillstandNyckel = [
       visaTillstand ? (isWorking ? 'pagar' : 'vantar') : '-',
       visaSammanfattning ? (redanBekräftad ? 'bekraftad' : dagPågår ? 'pagar-kort' : 'avslutad') : '-',
@@ -2703,8 +2711,14 @@ export default function Arbetsrapport() {
       );
     })();
 
+    // Vägarna in i ändra-ytorna. Definierade här (inte inne i kortet) så att både
+    // kortet och "Något fel?"-arket når dem.
+    const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
+    const öppnaKm    = () => { setTMK(kmMorgonNu); setTKK(kmKvallNu); setVisaKmSheet(true); };
+
     /* DAGSSAMMANFATTNINGEN — kortet med det stora talet, villkorade rader och
-       en knapp. Strukturen är oförändrad; värdena kommer ur tokens. */
+       en knapp. Kvällsläget (Stämmer / Något fel?) visar bara det som går att
+       kontrollera; allt som ändrar dagen ligger bakom "Något fel?". */
     const sammanfattningKort = (() => {
       if (!visaSammanfattning) return null;
       const bekräftadTidKort = idagArb?.bekraftad_tid
@@ -2723,23 +2737,21 @@ export default function Arbetsrapport() {
       const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
       const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
       const harKmBlock = harKm && harMaskinPass;
-      const harObjBlock = !!(dagObjNamn || maskinNamnLång) && harMaskinPass;
+      const harObjBlock = harMaskinPass;
       const linjeUnder = (aktiv: boolean): CSSProperties => aktiv
         ? { paddingBottom:AVSTAND.s, borderBottom:`1px solid ${FARG.linje}`, marginBottom:AVSTAND.s }
         : {};
       const sammanRad = (label: string, value: string, onClick?: () => void) => kortRad(label, value, onClick, true);
-      const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
-      const öppnaKm    = () => { setTMK(kmMorgonNu); setTKK(kmKvallNu); setVisaKmSheet(true); };
       const talBlock = (under: ReactNode, fotnot: ReactNode, onClick?: () => void, linje?: boolean) => (
         <div onClick={onClick} style={{ textAlign:"center", padding:`${AVSTAND.l}px 0`, cursor:onClick?"pointer":"default", ...linjeUnder(!!linje) }}>
           <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>Maskinpass</p>
           <p style={{ margin:0, ...TYP.tal, color:FARG.text }}>{fmt(Math.round(arbMinVisad))}</p>
           <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>{under}</p>
-          <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text3 }}>{fotnot}</p>
+          {fotnot && <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text3 }}>{fotnot}</p>}
           {(()=>{
             const exMinIdag = extraTidData.filter(e => e.datum === idagKey).reduce((a,e) => a + (e.minuter||0), 0);
             return exMinIdag > 0 ? (
-              <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>+ {fmt(exMinIdag)} extra arbete · totalt {fmt(arbMin + exMinIdag)} idag</p>
+              <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>+ {fmt(exMinIdag)} · totalt {fmt(arbMin + exMinIdag)}</p>
             ) : null;
           })()}
         </div>
@@ -2749,7 +2761,7 @@ export default function Arbetsrapport() {
         return (
           <section>
             <div style={KORT}>
-              <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>
+              {typPrefix && <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>}
               <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
                 <span className="puls" style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:FARG.gron, display:"inline-block" }} />
                 <span style={{ ...TYP.meta, ...TNUM, color:FARG.gron }}>Arbetsdagen startade {start}</span>
@@ -2770,7 +2782,7 @@ export default function Arbetsrapport() {
       return (
         <section>
           <div style={KORT}>
-            <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>
+            {typPrefix && <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>}
             {redanBekräftad && (
               <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.gron }}>check_circle</span>
@@ -2817,15 +2829,18 @@ export default function Arbetsrapport() {
             {/* Hjälte: Maskinpass — hela blocket öppnar Ändra tider. Siffran är
                 passets tid (start→slut−rast). Extra tid är egna poster; dagens
                 TOTAL visas som dämpad rad när extra finns. */}
+            {/* Inte tryckbar: att ändra tider hör till "Något fel?" (och Ändra rapport
+                på en bekräftad dag). Lång rast står i orange i ORD — det är den som
+                frågan vid Stämmer gäller; resten är tyst grått. Ingen fotnot: förklaringen
+                av Meal break kommer med rastfrågan när den behövs. */}
             {harMaskinPass && talBlock(
-              <>{start} → {slut} · rast {rast} min <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, verticalAlign:"middle" }}>chevron_right</span></>,
-              'Rast = tid markerad som Meal break i maskinen',
-              öppnaTider,
+              <>{start} → {slut} · <span style={rast > RAST_FRAGA_MIN ? { color:FARG.orange } : undefined}>rast {rast} min</span></>,
+              null,
+              undefined,
               harObjBlock || harKmBlock,
             )}
             {harObjBlock&&(
               <div style={linjeUnder(harKmBlock)}>
-                {maskinNamnLång && sammanRad("Maskin", maskinNamnLång)}
                 {(()=>{
                   // Flera objekt per dag (Hössjömåla + Flytt etc.) — en rad var.
                   const objLista = idagArb?.objekt_lista || [];
@@ -2845,7 +2860,10 @@ export default function Arbetsrapport() {
                       );
                     });
                   }
-                  return dagObjNamn ? sammanRad("Objekt", dagObjNamn) : null;
+                  // Saknat objekt är det som avviker: orange i ord, och raden går att trycka på.
+                  return dagObjNamn
+                    ? sammanRad("Objekt", dagObjNamn)
+                    : kortRad("Objekt", <span style={{ color:FARG.orange }}>Saknas</span>, ()=>setVisaObjektVäljare(true), true);
                 })()}
               </div>
             )}
@@ -2885,7 +2903,7 @@ export default function Arbetsrapport() {
             {/* Körning — maskinpass eller perioddag. Talet räknar upp när km fylls i. */}
             {(harMaskinPass || perioddag) && (
               <div style={linjeUnder(true)}>
-                {sammanRad("Körning", `${Math.round(totKmVisad)} km`, öppnaKm)}
+                {sammanRad("Körning", `${Math.round(totKmVisad)} km`)}
                 {milPåbörjade > 0 && sammanRad("Reseersättning", `${milPåbörjade} påbörjade mil`)}
               </div>
             )}
@@ -2999,12 +3017,13 @@ export default function Arbetsrapport() {
               </div>
             );
           })()}
-          {/* Skärmens ENDA primära: Bekräfta dagen. Bekräftad dag → sekundär "Ändra rapport". */}
+          {/* Skärmens ENDA primära: Stämmer (= bekräfta dagen). Allt som ändrar dagen
+              ligger bakom "Något fel?". Bekräftad dag → sekundär "Ändra rapport". */}
           {(harMaskinPass || perioddag) && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
             <button onClick={()=>öppnaRedigera(idagKey)} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.l }}>
               Ändra rapport
             </button>
-          ) : (
+          ) : (<>
             <button
               onClick={async ()=>{
                 const nuT = nuKlock();
@@ -3025,9 +3044,12 @@ export default function Arbetsrapport() {
                 await bekraftaMedForcheck(idagKey, bekraftaDagen, "morgon", { minuter: rast, passMin: passMinuter(start, slut, rast), andra: () => setVisaTiderSheet(true) });
               }}
               style={{ ...KNAPP.primar, marginTop:AVSTAND.l }}>
-              {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
+              {ändradSedan ? "Stämmer igen" : "Stämmer"}
             </button>
-          ))}
+            <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.xs }}>
+              <button onClick={()=>setVisaFelSheet(true)} style={KNAPP.tertiar}>Något fel?</button>
+            </div>
+          </>))}
           {/* Guard-felmeddelande — visas om bekraftaDagen blockerade pga tomma tider */}
           {bekraftaFel && (
             <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod, textAlign:"center" }}>{bekraftaFel}</p>
@@ -3182,7 +3204,8 @@ export default function Arbetsrapport() {
               <button onClick={()=>oppnaPeriodRedigera(aktivTimer)} style={KNAPP.tertiar}>Ändra starttid eller ta bort</button>
             </div>
           </section>
-        ) : (
+        ) : kvällsLäge ? null : (
+          // På kvällen finns ingen Extra arbete-ruta: mer tid läggs till via Något fel? → Mer arbete.
           <div style={{ marginTop:AVSTAND.m }}>
             {kortKnapp(arbeteUtanMaskin ? 'Arbete' : 'Extra arbete', arbeteUtanMaskin ? 'Planering, restid, manuellt' : 'Reservdelar, service, brandkontroll', async ()=>{
               const startTid = nuKlock();
@@ -3227,6 +3250,10 @@ export default function Arbetsrapport() {
           const delDag = !!(isWorking || idagArb?.start_tid); // passet har startat → resten av dagen
           if (franvaroDagar[idagKey] || deldagar[idagKey]) return null;
           if (!delDag && idagArb?.bekraftad) return null;
+          // Passet/perioderna är klara: "Åker hem — resten av dagen" betyder inget på
+          // kvällen. Deldag och frånvaro nås via Något fel? → Hela dagen (Redigera,
+          // som har klockslag), och på en bekräftad dag via Ändra rapport.
+          if ((harMaskinPass || perioddag) && !dagPågår) return null;
           return (
           <section style={{ marginTop:AVSTAND.m }}>
             {kortKnapp(delDag ? 'Åker hem' : 'Frånvaro', delDag ? `${FRANVARO_UNDERRAD} — resten av dagen` : FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
@@ -3289,6 +3316,43 @@ export default function Arbetsrapport() {
           rastfrågan saknades här (satte state utan att något syntes). */}
       {rastFragaUI}
       {byteFragaUI}
+
+      {/* Sheet: Något fel? — vägarna in till det som ändrar dagen. Arket stängs INNAN
+          nästa yta öppnas (inga ark ovanpå ark). Rader utan innehåll visas inte:
+          Tider kräver ett pass. */}
+      {visaFelSheet && (()=>{
+        const stäng = () => setVisaFelSheet(false);
+        const felRad = (label: string, under: string, onClick: () => void, sista?: boolean) => (
+          <button key={label} onClick={()=>{ stäng(); onClick(); }}
+            style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, height:"auto", textAlign:"left", borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
+            <span style={{ minWidth:0 }}>
+              <span style={{ display:"block", ...TYP.listtitel, color:FARG.text }}>{label}</span>
+              <span style={{ display:"block", ...TYP.meta, ...TNUM, color:FARG.text2 }}>{under}</span>
+            </span>
+            <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, flexShrink:0 }}>chevron_right</span>
+          </button>
+        );
+        const rader: { label: string; under: string; gör: () => void }[] = [];
+        if (harMaskinPass) rader.push({ label:"Tider", under:`${start}–${slut} · rast ${rast} min`, gör: öppnaTider });
+        rader.push({ label:"Körning", under:`${Math.round(totKm)} km`, gör: öppnaKm });
+        rader.push({ label:"Mer arbete", under:"Lägg till tid", gör: ()=>oppnaPeriodNy(idagKey) });
+        rader.push({ label:"Hela dagen", under:"Öppna i Redigera", gör: ()=>öppnaRedigera(idagKey) });
+        return (
+          <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+            <div onClick={e=>e.stopPropagation()} className="sheet-upp"
+              style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
+              <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+                <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
+              </div>
+              <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.rubrik, color:FARG.text }}>Vad vill du ändra?</p>
+              {rader.map((r, i) => felRad(r.label, r.under, r.gör, i === rader.length - 1))}
+              <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.m }}>
+                <button onClick={stäng} style={KNAPP.lank}>Avbryt</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Sheet: Ändra tider */}
       {visaTiderSheet && (()=>{
@@ -5598,11 +5662,13 @@ export default function Arbetsrapport() {
               : redKmKälla === 'fallback' ? { text: "Osäker uppskattning (fågelvägen × 1,4) — kontrollera.", farg: FARG.orange }
               : redKmKälla === 'beraknad' ? { text: `Beräknat vägavstånd${redKmKoordKälla === 'maskin' ? ' från maskinens position' : redKmKoordKälla === 'objekt' ? ' från objektets koordinat' : redKmKoordKälla === 'larm' ? ' från objektets larmkoordinat' : ''}`, farg: FARG.text2 }
               : null;
-            const delar = segs.length >= 2
-              ? segs.map((s: any, i: number) => `${i === 0 ? 'Morgon' : i === segs.length-1 ? 'Kväll' : 'Flytt'} ${s.km}`).join(' · ')
-              : null;
+            // Delarna under talet är bara det som ingår i det (Morgon + Kväll). Flytt
+            // mellan objekt ingår inte i ersättningen och står som en egen rad UTANFÖR
+            // summan (lib/arbetsdagKorning) — summan är summan av det som visas.
+            const kdelar = delaKorning(segs);
+            const delar = kdelar ? korningDelarText(kdelar) : null;
             return (
-              <div style={{ borderBottom:(redDag as any).trak?`1px solid ${FARG.linje}`:"none", paddingBottom:(redDag as any).trak?AVSTAND.s:0 }}>
+              <div style={{ borderBottom:(redDag as any).trak?`1px solid ${FARG.linje}`:"none", paddingBottom:((redDag as any).trak || (kdelar && kdelar.flytt > 0))?AVSTAND.s:0 }}>
                 <div onClick={öppnaRedKmSheet} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", minHeight:TRAFFYTA.min, padding:`${AVSTAND.m}px 0 ${AVSTAND.xs}px`, cursor:"pointer" }}>
                   <span style={{ ...TYP.text, color:FARG.text }}>Körning</span>
                   <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
@@ -5621,6 +5687,13 @@ export default function Arbetsrapport() {
                     {[delar, kalla?.text, över > 0 ? `${mil} påbörjade mil (${över} km över ${frikm})` : null].filter(Boolean).join(' · ')}
                   </p>
                 )}
+                {kdelar && kdelar.flytt > 0 && (<>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0 0` }}>
+                    <span style={{ ...TYP.text, color:FARG.text2 }}>Flytt</span>
+                    <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text2 }}>{kdelar.flytt} km</span>
+                  </div>
+                  <p style={{ margin:0, ...TYP.meta, color:FARG.text2 }}>Ingår inte i Körning</p>
+                </>)}
               </div>
             );
           })();
