@@ -252,6 +252,20 @@ Maskindatorns GPS kommer som NMEA över en COM-port (Web Serial). **Två skydd s
 
 ---
 
+## Körvyns meny och snabbtryck — `components/planering/Korvy*.tsx`, reglerna i `lib/` (förarnas önskemål 2026-10-05)
+
+ALLT här gäller BARA körvyn (`korvyActive`). Planeringsvyn har kvar sin gamla objektpill, plusmeny och Miljöhänsyn-räknare, oförändrade — `lib/korvyMeny.test.ts` läser `page.tsx` och larmar om kopplingen bryts eller läcker in i planeringen.
+
+- **Objektpillen** "namn | Högstubbar n/krav | Evighetsträd n/krav": tre separata tryckytor à 56 px. Namnet → objektinfon. Räknarna sätter en markering på MASKINENS position (aldrig en saknad/gammal: `kanPlaceraPaPosition`), kvitto "Högstubbe satt — Ångra" i 5 s; Ångra tar bort den ur listan OCH databasen (`deleteMarkerFromDb` väntar in en pågående spar, annars kan raden återuppstå). Markeringar räknas per OBJEKT oavsett vem som satte dem; evighetsträd = evighetsträd + naturhörna (som planeringens räknare).
+- **Krav** (`lib/miljokrav.ts`): högstubbar 3/ha, evighetsträd 10/ha på `objekt.areal`, avrundat uppåt, BARA certifierade objekt. **Certifierat = `objekt.cert` nämner FSC eller PEFC.** Kolumnen är fri text med sex värden i prod: "FSC PEFC", "FSC", "PEFC" (certifierade) och "Ej certifierad", "None", "Not known", null (inte). Ej certifierat → bara antalet (inget krav, ingen "efter", ingen bock). Kodbevis: 3,64 ha → 11 och 37 (Östra-Höka har dock `cert="None"` i prod, så där visas bara antal).
+- **"Efter"** = färre satta än `floor(avverkad andel × krav)` (dämpad orange siffra + "efter"); uppfyllt = grön siffra + bock. Andelen okänd (inget skördarspår loggat) → dömer aldrig.
+- **Avverkat** (`lib/avverkadAreal.ts`, samma tal i pillen och i objektinfons "Avverkat X av Y ha"): skördarens hyttspår (`hyttspar` roll='skordare', alla dagar + egna live-punkter när maskinen ÄR skördaren), 10 m buffert, union, klippt mot traktgränsen (`traktgransRingar`), rasterberäkning med 2 m ruta. Utan skördarspår står "inget skördarspår loggat än" — aldrig "0,00".
+- **Snabbarket** (plus-knappen): "Dina genvägar" (max 4, sparas per maskin i localStorage `korvy_genvagar_v1:<maskin_id>`, standard Högstubbe/Evighetsträd/Mät sträcka/Mät yta; håll fingret på en genväg → Ta bort; håll fingret på en rad i Lager/Inställningar → "Lägg i plus"; lager/inställnings-genvägar är växlar På/Av), därunder alla symboler (≥ 72 px, senast använda först). **"Fler val ›"** öppnar den gamla plusmenyn så inget försvinner (Avsluta körvy/objekt, Byt objekt, Skotning …); bara Inställningar har flyttat till objektinfon (längst ner: Lager, Inställningar, GPS-källa).
+- **Egna nysatta markeringar** (i den här körvy-sessionen) går att dra och ger inget proximitetskort (de ligger på 0 m och kortet skulle täcka just den symbolen).
+- **Mätning** (`lib/geoMat.ts`, EN källa för planeringens och körvyns formler): Mät sträcka (tryck punkter, meter live), Mät yta (tryck hörn, ha live), Mät genom att köra (Start/Stopp, via Fler val › Mätning). **Spara = enhetslokalt, en mätning per objekt** (`korvy_matning_v1:<objekt_id>`), inte delad med planeraren — en delad mätning kräver en ny markeringstyp + migration. Kasta = borta.
+
+---
+
 ## Planeringsvyn (app/planering/page.tsx)
 
 Huvudvy för traktplanering (~11 000 rader). Innehåller:
