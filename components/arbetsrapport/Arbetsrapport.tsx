@@ -1696,7 +1696,7 @@ export default function Arbetsrapport() {
   // Läsfel är inte "tom": cachen om den har dagen, annars ett ärligt fel.
   const öppnaRedigera = async (datum: string) => {
     const lasId = ++redLasId.current;
-    setRedDag({ datum });
+    setRedDag({ datum } as any); // useState(null) — samma "any" som resten av Redigera
     setRedStart("00:00"); setRedSlut("00:00"); setRedRast(0); setRedKm(0);
     setRedObjektId(null); setRedMaskinId(null);
     setRedKmBerakning(null);
@@ -5417,7 +5417,8 @@ export default function Arbetsrapport() {
     // "Laddar…" — aldrig en tom editor som kan misstas för en tom dag. Misslyckas
     // läsningen och cachen saknar dagen: säg det, och ge vägen ut.
     if (redLaddar || redLasFel) {
-      const p = String(redDag.datum || "").split("-");
+      const rdLas: any = redDag; // useState(null)
+      const p = String(rdLas.datum || "").split("-");
       const rubrik = p.length === 3 ? `${parseInt(p[2])} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][parseInt(p[1]) - 1]}` : "Dag";
       return (
         <div style={shell}><style>{css}</style>{timerBanner}
@@ -5430,7 +5431,7 @@ export default function Arbetsrapport() {
           <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:AVSTAND.l, textAlign:"center" }}>
             {redLasFel ? (<>
               <p style={{ margin:0, ...TYP.text, color:FARG.text }}>Kunde inte läsa dagen. Kontrollera uppkopplingen och försök igen.</p>
-              <button onClick={()=>öppnaRedigera(redDag.datum)} style={KNAPP.sekundar}>Försök igen</button>
+              <button onClick={()=>öppnaRedigera(rdLas.datum)} style={KNAPP.sekundar}>Försök igen</button>
             </>) : (
               <p style={{ margin:0, ...TYP.meta, color:FARG.text2 }}>Laddar…</p>
             )}
