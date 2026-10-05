@@ -85,7 +85,7 @@ describe("förslag: samma som i går", () => {
     const f = forslagFranIgar(igar, IDAG)!;
     expect(f.kalla).toBe("igar");
     expect(f.datum).toBe("2026-10-01");
-    expect(f.perioder).toEqual([{ start: "07:00", slut: "10:00", typ: "planering", objektId: "T1", deb: true, rast: null }]);
+    expect(f.perioder).toEqual([{ start: "07:00", slut: "10:00", typ: "planering", objektId: "T1", deb: true }]);
   });
   it("inget förslag förrän gårdagens sista slut har passerat idag", () => {
     expect(forslagFranIgar(igar, IDAG, new Date(2026, 9, 2, 9, 0))).toBeNull(); // 10:00 har inte varit
@@ -193,7 +193,7 @@ describe("förifylld starttid", () => {
   });
 });
 
-import { oppenPeriod, arGlomd, pagatt, slutVidAvsluta, traktGrupper, vanligRast, rastForPeriod, nettoMin, nuKvartNarmast, nuMinut, startLiggerIFramtiden } from "./logik";
+import { oppenPeriod, arGlomd, pagatt, slutVidAvsluta, traktGrupper, vanligSluttid, nettoMin, nuKvartNarmast, nuMinut, startLiggerIFramtiden } from "./logik";
 describe("pågående period och rast", () => {
   const oppen = (o: Partial<PeriodRad> = {}) => p({ id: "o", datum: IDAG, start_tid: "07:00:00", slut_tid: null as any, ...(o as any) });
   it("oppenPeriod hittar perioden utan slut; glömd = tidigare dag", () => {
@@ -255,33 +255,28 @@ describe("exakt minut för Starta nu och Avsluta, kvartar för längdknappar och
   });
 });
 
-describe("rast", () => {
-  const lang = (o: Partial<PeriodRad> & { datum: string }) => p({ start_tid: "07:00:00", slut_tid: "16:00:00", ...(o as any) });
-  it("nettoMin: längd minus rast, aldrig negativt", () => {
+describe("rast: ingen förifylld rast, ingen median", () => {
+  it("nettoMin (bara för gamla rader med rast_min)", () => {
     expect(nettoMin(555, 30)).toBe(525);
     expect(nettoMin(20, 30)).toBe(0);
   });
-  it("vanlig rast: inga data → 30 min", () => {
-    expect(vanligRast([], IDAG)).toBe(30);
-    expect(vanligRast([lang({ datum: plusDagar(IDAG, -1) })], IDAG)).toBe(30); // rast_min saknas (null/undefined) = inte registrerad
+});
+
+describe("vanlig sluttid (snabbvalet 'Slutade 16:00?')", () => {
+  const dag = (d: number, start: string, slut: string) => p({ datum: plusDagar(IDAG, -d), start_tid: start, slut_tid: slut });
+  it("för få dagar → null", () => {
+    expect(vanligSluttid([dag(1, "07:00:00", "16:00:00"), dag(2, "07:00:00", "16:00:00")], IDAG)).toBeNull();
+    expect(vanligSluttid([], IDAG)).toBeNull();
   });
-  it("vanlig rast: median av registrerade raster på perioder över 5 tim, senaste 30 dagarna, närmaste kvart", () => {
+  it("median av dagens sista slut (närmaste kvart) och dagens spann; flera perioder per dag räknas som en dag", () => {
     const ps = [
-      lang({ datum: plusDagar(IDAG, -1), rast_min: 45 }), lang({ datum: plusDagar(IDAG, -2), rast_min: 45 }), lang({ datum: plusDagar(IDAG, -3), rast_min: 30 }),
-      lang({ datum: plusDagar(IDAG, -4), rast_min: 0, start_tid: "07:00:00", slut_tid: "10:00:00" }),   // kort pass: räknas inte
-      lang({ datum: plusDagar(IDAG, -40), rast_min: 60 }),                                              // för gammal
-      lang({ datum: IDAG, rast_min: 90 }),                                                              // idag räknas inte
+      dag(1, "07:00:00", "12:00:00"), dag(1, "13:00:00", "16:05:00"), // 07:00–16:05
+      dag(2, "07:00:00", "15:55:00"), dag(3, "07:30:00", "16:30:00"), dag(4, "07:00:00", "16:00:00"),
+      dag(40, "05:00:00", "06:00:00"),                                  // för gammal
     ];
-    expect(vanligRast(ps, IDAG)).toBe(45);
-    expect(vanligRast([lang({ datum: plusDagar(IDAG, -1), rast_min: 30 }), lang({ datum: plusDagar(IDAG, -2), rast_min: 45 })], IDAG)).toBe(45); // 37,5 → närmaste kvart
-    expect(vanligRast([lang({ datum: plusDagar(IDAG, -1), rast_min: 0 })], IDAG)).toBe(0); // medvetet 0 är ett registrerat värde
-  });
-  it("rastForPeriod: förslaget bara över 5 tim; vald rast vinner; aldrig längre än perioden", () => {
-    expect(rastForPeriod(300, null, 30)).toBe(0);   // exakt 5 tim = inte LÄNGRE än
-    expect(rastForPeriod(301, null, 30)).toBe(30);
-    expect(rastForPeriod(240, null, 30)).toBe(0);
-    expect(rastForPeriod(555, 45, 30)).toBe(45);
-    expect(rastForPeriod(555, 0, 30)).toBe(0);
-    expect(rastForPeriod(20, 60, 30)).toBe(20);
+    const v = vanligSluttid(ps, IDAG)!;
+    expect(v.dagar).toBe(4);
+    expect(v.slut).toBe(16 * 60);        // median(16:05, 15:55, 16:30, 16:00) = 16:02,5 → närmaste kvart 16:00
+    expect(v.spann).toBe(9 * 60);        // median(9:05, 8:55, 9:00, 9:00) = 9:00
   });
 });
