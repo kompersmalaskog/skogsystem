@@ -113,7 +113,7 @@ Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26)
 ### Planering
 `planering_markeringar`, `dim_objekt`, `kartbilder`, `tma_assessments`, `hpr_filer`, `hpr_stammar`, `skotning_uttag`
 
-**Varningsinställningar (körläget) ligger INTE i databasen.** Varningsavstånd, avståndsdämpning per kategori och "Visa alla symboler" sparas PER ENHET i `localStorage` under nyckeln `varningar_v1` (`lib/varningsInstallningar.ts`) — inte per objekt, inte per användare i DB. Tabellerna `warning_settings` och `warning_acknowledgments` har aldrig funnits i prod (PostgREST 404 `PGRST205`, verifierat 2026-10-05; tidigare stod de här som om de fanns). Kvitterade varningar i körlägets varningskort ligger bara i minnet. Körvyns kvittens (proximitets-notisen) är den riktiga tabellen `korvy_kvittens`. Reservvärdet för en kategori utan inställning är 30 m.
+**Varningsavstånd ligger INTE i databasen.** Ett varningsavstånd per kategori (hur nära en markering körvyns proximitetskort växer) sparas PER ENHET i `localStorage` under nyckeln `varningar_v1` (`lib/varningsInstallningar.ts`, bara `warnDist`) — inte per objekt, inte per användare i DB. Strängar som den äldre versionen sparade (med avståndsdämpning, "Visa alla symboler", på/av per kategori) läses fortfarande; bara `warnDist` används. Tabellerna `warning_settings` och `warning_acknowledgments` har aldrig funnits i prod (PostgREST 404 `PGRST205`, verifierat 2026-10-05; tidigare stod de här som om de fanns). Körvyns kvittens (proximitets-notisen) är den riktiga tabellen `korvy_kvittens`. Reservvärdet för en kategori utan inställning är 30 m. **Det gamla körläget (`drivingMode`, avståndsdämpning, pip/vibrationskortet, geofence-frågan och körspårningen) är borttaget ur planeringsvyn (2026-10-05) — körvyn är det enda körläget.** Den separata `/planner`-sidan har sin egen, orörda kopia.
 
 ### Kalibrering
 `fakt_kalibrering`, `fakt_kalibrering_historik`, `detalj_kontroll_stock`
@@ -187,7 +187,7 @@ Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26)
 - `kartbilder` — kartbilder
 - `tma_assessments` — terrängframkomlighet
 - `skotning_uttag` — skotningsuttag
-- `gps_tracks` — live-inspelade körspår från `/planering` (separat från importerade `detalj_gps_spar`)
+- `gps_tracks` — tillfälliga rader för manuell GPS-ritning av linjer i `/planering` (raderas när linjen sparats; separat från importerade `detalj_gps_spar`). De 25 historiska `korspår`-raderna är kvar men skrivs/läses inte längre (körspårningen är borttagen; körvyns spår är `hyttspar`).
 - `meta_importerade_filer` — spårar vilka filer som redan importerats
 
 ---
