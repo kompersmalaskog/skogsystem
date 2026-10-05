@@ -141,7 +141,7 @@ function markerInnehallHash(m: { type?: string; comment?: string }): string {
   return (h >>> 0).toString(36);
 }
 
-// Körvy-synhåll: i körläge visas symboler/faror inom detta avstånd från FÖRAREN (GPS), inte
+// Körvy-synhåll: i körvyn visas symboler/faror inom detta avstånd från FÖRAREN (GPS), inte
 // från trakt-centrum. Robust mot trakter med skevt/saknat centrum — svgToLatLon(symbol) och
 // GPS jämförs som två VERKLIGA positioner. Generöst tilltaget; vid zoom 18 syns ändå bara ett
 // par hundra meter.
@@ -300,17 +300,6 @@ interface Marker {
   audioData?: string;  // base64-kodat ljud (audio/webm eller audio/mp4)
   notes?: { id: string; date: string; text?: string; audioData?: string }[];
   roadCheck?: RoadCheckResult;
-}
-
-interface Warning {
-  id: string;
-  type: string;
-  icon: string;
-  name: string;
-  distance: number;
-  comment?: string;
-  photoData?: string;
-  marker: Marker;
 }
 
 interface ChecklistItem {
@@ -2414,20 +2403,7 @@ export default function PlannerPage() {
     }
   }, [isRecordingAudio, stopAnyRecording, uploadAudioToStorage, sparaYtaMedia]);
 
-  // Körläge
-  const [drivingMode, setDrivingMode] = useState(false);
-  // STEG 6a-3: körläge HÄRLEDS från kvittot (objekt_kvittering) — inte från objekt.driving_mode.
-  // Min rolls kvitterat_at satt ⇒ körläge på. Stänger korsroll-läckan (skotaren ärver inte
-  // skördarens körläge) och post-reset-läckan (nollställt kvitto ⇒ körläge av) — en sanningskälla.
-  useEffect(() => {
-    setDrivingMode(!!minRollKvitto?.kvitterat_at);
-  }, [minRollKvitto?.kvitterat_at]);
-  const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<string[]>([]); // IDs av kvitterade
-  const [activeWarning, setActiveWarning] = useState<Warning | null>(null); // Markör som visar varning
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // Foto i fullskärm
-  const [showDebugPanel, setShowDebugPanel] = useState(false); // Tryck D för att visa
-  const WARNING_DISTANCE = 40; // meter - varning triggas
-  const FADE_START_DISTANCE = 100; // meter - börjar synas starkare
   
   // Stickvägsavstånd
   const [stickvagMode, setStickvagMode] = useState(false); // Aktiv stickvägsvy
@@ -2649,7 +2625,7 @@ export default function PlannerPage() {
         setInfoLarmBeskrivning(v.larmBeskrivning);
         setInfoLarmKalla(v.larmKalla);
         setInfoLarmBekraftad(v.larmBekraftad);
-        // Prognos, traktdata, stickväg, checklista, tillstånd (körläge/driving_mode läses INTE härifrån — härleds från kvittot, STEG 6a-3)
+        // Prognos, traktdata, stickväg, checklista, tillstånd
         setPrognosSettings(v.prognosSettings);
         setManuellPrognos(v.manuellPrognos);
         setTraktData(v.traktData);
@@ -2661,7 +2637,6 @@ export default function PlannerPage() {
         console.error('[Objektinfo] kunde inte ladda objektets info — autospar AV för det här objektet:', error?.message);
         setInfoLaddFel(true);
       }
-      // (Kvitterade varningar för körlägets varningskort (activeWarning) ligger bara i minnet: tabellen warning_acknowledgments har aldrig funnits.)
       // Ladda körvyns symbol-kvittens (proximitets-notis) — marker_id → innehålls-hash, per objekt.
       const { data: kvData, error: kvErr } = await supabase
         .from('korvy_kvittens')
@@ -3392,13 +3367,7 @@ export default function PlannerPage() {
   const activeGpsTrackIdRef = useRef<string | null>(null);
   const gpsTrackSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // === KÖRSPÅRNING (separat från manuell ritning) ===
-  const [korspårActive, setKorspårActive] = useState(false);
-  const [korspårTracks, setKorspårTracks] = useState<Array<{lat: number, lng: number}[]>>([]);
-  const korspårWatchRef = useRef<GpsKallaHandle | null>(null);
-  const korspårIdRef = useRef<string | null>(null);        // gps_tracks.id (uuid)
-  const korspårPointsRef = useRef<Array<{lat: number, lng: number, tid: string}>>([]);
-  const korspårSaveRef = useRef<NodeJS.Timeout | null>(null);
+  // Manuell GPS-ritning av linjer: spårets rå punkter + hur många som redan sparats (gps_tracks-raden raderas när linjen sparats).
   const trackingPathRef = useRef<{lat: number, lon: number, ts: number}[]>([]);
   const lastGpsTrackSaveCountRef = useRef(0);
 
@@ -3416,94 +3385,6 @@ export default function PlannerPage() {
     return () => clearInterval(interval);
   }, [isTracking, gpsLineType]);
 
-  // Load completed körspår
-  useEffect(() => {
-    if (!valtObjekt?.id) { setKorspårTracks([]); return; }
-    (async () => {
-      const { data } = await supabase.from('gps_tracks')
-        .select('points')
-        .eq('objekt_id', valtObjekt.id)
-        .eq('line_type', 'korspår')
-        .eq('status', 'completed');
-      if (data) {
-        setKorspårTracks(data.map((r: any) => (r.points || []).map((p: any) => ({ lat: p.lat, lng: p.lng }))).filter((t: any) => t.length > 1));
-      }
-    })();
-  }, [valtObjekt?.id, korspårActive]);
-
-  // Start körspårning
-  const startKorspårning = useCallback(async () => {
-    if (!valtObjekt?.id || korspårActive) return;
-    korspårPointsRef.current = [];
-
-    // INSERT — use .select('id') to get the uuid primary key
-    console.log('[Körspår] INSERT for objekt:', valtObjekt.id);
-    const { data, error } = await supabase.from('gps_tracks')
-      .insert({ objekt_id: valtObjekt.id, line_type: 'korspår', status: 'recording', points: [] })
-      .select('id')
-      .single();
-    if (error || !data) { console.error('[Körspår] INSERT failed:', error); return; }
-    console.log('[Körspår] INSERT OK, id:', data.id);
-    korspårIdRef.current = data.id;
-
-    // Start GPS via GPS-KÄLLAN (delad hub — serial eller geolocation, aldrig navigator.geolocation direkt)
-    korspårWatchRef.current = startaGpsKalla(
-      (fix: GpsFix) => {
-        const acc = fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? fix.hdop * 5 : 99);
-        if (!fix.giltig || fix.lat == null || fix.lng == null || acc > 20) return;
-        korspårPointsRef.current = [...korspårPointsRef.current, { lat: fix.lat, lng: fix.lng, tid: new Date().toISOString() }];
-      },
-      { highAccuracy: true }
-    );
-
-    // Save points every 15 seconds — UPDATE by id (uuid)
-    korspårSaveRef.current = setInterval(async () => {
-      const id = korspårIdRef.current;
-      const pts = korspårPointsRef.current;
-      if (!id || pts.length === 0) return;
-      console.log('[Körspår] UPDATE', pts.length, 'points, id:', id);
-      const { error: e } = await supabase.from('gps_tracks').update({ points: pts }).eq('id', id);
-      if (e) console.error('[Körspår] UPDATE error:', e);
-    }, 15000);
-
-    setKorspårActive(true);
-  }, [valtObjekt?.id, korspårActive]);
-
-  // Stop körspårning
-  const stopKorspårning = useCallback(async () => {
-    if (korspårWatchRef.current != null) { korspårWatchRef.current.stop(); korspårWatchRef.current = null; }
-    if (korspårSaveRef.current) { clearInterval(korspårSaveRef.current); korspårSaveRef.current = null; }
-
-    // Add to completed tracks immediately
-    const pts = korspårPointsRef.current;
-    if (pts.length > 1) setKorspårTracks(prev => [...prev, pts.map(p => ({ lat: p.lat, lng: p.lng }))]);
-
-    // Final save — UPDATE by id (uuid)
-    const id = korspårIdRef.current;
-    if (id) {
-      console.log('[Körspår] COMPLETE id:', id, 'points:', pts.length);
-      const { error } = await supabase.from('gps_tracks')
-        .update({ points: pts, status: 'completed', completed_at: new Date().toISOString() })
-        .eq('id', id);
-      if (error) console.error('[Körspår] COMPLETE error:', error);
-    }
-
-    korspårIdRef.current = null;
-    korspårPointsRef.current = [];
-    setKorspårActive(false);
-  }, []);
-
-  // Cleanup
-  useEffect(() => () => {
-    if (korspårWatchRef.current != null) korspårWatchRef.current.stop();
-    if (korspårSaveRef.current) clearInterval(korspårSaveRef.current);
-  }, []);
-
-  // === GEOFENCING: fråga vid ankomst till planerat objekt ===
-  const [geofencePrompt, setGeofencePrompt] = useState<{ id: string; namn: string } | null>(null);
-  const geofenceWatchRef = useRef<number | null>(null);
-  const geofenceDismissedRef = useRef<Record<string, number>>({});
-  const planneradeObjektRef = useRef<Array<{ id: string; namn: string; lat: number; lng: number }>>([]);
 
   // Haversine distance in meters
   function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -3513,22 +3394,6 @@ export default function PlannerPage() {
     const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
-
-  // Load planned objects with coordinates
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from('objekt')
-        .select('id, namn, lat, lng')
-        .eq('status', 'planerad')
-        .not('lat', 'is', null);
-      planneradeObjektRef.current = (data || []).filter((o: any) => o.lat && o.lng);
-    })();
-    // Load dismissed timestamps from localStorage
-    try {
-      const stored = localStorage.getItem('geofence_dismissed');
-      if (stored) geofenceDismissedRef.current = JSON.parse(stored);
-    } catch (_) {}
-  }, []);
 
   // STEG 1: hämta medarbetare-lista för tilldelning av skördare/skotare i plus-menyn.
   // Namnen ur medarbetare_namn (alla inloggade får läsa id + förnamn);
@@ -3765,57 +3630,6 @@ export default function PlannerPage() {
     });
   }, [maskinlage, enhetMaskinId, valtObjekt, dimMaskiner, oppnaKorvyPa, visaMaskindatorKort]);
 
-  // Background geolocation check every 60 seconds
-  useEffect(() => {
-    const check = () => {
-      if (testlageAktivRef.current) return;   // TESTFLIKEN: ingen geofence-fråga (den skulle kunna starta ett objekt = DB-skrivning)
-      // Via GPS-KÄLLAN (delad hub) — aldrig navigator.geolocation direkt.
-      hamtaEnGpsFix(10000).then((fix) => {
-        if (!fix || !fix.giltig || fix.lat == null || fix.lng == null) return;
-        const myLat = fix.lat;
-        const myLng = fix.lng;
-        const now = Date.now();
-        const TWO_HOURS = 2 * 60 * 60 * 1000;
-        for (const obj of planneradeObjektRef.current) {
-          // Skip if dismissed within 2 hours
-          if (geofenceDismissedRef.current[obj.id] && (now - geofenceDismissedRef.current[obj.id]) < TWO_HOURS) continue;
-          const dist = haversineM(myLat, myLng, obj.lat, obj.lng);
-          if (dist < 500) {
-            setGeofencePrompt({ id: obj.id, namn: obj.namn });
-            return;
-          }
-        }
-      });
-    };
-    check(); // initial check
-    const interval = setInterval(check, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleGeofenceStart = useCallback(async () => {
-    if (!geofencePrompt) return;
-    const objId = geofencePrompt.id;
-    // Update status to 'pagaende' + set faktisk_start
-    await supabase.from('objekt').update({
-      status: 'pagaende',
-      faktisk_start: new Date().toISOString().slice(0, 10),
-    }).eq('id', objId);
-    // Remove from planned list
-    planneradeObjektRef.current = planneradeObjektRef.current.filter(o => o.id !== objId);
-    setGeofencePrompt(null);
-    // Auto-start körspårning if we have a selected object matching
-    if (valtObjekt?.id === objId) {
-      startKorspårning();
-    }
-  }, [geofencePrompt, valtObjekt, startKorspårning]);
-
-  const handleGeofenceDismiss = useCallback(() => {
-    if (!geofencePrompt) return;
-    geofenceDismissedRef.current[geofencePrompt.id] = Date.now();
-    try { localStorage.setItem('geofence_dismissed', JSON.stringify(geofenceDismissedRef.current)); } catch (_) {}
-    setGeofencePrompt(null);
-  }, [geofencePrompt]);
-
   // STEG 1: tilldelning av skördare/skotare och "Klar — skicka till förare"
   const handleAssignSkordare = useCallback(async (userId: string | null) => {
     if (!valtObjekt?.id) return;
@@ -3925,10 +3739,6 @@ export default function PlannerPage() {
     }
   }, [valtObjekt, avsluterObjekt]);
 
-  // Simulerad position (för testning vid dator)
-  const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
-  const [showSimPosMenu, setShowSimPosMenu] = useState<{x: number, y: number, lat: number, lng: number} | null>(null);
-
   // === "Öppna som maskin"-helpers (behöver maskindator-refs → deklareras här) ===
   // Avsluta = tillbaka till vanliga appen. Hård navigering (inte state-återställning): då försvinner
   // allt som sattes för "som maskin" (enhet i state, maskinläge, ref:ar) och inget kan läcka kvar.
@@ -3964,7 +3774,6 @@ export default function PlannerPage() {
   // av /maskin-effekten nedan när admin/chef + känd maskin är bekräftade.
   const startaVisaSomMaskin = useCallback((maskinId: string) => {
     testlageAktivRef.current = true;             // SYNKRONT: DB-skrivningar spärras innan något annat hinner köra
-    setSimulatedPos(null);
     setEnhetMaskinIdState(maskinId);             // enbart state (sattEnhetMaskin rörs ALDRIG)
     maskindatorStartGjordRef.current = false;
     maskindatorFragatRef.current = new Set();
@@ -4098,7 +3907,7 @@ export default function PlannerPage() {
   const korvyAudioRef = useRef<HTMLAudioElement | null>(null);
   // Proximitets-notis: kvitterade symboler per (objekt, marker) → innehålls-hash. Symbol är TYST bara
   // om hashen matchar (ändrad kommentar → återuppstår). Dedikerad körvy-tabell (korvy_kvittens),
-  // skild från planeringsvyns activeWarning (håll isär). Laddas i loadInfo per objekt.
+  // Laddas i loadInfo per objekt.
   const [warningAckMap, setWarningAckMap] = useState<Map<string, string>>(new Map());
   // WebAudio för faro-pip (kort pip vid infart). Låses upp av körvy-öppningsgesten (iOS-krav).
   const korvyAudioCtxRef = useRef<AudioContext | null>(null);
@@ -4607,20 +4416,6 @@ export default function PlannerPage() {
       if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
     };
   }, [mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Tangent 'D' för debug-panel
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'd' || e.key === 'D') {
-        // Ignorera om vi skriver i ett textfält
-        const tag = (e.target as HTMLElement)?.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-        setShowDebugPanel(p => !p);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
 
   // === MapLibre: Byt bakgrundskarta ===
   useEffect(() => {
@@ -6632,19 +6427,6 @@ export default function PlannerPage() {
     return () => { handle.avbryt(); omradeRitningHandleRef.current = null; };
   }, [omradeRitning, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Högerklick / långtryck på karta → "Sätt min position här" (simulerad position)
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    const onContextMenu = (e: any) => {
-      e.preventDefault();
-      const lngLat = e.lngLat;
-      setShowSimPosMenu({ x: e.point.x, y: e.point.y, lat: lngLat.lat, lng: lngLat.lng });
-    };
-    map.on('contextmenu', onContextMenu);
-    return () => { map.off('contextmenu', onContextMenu); };
-  }, [mapLibreReady]);
-
   // Douglas-Peucker linjeförenkling (tar [lng,lat][] och returnerar förenklad version)
   const simplifyCoords = (coords: [number, number][], tolerance: number): [number, number][] => {
     if (coords.length <= 2) return coords;
@@ -7118,7 +6900,6 @@ export default function PlannerPage() {
   }, [visibleLines, visibleZones, visibleLayers]); // eslint-disable-line react-hooks/exhaustive-deps
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
   const [warningMenuOpen, setWarningMenuOpen] = useState(false);
-  const [warningShowAll, setWarningShowAll] = useState(false);
   const [warningSettings, setWarningSettings] = useState<VarningInstallningar>(standardInstallningar);   // standardvärden + inläsning från enheten: lib/varningsInstallningar
 
   // Volymberäkning
@@ -7630,10 +7411,11 @@ export default function PlannerPage() {
     return () => { if (tmaSaveTimeoutRef.current) clearTimeout(tmaSaveTimeoutRef.current); };
   }, [tmaRisk, tmaSamrad, valtObjekt?.id]);
 
-  // === Varningsinställningar: sparas PER ENHET i localStorage (lib/varningsInstallningar, nyckel varningar_v1) ===
-  // Inte per objekt och inte i databasen: det är en personlig känslighet (hur långt i förväg symbolerna tänds). Tabellen
-  // `warning_settings` har aldrig funnits (PostgREST 404) — inget sparades någonsin. Läses EN gång vid montering; skrivs bara när
-  // något ändrats (aldrig vid öppning, aldrig bara standardvärden). Oläslig/blockerad lagring → standardvärden, ingen krasch.
+  // === Varningsavstånd: sparas PER ENHET i localStorage (lib/varningsInstallningar, nyckel varningar_v1) ===
+  // Ett avstånd per kategori — hur nära en markering körvyns kort växer. Inte per objekt och inte i databasen: det är en personlig
+  // känslighet. Tabellen `warning_settings` har aldrig funnits (PostgREST 404) — inget sparades någonsin. Läses EN gång vid
+  // montering; skrivs bara när något ändrats (aldrig vid öppning, aldrig bara standardvärden). Oläslig/blockerad lagring →
+  // standardvärden, ingen krasch.
   const [varningarLaddade, setVarningarLaddade] = useState(false);   // flaggan sätts i SAMMA batch som värdena → sparningen ser aldrig standardvärdena före inläsning
   const varningarSenastRef = useRef<string | null>(null);            // senast lästa/skrivna sträng
   useEffect(() => {
@@ -7641,17 +7423,16 @@ export default function PlannerPage() {
     try { raw = localStorage.getItem(VARNING_NYCKEL); } catch { /* blockerad lagring (t.ex. privat läge) → standardvärden */ }
     const las = lasVarningar(raw);
     if (las.status === 'trasig') console.warn('[Varning] Sparade varningsinställningar var oläsliga — standardvärden används tills något ändras');
-    varningarSenastRef.current = skrivVarningar(las.installningar, las.visaAlla);
+    varningarSenastRef.current = skrivVarningar(las.installningar);
     setWarningSettings(las.installningar);
-    setWarningShowAll(las.visaAlla);
     setVarningarLaddade(true);
   }, []);
   useEffect(() => {
     if (!varningarLaddade) return;
-    const nu = skrivVarningar(warningSettings, warningShowAll);
+    const nu = skrivVarningar(warningSettings);
     if (nu === varningarSenastRef.current) return;   // oförändrat (t.ex. direkt efter inläsning) → ingen skrivning
     try { localStorage.setItem(VARNING_NYCKEL, nu); varningarSenastRef.current = nu; } catch { /* kan inte spara på den här enheten */ }
-  }, [warningSettings, warningShowAll, varningarLaddade]);
+  }, [warningSettings, varningarLaddade]);
 
   // Drag för meny
   const dragStartY = useRef(0);
@@ -8082,20 +7863,20 @@ export default function PlannerPage() {
 
   const warningCategories = [
     { section: 'Punkter', items: [
-      { id: 'naturvard',     name: 'Naturvård',     color: '#30d158', defaultWarn: 30, defaultFade: 200 },
-      { id: 'kultur',        name: 'Kultur',        color: '#f59e0b', defaultWarn: 30, defaultFade: 200 },
-      { id: 'avverkning',    name: 'Avverkning',    color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
-      { id: 'infrastruktur', name: 'Infrastruktur', color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
-      { id: 'terrang',       name: 'Terräng',       color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
-      { id: 'ovrigt',        name: 'Övrigt/Varning', color: LEGEND.fara, defaultWarn: 50, defaultFade: 300 },
+      { id: 'naturvard',     name: 'Naturvård',     color: '#30d158', defaultWarn: 30 },
+      { id: 'kultur',        name: 'Kultur',        color: '#f59e0b', defaultWarn: 30 },
+      { id: 'avverkning',    name: 'Avverkning',    color: 'rgba(0,0,0,0.9)', defaultWarn: 30 },
+      { id: 'infrastruktur', name: 'Infrastruktur', color: 'rgba(0,0,0,0.9)', defaultWarn: 30 },
+      { id: 'terrang',       name: 'Terräng',       color: 'rgba(0,0,0,0.9)', defaultWarn: 30 },
+      { id: 'ovrigt',        name: 'Övrigt/Varning', color: LEGEND.fara, defaultWarn: 50 },
     ]},
     { section: 'Zoner', items: [
-      { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30, defaultFade: 200 },
-      { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30, defaultFade: 200 },
-      { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#30d158', defaultWarn: 30, defaultFade: 200 },
-      { id: 'zone_culture',    name: 'Kulturmiljö',      color: ZONE_COLORS.culture, defaultWarn: 50, defaultFade: 300 },   // styr zonen "Kulturmiljö" (zoneType culture) — raden hette förut felaktigt "Fornlämningszon"
-      { id: 'zone_fornlamning', name: 'Fornlämning',     color: ZONE_COLORS.fornlamning, defaultWarn: 50, defaultFade: 300 },   // zonen "Fornlämning" (zoneType fornlamning) hade inställning men ingen rad
-      { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ff453a', defaultWarn: 30, defaultFade: 200 },
+      { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30 },
+      { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30 },
+      { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#30d158', defaultWarn: 30 },
+      { id: 'zone_culture',    name: 'Kulturmiljö',      color: ZONE_COLORS.culture, defaultWarn: 50 },   // styr zonen "Kulturmiljö" (zoneType culture) — raden hette förut felaktigt "Fornlämningszon"
+      { id: 'zone_fornlamning', name: 'Fornlämning',     color: ZONE_COLORS.fornlamning, defaultWarn: 50 },   // zonen "Fornlämning" (zoneType fornlamning) hade inställning men ingen rad
+      { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ff453a', defaultWarn: 30 },
     ]},
   ];
 
@@ -8392,26 +8173,15 @@ export default function PlannerPage() {
   }, [markers, traktdelDelar, justeradeTraktdelar, mapLibreReady, mapCenter, objektSaknarPosition, objektNumrering, redigeraGransId]);
 
   // 2b) Synka markeringar → MapLibre markers-source (GPU-renderad symbol layer)
-  // Inkluderar opacity per feature baserat på proximity
-  const [proximityTick, setProximityTick] = useState(0);
-  useEffect(() => {
-    if (!drivingMode && !simulatedPos) return;
-    const iv = setInterval(() => setProximityTick(t => t + 1), 1000);
-    return () => clearInterval(iv);
-  }, [drivingMode, simulatedPos]);
+  // Körvyns symbolfade (avstånd från maskinen) räknas per feature nedan.
 
-  // SIM-medveten position för hela körvy-pipelinen. Föredrar simulatedPos
-  // när den är satt, annars currentPosition (passiv GPS-watcher). Konverterar
-  // simulatedPos.lng → .lon för att matcha currentPosition-formen så alla
+  // Positionen för hela körvy-pipelinen: currentPosition (passiv GPS-watcher / gpsKalla), som {lat, lon} så alla
   // konsumenter kan läsa pos.lat / pos.lon enhetligt.
-  // Anledning: currentPosition ensamt missar SIM-positioner, vilket bryter
-  // dist-baserade filter i körvy (label-rendering, nästa-kö, akut varning).
   const korvyEffectivePos = useMemo<{ lat: number; lon: number } | null>(() => {
-    if (simulatedPos) return { lat: simulatedPos.lat, lon: simulatedPos.lng };
     const c = currentPosition as any;
     if (c && c.lat != null && c.lon != null) return { lat: c.lat, lon: c.lon };
     return null;
-  }, [simulatedPos, currentPosition]);
+  }, [currentPosition]);
 
   // === Maskindator-startsekvens: faser + sidoeffekter (svart → översikt → EN flyTo → landat) ===
   const startIn = startSekvensStart != null
@@ -8609,16 +8379,10 @@ export default function PlannerPage() {
 
   const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) {
-      if (drivingMode) console.log('[Proximity] SKIP: map=', !!map, 'mapLibreReady=', mapLibreReady);
-      return;
-    }
+    if (!map || !mapLibreReady) return;
     try {
       const src = map.getSource('markers-source') as any;
-      if (!src) {
-        if (drivingMode) console.log('[Proximity] SKIP: markers-source not found');
-        return;
-      }
+      if (!src) return;
       if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte symboler på fel plats (fällningsradien vore blind)
       const features: any[] = [];
       // KÖRVY: from-driver — visa symboler inom synhåll från MIG (GPS), inte från trakt-centrum.
@@ -8630,15 +8394,10 @@ export default function PlannerPage() {
         const ll = svgToLatLon(m.x, m.y);
         return haversineM(korvyEffectivePos.lat, korvyEffectivePos.lon, ll.lat, ll.lon) <= KORVY_SIGHT_M;
       });
-      const userPos = effectiveUserPos;
-      if (drivingMode && proximityTick % 5 === 0) {
-        console.log(`[Proximity] tick=${proximityTick}, symbols=${symbolMarkers.length}, userPos=${userPos ? `(${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)})` : 'NULL'}, showAll=${warningShowAll}, gps=${gpsPosition ? 'SET' : 'null'}, sim=${simulatedPos ? 'SET' : 'null'}`);
-      }
-      let minOp = 1, maxOp = 0;
       const korvyPos = korvyActive ? korvyEffectivePos : null;
       symbolMarkers.forEach(m => {
         const ll = svgToLatLon(m.x, m.y);
-        let opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
+        let opacity = 1;
         // Briefing highlight: active marker full opacity, others dimmed
         if (briefingMode && briefingHighlightId) {
           opacity = m.id === briefingHighlightId ? 1 : 0.2;
@@ -8665,17 +8424,12 @@ export default function PlannerPage() {
           pulse = withinRadius && korvyBlinkOn;
           if (withinRadius && !korvyBlinkOn) opacity = 0.6; // subtil blink inom radien
         }
-        if (opacity < minOp) minOp = opacity;
-        if (opacity > maxOp) maxOp = opacity;
         features.push({
           type: 'Feature',
           properties: { type: m.type || 'default', id: m.id, opacity, dist, nearby, pulse, withinRadius },
           geometry: { type: 'Point', coordinates: [ll.lon, ll.lat] },
         });
       });
-      if (drivingMode && symbolMarkers.length > 0 && proximityTick % 5 === 0) {
-        console.log(`[Proximity] opacity range: min=${minOp.toFixed(2)}, max=${maxOp.toFixed(2)}`);
-      }
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) {
       console.error('[Proximity] syncMarkersToMapLibre ERROR:', e);
@@ -8683,7 +8437,7 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Synka pilar → arrows-source (geo-låst MapLibre-layer). x/y → lng/lat via svgToLatLon (samma
   // konvertering som symboler, origo-fix-medveten). Riktningen bärs av m.rotation → icon-rotate.
@@ -12593,22 +12347,7 @@ export default function PlannerPage() {
     uppdateraMatlager(measureGeo, yta);
   }, [measureGeo, measureAreaMode, measureLocked, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
   
-  // === KÖRLÄGE FUNKTIONER ===
-
-  // Effektiv användarposition (simulerad eller riktig GPS)
-  // Använder latLonToSvg direkt från gpsPosition för att undvika race condition
-  // där gpsMapPosition inte hunnit uppdateras ännu
-  const effectiveUserPos = (() => {
-    if (simulatedPos) {
-      const svgPos = latLonToSvg(simulatedPos.lat, simulatedPos.lng);
-      return { svg: svgPos, latLng: simulatedPos };
-    }
-    if (gpsPosition) {
-      const svgPos = latLonToSvg(gpsPosition.lat, gpsPosition.lng);
-      return { svg: svgPos, latLng: gpsPosition };
-    }
-    return null;
-  })();
+  // === VARNINGSAVSTÅND per kategori (körvyns proximitetskort läser warnDist härifrån) ===
 
   // Hämta varningskategori-ID för en markör
   const getWarningCategoryId = (m: Marker): string => {
@@ -12629,229 +12368,9 @@ export default function PlannerPage() {
     return 'ovrigt';
   };
 
-  // Hämta warn/fade-avstånd för en markör baserat på warningSettings
-  // Reservvärdet (kategori utan inställning, t.ex. gallringszonen) är 30 m — samma som standard för en vanlig kategori (lib/varningsInstallningar).
+  // Varningsavstånd för en markör (30 m reserv för kategori utan inställning, t.ex. gallringszonen — lib/varningsInstallningar).
   const getWarningDistances = (m: Marker) => varningsAvstand(warningSettings, getWarningCategoryId(m));
 
-  // Beräkna avstånd i meter mellan två punkter
-  const calculateDistanceMeters = (p1, p2) => {
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const pixelDistance = Math.sqrt(dx * dx + dy * dy);
-    return pixelDistance * scale;
-  };
-  
-  // Debug: spåra senaste opacity-beräkning
-  const lastProximityDebugRef = useRef<string>('');
-
-  // Beräkna opacity baserat på avstånd (för körläge) — använder warningSettings per kategori
-  const getMarkerOpacity = (markerPos: any, marker?: Marker) => {
-    // Utanför körläge: full opacity (planerarvyn)
-    if (!drivingMode) return 1;
-
-    // Master toggle: visa alla med full opacity
-    if (warningShowAll) {
-      lastProximityDebugRef.current = 'RETURN 1: warningShowAll=true';
-      return 1;
-    }
-
-    // Per-kategori toggle (enabled):
-    // enabled=true (default) → proximity-logik gäller, fadear in/ut
-    // enabled=false → alltid synlig, undantagen från proximity
-    if (marker) {
-      const catId = getWarningCategoryId(marker);
-      const catSettings = warningSettings[catId];
-      if (catSettings && catSettings.enabled === false) {
-        lastProximityDebugRef.current = `RETURN 1: cat=${catId} enabled=false`;
-        return 1;
-      }
-    }
-
-    const userSvg = effectiveUserPos?.svg;
-    if (!userSvg) {
-      lastProximityDebugRef.current = 'RETURN 0.15: effectiveUserPos=null';
-      return 0.15;
-    }
-
-    const distance = calculateDistanceMeters(userSvg, markerPos);
-    const markerId = markerPos.id;
-
-    // Kvitterade = alltid synliga
-    if (acknowledgedWarnings.includes(markerId)) return 1;
-
-    // Hämta kategori-avstånd och minOpacity
-    const dists = marker ? getWarningDistances(marker) : { warnDist: WARNING_DISTANCE, fadeDist: FADE_START_DISTANCE, minOpacity: 0.1 };
-    const minOp = dists.minOpacity ?? 0.1;
-
-    // Utanför fade-avstånd = minOpacity
-    if (distance > dists.fadeDist) {
-      lastProximityDebugRef.current = `dist=${distance.toFixed(0)}m > fade=${dists.fadeDist}m → op=${minOp}`;
-      return minOp;
-    }
-
-    // Inom varningsavstånd = full styrka
-    if (distance <= dists.warnDist) {
-      lastProximityDebugRef.current = `dist=${distance.toFixed(0)}m <= warn=${dists.warnDist}m → op=1`;
-      return 1;
-    }
-
-    // Gradvis fade mellan fadeDist och warnDist
-    const fadeRange = dists.fadeDist - dists.warnDist;
-    const distanceIntoFade = dists.fadeDist - distance;
-    const fadeProgress = distanceIntoFade / fadeRange; // 0 till 1
-    const result = minOp + (fadeProgress * (1 - minOp)); // minOpacity till 1.0
-
-    lastProximityDebugRef.current = `dist=${distance.toFixed(0)}m fade=[${dists.warnDist}-${dists.fadeDist}] → op=${result.toFixed(2)}`;
-    return result;
-  };
-  
-  // Hitta aktiva varningar — använder warningSettings per kategori
-  const getActiveWarnings = () => {
-    if (!drivingMode) return [];
-    const userSvg = effectiveUserPos?.svg;
-    if (!userSvg) return [];
-
-    const warnings: Warning[] = [];
-
-    // Hjälpfunktion: hitta närmaste punkt på en linje
-    const distanceToLine = (point: Point, path: Point[]) => {
-      let minDist = Infinity;
-      for (let i = 0; i < path.length - 1; i++) {
-        const a = path[i];
-        const b = path[i + 1];
-        const abx = b.x - a.x;
-        const aby = b.y - a.y;
-        const abLen = Math.sqrt(abx * abx + aby * aby);
-        if (abLen === 0) continue;
-        const t = Math.max(0, Math.min(1,
-          ((point.x - a.x) * abx + (point.y - a.y) * aby) / (abLen * abLen)
-        ));
-        const closestX = a.x + t * abx;
-        const closestY = a.y + t * aby;
-        const dist = Math.sqrt(
-          Math.pow(point.x - closestX, 2) +
-          Math.pow(point.y - closestY, 2)
-        );
-        if (dist < minDist) minDist = dist;
-      }
-      return minDist * scale;
-    };
-
-    markers.forEach(m => {
-      if (acknowledgedWarnings.includes(m.id)) return;
-
-      // Kategorier med avståndsdämpning AV = alltid synliga, ingen varning behövs
-      if (!warningShowAll) {
-        const catId = getWarningCategoryId(m);
-        if (warningSettings[catId]?.enabled === false) return;
-      }
-
-      let distance: number | null = null;
-      let type: string | null = null;
-      let icon: string | null = null;
-      let name: string | null = null;
-
-      if (m.isMarker) {
-        const pos = { x: m.x, y: m.y };
-        distance = calculateDistanceMeters(userSvg, pos);
-        const markerType = markerTypes.find(t => t.id === m.type);
-        type = 'symbol';
-        icon = markerType?.icon || '📍';
-        name = markerType?.name || 'Markering';
-      } else if (m.isZone && m.path && m.path.length > 0) {
-        distance = distanceToLine(userSvg, [...m.path, m.path[0]]);
-        const zoneType = zoneTypes.find(t => t.id === m.zoneType);
-        type = 'zone';
-        icon = zoneType?.icon || '⬡';
-        name = zoneType?.name || 'Zon';
-      } else if (m.isLine && m.path && m.path.length > 1) {
-        distance = distanceToLine(userSvg, m.path);
-        const lineType = lineTypes.find(t => t.id === m.lineType);
-        type = 'line';
-        icon = m.lineType === 'boundary' ? '🚧' : '━';
-        name = lineType?.name || 'Linje';
-      }
-
-      // Använd per-kategori warnDist
-      const dists = getWarningDistances(m);
-
-      if (distance !== null && distance <= dists.warnDist) {
-        warnings.push({
-          id: m.id,
-          type: type || 'symbol',
-          icon: icon || '📍',
-          name: name || 'Markering',
-          distance: Math.round(distance),
-          comment: m.comment,
-          photoData: m.photoData,
-          marker: m,
-        });
-      }
-    });
-
-    return warnings.sort((a, b) => a.distance - b.distance);
-  };
-  
-  // Track vilka varningar som spelat ljud (för att undvika dubbletter)
-  const playedWarningsRef = useRef<Set<string>>(new Set());
-  
-  // Kolla varningar när GPS uppdateras
-  useEffect(() => {
-    if (!drivingMode) return;
-
-    const warnings = getActiveWarnings();
-    if (warnings.length > 0) {
-      console.log(`[Varning] ${warnings.length} aktiva:`, warnings.map(w => `${w.name} ${w.distance}m`).join(', '));
-    }
-    if (warnings.length > 0 && !activeWarning) {
-      const warning = warnings[0];
-      
-      // Kolla om vi redan spelat ljud för denna varning
-      if (playedWarningsRef.current.has(warning.id)) {
-        setActiveWarning(warning);
-        return;
-      }
-      
-      setActiveWarning(warning);
-      playedWarningsRef.current.add(warning.id);
-      
-      // Vibrera kraftigt
-      if (navigator.vibrate) {
-        navigator.vibrate([500, 200, 500, 200, 500]);
-      }
-      
-      // Spela varningsljud
-      try {
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const playBeep = (freq: number, duration: number, delay: number) => {
-          const oscillator = audioContext.createOscillator();
-          const gainNode = audioContext.createGain();
-          oscillator.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-          oscillator.frequency.value = freq;
-          oscillator.type = 'square';
-          gainNode.gain.value = 0.3;
-          oscillator.start(audioContext.currentTime + delay);
-          oscillator.stop(audioContext.currentTime + delay + duration);
-        };
-        // 3 snabba varningsljud
-        playBeep(800, 0.2, 0);
-        playBeep(800, 0.2, 0.3);
-        playBeep(800, 0.2, 0.6);
-      } catch (e) {
-        console.log('Audio not supported');
-      }
-    }
-  }, [drivingMode, gpsMapPosition, markers, acknowledgedWarnings, simulatedPos, warningSettings, warningShowAll]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Kvittera varning (bara i minnet — tabellen warning_acknowledgments har aldrig funnits, så loggningen dit misslyckades alltid tyst)
-  const acknowledgeWarning = () => {
-    if (activeWarning) {
-      setAcknowledgedWarnings(prev => [...prev, activeWarning.id]);
-      setActiveWarning(null);
-    }
-  };
-  
   // Beräkna prognos
   // Skapa smooth SVG path med cubic bezier curves
   const createSmoothPath = (points, closed = false) => {
@@ -12928,9 +12447,6 @@ export default function PlannerPage() {
     const centerX = path.reduce((sum, p) => sum + p.x, 0) / path.length;
     const centerY = path.reduce((sum, p) => sum + p.y, 0) / path.length;
     
-    // Körläge opacity
-    const opacity = getMarkerOpacity({ x: centerX, y: centerY, id: marker.id }, marker);
-    const isAcknowledged = acknowledgedWarnings.includes(marker.id);
     
     // Begränsad storlek för zon-ikoner
     const iconRadius = getConstrainedSize(18);
@@ -12940,7 +12456,7 @@ export default function PlannerPage() {
     const borderWidth = getConstrainedSize(4);
     
     return (
-      <g key={`zone-${marker.id}`} style={{ opacity: opacity, transition: 'opacity 0.3s ease' }}>
+      <g key={`zone-${marker.id}`}>
         {/* Fyllning */}
         <path 
           d={d} 
@@ -12967,10 +12483,6 @@ export default function PlannerPage() {
           strokeLinejoin="round"
           strokeDasharray="12,12"
         />
-        {/* Grön ring om kvitterad */}
-        {isAcknowledged && drivingMode && (
-          <circle cx={centerX} cy={centerY} r={ringRadius} fill="none" stroke="#30d158" strokeWidth={strokeW} />
-        )}
         {/* Ikon i mitten */}
         <circle cx={centerX} cy={centerY} r={iconRadius} fill="rgba(0,0,0,0.7)" stroke={zone.color} strokeWidth={getConstrainedSize(2)} />
         <g transform={`translate(${centerX - iconFontSize/2}, ${centerY - iconFontSize/2})`} style={{ pointerEvents: 'none' }}>
@@ -14654,34 +14166,6 @@ export default function PlannerPage() {
         </>
       )}
 
-      {/* === GEOFENCING MODAL === */}
-      {geofencePrompt && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: 20,
-        }}>
-          <div style={{
-            background: '#1c1c1e', borderRadius: 20, padding: '28px 24px', maxWidth: 340, width: '100%',
-            textAlign: 'center',
-          }}>
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '44px', color: '#0a84ff', marginBottom: 12, display: 'inline-block' }}>pin_drop</span>
-            <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
-            <div style={{ fontSize: '20px', fontWeight: '700', color: '#fff', marginBottom: 20 }}>{geofencePrompt.namn}</div>
-            <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: 24 }}>Vill du starta objektet?</div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={handleGeofenceDismiss} style={{
-                flex: 1, padding: '14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)',
-                background: 'transparent', color: '#8e8e93', fontSize: '15px', fontWeight: '600', cursor: 'pointer',
-              }}>Inte nu</button>
-              <button onClick={handleGeofenceStart} style={{
-                flex: 1, padding: '14px', borderRadius: 12, border: 'none',
-                background: '#30d158', color: '#fff', fontSize: '15px', fontWeight: '600', cursor: 'pointer',
-              }}>Ja, starta</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* STEG 7: confirmation-modal innan avsluta. Slutlig action — kan inte ångras via UI. */}
       {visarAvslutaConfirmation && valtObjekt && (
@@ -14970,13 +14454,6 @@ export default function PlannerPage() {
             const type = markerTypes.find(t => t.id === m.type);
             const isMenuOpen = markerMenuOpen === m.id;
             const isDragging = draggingMarker === m.id;
-            const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
-            const isAcknowledged = acknowledgedWarnings.includes(m.id);
-            // Kolla om inom varningsavstånd (för pulsering)
-            const dists = getWarningDistances(m);
-            const userSvg = effectiveUserPos?.svg;
-            const distToUser = userSvg ? calculateDistanceMeters(userSvg, { x: m.x, y: m.y }) : Infinity;
-            const isInWarningRange = drivingMode && distToUser <= dists.warnDist && !isAcknowledged;
 
             // Projicera SVG-position till skärmkoordinater
             const screenPos = svgToScreen(m.x, m.y);
@@ -15012,32 +14489,8 @@ export default function PlannerPage() {
 
             // Visuell rendering sker nu via MapLibre symbol layer (GPU).
             // SVG-overlayen renderar bara en osynlig hit-area för drag/klick.
-            // Varningsringen renderas UTANFÖR opacity:0-gruppen så den alltid syns.
             return (
               <g key={m.id}>
-                {/* Pulsande varningsring (röd glöd) — renderas utanför hit-area-gruppen */}
-                {isInWarningRange && (
-                  <g transform={`translate(${offsetX}, ${offsetY})`} style={{ pointerEvents: 'none' }}>
-                    <circle
-                      cx={m.x} cy={m.y}
-                      r={symbolRadius + 12}
-                      fill="none"
-                      stroke="#ff453a"
-                      strokeWidth={4}
-                      opacity={0.8}
-                      style={{ animation: 'pulse 0.8s infinite' }}
-                    />
-                    <circle
-                      cx={m.x} cy={m.y}
-                      r={symbolRadius + 20}
-                      fill="none"
-                      stroke="#ff453a"
-                      strokeWidth={2}
-                      opacity={0.4}
-                      style={{ animation: 'pulse 0.8s infinite 0.2s' }}
-                    />
-                  </g>
-                )}
                 {/* Symboler går inte längre att dra (borttaget — drag fångade fingret vid nyp och
                     flyttade symbolen av misstag). Träffytan är pointer-events:none så nyp/pan går
                     rakt till kartan (ren zoom). Tap → öppna kort fångas via MapLibre-klick på
@@ -15063,11 +14516,10 @@ export default function PlannerPage() {
           {visibleLayers.arrows && markers.filter(m => m.isArrow).map(m => {
             const arrow = arrowTypes.find(t => t.id === m.arrowType);
             const isDragging = draggingMarker === m.id;
-            let opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
+            let opacity = 1;
             if (briefingMode && briefingHighlightId) {
               opacity = m.id === briefingHighlightId ? 1 : 0.2;
             }
-            const isAcknowledged = acknowledgedWarnings.includes(m.id);
             const arrowScale = getConstrainedSize(2);
             const ringRadius = getConstrainedSize(50);
             const photoRadius = getConstrainedSize(18);
@@ -15080,10 +14532,6 @@ export default function PlannerPage() {
             const offsetY = screenPos.y - m.y;
             return (
               <g key={m.id} transform={`translate(${offsetX}, ${offsetY})`} style={{ opacity: opacity }}>
-                {/* Grön ring om kvitterad */}
-                {isAcknowledged && drivingMode && (
-                  <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#30d158" strokeWidth={getConstrainedSize(3)} />
-                )}
                 {/* Pilar går inte längre att dra (samma zoom-krock som symboler). pointer-events:none
                     → nyp/pan går till kartan. Tap → kort via MapLibre-klick på arrows-hit. Rotation
                     finns kvar (armas av Rotera-knappen i kortet, inte av denna träffyta). */}
@@ -15135,27 +14583,6 @@ export default function PlannerPage() {
             );
           })()}
 
-          {/* Körspår (completed — blå linjer) */}
-          {korspårTracks.map((track, ti) => {
-            const map = mapInstanceRef.current;
-            if (!map || track.length < 2) return null;
-            const d = track.map((p, i) => {
-              const sp = map.project([p.lng, p.lat]);
-              return sp ? `${i === 0 ? 'M' : 'L'} ${sp.x} ${sp.y}` : '';
-            }).join(' ');
-            return <path key={`ks-${ti}`} d={d} fill="none" stroke="#378ADD" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" opacity={0.8} />;
-          })}
-
-          {/* Körspår live (recording — pulsande blå) */}
-          {korspårActive && korspårPointsRef.current.length > 1 && (() => {
-            const map = mapInstanceRef.current;
-            if (!map) return null;
-            const d = korspårPointsRef.current.map((p, i) => {
-              const sp = map.project([p.lng, p.lat]);
-              return sp ? `${i === 0 ? 'M' : 'L'} ${sp.x} ${sp.y}` : '';
-            }).join(' ');
-            return <path d={d} fill="none" stroke="#378ADD" strokeWidth={3} strokeDasharray="6,6" strokeLinecap="round" style={{ animation: 'pulse 1s infinite' }} />;
-          })()}
 
           {/* GPS-spårad linje (live) */}
           {gpsLineType && gpsPath.length > 1 && (
@@ -15172,29 +14599,12 @@ export default function PlannerPage() {
             />
           )}
 
-          {/* Simulerad position (blå pulsande prick med orange ring) */}
-          {simulatedPos && !isTracking && (() => {
-            const map = mapInstanceRef.current;
-            if (!map) return null;
-            const sp = map.project([simulatedPos.lng, simulatedPos.lat]);
-            if (!sp) return null;
-            return (
-              <g>
-                <circle cx={sp.x} cy={sp.y} r={20} fill="none" stroke="#f59e0b" strokeWidth={2} opacity={0.4} style={{ animation: 'simPulse 2s infinite' }} />
-                <circle cx={sp.x} cy={sp.y} r={10} fill="#3b82f6" stroke="#fff" strokeWidth={3} style={{ animation: 'pulse 1.5s infinite' }} />
-                <text x={sp.x} y={sp.y - 18} textAnchor="middle" fontSize="10" fill="#f59e0b" fontWeight="600" style={{ pointerEvents: 'none' }}>SIM</text>
-              </g>
-            );
-          })()}
-
           {/* GPS position med ljuskägla */}
           {isTracking && (() => {
-            // Projicera GPS-position till skärm (eller simulerad)
-            const gpsScreen = simulatedPos
-              ? (() => { const map = mapInstanceRef.current; return map ? map.project([simulatedPos.lng, simulatedPos.lat]) : null; })()
-              : gpsPosition
-                ? (() => { const map = mapInstanceRef.current; return map ? map.project([gpsPosition.lng, gpsPosition.lat]) : null; })()
-                : svgToScreen(gpsMapPosition.x, gpsMapPosition.y);
+            // Projicera GPS-position till skärm
+            const gpsScreen = gpsPosition
+              ? (() => { const map = mapInstanceRef.current; return map ? map.project([gpsPosition.lng, gpsPosition.lat]) : null; })()
+              : svgToScreen(gpsMapPosition.x, gpsMapPosition.y);
             if (!gpsScreen) return null;
             const gpx = gpsScreen.x;
             const gpy = gpsScreen.y;
@@ -15881,7 +15291,7 @@ export default function PlannerPage() {
       )}
 
       {/* "Ingen GPS-fix" — serial-GPS (maskindator) har tappat fix (rule 4). Pricken är redan dämpad. */}
-      {serialGpsAktiv && !gpsFixFarsk && (drivingMode || korvyActive) && !startOverlayAktiv && (
+      {serialGpsAktiv && !gpsFixFarsk && korvyActive && !startOverlayAktiv && (
         <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(255,159,10,0.92)', color: '#000', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
           Ingen GPS-fix
         </div>
@@ -18178,9 +17588,9 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === VARNINGSINSTÄLLNINGAR MENY === */}
+      {/* === VARNINGSAVSTÅND (per kategori) === */}
       {warningMenuOpen && !briefingMode && (
-        <div style={{
+        <div data-testid="varning-meny" style={{
           position: 'fixed',
           inset: 0,
           background: '#000',
@@ -18224,82 +17634,8 @@ export default function PlannerPage() {
             padding: '20px',
             WebkitOverflowScrolling: 'touch',
           }}>
-            {/* Körläge-status */}
-            <div style={{
-              background: drivingMode ? 'rgba(34,197,94,0.1)' : '#0a0a0a',
-              border: `1px solid ${drivingMode ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)'}`,
-              borderRadius: '16px',
-              padding: '14px 18px',
-              marginBottom: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-            }}>
-              <div style={{
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: drivingMode ? '#30d158' : 'rgba(255,255,255,0.2)',
-              }} />
-              <span style={{ fontSize: '13px', color: drivingMode ? '#30d158' : '#8e8e93', fontWeight: '500' }}>
-                {drivingMode ? 'Körläge aktivt — proximity-varningar på' : 'Körläge av — alla symboler visas normalt'}
-              </span>
-            </div>
-
-            {/* Master toggle: Visa alla symboler (bara relevant i körläge) */}
-            <div style={{
-              background: '#0a0a0a',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '16px',
-              padding: '8px',
-              marginBottom: '16px',
-              opacity: drivingMode ? 1 : 0.4,
-              transition: 'opacity 0.2s ease',
-            }}>
-              <div
-                onClick={() => { if (drivingMode) setWarningShowAll(prev => !prev); }}
-                style={{
-                  padding: '16px 16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '14px',
-                  borderRadius: '12px',
-                  cursor: drivingMode ? 'pointer' : 'default',
-                }}
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={warningShowAll && drivingMode ? '#30d158' : '#8e8e93'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-                <span style={{ flex: 1, fontSize: '15px', color: '#fff', fontWeight: '500' }}>Visa alla symboler</span>
-                <div style={{
-                  width: '44px',
-                  height: '26px',
-                  borderRadius: '13px',
-                  background: warningShowAll && drivingMode ? '#30d158' : 'rgba(255,255,255,0.1)',
-                  padding: '2px',
-                  transition: 'background 0.2s ease',
-                }}>
-                  <div style={{
-                    width: '22px',
-                    height: '22px',
-                    borderRadius: '50%',
-                    background: '#fff',
-                    transform: warningShowAll && drivingMode ? 'translateX(18px)' : 'translateX(0)',
-                    transition: 'transform 0.2s ease',
-                  }} />
-                </div>
-              </div>
-              {warningShowAll && drivingMode && (
-                <div style={{ padding: '0 16px 12px', fontSize: '13px', color: '#8e8e93' }}>
-                  Alla symboler visas med full synlighet, ingen fade-effekt
-                </div>
-              )}
-              {!drivingMode && (
-                <div style={{ padding: '0 16px 12px', fontSize: '13px', color: 'rgba(255,255,255,0.3)' }}>
-                  Aktivera körläge för att använda denna inställning
-                </div>
-              )}
+            <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '16px', padding: '0 4px', lineHeight: 1.4 }}>
+              Körvyns kort växer när du kommer närmare en markering än så här. Gäller bara den här enheten.
             </div>
 
             {warningCategories.map(section => (
@@ -18309,8 +17645,6 @@ export default function PlannerPage() {
                 borderRadius: '16px',
                 padding: '8px',
                 marginBottom: '16px',
-                opacity: warningShowAll ? 0.4 : 1,
-                transition: 'opacity 0.2s ease',
               }}>
                 <div style={{
                   padding: '12px 16px 8px',
@@ -18320,17 +17654,26 @@ export default function PlannerPage() {
                   {section.section}
                 </div>
                 {section.items.map(item => {
-                  const proximityOn = warningSettings[item.id]?.enabled !== false;
-                  const slidersDisabled = warningShowAll || !proximityOn || !drivingMode;
-                  const previewOpacity = warningSettings[item.id]?.minOpacity ?? 0.1;
                   const isZone = item.id.startsWith('zone_');
+                  // iOS segmented control-stil
+                  const segWrap: React.CSSProperties = { display: 'flex', background: 'rgba(118,118,128,0.24)', borderRadius: 9, padding: 2, gap: 2 };
+                  const segBtn = (active: boolean): React.CSSProperties => ({
+                    flex: 1, minHeight: 32, padding: '6px 8px', borderRadius: 7, border: 'none',
+                    background: active ? '#fff' : 'transparent',
+                    color: active ? '#000' : 'rgba(255,255,255,0.85)',
+                    fontSize: '13px', fontWeight: active ? 600 : 500, cursor: 'pointer', fontFamily: 'inherit',
+                  });
+                  const curWarn = warningSettings[item.id]?.warnDist || item.defaultWarn;
+                  const warnPresets = [{ label: 'Nära', value: 30 }, { label: 'Medel', value: 50 }, { label: 'Långt', value: 80 }];
+                  const pickClosest = <T extends { value: number }>(presets: T[], cur: number) =>
+                    presets.reduce((best, p) => Math.abs(p.value - cur) < Math.abs(best.value - cur) ? p : best, presets[0]).value;
                   return (
                   <div key={item.id} style={{
                     padding: '14px 16px',
                     borderRadius: '12px',
                   }}>
-                    {/* Kategorinamn + preview-ikon */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    {/* Kategorinamn */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
                       {isZone ? (
                         <div style={{
                           width: '28px',
@@ -18339,8 +17682,6 @@ export default function PlannerPage() {
                           background: `${item.color}30`,
                           border: `2px solid ${item.color}`,
                           flexShrink: 0,
-                          opacity: previewOpacity,
-                          transition: 'opacity 0.15s ease',
                         }} />
                       ) : (
                         <div style={{
@@ -18350,116 +17691,23 @@ export default function PlannerPage() {
                           background: item.color,
                           border: item.color.startsWith('rgba') ? '2px solid rgba(255,255,255,0.3)' : '2px solid rgba(255,255,255,0.8)',
                           flexShrink: 0,
-                          opacity: previewOpacity,
-                          transition: 'opacity 0.15s ease',
                         }} />
                       )}
                       <span style={{ flex: 1, fontSize: '15px', color: '#fff', fontWeight: '500' }}>{item.name}</span>
                     </div>
-                    {/* Avståndsdämpning toggle */}
-                    <div
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (warningShowAll) return;
-                        setWarningSettings(prev => ({
-                          ...prev,
-                          [item.id]: { ...prev[item.id], enabled: !proximityOn },
-                        }));
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        marginBottom: proximityOn && !(warningShowAll && drivingMode) ? '12px' : '0',
-                        cursor: warningShowAll ? 'default' : 'pointer',
-                        opacity: warningShowAll ? 0.3 : 1,
-                      }}
-                    >
-                      <div style={{
-                        width: '36px',
-                        height: '20px',
-                        borderRadius: '10px',
-                        background: proximityOn ? '#30d158' : 'rgba(255,255,255,0.1)',
-                        padding: '2px',
-                        transition: 'background 0.2s ease',
-                        flexShrink: 0,
-                      }}>
-                        <div style={{
-                          width: '16px',
-                          height: '16px',
-                          borderRadius: '50%',
-                          background: '#fff',
-                          transform: proximityOn ? 'translateX(16px)' : 'translateX(0)',
-                          transition: 'transform 0.2s ease',
-                        }} />
+                    {/* Varningsavstånd */}
+                    <div>
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Varningsavstånd</div>
+                      <div style={segWrap}>
+                        {warnPresets.map(p => (
+                          <button key={p.value} type="button" className="btn-press" data-testid={`varning-${item.id}-${p.value}`}
+                            onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { warnDist: p.value } }))}
+                            style={segBtn(pickClosest(warnPresets, curWarn) === p.value)}>
+                            {p.label} <span style={{ opacity: 0.6, fontSize: '12px' }}>{p.value}m</span>
+                          </button>
+                        ))}
                       </div>
-                      <span style={{ fontSize: '13px', color: proximityOn ? '#8e8e93' : 'rgba(255,255,255,0.35)' }}>
-                        {proximityOn ? 'Avståndsdämpning på' : 'Alltid synlig'}
-                      </span>
                     </div>
-                    {/* Sliders — visas om proximity är på och master toggle inte overridar */}
-                    {proximityOn && !(warningShowAll && drivingMode) && (<>
-                    {!drivingMode && (
-                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.25)', marginBottom: '8px', fontStyle: 'italic' }}>
-                        Avståndsinställningar gäller i körläge
-                      </div>
-                    )}
-                    {(() => {
-                      // iOS segmented control-stil för warning-inställningar
-                      const segWrap: React.CSSProperties = { display: 'flex', background: 'rgba(118,118,128,0.24)', borderRadius: 9, padding: 2, gap: 2 };
-                      const segBtn = (active: boolean): React.CSSProperties => ({
-                        flex: 1, minHeight: 32, padding: '6px 8px', borderRadius: 7, border: 'none',
-                        background: active ? '#fff' : 'transparent',
-                        color: active ? '#000' : 'rgba(255,255,255,0.85)',
-                        fontSize: '13px', fontWeight: active ? 600 : 500, cursor: 'pointer', fontFamily: 'inherit',
-                      });
-                      const curWarn = warningSettings[item.id]?.warnDist || item.defaultWarn;
-                      const curFade = warningSettings[item.id]?.fadeDist || item.defaultFade;
-                      const curOpacity = warningSettings[item.id]?.minOpacity ?? 0.1;
-                      const warnPresets = [{ label: 'Nära', value: 30 }, { label: 'Medel', value: 50 }, { label: 'Långt', value: 80 }];
-                      const fadePresets = [{ label: 'Nära', value: 100 }, { label: 'Medel', value: 250 }, { label: 'Långt', value: 500 }];
-                      const opacityPresets = [{ label: 'Låg', value: 0.1 }, { label: 'Medel', value: 0.4 }, { label: 'Hög', value: 0.7 }];
-                      const pickClosest = <T extends { value: number }>(presets: T[], cur: number) =>
-                        presets.reduce((best, p) => Math.abs(p.value - cur) < Math.abs(best.value - cur) ? p : best, presets[0]).value;
-                      return (
-                        <div style={{ opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
-                          {/* Varningsavstånd */}
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Varningsavstånd</div>
-                            <div style={segWrap}>
-                              {warnPresets.map(p => (
-                                <button key={p.value} type="button" className="btn-press" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], warnDist: p.value } }))} style={segBtn(pickClosest(warnPresets, curWarn) === p.value)}>
-                                  {p.label} <span style={{ opacity: 0.6, fontSize: '12px' }}>{p.value}m</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          {/* Synlighetsavstånd */}
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighetsavstånd</div>
-                            <div style={segWrap}>
-                              {fadePresets.map(p => (
-                                <button key={p.value} type="button" className="btn-press" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], fadeDist: p.value } }))} style={segBtn(pickClosest(fadePresets, curFade) === p.value)}>
-                                  {p.label} <span style={{ opacity: 0.6, fontSize: '12px' }}>{p.value}m</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          {/* Synlighet på avstånd */}
-                          <div>
-                            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighet på avstånd</div>
-                            <div style={segWrap}>
-                              {opacityPresets.map(p => (
-                                <button key={p.value} type="button" className="btn-press" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], minOpacity: p.value } }))} style={segBtn(pickClosest(opacityPresets, curOpacity) === p.value)}>
-                                  {p.label} <span style={{ opacity: 0.6, fontSize: '12px' }}>{Math.round(p.value * 100)}%</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                    </>)}
                   </div>
                   );
                 })}
@@ -19631,54 +18879,6 @@ export default function PlannerPage() {
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
-                  {/* Körläge */}
-                  <div
-                    onClick={() => {
-                      setDrivingMode(!drivingMode);
-                      if (!drivingMode) {
-                        setAcknowledgedWarnings([]);
-                        playedWarningsRef.current.clear();
-                      }
-                    }}
-                    style={{
-                      padding: '16px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
-                        <rect x="1" y="6" width="15" height="10" rx="1" />
-                        <path d="M16 10 L20 10 L22 14 L22 16 L16 16 L16 10" />
-                        <circle cx="6" cy="18" r="2" />
-                        <circle cx="18" cy="18" r="2" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Körläge</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Varningar och navigation</div>
-                    </div>
-                    <div style={{
-                      width: '44px',
-                      height: '26px',
-                      borderRadius: '13px',
-                      background: drivingMode ? '#30d158' : 'rgba(255,255,255,0.1)',
-                      padding: '2px',
-                      transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{
-                        width: '22px',
-                        height: '22px',
-                        borderRadius: '50%',
-                        background: '#fff',
-                        transform: drivingMode ? 'translateX(18px)' : 'translateX(0)',
-                        transition: 'transform 0.2s ease',
-                      }} />
-                    </div>
-                  </div>
 
                   {/* Kompass */}
                   <div
@@ -20840,124 +20040,6 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === KÖRLÄGE VARNING === */}
-      {drivingMode && activeWarning && (
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            width: '100vw',
-            height: '100vh',
-            background: '#ff453a',
-            zIndex: 9999,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            animation: 'warningFlash 0.5s ease-in-out infinite alternate',
-          }}
-        >
-          {/* VARNING text överst */}
-          <div style={{ 
-            fontSize: '28px', 
-            fontWeight: '700', 
-            color: '#fff',
-            marginBottom: '30px',
-            textShadow: '0 2px 10px rgba(0,0,0,0.5)',
-          }}>
-            ⚠️ VARNING ⚠️
-          </div>
-          
-          {/* Stor ikon */}
-          <div style={{ 
-            fontSize: '120px', 
-            marginBottom: '20px',
-            filter: 'drop-shadow(0 4px 20px rgba(0,0,0,0.5))',
-          }}>
-            {activeWarning.icon}
-          </div>
-          
-          {/* Namn */}
-          <div style={{ 
-            fontSize: '42px', 
-            fontWeight: '700', 
-            color: '#fff',
-            marginBottom: '10px',
-            textShadow: '0 2px 10px rgba(0,0,0,0.5)',
-          }}>
-            {activeWarning.name}
-          </div>
-          
-          {/* Avstånd */}
-          <div style={{ 
-            fontSize: '80px', 
-            fontWeight: '700', 
-            color: '#fff',
-            marginBottom: '20px',
-            textShadow: '0 4px 20px rgba(0,0,0,0.5)',
-          }}>
-            {activeWarning.distance}m
-          </div>
-          
-          {/* Kommentar */}
-          {activeWarning.comment && (
-            <div style={{ 
-              fontSize: '22px', 
-              fontWeight: '600',
-              color: '#fff',
-              marginBottom: '20px',
-              padding: '16px 24px',
-              background: 'rgba(0,0,0,0.4)',
-              borderRadius: '12px',
-              maxWidth: '85%',
-              textAlign: 'center',
-            }}>
-              {activeWarning.comment}
-            </div>
-          )}
-          
-          {/* Foto - klickbart för fullskärm */}
-          {activeWarning.photoData && (
-            <img 
-              src={activeWarning.photoData} 
-              alt="Foto" 
-              onClick={() => setFullscreenPhoto(activeWarning.photoData || null)}
-              style={{
-                width: '85%',
-                maxWidth: '320px',
-                maxHeight: '180px',
-                objectFit: 'cover',
-                borderRadius: '16px',
-                marginBottom: '20px',
-                border: '4px solid #fff',
-                cursor: 'pointer',
-              }}
-            />
-          )}
-          
-          {/* Kvittera-knapp */}
-          <button
-            onClick={acknowledgeWarning}
-            style={{
-              padding: '28px 100px',
-              borderRadius: '24px',
-              border: 'none',
-              background: '#fff',
-              color: '#ff453a',
-              fontSize: '28px',
-              fontWeight: '700',
-              cursor: 'pointer',
-              marginTop: '20px',
-
-            }}
-          >
-            ✓ KVITTERA
-          </button>
-        </div>
-      )}
 
       {/* === CHECKLISTA === */}
       {checklistOpen && (
@@ -22560,138 +21642,6 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === SIMULERAD POSITION KONTEXTMENY === */}
-      {showSimPosMenu && (
-        <div
-          onClick={() => setShowSimPosMenu(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 600,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: 'absolute',
-              left: Math.min(showSimPosMenu.x, window.innerWidth - 220),
-              top: Math.min(showSimPosMenu.y, window.innerHeight - 120),
-              background: '#1a1a1a',
-              border: '1px solid rgba(255,255,255,0.15)',
-              borderRadius: '12px',
-              padding: '4px',
-              minWidth: '200px',
-
-            }}
-          >
-            <div
-              onClick={() => {
-                console.log(`[SimPos] Sätter simulerad position: ${showSimPosMenu.lat.toFixed(5)}, ${showSimPosMenu.lng.toFixed(5)}, drivingMode=${drivingMode}`);
-                setSimulatedPos({ lat: showSimPosMenu.lat, lng: showSimPosMenu.lng });
-                setShowSimPosMenu(null);
-              }}
-              style={{
-                padding: '12px 16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                color: '#fff',
-                fontSize: '13px',
-              }}
-            >
-              <span style={{ fontSize: '17px' }}>📍</span>
-              Sätt min position här
-            </div>
-            {simulatedPos && (
-              <div
-                onClick={() => {
-                  setSimulatedPos(null);
-                  setShowSimPosMenu(null);
-                }}
-                style={{
-                  padding: '12px 16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  color: '#ff453a',
-                  fontSize: '13px',
-                }}
-              >
-                <span style={{ fontSize: '17px' }}>✕</span>
-                Ta bort simulerad position
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Simulerad position indikator (liten badge) */}
-      {simulatedPos && (
-        <div style={{
-          position: 'fixed',
-          top: '55px',
-          right: '12px',
-          background: '#f59e0b',
-          color: '#000',
-          padding: '6px 12px',
-          borderRadius: '16px',
-          fontSize: '13px',
-          fontWeight: '700',
-          zIndex: 400,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          cursor: 'pointer',
-
-        }} onClick={() => setSimulatedPos(null)}>
-          📍 SIM-POSITION
-          <span style={{ opacity: 0.7 }}>✕</span>
-        </div>
-      )}
-
-      {/* Proximity debug panel (tryck D för att visa) */}
-      {drivingMode && showDebugPanel && (
-        <div style={{
-          position: 'fixed',
-          top: simulatedPos ? '90px' : '55px',
-          right: '8px',
-          background: 'rgba(0,0,0,0.9)',
-          color: '#fff',
-          padding: '8px 10px',
-          borderRadius: '10px',
-          fontSize: '13px',
-          fontFamily: 'monospace',
-          zIndex: 400,
-          maxWidth: '260px',
-          lineHeight: '1.5',
-          border: `2px solid ${effectiveUserPos ? '#30d158' : '#ff453a'}`,
-
-        }}>
-          <div style={{ fontWeight: '700', fontSize: '13px', color: effectiveUserPos ? '#30d158' : '#ff453a', marginBottom: '4px' }}>
-            PROXIMITY DEBUG
-          </div>
-          <div>drivingMode: <span style={{ color: '#30d158' }}>true</span></div>
-          <div>warningShowAll: <span style={{ color: warningShowAll ? '#ff453a' : '#30d158' }}>{String(warningShowAll)}</span></div>
-          <div>effectiveUserPos: <span style={{ color: effectiveUserPos ? '#30d158' : '#ff453a' }}>
-            {effectiveUserPos ? `${effectiveUserPos.latLng.lat.toFixed(5)},${effectiveUserPos.latLng.lng.toFixed(5)}` : 'NULL'}
-          </span></div>
-          <div>userSvg: {effectiveUserPos?.svg ? `x=${effectiveUserPos.svg.x.toFixed(0)},y=${effectiveUserPos.svg.y.toFixed(0)}` : 'null'}</div>
-          <div>simulatedPos: {simulatedPos ? `${simulatedPos.lat.toFixed(5)},${simulatedPos.lng.toFixed(5)}` : 'null'}</div>
-          <div>gpsPosition: <span style={{ color: gpsPosition ? '#30d158' : '#ff453a' }}>{gpsPosition ? `${gpsPosition.lat.toFixed(5)},${gpsPosition.lng.toFixed(5)}` : 'NULL'}</span></div>
-          <div>isTracking: {String(isTracking)}</div>
-          <div>markers: {markers.length} (isMarker: {markers.filter(m => m.isMarker).length})</div>
-          <div>scale: {scale.toFixed(3)} m/px</div>
-          <div>tick: {proximityTick}</div>
-          <div>cats enabled: {Object.entries(warningSettings).filter(([k]) => !k.startsWith('_')).map(([k, v]) => `${k.slice(0,4)}:${v.enabled !== false ? 'Y' : 'N'}`).join(' ')}</div>
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: '4px', paddingTop: '4px', color: '#f59e0b', wordBreak: 'break-all' }}>
-            {lastProximityDebugRef.current || 'Ingen beräkning ännu'}
-          </div>
-        </div>
-      )}
 
       {/* === ANIMATIONS === */}
       <style>{`
@@ -23005,57 +21955,6 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === TRAKTANALYS: Körläge sammanfattning === */}
-      {drivingMode && (() => {
-        const allHits = Object.values(tractAnalysis)
-          .filter(a => a.status === 'done' && a.hits.length > 0)
-          .flatMap(a => a.hits);
-        if (allHits.length === 0) return null;
-        const summary = new Map<string, number>();
-        for (const h of allHits) {
-          summary.set(h.type, (summary.get(h.type) || 0) + 1);
-        }
-        const typeLabels: Record<string, string> = {
-          vattenskydd: 'vattenskyddsområde',
-          naturreservat: 'naturreservat',
-          natura2000: 'Natura 2000',
-          fornlamning: 'fornlämning',
-          nyckelbiotop: 'nyckelbiotop',
-          biotopskydd: 'biotopskydd',
-          skogochhistoria: 'kulturlämning',
-        };
-        const parts = [...summary.entries()].map(([type, count]) => {
-          const label = typeLabels[type] || type;
-          return count > 1 ? `${count} ${label}` : label;
-        });
-        return (
-          <div
-            onClick={() => {
-              const firstBoundaryWithHits = Object.entries(tractAnalysis).find(([, a]) => a.status === 'done' && a.hits.length > 0);
-              if (firstBoundaryWithHits) setTractAnalysisOpen(firstBoundaryWithHits[0]);
-            }}
-            style={{
-              position: 'fixed',
-              top: '60px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 500,
-              background: 'rgba(239,68,68,0.9)',
-              color: '#fff',
-              padding: '8px 16px',
-              borderRadius: '10px',
-              fontSize: '13px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              maxWidth: '90vw',
-              textAlign: 'center',
-
-            }}>
-            ⚠️ Denna trakt har: {parts.join(', ')}
-          </div>
-        );
-      })()}
-
       {/* Autospar av avlägg/brand/TMA kunde inte läsa sparade uppgifter → ändringar där sparas inte; säg det och låt föraren försöka igen */}
       {valtObjekt?.id && delarSomText(autosparFel) !== '' && (
         <div data-testid="autospar-fel" style={{
@@ -23118,7 +22017,6 @@ export default function PlannerPage() {
             supabase.from('objekt_kvittering')
               .upsert({ objekt_id: valtObjekt.id, roll: minRoll, ...patch, updated_at: at }, { onConflict: 'objekt_id,roll' })
               .then(({ error }) => { if (error) console.error('[Kvittering] Kvitto-fel:', error); });
-            // Körläge slås på automatiskt: kvitterat_at satt ⇒ härlednings-effekten (L1285) sätter drivingMode.
           }}
           isAdmin={isAdminRiktig}
           onNollstall={(roll: 'skordare' | 'skotare') => {
@@ -23134,7 +22032,7 @@ export default function PlannerPage() {
             // 2) rensa rollens rad → tillbaka till att-göra (kvitto + checked_ids nollas)
             const cleared = { checked_ids: [] as string[], kvitterat_av_id: null, kvitterat_av_namn: null, kvitterat_at: null };
             const setter = roll === 'skordare' ? setKvittSkordare : setKvittSkotare;
-            setter(() => ({ ...cleared }));   // optimistiskt → härlednings-effekten drar körläge till false
+            setter(() => ({ ...cleared }));   // optimistiskt
             supabase.from('objekt_kvittering')
               .upsert({ objekt_id: valtObjekt.id, roll, ...cleared, updated_at: at }, { onConflict: 'objekt_id,roll' })
               .then(({ error }) => { if (error) console.error('[Kvittering] Nollställ fel:', error); });
