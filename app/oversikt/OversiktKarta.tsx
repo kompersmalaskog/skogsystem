@@ -977,9 +977,24 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       const { data: maskinerData } = await supabase.from('dim_maskin').select('*').order('modell');
       if (!cancelled && maskinerData) setMaskiner(maskinerData as Maskin[]);
 
+      // Hämta BARA de fem fält som klassning/kommentar läser — aldrig hela data. Raderna kan bära
+      // base64-foto i data.photoData (~9 MB/st); ett select('data') över alla objekt gav timeout.
       const { data: mk } = await supabase
-        .from('planering_markeringar').select('objekt_id, typ, data');
-      if (!cancelled && mk) setMarkeringar(mk as MarkeringRow[]);
+        .from('planering_markeringar')
+        .select('objekt_id, typ, d_type:data->>type, d_zone:data->>zoneType, d_line:data->>lineType, d_arrow:data->>arrowType, d_comment:data->>comment')
+        .order('id', { ascending: true });
+      if (!cancelled && mk) {
+        // Bygg tillbaka samma form som resten av koden läser (data.type …); null-fält utelämnas.
+        setMarkeringar((mk as any[]).map((r) => {
+          const data: Record<string, string> = {};
+          if (r.d_type) data.type = r.d_type;
+          if (r.d_zone) data.zoneType = r.d_zone;
+          if (r.d_line) data.lineType = r.d_line;
+          if (r.d_arrow) data.arrowType = r.d_arrow;
+          if (r.d_comment) data.comment = r.d_comment;
+          return { objekt_id: r.objekt_id, typ: r.typ, data } as MarkeringRow;
+        }));
+      }
     })();
     return () => { cancelled = true; };
   }, [refetchObjekt, refetchKo]);
