@@ -32,7 +32,14 @@ export const BLA = '#5b8fff';
 export const LINJE = '1px solid rgba(255,255,255,0.08)';
 export const TAL = { fontFamily: "'Fraunces', serif" } as const;
 export const MUTED = { color: SEKUNDAR, fontSize: 12 } as const;
+/** Innehållets maxbredd. Formen är ritad för en telefon: på en dator sträcks raderna annars över hela fönstret och talen
+ *  hamnar långt från sina etiketter. */
+export const BREDD = 480;
+/** Sidans ruta. Bakgrunden går över hela fönstret, innehållet är en centrerad kolumn på högst BREDD px — gäller varje
+ *  vy som lägger SIDA som yttersta ruta, på ett ställe. Sidopaddingen är hälften av det som blir över, och noll under BREDD
+ *  (en telefon är oförändrad). Procent i padding räknas mot förälderns bredd. */
 export const SIDA = { background: '#111110', minHeight: '100vh', paddingTop: 56, paddingBottom: 90,
+                      paddingLeft: `max(0px, calc((100% - ${BREDD}px) / 2))`, paddingRight: `max(0px, calc((100% - ${BREDD}px) / 2))`,
                       color: TEXT, fontFamily: "'Geist', system-ui, sans-serif" } as const;
 /** Osynlig native-väljare ovanpå en textrad: iOS-plockaren, men raden ser ut som text. */
 const OVERLAY = { position: 'absolute' as const, inset: 0, width: '100%', height: '100%', opacity: 0,
