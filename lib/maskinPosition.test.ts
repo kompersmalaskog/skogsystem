@@ -291,6 +291,13 @@ describe('valjFlygPos — dit kameran flyger', () => {
     expect(valjFlygPos({ atgardTyp: 'tilldelat', kalla: 'lokal', pos, objekt: { lat: null, lng: 15 } })).toEqual(pos);
     expect(valjFlygPos({ atgardTyp: 'tilldelat', kalla: 'lokal', pos, objekt: { lat: 'x', lng: 15 } })).toEqual(pos);
     expect(valjFlygPos({ atgardTyp: 'tilldelat', kalla: 'lokal', pos, objekt: null })).toEqual(pos);
+  });
+
+  it('förarens senast valda objekt utan riktig fix → flyg till objektet självt (som tilldelat); med riktig fix → maskinens position', () => {
+    expect(valjFlygPos({ atgardTyp: 'senaste', kalla: 'lokal', pos, objekt })).toEqual({ lat: 56.2, lon: 15.2 });
+    expect(valjFlygPos({ atgardTyp: 'senaste', kalla: 'hyttspar', pos, objekt })).toEqual({ lat: 56.2, lon: 15.2 });
+    expect(valjFlygPos({ atgardTyp: 'senaste', kalla: null, pos: null, objekt })).toEqual({ lat: 56.2, lon: 15.2 });
+    expect(valjFlygPos({ atgardTyp: 'senaste', kalla: 'fix', pos, objekt })).toEqual(pos);
     expect(valjFlygPos({ atgardTyp: 'tilldelat', kalla: null, pos: null, objekt: { lat: undefined, lng: undefined } })).toBeNull();
   });
 });

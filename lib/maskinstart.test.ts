@@ -91,6 +91,22 @@ describe('svartInfo — vad svart skärm säger om sig själv', () => {
   });
 });
 
+describe('svartInfo — INVARIANT: ren svart skärm står aldrig över 1 s (alla namn × orsaker × tider)', () => {
+  it('från SVART_INFO_MS finns alltid innehåll (gran/förloppsrad); från SVART_STATUS_MS även en text', () => {
+    const tider = [0, 1, 999, 1000, 1001, 2500, 9999, 10000, 10001, 30000, 120000];
+    for (const namn of [null, undefined, '', '   ', 'Elefant 26']) {
+      for (const vad of ['nat', 'position', 'karta'] as const) {
+        for (const t of tider) {
+          const i = svartInfo({ sedanNavigeringMs: t, namn, vad });
+          if (t >= SVART_INFO_MS) expect(i.forlopp, `${String(namn)}/${vad}/${t}`).toBe(true);
+          if (t >= SVART_STATUS_MS) expect(i.text, `${String(namn)}/${vad}/${t}`).toBeTruthy();
+          if (t < SVART_INFO_MS) expect(i).toEqual({ namn: null, forlopp: false, text: null });
+        }
+      }
+    }
+  });
+});
+
 describe('svartVad — vad dröjer?', () => {
   it('utan nät är det nätet, oavsett annat', () => {
     expect(svartVad({ online: false, kartaFinns: false })).toBe('nat');
