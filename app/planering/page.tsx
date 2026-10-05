@@ -52,7 +52,8 @@ import { beslutaMaskinSom, maskinSomFelText, VANTA_MAX_MS } from '../../lib/mask
 import { StartSvartSkarm, MaskinSomFelSkarm, MaskinFelSkarm } from '../../components/maskin/StartSkarmar'
 import { VilkenMaskinSkarm } from '../../components/maskin/VilkenMaskinSkarm'
 import { typLabel } from '../../lib/objekt/typ'
-import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPosition, valjSerialPort, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
+import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPosition, valjSerialPort, sattBaudValOchStartaOm, formateraFordrojning, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
+import { BAUDRATER, hamtaBaudVal, hamtaHittadBaud, effektivBaud, type BaudVal } from '../../lib/gpsBaud'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
@@ -3038,6 +3039,13 @@ export default function PlannerPage() {
   const [serialGpsAktiv, setSerialGpsAktiv] = useState<boolean>(() => serialGpsVald());   // användaren har valt serial-GPS
   const [valjerPort, setValjerPort] = useState(false);   // portval pågår (knapp i inställningar)
   const [portFel, setPortFel] = useState<string | null>(null);
+  // Serial-GPS: baudrate per enhet (lib/gpsBaud) + åldersvakten. Client-only (localStorage) → läses i effekt, inte i initializern.
+  const [gpsBaudVal, setGpsBaudValState] = useState<BaudVal>('auto');
+  const [gpsBaudHittad, setGpsBaudHittad] = useState<number | null>(null);   // baudrate Auto hittade vid senaste portval
+  const [provarBaud, setProvarBaud] = useState<number | null>(null);          // portval/Auto provar just nu den här baudraten
+  // GPS-data är fördröjd: NMEA-tiden (GGA/RMC) ligger så här många ms EFTER datorns klocka (lib/gpsKalla, > 30 s). null = inte fördröjd.
+  const [gpsFordrojdMs, setGpsFordrojdMs] = useState<number | null>(null);
+  useEffect(() => { setGpsBaudValState(hamtaBaudVal()); setGpsBaudHittad(hamtaHittadBaud()); }, []);
   const [webSerialStott, setWebSerialStott] = useState(false);   // client-only → undvik hydration-mismatch
   useEffect(() => { setWebSerialStott(harWebSerial()); }, []);
   // Enhet→maskin: vilken maskin ÄR den här datorn (maskindatorn). localStorage per enhet.
@@ -3265,12 +3273,19 @@ export default function PlannerPage() {
   const valjGpsPort = useCallback(async () => {
     setPortFel(null); setValjerPort(true);
     try {
-      const res = await valjSerialPort();
+      // Auto provar baudraterna högst först tills giltiga meningar kommer (visas som "Testar N baud…"); fast baudrate öppnar med den.
+      const res = await valjSerialPort((baud) => setProvarBaud(baud));
+      setGpsBaudHittad(hamtaHittadBaud());
       if (res.ok) { setSerialGpsAktiv(true); setPortFel(null); }   // dep → passiva watchern startar om på serial
       else { setPortFel(res.fel || 'Ingen GPS på denna port.'); }
-    } finally { setValjerPort(false); }
+    } finally { setValjerPort(false); setProvarBaud(null); }
   }, []);
-  const kopplaBortGpsPort = useCallback(() => { glomSerialGps(); setSerialGpsAktiv(false); setPortFel(null); setGpsFixFarsk(true); }, []);
+  // Baudrate bytt i GPS-källa-kortet: spara per enhet och starta om serial-källan med den (porten stängs och öppnas på nytt).
+  const bytGpsBaud = useCallback((val: BaudVal) => {
+    setGpsBaudValState(val);
+    void sattBaudValOchStartaOm(val);
+  }, []);
+  const kopplaBortGpsPort = useCallback(() => { glomSerialGps(); setSerialGpsAktiv(false); setPortFel(null); setGpsFixFarsk(true); setGpsFordrojdMs(null); }, []);
 
   // === PASSIV GPS-WATCHER (sätter currentPosition automatiskt vid mount) ===
   // Befintliga toggleTracking/startGpsTracking startar SINA EGNA watchers för
@@ -3297,8 +3312,12 @@ export default function PlannerPage() {
         if (fix.kurs != null) setGpsHeading(((fix.kurs % 360) + 360) % 360);
         sisteGiltig.t = Date.now();
         setGpsFixFarsk(true);
+        setGpsFordrojdMs(null);
       } else if (!fix.giltig) {
         setGpsFixFarsk(false);   // fix tappad → dämpa; currentPosition rörs ej (inga punkter loggas)
+        // Åldersvakten (lib/gpsKalla): NMEA-tiden släpar > 30 s efter datorns klocka → "GPS-data är fördröjd" i st.f. "Ingen GPS-fix".
+        // En gammal kö ger giltig=false → hamnar här, så position/hyttspår rörs inte av den.
+        setGpsFordrojdMs(fix.fordrojd ? (fix.nmeaAlderMs ?? 0) : null);
       }
     }, { highAccuracy: true });
     setGpsKallaTyp(handle.typ);
@@ -8365,6 +8384,7 @@ export default function PlannerPage() {
     const fixTid = gpsFixAt ? new Date(gpsFixAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
     const gpsText = felKod != null
       ? (felKod === 1 ? 'GPS: tillåt plats i Inställningar' : 'GPS-fel — tryck för att försöka igen')
+      : gpsFordrojdMs != null ? `GPS-data är fördröjd (${formateraFordrojning(gpsFordrojdMs)})`
       : soker ? 'GPS söker…'
       : korvyEffectivePos ? `GPS ${fixTid ?? ''}${ageMin != null && ageMin > 0 ? ` · ${ageMin} min sedan` : ''}`.trim()
       : 'Ingen GPS-position — tryck för att söka';
@@ -8373,7 +8393,7 @@ export default function PlannerPage() {
     const dataTid = markersUppdateradAt != null ? new Date(markersUppdateradAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
     const dataText = markersUppdaterar ? 'Kartdata hämtar…' : (dataTid ? `Kartdata ${dataTid}${dataGammal ? ` · ${Math.floor(dataAlder ?? 0)} min` : ''}` : 'Kartdata ej hämtad');
     const harProblem = felKod != null;   // RÖTT: äkta GPS-fel (nekad/otillgänglig) — kräver åtgärd
-    const harVarning = !harProblem && (gpsGammal || dataGammal || !korvyEffectivePos); // GULT: gammal fix/kartdata eller ännu ingen fix (söker)
+    const harVarning = !harProblem && (gpsGammal || dataGammal || !korvyEffectivePos || gpsFordrojdMs != null); // GULT: gammal fix/kartdata eller ännu ingen fix (söker)
     return { gpsText, felKod, soker, gpsGammal, dataText, dataGammal, harProblem, harVarning };
   })();
 
@@ -15293,7 +15313,7 @@ export default function PlannerPage() {
       {/* "Ingen GPS-fix" — serial-GPS (maskindator) har tappat fix (rule 4). Pricken är redan dämpad. */}
       {serialGpsAktiv && !gpsFixFarsk && korvyActive && !startOverlayAktiv && (
         <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(255,159,10,0.92)', color: '#000', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-          Ingen GPS-fix
+          {gpsFordrojdMs != null ? `GPS-data är fördröjd (${formateraFordrojning(gpsFordrojdMs)})` : 'Ingen GPS-fix'}
         </div>
       )}
 
@@ -18818,14 +18838,14 @@ export default function PlannerPage() {
                     <div style={{ fontSize: '15px', color: '#fff', marginBottom: '4px' }}>GPS-källa</div>
                     <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '12px' }}>
                       {serialGpsAktiv
-                        ? (gpsKallaTyp === 'serial' ? 'Maskindatorns GPS (serieport)' + (gpsFixFarsk ? '' : ' — söker fix…') : 'Serieport vald (ansluter…)')
+                        ? (gpsKallaTyp === 'serial' ? 'Maskindatorns GPS (serieport)' + (gpsFixFarsk ? '' : (gpsFordrojdMs != null ? ` — GPS-data är fördröjd (${formateraFordrojning(gpsFordrojdMs)})` : ' — söker fix…')) : 'Serieport vald (ansluter…)')
                         : 'Inbyggd GPS. Välj serieport för maskindatorns 4G-GPS.'}
                     </div>
                     {portFel && (<div style={{ fontSize: '13px', color: '#ff453a', marginBottom: '10px' }}>{portFel}</div>)}
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                       <button type="button" disabled={valjerPort} onClick={valjGpsPort}
                         style={{ padding: '10px 16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: valjerPort ? 'rgba(255,255,255,0.06)' : 'rgba(10,132,255,0.15)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: valjerPort ? 'default' : 'pointer', fontFamily: 'inherit' }}>
-                        {valjerPort ? 'Testar port…' : (serialGpsAktiv ? 'Välj om port' : 'Välj GPS-port')}
+                        {valjerPort ? (provarBaud != null ? `Testar ${provarBaud} baud…` : 'Testar port…') : (serialGpsAktiv ? 'Välj om port' : 'Välj GPS-port')}
                       </button>
                       {serialGpsAktiv && !valjerPort && (
                         <button type="button" onClick={kopplaBortGpsPort}
@@ -18833,6 +18853,31 @@ export default function PlannerPage() {
                           Använd inbyggd GPS
                         </button>
                       )}
+                    </div>
+                    {/* Baudrate för serieporten (per enhet). En mottagare som skickar mer än porten hinner (Rottnes Quectel: GGA/RMC + GSV/GSA
+                        för GP/GL/GA/PQ varje sekund) bygger upp en kö → gamla positioner. Högre baudrate hinner med. Auto provar högst först
+                        vid portval och sparar den som fungerade; fast val öppnar alltid med den. Byte startar om källan direkt. */}
+                    <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '10px' }}>Baudrate (serieporten):</div>
+                      <select
+                        data-testid="gps-baud"
+                        value={String(gpsBaudVal)}
+                        disabled={valjerPort}
+                        onChange={(e) => bytGpsBaud(e.target.value === 'auto' ? 'auto' : (Number(e.target.value) as BaudVal))}
+                        style={{ width: '100%', padding: '11px 12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontFamily: 'inherit' }}
+                      >
+                        <option value="auto" style={{ color: '#000' }}>Auto — prova vid portval (högst först)</option>
+                        {BAUDRATER.map((b) => (
+                          <option key={b} value={String(b)} style={{ color: '#000' }}>{b}{b === 4800 ? ' (standard)' : ''}</option>
+                        ))}
+                      </select>
+                      <div data-testid="gps-baud-info" style={{ fontSize: '12px', opacity: 0.45, marginTop: '8px' }}>
+                        {gpsBaudVal === 'auto'
+                          ? (gpsBaudHittad != null
+                              ? `Auto: ${gpsBaudHittad} baud hittades vid portvalet. Välj om port för att prova igen.`
+                              : 'Auto: provas när du väljer port. Tills dess används 4800 baud.')
+                          : `Fast: porten öppnas med ${gpsBaudVal} baud (nu ${effektivBaud()}). Släpar GPS-datat efter — prova ett högre värde.`}
+                      </div>
                     </div>
                     {/* Enhet→maskin: vilken maskin ÄR den här datorn? Märker hyttspåret och (steg 2b)
                         driver maskindator-starten. webSerialStott-gated → bara maskindatorn. */}
