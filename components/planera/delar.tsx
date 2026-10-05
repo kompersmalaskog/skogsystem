@@ -1,9 +1,9 @@
 "use client";
 import React, { useState } from "react";
-import { AKTIVITETER, aktLabel, type AktivitetTyp } from "@/lib/aktiviteter";
-import { DAGENS_SLUT, KVART, PLANERA_TYPER, dagRubrik, debFor, kvartNarmast, minTillKlocka, nuKvartNarmast, nuMinut, timText } from "@/lib/planera/logik";
+import { AKTIVITETER, aktLabel } from "@/lib/aktiviteter";
+import { DAGENS_SLUT, KVART, PLANERA_TYPER, RAST_MAX_MIN, kvartNarmast, minTillKlocka, nuKvartNarmast, nuMinut, timText } from "@/lib/planera/logik";
 import {
-  arArbete, arbetadMin, bytTyp, andraDel, klippDel, stappaDel, taBortDel, traktForNyDel, type DagDel, type DelTyp,
+  arArbete, arbetadMin, bytTyp, andraDel, klippDel, laggTillRast, stappaDel, taBortDel, traktForNyDel, type DagDel, type DelTyp,
 } from "@/lib/planera/dag";
 import { TYP, VIKT, IKON, AVSTAND, RADIE, FARG, KNAPP, KORT, TRAFFYTA, TNUM, INAKTIV, DELFARG } from "@/lib/design/tokens";
 
@@ -57,6 +57,52 @@ export function RastFraga({ onIngen, onLagg }: { onIngen: () => void; onLagg: ()
   );
 }
 
+/**
+ * "Hur lång rast?" — efter "Lägg till rast". 15 · 30 · 45 · 60 min, INGEN förvald, och en knapp för annan längd
+ * (stegare i 5 min). Valet lägger rasten MITT i perioden (lib/planera/dag.laggTillRast) och den går att flytta efteråt;
+ * Spara finns inte förrän en längd valts. (Förr hamnade rasten på periodens slut och blev flera timmar om man inte
+ * flyttade den — Martin 2026-10-05.)
+ */
+export function RastLangd({ onVal, onTillbaka }: { onVal: (min: number) => void; onTillbaka: () => void }) {
+  const [annan, setAnnan] = useState<number | null>(null);
+  const stegKnapp = (ikon: string, etikett: string, paa: boolean, onClick: () => void) => (
+    <button type="button" aria-label={etikett} disabled={!paa} onClick={onClick}
+      style={{ width: 64, minHeight: TRAFFYTA.min, border: "none", borderRadius: RADIE.rad, cursor: "pointer", fontFamily: "inherit", background: FARG.fyllning, color: FARG.text, display: "inline-flex", alignItems: "center", justifyContent: "center", ...(paa ? {} : { opacity: 0.4, cursor: "default" }) }}>
+      <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>{ikon}</span>
+    </button>
+  );
+  return (
+    <div role="group" aria-label="Hur lång rast?" className="tona-in" style={{ marginTop: AVSTAND.l }}>
+      <p style={{ margin: 0, ...TYP.rubrik }}>Hur lång rast?</p>
+      <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Rasten läggs mitt i perioden — du kan flytta den efteråt.</p>
+      {annan == null ? (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: AVSTAND.s, marginTop: AVSTAND.m }}>
+            {[15, 30, 45, 60].map(m => (
+              <button key={m} type="button" aria-pressed={false} onClick={() => onVal(m)} style={{ ...KNAPP.sekundar, width: "auto", padding: 0 }}>{m} min</button>
+            ))}
+          </div>
+          <button type="button" onClick={() => setAnnan(60)} style={{ ...KNAPP.sekundar, marginTop: AVSTAND.s }}>Annan längd</button>
+        </>
+      ) : (
+        <>
+          <div role="group" aria-label="Annan längd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, marginTop: AVSTAND.m }}>
+            <span style={{ ...TYP.text, ...TNUM, color: FARG.text }}>Rast {annan} min</span>
+            <span style={{ display: "flex", gap: AVSTAND.s }}>
+              {stegKnapp("remove", "Kortare rast", annan > 5, () => setAnnan(a => Math.max(5, (a ?? 60) - 5)))}
+              {stegKnapp("add", "Längre rast", annan < RAST_MAX_MIN, () => setAnnan(a => Math.min(RAST_MAX_MIN, (a ?? 60) + 5)))}
+            </span>
+          </div>
+          <button type="button" onClick={() => onVal(annan)} style={{ ...KNAPP.primar, marginTop: AVSTAND.m }}>Lägg till rast {annan} min</button>
+        </>
+      )}
+      <div style={{ display: "flex", justifyContent: "center", marginTop: AVSTAND.xs }}>
+        <button type="button" onClick={() => (annan == null ? onTillbaka() : setAnnan(null))} style={KNAPP.tertiar}>Tillbaka</button>
+      </div>
+    </div>
+  );
+}
+
 const TYPER_SEGMENT: { key: DelTyp; label: string }[] = [
   ...PLANERA_TYPER.map(t => ({ key: t as DelTyp, label: (AKTIVITETER.find(a => a.typ === t)?.label ?? t).replace("Manuellt arbete", "Manuellt").replace("Markägarmöte", "Markägare") })),
   { key: "rast", label: "Rast" },
@@ -86,9 +132,9 @@ export default function DagRedigerare(p: {
   delar: DagDel[]; onDelar: (d: DagDel[]) => void;
   traktNamn: (id: string | null) => string | null;
   traktLista: (onVal: (id: string) => void) => React.ReactNode;
-  oppnaMed: "klipp" | "rast" | null;
+  oppnaMed: "klipp" | null;
   fel: string | null; sparar: boolean;
-  rastFraga: boolean; onRastSvar: (svar: "ingen" | "lagg") => void;
+  rastFraga: boolean; onRastSvar: (svar: "ingen") => void;
   onSpara: () => void; onTillbaka: () => void; tillbakaText: string;
 }) {
   // ── ALLA hooks först ──
@@ -96,14 +142,15 @@ export default function DagRedigerare(p: {
   const startKlipp = (typ: DelTyp | null): Klipp | null => {
     const ks = kandidater(p.delar);
     if (!ks.length) return null;
-    // "Lägg till rast": i den längsta arbetsdelen. Annars: den sista delen (det man oftast glömt att byta bort från).
-    const mal = typ === "rast"
-      ? [...ks].filter(arArbete).sort((a, b) => (b.slut - b.start) - (a.slut - a.start))[0] ?? ks[ks.length - 1]
-      : ks[ks.length - 1];
+    // Den sista delen (det man oftast glömt att byta bort från).
+    const mal = ks[ks.length - 1];
     return { nyckel: mal.nyckel, tid: mittITid(mal), typ, objektId: traktForNyDel(p.delar, mal.nyckel), till: mal.slut };
   };
-  const [klipp, setKlipp] = useState<Klipp | null>(() => (p.oppnaMed ? startKlipp(p.oppnaMed === "rast" ? "rast" : null) : null));
-  const [lage, setLage] = useState<Lage>(() => (p.oppnaMed && startKlipp(p.oppnaMed === "rast" ? "rast" : null) ? { k: "klipp" } : { k: "lista" }));
+  const [klipp, setKlipp] = useState<Klipp | null>(() => (p.oppnaMed ? startKlipp(null) : null));
+  const [lage, setLage] = useState<Lage>(() => (p.oppnaMed && startKlipp(null) ? { k: "klipp" } : { k: "lista" }));
+  // "Lägg till rast" på frågan → "Hur lång rast?" (15 · 30 · 45 · 60 · annan). Ingen längd är förvald.
+  const [langdVal, setLangdVal] = useState(false);
+  const [rastFel, setRastFel] = useState<string | null>(null);
   const [bekraftaBort, setBekraftaBort] = useState(false);
   const [kommentarOppen, setKommentarOppen] = useState<string | null>(null);
 
@@ -339,12 +386,15 @@ export default function DagRedigerare(p: {
 
       {p.fel && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>{p.fel}</p>}
 
+      {rastFel && p.rastFraga && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>{rastFel}</p>}
       {p.rastFraga
-        ? <RastFraga onIngen={() => p.onRastSvar("ingen")} onLagg={() => {
-            const k = startKlipp("rast");
-            if (k) { setKlipp(k); setLage({ k: "klipp" }); }
-            p.onRastSvar("lagg");
-          }} />
+        ? (langdVal
+          ? <RastLangd onTillbaka={() => { setLangdVal(false); setRastFel(null); }} onVal={min => {
+              const r = laggTillRast(p.delar, min);
+              if (r) { setLangdVal(false); setRastFel(null); p.onDelar(r); }
+              else setRastFel("Rasten får inte plats i någon arbetsdel.");
+            }} />
+          : <RastFraga onIngen={() => p.onRastSvar("ingen")} onLagg={() => setLangdVal(true)} />)
         : (
           <button type="button" onClick={() => { if (!p.sparar) p.onSpara(); }} aria-disabled={p.sparar}
             style={{ ...KNAPP.primar, marginTop: AVSTAND.l, ...(p.sparar ? INAKTIV : {}) }}>

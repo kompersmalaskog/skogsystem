@@ -10,8 +10,8 @@ import {
   traktGrupper, vanligSluttid, veckoDagar, datumKort, plusDagar, type Forslag, type PeriodRad,
 } from "@/lib/planera/logik";
 import { kvittoText, raderaPeriod, sparaDelar, sparaNyPeriod, uppdateraPeriod, type Bekraftelse, type NyPeriod } from "@/lib/planera/spara";
-import { behovFragaRast, delarFranRader, type DagDel } from "@/lib/planera/dag";
-import DagRedigerare, { RastFraga, Segment } from "./delar";
+import { behovFragaRast, delarFranRader, laggTillRast, type DagDel } from "@/lib/planera/dag";
+import DagRedigerare, { RastFraga, RastLangd, Segment } from "./delar";
 import { TYP, VIKT, IKON, AVSTAND, RADIE, FARG, KNAPP, KORT, TRAFFYTA, TNUM, INAKTIV, VY_ROT, designCss } from "@/lib/design/tokens";
 
 /**
@@ -122,8 +122,9 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
   const [avsluta, setAvsluta] = useState<{ id: string; slutMin: number; val: number | null; typ: AktivitetTyp; deb: boolean; kommentar: string; kOppen: boolean } | null>(null);
   // "Hade du rast?" visas i stället för Spara tills han svarat. 'avsluta' = Avsluta-sammanfattningen, 'tid' = skärm 2.
   const [rastFraga, setRastFraga] = useState<"avsluta" | "tid" | null>(null);
+  const [rastLangd, setRastLangd] = useState(false); // "Lägg till rast" → "Hur lång rast?" (15 · 30 · 45 · 60 · annan)
   // Klipp och rätta dagen: delarna, dagens rader som de låg i databasen när redigeraren öppnades, och var den öppnades ifrån.
-  const [dag, setDag] = useState<{ datum: string; gamla: PeriodRad[]; delar: DagDel[]; oppnaMed: "klipp" | "rast" | null; fran: "avsluta" | "tid" | "vecka"; rastFraga: boolean } | null>(null);
+  const [dag, setDag] = useState<{ datum: string; gamla: PeriodRad[]; delar: DagDel[]; oppnaMed: "klipp" | null; fran: "avsluta" | "tid" | "vecka"; rastFraga: boolean } | null>(null);
   const [dagFel, setDagFel] = useState<string | null>(null);
   const [startFel, setStartFel] = useState<string | null>(null);
   const [, setTick] = useState(0);
@@ -201,7 +202,8 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     startMin: klockaTillMin(foreslagenStart(perioder, datum, idag, nu)), slutMin: null, oppen: false,
     typ: "planering", deb: debFor("planering"), kommentar: "",
   });
-  const aterstall = () => { setFormFel(null); setKortFel(null); setKvitto(null); setBekraftaBort(false); setSteg(null); setDagBlad(false); setAvsluta(null); setStartFel(null); setRastFraga(null); setDag(null); setDagFel(null); };
+  const stangRastFraga = () => { setRastFraga(null); setRastLangd(false); };
+  const aterstall = () => { setFormFel(null); setKortFel(null); setKvitto(null); setBekraftaBort(false); setSteg(null); setDagBlad(false); setAvsluta(null); setStartFel(null); stangRastFraga(); setDag(null); setDagFel(null); };
   const valjTrakt = (id: string) => {
     aterstall(); setKommentarOppen(false);
     if (skarm === "byt") { setForm(f => (f ? { ...f, objektId: id } : nyttForm(id))); setSkarm("tid"); return; }
@@ -247,7 +249,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     const l = LANGDER.find(x => x.key === key);
     return l && f.startMin + l.min <= taket(f.datum) ? { ...f, slutMin: f.startMin + l.min, oppen: false } : f;
   });
-  const tillbaka = () => { setSkarm("trakt"); setForm(null); setFormFel(null); setStartFel(null); setBekraftaBort(false); setSteg(null); setDagBlad(false); setRastFraga(null); setDag(null); setDagFel(null); };
+  const tillbaka = () => { setSkarm("trakt"); setForm(null); setFormFel(null); setStartFel(null); setBekraftaBort(false); setSteg(null); setDagBlad(false); stangRastFraga(); setDag(null); setDagFel(null); };
   const bekrText = (b: Bekraftelse | undefined) => b === "bruten"
     ? " Dagen var bekräftad — den måste bekräftas igen under Dag eller Kalender."
     : b === "misslyckades" ? " Dagen var bekräftad men kunde inte låsas upp — öppna den under Dag eller Kalender och bekräfta om." : "";
@@ -269,7 +271,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     };
     const svar = form.redigerarId ? await uppdateraPeriod(supabase, medarbetare.id, form.redigerarId, p, nu) : await sparaNyPeriod(supabase, medarbetare.id, p, nu);
     setSparar(false);
-    if (!svar.ok) { setFormFel(svar.fel); setRastFraga(null); return; }
+    if (!svar.ok) { setFormFel(svar.fel); stangRastFraga(); return; }
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
     // Startad period: kortet "Pågår" på skärm 1 ÄR kvittot. Avslutad/sparad: kvitto ur databasens rad.
     await klarMedKvitto(p.slut == null ? null : `Sparat: ${kvittoText(svar.rad, traktNamn(form.objektId), idag)}${bekrText(svar.bekraftelse)}`);
@@ -326,7 +328,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     const startMin = klockaTillMin(hh(rad.start_tid));
     const v = vanligSl;
     const val = v && nuMinut(nu) - startMin > v.spann && v.slut > startMin && v.slut < nuMinut(nu) ? v.slut : null;
-    setRastFraga(null);
+    stangRastFraga();
     setAvsluta({ id: rad.id, slutMin: slut, val, typ: rad.aktivitet_typ as AktivitetTyp, deb: !!rad.debiterbar, kommentar: rad.kommentar || "", kOppen: !!rad.kommentar });
   };
   const sparaAvsluta = async (rad: PeriodRad) => {
@@ -334,10 +336,10 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     setKortFel(null); setSparar(true);
     const svar = await uppdateraPeriod(supabase, medarbetare.id, rad.id, { ...perAvRad(rad, minTillKlocka(avsluta.slutMin)), typ: avsluta.typ, deb: avsluta.deb, kommentar: avsluta.kommentar }, nu);
     setSparar(false);
-    if (!svar.ok) { setKortFel(svar.fel); setRastFraga(null); return; }
+    if (!svar.ok) { setKortFel(svar.fel); stangRastFraga(); return; }
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
     await hamtaPerioder(medarbetare.id);
-    setAvsluta(null); setRastFraga(null);
+    setAvsluta(null); stangRastFraga();
     setKvitto(`Sparat: ${kvittoText(svar.rad, traktNamn(rad.objekt_id), idag)}${bekrText(svar.bekraftelse)}`);
   };
 
@@ -347,22 +349,35 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     typ: f.typ, objektId: f.objektId, deb: f.deb, kommentar: f.kommentar, last: false,
   });
   /** Från Avsluta-sammanfattningen: den pågående perioden (start → slut) blir EN del som kan klippas. */
-  const klippFranAvsluta = (rast: boolean) => {
-    if (!oppenRad || !avsluta) return;
-    const del: DagDel = {
-      nyckel: `r:${oppenRad.id}`, radId: oppenRad.id, start: klockaTillMin(hh(oppenRad.start_tid)), slut: avsluta.slutMin,
-      typ: avsluta.typ, objektId: oppenRad.objekt_id, deb: avsluta.deb, kommentar: avsluta.kommentar, last: false,
-    };
-    setDagFel(null); setRastFraga(null);
-    setDag({ datum: oppenRad.datum, gamla: [oppenRad], delar: [del], oppnaMed: rast ? "rast" : "klipp", fran: "avsluta", rastFraga: false });
+  const avslutaDel = (): DagDel | null => (!oppenRad || !avsluta ? null : {
+    nyckel: `r:${oppenRad.id}`, radId: oppenRad.id, start: klockaTillMin(hh(oppenRad.start_tid)), slut: avsluta.slutMin,
+    typ: avsluta.typ, objektId: oppenRad.objekt_id, deb: avsluta.deb, kommentar: avsluta.kommentar, last: false,
+  });
+  const klippFranAvsluta = () => {
+    const del = avslutaDel();
+    if (!oppenRad || !del) return;
+    setDagFel(null); stangRastFraga();
+    setDag({ datum: oppenRad.datum, gamla: [oppenRad], delar: [del], oppnaMed: "klipp", fran: "avsluta", rastFraga: false });
+    setSkarm("dag");
+  };
+  /** "Lägg till rast" + vald längd (Avsluta): rasten läggs MITT i perioden; redigeraren öppnas med den på plats — inget sparat än. */
+  const rastFranAvsluta = (langd: number) => {
+    const del = avslutaDel();
+    if (!oppenRad || !del) return;
+    const delar = laggTillRast([del], langd);
+    if (!delar) { setKortFel("Rasten får inte plats i perioden."); stangRastFraga(); return; }
+    setDagFel(null); stangRastFraga();
+    setDag({ datum: oppenRad.datum, gamla: [oppenRad], delar, oppnaMed: null, fran: "avsluta", rastFraga: false });
     setSkarm("dag");
   };
   /** Från skärm 2 ("Lägg till rast" på frågan): perioden som just fyllts i blir EN del; ingenting är sparat än. */
-  const rastFranTid = () => {
+  const rastFranTid = (langd: number) => {
     if (!form || form.slutMin == null || !form.objektId) return;
+    const delar = laggTillRast([delFranForm(form, form.slutMin)], langd);
+    if (!delar) { setFormFel("Rasten får inte plats i perioden."); stangRastFraga(); return; }
     const gamla = form.redigerarId ? perioder.filter(x => x.id === form.redigerarId) : [];
-    setDagFel(null); setRastFraga(null);
-    setDag({ datum: form.datum, gamla, delar: [delFranForm(form, form.slutMin)], oppnaMed: "rast", fran: "tid", rastFraga: false });
+    setDagFel(null); stangRastFraga();
+    setDag({ datum: form.datum, gamla, delar, oppnaMed: null, fran: "tid", rastFraga: false });
     setSkarm("dag");
   };
   /** Från veckolistan: tryck på en dag → alla dagens delar (luckor mellan perioderna syns som rast). */
@@ -495,7 +510,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
           <p style={{ margin: 0, ...TYP.micro, color: FARG.gron }}>Avsluta</p>
           <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.rubrik }}>{namn}</p>
           <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.listtitel, ...TNUM, color: FARG.text }}>{sammanfattning}</p>
-          <button type="button" onClick={() => klippFranAvsluta(false)} style={{ ...KNAPP.sekundar, marginTop: AVSTAND.m }}>
+          <button type="button" onClick={() => klippFranAvsluta()} style={{ ...KNAPP.sekundar, marginTop: AVSTAND.m }}>
             <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>content_cut</span>Klipp upp dagen
           </button>
           <div style={{ marginTop: AVSTAND.m }}>
@@ -504,16 +519,20 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
           {fakturerasKommentar(avsluta.deb, b => setAvsluta(a => (a ? { ...a, deb: b } : a)), avsluta.kommentar,
             t => setAvsluta(a => (a ? { ...a, kommentar: t } : a)), avsluta.kOppen, () => setAvsluta(a => (a ? { ...a, kOppen: true } : a)))}
           {rastFraga === "avsluta" && brutto > RAST_FRAN_MIN
-            ? <RastFraga onIngen={() => sparaAvsluta(oppenRad)} onLagg={() => klippFranAvsluta(true)} />
+            ? (rastLangd
+              ? <RastLangd onVal={rastFranAvsluta} onTillbaka={() => setRastLangd(false)} />
+              : <RastFraga onIngen={() => sparaAvsluta(oppenRad)} onLagg={() => setRastLangd(true)} />)
             : (
               <button type="button" onClick={() => { if (brutto > RAST_FRAN_MIN) setRastFraga("avsluta"); else sparaAvsluta(oppenRad); }} aria-disabled={sparar} style={{ ...KNAPP.primar, marginTop: AVSTAND.m, ...(sparar ? INAKTIV : {}) }}>
                 {sparar ? "Sparar…" : `Spara ${timText(brutto)}`}
               </button>
             )}
-          <div style={{ display: "flex", justifyContent: "center", gap: AVSTAND.l, marginTop: AVSTAND.xs }}>
-            <button type="button" onClick={() => { setRastFraga(null); setAvsluta(null); }} style={KNAPP.tertiar}>Tillbaka</button>
-            <button type="button" onClick={() => oppnaRad(oppenRad, true)} style={KNAPP.tertiar}>Ändra tider</button>
-          </div>
+          {!rastLangd && (
+            <div style={{ display: "flex", justifyContent: "center", gap: AVSTAND.l, marginTop: AVSTAND.xs }}>
+              <button type="button" onClick={() => { stangRastFraga(); setAvsluta(null); }} style={KNAPP.tertiar}>Tillbaka</button>
+              <button type="button" onClick={() => oppnaRad(oppenRad, true)} style={KNAPP.tertiar}>Ändra tider</button>
+            </div>
+          )}
         </section>
       );
     }
@@ -601,7 +620,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
         delar={dag.delar} onDelar={d => setDag(x => (x ? { ...x, delar: d, rastFraga: false } : x))}
         traktNamn={traktNamn} traktLista={onVal => traktVal("Välj trakt", onVal)}
         oppnaMed={dag.oppnaMed} fel={dagFel} sparar={sparar}
-        rastFraga={dag.rastFraga} onRastSvar={svar => { if (svar === "ingen") sparaDag(true); else setDag(x => (x ? { ...x, rastFraga: false } : x)); }}
+        rastFraga={dag.rastFraga} onRastSvar={() => sparaDag(true)}
         onSpara={() => sparaDag()}
         onTillbaka={() => { setDag(null); setDagFel(null); setSkarm(dag.fran === "tid" ? "tid" : "trakt"); }}
         tillbakaText={dag.fran === "tid" ? "Tillbaka" : dag.fran === "avsluta" ? "Avsluta" : "Planera"}
@@ -716,7 +735,9 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
         {formFel && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>{formFel}</p>}
 
         {rastFraga === "tid" && kanSpara && min > RAST_FRAN_MIN
-          ? <RastFraga onIngen={() => spara(true)} onLagg={rastFranTid} />
+          ? (rastLangd
+            ? <RastLangd onVal={rastFranTid} onTillbaka={() => setRastLangd(false)} />
+            : <RastFraga onIngen={() => spara(true)} onLagg={() => setRastLangd(true)} />)
           : (
             <button type="button" onClick={() => { if (kanSpara) spara(); }} aria-disabled={!kanSpara}
               style={{ ...KNAPP.primar, marginTop: AVSTAND.l, ...(kanSpara ? {} : INAKTIV) }}>

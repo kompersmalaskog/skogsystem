@@ -127,8 +127,14 @@ missade att perioden aldrig startade: *"jag tror man kan missa det, för det gjo
   - **Är dagen längre än 5 tim och ingen rast satts frågar Spara "Hade du rast?"** — **Ingen rast** eller **Lägg till
     rast**. Spara går inte förrän han svarat; ett aktivt val, aldrig en gissning. Exakt 5 tim frågar inte. Gäller
     Avsluta-sammanfattningen, skärm 2 (efterhandsregistrering) och redigeraren.
-  - **Lägg till rast** öppnar redigeraren med Rast vald: *Klipp vid* är förifylld mitt i perioden (en position, inget
-    rastvärde) och *Rast till* står på delens slut tills han flyttar den. Inget sparas förrän han trycker Spara.
+  - **Lägg till rast → "Hur lång rast?"** (Martin 2026-10-05: förr hamnade rasten på periodens slut och blev flera timmar
+    om man inte flyttade den). Valen **15 · 30 · 45 · 60 min** — **ingen förvald** — och en knapp **Annan längd** (stegare
+    i 5 min, 5–180; den börjar på 60 och inget sparas förrän "Lägg till rast N min"). Rasten läggs **mitt i perioden**
+    (mitt i den längsta arbetsdelen, närmaste kvart; `laggTillRast` i `lib/planera/dag.ts`) och resten fortsätter som
+    delen var. Redigeraren öppnas med rasten på plats och den **går att flytta efteråt** (tryck på rasten → start/slut).
+    **Spara finns inte förrän en längd valts**, och inget är sparat förrän man trycker Spara i redigeraren. Samma
+    längdval i alla tre ingångarna (Avsluta, skärm 2, redigeraren från veckolistan).
+  - Vill man klippa dit en rast på ett exakt klockslag finns Klipp upp dagen → Rast (med *Klipp vid* och *Rast till*).
 
 ## Klipp och rätta dagen (Martins verkliga fall)
 

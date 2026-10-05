@@ -11,7 +11,7 @@
 //   Manuellt · Betet · 13:00–16:00
 // Varje arbetsdel blir en egen rad i extra_tid. RASTEN är en del med tider i redigeraren men sparas som LUCKAN mellan
 // raderna — ingen rad, ingen rast_min (EN rastmodell, se logik.ts). Därför är arbetad tid = summan av arbetsdelarna.
-import { debFor, DAGENS_SLUT, KVART, RAST_FRAN_MIN, RAST_MAX_MIN, arPlaneraTyp, kvartNed, kvartUpp, klockaTillMin, liggerIFramtiden, minTillKlocka, type PeriodRad } from "./logik";
+import { debFor, DAGENS_SLUT, KVART, RAST_FRAN_MIN, RAST_MAX_MIN, arPlaneraTyp, kvartNarmast, kvartNed, kvartUpp, klockaTillMin, liggerIFramtiden, minTillKlocka, type PeriodRad } from "./logik";
 import { klassificeraPeriod } from "@/lib/dagsegment";
 import type { AktivitetTyp } from "@/lib/aktiviteter";
 
@@ -169,6 +169,28 @@ export function taBortDel(delar: DagDel[], nyckel: string): DagDel[] | null {
   const ut = [...delar];
   ut[i] = { ...d, typ: "rast", objektId: null, deb: false, kommentar: "", radId: d.radId };
   return slaIhopRast(ut);
+}
+
+/**
+ * LÄGG TILL RAST med en VALD längd (15 · 30 · 45 · 60 min eller annan — aldrig en förvald): rasten placeras MITT i den
+ * längsta arbetsdelen (närmaste kvart) och går att flytta efteråt. Resten av delen fortsätter som den var (aktivitet,
+ * trakt, fakturering). Tidigare gick "Lägg till rast" till periodens slut och blev flera timmar om man inte flyttade
+ * den (Martin 2026-10-05). null om längden är ogiltig eller rasten inte får plats.
+ */
+export function laggTillRast(delar: DagDel[], langd: number): DagDel[] | null {
+  if (!Number.isFinite(langd) || langd <= 0 || langd > RAST_MAX_MIN) return null;
+  const mal = delar.filter(arArbeteRedigerbar).sort((a, b) => (b.slut - b.start) - (a.slut - a.start))[0];
+  if (!mal || mal.slut - mal.start < langd + 2) return null;
+  let start = kvartNarmast((mal.start + mal.slut) / 2 - langd / 2);
+  start = Math.max(mal.start + 1, Math.min(start, mal.slut - langd - 1));
+  const slut = start + langd;
+  const a = klippDel(delar, mal.nyckel, start, { typ: "rast" });
+  const rast = a?.find(d => d.typ === "rast" && d.start <= start && d.slut === mal.slut);
+  if (!a || !rast) return null;
+  const b = klippDel(a, rast.nyckel, slut, { typ: mal.typ, objektId: mal.objektId });
+  if (!b) return null;
+  const efter = b.find(d => d.nyckel !== rast.nyckel && d.start === slut && d.slut === mal.slut);
+  return efter ? andraDel(b, efter.nyckel, { deb: mal.deb }) : b;
 }
 
 /** Byt typ på en del (arbete ↔ rast). Rast har varken trakt, fakturering eller kommentar. */

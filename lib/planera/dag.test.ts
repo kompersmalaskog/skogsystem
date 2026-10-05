@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   delarFranRader, klippDel, flyttaGrans, stappaDel, taBortDel, bytTyp, andraDel, arbetadMin, harRast, behovFragaRast,
-  valideraDelar, skrivplan, ordnaSkrivningar, nyNyckel, traktForNyDel, type DagDel,
+  valideraDelar, skrivplan, ordnaSkrivningar, nyNyckel, traktForNyDel, laggTillRast, type DagDel,
 } from "./dag";
 import type { PeriodRad } from "./logik";
 
@@ -105,6 +105,45 @@ describe("trakt för en ny del", () => {
     expect(traktForNyDel(d, "a")).toBe("T1");
     expect(traktForNyDel(d, "r")).toBe("T1");
     expect(traktForNyDel([del({ nyckel: "r", typ: "rast", objektId: null, start: m(7), slut: m(8) })], "r")).toBeNull();
+  });
+});
+
+describe("lägg till rast med vald längd (mitt i perioden)", () => {
+  const rader = (d: DagDel[] | null) => d!.map(x => [x.typ, x.start, x.slut]);
+  it("30 min mitt i 07–16: rast 11:15–11:45, resten fortsätter som delen var; arbetad tid minskar med exakt rasten", () => {
+    const d = laggTillRast(dag0(), 30)!;
+    expect(rader(d)).toEqual([["planering", m(7), m(11, 15)], ["rast", m(11, 15), m(11, 45)], ["planering", m(11, 45), m(16)]]);
+    expect(arbetadMin(d)).toBe(9 * 60 - 30);
+    expect(d[0]).toMatchObject({ radId: "p" });                 // första halvan behåller raden
+    expect(d[2]).toMatchObject({ radId: null, objektId: "T1", deb: true }); // andra halvan: ny rad, samma trakt/fakturering
+  });
+  it("15 · 45 · 60 min placeras mitt i perioden (närmaste kvart)", () => {
+    expect(rader(laggTillRast(dag0(), 15))[1]).toEqual(["rast", m(11, 30), m(11, 45)]);
+    expect(rader(laggTillRast(dag0(), 45))[1]).toEqual(["rast", m(11, 15), m(12)]);
+    expect(rader(laggTillRast(dag0(), 60))[1]).toEqual(["rast", m(11), m(12)]);
+  });
+  it("icke-kvartsperiod (07:34–16:52) ger en kvartsplacerad rast inuti den", () => {
+    const d = laggTillRast([del({ nyckel: "r:p", radId: "p", start: m(7, 34), slut: m(16, 52) })], 30)!;
+    expect(rader(d)[1]).toEqual(["rast", m(12), m(12, 30)]);
+  });
+  it("väljer den LÄNGSTA arbetsdelen och bevarar dess aktivitet, trakt och fakturering", () => {
+    const d0 = [del({ nyckel: "a", start: m(7), slut: m(8) }), del({ nyckel: "b", typ: "restid", objektId: "T2", deb: false, start: m(8), slut: m(15) })];
+    const d = laggTillRast(d0, 30)!;
+    expect(d).toHaveLength(4);
+    expect(d[3]).toMatchObject({ typ: "restid", objektId: "T2", deb: false });
+    expect(d[1]).toMatchObject({ typ: "restid", objektId: "T2", start: m(8), slut: m(11, 15) });
+    expect(d[2]).toMatchObject({ typ: "rast", start: m(11, 15), slut: m(11, 45) });
+  });
+  it("rasten får inte plats / ogiltig längd / bara låsta delar → null", () => {
+    expect(laggTillRast([del({ start: m(7), slut: m(8) })], 60)).toBeNull();
+    expect(laggTillRast(dag0(), 0)).toBeNull();
+    expect(laggTillRast(dag0(), 181)).toBeNull();
+    expect(laggTillRast([del({ start: m(7), slut: m(16), last: true })], 30)).toBeNull();
+  });
+  it("en rast på kanten av en liten del hamnar ändå inuti den (minst en minut på båda sidor)", () => {
+    const d = laggTillRast([del({ start: m(7), slut: m(8) })], 30)!;
+    expect(d[0].slut).toBeGreaterThan(m(7)); expect(d[2].start).toBeLessThan(m(8));
+    expect(rader(d)[1]).toEqual(["rast", m(7, 15), m(7, 45)]);
   });
 });
 
