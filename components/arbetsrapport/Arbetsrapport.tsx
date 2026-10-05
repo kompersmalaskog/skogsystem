@@ -1439,7 +1439,14 @@ export default function Arbetsrapport() {
   // Ingen kr-beräkning i appen: mil är mängden, satsen äger Fortnox. (fardtidPerMil/ersKr
   // räknades här men visades aldrig — död kod som bröt principen. Borttagen.)
   const arbMin = Math.max(0,tim(start,slut)-rast);
-  const totKm  = (kmM?.km||0)+(kmK?.km||0);
+  const idagKey = new Date().toISOString().split('T')[0]; // används av km-raden nedan, därför före igårKey
+  // Km: förarens egna värde (km-arket, lokalt tillstånd) går först, annars dagens
+  // km ur arbetsdag-raden. Förr lästes bara tillståndet, som aldrig fylldes från
+  // databasen: Dag visade 0 km, och km-arket öppnades 0/0 så Spara skrev 0 med
+  // km_kalla='forare' (utredning 2026-10-05). En tom rad visar fortfarande 0.
+  const kmMorgonNu = kmM?.km ?? Number(dagData[idagKey]?.km_morgon ?? 0);
+  const kmKvallNu  = kmK?.km ?? Number(dagData[idagKey]?.km_kvall ?? 0);
+  const totKm  = kmMorgonNu + kmKvallNu;
   // Maskinpassets tal räknar upp när MOM-filen flyttar slut_tid under dagen —
   // hoppar inte (RORELSE.tal). Hookarna ligger här, före alla steg-returer.
   const arbMinVisad = useRaknaUppVarde(arbMin);
@@ -1448,7 +1455,6 @@ export default function Arbetsrapport() {
   const milPåbörjade = ersattningsMilDag(totKm, frikm);            // påbörjade mil (delad lib)
   const totEx  = extra.reduce((a,e)=>a+e.min,0);
   const totMin = arbMin+totEx;
-  const idagKey = new Date().toISOString().split('T')[0];
   const igårDate = new Date(); igårDate.setDate(igårDate.getDate()-1);
   const igårKey = igårDate.toISOString().split('T')[0];
   const igårObekräftad = dagData[igårKey] && !dagData[igårKey].status?.includes?.('ok') && dagData[igårKey].start_tid && !historik.find(d => d.datum === igårKey && d.bekraftad);
@@ -2723,7 +2729,7 @@ export default function Arbetsrapport() {
         : {};
       const sammanRad = (label: string, value: string, onClick?: () => void) => kortRad(label, value, onClick, true);
       const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
-      const öppnaKm    = () => { setTMK(kmM?.km||0); setTKK(kmK?.km||0); setVisaKmSheet(true); };
+      const öppnaKm    = () => { setTMK(kmMorgonNu); setTKK(kmKvallNu); setVisaKmSheet(true); };
       const talBlock = (under: ReactNode, fotnot: ReactNode, onClick?: () => void, linje?: boolean) => (
         <div onClick={onClick} style={{ textAlign:"center", padding:`${AVSTAND.l}px 0`, cursor:onClick?"pointer":"default", ...linjeUnder(!!linje) }}>
           <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>Maskinpass</p>
@@ -2995,7 +3001,7 @@ export default function Arbetsrapport() {
           })()}
           {/* Skärmens ENDA primära: Bekräfta dagen. Bekräftad dag → sekundär "Ändra rapport". */}
           {(harMaskinPass || perioddag) && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
-            <button onClick={()=>setVisaTiderSheet(false)} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.l }}>
+            <button onClick={()=>öppnaRedigera(idagKey)} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.l }}>
               Ändra rapport
             </button>
           ) : (
