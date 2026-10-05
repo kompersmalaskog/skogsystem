@@ -8,6 +8,8 @@
 // användaren uttryckligen beviljat vår origin via requestPort() → getPorts() innehåller bara dem.
 // COM6/COM7 (FL/Opti4G) beviljas aldrig till oss och rörs därför aldrig.
 
+import { SERIAL_FLAGG, harWebSerial, serialGpsVald, glomSerialGps, antalBeviljadeSerialPortar } from './gpsSerialFlagga';
+
 export interface GpsFix {
   lat: number | null;
   lng: number | null;
@@ -115,15 +117,9 @@ export function nmeaStateTillFix(state: NmeaState, nu: number = Date.now(), maxA
 
 // === DRIVER (webbläsar-API:er — gejtade) ===
 
-export function harWebSerial(): boolean {
-  return typeof navigator !== 'undefined' && 'serial' in navigator;
-}
-
-const SERIAL_FLAGG = 'gps-serial-vald';   // localStorage: användaren har valt serial-GPS
-export function serialGpsVald(): boolean {
-  try { return typeof localStorage !== 'undefined' && localStorage.getItem(SERIAL_FLAGG) === '1'; } catch { return false; }
-}
-export function glomSerialGps(): void { try { localStorage.removeItem(SERIAL_FLAGG); } catch { /* */ } }
+// Flaggan + beviljade portar bor i lib/gpsSerialFlagga (liten modul: startvakten i rotlayouten behöver dem utan att dra in hela
+// den här filen). Återexporteras så alla befintliga importer fungerar oförändrat.
+export { harWebSerial, serialGpsVald, glomSerialGps, antalBeviljadeSerialPortar };
 
 // Läs NMEA-rader ur en öppen port i (maxMs) och mata parsern. Returnerar antal giltiga rader.
 // avbrytRef.current=true stoppar. onFix anropas för varje ny fix (om onFix satt).

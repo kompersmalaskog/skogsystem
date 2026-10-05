@@ -186,15 +186,15 @@ export function valjTilldelatObjekt(kandidater: (ObjektForVal & { status?: strin
   return (t.find((o) => o.status === 'pagaende') ?? t.find((o) => o.status === 'planerad') ?? t[0] ?? null)?.id ?? null;
 }
 
-/** Dit kameran flyger. Tilldelat objekt utan RIKTIG fix: en gammal position ligger inte nödvändigtvis i objektet →
- *  flyg till objektet självt (en riktig fix som kommer under tiden tar över). Annars maskinens position. */
+/** Dit kameran flyger. Tilldelat objekt (eller förarens senast valda) utan RIKTIG fix: en gammal position ligger inte
+ *  nödvändigtvis i objektet → flyg till objektet självt (en riktig fix som kommer under tiden tar över). Annars maskinens position. */
 export function valjFlygPos(a: {
-  atgardTyp: 'korvy' | 'fraga' | 'tilldelat' | 'lista';
+  atgardTyp: 'korvy' | 'fraga' | 'tilldelat' | 'senaste' | 'lista';
   kalla: PosKalla | null;
   pos: { lat: number; lon: number } | null;
   objekt: { lat?: unknown; lng?: unknown } | null;
 }): { lat: number; lon: number } | null {
-  if (a.atgardTyp === 'tilldelat' && a.kalla !== 'fix' && a.objekt && a.objekt.lat != null && a.objekt.lng != null) {
+  if ((a.atgardTyp === 'tilldelat' || a.atgardTyp === 'senaste') && a.kalla !== 'fix' && a.objekt && a.objekt.lat != null && a.objekt.lng != null) {
     const la = Number(a.objekt.lat), lo = Number(a.objekt.lng);
     if (Number.isFinite(la) && Number.isFinite(lo)) return { lat: la, lon: lo };
   }

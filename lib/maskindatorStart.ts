@@ -23,6 +23,8 @@ export type StartAtgard =
   | { typ: 'fraga'; objektId: string; roll: Roll }
   // Ingen färsk fix (A4) eller fix utanför alla objekt → maskinens tilldelade objekt (fallback).
   | { typ: 'tilldelat'; objektId: string; roll: Roll }
+  // Föraren har själv valt det här objektet sist (lib/senasteObjekt) → starta där, ingen fråga.
+  | { typ: 'senaste'; objektId: string; roll: Roll }
   // Inget att öppna automatiskt → visa objektlistan (ingen bunden maskin, ingen position, ingen tilldelning).
   | { typ: 'lista' };
 
@@ -46,9 +48,21 @@ export function avgorMaskindatorStart(args: {
   posTilldelad: boolean;              // enhetMaskin tilldelad posObjektId (skördar- eller skotarplatsen)
   tilldelatObjektId: string | null;   // maskinens tilldelade objekt oavsett position (A4-fallback)
   redanFragat: boolean;               // kortet redan visat för posObjektId denna session
+  /** Objektet föraren själv valde sist (lib/senasteObjekt), redan kontrollerat: finns och är inte avslutat. */
+  senasteObjektId?: string | null;
+  /** Positionen är en RIKTIG, färsk GPS-fix (inte sparad position eller hyttspår). Bara en riktig fix får överrösta
+   *  förarens val — en gammal position kan inte säga emot ett val som gjordes efter den. */
+  riktigFix?: boolean;
 }): StartAtgard {
   const { enhetRoll, harFix, posObjektId, posTilldelad, tilldelatObjektId, redanFragat } = args;
+  const senaste = args.senasteObjektId ?? null;
   if (!enhetRoll) return { typ: 'lista' };
+  // STARTOBJEKTET: enheten minns förarens senaste val och startar där varje gång — utom när en RIKTIG GPS-fix visar att
+  // maskinen står inne i ett ANNAT objekt (då gäller fallen nedan: kort / direkt körvy, som förut). Står maskinen i det
+  // valda objektet, eller utanför alla, ändras ingenting: ingen fråga.
+  if (senaste && !(args.riktigFix && posObjektId && posObjektId !== senaste)) {
+    return { typ: 'senaste', objektId: senaste, roll: enhetRoll };
+  }
   if (harFix && posObjektId) {
     if (posTilldelad) return { typ: 'korvy', objektId: posObjektId, roll: enhetRoll };
     if (!redanFragat) return { typ: 'fraga', objektId: posObjektId, roll: enhetRoll };
@@ -58,6 +72,23 @@ export function avgorMaskindatorStart(args: {
   return { typ: 'lista' };
 }
 
+/** Avstämning mot första RIKTIGA fixen (A4) när starten byggde på något annat än en riktig fix. Rent beslut:
+ *   'inget' — fixen visar samma objekt (eller inget objekt) → lämna körvyn
+ *   'fraga' — förarens egna val (senaste) och GPS visar ett ANNAT, ej tilldelat objekt → bekräftelsekortet, som förut
+ *   'byt'   — i övriga fall byt en gång (tyst, med "Bytte till …"-notis): maskinen är tilldelad objektet den står i,
+ *             kortet har redan visats den här sessionen, eller starten var ett tilldelat objekt utan fix (A4 som förut) */
+export function avstamningsAtgard(a: {
+  startTyp: StartAtgard['typ'] | null;
+  traffObjektId: string | null;
+  valtObjektId: string | null;
+  traffTilldelad: boolean;
+  redanFragat: boolean;
+}): 'inget' | 'fraga' | 'byt' {
+  if (!a.traffObjektId || a.traffObjektId === a.valtObjektId) return 'inget';
+  if (a.startTyp === 'senaste' && !a.traffTilldelad && !a.redanFragat) return 'fraga';
+  return 'byt';
+}
+
 /** Implicit ja: maskinen har kört ≥ 200 m inne i objektet medan kortet visats → räkna som Ja
  *  (sätt tilldelning + status, stäng kortet). Tröskel i meter, default 200. */
 export const IMPLICIT_JA_M = 200;
@@ -65,10 +96,11 @@ export function implicitJa(kordMeterInneIObjektet: number, troskel = IMPLICIT_JA
   return kordMeterInneIObjektet >= troskel;
 }
 
-/** "Maskinläge" = ENHETEN är en maskindator (serial-GPS på) ELLER testläget är på. I maskinläge kör
- *  appen maskindator-flödet (auto-start, bekräftelsekort, förarlista, körvy) oavsett inloggad roll. */
-export function arMaskinlage(serialGpsAktiv: boolean, testlageAktiv: boolean): boolean {
-  return !!serialGpsAktiv || !!testlageAktiv;
+/** "Maskinläge" = ENHETEN är en maskindator (serial-GPS på, eller bunden till en maskin) ELLER testläget är på. I maskinläge
+ *  kör appen maskindator-flödet (auto-start, bekräftelsekort, förarlista, körvy) oavsett inloggad roll.
+ *  En enhet med vald maskin är en maskindator även om serial-GPS:en tappats — startsidan skickar den dit (lib/appStart). */
+export function arMaskinlage(serialGpsAktiv: boolean, testlageAktiv: boolean, enhetMaskinId?: string | null): boolean {
+  return !!serialGpsAktiv || !!testlageAktiv || !!(enhetMaskinId && enhetMaskinId.trim());
 }
 
 /** Ska den grupperade FÖRARLISTAN (HÄR/PÅGÅENDE/PLANERADE/AVSLUTADE) visas i st.f. admin-väljaren?
