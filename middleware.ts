@@ -24,10 +24,41 @@ const API_UTAN_SESSION = new Set<string>([
   '/api/fortnox/callback',
 ]);
 
+const AUTH_TIMEOUT_MS = 3000;
+
 function bearerMatchar(request: NextRequest, envNamn: 'CRON_SECRET' | 'IMPORT_SECRET'): boolean {
   const secret = process.env[envNamn];
   if (!secret) return false;
   return request.headers.get('authorization') === `Bearer ${secret}`;
+}
+
+// Reservväg vid Auth-timeout, ENDAST för sidor: läser sessionscookien och kollar att
+// access-token har sub och inte gått ut. Signaturen verifieras INTE här — det kan inte
+// göras utan Auth/JWKS, som just inte svarar. Det räcker för att inte kasta ut en
+// inloggad förare i ett Auth-hack; all data går via /api och Supabase-RLS, som verifierar.
+function cookieHarGiltigSession(request: NextRequest): boolean {
+  try {
+    const delar = new Map<string, string>();
+    for (const { name, value } of request.cookies.getAll()) {
+      const m = /^(sb-.+-auth-token)(?:\.(\d+))?$/.exec(name);
+      if (m) delar.set(m[1] + '|' + (m[2] ?? '0'), value);
+    }
+    const bas = Array.from(delar.keys(), (k) => k.split('|')[0])[0];
+    if (!bas) return false;
+    let raw = '';
+    for (let i = 0; delar.has(bas + '|' + i); i++) raw += delar.get(bas + '|' + i);
+    if (raw.startsWith('base64-')) {
+      const b64 = raw.slice(7).replace(/-/g, '+').replace(/_/g, '/');
+      raw = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+    }
+    const token: string | undefined = JSON.parse(raw)?.access_token;
+    if (!token) return false;
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(b64));
+    return typeof claims.sub === 'string' && typeof claims.exp === 'number' && claims.exp * 1000 > Date.now();
+  } catch {
+    return false;
+  }
 }
 
 export async function middleware(request: NextRequest) {
@@ -52,13 +83,42 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // IMPORTANT: getUser() refreshes the session and updates cookies
-  const { data: { user } } = await supabase.auth.getUser();
-
+  // getClaims() verifierar JWT:n lokalt mot projektets publika nyckel (JWKS, ES256) —
+  // inget nätanrop till /auth/v1/user per request som med getUser(). Förnyar fortfarande
+  // utgången session och uppdaterar cookies. Rutter som behöver ett färskt svar från
+  // Auth (t.ex. spärrad användare) gör eget getUser() i lib/auth/server.ts.
+  // Tar kontrollen > AUTH_TIMEOUT_MS hänger vi inte: /api är default-stängt och får
+  // 503; sidor släpps bara igenom om cookien redan bär en ej utgången session
+  // (cookieHarGiltigSession), annars redirect till /login?retry=1.
   const pathname = request.nextUrl.pathname;
+  let user: { id: string } | null = null;
+  let authTimeout = false;
+  try {
+    const res = await Promise.race([
+      supabase.auth.getClaims(),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), AUTH_TIMEOUT_MS)),
+    ]);
+    if (res === 'timeout') authTimeout = true;
+    else if (res.data?.claims?.sub) user = { id: res.data.claims.sub };
+  } catch {
+    authTimeout = true;
+  }
   const isLoginPage = pathname === '/login';
   const isAuthCallback = pathname.startsWith('/api/auth/');
   const isApiRoute = pathname.startsWith('/api/');
+
+  if (authTimeout) {
+    if (isApiRoute || isAuthCallback) {
+      if (isAuthCallback || API_UTAN_SESSION.has(pathname)) return supabaseResponse;
+      if (bearerMatchar(request, 'CRON_SECRET') || bearerMatchar(request, 'IMPORT_SECRET')) return supabaseResponse;
+      return NextResponse.json({ ok: false, error: 'Auth svarar inte — försök igen' }, { status: 503 });
+    }
+    if (isLoginPage || cookieHarGiltigSession(request)) return supabaseResponse;
+    const url = request.nextUrl.clone();
+    url.pathname = '/login';
+    url.search = '?retry=1';
+    return NextResponse.redirect(url);
+  }
 
   if (isApiRoute || isAuthCallback) {
     if (isAuthCallback || API_UTAN_SESSION.has(pathname)) return supabaseResponse;

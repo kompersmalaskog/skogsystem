@@ -51,6 +51,7 @@ eller härleda från `landing` (avlägg).
   "Löneunderlag" istället — verifiera
 
 ## Nästa
+- 26 /api-rutter saknar egen auth (bara middleware skyddar dem). Egen säkerhets-PR med kravInloggad() — inte nu. Rutter (grov sökning, verifiera per rutt): app-state, forarkarta, handelse, kalibrering/{bedomning,diagnos,kalender,kontroll,objekt,tradslag}, kontroll/[id], korbarhet-tiles, parse-pdf, resurs, resurs/[id], roadcheck, routing, sgu-proxy, slu-geotiff, smhi-nederb, tract-analysis, wms-proxy. Öppna med avsikt (ska INTE få kravInloggad): auth/callback, fortnox/auth, fortnox/callback, version, mom-import (IMPORT_SECRET — verifiera)
 - Fixa kalenderklick
 - Timer-banner testad med fliknavigation
 - Sjuk/VAB hela flödet verifierat
