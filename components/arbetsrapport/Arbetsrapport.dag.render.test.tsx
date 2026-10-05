@@ -119,7 +119,12 @@ async function klick(sub: string) {
   await act(async () => { e.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
   await vänta(4, 40);
 }
-const text = () => behallare!.textContent || "";
+async function klickKnapp(prefix: string) {
+  const b = Array.from(behallare!.querySelectorAll<HTMLElement>("button")).find(x => (x.textContent || "").trim().startsWith(prefix));
+  if (!b) throw new Error("hittar ingen knapp som börjar med: " + prefix);
+  await act(async () => { b.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await vänta(4, 40);
+}const text = () => behallare!.textContent || "";
 
 const dagRad = (o: any) => ({
   id: "ad-" + o.datum, medarbetare_id: "m-1", maskin_id: MASKIN, objekt_id: "OBJ1", rast_min: 30, km_morgon: 56, km_kvall: 56, km_totalt: 112,
@@ -152,14 +157,16 @@ describe("Dag-vyn: Körning läser databasens km", () => {
   it("km-arket öppnas med databasens värden (112 km totalt), inte 0/0", async () => {
     fixtur(klartPass());
     await montera();
-    await klick("Körning");
+    await klick("Något fel?");
+    await klickKnapp("Körning");
     expect(text()).toMatch(/Totalt112 km/);
   });
 
   it("Spara i km-arket utan ändring skriver INGET (km låses inte som förarens i onödan) och stänger arket", async () => {
     fixtur(klartPass());
     await montera();
-    await klick("Körning");
+    await klick("Något fel?");
+    await klickKnapp("Körning");
     expect(text()).toMatch(/Ändra km/);
     await klick("Spara");
     expect(skrivna("arbetsdag").length).toBe(0);
@@ -170,7 +177,8 @@ describe("Dag-vyn: Körning läser databasens km", () => {
   it("Spara efter en ändring skriver båda värdena och km_kalla='forare'", async () => {
     fixtur(klartPass());
     await montera();
-    await klick("Körning");
+    await klick("Något fel?");
+    await klickKnapp("Körning");
     const plus = Array.from(behallare!.querySelectorAll<HTMLElement>("button")).filter(b => b.textContent === "+")[0];
     await act(async () => { plus.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     await klick("Spara");
@@ -191,7 +199,7 @@ describe("Dag-vyn: Körning läser databasens km", () => {
   it("Bekräfta dagen behåller databasens km (56/56)", async () => {
     fixtur(klartPass());
     await montera();
-    await klick("Bekräfta dagen");
+    await klick("Stämmer"); // kvällsvyns knapp (förr "Bekräfta dagen") — samma skrivning
     const upserts = skrivna("arbetsdag").filter(s => s.op === "upsert");
     expect(upserts.length).toBe(1);
     expect(upserts[0].vals.km_morgon).toBe(56);
