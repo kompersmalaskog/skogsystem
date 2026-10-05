@@ -243,6 +243,15 @@ Skotardata -> `fakt_lass`, `fakt_lass_sortiment`, `fakt_skotning_status`
 
 ---
 
+## GPS-källa (Web Serial) — `lib/gpsKalla.ts`, `lib/gpsBaud.ts`
+
+Maskindatorns GPS kommer som NMEA över en COM-port (Web Serial). **Två skydd som inte får tas bort:**
+
+- **Baudrate är valbar per enhet** (GPS-källa-kortet i planeringsvyn: Auto/4800/9600/38400/115200, `gps-serial-baud` i localStorage). Standard 4800 (som före). **Auto** provar 115200→38400→9600→4800 vid portvalet och sparar den första där giltiga meningar (rätt checksumma) kommer (`gps-serial-baud-hittad`). Skälet: Eltima/GpsGate-brygga mot en Quectel-mottagare som skickar GGA/RMC + GSV/GSA för GP/GL/GA/PQ varje sekund — mer än 4800 baud hinner, kön byggs upp och kommer fram i färsk takt. En virtuell COM-port tar emot vilken baudrate som helst men *strypar* leveransen till den; en riktig UART kräver exakt rätt. Fast val öppnar alltid med just den. Porten kan bara öppnas en gång: hubbens källa pausas under portvalet och startas om efteråt.
+- **Åldersvakt:** `giltig` mäter inte längre när meningen ANLÖT utan jämför NMEA-tiden (RMC: UTC + datum, annars GGA: klockslag) mot datorns klocka. Mer än 30 s efter (`FORDROJD_MAX_MS`) → `giltig=false`, `fordrojd=true`: ingen fix, bannern säger "GPS-data är fördröjd", och inga punkter loggas (`currentPosition` rörs bara av en giltig fix). Incident 2026-10-05 (Rottne): positioner 2,5 h gamla (NMEA-tid 11:07 UTC vid 13:37 UTC). **Känd begränsning:** går datorns klocka mer än 30 s FÖRE verklig tid ser all GPS ut som fördröjd — då är det klockan som ska rättas, inte vakten. NMEA-tid FÖRE klockan räknas aldrig som fördröjd.
+
+---
+
 ## Planeringsvyn (app/planering/page.tsx)
 
 Huvudvy för traktplanering (~11 000 rader). Innehåller:
