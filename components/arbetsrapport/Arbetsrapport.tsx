@@ -19,7 +19,7 @@ import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, faktureringsEtikett, type AktivitetTyp } from "@/lib/aktiviteter";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
-import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
+import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, raknaOmVilobrottEfterAndring, stadaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
@@ -915,7 +915,13 @@ export default function Arbetsrapport() {
           });
         // Fetch aktuella vilobrott (senaste 14 dagar) för Dag-vyns morgon-
         // varningar och Min tid-översikten. Tom array är OK.
-        hamtaAktuellaVilobrott(med.data.id, 30)
+        // STÄDNING först: obesvarade brott som nuvarande data inte längre stöder (raderad
+        // dag eller period, ändring utanför appen) raderas innan de visas — föraren ska inte
+        // få frågor om brott som inte finns. Bara radering, aldrig nya brott. Misslyckas
+        // städningen visas brotten ändå (de visas aldrig färre än de är).
+        stadaVilobrott(med.data.id)
+          .catch(err => console.error('Vilo-städning misslyckades:', err))
+          .then(() => hamtaAktuellaVilobrott(med.data.id, 30))
           .then(setAktuellaVilobrott)
           .catch(err => console.error('Vilobrott-fel:', err));
       }
@@ -1590,15 +1596,16 @@ export default function Arbetsrapport() {
   // TODO: MOM-import (Python-skript) kör inte denna helper automatiskt.
   // Detektering sker nästa gång föraren öppnar appen. Löses via webhook
   // eller Edge Function vid HPR/MOM-import.
+  // OMRÄKNING mot nuvarande data efter VARJE ändring av pass eller perioder (avsluta,
+  // starta, ändra tider, lägga till/ändra/ta bort period, ta bort tom dag). Arbetsdagarna
+  // läses FÄRSKT ur databasen (lib/vilobrott-storage): förr kom de ur årsData, som är
+  // gammal efter en radering och dessutom bara täckte själva fönstret — utan de sju
+  // dagarna före, så ett enda pass gav "0 h vila". Martin 2026-10-05: ett vilobrott för
+  // raderad testdata stod kvar och föraren fick frågan "Varför bröts vilan?".
   const synkaVilobrott = async (mutationDatum: string) => {
-    if (!medarbetare?.id || !trosklar) return;
-    const fromDt = new Date(mutationDatum); fromDt.setDate(fromDt.getDate() - 3);
-    const toDt = new Date(mutationDatum); toDt.setDate(toDt.getDate() + 3);
-    const fromIso = fromDt.toISOString().slice(0, 10);
-    const toIso = toDt.toISOString().slice(0, 10);
-    const dagarIFonster = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
+    if (!medarbetare?.id) return;
     try {
-      await analyseraOchSpara(medarbetare.id, dagarIFonster, trosklar, fromIso, toIso);
+      await raknaOmVilobrottEfterAndring(medarbetare.id, mutationDatum);
       const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
       setAktuellaVilobrott(nyaBrott);
     } catch (err) {
@@ -1826,11 +1833,11 @@ export default function Arbetsrapport() {
       const fromDt = new Date(datum + "T00:00:00"); fromDt.setDate(fromDt.getDate() - 7);
       const fromIso = franGolv(ymdLokal(fromDt));
       const toIso = datum;
-      const årStart = `${new Date().getFullYear()}-01-01`;
       try {
-        if (fromIso >= årStart && toIso >= fromIso) {
-          const dagar = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
-          await analyseraOchSpara(medarbetare.id, dagar, trosklar, fromIso, toIso);
+        if (toIso >= fromIso) {
+          // Färska arbetsdagar ur databasen MED de sju dagarna före fönstret (förr: årsData,
+          // bara själva fönstret — för lite underlag för veckovilan, och gammalt efter en radering).
+          await omanalyseraVilobrott(medarbetare.id, fromIso, toIso, { trosklar });
         }
         // Läs fönstret direkt — hamtaAktuellaVilobrott (14 d) räcker inte för
         // en äldre dag i Redigera. Dag-vyns gula rader uppdateras separat.
@@ -2160,6 +2167,7 @@ export default function Arbetsrapport() {
     if (!res.ok) { setBekraftaFel(res.fel); return; }
     setBekraftaFel(null);
     const uppdaterad = res.rows[0];
+    void synkaVilobrott(uppdaterad?.datum || rad.datum); // perioden fick en sluttid: vilan kan ha ändrats
     setPagaendeAktiviteter(arr => arr.filter(x => x.id !== rad.id));
     setExtraTidData(arr => arr.map(x => x.id === rad.id ? uppdaterad : x));
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
@@ -2226,6 +2234,7 @@ export default function Arbetsrapport() {
         if (!res.ok) { setPeriodFel(res.fel); return; }
         const sparad = res.rows[0] || { ...periodForm.rad, ...payload };
         speglaExtra(sparad);
+        void synkaVilobrott(sparad.datum || periodForm.rad.datum || periodForm.datum); // ändrad period → räkna om vilan
         const avvik = sparatSkiljerSig(v, sparad);
         if (avvik) { setPeriodFel(avvik); return; }
         stangPeriodForm();
@@ -2292,6 +2301,7 @@ export default function Arbetsrapport() {
         if (error || !data) { setPeriodFel(SPARA_FEL); return; }
         sparadRad = data;
         speglaExtra(data);
+        void synkaVilobrott(periodForm.datum); // ny period utanför passet → räkna om vilan
       }
       // Kvittot och kedjan bygger på RADEN databasen gav tillbaka. Skiljer den
       // sig från formuläret stannar formuläret öppet med ett fel — aldrig ett
@@ -2338,6 +2348,7 @@ export default function Arbetsrapport() {
       if (!upd.ok) return { ok: false, fel: upd.fel };
       raderad = false;
     }
+    if (raderad) void synkaVilobrott(datum); // raderad dag → räkna om vilan runt den
     setDagData(d => {
       if (!d[datum]) return d;
       if (raderad) { const kopia = { ...d }; delete kopia[datum]; return kopia; }
@@ -2365,6 +2376,7 @@ export default function Arbetsrapport() {
     }
     const res = await raderaVerifierat(supabase, "extra_tid", { id });
     if (!res.ok) { setPeriodFel(res.fel); return; }
+    void synkaVilobrott(datum); // raderad period → brott som perioden orsakade ska bort
     const kvar = (extraTidData || []).filter((x: any) => x.id !== id && x.datum === datum);
     setExtraTidData(d => d.filter(x => x.id !== id));
     setExtraDagData(m => {

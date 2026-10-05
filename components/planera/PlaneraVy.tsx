@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { AKTIVITETER, aktLabel, type AktivitetTyp } from "@/lib/aktiviteter";
+import { raknaOmVilobrottEfterAndring } from "@/lib/vilobrott-storage";
 import { byggArbetsObjektLista, type ArbetsObjekt } from "@/lib/arbetsobjekt";
 import {
   PLANERA_TYPER, DAGENS_SLUT, KVART, RAST_FRAN_MIN, arGlomd, dagRubrik, debFor, foreslagenStart, forslagFranIgar,
@@ -272,6 +273,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     const svar = form.redigerarId ? await uppdateraPeriod(supabase, medarbetare.id, form.redigerarId, p, nu) : await sparaNyPeriod(supabase, medarbetare.id, p, nu);
     setSparar(false);
     if (!svar.ok) { setFormFel(svar.fel); stangRastFraga(); return; }
+    omraknaVila(form.datum);
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
     // Startad period: kortet "Pågår" på skärm 1 ÄR kvittot. Avslutad/sparad: kvitto ur databasens rad.
     await klarMedKvitto(p.slut == null ? null : `Sparat: ${kvittoText(svar.rad, traktNamn(form.objektId), idag)}${bekrText(svar.bekraftelse)}`);
@@ -294,7 +296,16 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     const svar = await raderaPeriod(supabase, { id: form.redigerarId, datum: form.datum }, medarbetare.id);
     setSparar(false);
     if (!svar.ok) { setFormFel(svar.fel); return; }
+    omraknaVila(form.datum); // borttagen period → brott som den orsakade ska bort
     await klarMedKvitto(`Borttaget: ${traktNamn(form.objektId) || "perioden"} · ${relativDag(form.datum, idag)} ${minTillKlocka(form.startMin)}${form.slutMin != null ? `–${minTillKlocka(form.slutMin)}` : " (pågående)"}.${bekrText(svar.bekraftelse)}`);
+  };
+  // Vilan räknas om mot NUVARANDE data efter varje ändring av perioder (lib/vilobrott-storage):
+  // ett brott som en raderad eller ändrad period orsakat ska inte stå kvar och bli en fråga
+  // ("Varför bröts vilan?"), och en ändring som skapar ett brott ska synas. Best-effort —
+  // sparandet av perioden hänger aldrig på det.
+  const omraknaVila = (datum: string) => {
+    if (!medarbetare) return;
+    void raknaOmVilobrottEfterAndring(medarbetare.id, datum).catch(err => console.error("[planera] vilo-omräkning misslyckades:", err));
   };
   const sparaForslag = async (f: Forslag) => {
     if (!medarbetare) return;
@@ -311,6 +322,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
       sparade.push(kvittoText(svar.rad, traktNamn(per.objektId), idag));
     }
     setSparar(false);
+    omraknaVila(idag);
     await hamtaPerioder(medarbetare.id);
     setKvitto(`Sparat: ${sparade.join(" + ")}`);
   };
@@ -337,6 +349,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     const svar = await uppdateraPeriod(supabase, medarbetare.id, rad.id, { ...perAvRad(rad, minTillKlocka(avsluta.slutMin)), typ: avsluta.typ, deb: avsluta.deb, kommentar: avsluta.kommentar }, nu);
     setSparar(false);
     if (!svar.ok) { setKortFel(svar.fel); stangRastFraga(); return; }
+    omraknaVila(rad.datum);
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
     await hamtaPerioder(medarbetare.id);
     setAvsluta(null); stangRastFraga();
@@ -396,6 +409,7 @@ export default function PlaneraVy({ nu: nuProp }: { nu?: Date } = {}) {
     setSparar(true); setDagFel(null);
     const svar = await sparaDelar(supabase, medarbetare.id, dag.datum, dag.gamla, dag.delar, nu);
     setSparar(false);
+    omraknaVila(dag.datum); // även efter ett delvis misslyckat försök: det som hann sparas ändrar vilan
     if (!svar.ok) {
       // Något hann sparas: koppla nya delar till sina rader och läs om dagens rader, så ett nytt försök inte infogar dubbletter.
       const lasta = await supabase.from("extra_tid").select("*").eq("medarbetare_id", medarbetare.id).eq("datum", dag.datum);
