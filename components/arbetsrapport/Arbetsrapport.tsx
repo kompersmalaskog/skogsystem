@@ -971,16 +971,29 @@ export default function Arbetsrapport() {
     // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
 
-  // km-beräkning när kvällsvyn öppnas → /api/km/berakna-dag (DELADE helpern:
-  // dagensPlatser + full koordinat-fallback + samma vakt som nattjobbet). Ersätter
-  // den tidigare direkta /api/routing-vägen (enbart obj.lat/lng, ingen fallback-
-  // kedja) — EN beräkningsmodell för alla ytor. Persisterar km direkt så det finns
-  // vid bekräftelse, inte "dagen efter". Best-effort: fel visas aldrig som hårt fel.
+  // KM PÅ KVÄLLEN → /api/km/berakna-dag (DELADE helpern: dagensPlatser + full
+  // koordinat-fallback + samma vakt som nattjobbet; EN beräkningsmodell för alla ytor,
+  // samma anrop som Redigera gör vid öppning). Dagens km räknas av nattjobbet eller av
+  // helpern, så på kvällen står 0/0 i databasen tills någon räknat. Km hör till det man
+  // kontrollerar INNAN man skriver under, därför ber Dag-vyn själv om beräkningen när
+  // kvällsvyn visas (Martin, preview av #703: "kilometerna syns först efter bekräfta").
+  // Förr låg anropet bakom steg "kväll", som ingenting längre navigerar till — dött.
+  // Helpern persisterar km själv och hoppar över det som är satt av föraren, redan
+  // ifyllt eller utan koordinat: ingen gissning. Frågas en gång per dagsrad.
+  const [kmRäknar, setKmRäknar] = useState(false);
+  const kmFrågad = useRef<string | null>(null);
   useEffect(() => {
-    if (steg !== "kväll") return;
+    if (steg !== "morgon" && steg !== "dag" && steg !== "meny") return;
     if (!medarbetare?.id) return;
     const idagKey = new Date().toISOString().split('T')[0];
-    let cancelled = false;
+    const rad = dagData[idagKey];
+    if (!rad?.id || rad.bekraftad) return;
+    if (Number(rad.km_morgon || 0) + Number(rad.km_kvall || 0) > 0) return;
+    // Bara när passet är slut: slut_tid flyttar sig varje timme medan maskinen går.
+    if (!rad.slut_tid || !arDagAvslutad(idagKey, rad.slut_tid)) return;
+    if (kmFrågad.current === rad.id) return;
+    kmFrågad.current = rad.id;
+    setKmRäknar(true);
     (async () => {
       try {
         const r = await fetch('/api/km/berakna-dag', {
@@ -988,19 +1001,20 @@ export default function Arbetsrapport() {
           body: JSON.stringify({ medarbetare_id: medarbetare.id, datum: idagKey }),
         });
         const j = await r.json();
-        if (cancelled) return;
         if (j?.status === 'skrev') {
-          setKmBerakning((j.km_morgon || 0) + (j.km_kvall || 0));
-          if (kmM == null) setKmM({ km: j.km_morgon });
-          if (kmK == null) setKmK({ km: j.km_kvall });
+          const tot = (j.km_morgon || 0) + (j.km_kvall || 0);
+          setKmBerakning(tot);
+          // Cachen får värdet (inte förarens lokala km-tillstånd: det här är en
+          // beräkning, inte förarens egen uppgift).
+          setDagData(dd => ({ ...dd, [idagKey]: { ...(dd[idagKey] || {}), km_morgon: j.km_morgon || 0, km_kvall: j.km_kvall || 0, km_totalt: tot, km: tot, km_kalla: 'auto' } }));
         } else {
           // hoppad (km redan satt / forare / ingen koordinat) → ingen auto-gissning
           setKmBerakning(null);
         }
-      } catch { if (!cancelled) setKmBerakning(null); }
+      } catch { setKmBerakning(null); }
+      finally { setKmRäknar(false); }
     })();
-    return () => { cancelled = true; };
-  }, [steg, medarbetare?.id, valtObjektId, dagData]);
+  }, [steg, medarbetare?.id, dagData]);
 
   // Hämta km-kedja för en specifik dag när kalenderns redigera-vy öppnas.
   // /api/km-chain bygger hem → obj1 → obj2 → ... → hem från arbetsdag-raderna
@@ -1227,49 +1241,19 @@ export default function Arbetsrapport() {
       .finally(() => clearTimeout(timer));
   }, [minTidFlik, medarbetare?.id, fortnoxSaldoStatus]);
 
-  // === ARBETSDAG-NOTIS (start + avslut) ===
-  const [arbetsdagToast, setArbetsdagToast] = useState<{
-    typ: 'start' | 'slut'; maskin: string; objekt: string; start: string; slut?: string; tid?: string;
-  } | null>(null);
-
+  // === MASKINSTART: auto-stoppa pågående extra-aktiviteter ===
+  // Här låg förr två rutor över skärmen, "Din arbetsdag har startat" och "Din arbetsdag
+  // är avslutad" (med OK). Borttagna (Martin, preview av #703): de la sig över allt,
+  // även ovanpå en fråga man höll på att svara på. Att passet startat syns i dagskortet,
+  // och dagsslut-notisen ägs av servern (mom-import köar i notis_kö, flush-cronen skickar).
   useEffect(() => {
     if (!medarbetare?.id) return;
     const today = new Date().toISOString().slice(0, 10);
+    // En gång per dag: nyckeln hindrar att auto-stoppet körs om vid varje ny rad.
     const startKey = `arbetsdag_toast_start_${today}`;
-    const slutKey = `arbetsdag_toast_slut_${today}`;
 
     let knownIds = new Set<string>();
     let initialDone = false;
-
-    // Slut-rutan är VILLKORSBASERAD, inte förändringsbaserad: timvisa
-    // MOM-filer sätter slut_tid redan på morgonen och skjuter den framåt
-    // varje timme — "slut_tid blev satt" betyder inte längre "dagen är slut".
-    // Och efter dagens SISTA fil kommer inget nytt event, så en förändrings-
-    // lyssnare kan aldrig fånga avslutet. Villkoret (stall-detektionen i
-    // arDagAvslutad) utvärderas varje poll; localStorage-vakten ger en
-    // visning per dag.
-    const kollaSlutRuta = async (row: any) => {
-      if (localStorage.getItem(slutKey)) return false;
-      if (!row.slut_tid || !arDagAvslutad(today, row.slut_tid)) return false;
-      const maskin = maskinNamnMap[row.maskin_id] || row.maskin_id || '';
-      const objNamn = objektLista.find((o: any) => o.id === row.objekt_id)?.namn || row.objekt_id || '';
-      const startTid = row.start_tid ? row.start_tid.slice(0, 5) : '';
-      const slutTid = row.slut_tid.slice(0, 5);
-      // Dagstotal = maskintid + dagens extra tid. Hämtas färskt här (inte
-      // ur extraTidData-state) — effekten har stale closure på state.
-      const { data: dagensExtra } = await supabase.from('extra_tid')
-        .select('minuter').eq('medarbetare_id', medarbetare.id).eq('datum', today);
-      const extraMinIdag = (dagensExtra || []).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
-      const totMin = (row.arbetad_min || 0) + extraMinIdag;
-      const tid = `${Math.floor(totMin / 60)}h ${totMin % 60}min`;
-      setArbetsdagToast({ typ: 'slut', maskin, objekt: objNamn, start: startTid, slut: slutTid, tid });
-      localStorage.setItem(slutKey, '1');
-      setTimeout(() => setArbetsdagToast(null), 10000);
-      // Ingen klient-push längre: dagsslut-notisen ägs av servern
-      // (mom-import köar i notis_kö, flush-cronen skickar). In-app-rutan
-      // ovan behålls; den är poängen när man är inne.
-      return true;
-    };
 
     const poll = async () => {
       const { data } = await supabase.from('arbetsdag')
@@ -1281,23 +1265,16 @@ export default function Arbetsrapport() {
       if (!initialDone) {
         knownIds = new Set(data.map((r: any) => r.id));
         initialDone = true;
-        // Öppnas appen efter att dagen redan stallat ska rutan visas direkt,
-        // inte först vid nästa poll.
-        for (const row of data) { if (await kollaSlutRuta(row)) break; }
         return;
       }
 
       for (const row of data) {
-        const maskin = maskinNamnMap[row.maskin_id] || row.maskin_id || '';
-        const objNamn = objektLista.find((o: any) => o.id === row.objekt_id)?.namn || row.objekt_id || '';
         const startTid = row.start_tid ? row.start_tid.slice(0, 5) : '';
 
-        // Ny rad → start-notis + auto-stoppa pågående extra-aktiviteter
+        // Ny rad → auto-stoppa pågående extra-aktiviteter
         if (!knownIds.has(row.id) && !localStorage.getItem(startKey)) {
           knownIds.add(row.id);
-          setArbetsdagToast({ typ: 'start', maskin, objekt: objNamn, start: startTid });
           localStorage.setItem(startKey, '1');
-          setTimeout(() => setArbetsdagToast(null), 10000);
           // Auto-stoppa pågående aktiviteter på maskinstart
           if (startTid) {
             const { data: opna } = await supabase.from('extra_tid')
@@ -1325,9 +1302,6 @@ export default function Arbetsrapport() {
           return;
         }
 
-        // Dagen ser avslutad ut (stall) → slut-ruta, en gång per dag
-        if (await kollaSlutRuta(row)) return;
-
         knownIds.add(row.id);
       }
     };
@@ -1338,7 +1312,7 @@ export default function Arbetsrapport() {
     // sig att admin-ändringar inte syns i tid kan vi lägga på polling här.
     const interval = setInterval(poll, 60000);
     return () => clearInterval(interval);
-  }, [medarbetare?.id, maskinNamnMap, objektLista]);
+  }, [medarbetare?.id]);
 
   // Hämta dagdata för kalendern när månad/år ändras. `steg` ingår också i
   // dependency-listan så att återbesök till kalender-vyn efter bekräftelse
@@ -1549,37 +1523,6 @@ export default function Arbetsrapport() {
   }
 
   const input = { width:"100%",minHeight:52,padding:"14px 16px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,background:"rgba(255,255,255,0.06)",outline:"none",fontFamily:"inherit",color:"#fff" };
-
-  // === ARBETSDAG TOAST (DOM element) — must be before any early return ===
-  useEffect(() => {
-    if (!arbetsdagToast) {
-      const el = document.getElementById('arbetsdag-toast');
-      if (el) el.remove();
-      return;
-    }
-    let el = document.getElementById('arbetsdag-toast');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'arbetsdag-toast';
-      document.body.appendChild(el);
-    }
-    el.style.cssText = 'position:fixed;bottom:20px;left:16px;right:16px;z-index:10000;animation:slideIn 0.3s ease;';
-    const isSlut = arbetsdagToast.typ === 'slut';
-    const title = isSlut ? 'Din arbetsdag är avslutad' : 'Din arbetsdag har startat';
-    const detail = isSlut
-      ? `${arbetsdagToast.maskin}${arbetsdagToast.objekt ? ' · ' + arbetsdagToast.objekt : ''}<br>${arbetsdagToast.start} – ${arbetsdagToast.slut || ''} · ${arbetsdagToast.tid || ''}`
-      : `${arbetsdagToast.maskin}${arbetsdagToast.objekt ? ' · ' + arbetsdagToast.objekt : ''}${arbetsdagToast.start ? ' · Starttid: ' + arbetsdagToast.start : ''}`;
-    el.innerHTML = `<div style="background:#1c1c1e;border-radius:16px;padding:16px 18px;box-shadow:0 8px 30px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);">
-      <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:4px;">${title}</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:12px;">${detail}</div>
-      <div style="display:flex;gap:8px;">
-        <button id="toast-ok" style="flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.6);font-size:14px;font-weight:600;cursor:pointer;">OK</button>
-      </div>
-    </div>`;
-    const okBtn = el.querySelector('#toast-ok');
-    if (okBtn) okBtn.addEventListener('click', () => { setArbetsdagToast(null); });
-    return () => { el?.remove(); };
-  }, [arbetsdagToast]);
 
   // Vilo-detektering vid arbetsdag-mutation. Anropas efter Avsluta pass,
   // Starta manuellt, och Ändra tider-sheet. Räknar fönstret datum-3 till
@@ -2903,7 +2846,8 @@ export default function Arbetsrapport() {
             {/* Körning — maskinpass eller perioddag. Talet räknar upp när km fylls i. */}
             {(harMaskinPass || perioddag) && (
               <div style={linjeUnder(true)}>
-                {sammanRad("Körning", `${Math.round(totKmVisad)} km`)}
+                {/* Medan dagens km räknas ut: säg det, visa inte ett falskt 0 km. */}
+                {sammanRad("Körning", kmRäknar ? "Räknas ut" : `${Math.round(totKmVisad)} km`)}
                 {milPåbörjade > 0 && sammanRad("Reseersättning", `${milPåbörjade} påbörjade mil`)}
               </div>
             )}
@@ -3024,7 +2968,10 @@ export default function Arbetsrapport() {
               Ändra rapport
             </button>
           ) : (<>
+            {/* Inaktiv medan dagens km räknas ut (en stund): annars skrivs ett 0 över
+                det helpern just persisterat. */}
             <button
+              disabled={kmRäknar}
               onClick={async ()=>{
                 const nuT = nuKlock();
                 const nuTS = nuT + ":00";
@@ -3043,7 +2990,7 @@ export default function Arbetsrapport() {
                 // Rastfråga + för-check + skrivning — SAMMA funktion som Redigeras Bekräfta.
                 await bekraftaMedForcheck(idagKey, bekraftaDagen, "morgon", { minuter: rast, passMin: passMinuter(start, slut, rast), andra: () => setVisaTiderSheet(true) });
               }}
-              style={{ ...KNAPP.primar, marginTop:AVSTAND.l }}>
+              style={{ ...KNAPP.primar, marginTop:AVSTAND.l, ...(kmRäknar ? INAKTIV : {}) }}>
               {ändradSedan ? "Stämmer igen" : "Stämmer"}
             </button>
             <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.xs }}>

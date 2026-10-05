@@ -81,10 +81,18 @@ const g = globalThis as any;
 beforeEach(() => {
   g.IS_REACT_ACT_ENVIRONMENT = true;
   g.__skriv = []; g.__kmKedja = null;
+  try { localStorage.clear(); } catch { /* jsdom */ } // toasten hade en visning-per-dag-vakt i localStorage
+  g.__kmDag = null; g.__kmDagAnrop = 0; g.__kmDagHall = false; g.__kmDagSlapp = null;
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.stubGlobal("fetch", vi.fn(async (url: any) => {
     const u = String(url);
+    if (u.includes("/api/km/berakna-dag")) {
+      // dagens km beräknas av den DELADE helpern (samma som nattjobbet och Redigera)
+      g.__kmDagAnrop++;
+      if (g.__kmDagHall) await new Promise<void>(r => { g.__kmDagSlapp = r; });
+      return { ok: true, status: 200, json: async () => g.__kmDag ?? {}, text: async () => "" };
+    }
     const json = u.includes("/api/km-chain") && g.__kmKedja ? { ok: true, segments: g.__kmKedja, platser: [], objektKoord: {} } : {};
     return { ok: true, status: 200, json: async () => json, text: async () => "" };
   }));
@@ -297,6 +305,76 @@ describe("Kvällsvyn: övriga lägen", () => {
     expect(knappar()).not.toContain("Något fel?");
     expect(text()).not.toMatch(/Åker hem/);
     expect(text()).not.toMatch(/Meal break/);
+  });
+});
+
+describe("Kvällsvyn: kilometerna syns FÖRE Stämmer", () => {
+  // Dagens km räknas av nattjobbet eller av den delade helpern. På kvällen står 0/0 i
+  // databasen tills någon räknat; Dag-vyn måste själv be om beräkningen så att siffran
+  // är med i sammanfattningen innan man skriver under (Martin, preview av #703).
+  const nollKm = { km_morgon: 0, km_kvall: 0, km_totalt: 0 };
+
+  it("km 0/0 i databasen: vyn beräknar dagens km och visar dem INNAN Stämmer", async () => {
+    g.__kmDag = { status: "skrev", km_morgon: 56, km_kvall: 56 };
+    fixtur(klartPass(nollKm));
+    await montera();
+    expect(g.__kmDagAnrop).toBe(1);
+    expect(text()).toMatch(/Körning112 km/);
+    expect(text()).toMatch(/6 påbörjade mil/);
+    expect(skrivna("arbetsdag").length).toBe(0); // inget skrevs av klienten: helpern äger skrivningen
+  });
+
+  it("medan beräkningen pågår: 'Räknas ut' (inte ett falskt 0 km) och Stämmer är inaktiv", async () => {
+    g.__kmDagHall = true;
+    fixtur(klartPass(nollKm));
+    await montera();
+    expect(text()).toMatch(/KörningRäknas ut/);
+    expect(text()).not.toMatch(/Körning0 km/);
+    const stammer = Array.from(behallare!.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Stämmer")!;
+    expect(stammer.disabled).toBe(true);
+    await act(async () => { g.__kmDag = { status: "skrev", km_morgon: 30, km_kvall: 30 }; g.__kmDagSlapp(); });
+    await vänta(6, 40);
+    expect(text()).toMatch(/Körning60 km/);
+    const efter = Array.from(behallare!.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Stämmer")!;
+    expect(efter.disabled).toBe(false);
+  });
+
+  it("helpern hoppar över (t.ex. ingen koordinat): ärligt 0 km och Stämmer går att trycka", async () => {
+    g.__kmDag = { status: "hoppad" };
+    fixtur(klartPass(nollKm));
+    await montera();
+    expect(text()).toMatch(/Körning0 km/);
+    const stammer = Array.from(behallare!.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Stämmer")!;
+    expect(stammer.disabled).toBe(false);
+  });
+
+  it("km finns redan i databasen: ingen beräkning begärs", async () => {
+    fixtur(klartPass());
+    await montera();
+    expect(g.__kmDagAnrop).toBe(0);
+    expect(text()).toMatch(/Körning112 km/);
+  });
+
+  it("bekräftad dag med 0 km: ingen beräkning (en medveten nolla rörs inte)", async () => {
+    fixtur(klartPass({ ...nollKm, bekraftad: true, bekraftad_tid: "2026-10-05T15:30:00Z" }));
+    await montera();
+    expect(g.__kmDagAnrop).toBe(0);
+  });
+
+  it("passet pågår: ingen beräkning (slut_tid flyttar sig)", async () => {
+    fixtur(klartPass({ ...nollKm, slut_tid: "19:05:00" }));
+    await montera();
+    expect(g.__kmDagAnrop).toBe(0);
+  });
+});
+
+describe("Toasten 'Din arbetsdag har startat/är avslutad' är borta", () => {
+  it("ingen ruta läggs över skärmen när dagen redan stallat (förr: 'Din arbetsdag är avslutad' + OK)", async () => {
+    fixtur(klartPass()); // slut 16:12, klockan 19:30 → stallat
+    await montera();
+    await vänta(6, 40);
+    expect(document.getElementById("arbetsdag-toast")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/Din arbetsdag/);
   });
 });
 
