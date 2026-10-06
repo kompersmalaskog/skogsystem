@@ -1,6 +1,8 @@
 'use client';
 
-// NIVÅ 2 — ett objekt — och dess undernivåer, byggda mot Martins förlagor.
+// OBJEKTSKÄRMEN — ETT objekt och dess undernivåer, byggda mot Martins förlagor. Det finns EN objektskärm: man kommer hit från
+// Kvalitet (/affarsuppfoljning/kvalitet) eller från en månad/ett år, och ser samma sak. Undersidor: /bitar (bitarna) och /rotkap
+// (längre rotkap). Gamla adresser (/massaved/<id>, /rotkap?objekt=) omdirigeras hit i next.config.js.
 // Samma form på varje skärm (components/Ytform.tsx). Vilken skärm som visas styrs av
 // ?vy= i länken, så att bakåtknappen och delade länkar fungerar:
 //   (ingen)          objektet: "Ulfsnäs AU ⌄", 4,03 m, medellängd
@@ -119,7 +121,7 @@ function Innehall() {
 
   const namn = kortObjekt(d?.namn ?? objektId);
   const periodOrd = manad ? manadNamn(manad) : 'hela objektet';
-  const bas = `/massaved/${encodeURIComponent(objektId)}`;
+  const bas = `/affarsuppfoljning/objekt/${encodeURIComponent(objektId)}`;
   const url = (q: Record<string, string | null | undefined>) => {
     const p = new URLSearchParams();
     p.set('manad', manad ?? 'alla');
@@ -128,7 +130,7 @@ function Innehall() {
   };
   const go = (v: string, s?: string) => router.push(url({ vy: v, sort: s }));
   const objektUrl = url({});
-  const rotkapUrl = `/rotkap?objekt=${encodeURIComponent(objektId)}`;
+  const rotkapUrl = `${bas}/rotkap`;
   const bitarUrl = `${bas}/bitar`;
   const har = `${namn} · ${periodOrd}`;
 
@@ -157,8 +159,8 @@ function Innehall() {
       <div style={SIDA}>
         <Rubrikrad text={namn} value={objektId} label="Objekt"
           onChange={id => id === '__alla'
-            ? router.push(`/massaved?manad=${pickerManad ?? ''}`)
-            : router.push(`/massaved/${encodeURIComponent(id)}?manad=${manad ?? 'alla'}`)}>
+            ? router.push(`/affarsuppfoljning/kvalitet?manad=${pickerManad ?? ''}`)
+            : router.push(`/affarsuppfoljning/objekt/${encodeURIComponent(id)}?manad=${manad ?? 'alla'}`)}>
           <option value="__alla">Alla objekt{pickerManad ? ` i ${manadEtikett(pickerManad)}` : ''}</option>
           <option value={objektId}>{namn}</option>
           {andra.filter(o => o.objekt_id !== objektId).map(o => (

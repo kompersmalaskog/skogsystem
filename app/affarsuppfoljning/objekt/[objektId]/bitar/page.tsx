@@ -56,7 +56,7 @@ export default function MassavedBitar() {
 
   return (
     <div style={SIDA}>
-      <Tillbakarad href={`/massaved/${encodeURIComponent(objektId)}`} text="Objektet" />
+      <Tillbakarad href={`/affarsuppfoljning/objekt/${encodeURIComponent(objektId)}`} text="Objektet" />
       <div style={{ padding: '0 16px', borderBottom: LINJE }}>
         <Kontroll text={valta.toLowerCase()} value={valta} onChange={v => setValta(v as typeof VALTOR[number])} label="Välta">
           {VALTOR.map(v => <option key={v} value={v}>{v}</option>)}

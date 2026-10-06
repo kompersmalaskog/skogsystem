@@ -54,7 +54,8 @@ function Innehall() {
     setLaddar(true); setFel(null);
     const [u, o, r, m] = await Promise.all([
       allaRader('utfall_objekt', 'objekt_id,forsta,stammar,volym,timmer_m3,kubb_m3,massa_m3,lov_m3,medelstam,kontrollerad', 'objekt_id'),
-      allaRader('dim_objekt', 'objekt_id,object_name,huvudtyp', 'objekt_id', q => q.in('huvudtyp', ['Slutavverkning', 'Gallring'])),
+      // Medelstamskurvan räknas BARA på Vida-objekt (Martin 2026-10-06). Objekt utan Vida i dim_objekt faller bort nedan (`if (!dim) continue`).
+      allaRader('dim_objekt', 'objekt_id,object_name,huvudtyp', 'objekt_id', q => q.in('huvudtyp', ['Slutavverkning', 'Gallring']).eq('bolag', 'Vida')),
       // Rötan är ett tillägg: går den inte att läsa (ingen policy, tabellen saknas) är det ett eget läge, inte ett fel.
       allaRader('stamplings_objekt', 'objekt_id,stammar20,rot20', 'objekt_id'),
       medAbortRetry(() => supabase.from('stamplings_meta').select('nyckel,varde')),
@@ -93,8 +94,8 @@ function Innehall() {
 
   useEffect(() => { hamta(); }, [hamta]);
 
-  if (laddar) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" /><Laddar vad="utfallet" /></div>;
-  if (fel) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" /><Fel rubrik="Utfallet kunde inte hämtas" fel={fel} igen={hamta} /></div>;
+  if (laddar) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning/rakna" text="Räkna" /><Laddar vad="utfallet" /></div>;
+  if (fel) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning/rakna" text="Räkna" /><Fel rubrik="Utfallet kunde inte hämtas" fel={fel} igen={hamta} /></div>;
   if (!d) return <div style={SIDA} />;
 
   return (

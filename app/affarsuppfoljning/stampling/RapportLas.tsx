@@ -114,8 +114,11 @@ function Tabell({ i, t, k, uppdatera, tabort, oppen, vaxla }: {
   );
 }
 
-export default function RapportLas({ bas, id, oppna, anvand, manuellt, saRaknas }: {
-  bas: string; id: string | null; oppna: (id: string | null) => void; anvand: (r: Rapport, l: Lasning) => void; manuellt: () => void; saRaknas: () => void;
+export default function RapportLas({ bas, id, kor, oppna, anvand, manuellt, saRaknas }: {
+  bas: string; id: string | null;
+  /** Kommer från Räkna (uppladdad eller sparad post): stämmer kontrollen räknas den direkt, som när man laddar upp här. */
+  kor?: boolean;
+  oppna: (id: string | null) => void; anvand: (r: Rapport, l: Lasning) => void; manuellt: () => void; saRaknas: () => void;
 }) {
   const [fas, setFas] = useState<'vilar' | 'laddar-upp' | 'laser' | 'hamtar'>('hamtar');
   const [fel, setFel] = useState<string | null>(null);
@@ -149,10 +152,14 @@ export default function RapportLas({ bas, id, oppna, anvand, manuellt, saRaknas 
     setFas('hamtar');
     hamtaRapport(id).then(res => {
       if (avbruten) return;
-      if (res.ok) visa(res.rapport, false); else { setFel(res.fel); setFas('vilar'); }
+      if (res.ok) {
+        // ?kor=1 tas bort ur adressen INNAN rapporten tillämpas: annars räknar bakåtknappen om den på nytt i en slinga.
+        if (kor) oppna(res.rapport.id);
+        visa(res.rapport, !!kor);
+      } else { setFel(res.fel); setFas('vilar'); }
     });
     return () => { avbruten = true; };
-  }, [id, visa]);
+  }, [id, kor, visa]);
 
   const lasning = useMemo(() => (grund.current ? tillLasning(grund.current, tabeller) : null), [tabeller, rapport]);
   const kontroll = useMemo(() => (lasning ? kontrollera(lasning) : null), [lasning]);

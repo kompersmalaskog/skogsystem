@@ -6,8 +6,11 @@
 // med stillastående data utanför appen, och att sidan (page.tsx) bara har
 // ett jobb — hämta och hålla valet.
 //
+// Rotkap är en undersida av OBJEKTSKÄRMEN (/affarsuppfoljning/objekt/<id>/rotkap): objektet ges av adressen, så det finns ingen
+// objektväljare här — tillbakaraden går till objektet.
+//
 // YTANS ORDNING, ögat läser nedåt i en rak linje, allt vänsterställt (formen i components/Ytform.tsx):
-//   1. rubrikrad med väljare       "Akelius Tåget ⌄"
+//   1. tillbakarad till objektet    "‹ Akelius Tåget"
 //   2. talet, stort                 −3,46 m³
 //   3. ordraden                     förlorat timmer · räknat, inte mätt
 //   4. dämpad rad med skala         −7,2 % av timret · −18 l per stam
@@ -29,7 +32,7 @@
 // referens.
 
 import { useState } from 'react';
-import { SIDA, TAL, SEKUNDAR, TEXT, GRON, LINJE, nf, nf0, Rubrikrad, Tillbakarad, Stort, Damp, Kontroll, Rad, Rader, Stycken } from '@/components/Ytform';
+import { SIDA, TAL, SEKUNDAR, TEXT, GRON, LINJE, nf, nf0, Tillbakarad, Stort, Damp, Kontroll, Rad, Rader, Stycken } from '@/components/Ytform';
 
 export type Validering = {
   n: number; dia_median_mm: number; dia_p10: number; dia_p90: number;
@@ -149,11 +152,13 @@ export function Atgardsruta({ atg }: { atg: Atgard[] }) {
   );
 }
 
-export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd, vy, onSaRaknas }: {
+export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRaknas, objektHref, rotkapHref }: {
   rader: SimRad[]; valt: string | null; kaplangd: number;
-  onValj: (objektId: string) => void; onKaplangd: (cm: number) => void;
+  onKaplangd: (cm: number) => void;
   /** 'sa-raknas' = skärmen där allt som förklarar talet bor (en nivå in). */
   vy?: 'sa-raknas'; onSaRaknas?: () => void;
+  /** Objektskärmen (tillbakaraden) och den här vyns egen adress (tillbaka från Så räknas). */
+  objektHref: string; rotkapHref: string;
 }) {
   const [visaVar, setVisaVar] = useState(false);
   const lista = objektLista(rader);
@@ -206,7 +211,7 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd, vy
     const para = { margin: '0 0 8px' } as const;
     return (
       <div style={SIDA}>
-        <Tillbakarad href={`/rotkap?objekt=${encodeURIComponent(obj.objekt_id)}`} text={obj.namn} />
+        <Tillbakarad href={rotkapHref} text={obj.namn} />
         <Stycken>
           <p style={para}>
             Samma stammar apteras en gång till med rotbiten förlängd till {meter(kaplangd)} m, mot
@@ -257,22 +262,15 @@ export default function RotkapVy({ rader, valt, kaplangd, onValj, onKaplangd, vy
 
   return (
     <div style={SIDA}>
-      {/* 1. Rubrikrad med väljare. Objekt utan rotkap syns i plockaren men
-          går inte att välja — att de har kurva men inget att simulera är
-          också ett svar. */}
-      <Rubrikrad text={obj ? obj.namn : 'Välj objekt'} value={obj?.objekt_id ?? ''} onChange={onValj} label="Objekt">
-        {!obj && <option value="" disabled>Välj objekt</option>}
-        {lista.filter(o => o.valjbar).map(o => (
-          <option key={o.objekt_id} value={o.objekt_id}>{o.namn} · {nf0(o.ref.stammar)} st</option>
-        ))}
-        {lista.some(o => !o.valjbar) && (
-          <optgroup label="Inget att simulera">
-            {lista.filter(o => !o.valjbar).map(o => (
-              <option key={o.objekt_id} value={o.objekt_id} disabled>{o.namn} · {o.orsak}</option>
-            ))}
-          </optgroup>
-        )}
-      </Rubrikrad>
+      {/* 1. Tillbakarad till objektet — objektet ges av adressen. Att objektet har kurva men inget att simulera är också ett svar
+          och sägs nedan. */}
+      <Tillbakarad href={objektHref} text={obj ? obj.namn : 'Objektet'} />
+
+      {!obj && (
+        <div style={{ ...LITEN, padding: '24px 16px', lineHeight: 1.6 }}>
+          Ingen simulering finns för objektet.
+        </div>
+      )}
 
       {obj && !obj.valjbar && (
         <div style={{ ...LITEN, padding: '24px 16px', lineHeight: 1.6 }}>
