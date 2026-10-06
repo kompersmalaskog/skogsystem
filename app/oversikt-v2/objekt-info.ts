@@ -49,11 +49,20 @@ export function barighetText(barighet: string | null | undefined): { text: strin
   return { text: b.charAt(0).toUpperCase() + b.slice(1), begransning: false };
 }
 
-/** Markägarens telefonnummer som tel:-länk. Bara siffror och ett inledande + behålls (mellanslag och bindestreck stör vissa
- *  telefoner); ett värde utan nummer i ("Ring Anders", "-") ger ingen länk — hellre ingen knapp än en som ringer fel. */
+/** Markägarens telefonnummer rensat för tel: och sms: — bara siffror och ett inledande + (mellanslag och bindestreck stör vissa
+ *  telefoner). Tar FÖRSTA nummer-liknande biten: ett andra nummer eller text efter ett / , ; lämnas, så att
+ *  "070-123 45 67 / 0478-123 45" aldrig blir ett hopskarvat nummer. "+46 (0)70 …" tappar den överflödiga (0). Färre än 6 siffror
+ *  ("Ring Anders", "-", "17") ger null — hellre ingen knapp än en som ringer eller skickar fel. */
+export function telNummer(tel: string | null | undefined): string | null {
+  const m = (tel ?? '').match(/\+?\d[\d\s().-]*/);
+  if (!m) return null;
+  const bit = m[0].replace(/^(\+\d{1,3})\s*\(0\)/, '$1');
+  const nummer = (bit.charAt(0) === '+' ? '+' : '') + bit.replace(/\D/g, '');
+  return nummer.replace(/\D/g, '').length >= 6 ? nummer : null;
+}
+
+/** Markägarens telefonnummer som tel:-länk (null → ingen Ring-knapp). */
 export function telHref(tel: string | null | undefined): string | null {
-  const t = (tel ?? '').trim();
-  if (!t) return null;
-  const rensat = (t.startsWith('+') ? '+' : '') + t.replace(/\D/g, '');
-  return rensat.replace(/\D/g, '').length >= 6 ? `tel:${rensat}` : null;
+  const nummer = telNummer(tel);
+  return nummer ? `tel:${nummer}` : null;
 }
