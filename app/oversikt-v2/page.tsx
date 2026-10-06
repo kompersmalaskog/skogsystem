@@ -19,7 +19,9 @@ import { hamtaSkordMapV2, type SkordAggV2 } from './skord-data';
 import { beraknaForslag, arSkotare, maskinAktiv, tomtForslag, koNamn, arGrotKo, type MaskinForslag, type MaskinRad, type MaskinTyp, type KoPost } from './nasta-v2';
 import { arbetsLage } from './lage';
 import { koLaget } from './ko-regler';
-import { barighetText, byggVarningar, telHref, type MarkeringRow, type ObjWarn, type Varning } from './objekt-info';
+import { barighetText, byggVarningar, telHref, type MarkeringRow, type ObjWarn } from './objekt-info';
+import { KO_LASFEL, KO_SPARFEL, flyttaKoVerifierat, laggIKoVerifierat, lasKo, skapaKoKedja, skrivOrdningVerifierat, taBortKoVerifierat, type KoSvar } from './ko-skriv';
+import { arIos, forstaNamn, maskinOrd, rensaObjektnamn, smsHref, smsText, type MaskinOrd } from './sms';
 import { hamtaGrotRaw } from '@/lib/grotvy/hamta';
 import { byggGrotLista, grotKordaObjektIds, grotSnartAntal, grotVantandeObjektIds, medDimPatch, type GrotRad, type GrotRaw, type GrotSkrivning } from '@/lib/grotvy/lista';
 import { arGrotUnderlagTillforlitligt, koRaderAttRensa, raderaKoRader } from '@/lib/grotvy/ko';
@@ -30,8 +32,8 @@ import { sparaFalt } from '@/lib/redigering/objektRouter';
 import GrotListaArk, { ARK_ANDEL, type ArkLage } from './GrotLista';
 import GrotObjektArk, { type ArkKo, type ArkSkotare } from './GrotObjektArk';
 import { useGrotVagAvstand } from './grot-avstand';
-import { KNAPP, KNAPP_LITEN, SheetBas, Grabber } from './ark-delar';
-import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, designCss } from '@/lib/design/tokens';
+import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningRader } from './ark-delar';
+import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss } from '@/lib/design/tokens';
 
 declare global { interface Window { maplibregl: any } }
 
@@ -285,6 +287,7 @@ export default function OversiktV2Page() {
   const kanRedigera = lage.typ === 'forman';                           // kö-knappar, GROT-chip och -redigering, städning av GROT-kön
   const kanOppnaArk = lage.typ === 'forman' || lage.typ === 'forare';  // maskin- och objekt-ark
   const egenMaskinId = lage.typ === 'forare' ? lage.maskinId : null;
+  const fornamn = useMemo(() => forstaNamn(medarbetare?.namn), [medarbetare?.namn]); // sms till markägaren skrivs i den inloggades namn
   const kanOppnaArkRef = useRef(kanOppnaArk); kanOppnaArkRef.current = kanOppnaArk; // marker- och prick-lyssnarna sätts en gång vid skapandet
   const didAutoSelect = useRef(false);
   // Djuplänk ?objekt=<objekt.id> (för länkar från andra vyer): kartan centreras på objektet och dess ark öppnas.
@@ -791,26 +794,33 @@ export default function OversiktV2Page() {
   }, [selMaskin, forslag, mapStyleLoaded]);
 
   // ── kö-skrivningar (v2:s egna; rör aldrig OversiktMaskiner) ──
-  const laggIKo = useCallback(async (maskinId: string, objektId: string) => {
-    const egna = maskinKo.filter((k) => k.maskin_id === maskinId);
-    const maxOrd = egna.reduce((m, k) => Math.max(m, k.ordning), -1);
-    await supabase.from('maskin_ko').insert({ maskin_id: maskinId, objekt_id: objektId, ordning: maxOrd + 1 });
-    await refetchKo();
-  }, [maskinKo, refetchKo]);
-  const flyttaKo = useCallback(async (koId: string, tillMaskin: string) => {
-    const maxOrd = maskinKo.filter((k) => k.maskin_id === tillMaskin).reduce((m, k) => Math.max(m, k.ordning), -1);
-    await supabase.from('maskin_ko').update({ maskin_id: tillMaskin, ordning: maxOrd + 1 }).eq('id', koId);
-    await refetchKo();
-  }, [maskinKo, refetchKo]);
-  const taBortKo = useCallback(async (koId: string) => { await supabase.from('maskin_ko').delete().eq('id', koId); await refetchKo(); }, [refetchKo]);
+  // VERIFIERADE (ko-skriv.ts): kön läses färskt, skrivs, och läses tillbaka — det som avgör är vad som ligger i databasen, inte
+  // om anropet svarade. Svaret är null när det landade, annars ett meddelande som arket visar ("Kunde inte spara — försök
+  // igen"); tekniken går till konsolen. Kön på skärmen byts ALLTID mot det som faktiskt ligger i databasen — lyckat eller inte —
+  // och kan inte kön läsas lämnas skärmen orörd. En skrivning i taget (koKor): två tryck i rad läser aldrig samma kö.
+  const koKor = useRef(skapaKoKedja()).current;
+  const koSkriv = useCallback(async (op: () => Promise<KoSvar>): Promise<string | null> => {
+    try {
+      const r = await koKor(op);
+      if (r.ko) setMaskinKo(r.ko);
+      return r.ok ? null : r.meddelande;
+    } catch (e) {
+      console.error('[Översikt v2] köskrivningen kastade', e);
+      const ko = await lasKo(supabase);
+      if (ko) setMaskinKo(ko);
+      return ko ? KO_SPARFEL : KO_LASFEL;
+    }
+  }, [koKor]);
+  const laggIKo = useCallback((maskinId: string, objektId: string) => koSkriv(() => laggIKoVerifierat(supabase, maskinId, objektId)), [koSkriv]);
+  const flyttaKo = useCallback((koId: string, tillMaskin: string) => koSkriv(() => flyttaKoVerifierat(supabase, koId, tillMaskin)), [koSkriv]);
+  const taBortKo = useCallback((koId: string) => koSkriv(() => taBortKoVerifierat(supabase, koId)), [koSkriv]);
   // Varje släpp sparar: skriv om ordning (0..n). De synliga i ny ordning först, dolda
   // (avslutade/nu) läggs efter så gamla vyns kö inte tappar rader. Ingen Spara-knapp.
   const skrivOrdning = useCallback(async (maskinId: string, orderedVisibleKoIds: string[]) => {
-    const rest = maskinKo.filter((k) => k.maskin_id === maskinId && !orderedVisibleKoIds.includes(k.id)).sort((a, b) => a.ordning - b.ordning).map((k) => k.id);
-    const full = [...orderedVisibleKoIds, ...rest];
-    await Promise.all(full.map((id, i) => supabase.from('maskin_ko').update({ ordning: i }).eq('id', id)));
-    await refetchKo();
-  }, [maskinKo, refetchKo]);
+    const fel = await koSkriv(() => skrivOrdningVerifierat(supabase, maskinId, orderedVisibleKoIds));
+    if (fel) setKoPreview(null); // kartans förhandsvisning tillbaka till kön som ligger i databasen (dra-listan ritas om i arket)
+    return fel;
+  }, [koSkriv]);
 
   // Live-preview under drag: koId-ordning → objekt → koPreview (kartan ritar om direkt, ingen skrivning).
   const hanteraOrderChange = useCallback((koIds: string[]) => {
@@ -906,7 +916,7 @@ export default function OversiktV2Page() {
     const mal = laggKandidater.slice(0, 40).map((k) => ({ lat: k.lat, lng: k.lng })); // förhämta vägavstånd (väg-km + omsortering)
     (async () => { let n = 0; for (const t of mal) { await vagRuttCached(start, t); if (++n % 8 === 0) setRuttVersion((v) => v + 1); } setRuttVersion((v) => v + 1); })(); // bumpa i klump, inte per anrop
   }, [selMaskin, forslag, laggKandidater, vagRuttCached]);
-  const valjLaggObjekt = useCallback((objektId: string) => { if (selMaskin) laggIKo(selMaskin, objektId); setHighlightObjekt(null); }, [selMaskin, laggIKo]);
+  const valjLaggObjekt = useCallback((objektId: string): Promise<string | null> => { setHighlightObjekt(null); return selMaskin ? laggIKo(selMaskin, objektId) : Promise.resolve(null); }, [selMaskin, laggIKo]);
   // Arkets km per ben (vald maskins fasta kö) ur rutt-cachen; miss → null ("–"). ruttVersion → uppdateras när ORS svarat.
   const selLegs = useMemo(() => {
     if (!valt) return [] as (number | null)[]; // en maskin utan position: första sträckan har ingen start (null → '–'), resten räknas
@@ -1071,6 +1081,7 @@ export default function OversiktV2Page() {
           maskinNamn={maskinNamnAv} maskinRoll={maskinRollAv}
           maskinKo={maskinKo}
           forare={!kanRedigera}
+          fornamn={fornamn} smsMaskin={maskinOrd(valt?.typ)}
           onLaggIKo={laggIKo} onFlytta={flyttaKo} onTaBort={taBortKo}
           onTillbaka={valt ? () => setSelObjekt(null) : undefined}
           onClose={() => { setSelObjekt(null); setSelMaskin(null); }}
@@ -1163,12 +1174,30 @@ const RAD_KORT: React.CSSProperties = { display: 'grid', columnGap: AVSTAND.m, r
 function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin, onOppnaObjekt, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage }: {
   f: MaskinForslag; namn: string; legs: (number | null)[]; skord: Record<string, SkordAggV2>; warnings: Record<string, ObjWarn>;
   telefon: string | null; forare: boolean; dinMaskin: boolean; onOppnaObjekt: (objektId: string) => void; onClose: () => void;
-  onReorder: (orderedKoIds: string[]) => void; onOrdnaLage: (active: boolean) => void; onOrderChange: (koIds: string[]) => void; koRader: MaskinKoItem[];
-  kandidater: LaggKand[]; kmTill: (k: LaggKand) => number | null; onValjObjekt: (objektId: string) => void; onHighlight: (objektId: string | null) => void; onLaggLage: (active: boolean) => void;
+  onReorder: (orderedKoIds: string[]) => Promise<string | null>; onOrdnaLage: (active: boolean) => void; onOrderChange: (koIds: string[]) => void; koRader: MaskinKoItem[];
+  kandidater: LaggKand[]; kmTill: (k: LaggKand) => number | null; onValjObjekt: (objektId: string) => Promise<string | null>; onHighlight: (objektId: string | null) => void; onLaggLage: (active: boolean) => void;
 }) {
   const [ordnaLage, setOrdnaLage] = useState(false);
   const [laggLage, setLaggLage] = useState(false);
   const [sok, setSok] = useState('');
+  // Köskrivningarna är verifierade (ko-skriv.ts): svaret är null när det landade, annars ett meddelande. Det visas HÄR, överst i
+  // arket, tills nästa åtgärd — aldrig tyst. Flera kan vara på väg (de körs en i taget); ett fel försvinner inte av att en senare lyckas.
+  const [sparar, setSparar] = useState(0);
+  const [koFel, setKoFel] = useState<string | null>(null);
+  const [ordnaNyckel, setOrdnaNyckel] = useState(0); // bumpas efter ett misslyckat släpp → dra-listan ritas om från kön som ligger i databasen
+  const iFlykt = useRef(0);
+  const levande = useRef(true);
+  useEffect(() => { levande.current = true; return () => { levande.current = false; }; }, []);
+  const felRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (koFel) felRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [koFel]); // arket kan vara rullat — felet ska synas
+  const sparaKo = async (skrivning: () => Promise<string | null>): Promise<string | null> => {
+    if (iFlykt.current === 0) setKoFel(null);
+    iFlykt.current += 1; setSparar(iFlykt.current);
+    const fel = await skrivning();
+    iFlykt.current -= 1;
+    if (levande.current) { setSparar(iFlykt.current); if (fel) setKoFel(fel); }
+    return fel;
+  };
   const nuAgg = aggFor(f.nuObjekt, skord);
   const rollLabel = f.typ === 'skotare' ? 'skotare' : 'skördare';
   const nuKvar = f.nuObjekt && nuAgg && nuAgg.skordat > 0 ? paBackenKvar(nuAgg.skordat, nuAgg.skotat, nuAgg.egenSkotning) : null;
@@ -1182,9 +1211,11 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin,
   const hogerFor = (p: KoPost, i: number) => { const agg = aggFor(p.objekt, skord); const vol = arGrotKo(p.objekt) ? null : volFor(f, p.objekt, agg); const km = legs[i]; return [vol != null ? `${fmt(vol)} m³` : null, km != null ? `${Math.round(km)} km` : '–'].filter(Boolean).join(' · '); };
   const dragRader = koPoster.map((p, i) => ({ koId: koIdForObjekt(p.objekt.id) || '', namn: koNamn(p.objekt), hoger: hogerFor(p, i) })).filter((r) => r.koId); // kö-rader (= f.ko[0..koPoster.length])
 
-  const toggleOrdna = () => setOrdnaLage((v) => { const nv = !v; onOrdnaLage(nv); return nv; });
-  const oppnaLagg = () => { setSok(''); setLaggLage(true); onLaggLage(true); };
+  const toggleOrdna = () => { if (iFlykt.current === 0) setKoFel(null); setOrdnaLage((v) => { const nv = !v; onOrdnaLage(nv); return nv; }); };
+  const oppnaLagg = () => { if (iFlykt.current === 0) setKoFel(null); setSok(''); setLaggLage(true); onLaggLage(true); };
   const stangLagg = () => { setLaggLage(false); onLaggLage(false); };
+  const valj = (objektId: string) => { stangLagg(); void sparaKo(() => onValjObjekt(objektId)); };      // väljaren stängs direkt; resultatet visas i arket
+  const slappOrdning = async (ids: string[]) => { const fel = await sparaKo(() => onReorder(ids)); if (fel && levande.current) setOrdnaNyckel((n) => n + 1); };
   const filtrerade = sok.trim() ? kandidater.filter((k) => k.namn.toLowerCase().includes(sok.trim().toLowerCase())) : kandidater;
 
   return (
@@ -1209,7 +1240,7 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin,
                   <div key={k.id}
                     onPointerEnter={iKo ? undefined : () => onHighlight(k.id)}
                     onPointerLeave={iKo ? undefined : () => onHighlight(null)}
-                    onClick={iKo ? undefined : () => { onValjObjekt(k.id); stangLagg(); }}
+                    onClick={iKo ? undefined : () => valj(k.id)}
                     style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', columnGap: AVSTAND.m, rowGap: 2, padding: `${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.upphojt, opacity: iKo ? 0.5 : 1, cursor: iKo ? 'default' : 'pointer', ...TYP.text, ...TNUM }}>
                     <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.namn}</div>
                     <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{km != null ? `${Math.round(km)} km` : '–'}</div>
@@ -1225,6 +1256,8 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin,
         <div style={{ ...TYP.rubrik }}>{namn}</div>
         <div style={{ ...TYP.meta, color: FARG.text2 }}>{dinMaskin ? 'din maskin · ' : ''}{rollLabel}{f.manuellKo ? ' · manuell kö' : ''}</div>
       </div>
+      {sparar > 0 && <div role="status" style={{ ...TYP.meta, color: FARG.text2 }}>Sparar…</div>}
+      {koFel && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{koFel}</div>}
 
       {/* Nu — står maskinen på ett känt objekt går raden att trycka på (objekt-arket) */}
       {f.nuObjekt ? (
@@ -1246,7 +1279,7 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin,
       {f.ko.length === 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: '52px minmax(0,1fr)', columnGap: AVSTAND.m, ...TYP.text }}><div style={{ color: FARG.text2 }}>Nästa</div><div style={{ color: FARG.text2 }}>inget planerat</div></div>
       ) : (ordnaLage && kanOrdna) ? (
-        <ReorderLista rows={dragRader} onDrop={onReorder} onOrderChange={onOrderChange} />
+        <ReorderLista key={ordnaNyckel} rows={dragRader} onDrop={slappOrdning} onOrderChange={onOrderChange} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, ...TYP.text, ...TNUM }}>
           {f.ko.map((p, i) => {
@@ -1301,40 +1334,44 @@ function rollMatcharTyp(roll: string | null, typ: string | undefined): boolean {
 }
 const SvgTillbaka = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>;
 
-// Faror eller hänsyn, ALLA, med planerarens kommentar under varje. Färgen förstärker bara — raden heter "Faror" resp. "Hänsyn".
-function VarningLista({ items, farg }: { items: Varning[]; farg: string }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-      {items.map((v, i) => (
-        <div key={i}>
-          <div style={{ color: farg, fontWeight: 600 }}>{v.label}</div>
-          {v.kommentar && <div style={{ ...TYP.meta, color: FARG.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{v.kommentar}</div>}
-        </div>
-      ))}
-    </div>
-  );
-}
+const SvgSms = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.2-4.3A8 8 0 1 1 21 12z" /></svg>;
 
 type KobarMaskin = { id: string; namn: string; roll: MaskinTyp };
-// forare = LÄSLÄGE: inga kö-knappar. Allt annat — faror/hänsyn med kommentar, bärighet, Ring markägare — visas för både förare och förman.
-// onTillbaka finns när arket öppnats från en rad i maskin-arket (pilen går tillbaka dit).
-function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, onLaggIKo, onFlytta, onTaBort, onTillbaka, onClose }: {
+// forare = LÄSLÄGE: inga kö-knappar. Allt annat — faror/hänsyn med kommentar, bärighet, Ring och Sms till markägaren — visas för både
+// förare och förman. onTillbaka finns när arket öppnats från en rad i maskin-arket (pilen går tillbaka dit).
+// Köåtgärderna är verifierade och svarar null när det landade, annars ett meddelande som visas här under knapparna (aldrig tyst).
+// Sms-knappen öppnar telefonens sms-app med färdig text — appen skickar ALDRIG något själv.
+function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, fornamn, smsMaskin, onLaggIKo, onFlytta, onTaBort, onTillbaka, onClose }: {
   o: OversiktObjekt; skord: Record<string, SkordAggV2>; warn: ObjWarn | undefined;
   skordare: { id: string; namn: string; koordinat: { lat: number; lng: number } | null; klararTyp: string | null }[];
   skotare: { id: string; namn: string; skotarRoll: string | null }[];
   maskinNamn: (id: string) => string; maskinRoll: (id: string) => MaskinTyp | null; maskinKo: MaskinKoItem[]; forare: boolean;
-  onLaggIKo: (maskinId: string, objektId: string) => void; onFlytta: (koId: string, tillMaskin: string) => void; onTaBort: (koId: string) => void;
+  /** Inloggades förnamn (sms:et skrivs i det) och maskinen arket kom från ("maskinen" när objektet öppnats direkt från kartan). */
+  fornamn: string | null; smsMaskin: MaskinOrd;
+  onLaggIKo: (maskinId: string, objektId: string) => Promise<string | null>; onFlytta: (koId: string, tillMaskin: string) => Promise<string | null>; onTaBort: (koId: string) => Promise<string | null>;
   onTillbaka?: () => void; onClose: () => void;
 }) {
   const [avstand, setAvstand] = useState<Record<string, number | null>>({});
   const [valjFlytt, setValjFlytt] = useState<string | null>(null); // kö-rad (id) vars "Flytta till …"-val är öppet
+  const [arbetar, setArbetar] = useState(false);
+  const [meddelande, setMeddelande] = useState<string | null>(null);
+  const levande = useRef(true);
+  useEffect(() => { levande.current = true; return () => { levande.current = false; }; }, []);
+  const felRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (meddelande) felRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [meddelande]); // arket rullar — felet ska synas
+  const kor = async (skrivning: () => Promise<string | null>) => {
+    if (arbetar) return;
+    setArbetar(true); setMeddelande(null);
+    const fel = await skrivning();
+    if (levande.current) { setArbetar(false); setMeddelande(fel); }
+  };
   const agg = aggFor(o, skord);
   const areal = o.areal ? `${o.areal.toLocaleString('sv-SE')} ha` : null;
   const atgard = o.atgard || (o.typ === 'gallring' ? 'Gallring' : 'Slutavverkning');
   const vol = o.volym_planerad ?? (o.volym || null);
-  const faror = warn?.faror ?? []; const hansyn = warn?.hansyn ?? [];
   const bar = barighetText(o.barighet);
   const ringHref = telHref(o.markagare_tel);
+  const smsLank = smsHref(o.markagare_tel, smsText({ fornamn, maskin: smsMaskin, objektnamn: rensaObjektnamn(o.namn, o.vo_nummer) }), typeof navigator !== 'undefined' && arIos(navigator.userAgent, navigator.maxTouchPoints));
   const vantatDatum = (o as any).klar_skickad_timestamp || (o as any).created_at || null;
   // Kö över roller: objektet kan ligga i EN skördares och EN skotares kö samtidigt — en kö-rad per roll. Skördare först.
   const rang = (id: string) => (maskinRoll(id) === 'skotare' ? 1 : 0);
@@ -1348,6 +1385,7 @@ function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, 
   const attLagga = eligible.filter((s) => koLaget({ objektId: o.id, maskinId: s.id, roll: s.roll, ko: maskinKo, rollAv: maskinRoll, namnAv: maskinNamn }).spar.length === 0);
   // Att flytta en kö-rad till: andra maskiner av SAMMA roll som inte redan har objektet.
   const flyttMal = (r: MaskinKoItem) => eligible.filter((s) => s.roll === maskinRoll(r.maskin_id) && s.id !== r.maskin_id && !koRader.some((x) => x.maskin_id === s.id));
+  const knappStil = (stil: React.CSSProperties): React.CSSProperties => (arbetar ? { ...stil, ...INAKTIV } : stil);
 
   useEffect(() => {
     let c = false;
@@ -1382,15 +1420,18 @@ function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, 
       <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text }}>
         {rad('Åtgärd', `${atgard}${areal ? ` · ${areal}` : ''}`)}
         {rad('Volym', vol != null ? `${fmt(vol)} m³ planerat` : '–')}
-        {faror.length > 0 && rad('Faror', <VarningLista items={faror} farg={FARG.rod} />)}
-        {hansyn.length > 0 && rad('Hänsyn', <VarningLista items={hansyn} farg={FARG.orange} />)}
-        {faror.length === 0 && hansyn.length === 0 && rad('Hänsyn', <span style={{ color: FARG.text2 }}>ingen</span>)}
+        <VarningRader faror={warn?.faror ?? []} hansyn={warn?.hansyn ?? []} />
         {rad('Bärighet', bar ? <span style={{ color: bar.begransning ? FARG.orange : FARG.text }}>{bar.text}</span> : <span style={{ color: FARG.text2 }}>–</span>)}
         {rad('Avstånd', <span style={{ color: FARG.text2 }}>{avstText}</span>)}
         {rad('Väntat', <span style={{ color: FARG.text2 }}>{vantatDatum ? `sedan ${kortDatum(vantatDatum)} · ${dagarSedan(vantatDatum)} dgr` : '–'}</span>)}
       </div>
 
-      {ringHref && <a href={ringHref} style={{ ...KNAPP, marginTop: AVSTAND.xs }}><SvgRing />Ring markägare</a>}
+      {(ringHref || smsLank) && (
+        <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap', marginTop: AVSTAND.xs }}>
+          {ringHref && <a href={ringHref} style={KNAPP}><SvgRing />Ring markägare</a>}
+          {smsLank && <a href={smsLank} style={KNAPP}><SvgSms />Sms markägaren</a>}
+        </div>
+      )}
 
       {!forare && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
@@ -1401,13 +1442,13 @@ function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, 
               <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
                 <div style={{ ...TYP.meta, color: FARG.text2 }}>I kö för {maskinNamn(r.maskin_id)} · {plats}:a</div>
                 <div style={{ display: 'flex', gap: AVSTAND.s }}>
-                  {mal.length > 0 && <button onClick={() => setValjFlytt((x) => (x === r.id ? null : r.id))} style={KNAPP_LITEN}>Flytta till …</button>}
-                  <button onClick={() => onTaBort(r.id)} style={{ ...KNAPP_LITEN, color: FARG.rod }}>Ta bort ur kön</button>
+                  {mal.length > 0 && <button disabled={arbetar} onClick={() => setValjFlytt((x) => (x === r.id ? null : r.id))} style={knappStil(KNAPP_LITEN)}>Flytta till …</button>}
+                  <button disabled={arbetar} onClick={() => kor(() => onTaBort(r.id))} style={knappStil({ ...KNAPP_LITEN, color: FARG.rod })}>Ta bort ur kön</button>
                 </div>
                 {valjFlytt === r.id && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.s }}>
                     {mal.map((s) => (
-                      <button key={s.id} onClick={() => { onFlytta(r.id, s.id); setValjFlytt(null); }} style={{ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` }}>{s.namn}</button>
+                      <button key={s.id} disabled={arbetar} onClick={() => { setValjFlytt(null); void kor(() => onFlytta(r.id, s.id)); }} style={knappStil({ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` })}>{s.namn}</button>
                     ))}
                   </div>
                 )}
@@ -1415,15 +1456,17 @@ function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, 
             );
           })}
           {attLagga.length === 1 ? (
-            <button onClick={() => onLaggIKo(attLagga[0].id, o.id)} style={{ ...KNAPP, marginTop: AVSTAND.xs }}>+ Lägg i kö för {attLagga[0].namn}</button>
+            <button disabled={arbetar} onClick={() => kor(() => onLaggIKo(attLagga[0].id, o.id))} style={knappStil({ ...KNAPP, marginTop: AVSTAND.xs })}>+ Lägg i kö för {attLagga[0].namn}</button>
           ) : attLagga.length > 1 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
               <div style={{ ...TYP.micro, color: FARG.text2 }}>Lägg i kö för</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.s }}>
-                {attLagga.map((s) => <button key={s.id} onClick={() => onLaggIKo(s.id, o.id)} style={{ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` }}>+ {s.namn}</button>)}
+                {attLagga.map((s) => <button key={s.id} disabled={arbetar} onClick={() => kor(() => onLaggIKo(s.id, o.id))} style={knappStil({ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` })}>+ {s.namn}</button>)}
               </div>
             </div>
           ) : koRader.length === 0 ? <div style={{ ...TYP.meta, color: FARG.text2 }}>Ingen maskin passar den här åtgärden.</div> : null}
+          {arbetar && <div role="status" style={{ ...TYP.meta, color: FARG.text2 }}>Sparar…</div>}
+          {meddelande && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{meddelande}</div>}
         </div>
       )}
     </div>

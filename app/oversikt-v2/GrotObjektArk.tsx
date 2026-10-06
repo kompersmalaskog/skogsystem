@@ -1,12 +1,13 @@
 'use client';
 // Objekt-arket för en GROT-trakt i /oversikt-v2 (tryck på en rad i GROT-listan; kartan har då flugit dit).
-// Samma fem rader som v2:s vanliga objekt-ark — Åtgärd · Volym · Hänsyn · Avstånd · Väntat — med GROT-innehåll,
+// Samma rader som v2:s vanliga objekt-ark — Åtgärd · Volym · Faror/Hänsyn · Avstånd · Väntat — med GROT-innehåll,
 // plus "Just nu" när en skotare står på det länkade risjobbet, och "Lägg i kö för …". Tillbaka-pilen går till
 // GROT-listan igen.
 //
-// Allt arket visar är sant eller '–': hänsyn kommer ur planeringens markeringar för just det objektet (okänd när
-// trakten saknar objekt i planeringen), avstånd är ORS-vägavstånd från skotarna som får köra objektet (aldrig
-// fågelväg), volymen är traktens skördade volym och GROT-mängden står som schablon, aldrig som mätt.
+// Allt arket visar är sant eller '–': faror och hänsyn kommer ur planeringens markeringar för just det objektet — ALLA, med
+// planerarens kommentar, precis som i det vanliga objekt-arket (okänd när trakten saknar objekt i planeringen), avstånd är
+// ORS-vägavstånd från skotarna som får köra objektet (aldrig fågelväg), volymen är traktens skördade volym och GROT-mängden
+// står som schablon, aldrig som mätt.
 //
 // Planeringens markvillkor (objekt.barighet — dålig bärighet) visas i orange i Väntat-raden när det är en begränsning;
 // det sätts i planeringen och läses bara här. Trakter utan objekt i planeringen har inget att läsa → inget visas.
@@ -20,18 +21,18 @@ import { supabase } from '@/lib/supabase';
 import { AVSTAND, FARG, INAKTIV, TYP, TNUM } from '@/lib/design/tokens';
 import { uppskattaGrotM3fub } from '@/lib/grot';
 import { typLabel } from '@/lib/objekt/typ';
-import { classifyMarkering, markeringSub, prettifySub, SUB_LABEL } from '../oversikt/markeringar';
+import { byggVarningar, type MarkeringRow, type Varning } from './objekt-info';
 import type { MaskinKoItem } from '../oversikt/oversikt-types';
 import { hamtaVagKm } from '@/lib/grotvy/avstand';
 import { arealText, FORSENAD_TEXT, grotSchablonText, kmText, kortDatum, markBegransningText, SAKNAR_OBJEKT_TEXT, senastText, skordatText } from '@/lib/grotvy/format';
 import { arForsenad, rollMatcharTyp, type GrotRad, type GrotSkrivning, type Koord } from '@/lib/grotvy/lista';
-import { Grabber, KNAPP, KNAPP_LITEN, SheetBas } from './ark-delar';
+import { Grabber, KNAPP, KNAPP_LITEN, SheetBas, VarningRader } from './ark-delar';
 import GrotMarkagaren from './GrotMarkagaren';
 
 export interface ArkSkotare { id: string; namn: string; roll: string | null; koordinat: Koord | null }
 export interface ArkKo { post: MaskinKoItem; maskinNamn: string; plats: number }
-/** Planeringens fara/hänsyn-markeringar för objektet. */
-type Hansyn = { faror: string[]; hansyn: string[] } | 'laddar' | 'fel';
+/** Planeringens fara/hänsyn-markeringar för objektet — ALLA, med planerarens kommentar (samma som i det vanliga objekt-arket). */
+type Hansyn = { faror: Varning[]; hansyn: Varning[] } | 'laddar' | 'fel';
 
 const SvgTillbaka = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>;
 
@@ -68,30 +69,26 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
     return () => window.removeEventListener('keydown', vid);
   }, [onClose]);
 
-  // Hänsyn: planeringens markeringar för DETTA objekt (planering_markeringar.objekt_id = objekt.id), fara först, annars
-  // hänsyn — samma klassning som v2 (delad i oversikt/markeringar.ts). Läses per objekt och bara de fyra typnycklarna
-  // (JSON-sökväg, inte hela geometrin) så svaret är litet och snabbt, och ett läsfel syns som "kunde inte läsas" i stället
-  // för att tolkas som "ingen hänsyn".
+  // Hänsyn: planeringens markeringar för DETTA objekt (planering_markeringar.objekt_id = objekt.id) — faror och hänsyn, ALLA, med
+  // planerarens kommentar, byggda av samma byggVarningar som det vanliga objekt-arket (samma klassning, dedupe och ordning). Läses
+  // per objekt och bara de fem nycklarna (JSON-sökväg, inte hela geometrin eller fotot) så svaret är litet, och ett läsfel syns
+  // som "kunde inte läsas" i stället för att tolkas som "ingen hänsyn".
   useEffect(() => {
     setHansyn('laddar');
     if (!objekt) return;
     (async () => {
-      const faror: string[] = []; const hansynLista: string[] = [];
+      const rader: MarkeringRow[] = [];
       for (let fran = 0; ; fran += 500) {
         const { data, error } = await supabase.from('planering_markeringar')
-          .select('id, t:data->>type, z:data->>zoneType, l:data->>lineType, a:data->>arrowType')
+          .select('id, t:data->>type, z:data->>zoneType, l:data->>lineType, a:data->>arrowType, c:data->>comment')
           .eq('objekt_id', objekt.id).order('id').range(fran, fran + 499);
         if (error) { if (levande.current) setHansyn('fel'); return; }
-        for (const m of (data || []) as { t: string | null; z: string | null; l: string | null; a: string | null }[]) {
-          const markering = { type: m.t, zoneType: m.z, lineType: m.l, arrowType: m.a };
-          const niva = classifyMarkering(markering);
-          if (niva !== 'fara' && niva !== 'hansyn') continue;
-          const sub = markeringSub(markering);
-          (niva === 'fara' ? faror : hansynLista).push(sub ? (SUB_LABEL[sub] || prettifySub(sub)) : 'Markering');
+        for (const m of (data || []) as { t: string | null; z: string | null; l: string | null; a: string | null; c: string | null }[]) {
+          rader.push({ objekt_id: objekt.id, typ: null, data: { type: m.t, zoneType: m.z, lineType: m.l, arrowType: m.a, comment: m.c } });
         }
         if (!data || data.length < 500) break;
       }
-      if (levande.current) setHansyn({ faror, hansyn: hansynLista });
+      if (levande.current) setHansyn(byggVarningar(rader)[objekt.id] ?? { faror: [], hansyn: [] });
     })();
   }, [objekt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -113,14 +110,14 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
   const areal = arealText(rad.arealHa);
   const grot = uppskattaGrotM3fub(rad.skordatM3);
   const staarNamn = rad.staarHar ? (skotare.find((s) => s.id === rad.staarHar!.maskinId)?.namn ?? rad.staarHar.maskinId) : null;
-  const hansynVarde = (): React.ReactNode => {
-    if (!objekt) return <span style={{ color: FARG.text2 }}>okänd</span>; // inget objekt i planeringen → inga markeringar att läsa
-    if (hansyn === 'laddar') return <span style={{ color: FARG.text2 }}>–</span>;
-    if (hansyn === 'fel') return <span style={{ color: FARG.text2 }}>kunde inte läsas</span>;
-    const forst = hansyn.faror[0] ?? hansyn.hansyn[0];
-    if (!forst) return <span style={{ color: FARG.text2 }}>ingen</span>;
-    const fler = hansyn.faror.length + hansyn.hansyn.length - 1;
-    return <span style={{ color: hansyn.faror.length ? FARG.rod : FARG.orange }}>{forst}{fler > 0 ? ` +${fler}` : ''}</span>;
+  // Raderna för faror/hänsyn: laddar → "–", läsfel → "kunde inte läsas", inget objekt i planeringen → "okänd"; annars samma rader som
+  // i det vanliga objekt-arket (Faror, Hänsyn — alla, med kommentar — eller "ingen").
+  const hansynRader = (): React.ReactNode => {
+    const text = (t: string) => rubrikRad('Hänsyn', <span style={{ color: FARG.text2 }}>{t}</span>);
+    if (!objekt) return text('okänd'); // inget objekt i planeringen → inga markeringar att läsa
+    if (hansyn === 'laddar') return text('–');
+    if (hansyn === 'fel') return text('kunde inte läsas');
+    return <VarningRader faror={hansyn.faror} hansyn={hansyn.hansyn} />;
   };
   // En siffra per skotare som får köra objektet: "11 km från Wisent · – km från Elefant 26". '–' tills ORS svarat.
   const avstText = eligible.filter((s) => s.koordinat && rad.koordinat)
@@ -166,7 +163,7 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
             {grot != null && <div style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{grotSchablonText(grot)}</div>}
           </>
         ))}
-        {rubrikRad('Hänsyn', hansynVarde())}
+        {hansynRader()}
         {rubrikRad('Avstånd', <span style={{ color: FARG.text2 }}>{avstText}</span>)}
         {rubrikRad('Väntat', (
           <>

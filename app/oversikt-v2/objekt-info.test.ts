@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { barighetText, byggVarningar, telHref, type MarkeringRow } from './objekt-info';
+import { barighetText, byggVarningar, telHref, telNummer, type MarkeringRow } from './objekt-info';
 
 const rad = (objekt_id: string | null, data: any): MarkeringRow => ({ objekt_id, typ: 'marker', data });
 
@@ -63,16 +63,37 @@ describe('barighetText', () => {
   });
 });
 
-describe('telHref', () => {
-  it('rensar mellanslag och bindestreck, behåller inledande +', () => {
+describe('telNummer / telHref — ett rent nummer för tel: och sms:', () => {
+  it('rensar mellanslag, bindestreck och parenteser, behåller inledande +', () => {
     expect(telHref('070-123 45 67')).toBe('tel:0701234567');
     expect(telHref(' +46 70 123 45 67 ')).toBe('tel:+46701234567');
     expect(telHref('0478-123 45')).toBe('tel:047812345');
+    expect(telNummer('(070) 123 45 67')).toBe('0701234567');
+    expect(telNummer('070.123.45.67')).toBe('0701234567');
+  });
+  it('de rena tiosiffriga numren i prod (34 av 34) går igenom oförändrade', () => {
+    expect(telNummer('0701234567')).toBe('0701234567');
+    expect(telHref('0701234567')).toBe('tel:0701234567');
+  });
+  it('FÖRSTA numret när fältet har flera — de skarvas aldrig ihop', () => {
+    expect(telNummer('070-123 45 67 / 0478-123 45')).toBe('0701234567');
+    expect(telNummer('070-123 45 67, 0478-123 45')).toBe('0701234567');
+    expect(telNummer('070-123 45 67; 0478-123 45')).toBe('0701234567');
+    expect(telNummer('0478-123 45 eller 070-123 45 67')).toBe('047812345');
+  });
+  it('text runt numret stör inte', () => {
+    expect(telNummer('Anders 070-123 45 67')).toBe('0701234567');
+    expect(telNummer('070-123 45 67 (Anders)')).toBe('0701234567');
+    expect(telNummer('070-123 45 67 ankn 12')).toBe('0701234567');
+  });
+  it('"+46 (0)70" tappar den överflödiga (0)', () => {
+    expect(telNummer('+46 (0)70 123 45 67')).toBe('+46701234567');
+    expect(telNummer('+46(0)70-123 45 67')).toBe('+46701234567');
   });
   it('inget nummer → ingen länk (hellre ingen knapp än en som ringer fel)', () => {
-    for (const t of [null, undefined, '', '  ', '-', 'Ring Anders', '12345', '+']) expect(telHref(t)).toBeNull();
+    for (const t of [null, undefined, '', '  ', '-', 'Ring Anders', '12345', '+', '17', 'ring efter kl 17']) { expect(telHref(t)).toBeNull(); expect(telNummer(t)).toBeNull(); }
   });
-  it('ett + mitt i numret är inget landsnummer', () => {
-    expect(telHref('070+1234567')).toBe('tel:0701234567');
+  it('ett + mitt i numret är ett fel i fältet → hellre ingen länk än en gissning', () => {
+    expect(telNummer('070+1234567')).toBeNull();
   });
 });
