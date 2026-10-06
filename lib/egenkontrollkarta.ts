@@ -18,7 +18,8 @@ import {
 } from './kartstil';
 import { markerIconDefs } from './marker-icons';
 import { ZONE_COLORS } from './zone-colors';
-import { avstandM } from './provytor';
+import { avstandM, provytaStatus, type ProvytaStatus } from './provytor';
+import { provytaBildNamn } from './provytaIkon';
 
 export type Kind = 'symbol' | 'linje' | 'zon' | 'pil';
 
@@ -346,4 +347,81 @@ export function kontrollLager(): any[] {
  */
 export function kontrollLagerIdn(): string[] {
   return kontrollLager().map((l) => l.id as string);
+}
+
+// ---------------------------------------------------------------------------
+// Provytorna
+// ---------------------------------------------------------------------------
+
+export const PROVYTA_KALLA = 'ek-provytor';
+/** Lagrens id:n ar kontrakt mot tryckhanteraren i RundKarta och lagermenyn - byt dem aldrig utan att soka efter dem. */
+export const PROVYTA_MATT_ID = 'ek-provyta-matt';
+export const PROVYTA_OMATT_ID = 'ek-provyta-omatt';
+
+/** Tands och slacks som en grupp med "Provytor" i lagermenyn. */
+export function provytaLagerIdn(): string[] {
+  return [PROVYTA_MATT_ID, PROVYTA_OMATT_ID];
+}
+
+type YtaPlats = {
+  nummer: number;
+  lat: number | null;
+  lng: number | null;
+  matt: string | null;
+  overhoppad: boolean;
+};
+
+/**
+ * Provytorna som features. Status ligger som EGENSKAP och styr bade ikon och lager.
+ * Ytor utan plats ritas inte - de gissas aldrig in.
+ *
+ * Egenskapen heter status och inte matt: matt ar tidsstampeln for "avklarad" och
+ * sattes ocksa nar en yta hoppades over. Se provytaStatus.
+ */
+export function provytaFeatures(ytor: YtaPlats[]): Feature[] {
+  return ytor
+    .filter((y) => y.lat != null && y.lng != null)
+    .map((y) => ({
+      type: 'Feature' as const,
+      properties: { nummer: y.nummer, status: provytaStatus(y) },
+      geometry: { type: 'Point', coordinates: [y.lng as number, y.lat as number] },
+    }));
+}
+
+/**
+ * Provytornas lager: symboler, en ikon per tillstand (lib/provytaIkon.ts).
+ *
+ * TVA LAGER MED OFORANDRADE ID:N. Matt ar ett eget lager, och omatt + overhoppad
+ * delar det andra (ikonen vaxlar pa status). Tryckhanteraren i RundKarta fragar
+ * bada lagren efter id - med samma id:n fortsatter en overhoppad yta att ga att
+ * trycka pa. icon-allow-overlap ar kravet for att en yta alltid ritas och alltid
+ * traffas, aven bredvid en kontrollpunkt.
+ */
+export function provytaLager(): any[] {
+  const gemensamt = {
+    'icon-allow-overlap': true,
+    'icon-ignore-placement': true,
+  };
+  const MATT: ProvytaStatus = 'matt';
+  const OVERHOPPAD: ProvytaStatus = 'overhoppad';
+  const OMATT: ProvytaStatus = 'omatt';
+  return [
+    {
+      id: PROVYTA_MATT_ID, type: 'symbol', source: PROVYTA_KALLA,
+      filter: ['==', ['get', 'status'], MATT],
+      layout: { ...gemensamt, 'icon-image': provytaBildNamn(MATT) },
+    },
+    {
+      id: PROVYTA_OMATT_ID, type: 'symbol', source: PROVYTA_KALLA,
+      filter: ['!=', ['get', 'status'], MATT],
+      layout: {
+        ...gemensamt,
+        'icon-image': [
+          'match', ['get', 'status'],
+          OVERHOPPAD, provytaBildNamn(OVERHOPPAD),
+          provytaBildNamn(OMATT),
+        ],
+      },
+    },
+  ];
 }

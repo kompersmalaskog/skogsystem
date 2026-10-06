@@ -26,10 +26,13 @@ import type { MapLayers } from '@/lib/hooks/useMapLayers';
 import { signeraKartfil } from '@/lib/kartfiler';
 import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
 import {
-  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
+  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, PROVYTA_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
   geometriKoordinater, kontextFeature, kontextLager, kontextUtanKontrollpunkter,
-  kontrollFeatures, kontrollLager, kontrollLagerIdn, valdLinjeFilter, valdSymbolFilter,
+  kontrollFeatures, kontrollLager, kontrollLagerIdn, provytaFeatures, provytaLager,
+  provytaLagerIdn, valdLinjeFilter, valdSymbolFilter,
 } from '@/lib/egenkontrollkarta';
+import { IKON_PIXELRATIO, provytaBildNamn, ritaProvytaIkon } from '@/lib/provytaIkon';
+import type { ProvytaStatus } from '@/lib/provytor';
 import { PIL_STIL, ritaNummerIkon, ritaPilIkon } from '@/lib/kartstil';
 import {
   TRAFF_RADIE_PX, avstandTillGeometriPx, traffIdFranEgenskaper, traffKindFranEgenskaper, valjTraff,
@@ -87,6 +90,26 @@ async function laggTillBilder(map: any, nummer: number[]): Promise<void> {
   }
   await Promise.all(laddar);
   sakraNummerBilder(map, nummer);
+  sakraProvytaBilder(map);
+}
+
+/**
+ * Provytornas tre ikoner (omatt, matt, overhoppad). pixelRatio 3: ritas i 3x och
+ * visas i 1x - skarpt pa tatt skarm. En ikon som saknas gor att just det
+ * tillstandet inte syns, sa det larmas hellre an tigs.
+ */
+function sakraProvytaBilder(map: any): void {
+  for (const status of ['omatt', 'matt', 'overhoppad'] as ProvytaStatus[]) {
+    const namn = provytaBildNamn(status);
+    if (map.hasImage(namn)) continue;
+    try {
+      const bild = canvasToMapLibreImage(ritaProvytaIkon(status));
+      if (bild) map.addImage(namn, bild, { pixelRatio: IKON_PIXELRATIO });
+      else console.error('[egenkontroll] provytaikonen kunde inte ritas:', status);
+    } catch (e) {
+      console.error('[egenkontroll] provytaikonen kunde inte laggas till:', status, e);
+    }
+  }
 }
 
 /** Basvagsnumren som ikoner. Anropas aven nar data andras - nya nummer kan tillkomma. */
@@ -239,23 +262,20 @@ export default function RundKarta({
 
   /**
    * Provytorna. Egen farg (bla), skild fran planens markeringar och fran
-   * statusfargerna. Matt = fylld, ej matt = ihalig ring.
+   * statusfargerna. TRE tillstand, och FORMEN skiljer dem: omatt = ihalig ring,
+   * matt = fylld med bock, overhoppad = nedtonad ring med tvarstreck
+   * (lib/provytaIkon.ts). Status harleds i provytaStatus - en yta som hoppats over
+   * har ocksa matt satt, och ritades forr som matt.
    *
    * Ritas i FAST pixelstorlek, inte i sann skala: ytan ar 5,64 m i radie och
    * trakten ar over en kilometer bred, sa en sannskalig cirkel vore mindre an
    * en bildpunkt. Kartan ska hjalpa en att HITTA ytan - avstandslistan under
    * kartan ar det man faktiskt gar efter.
    */
-  const provyteGeo = useMemo<Geo>(() => ({
-    type: 'FeatureCollection',
-    features: provytor
-      .filter((y) => y.lat != null && y.lng != null)
-      .map((y) => ({
-        type: 'Feature',
-        properties: { nummer: y.nummer, matt: y.matt != null || y.overhoppad ? 1 : 0 },
-        geometry: { type: 'Point', coordinates: [y.lng as number, y.lat as number] },
-      })),
-  }), [provytor]);
+  const provyteGeo = useMemo<Geo>(
+    () => ({ type: 'FeatureCollection', features: provytaFeatures(provytor) }),
+    [provytor],
+  );
 
   /** Stammolnet. Sma, graa, ej tryckbara - underlag, inte innehall. */
   const stamGeo = useMemo<Geo>(() => ({
@@ -354,7 +374,7 @@ export default function RundKarta({
       if (!onValjPunktRef.current && !onValjProvytaRef.current) return;
       const lagerIdn = ((map.getStyle()?.layers ?? []) as { id: string }[])
         .map((l) => l.id)
-        .filter((id) => id.startsWith('ek-p-') || id === 'ek-provyta-matt' || id === 'ek-provyta-omatt');
+        .filter((id) => id.startsWith('ek-p-') || provytaLagerIdn().includes(id));
       if (lagerIdn.length === 0) return;
       const r = TRAFF_RADIE_PX;
       const traffar = map.queryRenderedFeatures(
@@ -470,23 +490,9 @@ export default function RundKarta({
         },
       });
 
-      map.addSource('ek-provytor', { type: 'geojson', data: provyteGeo });
-      map.addLayer({
-        id: 'ek-provyta-matt', type: 'circle', source: 'ek-provytor',
-        filter: ['==', ['get', 'matt'], 1],
-        paint: {
-          'circle-color': '#0A84FF', 'circle-radius': 7,
-          'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
-        },
-      });
-      map.addLayer({
-        id: 'ek-provyta-omatt', type: 'circle', source: 'ek-provytor',
-        filter: ['==', ['get', 'matt'], 0],
-        paint: {
-          'circle-color': 'rgba(10,132,255,0.15)', 'circle-radius': 7,
-          'circle-stroke-color': '#0A84FF', 'circle-stroke-width': 2,
-        },
-      });
+      // PROVYTORNA: en symbol per tillstand, ur en spec som listan delar.
+      map.addSource(PROVYTA_KALLA, { type: 'geojson', data: provyteGeo });
+      for (const spec of provytaLager()) laggTillLager(map, spec);
 
       map.addSource('ek-jag', { type: 'geojson', data: TOM });
       map.addLayer({
@@ -542,7 +548,7 @@ export default function RundKarta({
     map.getSource(NUMMER_KALLA)?.setData(nummerGeo);
     map.getSource(KONTEXT_KALLA)?.setData(kontextGeo);
     map.getSource('ek-avvikelser')?.setData(avvikelseGeo);
-    map.getSource('ek-provytor')?.setData(provyteGeo);
+    map.getSource(PROVYTA_KALLA)?.setData(provyteGeo);
     map.getSource('ek-stammar')?.setData(stamGeo);
   }, [punktGeo, nummerGeo, kontextGeo, kontroll.nummer, avvikelseGeo, provyteGeo, stamGeo, laddad]);
 
@@ -589,7 +595,7 @@ export default function RundKarta({
     const punkterPa = egnaVarden.ekPunkter !== false;
     for (const id of [...kontrollLagerIdn(), 'ek-avvikelse']) satt(id, punkterPa);
     const ytorPa = egnaVarden.ekProvytor !== false;
-    for (const id of ['ek-provyta-matt', 'ek-provyta-omatt']) satt(id, ytorPa);
+    for (const id of provytaLagerIdn()) satt(id, ytorPa);
   }, [egnaVarden, laddad]);
 
   // Strombrytaren tander/slacker lagret utan att rita om kartan.

@@ -692,35 +692,63 @@ export default function EgenkontrollRundaPage() {
     return () => { avbruten = true; };
   }, [objektId]);
 
-  // Bilderna signeras efterat, separat fran rundan: en misslyckad signering
-  // ska aldrig gora att punkterna inte gar att besvara.
+  // PROVYTOR OCH FOTON hamtas separat fran rundan - och las om efter VARJE sparad
+  // andring (se onSparad nedan).
+  //
+  // Forr las den har effekten bara pa rundans id, och ladda() andrar aldrig det.
+  // Efter en sparad provytematning visade darfor kartan, listan och sammanstallningen
+  // ytan som omatt tills sidan laddades om - sedan provytorna byggdes (PR 9). Samma
+  // sak gallde fotominiatyrerna efter en avvikelse eller en stubbe.
+  //
+  // Bilderna signeras efterat, och provytorna och fotona hamtas var for sig: en
+  // misslyckad signering ska aldrig gora att punkterna inte gar att besvara, och
+  // ett fel pa fotona far aldrig tomma provytorna (forr gjorde det det - ett
+  // gemensamt catch).
+  //
+  // Lopnumret gor att det SENASTE anropet vinner. Tva sparningar tat efter varandra
+  // far annars svaren i fel ordning, och den aldre kan skriva over den nyare.
   const rundaId = vy?.egenkontroll?.id;
-  useEffect(() => {
+  const tillbehorLopnr = useRef(0);
+  const laddaTillbehor = useCallback(async (omlasning = false) => {
+    const mitt = ++tillbehorLopnr.current;
+    const galler = () => mitt === tillbehorLopnr.current;
     if (!rundaId) { setFotoPerPunkt({}); setProvytor([]); return; }
-    let avbruten = false;
-    (async () => {
-      try {
-        setProvytor(await hamtaProvytor(rundaId));
-        const foton = await hamtaFoton(rundaId);
-        const par = await Promise.all(
-          foton.map(async (f: EgenkontrollFoto) => ({
-            punktId: f.punkt_id,
-            url: await signeraFoto(f.sokvag),
-          })),
-        );
-        if (avbruten) return;
-        const karta: Record<string, string[]> = {};
-        for (const p of par) {
-          if (!p.punktId || !p.url) continue; // osignerbar bild hoppas over tyst i kortet
-          (karta[p.punktId] ??= []).push(p.url);
-        }
-        setFotoPerPunkt(karta);
-      } catch {
-        if (!avbruten) { setFotoPerPunkt({}); setProvytor([]); }
+    let miste = false;
+    try {
+      const ytor = await hamtaProvytor(rundaId);
+      if (galler()) setProvytor(ytor);
+    } catch {
+      // Forsta laddningen: tomt, som forr. Omlasning: behall det som visas och SAG det.
+      if (galler()) { if (omlasning) miste = true; else setProvytor([]); }
+    }
+    try {
+      const foton = await hamtaFoton(rundaId);
+      const par = await Promise.all(
+        foton.map(async (f: EgenkontrollFoto) => ({
+          punktId: f.punkt_id,
+          url: await signeraFoto(f.sokvag),
+        })),
+      );
+      if (!galler()) return;
+      const karta: Record<string, string[]> = {};
+      for (const p of par) {
+        if (!p.punktId || !p.url) continue; // osignerbar bild hoppas over tyst i kortet
+        (karta[p.punktId] ??= []).push(p.url);
       }
-    })();
-    return () => { avbruten = true; };
+      setFotoPerPunkt(karta);
+    } catch {
+      if (galler()) { if (omlasning) miste = true; else setFotoPerPunkt({}); }
+    }
+    if (miste && galler()) {
+      setSparFel('Ändringen sparades, men provytor eller bilder kunde inte läsas om. Ladda om sidan.');
+    }
   }, [rundaId]);
+
+  useEffect(() => {
+    laddaTillbehor();
+    // Avmontering eller ny runda: kasta svar som fortfarande ar pa vag.
+    return () => { tillbehorLopnr.current++; };
+  }, [laddaTillbehor]);
 
   const starta = async () => {
     setStartar(true);
@@ -1512,7 +1540,7 @@ export default function EgenkontrollRundaPage() {
             egenkontrollId={vy.egenkontroll.id}
             noggrannhetM={minPosition?.noggrannhet ?? null}
             onStang={() => setProvytaVald(null)}
-            onSparad={() => { setProvytaVald(null); ladda({ tyst: true }); }}
+            onSparad={() => { setProvytaVald(null); ladda({ tyst: true }); laddaTillbehor(true); }}
           />
         )}
 
@@ -1522,7 +1550,7 @@ export default function EgenkontrollRundaPage() {
             egenkontrollId={vy.egenkontroll.id}
             antalSedanTidigare={(fotoPerPunkt[stubbePunkt.id] ?? []).length}
             onStang={() => setStubbePunkt(null)}
-            onSparad={() => { setStubbePunkt(null); ladda({ tyst: true }); }}
+            onSparad={() => { setStubbePunkt(null); ladda({ tyst: true }); laddaTillbehor(true); }}
           />
         )}
 
@@ -1532,7 +1560,7 @@ export default function EgenkontrollRundaPage() {
             punkt={sheet.punkt}
             egenkontrollId={vy.egenkontroll.id}
             onStang={() => setSheet(null)}
-            onSparad={() => { setSheet(null); ladda({ tyst: true }); }}
+            onSparad={() => { setSheet(null); ladda({ tyst: true }); laddaTillbehor(true); }}
           />
         )}
 
