@@ -10,27 +10,15 @@
 // BAKÅTKOMPATIBELT: markeringar som ännu bär photoData visas som förut tills de migrerats.
 
 import { supabase } from '@/lib/supabase';
+import { MARKERING_FOTO_BUCKET, harFoto, byggFotoSokvag, arMarkeringFotoSokvagFor } from './markeringFotoSokvag';
 
-export const MARKERING_FOTO_BUCKET = 'markering-foton';
+// Rena helpers bor i ./markeringFotoSokvag (utan supabase-import → delas med migreringsskriptet).
+export { MARKERING_FOTO_BUCKET, harFoto, byggFotoSokvag, arMarkeringFotoSokvagFor };
+
 
 /** Längsta sida efter omskalning. */
 const MAX_SIDA = 1600;
 const KVALITET = 0.7;
-
-/** Har markeringen ett foto — i Storage (photoPath) eller kvar inbäddat (photoData)? */
-export function harFoto(m: { photoPath?: string | null; photoData?: string | null } | null | undefined): boolean {
-  return !!(m && (m.photoPath || m.photoData));
-}
-
-const sakraSegment = (s: string | number) => String(s).replace(/[^A-Za-z0-9_-]/g, '_');
-
-/**
- * Sökväg i bucketen: {objekt_id}/{marker_id}.jpg — ETT foto per markering. Ett omtag skriver
- * över filen (upsert), så inga föräldralösa äldre versioner samlas.
- */
-export function byggFotoSokvag(objektId: string | number, markerId: string | number): string {
-  return `${sakraSegment(objektId)}/${sakraSegment(markerId)}.jpg`;
-}
 
 /** Skalar ner (max 1600 px längsta sida) och komprimerar till JPEG 0.7. */
 export async function komprimeraMarkeringFoto(fil: File): Promise<Blob> {
@@ -97,4 +85,19 @@ export async function signeraMarkeringFoto(sokvag: string | null | undefined, tt
     return null;
   }
   return data.signedUrl;
+}
+
+/**
+ * Tar bort en markerings foto ur Storage. Går bara att anropa med en sökväg som ligger i objektets
+ * egen mapp — en trasig/främmande photoPath kan aldrig radera en annan trakts fil.
+ * Returnerar true om filen är borta (även om den redan saknades).
+ */
+export async function raderaMarkeringFoto(objektId: string | number, sokvag: string | null | undefined): Promise<boolean> {
+  if (!sokvag || !arMarkeringFotoSokvagFor(objektId, sokvag)) return false;
+  const { error } = await supabase.storage.from(MARKERING_FOTO_BUCKET).remove([sokvag]);
+  if (error) {
+    console.error('[markeringFoto] kunde inte radera', sokvag, error.message);
+    return false;
+  }
+  return true;
 }

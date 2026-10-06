@@ -59,7 +59,7 @@ import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
-import { harFoto, byggFotoSokvag, komprimeraMarkeringFoto, laddaUppMarkeringFoto } from '@/lib/markeringFoto'
+import { harFoto, byggFotoSokvag, komprimeraMarkeringFoto, laddaUppMarkeringFoto, raderaMarkeringFoto } from '@/lib/markeringFoto'
 import MarkeringFoto from './MarkeringFoto'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
@@ -1080,12 +1080,17 @@ export default function PlannerPage() {
   // Ta bort en markering från Supabase
   const deleteMarkerFromDb = useCallback(async (markerId: string | number) => {
     if (!valtObjekt?.id) return;
+    // Fotots Storage-sökväg läses FÖRE raderingen (markören försvinner ur minnet direkt efter).
+    const fotoSokvag = flushDataRef.current.markers.find(m => String(m.id) === String(markerId))?.photoPath;
     const { error } = await supabase
       .from('planering_markeringar')
       .delete()
       .eq('objekt_id', valtObjekt.id)
       .eq('marker_id', String(markerId));
-    if (error) console.error('Ta bort markering fel:', error);
+    if (error) { console.error('Ta bort markering fel:', error); return; }
+    // Filen tas bort FÖRST när raden är borta — ett misslyckat DB-delete får aldrig lämna en
+    // markering som pekar på en raderad fil. Misslyckas filraderingen blir bara en föräldralös JPEG.
+    if (fotoSokvag) raderaMarkeringFoto(valtObjekt.id, fotoSokvag);
   }, [valtObjekt?.id]);
 
   // Numrera om: UPDATE-only av en befintlig rads data (ALDRIG upsert). En UPDATE på ett borttaget
