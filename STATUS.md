@@ -58,6 +58,7 @@ eller härleda från `landing` (avlägg).
 - Push-notiser vid obekräftad dag
 - Vila-fliken (11h dygnsvila, 250h övertidstak)
 - Löneunderlag → Fortnox
+- ObjektValjare / objekt_geometri (efter fix-objektvaljare-effekt-loop, 2026-10-06): (2) hämta traktgeometrin EN gång — `planering/page.tsx` (maskindator-start, kandidaterP) och `ObjektValjare.tsx` läser båda hela `objekt_geometri` ofiltrerat; cacha i en modul eller skicka ner som prop. (3) listan behöver bara traktgränsen — hämta `geometri` först när den ritas, eller lägg en smal vy/kolumn (raden är hela envz-FeatureCollection). (5) sök efter samma mönster: `useEffect` med objekt/array/funktion i dep-listan där föräldern skapar värdet vid varje rendering, särskilt på sidor som ritas om i takt med GPS/timers. Intervallspärr (max en hämtning per 60 s) medvetet INTE gjord.
 
 ## Avtalsvärden (gs_avtal)
 - OB, övertid, helglön — ej implementerat
