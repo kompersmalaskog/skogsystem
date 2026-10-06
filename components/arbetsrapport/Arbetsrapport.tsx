@@ -4295,15 +4295,20 @@ export default function Arbetsrapport() {
             const brott = filtVila.filter(r => !!brottForRad(r));
             const harProblem = brott.length > 0;
             const vvHarProblem = dbVeck.length > 0;
+            const vvObesvarade = dbVeck.filter(b => !b.besvarat_av_forare).length;
             const periodLaddar = periodVilobrott === null;
             // Dygnsvila-tröskeln används i VilaKort + PDF. Veckovila-tröskeln
             // läses direkt från b.krav_h på varje brott, så den behöver inte
             // hoistas här.
             const krav_h = trosklar?.dygnsvila_krav_h ?? 11;
+            // Förarens svar i klartext, samma ord som i svarsarket (lib/dagFragor), med liten
+            // begynnelsebokstav: "Besvarat: planerat undantag enligt avtal".
             const orsakLabel = (o: string | null) => {
-              if (!o) return '';
-              return { oforutsedd:'Oförutsedd händelse', akut_jour:'Akut jour', planerad_avtal:'Planerat enligt avtal', annat:'Annat' }[o] || o;
+              const v = VILA_ORSAKER.find(x => x.key === o);
+              return v ? v.label.charAt(0).toLowerCase() + v.label.slice(1) : (o || '');
             };
+            const besvaratText = (b: VilobrottRad) =>
+              `Besvarat: ${orsakLabel(b.orsak)}${b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}${b.kompensation_h != null ? ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}` : ''}`;
 
             // Export. Dygnsvila listas per viloperiod (status från DB-brott).
             // Veckovila listas per DB-brott (rullande fönster) — inte per ISO-vecka.
@@ -4382,9 +4387,10 @@ export default function Arbetsrapport() {
             // `brott` = ett brott finns i vilobrott-TABELLEN för perioden. Tabellen
             // avgör status; den lokalt räknade vilan visar bara timmarna. Förr kunde
             // kortet lysa grönt medan tabellen hade ett brott i samma fönster.
-            const SammanfattningsKort = ({label, vilaH, kravH, saknas, brott}:{label:string;vilaH:number;kravH:number;saknas?:boolean;brott?:boolean}) => {
-              const st = brott ? 'brott' : vilaNiva(vilaH, kravH);
-              const farg = st==='brott' ? '#ff453a' : st==='nara' ? '#ff9f0a' : '#30d158';
+            // Rött bara för OBESVARADE brott: ett besvarat brott (förarens svar finns) är grått.
+            const SammanfattningsKort = ({label, vilaH, kravH, saknas, brott, besvarat}:{label:string;vilaH:number;kravH:number;saknas?:boolean;brott?:boolean;besvarat?:boolean}) => {
+              const st = brott ? (besvarat ? 'besvarat' : 'brott') : vilaNiva(vilaH, kravH);
+              const farg = st==='brott' ? '#ff453a' : st==='nara' ? '#ff9f0a' : st==='besvarat' ? FARG.text2 : '#30d158';
               return (
                 <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,border:`1px solid ${FARG.linje}` }}>
                   <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{label}</p>
@@ -4394,7 +4400,7 @@ export default function Arbetsrapport() {
                     <p style={{ margin:0,...TYP.rubrik,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{fmtStor(vilaH)}</p>
                     <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,fontWeight:VIKT.halvfet,color:farg,display:"flex",alignItems:"center",gap:AVSTAND.xs }}>
                       <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{st==='brott'?'warning':'check'}</span>
-                      {st==='brott' ? `under krav ${kravH}h` : st==='nara' ? `nära gränsen · krav ${kravH}h` : `krav ${kravH}h`}
+                      {st==='brott' ? `under krav ${kravH}h` : st==='besvarat' ? `under krav ${kravH}h · besvarat` : st==='nara' ? `nära gränsen · krav ${kravH}h` : `krav ${kravH}h`}
                     </p>
                   </>)}
                 </div>
@@ -4403,32 +4409,30 @@ export default function Arbetsrapport() {
             const VilaKort = ({r}:{r:typeof allVila[0]}) => {
               const b = brottForRad(r);
               const ok = !b;
-              const expanderad = b && vilaKortExpanded === b.id;
+              // Rött bara för OBESVARADE brott; besvarat = grått med svaret under.
+              const besvarad = !!b?.besvarat_av_forare;
+              const brottFarg = besvarad ? FARG.text2 : FARG.rod;
+              const expanderad = b && !besvarad && vilaKortExpanded === b.id;
               const d1=new Date(r.slutDatum),d2=new Date(r.startDatum);
               return (
                 <div
-                  onClick={b ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
-                  style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${ok?FARG.linje:FARG.upphojt}`,cursor: b ? "pointer" : "default" }}>
+                  onClick={b && !besvarad ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
+                  style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${ok?FARG.linje:FARG.upphojt}`,cursor: b && !besvarad ? "pointer" : "default" }}>
                   <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.listtitel,color:FARG.text,textTransform:"capitalize" }}>{fD(d1)}</p>
                   <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Slutade kl {r.slutTid}</p>
                   <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.meta,color:FARG.text2 }}>Startade igen: <span style={{ textTransform:"capitalize" }}>{fD(d2)}</span> kl {r.startTid}</p>
                   <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                    {!ok&&<span className="material-symbols-outlined" style={{ color:FARG.rod,fontSize:IKON.text }}>warning</span>}
-                    <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:ok?FARG.gron:FARG.rod,...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
+                    {!ok&&<span className="material-symbols-outlined" style={{ color:brottFarg,fontSize:IKON.text }}>{besvarad?'check':'warning'}</span>}
+                    <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:ok?FARG.gron:brottFarg,...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
                     {ok&&<span className="material-symbols-outlined" style={{ color:FARG.gron,fontSize:IKON.text }}>check</span>}
-                    {!ok&&<span style={{ ...TYP.meta,color:FARG.rod }}>(kräver {krav_h}h)</span>}
+                    {!ok&&<span style={{ ...TYP.meta,color:brottFarg }}>(kräver {krav_h}h)</span>}
                   </div>
                   {r.anledning&&<p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{r.anledning}</p>}
+                  {/* Svaret syns direkt under, utan att kortet behöver fällas ut. */}
+                  {b && besvarad && <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{besvaratText(b)}</p>}
                   {expanderad && b && (
                     <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
-                      {b.besvarat_av_forare ? (
-                        <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
-                          Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
-                          {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
-                        </p>
-                      ) : (
-                        <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
-                      )}
+                      <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
                     </div>
                   )}
                 </div>
@@ -4439,8 +4443,8 @@ export default function Arbetsrapport() {
             {/* Sammanfattning: faktiska siffror — föraren ser SIN vila, inte bara "uppfylld" */}
             <section style={{ marginBottom:AVSTAND.xl }}>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:AVSTAND.m }}>
-                <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} brott={!!senasteVilaRad && !!brottForRad(senasteVilaRad)} />
-                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} brott={vvHarProblem} />
+                <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} brott={!!senasteVilaRad && !!brottForRad(senasteVilaRad)} besvarat={!!senasteVilaRad && !!brottForRad(senasteVilaRad)?.besvarat_av_forare} />
+                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} brott={vvHarProblem} besvarat={vvHarProblem && dbVeck.every(b => b.besvarat_av_forare)} />
               </div>
             </section>
 
@@ -4484,7 +4488,7 @@ export default function Arbetsrapport() {
                   {(()=>{
                     // Brott ur TABELLEN (samma sanning som Dag-vyn och listan ovan) — inte
                     // en lokal jämförelse mot hårdkodade 11 h.
-                    const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>!!brottForRad(r)).length};}).filter(x=>x.mv.length>0);
+                    const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>!!brottForRad(r)).length,obes:mv.filter(r=>{const b=brottForRad(r);return !!b&&!b.besvarat_av_forare;}).length};}).filter(x=>x.mv.length>0);
                     return mån.length===0?<p style={{ padding:`${AVSTAND.l}px 0`,margin:0,...TYP.meta,color:FARG.text2 }}>Ingen data</p>:mån.map((x,i)=>{
                       const nm=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'][x.m];
                       const exp=vilaÅrExpand===x.m;
@@ -4492,7 +4496,7 @@ export default function Arbetsrapport() {
                         <div onClick={()=>setVilaÅrExpand(exp?null:x.m)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:!exp&&i<mån.length-1?`1px solid ${FARG.linje}`:"none",cursor:"pointer" }}>
                           <span style={{ ...TYP.listtitel }}>{nm}</span>
                           <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                            <span style={{ fontSize:IKON.text,color:x.brott>0?FARG.rod:FARG.text2,display:"inline-flex",alignItems:"center",gap:AVSTAND.xs }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{x.brott>0?'warning':'check'}</span></span>
+                            <span style={{ fontSize:IKON.text,color:x.obes>0?FARG.rod:FARG.text2,display:"inline-flex",alignItems:"center",gap:AVSTAND.xs }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{x.obes>0?'warning':'check'}</span></span>
                             <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.text2,transform:exp?"rotate(180deg)":"",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>expand_more</span>
                           </div>
                         </div>
@@ -4524,8 +4528,9 @@ export default function Arbetsrapport() {
                     {/* Aktuell veckovila-siffra bor i sammanfattnings-kortet ovanför —
                         den här sektionen redovisar BROTT i vald period */}
                     <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                      {vvHarProblem&&<span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.rod }}>warning</span>}
-                      <span style={{ ...TYP.meta,color:vvHarProblem?FARG.text:FARG.text2 }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:`Inga brott ${periodLabel}`}</span>
+                      {vvObesvarade>0&&<span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.rod }}>warning</span>}
+                      {/* Rött bara för obesvarade; är alla besvarade är raden grå. */}
+                      <span style={{ ...TYP.meta,color:vvObesvarade>0?FARG.text:FARG.text2 }}>{!vvHarProblem?`Inga brott ${periodLabel}`:vvObesvarade>0?`${dbVeck.length} brott mot veckovila`:`${dbVeck.length} ${dbVeck.length===1?'brott':'brott'} mot veckovila · ${dbVeck.length===1?'besvarat':'alla besvarade'}`}</span>
                     </div>
                     {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>}
                   </div>
@@ -4538,28 +4543,25 @@ export default function Arbetsrapport() {
                     </div>
                   ) : dbVeck.map(b => {
                     const dt = new Date(b.datum);
-                    const expanderad = vilaKortExpanded === b.id;
+                    const besvarad = !!b.besvarat_av_forare;
+                    const brottFarg = besvarad ? FARG.text2 : FARG.rod;
+                    const expanderad = !besvarad && vilaKortExpanded === b.id;
                     return (
                       <div key={b.id}
-                        onClick={() => setVilaKortExpanded(expanderad ? null : b.id)}
-                        style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${FARG.linje}`,cursor:"pointer" }}>
+                        onClick={besvarad ? undefined : () => setVilaKortExpanded(expanderad ? null : b.id)}
+                        style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${FARG.linje}`,cursor:besvarad?"default":"pointer" }}>
                         <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.text,textTransform:"capitalize" }}>{fD(dt)}</p>
                         <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{b.beskrivning}</p>
                         <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                          <span className="material-symbols-outlined" style={{ color:FARG.rod,fontSize:IKON.text }}>warning</span>
-                          <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.rod,...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
-                          <span style={{ ...TYP.meta,color:FARG.rod }}>(kräver {Number(b.krav_h)}h)</span>
+                          <span className="material-symbols-outlined" style={{ color:brottFarg,fontSize:IKON.text }}>{besvarad?'check':'warning'}</span>
+                          <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:brottFarg,...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
+                          <span style={{ ...TYP.meta,color:brottFarg }}>(kräver {Number(b.krav_h)}h)</span>
                         </div>
+                        {/* Svaret syns direkt under, utan att kortet behöver fällas ut. */}
+                        {besvarad && <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{besvaratText(b)}</p>}
                         {expanderad && (
                           <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
-                            {b.besvarat_av_forare ? (
-                              <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
-                                Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
-                                {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
-                              </p>
-                            ) : (
-                              <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
-                            )}
+                            <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
                           </div>
                         )}
                       </div>
