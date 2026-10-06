@@ -651,13 +651,19 @@ export default function Arbetsrapport() {
   //                   raden ligger kvar, med svaret i grönt, tills dagen bekräftas
   //  tidsSvar         rast-/passfrågor som bekräftats (id → signatur start|slut|rast; ändras
   //                   tiderna gäller svaret inte längre)
-  const [svarSheet, setSvarSheet] = useState<{ typ: 'brand' | 'vila' | 'tid'; id?: string } | null>(null);
+  // ALLT nycklat på datum: ETT bekräftaflöde för alla dagar (idag via Dag, äldre via väntar-raden
+  // eller Kalender → Redigera) — samma lista, samma regler, samma Stämmer.
+  const [svarSheet, setSvarSheet] = useState<{ typ: 'brand' | 'vila' | 'tid'; datum: string; id?: string } | null>(null);
   const [besvaradeFragor, setBesvaradeFragor] = useState<Record<string, boolean>>({});
   const [tidsSvar, setTidsSvar] = useState<Record<string, string>>({});
   const [svarOrsak, setSvarOrsak] = useState<VilaOrsak | null>(null);
   const [svarFritext, setSvarFritext] = useState("");
   const [svarSparar, setSvarSparar] = useState(false);
-  const [objektSvarar, setObjektSvarar] = useState(false);
+  const [objektSvarDatum, setObjektSvarDatum] = useState<string | null>(null);
+  // Man kom in via väntar-raden i Dag: efter Stämmer går man direkt till nästa väntande dag
+  // ("2 dagar kvar") och till sist tillbaka till Dag. Kalender-vägen sätter den aldrig.
+  const [vantarKo, setVantarKo] = useState(false);
+  useEffect(() => { if (steg !== "redigera" && steg !== "vilobrottOrsak") setVantarKo(false); }, [steg]);
   const [visaKmSheet, setVisaKmSheet] = useState(false);
   const [extraTidData, setExtraTidData] = useState<any[]>([]);
   const [årsData, setÅrsData] = useState<any[]>([]);
@@ -2090,6 +2096,281 @@ export default function Arbetsrapport() {
     }
   };
 
+  // ═══ SAKER ATT SVARA PÅ — ETT bekräftaflöde för ALLA dagar ═══════════════════════════
+  // Martin 2026-10-06 (efter test av #707): listan och Stämmer fanns bara i Dag-vyn för IDAG;
+  // en äldre obekräftad dag öppnas via väntar-raden eller Kalender i Redigera, som hade den
+  // gamla knappen "Bekräfta dagen" — brandriskfrågan ställdes aldrig och rastsvaret sparades
+  // aldrig. Nu bygger BÅDA vyerna sin lista med samma funktion (fragorFor) och skriver svaren
+  // på samma sätt, nycklat på datum. Förare bekräftar ofta gårdagen; flödet är detsamma.
+  type Fraga = { nyckel: string; titel: string; fraga: string; svar: string | null; oppna: () => void };
+  /** Dagens värden oavsett vy: Redigera läser sina egna fält (redStart…), Dag sina (start…). */
+  const dagKontext = (datum: string) => {
+    const iRed = steg === "redigera" && (redDag as any)?.datum === datum;
+    const rad: any = iRed ? redDag : dagData[datum];
+    return {
+      rad,
+      start: String((iRed ? redStart : start) || ""),
+      slut: String((iRed ? redSlut : slut) || ""),
+      rast: Number((iRed ? redRast : rast) || 0),
+      andraTider: iRed
+        ? () => setRedVy("tid")
+        : () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); },
+    };
+  };
+  const tidsSig = (k: { start: string; slut: string; rast: number }) => `${k.start.slice(0, 5)}|${k.slut.slice(0, 5)}|${k.rast}`;
+  /** Skriv ett svar i dagens rad i BÅDA kopiorna (dagData och Redigeras redDag). */
+  const patchaDag = (datum: string, patch: Record<string, any>) => {
+    setDagData(d => ({ ...d, [datum]: { ...(d[datum] || {}), ...patch } }));
+    setRedDag((rd: any) => (rd?.datum === datum ? { ...rd, ...patch } : rd));
+    // Väntar-raderna i Dag räknas ur årsData: utan den här patchen låg en bekräftad dag kvar som
+    // "väntar" tills appen laddades om (Martin 2026-10-06: "3 dagar väntar" fast allt var bekräftat).
+    setÅrsData((a: any[]) => a.map((x: any) => (x.datum === datum ? { ...x, ...patch } : x)));
+    setHistorik((h: any[]) => h.map((x: any) => (x.datum === datum ? { ...x, ...patch } : x)));
+  };
+  /** Dagar som väntar på föraren, äldsta först: obekräftade (7 dagar) + bekräftade med obesvarad
+   *  brandrisk (30 dagar). EN källa för raden i Dag och för kön "N dagar kvar". */
+  const vantandeDagar = (): { datum: string; typ: 'bekraftelse' | 'brand' }[] => {
+    const sedan = (n: number) => { const d = new Date(idagKey + 'T00:00:00'); d.setDate(d.getDate() - n); return franGolv(ymdLokal(d)); };
+    const fran7 = sedan(7), fran30 = sedan(30);
+    const ut: { datum: string; typ: 'bekraftelse' | 'brand' }[] = [];
+    for (const d of (årsData || [])) {
+      if (!d.datum || d.datum >= idagKey) continue;
+      // Frånvarodagar har ingen arbetsdag-rad sedan steg 2 — inget att bekräfta.
+      if (d.datum >= fran7 && !d.bekraftad && (d.start_tid || d.slut_tid)) ut.push({ datum: d.datum, typ: 'bekraftelse' });
+      else if (d.datum >= fran30 && d.bekraftad && skaFragaBrandrisk({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: d.brandrisk_beordrad ?? null })) ut.push({ datum: d.datum, typ: 'brand' });
+    }
+    return ut.sort((a, b) => a.datum.localeCompare(b.datum));
+  };
+  /** Vidare i kön efter Stämmer (eller Klar): nästa väntande dag, annars tillbaka till Dag. */
+  const gaVidare = (fran: string) => {
+    const kvar = vantandeDagar().filter(d => d.datum !== fran);
+    if (kvar.length > 0) { öppnaRedigera(kvar[0].datum); return; }
+    setVantarKo(false);
+    setSteg("morgon");
+  };
+  const fragorFor = (datum: string): Fraga[] => {
+    const k = dagKontext(datum);
+    const rad = k.rad;
+    if (!rad) return [];
+    const harPass = !!rad.slut_tid;
+    const fragor: Fraga[] = [];
+    // Objekt: bara för en maskindag med ETT objekt (flerobjektsdagar har sina objekt som rader).
+    const dagObjId = (datum === idagKey ? valtObjektId : null) || rad.objekt_id || null;
+    const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || rad.objekt_namn || dagObjId) : '';
+    const flerObjekt = (rad.objekt_lista || []).length > 1;
+    if (harPass && !flerObjekt && (!dagObjNamn || besvaradeFragor[`${datum}|objekt`])) {
+      fragor.push({ nyckel: 'objekt', titel: dagObjNamn ? 'Objekt' : 'Objekt saknas', fraga: 'Vilken trakt var du på?', svar: dagObjNamn || null,
+        oppna: () => setObjektSvarDatum(datum) });
+    }
+    // Tidig start (brandrisk): derivat av raden, så svaret ligger kvar efter omladdning.
+    const bd = { datum, start_tid: rad.start_tid, brandrisk_beordrad: rad.brandrisk_beordrad ?? null };
+    if (arTidigVardag(bd)) {
+      const svarad = bd.brandrisk_beordrad !== null;
+      const ob = obMinuter(bd);
+      fragor.push({ nyckel: 'brand', titel: svarad ? 'Tidig start · brandrisk' : `Tidig start ${String(rad.start_tid || '').slice(0, 5)}`, fraga: 'Började du tidigt på grund av brandrisk?',
+        svar: svarad ? `${bd.brandrisk_beordrad ? 'Ja' : 'Nej'}${ob > 0 ? ` · ${fmtOb(ob)} OB` : ''}` : null,
+        oppna: () => setSvarSheet({ typ: 'brand', datum }) });
+    }
+    // Vilobrott: BARA den dagens (i natt/idag). Äldre obesvarade blockerar aldrig Stämmer.
+    const fore = new Date(datum + 'T00:00:00'); fore.setDate(fore.getDate() - 1);
+    const foreKey = ymdLokal(fore);
+    const datumKortK = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`; };
+    for (const b of aktuellaVilobrott
+      .filter(b => arDagensVilobrott(b, datum) && (!b.besvarat_av_forare || besvaradeFragor[`${datum}|vila-${b.id}`]))
+      .sort((a, c) => a.datum.localeCompare(c.datum))) {
+      const nar = b.typ === 'veckovila' ? `vecka ${isoVecka(new Date(b.datum + 'T00:00:00')).vecka}` : (b.datum === foreKey ? '' : datumKortK(b.datum));
+      const tim = (Math.round(Number(b.vila_h) * 10) / 10).toLocaleString('sv-SE');
+      fragor.push({ nyckel: 'vila-' + b.id, titel: `${b.typ === 'dygnsvila' ? 'Dygnsvila' : 'Veckovila'} ${tim} tim${nar ? ` · ${nar}` : ''}`,
+        fraga: `Kravet är ${Number(b.krav_h).toLocaleString('sv-SE')} tim. Varför bröts vilan?`,
+        svar: b.besvarat_av_forare ? vilaSvarText(b.orsak, b.orsak_fritext) : null,
+        oppna: () => { setSvarOrsak((b.orsak as VilaOrsak) || null); setSvarFritext(b.orsak_fritext || ''); setSvarSheet({ typ: 'vila', datum, id: b.id }); } });
+    }
+    // Rast/pass som avviker. Svaret ligger i databasen (arbetsdag.tidsfragor_svar) så frågan inte
+    // kommer igen efter omladdning; lokalt svar gäller i visningen om skrivningen inte gick igenom.
+    if (harPass) {
+      const sig = tidsSig(k);
+      for (const q of tidsFragor(k.rast, passMinuter(k.start, k.slut, k.rast))) {
+        const sparat = (rad.tidsfragor_svar || {})[q.id] === sig || tidsSvar[`${datum}|${q.id}`] === sig;
+        fragor.push({ nyckel: 'tid-' + q.id, titel: q.titel, fraga: 'Stämmer det?', svar: sparat ? 'Stämmer' : null,
+          oppna: () => setSvarSheet({ typ: 'tid', datum, id: q.id }) });
+      }
+    }
+    return fragor;
+  };
+  /** Listan (rubrik + rader) ovanför Stämmer. null när inga frågor finns (vanlig dag). */
+  const fragorLista = (fragor: Fraga[]): ReactNode => {
+    if (fragor.length === 0) return null;
+    const oppna = fragor.filter(f => f.svar == null);
+    return (
+      <div style={{ ...KORT, marginTop:AVSTAND.m, paddingTop:AVSTAND.m, paddingBottom:AVSTAND.xs }}>
+        <p style={{ margin:0, ...TYP.micro, color: oppna.length > 0 ? FARG.orange : FARG.text2 }}>
+          {oppna.length > 0 ? `${oppna.length} ${oppna.length === 1 ? 'sak' : 'saker'} att svara på` : 'Besvarat'}
+        </p>
+        {fragor.map((f, i) => (
+          <button key={f.nyckel} onClick={f.oppna}
+            style={{ ...KNAPP.tertiar, display:"flex", width:"100%", height:"auto", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, textAlign:"left", borderBottom: i === fragor.length - 1 ? "none" : `1px solid ${FARG.linje}` }}>
+            <span style={{ minWidth:0 }}>
+              <span style={{ display:"block", ...TYP.listtitel, ...TNUM, color:FARG.text }}>{f.titel}</span>
+              {f.svar == null
+                ? <span style={{ display:"block", ...TYP.meta, color:FARG.text2 }}>{f.fraga}</span>
+                : <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, ...TYP.meta, color:FARG.gron }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>check_circle</span>{f.svar}
+                  </span>}
+            </span>
+            <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, flexShrink:0 }}>chevron_right</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
+  /** Stämmer-knappens stil: grå (men inte död) så länge något är obesvarat, plus raden under. */
+  const stammerGra = (fragor: Fraga[]) => fragor.some(f => f.svar == null);
+  /** Svar på brandriskfrågan för en dag (skrivs direkt, verifierat — blockerar aldrig bekräftelsen). */
+  const svaraBrandFor = async (datum: string, val: boolean) => {
+    const rad = dagKontext(datum).rad;
+    if (!rad?.id) return;
+    const res = await uppdateraVerifierat(supabase, 'arbetsdag', { brandrisk_beordrad: val }, { id: rad.id });
+    if (!res.ok) { setBekraftaFel(res.fel); setRedFel(res.fel); return; }
+    setBekraftaFel(null); setRedFel(null);
+    patchaDag(datum, { brandrisk_beordrad: val });
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+    setSvarSheet(null);
+  };
+  /** Arken för svaren — renderas av BÅDA vyerna. Ett ark i taget; dagen bekräftas aldrig av ett svar. */
+  const renderSvarSheet = (): ReactNode => {
+    if (!svarSheet) return null;
+    const datum = svarSheet.datum;
+    const k = dagKontext(datum);
+    const rad = k.rad;
+    const stäng = () => setSvarSheet(null);
+    const ark = (barn: ReactNode) => (
+      <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+        <div onClick={e=>e.stopPropagation()} className="sheet-upp"
+          style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
+          <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+            <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
+          </div>
+          {barn}
+        </div>
+      </div>
+    );
+    const avbryt = (
+      <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.m }}>
+        <button onClick={stäng} style={KNAPP.lank}>Avbryt</button>
+      </div>
+    );
+    if (svarSheet.typ === 'brand') {
+      const nu = rad?.brandrisk_beordrad ?? null;
+      return ark(<>
+        <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Tidig start · {String(rad?.start_tid || '').slice(0, 5)}</p>
+        <p style={{ margin:`${AVSTAND.s}px 0 ${AVSTAND.l}px`, ...TYP.text, color:FARG.text }}>Började du tidigt på grund av brandrisk?</p>
+        <div style={{ display:"flex", gap:AVSTAND.s }}>
+          {([[true, 'Ja'], [false, 'Nej']] as [boolean, string][]).map(([v, l]) => (
+            <button key={l} onClick={()=>svaraBrandFor(datum, v)} style={{ ...KNAPP.sekundar, gap:AVSTAND.xs, ...(nu === v ? { background:FARG.fyllning } : {}) }}>
+              {nu === v && <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>check</span>}{l}
+            </button>
+          ))}
+        </div>
+        {avbryt}
+      </>);
+    }
+    if (svarSheet.typ === 'vila') {
+      const b = aktuellaVilobrott.find(x => x.id === svarSheet.id);
+      if (!b) return null;
+      const klart = !!svarOrsak && (svarOrsak !== 'annat' || svarFritext.trim().length > 0);
+      return ark(<>
+        <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Varför bröts vilan?</p>
+        <p style={{ margin:`${AVSTAND.xs}px 0 ${AVSTAND.m}px`, ...TYP.meta, color:FARG.text2 }}>{b.beskrivning}</p>
+        {VILA_ORSAKER.map(o => (
+          <button key={o.key} onClick={()=>setSvarOrsak(o.key)}
+            style={{ ...KNAPP.tertiar, display:"flex", width:"100%", height:"auto", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, textAlign:"left", borderBottom:`1px solid ${FARG.linje}` }}>
+            <span style={{ minWidth:0 }}>
+              <span style={{ display:"block", ...TYP.listtitel, color:FARG.text }}>{o.label}</span>
+              <span style={{ display:"block", ...TYP.meta, color:FARG.text2 }}>{o.sub}</span>
+            </span>
+            {svarOrsak === o.key && <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:FARG.text }}>check</span>}
+          </button>
+        ))}
+        {svarOrsak === 'annat' && (
+          <textarea id="vila-svar-fritext" placeholder="T.ex. röjde fallna träd över vägen" value={svarFritext} onChange={e=>setSvarFritext(e.target.value)} rows={3}
+            style={{ width:"100%", marginTop:AVSTAND.m, background:FARG.upphojt, border:"none", borderRadius:RADIE.rad, color:FARG.text, padding:AVSTAND.m, ...TYP.text, outline:"none", fontFamily:"inherit", resize:"none", boxSizing:"border-box" }} />
+        )}
+        <button disabled={!klart || svarSparar} style={{ ...KNAPP.primar, marginTop:AVSTAND.l, ...(!klart || svarSparar ? INAKTIV : {}) }}
+          onClick={async ()=>{
+            if (!svarOrsak) return;
+            setSvarSparar(true);
+            const ok = await skrivVilobrottSvar(b, svarOrsak, svarFritext);
+            setSvarSparar(false);
+            if (!ok) { setBekraftaFel(SPARA_FEL); setRedFel(SPARA_FEL); return; }
+            setBekraftaFel(null); setRedFel(null);
+            setBesvaradeFragor(f => ({ ...f, [`${datum}|vila-${b.id}`]: true }));
+            setSvarSheet(null);
+          }}>Spara</button>
+        {avbryt}
+      </>);
+    }
+    // typ 'tid': rast eller pass som avviker
+    const q = tidsFragor(k.rast, passMinuter(k.start, k.slut, k.rast)).find(x => x.id === svarSheet.id);
+    if (!q) return null;
+    return ark(<>
+      <p style={{ margin:0, ...TYP.rubrik, ...TNUM, color:FARG.text }}>{q.rubrik}</p>
+      <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{q.text}</p>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
+        <button onClick={()=>{ setSvarSheet(null); k.andraTider(); }} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Ändra tider</button>
+        <button onClick={async ()=>{
+          const sig = tidsSig(k);
+          setTidsSvar(s => ({ ...s, [`${datum}|${q.id}`]: sig })); // gäller direkt, även om skrivningen nedan skulle fela
+          setSvarSheet(null);
+          if (!rad?.id) return;
+          const nytt = { ...(rad.tidsfragor_svar || {}), [q.id]: sig };
+          const res = await uppdateraVerifierat(supabase, 'arbetsdag', { tidsfragor_svar: nytt }, { id: rad.id });
+          if (!res.ok) {
+            // Syns för föraren (inte bara i konsolen): svaret gäller i den här visningen men nådde inte databasen.
+            console.error('[svar] tidsfragor_svar kunde inte sparas:', res.fel);
+            const fel = 'Svaret kunde inte sparas — det gäller bara nu. Försök igen om en stund.';
+            setBekraftaFel(fel); setRedFel(fel);
+            return;
+          }
+          setBekraftaFel(null); setRedFel(null);
+          patchaDag(datum, { tidsfragor_svar: nytt });
+        }} style={KNAPP.primar}>Ja, det stämmer</button>
+      </div>
+    </>);
+  };
+  /** Trakt-väljaren för frågan "Vilken trakt var du på?" — svaret skrivs direkt på den dagens rad. */
+  const renderObjektSvarSheet = (): ReactNode => {
+    if (!objektSvarDatum) return null;
+    const datum = objektSvarDatum;
+    const rad = dagKontext(datum).rad;
+    const stäng = () => setObjektSvarDatum(null);
+    return (
+      <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+        <div className="sheet-upp" style={{ background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, width:"100%", maxWidth:520, maxHeight:"70vh", display:"flex", flexDirection:"column" }}>
+          <div style={{ padding:`${AVSTAND.l}px`, borderBottom:`1px solid ${FARG.linje}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <h3 style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Välj objekt</h3>
+            <button onClick={stäng} style={KNAPP.lank}>Stäng</button>
+          </div>
+          <div style={{ flex:1, overflowY:"auto" }}>
+            <ObjektValjarLista
+              objekt={objektLista}
+              valtId={rad?.objekt_id || null}
+              onVälj={async o => {
+                stäng();
+                if (!o || !rad?.id) return;
+                const res = await uppdateraVerifierat(supabase, 'arbetsdag', { objekt_id: o.id }, { id: rad.id });
+                if (!res.ok) { setBekraftaFel(res.fel); setRedFel(res.fel); return; }
+                setBekraftaFel(null); setRedFel(null);
+                patchaDag(datum, { objekt_id: o.id, objekt_namn: o.namn });
+                if (datum === idagKey) setValtObjektId(o.id);
+                setBesvaradeFragor(b => ({ ...b, [`${datum}|objekt`]: true }));
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
 
   // Inloggad men ingen medarbetare kopplad — säg vad som är fel och vad man gör.
   if(!medarbetare && medSaknas) return (
@@ -2583,16 +2864,7 @@ export default function Arbetsrapport() {
     // bakom "Något fel?" (utredning 2026-10-05: tre kort, sju tryckbara ytor och
     // dubbletter mötte föraren för att svara på en fråga).
     const kvällsLäge = !redanBekräftad && !dagPågår && (harMaskinPass || perioddag);
-    // Svar på brandriskfrågan (skrivs direkt, verifierat — blockerar aldrig bekräftelsen).
-    const svaraBrand = async (val: boolean) => {
-      if (!idagArb?.id) return;
-      const res = await uppdateraVerifierat(supabase, 'arbetsdag', { brandrisk_beordrad: val }, { id: idagArb.id });
-      if (!res.ok) { setBekraftaFel(res.fel); return; }
-      setBekraftaFel(null);
-      setDagData(d => ({ ...d, [idagKey]: { ...(d[idagKey]||{}), brandrisk_beordrad: val } }));
-      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
-      setSvarSheet(null);
-    };
+    const svaraBrand = (val: boolean) => svaraBrandFor(idagKey, val); // delad med Redigera
     const tillstandNyckel = [
       visaTillstand ? (isWorking ? 'pagar' : 'vantar') : '-',
       visaSammanfattning ? (redanBekräftad ? 'bekraftad' : dagPågår ? 'pagar-kort' : 'avslutad') : '-',
@@ -2789,51 +3061,8 @@ export default function Arbetsrapport() {
         </div>
       );
 
-      /* SAKER ATT SVARA PÅ (Martin 2026-10-06). Dagskortet är bara information; allt föraren
-         ska svara på står samlat här, ovanför Stämmer, som likadana rader: saknat objekt,
-         tidig start (brandrisk), vilobrott, och rast/pass som avviker. Förr låg de på tre
-         ställen som såg olika ut (röd remsa överst, eget kort, orange rad) och rastfrågan
-         kom först efter tryck på Stämmer. Besvarade rader ligger kvar med svaret i grönt
-         tills dagen bekräftas, och går att ändra. */
-      type Fraga = { nyckel: string; titel: string; fraga: string; svar: string | null; oppna: () => void };
-      const fragor: Fraga[] = [];
-      if (kvällsLäge) {
-        const flerObjekt = (idagArb?.objekt_lista || []).length > 1;
-        if (harMaskinPass && !flerObjekt && (!dagObjNamn || besvaradeFragor.objekt)) {
-          fragor.push({ nyckel:'objekt', titel: dagObjNamn ? 'Objekt' : 'Objekt saknas', fraga:'Vilken trakt var du på?', svar: dagObjNamn || null,
-            oppna: ()=>{ setObjektSvarar(true); setVisaObjektVäljare(true); } });
-        }
-        const bd = { datum: idagKey, start_tid: idagArb?.start_tid, brandrisk_beordrad: idagArb?.brandrisk_beordrad ?? null };
-        if (arTidigVardag(bd)) {
-          const svarad = bd.brandrisk_beordrad !== null;
-          const ob = obMinuter(bd);
-          fragor.push({ nyckel:'brand', titel: svarad ? 'Tidig start · brandrisk' : `Tidig start ${(idagArb?.start_tid||'').slice(0,5)}`, fraga:'Började du tidigt på grund av brandrisk?',
-            svar: svarad ? `${bd.brandrisk_beordrad ? 'Ja' : 'Nej'}${ob > 0 ? ` · ${fmtOb(ob)} OB` : ''}` : null,
-            oppna: ()=>setSvarSheet({ typ:'brand' }) });
-        }
-        const datumKortK = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`; };
-        for (const b of aktuellaVilobrott
-          // BARA dagens brott (i natt/idag). Äldre obesvarade blockerar aldrig Stämmer; de är en påminnelse i remsan överst.
-          .filter(b => arDagensVilobrott(b, idagKey) && (!b.besvarat_av_forare || besvaradeFragor['vila-' + b.id]))
-          .sort((a, c) => a.datum.localeCompare(c.datum))) {
-          const nar = b.typ === 'veckovila' ? `vecka ${isoVecka(new Date(b.datum + 'T00:00:00')).vecka}` : (b.datum === igårKey ? '' : datumKortK(b.datum));
-          const tim = (Math.round(Number(b.vila_h) * 10) / 10).toLocaleString('sv-SE');
-          fragor.push({ nyckel:'vila-' + b.id, titel: `${b.typ === 'dygnsvila' ? 'Dygnsvila' : 'Veckovila'} ${tim} tim${nar ? ` · ${nar}` : ''}`,
-            fraga:`Kravet är ${Number(b.krav_h).toLocaleString('sv-SE')} tim. Varför bröts vilan?`,
-            svar: b.besvarat_av_forare ? vilaSvarText(b.orsak, b.orsak_fritext) : null,
-            oppna: ()=>{ setSvarOrsak((b.orsak as VilaOrsak) || null); setSvarFritext(b.orsak_fritext || ''); setSvarSheet({ typ:'vila', id: b.id }); } });
-        }
-        if (harMaskinPass) {
-          const sig = `${start}|${slut}|${rast}`;
-          for (const q of tidsFragor(rast, passMinuter(start, slut, rast))) {
-            // Svaret ligger i databasen (arbetsdag.tidsfragor_svar) så frågan inte kommer igen efter
-            // omladdning; lokala svaret gäller i den här visningen om skrivningen inte gick igenom.
-            const sparat = (idagArb?.tidsfragor_svar || {})[q.id] === sig || tidsSvar[q.id] === sig;
-            fragor.push({ nyckel:'tid-' + q.id, titel: q.titel, fraga:'Stämmer det?', svar: sparat ? 'Stämmer' : null,
-              oppna: ()=>setSvarSheet({ typ:'tid', id: q.id }) });
-          }
-        }
-      }
+      /* SAKER ATT SVARA PÅ: samma lista som Redigera visar för äldre dagar (fragorFor, komponentnivå). */
+      const fragor: Fraga[] = kvällsLäge ? fragorFor(idagKey) : [];
       const oppnaFragor = fragor.filter(f => f.svar == null);
 
       if (dagPågår) {
@@ -3065,27 +3294,7 @@ export default function Arbetsrapport() {
           {/* Brandrisk-OB — frågan VID BEKRÄFTELSEN. Villkor: vardag + start < 05:30
               + obesvarad. Blockerar ALDRIG bekräftelsen — obesvarad förblir null. */}
           {/* SAKER ATT SVARA PÅ — på kvällen ersätter listan det här kortet. */}
-          {kvällsLäge && fragor.length > 0 && (
-            <div style={{ ...KORT, marginTop:AVSTAND.m, paddingTop:AVSTAND.m, paddingBottom:AVSTAND.xs }}>
-              <p style={{ margin:0, ...TYP.micro, color: oppnaFragor.length > 0 ? FARG.orange : FARG.text2 }}>
-                {oppnaFragor.length > 0 ? `${oppnaFragor.length} ${oppnaFragor.length === 1 ? 'sak' : 'saker'} att svara på` : 'Besvarat'}
-              </p>
-              {fragor.map((f, i) => (
-                <button key={f.nyckel} onClick={f.oppna}
-                  style={{ ...KNAPP.tertiar, display:"flex", width:"100%", height:"auto", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, textAlign:"left", borderBottom: i === fragor.length - 1 ? "none" : `1px solid ${FARG.linje}` }}>
-                  <span style={{ minWidth:0 }}>
-                    <span style={{ display:"block", ...TYP.listtitel, ...TNUM, color:FARG.text }}>{f.titel}</span>
-                    {f.svar == null
-                      ? <span style={{ display:"block", ...TYP.meta, color:FARG.text2 }}>{f.fraga}</span>
-                      : <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, ...TYP.meta, color:FARG.gron }}>
-                          <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>check_circle</span>{f.svar}
-                        </span>}
-                  </span>
-                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, flexShrink:0 }}>chevron_right</span>
-                </button>
-              ))}
-            </div>
-          )}
+          {kvällsLäge && fragorLista(fragor)}
           {(() => {
             if (kvällsLäge) return null;
             const dag = { datum: idagKey, start_tid: idagArb?.start_tid, brandrisk_beordrad: idagArb?.brandrisk_beordrad ?? null };
@@ -3182,15 +3391,10 @@ export default function Arbetsrapport() {
       return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`;
     };
     const fmtTim = (h: number) => (Math.round(h * 10) / 10).toLocaleString('sv-SE');
-    const obekraftade: string[] = (årsData || [])
-      // Frånvarodagar har ingen arbetsdag-rad sedan steg 2 — inget att bekräfta.
-      .filter((d: any) => d.datum && d.datum >= fran7 && d.datum < idagKey && !d.bekraftad
-        && (d.start_tid || d.slut_tid))
-      .map((d: any) => d.datum as string)
-      .sort();
-    const brandriskObesvarade = (årsData || [])
-      .filter((d: any) => d.datum && d.datum >= fran30 && d.datum < idagKey
-        && skaFragaBrandrisk({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: d.brandrisk_beordrad ?? null }));
+    // EN rad för det som väntar (obekräftade dagar + bekräftade med obesvarad brandrisk): källan är
+    // vantandeDagar() (samma som kön). Brandriskfrågan har ingen egen rad — den hör till en dag och
+    // den dagen ligger här.
+    const vantande = vantandeDagar();
     // Dygnsvila räknas mellan slut_tid dag N och start_tid dag N+1 — den kan
     // alltså INTE räknas före dagens pass börjat. Det som visas är lagrade
     // brott: dygnsvilan från i natt syns först när dagens start finns.
@@ -3207,15 +3411,15 @@ export default function Arbetsrapport() {
         text:`${b.typ === 'dygnsvila' ? 'Dygnsvila' : 'Veckovila'} ${fmtTim(Number(b.vila_h))} tim av ${fmtTim(Number(b.krav_h))} · ${nar}`,
         onClick:()=>{ setMinTidFlik('vila'); setSteg('mintid'); } });
     }
-    if (obekraftade.length === 1) {
-      vantarRader.push({ nyckel:'bekr', farg:FARG.orange, text:`${fmtDatumKort(obekraftade[0])} väntar på bekräftelse`, onClick:()=>öppnaRedigera(obekraftade[0]) });
-    } else if (obekraftade.length > 1) {
-      vantarRader.push({ nyckel:'bekr', farg:FARG.orange, text:`${obekraftade.length} dagar väntar på bekräftelse`, onClick:()=>setSteg('kalender') });
-    }
-    if (brandriskObesvarade.length > 0) {
-      vantarRader.push({ nyckel:'brand', farg:FARG.orange,
-        text: brandriskObesvarade.length === 1 ? '1 brandriskfråga obesvarad' : `${brandriskObesvarade.length} brandriskfrågor obesvarade`,
-        onClick:()=>setSteg('lön') });
+    if (vantande.length === 1) {
+      const v = vantande[0];
+      vantarRader.push({ nyckel:'bekr', farg:FARG.orange,
+        text: v.typ === 'brand' ? `${fmtDatumKort(v.datum)} — brandriskfråga obesvarad` : `${fmtDatumKort(v.datum)} väntar på bekräftelse`,
+        onClick:()=>{ setVantarKo(true); öppnaRedigera(v.datum); } });
+    } else if (vantande.length > 1) {
+      // Äldsta dagen öppnas direkt (inte Kalendern); efter Stämmer går man vidare till nästa.
+      vantarRader.push({ nyckel:'bekr', farg:FARG.orange, text:`${vantande.length} dagar väntar`,
+        onClick:()=>{ setVantarKo(true); öppnaRedigera(vantande[0].datum); } });
     }
     // Arbetade röda vardagar som kan bytas mot ledig dag (skoftning §5 mom 4)
     // och som inte fått något svar — frågan vid Bekräfta missar normalfallet
@@ -3401,28 +3605,13 @@ export default function Arbetsrapport() {
             <div className="sheet-upp" style={{ background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, width:"100%", maxWidth:520, maxHeight:"70vh", display:"flex", flexDirection:"column" }}>
               <div style={{ padding:`${AVSTAND.l}px`, borderBottom:`1px solid ${FARG.linje}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <h3 style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Välj objekt</h3>
-                <button onClick={()=>{ setObjektSvarar(false); setVisaObjektVäljare(false); }} style={KNAPP.lank}>Stäng</button>
+                <button onClick={()=>setVisaObjektVäljare(false)} style={KNAPP.lank}>Stäng</button>
               </div>
               <div style={{ flex:1, overflowY:"auto" }}>
                 <ObjektValjarLista
                   objekt={objektLista}
                   valtId={valtObjektId}
-                  onVälj={async o => {
-                    if (o) setValtObjektId(o.id);
-                    // Svar på "Vilken trakt var du på?" (Saker att svara på): skrivs direkt,
-                    // verifierat — kortet visar objektet och dagen är oförändrad i övrigt.
-                    if (o && objektSvarar && idagArb?.id) {
-                      const res = await uppdateraVerifierat(supabase, 'arbetsdag', { objekt_id: o.id }, { id: idagArb.id });
-                      if (!res.ok) { setBekraftaFel(res.fel); }
-                      else {
-                        setBekraftaFel(null);
-                        setDagData(d => ({ ...d, [idagKey]: { ...(d[idagKey]||{}), objekt_id: o.id, objekt_namn: o.namn } }));
-                        setBesvaradeFragor(b => ({ ...b, objekt: true }));
-                      }
-                    }
-                    setObjektSvarar(false);
-                    setVisaObjektVäljare(false);
-                  }}
+                  onVälj={o => { if (o) setValtObjektId(o.id); setVisaObjektVäljare(false); }}
                 />
               </div>
             </div>
@@ -3440,97 +3629,8 @@ export default function Arbetsrapport() {
       {rastFragaUI}
       {byteFragaUI}
 
-      {/* Sheet: svar på en fråga i "Saker att svara på". Ett ark i taget; efter svaret är
-          föraren tillbaka i listan — dagen bekräftas aldrig av ett svar. */}
-      {svarSheet && (()=>{
-        const stäng = () => setSvarSheet(null);
-        const ark = (barn: ReactNode) => (
-          <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div onClick={e=>e.stopPropagation()} className="sheet-upp"
-              style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
-              <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
-                <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
-              </div>
-              {barn}
-            </div>
-          </div>
-        );
-        const avbryt = (
-          <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.m }}>
-            <button onClick={stäng} style={KNAPP.lank}>Avbryt</button>
-          </div>
-        );
-        if (svarSheet.typ === 'brand') {
-          const nu = idagArb?.brandrisk_beordrad ?? null;
-          return ark(<>
-            <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Tidig start · {(idagArb?.start_tid||'').slice(0,5)}</p>
-            <p style={{ margin:`${AVSTAND.s}px 0 ${AVSTAND.l}px`, ...TYP.text, color:FARG.text }}>Började du tidigt på grund av brandrisk?</p>
-            <div style={{ display:"flex", gap:AVSTAND.s }}>
-              {([[true, 'Ja'], [false, 'Nej']] as [boolean, string][]).map(([v, l]) => (
-                <button key={l} onClick={()=>svaraBrand(v)} style={{ ...KNAPP.sekundar, gap:AVSTAND.xs, ...(nu === v ? { background:FARG.fyllning } : {}) }}>
-                  {nu === v && <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>check</span>}{l}
-                </button>
-              ))}
-            </div>
-            {avbryt}
-          </>);
-        }
-        if (svarSheet.typ === 'vila') {
-          const b = aktuellaVilobrott.find(x => x.id === svarSheet.id);
-          if (!b) return null;
-          const klart = !!svarOrsak && (svarOrsak !== 'annat' || svarFritext.trim().length > 0);
-          return ark(<>
-            <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Varför bröts vilan?</p>
-            <p style={{ margin:`${AVSTAND.xs}px 0 ${AVSTAND.m}px`, ...TYP.meta, color:FARG.text2 }}>{b.beskrivning}</p>
-            {VILA_ORSAKER.map(o => (
-              <button key={o.key} onClick={()=>setSvarOrsak(o.key)}
-                style={{ ...KNAPP.tertiar, display:"flex", width:"100%", height:"auto", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, textAlign:"left", borderBottom:`1px solid ${FARG.linje}` }}>
-                <span style={{ minWidth:0 }}>
-                  <span style={{ display:"block", ...TYP.listtitel, color:FARG.text }}>{o.label}</span>
-                  <span style={{ display:"block", ...TYP.meta, color:FARG.text2 }}>{o.sub}</span>
-                </span>
-                {svarOrsak === o.key && <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:FARG.text }}>check</span>}
-              </button>
-            ))}
-            {svarOrsak === 'annat' && (
-              <textarea id="vila-svar-fritext" placeholder="T.ex. röjde fallna träd över vägen" value={svarFritext} onChange={e=>setSvarFritext(e.target.value)} rows={3}
-                style={{ width:"100%", marginTop:AVSTAND.m, background:FARG.upphojt, border:"none", borderRadius:RADIE.rad, color:FARG.text, padding:AVSTAND.m, ...TYP.text, outline:"none", fontFamily:"inherit", resize:"none", boxSizing:"border-box" }} />
-            )}
-            <button disabled={!klart || svarSparar} style={{ ...KNAPP.primar, marginTop:AVSTAND.l, ...(!klart || svarSparar ? INAKTIV : {}) }}
-              onClick={async ()=>{
-                if (!svarOrsak) return;
-                setSvarSparar(true);
-                const ok = await skrivVilobrottSvar(b, svarOrsak, svarFritext);
-                setSvarSparar(false);
-                if (!ok) { setBekraftaFel(SPARA_FEL); return; }
-                setBekraftaFel(null);
-                setBesvaradeFragor(f => ({ ...f, ['vila-' + b.id]: true }));
-                setSvarSheet(null);
-              }}>Spara</button>
-            {avbryt}
-          </>);
-        }
-        // typ 'tid': rast eller pass som avviker
-        const q = tidsFragor(rast, passMinuter(start, slut, rast)).find(x => x.id === svarSheet.id);
-        if (!q) return null;
-        return ark(<>
-          <p style={{ margin:0, ...TYP.rubrik, ...TNUM, color:FARG.text }}>{q.rubrik}</p>
-          <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{q.text}</p>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
-            <button onClick={()=>{ setSvarSheet(null); öppnaTider(); }} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Ändra tider</button>
-            <button onClick={async ()=>{
-              const sig = `${start}|${slut}|${rast}`;
-              setTidsSvar(s => ({ ...s, [q.id]: sig })); // gäller direkt, även om skrivningen nedan skulle fela
-              setSvarSheet(null);
-              if (!idagArb?.id) return;
-              const nytt = { ...(idagArb.tidsfragor_svar || {}), [q.id]: sig };
-              const res = await uppdateraVerifierat(supabase, 'arbetsdag', { tidsfragor_svar: nytt }, { id: idagArb.id });
-              if (!res.ok) { console.error('[svar] tidsfragor_svar kunde inte sparas — svaret gäller bara i den här visningen:', res.fel); return; }
-              setDagData(d => ({ ...d, [idagKey]: { ...(d[idagKey] || {}), tidsfragor_svar: nytt } }));
-            }} style={KNAPP.primar}>Ja, det stämmer</button>
-          </div>
-        </>);
-      })()}
+      {renderSvarSheet()}
+      {renderObjektSvarSheet()}
 
       {/* Sheet: Något fel? — vägarna in till det som ändrar dagen. Arket stängs INNAN
           nästa yta öppnas (inga ark ovanpå ark). Rader utan innehåll visas inte:
@@ -4195,15 +4295,20 @@ export default function Arbetsrapport() {
             const brott = filtVila.filter(r => !!brottForRad(r));
             const harProblem = brott.length > 0;
             const vvHarProblem = dbVeck.length > 0;
+            const vvObesvarade = dbVeck.filter(b => !b.besvarat_av_forare).length;
             const periodLaddar = periodVilobrott === null;
             // Dygnsvila-tröskeln används i VilaKort + PDF. Veckovila-tröskeln
             // läses direkt från b.krav_h på varje brott, så den behöver inte
             // hoistas här.
             const krav_h = trosklar?.dygnsvila_krav_h ?? 11;
+            // Förarens svar i klartext, samma ord som i svarsarket (lib/dagFragor), med liten
+            // begynnelsebokstav: "Besvarat: planerat undantag enligt avtal".
             const orsakLabel = (o: string | null) => {
-              if (!o) return '';
-              return { oforutsedd:'Oförutsedd händelse', akut_jour:'Akut jour', planerad_avtal:'Planerat enligt avtal', annat:'Annat' }[o] || o;
+              const v = VILA_ORSAKER.find(x => x.key === o);
+              return v ? v.label.charAt(0).toLowerCase() + v.label.slice(1) : (o || '');
             };
+            const besvaratText = (b: VilobrottRad) =>
+              `Besvarat: ${orsakLabel(b.orsak)}${b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}${b.kompensation_h != null ? ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}` : ''}`;
 
             // Export. Dygnsvila listas per viloperiod (status från DB-brott).
             // Veckovila listas per DB-brott (rullande fönster) — inte per ISO-vecka.
@@ -4282,9 +4387,10 @@ export default function Arbetsrapport() {
             // `brott` = ett brott finns i vilobrott-TABELLEN för perioden. Tabellen
             // avgör status; den lokalt räknade vilan visar bara timmarna. Förr kunde
             // kortet lysa grönt medan tabellen hade ett brott i samma fönster.
-            const SammanfattningsKort = ({label, vilaH, kravH, saknas, brott}:{label:string;vilaH:number;kravH:number;saknas?:boolean;brott?:boolean}) => {
-              const st = brott ? 'brott' : vilaNiva(vilaH, kravH);
-              const farg = st==='brott' ? '#ff453a' : st==='nara' ? '#ff9f0a' : '#30d158';
+            // Rött bara för OBESVARADE brott: ett besvarat brott (förarens svar finns) är grått.
+            const SammanfattningsKort = ({label, vilaH, kravH, saknas, brott, besvarat}:{label:string;vilaH:number;kravH:number;saknas?:boolean;brott?:boolean;besvarat?:boolean}) => {
+              const st = brott ? (besvarat ? 'besvarat' : 'brott') : vilaNiva(vilaH, kravH);
+              const farg = st==='brott' ? '#ff453a' : st==='nara' ? '#ff9f0a' : st==='besvarat' ? FARG.text2 : '#30d158';
               return (
                 <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,border:`1px solid ${FARG.linje}` }}>
                   <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{label}</p>
@@ -4294,7 +4400,7 @@ export default function Arbetsrapport() {
                     <p style={{ margin:0,...TYP.rubrik,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{fmtStor(vilaH)}</p>
                     <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,fontWeight:VIKT.halvfet,color:farg,display:"flex",alignItems:"center",gap:AVSTAND.xs }}>
                       <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{st==='brott'?'warning':'check'}</span>
-                      {st==='brott' ? `under krav ${kravH}h` : st==='nara' ? `nära gränsen · krav ${kravH}h` : `krav ${kravH}h`}
+                      {st==='brott' ? `under krav ${kravH}h` : st==='besvarat' ? `under krav ${kravH}h · besvarat` : st==='nara' ? `nära gränsen · krav ${kravH}h` : `krav ${kravH}h`}
                     </p>
                   </>)}
                 </div>
@@ -4303,32 +4409,30 @@ export default function Arbetsrapport() {
             const VilaKort = ({r}:{r:typeof allVila[0]}) => {
               const b = brottForRad(r);
               const ok = !b;
-              const expanderad = b && vilaKortExpanded === b.id;
+              // Rött bara för OBESVARADE brott; besvarat = grått med svaret under.
+              const besvarad = !!b?.besvarat_av_forare;
+              const brottFarg = besvarad ? FARG.text2 : FARG.rod;
+              const expanderad = b && !besvarad && vilaKortExpanded === b.id;
               const d1=new Date(r.slutDatum),d2=new Date(r.startDatum);
               return (
                 <div
-                  onClick={b ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
-                  style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${ok?FARG.linje:FARG.upphojt}`,cursor: b ? "pointer" : "default" }}>
+                  onClick={b && !besvarad ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
+                  style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${ok?FARG.linje:FARG.upphojt}`,cursor: b && !besvarad ? "pointer" : "default" }}>
                   <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.listtitel,color:FARG.text,textTransform:"capitalize" }}>{fD(d1)}</p>
                   <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Slutade kl {r.slutTid}</p>
                   <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.meta,color:FARG.text2 }}>Startade igen: <span style={{ textTransform:"capitalize" }}>{fD(d2)}</span> kl {r.startTid}</p>
                   <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                    {!ok&&<span className="material-symbols-outlined" style={{ color:FARG.rod,fontSize:IKON.text }}>warning</span>}
-                    <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:ok?FARG.gron:FARG.rod,...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
+                    {!ok&&<span className="material-symbols-outlined" style={{ color:brottFarg,fontSize:IKON.text }}>{besvarad?'check':'warning'}</span>}
+                    <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:ok?FARG.gron:brottFarg,...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
                     {ok&&<span className="material-symbols-outlined" style={{ color:FARG.gron,fontSize:IKON.text }}>check</span>}
-                    {!ok&&<span style={{ ...TYP.meta,color:FARG.rod }}>(kräver {krav_h}h)</span>}
+                    {!ok&&<span style={{ ...TYP.meta,color:brottFarg }}>(kräver {krav_h}h)</span>}
                   </div>
                   {r.anledning&&<p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{r.anledning}</p>}
+                  {/* Svaret syns direkt under, utan att kortet behöver fällas ut. */}
+                  {b && besvarad && <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{besvaratText(b)}</p>}
                   {expanderad && b && (
                     <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
-                      {b.besvarat_av_forare ? (
-                        <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
-                          Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
-                          {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
-                        </p>
-                      ) : (
-                        <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
-                      )}
+                      <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
                     </div>
                   )}
                 </div>
@@ -4339,8 +4443,8 @@ export default function Arbetsrapport() {
             {/* Sammanfattning: faktiska siffror — föraren ser SIN vila, inte bara "uppfylld" */}
             <section style={{ marginBottom:AVSTAND.xl }}>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:AVSTAND.m }}>
-                <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} brott={!!senasteVilaRad && !!brottForRad(senasteVilaRad)} />
-                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} brott={vvHarProblem} />
+                <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} brott={!!senasteVilaRad && !!brottForRad(senasteVilaRad)} besvarat={!!senasteVilaRad && !!brottForRad(senasteVilaRad)?.besvarat_av_forare} />
+                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} brott={vvHarProblem} besvarat={vvHarProblem && dbVeck.every(b => b.besvarat_av_forare)} />
               </div>
             </section>
 
@@ -4384,7 +4488,7 @@ export default function Arbetsrapport() {
                   {(()=>{
                     // Brott ur TABELLEN (samma sanning som Dag-vyn och listan ovan) — inte
                     // en lokal jämförelse mot hårdkodade 11 h.
-                    const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>!!brottForRad(r)).length};}).filter(x=>x.mv.length>0);
+                    const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>!!brottForRad(r)).length,obes:mv.filter(r=>{const b=brottForRad(r);return !!b&&!b.besvarat_av_forare;}).length};}).filter(x=>x.mv.length>0);
                     return mån.length===0?<p style={{ padding:`${AVSTAND.l}px 0`,margin:0,...TYP.meta,color:FARG.text2 }}>Ingen data</p>:mån.map((x,i)=>{
                       const nm=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'][x.m];
                       const exp=vilaÅrExpand===x.m;
@@ -4392,7 +4496,7 @@ export default function Arbetsrapport() {
                         <div onClick={()=>setVilaÅrExpand(exp?null:x.m)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:!exp&&i<mån.length-1?`1px solid ${FARG.linje}`:"none",cursor:"pointer" }}>
                           <span style={{ ...TYP.listtitel }}>{nm}</span>
                           <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                            <span style={{ fontSize:IKON.text,color:x.brott>0?FARG.rod:FARG.text2,display:"inline-flex",alignItems:"center",gap:AVSTAND.xs }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{x.brott>0?'warning':'check'}</span></span>
+                            <span style={{ fontSize:IKON.text,color:x.obes>0?FARG.rod:FARG.text2,display:"inline-flex",alignItems:"center",gap:AVSTAND.xs }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{x.obes>0?'warning':'check'}</span></span>
                             <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.text2,transform:exp?"rotate(180deg)":"",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>expand_more</span>
                           </div>
                         </div>
@@ -4424,8 +4528,9 @@ export default function Arbetsrapport() {
                     {/* Aktuell veckovila-siffra bor i sammanfattnings-kortet ovanför —
                         den här sektionen redovisar BROTT i vald period */}
                     <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                      {vvHarProblem&&<span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.rod }}>warning</span>}
-                      <span style={{ ...TYP.meta,color:vvHarProblem?FARG.text:FARG.text2 }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:`Inga brott ${periodLabel}`}</span>
+                      {vvObesvarade>0&&<span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.rod }}>warning</span>}
+                      {/* Rött bara för obesvarade; är alla besvarade är raden grå. */}
+                      <span style={{ ...TYP.meta,color:vvObesvarade>0?FARG.text:FARG.text2 }}>{!vvHarProblem?`Inga brott ${periodLabel}`:vvObesvarade>0?`${dbVeck.length} brott mot veckovila`:`${dbVeck.length} ${dbVeck.length===1?'brott':'brott'} mot veckovila · ${dbVeck.length===1?'besvarat':'alla besvarade'}`}</span>
                     </div>
                     {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>}
                   </div>
@@ -4438,28 +4543,25 @@ export default function Arbetsrapport() {
                     </div>
                   ) : dbVeck.map(b => {
                     const dt = new Date(b.datum);
-                    const expanderad = vilaKortExpanded === b.id;
+                    const besvarad = !!b.besvarat_av_forare;
+                    const brottFarg = besvarad ? FARG.text2 : FARG.rod;
+                    const expanderad = !besvarad && vilaKortExpanded === b.id;
                     return (
                       <div key={b.id}
-                        onClick={() => setVilaKortExpanded(expanderad ? null : b.id)}
-                        style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${FARG.linje}`,cursor:"pointer" }}>
+                        onClick={besvarad ? undefined : () => setVilaKortExpanded(expanderad ? null : b.id)}
+                        style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${FARG.linje}`,cursor:besvarad?"default":"pointer" }}>
                         <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.text,textTransform:"capitalize" }}>{fD(dt)}</p>
                         <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{b.beskrivning}</p>
                         <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                          <span className="material-symbols-outlined" style={{ color:FARG.rod,fontSize:IKON.text }}>warning</span>
-                          <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.rod,...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
-                          <span style={{ ...TYP.meta,color:FARG.rod }}>(kräver {Number(b.krav_h)}h)</span>
+                          <span className="material-symbols-outlined" style={{ color:brottFarg,fontSize:IKON.text }}>{besvarad?'check':'warning'}</span>
+                          <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:brottFarg,...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
+                          <span style={{ ...TYP.meta,color:brottFarg }}>(kräver {Number(b.krav_h)}h)</span>
                         </div>
+                        {/* Svaret syns direkt under, utan att kortet behöver fällas ut. */}
+                        {besvarad && <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{besvaratText(b)}</p>}
                         {expanderad && (
                           <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
-                            {b.besvarat_av_forare ? (
-                              <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
-                                Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
-                                {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
-                              </p>
-                            ) : (
-                              <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
-                            )}
+                            <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
                           </div>
                         )}
                       </div>
@@ -5690,6 +5792,22 @@ export default function Arbetsrapport() {
     // föraren bara TITTAT på dagen. Samma mönster som debDefault och de tre
     // km-implementationerna: något beräknat FÖR VISNING togs för något GJORT.
     const harÄndrat = redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig||redKm!==redKmOrig||(redObjektId&&redObjektId!==(redDag.objekt_id||null));
+    // BEKRÄFTA-VILLKOR (en definition): (a) maskinpass avslutat, (b) heldagstyp (sjuk/vab) eller
+    // (c) bara perioder utan pass. En period utan sluttid stoppar: en underskrift utan sluttid är ingen.
+    const rdK: any = redDag; // useState(null) — samma "any" som resten av Redigera
+    const redHarStart = !!rdK?.start_tid;
+    const redHarSlut = !!rdK?.slut_tid;
+    const redErHelDag = !!franvaroDagar[rdK?.datum] && !redHarStart; // frånvarodagar utan pass har redan returnerat ovan
+    const redHarExtra = (extraTidData || []).some((e:any) => e.datum === rdK.datum && e.slut_tid);
+    const redHarOppenPeriod = harOppenPeriodPaDag(extraTidData, rdK?.datum);
+    const redKanBekrafta = !rdK?.bekraftad && !redHarOppenPeriod && (redHarSlut || redErHelDag || (redHarExtra && !redHarStart));
+    // SAMMA lista och Stämmer som i Dag-vyn för idag (fragorFor). Visas först när inget är ändrat men
+    // osparat: ändra → Spara ändring → sedan frågorna → Stämmer.
+    // En redan BEKRÄFTAD dag visar bara en obesvarad brandriskfråga (den rör inte bekräftelsen) —
+    // det är dit "1 okt — brandriskfråga obesvarad" i Dag leder.
+    const redFragor: Fraga[] = redKanBekrafta && !harÄndrat
+      ? fragorFor(rdK.datum)
+      : (rdK.bekraftad && !harÄndrat ? fragorFor(rdK.datum).filter(f => f.nyckel === 'brand') : []);
 
     // Underskriften för DEN HÄR dagen. Körs via bekraftaMedForcheck — samma
     // för-check (vilobrott → orsak) som Dag-vyns Bekräfta. Förr skrev Redigera
@@ -5704,9 +5822,10 @@ export default function Arbetsrapport() {
         { onConflict: 'medarbetare_id,datum' });
       if (!res.ok) { setRedFel(res.fel); return false; }
       setRedFel(null);
-      setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
-      setDagData(dd => ({ ...dd, [redDag.datum]: { ...(dd[redDag.datum]||{}), bekraftad: true, bekraftad_tid: nuIso, status: 'ok' } }));
+      // Både dagData och årsData/historik (patchaDag): väntar-raderna ska räknas om direkt.
+      patchaDag(redDag.datum, { bekraftad: true, bekraftad_tid: nuIso, status: 'ok' });
       if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
+      if (vantarKo) gaVidare(redDag.datum);
       return true;
     };
     // Km ändras på ETT ställe: morgon/kväll-sheeten. (Den gamla "Ändra körning"-
@@ -5785,6 +5904,10 @@ export default function Arbetsrapport() {
               <h1 style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.titel }}>
                 {(franvaroDagar[redDag?.datum] && !redDag?.start_tid) ? `${FRANVARO_TYP_RUBRIK[franvaroDagar[redDag.datum]]} — ${redDatumDisplay}` : redDatumDisplay}
               </h1>
+              {/* Kom man in via väntar-raden: säg hur många dagar som återstår (inklusive den här). */}
+              {vantarKo && vantandeDagar().length > 1 && (
+                <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.orange }}>{vantandeDagar().length} dagar kvar</p>
+              )}
               {/* Arbetad röd dag: säg det, och om den byts mot en ledig dag (§5 mom 4).
                   Ingen helglön i båda fallen — timmarna bortföll inte. */}
               {(() => {
@@ -6267,6 +6390,8 @@ export default function Arbetsrapport() {
               />
             </div>
           )}
+          {/* SAKER ATT SVARA PÅ — samma lista som Dag-vyn visar för idag. */}
+          {redFragor.length > 0 && <div style={{ paddingBottom:AVSTAND.m }}>{fragorLista(redFragor)}</div>}
         </div>
         <div style={bottom}>
           {(()=>{
@@ -6280,14 +6405,11 @@ export default function Arbetsrapport() {
             //  (c) bara extra_tid utan maskinpass — inget att vänta på
             // Om passet pågår (start utan slut) visar vi istället en grå
             // väntetext.
-            const harStart = !!redDag?.start_tid;
-            const harSlut = !!redDag?.slut_tid;
-            const erHelDag = !!franvaroDagar[redDag?.datum] && !harStart; // frånvarodagar utan pass har redan returnerat ovan
-            const harExtra = (extraTidData || []).some((e:any) => e.datum === redDag.datum && e.slut_tid);
+            const harStart = redHarStart, harSlut = redHarSlut, erHelDag = redErHelDag, harExtra = redHarExtra;
             // En period utan sluttid (Planera: "Starta nu — avsluta sen", eller glömd) — en
             // underskrift utan sluttid är ingen underskrift. Avsluta eller ta bort den först.
-            const harOppenPeriod = harOppenPeriodPaDag(extraTidData, (redDag as any)?.datum);
-            const kanBekrafta = !bekraftadRedan && !harOppenPeriod && (harSlut || erHelDag || (harExtra && !harStart));
+            const harOppenPeriod = redHarOppenPeriod;
+            const kanBekrafta = redKanBekrafta;
             const passPågår = harStart && !harSlut && !erHelDag;
             // "Lägg till manuellt" (klockslag på raden) visas ALDRIG när perioder
             // finns — en perioddag går direkt till Bekräfta (kanBekrafta nedan).
@@ -6389,10 +6511,21 @@ export default function Arbetsrapport() {
                     Sparat — tryck Bekräfta för att skriva under
                   </div>
                 )}
-                {/* SAMMA väg som Dag-vyns Bekräfta: för-check → ev. orsak → underskrift. */}
-                <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, passMin: passMinuter(redStart, redSlut, redRast), andra: () => setRedVy("tid") })}>
-                  Bekräfta dagen
+                {/* SAMMA Stämmer som Dag-vyn: grå (men inte död) tills allt är besvarat; ett tryck öppnar
+                    första obesvarade. Aldrig automatiskt efter sista svaret. Sedan samma väg som Dag:
+                    för-check (nya vilobrott) → underskrift. Rast-/passfrågorna är redan besvarade i listan. */}
+                <button
+                  style={{ ...KNAPP.primar, ...(stammerGra(redFragor) ? { opacity: INAKTIV.opacity } : {}) }}
+                  onClick={()=>{
+                    const forsta = redFragor.find(f => f.svar == null);
+                    if (forsta) { forsta.oppna(); return; }
+                    return bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, passMin: passMinuter(redStart, redSlut, redRast), andra: () => setRedVy("tid"), godkand: true });
+                  }}>
+                  Stämmer
                 </button>
+                {stammerGra(redFragor) && (
+                  <p style={{ margin:0, textAlign:"center", ...TYP.meta, color:FARG.text2 }}>Svara på frågorna först</p>
+                )}
                 {tillbakaKnapp}
               </>);
             }
@@ -6414,6 +6547,15 @@ export default function Arbetsrapport() {
               return (<>
                 {felRad}
                 {bekraftadRad(bekraftadTidFmt)}
+                {vantarKo && (()=>{
+                  const oppen = redFragor.some(f => f.svar == null);
+                  const kvar = vantandeDagar().filter(d => d.datum !== rdK.datum).length;
+                  return (
+                    <button onClick={()=>gaVidare(rdK.datum)} style={oppen ? KNAPP.sekundar : KNAPP.primar}>
+                      {oppen ? 'Hoppa över' : (kvar > 0 ? 'Nästa' : 'Klar')}
+                    </button>
+                  );
+                })()}
                 {tomSkalrad && (
                   <div style={{ display:"flex", justifyContent:"center" }}>
                     <button onClick={async ()=>{ const t = await taBortTomSkalrad((redDag as any).datum, (redDag as any).id); if (!t.ok) setRedFel(t.fel); else setSteg("kalender"); }} style={KNAPP.destruktiv}>
@@ -6437,6 +6579,8 @@ export default function Arbetsrapport() {
         {rastFragaUI}
         {byteFragaUI}
         {deldagSheetUI}
+        {renderSvarSheet()}
+        {renderObjektSvarSheet()}
 
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(
