@@ -1085,6 +1085,8 @@ export default function PlannerPage() {
       .delete()
       .eq('objekt_id', valtObjekt.id)
       .eq('marker_id', String(markerId));
+    // Fotofilen i Storage RÖRS INTE här: Ångra måste kunna ge tillbaka markeringen med sitt foto.
+    // Föräldralösa filer städas av nattcronet /api/cron/stada-markering-foton (äldre än 7 dagar).
     if (error) console.error('Ta bort markering fel:', error);
   }, [valtObjekt?.id]);
 

@@ -41,6 +41,10 @@
     {
       "path": "/api/grot/paminnelse",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/stada-markering-foton?torrkorning=1",
+      "schedule": "30 4 * * *"
     }
   ]
 }
