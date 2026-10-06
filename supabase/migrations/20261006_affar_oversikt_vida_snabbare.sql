@@ -1,44 +1,29 @@
--- affar_oversikt(p_ar, p_manad): affärsuppföljningens Översikt i ETT anrop — ett år eller en månad, bara Vida.
--- OBS (samma dag, efter mätning som authenticated): den här första versionen tog 6,1 s för ett helt år. Slutversionen — samma utdata,
--- samma regler — finns i 20261006_affar_oversikt_vida_snabbare_plan.sql (2,7 s kall / 1,6 s varm). Filen behålls för historiken; reglerna i
--- normalisering_karta (INSERT nedan) är de som gäller.
+-- affar_oversikt: snabbare — samma resultat, kraftigt kortare körtid som `authenticated` (RLS gäller).
+-- OBS (samma dag, efter mätning): den här omskrivningen räckte INTE som LANGUAGE sql-funktion. Med okända parametrar gissar planeraren fel
+-- på tidsfiltret (generisk plan) och funktionen gav 57014 (8,6 s) som authenticated; den hjälpte bara när datumen var konstanter.
+-- Ersatt av 20261006_affar_oversikt_vida_snabbare_plan.sql (plpgsql med literala datum). Behålls för historiken.
+--
+-- OBS (samma dag, efter mätning): den här omskrivningen räckte INTE som LANGUAGE sql-funktion. Med okända parametrar gissar planeraren fel
+-- på tidsfiltret (generisk plan) och funktionen gav 57014 (8,6 s) som authenticated; den hjälpte bara när datumen var konstanter.
+-- Ersatt av 20261006_affar_oversikt_vida_snabbare_plan.sql (plpgsql med literala datum). Behålls för historiken.
+--
+-- OBS (samma dag, efter mätning): den här omskrivningen räckte INTE som LANGUAGE sql-funktion. Med okända parametrar gissar planeraren fel
+-- på tidsfiltret (generisk plan) och funktionen gav 57014 (8,6 s) som authenticated; den hjälpte bara när datumen var konstanter.
+-- Ersatt av 20261006_affar_oversikt_vida_snabbare_plan.sql (plpgsql med literala datum). Behålls för historiken.
 --
 --
--- Bakgrund: affärsuppföljningen läggs om till tre flikar (Översikt / Räkna / Kvalitet). Översikten och månadsskärmen har samma
--- uppbyggnad: ett stort tal (m³fub levererat till Vida), månadsstaplar (bara för ett år), barrets sortiment och löv som en rad.
--- sortimentsutfall_manad() räcker inte: den delar inte Timmer på gran och tall, har ingen energi/barr/löv-uppdelning och tar bolag
--- som parameter. utfall_manad saknar samma uppdelning. Den här funktionen räknar direkt ur stockarna (vy_skordarmatt_stock).
+-- Mätt 2026-10-06 som roll authenticated med statement_timeout = 8 s (PostgREST-gränsen): ett helt år (421 000 stockrader) tog 6,1 s
+-- med den första versionen (20261006_affar_oversikt_vida.sql). Orsaken var inte RLS utan planen: vyn vy_sortiment_klass inlinades, så
+-- normalisera() kördes för varje stockrad (~420 000 gånger) i stället för en gång per sortiment (~285), och 417 621 rader med
+-- textnycklar sorterades via disk.
 --
--- Regler (Martin 2026-10-06):
---   * Bara objekt med dim_objekt.bolag = 'Vida' (hårdkodat, som massaved_niva1). Alla huvudtyper ingår — även grot och objekt utan
---     åtgärd. Bolags- och åtgärdsväljarna tas bort ur appen.
---   * Hemved ingår aldrig (den går till markägaren, inte Vida) — samma regel som sortimentsutfall_manad.
---   * Barr = trädslagen GRAN och TALL, löv = allt annat. Barrets rader: Grantimmer (Timmer av gran), Talltimmer (Timmer av tall),
---     Kubb, Massaved och Energi och övrigt. Löv: Timmer, Kubb, Massaved, Energi och övrigt — samma sortimentsrader, ingen gran/tall.
---   * "Energi och övrigt" tar ALLT som inte är Timmer/Kubb/Massa: energi, toppar och rens, stammar utan sortiment ('Utan sortiment').
---     Raden ska inte påstå att det är energi, och delarna summerar alltid till totalen.
---   * Industri läses ur vy_sortiment_klass.destination (dim_sortiment.destination_namn först, sortimentsnamnet som reserv, via
---     normalisering_karta). Bara Grantimmer, Talltimmer och Kubb får industrinivå — Massaved har ingen industri i sortimentet.
---     Stödlängd är ingen industri (ar_industri = false, visas dämpat sist); okänd industri syns som 'Industri ej angiven'.
---   * Månadsgränser som i övriga uppföljningsfunktioner: tidpunkt jämförs mot datum i sessionens tidszon.
+-- Ändringen:
+--   1. klass AS MATERIALIZED — klassningen (grupp, industri) räknas EN gång per sortiment.
+--   2. bas — stockarna summeras först på heltalsnycklar (månad, objekt, sortiment, trädslag): ~1 100 rader i stället för 420 000.
+--   3. Tidsgränserna är scalar-subqueries, så filtret ligger på själva skanningen av detalj_stam.
+-- Utdata, regler och rättigheter är oförändrade — verifierat med jsonb-likhet mot den första versionen innan den ersattes.
 --
--- Utdata (jsonb): bolag, ar, manad (null för ett helt år), total_volym, antal_objekt,
---   barr {volym, andel, rader[{nyckel, namn, volym, andel, sagbart, industrier[{namn, volym, andel, ar_industri}]}]},
---   lov {volym, andel, rader[{nyckel, namn, volym, andel}]}, manader[{manad, volym}] (12 st, bara för ett helt år), objekt[...].
---   andel på sortimentsrader = % av total_volym; andel på industrier = % av sortimentet. Volymer avrundade till 1 decimal.
---
--- Regler i normalisering_karta (domän 'destination'): tranemo -> Tranemo (50) och stödlängd/stodlangd -> Stödlängd (90/91).
--- Lägre prioritet vinner (normalisera() tar den lägsta), så ett industriord i namnet slår alltid Stödlängd. 'Vida Vislanda' och
--- 'Vislanda' blir redan EN rad (regeln 'vislanda' träffar båda) — inget att göra där.
---
--- Idempotent. Kör filen med LF-radslut. Funktionen är STABLE och bara läsande (SECURITY INVOKER, som övriga uppföljnings-RPC:er).
-
-INSERT INTO normalisering_karta (doman, monster, varde, prioritet)
-SELECT n.doman, n.monster, n.varde, n.prioritet
-FROM (VALUES ('destination', 'tranemo',   'Tranemo',   50),
-             ('destination', 'stödlängd', 'Stödlängd', 90),
-             ('destination', 'stodlangd', 'Stödlängd', 91)) AS n(doman, monster, varde, prioritet)
-WHERE NOT EXISTS (SELECT 1 FROM normalisering_karta k WHERE k.doman = n.doman AND k.monster = n.monster);
+-- Idempotent (CREATE OR REPLACE). Kör filen med LF-radslut.
 
 CREATE OR REPLACE FUNCTION public.affar_oversikt(p_ar integer DEFAULT NULL, p_manad date DEFAULT NULL)
 RETURNS jsonb
@@ -53,23 +38,32 @@ WITH omfang AS (
               THEN make_date(COALESCE(p_ar, EXTRACT(YEAR FROM now())::int) + 1, 1, 1)
               ELSE (date_trunc('month', p_manad) + interval '1 month')::date END AS till
 ),
+-- Klassningen (grupp, industri) görs EN gång per sortiment (~285 rader) — inte per stockrad. Utan MATERIALIZED inlinas vyn
+-- vy_sortiment_klass och normalisera() körs för varje stock (~420 000 gånger per år), vilket mer än fördubblade körtiden för ett helt år.
+klass AS MATERIALIZED (SELECT sortiment_id, grupp, destination FROM vy_sortiment_klass),
+-- Stockarna summeras först på heltalsnycklar (månad, objekt, sortiment, trädslag): ~1 100 rader i stället för 420 000 att sortera.
+-- Gränserna är scalar-subqueries så att tidsfiltret ligger på själva skanningen av detalj_stam.
+bas AS (
+  SELECT date_trunc('month', v.tidpunkt)::date AS manad, v.objekt_id, v.sortiment_id, v.tradslag_id, SUM(v.volym_m3sub) AS volym
+  FROM vy_skordarmatt_stock v
+  JOIN dim_objekt o ON o.objekt_id = v.objekt_id AND o.bolag = 'Vida'
+  WHERE v.tidpunkt >= (SELECT fran FROM omfang) AND v.tidpunkt < (SELECT till FROM omfang)
+  GROUP BY 1, 2, 3, 4
+),
 -- Allt som räknas, ett steg: per månad, objekt, trädslagsklass, sortimentgrupp och industri. Resten är summor av den här.
 -- Bara Vida, alla huvudtyper (grot och objekt utan åtgärd ingår), Hemved borträknad — den går till markägaren, inte Vida.
 -- Barr = gran + tall, löv = allt annat. Allt som inte är Timmer/Kubb/Massa hamnar i Energi och övrigt (energi, toppar och rens,
 -- stammar utan sortiment), så delarna alltid summerar till totalen.
 rader AS (
-  SELECT date_trunc('month', v.tidpunkt)::date AS manad, v.objekt_id,
+  SELECT b.manad, b.objekt_id,
          CASE t.namn WHEN 'GRAN' THEN 'gran' WHEN 'TALL' THEN 'tall' ELSE 'lov' END AS slag,
          CASE WHEN k.grupp IN ('Timmer','Kubb','Massa') THEN k.grupp ELSE 'Energi' END AS grupp,
          k.destination AS industri,
-         SUM(v.volym_m3sub) AS volym
-  FROM vy_skordarmatt_stock v
-  JOIN dim_objekt o ON o.objekt_id = v.objekt_id AND o.bolag = 'Vida'
-  CROSS JOIN omfang om
-  LEFT JOIN vy_sortiment_klass k ON k.sortiment_id = v.sortiment_id
-  LEFT JOIN dim_tradslag t ON t.tradslag_id = v.tradslag_id
-  WHERE v.tidpunkt >= om.fran AND v.tidpunkt < om.till
-    AND COALESCE(k.grupp, '') <> 'Hemved'
+         SUM(b.volym) AS volym
+  FROM bas b
+  LEFT JOIN klass k ON k.sortiment_id = b.sortiment_id
+  LEFT JOIN dim_tradslag t ON t.tradslag_id = b.tradslag_id
+  WHERE COALESCE(k.grupp, '') <> 'Hemved'
   GROUP BY 1, 2, 3, 4, 5
 ),
 total AS (SELECT COALESCE(SUM(volym), 0) AS volym FROM rader),
@@ -147,8 +141,7 @@ SELECT jsonb_build_object(
 $function$;
 
 COMMENT ON FUNCTION public.affar_oversikt(integer, date) IS
-  'Affärsuppföljningens Översikt för Vida: ett år (p_ar) eller en månad (p_manad). Barr (grantimmer, talltimmer, kubb, massaved, energi och övrigt) och löv, industri för de sågbara, månadsvolymer. Hemved borträknad. Se supabase/migrations/20261006_affar_oversikt_vida.sql.';
+  'Affärsuppföljningens Översikt för Vida: ett år (p_ar) eller en månad (p_manad). Barr (grantimmer, talltimmer, kubb, massaved, energi och övrigt) och löv, industri för de sågbara, månadsvolymer. Hemved borträknad. Se supabase/migrations/20261006_affar_oversikt_vida.sql och 20261006_affar_oversikt_vida_snabbare.sql.';
 
--- Läsbar för inloggade, ingenting annat (samma princip som tabellerna: REVOKE, sedan GRANT).
 REVOKE ALL ON FUNCTION public.affar_oversikt(integer, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.affar_oversikt(integer, date) TO authenticated, service_role;
